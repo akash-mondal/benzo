@@ -9,7 +9,9 @@
   },
   "dependencies": {
     "@benzo/sdk": "workspace:*",
-    "@benzo/indexer": "workspace:*"
+    "@benzo/indexer": "workspace:*",
+    "@benzo/anchor": "workspace:*",
+    "@stellar/stellar-sdk": "^13.0.0"
   },
   "devDependencies": {
     "vitest": "^2.0.0"
