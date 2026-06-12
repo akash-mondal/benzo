@@ -1,0 +1,36 @@
+# --- secrets (never commit) ---
+.env
+.env.*
+!.env.example
+
+# --- rust / soroban ---
+target/
+**/*.rs.bk
+*.wasm
+
+# --- node / ts ---
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# --- zk artifacts (large / generated; regenerate or download) ---
+*.zkey
+*.ptau
+*.wtns
+*.r1cs
+circuits/**/build/
+proofs/
+
+# --- stellar / local state ---
+.stellar/
+.soroban/
+
+# --- os / editor ---
+.DS_Store
+*.log
+.idea/
+.vscode/
+
+# vendored reference material (skills + starter code; present locally, not committed)
+reference/
