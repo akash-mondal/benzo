@@ -8,7 +8,8 @@
     "m1": "node e2e/m1-flow.mjs"
   },
   "dependencies": {
-    "@benzo/sdk": "workspace:*"
+    "@benzo/sdk": "workspace:*",
+    "@benzo/indexer": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^2.0.0"
