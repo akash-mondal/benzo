@@ -133,6 +133,26 @@ export function accountFromSignedMessage(signature: Uint8Array, label = "wallet"
   return createAccount({ label, spendSk, mvkSecret, viewSecret });
 }
 
+/** A wallet's message-signing function (Dynamic/Privy/Para/passkey all expose one). */
+export type SignMessage = (message: string) => Promise<Uint8Array> | Uint8Array;
+
+/**
+ * The headless login seam: turn ANY wallet's signer into a Benzo shielded
+ * account. The user signs NOTE_KEY_MESSAGE once and `accountFromSignedMessage`
+ * deterministically derives the spend/MVK/view keys — same account on every
+ * device, no second seed phrase.
+ *
+ * This is the integration point for embedded-wallet logins. Dynamic is the
+ * recommended Tier-1 Stellar provider (Privy/Para/passkeys also work): the
+ * frontend obtains the wallet, gets its `signMessage`, and calls this. Nothing
+ * here is frontend-specific — the signer is injected — so the seam is built and
+ * testable now and the UI simply supplies the signer later.
+ */
+export async function loginWithSigner(signMessage: SignMessage, label = "wallet"): Promise<BenzoAccount> {
+  const sig = await signMessage(NOTE_KEY_MESSAGE);
+  return accountFromSignedMessage(sig instanceof Uint8Array ? sig : new Uint8Array(sig), label);
+}
+
 /** Load the account at `path`, or create+save a fresh one if absent. */
 export function createOrLoadAccountFile(
   path: string,
