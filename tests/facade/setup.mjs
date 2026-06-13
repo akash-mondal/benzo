@@ -57,6 +57,7 @@ export function makeFacade({ withAnchor = false, withRelayer = false } = {}) {
       ? { source: "benzo-relayer", address: process.env.RELAYER_PUBLIC }
       : undefined,
     anchor: withAnchor ? new AnchorClient(anchorConfigFromEnv()) : undefined,
+    handleRegistry: dep.handleRegistry,
   });
   return { dep, cli, client };
 }
