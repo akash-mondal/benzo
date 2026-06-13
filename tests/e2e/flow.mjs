@@ -129,7 +129,25 @@ export async function runPrivatePaymentFlow({
   const beforePool = await poolUsdcBalance(cli, dep);
   say(`\n[balances before] sender=${beforeSender} exit=${beforeExit} pool=${beforePool}`);
 
+  // --- 0b. Rebuild local mirrors from on-chain events ----------------------
+  // Both the pool tree and the ASP allow-tree accrue leaves across runs, so
+  // reconstruct them from chain events; paths then fold to the live roots.
+  const { fetchAspLeaves, BenzoIndexer: Indexer, syncFromRpc: sync } =
+    await import("@benzo/indexer");
+  const priorLeaves = await fetchAspLeaves(
+    process.env.SOROBAN_RPC_URL,
+    dep.aspMembership,
+    1,
+  );
+  client.aspRebuild(priorLeaves);
+
+  const poolIdx = new Indexer(dep.treeLevels, 1);
+  await sync(poolIdx, process.env.SOROBAN_RPC_URL, [dep.pool], 1);
+  client.poolRebuild(poolIdx.orderedLeaves());
+  await client.assertSynced();
+
   // --- 1. ASP allowlist (curator op at the regulated edge) ------------------
+
   const aspBlinding = randomFieldElement();
   const depositorScalar = await client.depositorScalar(sender);
   const allowLeaf = aspLeaf(depositorScalar, aspBlinding);
@@ -177,18 +195,21 @@ export async function runPrivatePaymentFlow({
   const tr = await client.transfer({
     source: relayerSource ?? "benzo-deployer",
     inputs: [senderInput, dummy],
+    // Both transfer outputs are bound to the SENDER's MVK: the sender is the
+    // KYC'd disclosing entity for this corridor, so a scoped TVK over the
+    // sender's MVK reconstructs the whole transfer for an auditor.
     outputs: [
-      { note: outRecipientNote, mvkPubScalar: recipientMvkScalar },
+      { note: outRecipientNote, mvkPubScalar: senderMvkScalar },
       { note: outChangeNote, mvkPubScalar: senderMvkScalar },
     ],
     fee,
     relayer: process.env.RELAYER_PUBLIC,
     noteCts: [
-      seal(outRecipientPlain, recipientView.publicKey).bytes,
+      seal(outRecipientPlain, recipientView.publicKey).bytes, // recipient discovers + spends
       seal(outChangePlain, senderMvk.publicKey).bytes,
     ],
     mvkCts: [
-      seal(outRecipientPlain, senderTvk.publicKey).bytes, // sender's MVK scope covers the send
+      seal(outRecipientPlain, senderTvk.publicKey).bytes, // auditor (scoped TVK) reconstructs
       seal(outChangePlain, senderTvk.publicKey).bytes,
     ],
   });
@@ -268,5 +289,6 @@ export async function runPrivatePaymentFlow({
     state: { spent0, spentW, rootNow, nextIndex },
     notes: { outRecipientNote, outChangeNote, exitChangeNote, shieldNote },
     plains: { outRecipientPlain },
+    startLedger: r1.ledger,
   };
 }

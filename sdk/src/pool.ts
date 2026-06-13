@@ -110,6 +110,18 @@ export class BenzoClient {
     return this.aspTree.insert(leaf);
   }
 
+  /** Reset and rebuild the ASP allow-tree mirror from an ordered leaf list. */
+  aspRebuild(leaves: bigint[]): void {
+    this.aspTree.leaves = [];
+    for (const l of leaves) this.aspTree.insert(l);
+  }
+
+  /** Reset and rebuild the pool tree mirror from an ordered commitment list. */
+  poolRebuild(leaves: bigint[]): void {
+    this.poolTree.leaves = [];
+    for (const l of leaves) this.poolTree.insert(l);
+  }
+
   // ------------------------------------------------------------ shield ----
 
   async shield(opts: {
