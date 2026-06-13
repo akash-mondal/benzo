@@ -161,6 +161,9 @@ importers:
 
   packages/anchor:
     dependencies:
+      '@benzo/kyc':
+        specifier: workspace:*
+        version: link:../kyc
       '@stellar/stellar-sdk':
         specifier: ^13.0.0
         version: 13.3.0

@@ -31,6 +31,7 @@ import {
   Operation,
   TransactionBuilder,
 } from "@stellar/stellar-sdk";
+import { kycFromEnv, type KycProvider } from "@benzo/kyc";
 import { buildChallenge, verifyChallenge } from "./sep10.js";
 
 const PORT = Number(process.env.ANCHOR_PORT ?? 8888);
@@ -47,6 +48,12 @@ const signingKp = Keypair.fromSecret(SIGNING_SECRET);
 const distKp = Keypair.fromSecret(DIST_SECRET);
 const usdc = new Asset(USDC_CODE, USDC_ISSUER);
 const horizon = new Horizon.Server(HORIZON_URL);
+
+// SEP-12 KYC at the regulated fiat edge. kycFromEnv() returns Didit when
+// DIDIT_API_KEY is set, else a key-free Mock that auto-approves (so the
+// testnet corridor runs without a live KYC account). PII lives only here, at
+// the off-chain edge — never in the shielded notes (BENZO.md §8.2).
+const kyc: KycProvider = kycFromEnv();
 
 // ---- tiny JWT (HS256) -----------------------------------------------------
 function b64url(buf: Buffer | string): string {
@@ -91,6 +98,9 @@ interface Sep24Tx {
   started_at: string;
   completed_at?: string;
   message?: string;
+  /** SEP-12 KYC session opened for this deposit's account. */
+  kyc_session_id?: string;
+  kyc_url?: string;
 }
 
 const txs = new Map<string, Sep24Tx>();
@@ -215,6 +225,8 @@ const server = createServer(async (req, res) => {
       if (path === "/sep24/transactions/deposit/interactive" && req.method === "POST") {
         const body = await readBody(req);
         const id = randomUUID();
+        // Open a SEP-12 KYC session for this account before any fiat onramp.
+        const session = await kyc.start(String(body.account ?? account));
         txs.set(id, {
           id,
           kind: "deposit",
@@ -223,11 +235,16 @@ const server = createServer(async (req, res) => {
           account: String(body.account ?? account),
           amount_in: body.amount ? String(body.amount) : undefined,
           started_at: new Date().toISOString(),
+          kyc_session_id: session.id,
+          kyc_url: session.url,
         });
         return json(res, 200, {
           type: "interactive_customer_info_needed",
           id,
-          url: `http://${HOME_DOMAIN}/sep24/sim/${id}`,
+          // SEP-24 interactive URL: the KYC flow (Didit-hosted) when a real
+          // provider is configured, else the local fiat simulator.
+          url: kyc.name === "mock" ? `http://${HOME_DOMAIN}/sep24/sim/${id}` : session.url,
+          kyc_session_id: session.id,
         });
       }
 
@@ -271,6 +288,17 @@ const server = createServer(async (req, res) => {
         const body = await readBody(req);
 
         if (tx.kind === "deposit") {
+          // KYC gate: the regulated fiat edge must not release USDC until the
+          // customer is verified. Mock auto-approves; Didit reflects the real
+          // decision. Fail-closed on anything that isn't an explicit approval.
+          if (tx.kyc_session_id) {
+            const decision = await kyc.status(tx.kyc_session_id);
+            if (decision !== "approved") {
+              tx.status = "pending_anchor";
+              tx.message = `KYC ${decision}; complete verification before deposit settles`;
+              return json(res, 403, { error: "kyc_required", kyc_status: decision, kyc_url: tx.kyc_url, transaction: tx });
+            }
+          }
           const amount = String(body.amount ?? tx.amount_in ?? "1");
           tx.status = "pending_anchor";
           tx.message = "SIMULATED fiat received; settling USDC on-chain";
