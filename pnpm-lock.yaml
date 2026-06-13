@@ -16,6 +16,9 @@ importers:
       '@benzo/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@benzo/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@benzo/links':
         specifier: workspace:*
         version: link:../../packages/links

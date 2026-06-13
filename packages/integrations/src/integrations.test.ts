@@ -43,9 +43,19 @@ describe("screening", () => {
 });
 
 describe("onramp", () => {
-  it("Stripe creates a Stellar+USDC session and surfaces a url", async () => {
-    const o = new StripeOnramp("sk", "https://x", stub({ id: "cos_1", redirect_url: "https://pay/cos_1" }));
-    expect(await o.createSession({ address: "GDEST", amount: "20" })).toEqual({ id: "cos_1", url: "https://pay/cos_1" });
+  it("Stripe nests params under transaction_details, locks Stellar+USDC, surfaces a url", async () => {
+    let body = "";
+    const capture: any = async (_url: string, init: any) => {
+      body = init.body;
+      return { ok: true, status: 200, json: async () => ({ id: "cos_1", redirect_url: "https://pay/cos_1" }) };
+    };
+    const o = new StripeOnramp("sk", "https://x", capture);
+    const s = await o.createSession({ address: "GDEST", amount: "20" });
+    expect(s).toMatchObject({ id: "cos_1", url: "https://pay/cos_1" });
+    // the param shape Stripe actually requires (the bug this test guards):
+    expect(body).toContain("transaction_details%5Bwallet_addresses%5D%5Bstellar%5D=GDEST");
+    expect(body).toContain("transaction_details%5Bdestination_network%5D=stellar");
+    expect(body).toContain("transaction_details%5Bdestination_currency%5D=usdc");
   });
   it("Stripe falls back to a client_secret link when no redirect_url", async () => {
     const o = new StripeOnramp("sk", "https://x", stub({ id: "cos_2", client_secret: "cs_2" }));

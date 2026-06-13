@@ -1,6 +1,12 @@
 /**
  * Wallet/transaction screening for the Benzo corridor's compliant edges.
  *
+ * STATUS: FUTURE — NOT ACTIVE for the hackathon. The hackathon corridor uses
+ * MockScreening (screeningFromEnv returns Mock when no key is set), so NO real
+ * sanctions/risk service is ever contacted. Range and Human ID are real
+ * integration points kept here to show the compliance design and require the
+ * provider's own account to activate. Nothing here runs against real identities.
+ *
  * Screening is the ALLOW side of Benzo's two-sided compliance (the DENY side is
  * the on-chain ASP non-membership proof enforced at unshield). It runs at the
  * regulated fiat boundary — never against shielded note contents — and answers

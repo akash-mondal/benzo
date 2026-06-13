@@ -1,11 +1,16 @@
 /**
  * @benzo/kyc — pluggable KYC provider for the anchor's on-ramp edge (SEP-12).
  *
- * KYC legally must see PII at the regulated fiat edge — this is custodial,
- * off-chain, and NOT zero-knowledge (Benzo's ZK is in the shielded notes, not
- * the KYC). The default provider is Didit (500 free verifications/month). Swap
- * in others behind the same `KycProvider` interface. `kycFromEnv()` returns a
- * Mock provider when no API key is set, so the testnet corridor runs key-free.
+ * STATUS for the hackathon: MOCK ONLY. `kycFromEnv()` returns MockKyc when no
+ * key is set (the default), so NO real identity verification happens and NO PII
+ * is collected — the testnet corridor runs entirely on the Mock. There is no
+ * real KYC in this project.
+ *
+ * DiditKyc is an OPTIONAL, FUTURE sandbox integration kept behind the same
+ * interface to show where regulated KYC would plug in. It only activates if you
+ * deliberately set DIDIT_API_KEY. KYC, when real, must see PII at the regulated
+ * fiat edge — it is custodial, off-chain, and NOT zero-knowledge (Benzo's ZK is
+ * in the shielded notes, never the KYC).
  */
 
 export type KycStatus = "not_started" | "pending" | "approved" | "declined";

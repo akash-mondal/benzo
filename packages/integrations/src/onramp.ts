@@ -1,17 +1,26 @@
 /**
- * Fiat → USDC on-ramp for the corridor's deposit edge.
+ * Fiat → USDC on-ramp for the corridor's deposit edge (SANDBOX for the hackathon).
  *
- * This is the symmetric counterpart to the self-hosted SEP-24 anchor: where the
- * anchor simulates the fiat leg for the testnet corridor, a real on-ramp
- * (Stripe Crypto) delivers Circle USDC directly to a Stellar address from a
- * card/bank payment. The on-ramp is a hosted, KYC-bearing widget — Benzo never
- * touches card data. Once USDC lands on the public address, the user shields it.
+ * Stripe's Crypto Onramp supports USDC on Stellar (verified against Stripe's
+ * docs: destination network `stellar`, currency `usdc`). It is a hosted,
+ * KYC-bearing widget where Stripe is the merchant of record — Benzo never
+ * touches card data or PII. We use it in TEST MODE only (test API key, test
+ * cards, livemode:false): it demonstrates the card → "buy USDC to your Stellar
+ * address" UX. It does NOT settle real testnet USDC — the spendable testnet
+ * USDC the user then shields comes from the self-hosted anchor / friendbot.
+ *
+ * ACCESS: even sandbox/testing requires submitting a Stripe onramp application
+ * and being approved (public preview, ~48h). Geography: US/UK/EU; fiat usd/eur.
+ * Until approved, onrampFromEnv() stays on MockOnramp and the corridor is
+ * unaffected.
  */
 
 export interface OnrampSession {
   id: string;
   /** hosted widget / redirect URL the user completes payment in */
   url: string;
+  /** client secret for the embedded flow (Stripe crypto JS SDK) */
+  clientSecret?: string;
 }
 
 export interface OnrampQuoteRequest {
@@ -31,8 +40,9 @@ export interface OnrampProvider {
 type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json: () => Promise<any> }>;
 
 /**
- * Stripe Crypto on-ramp (https://stripe.com/crypto). Env: STRIPE_SECRET_KEY.
- * Creates an onramp session locked to Stellar + USDC and the user's address.
+ * Stripe Crypto on-ramp (https://stripe.com/crypto), TEST MODE. Env:
+ * STRIPE_SECRET_KEY (use a test key, sk_test_…). Creates a session locked to
+ * Stellar + USDC with the user's address pre-filled.
  */
 export class StripeOnramp implements OnrampProvider {
   readonly name = "stripe";
@@ -43,15 +53,17 @@ export class StripeOnramp implements OnrampProvider {
   ) {}
 
   async createSession(req: OnrampQuoteRequest): Promise<OnrampSession> {
-    // Stripe expects application/x-www-form-urlencoded with bracketed arrays.
+    // Stripe nests every session parameter under transaction_details[...] and
+    // expects application/x-www-form-urlencoded with bracketed arrays. We lock
+    // the network + currency to Stellar USDC and pre-fill the wallet address.
     const form = new URLSearchParams();
-    form.set("wallet_addresses[stellar]", req.address);
-    form.append("destination_networks[]", "stellar");
-    form.append("destination_currencies[]", "usdc");
-    form.set("destination_currency", "usdc");
-    form.set("destination_network", "stellar");
-    if (req.amount) form.set("source_amount", req.amount);
-    if (req.currency) form.set("source_currency", req.currency.toLowerCase());
+    form.set("transaction_details[wallet_addresses][stellar]", req.address);
+    form.append("transaction_details[destination_networks][]", "stellar");
+    form.append("transaction_details[destination_currencies][]", "usdc");
+    form.set("transaction_details[destination_network]", "stellar");
+    form.set("transaction_details[destination_currency]", "usdc");
+    if (req.amount) form.set("transaction_details[source_amount]", req.amount);
+    form.set("transaction_details[source_currency]", (req.currency ?? "usd").toLowerCase());
 
     const r = await this.fetchImpl(`${this.baseUrl}/v1/crypto/onramp_sessions`, {
       method: "POST",
@@ -63,9 +75,12 @@ export class StripeOnramp implements OnrampProvider {
     });
     if (!r.ok) throw new Error(`stripe onramp failed: ${r.status}`);
     const j = await r.json();
+    // Hosted flow returns redirect_url; embedded flow uses client_secret with
+    // Stripe's crypto JS SDK (loaded from crypto.stripe.com).
     return {
       id: j.id,
-      url: j.redirect_url ?? `https://crypto.link.com/?session=${j.client_secret}`,
+      url: j.redirect_url ?? `https://crypto.link.com?session_hash=${j.client_secret}`,
+      clientSecret: j.client_secret,
     };
   }
 }
