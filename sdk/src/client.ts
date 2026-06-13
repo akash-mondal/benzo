@@ -153,6 +153,16 @@ export interface BenzoClientOptions {
   relayer?: { source: string; address: string };
   /** optional anchor for cashIn/cashOut */
   anchor?: AnchorPort;
+  /** optional on-chain @handle registry */
+  handleRegistry?: string;
+}
+
+/** 32-byte big-endian hex of a field element (for the registry record). */
+function feHex32(v: bigint): string {
+  return v.toString(16).padStart(64, "0");
+}
+function bytesHex(b: Uint8Array): string {
+  return Buffer.from(b).toString("hex");
 }
 
 const FEE_SCOPE = "default";
@@ -488,6 +498,61 @@ export class BenzoClient {
   /** Alias used by the UX copy. */
   disclose(scope = FEE_SCOPE) {
     return this.shareReceipt(scope);
+  }
+
+  // --------------------------------------------------------- @handle -----
+
+  /**
+   * Register this account's public payment address under a `@handle` in the
+   * on-chain registry. `ownerAddress`/`ownerSource` authorize the entry.
+   */
+  async registerHandle(opts: {
+    handle: string;
+    ownerAddress: string;
+    ownerSource: string;
+  }): Promise<{ txHash?: string }> {
+    if (!this.opts.handleRegistry) throw new Error("no handle registry configured");
+    const res = await this.opts.cli.invoke({
+      contractId: this.opts.handleRegistry,
+      source: opts.ownerSource,
+      send: true,
+      fnArgs: [
+        "register",
+        "--handle", opts.handle,
+        "--owner", opts.ownerAddress,
+        "--spend_pub", feHex32(this.account.spendPub),
+        "--view_pub", bytesHex(this.account.viewPub),
+        "--mvk_scalar", feHex32(this.account.mvkScalar),
+      ],
+    });
+    return { txHash: res.txHash };
+  }
+
+  /** Resolve a `@handle` to a sendable recipient address. */
+  async resolveHandle(handle: string): Promise<BenzoRecipient> {
+    if (!this.opts.handleRegistry) throw new Error("no handle registry configured");
+    const rec = (await this.opts.cli.view(this.opts.handleRegistry, this.opts.txSource, [
+      "resolve",
+      "--handle",
+      handle,
+    ])) as { spend_pub: string; view_pub: string; mvk_scalar: string };
+    return {
+      spendPub: BigInt("0x" + rec.spend_pub),
+      viewPub: new Uint8Array(Buffer.from(rec.view_pub, "hex")),
+      mvkScalar: BigInt("0x" + rec.mvk_scalar),
+      label: handle,
+    };
+  }
+
+  /** Resolve a `@handle` and send to it. Returns the SendHandle. */
+  async sendToHandle(opts: {
+    handle: string;
+    amount: bigint;
+    memo?: string;
+    useRelayer?: boolean;
+  }): Promise<SendHandle> {
+    const to = await this.resolveHandle(opts.handle);
+    return this.send({ amount: opts.amount, to, memo: opts.memo, useRelayer: opts.useRelayer });
   }
 
   // ----------------------------------------------------- cashIn/cashOut --

@@ -8,6 +8,7 @@ members = [
     "contracts/asp_membership",
     "contracts/asp_non_membership",
     "contracts/viewkey_anchor",
+    "contracts/handle_registry",
     "contracts/pool",
     "circuits/poseidon_params/zkhash",
 ]
