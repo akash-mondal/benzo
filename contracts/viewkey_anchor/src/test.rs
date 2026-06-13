@@ -54,3 +54,22 @@ fn auditor_grant_lifecycle_and_expiry() {
     let res = client.try_get_grant(&unknown);
     assert_eq!(res, Err(Ok(Error::GrantNotFound)));
 }
+
+#[test]
+fn auditor_grant_can_be_revoked_early() {
+    let (env, client) = setup();
+    env.ledger().set_timestamp(1_000);
+
+    let auditor = Address::generate(&env);
+    let tvk_ct = Bytes::from_array(&env, &[7, 7, 7]);
+    let scope = Bytes::from_slice(&env, b"2026-Q2/corridor=ALL");
+    client.scope_auditor(&auditor, &tvk_ct, &scope, &9_000u64);
+    assert_eq!(client.get_grant(&auditor).expiry, 9_000); // valid pre-revoke
+
+    // Early revocation removes the grant well before expiry.
+    client.revoke_grant(&auditor);
+    assert_eq!(client.try_get_grant(&auditor), Err(Ok(Error::GrantNotFound)));
+
+    // Revoking a non-existent grant is a clean error.
+    assert_eq!(client.try_revoke_grant(&auditor), Err(Ok(Error::GrantNotFound)));
+}
