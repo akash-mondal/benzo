@@ -8,6 +8,19 @@ importers:
 
   .: {}
 
+  anchor:
+    dependencies:
+      '@stellar/stellar-sdk':
+        specifier: ^13.0.0
+        version: 13.3.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
   indexer:
     dependencies:
       '@benzo/sdk':
@@ -48,12 +61,18 @@ importers:
 
   tests:
     dependencies:
+      '@benzo/anchor':
+        specifier: workspace:*
+        version: link:../anchor
       '@benzo/indexer':
         specifier: workspace:*
         version: link:../indexer
       '@benzo/sdk':
         specifier: workspace:*
         version: link:../sdk
+      '@stellar/stellar-sdk':
+        specifier: ^13.0.0
+        version: 13.3.0
     devDependencies:
       vitest:
         specifier: ^2.0.0
