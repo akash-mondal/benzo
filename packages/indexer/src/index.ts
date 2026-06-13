@@ -1,7 +1,7 @@
 /**
  * @benzo/indexer — self-hosted note-discovery indexer.
  *
- * The scanning core now lives in @benzo/sdk (`NoteScanner`, `collectEvents`,
+ * The scanning core now lives in @benzo/core (`NoteScanner`, `collectEvents`,
  * `syncFromRpc`, `fetchAspLeaves`) so the SDK facade and this standalone
  * service share one implementation. This package re-exports that core under
  * the historical names and adds the HTTP server (`src/server.ts`).
@@ -17,4 +17,4 @@ export {
   type MvkBindingRecord,
   type DiscoveredNote,
   type RpcEvent,
-} from "@benzo/sdk";
+} from "@benzo/core";

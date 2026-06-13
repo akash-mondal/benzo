@@ -9,7 +9,7 @@
 
 import { mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { stroopsToUsdc } from "@benzo/sdk";
+import { stroopsToUsdc } from "@benzo/core";
 import { makeFacade, explorer } from "./setup.mjs";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));

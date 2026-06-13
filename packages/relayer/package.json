@@ -11,7 +11,7 @@
     "serve": "node dist/server.js"
   },
   "dependencies": {
-    "@benzo/sdk": "workspace:*"
+    "@benzo/core": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

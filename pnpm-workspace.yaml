@@ -1,6 +1,4 @@
 packages:
-  - sdk
-  - indexer
-  - relayer
-  - anchor
+  - packages/*
+  - apps/*
   - tests

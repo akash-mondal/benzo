@@ -39,7 +39,7 @@ import {
   viewingPubToScalar,
   seal,
   encodeNotePlain,
-} from "@benzo/sdk";
+} from "@benzo/core";
 import { BenzoIndexer, syncFromRpc, fetchAspLeaves } from "@benzo/indexer";
 import { makeClient, usdcBalance, explorer } from "./flow.mjs";
 

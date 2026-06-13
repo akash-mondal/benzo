@@ -10,7 +10,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
-import { StellarCli, configFromEnv } from "@benzo/sdk";
+import { StellarCli, configFromEnv } from "@benzo/core";
 import { runPrivatePaymentFlow, makeClient } from "./flow.mjs";
 import { runCompliance } from "./m2-compliance.mjs";
 import { runCorridor } from "./m3-corridor.mjs";

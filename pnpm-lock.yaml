@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  anchor:
+  packages/anchor:
     dependencies:
       '@stellar/stellar-sdk':
         specifier: ^13.0.0
@@ -24,36 +24,7 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@20.19.43)
 
-  indexer:
-    dependencies:
-      '@benzo/sdk':
-        specifier: workspace:*
-        version: link:../sdk
-      '@stellar/stellar-sdk':
-        specifier: ^13.0.0
-        version: 13.3.0
-    devDependencies:
-      '@types/node':
-        specifier: ^20.14.0
-        version: 20.19.43
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-
-  relayer:
-    dependencies:
-      '@benzo/sdk':
-        specifier: workspace:*
-        version: link:../sdk
-    devDependencies:
-      '@types/node':
-        specifier: ^20.14.0
-        version: 20.19.43
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-
-  sdk:
+  packages/core:
     dependencies:
       '@noble/curves':
         specifier: ^1.6.0
@@ -78,20 +49,93 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@20.19.43)
 
+  packages/indexer:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../core
+      '@stellar/stellar-sdk':
+        specifier: ^13.0.0
+        version: 13.3.0
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  packages/links:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.43)
+
+  packages/platform:
+    dependencies:
+      '@benzo/prover':
+        specifier: workspace:*
+        version: link:../prover
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.43)
+
+  packages/prover:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@20.19.43)
+
+  packages/relayer:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
   tests:
     dependencies:
       '@benzo/anchor':
         specifier: workspace:*
-        version: link:../anchor
+        version: link:../packages/anchor
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../packages/core
       '@benzo/indexer':
         specifier: workspace:*
-        version: link:../indexer
+        version: link:../packages/indexer
       '@benzo/relayer':
         specifier: workspace:*
-        version: link:../relayer
-      '@benzo/sdk':
-        specifier: workspace:*
-        version: link:../sdk
+        version: link:../packages/relayer
       '@stellar/stellar-sdk':
         specifier: ^13.0.0
         version: 13.3.0
