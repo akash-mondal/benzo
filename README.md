@@ -83,30 +83,49 @@ indexes encrypted notes, sponsors fees, and bridges fiat.
 
 ## Repository layout
 
+A **pnpm + Turborepo monorepo** — one headless core, many surfaces.
+
 ```
-contracts/                 Soroban (Rust) workspace
-  pool/                    SAC USDC custody; shield / transfer / withdraw orchestration
-  verifier_groth16/        BN254 Groth16 verifier, multi-VK registry (CAP-0074)
-  merkle/                  incremental Poseidon2 tree, 128-root history (CAP-0075)
-  nullifier_set/           persistent, idempotent double-spend prevention
-  asp_membership/          allow-set Merkle tree (deposit edge)        [forked: Nethermind PoC]
-  asp_non_membership/      deny sparse-Merkle tree (proof-of-innocence)[forked: Nethermind PoC]
-  viewkey_anchor/          MVK→TVK disclosure registry
-  handle_registry/         @handle -> shielded payment address (send-by-handle)
-  common/                  shared types + Poseidon2 host wrappers       [forked: Nethermind PoC]
-circuits/
-  groth16/                 shield.circom, joinsplit.circom, unshield.circom (+ note/lib)
-  poseidon_params/         pinned Poseidon2 params (source of truth) + zkhash reference
-  ptau/                    Hermez Powers-of-Tau (Phase-1)
-sdk/                       @benzo/sdk — facade (BenzoClient), account, scanner, prover, viewkeys, pool client
-                           the UI-facing surface; @benzo/indexer re-exports its scanning core
-indexer/                   @benzo/indexer — event scan + viewing-key scan API
-relayer/                   @benzo/relayer — gasless transfer submission
-anchor/                    @benzo/anchor — self-hosted SEP-1/10/24 (real edges, simulated fiat)
-scripts/                   deploy + codegen + param extraction
-tests/                     e2e flows (M1) + compliance (M2) + corridor (M3) + green vitest
-docs/                      threat model
+packages/
+  core/        @benzo/core — headless protocol SDK (notes, Poseidon2, prover iface,
+               viewkeys, scanner, contract clients, the BenzoClient facade)
+  links/       @benzo/links — typed BenzoLink union (claim/request/handle), shared everywhere
+  prover/      @benzo/prover — ProverPort: NodeProver (working) + Wasm/Native stubs
+  platform/    @benzo/platform — IBenzoPlatform port (storage/keychain/prover/clipboard/openLink)
+  indexer/     @benzo/indexer — note-discovery indexer (view-tag fast path)
+  relayer/     @benzo/relayer — gasless, non-custodial submitter
+  anchor/      @benzo/anchor — self-hosted SEP-1/10/24 corridor edges
+apps/
+  cli/         @benzo/cli — FULLY BUILT; every op as a command; the e2e harness
+  web/         consumer wallet PWA            — scaffold (ready to build)
+  telegram/    Telegram bot + mini-app        — scaffold (ready to build)
+  merchant/    payroll / merchant dashboard   — scaffold (ready to build)
+  pos/         point-of-sale terminal         — scaffold (ready to build)
+  paylink/     payment-link microsite         — scaffold (ready to build)
+  extension/   browser extension              — scaffold (ready to build)
+contracts/     8 Soroban (Rust) contracts: pool, verifier_groth16, merkle, nullifier_set,
+               asp_membership, asp_non_membership, viewkey_anchor, handle_registry
+circuits/      Circom (Poseidon2 + circomlib + SMT): shield / joinsplit / unshield
+ceremony/      trusted-setup driver + transcript (see CEREMONY.md)
+scripts/  tests/  docs/  audits/  SECURITY.md
 ```
+
+## App surfaces
+
+Every surface implements `IBenzoPlatform` and consumes `@benzo/core` + `@benzo/links`;
+each app's README lists its concrete TODOs.
+
+| Surface | Status | Prover | Does best | To finish |
+|---|---|---|---|---|
+| **CLI** | **built** | Node | scripting + the e2e harness | — |
+| Web PWA | scaffold | Wasm | flagship consumer wallet | passkey onboarding + WASM worker prover + UI |
+| Telegram | scaffold | Wasm | chat-native `/send @handle` | bot handlers + TWA webview |
+| Merchant | scaffold | Node | confidential payroll + auditor view-keys | CSV batch + disclosure console |
+| PoS | scaffold | Wasm | private request-QR | QR + settlement polling |
+| Paylink | scaffold | Node | claim / request landing pages | landing + one-command deploy |
+| Extension | scaffold | Wasm | pay-with-Benzo provider | bg scanner + injected provider |
+
+Build everything: `pnpm -r build`. Test: `cargo test --workspace` (contracts) + `pnpm -r test` (TS).
 
 ---
 

@@ -49,3 +49,25 @@ in `BENZO.md`.
 - **ASP governance**: allow/deny roots are admin-rotated; decentralizing the
   curation feed is future work.
 - **Unaudited**: no third-party circuit or contract audit yet.
+
+## Transaction malleability (recipient / relayer / fee)
+The `transfer` and `unshield` circuits bind the recipient, relayer, and fee into a
+public `extDataHash` the proof commits to; changing any of them changes `extDataHash`
+and invalidates the proof. A relayer or network MITM therefore cannot rewrite the
+recipient/fee of a submitted shielded tx. (Same guarantee as Tornado-Nova's
+"square the public signal" trick, achieved via the hashed ext-data input.) The pool
+additionally checks `publicAmount` against the actual SAC payout.
+
+## Note-discovery scalability (view tag)
+v1 discovery ciphertexts ("BNZ1") carry a 1-byte view tag derived from the ECDH
+shared secret; a scanner skips the AES-GCM open for non-matching notes (~255/256),
+bounding per-note scan cost. Legacy (v0) boxes are still trial-decrypted.
+
+## Test rigor (current)
+- `cargo test --workspace`: 90 passing / 0 ignored. `clippy`: 0 warnings.
+- Coverage (`cargo llvm-cov`): ~94.8% region / ~97.1% line across contracts.
+- Circuits: witness-level negative tests (conservation, nullifier, membership, 64-bit
+  range on inputs+outputs); Poseidon2 byte-identity fuzz vs the host fn; a
+  verifier-parity oracle (snarkjs↔Soroban G2 reorder + byte shapes).
+- Trusted setup: `scripts/ceremony.sh` — multi-contribution Phase-2 + checked-in
+  transcript (`ceremony/`); production requires independent external contributors.
