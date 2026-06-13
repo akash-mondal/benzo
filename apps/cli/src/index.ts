@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { BenzoClient, StellarCli, configFromEnv, stroopsToUsdc } from "@benzo/core";
 import { encodeBenzoLink, parseBenzoLink } from "@benzo/links";
+import { AnchorClient, anchorConfigFromEnv } from "@benzo/anchor";
 
 const ROOT = process.env.BENZO_ROOT || process.cwd();
 const WALLET = process.env.BENZO_WALLET || join(homedir(), ".benzo", "account.json");
@@ -30,8 +31,11 @@ function circuitSet() {
 function makeClient(opts: { relayer?: boolean } = {}): BenzoClient {
   const dep = JSON.parse(readFileSync(`${ROOT}/deployments/testnet.json`, "utf8"));
   const cli = new StellarCli(configFromEnv());
+  let anchor: AnchorClient | undefined;
+  try { anchor = new AnchorClient(anchorConfigFromEnv()); } catch { anchor = undefined; }
   return new BenzoClient({
     cli,
+    anchor,
     deployment: {
       pool: dep.pool, verifier: dep.verifier, merkle: dep.merkle,
       nullifierSet: dep.nullifierSet, aspMembership: dep.aspMembership,
@@ -157,4 +161,6 @@ async function main() {
   }
 }
 
-main().catch((e) => { console.error("error:", e?.message ?? e); process.exit(1); });
+main()
+  .then(() => process.exit(0)) // open RPC/anchor keep-alive handles would otherwise hang the process
+  .catch((e) => { console.error("error:", e?.message ?? e); process.exit(1); });
