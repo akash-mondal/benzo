@@ -2,10 +2,23 @@
   "name": "@benzo/cli",
   "version": "0.1.0",
   "type": "module",
-  "bin": { "benzo": "./dist/index.js" },
+  "bin": {
+    "benzo": "./dist/index.js"
+  },
   "main": "./dist/index.js",
-  "files": ["dist"],
-  "scripts": { "build": "tsc -p tsconfig.json" },
-  "dependencies": { "@benzo/core": "workspace:*", "@benzo/links": "workspace:*" },
-  "devDependencies": { "@types/node": "^20.14.0", "typescript": "^5.5.0" }
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@benzo/core": "workspace:*",
+    "@benzo/links": "workspace:*",
+    "@benzo/anchor": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
 }

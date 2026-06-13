@@ -10,6 +10,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@benzo/anchor':
+        specifier: workspace:*
+        version: link:../../packages/anchor
       '@benzo/core':
         specifier: workspace:*
         version: link:../../packages/core
