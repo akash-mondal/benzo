@@ -1,5 +1,5 @@
 {
-  "name": "@benzo/sdk",
+  "name": "@benzo/core",
   "version": "0.1.0",
   "description": "Headless TypeScript SDK for the Benzo shielded-USDC protocol on Stellar (notes, Poseidon2, Groth16 proving, viewing keys, contract clients)",
   "license": "Apache-2.0",

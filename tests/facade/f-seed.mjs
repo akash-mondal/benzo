@@ -21,7 +21,7 @@ import {
   randomFieldElement,
   seal,
   toWitnessInput,
-} from "@benzo/sdk";
+} from "@benzo/core";
 import { makeFacade, circuitSet, liveNextIndex } from "./setup.mjs";
 
 const TARGET = 105; // comfortably ≥ 100

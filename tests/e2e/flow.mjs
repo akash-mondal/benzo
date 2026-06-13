@@ -29,7 +29,7 @@ import {
   randomFieldElement,
   seal,
   viewingPubToScalar,
-} from "@benzo/sdk";
+} from "@benzo/core";
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const log = (...a) => console.log(...a);

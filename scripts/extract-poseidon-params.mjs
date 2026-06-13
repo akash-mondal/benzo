@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Extract the pinned Poseidon2 BN254 parameterization from the circom
 // constants file into a single canonical JSON — the cross-language source of
-// truth consumed by the @benzo/sdk TypeScript implementation.
+// truth consumed by the @benzo/core TypeScript implementation.
 //
 // Provenance: circuits/lib/poseidon2/poseidon2_const.circom (Horizen Labs
 // SAGE script output), the same constants pinned on-chain in

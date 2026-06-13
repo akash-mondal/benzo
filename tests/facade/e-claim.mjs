@@ -8,7 +8,7 @@
  * claim tx, and before/after balances.
  */
 
-import { BenzoClient } from "@benzo/sdk";
+import { BenzoClient } from "@benzo/core";
 import {
   Asset,
   Horizon,

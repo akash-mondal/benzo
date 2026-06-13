@@ -31,7 +31,7 @@ import {
   seal,
   encodeNotePlain,
   mvkTag,
-} from "@benzo/sdk";
+} from "@benzo/core";
 import { BenzoIndexer, syncFromRpc } from "@benzo/indexer";
 import { pathToFileURL } from "node:url";
 import { runPrivatePaymentFlow, makeClient, explorer } from "./flow.mjs";
@@ -112,7 +112,7 @@ log("[B] ASP allow-membership at SHIELD");
   // in-circuit Merkle inclusion check fails, so NO proof can be produced.
   let proofFailed = false;
   try {
-    const { prove, toWitnessInput } = await import("@benzo/sdk");
+    const { prove, toWitnessInput } = await import("@benzo/core");
     const fakeLeafIndex = 0; // path will be for the real allowlisted leaf
     const path = client.aspTree.path(fakeLeafIndex);
     const note = newNote(1_000_000n, deriveKeypair(randomFieldElement()).publicKey, assetId);
