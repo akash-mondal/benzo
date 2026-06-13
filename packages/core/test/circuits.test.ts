@@ -22,7 +22,7 @@ import {
 } from "../src/notes.js";
 import { prove, toWitnessInput, verifyLocal } from "../src/prover.js";
 
-const root = fileURLToPath(new URL("../../circuits/build", import.meta.url));
+const root = fileURLToPath(new URL("../../../circuits/build", import.meta.url));
 const art = (c: string) => ({
   wasmPath: `${root}/${c}/${c}_js/${c}.wasm`,
   zkeyPath: `${root}/${c}/${c}.zkey`,
