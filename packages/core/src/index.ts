@@ -11,6 +11,7 @@
  *  - crypto/groth16: snarkjs -> Soroban encodings
  *  - viewkeys: MVK->TVK hierarchical viewing keys, note discovery AEAD
  *  - stellar: CLI/RPC client
+ *  - reserves: sponsored reserves (CAP-33) for gasless onboarding
  *  - pool: high-level client for shield / transfer / unshield
  */
 
@@ -21,6 +22,7 @@ export * from "./merkle.js";
 export * from "./prover.js";
 export * from "./viewkeys.js";
 export * from "./stellar.js";
+export * from "./reserves.js";
 export * from "./scanner.js";
 export * from "./pool.js";
 export * from "./account.js";
