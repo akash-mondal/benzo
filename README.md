@@ -198,6 +198,30 @@ signature** (`loginWithSigner`) — no second seed phrase — and onboarding can
   lets an auditor passively reconstruct exactly the in-scope notes from on-chain
   ciphertext — and nothing else. Viewing keys are decrypt-only; never spend.
 
+### Auditor lifecycle & trust assumptions
+
+- **In-circuit (trustless):** the MVK tag, ASP allow-membership at deposit, and
+  ASP non-membership (proof-of-innocence) at withdraw are all proven in-circuit
+  against live on-chain roots — no party is trusted for these.
+- **Off-circuit (trusted):** the MVK-ciphertext payload integrity and the ASP
+  curation (who is in the allow/deny sets) are operator responsibilities, not
+  circuit-enforced.
+- **TVK grants are scoped, expiring, and revocable.** `viewkey_anchor.scope_auditor`
+  issues a grant for a scope label (e.g. `2026-Q2/corridor=ALL`) with an expiry;
+  `revoke_grant` removes it early. Because a TVK is one-way-derived per scope, a
+  leaked/offboarded auditor key only ever exposes its own in-scope notes — the
+  residual that a single master viewing key (e.g. Sui contra's escrow) does *not*
+  bound. (On-chain revocation cannot retract an already-decrypted TVK; the scope
+  binding is what limits the blast radius.)
+- **Honest users always exit.** The normal private `withdraw` *is* the
+  always-exit path: the deny-SMT default-excludes everyone, so proof-of-innocence
+  succeeds for any honest note — privately, recovering all notes, no special op
+  (stronger than a public ragequit). **Trust caveat:** the deny-set admin
+  (`asp_non_membership.insert_leaf`) is a trusted party — it can freeze a flagged
+  commitment, reversible only via `delete_leaf` (both admin-gated and event-
+  observable). This contract's admin **must** be a multisig/timelock in any real
+  deployment.
+
 ### Security & threat model (summary)
 
 - **Soundness:** the pool fails closed — a non-verifying proof returns

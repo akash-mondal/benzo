@@ -76,6 +76,15 @@ pub struct AuditorScopedEvent {
     pub expiry: u64,
 }
 
+/// Emitted when an auditor's grant is revoked before its expiry.
+#[contractevent]
+#[derive(Clone)]
+pub struct AuditorRevokedEvent {
+    /// Auditor address whose grant was removed
+    #[topic]
+    pub auditor: Address,
+}
+
 #[contract]
 pub struct BenzoViewkeyAnchor;
 
@@ -145,6 +154,27 @@ impl BenzoViewkeyAnchor {
             expiry,
         }
         .publish(&env);
+        Ok(())
+    }
+
+    /// Revoke an auditor's grant before its expiry. Admin (disclosing entity)
+    /// only. This stops new on-chain discovery of the grant; it cannot retract a
+    /// TVK the auditor already decrypted — but the grant's scope-binding bounds
+    /// that residual exposure to in-scope notes only (the offboarding asymmetry
+    /// a master-viewing-key escrow does NOT bound).
+    pub fn revoke_grant(env: Env, auditor: Address) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        let key = DataKey::Grant(auditor.clone());
+        if !env.storage().persistent().has(&key) {
+            return Err(Error::GrantNotFound);
+        }
+        env.storage().persistent().remove(&key);
+        AuditorRevokedEvent { auditor }.publish(&env);
         Ok(())
     }
 

@@ -166,7 +166,11 @@ function bytesHex(b: Uint8Array): string {
   return Buffer.from(b).toString("hex");
 }
 
-const FEE_SCOPE = "default";
+// Default disclosure scope a note is sealed under (the HKDF info that derives
+// the MVK→TVK). A caller can override per op so the seal scope matches the label
+// an auditor's on-chain grant was issued for (e.g. "2026-Q2/corridor=ALL"),
+// keeping the "auditor sees exactly the in-scope notes" claim coherent end-to-end.
+const DISCLOSURE_SCOPE = "default";
 let opCounter = 0;
 
 /**
@@ -309,6 +313,7 @@ export class BenzoClient {
     amount: bigint;
     fromAddress: string; // public depositor G-address (must auth the SAC pull)
     fromSource: string; // CLI identity authorizing the deposit
+    scope?: string; // disclosure scope to seal the MVK ciphertext under
   }): Promise<{ txHash?: string; leafIndex: number; commitment: bigint; note: Note; provingMs: number }> {
     await this.sync();
     const assetId = await this.assetId();
@@ -327,7 +332,7 @@ export class BenzoClient {
 
     const note = newNote(opts.amount, this.account.spendPub, assetId);
     const plain = encodeNotePlain({ ...note });
-    const tvk = deriveTvk(this.account.mvkSecret, FEE_SCOPE);
+    const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
     const res = await this.pool.shield({
       source: opts.fromSource,
       from: opts.fromAddress,
@@ -360,6 +365,7 @@ export class BenzoClient {
     to: BenzoRecipient;
     memo?: string;
     useRelayer?: boolean;
+    scope?: string; // disclosure scope to seal the MVK ciphertexts under
   }): SendHandle {
     const handle = new SendHandle(`send-${++opCounter}`);
     // Kick off async work without blocking the caller (optimistic UI).
@@ -369,7 +375,7 @@ export class BenzoClient {
 
   private async runSend(
     handle: SendHandle,
-    opts: { amount: bigint; to: BenzoRecipient; memo?: string; useRelayer?: boolean },
+    opts: { amount: bigint; to: BenzoRecipient; memo?: string; useRelayer?: boolean; scope?: string },
   ): Promise<void> {
     try {
       handle._emit({ op: "send", status: "pending", detail: "selecting note" });
@@ -387,7 +393,7 @@ export class BenzoClient {
           ? [selected[0], selected[1]]
           : [selected[0], this.pool.makeDummyInput(assetId)];
 
-      const senderTvk = deriveTvk(this.account.mvkSecret, FEE_SCOPE);
+      const senderTvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
       const recipNote = newNote(opts.amount, opts.to.spendPub, assetId);
       const recipPlain = encodeNotePlain({ ...recipNote, memo: opts.memo });
       const changeNote = newNote(change, this.account.spendPub, assetId);
@@ -485,6 +491,7 @@ export class BenzoClient {
   async unshield(opts: {
     amount: bigint;
     toAddress: string;
+    scope?: string; // disclosure scope to seal the change-note MVK ciphertext under
   }): Promise<{ txHash?: string; nullifier: bigint; provingMs: number }> {
     await this.sync();
     const assetId = await this.assetId();
@@ -493,7 +500,7 @@ export class BenzoClient {
     const changeAmount = input.note.amount - opts.amount;
     const changeNote = newNote(changeAmount, this.account.spendPub, assetId);
     const changePlain = encodeNotePlain({ ...changeNote });
-    const tvk = deriveTvk(this.account.mvkSecret, FEE_SCOPE);
+    const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
     const wd = await this.pool.withdraw({
       source: this.opts.txSource,
       input,
@@ -522,7 +529,7 @@ export class BenzoClient {
    * account's MVK and return it plus a reconstruct() that decrypts exactly the
    * in-scope notes from on-chain ciphertext (passive auditor disclosure).
    */
-  shareReceipt(scope = FEE_SCOPE): {
+  shareReceipt(scope = DISCLOSURE_SCOPE): {
     scope: string;
     tvk: ViewingKeypair;
     reconstruct: () => Array<{ amount: bigint; recipientPk: bigint }>;
@@ -539,7 +546,7 @@ export class BenzoClient {
   }
 
   /** Alias used by the UX copy. */
-  disclose(scope = FEE_SCOPE) {
+  disclose(scope = DISCLOSURE_SCOPE) {
     return this.shareReceipt(scope);
   }
 
