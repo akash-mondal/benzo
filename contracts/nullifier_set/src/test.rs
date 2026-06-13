@@ -1,4 +1,3 @@
-#![cfg(test)]
 
 use super::*;
 use soroban_sdk::{Address, Env, U256, testutils::Address as _};
@@ -21,10 +20,10 @@ fn spend_is_idempotent() {
 
     assert!(!client.is_spent(&n));
     // First spend: newly spent.
-    assert_eq!(client.spend(&n), true);
+    assert!(client.spend(&n));
     assert!(client.is_spent(&n));
     // Second spend: idempotent success, not newly spent — never a panic.
-    assert_eq!(client.spend(&n), false);
+    assert!(!client.spend(&n));
     assert!(client.is_spent(&n));
 }
 
@@ -33,9 +32,9 @@ fn distinct_nullifiers_are_independent() {
     let (env, client) = setup();
     let a = U256::from_u32(&env, 1);
     let b = U256::from_u32(&env, 2);
-    assert_eq!(client.spend(&a), true);
+    assert!(client.spend(&a));
     assert!(!client.is_spent(&b));
-    assert_eq!(client.spend(&b), true);
+    assert!(client.spend(&b));
 }
 
 /// Nullifiers must live in persistent storage (the soundness invariant).
@@ -76,12 +75,12 @@ fn fuzz_idempotency_over_random_stream() {
         x ^= x << 5;
         let v = x % 80; // collide into a small space to force repeats
         let n = U256::from_u32(&env, v);
-        let already = seen[..count].iter().any(|&s| s == v);
+        let already = seen[..count].contains(&v);
         let newly = client.spend(&n);
         if already {
-            assert_eq!(newly, false, "repeat spend must be idempotent (not newly spent)");
+            assert!(!newly, "repeat spend must be idempotent (not newly spent)");
         } else {
-            assert_eq!(newly, true, "first spend must be newly spent");
+            assert!(newly, "first spend must be newly spent");
             seen[count] = v;
             count += 1;
         }

@@ -99,7 +99,7 @@ fn vk_registry_set_once_and_verify() {
     let second = client.try_set_vk(&vk_id, &vk);
     assert_eq!(second, Err(Ok(Error::VkAlreadySet)));
 
-    assert_eq!(client.verify_proof(&vk_id, &proof, &public_inputs), true);
+    assert!(client.verify_proof(&vk_id, &proof, &public_inputs));
 }
 
 #[test]
@@ -113,7 +113,7 @@ fn rotate_vk_overwrites_for_governed_rotation() {
     let (vk, proof, public_inputs) = build_proof(&env);
     let vk_id = Symbol::new(&env, "TRANSFER");
     client.set_vk(&vk_id, &vk);
-    assert_eq!(client.verify_proof(&vk_id, &proof, &public_inputs), true);
+    assert!(client.verify_proof(&vk_id, &proof, &public_inputs));
 
     // rotate_vk overwrites the existing key (the governed upgrade path).
     // Rotating to a fresh setup's VK invalidates proofs under the old key.
@@ -138,7 +138,7 @@ fn rotate_vk_overwrites_for_governed_rotation() {
     client.rotate_vk(&vk_id, &vk2);
 
     // New key verifies its matching proof; the old proof no longer verifies.
-    assert_eq!(client.verify_proof(&vk_id, &proof2, &publics2), true);
+    assert!(client.verify_proof(&vk_id, &proof2, &publics2));
     let stale = client.try_verify_proof(&vk_id, &proof, &public_inputs);
     assert!(stale.is_err(), "proof under the rotated-out key must fail");
 }
