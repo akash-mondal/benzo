@@ -1,0 +1,6 @@
+packages:
+  - sdk
+  - indexer
+  - relayer
+  - anchor
+  - tests
