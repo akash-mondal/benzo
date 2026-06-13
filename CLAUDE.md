@@ -1,37 +1,33 @@
-# Benzo — Autonomous Build (read this first)
+# Benzo — Claude Code project guide
 
-This is an **unattended, end-to-end build**. You have everything you need locally — do not wait for human input.
-
-## Source of truth
-- **`AGENT_SPEC.md`** — operational spec: env, OrbStack, wallets, infra, build order, full resource list. READ FIRST.
-- **`BENZO.md`** — full design. The *Canonical Invariants* box and *Section 10* (repo + M0–M5 roadmap) are authoritative.
-- **`reference/`** — downloaded skills + starter code + offline docs (work offline). Fork `reference/code/stellar-private-payments` as the primary starter; `reference/code/soroban-examples` has `groth16_verifier`.
+Benzo is a private-by-default shielded-USDC payments protocol on Stellar
+(Soroban). This file is the working guide for Claude Code sessions; **`README.md`
+is the single source of truth** for architecture, layout, invariants, and status.
 
 ## Scope
-Backend / protocol only. **No frontend/UI.** Contracts stay auth-agnostic (Ed25519 CLI key, no passkeys). Proving is
-**headless** (Node/CLI, not a browser). **Self-host Mercury + Anchor. No MoneyGram. Testnet only.**
+Backend / protocol (no frontend yet). **Testnet only; sandbox.** The corridor
+runs with zero external accounts (Mock KYC/screening/on-ramp, self-hosted
+anchor). Commercial edges (Stripe live, MoneyGram, Range, Human ID, CCTP
+mainnet, Dynamic login) are real but **env-keyed and labeled FUTURE** — never
+assume an account/partnership exists. ZK is proven two ways on-chain: Track A
+(Groth16/BN254 native host fns) and Track B (Noir→UltraHonk).
 
 ## Environment
-Load once per shell: `set -a; . ./.env; set +a` → funded testnet keys, network, USDC issuer. Stellar identities are
-already saved: `benzo-deployer`, `benzo-relayer`, `benzo-anchor-dist`, `benzo-anchor-sign`. Deploy with
-`--source benzo-deployer --network testnet`. If USDC balance is 0 at M1, fall back to a self-issued SAC test token
-(`USE_TEST_TOKEN=true`) minted from the deployer — never block on funding.
+Load once per shell: `set -a; . ./.env; set +a` → funded testnet keys, network,
+USDC issuer. Identities already saved: `benzo-deployer`, `benzo-relayer`,
+`benzo-anchor-dist`, `benzo-anchor-sign`. Deploy with
+`--source benzo-deployer --network testnet`.
 
-## Canonical commands (create/keep these as you scaffold)
-- Build contracts: `stellar contract build` (or `cargo build --target wasm32-unknown-unknown --release`)
-- Test contracts: `cargo test`
-- Circuits: `circom` + `snarkjs` (Groth16) / `nargo` + `bb` (Noir UltraHonk) — install if missing
-- Deploy: `stellar contract deploy --source benzo-deployer --network testnet ...`
-- Prove: headless in Node (snarkjs / bb.js) — **never a browser**
-- On-chain verify / flows: `stellar contract invoke ...` — always print the tx hash + result + a
-  `https://stellar.expert/explorer/testnet/tx/<hash>` link into the conversation
+## Commands
+- Contracts: `cargo test --workspace` · `cargo clippy --workspace --all-targets -- -D warnings` · `stellar contract build`
+- Packages: `pnpm install` · `pnpm -r build` · `pnpm -r test`
+- Track B (pinned): `nargo 1.0.0-beta.9` + `bb v0.87.0` (keccak oracle); harness in `reference/code/rs-soroban-ultrahonk`
+- On-chain: `stellar contract invoke …` — always print the tx hash + an
+  `https://stellar.expert/explorer/testnet/tx/<hash>` link into the conversation.
 
 ## Hard rules
-- Never commit `.env` or use a mainnet key (`.env` and `reference/` are gitignored — keep it that way).
-- Poseidon2 parameterization **byte-identical** between circuit and host function (pin once, assert in a test).
-- Nullifiers in **persistent** storage only.
-- **Print every deploy/test/tx result and explorer link into the conversation** — progress must be verifiable from
-  the transcript (the goal evaluator only sees what you surface here).
-- Write tests as you go (circuit negative tests, contract unit/fuzz, e2e). If you mock anything (e.g. the fiat leg),
-  say so in the README. Maintain a todo list. Work **M0→M5 in order**, de-risking M0 (one real proof verified
-  on-chain) before anything else.
+- Never commit `.env` or use a mainnet key (`.env` and `reference/` are gitignored — keep it that way; never stage `*.zkey`/`*.ptau`).
+- Poseidon2 parameterization **byte-identical** across circuit ↔ TS mirror ↔ host function (pinned + asserted in tests).
+- Nullifiers in **persistent** storage only; field-element encoding fails loud (never silently truncate).
+- Write tests as you go; if you mock anything (e.g. the fiat leg), say so in the README.
+- Keep one clean README — don't reintroduce scattered docs.

@@ -1,20 +1,30 @@
 # Benzo — private-by-default shielded-USDC payments on Stellar
 
 **Benzo** is a private-by-default, shielded-USDC payments protocol on Stellar
-(Soroban), delivered as a private cross-border remittance corridor. Everyday
+(Soroban), framed as a private cross-border remittance corridor. Everyday
 stablecoin payments hide **both amount and counterparty** through zero-knowledge
 shielded notes, while compliance — selective disclosure via hierarchical viewing
 keys and Association-Set screening — is built into the regulated fiat edges.
 
-This repository is the **backend / protocol** (no frontend): ZK circuits, a
+This repository is the **backend / protocol** (no frontend yet): ZK circuits, a
 headless proving SDK, the Soroban contracts, a self-hosted note-discovery
 indexer, a gasless relayer, and a self-hosted SEP-24 anchor corridor — all
 exercised against **Stellar testnet** with real Circle testnet USDC.
 
 > Built for **Stellar Hacks: Real-World ZK**. ZK is load-bearing by
 > construction: strip the proofs and there is no private payment — the pool
-> verifies a Groth16 proof on Stellar's native BN254 host functions before it
-> will move a cent.
+> verifies a zero-knowledge proof on Stellar's native BN254 host functions
+> before it will move a cent.
+
+ZK is proven **two independent ways, both verified on-chain on testnet**:
+
+| Track | Scheme | Status |
+|---|---|---|
+| **A** | Groth16 / BN254 (CAP-0074 host fns) — the production join-split path | on-chain ✅ |
+| **B** | Noir → UltraHonk (transparent, no trusted setup) | on-chain ✅ — contract `CBNKNOC45EEDNTBS2OWKXAVRKQRAKU4K3X6XTIMZ5BI5WISN7GDBZBBE`, valid proof accepted (tx `52959d1d…`), tampered proof rejected (`Contract Error #4`) |
+
+Reproduce Track B with the pinned toolchain (`nargo 1.0.0-beta.9`, `bb v0.87.0`,
+keccak oracle) against the vendored harness in `reference/code/rs-soroban-ultrahonk`.
 
 ---
 
@@ -24,19 +34,19 @@ exercised against **Stellar testnet** with real Circle testnet USDC.
 |---|---|
 | Groth16 proving (shield / joinsplit / unshield) | **Real** — headless snarkjs in Node, verified on-chain by the BN254 verifier contract |
 | BN254 Groth16 verification | **Real** — Soroban CAP-0074 host functions, on testnet |
+| Noir → UltraHonk (Track B) | **Real** — fresh proof verified on-chain on testnet; tampered proof rejected |
 | Poseidon2 commitments / nullifiers / Merkle | **Real** — CAP-0075 host function, byte-identical to circuit & SDK (asserted in tests) |
 | USDC custody & settlement | **Real** — Circle testnet USDC (issuer `GBBD47IF…FLA5`) as a SAC, custodied by the pool |
 | Shield / private transfer / unshield | **Real** — on testnet, with on-chain nullifiers, Merkle commitments, balance moves |
 | MVK→TVK viewing-key disclosure | **Real** — HKDF derivation, X25519+AES-GCM, reconstructed from on-chain ciphertext |
 | ASP membership / proof-of-innocence | **Real** — enforced in-circuit + on-chain registries |
-| Gasless relayer | **Real** — submits proven transfers, paid in USDC out of the pool |
-| Note-discovery indexer | **Real** — scans Soroban events, viewing-key scan API (self-hosted, no Mercury key) |
-| `@benzo/sdk` facade (`BenzoClient`) | **Real** — the UI-facing API; drives create/shield/send/unshield/disclose end-to-end on testnet |
-| send-by-`@handle` | **Real** — on-chain `handle_registry` contract resolves a handle to a shielded address |
-| Claim-links | **Real** — note encrypted to a claim secret; a fresh account claims it on-chain |
-| Async proving + optimistic UI handle | **Real** — `send()` returns a `SendHandle` (pending→proving→settled); proving is headless Node |
-| SEP-1 / SEP-10 / SEP-24 anchor | **Real wire protocol** — self-hosted; **real Ed25519 SEP-10 verification**; real on-chain USDC settlement at both edges |
-| **The fiat (bank/cash) ledger leg** | **SIMULATED** — our self-hosted anchor credits "fiat received" / "fiat paid out" with no real bank. This is the only simulated piece, and it is driven explicitly via `POST /sep24/sim/:id`. |
+| Gasless relayer | **Real** — non-custodial; submits proven transfers, paid in USDC out of the pool |
+| Note-discovery indexer | **Real** — scans Soroban events, view-tag fast path, viewing-key scan API (self-hosted) |
+| `BenzoClient` SDK facade | **Real** — drives create/shield/send/unshield/disclose end-to-end on testnet |
+| send-by-`@handle`, claim-links | **Real** — on-chain `handle_registry`; claim-link funds a fresh account |
+| SEP-1 / SEP-10 / SEP-24 anchor | **Real wire protocol** — self-hosted; real Ed25519 SEP-10; real on-chain USDC settlement at both edges |
+| KYC / screening / on-ramp / CCTP | **Mock / sandbox** — see [Scope](#scope-sandbox-now-credentials-later) |
+| **The fiat (bank/cash) ledger leg** | **SIMULATED** — the self-hosted anchor credits "fiat received"/"paid out" with no real bank, driven via `POST /sep24/sim/:id`. This is the only simulated protocol piece. |
 
 No mainnet keys are used anywhere. `.env` and `reference/` are gitignored.
 
@@ -44,14 +54,14 @@ No mainnet keys are used anywhere. `.env` and `reference/` are gitignored.
 
 ## Architecture
 
-Three planes (BENZO.md §4): a **client plane** that holds keys and proves
-(here: the headless `@benzo/sdk`), an **on-chain plane** of Soroban contracts
-that verify proofs and mutate state, and an **off-chain services plane** that
-indexes encrypted notes, sponsors fees, and bridges fiat.
+Three planes: a **client plane** that holds keys and proves (the headless
+`@benzo/core`), an **on-chain plane** of Soroban contracts that verify proofs and
+mutate state, and an **off-chain services plane** that indexes encrypted notes,
+sponsors fees, and bridges fiat.
 
 ```
                        ┌──────────────────────── on-chain (Soroban, testnet) ───────────────────────┐
-  @benzo/sdk           │   pool ──verify──► verifier_groth16  (BN254 / CAP-0074)                     │
+  @benzo/core          │   pool ──verify──► verifier_groth16  (BN254 / CAP-0074)                     │
   (headless prover) ──►│    │                                                                        │
    shield/transfer/    │    ├─ insert ─► merkle           (Poseidon2 incremental tree, CAP-0075)     │
    unshield + proof    │    ├─ spend  ─► nullifier_set     (persistent, idempotent)                  │
@@ -72,12 +82,14 @@ indexes encrypted notes, sponsors fees, and bridges fiat.
 - **Commitment** `= Poseidon2(amount, recipient_pk, blinding, asset_id)`
 - **Nullifier** `= Poseidon2(spend_sk, leaf_index, NULLIFIER_DOMAIN)`
 - **Merkle node** `= Poseidon2(left, right)`; tree `DEPTH = 32`, `ROOT_HISTORY = 128`
-- **Proof** Groth16 over BN254, one constant-size multi-pairing check
-- **Poseidon2 byte-identical** across circom circuit, the `@benzo/sdk` TS mirror,
-  and the Soroban host function — pinned in
+- **Proof** Groth16 over BN254, one constant-size multi-pairing check (Track A)
+- **Poseidon2 byte-identical** across the circom circuit, the `@benzo/core` TS
+  mirror, and the Soroban host function — pinned in
   [`circuits/poseidon_params/poseidon2_bn254.json`](circuits/poseidon_params/poseidon2_bn254.json)
   and asserted against the on-chain zero table in tests.
 - **Nullifiers in persistent storage only**; idempotent "already spent = success".
+- **Field-element encoding fails loud** — out-of-range values are rejected, never
+  silently truncated, before any proof/VK byte hits the chain.
 
 ---
 
@@ -87,181 +99,143 @@ A **pnpm + Turborepo monorepo** — one headless core, many surfaces.
 
 ```
 packages/
-  core/        @benzo/core — headless protocol SDK (notes, Poseidon2, prover iface,
-               viewkeys, scanner, contract clients, the BenzoClient facade)
-  links/       @benzo/links — typed BenzoLink union (claim/request/handle), shared everywhere
-  prover/      @benzo/prover — ProverPort: NodeProver (working) + Wasm/Native stubs
-  platform/    @benzo/platform — IBenzoPlatform port (storage/keychain/prover/clipboard/openLink)
-  indexer/     @benzo/indexer — note-discovery indexer (view-tag fast path)
-  relayer/     @benzo/relayer — gasless, non-custodial submitter
-  anchor/      @benzo/anchor — self-hosted SEP-1/10/24 corridor edges
+  core/         @benzo/core — headless protocol SDK: notes, Poseidon2, incremental
+                Merkle mirror, prover, viewkeys, scanner, contract clients, the
+                BenzoClient facade, sponsored-reserves + login-seam helpers
+  links/        @benzo/links — typed BenzoLink union (claim/request/handle)
+  prover/       @benzo/prover — ProverPort: NodeProver (working) + Wasm/Native stubs
+  platform/     @benzo/platform — IBenzoPlatform port (storage/keychain/prover/…)
+  indexer/      @benzo/indexer — note-discovery indexer (view-tag fast path)
+  relayer/      @benzo/relayer — gasless, non-custodial submitter (OZ/channel model)
+  anchor/       @benzo/anchor — self-hosted SEP-1/10/24 corridor edges
+  kyc/          @benzo/kyc — pluggable SEP-12 KYC (Mock default; Didit optional)
+  integrations/ @benzo/integrations — corridor edges: screening, on-ramp, CCTP,
+                anchor presets (Mock by default; commercial adapters labeled FUTURE)
 apps/
-  cli/         @benzo/cli — FULLY BUILT; every op as a command; the e2e harness
-  web/         consumer wallet PWA            — scaffold (ready to build)
-  telegram/    Telegram bot + mini-app        — scaffold (ready to build)
-  merchant/    payroll / merchant dashboard   — scaffold (ready to build)
-  pos/         point-of-sale terminal         — scaffold (ready to build)
-  paylink/     payment-link microsite         — scaffold (ready to build)
-  extension/   browser extension              — scaffold (ready to build)
-contracts/     8 Soroban (Rust) contracts: pool, verifier_groth16, merkle, nullifier_set,
-               asp_membership, asp_non_membership, viewkey_anchor, handle_registry
-circuits/      Circom (Poseidon2 + circomlib + SMT): shield / joinsplit / unshield
-ceremony/      trusted-setup driver + transcript (see CEREMONY.md)
-scripts/  tests/  docs/  audits/  SECURITY.md
+  cli/          @benzo/cli — FULLY BUILT; every op as a command; the e2e harness
+  web/ telegram/ merchant/ pos/ paylink/ extension/ — surface scaffolds, each
+                implementing IBenzoPlatform over @benzo/core (ready to build)
+contracts/      8 Soroban (Rust) contracts: pool, verifier_groth16, merkle,
+                nullifier_set, asp_membership, asp_non_membership, viewkey_anchor,
+                handle_registry
+circuits/       Circom (Poseidon2 + circomlib + SMT): shield / joinsplit / unshield
+ceremony/       Phase-2 trusted-setup driver + transcript (joinsplit)
+deployments/    per-network contract ids (testnet.json)
+.github/        CI: contracts (fmt/clippy/test/wasm), packages (build/test), security
+reference/      vendored study repos (gitignored): stellar-private-payments,
+                rs-soroban-ultrahonk, soroban-examples, …
 ```
 
-## App surfaces
+### App surfaces
 
-Every surface implements `IBenzoPlatform` and consumes `@benzo/core` + `@benzo/links`;
-each app's README lists its concrete TODOs.
+Every surface implements `IBenzoPlatform` and consumes `@benzo/core` + `@benzo/links`.
 
-| Surface | Status | Prover | Does best | To finish |
-|---|---|---|---|---|
-| **CLI** | **built** | Node | scripting + the e2e harness | — |
-| Web PWA | scaffold | Wasm | flagship consumer wallet | passkey onboarding + WASM worker prover + UI |
-| Telegram | scaffold | Wasm | chat-native `/send @handle` | bot handlers + TWA webview |
-| Merchant | scaffold | Node | confidential payroll + auditor view-keys | CSV batch + disclosure console |
-| PoS | scaffold | Wasm | private request-QR | QR + settlement polling |
-| Paylink | scaffold | Node | claim / request landing pages | landing + one-command deploy |
-| Extension | scaffold | Wasm | pay-with-Benzo provider | bg scanner + injected provider |
-
-Build everything: `pnpm -r build`. Test: `cargo test --workspace` (contracts) + `pnpm -r test` (TS).
+| Surface | Status | Prover | Does best |
+|---|---|---|---|
+| **CLI** | **built** | Node | scripting + the e2e harness |
+| Web PWA | scaffold | Wasm | flagship consumer wallet |
+| Telegram | scaffold | Wasm | chat-native `/send @handle` |
+| Merchant | scaffold | Node | confidential payroll + auditor view-keys |
+| PoS | scaffold | Wasm | private request-QR |
+| Paylink | scaffold | Node | claim / request landing pages |
+| Extension | scaffold | Wasm | pay-with-Benzo provider |
 
 ---
 
-## How to run
+## Quickstart
 
 ### Prerequisites
-- Stellar CLI 25+, Rust + `wasm32v1-none`, Node 20 + pnpm, `circom` 2.2+, `snarkjs`.
-- `set -a; . ./.env; set +a` — funded testnet identities `benzo-deployer`,
-  `benzo-relayer`, `benzo-anchor-dist`, `benzo-anchor-sign` (already saved).
+- Rust (pinned via `rust-toolchain.toml`: 1.93.1 + `wasm32v1-none`), Stellar CLI 25+
+- Node 20 + pnpm 10
+- For circuits/Track B: `circom` 2.2+, `snarkjs`; `nargo 1.0.0-beta.9` + `bb v0.87.0`
+- Funded testnet identities in `.env` (gitignored): `benzo-deployer`,
+  `benzo-relayer`, `benzo-anchor-dist`, `benzo-anchor-sign`
 
-### Build & test the contracts
+### Build & test
 ```bash
-cargo test --workspace          # 85 tests across the 8 contracts + zkhash
-stellar contract build          # all 7 contracts -> wasm32v1-none
-```
+cargo test --workspace        # 95 contract tests (8 contracts + zkhash mirror)
+cargo clippy --workspace --all-targets -- -D warnings
+stellar contract build        # all contracts -> wasm32v1-none
 
-### Build circuits & keys (Groth16)
-```bash
-# one-time: compile circuits, run a Phase-2 contribution, export VKs
-for c in shield joinsplit unshield; do
-  circom circuits/groth16/$c.circom --r1cs --wasm -o circuits/build/$c -l circuits/lib
-  snarkjs groth16 setup circuits/build/$c/$c.r1cs circuits/ptau/powersOfTau28_hez_final_16.ptau circuits/build/$c/${c}_0.zkey
-  echo entropy | snarkjs zkey contribute circuits/build/$c/${c}_0.zkey circuits/build/$c/$c.zkey
-  snarkjs zkey export verificationkey circuits/build/$c/$c.zkey circuits/build/$c/${c}_vk.json
-done
-```
-
-### Build the TypeScript packages
-```bash
 pnpm install
-pnpm -r build                   # @benzo/sdk, indexer, anchor, relayer
-( cd sdk && pnpm test )         # 18 tests incl. circuit proving + Poseidon2 byte-identity
+pnpm -r build                 # all @benzo/* packages + apps
+pnpm -r test                  # TS: core 95 · kyc 6 · integrations 20 · links 12 · anchor 5
 ```
+The heavy snarkjs proving tests self-skip when the gitignored `.zkey`/`.wasm`
+artifacts are absent (e.g. CI); the committed VK/proof fixtures still enforce the
+snarkjs→Soroban byte-identity invariant.
 
-### Deploy to testnet
+### Deploy & run against testnet
 ```bash
 set -a; . ./.env; set +a
-bash scripts/deploy-testnet.sh  # deploys all contracts, wires operators, registers VKs
-# one-time: open a USDC trustline for the relayer so it can take USDC fees
-#   (see scripts/deploy-testnet.sh notes)
-```
-
-### Run the flows against testnet
-```bash
-set -a; . ./.env; set +a
-export ANCHOR_JWT_SECRET=...     # any secret for the self-hosted anchor JWTs
+bash scripts/deploy-testnet.sh        # deploy contracts, wire operators, register VKs
 cd tests
-node e2e/m1-flow.mjs             # shield → private transfer → unshield (different account)
-node e2e/m2-compliance.mjs       # MVK/TVK disclosure + ASP both gates
-node e2e/m3-corridor.mjs         # SEP-24 corridor: fiat-sim → … → fiat-sim
-pnpm exec vitest run e2e/e2e.test.mjs   # green suite driving items 1–5
+node e2e/m1-flow.mjs                   # shield → private transfer → unshield
+node e2e/m2-compliance.mjs            # MVK/TVK disclosure + ASP both gates
+node e2e/m3-corridor.mjs             # SEP-24 corridor: fiat-sim → … → fiat-sim
 ```
+
+### The SDK a frontend calls
+A frontend uses ONLY `BenzoClient` from `@benzo/core`. `send()` is non-blocking
+(returns a `SendHandle` reporting `pending → proving → settled`) so a UI renders
+optimistic state over the proving pipeline. Note keys derive from **one wallet
+signature** (`loginWithSigner`) — no second seed phrase — and onboarding can be
+**zero-XLM** via sponsored reserves (CAP-33). Full surface in
+[`packages/core/src/client.ts`](packages/core/src/client.ts).
 
 ---
 
-## UI-facing SDK API — the exact contract a frontend calls
+## Compliance model — "open by default, private when needed, compliant"
 
-A frontend uses ONLY `BenzoClient` from `@benzo/sdk`. It wraps the pool client,
-the note scanner/indexer, the headless prover, and the viewing-key crypto
-behind stable typed methods. `send()` is non-blocking so a UI can render
-optimistic state over the proving pipeline.
-
-```ts
-import { BenzoClient, StellarCli, configFromEnv, stroopsToUsdc } from "@benzo/sdk";
-
-const client = new BenzoClient({
-  cli: new StellarCli(configFromEnv()),
-  deployment,        // contract ids (deployments/testnet.json)
-  circuits,          // {shield, joinsplit, unshield} wasm + zkey paths
-  rpcUrl, txSource,  // Soroban RPC + the gas-paying CLI identity
-  relayer, anchor, handleRegistry,   // all optional
-});
-
-// — account —
-client.createOrLoadAccount(path, { label?, stellarSecret? }) // -> { account, created }
-client.createAccount(label?, stellarSecret?)                 // -> BenzoAccount
-client.address()                                             // -> BenzoRecipient (shareable, no spend authority)
-
-// — balance & history —
-await client.sync()                 // rebuild scanner + Merkle/ASP mirrors from chain
-await client.getBalance()           // -> bigint   (aggregated spendable, stroops)
-client.getHistory()                 // -> HistoryItem[]  {type, amount, counterparty?, timestamp, status, txHash?}
-
-// — value movement —
-await client.shield({ amount, fromAddress, fromSource })     // public USDC -> shielded note
-const h = client.send({ amount, to, memo?, useRelayer? })    // -> SendHandle (async)
-h.onProgress(e => …)                // 'pending' -> 'proving' -> 'settled'
-await h.settled()                   // resolves { txHash, amount, recipient?, provingMs }
-await client.unshield({ amount, toAddress })                 // shielded -> public USDC
-
-// — UX primitives —
-await client.registerHandle({ handle, ownerAddress, ownerSource })   // @handle -> address (on-chain)
-await client.resolveHandle("@bob")                                   // -> BenzoRecipient
-await client.sendToHandle({ handle, amount, memo? })                 // resolve + send
-const { link } = await client.createClaimLink({ amount })           // send-to-link
-const secret = BenzoClient.parseClaimLink(link)
-await client.claim({ claimSecret: secret, toAddress })              // fresh account claims
-
-// — compliance —
-const { tvk, reconstruct } = client.shareReceipt(scope?)    // scoped disclosure (auditor)
-
-// — fiat edges (anchor; fiat leg SIMULATED) —
-await client.cashIn({ amount, fromSource })   // SEP-24 deposit -> shield
-await client.cashOut({ amount })              // unshield -> SEP-24 withdraw
-```
-
-Runnable demos drive each item against testnet:
-`tests/facade/a-lifecycle.mjs` (create→shield→send→unshield + balance/history +
-proving timings), `tests/facade/d-handle.mjs` (send-by-`@handle`),
-`tests/facade/e-claim.mjs` (claim-links), `tests/facade/f-seed.mjs` (anonymity-set seed).
-
----
-
-## Compliance model ("open by default, private when needed, compliant")
-
-- **Privacy in the middle.** `transfer` is a 2-in/2-out join-split; amounts and
-  the sender↔recipient link are hidden. No SAC movement.
+- **Privacy in the middle.** `transfer` is a 2-in/2-out join-split (two-note coin
+  selection); amounts and the sender↔recipient link are hidden. No SAC movement.
 - **Identity at the edges.** `shield` requires an **ASP allow-membership** proof
-  (the depositor is bound in-circuit to a KYC'd allow-set leaf). `withdraw`
-  requires an **ASP non-membership / proof-of-innocence** proof against the
-  deny sparse-Merkle tree.
+  (depositor bound in-circuit to a KYC'd allow-set leaf). `withdraw` requires an
+  **ASP non-membership / proof-of-innocence** proof against the deny sparse-Merkle
+  tree — mandatory at exit, checked against the live deny-root.
 - **Guaranteed auditability.** Every note carries an MVK tag
   `Poseidon2(mvk_pub, blinding)`; a scoped **TVK** (one-way HKDF from the MVK)
   lets an auditor passively reconstruct exactly the in-scope notes from on-chain
-  ciphertext — and nothing else. Viewing keys are decrypt-only; they never carry
-  spend authority.
+  ciphertext — and nothing else. Viewing keys are decrypt-only; never spend.
 
-See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+### Security & threat model (summary)
+
+- **Soundness:** the pool fails closed — a non-verifying proof returns
+  `Err(InvalidProof)`; the verifier validates VK structure at registration and
+  rejects tampered/cross-circuit/wrong-input proofs (negative-tested).
+- **No double-spend:** per-entry persistent nullifiers; idempotent replays.
+- **No duplicate leaves:** the Merkle contract rejects a replayed commitment,
+  preserving scanner leaf→index injectivity.
+- **Anti-malleability:** transfer/withdraw bind a relayer/fee/recipient
+  `ext_data_hash` in-circuit, so a relayer cannot alter a proven transaction.
+- **Governance is observable:** VK rotation and verifier swaps emit audit events;
+  admin is intended to be a multisig/timelock.
+- **Keys:** spend / master-viewing / note-discovery authorities are separated;
+  viewing keys never carry spend authority; testnet-only, no mainnet keys.
+
+Benzo forks Nethermind's **stellar-private-payments** (ASP contracts, Poseidon2
+host wrappers, Groth16 verifier shape — Apache-2.0) and the canonical
+`soroban-examples/groth16_verifier`; circuits build on the tornado-nova join-split
+shape, re-expressed over Poseidon2 with Benzo's note model and compliance gates.
+Trusted setup is a Phase-2 multi-contribution ceremony (driver + transcript in
+`ceremony/`); Track B (UltraHonk) needs no ceremony.
 
 ---
 
-## Credits
+## Scope (sandbox now, credentials later)
 
-Forks the Nethermind **stellar-private-payments** PoC (ASP contracts, Poseidon2
-host wrappers, Groth16 verifier shape — Apache-2.0) and the canonical
-`soroban-examples/groth16_verifier`. Circuits build on tornado-nova's join-split
-shape, re-expressed over Poseidon2 with Benzo's note model and compliance gates.
+The hackathon corridor runs **100% on testnet with zero external accounts**:
+Mock KYC (no real identity, no PII), the self-hosted anchor for cash in/out, and
+Mock/keyless everything else. The commercial edges are real, env-keyed adapters
+behind the same interfaces, kept as clearly-labeled **FUTURE** integration points
+that require the provider's own account to activate — they are **not** used in the
+demo and imply no partnership:
 
-**Status:** testnet, unaudited. Not for production / real funds.
+- **On-ramp:** Stripe Crypto in **sandbox/test mode** (USDC-on-Stellar verified
+  against Stripe's docs); even sandbox requires an approved Stripe onramp
+  application. `benzo onramp` exercises it (Mock until a `sk_test_…` key is set).
+- **FUTURE (need accounts/partnerships):** Range / Human ID screening, Circle CCTP
+  V2 mainnet, MoneyGram / Alfred SEP-24 anchors, Dynamic/Privy login. Flip the
+  env key to go live — no protocol change. See `.env.example`.
+
+**Status:** testnet, unaudited. Not for production or real funds.
