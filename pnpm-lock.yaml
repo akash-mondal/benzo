@@ -8,6 +8,154 @@ importers:
 
   .: {}
 
+  apps/cli:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@benzo/links':
+        specifier: workspace:*
+        version: link:../../packages/links
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  apps/extension:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@benzo/links':
+        specifier: workspace:*
+        version: link:../../packages/links
+      '@benzo/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@benzo/prover':
+        specifier: workspace:*
+        version: link:../../packages/prover
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  apps/merchant:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@benzo/links':
+        specifier: workspace:*
+        version: link:../../packages/links
+      '@benzo/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@benzo/prover':
+        specifier: workspace:*
+        version: link:../../packages/prover
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  apps/paylink:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@benzo/links':
+        specifier: workspace:*
+        version: link:../../packages/links
+      '@benzo/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@benzo/prover':
+        specifier: workspace:*
+        version: link:../../packages/prover
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  apps/pos:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@benzo/links':
+        specifier: workspace:*
+        version: link:../../packages/links
+      '@benzo/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@benzo/prover':
+        specifier: workspace:*
+        version: link:../../packages/prover
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  apps/telegram:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@benzo/links':
+        specifier: workspace:*
+        version: link:../../packages/links
+      '@benzo/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@benzo/prover':
+        specifier: workspace:*
+        version: link:../../packages/prover
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
+  apps/web:
+    dependencies:
+      '@benzo/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@benzo/links':
+        specifier: workspace:*
+        version: link:../../packages/links
+      '@benzo/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      '@benzo/prover':
+        specifier: workspace:*
+        version: link:../../packages/prover
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.0
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+
   packages/anchor:
     dependencies:
       '@stellar/stellar-sdk':
