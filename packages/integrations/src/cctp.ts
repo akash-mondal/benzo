@@ -10,6 +10,10 @@
  *
  * This client owns that attestation step (the on-chain burn/mint are SDK calls
  * on each chain). Iris testnet (sandbox) needs no key; mainnet may.
+ *
+ * STATUS: testnet/sandbox is keyless, so this works as-is for the hackathon
+ * demo; the default is still MockCctp until you opt in. Mainnet CCTP (real
+ * cross-chain value) is FUTURE.
  */
 
 export type AttestationStatus = "pending" | "complete" | "failed";

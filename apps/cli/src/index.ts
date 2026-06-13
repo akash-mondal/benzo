@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { BenzoClient, StellarCli, configFromEnv, stroopsToUsdc } from "@benzo/core";
 import { encodeBenzoLink, parseBenzoLink } from "@benzo/links";
 import { AnchorClient, anchorConfigFromEnv } from "@benzo/anchor";
+import { onrampFromEnv } from "@benzo/integrations";
 
 const ROOT = process.env.BENZO_ROOT || process.cwd();
 const WALLET = process.env.BENZO_WALLET || join(homedir(), ".benzo", "account.json");
@@ -78,6 +79,7 @@ const HELP = `benzo — private USDC on Stellar (testnet)
   benzo disclose                        print an auditor view-key + reconstructed flows
   benzo cashin   --amount N             anchor deposit -> shield   (needs running anchor)
   benzo cashout  --amount N             unshield -> anchor withdraw (needs running anchor)
+  benzo onramp   [--to G..] [--amount N]  fiat->USDC onramp session (Stripe sandbox / Mock)
 `;
 
 async function main() {
@@ -155,6 +157,18 @@ async function main() {
     case "cashout": {
       const r = await c.cashOut({ amount: toStroops(String(f.amount)) });
       console.log(`cashout unshield=${r.unshieldTx} fiatOut=${r.fiatOutTx}`); break;
+    }
+    case "onramp": {
+      // Stripe (test mode) when STRIPE_SECRET_KEY is set, else Mock. Delivers
+      // USDC to a PUBLIC Stellar address (G..), which the user then shields.
+      const onramp = onrampFromEnv();
+      const to = String(f.to ?? process.env.DEPLOYER_PUBLIC);
+      const session = await onramp.createSession({ amount: f.amount ? String(f.amount) : undefined, address: to });
+      console.log(`onramp(${onramp.name}) -> ${session.url}`);
+      console.log(`  buy USDC on Stellar to ${to}  (session=${session.id})`);
+      if (onramp.name === "mock")
+        console.log("  note: Mock. After Stripe onramp-application approval, set STRIPE_SECRET_KEY=sk_test_… for the sandbox flow.");
+      break;
     }
     default:
       console.error(`unknown command: ${cmd}\n`); console.log(HELP); process.exit(1);

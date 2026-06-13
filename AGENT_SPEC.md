@@ -212,12 +212,22 @@ broadcaster, fee inside the proof; compliance = 0xbow state-tree + ASP + always-
 UX = Railgun visible user-gated proving with a time-boxed fee quote.
 
 ### Research-exec status
+
+SCOPE (hackathon = testnet + sandbox; NO real-world commitments). The corridor
+runs with every external integration BLANK: Mock KYC (no real KYC, no PII), Mock
+screening, Mock on-ramp, Mock CCTP, and the self-hosted anchor for cash in/out.
+The commercial adapters below are kept as clearly-labeled FUTURE integration
+points to show the design — they need partnerships/accounts we do NOT have and
+are NOT used in the demo. The only externally-keyed thing we actually intend to
+use is Stripe on-ramp in SANDBOX/TEST mode (and even that needs Stripe to approve
+an onramp application first).
+
 - [DONE] Note keys from one signed message — `accountFromSignedMessage` (@benzo/core), the Railgun pattern (the piece no WaaS provides).
-- [DONE] KYC adapter — `@benzo/kyc` (Didit, env-keyed; MockKyc key-free default), now WIRED into the anchor SEP-24 deposit gate (opens a SEP-12 session, fails-closed at settlement unless approved).
+- [DONE — Mock for hackathon] KYC — `@benzo/kyc` wired into the anchor SEP-24 deposit gate (opens a SEP-12 session, fails-closed unless approved). Default is MockKyc: NO real KYC, NO PII. DiditKyc is an optional FUTURE sandbox integration behind the same interface.
 - [ALREADY] On-chain events (pool publishes per commitment/ciphertext/nullifier); ASP non-membership MANDATORY at unshield (matches live deny-root); relayer is OZ/channel model (not Launchtube). View-tag fast path shipped (G4).
 - [DONE — ON TESTNET] Track B Noir → UltraHonk: real proof (Poseidon2 preimage) verified ON-CHAIN on Stellar testnet; tampered proof rejected (Contract Error #4, fail-closed). Pinned nargo 1.0.0-beta.9 + bb v0.87.0. Contract CBNKNOC45EEDNTBS2OWKXAVRKQRAKU4K3X6XTIMZ5BI5WISN7GDBZBBE, tx 52959d1d…. See docs/TRACK_B_ULTRAHONK.md. Benzo now has BOTH proving tracks proven on testnet (A: Groth16/BN254, B: UltraHonk).
-- [DONE — env-keyed adapters] `@benzo/integrations`: screening (Range + Human ID), on-ramp (Stripe Crypto), Circle CCTP V2 attestation client, SEP-24 anchor presets (MoneyGram, Alfred). Each has a real provider behind an env key + a key-free Mock + tests (20). Flip the env key to go live; no protocol change.
+- [SANDBOX] On-ramp — `@benzo/integrations` Stripe Crypto, TEST MODE only. Verified against Stripe docs: USDC on Stellar is supported (network `stellar`, currency `usdc`); params nest under `transaction_details[...]`. Test mode demos the card→buy-USDC UX; it does NOT settle real testnet USDC (that comes from the self-hosted anchor/friendbot). REQUIRES a Stripe onramp application + approval even for sandbox. CLI: `benzo onramp`. Default stays MockOnramp.
+- [FUTURE — not active] `@benzo/integrations` screening (Range + Human ID), Circle CCTP V2 (testnet attestation is keyless), SEP-24 presets MoneyGram + Alfred. Real providers behind env keys + key-free Mocks + tests (20), labeled FUTURE in-code. They need partnerships/accounts we don't have; the hackathon uses Mocks + the self-hosted anchor only.
 - [DONE] Sponsored reserves (CAP-33) — `@benzo/core` `sponsoredCreateAccountOps`/`sponsoredTrustlineOps`: zero-XLM gasless onboarding (sponsor pays the base reserve + trustline). Tests (3).
-- [NEEDS ACCOUNTS to go LIVE] The adapters above are built and tested with mocks; transacting for real needs the provider's account/allowlisting: Stripe key, Range key, Circle key, Human ID Soroban contract address, MoneyGram/Alfred partner onboarding.
 - [DONE — headless seam] Dynamic login — `loginWithSigner(signMessage)` (@benzo/core) ties ANY wallet's signer (Dynamic Tier-1, Privy, Para, passkey) to note-key derivation: sign NOTE_KEY_MESSAGE once → shielded account. Signer is injected, so it's built + tested now; the frontend only supplies the signer later. Tests (2).
 - [DONE — documented] SubQuery indexing backup — packages/indexer/README.md maps the pool's four contractevents (NewCommitment/NewNullifier/Shield/Withdraw) to a SubQuery project; the RPC poller is primary, SubQuery is the managed scale-out path (config swap, same client API).
