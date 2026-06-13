@@ -213,7 +213,7 @@ UX = Railgun visible user-gated proving with a time-boxed fee quote.
 
 ### Research-exec status
 - [DONE] Note keys from one signed message — `accountFromSignedMessage` (@benzo/core), the Railgun pattern (the piece no WaaS provides).
-- [DONE] KYC adapter — `@benzo/kyc` (Didit, env-keyed; MockKyc key-free default) ready behind the anchor SEP-12 flow.
+- [DONE] KYC adapter — `@benzo/kyc` (Didit, env-keyed; MockKyc key-free default), now WIRED into the anchor SEP-24 deposit gate (opens a SEP-12 session, fails-closed at settlement unless approved).
 - [ALREADY] On-chain events (pool publishes per commitment/ciphertext/nullifier); ASP non-membership MANDATORY at unshield (matches live deny-root); relayer is OZ/channel model (not Launchtube). View-tag fast path shipped (G4).
-- [VIABILITY] Track B UltraHonk verifier compiles on soroban-sdk 26; full on-chain deploy needs the Noir toolchain (nargo/bb) for fresh proofs.
+- [DONE — ON TESTNET] Track B Noir → UltraHonk: real proof (Poseidon2 preimage) verified ON-CHAIN on Stellar testnet; tampered proof rejected (Contract Error #4, fail-closed). Pinned nargo 1.0.0-beta.9 + bb v0.87.0. Contract CBNKNOC45EEDNTBS2OWKXAVRKQRAKU4K3X6XTIMZ5BI5WISN7GDBZBBE, tx 52959d1d…. See docs/TRACK_B_ULTRAHONK.md. Benzo now has BOTH proving tracks proven on testnet (A: Groth16/BN254, B: UltraHonk).
 - [NEEDS CREDS] Dynamic login (deferred frontend + env id), Stripe Onramp, Circle CCTP, MoneyGram, Range, Human ID — external accounts; wire when keys provided.
