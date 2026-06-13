@@ -166,3 +166,47 @@ curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash &
 
 **Community & infra**
 - Ecosystem Resources https://github.com/stellar/ecosystem-resources/ · Hackathon FAQ https://github.com/briwylde08/stellar-hackathon-faq · Ecosystem DB (find existing work first) https://github.com/lumenloop/stellar-ecosystem-db · Anchor Platform https://github.com/stellar/anchor-platform
+
+## Stack decisions (from research — adopt these)
+
+These supersede earlier picks where noted. Items marked (needs go) require external
+accounts, on-chain re-deploys, or the deferred frontend — do NOT execute autonomously.
+
+**Login (deferred frontend layer):** use **Dynamic** (Stellar = Tier-1 native) over Privy
+(Tier-2). No WaaS manages shielded NOTE keys — derive spend+view keys Railgun-style from
+ONE signed domain-separated message ("BENZO-NOTE-KEY-v1"); trivial on ed25519. Self-custody
+tier = OpenZeppelin `stellar-accounts` smart account (NOT the demo-only passkey-kit). (needs go)
+
+**Gasless:** **OpenZeppelin Relayer + Channels** — Launchtube is DEPRECATED (SDF redirects to
+OZ). Enforce fee-in-note inside the ZK circuit so the relayer never deanonymizes. (needs go — infra)
+
+**ZK proving:** Track A = current Groth16/BN254/Poseidon2 core (done, audited). Track B =
+**Noir + @aztec/bb.js UltraHonk** via the **indextree/ultrahonk_soroban_contract** verifier
+(BN254, works on P25 now) for 5–50× faster client/mobile proving, no per-circuit ceremony. (needs go — re-VK)
+
+**Indexing:** keep Mercury/Zephyr + client-side trial-decrypt; emit a REAL on-chain event per
+commitment/ciphertext/nullifier; view-tag prefilter already added (G4); **SubQuery** = free
+self-host backup; Galexie ledger-lake = deterministic rebuild backstop.
+
+**On-ramp (prod):** self-hosted SEP-24 now; add **Stripe Onramp** (native stellar+usdc) and
+**Circle CCTP V2** (live on Stellar since Mar 2025). Banxa/Alchemy Pay = fallbacks. (needs go)
+
+**Off-ramp (prod):** self-hosted now; add **MoneyGram Ramps** + **Alfred** (LatAm PIX/SPEI).
+Make the ASP non-membership proof MANDATORY at unshield; defend the exit with dwell time +
+standard denominations + relayer-pooled withdrawals. (needs go)
+
+**KYC/compliance:** keep the Nethermind ASP dual-tree model. Add **Didit** (500 free KYC/mo)
+behind SEP-12 for the corridor; **Range** for server-side stablecoin screening; **Human ID
+"Proof of Clean Hands"** (Holonym, native Soroban) as the ZK sanctions-screening v2. (needs go)
+
+**Overlooked Stellar-supported tools to use:** Dynamic, ymcrcat/soroban-privacy-pools,
+indextree UltraHonk verifier, Stripe Onramp, Circle CCTP V2, Didit, Human ID, Range, SubQuery,
+sponsored reserves (CAP-33) + channel accounts (users never need XLM), OZ Relayer x402 plugin,
+Alfred, @stellar/typescript-wallet-sdk, @stellar-ui-kit/web.
+
+**How industry does ZK (copy these mechanisms):** keys = Railgun one-signed-message derivation;
+on-ramp = public deposit, shield is the privacy boundary (no private on-ramp exists); off-ramp
+= Railgun PPOI recursive non-membership proof at exit; transfer = Tornado-Nova 2-in-2-out
+join-split; discovery = Railgun event-scan→Merkle→trial-decrypt + view tags; gasless = Railgun
+broadcaster, fee inside the proof; compliance = 0xbow state-tree + ASP + always-ragequit;
+UX = Railgun visible user-gated proving with a time-boxed fee quote.
