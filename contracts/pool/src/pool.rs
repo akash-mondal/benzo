@@ -535,6 +535,20 @@ impl BenzoPool {
         Ok(())
     }
 
+    /// Governed verifier rotation (BENZO §10.4 upgrade path). Points the pool
+    /// at a new (e.g. hardened-circuit) verifier without touching custody,
+    /// tree, or nullifier state. Admin-gated; a multisig in production.
+    pub fn set_verifier(env: Env, new_verifier: Address) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        env.storage().persistent().set(&DataKey::Verifier, &new_verifier);
+        Ok(())
+    }
+
+    /// The verifier contract this pool routes proofs to.
+    pub fn verifier(env: Env) -> Result<Address, Error> {
+        Self::get(&env, &DataKey::Verifier)
+    }
+
     // ========================================================== getters ====
 
     /// The asset domain tag bound into every note commitment.

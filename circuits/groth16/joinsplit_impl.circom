@@ -51,9 +51,16 @@ template JoinSplit(levels) {
     component inNullifier[nIns];
     component inTree[nIns];
     component inCheckRoot[nIns];
+    component inRange[nIns];
 
     var sumIns = 0;
     for (var tx = 0; tx < nIns; tx++) {
+        // Hardening: range-check every input amount to 64 bits. A malicious
+        // prover must not be able to feed a field-overflowing input amount to
+        // unbalance the value-conservation equation (sumIns can wrap mod p).
+        inRange[tx] = AmountCheck();
+        inRange[tx].amount <== inAmount[tx];
+
         inKeypair[tx] = BenzoKeypair();
         inKeypair[tx].spendSk <== inSpendSk[tx];
 

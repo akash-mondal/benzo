@@ -101,3 +101,44 @@ fn vk_registry_set_once_and_verify() {
 
     assert_eq!(client.verify_proof(&vk_id, &proof, &public_inputs), true);
 }
+
+#[test]
+fn rotate_vk_overwrites_for_governed_rotation() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(BenzoVerifier, (admin.clone(),));
+    let client = BenzoVerifierClient::new(&env, &contract_id);
+
+    let (vk, proof, public_inputs) = build_proof(&env);
+    let vk_id = Symbol::new(&env, "TRANSFER");
+    client.set_vk(&vk_id, &vk);
+    assert_eq!(client.verify_proof(&vk_id, &proof, &public_inputs), true);
+
+    // rotate_vk overwrites the existing key (the governed upgrade path).
+    // Rotating to a fresh setup's VK invalidates proofs under the old key.
+    let (vk2, proof2, publics2) = {
+        // independent setup => different VK
+        let mut rng = StdRng::seed_from_u64(123);
+        let a = ArkFr::from(8u64);
+        let b = ArkFr::from(9u64);
+        let circuit = MulCircuit { a, b };
+        let (pk, vk) =
+            Groth16::<Bn254>::circuit_specific_setup(circuit.clone(), &mut rng).expect("setup");
+        let proof = Groth16::<Bn254>::prove(&pk, circuit, &mut rng).expect("prove");
+        let ps = Groth16Proof {
+            a: G1Affine::from_bytes(BytesN::from_array(&env, &g1_bytes_from_ark(proof.a))),
+            b: G2Affine::from_bytes(BytesN::from_array(&env, &g2_bytes_from_ark(proof.b))),
+            c: G1Affine::from_bytes(BytesN::from_array(&env, &g1_bytes_from_ark(proof.c))),
+        };
+        let mut publics: Vec<Bn254Fr> = Vec::new(&env);
+        publics.push_back(fr_from_ark(&env, a * b));
+        (vk_bytes_from_ark(&env, &vk), ps, publics)
+    };
+    client.rotate_vk(&vk_id, &vk2);
+
+    // New key verifies its matching proof; the old proof no longer verifies.
+    assert_eq!(client.verify_proof(&vk_id, &proof2, &publics2), true);
+    let stale = client.try_verify_proof(&vk_id, &proof, &public_inputs);
+    assert!(stale.is_err(), "proof under the rotated-out key must fail");
+}

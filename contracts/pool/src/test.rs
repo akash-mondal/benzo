@@ -494,6 +494,25 @@ fn withdraw_pays_out_and_is_replay_safe() {
 }
 
 #[test]
+fn set_verifier_rotates_without_touching_state() {
+    let h = setup();
+    // Shield one note so the pool holds custody + tree state.
+    do_shield(&h, 5_000_000, 42);
+    let before_index = h.merkle.next_index();
+    let before_balance = h.token.balance(&h.pool_id);
+
+    // Rotate to a brand-new verifier (admin-gated). Custody + tree unchanged.
+    let env = &h.env;
+    let admin = Address::generate(env);
+    let new_verifier = env.register(benzo_verifier_groth16::BenzoVerifier, (admin,));
+    h.pool.set_verifier(&new_verifier);
+
+    assert_eq!(h.pool.verifier(), new_verifier);
+    assert_eq!(h.merkle.next_index(), before_index);
+    assert_eq!(h.token.balance(&h.pool_id), before_balance);
+}
+
+#[test]
 fn pause_blocks_ops() {
     let h = setup();
     h.pool.pause();
