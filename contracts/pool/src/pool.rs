@@ -246,7 +246,7 @@ impl BenzoPool {
         let token: Address = Self::get(&env, &DataKey::Token)?;
         TokenClient::new(&env, &token).transfer(
             &from,
-            &env.current_contract_address(),
+            env.current_contract_address(),
             &amount,
         );
 
