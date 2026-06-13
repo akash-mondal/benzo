@@ -78,6 +78,22 @@ impl BenzoVerifier {
         env.storage().persistent().has(&DataKey::Vk(vk_id))
     }
 
+    /// Governed verifying-key rotation (BENZO §7.5/§10.4 upgrade path).
+    ///
+    /// Distinct from `set_vk` (which is one-time-immutable): `rotate_vk`
+    /// overwrites an existing VK and is gated to the admin (a multisig in
+    /// production). Used to roll a hardened circuit's key without redeploying.
+    pub fn rotate_vk(env: Env, vk_id: Symbol, vk: VerificationKeyBytes) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .persistent()
+            .get(&DataKey::Admin)
+            .ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        env.storage().persistent().set(&DataKey::Vk(vk_id), &vk);
+        Ok(())
+    }
+
     /// Verify a Groth16 proof against the VK registered for `vk_id`.
     ///
     /// Returns `Ok(true)` iff the proof verifies; an invalid proof returns

@@ -179,6 +179,44 @@ describe("joinsplit circuit", () => {
     };
     await expect(prove(art("joinsplit"), toWitnessInput(bad))).rejects.toThrow();
   }, 120_000);
+
+  // Hardening (goal G): the 64-bit range check on INPUT amounts. This witness
+  // is fully self-consistent (membership, nullifier, value-conservation, and
+  // both outputs in 64-bit range) and WOULD have proven before the check —
+  // its only defect is an input amount of 2^64+10. It must now fail to prove.
+  it("rejects an out-of-range INPUT amount (2^64+10) that conserves value", async () => {
+    const tree = new MerkleTreeMirror(32);
+    const kp = deriveKeypair(2468n);
+    const OOR = 2n ** 64n + 10n; // out of 64-bit range
+    const inNote = { amount: OOR, recipientPk: kp.publicKey, blinding: 9090n, assetId: ASSET_ID };
+    const idx = tree.insert(noteCommitment(inNote));
+    const path = tree.path(idx);
+    const dummyKp = deriveKeypair(1357n);
+    // Split into two IN-RANGE outputs that sum (over the integers) to 2^64+10.
+    const half = 2n ** 63n; // < 2^64, in range
+    const out0 = { amount: half, recipientPk: kp.publicKey, blinding: 1n, assetId: ASSET_ID };
+    const out1 = { amount: half + 10n, recipientPk: kp.publicKey, blinding: 2n, assetId: ASSET_ID };
+
+    const witness = {
+      root: tree.root(),
+      assetId: ASSET_ID,
+      inputNullifier: [noteNullifier(2468n, BigInt(idx)), noteNullifier(1357n, 7n)],
+      outputCommitment: [noteCommitment(out0), noteCommitment(out1)],
+      fee: 0n,
+      extDataHash: 0x55n,
+      mvkTag: [mvkTag(1n, out0.blinding), mvkTag(1n, out1.blinding)],
+      inAmount: [OOR, 0n],
+      inSpendSk: [2468n, 1357n],
+      inBlinding: [inNote.blinding, 1n],
+      inPathIndices: [path.pathIndices, 7n],
+      inPathElements: [path.pathElements, new Array<bigint>(32).fill(0n)],
+      outAmount: [out0.amount, out1.amount],
+      outPubkey: [out0.recipientPk, out1.recipientPk],
+      outBlinding: [out0.blinding, out1.blinding],
+      outMvkPub: [1n, 1n],
+    };
+    await expect(prove(art("joinsplit"), toWitnessInput(witness))).rejects.toThrow();
+  }, 120_000);
 });
 
 describe("unshield circuit", () => {

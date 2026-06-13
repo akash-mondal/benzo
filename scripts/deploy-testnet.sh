@@ -75,8 +75,9 @@ say "registering verification keys"
 for c in shield:SHIELD joinsplit:TRANSFER unshield:UNSHIELD; do
   name=${c%%:*}; id=${c##*:}
   vkjson=$(node scripts/groth16-to-soroban.mjs vk "circuits/build/$name/${name}_vk.json")
-  stellar contract invoke --id "$VERIFIER" --source $SOURCE "${NET[@]}" -- set_vk --vk_id "$id" --vk "$vkjson" >/dev/null
-  say "set_vk $id ok"
+  vktx=$(stellar contract invoke --id "$VERIFIER" --source $SOURCE "${NET[@]}" -- set_vk --vk_id "$id" --vk "$vkjson" 2>&1 | grep -oE 'Signing transaction: [0-9a-f]{64}' | grep -oE '[0-9a-f]{64}')
+  say "set_vk $id  tx $vktx"
+  say "  https://stellar.expert/explorer/testnet/tx/$vktx"
 done
 
 # One-time: the relayer needs a USDC trustline to receive its USDC fee.
