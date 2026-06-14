@@ -9,6 +9,7 @@ members = [
     "contracts/asp_non_membership",
     "contracts/viewkey_anchor",
     "contracts/handle_registry",
+    "contracts/request_registry",
     "contracts/pool",
     "circuits/poseidon_params/zkhash",
 ]
@@ -34,6 +35,7 @@ asp-non-membership = { path = "contracts/asp_non_membership" }
 benzo-merkle = { path = "contracts/merkle" }
 benzo-nullifier-set = { path = "contracts/nullifier_set" }
 benzo-pool = { path = "contracts/pool" }
+benzo-request-registry = { path = "contracts/request_registry" }
 benzo-verifier-groth16 = { path = "contracts/verifier_groth16" }
 benzo-viewkey-anchor = { path = "contracts/viewkey_anchor" }
 cfg-if = { version = "1", default-features = false }
