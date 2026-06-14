@@ -547,3 +547,92 @@ fn pause_blocks_ops() {
     assert_eq!(res, Err(Ok(Error::Paused)));
     h.pool.unpause();
 }
+
+/// Turnstile backstop: a withdrawal exceeding the net shielded supply is
+/// rejected even with a VALID proof — so a forged proof / circuit-soundness bug
+/// can never drain more than was actually deposited (Zcash turnstile invariant).
+#[test]
+fn withdraw_exceeding_supply_is_rejected_by_turnstile() {
+    let h = setup();
+    do_shield(&h, 5_000_000, 42); // net supply = 5 USDC
+    assert_eq!(h.pool.total_shielded(), 5_000_000);
+    let env = &h.env;
+
+    let recipient = Address::generate(env);
+    let root = h.merkle.current_root();
+    let nullifier = u256_from_u32(env, 905);
+    let change = u256_from_u32(env, 906);
+    let amount: i128 = 9_000_000; // > the 5 USDC supply
+    let deny_root = h.asp_non_membership.get_root();
+    let ct = Bytes::from_array(env, &[5u8; 8]);
+    let ext = h.pool.withdraw_ext_hash(&recipient, &ct, &ct);
+    #[allow(clippy::cast_sign_loss)]
+    let publics = [
+        root.clone(),
+        h.pool.asset_id(),
+        nullifier.clone(),
+        U256::from_u128(env, amount as u128),
+        change.clone(),
+        ext,
+        deny_root.clone(),
+        u256_from_u32(env, 71),
+    ];
+    let proof = prove(env, &h.unshield_pk, &publics); // a VALID proof for the over-amount
+
+    let before = h.token.balance(&recipient);
+    let res = h.pool.try_withdraw(
+        &h.user,
+        &root,
+        &nullifier,
+        &change,
+        &amount,
+        &recipient,
+        &u256_from_u32(env, 71),
+        &ct,
+        &ct,
+        &deny_root,
+        &proof,
+    );
+    assert_eq!(res, Err(Ok(Error::InsufficientPoolSupply)));
+    // No payout, supply untouched, and the nullifier is NOT spent (revertable).
+    assert_eq!(h.token.balance(&recipient), before);
+    assert_eq!(h.pool.total_shielded(), 5_000_000);
+    assert!(!h.nullifiers.is_spent(&nullifier));
+}
+
+/// total_shielded tracks net supply: deposits add, a valid withdrawal subtracts.
+#[test]
+fn total_shielded_tracks_net_supply() {
+    let h = setup();
+    assert_eq!(h.pool.total_shielded(), 0);
+    do_shield(&h, 10_000_000, 42);
+    do_shield(&h, 3_000_000, 43);
+    assert_eq!(h.pool.total_shielded(), 13_000_000);
+
+    let env = &h.env;
+    let recipient = Address::generate(env);
+    let root = h.merkle.current_root();
+    let nullifier = u256_from_u32(env, 910);
+    let change = u256_from_u32(env, 911);
+    let amount: i128 = 4_000_000;
+    let deny_root = h.asp_non_membership.get_root();
+    let ct = Bytes::from_array(env, &[5u8; 8]);
+    let ext = h.pool.withdraw_ext_hash(&recipient, &ct, &ct);
+    #[allow(clippy::cast_sign_loss)]
+    let publics = [
+        root.clone(),
+        h.pool.asset_id(),
+        nullifier.clone(),
+        U256::from_u128(env, amount as u128),
+        change.clone(),
+        ext,
+        deny_root.clone(),
+        u256_from_u32(env, 71),
+    ];
+    let proof = prove(env, &h.unshield_pk, &publics);
+    h.pool.withdraw(
+        &h.user, &root, &nullifier, &change, &amount, &recipient,
+        &u256_from_u32(env, 71), &ct, &ct, &deny_root, &proof,
+    );
+    assert_eq!(h.pool.total_shielded(), 9_000_000); // 13 − 4
+}

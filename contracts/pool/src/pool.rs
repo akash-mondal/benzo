@@ -42,6 +42,8 @@ pub enum Error {
     Paused = 10,
     /// Arithmetic overflow occurred
     Overflow = 11,
+    /// Withdrawal would exceed the net shielded supply (turnstile backstop).
+    InsufficientPoolSupply = 12,
 }
 
 /// Storage keys for pool persistent state.
@@ -60,6 +62,8 @@ pub(crate) enum DataKey {
     ViewkeyAnchor,
     MaximumDepositAmount,
     IsPaused,
+    /// Net shielded supply (Σ deposits − Σ withdrawals) — the turnstile backstop.
+    TotalShielded,
 }
 
 // ---- cross-contract clients ----
@@ -259,6 +263,18 @@ impl BenzoPool {
             env.current_contract_address(),
             &amount,
         );
+
+        // Turnstile: track net shielded supply so withdrawals can never exceed
+        // deposits — bounds the blast radius of any undiscovered circuit-soundness
+        // bug to actually-deposited funds (the Zcash turnstile invariant).
+        let total: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalShielded)
+            .unwrap_or(0);
+        let total = total.checked_add(amount).ok_or(Error::Overflow)?;
+        env.storage().persistent().set(&DataKey::TotalShielded, &total);
+        soroban_utils::bump_persistent(&env, &DataKey::TotalShielded);
 
         // Insert the note and record the compliance binding.
         let merkle: Address = Self::get(&env, &DataKey::MerkleTree)?;
@@ -491,6 +507,22 @@ impl BenzoPool {
 
         Self::verify(&env, VK_UNSHIELD, &proof, &public_inputs)?;
 
+        // Turnstile: a withdrawal can never exceed the net shielded supply. With
+        // sound circuits this is always satisfied; if it ever isn't, it caps the
+        // damage of a forged proof to the funds actually deposited (no mint).
+        let total: i128 = env
+            .storage()
+            .persistent()
+            .get(&DataKey::TotalShielded)
+            .unwrap_or(0);
+        if amount > total {
+            return Err(Error::InsufficientPoolSupply);
+        }
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalShielded, &(total - amount));
+        soroban_utils::bump_persistent(&env, &DataKey::TotalShielded);
+
         // Spend, insert change, release funds.
         ns.spend(&nullifier);
         NewNullifierEvent {
@@ -574,6 +606,16 @@ impl BenzoPool {
     /// keccak256(address XDR) mod p.
     pub fn address_scalar(env: Env, address: Address) -> U256 {
         Self::address_to_scalar(&env, &address)
+    }
+
+    /// Net shielded supply (Σ deposits − Σ withdrawals). Invariant: the pool's
+    /// custodied USDC balance is always ≥ this, and a withdrawal can never
+    /// exceed it (the turnstile backstop).
+    pub fn total_shielded(env: Env) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::TotalShielded)
+            .unwrap_or(0)
     }
 
     /// Ext-data hash for a transfer (binds relayer, fee, and ciphertexts).
