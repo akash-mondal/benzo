@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { BenzoClient, StellarCli, NodeProver, createOrLoadAccountFile, configFromEnv, stroopsToUsdc } from "@benzo/core";
+import { BenzoClient, StellarCli, NodeProver, createOrLoadAccountFile, sponsoredOnboard, configFromEnv, stroopsToUsdc } from "@benzo/core";
 import { parseBenzoLink } from "@benzo/links";
 import { AnchorClient, anchorConfigFromEnv } from "@benzo/anchor";
 import { onrampFromEnv } from "@benzo/integrations";
@@ -116,6 +116,7 @@ const HELP = `benzo — private USDC on Stellar (testnet)
   benzo request mark-paid --id ID --nullifier N --amount N   close request vs a real payment
   benzo request status  --id ID                    on-chain request status
   benzo request cancel  --id ID  |  expire --id ID
+  benzo onboard                         create a fresh account at 0 XLM w/ sponsored USDC trustline
   benzo cashin   --amount N             anchor deposit -> shield   (needs running anchor)
   benzo cashout  --amount N             unshield -> anchor withdraw (needs running anchor)
   benzo onramp   [--to G..] [--amount N]  fiat->USDC onramp session (Stripe sandbox / Mock)
@@ -272,6 +273,19 @@ async function main() {
         console.log("usage: benzo request create|pay|mark-paid|status|cancel|expire");
       }
       break;
+    }
+    case "onboard": {
+      // Create a fresh account at 0 XLM with a sponsored USDC trustline — the
+      // sponsor (deployer) pays both reserves; the new user funds nothing.
+      const r = await sponsoredOnboard({
+        horizonUrl: process.env.HORIZON_URL ?? "https://horizon-testnet.stellar.org",
+        networkPassphrase: process.env.NETWORK_PASSPHRASE!,
+        sponsorSecret: process.env.DEPLOYER_SECRET!,
+        asset: { code: process.env.USDC_CODE!, issuer: process.env.USDC_ISSUER! },
+      });
+      console.log(`onboarded ${r.publicKey}  (0 XLM, USDC trustline — reserves sponsored)`);
+      console.log(`  tx=${r.txHash}`);
+      console.log(`  secret=${r.secret}  (store securely)`); break;
     }
     case "cashin": {
       const r = await c.cashIn({ amount: toStroops(String(f.amount)), fromSource: "benzo-deployer" });
