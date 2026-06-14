@@ -86,6 +86,12 @@ say "ensuring relayer USDC trustline"
 stellar tx new change-trust --source benzo-relayer "${NET[@]}" \
   --line "$USDC_CODE:$USDC_ISSUER" 2>/dev/null || say "  (relayer trustline already present)"
 
+# Provenance: pin the source commit, deploy time, and the sha256 of each
+# deployed wasm so the on-chain bytecode is reproducibly verifiable.
+COMMIT=$(git rev-parse HEAD 2>/dev/null || echo unknown)
+DEPLOYED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+wasmhash() { shasum -a 256 "$W/$1" 2>/dev/null | awk '{print $1}' || sha256sum "$W/$1" | awk '{print $1}'; }
+
 mkdir -p deployments
 cat > deployments/testnet.json <<EOF
 {
@@ -102,7 +108,20 @@ cat > deployments/testnet.json <<EOF
   "pool": "$POOL",
   "treeLevels": $TREE_LEVELS,
   "aspLevels": $ASP_LEVELS,
-  "smtLevels": 16
+  "smtLevels": 16,
+  "provenance": {
+    "commit": "$COMMIT",
+    "deployedAt": "$DEPLOYED_AT",
+    "wasmSha256": {
+      "verifier": "$(wasmhash benzo_verifier_groth16.wasm)",
+      "merkle": "$(wasmhash benzo_merkle.wasm)",
+      "nullifierSet": "$(wasmhash benzo_nullifier_set.wasm)",
+      "aspMembership": "$(wasmhash asp_membership.wasm)",
+      "aspNonMembership": "$(wasmhash asp_non_membership.wasm)",
+      "viewkeyAnchor": "$(wasmhash benzo_viewkey_anchor.wasm)",
+      "pool": "$(wasmhash benzo_pool.wasm)"
+    }
+  }
 }
 EOF
 say "wrote deployments/testnet.json"
