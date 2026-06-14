@@ -58,7 +58,7 @@ import { feHex } from "./crypto/groth16.js";
 import { proveBalance as generateBalanceProof, selectNotesForBalance } from "./balance.js";
 import type { ProveResult, ProverPort } from "./prover.js";
 import { encodeBenzoLink, parseBenzoLink } from "@benzo/links";
-import { randomBytes } from "node:crypto";
+import { randomBytes } from "./crypto/random.js";
 
 /** A recipient's public, shareable address (no spend authority). */
 export interface BenzoRecipient {
