@@ -7,7 +7,7 @@
  * and circuit artifacts from BENZO_ROOT (default: cwd). Env is loaded from .env
  * by the caller (`set -a; . ./.env; set +a`).
  */
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { BenzoClient, StellarCli, NodeProver, configFromEnv, stroopsToUsdc } from "@benzo/core";
@@ -17,6 +17,30 @@ import { onrampFromEnv } from "@benzo/integrations";
 
 const ROOT = process.env.BENZO_ROOT || process.cwd();
 const WALLET = process.env.BENZO_WALLET || join(homedir(), ".benzo", "account.json");
+const STATE = process.env.BENZO_STATE || join(dirname(WALLET), "state.json");
+
+/**
+ * Durable note-discovery + journal store, backed by a single JSON file.
+ * Writes go through a temp-file + atomic rename so a crash never corrupts it.
+ */
+class FileKVStore {
+  constructor(private readonly path: string) {}
+  private read(): Record<string, string> {
+    try { return JSON.parse(readFileSync(this.path, "utf8")) as Record<string, string>; }
+    catch { return {}; }
+  }
+  async get(key: string): Promise<string | null> {
+    return this.read()[key] ?? null;
+  }
+  async set(key: string, value: string): Promise<void> {
+    const m = this.read();
+    m[key] = value;
+    mkdirSync(dirname(this.path), { recursive: true });
+    const tmp = `${this.path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(m));
+    renameSync(tmp, this.path);
+  }
+}
 const toStroops = (n: string) => BigInt(Math.round(Number(n) * 1e7));
 const jstr = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
 
@@ -54,6 +78,7 @@ function makeClient(opts: { relayer?: boolean } = {}): BenzoClient {
     relayer: opts.relayer ? { source: "benzo-relayer", address: process.env.RELAYER_PUBLIC! } : undefined,
     handleRegistry: dep.handleRegistry,
     requestRegistry: dep.requestRegistry,
+    store: new FileKVStore(STATE),
   });
 }
 
@@ -271,6 +296,8 @@ async function main() {
     default:
       console.error(`unknown command: ${cmd}\n`); console.log(HELP); process.exit(1);
   }
+
+  await c.flush(); // ensure durable note-discovery + journal writes land before exit
 }
 
 main()

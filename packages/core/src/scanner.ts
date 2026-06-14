@@ -41,6 +41,30 @@ export interface DiscoveredNote {
   plain: NotePlain;
 }
 
+/** Durable, resumable scanner state (bigints/bytes encoded as strings/hex). */
+export interface ScannerSnapshot {
+  v: 1;
+  cursorLedger: number;
+  commitments: Array<{
+    leafIndex: number;
+    commitment: string;
+    ciphertext: string;
+    mvkTag: string;
+    ledger: number;
+    ts: number;
+    txHash: string;
+  }>;
+  nullifiers: string[];
+  mvkBindings: Array<{ tag: string; mvkCt: string; ledger: number }>;
+}
+
+/** Durable ASP allow-set state: ordered leaves + the last-scanned ledger. */
+export interface AspSnapshot {
+  v: 1;
+  cursorLedger: number;
+  leaves: string[];
+}
+
 function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, "hex"));
 }
@@ -109,6 +133,57 @@ export class NoteScanner {
 
   isSpent(nullifier: bigint): boolean {
     return this.nullifiers.has(nullifier.toString());
+  }
+
+  /** Serialize the scanner's discovered state for durable, incremental resume. */
+  snapshot(): ScannerSnapshot {
+    return {
+      v: 1,
+      cursorLedger: this.cursorLedger,
+      commitments: this.commitments
+        .filter((r): r is CommitmentRecord => !!r)
+        .map((r) => ({
+          leafIndex: r.leafIndex,
+          commitment: r.commitment.toString(),
+          ciphertext: Buffer.from(r.ciphertext).toString("hex"),
+          mvkTag: r.mvkTag.toString(),
+          ledger: r.ledger,
+          ts: r.ts,
+          txHash: r.txHash,
+        })),
+      nullifiers: [...this.nullifiers],
+      mvkBindings: this.mvkBindings.map((b) => ({
+        tag: b.tag.toString(),
+        mvkCt: Buffer.from(b.mvkCt).toString("hex"),
+        ledger: b.ledger,
+      })),
+    };
+  }
+
+  /** Rebuild a scanner (commitments, nullifiers, bindings, Merkle tree) from a snapshot. */
+  static restore(treeLevels: number, snap: ScannerSnapshot): NoteScanner {
+    const s = new NoteScanner(treeLevels, snap.cursorLedger);
+    for (const c of snap.commitments) {
+      s.commitments[c.leafIndex] = {
+        leafIndex: c.leafIndex,
+        commitment: BigInt(c.commitment),
+        ciphertext: hexToBytes(c.ciphertext),
+        mvkTag: BigInt(c.mvkTag),
+        ledger: c.ledger,
+        ts: c.ts,
+        txHash: c.txHash,
+      };
+    }
+    // Rebuild the incremental Merkle tree by inserting commitments in leaf order.
+    for (let i = 0; i < s.commitments.length; i++) {
+      const rec = s.commitments[i];
+      if (rec) s.tree.insert(rec.commitment);
+    }
+    for (const n of snap.nullifiers) s.nullifiers.add(n);
+    for (const b of snap.mvkBindings) {
+      s.mvkBindings.push({ tag: BigInt(b.tag), mvkCt: hexToBytes(b.mvkCt), ledger: b.ledger });
+    }
+    return s;
   }
 
   /** Pool-tree leaves in leaf-index order (to rebuild a mirror). */
@@ -183,21 +258,52 @@ function cursorLedger(cursor: string | undefined): number {
   return Number(BigInt(cursor.split("-")[0]) >> 32n);
 }
 
+/** One getEvents POST with bounded exponential-backoff retry + timeout. */
+async function getEventsRpc(
+  rpcUrl: string,
+  params: Record<string, unknown>,
+): Promise<{ result?: EventsPage; error?: { message: string } }> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 250 * 2 ** (attempt - 1)));
+    try {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 20_000);
+      try {
+        const res = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getEvents", params }),
+          signal: ctl.signal,
+        });
+        if (res.status >= 500 || res.status === 429) {
+          lastErr = new Error(`getEvents HTTP ${res.status}`);
+          continue; // transient — retry
+        }
+        return (await res.json()) as { result?: EventsPage; error?: { message: string } };
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (e) {
+      lastErr = e; // network/timeout — retry
+    }
+  }
+  throw new Error(`getEvents failed after retries: ${String(lastErr)}`);
+}
+
 /** Collect ALL contract events across the RPC retention window (cursor-paged). */
 export async function collectEvents(
   rpcUrl: string,
   contractIds: string[],
   startLedger: number,
 ): Promise<RpcEvent[]> {
-  const post = (params: Record<string, unknown>) =>
-    fetch(rpcUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getEvents", params }),
-    }).then((r) => r.json() as Promise<{ result?: EventsPage; error?: { message: string } }>);
+  const post = (params: Record<string, unknown>) => getEventsRpc(rpcUrl, params);
 
   const filters = [{ type: "contract", contractIds }];
   let json = await post({ startLedger, filters, pagination: { limit: 10000 } });
+  // If startLedger has aged out of the retention window, RPC returns a range
+  // error naming the oldest retained ledger; restart from there (explicit, not
+  // silent — a durable store keeps anything that aged out from a prior sync).
   for (let attempt = 0; attempt < 6 && json.error; attempt++) {
     const m = /(\d+)\s*-\s*(\d+)/.exec(json.error.message);
     if (!m) break;
@@ -245,9 +351,30 @@ export async function fetchAspLeaves(
   aspContractId: string,
   startLedger: number,
 ): Promise<bigint[]> {
+  return (await fetchAspLeavesSince(rpcUrl, aspContractId, startLedger, [])).leaves;
+}
+
+/**
+ * Incremental ASP allow-set fetch: merge new LeafAdded events (from
+ * `startLedger`) into `prior` ordered leaves, returning the merged ordered
+ * list plus the highest ledger seen (the resume cursor). The allow-set is
+ * append-only and index-addressed, so a durable caller persists `{leaves,
+ * cursor}` and resumes from `cursor + 1` — never re-fetching the whole set.
+ */
+export async function fetchAspLeavesSince(
+  rpcUrl: string,
+  aspContractId: string,
+  startLedger: number,
+  prior: bigint[],
+): Promise<{ leaves: bigint[]; cursor: number }> {
   const events = await collectEvents(rpcUrl, [aspContractId], startLedger);
   const byIndex = new Map<number, bigint>();
+  prior.forEach((l, i) => {
+    byIndex.set(i, l);
+  });
+  let cursor = startLedger > 0 ? startLedger - 1 : 0;
   for (const ev of events) {
+    if (ev.ledger > cursor) cursor = ev.ledger;
     const name = scValToNative(xdr.ScVal.fromXDR(ev.topic[0], "base64"));
     if (name !== "LeafAdded") continue;
     const v = scValToNative(xdr.ScVal.fromXDR(ev.value, "base64")) as Record<string, unknown>;
@@ -260,5 +387,5 @@ export async function fetchAspLeaves(
     if (leaf === undefined) throw new Error(`ASP leaf index ${i} missing from events`);
     leaves.push(leaf);
   }
-  return leaves;
+  return { leaves, cursor };
 }

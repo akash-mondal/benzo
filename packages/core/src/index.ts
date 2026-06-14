@@ -25,6 +25,7 @@ export * from "./stellar.js";
 export * from "./reserves.js";
 export * from "./balance.js";
 export * from "./scanner.js";
+export * from "./store.js";
 export * from "./pool.js";
 export * from "./account.js";
 export * from "./client.js";
