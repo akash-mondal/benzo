@@ -302,6 +302,9 @@ importers:
       '@benzo/core':
         specifier: workspace:*
         version: link:../core
+      '@stellar/stellar-sdk':
+        specifier: ^13.0.0
+        version: 13.3.0
     devDependencies:
       '@types/node':
         specifier: ^20.14.0

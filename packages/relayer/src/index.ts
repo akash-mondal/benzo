@@ -12,7 +12,8 @@
  * BENZO.md §7.4, implemented self-hosted with the Stellar CLI.
  */
 
-import type { StellarCli } from "@benzo/core";
+import { completeSponsoredOnboard, type InvokeResult, type StellarCli } from "@benzo/core";
+import { Keypair } from "@stellar/stellar-sdk";
 
 export interface TransferRelayRequest {
   /** the relayer's CLI identity / channel account (pays the XLM fee) */
@@ -72,4 +73,56 @@ export class BenzoRelayer {
     });
     return { txHash: res.txHash, raw: res.raw };
   }
+}
+
+// --------------------------------------------------------------- browser ----
+// Browser-safe clients (fetch only) for the wallet to call the relayer/sponsor
+// HTTP service. No node deps — safe to bundle into the PWA.
+
+/**
+ * A ChainClient `submitWrite` that POSTs a proven write (only `transfer`) to the
+ * relayer service. Plug into StellarRpcClient so the browser's gasless sends are
+ * submitted by the relayer (which pays the fee) without the user holding XLM.
+ */
+export function relayerSubmitter(baseUrl: string) {
+  return async (opts: {
+    contractId: string;
+    source: string;
+    fnArgs: string[];
+  }): Promise<InvokeResult> => {
+    const res = await fetch(`${baseUrl.replace(/\/$/, "")}/relay`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(opts),
+    });
+    if (!res.ok) throw new Error(`relay failed: ${res.status} ${await res.text()}`);
+    const j = (await res.json()) as { result?: unknown; txHash?: string; raw?: string };
+    return { result: j.result ?? null, txHash: j.txHash, raw: j.raw ?? "" };
+  };
+}
+
+/**
+ * Non-custodial onboarding from the browser: the wallet generates its own
+ * keypair, the sponsor service co-signs the create+trustline tx, and the wallet
+ * adds its signature and submits. The server never sees the user's secret.
+ */
+export async function onboardViaSponsor(
+  baseUrl: string,
+  params: { newAccountSecret: string; horizonUrl: string; networkPassphrase: string },
+): Promise<{ txHash: string; publicKey: string }> {
+  const publicKey = Keypair.fromSecret(params.newAccountSecret).publicKey();
+  const res = await fetch(`${baseUrl.replace(/\/$/, "")}/sponsor/onboard`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ newAccountPublic: publicKey }),
+  });
+  if (!res.ok) throw new Error(`onboard failed: ${res.status} ${await res.text()}`);
+  const { xdr } = (await res.json()) as { xdr: string };
+  const done = await completeSponsoredOnboard({
+    horizonUrl: params.horizonUrl,
+    networkPassphrase: params.networkPassphrase,
+    xdr,
+    newAccountSecret: params.newAccountSecret,
+  });
+  return { txHash: done.txHash, publicKey };
 }
