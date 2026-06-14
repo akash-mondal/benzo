@@ -19,7 +19,15 @@ import {
   type CircuitSet,
   type SpendableNote,
 } from "./pool.js";
-import { NoteScanner, syncFromRpc, fetchAspLeaves } from "./scanner.js";
+import {
+  NoteScanner,
+  syncFromRpc,
+  fetchAspLeaves,
+  fetchAspLeavesSince,
+  type ScannerSnapshot,
+  type AspSnapshot,
+} from "./scanner.js";
+import type { KVStore } from "./store.js";
 import {
   type Note,
   aspLeaf,
@@ -165,6 +173,14 @@ export interface BenzoClientOptions {
   handleRegistry?: string;
   /** optional on-chain request/invoice registry (the pull primitive) */
   requestRegistry?: string;
+  /**
+   * optional durable store for incremental, restart-safe note discovery + the
+   * transaction journal. When present, sync() resumes from a persisted cursor
+   * (instead of re-scanning from ledger 1) and balances/history survive a
+   * restart and the RPC event-retention window. When absent, sync() re-scans
+   * from genesis each call (correct, just not incremental).
+   */
+  store?: KVStore;
 }
 
 /** 32-byte big-endian hex of a field element (guarded; for the registry record). */
@@ -214,9 +230,19 @@ export class BenzoClient {
 
   // ----------------------------------------------------------- account ----
 
+  /** Reset per-account in-memory + durable-load state when the account changes. */
+  private resetAccountState(): void {
+    this.stateLoaded = false;
+    this.journal = [];
+    this.aspLeaves = [];
+    this.aspCursor = 0;
+    this.scanner = new NoteScanner(this.opts.deployment.treeLevels, 1);
+  }
+
   /** Create a fresh in-memory account (no file). */
   createAccount(label?: string, stellarSecret?: string): BenzoAccount {
     this.account = createAccount({ label, stellarSecret });
+    this.resetAccountState();
     return this.account;
   }
 
@@ -227,12 +253,14 @@ export class BenzoClient {
   ): { account: BenzoAccount; created: boolean } {
     const r = createOrLoadAccountFile(path, opts);
     this.account = r.account;
+    this.resetAccountState();
     return r;
   }
 
   /** Adopt an externally constructed account (e.g. derived from a claim secret). */
   useAccount(account: BenzoAccount): void {
     this.account = account;
+    this.resetAccountState();
   }
 
   /** This account's public, shareable payment address. */
@@ -247,14 +275,82 @@ export class BenzoClient {
     return this.assetIdCache;
   }
 
-  /** Rebuild the scanner + Merkle/ASP mirrors from on-chain events. */
+  /**
+   * Rebuild the scanner + Merkle/ASP mirrors from on-chain events. With a
+   * durable store this is incremental (resume from the persisted cursor) and
+   * restart-safe; without one it re-scans from genesis each call.
+   */
   async sync(): Promise<void> {
-    const { rpcUrl, deployment } = this.opts;
-    this.scanner = new NoteScanner(deployment.treeLevels, 1);
-    await syncFromRpc(this.scanner, rpcUrl, [deployment.pool, deployment.viewkeyAnchor], 1);
+    const { rpcUrl, deployment, store } = this.opts;
+    if (!store) {
+      // No durable store: full re-scan from genesis (correct, not incremental).
+      this.scanner = new NoteScanner(deployment.treeLevels, 1);
+      await syncFromRpc(this.scanner, rpcUrl, [deployment.pool, deployment.viewkeyAnchor], 1);
+      this.pool.poolRebuild(this.scanner.orderedLeaves());
+      const aspLeaves = await fetchAspLeaves(rpcUrl, deployment.aspMembership, 1);
+      this.pool.aspRebuild(aspLeaves);
+      return;
+    }
+
+    await this.loadStateOnce();
+
+    // Pool + viewkey-anchor: resume the scanner from its persisted cursor so we
+    // only fetch the delta; the durable snapshot keeps anything that has since
+    // aged out of the RPC retention window.
+    const poolFrom = this.scanner.cursorLedger > 0 ? this.scanner.cursorLedger + 1 : 1;
+    await syncFromRpc(this.scanner, rpcUrl, [deployment.pool, deployment.viewkeyAnchor], poolFrom);
+    await store.set(this.key("scan"), JSON.stringify(this.scanner.snapshot()));
     this.pool.poolRebuild(this.scanner.orderedLeaves());
-    const aspLeaves = await fetchAspLeaves(rpcUrl, deployment.aspMembership, 1);
-    this.pool.aspRebuild(aspLeaves);
+
+    // ASP allow-set: same incremental, persisted resume.
+    const aspFrom = this.aspCursor > 0 ? this.aspCursor + 1 : 1;
+    const asp = await fetchAspLeavesSince(rpcUrl, deployment.aspMembership, aspFrom, this.aspLeaves);
+    this.aspLeaves = asp.leaves;
+    this.aspCursor = asp.cursor;
+    const aspSnap: AspSnapshot = {
+      v: 1,
+      cursorLedger: this.aspCursor,
+      leaves: this.aspLeaves.map(String),
+    };
+    await store.set(this.key("asp"), JSON.stringify(aspSnap));
+    this.pool.aspRebuild(this.aspLeaves);
+  }
+
+  // ----------------------------------------------------- persistence ------
+
+  private stateLoaded = false;
+  private aspLeaves: bigint[] = [];
+  private aspCursor = 0;
+  private persistChain: Promise<void> = Promise.resolve();
+
+  /** Store keys are namespaced by the active account's public view key. */
+  private key(kind: string): string {
+    const ns = Buffer.from(this.account.viewPub).toString("hex").slice(0, 16);
+    return `benzo:${ns}:${kind}`;
+  }
+
+  /** Load persisted scanner snapshot, ASP set, and journal once per account. */
+  private async loadStateOnce(): Promise<void> {
+    const { store, deployment } = this.opts;
+    if (!store || this.stateLoaded) return;
+    const scanRaw = await store.get(this.key("scan"));
+    this.scanner = scanRaw
+      ? NoteScanner.restore(deployment.treeLevels, JSON.parse(scanRaw) as ScannerSnapshot)
+      : new NoteScanner(deployment.treeLevels, 1);
+    const aspRaw = await store.get(this.key("asp"));
+    if (aspRaw) {
+      const snap = JSON.parse(aspRaw) as AspSnapshot;
+      this.aspLeaves = snap.leaves.map((s) => BigInt(s));
+      this.aspCursor = snap.cursorLedger;
+    }
+    const journalRaw = await store.get(this.key("journal"));
+    if (journalRaw) this.journal = JSON.parse(journalRaw) as HistoryItem[];
+    this.stateLoaded = true;
+  }
+
+  /** Await all pending durable writes (call before process exit). */
+  async flush(): Promise<void> {
+    await this.persistChain;
   }
 
   // ----------------------------------------------------- balance/history --
@@ -308,6 +404,14 @@ export class BenzoClient {
 
   private record(item: HistoryItem): void {
     this.journal.push(item);
+    const store = this.opts.store;
+    if (store) {
+      // Snapshot now; serialize writes through the persist chain (no races).
+      const snapshot = JSON.stringify(this.journal);
+      this.persistChain = this.persistChain
+        .then(() => store.set(this.key("journal"), snapshot))
+        .catch(() => {});
+    }
   }
 
   // ------------------------------------------------------------ shield ----

@@ -10,7 +10,7 @@
  * (their Merkle-root check is disabled in-circuit).
  */
 
-import { MerkleTreeMirror } from "./merkle.js";
+import type { MerkleTreeMirror } from "./merkle.js";
 import { verifyLocal, toWitnessInput, type CircuitArtifacts, type ProveResult, type ProverPort } from "./prover.js";
 
 /** Maximum notes a single proof-of-balance can aggregate (circuit-fixed). */
