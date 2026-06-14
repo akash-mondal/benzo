@@ -18,7 +18,7 @@ import {
   randomFieldElement,
 } from "./notes.js";
 import { toWitnessInput, type CircuitArtifacts, type ProveResult, type ProverPort } from "./prover.js";
-import type { StellarCli } from "./stellar.js";
+import type { ChainClient } from "./stellar.js";
 
 export interface BenzoDeployment {
   pool: string;
@@ -57,7 +57,7 @@ export class BenzoPoolClient {
   readonly aspTree: MerkleTreeMirror;
 
   constructor(
-    readonly cli: StellarCli,
+    readonly cli: ChainClient,
     readonly dep: BenzoDeployment,
     readonly circuits: CircuitSet,
     /** identity used for read-only simulations */

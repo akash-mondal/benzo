@@ -25,7 +25,25 @@ export interface InvokeResult {
   raw: string;
 }
 
-export class StellarCli {
+/**
+ * The chain-submission port the core depends on (read + write to Soroban). The
+ * CLI/server backs it with `StellarCli` (shells the `stellar` binary); a browser
+ * surface backs it with a `@stellar/stellar-sdk` adapter (build → simulate →
+ * sign → submit invokeHostFunction; `simulateTransaction` for reads). Core types
+ * against this interface so it never hard-depends on `node:child_process`.
+ */
+export interface ChainClient {
+  invoke(opts: {
+    contractId: string;
+    source: string;
+    fnArgs: string[];
+    send?: boolean;
+  }): Promise<InvokeResult>;
+  view(contractId: string, source: string, fnArgs: string[]): Promise<unknown>;
+  keyAddress(name: string): Promise<string>;
+}
+
+export class StellarCli implements ChainClient {
   constructor(readonly cfg: StellarConfig) {}
 
   private env(): NodeJS.ProcessEnv {

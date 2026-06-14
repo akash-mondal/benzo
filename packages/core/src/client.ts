@@ -53,7 +53,7 @@ import {
   createAccount,
   createOrLoadAccountFile,
 } from "./account.js";
-import type { StellarCli } from "./stellar.js";
+import type { ChainClient } from "./stellar.js";
 import { feHex } from "./crypto/groth16.js";
 import { proveBalance as generateBalanceProof, selectNotesForBalance } from "./balance.js";
 import type { ProveResult, ProverPort } from "./prover.js";
@@ -157,7 +157,7 @@ export interface AnchorPort {
 }
 
 export interface BenzoClientOptions {
-  cli: StellarCli;
+  cli: ChainClient;
   deployment: BenzoDeployment;
   circuits: CircuitSet;
   /** proving backend: NodeProver (CLI/server) or WasmProver (browser, client-side) */
