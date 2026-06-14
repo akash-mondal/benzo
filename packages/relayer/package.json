@@ -11,7 +11,8 @@
     "serve": "node dist/server.js"
   },
   "dependencies": {
-    "@benzo/core": "workspace:*"
+    "@benzo/core": "workspace:*",
+    "@stellar/stellar-sdk": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

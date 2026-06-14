@@ -66,3 +66,57 @@ export async function sponsoredOnboard(params: OnboardParams): Promise<OnboardRe
   const res = await server.submitTransaction(tx);
   return { publicKey: account.publicKey(), secret: account.secret(), txHash: res.hash };
 }
+
+/**
+ * NON-CUSTODIAL onboarding (the wallet path): the browser generates its own
+ * keypair and only sends its PUBLIC key. The sponsor service builds the
+ * create+trustline tx, signs with the sponsor key, and returns the XDR. The
+ * browser then signs with its own key and submits — the server never sees the
+ * user's secret.
+ */
+export async function prepareSponsoredOnboard(params: {
+  horizonUrl: string;
+  networkPassphrase: string;
+  sponsorSecret: string;
+  asset: { code: string; issuer: string };
+  newAccountPublic: string;
+}): Promise<{ xdr: string; sponsor: string }> {
+  const sponsor = Keypair.fromSecret(params.sponsorSecret);
+  const server = new Horizon.Server(params.horizonUrl);
+  const sponsorAccount = await server.loadAccount(sponsor.publicKey());
+  const asset = new Asset(params.asset.code, params.asset.issuer);
+  const builder = new TransactionBuilder(sponsorAccount, {
+    fee: BASE_FEE,
+    networkPassphrase: params.networkPassphrase,
+  });
+  for (const op of sponsoredCreateAccountOps({
+    sponsor: sponsor.publicKey(),
+    newAccount: params.newAccountPublic,
+  })) {
+    builder.addOperation(op);
+  }
+  for (const op of sponsoredTrustlineOps(
+    { sponsor: sponsor.publicKey(), account: params.newAccountPublic, asset: params.asset },
+    asset,
+  )) {
+    builder.addOperation(op);
+  }
+  const tx = builder.setTimeout(120).build();
+  tx.sign(sponsor);
+  return { xdr: tx.toXDR(), sponsor: sponsor.publicKey() };
+}
+
+/** Browser side of non-custodial onboarding: add the new account's signature to
+ * the sponsor-signed XDR and submit. Uses only @stellar/stellar-sdk. */
+export async function completeSponsoredOnboard(params: {
+  horizonUrl: string;
+  networkPassphrase: string;
+  xdr: string;
+  newAccountSecret: string;
+}): Promise<{ txHash: string }> {
+  const tx = TransactionBuilder.fromXDR(params.xdr, params.networkPassphrase);
+  tx.sign(Keypair.fromSecret(params.newAccountSecret));
+  const server = new Horizon.Server(params.horizonUrl);
+  const res = await server.submitTransaction(tx);
+  return { txHash: res.hash };
+}
