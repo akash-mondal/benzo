@@ -4076,6 +4076,30 @@
               "key": {
                 "vec": [
                   {
+                    "symbol": "TotalShielded"
+                  }
+                ]
+              },
+              "durability": "persistent",
+              "val": {
+                "i128": "6000000"
+              }
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 1555200
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVAX5",
+              "key": {
+                "vec": [
+                  {
                     "symbol": "Verifier"
                   }
                 ]
