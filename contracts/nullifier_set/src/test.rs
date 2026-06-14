@@ -59,6 +59,16 @@ fn nullifier_stored_persistently() {
     assert!(in_persistent, "nullifier must be in persistent storage");
 }
 
+/// Negative auth: `spend` is operator-only — it must fail without operator auth
+/// (catches a regression that drops the `require_auth`).
+#[test]
+fn spend_requires_operator_auth() {
+    let (env, client) = setup();
+    env.mock_auths(&[]); // revoke the blanket auth granted in setup
+    let res = client.try_spend(&U256::from_u32(&env, 7));
+    assert!(res.is_err(), "spend without operator auth must fail");
+}
+
 /// Fuzz: a stream of pseudo-random nullifiers (with deliberate repeats) must
 /// preserve the invariant — first spend returns true, every later spend of the
 /// same value returns false, and is_spent is consistent — for all of them.

@@ -511,6 +511,20 @@ fn set_verifier_rotates_without_touching_state() {
     assert_eq!(h.token.balance(&h.pool_id), before_balance);
 }
 
+/// Negative auth: the admin-only money-path governance ops must fail without
+/// admin auth (catches a regression that drops the `require_admin`).
+#[test]
+fn admin_ops_require_admin_auth() {
+    let h = setup();
+    let new_verifier = h.env.register(benzo_verifier_groth16::BenzoVerifier, (h.user.clone(),));
+    h.env.mock_auths(&[]); // revoke the blanket auth granted in setup
+    assert!(h.pool.try_pause().is_err(), "pause without admin auth must fail");
+    assert!(
+        h.pool.try_set_verifier(&new_verifier).is_err(),
+        "set_verifier without admin auth must fail"
+    );
+}
+
 #[test]
 fn pause_blocks_ops() {
     let h = setup();
