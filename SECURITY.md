@@ -61,9 +61,11 @@ ASP set *curation* are operator responsibilities, not circuit-enforced.
 ## Known attack surface (the classes an audit must scrutinize)
 
 - **Under-constrained circuit signals** — the #1 ZK bug class. Mitigation status:
-  constraints read correct + negative-tested, but **circuit static analysis
-  (Circomspect/Picus) has not yet been run** (gap B3) — this is exactly what
-  found the closest audited peer's (0xbow Privacy Pools) criticals.
+  constraints read correct + negative-tested, and **Circomspect (Trail of Bits)
+  reports no issues on all production circuits** (`audits/circomspect-report.txt`)
+  — the same analyzer that surfaced the closest audited peer's (0xbow Privacy
+  Pools) findings. This is necessary, not sufficient: a full external circuit
+  audit (E2) is still required, and Picus/Ecne formal checks remain to run.
 - **Hash desync** (circom ↔ TS ↔ Soroban Poseidon2 constants) — a real
   fund-loss class. Mitigation: cross-implementation parity tests; a CI
   regeneration-diff guard is being added (gap B2).
