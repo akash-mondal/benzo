@@ -26,6 +26,21 @@ ZK is proven **two independent ways, both verified on-chain on testnet**:
 Reproduce Track B with the pinned toolchain (`nargo 1.0.0-beta.9`, `bb v0.87.0`,
 keccak oracle) against the vendored harness in `reference/code/rs-soroban-ultrahonk`.
 
+### ZK capabilities (Stellar-Hacks idea coverage)
+
+Beyond the core shielded transfer, the same primitives power several of the
+hackathon's prompts — these are built and tested:
+
+- **Shielded transfer / private payment** (🟡) — the core: 2-in/2-out join-split, amounts + counterparties hidden.
+- **Compliant privacy pool with ASP** (🟠) — allow-membership at deposit + proof-of-innocence non-membership at withdraw.
+- **Private cross-border remittance corridor** (🔴) — fiat-in → shield → private send → unshield → fiat-out (fiat leg simulated).
+- **Compliant transfer with a view key** (🟡) — MVK→TVK scoped, expiring, revocable selective disclosure.
+- **Proof-of-balance / proof-of-funds** (🟢) — prove you hold ≥ X USDC without revealing the exact balance (`benzo prove-balance --min N`).
+- **Confidential payroll / invoicing** (🟡) — pay a team privately, prove the total to an auditor (`benzo payroll` + `benzo disclose-total`).
+- **Verifiable off-chain computation** (🟢) — Track B verifies a Noir program's correct execution on-chain.
+- **Private allowlist membership** (🟢) — the ASP allow-set Merkle membership proof.
+- **UTXO-style private payments** (🔴) — the shielded-note model itself.
+
 ---
 
 ## What's real vs. simulated (read this first)
