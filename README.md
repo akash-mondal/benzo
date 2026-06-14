@@ -234,6 +234,12 @@ signature** (`loginWithSigner`) — no second seed phrase — and onboarding can
   `ext_data_hash` in-circuit, so a relayer cannot alter a proven transaction.
 - **Governance is observable:** VK rotation and verifier swaps emit audit events;
   admin is intended to be a multisig/timelock.
+- **State durability (CAP-0078):** long-lived persistent entries (VK, pool
+  config, live merkle roots, spent nullifiers) proactively extend their TTL on
+  the hot path, so active state is not archived out from under the protocol.
+- **Negative-auth tested:** the operator/admin-gated entrypoints (spend,
+  insert_leaf, set_vk, pause, set_verifier) have tests asserting they fail
+  without the required signer.
 - **Keys:** spend / master-viewing / note-discovery authorities are separated;
   viewing keys never carry spend authority; testnet-only, no mainnet keys.
 
