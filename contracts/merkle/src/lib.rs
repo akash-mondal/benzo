@@ -214,7 +214,10 @@ impl BenzoMerkleTree {
         let idx: u32 = storage
             .get(&DataKey::CurrentRootIndex)
             .ok_or(Error::NotInitialized)?;
-        storage.get(&DataKey::Root(idx)).ok_or(Error::NotInitialized)
+        let root = storage.get(&DataKey::Root(idx)).ok_or(Error::NotInitialized)?;
+        // Keep the live root entry from being archived (read on every spend).
+        soroban_utils::bump_persistent(&env, &DataKey::Root(idx));
+        Ok(root)
     }
 
     /// True if `root` is in the recent-root ring buffer (zero is never valid).
@@ -223,10 +226,13 @@ impl BenzoMerkleTree {
         if root == U256::from_u32(&env, 0) {
             return Ok(false);
         }
-        Ok(env
-            .storage()
-            .persistent()
-            .has(&DataKey::KnownRoot(root)))
+        let key = DataKey::KnownRoot(root);
+        let known = env.storage().persistent().has(&key);
+        // Keep an in-window root alive (checked on every spend).
+        if known {
+            soroban_utils::bump_persistent(&env, &key);
+        }
+        Ok(known)
     }
 
     /// Next available leaf index (== number of leaves inserted so far).
