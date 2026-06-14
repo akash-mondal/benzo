@@ -614,10 +614,15 @@ impl BenzoPool {
         env: &Env,
         key: &DataKey,
     ) -> Result<T, Error> {
-        env.storage()
+        let val = env
+            .storage()
             .persistent()
             .get(key)
-            .ok_or(Error::NotInitialized)
+            .ok_or(Error::NotInitialized)?;
+        // Config singletons are written once at init and read on every op; keep
+        // them from being archived under CAP-0078 state archival.
+        soroban_utils::bump_persistent(env, key);
+        Ok(val)
     }
 
     fn verify(

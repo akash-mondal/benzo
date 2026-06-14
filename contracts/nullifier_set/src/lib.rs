@@ -44,6 +44,13 @@ pub struct NullifierSpentEvent {
     pub nullifier: U256,
 }
 
+/// CAP-0078 TTL maintenance: nullifiers are write-once / read-later (anti-
+/// double-spend), so keep an actively-checked nullifier from being archived.
+/// Inlined (no soroban-utils dep) to keep this contract's wasm minimal.
+const DAY_IN_LEDGERS: u32 = 17_280;
+const NULLIFIER_TTL_THRESHOLD: u32 = 30 * DAY_IN_LEDGERS;
+const NULLIFIER_TTL_EXTEND: u32 = 90 * DAY_IN_LEDGERS;
+
 #[contract]
 pub struct BenzoNullifierSet;
 
@@ -67,9 +74,14 @@ impl BenzoNullifierSet {
 
     /// True if the nullifier has been spent.
     pub fn is_spent(env: Env, nullifier: U256) -> bool {
-        env.storage()
-            .persistent()
-            .has(&DataKey::Nullifier(nullifier))
+        let key = DataKey::Nullifier(nullifier);
+        let spent = env.storage().persistent().has(&key);
+        if spent {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, NULLIFIER_TTL_THRESHOLD, NULLIFIER_TTL_EXTEND);
+        }
+        spent
     }
 
     /// Mark a nullifier as spent. Idempotent: returns `true` if newly spent,
@@ -87,6 +99,9 @@ impl BenzoNullifierSet {
             return Ok(false);
         }
         env.storage().persistent().set(&key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, NULLIFIER_TTL_THRESHOLD, NULLIFIER_TTL_EXTEND);
         NullifierSpentEvent { nullifier }.publish(&env);
         Ok(true)
     }

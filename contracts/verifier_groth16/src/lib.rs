@@ -141,11 +141,20 @@ impl BenzoVerifier {
         proof: Groth16Proof,
         public_inputs: Vec<Bn254Fr>,
     ) -> Result<bool, Error> {
+        let key = DataKey::Vk(vk_id);
         let vk: VerificationKeyBytes = env
             .storage()
             .persistent()
-            .get(&DataKey::Vk(vk_id))
+            .get(&key)
             .ok_or(Error::VkNotSet)?;
+        // CAP-0078 TTL maintenance: the VK is written once and read on every
+        // verification, so keep it from being archived. Inlined (not via
+        // soroban-utils) to keep this verifier's wasm lean. Threshold-gated, so
+        // it is a no-op until the entry nears expiry.
+        const DAY_IN_LEDGERS: u32 = 17_280;
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 30 * DAY_IN_LEDGERS, 90 * DAY_IN_LEDGERS);
         Self::verify_with_vk(&env, &vk, proof, public_inputs)
     }
 
