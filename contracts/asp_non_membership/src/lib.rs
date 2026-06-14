@@ -127,8 +127,15 @@ impl ASPNonMembership {
     ///
     /// * `env` - The Soroban environment
     /// * `new_admin` - New address that will have permission to modify the tree
-    pub fn update_admin(env: Env, new_admin: Address) {
+    pub fn update_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        // Guard before the shared helper (which would otherwise panic on an
+        // uninitialized admin) so this privileged path fails with a typed
+        // error — mirroring asp_membership::update_admin.
+        if !env.storage().persistent().has(&DataKey::Admin) {
+            return Err(Error::NotInitialized);
+        }
         soroban_utils::update_admin(&env, &DataKey::Admin, &new_admin);
+        Ok(())
     }
 
     /// Hash a leaf node using Poseidon2

@@ -201,6 +201,15 @@ fn tree_full_rejects_insert() {
     assert_eq!(res, Err(Ok(Error::MerkleTreeFull)));
 }
 
+/// Negative auth: `insert_leaf` is operator-only — must fail without auth.
+#[test]
+fn insert_leaf_requires_operator_auth() {
+    let (env, _op, _id, client) = setup(8);
+    env.mock_auths(&[]); // revoke the blanket auth from setup
+    let res = client.try_insert_leaf(&U256::from_u32(&env, 123));
+    assert!(res.is_err(), "insert_leaf without operator auth must fail");
+}
+
 #[test]
 fn duplicate_leaf_rejected() {
     // A replayed/duplicate commitment must not take a second leaf slot

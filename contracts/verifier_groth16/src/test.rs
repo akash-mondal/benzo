@@ -150,6 +150,20 @@ fn reject_cross_circuit_proof() {
 }
 
 #[test]
+fn set_vk_requires_admin_auth() {
+    // set_vk is admin-only — it must fail without admin auth.
+    let env = Env::default();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    let contract_id = env.register(BenzoVerifier, (admin.clone(),));
+    let client = BenzoVerifierClient::new(&env, &contract_id);
+    let (vk, _proof, _publics) = build_proof(&env);
+    env.mock_auths(&[]); // revoke the blanket auth
+    let res = client.try_set_vk(&Symbol::new(&env, "X"), &vk);
+    assert!(res.is_err(), "set_vk without admin auth must fail");
+}
+
+#[test]
 fn reject_empty_ic_vk_at_registration() {
     // A structurally malformed VK (empty IC) must be rejected at set_vk, not
     // silently stored to fail later when a real proof arrives.
