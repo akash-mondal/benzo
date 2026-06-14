@@ -10,7 +10,7 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { BenzoClient, StellarCli, NodeProver, createOrLoadAccountFile, sponsoredOnboard, configFromEnv, stroopsToUsdc } from "@benzo/core";
+import { BenzoClient, StellarCli, NodeProver, createOrLoadAccountFile, sponsoredOnboard, configFromEnv, stroopsToUsdc, usdcToStroops } from "@benzo/core";
 import { parseBenzoLink } from "@benzo/links";
 import { AnchorClient, anchorConfigFromEnv } from "@benzo/anchor";
 import { onrampFromEnv } from "@benzo/integrations";
@@ -41,7 +41,7 @@ class FileKVStore {
     renameSync(tmp, this.path);
   }
 }
-const toStroops = (n: string) => BigInt(Math.round(Number(n) * 1e7));
+const toStroops = (n: string) => usdcToStroops(n);
 const jstr = (x: unknown) => JSON.stringify(x, (_k, v) => (typeof v === "bigint" ? v.toString() : v), 2);
 
 function circuitSet() {
@@ -165,7 +165,7 @@ async function main() {
       if (r?.nullifier) console.log(`  nullifier=${r.nullifier}  proving=${r.provingMs ?? "?"}ms`); break;
     }
     case "unshield": {
-      const r = await c.unshield({ amount: toStroops(String(f.amount)), toAddress: String(f.to) } as any);
+      const r = await c.unshield({ amount: toStroops(String(f.amount)), toAddress: String(f.to) });
       console.log(`unshield tx=${r.txHash} nullifier=${r.nullifier}`); break;
     }
     case "handle-register": {

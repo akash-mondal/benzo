@@ -2,9 +2,10 @@
  * @benzo/prover — ProverPort: one proving interface, many runtimes.
  *
  * The Benzo core builds witnesses; a ProverPort turns a witness into a Groth16
- * proof. NodeProver (snarkjs, headless) is the working default used by the CLI
- * and servers. WasmProver / NativeProver are typed stubs the browser and mobile
- * surfaces fill in later — so swapping runtimes never touches core logic.
+ * proof. NodeProver (snarkjs, headless) is the CLI/server default; WasmProver
+ * runs the same isomorphic prover client-side in the browser (optionally in a
+ * Web Worker). NativeProver is the one stub — it needs a native rapidsnark/mopro
+ * delegate from a mobile surface. Swapping runtimes never touches core logic.
  */
 import {
   NodeProver,

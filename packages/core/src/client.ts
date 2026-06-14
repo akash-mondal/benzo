@@ -392,6 +392,10 @@ export class BenzoClient {
     return items.sort((a, b) => a.timestamp - b.timestamp);
   }
 
+  /** Last durable-write failure, if any (so `flush()` callers can detect a
+   * journal that didn't persist instead of it being silently swallowed). */
+  lastPersistError?: Error;
+
   private record(item: HistoryItem): void {
     this.journal.push(item);
     const store = this.opts.store;
@@ -400,7 +404,9 @@ export class BenzoClient {
       const snapshot = JSON.stringify(this.journal);
       this.persistChain = this.persistChain
         .then(() => store.set(this.key("journal"), snapshot))
-        .catch(() => {});
+        .catch((e: unknown) => {
+          this.lastPersistError = e instanceof Error ? e : new Error(String(e));
+        });
     }
   }
 
@@ -589,7 +595,11 @@ export class BenzoClient {
     await this.sync();
     const assetId = await this.assetId();
     const input = this.selectNote(opts.amount);
-    if (!input) throw new Error("insufficient spendable balance");
+    if (!input) {
+      throw new Error(
+        `no single note covers ${stroopsToUsdc(opts.amount)} USDC — unshield withdraws one note at a time`,
+      );
+    }
     const changeAmount = input.note.amount - opts.amount;
     const changeNote = newNote(changeAmount, this.account.spendPub, assetId);
     const changePlain = encodeNotePlain({ ...changeNote });
@@ -826,10 +836,21 @@ export class BenzoClient {
   }): Promise<{ txHash?: string; amount: bigint }> {
     this.useAccount(accountFromClaimSecret(opts.claimSecret));
     await this.sync();
-    const amount = await this.getBalance();
+    // withdraw is 1-input, so a claim account with several notes is claimed one
+    // note at a time (a claim link usually holds a single note).
+    let amount = 0n;
+    let lastTx: string | undefined;
+    for (;;) {
+      // Skip 0-value change notes left behind by a full-note withdraw.
+      const notes = this.spendableNotes().filter((n) => n.note.amount > 0n);
+      if (notes.length === 0) break;
+      const wd = await this.unshield({ amount: notes[0].note.amount, toAddress: opts.toAddress });
+      amount += notes[0].note.amount;
+      lastTx = wd.txHash;
+      await this.sync(); // refresh the spent-set before the next note
+    }
     if (amount === 0n) throw new Error("nothing to claim (already claimed or unfunded)");
-    const wd = await this.unshield({ amount, toAddress: opts.toAddress });
-    return { txHash: wd.txHash, amount };
+    return { txHash: lastTx, amount };
   }
 
   // ------------------------------------------------ requests / invoices --
@@ -1013,11 +1034,14 @@ export class BenzoClient {
     const wd = await this.unshield({ amount: opts.amount, toAddress: this.account.stellarAddress });
     const jwt = await this.opts.anchor.authenticate(this.account.stellarSecret);
     const w = await this.opts.anchor.startWithdraw(jwt, this.account.stellarAddress, human);
+    if (!w.withdraw_anchor_account || !w.withdraw_memo) {
+      throw new Error("anchor withdraw response missing destination account or memo");
+    }
     const payHash = await this.opts.anchor.sendUsdcToAnchor(
       this.account.stellarSecret,
-      w.withdraw_anchor_account!,
+      w.withdraw_anchor_account,
       human,
-      w.withdraw_memo!,
+      w.withdraw_memo,
     );
     await this.opts.anchor.sim(jwt, w.id, { stellar_transaction_id: payHash, amount: human });
     this.record({
@@ -1039,6 +1063,19 @@ export function stroopsToUsdc(stroops: bigint): string {
   const whole = s.slice(0, -7) || "0";
   const frac = s.slice(-7);
   return `${neg ? "-" : ""}${whole}.${frac}`;
+}
+
+/**
+ * Parse a human USDC amount ("25", "25.50", "0.0000001") to stroops (1 USDC =
+ * 1e7), losslessly via string math — unlike `BigInt(Math.round(n * 1e7))`,
+ * which loses precision past ~9e9 USDC or beyond 7 decimals.
+ */
+export function usdcToStroops(amount: string): bigint {
+  const neg = amount.trim().startsWith("-");
+  const [whole, frac = ""] = amount.trim().replace(/^[-+]/, "").split(".");
+  if (frac.length > 7) throw new Error("USDC has at most 7 decimals");
+  const stroops = BigInt(whole || "0") * 10_000_000n + BigInt(frac.padEnd(7, "0") || "0");
+  return neg ? -stroops : stroops;
 }
 
 export { decodeNotePlain, noteNullifier, noteCommitment, deriveKeypair, mvkTag, open, viewingPubToScalar };
