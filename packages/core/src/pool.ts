@@ -7,6 +7,7 @@
  * mirror root against the on-chain root after every operation.
  */
 
+import { toHex } from "./crypto/bytes.js";
 import { MerkleTreeMirror } from "./merkle.js";
 import {
   type Note,
@@ -49,7 +50,7 @@ export interface CircuitSet {
 }
 
 function hexBytes(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("hex");
+  return toHex(bytes);
 }
 
 export class BenzoPoolClient {

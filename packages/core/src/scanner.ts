@@ -13,6 +13,7 @@
  * notes; the scanner itself only ever sees opaque blobs.
  */
 
+import { toHex, fromHex } from "./crypto/bytes.js";
 import { xdr, scValToNative } from "@stellar/stellar-sdk";
 import { MerkleTreeMirror } from "./merkle.js";
 import { noteCommitment, noteNullifier } from "./notes.js";
@@ -66,11 +67,10 @@ export interface AspSnapshot {
 }
 
 function hexToBytes(hex: string): Uint8Array {
-  return new Uint8Array(Buffer.from(hex, "hex"));
+  return fromHex(hex);
 }
 function nativeToBytes(v: unknown): Uint8Array {
   if (v instanceof Uint8Array) return v;
-  if (Buffer.isBuffer(v)) return new Uint8Array(v);
   if (typeof v === "string") return hexToBytes(v);
   throw new Error("expected bytes-like event field");
 }
@@ -145,7 +145,7 @@ export class NoteScanner {
         .map((r) => ({
           leafIndex: r.leafIndex,
           commitment: r.commitment.toString(),
-          ciphertext: Buffer.from(r.ciphertext).toString("hex"),
+          ciphertext: toHex(r.ciphertext),
           mvkTag: r.mvkTag.toString(),
           ledger: r.ledger,
           ts: r.ts,
@@ -154,7 +154,7 @@ export class NoteScanner {
       nullifiers: [...this.nullifiers],
       mvkBindings: this.mvkBindings.map((b) => ({
         tag: b.tag.toString(),
-        mvkCt: Buffer.from(b.mvkCt).toString("hex"),
+        mvkCt: toHex(b.mvkCt),
         ledger: b.ledger,
       })),
     };

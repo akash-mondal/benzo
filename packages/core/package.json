@@ -6,8 +6,12 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "browser": "./dist/index.browser.js",
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "browser": { "types": "./dist/index.browser.d.ts", "default": "./dist/index.browser.js" },
+      "default": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+    }
   },
   "files": [
     "dist"
