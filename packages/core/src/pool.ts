@@ -19,6 +19,7 @@ import {
   randomFieldElement,
 } from "./notes.js";
 import { toWitnessInput, type CircuitArtifacts, type ProveResult, type ProverPort } from "./prover.js";
+import { transferRelayFnArgs } from "./relay.js";
 import type { ChainClient } from "./stellar.js";
 
 export interface BenzoDeployment {
@@ -324,24 +325,23 @@ export class BenzoPoolClient {
         contractId: this.dep.pool,
         source: opts.source,
         send: true,
-        fnArgs: [
-          "transfer",
-          "--submitter", await this.cli.keyAddress(opts.source),
-          "--root", root.toString(),
-          "--nullifier0", nullifiers[0].toString(),
-          "--nullifier1", nullifiers[1].toString(),
-          "--out_commitment0", outCommitments[0].toString(),
-          "--out_commitment1", outCommitments[1].toString(),
-          "--fee", opts.fee.toString(),
-          "--relayer", opts.relayer,
-          "--mvk_tag0", outTags[0].toString(),
-          "--mvk_tag1", outTags[1].toString(),
-          "--note_ct0", hexBytes(opts.noteCts[0]),
-          "--note_ct1", hexBytes(opts.noteCts[1]),
-          "--mvk_ct0", hexBytes(opts.mvkCts[0]),
-          "--mvk_ct1", hexBytes(opts.mvkCts[1]),
-          "--proof", JSON.stringify(proof.sorobanProof),
-        ],
+        fnArgs: transferRelayFnArgs({
+          submitter: await this.cli.keyAddress(opts.source),
+          root: root.toString(),
+          nullifier0: nullifiers[0].toString(),
+          nullifier1: nullifiers[1].toString(),
+          outCommitment0: outCommitments[0].toString(),
+          outCommitment1: outCommitments[1].toString(),
+          fee: opts.fee.toString(),
+          relayerAddress: opts.relayer,
+          mvkTag0: outTags[0].toString(),
+          mvkTag1: outTags[1].toString(),
+          noteCt0: hexBytes(opts.noteCts[0]),
+          noteCt1: hexBytes(opts.noteCts[1]),
+          mvkCt0: hexBytes(opts.mvkCts[0]),
+          mvkCt1: hexBytes(opts.mvkCts[1]),
+          proof: JSON.stringify(proof.sorobanProof),
+        }),
       });
       txHash = res.txHash;
     }

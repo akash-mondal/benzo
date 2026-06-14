@@ -94,6 +94,7 @@ export function verifyChallenge(
   xdr: string,
   signingPublicKey: string,
   networkPassphrase: string,
+  now: number = Math.floor(Date.now() / 1000),
 ): VerifyResult {
   let tx: Transaction;
   try {
@@ -104,6 +105,12 @@ export function verifyChallenge(
 
   if (tx.source !== signingPublicKey) {
     return { ok: false, reason: "challenge source is not the anchor signing key" };
+  }
+
+  // Reject expired or not-yet-valid (replayable) challenges (SEP-10 §3.3).
+  const tb = tx.timeBounds;
+  if (!tb || Number(tb.minTime) > now || (Number(tb.maxTime) !== 0 && Number(tb.maxTime) < now)) {
+    return { ok: false, reason: "challenge expired or outside its time bounds" };
   }
 
   const op = tx.operations[0];
