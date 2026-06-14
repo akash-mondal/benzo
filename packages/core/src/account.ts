@@ -10,6 +10,7 @@
  * (SEP-10 auth, receiving unshielded USDC). Contracts stay auth-agnostic.
  */
 
+import { toHex } from "./crypto/bytes.js";
 import { hkdf } from "@noble/hashes/hkdf";
 import { sha256 } from "@noble/hashes/sha2";
 import { Keypair as StellarKeypair } from "@stellar/stellar-sdk";
@@ -74,7 +75,7 @@ export function createAccount(opts: {
  */
 export function accountFromClaimSecret(secret: Uint8Array): BenzoAccount {
   const spendOkm = hkdf(sha256, secret, undefined, "benzo/claim/spend", 32);
-  const spendSk = BigInt("0x" + Buffer.from(spendOkm).toString("hex")) % FIELD_MODULUS;
+  const spendSk = BigInt("0x" + toHex(spendOkm)) % FIELD_MODULUS;
   const mvkSecret = new Uint8Array(hkdf(sha256, secret, undefined, "benzo/claim/mvk", 32));
   const viewSecret = new Uint8Array(hkdf(sha256, secret, undefined, "benzo/claim/view", 32));
   return createAccount({ label: "claim", spendSk, mvkSecret, viewSecret });
@@ -93,7 +94,7 @@ export const NOTE_KEY_MESSAGE = "BENZO-NOTE-KEY-v1";
  */
 export function accountFromSignedMessage(signature: Uint8Array, label = "wallet"): BenzoAccount {
   const spendOkm = hkdf(sha256, signature, undefined, "benzo/notekey/spend", 32);
-  const spendSk = BigInt("0x" + Buffer.from(spendOkm).toString("hex")) % FIELD_MODULUS;
+  const spendSk = BigInt("0x" + toHex(spendOkm)) % FIELD_MODULUS;
   const mvkSecret = new Uint8Array(hkdf(sha256, signature, undefined, "benzo/notekey/mvk", 32));
   const viewSecret = new Uint8Array(hkdf(sha256, signature, undefined, "benzo/notekey/view", 32));
   return createAccount({ label, spendSk, mvkSecret, viewSecret });

@@ -13,6 +13,7 @@
  * optimistic state over the proving pipeline.
  */
 
+import { toHex, fromHex, toBase64Url, fromBase64Url } from "./crypto/bytes.js";
 import {
   BenzoPoolClient,
   type BenzoDeployment,
@@ -185,7 +186,7 @@ export interface BenzoClientOptions {
 /** 32-byte big-endian hex of a field element (guarded; for the registry record). */
 const feHex32 = feHex;
 function bytesHex(b: Uint8Array): string {
-  return Buffer.from(b).toString("hex");
+  return toHex(b);
 }
 
 // Default disclosure scope a note is sealed under (the HKDF info that derives
@@ -313,7 +314,7 @@ export class BenzoClient {
 
   /** Store keys are namespaced by the active account's public view key. */
   private key(kind: string): string {
-    const ns = Buffer.from(this.account.viewPub).toString("hex").slice(0, 16);
+    const ns = toHex(this.account.viewPub).slice(0, 16);
     return `benzo:${ns}:${kind}`;
   }
 
@@ -777,7 +778,7 @@ export class BenzoClient {
     ])) as { spend_pub: string; view_pub: string; mvk_scalar: string };
     return {
       spendPub: BigInt("0x" + rec.spend_pub),
-      viewPub: new Uint8Array(Buffer.from(rec.view_pub, "hex")),
+      viewPub: fromHex(rec.view_pub),
       mvkScalar: BigInt("0x" + rec.mvk_scalar),
       label: handle,
     };
@@ -810,15 +811,15 @@ export class BenzoClient {
     const to = paymentAddress(claimAccount);
     const handle = this.send({ amount: opts.amount, to, memo: "claim-link", useRelayer: opts.useRelayer });
     const r = await handle.settled();
-    const link = `benzo://claim#${Buffer.from(secret).toString("base64url")}`;
-    return { link, claimSecretHex: Buffer.from(secret).toString("hex"), sendTx: r?.txHash, recipient: to };
+    const link = `benzo://claim#${toBase64Url(secret)}`;
+    return { link, claimSecretHex: toHex(secret), sendTx: r?.txHash, recipient: to };
   }
 
   /** Parse a claim link into its claim secret. */
   static parseClaimLink(link: string): Uint8Array {
     const frag = link.split("#")[1];
     if (!frag) throw new Error("invalid claim link");
-    return new Uint8Array(Buffer.from(frag, "base64url"));
+    return fromBase64Url(frag);
   }
 
   /**

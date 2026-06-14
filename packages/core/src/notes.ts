@@ -7,6 +7,7 @@
  *   mvk tag    : tag = Poseidon2(mvk_pub, blinding)     (domain 0x05)
  */
 
+import { toHex } from "./crypto/bytes.js";
 import { randomBytes } from "./crypto/random.js";
 import { FIELD_MODULUS, hash } from "./crypto/poseidon2.js";
 
@@ -18,7 +19,7 @@ export const ASP_LEAF_DOMAIN = 0x01n;
 /** Uniform-enough random field element (rejection-free; 2x reduction bias is negligible at 256->254 bits ~ 2^-2... use 512-bit reduction for true uniformity). */
 export function randomFieldElement(): bigint {
   // 64 bytes reduced mod p: statistical distance < 2^-256.
-  const wide = BigInt("0x" + Buffer.from(randomBytes(64)).toString("hex"));
+  const wide = BigInt("0x" + toHex(randomBytes(64)));
   return wide % FIELD_MODULUS;
 }
 

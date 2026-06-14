@@ -38,3 +38,4 @@ test_snapshots/
 
 # local facade wallets (contain secrets)
 tests/wallets/
+apps/web/dist/

@@ -1,4 +1,9 @@
-/** @benzo/app-web — Consumer wallet PWA (flagship) (scaffold). See README.md for the build-out plan. */
+/**
+ * @benzo/app-web — Consumer wallet PWA (flagship).
+ *
+ * Headless composition layer: wires the web adapters (IndexedDB storage,
+ * WasmProver, StellarRpcClient + relayer/sponsor service) into a ready
+ * BenzoClient via createWebWallet(). The UI renders over `wallet.client`.
+ */
 export * from "./platform.js";
-import { WebPlatform } from "./platform.js";
-export const platform = new WebPlatform();
+export * from "./wallet.js";

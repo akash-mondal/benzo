@@ -18,6 +18,7 @@
  * headlessly against testnet.
  */
 
+import { toHex, fromHex } from "./crypto/bytes.js";
 import {
   Account,
   BASE_FEE,
@@ -48,10 +49,10 @@ export interface StellarRpcOptions {
   }) => Promise<InvokeResult>;
 }
 
-/** Recursively turn Bytes (Buffer/Uint8Array) into hex strings so RPC-native
+/** Recursively turn Bytes (Uint8Array) into hex strings so RPC-native
  * results match the shape callers expect from the CLI (which returns hex). */
 function hexifyDeep(v: unknown): unknown {
-  if (v instanceof Uint8Array) return Buffer.from(v).toString("hex");
+  if (v instanceof Uint8Array) return toHex(v);
   if (Array.isArray(v)) return v.map(hexifyDeep);
   if (v && typeof v === "object") {
     const out: Record<string, unknown> = {};
@@ -148,7 +149,7 @@ export class StellarRpcClient implements ChainClient {
 function scvalForArg(name: string, value: string): xdr.ScVal {
   // ciphertexts + public keys: Bytes (hex-encoded)
   if (/(^|_)ct\d?$/.test(name) || name === "spend_pub" || name === "view_pub") {
-    return nativeToScVal(Buffer.from(value, "hex"), { type: "bytes" });
+    return nativeToScVal(fromHex(value), { type: "bytes" });
   }
   // addresses (G…/C…)
   if (["address", "from", "to", "owner", "payee", "relayer", "submitter"].includes(name)) {
