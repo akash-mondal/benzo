@@ -7,7 +7,7 @@
  *   mvk tag    : tag = Poseidon2(mvk_pub, blinding)     (domain 0x05)
  */
 
-import { randomBytes } from "node:crypto";
+import { randomBytes } from "./crypto/random.js";
 import { FIELD_MODULUS, hash } from "./crypto/poseidon2.js";
 
 export const NULLIFIER_DOMAIN = 0x02n;
