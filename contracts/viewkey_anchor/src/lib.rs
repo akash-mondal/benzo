@@ -17,6 +17,12 @@ use soroban_sdk::{
     Address, Bytes, Env, U256, contract, contracterror, contractevent, contractimpl, contracttype,
 };
 
+soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
+soroban_sdk::contractmeta!(key = "name", val = "benzo-viewkey-anchor");
+
+/// Ledgers/day (~5s close). TTL bump threshold/extend mirror soroban-utils.
+const DAY_IN_LEDGERS: u32 = 17_280;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -123,7 +129,16 @@ impl BenzoViewkeyAnchor {
 
     /// Fetch the MVK binding ciphertext for a note tag.
     pub fn get_binding(env: Env, tag: U256) -> Option<Bytes> {
-        env.storage().persistent().get(&DataKey::Binding(tag))
+        let key = DataKey::Binding(tag);
+        let ct: Option<Bytes> = env.storage().persistent().get(&key);
+        // CAP-0078: a disclosure read can land long after the note was bound;
+        // refresh the entry so compliance ciphertexts are not archived away.
+        if ct.is_some() {
+            env.storage()
+                .persistent()
+                .extend_ttl(&key, 30 * DAY_IN_LEDGERS, 90 * DAY_IN_LEDGERS);
+        }
+        ct
     }
 
     /// Grant an auditor a time-scoped TVK. Admin (disclosing entity) only.
@@ -180,14 +195,19 @@ impl BenzoViewkeyAnchor {
 
     /// Fetch an auditor's grant if present and unexpired.
     pub fn get_grant(env: Env, auditor: Address) -> Result<TvkGrant, Error> {
+        let key = DataKey::Grant(auditor);
         let grant: TvkGrant = env
             .storage()
             .persistent()
-            .get(&DataKey::Grant(auditor))
+            .get(&key)
             .ok_or(Error::GrantNotFound)?;
         if grant.expiry < env.ledger().timestamp() {
             return Err(Error::GrantNotFound);
         }
+        // CAP-0078: keep a live (unexpired) grant discoverable on-chain.
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, 30 * DAY_IN_LEDGERS, 90 * DAY_IN_LEDGERS);
         Ok(grant)
     }
 }

@@ -96,6 +96,7 @@ interface Sep24Tx {
   withdraw_memo?: string;
   withdraw_memo_type?: string;
   stellar_transaction_id?: string;
+  external_transaction_id?: string;
   started_at: string;
   completed_at?: string;
   message?: string;
@@ -180,7 +181,10 @@ function sep10Challenge(account: string): string {
 }
 
 function sep10Verify(xdrStr: string): string | null {
-  const r = verifyChallenge(xdrStr, signingKp.publicKey(), PASSPHRASE);
+  const r = verifyChallenge(xdrStr, signingKp.publicKey(), PASSPHRASE, Math.floor(Date.now() / 1000), {
+    homeDomain: HOME_DOMAIN,
+    webAuthDomain: HOME_DOMAIN,
+  });
   return r.ok ? r.clientAccount! : null;
 }
 
@@ -215,6 +219,26 @@ const server = createServer(async (req, res) => {
         exp: Math.floor(Date.now() / 1000) + 86400,
       });
       return json(res, 200, { token });
+    }
+
+    // SEP-24: GET /info is the MANDATORY public discovery endpoint (enabled
+    // assets + fee/min/max). It must be reachable WITHOUT a JWT, so it sits
+    // ahead of the JWT-gated block — a standards-compliant third-party wallet
+    // calls this before it can deposit/withdraw.
+    if (path === "/sep24/info" && req.method === "GET") {
+      const asset = {
+        enabled: true,
+        min_amount: 1,
+        max_amount: 1_000_000,
+        fee_fixed: 0,
+        fee_percent: 0,
+      };
+      return json(res, 200, {
+        deposit: { [USDC_CODE]: asset },
+        withdraw: { [USDC_CODE]: asset },
+        fee: { enabled: false },
+        features: { account_creation: false, claimable_balances: false },
+      });
     }
 
     // SEP-24 (JWT-gated)
@@ -278,6 +302,19 @@ const server = createServer(async (req, res) => {
         return json(res, 200, { transaction: tx });
       }
 
+      // SEP-24 GET /transactions — history for the authenticated account
+      // (optionally filtered by asset_code), newest first. Each record carries
+      // stellar_transaction_id and external_transaction_id so a wallet can
+      // reconcile the on-chain and (simulated) fiat legs.
+      if (path === "/sep24/transactions" && req.method === "GET") {
+        const assetCode = url.searchParams.get("asset_code");
+        const list = [...txs.values()]
+          .filter((t) => t.account === account)
+          .filter((t) => !assetCode || t.asset_code === assetCode)
+          .sort((a, b) => (a.started_at < b.started_at ? 1 : -1));
+        return json(res, 200, { transactions: list });
+      }
+
       // Drive the simulated fiat step.
       //   deposit  : body { amount } -> anchor pays USDC to the user (REAL on-chain)
       //   withdraw : body { stellar_transaction_id } -> anchor confirms receipt
@@ -307,6 +344,7 @@ const server = createServer(async (req, res) => {
           tx.amount_in = amount;
           tx.amount_out = amount;
           tx.stellar_transaction_id = hash;
+          tx.external_transaction_id = `sim-fiat-${id.slice(0, 8)}`;
           tx.status = "completed";
           tx.completed_at = new Date().toISOString();
           tx.message = "Deposit settled. Fiat leg was SIMULATED.";
@@ -315,6 +353,7 @@ const server = createServer(async (req, res) => {
 
         // withdrawal: the user has sent USDC to the anchor; record + simulate payout
         tx.stellar_transaction_id = String(body.stellar_transaction_id ?? "");
+        tx.external_transaction_id = String(body.external_transaction_id ?? `sim-fiat-${id.slice(0, 8)}`);
         tx.amount_in = String(body.amount ?? tx.amount_in ?? "0");
         tx.amount_out = tx.amount_in;
         tx.status = "completed";

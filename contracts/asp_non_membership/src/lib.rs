@@ -28,6 +28,16 @@ use soroban_sdk::{
     vec,
 };
 use soroban_utils::{poseidon2_compress, poseidon2_hash2};
+
+soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
+soroban_sdk::contractmeta!(key = "name", val = "benzo-asp-non-membership");
+
+/// Maximum traversal depth = BN254 key bit-width. A path can never exceed this,
+/// so the bound turns a pathological/corrupt deep traversal into a typed error
+/// instead of risking the per-transaction CPU-instruction / call-frame budget.
+/// At ~5s closes this also caps worst-case find/insert cost to a known envelope.
+const MAX_TREE_DEPTH: u32 = 256;
+
 #[contracttype]
 #[derive(Clone, Debug)]
 enum DataKey {
@@ -66,6 +76,8 @@ pub enum Error {
     InvalidProof = 4,
     NotInitialized = 5,
     Overflow = 6,
+    /// Traversal exceeded the maximum tree depth (corrupt/pathological tree)
+    MaxDepthExceeded = 7,
 }
 
 // Events
@@ -236,88 +248,80 @@ impl ASPNonMembership {
         level: u32,
     ) -> Result<FindResult, Error> {
         let zero = U256::from_u32(env, 0u32);
-        // Empty tree
-        if *root == zero {
-            return Ok(FindResult {
-                found: false,
-                siblings: Vec::new(env),
-                found_value: zero.clone(),
-                not_found_key: key.clone(),
-                not_found_value: zero.clone(),
-                is_old0: true,
-            });
-        }
+        let one = U256::from_u32(env, 1u32);
+        let mut current = root.clone();
+        let mut level = level;
+        // Siblings are collected root -> leaf during the descent, which is
+        // byte-for-byte identical to the previous recursive version's
+        // push_front-on-unwind ordering (verified against the differential
+        // snapshots). Rewritten as an explicit bounded loop so the traversal
+        // can never recurse without limit.
+        let mut siblings: Vec<U256> = Vec::new(env);
 
-        // Get node from storage
-        let node_key = DataKey::Node(root.clone());
-        let node_data: Vec<U256> = store.get(&node_key).ok_or(Error::KeyNotFound)?;
-
-        // Check if it's a leaf node (3 elements: [1, key, value])
-        if node_data.len() == 3
-            && node_data.get(0).ok_or(Error::KeyNotFound)? == U256::from_u32(env, 1u32)
-        {
-            let stored_key = node_data.get(1).ok_or(Error::KeyNotFound)?;
-            let stored_value = node_data.get(2).ok_or(Error::KeyNotFound)?;
-            if stored_key == *key {
-                // Key found
+        loop {
+            // Empty subtree: the path ends at an empty branch.
+            if current == zero {
                 return Ok(FindResult {
-                    found: true,
-                    siblings: Vec::new(env),
-                    found_value: stored_value,
-                    not_found_key: zero.clone(),
+                    found: false,
+                    siblings,
+                    found_value: zero.clone(),
+                    not_found_key: key.clone(),
                     not_found_value: zero.clone(),
-                    is_old0: false,
+                    is_old0: true,
                 });
-            } else {
+            }
+
+            // Get node from storage and keep active-path nodes from being
+            // archived (CAP-0078) — threshold-gated, so a no-op until near expiry.
+            let node_key = DataKey::Node(current.clone());
+            let node_data: Vec<U256> = store.get(&node_key).ok_or(Error::KeyNotFound)?;
+            soroban_utils::bump_persistent(env, &node_key);
+
+            // Leaf node (3 elements: [1, key, value])
+            if node_data.len() == 3 && node_data.get(0).ok_or(Error::KeyNotFound)? == one {
+                let stored_key = node_data.get(1).ok_or(Error::KeyNotFound)?;
+                let stored_value = node_data.get(2).ok_or(Error::KeyNotFound)?;
+                if stored_key == *key {
+                    // Key found
+                    return Ok(FindResult {
+                        found: true,
+                        siblings,
+                        found_value: stored_value,
+                        not_found_key: zero.clone(),
+                        not_found_value: zero.clone(),
+                        is_old0: false,
+                    });
+                }
                 // Different key at leaf (collision)
                 return Ok(FindResult {
                     found: false,
-                    siblings: Vec::new(env),
+                    siblings,
                     found_value: zero.clone(),
                     not_found_key: stored_key,
                     not_found_value: stored_value,
                     is_old0: false,
                 });
+            } else if node_data.len() == 2 {
+                // Internal node (2 elements: [left, right]). Bound the descent by
+                // the key bit-width before indexing the bits.
+                if level >= MAX_TREE_DEPTH {
+                    return Err(Error::MaxDepthExceeded);
+                }
+                let left = node_data.get(0).ok_or(Error::KeyNotFound)?;
+                let right = node_data.get(1).ok_or(Error::KeyNotFound)?;
+                let go_right = key_bits.get(level).ok_or(Error::KeyNotFound)?;
+                let (next, sibling) = if !go_right {
+                    (left, right)
+                } else {
+                    (right, left)
+                };
+                siblings.push_back(sibling);
+                current = next;
+                level = level.checked_add(1).ok_or(Error::Overflow)?;
+            } else {
+                return Err(Error::KeyNotFound);
             }
-        } else if node_data.len() == 2 {
-            // Internal node (2 elements: [left, right])
-            let left = node_data.get(0).ok_or(Error::KeyNotFound)?;
-            let right = node_data.get(1).ok_or(Error::KeyNotFound)?;
-
-            let level_idx = level;
-            let mut result = if !key_bits.get(level_idx).ok_or(Error::KeyNotFound)? {
-                // Go left
-                Self::find_key_internal(
-                    env,
-                    store,
-                    key,
-                    key_bits,
-                    &left,
-                    level.checked_add(1).ok_or(Error::Overflow)?,
-                )?
-            } else {
-                // Go right
-                Self::find_key_internal(
-                    env,
-                    store,
-                    key,
-                    key_bits,
-                    &right,
-                    level.checked_add(1).ok_or(Error::Overflow)?,
-                )?
-            };
-
-            // Add sibling to path
-            let sibling = if !key_bits.get(level_idx).ok_or(Error::KeyNotFound)? {
-                right.clone()
-            } else {
-                left.clone()
-            };
-            result.siblings.push_front(sibling);
-
-            return Ok(result);
         }
-        Err(Error::KeyNotFound)
     }
 
     /// Find a key in the tree
@@ -838,10 +842,15 @@ impl ASPNonMembership {
     ///
     /// Returns the current root hash as a U256 value, or zero if empty
     pub fn get_root(env: Env) -> Result<U256, Error> {
-        env.storage()
+        let root: U256 = env
+            .storage()
             .persistent()
             .get(&DataKey::Root)
-            .ok_or(Error::NotInitialized)
+            .ok_or(Error::NotInitialized)?;
+        // CAP-0078: the pool reads this deny-root cross-contract on every
+        // withdraw, so keep it from being archived out from under the hot path.
+        soroban_utils::bump_persistent(&env, &DataKey::Root);
+        Ok(root)
     }
 }
 

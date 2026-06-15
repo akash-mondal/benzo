@@ -5,7 +5,8 @@ on:
     paths:
       - "packages/**"
       - "apps/**"
-      - "circuits/build/**"
+      - "circuits/**"
+      - "scripts/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -15,6 +16,8 @@ on:
     paths:
       - "packages/**"
       - "apps/**"
+      - "circuits/**"
+      - "scripts/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -36,6 +39,17 @@ jobs:
         run: pnpm lint
       - name: Build
         run: pnpm -r build
+      # Poseidon2 constant-parity guard: the circom <-> TS <-> host hash must
+      # never drift (a one-byte change would silently produce commitments the
+      # chain can never match — a fund-loss class). Regenerate the params from
+      # the committed circom source and fail if either the generated file or the
+      # hand-synced @benzo/core copy has drifted. The circom-witness KAT lives in
+      # circuits.test.ts and self-skips here where the circom artifacts are absent.
+      - name: Poseidon2 parameter parity guard
+        run: |
+          node scripts/extract-poseidon-params.mjs
+          git diff --exit-code -- circuits/poseidon_params/poseidon2_bn254.json
+          cmp circuits/poseidon_params/poseidon2_bn254.json packages/core/src/crypto/poseidon2_bn254.json
       # Heavy snarkjs proving tests (circuits.test.ts) self-skip when the
       # gitignored .zkey/.wasm artifacts are absent; everything else — incl.
       # the committed VK/proof parity fixtures — runs and enforces invariants.

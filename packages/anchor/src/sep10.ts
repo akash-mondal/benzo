@@ -95,6 +95,7 @@ export function verifyChallenge(
   signingPublicKey: string,
   networkPassphrase: string,
   now: number = Math.floor(Date.now() / 1000),
+  expect?: { homeDomain?: string; webAuthDomain?: string },
 ): VerifyResult {
   let tx: Transaction;
   try {
@@ -118,6 +119,27 @@ export function verifyChallenge(
     return { ok: false, reason: "missing client manageData operation" };
   }
   const clientAccount = op.source;
+
+  // SEP-10 §3.3 domain binding (optional, enabled by the anchor): the first
+  // manageData key MUST be "<home_domain> auth", and the web_auth_domain op (if
+  // present) MUST match this server's domain. This rejects a challenge minted
+  // for a different home/web-auth domain even if it carried this signing key.
+  if (expect?.homeDomain !== undefined && op.name !== `${expect.homeDomain} auth`) {
+    return { ok: false, reason: "challenge home-domain key-name mismatch" };
+  }
+  if (expect?.webAuthDomain !== undefined) {
+    const wad = tx.operations.find(
+      (o) => o.type === "manageData" && o.name === "web_auth_domain",
+    );
+    if (
+      wad &&
+      wad.type === "manageData" &&
+      wad.value &&
+      Buffer.from(wad.value).toString("utf8") !== expect.webAuthDomain
+    ) {
+      return { ok: false, reason: "web_auth_domain mismatch" };
+    }
+  }
 
   if (!verifiesFor(tx, signingPublicKey)) {
     return { ok: false, reason: "server signature invalid or missing" };
