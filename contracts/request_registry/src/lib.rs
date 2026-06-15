@@ -21,6 +21,9 @@ use soroban_sdk::{
     contracttype,
 };
 
+soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
+soroban_sdk::contractmeta!(key = "name", val = "benzo-request-registry");
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]

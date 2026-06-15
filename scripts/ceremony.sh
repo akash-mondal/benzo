@@ -21,3 +21,11 @@ snarkjs zkey beacon "$OUT/0003.zkey" "$OUT/final.zkey" "$(head -c 32 /dev/urando
 snarkjs zkey export verificationkey "$OUT/final.zkey" "$OUT/${C}_vk.json" >/dev/null
 echo "===== verify chain =====" | tee -a "$T"
 snarkjs zkey verify "$R" "$PTAU" "$OUT/final.zkey" 2>&1 | tee -a "$T" | grep -iE 'ok|verified' || true
+
+# Make the ceremony output the artifact the deploy actually reads: copy the
+# finalized zkey + VK into circuits/build/$C so the deployed key has a provenance
+# chain to this transcript (deploy-testnet.sh asserts build VK == ceremony VK).
+mkdir -p "circuits/build/$C"
+cp "$OUT/final.zkey" "circuits/build/$C/$C.zkey"
+cp "$OUT/${C}_vk.json" "circuits/build/$C/${C}_vk.json"
+echo "===== wired ceremony output into circuits/build/$C (zkey + vk) =====" | tee -a "$T"

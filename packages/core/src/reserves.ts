@@ -61,6 +61,9 @@ export function sponsoredTrustlineOps(
   asset: Parameters<typeof Operation.changeTrust>[0]["asset"],
 ): xdr.Operation[] {
   const { sponsor, account, limit } = params;
+  // `limit` omitted ⇒ stellar-sdk uses the maximum (int64-max) trustline limit.
+  // Intentional for a single-asset USDC wallet: a finite cap adds no safety and
+  // only introduces a failure mode (deposits rejected once the cap is reached).
   return [
     Operation.beginSponsoringFutureReserves({ sponsoredId: account, source: sponsor }),
     Operation.changeTrust({ asset, limit, source: account }),

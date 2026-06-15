@@ -12,7 +12,9 @@ function makeChallenge(server: Keypair, client: string) {
     webAuthDomain: "benzo.local",
     networkPassphrase: PASSPHRASE,
     nonce: Buffer.from(new Array(48).fill(7)).toString("base64"),
-    now: Math.floor(Date.UTC(2026, 5, 13) / 1000),
+    // Build at the current time so the 900s SEP-10 window is always live when
+    // verified (a fixed past date would make the challenge spuriously expire).
+    now: Math.floor(Date.now() / 1000),
   });
 }
 
@@ -67,5 +69,27 @@ describe("SEP-10 cryptographic verification", () => {
     const server = Keypair.random();
     const r = verifyChallenge("not-a-real-xdr", server.publicKey(), PASSPHRASE);
     expect(r.ok).toBe(false);
+  });
+
+  it("enforces the home-domain key-name when an expected domain is supplied", () => {
+    const server = Keypair.random();
+    const client = Keypair.random();
+    const xdr = makeChallenge(server, client.publicKey()); // built for "benzo.local"
+    const tx = TransactionBuilder.fromXDR(xdr, PASSPHRASE);
+    tx.sign(client);
+    const now = Math.floor(Date.now() / 1000);
+    // The matching home domain passes...
+    expect(
+      verifyChallenge(tx.toXDR(), server.publicKey(), PASSPHRASE, now, {
+        homeDomain: "benzo.local",
+        webAuthDomain: "benzo.local",
+      }).ok,
+    ).toBe(true);
+    // ...a challenge minted for a different home domain is rejected.
+    const r = verifyChallenge(tx.toXDR(), server.publicKey(), PASSPHRASE, now, {
+      homeDomain: "evil.example",
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/home-domain/);
   });
 });

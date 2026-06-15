@@ -16,6 +16,12 @@ use soroban_sdk::{
     contracttype,
 };
 
+soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
+soroban_sdk::contractmeta!(key = "name", val = "benzo-handle-registry");
+
+/// Ledgers/day (~5s close), used for the TTL bump on resolve.
+const DAY_IN_LEDGERS: u32 = 17_280;
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
@@ -94,10 +100,17 @@ impl BenzoHandleRegistry {
 
     /// Resolve a handle to its public payment record.
     pub fn resolve(env: Env, handle: String) -> Result<HandleRecord, Error> {
+        let key = DataKey::Handle(handle);
+        let record: HandleRecord = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::NotFound)?;
+        // CAP-0078: a handle is read on every send-by-handle; keep it live.
         env.storage()
             .persistent()
-            .get(&DataKey::Handle(handle))
-            .ok_or(Error::NotFound)
+            .extend_ttl(&key, 30 * DAY_IN_LEDGERS, 90 * DAY_IN_LEDGERS);
+        Ok(record)
     }
 
     /// True if a handle is registered.

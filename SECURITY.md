@@ -52,9 +52,13 @@ ASP set *curation* are operator responsibilities, not circuit-enforced.
   proof-of-innocence succeeds for any honest note — privately, no special op.
 - **Selective disclosure is bounded:** a leaked/offboarded TVK exposes only its
   own in-scope notes (vs a single master-viewing-key escrow).
-- **State durability (CAP-0078):** long-lived persistent entries (VK, pool
-  config, live roots, nullifiers, net supply) proactively extend TTL on the hot
-  path.
+- **State durability (CAP-0078):** long-lived persistent entries proactively
+  extend TTL on the hot path — pool config singletons, the verifier VK, the
+  merkle frontier/roots, nullifiers, net supply, **the ASP allow/deny roots
+  (read cross-contract on every shield/withdraw), the traversed SMT nodes, and
+  the viewkey/handle registry records** — so active state is never archived out
+  from under a live operation. Bumps are threshold-gated (a no-op until an entry
+  nears expiry).
 - **Key separation:** spend / master-viewing / note-discovery authorities are
   distinct; viewing keys never carry spend authority.
 
@@ -67,8 +71,11 @@ ASP set *curation* are operator responsibilities, not circuit-enforced.
   Pools) findings. This is necessary, not sufficient: a full external circuit
   audit (E2) is still required, and Picus/Ecne formal checks remain to run.
 - **Hash desync** (circom ↔ TS ↔ Soroban Poseidon2 constants) — a real
-  fund-loss class. Mitigation: cross-implementation parity tests; a CI
-  regeneration-diff guard is being added (gap B2).
+  fund-loss class. Mitigation: cross-implementation parity tests, **plus a CI
+  guard that regenerates the params from the circom source and fails on any
+  drift vs the committed circuit and `@benzo/core` copies**
+  (`.github/workflows/packages.yml` — closes gap B2). The circom-witness KAT
+  runs wherever the circuit artifacts exist (`circuits.test.ts`).
 - **Nullifier uniqueness / fee > amount / ASP-root-update DoS** — covered by
   in-circuit constraints + on-chain checks; flagged for explicit audit attention.
 - **Soroban specifics** — `require_auth` coverage (negative-tested),

@@ -17,5 +17,8 @@ mod pool;
 
 pub use pool::*;
 
+soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
+soroban_sdk::contractmeta!(key = "name", val = "benzo-pool");
+
 #[cfg(test)]
 mod test;

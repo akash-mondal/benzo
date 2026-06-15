@@ -16,6 +16,9 @@ use soroban_sdk::{
     Address, Env, U256, contract, contracterror, contractevent, contractimpl, contracttype,
 };
 
+soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
+soroban_sdk::contractmeta!(key = "name", val = "benzo-nullifier-set");
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
