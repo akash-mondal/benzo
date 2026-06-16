@@ -21,6 +21,8 @@ export interface TransferRelayArgs {
   noteCt1: string;
   mvkCt0: string;
   mvkCt1: string;
+  /** root of the authorized-MVK registry (the pool's check_mvk_root validates it) */
+  registeredMvkRoot: string;
   /** Soroban-encoded Groth16 proof {a,b,c} as JSON */
   proof: string;
 }
@@ -43,6 +45,7 @@ export function transferRelayFnArgs(a: TransferRelayArgs): string[] {
     "--note_ct1", a.noteCt1,
     "--mvk_ct0", a.mvkCt0,
     "--mvk_ct1", a.mvkCt1,
+    "--registered_mvk_root", a.registeredMvkRoot,
     "--proof", a.proof,
   ];
 }

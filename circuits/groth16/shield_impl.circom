@@ -18,8 +18,9 @@ pragma circom 2.2.2;
 
 include "./note.circom";
 include "../lib/merkleProof.circom";
+include "../lib/circomlib/circuits/comparators.circom";
 
-template Shield(aspLevels) {
+template Shield(aspLevels, mvkLevels) {
     /** PUBLIC INPUTS (order pinned; the pool builds this exact vector) **/
     signal input commitment;
     signal input amount;
@@ -27,6 +28,7 @@ template Shield(aspLevels) {
     signal input depositor;           // keccak256(address XDR) mod p
     signal input aspMembershipRoot;
     signal input mvkTag;
+    signal input registeredMvkRoot;   // root of the authorized-MVK registry
 
     /** PRIVATE INPUTS **/
     signal input recipientPk;
@@ -35,6 +37,9 @@ template Shield(aspLevels) {
     signal input aspBlinding;
     signal input aspPathElements[aspLevels];
     signal input aspPathIndices;
+    signal input mvkKeyMeta;
+    signal input mvkPathElements[mvkLevels];
+    signal input mvkPathIndices;
 
     // 1. Commitment well-formedness.
     component cm = BenzoNoteCommitment();
@@ -48,11 +53,31 @@ template Shield(aspLevels) {
     component rc = AmountCheck();
     rc.amount <== amount;
 
-    // 3. MVK binding.
+    // 3. MVK binding — the note's tag is only valid when mvkPub is a NONZERO
+    //    leaf in the authorized-MVK registry root (closes the audit P0: no path
+    //    to a note bound to a junk/unregistered, unauditable key).
     component tag = BenzoMvkTag();
     tag.mvkPub   <== mvkPub;
     tag.blinding <== blinding;
     tag.out === mvkTag;
+
+    // mvkPub must be nonzero (the all-zeros / well-known-key attack).
+    component mvkIsZero = IsZero();
+    mvkIsZero.in <== mvkPub;
+    mvkIsZero.out === 0;
+
+    // mvkPub must be a registered authorized MVK.
+    component mvkLeaf = BenzoMvkRegistryLeaf();
+    mvkLeaf.mvkPub  <== mvkPub;
+    mvkLeaf.keyMeta <== mvkKeyMeta;
+
+    component mvkTree = MerkleProof(mvkLevels);
+    mvkTree.leaf        <== mvkLeaf.out;
+    mvkTree.pathIndices <== mvkPathIndices;
+    for (var i = 0; i < mvkLevels; i++) {
+        mvkTree.pathElements[i] <== mvkPathElements[i];
+    }
+    mvkTree.root === registeredMvkRoot;
 
     // 4. ASP allow-membership of the depositor.
     component leaf = BenzoAspLeaf();

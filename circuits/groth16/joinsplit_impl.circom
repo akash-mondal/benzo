@@ -22,7 +22,7 @@ include "./note.circom";
 include "../lib/merkleProof.circom";
 include "../lib/circomlib/circuits/comparators.circom";
 
-template JoinSplit(levels) {
+template JoinSplit(levels, mvkLevels) {
     var nIns = 2;
     var nOuts = 2;
 
@@ -34,10 +34,11 @@ template JoinSplit(levels) {
     signal input fee;
     signal input extDataHash;
     signal input mvkTag[nOuts];
+    signal input registeredMvkRoot;            // root of the authorized-MVK registry
 
     /** PRIVATE INPUTS **/
     signal input inAmount[nIns];
-    signal input inSpendSk[nIns];
+    signal input inOrgSpendId[nIns];
     signal input inBlinding[nIns];
     signal input inPathIndices[nIns];          // == leaf index
     signal input inPathElements[nIns][levels];
@@ -45,7 +46,11 @@ template JoinSplit(levels) {
     signal input outPubkey[nOuts];
     signal input outBlinding[nOuts];
     signal input outMvkPub[nOuts];
+    signal input mvkKeyMeta[nOuts];
+    signal input mvkPathElements[nOuts][mvkLevels];
+    signal input mvkPathIndices[nOuts];
 
+    component inSpendKeys[nIns];
     component inKeypair[nIns];
     component inCommitment[nIns];
     component inNullifier[nIns];
@@ -61,8 +66,11 @@ template JoinSplit(levels) {
         inRange[tx] = AmountCheck();
         inRange[tx].amount <== inAmount[tx];
 
+        inSpendKeys[tx] = BenzoSpendKeys();
+        inSpendKeys[tx].orgSpendId <== inOrgSpendId[tx];
+
         inKeypair[tx] = BenzoKeypair();
-        inKeypair[tx].spendSk <== inSpendSk[tx];
+        inKeypair[tx].ak <== inSpendKeys[tx].ak;
 
         inCommitment[tx] = BenzoNoteCommitment();
         inCommitment[tx].amount      <== inAmount[tx];
@@ -71,7 +79,7 @@ template JoinSplit(levels) {
         inCommitment[tx].assetId     <== assetId;
 
         inNullifier[tx] = BenzoNullifier();
-        inNullifier[tx].spendSk   <== inSpendSk[tx];
+        inNullifier[tx].nk        <== inSpendKeys[tx].nk;
         inNullifier[tx].leafIndex <== inPathIndices[tx];
         inNullifier[tx].out === inputNullifier[tx];
 
@@ -94,6 +102,9 @@ template JoinSplit(levels) {
     component outCommitment[nOuts];
     component outRange[nOuts];
     component outTag[nOuts];
+    component outMvkIsZero[nOuts];
+    component outMvkLeaf[nOuts];
+    component outMvkReg[nOuts];
 
     var sumOuts = 0;
     for (var tx = 0; tx < nOuts; tx++) {
@@ -111,6 +122,21 @@ template JoinSplit(levels) {
         outTag[tx].mvkPub   <== outMvkPub[tx];
         outTag[tx].blinding <== outBlinding[tx];
         outTag[tx].out === mvkTag[tx];
+
+        // Each output's MVK must be a nonzero registered key (closes the audit P0).
+        outMvkIsZero[tx] = IsZero();
+        outMvkIsZero[tx].in <== outMvkPub[tx];
+        outMvkIsZero[tx].out === 0;
+        outMvkLeaf[tx] = BenzoMvkRegistryLeaf();
+        outMvkLeaf[tx].mvkPub  <== outMvkPub[tx];
+        outMvkLeaf[tx].keyMeta <== mvkKeyMeta[tx];
+        outMvkReg[tx] = MerkleProof(mvkLevels);
+        outMvkReg[tx].leaf        <== outMvkLeaf[tx].out;
+        outMvkReg[tx].pathIndices <== mvkPathIndices[tx];
+        for (var i = 0; i < mvkLevels; i++) {
+            outMvkReg[tx].pathElements[i] <== mvkPathElements[tx][i];
+        }
+        outMvkReg[tx].root === registeredMvkRoot;
 
         sumOuts += outAmount[tx];
     }
