@@ -26,7 +26,7 @@ template ProofOfBalance(levels, nNotes) {
     signal input context;    // verifier-chosen binding (request/recipient nonce)
 
     // ---- private ----
-    signal input spendSk;
+    signal input orgSpendId;
     signal input amount[nNotes];
     signal input blinding[nNotes];
     signal input pathIndices[nNotes];
@@ -37,9 +37,11 @@ template ProofOfBalance(levels, nNotes) {
     signal contextSq;
     contextSq <== context * context;
 
-    // Single owner: recipientPk = Poseidon2(spendSk, 0).
+    // Single owner: recipientPk = Poseidon2(ak, 0), ak derived from the root.
+    component sk = BenzoSpendKeys();
+    sk.orgSpendId <== orgSpendId;
     component kp = BenzoKeypair();
-    kp.spendSk <== spendSk;
+    kp.ak <== sk.ak;
 
     component range[nNotes];
     component commit[nNotes];

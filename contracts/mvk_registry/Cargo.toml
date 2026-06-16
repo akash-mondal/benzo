@@ -1,5 +1,5 @@
 [package]
-name = "soroban-utils"
+name = "benzo-mvk-registry"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
@@ -7,19 +7,16 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-crate-type = ["lib"]
+crate-type = ["lib", "cdylib"]
 doctest = false
 
 [dependencies]
-ark-bn254 = { workspace = true }
-ark-ec = { workspace = true }
-ark-ff = { workspace = true }
-ark-groth16 = { workspace = true }
-contract-types = { workspace = true }
 soroban-sdk = { workspace = true }
+soroban-utils = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+benzo-merkle = { workspace = true }
 
 [lints]
 workspace = true

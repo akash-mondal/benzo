@@ -38,6 +38,8 @@ export interface TransferRelayRequest {
   noteCt1: string;
   mvkCt0: string;
   mvkCt1: string;
+  /** root of the authorized-MVK registry (the pool's check_mvk_root validates it) */
+  registeredMvkRoot: string;
   /** Soroban-encoded Groth16 proof {a,b,c} as JSON */
   proof: string;
 }
@@ -72,15 +74,17 @@ export class BenzoRelayer {
  * relayer service. Plug into StellarRpcClient so the browser's gasless sends are
  * submitted by the relayer (which pays the fee) without the user holding XLM.
  */
-export function relayerSubmitter(baseUrl: string) {
+export function relayerSubmitter(baseUrl: string, authToken?: string) {
   return async (opts: {
     contractId: string;
     source: string;
     fnArgs: string[];
   }): Promise<InvokeResult> => {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (authToken) headers.authorization = `Bearer ${authToken}`;
     const res = await fetch(`${baseUrl.replace(/\/$/, "")}/relay`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(opts),
     });
     if (!res.ok) throw new Error(`relay failed: ${res.status} ${await res.text()}`);
@@ -96,12 +100,19 @@ export function relayerSubmitter(baseUrl: string) {
  */
 export async function onboardViaSponsor(
   baseUrl: string,
-  params: { newAccountSecret: string; horizonUrl: string; networkPassphrase: string },
+  params: {
+    newAccountSecret: string;
+    horizonUrl: string;
+    networkPassphrase: string;
+    authToken?: string;
+  },
 ): Promise<{ txHash: string; publicKey: string }> {
   const publicKey = Keypair.fromSecret(params.newAccountSecret).publicKey();
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (params.authToken) headers.authorization = `Bearer ${params.authToken}`;
   const res = await fetch(`${baseUrl.replace(/\/$/, "")}/sponsor/onboard`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify({ newAccountPublic: publicKey }),
   });
   if (!res.ok) throw new Error(`onboard failed: ${res.status} ${await res.text()}`);

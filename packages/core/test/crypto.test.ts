@@ -9,6 +9,7 @@ import {
 import { MerkleTreeMirror } from "../src/merkle.js";
 import {
   deriveKeypair,
+  deriveSpendKeys,
   mvkTag,
   noteCommitment,
   noteNullifier,
@@ -76,8 +77,13 @@ describe("notes", () => {
     expect(noteCommitment({ ...base, assetId: 12n })).not.toBe(c);
   });
 
-  it("nullifier = Poseidon2(spend_sk, leaf_index, NULLIFIER_DOMAIN)", () => {
-    expect(noteNullifier(3n, 4n)).toBe(hash([3n, 4n], NULLIFIER_DOMAIN));
+  it("nullifier = Poseidon2(nk, leaf_index, NULLIFIER_DOMAIN), nk from the key hierarchy", () => {
+    // Key hierarchy: the nullifier is keyed by the SEPARATE nullifier key nk,
+    // not the raw root spend secret — so a viewing key cannot be used to spend.
+    const nk = deriveSpendKeys(3n).nk;
+    expect(noteNullifier(3n, 4n)).toBe(hash([nk, 4n], NULLIFIER_DOMAIN));
+    // The nullifier must NOT be derivable from the raw root directly.
+    expect(noteNullifier(3n, 4n)).not.toBe(hash([3n, 4n], NULLIFIER_DOMAIN));
     expect(noteNullifier(3n, 4n)).not.toBe(noteNullifier(3n, 5n));
     expect(noteNullifier(3n, 4n)).not.toBe(noteNullifier(4n, 4n));
   });

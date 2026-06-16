@@ -17,8 +17,9 @@ include "./note.circom";
 include "../lib/merkleProof.circom";
 include "../lib/smt/smtverifier.circom";
 include "../lib/circomlib/circuits/bitify.circom";
+include "../lib/circomlib/circuits/comparators.circom";
 
-template Unshield(levels, smtLevels) {
+template Unshield(levels, smtLevels, mvkLevels) {
     /** PUBLIC INPUTS (order pinned; the pool builds this exact vector) **/
     signal input root;
     signal input assetId;
@@ -28,11 +29,12 @@ template Unshield(levels, smtLevels) {
     signal input extDataHash;
     signal input aspNonMembershipRoot;
     signal input changeMvkTag;
+    signal input registeredMvkRoot;   // root of the authorized-MVK registry
 
     /** PRIVATE INPUTS **/
     // input note
     signal input inAmount;
-    signal input inSpendSk;
+    signal input inOrgSpendId;
     signal input inBlinding;
     signal input inPathIndices;            // == leaf index
     signal input inPathElements[levels];
@@ -41,15 +43,22 @@ template Unshield(levels, smtLevels) {
     signal input changePubkey;
     signal input changeBlinding;
     signal input changeMvkPub;
+    // authorized-MVK registry membership of the change note's MVK
+    signal input mvkKeyMeta;
+    signal input mvkPathElements[mvkLevels];
+    signal input mvkPathIndices;
     // sparse-Merkle non-membership witness (key = input commitment)
     signal input smtSiblings[smtLevels];
     signal input smtOldKey;
     signal input smtOldValue;
     signal input smtIsOld0;
 
-    // Input ownership + commitment.
+    // Input ownership + commitment (key hierarchy: derive ak/nk from the root).
+    component sk = BenzoSpendKeys();
+    sk.orgSpendId <== inOrgSpendId;
+
     component kp = BenzoKeypair();
-    kp.spendSk <== inSpendSk;
+    kp.ak <== sk.ak;
 
     component cm = BenzoNoteCommitment();
     cm.amount      <== inAmount;
@@ -57,9 +66,9 @@ template Unshield(levels, smtLevels) {
     cm.blinding    <== inBlinding;
     cm.assetId     <== assetId;
 
-    // Nullifier derivation.
+    // Nullifier derivation (from the separate nullifier key nk).
     component nf = BenzoNullifier();
-    nf.spendSk   <== inSpendSk;
+    nf.nk        <== sk.nk;
     nf.leafIndex <== inPathIndices;
     nf.out === nullifier;
 
@@ -84,6 +93,21 @@ template Unshield(levels, smtLevels) {
     ctag.mvkPub   <== changeMvkPub;
     ctag.blinding <== changeBlinding;
     ctag.out === changeMvkTag;
+
+    // changeMvkPub must be a nonzero registered MVK (closes the audit P0).
+    component mvkIsZero = IsZero();
+    mvkIsZero.in <== changeMvkPub;
+    mvkIsZero.out === 0;
+    component mvkLeaf = BenzoMvkRegistryLeaf();
+    mvkLeaf.mvkPub  <== changeMvkPub;
+    mvkLeaf.keyMeta <== mvkKeyMeta;
+    component mvkReg = MerkleProof(mvkLevels);
+    mvkReg.leaf        <== mvkLeaf.out;
+    mvkReg.pathIndices <== mvkPathIndices;
+    for (var i = 0; i < mvkLevels; i++) {
+        mvkReg.pathElements[i] <== mvkPathElements[i];
+    }
+    mvkReg.root === registeredMvkRoot;
 
     // Range checks + value conservation:
     // in == public + change (fee-less exit; relayer fees live on transfer).
