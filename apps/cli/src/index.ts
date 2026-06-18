@@ -54,6 +54,7 @@ function circuitSet() {
     joinsplit: art("joinsplit"),
     unshield: art("unshield"),
     proofOfBalance: art("proof_of_balance"),
+    proofOfSum: art("proof_of_sum"),
   };
 }
 
@@ -109,7 +110,7 @@ const HELP = `benzo — private USDC on Stellar (testnet)
   benzo claim-redeem   --link <url> [--to G..]  redeem a claim link's USDC to a Stellar address
   benzo disclose                        print an auditor view-key + reconstructed flows
   benzo payroll  --payouts "@a:10,@b:25" [--scope L]  confidential batch payouts
-  benzo disclose-total [--scope L]      prove payroll/invoice TOTAL to an auditor
+  benzo disclose-total [--context N]    ZK-prove payroll/invoice TOTAL to an auditor (verified on-chain)
   benzo prove-balance --min N           prove you hold >= N USDC (hides exact balance)
   benzo request create --to @h [--amount N] [--min N] [--expiry S] [--memo M] [--ref R] [--payer @p] [--register]
   benzo request pay    --link <url> [--amount N]   pay a request privately (prints nullifier)
@@ -197,7 +198,7 @@ async function main() {
       await c.sync();
       const d = c.disclose();
       console.log(`view-key (TVK) scope=${d.scope}`);
-      console.log(JSON.stringify(d.reconstruct(), null, 2)); break;
+      console.log(jstr(d.reconstruct())); break;
     }
     case "payroll": {
       // --payouts "@alice:10,@bob:25" [--scope LABEL]: pay a team privately.
@@ -212,9 +213,26 @@ async function main() {
       break;
     }
     case "disclose-total": {
+      // ZK disclose-total: prove the EXACT total of shielded holdings with a
+      // proof-of-sum (no plaintext summing) and verify that proof ON-CHAIN, so
+      // the disclosure to an auditor is trustless. Reveals only the total.
       await c.sync();
-      const d = c.disclosedTotal(f.scope ? String(f.scope) : undefined);
-      console.log(`disclosed total: ${stroopsToUsdc(d.total)} USDC across ${d.count} notes`); break;
+      const r = await c.proveTotal({ context: f.context ? BigInt(String(f.context)) : undefined });
+      console.log(`proven total: ${stroopsToUsdc(r.total)} USDC  (ZK proof-of-sum, root=${r.root})`);
+      try {
+        const dep = JSON.parse(readFileSync(`${ROOT}/deployments/testnet.json`, "utf8"));
+        const chain = new StellarCli(configFromEnv());
+        const ok = await chain.view(dep.verifier, process.env.DEPLOYER_PUBLIC || "benzo-deployer", [
+          "verify_proof", "--vk_id", "SUM",
+          "--proof", JSON.stringify(r.sorobanProof),
+          "--public_inputs", JSON.stringify(r.sorobanPublics),
+        ]);
+        console.log(`  on-chain verify (vk_id SUM): ${ok}`);
+      } catch (e) {
+        console.log(`  (on-chain verify skipped: ${(e as Error).message})`);
+      }
+      console.log(`  publicSignals: ${jstr(r.publicSignals)}`);
+      break;
     }
     case "prove-balance": {
       // Prove you hold >= --min USDC without revealing your exact balance.
