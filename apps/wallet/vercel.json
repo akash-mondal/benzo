@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "pnpm install && pnpm --filter @benzo/core build && pnpm --filter @benzo/wallet build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "//": "Proxy the wallet BFF. Set BENZO_API_ORIGIN in Vercel env to the deployed wallet-api origin (e.g. https://benzo-wallet-api.fly.dev). The BFF holds the funded relayer key + does on-chain submit; the browser only ever sends (proof + public inputs), never the witness.",
+      "source": "/api/:path*",
+      "destination": "https://YOUR-WALLET-API-ORIGIN/api/:path*"
+    },
+    {
+      "//": "SPA client-side routing fallback — every non-asset path serves index.html so /send, /deposit, /cash, /claim, /invite all resolve.",
+      "source": "/((?!api/|assets/|circuits/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}
