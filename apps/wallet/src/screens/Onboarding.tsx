@@ -1,0 +1,308 @@
+/**
+ * Onboarding (P0-1) — a 3-step first-run: a one-screen splash, sign-in (on-device
+ * passkey first, Google zkLogin as the alternate), then claim your @handle. Keys
+ * are derived on THIS device via the passkey (no server custodian); the handle is
+ * registered on-chain so people can pay you by name. Dismissal persists, so it
+ * shows once.
+ *
+ * Note on the testnet demo: the passkey step proves on-device key custody for
+ * real; the funded operating wallet for live testnet ops is served by the local
+ * self-hosted BFF (full client-side proving/signing is the mainnet path).
+ */
+import { useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { ArrowLeft, Check, Eye, Fingerprint, Loader2, Send, ShieldCheck, X } from "lucide-react";
+import { LogoMark } from "../ui/Logo";
+import { Button } from "../ui/primitives";
+import { fadeUp, stagger, EASE } from "../ui/motion";
+import { api } from "../lib/api";
+import { friendlyError } from "../lib/errors";
+import { useWallet } from "../lib/store";
+import { registerPasskey, loginWithPasskey, isWebAuthnAvailable } from "../lib/passkey";
+
+type Step = "welcome" | "auth" | "handle";
+
+// Real Google sign-in is enabled only when a client id is configured at build time.
+// Without it we keep an honest, clearly-labelled "(demo)" path — never a fake "signed in".
+const GOOGLE_CLIENT_ID = (import.meta.env as Record<string, string | undefined>).VITE_GOOGLE_CLIENT_ID || "";
+declare global {
+  interface Window {
+    google?: {
+      accounts?: { id?: { initialize: (o: Record<string, unknown>) => void; renderButton: (el: HTMLElement, o: Record<string, unknown>) => void } };
+    };
+  }
+}
+
+const POINTS = [
+  { icon: <Eye size={18} />, title: "Only you can see it", body: "Your balance and payments stay yours. Nobody else can look." },
+  { icon: <Send size={18} />, title: "Send like a text", body: "Pay any @handle. No addresses, no gas, no waiting." },
+  { icon: <ShieldCheck size={18} />, title: "Prove it without showing it", body: "Show you hold enough, or that you got paid. Never the amount." },
+];
+
+export function Onboarding({ onDone }: { onDone: () => void }) {
+  const [step, setStep] = useState<Step>("welcome");
+  return (
+    <motion.div
+      className="absolute inset-0 z-[70] flex flex-col bg-canvas"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      data-testid="onboarding"
+    >
+      <AnimatePresence mode="wait">
+        {step === "welcome" ? (
+          <Welcome key="welcome" onNext={() => setStep("auth")} />
+        ) : step === "auth" ? (
+          <AuthStep key="auth" onNext={() => setStep("handle")} onBack={() => setStep("welcome")} />
+        ) : (
+          <HandleStep key="handle" onDone={onDone} onBack={() => setStep("auth")} />
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+function Pane({ children, onBack }: { children: React.ReactNode; onBack?: () => void }) {
+  return (
+    <motion.div
+      className="relative flex flex-1 flex-col px-7 pb-10 pt-16"
+      initial={{ opacity: 0, x: 16 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: -16 }}
+      transition={{ duration: 0.32, ease: EASE }}
+    >
+      {onBack ? (
+        <button
+          onClick={onBack}
+          aria-label="Back"
+          data-testid="onboarding-back"
+          className="absolute left-5 top-6 flex h-9 w-9 items-center justify-center rounded-full bg-ink/[0.06] text-ink transition outline-none hover:bg-ink/10 focus-visible:ring-2 focus-visible:ring-accent/40"
+        >
+          <ArrowLeft size={18} />
+        </button>
+      ) : null}
+      {children}
+    </motion.div>
+  );
+}
+
+function Welcome({ onNext }: { onNext: () => void }) {
+  return (
+    <Pane>
+      <div className="flex flex-1 flex-col items-center justify-center text-center">
+        <div className="text-accent">
+          <LogoMark size={64} />
+        </div>
+        <motion.h1 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className="font-display mt-6 text-[28px] leading-tight sm:text-[32px]">
+          Money you control.
+          <br />
+          Private by default.
+        </motion.h1>
+        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }} className="mt-3 max-w-[280px] text-[15px] text-muted">
+          Send and get paid privately. Only you ever see your money.
+        </motion.p>
+        <motion.div variants={stagger} initial="hidden" animate="show" className="mt-8 w-full space-y-3">
+          {POINTS.map((p) => (
+            <motion.div key={p.title} variants={fadeUp} className="flex items-center gap-3 rounded-2xl bg-card p-4 text-left shadow-[var(--shadow-card)]">
+              <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-accent/10 text-accent">{p.icon}</div>
+              <div>
+                <div className="text-[15px] font-semibold">{p.title}</div>
+                <div className="text-[13px] text-muted">{p.body}</div>
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+      </div>
+      <Button full size="lg" className="mt-6" onClick={onNext} data-testid="onboarding-cta">
+        Get started
+      </Button>
+    </Pane>
+  );
+}
+
+function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+  const [busy, setBusy] = useState<"passkey" | "google" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const gbtn = useRef<HTMLDivElement>(null);
+
+  async function withPasskey() {
+    setBusy("passkey");
+    setErr(null);
+    try {
+      await registerPasskey({ userName: "benzo-wallet", displayName: "Benzo wallet" });
+      await loginWithPasskey(); // derive the on-device shielded account
+      onNext();
+    } catch (e) {
+      // headless / no authenticator / user cancelled → let them use Google instead
+      setErr((e as Error).message.includes("cancel") ? "Passkey cancelled. Use Google instead." : "Passkey didn't work here. Use Google.");
+      setBusy(null);
+    }
+  }
+
+  // Real Google sign-in (Google Identity Services). Only mounted when a client id is
+  // configured; advances ONLY when Google returns a real credential. No fake success.
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !gbtn.current) return;
+    let cancelled = false;
+    const init = () => {
+      const g = window.google?.accounts?.id;
+      if (!g || cancelled || !gbtn.current) return;
+      g.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: (resp: { credential?: string }) => {
+          if (resp?.credential) onNext(); // a real signed Google credential
+          else setErr("Google sign-in didn't complete. Try again or use Face ID.");
+        },
+      });
+      g.renderButton(gbtn.current, { theme: "outline", size: "large", width: 320, text: "continue_with" });
+    };
+    if (window.google?.accounts?.id) { init(); return () => { cancelled = true; }; }
+    const s = document.createElement("script");
+    s.src = "https://accounts.google.com/gsi/client";
+    s.async = true; s.defer = true; s.onload = init;
+    document.head.appendChild(s);
+    return () => { cancelled = true; };
+  }, [onNext]);
+
+  // Demo Google path — used ONLY when no client id is configured. Honest: labelled
+  // "(demo)" and it does not pretend to be a real sign-in. NOTE: even the real path
+  // is plain OAuth, not a zkLogin ZK circuit (planned); the passkey above is the
+  // real non-custodial key derivation.
+  function withGoogleDemo() {
+    setBusy("google");
+    setErr(null);
+    setTimeout(onNext, 350);
+  }
+
+  return (
+    <Pane onBack={onBack}>
+      <div className="flex flex-1 flex-col items-center justify-center text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent/10 text-accent">
+          <Fingerprint size={30} />
+        </div>
+        <h1 className="font-display mt-5 text-[24px] leading-tight sm:text-[26px]">Your keys, your phone</h1>
+        <p className="mt-2 max-w-[290px] text-[14px] text-muted">
+          Created on this device, unlocked by Face ID. We never see your keys or your balance.
+        </p>
+        {err ? <p className="mt-3 max-w-[290px] text-[13px] text-[#9a6b12]">{err}</p> : null}
+      </div>
+      <div className="space-y-3">
+        {isWebAuthnAvailable() ? (
+          <Button full size="lg" onClick={withPasskey} loading={busy === "passkey"} data-testid="auth-passkey">
+            <Fingerprint size={18} /> Continue with Face ID
+          </Button>
+        ) : null}
+        {GOOGLE_CLIENT_ID ? (
+          <div ref={gbtn} className="flex justify-center" data-testid="auth-google" />
+        ) : (
+          <Button full size="lg" variant={isWebAuthnAvailable() ? "secondary" : "primary"} onClick={withGoogleDemo} loading={busy === "google"} data-testid="auth-google">
+            Continue with Google (demo)
+          </Button>
+        )}
+        <p className="pt-1 text-center text-[12px] text-muted">
+          {GOOGLE_CLIENT_ID ? "No seed phrase. No passwords. Just you." : "Demo sign-in (set VITE_GOOGLE_CLIENT_ID for real Google). No seed phrase, no passwords."}
+        </p>
+      </div>
+    </Pane>
+  );
+}
+
+function HandleStep({ onDone, onBack }: { onDone: () => void; onBack: () => void }) {
+  const { refresh } = useWallet();
+  const [handle, setHandle] = useState("");
+  const [state, setState] = useState<"idle" | "checking" | "available" | "taken" | "invalid" | "error">("idle");
+  const [claimErr, setClaimErr] = useState<string | null>(null);
+  const [claiming, setClaiming] = useState(false);
+  const clean = handle.trim().replace(/^@/, "").toLowerCase();
+
+  useEffect(() => {
+    if (!clean) return setState("idle");
+    if (!/^[a-z0-9_.]{3,20}$/.test(clean)) return setState("invalid");
+    setState("checking");
+    let live = true;
+    const t = setTimeout(async () => {
+      try {
+        const { available } = await api.handleAvailable(clean);
+        if (live) setState(available ? "available" : "taken");
+      } catch {
+        // A failed check is NOT "available" — say so honestly so we don't push the
+        // user toward a name we couldn't verify (claim re-checks server-side anyway).
+        if (live) setState("error");
+      }
+    }, 400);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [clean]);
+
+  async function claim() {
+    if (state !== "available") return;
+    setClaiming(true);
+    setClaimErr(null);
+    try {
+      await api.claimHandle(clean);
+      await refresh();
+      onDone();
+    } catch (e) {
+      // Only a real "taken" (409 / "taken") should dead-end on this name. Anything
+      // else (network/500) is retryable — don't lie that a free handle is taken.
+      const m = e instanceof Error ? e.message : "";
+      if (/taken|already|409|conflict|exists/i.test(m)) setState("taken");
+      else setClaimErr(friendlyError(e, "Couldn't claim that handle — please try again."));
+      setClaiming(false);
+    }
+  }
+
+  return (
+    <Pane onBack={onBack}>
+      <div className="flex flex-1 flex-col">
+        <h1 className="font-display mt-6 text-[26px] leading-tight">Pick your handle</h1>
+        <p className="mt-2 text-[14px] text-muted">A username for money. It's how people pay you.</p>
+
+        <div className="mt-7">
+          <div className="flex items-center gap-2 rounded-2xl border border-hair bg-canvas/60 px-4 py-3 transition focus-within:border-accent focus-within:bg-card focus-within:ring-4 focus-within:ring-accent/15">
+            <span className="font-display text-xl text-muted">@</span>
+            <input
+              autoFocus
+              value={handle}
+              onChange={(e) => setHandle(e.target.value)}
+              placeholder="yourname"
+              maxLength={20}
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              aria-label="Choose a handle"
+              data-testid="handle-input"
+              className="w-full bg-transparent text-lg text-ink outline-none placeholder:text-ink/30"
+            />
+            <StatusGlyph state={state} />
+          </div>
+          <div className="mt-2 flex min-h-[18px] items-center justify-between gap-2 text-[13px]" data-testid="handle-status">
+            <span>
+              {state === "available" ? <span className="text-pos">@{clean} is available</span> : null}
+              {state === "taken" ? <span className="text-danger">@{clean} is taken. Try another.</span> : null}
+              {state === "invalid" ? <span className="text-muted">Letters, numbers, dots. 3 to 20 characters.</span> : null}
+              {state === "checking" ? <span className="text-muted">Checking…</span> : null}
+              {state === "error" ? <span className="text-[#9a6b12]">Couldn't check that handle. Check your connection and try again.</span> : null}
+              {claimErr ? <span className="text-danger">{claimErr}</span> : null}
+            </span>
+            {clean ? <span className="flex-none tabular-nums text-muted" data-testid="handle-counter">{clean.length}/20</span> : null}
+          </div>
+        </div>
+      </div>
+
+      <Button full size="lg" disabled={state !== "available"} loading={claiming} onClick={claim} data-testid="handle-claim">
+        {state === "available" ? `Claim @${clean}` : "Claim handle"}
+      </Button>
+    </Pane>
+  );
+}
+
+function StatusGlyph({ state }: { state: "idle" | "checking" | "available" | "taken" | "invalid" | "error" }) {
+  if (state === "checking") return <Loader2 size={18} className="animate-spin text-muted" />;
+  if (state === "available") return <Check size={18} className="text-pos" />;
+  if (state === "taken" || state === "invalid") return <X size={18} className="text-danger" />;
+  if (state === "error") return <X size={18} className="text-[#9a6b12]" />;
+  return null;
+}

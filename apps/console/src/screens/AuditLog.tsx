@@ -1,0 +1,174 @@
+/**
+ * Audit log — the tamper-evident double-entry ledger, finally on screen. Every
+ * shielded movement projects to a balanced entry whose hash commits to the one
+ * before it, so any after-the-fact edit/insert/delete breaks the chain from that
+ * point on. "Verify chain" re-walks it and proves integrity; each entry links to
+ * its on-chain settlement. This is the CFO/auditor-readable side of private money.
+ */
+import { useEffect, useState } from "react";
+import { CheckCircle2, ScrollText, ShieldAlert } from "lucide-react";
+import type { LedgerEntry, LedgerSourceType } from "@benzo/types";
+import { api } from "../lib/api";
+import { explorerTxUrl, fmtUsd, formatAddress, formatDate, friendlyError } from "../lib/format";
+import { Page, Proving, Reveal, Stagger } from "../ui/motion";
+import { Button, Card, EmptyState, Pill, Skeleton, useToast } from "../ui/primitives";
+
+const sourceTone: Record<LedgerSourceType, "shielded" | "success" | "warning" | "danger" | "muted"> = {
+  shield: "shielded",
+  transfer: "shielded",
+  payroll: "success",
+  invoice: "success",
+  unshield: "warning",
+  onramp: "success",
+  offramp: "warning",
+  fee: "muted",
+  reversal: "danger",
+};
+
+/** Gross of an entry = sum of its credit legs (debits net to the same number). */
+function entryGross(e: LedgerEntry): string {
+  return e.lines.filter((l) => l.direction === "credit").reduce((s, l) => s + BigInt(l.amount), 0n).toString();
+}
+
+export function AuditLog() {
+  const toast = useToast();
+  const [entries, setEntries] = useState<LedgerEntry[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [integrity, setIntegrity] = useState<{ ok: boolean; length: number; brokenAt?: number } | null>(null);
+
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setLoadError(null);
+    api
+      .ledger()
+      .then((r) => live && setEntries(r))
+      .catch((e) => {
+        if (!live) return;
+        setLoadError(friendlyError(e, "Couldn't load the audit log."));
+      });
+    return () => {
+      live = false;
+    };
+  }, [reloadKey]);
+
+  async function verifyChain() {
+    setVerifying(true);
+    setIntegrity(null);
+    try {
+      const r = await api.ledgerVerify();
+      setIntegrity(r);
+      toast({
+        title: r.ok ? `Chain intact — ${r.length} entries verified` : `Tampering detected at entry #${r.brokenAt}`,
+        tone: r.ok ? "success" : "danger",
+      });
+    } catch (e) {
+      toast({ title: friendlyError(e), tone: "danger" });
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  return (
+    <Page>
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl">Audit log</h1>
+          <p className="mt-1 text-[13.5px] text-muted">
+            A tamper-evident double-entry record of every movement. Balances are derived from these; corrections are reversals, never edits.
+          </p>
+        </div>
+      </div>
+
+      <Card className="mb-5 p-5">
+        <div className="flex items-center gap-2 text-[14px] font-semibold">
+          <ScrollText size={16} className="text-primary" /> Tamper-evidence
+        </div>
+        <p className="mt-1.5 max-w-2xl text-[12.5px] leading-relaxed text-muted">
+          Each entry's hash commits to the one before it. Re-walking the chain proves nobody edited, inserted, or deleted a record after the fact — the same guarantee an auditor would re-run themselves.
+        </p>
+        <div className="mt-4 flex items-center gap-3">
+          {verifying ? (
+            <Proving steps={["Reading the chain", "Re-hashing each entry", "Checking every link"]} />
+          ) : (
+            <Button onClick={verifyChain} data-testid="verify-chain">
+              <ShieldAlert size={15} /> Verify chain
+            </Button>
+          )}
+        </div>
+        {integrity ? (
+          <Reveal
+            tone={integrity.ok ? "success" : "danger"}
+            className={`mt-4 rounded-lg border px-4 py-3 ${integrity.ok ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`}
+            data-testid="integrity-result"
+          >
+            <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${integrity.ok ? "text-[#1d7a52]" : "text-danger"}`}>
+              {integrity.ok ? <CheckCircle2 size={14} /> : <ShieldAlert size={14} />}
+              {integrity.ok ? `Chain intact · ${integrity.length} entries verified` : `Tampering detected at entry #${integrity.brokenAt}`}
+            </div>
+            <div className="mt-1 text-[12px] text-muted">
+              {integrity.ok
+                ? "Every entry's hash matches its recomputed value. Any after-the-fact change would break the chain from that point on."
+                : "The recorded hash no longer matches the recomputed one. Everything from that entry onward is suspect."}
+            </div>
+          </Reveal>
+        ) : null}
+      </Card>
+
+      {loadError && entries === null ? (
+        <Card className="p-8 text-center">
+          <div className="text-sm font-medium text-fg">{loadError}</div>
+          <div className="mt-3">
+            <Button variant="outline" onClick={() => setReloadKey((k) => k + 1)} data-testid="audit-retry">Try again</Button>
+          </div>
+        </Card>
+      ) : entries === null ? (
+        <div className="space-y-4">
+          {[0, 1, 2].map((i) => (
+            <Card key={i} className="flex items-center gap-4 p-4">
+              <Skeleton className="h-11 w-11 flex-none rounded-full" />
+              <div className="min-w-0 flex-1 space-y-2">
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-3 w-56" />
+              </div>
+              <Skeleton className="h-5 w-20 flex-none" />
+            </Card>
+          ))}
+        </div>
+      ) : entries.length === 0 ? (
+        <EmptyState title="No entries yet" hint="Ledger entries appear here as soon as money moves: a shield, a payroll run, an invoice paid." />
+      ) : (
+        <Stagger className="space-y-4">
+          {entries.map((e, i) => (
+            <Stagger.Item key={e.id} index={i}>
+              <Card className="flex items-center gap-4 p-4">
+                <div className="flex h-11 w-11 flex-none items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <ScrollText size={19} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <Pill tone={sourceTone[e.sourceType] ?? "muted"}>{e.sourceType}</Pill>
+                    <span className="truncate text-[12.5px] text-muted">{formatDate(e.postedAt)}</span>
+                    {e.reversalOf ? <span className="text-[11.5px] font-semibold text-danger">reversal</span> : null}
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-[11.5px] text-muted">
+                    <span className="font-mono" title="audit hash (commits to the previous entry)">
+                      {e.hash ? formatAddress(e.hash, 8, 6) : "—"}
+                    </span>
+                    {e.txId ? (
+                      <a href={explorerTxUrl(e.txId)} target="_blank" rel="noreferrer" className="font-semibold text-primary hover:underline">
+                        on-chain receipt
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="font-display tnum flex-none text-right text-[15px] text-fg">{fmtUsd(entryGross(e))}</div>
+              </Card>
+            </Stagger.Item>
+          ))}
+        </Stagger>
+      )}
+    </Page>
+  );
+}
