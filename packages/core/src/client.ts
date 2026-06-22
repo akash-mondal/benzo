@@ -55,8 +55,20 @@ import {
 } from "./account.js";
 import type { ChainClient } from "./stellar.js";
 import { feHex } from "./crypto/groth16.js";
-import { proveBalance as generateBalanceProof, selectNotesForBalance } from "./balance.js";
+import { proveBalance as generateBalanceProof, proveBalanceOrg as generateBalanceProofOrg, selectNotesForBalance } from "./balance.js";
+import { proveSum as generateSumProof, proveSumOrg as generateSumProofOrg, MAX_SUM_NOTES } from "./sum.js";
+import { proveSpendingCap as generateSpendingCapProof } from "./spendingcap.js";
+import { provePayoutInnocence as generatePayoutInnocenceProof } from "./payoutinnocence.js";
+import { proveOrgApproval as generateOrgApprovalProof } from "./orgauth.js";
+import { provePayrollComputation as generatePayrollComputationProof, type PayrollLineInput } from "./payrollcomp.js";
+import { proveKybCredential as generateKybCredentialProof } from "./kybcredential.js";
+import { proveCrossNetting as generateCrossNettingProof } from "./netting.js";
 import { transferRelayFnArgs } from "./relay.js";
+import {
+  type OrgIdentity,
+  type OrgSignature,
+  deriveOrgIdentity,
+} from "./org.js";
 import type { ProveResult, ProverPort } from "./prover.js";
 import { encodeBenzoLink, parseBenzoLink } from "@benzo/links";
 import { randomBytes } from "./crypto/random.js";
@@ -366,6 +378,293 @@ export class BenzoClient {
     return this.spendableNotes().reduce((s, n) => s + n.note.amount, 0n);
   }
 
+  // ------------------------------------------------ org treasury (M-of-N) ----
+  // The business treasury is held as ORG notes (recipientPk = orgRecipientPk),
+  // spendable ONLY via pool.transfer_org under a ≥threshold member quorum. The
+  // org identity (member EdDSA keys + group key) is derived deterministically
+  // from this account's seed, so the same org is reproduced on every device and
+  // the treasury is rediscovered from chain (no backend storage).
+
+  private orgCache = new Map<string, OrgIdentity>();
+
+  /** This account's M-of-N org identity (deterministic; cached per orgId). */
+  async orgIdentity(opts: {
+    orgId: string | number;
+    memberCount: number;
+    threshold: bigint;
+  }): Promise<OrgIdentity> {
+    const key = `${opts.orgId}:${opts.memberCount}:${opts.threshold}`;
+    let id = this.orgCache.get(key);
+    if (!id) {
+      id = await deriveOrgIdentity({
+        seed: this.account.mvkSecret,
+        orgId: opts.orgId,
+        memberCount: opts.memberCount,
+        threshold: opts.threshold,
+      });
+      this.orgCache.set(key, id);
+    }
+    return id;
+  }
+
+  /** Dual-controlled treasury notes this client can rediscover from chain. */
+  orgTreasuryNotes(org: OrgIdentity): { note: Note; leafIndex: number }[] {
+    return this.scanner
+      .orgSpendable(this.account.viewSecret, org.recipientPk, org.akGroup)
+      .map((d) => ({
+        note: {
+          amount: d.plain.amount,
+          recipientPk: d.plain.recipientPk,
+          blinding: d.plain.blinding,
+          assetId: d.plain.assetId,
+        },
+        leafIndex: d.leafIndex,
+      }));
+  }
+
+  /** Aggregated dual-controlled treasury balance (stroops). */
+  async orgTreasuryBalance(org: OrgIdentity): Promise<bigint> {
+    await this.sync();
+    return this.orgTreasuryNotes(org).reduce((s, n) => s + n.note.amount, 0n);
+  }
+
+  /** Shield real USDC into the org treasury (an M-of-N owned org note). */
+  async fundTreasury(opts: {
+    org: OrgIdentity;
+    amount: bigint;
+    fromAddress: string;
+    fromSource: string;
+    scope?: string;
+  }): Promise<{ txHash?: string; leafIndex: number; note: Note }> {
+    await this.sync();
+    await this.assertDepositorCanFund(opts.fromAddress, opts.amount);
+    const assetId = await this.assetId();
+
+    const aspBlinding = randomFieldElement();
+    const depositorScalar = await this.pool.depositorScalar(opts.fromAddress);
+    const leaf = aspLeaf(depositorScalar, aspBlinding);
+    await this.opts.cli.invoke({
+      contractId: this.opts.deployment.aspMembership,
+      source: this.opts.txSource,
+      send: true,
+      fnArgs: ["insert_leaf", "--leaf", leaf.toString()],
+    });
+    const aspLeafIndex = this.pool.aspMirrorInsert(leaf);
+
+    const orgNote: Note = {
+      amount: opts.amount,
+      recipientPk: opts.org.recipientPk,
+      blinding: randomFieldElement(),
+      assetId,
+    };
+    const plain = encodeNotePlain({ ...orgNote });
+    const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
+    const res = await this.pool.shield({
+      source: opts.fromSource,
+      from: opts.fromAddress,
+      note: orgNote,
+      mvkPubScalar: this.account.mvkScalar,
+      aspBlinding,
+      aspLeafIndex,
+      noteCt: seal(plain, this.account.viewPub).bytes,
+      mvkCt: seal(plain, tvk.publicKey).bytes,
+    });
+    this.record({
+      type: "shield",
+      amount: opts.amount.toString(),
+      counterparty: "treasury",
+      timestamp: Math.floor(Date.now() / 1000),
+      status: "settled",
+      txHash: res.txHash,
+    });
+    return { txHash: res.txHash, leafIndex: res.leafIndex, note: orgNote };
+  }
+
+  /**
+   * Confidential payroll from the org treasury — one `pool.transfer_org` per
+   * payout under a ≥threshold member quorum (dual control enforced in-circuit).
+   * The treasury note covering the whole run is spent and its remainder rolls
+   * into a fresh CHANGE org note each time, so the treasury stays confidential
+   * AND dual-controlled across the run. Individual salaries are never revealed
+   * on-chain (each payout is its own confidential transfer).
+   *
+   * `signerIndices` are the approving members (≥ threshold) — the cryptographic
+   * embodiment of the maker-checker quorum. `sign(memberIndex, message)` lets
+   * each approver self-sign client-side; omit it to sign from the derived keys.
+   */
+  async orgPayroll(opts: {
+    org: OrgIdentity;
+    payouts: Array<{ to: BenzoRecipient; amount: bigint; memo?: string }>;
+    signerIndices: number[];
+    relayer: string;
+    scope?: string;
+    sign?: (memberIndex: number, message: bigint) => Promise<OrgSignature>;
+  }): Promise<Array<{ to: BenzoRecipient; amount: bigint; txHash?: string; provingMs: number }>> {
+    if (!this.opts.circuits.joinsplitOrg) {
+      throw new Error("orgPayroll requires circuits.joinsplitOrg");
+    }
+    await this.sync();
+    const assetId = await this.assetId();
+    const org = opts.org;
+    const total = opts.payouts.reduce((s, p) => s + p.amount, 0n);
+
+    // One treasury note must cover the whole run (the change chains across it).
+    const covering = this.orgTreasuryNotes(org)
+      .filter((n) => n.note.amount >= total)
+      .sort((a, b) => (a.note.amount < b.note.amount ? 1 : -1))[0];
+    if (!covering) {
+      const bal = this.orgTreasuryNotes(org).reduce((s, n) => s + n.note.amount, 0n);
+      throw new Error(
+        `no single treasury note covers the payroll total ${total} (largest-coverable check failed; treasury ${bal})`,
+      );
+    }
+
+    const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
+    let current: { note: Note; leafIndex: number } = covering;
+    const results: Array<{ to: BenzoRecipient; amount: bigint; txHash?: string; provingMs: number }> = [];
+
+    for (const p of opts.payouts) {
+      const change = current.note.amount - p.amount; // fee 0
+      const employeeNote = newNote(p.amount, p.to.spendPub, assetId);
+      const employeePlain = encodeNotePlain({ ...employeeNote, memo: p.memo });
+      const changeNote: Note = {
+        amount: change,
+        recipientPk: org.recipientPk,
+        blinding: randomFieldElement(),
+        assetId,
+      };
+      const changePlain = encodeNotePlain({ ...changeNote });
+      const r = await this.pool.transferOrg({
+        source: this.opts.txSource,
+        org,
+        signerIndices: opts.signerIndices,
+        input: current,
+        outputs: [
+          { note: employeeNote, mvkPubScalar: this.account.mvkScalar },
+          { note: changeNote, mvkPubScalar: this.account.mvkScalar },
+        ],
+        fee: 0n,
+        relayer: opts.relayer,
+        noteCts: [seal(employeePlain, p.to.viewPub).bytes, seal(changePlain, this.account.viewPub).bytes],
+        mvkCts: [seal(employeePlain, tvk.publicKey).bytes, seal(changePlain, tvk.publicKey).bytes],
+        sign: opts.sign,
+      });
+      this.record({
+        type: "send",
+        amount: p.amount.toString(),
+        counterparty: p.to.label ?? "contractor",
+        timestamp: Math.floor(Date.now() / 1000),
+        status: "settled",
+        txHash: r.txHash,
+      });
+      results.push({ to: p.to, amount: p.amount, txHash: r.txHash, provingMs: r.provingMs });
+      current = { note: changeNote, leafIndex: r.outLeafIndices[1] }; // chain the change
+    }
+    return results;
+  }
+
+  /**
+   * BATCHED confidential payroll — settle a run with ONE `batch_transfer_org` per
+   * chunk (one combined on-chain verification) instead of one tx per payout.
+   *
+   * Unlike `orgPayroll` (which chains a single covering note's change across
+   * payouts), a batch can't chain (all proofs in a tx bind the SAME pre-batch
+   * root, and a change note isn't on-chain mid-tx). So each payout spends a
+   * DISTINCT existing treasury note that covers it. Per-tx N is capped at
+   * `maxPerTx` (default 8, inside the ~10-15 measured real-testnet limit) and
+   * larger runs are auto-chunked into multiple batch txs (re-syncing between
+   * chunks so change notes become spendable). HONEST: this batches VERIFICATION,
+   * not settlement — the win is one pairing check + one tx per chunk, not "all in
+   * one proof".
+   */
+  async orgBatchPayroll(opts: {
+    org: OrgIdentity;
+    payouts: Array<{ to: BenzoRecipient; amount: bigint; memo?: string }>;
+    signerIndices: number[];
+    relayer: string;
+    scope?: string;
+    sign?: (memberIndex: number, message: bigint) => Promise<OrgSignature>;
+    /** max payouts per batch tx (default 8; auto-chunks larger runs). */
+    maxPerTx?: number;
+  }): Promise<Array<{ to: BenzoRecipient; amount: bigint; txHash?: string; provingMs: number }>> {
+    if (!this.opts.circuits.joinsplitOrg) {
+      throw new Error("orgBatchPayroll requires circuits.joinsplitOrg");
+    }
+    const org = opts.org;
+    const assetId = await this.assetId();
+    const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
+    // MEASURED real-testnet cap: a full batch_transfer_org tops out at ~3 org
+    // spends/tx (N=3 settles, N=4 exceeds the 100M-instruction budget). The
+    // integrated entrypoint caps far below verify_batch-alone (~16) because each
+    // spend also drives 4 cross-contract state writes (2 nullifier spends + 2
+    // viewkey binds) + the JSPLITORG verify, which sum. Larger runs auto-chunk.
+    const cap = Math.max(1, Math.min(opts.maxPerTx ?? 3, 3));
+    const results: Array<{ to: BenzoRecipient; amount: bigint; txHash?: string; provingMs: number }> = [];
+
+    for (let off = 0; off < opts.payouts.length; off += cap) {
+      const chunk = opts.payouts.slice(off, off + cap);
+      await this.sync();
+
+      // Assign a DISTINCT covering treasury note to each payout (largest-first,
+      // each note used at most once — the contract also rejects intra-batch
+      // double-spends, but we must not even propose one).
+      const avail = this.orgTreasuryNotes(org)
+        .slice()
+        .sort((a, b) => (a.note.amount < b.note.amount ? 1 : -1));
+      const used = new Set<number>();
+      const spends = chunk.map((p) => {
+        const idx = avail.findIndex((n, i) => !used.has(i) && n.note.amount >= p.amount);
+        if (idx < 0) {
+          throw new Error(
+            `orgBatchPayroll: treasury lacks a distinct note covering ${p.amount} for this batch ` +
+              `(have ${avail.length - used.size} free notes). Split the treasury into per-payout notes first, ` +
+              `or lower maxPerTx.`,
+          );
+        }
+        used.add(idx);
+        const input = avail[idx];
+        const change = input.note.amount - p.amount; // fee 0
+        const employeeNote = newNote(p.amount, p.to.spendPub, assetId);
+        const employeePlain = encodeNotePlain({ ...employeeNote, memo: p.memo });
+        const changeNote: Note = {
+          amount: change,
+          recipientPk: org.recipientPk,
+          blinding: randomFieldElement(),
+          assetId,
+        };
+        const changePlain = encodeNotePlain({ ...changeNote });
+        return {
+          org,
+          signerIndices: opts.signerIndices,
+          input,
+          outputs: [
+            { note: employeeNote, mvkPubScalar: this.account.mvkScalar },
+            { note: changeNote, mvkPubScalar: this.account.mvkScalar },
+          ] as [{ note: Note; mvkPubScalar: bigint }, { note: Note; mvkPubScalar: bigint }],
+          fee: 0n,
+          relayer: opts.relayer,
+          noteCts: [seal(employeePlain, p.to.viewPub).bytes, seal(changePlain, this.account.viewPub).bytes] as [Uint8Array, Uint8Array],
+          mvkCts: [seal(employeePlain, tvk.publicKey).bytes, seal(changePlain, tvk.publicKey).bytes] as [Uint8Array, Uint8Array],
+          sign: opts.sign,
+        };
+      });
+
+      const res = await this.pool.batchTransferOrg({ source: this.opts.txSource, spends });
+      chunk.forEach((p, i) => {
+        this.record({
+          type: "send",
+          amount: p.amount.toString(),
+          counterparty: p.to.label ?? "contractor",
+          timestamp: Math.floor(Date.now() / 1000),
+          status: "settled",
+          txHash: res.txHash,
+        });
+        results.push({ to: p.to, amount: p.amount, txHash: res.txHash, provingMs: res.spends[i]?.provingMs ?? 0 });
+      });
+    }
+    return results;
+  }
+
   /**
    * Typed transaction history: the local journal (self-initiated ops with
    * counterparties) reconciled with on-chain receives discovered by scanning.
@@ -416,6 +715,37 @@ export class BenzoClient {
    * Shield public USDC into a note owned by this account. Ensures the
    * depositor address is ASP-allowlisted (curator op) first.
    */
+  /**
+   * Advisory pre-flight: surface a clear "fund a USDC trustline first" instead
+   * of a raw SAC error mid-shield. Only blocks when we can positively read a
+   * balance below the deposit; a read hiccup (including the SAC `balance`
+   * erroring when there is no trustline at all) falls through to the
+   * authoritative on-chain transfer rather than false-blocking a valid deposit.
+   */
+  private async assertDepositorCanFund(fromAddress: string, amount: bigint): Promise<void> {
+    try {
+      const bal = await this.opts.cli.view(this.opts.deployment.token, this.opts.txSource, [
+        "balance",
+        "--id",
+        fromAddress,
+      ]);
+      const have =
+        typeof bal === "bigint"
+          ? bal
+          : typeof bal === "string" || typeof bal === "number"
+            ? BigInt(bal)
+            : null;
+      if (have !== null && have < amount) {
+        throw new Error(
+          `depositor ${fromAddress} has insufficient USDC (${have.toString()} < ${amount.toString()}); add and fund a USDC trustline first (e.g. \`benzo onboard\`)`,
+        );
+      }
+    } catch (e) {
+      if (e instanceof Error && e.message.includes("insufficient USDC")) throw e;
+      // else: read failure / no trustline — let the on-chain transfer decide.
+    }
+  }
+
   async shield(opts: {
     amount: bigint;
     fromAddress: string; // public depositor G-address (must auth the SAC pull)
@@ -423,6 +753,7 @@ export class BenzoClient {
     scope?: string; // disclosure scope to seal the MVK ciphertext under
   }): Promise<{ txHash?: string; leafIndex: number; commitment: bigint; note: Note; provingMs: number }> {
     await this.sync();
+    await this.assertDepositorCanFund(opts.fromAddress, opts.amount);
     const assetId = await this.assetId();
 
     // ASP allow-membership (regulated edge): curator inserts the depositor.
@@ -571,7 +902,7 @@ export class BenzoClient {
       pool: string; root: string; nullifier0: string; nullifier1: string;
       outCommitment0: string; outCommitment1: string; fee: string; relayerAddress: string;
       mvkTag0: string; mvkTag1: string; noteCt0: string; noteCt1: string;
-      mvkCt0: string; mvkCt1: string; proof: string;
+      mvkCt0: string; mvkCt1: string; registeredMvkRoot: string; proof: string;
     }) => {
       const submitter = await cli.keyAddress(relayer.source);
       const res = await cli.invoke({
@@ -659,8 +990,8 @@ export class BenzoClient {
    * Confidential payroll / invoicing: pay many recipients in one batch where
    * each payout is an independent shielded transfer, so individual amounts and
    * recipients stay hidden on-chain. The employer can later prove the TOTAL to
-   * an auditor with `disclosedTotal()` under the same scope — salaries private,
-   * totals provable. Payouts settle sequentially (each consumes notes).
+   * an auditor with `proveTotal()` (a ZK proof-of-sum verified on-chain) —
+   * salaries private, totals provable. Payouts settle sequentially.
    */
   async payroll(opts: {
     payouts: Array<{ to: BenzoRecipient; amount: bigint; memo?: string }>;
@@ -682,9 +1013,11 @@ export class BenzoClient {
   }
 
   /**
-   * Auditor-facing total: the count + summed amount of the in-scope notes a
-   * scoped TVK reconstructs — lets an employer prove payroll/invoice totals
-   * without revealing any individual amount. Pairs with `payroll(scope)`.
+   * @deprecated NOT zero-knowledge — this sums the in-scope notes in the clear
+   * and asks the auditor to trust the figure (no proof). Use {@link proveTotal},
+   * which produces a `proof_of_sum` Groth16 proof that verifies on-chain (vk_id
+   * `SUM`). Kept only for debugging / back-compat; do not surface it as "the"
+   * disclose-total feature. The CLI `disclose-total` command uses `proveTotal`.
    */
   disclosedTotal(scope = DISCLOSURE_SCOPE): { total: bigint; count: number } {
     const notes = this.shareReceipt(scope).reconstruct();
@@ -739,6 +1072,432 @@ export class BenzoClient {
       root,
       threshold: opts.minAmount,
     };
+  }
+
+  /**
+   * Verify an already-generated Groth16 proof ON-CHAIN against a VK registered
+   * on the verifier contract (e.g. "BALANCE", "SUM", "FUNDS"). Returns true iff
+   * the on-chain pairing check passes. The verifier fails CLOSED — an invalid
+   * proof traps rather than returning false — so any throw is treated as false.
+   *
+   * This is what turns "prove your balance" from a locally-generated proof into
+   * a real on-chain attestation: the chain (not the BFF) is the source of truth
+   * for whether the statement holds.
+   */
+  async verifyProofOnChain(
+    vkId: string,
+    sorobanProof: ProveResult["sorobanProof"],
+    sorobanPublics: string[],
+  ): Promise<boolean> {
+    try {
+      const r = await this.opts.cli.view(this.opts.deployment.verifier, this.opts.txSource, [
+        "verify_proof",
+        "--vk_id",
+        vkId,
+        "--proof",
+        JSON.stringify(sorobanProof),
+        "--public_inputs",
+        JSON.stringify(sorobanPublics),
+      ]);
+      return r === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Prove this account's shielded holdings sum to an EXACT total — the
+   * confidential disclose-total, a cryptographic replacement for the plaintext
+   * `disclosedTotal`. Reveals only the total, never any individual amount.
+   * Requires `circuits.proofOfSum`. Aggregates up to 4 notes (circuit-fixed).
+   *
+   * Completeness note: this proves "these owned notes sum to `total`", not
+   * "these are ALL my notes" — set-completeness composes with the authorized-MVK
+   * registry binding (docs/ZK-AUDIT-AND-STANDARDS.md B.3).
+   */
+  async proveTotal(opts?: { context?: bigint }): Promise<{
+    proof: ProveResult["proof"];
+    publicSignals: string[];
+    sorobanProof: ProveResult["sorobanProof"];
+    sorobanPublics: string[];
+    root: bigint;
+    total: bigint;
+  }> {
+    if (!this.opts.circuits.proofOfSum) {
+      throw new Error("proof-of-sum circuit not configured");
+    }
+    await this.sync();
+    const assetId = await this.assetId();
+    const candidates = this.spendableNotes()
+      .slice(0, MAX_SUM_NOTES)
+      .map((s) => ({ amount: s.note.amount, blinding: s.note.blinding, leafIndex: s.leafIndex }));
+    if (candidates.length === 0) throw new Error("no shielded notes to total");
+    const total = candidates.reduce((sm, n) => sm + n.amount, 0n);
+    const root = this.pool.poolTree.root();
+    const res = await generateSumProof({
+      prover: this.opts.prover,
+      artifacts: this.opts.circuits.proofOfSum,
+      spendSk: this.account.spendSk,
+      assetId,
+      claimedTotal: total,
+      root,
+      tree: this.pool.poolTree,
+      notes: candidates,
+      context: opts?.context,
+    });
+    return {
+      proof: res.proof,
+      publicSignals: res.publicSignals,
+      sorobanProof: res.sorobanProof,
+      sorobanPublics: res.sorobanPublics,
+      root,
+      total,
+    };
+  }
+
+  /**
+   * ORG proof-of-sum — disclose the M-of-N TREASURY total to an auditor as a real
+   * Groth16 proof verified ON-CHAIN (vk_id ORGSUM), revealing only the total, not
+   * any individual salary. Unlike `proveTotal` (single-key notes), this proves the
+   * sum over ORG notes owned by the member set. Aggregates up to MAX_SUM_NOTES.
+   */
+  async proveOrgTotal(opts: { org: OrgIdentity; context?: bigint }): Promise<{
+    proof: ProveResult["proof"];
+    publicSignals: string[];
+    sorobanProof: ProveResult["sorobanProof"];
+    sorobanPublics: string[];
+    root: bigint;
+    total: bigint;
+    onChain: boolean;
+  }> {
+    if (!this.opts.circuits.proofOfSumOrg) {
+      throw new Error("org proof-of-sum circuit not configured");
+    }
+    await this.sync();
+    const assetId = await this.assetId();
+    const notes = this.orgTreasuryNotes(opts.org).slice(0, MAX_SUM_NOTES);
+    if (notes.length === 0) throw new Error("no org treasury notes to total");
+    const total = notes.reduce((s, n) => s + n.note.amount, 0n);
+    const root = this.pool.poolTree.root();
+    const res = await generateSumProofOrg({
+      prover: this.opts.prover,
+      artifacts: this.opts.circuits.proofOfSumOrg,
+      orgMemberRoot: opts.org.memberRoot,
+      threshold: opts.org.threshold,
+      akGroup: opts.org.akGroup,
+      assetId,
+      claimedTotal: total,
+      root,
+      tree: this.pool.poolTree,
+      notes: notes.map((n) => ({ amount: n.note.amount, blinding: n.note.blinding, leafIndex: n.leafIndex })),
+      context: opts.context ?? 0n,
+    });
+    const onChain = await this.verifyProofOnChain("ORGSUM", res.sorobanProof, res.sorobanPublics);
+    return {
+      proof: res.proof,
+      publicSignals: res.publicSignals,
+      sorobanProof: res.sorobanProof,
+      sorobanPublics: res.sorobanPublics,
+      root,
+      total,
+      onChain,
+    };
+  }
+
+  /**
+   * ORG proof-of-balance — prove the M-of-N treasury holds AT LEAST `minTotal`,
+   * verified ON-CHAIN (vk_id ORGBAL), revealing nothing else. Powers the cryptographic
+   * "Payroll funded ✓" (minTotal = run total), reserves-to-lender (covenant), and
+   * true solvency (minTotal = Σ liabilities). Returns `{ holds, onChain }` —
+   * `holds:false` (no proof) when the treasury can't cover the floor.
+   */
+  async proveOrgBalance(opts: { org: OrgIdentity; minTotal: bigint; context?: bigint }): Promise<{
+    holds: boolean;
+    onChain: boolean;
+    minTotal: bigint;
+    root?: bigint;
+    sorobanProof?: ProveResult["sorobanProof"];
+    sorobanPublics?: string[];
+  }> {
+    if (!this.opts.circuits.proofOfBalanceOrg) {
+      throw new Error("org proof-of-balance circuit not configured");
+    }
+    await this.sync();
+    const assetId = await this.assetId();
+    const all = this.orgTreasuryNotes(opts.org).map((n) => ({
+      amount: n.note.amount,
+      blinding: n.note.blinding,
+      leafIndex: n.leafIndex,
+    }));
+    const chosen = selectNotesForBalance(all, opts.minTotal);
+    if (!chosen) return { holds: false, onChain: false, minTotal: opts.minTotal };
+    const root = this.pool.poolTree.root();
+    const res = await generateBalanceProofOrg({
+      prover: this.opts.prover,
+      artifacts: this.opts.circuits.proofOfBalanceOrg,
+      orgMemberRoot: opts.org.memberRoot,
+      orgThreshold: opts.org.threshold,
+      akGroup: opts.org.akGroup,
+      assetId,
+      minTotal: opts.minTotal,
+      root,
+      tree: this.pool.poolTree,
+      notes: chosen,
+      context: opts.context ?? 0n,
+    });
+    const onChain = await this.verifyProofOnChain("ORGBAL", res.sorobanProof, res.sorobanPublics);
+    return { holds: true, onChain, minTotal: opts.minTotal, root, sorobanProof: res.sorobanProof, sorobanPublics: res.sorobanPublics };
+  }
+
+  /**
+   * In-ZK spending policy (Z3) — prove a payout to `to` of `amount` is WITHIN the
+   * approved per-payout `cap`, verified ON-CHAIN (vk_id SPENDCAP), WITHOUT
+   * revealing the amount. The limit is a circuit constraint, so an over-cap payout
+   * cannot produce a proof — `withinCap:false` is a cryptographic "no". Use as a
+   * pre-settlement gate: a line that can't prove ≤ cap is provably blocked.
+   */
+  async proveOrgPayoutCap(opts: {
+    to: BenzoRecipient;
+    amount: bigint;
+    cap: bigint;
+    context?: bigint;
+  }): Promise<{
+    withinCap: boolean;
+    onChain: boolean;
+    cap: bigint;
+    commitment?: bigint;
+    sorobanProof?: ProveResult["sorobanProof"];
+    sorobanPublics?: string[];
+  }> {
+    if (!this.opts.circuits.spendingCap) {
+      throw new Error("spending-cap circuit not configured");
+    }
+    const assetId = await this.assetId();
+    const note: Note = {
+      amount: opts.amount,
+      recipientPk: opts.to.spendPub,
+      blinding: randomFieldElement(),
+      assetId,
+    };
+    try {
+      const res = await generateSpendingCapProof({
+        prover: this.opts.prover,
+        artifacts: this.opts.circuits.spendingCap,
+        note,
+        cap: opts.cap,
+        context: opts.context ?? 0n,
+      });
+      const onChain = await this.verifyProofOnChain("SPENDCAP", res.sorobanProof, res.sorobanPublics);
+      return { withinCap: true, onChain, cap: opts.cap, commitment: res.commitment, sorobanProof: res.sorobanProof, sorobanPublics: res.sorobanPublics };
+    } catch {
+      // amount > cap ⇒ the `amount <= cap` constraint is unsatisfiable ⇒ no proof.
+      return { withinCap: false, onChain: false, cap: opts.cap };
+    }
+  }
+
+  /**
+   * Per-payout proof-of-innocence (Z4) — prove a payout's RECIPIENT is NOT on a
+   * sanctions / deny set (OFAC-style deny SMT), verified ON-CHAIN (vk_id
+   * POIPAYOUT), WITHOUT revealing the recipient. A sanctioned recipient is found
+   * in the deny SMT ⇒ no non-inclusion proof exists ⇒ `innocent:false`, the
+   * payout is provably blocked.
+   */
+  async proveOrgPayoutInnocence(opts: {
+    to: BenzoRecipient;
+    amount: bigint;
+    context?: bigint;
+  }): Promise<{
+    innocent: boolean;
+    onChain: boolean;
+    commitment?: bigint;
+    sorobanProof?: ProveResult["sorobanProof"];
+    sorobanPublics?: string[];
+  }> {
+    if (!this.opts.circuits.payoutInnocence) {
+      throw new Error("payout-innocence circuit not configured");
+    }
+    const assetId = await this.assetId();
+    const recipientPk = opts.to.spendPub;
+    // Non-inclusion witness for recipientPk from the on-chain deny SMT.
+    const fr = (await this.opts.cli.view(this.opts.deployment.aspNonMembership, this.opts.txSource, [
+      "find_key",
+      "--key",
+      recipientPk.toString(),
+    ])) as { found: boolean; siblings: string[]; not_found_key: string; not_found_value: string; is_old0: boolean };
+    if (fr.found) return { innocent: false, onChain: false }; // recipient is sanctioned
+    const siblings = fr.siblings.map((s) => BigInt(s));
+    while (siblings.length < this.opts.deployment.smtLevels) siblings.push(0n);
+    const denyRoot = await this.pool.aspDenyRoot();
+    const note: Note = { amount: opts.amount, recipientPk, blinding: randomFieldElement(), assetId };
+    const res = await generatePayoutInnocenceProof({
+      prover: this.opts.prover,
+      artifacts: this.opts.circuits.payoutInnocence,
+      note,
+      denyRoot,
+      smt: { siblings, oldKey: BigInt(fr.not_found_key), oldValue: BigInt(fr.not_found_value), isOld0: fr.is_old0 ? 1n : 0n },
+      context: opts.context ?? 0n,
+    });
+    const onChain = await this.verifyProofOnChain("POIPAYOUT", res.sorobanProof, res.sorobanPublics);
+    return { innocent: true, onChain, commitment: res.commitment, sorobanProof: res.sorobanProof, sorobanPublics: res.sorobanPublics };
+  }
+
+  /**
+   * Anonymous approver / surveillance-free dual-control (Z5) — prove ≥`threshold`
+   * DISTINCT org approvers signed off on a run (`spendMessage`), verified ON-CHAIN
+   * (vk_id ORGAUTH), WITHOUT revealing WHICH approvers signed. Dual-control
+   * becomes a property of the proof; the approval leaves no surveillance trail of
+   * who signed. Returns `approved:false` if fewer than `threshold` signers (the
+   * count constraint is unsatisfiable, so no proof).
+   */
+  async proveOrgApproval(opts: {
+    memberSeeds: number[];
+    signerIndices: number[];
+    threshold: bigint;
+    spendMessage: bigint;
+  }): Promise<{
+    approved: boolean;
+    onChain: boolean;
+    approvers: number;
+    threshold: bigint;
+    memberCount: number;
+    sorobanProof?: ProveResult["sorobanProof"];
+    sorobanPublics?: string[];
+  }> {
+    if (!this.opts.circuits.orgSpendAuth) {
+      throw new Error("org spend-auth circuit not configured");
+    }
+    try {
+      const res = await generateOrgApprovalProof({
+        prover: this.opts.prover,
+        artifacts: this.opts.circuits.orgSpendAuth,
+        memberSeeds: opts.memberSeeds,
+        signerIndices: opts.signerIndices,
+        threshold: opts.threshold,
+        spendMessage: opts.spendMessage,
+      });
+      const onChain = await this.verifyProofOnChain("ORGAUTH", res.sorobanProof, res.sorobanPublics);
+      return {
+        approved: true,
+        onChain,
+        approvers: res.approvers,
+        threshold: opts.threshold,
+        memberCount: opts.memberSeeds.length,
+        sorobanProof: res.sorobanProof,
+        sorobanPublics: res.sorobanPublics,
+      };
+    } catch {
+      // fewer than threshold distinct signers ⇒ count constraint unsatisfiable ⇒ no proof.
+      return { approved: false, onChain: false, approvers: opts.signerIndices.length, threshold: opts.threshold, memberCount: opts.memberSeeds.length };
+    }
+  }
+
+  /**
+   * Verifiable payroll computation (Z6) — prove the run total AND each per-line
+   * note commitment were CORRECTLY DERIVED from the rate card (gross = rate ×
+   * period − deductions, runTotal = Σ gross), verified ON-CHAIN (vk_id PAYCOMP),
+   * with the RATE CARD kept PRIVATE. The total is computed-not-asserted: the chain
+   * accepts it only if it equals the sum of the hidden grosses.
+   */
+  async proveOrgPayrollComputation(opts: {
+    lines: PayrollLineInput[];
+    context?: bigint;
+  }): Promise<{
+    ok: boolean;
+    onChain: boolean;
+    runTotal: bigint;
+    commitDigest: bigint;
+    sorobanProof?: ProveResult["sorobanProof"];
+    sorobanPublics?: string[];
+  }> {
+    if (!this.opts.circuits.payrollComputation) {
+      throw new Error("payroll-computation circuit not configured");
+    }
+    const assetId = await this.assetId();
+    const res = await generatePayrollComputationProof({
+      prover: this.opts.prover,
+      artifacts: this.opts.circuits.payrollComputation,
+      lines: opts.lines,
+      assetId,
+      context: opts.context ?? 0n,
+    });
+    const onChain = await this.verifyProofOnChain("PAYCOMP", res.sorobanProof, res.sorobanPublics);
+    return { ok: true, onChain, runTotal: res.runTotal, commitDigest: res.commitDigest, sorobanProof: res.sorobanProof, sorobanPublics: res.sorobanPublics };
+  }
+
+  /**
+   * KYB-as-ZK credential (Z7) — prove the org holds an issuer-signed KYB
+   * credential, disclosing only "verified business, jurisdiction Y, tier Z",
+   * verified ON-CHAIN (vk_id KYB), WITHOUT revealing the documents. Emits a
+   * scope-bound `orgNullifier` for one-credential-per-scope Sybil resistance.
+   */
+  async proveOrgKyb(opts: {
+    issuerSeed: number;
+    holderSk: bigint;
+    jurisdiction: bigint;
+    tier: bigint;
+    docsHash: bigint;
+    expiry: bigint;
+    serial: bigint;
+    scope: bigint;
+    currentTime: bigint;
+  }): Promise<{
+    ok: boolean;
+    onChain: boolean;
+    jurisdiction: bigint;
+    tier: bigint;
+    orgNullifier: bigint;
+    sorobanProof?: ProveResult["sorobanProof"];
+    sorobanPublics?: string[];
+  }> {
+    if (!this.opts.circuits.kybCredential) {
+      throw new Error("KYB credential circuit not configured");
+    }
+    const res = await generateKybCredentialProof({
+      prover: this.opts.prover,
+      artifacts: this.opts.circuits.kybCredential,
+      issuerSeed: opts.issuerSeed,
+      holderSk: opts.holderSk,
+      jurisdiction: opts.jurisdiction,
+      tier: opts.tier,
+      docsHash: opts.docsHash,
+      expiry: opts.expiry,
+      serial: opts.serial,
+      scope: opts.scope,
+      currentTime: opts.currentTime,
+    });
+    const onChain = await this.verifyProofOnChain("KYB", res.sorobanProof, res.sorobanPublics);
+    return { ok: true, onChain, jurisdiction: res.jurisdiction, tier: res.tier, orgNullifier: res.orgNullifier, sorobanProof: res.sorobanProof, sorobanPublics: res.sorobanPublics };
+  }
+
+  /**
+   * Cross-entity private netting (Z8) — prove two parties' mutual inter-company
+   * invoices net to a single `net` amount (paid by the larger debtor), verified
+   * ON-CHAIN (vk_id NETTING), WITHOUT revealing either gross. The two orgs settle
+   * only the difference. Returns `net` + `payerIsA` (1 = A pays B, 0 = B pays A).
+   */
+  async proveCrossNetting(opts: {
+    aOwesB: bigint;
+    bOwesA: bigint;
+    context?: bigint;
+  }): Promise<{
+    onChain: boolean;
+    net: bigint;
+    payerIsA: bigint;
+    sorobanProof?: ProveResult["sorobanProof"];
+    sorobanPublics?: string[];
+  }> {
+    if (!this.opts.circuits.crossNetting) {
+      throw new Error("cross-netting circuit not configured");
+    }
+    const res = await generateCrossNettingProof({
+      prover: this.opts.prover,
+      artifacts: this.opts.circuits.crossNetting,
+      aOwesB: opts.aOwesB,
+      bOwesA: opts.bOwesA,
+      context: opts.context ?? 0n,
+    });
+    const onChain = await this.verifyProofOnChain("NETTING", res.sorobanProof, res.sorobanPublics);
+    return { onChain, net: res.net, payerIsA: res.payerIsA, sorobanProof: res.sorobanProof, sorobanPublics: res.sorobanPublics };
   }
 
   // --------------------------------------------------------- @handle -----
