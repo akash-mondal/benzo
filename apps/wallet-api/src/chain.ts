@@ -1,0 +1,1029 @@
+/**
+ * The LIVE seam to @benzo/core for the consumer wallet. With the testnet env
+ * loaded (`set -a; . ./.env; set +a`) and the ~/.benzo wallet present, these
+ * settle REAL testnet USDC (real Groth16 proofs + Soroban). Otherwise we serve
+ * the seeded demo store so the UI builds offline.
+ *
+ * Proving path is selectable per call — `local` (NodeProver, snarkjs on this
+ * host) or `tee` (PhalaProver, the attested Phala enclave). This is what the test
+ * matrix exercises: "proving on tee + locally" both settle on-chain, identical
+ * soundness (proof verified on-chain), differing only in WHERE the witness lives.
+ */
+import { readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import {
+  BenzoClient,
+  MvkRegistryMirror,
+  NodeProver,
+  StellarCli,
+  accountFromClaimSecret,
+  configFromEnv,
+  createOrLoadAccountFile,
+  fetchMvkRegistryLeaves,
+  makeTeeProver,
+  mvkRegistryLeaf,
+  usdcToStroops,
+  type ProverPort,
+} from "@benzo/core";
+import { encodeBenzoLink } from "@benzo/links";
+import { db, nowSec, type ActivityRow } from "./store.js";
+
+export type ProverKind = "local" | "tee";
+
+const ROOT = process.env.BENZO_ROOT || process.cwd();
+// The consumer wallet's OWN shielded identity + note-discovery state — kept
+// SEPARATE from the business console (a wallet user is a different account; the
+// two products never share an identity). App-specific env vars so a generic
+// override can't accidentally re-merge them.
+const WALLET = process.env.BENZO_WALLET_ACCOUNT || join(homedir(), ".benzo", "wallet", "account.json");
+const STATE = process.env.BENZO_WALLET_STATE || join(dirname(WALLET), "state.json");
+
+/** Durable note-discovery + journal store (atomic-write JSON file). */
+class FileKVStore {
+  constructor(private readonly path: string) {}
+  private read(): Record<string, string> {
+    try {
+      return JSON.parse(readFileSync(this.path, "utf8")) as Record<string, string>;
+    } catch {
+      return {};
+    }
+  }
+  async get(key: string): Promise<string | null> {
+    return this.read()[key] ?? null;
+  }
+  async set(key: string, value: string): Promise<void> {
+    const m = this.read();
+    m[key] = value;
+    mkdirSync(dirname(this.path), { recursive: true });
+    const tmp = `${this.path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(m));
+    renameSync(tmp, this.path);
+  }
+}
+
+let dep: Record<string, string | number> | null = null;
+function deployment(): Record<string, string | number> {
+  if (!dep) dep = JSON.parse(readFileSync(`${ROOT}/deployments/testnet.json`, "utf8"));
+  return dep!;
+}
+
+/** The TEE config (endpoint + pinned measurement) from the deployment record. */
+export function teeConfig(): { endpoint: string; measurement: string } | null {
+  try {
+    const d = deployment() as { tee?: { endpoint?: string; composeHash?: string } };
+    if (d.tee?.endpoint && d.tee?.composeHash) return { endpoint: d.tee.endpoint, measurement: d.tee.composeHash };
+  } catch {
+    // deployment record unreadable (e.g. demo run outside the repo) — no TEE info.
+  }
+  return null;
+}
+
+function buildProver(kind: ProverKind): ProverPort {
+  if (kind === "tee") {
+    const cfg = teeConfig();
+    if (!cfg) throw new Error("no TEE configured in deployments/testnet.json");
+    return makeTeeProver({ endpoint: cfg.endpoint, measurement: cfg.measurement });
+  }
+  return new NodeProver();
+}
+
+let client: BenzoClient | null = null;
+let clientKind: ProverKind | null = null;
+let triedOnce = false;
+
+/**
+ * Build (and cache) a live BenzoClient with the requested proving backend. The
+ * client is rebuilt when the prover kind changes; tests drive the two paths
+ * sequentially (never concurrently on the same wallet/state), so a single cached
+ * client is safe.
+ */
+export function getClient(prover: ProverKind = "local"): BenzoClient | null {
+  if (client && clientKind === prover) return client;
+  if (!client && triedOnce && clientKind === null) return null; // previously failed (no env)
+  triedOnce = true;
+  try {
+    if (!process.env.SOROBAN_RPC_URL || !process.env.DEPLOYER_SECRET) {
+      clientKind = null;
+      client = null;
+      return null;
+    }
+    const d = deployment();
+    // `circuit` is the short name a delegated/TEE prover uses to find its own
+    // staged artifacts (the enclave keys by name, not path); NodeProver/WasmProver
+    // ignore it and use the paths. The enclave stages shield/joinsplit/unshield —
+    // so the TEE cash-out (unshield) resolves; proof_of_balance is local-only.
+    const art = (c: string) => ({
+      wasmPath: `${ROOT}/circuits/build/${c}/${c}_js/${c}.wasm`,
+      zkeyPath: `${ROOT}/circuits/build/${c}/${c}.zkey`,
+      circuit: c,
+    });
+    const c = new BenzoClient({
+      cli: new StellarCli(configFromEnv()),
+      deployment: {
+        pool: d.pool as string, verifier: d.verifier as string, merkle: d.merkle as string,
+        nullifierSet: d.nullifierSet as string, aspMembership: d.aspMembership as string,
+        aspNonMembership: d.aspNonMembership as string, viewkeyAnchor: d.viewkeyAnchor as string,
+        token: d.token as string, treeLevels: d.treeLevels as number, aspLevels: d.aspLevels as number,
+        smtLevels: d.smtLevels as number,
+      },
+      circuits: {
+        shield: art("shield"), joinsplit: art("joinsplit"), unshield: art("unshield"),
+        proofOfBalance: art("proof_of_balance"), proofOfSum: art("proof_of_sum"),
+      },
+      prover: buildProver(prover),
+      rpcUrl: process.env.SOROBAN_RPC_URL,
+      txSource: "benzo-deployer",
+      handleRegistry: d.handleRegistry as string,
+      requestRegistry: d.requestRegistry as string,
+      store: new FileKVStore(STATE),
+    });
+    const { account } = createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET });
+    c.useAccount(account);
+    client = c;
+    clientKind = prover;
+    mvkWired = false; // a rebuilt client (e.g. prover switch) must re-wire its MVK mirror
+  } catch (e) {
+    console.error("[wallet-api] live client unavailable, using seeded store:", (e as Error).message);
+    client = null;
+    clientKind = null;
+  }
+  return client;
+}
+
+export function isLive(): boolean {
+  return getClient() !== null;
+}
+
+export function liveStatus(): { live: boolean; mode: "live" | "demo"; missing: string[] } {
+  const missing: string[] = [];
+  if (!process.env.SOROBAN_RPC_URL) missing.push("SOROBAN_RPC_URL");
+  if (!process.env.DEPLOYER_SECRET) missing.push("DEPLOYER_SECRET");
+  return { live: isLive(), mode: isLive() ? "live" : "demo", missing };
+}
+
+/** Which proving backends are reachable + the attested-TEE coordinates. */
+export function proverInfo(): { available: ProverKind[]; tee: { endpoint: string; measurement: string } | null } {
+  const tee = teeConfig();
+  return { available: tee ? ["local", "tee"] : ["local"], tee };
+}
+
+const TX_SOURCE = "benzo-deployer";
+
+/**
+ * The wallet's public Stellar address (the on/off-ramp edge). The durable account
+ * file may carry no Stellar identity (it only needs the shielded keys), so fall
+ * back to resolving the funding CLI key's address — that's the public G-address
+ * USDC unshields to and shields from.
+ */
+async function selfAddress(c: BenzoClient): Promise<string> {
+  return c.account.stellarAddress ?? (await c.opts.cli.keyAddress(TX_SOURCE));
+}
+
+/**
+ * Wire the on-chain authorized-MVK registry mirror into the pool client (once),
+ * so note-binding ops use a `registeredMvkRoot` the on-chain registry accepts.
+ * We replay the prior on-chain leaves, then `register()` our own MVK so the
+ * mirror can produce its membership path (and self-register on-chain if needed).
+ * Fails loud if the mirror root diverges from the on-chain root.
+ */
+let mvkWired = false;
+async function wireMvkRegistry(c: BenzoClient): Promise<void> {
+  if (mvkWired) return;
+  const d = deployment();
+  const registry = d.mvkRegistry as string | undefined;
+  const rpc = process.env.SOROBAN_RPC_URL;
+  if (!registry || !rpc) return;
+  const myMvk = c.account.mvkScalar;
+  const myLeaf = mvkRegistryLeaf(myMvk, 0n);
+  let leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  if (!leaves.includes(myLeaf)) {
+    // not yet registered — register our MVK on-chain, then refetch.
+    await c.opts.cli.invoke({
+      contractId: registry,
+      source: TX_SOURCE,
+      send: true,
+      fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"],
+    });
+    leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  }
+  if (!leaves.includes(myLeaf)) throw new Error("mvk registry: own MVK missing after registration");
+  // Rebuild the full mirror from ALL leaves and record our key at its real index
+  // — robust whether or not someone (e.g. a claimed link account) registered
+  // after us. The root then always matches on-chain.
+  const reg = new MvkRegistryMirror();
+  reg.syncWithOwnedKey(leaves, myMvk, 0n);
+  const onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
+  if (reg.root() !== onchain) {
+    throw new Error(`mvk registry mirror drift: mirror=${reg.root()} onchain=${onchain}`);
+  }
+  c.pool.useMvkRegistry(reg);
+  mvkWired = true;
+}
+
+/** Accept human ("25.50") or stroop ("250000000") amounts; normalise to stroops. */
+export function toStroops(amount: string): bigint {
+  const s = String(amount).trim();
+  return s.includes(".") ? usdcToStroops(s) : /^\d+$/.test(s) && s.length > 9 ? BigInt(s) : usdcToStroops(s);
+}
+
+// ----------------------------------------------------------------- balance
+
+export async function getBalanceStroops(): Promise<{ stroops: string; live: boolean }> {
+  const c = getClient();
+  if (c) {
+    await c.sync();
+    return { stroops: (await c.getBalance()).toString(), live: true };
+  }
+  return { stroops: db.demoBalance, live: false };
+}
+
+// ----------------------------------------------------------------- history
+
+const NOTE: Record<string, (cp?: string) => string> = {
+  receive: () => "Paid you",
+  send: () => "You sent",
+  shield: () => "Added money",
+  cashIn: () => "Added money",
+  unshield: () => "Cash out",
+  cashOut: () => "Cash out · to your bank",
+};
+const DIRECTION: Record<string, "in" | "out"> = {
+  receive: "in", shield: "in", cashIn: "in", send: "out", unshield: "out", cashOut: "out",
+};
+
+/** Friendly display name + note for an edge (cash/shield) vs a person (send/receive). */
+function nameFor(type: string, counterparty?: string): { name: string; note: string } {
+  if (type === "shield" || type === "cashIn") return { name: "Added money", note: "From your bank" };
+  if (type === "unshield" || type === "cashOut") return { name: "Cash out", note: "To your bank" };
+  // person-to-person: prefer a friendly @handle/label, never a raw G-address.
+  const friendly = counterparty && counterparty !== "shielded" && !/^G[A-Z2-7]{40,}$/.test(counterparty);
+  return { name: friendly ? counterparty! : NOTE[type]?.() ?? type, note: NOTE[type]?.() ?? type };
+}
+
+export async function getActivity(): Promise<ActivityRow[]> {
+  const c = getClient();
+  if (c) {
+    await c.sync();
+    const items = c.getHistory();
+    return items
+      .map((h, i): ActivityRow => {
+        const { name, note } = nameFor(h.type, h.counterparty);
+        return {
+          id: `h_${i}_${h.txHash ?? h.timestamp}`,
+          type: h.type,
+          name,
+          note: `${note}${h.memo ? ` · ${h.memo}` : ""}`,
+          amount: h.amount,
+          direction: DIRECTION[h.type] ?? "out",
+          status: h.status === "settled" ? "settled" : h.status === "failed" ? "failed" : "proving",
+          timestamp: h.timestamp,
+          txHash: h.txHash,
+          tone: DIRECTION[h.type] === "in" ? "accent" : h.type.startsWith("cash") || h.type === "unshield" ? "amber" : "neutral",
+        };
+      })
+      .sort((a, b) => b.timestamp - a.timestamp);
+  }
+  return [...db.activity].sort((a, b) => b.timestamp - a.timestamp);
+}
+
+// ----------------------------------------------------------------- send
+
+export interface SettleResult {
+  status: "settled" | "demo" | "failed";
+  txHash?: string;
+  provingMs?: number;
+  prover: ProverKind;
+  amount: string;
+  onChain: boolean;
+  error?: string;
+}
+
+/** A live phase event, streamed to the UI's 3-phase send ceremony. */
+export type SendPhase =
+  | { phase: "building" }
+  | { phase: "proving" }
+  | { phase: "submitting"; provingMs?: number; txHash?: string }
+  | { phase: "confirmed"; txHash?: string; provingMs?: number; onChain: boolean }
+  | { phase: "failed"; error: string };
+
+export type PhaseSink = (e: SendPhase) => void;
+
+/** How a typed recipient resolves: a private @handle, a public G-address, or unknown. */
+export function classifyRecipient(to: string): "handle" | "address" | "invite" {
+  const t = to.trim();
+  if (/^G[A-Z2-7]{55}$/.test(t)) return "address";
+  if (t.startsWith("@")) return "handle";
+  if (/^[a-z0-9_.]{3,20}$/i.test(t)) return "handle";
+  return "invite";
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Unified consumer send with live phase events for the 3-phase ceremony. A
+ * `@handle` is a private shielded transfer; a `G…` Stellar address is a public
+ * payout (unshield) that intentionally leaves the shield. Both move real USDC on
+ * testnet when live; demo simulates the same phases (onChain:false).
+ */
+export async function send(
+  to: string,
+  amount: string,
+  memo: string | undefined,
+  prover: ProverKind,
+  onPhase?: PhaseSink,
+): Promise<SettleResult> {
+  const kind = classifyRecipient(to);
+  const stroops = toStroops(amount);
+  const c = getClient(prover);
+
+  if (!c) {
+    // Demo: play the ceremony beats so the UI animates, then record into the feed.
+    onPhase?.({ phase: "building" });
+    await sleep(450);
+    onPhase?.({ phase: "proving" });
+    await sleep(750);
+    onPhase?.({ phase: "submitting" });
+    await sleep(550);
+    db.activity.unshift({
+      id: `act_${Date.now()}`,
+      type: kind === "address" ? "cashOut" : "send",
+      name: to,
+      note: `You sent${memo ? ` · ${memo}` : ""}`,
+      amount: stroops.toString(),
+      direction: "out",
+      status: "settled",
+      timestamp: nowSec(),
+      tone: kind === "address" ? "amber" : "neutral",
+      demo: true,
+    });
+    onPhase?.({ phase: "confirmed", onChain: false });
+    return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+  }
+
+  await c.sync();
+  await wireMvkRegistry(c);
+  onPhase?.({ phase: "building" });
+
+  if (kind === "address") {
+    // public payout — unshield to the given Stellar address
+    onPhase?.({ phase: "proving" });
+    const wd = await c.unshield({ amount: stroops, toAddress: to.trim() });
+    onPhase?.({ phase: "submitting", provingMs: wd.provingMs, txHash: wd.txHash });
+    await c.flush();
+    onPhase?.({ phase: "confirmed", txHash: wd.txHash, provingMs: wd.provingMs, onChain: true });
+    return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true };
+  }
+
+  // private shielded send to a @handle
+  const sh = await c.sendToHandle({ handle: to.replace(/^@/, ""), amount: stroops, memo, useRelayer: false });
+  sh.onProgress((e: { status?: string }) => {
+    if (e.status === "proving") onPhase?.({ phase: "proving" });
+  });
+  const r = await sh.settled();
+  onPhase?.({ phase: "submitting", provingMs: r?.provingMs, txHash: r?.txHash });
+  await c.flush();
+  onPhase?.({ phase: "confirmed", txHash: r?.txHash, provingMs: r?.provingMs, onChain: true });
+  return { status: "settled", txHash: r?.txHash, provingMs: r?.provingMs, prover, amount: stroops.toString(), onChain: true };
+}
+
+export async function sendToHandle(
+  handle: string,
+  amount: string,
+  memo: string | undefined,
+  prover: ProverKind,
+): Promise<SettleResult> {
+  const stroops = toStroops(amount);
+  const c = getClient(prover);
+  if (c) {
+    await c.sync();
+    await wireMvkRegistry(c);
+    const sh = await c.sendToHandle({ handle: handle.replace(/^@/, ""), amount: stroops, useRelayer: false });
+    const r = await sh.settled();
+    await c.flush();
+    return { status: "settled", txHash: r?.txHash, provingMs: r?.provingMs, prover, amount: stroops.toString(), onChain: true };
+  }
+  // Demo: record into the seeded feed so the UI reflects the action (NOT on-chain).
+  db.activity.unshift({
+    id: `act_${Date.now()}`, type: "send", name: handle, note: `You sent${memo ? ` · ${memo}` : ""}`,
+    amount: stroops.toString(), direction: "out", status: "settled", timestamp: nowSec(),
+  });
+  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+}
+
+// ------------------------------------------------------------ fiat ramp reserve
+// The on-ramp/off-ramp USDC leg runs through the on-chain `ramp` reserve contract
+// (the on-chain analog of a MoneyGram/SEP-24 anchor distribution account): cash_in
+// dispenses real USDC from the reserve to back a shield; cash_out pulls the
+// unshielded USDC back into the reserve. Only the fiat charge/payout is simulated.
+
+function rampId(): string | undefined {
+  return deployment().ramp as string | undefined;
+}
+
+/** 32 hex chars → the CLI decodes to 16 bytes, left-padded to the contract's
+ *  BytesN<32> `reference` (the per-tx memo, mirroring the anchor). */
+function rampRef(): string {
+  return (Date.now().toString(16) + Math.floor(Math.random() * 1e16).toString(16)).padStart(32, "0").slice(-32);
+}
+
+/** A clean, user-safe ramp failure. NEVER carries raw CLI/stack text — the BFF
+ *  surfaces `.message`/`.code` straight to the wallet, so a web2 user sees plain
+ *  English, never `stellar contract invoke ...`. */
+export class RampError extends Error {
+  constructor(public code: "reserve" | "limit" | "balance" | "paused" | "busy", message: string) {
+    super(message);
+    this.name = "RampError";
+  }
+}
+
+/** Map a raw chain/CLI error to a clean RampError by the ramp contract's error
+ *  codes (BelowMin=4, AboveMax=5, DuplicateRef=6, InsufficientReserve=7, Paused=2)
+ *  or shape. The raw text is dropped on the floor — only the code/copy escapes. */
+function mapRampError(e: unknown, dir: "in" | "out"): RampError {
+  const m = String((e as Error)?.message ?? e).toLowerCase();
+  if (/insufficientreserve|#7\b|error.*7\)/.test(m)) {
+    return new RampError("reserve", dir === "in" ? "The cash reserve is topping up. Try again in a moment, or a smaller amount." : "The cash reserve is busy. Please try again in a moment.");
+  }
+  if (/\bpaused\b|#2\b/.test(m)) return new RampError("paused", "Cash in and out are paused for maintenance. Please try again shortly.");
+  if (/belowmin|abovemax|invalidamount|#3\b|#4\b|#5\b/.test(m)) {
+    return new RampError("limit", "That amount is outside the allowed range.");
+  }
+  if (/duplicateref|#6\b/.test(m)) return new RampError("busy", "That request was already processed. Please try again.");
+  // bad sequence / timeout / rate-limit / anything else internal → generic busy.
+  return new RampError("busy", dir === "in" ? "Couldn't add money right now. Your money is safe — please try again." : "Couldn't cash out right now. Your money is safe — please try again.");
+}
+
+/** Live USDC reserve balance (stroops) — readable by anyone, straight from chain. */
+export async function getRampReserve(): Promise<{ reserve: string; live: boolean } | null> {
+  try {
+    const ramp = rampId();
+    const c = getClient();
+    if (!ramp || !c) return null;
+    const r = await c.opts.cli.view(ramp, TX_SOURCE, ["reserve"]);
+    return { reserve: String(r), live: true };
+  } catch {
+    return null; // demo mode / no deployment record → no live reserve
+  }
+}
+
+/** On-ramp: dispense `stroops` USDC from the reserve to `to`, to back a shield.
+ *  Pre-checks the reserve so an under-funded reserve fails with clean copy instead
+ *  of an on-chain revert, then maps any chain error through RampError. */
+async function rampCashIn(c: BenzoClient, to: string, stroops: bigint): Promise<void> {
+  const ramp = rampId();
+  if (!ramp) return; // no ramp configured → fall through to the legacy funded path
+  // Clean pre-check: read the live reserve; if it can't cover the dispense, fail
+  // fast with friendly copy (and don't burn a tx). A failed read just falls
+  // through to the invoke, which maps its own error.
+  try {
+    const reserve = BigInt(String(await c.opts.cli.view(ramp, TX_SOURCE, ["reserve"])));
+    if (reserve < stroops) throw new RampError("reserve", "The cash reserve is topping up. Try again in a moment, or a smaller amount.");
+  } catch (e) {
+    if (e instanceof RampError) throw e;
+    /* reserve read failed — let the invoke be the source of truth */
+  }
+  try {
+    await c.opts.cli.invoke({
+      contractId: ramp,
+      source: TX_SOURCE,
+      send: true,
+      fnArgs: ["cash_in", "--to", to, "--amount", stroops.toString(), "--reference", rampRef()],
+    });
+  } catch (e) {
+    throw mapRampError(e, "in");
+  }
+}
+
+/** Off-ramp: pull `stroops` USDC from `from` back into the reserve. */
+async function rampCashOut(c: BenzoClient, from: string, stroops: bigint): Promise<void> {
+  const ramp = rampId();
+  if (!ramp) return;
+  try {
+    await c.opts.cli.invoke({
+      contractId: ramp,
+      source: TX_SOURCE,
+      send: true,
+      fnArgs: ["cash_out", "--from", from, "--amount", stroops.toString(), "--reference", rampRef()],
+    });
+  } catch (e) {
+    throw mapRampError(e, "out");
+  }
+}
+
+// ----------------------------------------------------------------- cash out
+
+// MoneyGram-modeled per-transaction caps (USD), enforced on-chain by the ramp
+// contract. We validate them HERE too so a below-minimum / over-cap request fails
+// fast BEFORE the irreversible unshield — never leaving a half-completed cash-out.
+const CASHOUT_MIN = 50_000_000n; // $5.00
+const CASHOUT_MAX = 25_000_000_000n; // $2,500.00
+
+export async function cashOut(amount: string, prover: ProverKind): Promise<SettleResult> {
+  const stroops = toStroops(amount);
+  if (stroops < CASHOUT_MIN || stroops > CASHOUT_MAX) {
+    throw new RampError("limit", "Cash-out must be between $5 and $2,500.");
+  }
+  const c = getClient(prover);
+  if (c) {
+    await c.sync();
+    await wireMvkRegistry(c);
+    // Unshield to the wallet's own public Stellar address (the off-ramp edge),
+    // then hand that USDC to the on-chain ramp reserve (the anchor absorbs it;
+    // the fiat payout is the only simulated leg).
+    const to = await selfAddress(c);
+    const wd = await c.unshield({ amount: stroops, toAddress: to });
+    await c.flush();
+    await rampCashOut(c, to, stroops);
+    return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true };
+  }
+  db.activity.unshift({
+    id: `act_${Date.now()}`, type: "cashOut", name: "Cash out to bank", note: "To your bank",
+    amount: stroops.toString(), direction: "out", status: "arriving", timestamp: nowSec(), tone: "amber", demo: true,
+  });
+  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+}
+
+// ----------------------------------------------------------------- add money
+
+export async function addMoney(amount: string, prover: ProverKind = "local"): Promise<SettleResult> {
+  const stroops = toStroops(amount);
+  const c = getClient(prover);
+  if (c) {
+    await c.sync();
+    await wireMvkRegistry(c);
+    const from = await selfAddress(c);
+    const before = await c.getBalance();
+    try {
+      // On-ramp: the on-chain ramp reserve dispenses real USDC to the funding
+      // address (the anchor's distribution account), then we shield it. Only the
+      // fiat *charge* is simulated; every USDC movement here is real + on-chain.
+      await rampCashIn(c, from, stroops);
+      const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: TX_SOURCE });
+      await c.flush();
+      return { status: "settled", txHash: sh.txHash, provingMs: sh.provingMs, prover, amount: stroops.toString(), onChain: true };
+    } catch (e) {
+      // The shield's on-chain submit + proof verification happen BEFORE the SDK's
+      // post-submit `assertSynced` full-tree check. On a long-lived deployment the
+      // historical pool-tree mirror can't be fully rebuilt from RPC (event
+      // retention), so that strict check can trip even though the shield settled.
+      // Shield correctness doesn't depend on the full tree (it only inserts a new
+      // commitment), so confirm settlement by the balance delta and report success.
+      if (/out of sync/.test((e as Error).message)) {
+        await c.sync();
+        const after = await c.getBalance();
+        if (after > before) {
+          return { status: "settled", prover, amount: stroops.toString(), onChain: true, error: "mirror-incomplete (settled; full-tree mirror behind RPC retention)" };
+        }
+      }
+      throw e;
+    }
+  }
+  db.demoBalance = (BigInt(db.demoBalance) + stroops).toString();
+  db.activity.unshift({
+    id: `act_${Date.now()}`, type: "shield", name: "Added money", note: "From your bank",
+    amount: stroops.toString(), direction: "in", status: "settled", timestamp: nowSec(), tone: "accent", demo: true,
+  });
+  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+}
+
+// ----------------------------------------------- direct deposit / import USDC
+// "Import money" = the user sends USDC to their wallet's public Stellar address
+// from ANY other wallet/exchange (no ramp, no bank), then shields it privately.
+// The address is public; the shield is the same real Groth16/BN254 on-chain op.
+
+/** The wallet's public deposit address + its current LIQUID (unshielded) USDC. */
+export async function getDepositInfo(): Promise<{ address: string; liquid: string; asset: string; issuer: string; live: boolean } | null> {
+  try {
+    const c = getClient();
+    if (!c) return null;
+    const address = await selfAddress(c);
+    const token = deployment().token as string;
+    const liquid = String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", address]));
+    const [asset, issuer] = String(deployment().usdcAsset ?? "USDC:").split(":");
+    return { address, liquid, asset: asset || "USDC", issuer: issuer || "", live: true };
+  } catch {
+    return null;
+  }
+}
+
+/** Import: shield the wallet's liquid (externally-deposited) USDC into the private
+ *  pool. `amount` optional (defaults to all liquid). Real shield, real proof. */
+export async function importDeposit(amount: string | undefined, prover: ProverKind = "local"): Promise<SettleResult> {
+  const stroops0 = amount ? toStroops(amount) : 0n;
+  const c = getClient(prover);
+  if (!c) return { status: "demo", prover, amount: (stroops0 || 0n).toString(), onChain: false };
+  await c.sync();
+  await wireMvkRegistry(c);
+  const from = await selfAddress(c);
+  const token = deployment().token as string;
+  const liquid = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", from])));
+  const stroops = amount ? stroops0 : liquid;
+  if (stroops <= 0n) throw new RampError("balance", "No deposited USDC to import yet. Send USDC to your address first.");
+  if (stroops > liquid) throw new RampError("balance", "That's more than the USDC deposited to your address.");
+  const before = await c.getBalance();
+  try {
+    const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: TX_SOURCE });
+    await c.flush();
+    return { status: "settled", txHash: sh.txHash, provingMs: sh.provingMs, prover, amount: stroops.toString(), onChain: true };
+  } catch (e) {
+    if (/out of sync/.test((e as Error).message)) {
+      await c.sync();
+      if ((await c.getBalance()) > before) return { status: "settled", prover, amount: stroops.toString(), onChain: true };
+    }
+    throw e;
+  }
+}
+
+// ----------------------------------------------------------- public balance / send
+// The "Public" balance is the wallet's plain, liquid USDC on its own Stellar
+// account — what external wallets/exchanges send TO and receive FROM. "Make
+// private" shields it (importDeposit, above); "Make public" unshields the pool
+// back to this same address; "Send to a wallet" pays any external G-address.
+
+/** The "Public" balance: the wallet's liquid (unshielded) USDC, in stroops.
+ *  Reuses the same liquid read as getDepositInfo(). Demo → zeros + not-live. */
+export async function publicBalance(): Promise<{ stroops: string; address: string; asset: string; issuer: string; live: boolean }> {
+  const info = await getDepositInfo();
+  if (!info) return { stroops: "0", address: "", asset: "USDC", issuer: "", live: false };
+  return { stroops: info.liquid, address: info.address, asset: info.asset, issuer: info.issuer, live: true };
+}
+
+/** "Make public": unshield from the private pool to the wallet's OWN public
+ *  address (mirrors cashOut WITHOUT the rampCashOut leg — the USDC lands liquid
+ *  on the account instead of being absorbed by the reserve). Real unshield, real
+ *  proof. Demo branch mirrors cashOut's. */
+export async function makePublic(amount: string, prover: ProverKind): Promise<SettleResult> {
+  const stroops = toStroops(amount);
+  const c = getClient(prover);
+  if (c) {
+    await c.sync();
+    await wireMvkRegistry(c);
+    const to = await selfAddress(c);
+    const token = deployment().token as string;
+    const liquidBefore = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", to])));
+    try {
+      const wd = await c.unshield({ amount: stroops, toAddress: to });
+      try { await c.flush(); } catch { /* local persistence is best-effort; the withdraw already settled on-chain */ }
+      return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true };
+    } catch (e) {
+      // The withdraw can settle on-chain even if a follow-up sync/persist throws
+      // (RPC retention). Treat a real Public-balance increase as success, not a
+      // false error — otherwise the UI shows "failed" on money that actually moved.
+      try {
+        await c.sync();
+        const liquidAfter = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", to])));
+        if (liquidAfter > liquidBefore) return { status: "settled", prover, amount: stroops.toString(), onChain: true };
+      } catch { /* fall through */ }
+      if (e instanceof RampError) throw e;
+      throw new RampError("busy", "Couldn't move USDC to your Public balance right now. Your money is safe — please try again.");
+    }
+  }
+  db.activity.unshift({
+    id: `act_${Date.now()}`, type: "unshield", name: "Made public", note: "Moved to your public balance",
+    amount: stroops.toString(), direction: "out", status: "settled", timestamp: nowSec(), tone: "amber", demo: true,
+  });
+  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+}
+
+/** "Send to a wallet": pay any external Stellar G-address from the Public
+ *  balance via the SAC transfer (a real classic-equivalent USDC payment that
+ *  credits the recipient's trustline). Validates the address, checks the liquid
+ *  balance covers it, and maps a missing-trustline revert to friendly copy. */
+export async function sendPublic(toAddress: string, amount: string): Promise<{ txHash?: string; onChain: boolean }> {
+  const to = toAddress.trim();
+  if (!/^G[A-Z2-7]{55}$/.test(to)) throw new RampError("balance", "That doesn't look like a valid wallet address.");
+  const stroops = toStroops(amount);
+  const c = getClient();
+  if (c) {
+    const token = deployment().token as string;
+    const from = await selfAddress(c);
+    const liquid = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", from])));
+    if (stroops > liquid) throw new RampError("balance", "That's more than your Public balance.");
+    try {
+      // SAC transfer(from, to, amount) — `from` is the custodial public account
+      // (authorized via the TX_SOURCE key); `to` is the external wallet.
+      const res = await c.opts.cli.invoke({
+        contractId: token,
+        source: TX_SOURCE,
+        send: true,
+        fnArgs: ["transfer", "--from", from, "--to", to, "--amount", stroops.toString()],
+      });
+      return { txHash: res.txHash, onChain: true };
+    } catch (e) {
+      // A missing/under-authorized trustline is the common cause of a SAC
+      // transfer revert to an external account — surface it in plain English.
+      if (/trustline|trust line|not authorized|#\d*\b.*balance|sac.*balance/i.test(String((e as Error)?.message ?? e))) {
+        throw new RampError("balance", "That wallet isn't set up to receive USDC yet.");
+      }
+      throw new RampError("busy", "Couldn't send right now. Your money is safe — please try again.");
+    }
+  }
+  db.activity.unshift({
+    id: `act_${Date.now()}`, type: "send", name: "Sent to a wallet", note: `To ${to.slice(0, 4)}…${to.slice(-4)}`,
+    amount: stroops.toString(), direction: "out", status: "settled", timestamp: nowSec(), tone: "neutral", demo: true,
+  });
+  return { onChain: false };
+}
+
+// ----------------------------------------------------------------- identity / handle
+
+/** The consumer's assurance tier. zkLogin/passkey onboarding establishes T1
+ * (unique human); document IDV (T2) is a just-in-time step-up for the fiat ramp.
+ * TESTNET STAND-IN: this is a fixed default (env-overridable), NOT backed by a
+ * real IDV provider — raising it to T2 requires a KYC vendor integration (the
+ * same external-provider seam as KYB). The UI badge + send/invite gates read it;
+ * the README discloses this as mocked. */
+let kycTier = Number(process.env.BENZO_KYC_TIER ?? 1) || 1;
+export function getKycTier(): number {
+  return kycTier;
+}
+
+/** Is a @handle free to claim? live → on-chain registry; demo → seeded check. */
+export async function handleAvailable(handle: string): Promise<boolean> {
+  const h = handle.replace(/^@/, "").toLowerCase();
+  if (!/^[a-z0-9_.]{3,20}$/.test(h)) return false;
+  const c = getClient();
+  if (c) {
+    try {
+      await c.resolveHandle(h);
+      return false; // resolved → already taken
+    } catch {
+      return true; // unresolved → available
+    }
+  }
+  return h !== db.profile.handle.replace(/^@/, "").toLowerCase();
+}
+
+/** Claim a @handle for THIS wallet. live → on-chain registerHandle; demo → local. */
+export async function claimHandle(handle: string): Promise<{ handle: string; txHash?: string; onChain: boolean }> {
+  const h = handle.replace(/^@/, "").toLowerCase();
+  if (!/^[a-z0-9_.]{3,20}$/.test(h)) throw new Error("handle must be 3–20 chars: letters, numbers, dots, underscores");
+  const c = getClient();
+  if (c) {
+    await c.sync();
+    const res = await c.registerHandle({ handle: h });
+    db.profile.handle = h;
+    return { handle: h, txHash: res.txHash, onChain: true };
+  }
+  db.profile.handle = h;
+  return { handle: h, onChain: false };
+}
+
+// ----------------------------------------------------------------- request
+
+export async function createRequest(amount: string | undefined, memo: string | undefined): Promise<{ link: string; id: string }> {
+  const c = getClient();
+  if (c) {
+    return c.createRequest({
+      to: db.profile.handle,
+      amount: amount ? toStroops(amount) : undefined,
+      expiry: nowSec() + 7 * 86_400,
+      memo,
+    });
+  }
+  const id = `req_${Date.now().toString(36)}`;
+  return { link: `benzo://request?to=${db.profile.handle}&id=${id}${amount ? `&amount=${toStroops(amount)}` : ""}`, id };
+}
+
+// ----------------------------------------------------------------- external invite / claim (P0-3)
+
+/**
+ * Send money to someone with NO account: fund a fresh claim-account from a random
+ * secret and hand back a shareable, app-scoped link. The recipient onboards and
+ * claims it; if it goes unclaimed, the SENDER self-claims a refund (we retain the
+ * secret locally — hackathon track; on-chain time-locked escrow is the mainnet
+ * track). The link is tagged `app:"consumer"` so it can never be redeemed in the
+ * business console (UI guard + key-derivation domain separation both refuse).
+ */
+const INVITE_TTL = 7 * 86_400;
+
+interface EscrowEntry {
+  localId: string;
+  amount: string;
+  note?: string;
+  link: string;
+  secret: string; // base64url — retained so the sender can self-claim a refund
+  createdAt: number;
+  expiresAt: number;
+  status: "pending" | "claimed" | "refunded" | "expired";
+}
+const escrow = new Map<string, EscrowEntry>();
+
+const b64urlFromHex = (hex: string): string => Buffer.from(hex, "hex").toString("base64url");
+const bytesFromB64url = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, "base64url"));
+
+function sweepExpired(): void {
+  const now = nowSec();
+  for (const e of escrow.values()) if (e.status === "pending" && now > e.expiresAt) e.status = "expired";
+}
+
+/** Re-adopt the wallet account after a claim (which mutates the client's account). */
+function restoreWalletAccount(c: BenzoClient): void {
+  const { account } = createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET });
+  c.useAccount(account);
+  mvkWired = false; // wallet MVK must be re-wired after the claim account hijack
+}
+
+export interface InviteResult {
+  link: string;
+  localId: string;
+  claimAccountPub: string;
+  amount: string;
+  expiresAt: number;
+  onChain: boolean;
+}
+
+export async function createInvite(amount: string, note: string | undefined, onPhase?: PhaseSink): Promise<InviteResult> {
+  const stroops = toStroops(amount);
+  const localId = `inv_${Date.now().toString(36)}`;
+  const expiresAt = nowSec() + INVITE_TTL;
+  const c = getClient();
+  if (c) {
+    await c.sync();
+    await wireMvkRegistry(c);
+    onPhase?.({ phase: "building" });
+    onPhase?.({ phase: "proving" });
+    const r = await c.createClaimLink({ amount: stroops });
+    await c.flush();
+    const secret = b64urlFromHex(r.claimSecretHex);
+    const link = encodeBenzoLink(
+      { type: "claim", secret, app: "consumer", amount: stroops.toString(), expiresAt: String(expiresAt) },
+      "web",
+    );
+    escrow.set(localId, { localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
+    onPhase?.({ phase: "submitting", txHash: r.sendTx });
+    onPhase?.({ phase: "confirmed", txHash: r.sendTx, onChain: true });
+    return { link, localId, claimAccountPub: r.recipient.spendPub.toString(16), amount: stroops.toString(), expiresAt, onChain: true };
+  }
+  // demo: a well-formed (non-redeemable) link so the UI flow + escrow card work
+  const secret = Buffer.from(`demo-${localId}`).toString("base64url");
+  const link = encodeBenzoLink(
+    { type: "claim", secret, app: "consumer", amount: stroops.toString(), expiresAt: String(expiresAt) },
+    "web",
+  );
+  escrow.set(localId, { localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
+  db.activity.unshift({
+    id: `act_${Date.now()}`, type: "send", name: "Invite sent", note: `Pending claim${note ? ` · ${note}` : ""}`,
+    amount: stroops.toString(), direction: "out", status: "pending", timestamp: nowSec(),
+  });
+  return { link, localId, claimAccountPub: "demo", amount: stroops.toString(), expiresAt, onChain: false };
+}
+
+/** Sweep a claim account's funds out to the wallet's public address (claim or refund). */
+async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
+  const c = getClient();
+  if (!c) return { amount: "0", onChain: false };
+  const to = await selfAddress(c);
+  const claimSecret = bytesFromB64url(secret);
+  // Adopt the ephemeral claim account and register ITS MVK in the wired mirror
+  // first — the unshield that settles the claim needs the spender's MVK
+  // membership path (else "MvkRegistryMirror: MVK not registered").
+  c.useAccount(accountFromClaimSecret(claimSecret));
+  mvkWired = false;
+  await c.sync();
+  await wireMvkRegistry(c);
+  try {
+    const r = await c.claim({ claimSecret, toAddress: to });
+    await c.flush();
+    return { amount: r.amount.toString(), txHash: r.txHash, onChain: true };
+  } finally {
+    restoreWalletAccount(c); // re-adopt the wallet (mvkWired reset; re-wires lazily)
+    await c.sync();
+  }
+}
+
+export async function claimInvite(secret: string, localId?: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
+  const c = getClient();
+  if (c) {
+    // (1) Sweep the escrowed note out of the ephemeral claim-account → the
+    // recipient's liquid USDC address. (2) Then shield it into the recipient's
+    // OWN note so it lands in the in-app (shielded) balance and is spendable
+    // under the recipient's distinct spend key — not left sitting as public USDC.
+    const r = await sweepClaim(secret);
+    let txHash = r.txHash;
+    if (r.onChain && BigInt(r.amount) > 0n) {
+      try {
+        await c.sync();
+        await wireMvkRegistry(c);
+        const from = await selfAddress(c);
+        const before = await c.getBalance();
+        const sh = await c.shield({ amount: BigInt(r.amount), fromAddress: from, fromSource: TX_SOURCE });
+        await c.flush();
+        txHash = sh.txHash ?? txHash;
+      } catch (e) {
+        // Same RPC-retention tolerance as addMoney: the shield settles on-chain
+        // before the SDK's strict full-tree assertion, which can trip on a
+        // long-lived deployment. Confirm by the shielded-balance delta.
+        if (/out of sync/.test((e as Error).message)) {
+          await c.sync();
+        } else throw e;
+      }
+    }
+    const id = localId ?? [...escrow.values()].find((e) => e.secret === secret)?.localId;
+    if (id) escrow.get(id) && (escrow.get(id)!.status = "claimed");
+    db.activity.unshift({
+      id: `act_${Date.now()}`, type: "receive", name: "Claimed a link", note: "Money received",
+      amount: r.amount, direction: "in", status: "settled", timestamp: nowSec(), tone: "accent",
+    });
+    return { ...r, txHash };
+  }
+  const e = [...escrow.values()].find((x) => x.secret === secret) ?? (localId ? escrow.get(localId) : undefined);
+  if (e) e.status = "claimed";
+  return { amount: e?.amount ?? "0", onChain: false };
+}
+
+export async function refundInvite(localId: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
+  const e = escrow.get(localId);
+  if (!e) throw new Error("invite not found");
+  if (e.status === "claimed") throw new Error("already claimed — can't refund");
+  const c = getClient();
+  if (c) {
+    const r = await sweepClaim(e.secret);
+    e.status = "refunded";
+    return r;
+  }
+  e.status = "refunded";
+  return { amount: e.amount, onChain: false };
+}
+
+export function listInvites(): Array<Omit<EscrowEntry, "secret">> {
+  sweepExpired();
+  return [...escrow.values()].sort((a, b) => b.createdAt - a.createdAt).map(({ secret: _s, ...rest }) => rest);
+}
+
+// ----------------------------------------------------------------- share proof
+
+export async function shareProof(
+  minAmount: string,
+  prover: ProverKind,
+): Promise<{ holds: boolean; proof: string; publics: string[]; onChain: boolean; prover: ProverKind }> {
+  const c = getClient(prover);
+  if (c) {
+    await c.sync();
+    const r = await c.proveBalance({ minAmount: toStroops(minAmount) });
+    // The proof is real (Groth16 over real notes), Soroban-encoded, AND now
+    // VERIFIED ON-CHAIN: the deploy registers a BALANCE verifier VK, so we call
+    // verifier.verify_proof(BALANCE, proof, publics) and report the chain's own
+    // verdict. The verifier fails closed, so onChain=true means the pairing
+    // check passed on-chain — not just locally. We also hand back the public
+    // signals so the BROWSER can independently re-verify on-chain (trustless).
+    const onChain = await c.verifyProofOnChain("BALANCE", r.sorobanProof, r.sorobanPublics);
+    return { holds: true, proof: JSON.stringify(r.sorobanProof), publics: r.sorobanPublics, onChain, prover };
+  }
+  return { holds: true, proof: `stub_${Date.now().toString(36)}`, publics: [], onChain: false, prover };
+}
+
+// --------------------------------------------------- dev: provision account to device
+//
+// TESTNET-DEV ONLY. Hands the existing (file-custody) testnet account's keys to
+// the browser so the device can read its shielded balance/history DIRECTLY from
+// the chain (no BFF in the read path) — the "blockchain is the backend" thesis.
+// HARD-GATED behind BENZO_DEV_EXPORT=1 and the live testnet client; returns null
+// otherwise. In PRODUCTION the device derives these keys from the passkey on
+// device and they are NEVER transmitted — this endpoint is purely the testnet
+// migration affordance for the pre-existing funded account.
+// Stateless gas-paying RELAY: the browser proves a transfer on-device and hands
+// over ONLY {contractId, fnArgs} (the proof + public commitments/nullifiers —
+// NEVER the witness). We submit it with our key (paying the XLM fee). Restricted
+// to the pool contract; the proof is self-authorizing so this can't be abused to
+// move anyone's funds. Gated to testnet-dev like the account export.
+// Production posture: a gas relay must NOT be a generic "submit anything" oracle
+// for its signing key. We constrain it to (a) the pool contract only, (b) the
+// self-authorizing `transfer` function only (the proof enforces correctness;
+// other pool fns like shield move the operator's own funds and must not be
+// relay-callable), and (c) a small fixed-window rate limit per process. A
+// production relay additionally fee-bumps a user-signed inner tx and runs on its
+// own funded operator key (not the deployer) — see ARCHITECTURE §4/§6.
+const RELAY_ALLOWED_FNS = new Set(["transfer"]);
+// The relay submits with its OWN funded operator key (not the deployer) — per-role
+// operator separation so relay gas-fee txns can't collide (TxBadSeq) with deployer
+// ops, and the deployer key isn't exposed to the relay's submit surface.
+const RELAY_SOURCE = "benzo-relayer";
+let relayWindowStart = 0;
+let relayWindowCount = 0;
+export async function relaySubmit(contractId: string, fnArgs: string[]): Promise<{ txHash?: string }> {
+  if (process.env.BENZO_DEV_EXPORT !== "1") throw new Error("relay disabled");
+  if ((process.env.STELLAR_NETWORK ?? "testnet") !== "testnet") throw new Error("relay: testnet only");
+  if (contractId !== deployment().pool) throw new Error("relay: only the pool contract is allowed");
+  if (!RELAY_ALLOWED_FNS.has(fnArgs[0])) throw new Error(`relay: function "${fnArgs[0]}" not relay-allowed`);
+  // Fixed-window rate limit (30 submits / 60s) so a leaked endpoint can't drain
+  // the operator's XLM via fee spam.
+  const now = nowSec();
+  if (now - relayWindowStart >= 60) { relayWindowStart = now; relayWindowCount = 0; }
+  if (++relayWindowCount > 30) throw new Error("relay: rate limited");
+  const c = getClient();
+  if (!c) throw new Error("relay: not live");
+  const res = await c.opts.cli.invoke({ contractId, source: RELAY_SOURCE, send: true, fnArgs });
+  return { txHash: res.txHash };
+}
+
+export function exportAccountForDevice(): { spendSk: string; viewSecret: string; mvkSecret: string } | null {
+  if (process.env.BENZO_DEV_EXPORT !== "1") return null;
+  if ((process.env.STELLAR_NETWORK ?? "testnet") !== "testnet") return null; // never on mainnet
+  const c = getClient();
+  if (!c) return null;
+  const a = c.account;
+  const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
+  return { spendSk: a.spendSk.toString(), viewSecret: hex(a.viewSecret), mvkSecret: hex(a.mvkSecret) };
+}

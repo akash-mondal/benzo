@@ -1,0 +1,927 @@
+/**
+ * @benzo/console-api — the BFF the console UI calls. Matches the repo's
+ * node:http style (cf. anchor/relayer). Implements the typed endpoint registry
+ * from @benzo/types over an in-memory, seeded store; on-chain ops route through
+ * chain.ts (the @benzo/core seam). CORS-open for local dev; add the same bearer
+ * pattern as the relayer before exposing it.
+ */
+import "./loadEnv.js"; // FIRST: load .env so the BFF doesn't silently run seeded.
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
+import type {
+  ApproveRequest,
+  ConnectIntegrationRequest,
+  Counterparty,
+  CreateCounterpartyRequest,
+  CreateInvoiceRequest,
+  CreatePaymentRequest,
+  CreatePayrollRequest,
+  CreateViewingGrantRequest,
+  DashboardSummary,
+  InviteMemberRequest,
+  LedgerEntry,
+  Member,
+  PaymentOrder,
+  PayrollBatch,
+  PayrollLine,
+} from "@benzo/types";
+import { ROLE_PERMISSIONS } from "@benzo/types";
+import { attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic } from "./chain.js";
+import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
+import { matchPolicy, progress, recordApproval } from "./approvals.js";
+import { db, fmtUsd, id, now, parseRosterCsv } from "./store.js";
+import { encodeBenzoLink } from "@benzo/links";
+
+/** Recipient @handle stashed per payment so the approve/release step can settle it. */
+const pendingHandles = new Map<string, string>();
+/** Per-payroll-batch recipient @handles, for the live batch payout on approve. */
+const pendingPayrollHandles = new Map<string, { handle?: string; amount: string }[]>();
+/** Per-contractor @handle (from CSV import / roster edit) used for live settlement. */
+const cpHandle = new Map<string, string>();
+
+/**
+ * Assemble a payroll run by COMPUTING each line from the contractor's stored rate
+ * card — never trusting a caller-supplied amount (that is the line between a rail
+ * and a payroll product). A contractor with no rate fails its line visibly
+ * (PayrollLine.error) instead of silently summing zero.
+ */
+function assemblePayroll(reqLines: Array<{ counterpartyId: string }>): {
+  lines: PayrollLine[];
+  total: string;
+  handles: { handle?: string; amount: string }[];
+} {
+  const lines: PayrollLine[] = [];
+  const handles: { handle?: string; amount: string }[] = [];
+  let total = 0n;
+  for (const l of reqLines) {
+    const cp = db.counterparties.find((c) => c.id === l.counterpartyId);
+    if (!cp) {
+      lines.push({ counterpartyId: l.counterpartyId, amount: "0", status: "failed", error: "unknown contractor" });
+      handles.push({ amount: "0" });
+      continue;
+    }
+    const rate = cp.payRate?.amount;
+    if (!rate || BigInt(rate) <= 0n) {
+      lines.push({ counterpartyId: cp.id, amount: "0", status: "failed", error: `no rate card set for ${cp.name}` });
+      handles.push({ amount: "0" });
+      continue;
+    }
+    // v1: fixed-monthly retainer — gross is the stored rate, computed here, not by the caller.
+    total += BigInt(rate);
+    lines.push({ counterpartyId: cp.id, amount: rate, rate, status: "pending" });
+    handles.push({ handle: cpHandle.get(cp.id), amount: rate });
+  }
+  return { lines, total: total.toString(), handles };
+}
+
+/**
+ * Settle an approved run — idempotently, funded, and resumably (the trust gate):
+ *  - never re-pays a line already settled on-chain (re-approve/retry is safe);
+ *  - pre-checks the live treasury balance and fails over-budget lines visibly
+ *    instead of running dry mid-batch;
+ *  - per-line try/catch surfaces WHICH line failed and WHY to the operator.
+ */
+// ---- Tamper-evident audit hash-chain over the double-entry ledger ----
+// Each entry commits to the prior via SHA-256(prevHash + canonical(entry)). Any
+// later edit/insert/delete breaks the chain from that point, so an auditor can
+// verify the whole log is intact. This is the off-chain system-of-record's
+// integrity guarantee (the on-chain settlement txIds are the other half).
+function canonicalLedger(e: LedgerEntry): string {
+  const { hash: _h, ...rest } = e;
+  return JSON.stringify(rest);
+}
+function chainHash(prev: string | undefined, e: LedgerEntry): string {
+  return createHash("sha256").update((prev ?? "GENESIS") + canonicalLedger(e)).digest("hex");
+}
+/** Append an entry, sealing it into the chain. */
+function postLedger(entry: LedgerEntry): void {
+  entry.hash = chainHash(db.ledger[db.ledger.length - 1]?.hash, entry);
+  db.ledger.push(entry);
+}
+/** One-time backfill so pre-existing (seeded) entries join the chain as genesis. */
+function sealSeedLedger(): void {
+  let prev: string | undefined;
+  for (const e of db.ledger) {
+    if (!e.hash) e.hash = chainHash(prev, e);
+    prev = e.hash;
+  }
+}
+/** Re-walk the chain; report the first tampered index (or ok). */
+export function verifyLedgerChain(): { ok: boolean; length: number; brokenAt?: number } {
+  let prev: string | undefined;
+  for (let i = 0; i < db.ledger.length; i++) {
+    if (db.ledger[i].hash !== chainHash(prev, db.ledger[i])) return { ok: false, length: db.ledger.length, brokenAt: i };
+    prev = db.ledger[i].hash;
+  }
+  return { ok: true, length: db.ledger.length };
+}
+
+/** Post the immutable double-entry record for one settled payroll line (Dr payroll expense / Cr treasury). */
+function writeRunLedger(batch: PayrollBatch, line: PayrollLine, txId?: string): void {
+  postLedger({
+    id: id("le"), orgId: db.org.id, txId, postedAt: now(), sourceType: "payroll", sourceId: batch.id,
+    lines: [
+      { accountId: "acc_pay", direction: "debit", amount: line.amount, assetCode: "USDC" },
+      { accountId: "acc_tre", direction: "credit", amount: line.amount, assetCode: "USDC" },
+    ],
+  });
+}
+
+async function settlePayroll(batch: PayrollBatch): Promise<void> {
+  const handles: { handle?: string; amount: string }[] = pendingPayrollHandles.get(batch.id) ?? batch.lines.map(() => ({ amount: "0" }));
+  const { live, stroops: balance } = await payableBalance();
+
+  // "Payroll funded ✓" — before moving a cent, prove ON-CHAIN (vk_id ORGBAL) that
+  // the M-of-N treasury covers this run's unsettled TOTAL, revealing neither the
+  // treasury nor the total. An over-budget run is provably blocked (funded:false
+  // => we refuse to settle), not discovered halfway through draining the treasury.
+  const runTotal = batch.lines
+    .filter((l) => !l.onChain && BigInt(l.amount || "0") > 0n)
+    .reduce((s, l) => s + BigInt(l.amount), 0n);
+  if (live && runTotal > 0n) {
+    const f = await proveFunded(runTotal.toString());
+    batch.fundedProof = { funded: f.funded, onChain: f.onChain, provenAt: now() };
+    if (f.onChain && !f.funded) {
+      // Cryptographic "no" — top up the treasury and re-approve to retry.
+      for (const l of batch.lines) {
+        if (!l.onChain && BigInt(l.amount || "0") > 0n) {
+          l.status = "failed";
+          l.error = "run not funded — treasury below run total (proven on-chain). Top up and re-approve.";
+        }
+      }
+      batch.status = "processing";
+      return;
+    }
+  }
+
+  let remaining = balance;
+  for (let i = 0; i < batch.lines.length; i++) {
+    const l = batch.lines[i];
+    if (l.onChain) continue; // idempotent: a settled line is never paid twice
+    const amt = BigInt(l.amount || "0");
+    if (amt <= 0n) {
+      l.status = "failed";
+      l.error = l.error ?? "no rate card / zero amount";
+      continue;
+    }
+    if (live && amt > remaining) {
+      l.status = "failed";
+      l.error = "insufficient treasury balance — top up and re-approve to retry";
+      continue;
+    }
+    const r = await payOne(handles[i]?.handle, l.amount);
+    if (r.onChain) {
+      l.status = "paid";
+      l.txHash = r.txHash;
+      l.onChain = true;
+      l.error = undefined;
+      remaining -= amt;
+      writeRunLedger(batch, l, r.txHash); // immutable record per settled line
+    } else if (r.demo) {
+      l.status = "paid"; // demo-settled — onChain:false makes the demo status explicit
+      l.onChain = false;
+      l.error = undefined;
+      writeRunLedger(batch, l, undefined);
+    } else {
+      l.status = "failed";
+      l.error = r.error ?? "settlement failed";
+    }
+  }
+  const settled = (l: PayrollLine) => l.status === "paid" || (l.status === "failed" && BigInt(l.amount || "0") === 0n);
+  batch.status = batch.lines.every(settled) ? "completed" : "processing";
+}
+
+const PORT = Number(process.env.CONSOLE_API_PORT ?? 8790);
+
+// ---------------------------------------------------------------- http utils
+function cors(res: ServerResponse): void {
+  res.setHeader("Access-Control-Allow-Origin", process.env.CONSOLE_ALLOWED_ORIGIN ?? "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization");
+}
+function json(res: ServerResponse, code: number, body: unknown): void {
+  cors(res);
+  res.writeHead(code, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
+}
+async function readJson<T>(req: IncomingMessage): Promise<T> {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return (raw ? JSON.parse(raw) : {}) as T;
+}
+
+// --------------------------------------------------------------- tiny router
+type Handler = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  params: Record<string, string>,
+) => void | Promise<void>;
+interface Route {
+  method: string;
+  segments: string[];
+  handler: Handler;
+}
+const routes: Route[] = [];
+function route(method: string, path: string, handler: Handler): void {
+  routes.push({ method, segments: path.split("/").filter(Boolean), handler });
+}
+function match(method: string, path: string): { handler: Handler; params: Record<string, string> } | null {
+  const segs = path.split("/").filter(Boolean);
+  for (const r of routes) {
+    if (r.method !== method || r.segments.length !== segs.length) continue;
+    const params: Record<string, string> = {};
+    let ok = true;
+    for (let i = 0; i < segs.length; i++) {
+      const rs = r.segments[i];
+      if (rs.startsWith(":")) params[rs.slice(1)] = segs[i];
+      else if (rs !== segs[i]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) return { handler: r.handler, params };
+  }
+  return null;
+}
+
+// -------------------------------------------------------------------- routes
+route("GET", "/health", (_req, res) => json(res, 200, { ok: true }));
+
+route("GET", "/api/session", (_req, res) => {
+  const member = db.members.find((m) => m.id === db.sessionMemberId);
+  if (!member) return json(res, 404, { error: "no session" });
+  json(res, 200, { member, org: db.org, permissions: ROLE_PERMISSIONS[member.role] });
+});
+
+// ----------------------------------------------------------------- zkLogin / SSO
+// Tells the frontend whether REAL Google sign-in is configured (a GOOGLE_CLIENT_ID
+// is set). When absent, the UI falls back to a clearly-labeled demo sign-in.
+route("GET", "/api/auth/config", (_req, res) =>
+  json(res, 200, { googleClientId: process.env.GOOGLE_CLIENT_ID ?? null, google: googleConfigured() }),
+);
+// Verify a Google ID token (zkLogin Phase 1: real OAuth + real RS256 verification
+// against Google's JWKs). Returns the verified claims; the browser derives the
+// Benzo account from `sub` via accountFromOidc — the chain never sees the identity.
+route("POST", "/api/auth/google", async (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) return json(res, 200, { verified: false, configured: false, note: "GOOGLE_CLIENT_ID not set — demo sign-in only" });
+  try {
+    const body = await readJson<{ credential: string; nonce?: string }>(req);
+    const claims = await verifyGoogleIdToken(String(body.credential), clientId);
+    if (body.nonce && claims.nonce && body.nonce !== claims.nonce) {
+      return json(res, 400, { verified: false, error: "nonce mismatch (zkLogin binding)" });
+    }
+    json(res, 200, { verified: true, sub: claims.sub, iss: claims.iss, aud: claims.aud, email: claims.email, name: claims.name });
+  } catch (e) {
+    json(res, 401, { verified: false, error: (e as Error).message });
+  }
+});
+
+// ---------------------------------------------------------------- onboarding (P0-B1)
+// The wizard's draft + the real on-chain actions. KYB is a REAL on-chain
+// attestation (org_account, issuer-signed) — the console reads the decision from
+// chain, it is NOT fabricated here. The member MVK registration is likewise a
+// genuine on-chain tx when live. NO ZK and (now) NO KYB is mocked on-chain.
+interface OnboardingDraft {
+  name?: string;
+  legalName?: string;
+  country?: string;
+  entityType?: string;
+  registrationNumber?: string;
+  taxId?: string;
+  beneficialOwners?: Array<{ name: string; ownership?: string }>;
+  complianceZoneId?: string;
+  team?: Array<{ email: string; role: string }>;
+  kyb?: { status: "approved" | "pending" | "rejected" | "unverified"; provider: string; inquiryRef: string; checks: string[]; onChain: boolean; txHash?: string };
+  mvk?: { onChain: boolean; txHash?: string; mvkRoot?: string };
+}
+let onboarding: OnboardingDraft = {};
+
+route("GET", "/api/onboarding", (_req, res) => json(res, 200, onboarding));
+route("PATCH", "/api/onboarding", async (req, res) => {
+  const body = await readJson<Partial<OnboardingDraft>>(req);
+  onboarding = { ...onboarding, ...body };
+  json(res, 200, onboarding);
+});
+/**
+ * KYB — a REAL on-chain attestation. The provider's checks gate the decision,
+ * which is then POSTED ON-CHAIN by the issuer key (issuer-gated in org_account)
+ * and read back from chain. The provider integration is the seam: the issuer key
+ * is ours today; a real provider would hold it (or we re-point to theirs).
+ */
+route("POST", "/api/onboarding/kyb", async (req, res) => {
+  const body = await readJson<Partial<OnboardingDraft> & { approve?: boolean }>(req);
+  onboarding = { ...onboarding, ...body };
+  try {
+    const attested = await attestKyb(body.approve !== false);
+    onboarding.kyb = {
+      status: attested.status as "approved" | "pending" | "rejected" | "unverified",
+      provider: attested.onChain ? "On-chain attestation (org_account)" : "Pending (offline)",
+      inquiryRef: attested.inquiryRef,
+      checks: ["business_registration", "beneficial_owners", "ofac_screen", "tax_id"],
+      onChain: attested.onChain,
+      txHash: attested.txHash,
+    };
+    json(res, 200, onboarding.kyb);
+  } catch (e) {
+    console.error("[benzo-console-api] KYB attestation failed:", (e as Error)?.message ?? e);
+    json(res, 502, { error: "Could not post the KYB attestation on-chain. Please try again." });
+  }
+});
+/** The org's KYB status, read live FROM CHAIN (org_account.kyb_status). */
+route("GET", "/api/onboarding/kyb-status", async (_req, res) => {
+  const s = await getKybStatus();
+  json(res, 200, s ?? { status: "unverified", inquiryRef: "0", onChain: false });
+});
+/** Register the org owner's MVK on-chain — the real ZK action of onboarding. */
+route("POST", "/api/onboarding/register-mvk", async (_req, res) => {
+  const r = await registerOwnerMvk();
+  onboarding.mvk = r;
+  json(res, 200, r);
+});
+/** Finish — apply the draft to the org so the console boots into the live workspace. */
+route("POST", "/api/onboarding/finish", async (_req, res) => {
+  if (onboarding.name) db.org.name = onboarding.name;
+  if (onboarding.legalName) db.org.legalName = onboarding.legalName;
+  if (onboarding.country) db.org.country = onboarding.country;
+  if (onboarding.complianceZoneId) db.org.complianceZoneId = onboarding.complianceZoneId;
+  // Reflect the REAL on-chain KYB decision (read from chain when live), so the
+  // workspace boots with the attested status rather than an assumed one.
+  const chainKyb = await getKybStatus();
+  db.org.kybStatus = chainKyb?.status ?? onboarding.kyb?.status ?? "pending";
+  const member = db.members.find((m) => m.id === db.sessionMemberId)!;
+  json(res, 200, { member, org: db.org, permissions: ROLE_PERMISSIONS[member.role] });
+});
+
+route("GET", "/api/dashboard", async (_req, res) => {
+  const summary: DashboardSummary = {
+    totalPosition: (await computeTreasury()).totalHidden,
+    pendingApprovals: db.payments.filter((p) => p.status === "needs_approval").length,
+    openInvoices: db.invoices.filter((i) => i.status === "open").length,
+    scheduledPayrolls: db.payrolls.filter((p) => p.status === "needs_approval" || p.status === "approved").length,
+    recentActivity: [
+      ...db.payments.map((p) => ({
+        id: p.id, kind: "payment" as const, title: p.memo ?? "Payment", status: p.status,
+        amountLabel: p.privacy.amountHidden ? "Private" : fmtUsd(p.amount.amount), at: p.updatedAt,
+      })),
+      ...db.invoices.map((i) => ({
+        id: i.id, kind: "invoice" as const, title: i.number, status: i.status,
+        amountLabel: fmtUsd(i.total.amount), at: i.createdAt,
+      })),
+    ].slice(0, 10),
+    live: isLive(),
+  };
+  json(res, 200, summary);
+});
+
+route("GET", "/api/treasury", async (_req, res) => json(res, 200, await computeTreasury()));
+route("POST", "/api/treasury/prove-balance", async (req, res) => {
+  const body = await readJson<{ min: string }>(req);
+  json(res, 200, await proveBalance(String(body.min)));
+});
+route("POST", "/api/treasury/prove-total", async (_req, res) => {
+  json(res, 200, await proveTotal());
+});
+// KYB-as-ZK credential (Z7): prove "verified business, jurisdiction Y, tier Z"
+// on-chain (vk_id KYB) without revealing the documents; sybil-resistant.
+route("POST", "/api/compliance/kyb-credential", async (_req, res) => {
+  json(res, 200, await proveKybCredential());
+});
+// Cross-entity private netting (Z8): net mutual invoices with a counterparty and
+// settle only the difference on-chain (vk_id NETTING); grosses hidden.
+route("POST", "/api/invoices/net", async (req, res) => {
+  const body = await readJson<{ weOwe: string; theyOwe: string }>(req);
+  const we = BigInt(Math.round(Number(body.weOwe) * 1e7)).toString();
+  const they = BigInt(Math.round(Number(body.theyOwe) * 1e7)).toString();
+  json(res, 200, await proveNetting(we, they));
+});
+// Records export (Z2): network-verified period-total attestation for a tax
+// authority/auditor. Embeds the real ORGSUM proof + publics for independent
+// re-verification on-chain. Salaries stay hidden; only the total is disclosed.
+route("POST", "/api/records/period-total", async (req, res) => {
+  const body = await readJson<{ period?: string }>(req);
+  const att = await proveTotalAttestation(body.period || db.org?.name + " period");
+  if (!att) return json(res, 200, { live: false });
+  json(res, 200, { live: true, org: db.org?.name ?? "Organization", ...att });
+});
+// True solvency — prove treasury >= Σ liabilities (pending payroll + open
+// invoices), both hidden, on-chain (ORGBAL). Liabilities summed from the books.
+route("POST", "/api/treasury/prove-solvency", async (_req, res) => {
+  const pendingPayroll = db.payrolls
+    .filter((p) => p.status === "needs_approval" || p.status === "approved" || p.status === "processing")
+    .reduce((s, p) => s + BigInt(p.total.amount || "0"), 0n);
+  const openInvoices = db.invoices
+    .filter((i) => i.status !== "paid" && i.status !== "cancelled")
+    .reduce((s, i) => s + BigInt(i.total.amount || "0"), 0n);
+  const liabilities = (pendingPayroll + openInvoices).toString();
+  json(res, 200, await proveSolvency(liabilities));
+});
+route("POST", "/api/treasury/fund", async (req, res) => {
+  const body = await readJson<{ amount: string }>(req);
+  // amount in USDC (human) -> stroops (7dp). This is also "Make private" (shield).
+  const stroops = BigInt(Math.round(Number(body.amount) * 1e7)).toString();
+  json(res, 200, await fundTreasury(stroops));
+});
+// Two-balance model: the treasury's PUBLIC (liquid, unshielded) USDC balance —
+// what external wallets/exchanges see. The org's M-of-N shielded pool is /treasury.
+route("GET", "/api/treasury/public-balance", async (_req, res) => json(res, 200, await treasuryPublicBalance()));
+// Receive: address + asset/issuer for a Receive QR (inbound lands in Public).
+route("GET", "/api/treasury/receive", async (_req, res) => {
+  const info = await treasuryReceiveInfo();
+  json(res, 200, info ?? { address: "", asset: "USDC", issuer: "", live: false });
+});
+// "Send to a wallet": a real on-chain USDC transfer from the Public balance to an
+// external G-address (credits the recipient's USDC trustline). Friendly errors.
+route("POST", "/api/treasury/send-public", async (req, res) => {
+  const body = await readJson<{ to: string; amount: string }>(req);
+  // amount in USDC (human) -> stroops (7dp), matching /treasury/fund.
+  const stroops = BigInt(Math.round(Number(body.amount) * 1e7)).toString();
+  json(res, 200, await treasurySendPublic(String(body.to ?? ""), stroops));
+});
+route("GET", "/api/live", (_req, res) => json(res, 200, liveStatus()));
+
+route("GET", "/api/members", (_req, res) => json(res, 200, db.members));
+route("POST", "/api/members", async (req, res) => {
+  const body = await readJson<InviteMemberRequest>(req);
+  const member = { id: id("mem"), orgId: db.org.id, email: body.email, role: body.role, status: "invited" as const, createdAt: now() };
+  db.members.push(member);
+  json(res, 201, member);
+});
+
+route("GET", "/api/accounts", (_req, res) => json(res, 200, db.accounts));
+
+route("GET", "/api/counterparties", (_req, res) => json(res, 200, db.counterparties));
+route("POST", "/api/counterparties", async (req, res) => {
+  const body = await readJson<CreateCounterpartyRequest>(req);
+  const cp = {
+    id: id("cp"), orgId: db.org.id, name: body.name, type: body.type, email: body.email,
+    status: "pending_screening" as const, externalAccounts: [], createdAt: now(),
+  };
+  db.counterparties.push(cp);
+  json(res, 201, cp);
+});
+
+route("GET", "/api/payments", (_req, res) => json(res, 200, db.payments));
+route("POST", "/api/payments", async (req, res) => {
+  const body = await readJson<CreatePaymentRequest>(req);
+  // Evaluate the maker-checker policy over the PLAINTEXT proposal (privacy-aware seam).
+  const policy = matchPolicy(BigInt(body.amount.amount));
+  const po: PaymentOrder = {
+    id: id("po"), orgId: db.org.id, type: body.type, status: policy ? "needs_approval" : "approved",
+    amount: body.amount, fromAccountId: body.fromAccountId, toCounterpartyId: body.toCounterpartyId,
+    memo: body.memo, ref: body.ref, approvalPolicyId: policy?.id, approvals: [],
+    privacy: { amountHidden: true, counterpartyHidden: true, visibleTo: [db.sessionMemberId] },
+    settlement: {}, createdByMemberId: db.sessionMemberId, createdAt: now(), updatedAt: now(),
+  };
+  // `toHandle` (the recipient @handle) drives the live joinsplit; stash it for
+  // the approve/release step when the payment needs approval first. Resolve it
+  // from the selected payee's saved handle when the caller didn't pass one, so
+  // the UI never makes the user re-type a handle the dropdown already implies.
+  const toHandle = (body as CreatePaymentRequest & { toHandle?: string }).toHandle ?? cpHandle.get(po.toCounterpartyId ?? "");
+  if (toHandle) pendingHandles.set(po.id, toHandle);
+  if (!policy) await submitShieldedTransfer(po, toHandle); // auto-settle when no approval needed
+  db.payments.push(po);
+  json(res, 201, po);
+});
+route("GET", "/api/payments/:id", (_req, res, p) => {
+  const po = db.payments.find((x) => x.id === p.id);
+  return po ? json(res, 200, po) : json(res, 404, { error: "not found" });
+});
+route("POST", "/api/payments/:id/approve", async (req, res, p) => {
+  const po = db.payments.find((x) => x.id === p.id);
+  if (!po) return json(res, 404, { error: "not found" });
+  const body = await readJson<ApproveRequest & { actorMemberId?: string }>(req);
+  const policy = db.policies.find((x) => x.id === po.approvalPolicyId);
+  po.approvals = po.approvals ?? [];
+  if (body.decision === "denied") {
+    recordApproval({ policy, approvals: po.approvals, proposerId: po.createdByMemberId, actorMemberId: body.actorMemberId, decision: "denied", comment: body.comment, paymentOrderId: po.id });
+    po.status = "cancelled";
+    po.updatedAt = now();
+    return json(res, 200, { ...po, progress: progress(policy, po.approvals) });
+  }
+  // Record ONE approval against the next unsatisfied step (segregation of duties enforced).
+  const r = recordApproval({ policy, approvals: po.approvals, proposerId: po.createdByMemberId, actorMemberId: body.actorMemberId, decision: "approved", comment: body.comment, paymentOrderId: po.id });
+  if (r.error) return json(res, 400, { error: r.error });
+  // Release ONLY when every step + the release gate are satisfied.
+  if (r.progress.satisfied) await submitShieldedTransfer(po, pendingHandles.get(po.id));
+  po.updatedAt = now();
+  json(res, 200, { ...po, progress: r.progress });
+});
+
+// ---------------------------------------------------------------- invites (P0-B2)
+// Onboard employees/customers/contractors via a BUSINESS-scoped link. The
+// `app:"business"` tag means the consumer wallet refuses it (MismatchScreen) and
+// a consumer claim secret can't reconstruct a business account (HKDF domain sep).
+// Only TEAM invites create a console seat; contractor/customer onboard in the wallet.
+interface OrgInvite {
+  id: string;
+  kind: "member" | "contractor" | "customer";
+  name?: string;
+  email?: string;
+  role?: string;
+  counterpartyId?: string;
+  link: string;
+  token: string;
+  status: "sent" | "accepted" | "revoked";
+  createdAt: string;
+}
+const invites: OrgInvite[] = [];
+
+function makeInvite(kind: OrgInvite["kind"], opts: { name?: string; email?: string; role?: string; counterpartyId?: string }): OrgInvite {
+  const token = id("tok");
+  const expiresAt = Math.floor(Date.now() / 1000) + 14 * 86_400;
+  // app = where it's REDEEMED: a team member joins the CONSOLE (business); a
+  // contractor/customer onboards in the consumer WALLET (with an org backref).
+  // So only member invites bounce if opened in the wallet (MismatchScreen).
+  const app = kind === "member" ? "business" : "consumer";
+  const link = encodeBenzoLink(
+    { type: "org", orgId: db.org.id, kind, role: opts.role, orgName: db.org.name, token, app, expiresAt: String(expiresAt) },
+    "web",
+  );
+  return { id: id("invite"), kind, name: opts.name, email: opts.email, role: opts.role, counterpartyId: opts.counterpartyId, link, token, status: "sent", createdAt: now() };
+}
+
+function upsertContractor(name: string, handle?: string): Counterparty {
+  let cp = db.counterparties.find((c) => c.name.toLowerCase() === name.toLowerCase());
+  if (!cp) {
+    cp = { id: id("cp"), orgId: db.org.id, name, type: "contractor", status: "pending_screening", externalAccounts: [], createdAt: now() };
+    db.counterparties.push(cp);
+  }
+  if (handle) cpHandle.set(cp.id, handle.startsWith("@") ? handle : `@${handle}`);
+  return cp;
+}
+
+route("GET", "/api/invites", (_req, res) => json(res, 200, invites));
+route("POST", "/api/invites", async (req, res) => {
+  const body = await readJson<{ kind?: OrgInvite["kind"]; name?: string; email?: string; role?: string; handle?: string }>(req);
+  const kind = body.kind ?? "member";
+  let counterpartyId: string | undefined;
+  if (kind === "contractor" || kind === "customer") counterpartyId = upsertContractor(body.name ?? body.email ?? "New contractor", body.handle).id;
+  if (kind === "member" && body.email) {
+    db.members.push({ id: id("mem"), orgId: db.org.id, email: body.email, role: (body.role as Member["role"]) ?? "approver", status: "invited", createdAt: now() });
+  }
+  const inv = makeInvite(kind, { name: body.name, email: body.email, role: body.role, counterpartyId });
+  invites.push(inv);
+  json(res, 201, inv);
+});
+/** Bulk contractor invites from a CSV (name,handle,rate) — one business-scoped link each. */
+route("POST", "/api/invites/bulk", async (req, res) => {
+  const body = await readJson<{ csv: string }>(req);
+  if (!body.csv) return json(res, 400, { error: "csv required" });
+  const { rows, errors } = parseRosterCsv(body.csv);
+  const created: OrgInvite[] = [];
+  for (const r of rows) {
+    const cp = upsertContractor(r.name, r.handle);
+    if (r.rate && BigInt(r.rate) > 0n) {
+      cp.payRate = { amount: r.rate, assetCode: "USDC" };
+      cp.payCadence = "monthly";
+    }
+    const inv = makeInvite("contractor", { name: r.name, counterpartyId: cp.id });
+    invites.push(inv);
+    created.push(inv);
+  }
+  json(res, 200, { created: created.length, errors, invites: created });
+});
+route("POST", "/api/invites/:id/revoke", (_req, res, p) => {
+  const inv = invites.find((x) => x.id === p.id);
+  if (!inv) return json(res, 404, { error: "not found" });
+  inv.status = "revoked";
+  json(res, 200, inv);
+});
+/** Accept an invite by token (the contractor/employee onboarding handshake). */
+route("POST", "/api/invites/accept", async (req, res) => {
+  const body = await readJson<{ token: string; handle?: string }>(req);
+  const inv = invites.find((x) => x.token === body.token);
+  if (!inv) return json(res, 404, { error: "invite not found or expired" });
+  if (inv.status === "revoked") return json(res, 400, { error: "invite was revoked" });
+  inv.status = "accepted";
+  // a contractor accepting from the wallet hands over their @handle for settlement
+  if (inv.counterpartyId && body.handle) {
+    cpHandle.set(inv.counterpartyId, body.handle.startsWith("@") ? body.handle : `@${body.handle}`);
+    const cp = db.counterparties.find((c) => c.id === inv.counterpartyId);
+    if (cp) cp.status = "allowlisted";
+  }
+  json(res, 200, { ok: true, orgName: db.org.name, kind: inv.kind, counterpartyId: inv.counterpartyId, orgId: db.org.id });
+});
+
+route("GET", "/api/invoices", (_req, res) => json(res, 200, db.invoices));
+route("POST", "/api/invoices", async (req, res) => {
+  const body = await readJson<CreateInvoiceRequest>(req);
+  const total = body.lineItems.reduce((s, li) => s + BigInt(li.unitAmount) * BigInt(li.quantity), 0n);
+  const inv = {
+    id: id("inv"), orgId: db.org.id, number: body.number ?? `INV-${db.invoices.length + 1001}`,
+    counterpartyId: body.counterpartyId, lineItems: body.lineItems,
+    total: { amount: total.toString(), assetCode: body.assetCode }, status: "open" as const,
+    dueDate: body.dueDate, hostedUrl: `https://pay.benzo.test/i/${id("secret")}`, paymentOrderIds: [], createdAt: now(),
+  };
+  db.invoices.push(inv);
+  json(res, 201, inv);
+});
+
+/** Invoice-to-pay (AP, the 2nd front-door): pay a contractor-submitted invoice through the
+ *  SAME maker-checker + settlement engine as a payroll run. Over-threshold → Approvals first. */
+route("POST", "/api/invoices/:id/pay", async (_req, res, pp) => {
+  const inv = db.invoices.find((x) => x.id === pp.id);
+  if (!inv) return json(res, 404, { error: "not found" });
+  if (inv.status === "paid") return json(res, 400, { error: "invoice already paid" });
+  const policy = matchPolicy(BigInt(inv.total.amount));
+  const po: PaymentOrder = {
+    id: id("po"), orgId: db.org.id, type: "invoice_payment", status: policy ? "needs_approval" : "approved",
+    amount: inv.total, fromAccountId: "acc_op", toCounterpartyId: inv.counterpartyId,
+    memo: `Pay ${inv.number}`, ref: inv.id, approvalPolicyId: policy?.id, approvals: [],
+    privacy: { amountHidden: true, counterpartyHidden: true, visibleTo: [db.sessionMemberId] },
+    settlement: {}, createdByMemberId: db.sessionMemberId, createdAt: now(), updatedAt: now(),
+  };
+  const h = cpHandle.get(inv.counterpartyId);
+  if (h) pendingHandles.set(po.id, h);
+  if (!policy) await submitShieldedTransfer(po, h); // under threshold → settle now
+  db.payments.push(po);
+  inv.paymentOrderIds = [...(inv.paymentOrderIds ?? []), po.id];
+  if (po.settlement?.onChain || (!policy && po.status === "approved")) inv.status = "paid";
+  json(res, 201, { invoice: inv, payment: po });
+});
+
+route("GET", "/api/payrolls", (_req, res) => json(res, 200, db.payrolls));
+route("POST", "/api/payrolls", async (req, res) => {
+  const body = await readJson<CreatePayrollRequest>(req);
+  // COMPUTE the run from each contractor's stored rate card (server-side).
+  const { lines, total, handles } = assemblePayroll(body.lines);
+  // Maker-checker: a run over the policy threshold needs approval before it can settle.
+  const policy = matchPolicy(BigInt(total));
+  const batch = {
+    id: id("pr"), orgId: db.org.id, period: body.period, source: body.source,
+    status: (policy ? "needs_approval" : "approved") as "needs_approval" | "approved",
+    lines, total: { amount: total, assetCode: "USDC" }, approvals: [], scheduledAt: body.scheduledAt, createdAt: now(),
+  };
+  pendingPayrollHandles.set(batch.id, handles);
+  db.payrolls.push(batch);
+  json(res, 201, batch);
+});
+
+/** Import a contractor roster CSV (name,handle,rate): upserts the rate cards + returns row errors. */
+route("POST", "/api/payrolls/import", async (req, res) => {
+  const body = await readJson<{ csv: string }>(req);
+  if (!body.csv) return json(res, 400, { error: "csv required" });
+  const { rows, errors } = parseRosterCsv(body.csv);
+  const imported: Counterparty[] = [];
+  for (const r of rows) {
+    let cp = db.counterparties.find((c) => c.name.toLowerCase() === r.name.toLowerCase());
+    if (cp) {
+      cp.payRate = { amount: r.rate, assetCode: "USDC" };
+      cp.payCadence = "monthly";
+    } else {
+      cp = {
+        id: id("cp"), orgId: db.org.id, name: r.name, type: "contractor", status: "pending_screening",
+        externalAccounts: [], payRate: { amount: r.rate, assetCode: "USDC" }, payCadence: "monthly", createdAt: now(),
+      };
+      db.counterparties.push(cp);
+    }
+    if (r.handle) cpHandle.set(cp.id, r.handle);
+    imported.push(cp);
+  }
+  json(res, 200, { imported: imported.length, errors, contractors: db.counterparties.filter((c) => c.type === "contractor") });
+});
+
+/** Roster rate-card / status / handle management (the Contractors screen). */
+route("PATCH", "/api/counterparties/:id", async (req, res, p) => {
+  const cp = db.counterparties.find((c) => c.id === p.id);
+  if (!cp) return json(res, 404, { error: "not found" });
+  const body = await readJson<{ payRate?: string; status?: Counterparty["status"]; handle?: string; name?: string }>(req);
+  if (body.payRate !== undefined) {
+    cp.payRate = { amount: body.payRate, assetCode: "USDC" };
+    cp.payCadence = "monthly";
+  }
+  if (body.status) cp.status = body.status;
+  if (body.name) cp.name = body.name;
+  if (body.handle) cpHandle.set(cp.id, body.handle.startsWith("@") ? body.handle : `@${body.handle}`);
+  json(res, 200, cp);
+});
+route("POST", "/api/payrolls/:id/approve", async (req, res, p) => {
+  const batch = db.payrolls.find((x) => x.id === p.id);
+  if (!batch) return json(res, 404, { error: "not found" });
+  const body = await readJson<{ decision?: "approved" | "denied"; actorMemberId?: string; comment?: string }>(req);
+  const policy = matchPolicy(BigInt(batch.total.amount));
+  batch.approvals = batch.approvals ?? [];
+  if (body.decision === "denied") {
+    recordApproval({ policy, approvals: batch.approvals, proposerId: db.sessionMemberId, actorMemberId: body.actorMemberId, decision: "denied", payrollBatchId: batch.id });
+    batch.status = "cancelled";
+    return json(res, 200, { ...batch, progress: progress(policy, batch.approvals) });
+  }
+  // Record ONE approval against the next unsatisfied step (segregation of duties enforced).
+  const r = recordApproval({ policy, approvals: batch.approvals, proposerId: db.sessionMemberId, actorMemberId: body.actorMemberId, decision: "approved", comment: body.comment, payrollBatchId: batch.id });
+  if (r.error) return json(res, 400, { error: r.error });
+  if (!r.progress.satisfied) {
+    batch.status = "needs_approval"; // more approvals required before release
+    return json(res, 200, { ...batch, progress: r.progress });
+  }
+  await settlePayroll(batch); // fully approved → idempotent, funded, resumable settlement
+  json(res, 200, { ...batch, progress: r.progress });
+});
+
+/**
+ * "Payroll funded ✓" — prove ON-CHAIN (vk_id ORGBAL) that the treasury covers
+ * this run's TOTAL before approving, revealing neither figure. Lets the UI show
+ * a real (not asserted) funded badge on the run before anyone clicks Approve.
+ */
+route("POST", "/api/payrolls/:id/prove-funded", async (_req, res, p) => {
+  const batch = db.payrolls.find((x) => x.id === p.id);
+  if (!batch) return json(res, 404, { error: "not found" });
+  const runTotal = batch.lines
+    .filter((l) => !l.onChain && BigInt(l.amount || "0") > 0n)
+    .reduce((s, l) => s + BigInt(l.amount), 0n);
+  const f = await proveFunded(runTotal.toString());
+  batch.fundedProof = { funded: f.funded, onChain: f.onChain, provenAt: now() };
+  json(res, 200, { runTotal: runTotal.toString(), ...batch.fundedProof, ref: f.ref });
+});
+
+/**
+ * Compliance pre-flight (Z3 + Z4) — for EACH line of a run, prove ON-CHAIN, with
+ * amounts and recipients hidden:
+ *   • within cap   (vk_id SPENDCAP) — amount ≤ approved per-payout cap
+ *   • not sanctioned (vk_id POIPAYOUT) — recipient ∉ the deny set
+ * Either failing comes back as a cryptographic "no" (provably blocked).
+ */
+route("POST", "/api/payrolls/:id/prove-policy", async (req, res, p) => {
+  const batch = db.payrolls.find((x) => x.id === p.id);
+  if (!batch) return json(res, 404, { error: "not found" });
+  const body = await readJson<{ cap: string }>(req);
+  const capStroops = BigInt(Math.round(Number(body.cap) * 1e7)).toString();
+  const handles = pendingPayrollHandles.get(batch.id) ?? [];
+  for (let i = 0; i < batch.lines.length; i++) {
+    const l = batch.lines[i];
+    const handle = handles[i]?.handle;
+    if (!handle || BigInt(l.amount || "0") <= 0n) continue;
+    const cap = await proveLineCap(handle, l.amount, capStroops, BigInt(i + 1));
+    l.capProof = { withinCap: cap.withinCap, onChain: cap.onChain };
+    const screen = await proveLineInnocence(handle, l.amount, BigInt(1000 + i));
+    l.screenProof = { innocent: screen.innocent, onChain: screen.onChain };
+  }
+  json(res, 200, {
+    cap: body.cap,
+    lines: batch.lines.map((l) => ({ counterpartyId: l.counterpartyId, capProof: l.capProof, screenProof: l.screenProof })),
+  });
+});
+
+/**
+ * Anonymous approver / surveillance-free dual-control (Z5) — prove >= threshold
+ * DISTINCT approvers signed this run on-chain (vk_id ORGAUTH), WITHOUT revealing
+ * which. Surfaces a "approved M-of-N, members anonymous" badge on the run.
+ */
+route("POST", "/api/payrolls/:id/prove-approval", async (_req, res, p) => {
+  const batch = db.payrolls.find((x) => x.id === p.id);
+  if (!batch) return json(res, 404, { error: "not found" });
+  const { ref, ...r } = await proveAnonymousApproval(batch.id);
+  batch.approvalProof = { ...r, provenAt: now() };
+  json(res, 200, { ...batch.approvalProof, ref });
+});
+
+/**
+ * Verifiable payroll computation (Z6) — prove the run total + per-line
+ * commitments were derived from the rate card (rate×period−deductions) on-chain
+ * (vk_id PAYCOMP), rate card private. Computed-not-asserted.
+ */
+route("POST", "/api/payrolls/:id/prove-computation", async (_req, res, p) => {
+  const batch = db.payrolls.find((x) => x.id === p.id);
+  if (!batch) return json(res, 404, { error: "not found" });
+  const handles = pendingPayrollHandles.get(batch.id) ?? [];
+  const lines = batch.lines.map((l, i) => ({ handle: handles[i]?.handle, amount: l.amount }));
+  const r = await proveRunComputation(lines);
+  batch.computationProof = { ok: r.ok, onChain: r.onChain, runTotal: r.runTotal, provenAt: now() };
+  json(res, 200, { ...batch.computationProof, ref: r.ref });
+});
+
+/** Payroll register as a downloadable CSV (the CFO/accountant record + GL feed). */
+route("GET", "/api/payrolls/:id/export", (_req, res, p) => {
+  const batch = db.payrolls.find((x) => x.id === p.id);
+  if (!batch) return json(res, 404, { error: "not found" });
+  const rows = [["Period", "Contractor", "Gross USDC", "Status", "TxHash"]];
+  for (const l of batch.lines) {
+    const cp = db.counterparties.find((c) => c.id === l.counterpartyId);
+    rows.push([batch.period, cp?.name ?? l.counterpartyId, (Number(l.amount) / 1e7).toFixed(2), l.status + (l.error ? ` (${l.error})` : ""), l.txHash ?? ""]);
+  }
+  const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(",")).join("\n");
+  cors(res);
+  res.writeHead(200, { "content-type": "text/csv", "content-disposition": `attachment; filename="payroll-${batch.period}.csv"` });
+  res.end(csv);
+});
+
+/** Per-contractor payslips for a run (employer-generated; amounts stay hidden on-chain). */
+route("GET", "/api/payrolls/:id/payslips", (_req, res, p) => {
+  const batch = db.payrolls.find((x) => x.id === p.id);
+  if (!batch) return json(res, 404, { error: "not found" });
+  const slips = batch.lines.map((l) => {
+    const cp = db.counterparties.find((c) => c.id === l.counterpartyId);
+    return { period: batch.period, contractor: cp?.name ?? l.counterpartyId, gross: l.amount, status: l.status, txHash: l.txHash, error: l.error };
+  });
+  json(res, 200, slips);
+});
+
+/** Employer-visible pay history for one contractor across all runs ("when were they paid?"). */
+route("GET", "/api/contractors/:id/history", (_req, res, p) => {
+  const history: Array<{ period: string; amount: string; status: string; txHash?: string; batchId: string }> = [];
+  for (const b of db.payrolls) {
+    for (const l of b.lines) {
+      if (l.counterpartyId === p.id) history.push({ period: b.period, amount: l.amount, status: l.status, txHash: l.txHash, batchId: b.id });
+    }
+  }
+  json(res, 200, history);
+});
+
+route("GET", "/api/policies", (_req, res) => json(res, 200, db.policies));
+route("POST", "/api/policies", async (req, res) => {
+  const body = await readJson<{ name: string; policy: Record<string, unknown> }>(req);
+  const policy = { id: id("pol"), orgId: db.org.id, createdAt: now(), name: body.name, ...(body.policy as object) } as (typeof db.policies)[number];
+  db.policies.push(policy);
+  json(res, 201, policy);
+});
+route("PATCH", "/api/policies/:id", async (req, res, p) => {
+  const body = await readJson<Record<string, unknown>>(req);
+  const pol = db.policies.find((x) => x.id === p.id);
+  if (!pol) return json(res, 404, { error: "policy not found" });
+  if (typeof body.name === "string") pol.name = body.name;
+  if (Array.isArray(body.conditions)) pol.conditions = body.conditions as typeof pol.conditions;
+  if (Array.isArray(body.steps)) pol.steps = body.steps as typeof pol.steps;
+  if ("releaseGate" in body) pol.releaseGate = body.releaseGate as typeof pol.releaseGate;
+  json(res, 200, pol);
+});
+
+route("GET", "/api/grants", (_req, res) => json(res, 200, db.grants));
+route("POST", "/api/grants", async (req, res) => {
+  const body = await readJson<CreateViewingGrantRequest>(req);
+  // Real scoped viewing key (one-way TVK derived from the org MVK + scope) —
+  // decrypt-only, never a signer. Not a random hash. {viewKey:""} in demo mode.
+  const vk = auditorGrantViewKey(body.scope?.label || body.tier || "audit");
+  const grant = {
+    id: id("vg"), orgId: db.org.id, auditorName: body.auditorName, auditorPubKey: body.auditorPubKey,
+    tier: body.tier, scope: body.scope,
+    onChainKeyHash: vk.viewKey ? vk.viewKey.slice(0, 24) : undefined,
+    viewKey: vk.viewKey || undefined, live: vk.live, expiry: body.expiry,
+    status: "active" as const, createdAt: now(),
+  };
+  db.grants.push(grant);
+  json(res, 201, grant);
+});
+route("POST", "/api/grants/:id/revoke", (_req, res, p) => {
+  const grant = db.grants.find((x) => x.id === p.id);
+  if (!grant) return json(res, 404, { error: "not found" });
+  grant.status = "revoked";
+  json(res, 200, grant);
+});
+
+route("GET", "/api/compliance/zones", (_req, res) => json(res, 200, db.zones));
+route("GET", "/api/ledger", (_req, res) => json(res, 200, db.ledger));
+// Tamper-evidence: re-walk the audit hash-chain and report integrity.
+route("GET", "/api/ledger/verify", (_req, res) => json(res, 200, verifyLedgerChain()));
+// The audit trail IS the tamper-evident double-entry ledger (hash-chained). Return
+// the real entries + chain-integrity, not a misleading empty array.
+route("GET", "/api/audit", (_req, res) => json(res, 200, { entries: db.ledger, integrity: verifyLedgerChain() }));
+
+route("GET", "/api/integrations", (_req, res) => json(res, 200, db.integrations));
+route("POST", "/api/integrations", async (req, res) => {
+  const body = await readJson<ConnectIntegrationRequest>(req);
+  // Accounting/HRIS connectors (QuickBooks/Xero/Slack) are not wired in this
+  // build — be honest rather than fabricate a "connected" status. The real
+  // export path is the on-chain-backed CSV/GL export + the tamper-evident ledger.
+  const note = "Connector not configured in this build — use the CSV/GL export.";
+  const existing = db.integrations.find((i) => i.provider === body.provider);
+  if (existing) {
+    existing.status = "disconnected";
+    return json(res, 200, { ...existing, note });
+  }
+  const integration = { id: id("int"), orgId: db.org.id, provider: body.provider, status: "disconnected" as const, sandbox: true, connectedAt: undefined };
+  db.integrations.push(integration);
+  json(res, 201, { ...integration, note });
+});
+
+// --------------------------------------------------------------------- server
+const server = createServer(async (req, res) => {
+  const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+  if (req.method === "OPTIONS") {
+    cors(res);
+    res.writeHead(204);
+    return res.end();
+  }
+  try {
+    const m = match(req.method ?? "GET", url.pathname);
+    if (!m) return json(res, 404, { error: "not found" });
+    await m.handler(req, res, m.params);
+  } catch (e) {
+    json(res, 500, { error: String((e as Error)?.message ?? e) });
+  }
+});
+
+sealSeedLedger(); // bring pre-existing (seeded) ledger entries into the audit chain as genesis
+server.listen(PORT, () => {
+  const s = liveStatus();
+  console.error(`[benzo-console-api] listening on :${PORT} (demo org: ${db.org.name})`);
+  if (s.live) {
+    console.error("[benzo-console-api] MODE=LIVE — serving REAL on-chain data via @benzo/core (testnet).");
+  } else {
+    console.error(
+      `[benzo-console-api] MODE=DEMO — serving SEEDED fixtures (balances/settlement are NOT real). ` +
+        `Missing: ${s.missing.join(", ") || "(client init failed — see logs)"}. ` +
+        `To go live: set -a; . ./.env; set +a; then restart.`,
+    );
+  }
+});

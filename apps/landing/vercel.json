@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "//": "Set VITE_WALLET_URL and VITE_CONSOLE_URL in the Vercel project env to the deployed wallet/console origins; in dev they default to localhost:5175 / :5174.",
+  "buildCommand": "pnpm install && pnpm --filter @benzo/landing build",
+  "outputDirectory": "dist",
+  "framework": "vite"
+}
