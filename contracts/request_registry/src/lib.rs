@@ -177,7 +177,12 @@ impl BenzoRequestRegistry {
         };
         env.storage().persistent().set(&key, &entry);
         bump(&env, &key);
-        RequestCreatedEvent { commitment, payee, expiry }.publish(&env);
+        RequestCreatedEvent {
+            commitment,
+            payee,
+            expiry,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -218,7 +223,11 @@ impl BenzoRequestRegistry {
 
         entry.paid_total = entry.paid_total.saturating_add(paid_amount);
         let fully = entry.amount > 0 && entry.paid_total >= entry.amount;
-        entry.status = if fully { Status::Paid } else { Status::PartiallyPaid };
+        entry.status = if fully {
+            Status::Paid
+        } else {
+            Status::PartiallyPaid
+        };
         let key = DataKey::Request(commitment.clone());
         env.storage().persistent().set(&key, &entry);
         bump(&env, &key);
@@ -245,7 +254,11 @@ impl BenzoRequestRegistry {
         env.storage()
             .persistent()
             .set(&DataKey::Request(commitment.clone()), &entry);
-        RequestClosedEvent { commitment, cancelled: false }.publish(&env);
+        RequestClosedEvent {
+            commitment,
+            cancelled: false,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -260,13 +273,19 @@ impl BenzoRequestRegistry {
         env.storage()
             .persistent()
             .set(&DataKey::Request(commitment.clone()), &entry);
-        RequestClosedEvent { commitment, cancelled: true }.publish(&env);
+        RequestClosedEvent {
+            commitment,
+            cancelled: true,
+        }
+        .publish(&env);
         Ok(())
     }
 
     /// Fetch a request entry.
     pub fn get(env: Env, commitment: U256) -> Option<RequestEntry> {
-        env.storage().persistent().get(&DataKey::Request(commitment))
+        env.storage()
+            .persistent()
+            .get(&DataKey::Request(commitment))
     }
 }
 

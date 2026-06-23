@@ -1,4 +1,3 @@
-
 use super::*;
 use soroban_sdk::{
     Address, Bytes, Env, U256,
@@ -23,10 +22,7 @@ fn bind_and_get_mvk_binding() {
     let ct = Bytes::from_array(&env, &[1, 2, 3, 4]);
     client.bind_mvk(&tag, &ct);
     assert_eq!(client.get_binding(&tag), Some(ct));
-    assert_eq!(
-        client.get_binding(&U256::from_u32(&env, 100)),
-        None
-    );
+    assert_eq!(client.get_binding(&U256::from_u32(&env, 100)), None);
 }
 
 #[test]
@@ -68,8 +64,14 @@ fn auditor_grant_can_be_revoked_early() {
 
     // Early revocation removes the grant well before expiry.
     client.revoke_grant(&auditor);
-    assert_eq!(client.try_get_grant(&auditor), Err(Ok(Error::GrantNotFound)));
+    assert_eq!(
+        client.try_get_grant(&auditor),
+        Err(Ok(Error::GrantNotFound))
+    );
 
     // Revoking a non-existent grant is a clean error.
-    assert_eq!(client.try_revoke_grant(&auditor), Err(Ok(Error::GrantNotFound)));
+    assert_eq!(
+        client.try_revoke_grant(&auditor),
+        Err(Ok(Error::GrantNotFound))
+    );
 }

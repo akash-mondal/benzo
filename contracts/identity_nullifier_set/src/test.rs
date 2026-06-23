@@ -1,4 +1,3 @@
-
 use super::*;
 use soroban_sdk::{Address, Env, U256, testutils::Address as _};
 
@@ -26,7 +25,10 @@ fn register_is_sybil_resistant() {
 
     // Second registration of the same identity must FAIL (account-farming guard).
     let res = client.try_register(&n);
-    assert!(res.is_err(), "duplicate identity registration must be rejected");
+    assert!(
+        res.is_err(),
+        "duplicate identity registration must be rejected"
+    );
 }
 
 #[test]
@@ -54,7 +56,10 @@ fn identity_stored_persistently() {
             .persistent()
             .has(&DataKey::Identity(U256::from_u32(&env, 7)))
     });
-    assert!(in_persistent, "identity nullifier must be in persistent storage");
+    assert!(
+        in_persistent,
+        "identity nullifier must be in persistent storage"
+    );
 }
 
 /// Negative auth: `register` is operator-only.

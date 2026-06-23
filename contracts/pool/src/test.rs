@@ -455,7 +455,14 @@ fn transfer_rejects_unknown_root_and_tampered_ext() {
 
 /// Like `build_transfer`, but the proof is made under the JSPLITORG proving key
 /// (the on-chain stand-in for the in-circuit M-of-N joinsplit_org proof).
-fn build_transfer_org(h: &Harness, n0: u32, n1: u32, out0: u32, out1: u32, fee: i128) -> TransferArgs {
+fn build_transfer_org(
+    h: &Harness,
+    n0: u32,
+    n1: u32,
+    out0: u32,
+    out1: u32,
+    fee: i128,
+) -> TransferArgs {
     let env = &h.env;
     let root = h.merkle.current_root();
     let n0 = u256_from_u32(env, n0);
@@ -467,12 +474,29 @@ fn build_transfer_org(h: &Harness, n0: u32, n1: u32, out0: u32, out1: u32, fee: 
     let ext = h.pool.transfer_ext_hash(&relayer, &fee, &ct, &ct, &ct, &ct);
     #[allow(clippy::cast_sign_loss)]
     let publics = [
-        root.clone(), h.pool.asset_id(), n0.clone(), n1.clone(), out0.clone(), out1.clone(),
-        U256::from_u128(env, fee as u128), ext, u256_from_u32(env, 70), u256_from_u32(env, 71),
+        root.clone(),
+        h.pool.asset_id(),
+        n0.clone(),
+        n1.clone(),
+        out0.clone(),
+        out1.clone(),
+        U256::from_u128(env, fee as u128),
+        ext,
+        u256_from_u32(env, 70),
+        u256_from_u32(env, 71),
         u256_from_u32(env, 7),
     ];
     let proof = prove(env, &h.jsplitorg_pk, &publics);
-    TransferArgs { root, n0, n1, out0, out1, fee, relayer, proof }
+    TransferArgs {
+        root,
+        n0,
+        n1,
+        out0,
+        out1,
+        fee,
+        relayer,
+        proof,
+    }
 }
 
 fn submit_transfer_org(h: &Harness, t: &TransferArgs) -> TryResult {
@@ -480,9 +504,22 @@ fn submit_transfer_org(h: &Harness, t: &TransferArgs) -> TryResult {
     let ct = Bytes::from_array(env, &[3u8; 8]);
     h.pool
         .try_transfer_org(
-            &h.user, &t.root, &t.n0, &t.n1, &t.out0, &t.out1, &t.fee, &t.relayer,
-            &u256_from_u32(env, 70), &u256_from_u32(env, 71), &ct, &ct, &ct, &ct,
-            &u256_from_u32(env, 7), &t.proof,
+            &h.user,
+            &t.root,
+            &t.n0,
+            &t.n1,
+            &t.out0,
+            &t.out1,
+            &t.fee,
+            &t.relayer,
+            &u256_from_u32(env, 70),
+            &u256_from_u32(env, 71),
+            &ct,
+            &ct,
+            &ct,
+            &ct,
+            &u256_from_u32(env, 7),
+            &t.proof,
         )
         .map(|r| r.map_err(|_| ()))
 }
@@ -504,9 +541,15 @@ fn transfer_org_settles_under_jsplitorg_vk_and_is_vk_gated() {
     // never move org funds), and an org JSPLITORG proof is REJECTED by the consumer
     // transfer entry. Each entry only accepts its own verification key.
     let consumer = build_transfer(&h, 800, 801, 810, 811, 0);
-    assert!(submit_transfer_org(&h, &consumer).is_err(), "consumer TRANSFER proof must NOT settle via transfer_org");
+    assert!(
+        submit_transfer_org(&h, &consumer).is_err(),
+        "consumer TRANSFER proof must NOT settle via transfer_org"
+    );
     let org = build_transfer_org(&h, 700, 701, 710, 711, 0);
-    assert!(submit_transfer(&h, &org).is_err(), "org JSPLITORG proof must NOT settle via the consumer transfer");
+    assert!(
+        submit_transfer(&h, &org).is_err(),
+        "org JSPLITORG proof must NOT settle via the consumer transfer"
+    );
 }
 
 // ---- batched org settlement (batch_transfer_org: one combined verification) ---
@@ -603,9 +646,12 @@ fn batch_transfer_org_settles_whole_run_in_one_verification() {
     let s1 = build_org_spend(&h, 902, 903, 912, 913, 0);
     let s2 = build_org_spend(&h, 904, 905, 914, 915, 0);
     let nulls = [
-        s0.nullifier0.clone(), s0.nullifier1.clone(),
-        s1.nullifier0.clone(), s1.nullifier1.clone(),
-        s2.nullifier0.clone(), s2.nullifier1.clone(),
+        s0.nullifier0.clone(),
+        s0.nullifier1.clone(),
+        s1.nullifier0.clone(),
+        s1.nullifier1.clone(),
+        s2.nullifier0.clone(),
+        s2.nullifier1.clone(),
     ];
     let spends = spends_of(env, std::vec![s0, s1, s2]);
 
@@ -613,7 +659,11 @@ fn batch_transfer_org_settles_whole_run_in_one_verification() {
         .pool
         .try_batch_transfer_org(&h.user, &spends)
         .map(|x| x.map_err(|_| ()));
-    assert_eq!(r, Ok(Ok(())), "an all-valid batch settles in one verification");
+    assert_eq!(
+        r,
+        Ok(Ok(())),
+        "an all-valid batch settles in one verification"
+    );
 
     for n in &nulls {
         assert!(h.nullifiers.is_spent(n), "every input nullifier is spent");
@@ -649,7 +699,11 @@ fn batch_logic_scales_with_lifted_budget() {
         .pool
         .try_batch_transfer_org(&h.user, &spends)
         .map(|x| x.map_err(|_| ()));
-    assert_eq!(r, Ok(Ok(())), "a 5-payout batch settles with the budget lifted");
+    assert_eq!(
+        r,
+        Ok(Ok(())),
+        "a 5-payout batch settles with the budget lifted"
+    );
     for n in &nulls {
         assert!(h.nullifiers.is_spent(n));
     }
@@ -689,7 +743,10 @@ fn batch_empty_is_rejected() {
         .pool
         .try_batch_transfer_org(&h.user, &spends)
         .map(|x| x.map_err(|_| ()));
-    assert!(r != Ok(Ok(())), "an empty batch proves nothing and must be rejected");
+    assert!(
+        r != Ok(Ok(())),
+        "an empty batch proves nothing and must be rejected"
+    );
 }
 
 #[test]
@@ -710,7 +767,10 @@ fn batch_rejects_intra_batch_double_spend() {
         .try_batch_transfer_org(&h.user, &spends)
         .map(|x| x.map_err(|_| ()));
     assert!(r != Ok(Ok(())), "intra-batch double-spend must be rejected");
-    assert!(!h.nullifiers.is_spent(&reused), "no state may be applied on a rejected batch");
+    assert!(
+        !h.nullifiers.is_spent(&reused),
+        "no state may be applied on a rejected batch"
+    );
 }
 
 #[test]
@@ -726,7 +786,9 @@ fn batch_rejects_already_spent_input() {
     let spent = first.nullifier0.clone();
     let one = spends_of(env, std::vec![first]);
     assert_eq!(
-        h.pool.try_batch_transfer_org(&h.user, &one).map(|x| x.map_err(|_| ())),
+        h.pool
+            .try_batch_transfer_org(&h.user, &one)
+            .map(|x| x.map_err(|_| ())),
         Ok(Ok(()))
     );
     assert!(h.nullifiers.is_spent(&spent));
@@ -739,8 +801,14 @@ fn batch_rejects_already_spent_input() {
         .pool
         .try_batch_transfer_org(&h.user, &bad)
         .map(|x| x.map_err(|_| ()));
-    assert!(r != Ok(Ok(())), "re-spending an on-chain nullifier must be rejected");
-    assert!(!h.nullifiers.is_spent(&fresh), "the fresh input must not be spent on a rejected batch");
+    assert!(
+        r != Ok(Ok(())),
+        "re-spending an on-chain nullifier must be rejected"
+    );
+    assert!(
+        !h.nullifiers.is_spent(&fresh),
+        "the fresh input must not be spent on a rejected batch"
+    );
 }
 
 #[test]
@@ -756,9 +824,12 @@ fn batch_rejects_one_invalid_proof_and_applies_nothing() {
     let s1 = build_org_spend(&h, 902, 903, 912, 913, 0);
     let bad = build_org_spend_pk(&h, &h.transfer_pk, 904, 905, 914, 915, 0); // wrong VK
     let nulls = [
-        s0.nullifier0.clone(), s0.nullifier1.clone(),
-        s1.nullifier0.clone(), s1.nullifier1.clone(),
-        bad.nullifier0.clone(), bad.nullifier1.clone(),
+        s0.nullifier0.clone(),
+        s0.nullifier1.clone(),
+        s1.nullifier0.clone(),
+        s1.nullifier1.clone(),
+        bad.nullifier0.clone(),
+        bad.nullifier1.clone(),
     ];
     let spends = spends_of(env, std::vec![s0, s1, bad]);
 
@@ -766,11 +837,21 @@ fn batch_rejects_one_invalid_proof_and_applies_nothing() {
         .pool
         .try_batch_transfer_org(&h.user, &spends)
         .map(|x| x.map_err(|_| ()));
-    assert!(r != Ok(Ok(())), "a batch with one invalid proof must be rejected");
+    assert!(
+        r != Ok(Ok(())),
+        "a batch with one invalid proof must be rejected"
+    );
     for n in &nulls {
-        assert!(!h.nullifiers.is_spent(n), "a rejected batch applies no state");
+        assert!(
+            !h.nullifiers.is_spent(n),
+            "a rejected batch applies no state"
+        );
     }
-    assert_eq!(h.merkle.next_index(), 1u32, "no commitments inserted (only the shield leaf)");
+    assert_eq!(
+        h.merkle.next_index(),
+        1u32,
+        "no commitments inserted (only the shield leaf)"
+    );
 }
 
 #[test]
@@ -863,9 +944,14 @@ fn set_verifier_rotates_without_touching_state() {
 #[test]
 fn admin_ops_require_admin_auth() {
     let h = setup();
-    let new_verifier = h.env.register(benzo_verifier_groth16::BenzoVerifier, (h.user.clone(),));
+    let new_verifier = h
+        .env
+        .register(benzo_verifier_groth16::BenzoVerifier, (h.user.clone(),));
     h.env.mock_auths(&[]); // revoke the blanket auth granted in setup
-    assert!(h.pool.try_pause().is_err(), "pause without admin auth must fail");
+    assert!(
+        h.pool.try_pause().is_err(),
+        "pause without admin auth must fail"
+    );
     assert!(
         h.pool.try_set_verifier(&new_verifier).is_err(),
         "set_verifier without admin auth must fail"
@@ -982,8 +1068,18 @@ fn total_shielded_tracks_net_supply() {
     ];
     let proof = prove(env, &h.unshield_pk, &publics);
     h.pool.withdraw(
-        &h.user, &root, &nullifier, &change, &amount, &recipient,
-        &u256_from_u32(env, 71), &ct, &ct, &deny_root, &u256_from_u32(env, 7), &proof,
+        &h.user,
+        &root,
+        &nullifier,
+        &change,
+        &amount,
+        &recipient,
+        &u256_from_u32(env, 71),
+        &ct,
+        &ct,
+        &deny_root,
+        &u256_from_u32(env, 7),
+        &proof,
     );
     assert_eq!(h.pool.total_shielded(), 9_000_000); // 13 − 4
 }
@@ -1074,7 +1170,13 @@ mod invariants {
     use proptest::prelude::*;
 
     /// Attempt a withdraw with a real proof; returns true iff it settled on-chain.
-    fn attempt_withdraw(h: &Harness, amount: i128, nf: u32, change_id: u32, recipient: &Address) -> bool {
+    fn attempt_withdraw(
+        h: &Harness,
+        amount: i128,
+        nf: u32,
+        change_id: u32,
+        recipient: &Address,
+    ) -> bool {
         let env = &h.env;
         let root = h.merkle.current_root(); // always a known root
         let nullifier = u256_from_u32(env, nf);
@@ -1097,8 +1199,18 @@ mod invariants {
         let proof = prove(env, &h.unshield_pk, &publics);
         matches!(
             h.pool.try_withdraw(
-                &h.user, &root, &nullifier, &change, &amount, recipient,
-                &u256_from_u32(env, 71), &ct, &ct, &deny_root, &u256_from_u32(env, 7), &proof,
+                &h.user,
+                &root,
+                &nullifier,
+                &change,
+                &amount,
+                recipient,
+                &u256_from_u32(env, 71),
+                &ct,
+                &ct,
+                &deny_root,
+                &u256_from_u32(env, 7),
+                &proof,
             ),
             Ok(Ok(()))
         )

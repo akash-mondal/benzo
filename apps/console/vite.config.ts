@@ -4,6 +4,9 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: { global: "globalThis" },
+  resolve: { alias: { buffer: "buffer/" } },
+  optimizeDeps: { include: ["buffer"] },
   server: { port: 5174, proxy: { "/api": "http://localhost:8790" } },
   test: { environment: "jsdom", globals: true, setupFiles: "./src/test/setup.ts" },
 });

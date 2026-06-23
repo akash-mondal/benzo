@@ -13,7 +13,6 @@ import {
   paymentProgress,
   isInFlight,
   isTerminal,
-  type PaymentState,
   type PaymentEvent,
 } from "./payment-state.js";
 import {

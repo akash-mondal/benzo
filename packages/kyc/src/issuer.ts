@@ -12,7 +12,7 @@
  */
 import { hexToBytes } from "@noble/hashes/utils";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-// @ts-ignore — circomlibjs ships no types
+// @ts-expect-error — circomlibjs ships no types
 import { buildEddsa, buildPoseidon } from "circomlibjs";
 import type { AssuranceTier } from "./index.js";
 
@@ -34,7 +34,6 @@ export interface IssuedCredential {
 
 export class CredentialIssuer {
   private constructor(
-    // biome-ignore lint: circomlibjs is untyped
     private readonly eddsa: any,
     private readonly poseidon: any,
     private readonly F: any,

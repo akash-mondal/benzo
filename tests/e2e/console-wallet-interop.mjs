@@ -93,3 +93,4 @@ log(`   • console paid a contractor via M-of-N transfer_org`);
 log(`   • the contractor's own wallet rediscovered the pay from chain (no backend)`);
 log(`   • the contractor SPENT part onward (consumer joinsplit) and CASHED OUT the rest`);
 log(`   ⇒ the business app and the consumer wallet interoperate over one shielded pool.`);
+process.exit(0);

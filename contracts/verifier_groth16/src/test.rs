@@ -88,8 +88,8 @@ fn build_shared_vk_batch(
     for &(a, b) in pairs {
         let af = ArkFr::from(a);
         let bf = ArkFr::from(b);
-        let proof = Groth16::<Bn254>::prove(&pk, MulCircuit { a: af, b: bf }, &mut rng)
-            .expect("prove");
+        let proof =
+            Groth16::<Bn254>::prove(&pk, MulCircuit { a: af, b: bf }, &mut rng).expect("prove");
         proofs.push_back(Groth16Proof {
             a: G1Affine::from_bytes(BytesN::from_array(env, &g1_bytes_from_ark(proof.a))),
             b: G2Affine::from_bytes(BytesN::from_array(env, &g2_bytes_from_ark(proof.b))),
@@ -271,8 +271,7 @@ fn rotate_vk_overwrites_for_governed_rotation() {
 fn batch_verify_valid_run() {
     // N proofs sharing one VK all verify together in a single combined check.
     let env = Env::default();
-    let (vk, proofs, inputs) =
-        build_shared_vk_batch(&env, 7, &[(6, 7), (3, 4), (5, 5), (2, 9)]);
+    let (vk, proofs, inputs) = build_shared_vk_batch(&env, 7, &[(6, 7), (3, 4), (5, 5), (2, 9)]);
     let result = BenzoVerifier::verify_batch_with_vk(&env, &vk, proofs, inputs);
     assert_eq!(result, Ok(true));
 }

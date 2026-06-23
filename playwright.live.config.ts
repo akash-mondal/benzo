@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const ROOT = process.cwd();
+
 /**
  * LIVE proving suite — drives the wallet UI against a LIVE wallet-api that settles
  * REAL testnet USDC, exercising BOTH proving paths (on-device/local + attested
@@ -26,8 +28,8 @@ export default defineConfig({
   webServer: [
     {
       // LIVE: no env override → the BFF auto-loads .env and settles on testnet.
-      command: "node apps/wallet-api/dist/server.js",
-      env: { WALLET_API_PORT: "8791" },
+      command: "pnpm --filter @benzo/wallet-api dev",
+      env: { WALLET_API_PORT: "8791", BENZO_ROOT: ROOT },
       url: "http://localhost:8791/health",
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,

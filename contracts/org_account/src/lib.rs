@@ -19,11 +19,11 @@
 //! identity) and in the off-circuit FROST coalition — this contract enforces the
 //! POLICY (who may initiate vs approve vs how many), not the cryptography.
 
+use contract_types::Groth16Proof;
 use soroban_sdk::{
     Address, BytesN, Env, Symbol, U256, Vec, contract, contractclient, contracterror,
     contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
 };
-use contract_types::Groth16Proof;
 
 soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
 soroban_sdk::contractmeta!(key = "name", val = "benzo-org-account");
@@ -211,9 +211,19 @@ impl BenzoOrgAccount {
         if env.storage().persistent().has(&DataKey::Org(org_id)) {
             return Err(Error::OrgExists);
         }
-        let rec = OrgRecord { group_pubkey, threshold, members, epoch: 0 };
+        let rec = OrgRecord {
+            group_pubkey,
+            threshold,
+            members,
+            epoch: 0,
+        };
         env.storage().persistent().set(&DataKey::Org(org_id), &rec);
-        OrgRegisteredEvent { org_id, threshold: rec.threshold, epoch: 0 }.publish(&env);
+        OrgRegisteredEvent {
+            org_id,
+            threshold: rec.threshold,
+            epoch: 0,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -240,9 +250,19 @@ impl BenzoOrgAccount {
             .get(&DataKey::Org(org_id))
             .ok_or(Error::OrgNotFound)?;
         let epoch = prev.epoch.saturating_add(1);
-        let rec = OrgRecord { group_pubkey, threshold, members, epoch };
+        let rec = OrgRecord {
+            group_pubkey,
+            threshold,
+            members,
+            epoch,
+        };
         env.storage().persistent().set(&DataKey::Org(org_id), &rec);
-        OrgRegisteredEvent { org_id, threshold: rec.threshold, epoch }.publish(&env);
+        OrgRegisteredEvent {
+            org_id,
+            threshold: rec.threshold,
+            epoch,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -269,7 +289,9 @@ impl BenzoOrgAccount {
         if !env.storage().persistent().has(&DataKey::Org(org_id)) {
             return Err(Error::OrgNotFound);
         }
-        env.storage().persistent().set(&DataKey::MemberRoot(org_id), &root);
+        env.storage()
+            .persistent()
+            .set(&DataKey::MemberRoot(org_id), &root);
         Ok(())
     }
 
@@ -284,7 +306,9 @@ impl BenzoOrgAccount {
     /// Configure the Groth16 verifier used by `verify_org_proof`. Admin-only.
     pub fn set_verifier(env: Env, verifier: Address) -> Result<(), Error> {
         Self::admin(&env)?.require_auth();
-        env.storage().persistent().set(&DataKey::Verifier, &verifier);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Verifier, &verifier);
         Ok(())
     }
 
@@ -335,9 +359,7 @@ impl BenzoOrgAccount {
         let registered_root: U256 = store
             .get(&DataKey::MemberRoot(org_id))
             .ok_or(Error::MemberRootNotSet)?;
-        let org: OrgRecord = store
-            .get(&DataKey::Org(org_id))
-            .ok_or(Error::OrgNotFound)?;
+        let org: OrgRecord = store.get(&DataKey::Org(org_id)).ok_or(Error::OrgNotFound)?;
         let registered_threshold: u32 = org.threshold;
 
         // Pin public input #0 (orgMemberRoot) to the registered root. Reuse the
@@ -387,7 +409,12 @@ impl BenzoOrgAccount {
     /// issuer may call this — the decision is signed by the issuer key and stored
     /// on-chain, not fabricated in a backend. `inquiry_ref` ties it to the
     /// provider's case file (like the ramp's per-tx ref).
-    pub fn attest_kyb(env: Env, org_id: u64, status: KybStatus, inquiry_ref: U256) -> Result<(), Error> {
+    pub fn attest_kyb(
+        env: Env,
+        org_id: u64,
+        status: KybStatus,
+        inquiry_ref: U256,
+    ) -> Result<(), Error> {
         let issuer: Address = env
             .storage()
             .persistent()
@@ -397,8 +424,14 @@ impl BenzoOrgAccount {
         if !env.storage().persistent().has(&DataKey::Org(org_id)) {
             return Err(Error::OrgNotFound);
         }
-        env.storage().persistent().set(&DataKey::Kyb(org_id), &(status, inquiry_ref));
-        KybAttestedEvent { org_id, approved: status == KybStatus::Approved }.publish(&env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Kyb(org_id), &(status, inquiry_ref));
+        KybAttestedEvent {
+            org_id,
+            approved: status == KybStatus::Approved,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -477,7 +510,13 @@ impl BenzoOrgAccount {
         let approvals = rec.approvers.len();
         env.storage().persistent().set(&key, &rec);
         let approved = approvals >= rec.threshold;
-        ProposalApprovedEvent { org_id, proposal_id, approvals, approved }.publish(&env);
+        ProposalApprovedEvent {
+            org_id,
+            proposal_id,
+            approvals,
+            approved,
+        }
+        .publish(&env);
         Ok(approvals)
     }
 

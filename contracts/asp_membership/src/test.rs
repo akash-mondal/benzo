@@ -840,8 +840,18 @@ mod admit {
         let root_before = asp.get_root();
         let proof = prove(&env, &pk, &publics);
         // The proof IS the authorization — no admin insert. credType (tier) = 0.
-        asp.admit_by_proof(&proof, &fr_pubs(&env, &publics), &admit_leaf, &0u32, &U256::from_u32(&env, 1));
-        assert_ne!(asp.get_root(), root_before, "a valid credential must admit the leaf");
+        asp.admit_by_proof(
+            &proof,
+            &fr_pubs(&env, &publics),
+            &admit_leaf,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert_ne!(
+            asp.get_root(),
+            root_before,
+            "a valid credential must admit the leaf"
+        );
     }
 
     #[test]
@@ -871,7 +881,13 @@ mod admit {
         // Verify against DIFFERENT public inputs than the proof was made for.
         let mut wrong = publics;
         wrong[0] = U256::from_u32(&env, 999);
-        let res = asp.try_admit_by_proof(&proof, &fr_pubs(&env, &wrong), &admit_leaf, &0u32, &U256::from_u32(&env, 999));
+        let res = asp.try_admit_by_proof(
+            &proof,
+            &fr_pubs(&env, &wrong),
+            &admit_leaf,
+            &0u32,
+            &U256::from_u32(&env, 999),
+        );
         assert!(res.is_err(), "a non-verifying proof must not admit");
     }
 
@@ -916,15 +932,31 @@ mod admit {
         // A tier-1 credential is rejected (below the required minimum).
         let p1 = kyc_publics_tier(&env, &admit_leaf, 1);
         let proof1 = prove(&env, &pk, &p1);
-        let res = asp.try_admit_by_proof(&proof1, &fr_pubs(&env, &p1), &admit_leaf, &1u32, &U256::from_u32(&env, 1));
+        let res = asp.try_admit_by_proof(
+            &proof1,
+            &fr_pubs(&env, &p1),
+            &admit_leaf,
+            &1u32,
+            &U256::from_u32(&env, 1),
+        );
         assert!(res.is_err(), "tier 1 < required tier 2 must be rejected");
 
         // A tier-2 credential admits.
         let p2 = kyc_publics_tier(&env, &admit_leaf, 2);
         let proof2 = prove(&env, &pk, &p2);
         let root_before = asp.get_root();
-        asp.admit_by_proof(&proof2, &fr_pubs(&env, &p2), &admit_leaf, &2u32, &U256::from_u32(&env, 1));
-        assert_ne!(asp.get_root(), root_before, "tier 2 >= required tier 2 must admit");
+        asp.admit_by_proof(
+            &proof2,
+            &fr_pubs(&env, &p2),
+            &admit_leaf,
+            &2u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert_ne!(
+            asp.get_root(),
+            root_before,
+            "tier 2 >= required tier 2 must admit"
+        );
     }
 
     #[test]
@@ -934,8 +966,17 @@ mod admit {
         let p = kyc_publics_tier(&env, &admit_leaf, 1); // credential proves tier 1
         let proof = prove(&env, &_pk, &p);
         // Caller claims tier 3 but the proof only attests tier 1 → bound, rejected.
-        let res = asp.try_admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &3u32, &U256::from_u32(&env, 1));
-        assert!(res.is_err(), "claimed tier must match the credential's credType");
+        let res = asp.try_admit_by_proof(
+            &proof,
+            &fr_pubs(&env, &p),
+            &admit_leaf,
+            &3u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert!(
+            res.is_err(),
+            "claimed tier must match the credential's credType"
+        );
     }
 
     // ---- FIX #6(a): FRESHNESS — an expired credential must not admit ----
@@ -951,9 +992,19 @@ mod admit {
         let p = kyc_publics_at(&env, &admit_leaf, stale_time, 555);
         let proof = prove(&env, &pk, &p);
         let root_before = asp.get_root();
-        let res = asp.try_admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &0u32, &U256::from_u32(&env, 1));
+        let res = asp.try_admit_by_proof(
+            &proof,
+            &fr_pubs(&env, &p),
+            &admit_leaf,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
         assert!(res.is_err(), "an expired credential must be rejected");
-        assert_eq!(asp.get_root(), root_before, "a stale credential must not admit a leaf");
+        assert_eq!(
+            asp.get_root(),
+            root_before,
+            "a stale credential must not admit a leaf"
+        );
     }
 
     #[test]
@@ -965,8 +1016,17 @@ mod admit {
         let future_time = NOW + 3_600;
         let p = kyc_publics_at(&env, &admit_leaf, future_time, 555);
         let proof = prove(&env, &pk, &p);
-        let res = asp.try_admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &0u32, &U256::from_u32(&env, 1));
-        assert!(res.is_err(), "a credential set in the future must be rejected");
+        let res = asp.try_admit_by_proof(
+            &proof,
+            &fr_pubs(&env, &p),
+            &admit_leaf,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert!(
+            res.is_err(),
+            "a credential set in the future must be rejected"
+        );
     }
 
     #[test]
@@ -977,8 +1037,18 @@ mod admit {
         let p = kyc_publics_at(&env, &admit_leaf, NOW + 60, 555);
         let proof = prove(&env, &pk, &p);
         let root_before = asp.get_root();
-        asp.admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &0u32, &U256::from_u32(&env, 1));
-        assert_ne!(asp.get_root(), root_before, "a fresh credential within skew must admit");
+        asp.admit_by_proof(
+            &proof,
+            &fr_pubs(&env, &p),
+            &admit_leaf,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert_ne!(
+            asp.get_root(),
+            root_before,
+            "a fresh credential within skew must admit"
+        );
     }
 
     // ---- FIX #6(b): SYBIL — the same credential cannot admit twice ----
@@ -993,8 +1063,18 @@ mod admit {
         let p1 = kyc_publics_at(&env, &leaf1, NOW, 12_345);
         let proof1 = prove(&env, &pk, &p1);
         let root_before = asp.get_root();
-        asp.admit_by_proof(&proof1, &fr_pubs(&env, &p1), &leaf1, &0u32, &U256::from_u32(&env, 1));
-        assert_ne!(asp.get_root(), root_before, "first admission must insert the leaf");
+        asp.admit_by_proof(
+            &proof1,
+            &fr_pubs(&env, &p1),
+            &leaf1,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert_ne!(
+            asp.get_root(),
+            root_before,
+            "first admission must insert the leaf"
+        );
         // The identityNullifier is now registered in the sybil set.
         assert!(
             set.is_registered(&U256::from_u32(&env, 12_345)),
@@ -1008,8 +1088,17 @@ mod admit {
         let p2 = kyc_publics_at(&env, &leaf2, NOW, 12_345);
         let proof2 = prove(&env, &pk, &p2);
         let root_after_first = asp.get_root();
-        let res = asp.try_admit_by_proof(&proof2, &fr_pubs(&env, &p2), &leaf2, &0u32, &U256::from_u32(&env, 1));
-        assert!(res.is_err(), "a second admission from the same credential must be rejected");
+        let res = asp.try_admit_by_proof(
+            &proof2,
+            &fr_pubs(&env, &p2),
+            &leaf2,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert!(
+            res.is_err(),
+            "a second admission from the same credential must be rejected"
+        );
         assert_eq!(
             asp.get_root(),
             root_after_first,
@@ -1025,12 +1114,28 @@ mod admit {
         // Two DIFFERENT humans (distinct identityNullifiers) both admit fine.
         let leaf1 = U256::from_u32(&env, 111);
         let p1 = kyc_publics_at(&env, &leaf1, NOW, 1);
-        asp.admit_by_proof(&prove(&env, &pk, &p1), &fr_pubs(&env, &p1), &leaf1, &0u32, &U256::from_u32(&env, 1));
+        asp.admit_by_proof(
+            &prove(&env, &pk, &p1),
+            &fr_pubs(&env, &p1),
+            &leaf1,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
 
         let leaf2 = U256::from_u32(&env, 222);
         let p2 = kyc_publics_at(&env, &leaf2, NOW, 2);
         let root_before = asp.get_root();
-        asp.admit_by_proof(&prove(&env, &pk, &p2), &fr_pubs(&env, &p2), &leaf2, &0u32, &U256::from_u32(&env, 1));
-        assert_ne!(asp.get_root(), root_before, "a distinct credential must still admit");
+        asp.admit_by_proof(
+            &prove(&env, &pk, &p2),
+            &fr_pubs(&env, &p2),
+            &leaf2,
+            &0u32,
+            &U256::from_u32(&env, 1),
+        );
+        assert_ne!(
+            asp.get_root(),
+            root_before,
+            "a distinct credential must still admit"
+        );
     }
 }

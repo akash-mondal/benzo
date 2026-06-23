@@ -1,9 +1,16 @@
 use super::*;
-use soroban_sdk::{testutils::Address as _, token::StellarAssetClient, Address, BytesN, Env};
+use soroban_sdk::{Address, BytesN, Env, testutils::Address as _, token::StellarAssetClient};
 
 const USDC: i128 = 10_000_000; // 1 USDC in stroops
 
-fn setup() -> (Env, RampContractClient<'static>, Address, Address, TokenClient<'static>, StellarAssetClient<'static>) {
+fn setup() -> (
+    Env,
+    RampContractClient<'static>,
+    Address,
+    Address,
+    TokenClient<'static>,
+    StellarAssetClient<'static>,
+) {
     let env = Env::default();
     env.mock_all_auths();
     let admin = Address::generate(&env);
@@ -74,12 +81,21 @@ fn enforces_moneygram_limits() {
     client.fund(&funder, &(5_000 * USDC));
 
     // below 5 USDC min
-    assert_eq!(client.try_cash_in(&user, &(4 * USDC), &r(&env, 1)), Err(Ok(Error::BelowMin)));
+    assert_eq!(
+        client.try_cash_in(&user, &(4 * USDC), &r(&env, 1)),
+        Err(Ok(Error::BelowMin))
+    );
     // on-ramp max is 950 USDC
-    assert_eq!(client.try_cash_in(&user, &(951 * USDC), &r(&env, 2)), Err(Ok(Error::AboveMax)));
+    assert_eq!(
+        client.try_cash_in(&user, &(951 * USDC), &r(&env, 2)),
+        Err(Ok(Error::AboveMax))
+    );
     // off-ramp max is 2,500 USDC — 1,000 is fine, 2,501 is not
     client.cash_out(&user, &(1_000 * USDC), &r(&env, 3));
-    assert_eq!(client.try_cash_out(&user, &(2_501 * USDC), &r(&env, 4)), Err(Ok(Error::AboveMax)));
+    assert_eq!(
+        client.try_cash_out(&user, &(2_501 * USDC), &r(&env, 4)),
+        Err(Ok(Error::AboveMax))
+    );
 }
 
 #[test]
@@ -91,7 +107,10 @@ fn rejects_duplicate_reference() {
     client.fund(&funder, &(1_000 * USDC));
     client.cash_in(&user, &(50 * USDC), &r(&env, 7));
     // same per-tx memo/reference can't be replayed
-    assert_eq!(client.try_cash_in(&user, &(50 * USDC), &r(&env, 7)), Err(Ok(Error::DuplicateRef)));
+    assert_eq!(
+        client.try_cash_in(&user, &(50 * USDC), &r(&env, 7)),
+        Err(Ok(Error::DuplicateRef))
+    );
 }
 
 #[test]
@@ -102,7 +121,10 @@ fn rejects_cash_in_above_reserve() {
     mint.mint(&funder, &(100 * USDC));
     client.fund(&funder, &(100 * USDC));
     // within the 950 on-ramp max, but above the 100-USDC reserve:
-    assert_eq!(client.try_cash_in(&user, &(101 * USDC), &r(&env, 2)), Err(Ok(Error::InsufficientReserve)));
+    assert_eq!(
+        client.try_cash_in(&user, &(101 * USDC), &r(&env, 2)),
+        Err(Ok(Error::InsufficientReserve))
+    );
 }
 
 #[test]
@@ -114,8 +136,14 @@ fn paused_blocks_both_directions() {
     mint.mint(&user, &(100 * USDC));
     client.fund(&funder, &(1_000 * USDC));
     client.set_paused(&true);
-    assert_eq!(client.try_cash_in(&user, &(50 * USDC), &r(&env, 1)), Err(Ok(Error::Paused)));
-    assert_eq!(client.try_cash_out(&user, &(50 * USDC), &r(&env, 2)), Err(Ok(Error::Paused)));
+    assert_eq!(
+        client.try_cash_in(&user, &(50 * USDC), &r(&env, 1)),
+        Err(Ok(Error::Paused))
+    );
+    assert_eq!(
+        client.try_cash_out(&user, &(50 * USDC), &r(&env, 2)),
+        Err(Ok(Error::Paused))
+    );
     client.set_paused(&false);
     client.cash_in(&user, &(50 * USDC), &r(&env, 1)); // works again
 }

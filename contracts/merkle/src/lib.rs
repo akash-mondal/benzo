@@ -127,7 +127,9 @@ impl BenzoMerkleTree {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        env.storage().persistent().set(&DataKey::Operator, &operator);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Operator, &operator);
         Ok(())
     }
 
@@ -141,16 +143,12 @@ impl BenzoMerkleTree {
         operator.require_auth();
 
         let storage = env.storage().persistent();
-        let levels: u32 = storage
-            .get(&DataKey::Levels)
-            .ok_or(Error::NotInitialized)?;
+        let levels: u32 = storage.get(&DataKey::Levels).ok_or(Error::NotInitialized)?;
         let next_index: u32 = storage
             .get(&DataKey::NextIndex)
             .ok_or(Error::NotInitialized)?;
 
-        let max_leaves = 1u64
-            .checked_shl(levels)
-            .ok_or(Error::WrongLevels)?;
+        let max_leaves = 1u64.checked_shl(levels).ok_or(Error::WrongLevels)?;
         if u64::from(next_index) >= max_leaves {
             return Err(Error::MerkleTreeFull);
         }
@@ -184,10 +182,7 @@ impl BenzoMerkleTree {
         let root_index: u32 = storage
             .get(&DataKey::CurrentRootIndex)
             .ok_or(Error::NotInitialized)?;
-        let new_root_index = root_index
-            .checked_add(1)
-            .ok_or(Error::Overflow)?
-            % ROOT_HISTORY_SIZE;
+        let new_root_index = root_index.checked_add(1).ok_or(Error::Overflow)? % ROOT_HISTORY_SIZE;
         // Evict the root that previously occupied this ring slot.
         if let Some(evicted) = storage.get::<DataKey, U256>(&DataKey::Root(new_root_index)) {
             storage.remove(&DataKey::KnownRoot(evicted));
@@ -241,9 +236,7 @@ impl BenzoMerkleTree {
             return Ok(Vec::new(&env));
         }
         let storage = env.storage().persistent();
-        let levels: u32 = storage
-            .get(&DataKey::Levels)
-            .ok_or(Error::NotInitialized)?;
+        let levels: u32 = storage.get(&DataKey::Levels).ok_or(Error::NotInitialized)?;
         let start_index: u32 = storage
             .get(&DataKey::NextIndex)
             .ok_or(Error::NotInitialized)?;
@@ -395,7 +388,9 @@ impl BenzoMerkleTree {
         let idx: u32 = storage
             .get(&DataKey::CurrentRootIndex)
             .ok_or(Error::NotInitialized)?;
-        let root = storage.get(&DataKey::Root(idx)).ok_or(Error::NotInitialized)?;
+        let root = storage
+            .get(&DataKey::Root(idx))
+            .ok_or(Error::NotInitialized)?;
         // Keep the live root entry from being archived (read on every spend).
         soroban_utils::bump_persistent(&env, &DataKey::Root(idx));
         Ok(root)

@@ -5,12 +5,12 @@
 //! tracking. The contract maintains a Merkle tree where each leaf represents a
 //! member, and the root serves as a commitment to the entire membership set.
 #![no_std]
+use contract_types::Groth16Proof;
 use soroban_sdk::{
     Address, Bytes, BytesN, Env, Symbol, U256, Vec, contract, contractclient, contracterror,
     contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
 };
 use soroban_utils::{get_zeroes, poseidon2_compress};
-use contract_types::Groth16Proof;
 
 /// Default clock-skew tolerance (seconds) for a credential's `currentTime` when
 /// the admin has not configured one: 5 minutes ahead of ledger time is allowed.
@@ -386,11 +386,7 @@ impl ASPMembership {
     ///   is treated as stale/expired and rejected. `0` disables the age check
     ///   (no expiry), but the future-skew check still applies.
     /// Admin-only.
-    pub fn set_freshness_window(
-        env: Env,
-        max_future_skew: u64,
-        max_age: u64,
-    ) -> Result<(), Error> {
+    pub fn set_freshness_window(env: Env, max_future_skew: u64, max_age: u64) -> Result<(), Error> {
         let store = env.storage().persistent();
         let admin: Address = store.get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
         admin.require_auth();
@@ -434,8 +430,12 @@ impl ASPMembership {
         issuer_registry_root: U256,
     ) -> Result<(), Error> {
         let store = env.storage().persistent();
-        let verifier: Address = store.get(&DataKey::Verifier).ok_or(Error::KycNotConfigured)?;
-        let vk_id: Symbol = store.get(&DataKey::KycVkId).ok_or(Error::KycNotConfigured)?;
+        let verifier: Address = store
+            .get(&DataKey::Verifier)
+            .ok_or(Error::KycNotConfigured)?;
+        let vk_id: Symbol = store
+            .get(&DataKey::KycVkId)
+            .ok_or(Error::KycNotConfigured)?;
 
         // admit_leaf must equal public input #6 (so the inserted leaf is the one
         // the proof attests). Reuse the canonical U256 -> Bn254Fr encoding.
@@ -469,7 +469,9 @@ impl ASPMembership {
         // root that registry knows — so a prover can't supply a self-made root
         // with an unauthorized issuer. Fail-closed.
         let mut rbuf = [0u8; 32];
-        issuer_registry_root.to_be_bytes().copy_into_slice(&mut rbuf);
+        issuer_registry_root
+            .to_be_bytes()
+            .copy_into_slice(&mut rbuf);
         let root_fr = Bn254Fr::from_bytes(BytesN::from_array(&env, &rbuf));
         let pi0 = public_inputs.get(0).ok_or(Error::InvalidCredential)?;
         if pi0 != root_fr {
@@ -538,8 +540,7 @@ impl ASPMembership {
             pi4.to_bytes().copy_into_slice(&mut nbuf);
             let identity_nullifier = U256::from_be_bytes(&env, &Bytes::from_array(&env, &nbuf));
             let registered = matches!(
-                IdentityNullifierSetClient::new(&env, &ident_set)
-                    .try_register(&identity_nullifier),
+                IdentityNullifierSetClient::new(&env, &ident_set).try_register(&identity_nullifier),
                 Ok(Ok(()))
             );
             if !registered {

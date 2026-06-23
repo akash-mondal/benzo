@@ -21,6 +21,7 @@ const cli = new StellarCli(configFromEnv());
 const rpc = process.env.SOROBAN_RPC_URL;
 const funder = process.env.DEPLOYER_PUBLIC;
 const log = (...a) => console.log(...a);
+const ex = (tx) => `https://stellar.expert/explorer/testnet/tx/${tx}`;
 const art = (c) => ({ wasmPath: `${repo}/circuits/build/${c}/${c}_js/${c}.wasm`, zkeyPath: `${repo}/circuits/build/${c}/${c}.zkey` });
 const circuits = {
   shield: art("shield"), joinsplit: art("joinsplit"), unshield: art("unshield"),
@@ -50,7 +51,9 @@ const org = await c.orgIdentity({ orgId: "acme-audit", memberCount: 3, threshold
 // fund two org treasury notes so the sum spans multiple notes
 const a = await c.fundTreasury({ org, amount: 1_000_000n, fromAddress: funder, fromSource: "benzo-deployer" });
 const b = await c.fundTreasury({ org, amount: 1_500_000n, fromAddress: funder, fromSource: "benzo-deployer" });
-log(`[1] funded two org notes: 0.1 (tx ${a.txHash?.slice(0,8)}…) + 0.15 (tx ${b.txHash?.slice(0,8)}…)`);
+log(`[1] funded two org notes: 0.1 (tx ${a.txHash}) + 0.15 (tx ${b.txHash})`);
+log(`    ${ex(a.txHash)}`);
+log(`    ${ex(b.txHash)}`);
 
 log(`[2] proving ORG sum over the treasury notes…`);
 const r = await c.proveOrgTotal({ org, context: 42n });
@@ -71,3 +74,4 @@ log(`\n✅ ORG proof-of-sum verified ON-CHAIN (vk_id ORGSUM):`);
 log(`   • the M-of-N treasury total is disclosed as a real Groth16 proof — only the total, no individual amount`);
 log(`   • a forged total is rejected (fail-closed)`);
 log(`   ⇒ auditor disclosure over org notes is now a true on-chain ZK proof, not a view-key reveal.`);
+process.exit(0);

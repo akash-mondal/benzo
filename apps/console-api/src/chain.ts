@@ -543,7 +543,10 @@ export async function proveBalance(
 ): Promise<{ holds: boolean; onChain: boolean; minStroops: string; ref: OnChainRef }> {
   const publics = [{ k: publicLabel, v: usdLabel(minStroops) }];
   const c = getClient();
-  if (!c) return { holds: false, onChain: false, minStroops, ref: onChainRef(vkLabel, false, publics) };
+  if (!c) {
+    const holds = BigInt(minStroops) <= 0n;
+    return { holds, onChain: false, minStroops, ref: onChainRef(vkLabel, false, publics) };
+  }
   await c.sync();
   await wireMvkRegistry(c);
   await ensureOrgSetup(c);

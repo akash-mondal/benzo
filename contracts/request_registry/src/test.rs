@@ -31,14 +31,20 @@ fn setup() -> H {
 
     let reg_id = env.register(BenzoRequestRegistry, (admin, ns_id));
     let reg = BenzoRequestRegistryClient::new(&env, &reg_id);
-    H { env, payee, ns, reg }
+    H {
+        env,
+        payee,
+        ns,
+        reg,
+    }
 }
 
 #[test]
 fn register_opens_a_request() {
     let h = setup();
     let c = u(&h.env, 111);
-    h.reg.register(&h.payee, &c, &25_000_000i128, &0i128, &100_000u64);
+    h.reg
+        .register(&h.payee, &c, &25_000_000i128, &0i128, &100_000u64);
     let e = h.reg.get(&c).expect("request entry exists");
     assert_eq!(e.status, Status::Open);
     assert_eq!(e.paid_total, 0);
@@ -96,7 +102,10 @@ fn expire_is_permissionless_and_blocks_further_payment() {
     assert_eq!(h.reg.try_expire(&c), Err(Ok(Error::NotExpired)));
     h.env.ledger().set_timestamp(3_000);
     h.reg.expire(&c);
-    assert_eq!(h.reg.get(&c).expect("request entry exists").status, Status::Expired);
+    assert_eq!(
+        h.reg.get(&c).expect("request entry exists").status,
+        Status::Expired
+    );
 
     let nf = u(&h.env, 5);
     h.ns.spend(&nf);
@@ -114,7 +123,10 @@ fn cancel_retains_entry_bad_expiry_and_variable_amount() {
     let c = u(&h.env, 6);
     h.reg.register(&h.payee, &c, &100i128, &0i128, &100_000u64);
     h.reg.cancel(&c);
-    assert_eq!(h.reg.get(&c).expect("request entry exists").status, Status::Cancelled);
+    assert_eq!(
+        h.reg.get(&c).expect("request entry exists").status,
+        Status::Cancelled
+    );
 
     // expiry in the past is rejected
     let c2 = u(&h.env, 7);
@@ -137,7 +149,8 @@ fn duplicate_commitment_rejected() {
     let c = u(&h.env, 99);
     h.reg.register(&h.payee, &c, &10i128, &0i128, &100_000u64);
     assert_eq!(
-        h.reg.try_register(&h.payee, &c, &10i128, &0i128, &100_000u64),
+        h.reg
+            .try_register(&h.payee, &c, &10i128, &0i128, &100_000u64),
         Err(Ok(Error::AlreadyExists))
     );
 }

@@ -306,11 +306,7 @@ impl BenzoPool {
 
         // Pull the public deposit into custody.
         let token: Address = Self::get(&env, &DataKey::Token)?;
-        TokenClient::new(&env, &token).transfer(
-            &from,
-            env.current_contract_address(),
-            &amount,
-        );
+        TokenClient::new(&env, &token).transfer(&from, env.current_contract_address(), &amount);
 
         // Turnstile: track net shielded supply so withdrawals can never exceed
         // deposits — bounds the blast radius of any undiscovered circuit-soundness
@@ -321,7 +317,9 @@ impl BenzoPool {
             .get(&DataKey::TotalShielded)
             .unwrap_or(0);
         let total = total.checked_add(amount).ok_or(Error::Overflow)?;
-        env.storage().persistent().set(&DataKey::TotalShielded, &total);
+        env.storage()
+            .persistent()
+            .set(&DataKey::TotalShielded, &total);
         soroban_utils::bump_persistent(&env, &DataKey::TotalShielded);
 
         // Insert the note and record the compliance binding.
@@ -685,7 +683,13 @@ impl BenzoPool {
             seen.push_back(s.nullifier1.clone());
 
             let ext_hash = Self::hash_transfer_ext(
-                &env, &s.relayer, s.fee, &s.note_ct0, &s.note_ct1, &s.mvk_ct0, &s.mvk_ct1,
+                &env,
+                &s.relayer,
+                s.fee,
+                &s.note_ct0,
+                &s.note_ct1,
+                &s.mvk_ct0,
+                &s.mvk_ct1,
             );
             Self::check_mvk_root(&env, &s.registered_mvk_root)?;
 
@@ -731,14 +735,27 @@ impl BenzoPool {
             let s = spends.get(i).ok_or(Error::EmptyBatch)?;
             ns.spend(&s.nullifier0);
             ns.spend(&s.nullifier1);
-            NewNullifierEvent { nullifier: s.nullifier0.clone() }.publish(&env);
-            NewNullifierEvent { nullifier: s.nullifier1.clone() }.publish(&env);
+            NewNullifierEvent {
+                nullifier: s.nullifier0.clone(),
+            }
+            .publish(&env);
+            NewNullifierEvent {
+                nullifier: s.nullifier1.clone(),
+            }
+            .publish(&env);
 
             // commitments were pushed [c0, c1] per item, so item i's leaves are
             // at flat positions 2i and 2i+1 in the returned index vector.
-            let idx0 = indices.get(i.checked_mul(2).ok_or(Error::Overflow)?).ok_or(Error::EmptyBatch)?;
+            let idx0 = indices
+                .get(i.checked_mul(2).ok_or(Error::Overflow)?)
+                .ok_or(Error::EmptyBatch)?;
             let idx1 = indices
-                .get(i.checked_mul(2).ok_or(Error::Overflow)?.checked_add(1).ok_or(Error::Overflow)?)
+                .get(
+                    i.checked_mul(2)
+                        .ok_or(Error::Overflow)?
+                        .checked_add(1)
+                        .ok_or(Error::Overflow)?,
+                )
                 .ok_or(Error::EmptyBatch)?;
 
             if s.fee > 0 {
@@ -824,8 +841,7 @@ impl BenzoPool {
             return Err(Error::WrongAspRoot);
         }
 
-        let ext_hash =
-            Self::hash_withdraw_ext(&env, &to, &change_note_ct, &change_mvk_ct);
+        let ext_hash = Self::hash_withdraw_ext(&env, &to, &change_note_ct, &change_mvk_ct);
 
         let modulus = bn256_modulus(&env);
         let asset_id: U256 = Self::get(&env, &DataKey::AssetId)?;
@@ -841,12 +857,7 @@ impl BenzoPool {
         )?;
         Self::push_input(&env, &mut public_inputs, &change_commitment, &modulus)?;
         Self::push_input(&env, &mut public_inputs, &ext_hash, &modulus)?;
-        Self::push_input(
-            &env,
-            &mut public_inputs,
-            &asp_non_membership_root,
-            &modulus,
-        )?;
+        Self::push_input(&env, &mut public_inputs, &asp_non_membership_root, &modulus)?;
         Self::push_input(&env, &mut public_inputs, &change_mvk_tag, &modulus)?;
         Self::check_mvk_root(&env, &registered_mvk_root)?;
         Self::push_input(&env, &mut public_inputs, &registered_mvk_root, &modulus)?;
@@ -939,11 +950,10 @@ impl BenzoPool {
     /// tree, or nullifier state. Admin-gated; a multisig in production.
     pub fn set_verifier(env: Env, new_verifier: Address) -> Result<(), Error> {
         Self::require_admin(&env)?;
-        env.storage().persistent().set(&DataKey::Verifier, &new_verifier);
-        VerifierRotatedEvent {
-            new_verifier,
-        }
-        .publish(&env);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Verifier, &new_verifier);
+        VerifierRotatedEvent { new_verifier }.publish(&env);
         Ok(())
     }
 
@@ -953,7 +963,9 @@ impl BenzoPool {
     /// the in-circuit MVK membership to the real registry.
     pub fn set_mvk_registry(env: Env, registry: Address) -> Result<(), Error> {
         Self::require_admin(&env)?;
-        env.storage().persistent().set(&DataKey::MvkRegistry, &registry);
+        env.storage()
+            .persistent()
+            .set(&DataKey::MvkRegistry, &registry);
         Ok(())
     }
 
@@ -1011,11 +1023,18 @@ impl BenzoPool {
         mvk_ct0: Bytes,
         mvk_ct1: Bytes,
     ) -> U256 {
-        Self::hash_transfer_ext(&env, &relayer, fee, &note_ct0, &note_ct1, &mvk_ct0, &mvk_ct1)
+        Self::hash_transfer_ext(
+            &env, &relayer, fee, &note_ct0, &note_ct1, &mvk_ct0, &mvk_ct1,
+        )
     }
 
     /// Ext-data hash for a withdraw (binds recipient and change ciphertexts).
-    pub fn withdraw_ext_hash(env: Env, to: Address, change_note_ct: Bytes, change_mvk_ct: Bytes) -> U256 {
+    pub fn withdraw_ext_hash(
+        env: Env,
+        to: Address,
+        change_note_ct: Bytes,
+        change_mvk_ct: Bytes,
+    ) -> U256 {
         Self::hash_withdraw_ext(&env, &to, &change_note_ct, &change_mvk_ct)
     }
 

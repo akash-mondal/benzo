@@ -82,7 +82,7 @@ export async function attestClientFromEnv(env: NodeJS.ProcessEnv = process.env):
   let mod: { StellarAttestationClient: new (cfg: unknown) => AttestClientLike };
   try {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore — optional dependency
+    // @ts-expect-error — optional dependency
     mod = await import("@attestprotocol/stellar-sdk");
   } catch {
     throw new Error("@attestprotocol/stellar-sdk not installed — run `pnpm add @attestprotocol/stellar-sdk` in @benzo/attest");

@@ -26,7 +26,7 @@ describe("isValidStellarAddress", () => {
     expect(isValidStellarAddress("")).toBe(false);
     expect(isValidStellarAddress("GABC")).toBe(false);
     // contract id (C…) is not an ed25519 public key
-    expect(isValidStellarAddress("CAQZCOJUYFEHDJLGLAMMUTHGWGYGZZACMI3EY32X2T2AVDTD3FMGWPRU")).toBe(false);
+    expect(isValidStellarAddress("CB4VS4OCF6HEGCLSPM4E3ILNGP4KF5ZJ7JEXUJIJBUU5IZC2VPDVSJOT")).toBe(false);
   });
 
   it("trims surrounding whitespace before validating", () => {

@@ -71,7 +71,9 @@ impl BenzoNullifierSet {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        env.storage().persistent().set(&DataKey::Operator, &operator);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Operator, &operator);
         Ok(())
     }
 
@@ -80,9 +82,11 @@ impl BenzoNullifierSet {
         let key = DataKey::Nullifier(nullifier);
         let spent = env.storage().persistent().has(&key);
         if spent {
-            env.storage()
-                .persistent()
-                .extend_ttl(&key, NULLIFIER_TTL_THRESHOLD, NULLIFIER_TTL_EXTEND);
+            env.storage().persistent().extend_ttl(
+                &key,
+                NULLIFIER_TTL_THRESHOLD,
+                NULLIFIER_TTL_EXTEND,
+            );
         }
         spent
     }

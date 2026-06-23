@@ -32,14 +32,14 @@ export default defineConfig({
 
   webServer: [
     {
-      command: "node apps/wallet-api/dist/server.js",
+      command: "pnpm --filter @benzo/wallet-api dev",
       env: { ...DEMO_ENV, WALLET_API_PORT: "8791" },
       url: "http://localhost:8791/health",
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },
     {
-      command: "node apps/console-api/dist/server.js",
+      command: "pnpm --filter @benzo/console-api dev",
       env: { ...DEMO_ENV, CONSOLE_API_PORT: "8790" },
       url: "http://localhost:8790/health",
       reuseExistingServer: !process.env.CI,

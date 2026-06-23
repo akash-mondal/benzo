@@ -81,3 +81,4 @@ docs/FIAT-RAMP-MONEYGRAM.md
 # --- heavy binary doc artifacts (regenerable, not needed to run/review) ---
 *.pptx
 *.pdf
+.vercel
