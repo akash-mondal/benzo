@@ -73,8 +73,12 @@ export interface InviteSummary {
   status: "pending" | "claimed" | "refunded" | "expired";
 }
 
+export function apiHref(path: string): string {
+  return `/api/rpc?path=${encodeURIComponent(path)}`;
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(apiHref(path), {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
   });

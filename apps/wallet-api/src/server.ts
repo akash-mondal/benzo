@@ -244,6 +244,10 @@ route("POST", "/api/relay/submit", async (req, res) => {
 
 export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+  const rpcPath = url.pathname === "/api/rpc" ? url.searchParams.get("path") : null;
+  const effectiveUrl = rpcPath?.startsWith("/") && !rpcPath.startsWith("//")
+    ? new URL(`/api${rpcPath}`, `http://localhost:${PORT}`)
+    : url;
   if (req.method === "OPTIONS") {
     cors(res);
     res.writeHead(204);
@@ -251,9 +255,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
   try {
-    const r = routes.find((x) => x.method === (req.method ?? "GET") && x.path === url.pathname);
+    const r = routes.find((x) => x.method === (req.method ?? "GET") && x.path === effectiveUrl.pathname);
     if (!r) return json(res, 404, { error: "not found" });
-    await r.handler(req, res, url);
+    await r.handler(req, res, effectiveUrl);
   } catch (e) {
     json(res, 500, { error: String((e as Error)?.message ?? e) });
   }
