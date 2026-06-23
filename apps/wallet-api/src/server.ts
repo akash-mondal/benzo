@@ -242,12 +242,13 @@ route("POST", "/api/relay/submit", async (req, res) => {
   }
 });
 
-const server = createServer(async (req, res) => {
+export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   if (req.method === "OPTIONS") {
     cors(res);
     res.writeHead(204);
-    return res.end();
+    res.end();
+    return;
   }
   try {
     const r = routes.find((x) => x.method === (req.method ?? "GET") && x.path === url.pathname);
@@ -256,9 +257,13 @@ const server = createServer(async (req, res) => {
   } catch (e) {
     json(res, 500, { error: String((e as Error)?.message ?? e) });
   }
-});
+}
 
-server.listen(PORT, () => {
+export default handle;
+
+const server = createServer(handle);
+
+if (process.env.VERCEL !== "1") server.listen(PORT, () => {
   const s = liveStatus();
   console.error(`[benzo-wallet-api] listening on :${PORT} (profile: ${db.profile.handle})`);
   if (s.live) {

@@ -12,15 +12,16 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@benzo/console-api": "workspace:*",
+    "@benzo/core": "workspace:*",
+    "@benzo/links": "workspace:*",
+    "@benzo/types": "workspace:*",
+    "buffer": "^6.0.3",
+    "framer-motion": "^11.3.0",
     "lucide-react": "^0.408.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.26.0",
-    "framer-motion": "^11.3.0",
-    "@benzo/core": "workspace:*",
-    "@benzo/types": "workspace:*",
-    "@benzo/links": "workspace:*",
-    "buffer": "^6.0.3"
+    "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

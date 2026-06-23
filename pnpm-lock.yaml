@@ -39,6 +39,9 @@ importers:
 
   apps/console:
     dependencies:
+      '@benzo/console-api':
+        specifier: workspace:*
+        version: link:../console-api
       '@benzo/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -146,6 +149,9 @@ importers:
       '@benzo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@benzo/wallet-api':
+        specifier: workspace:*
+        version: link:../wallet-api
       buffer:
         specifier: ^6.0.3
         version: 6.0.3

@@ -895,12 +895,13 @@ route("POST", "/api/integrations", async (req, res) => {
 });
 
 // --------------------------------------------------------------------- server
-const server = createServer(async (req, res) => {
+export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   if (req.method === "OPTIONS") {
     cors(res);
     res.writeHead(204);
-    return res.end();
+    res.end();
+    return;
   }
   try {
     const m = match(req.method ?? "GET", url.pathname);
@@ -909,10 +910,13 @@ const server = createServer(async (req, res) => {
   } catch (e) {
     json(res, 500, { error: String((e as Error)?.message ?? e) });
   }
-});
+}
+
+export default handle;
 
 sealSeedLedger(); // bring pre-existing (seeded) ledger entries into the audit chain as genesis
-server.listen(PORT, () => {
+const server = createServer(handle);
+if (process.env.VERCEL !== "1") server.listen(PORT, () => {
   const s = liveStatus();
   console.error(`[benzo-console-api] listening on :${PORT} (demo org: ${db.org.name})`);
   if (s.live) {
