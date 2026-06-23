@@ -302,7 +302,18 @@ export class BenzoClient {
     const poolFrom = this.scanner.cursorLedger > 0 ? this.scanner.cursorLedger + 1 : 1;
     await syncFromRpc(this.scanner, rpcUrl, [deployment.pool, deployment.viewkeyAnchor], poolFrom);
     await store.set(this.key("scan"), JSON.stringify(this.scanner.snapshot()));
-    this.pool.poolRebuild(this.scanner.orderedLeaves());
+    try {
+      this.pool.poolRebuild(this.scanner.orderedLeaves());
+    } catch (e) {
+      if (!/commitment leaf \d+ missing from events/.test(String((e as Error)?.message ?? e))) throw e;
+      // A previously persisted incremental snapshot can contain a hole if an
+      // older client crashed or skipped an event. Rebuild from genesis while the
+      // RPC still has events, then replace the durable snapshot.
+      this.scanner = new NoteScanner(deployment.treeLevels, 1);
+      await syncFromRpc(this.scanner, rpcUrl, [deployment.pool, deployment.viewkeyAnchor], 1);
+      await store.set(this.key("scan"), JSON.stringify(this.scanner.snapshot()));
+      this.pool.poolRebuild(this.scanner.orderedLeaves());
+    }
 
     // ASP allow-set: same incremental, persisted resume.
     const aspFrom = this.aspCursor > 0 ? this.aspCursor + 1 : 1;

@@ -12,7 +12,9 @@
 //!
 //! Funds are held as a Stellar asset (USDC SAC); the contract never mints.
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, token::TokenClient, Address, BytesN, Env};
+use soroban_sdk::{
+    Address, BytesN, Env, contract, contracterror, contractimpl, contracttype, token::TokenClient,
+};
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -74,10 +76,17 @@ impl EscrowContract {
         if env.storage().persistent().has(&key) {
             return Err(Error::AlreadyExists);
         }
-        TokenClient::new(&env, &token).transfer(&from, &env.current_contract_address(), &amount);
+        TokenClient::new(&env, &token).transfer(&from, env.current_contract_address(), &amount);
         env.storage().persistent().set(
             &key,
-            &Escrow { from, claimant, token, amount, unlock_at, status: Status::Pending },
+            &Escrow {
+                from,
+                claimant,
+                token,
+                amount,
+                unlock_at,
+                status: Status::Pending,
+            },
         );
         Ok(())
     }
@@ -85,12 +94,20 @@ impl EscrowContract {
     /// The claimant pulls the escrowed funds — allowed at any time.
     pub fn claim(env: Env, id: BytesN<32>) -> Result<(), Error> {
         let key = DataKey::E(id);
-        let mut e: Escrow = env.storage().persistent().get(&key).ok_or(Error::NotFound)?;
+        let mut e: Escrow = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::NotFound)?;
         if e.status != Status::Pending {
             return Err(Error::AlreadySettled);
         }
         e.claimant.require_auth();
-        TokenClient::new(&env, &e.token).transfer(&env.current_contract_address(), &e.claimant, &e.amount);
+        TokenClient::new(&env, &e.token).transfer(
+            &env.current_contract_address(),
+            &e.claimant,
+            &e.amount,
+        );
         e.status = Status::Claimed;
         env.storage().persistent().set(&key, &e);
         Ok(())
@@ -100,7 +117,11 @@ impl EscrowContract {
     /// if still unclaimed.
     pub fn refund(env: Env, id: BytesN<32>) -> Result<(), Error> {
         let key = DataKey::E(id);
-        let mut e: Escrow = env.storage().persistent().get(&key).ok_or(Error::NotFound)?;
+        let mut e: Escrow = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::NotFound)?;
         if e.status != Status::Pending {
             return Err(Error::AlreadySettled);
         }
@@ -108,7 +129,11 @@ impl EscrowContract {
         if env.ledger().timestamp() < e.unlock_at {
             return Err(Error::LockNotExpired);
         }
-        TokenClient::new(&env, &e.token).transfer(&env.current_contract_address(), &e.from, &e.amount);
+        TokenClient::new(&env, &e.token).transfer(
+            &env.current_contract_address(),
+            &e.from,
+            &e.amount,
+        );
         e.status = Status::Refunded;
         env.storage().persistent().set(&key, &e);
         Ok(())
@@ -123,12 +148,19 @@ impl EscrowContract {
 mod test {
     use super::*;
     use soroban_sdk::{
+        Address, BytesN, Env,
         testutils::{Address as _, Ledger as _},
         token::StellarAssetClient,
-        Address, BytesN, Env,
     };
 
-    fn setup() -> (Env, EscrowContractClient<'static>, Address, Address, Address, TokenClient<'static>) {
+    fn setup() -> (
+        Env,
+        EscrowContractClient<'static>,
+        Address,
+        Address,
+        Address,
+        TokenClient<'static>,
+    ) {
         let env = Env::default();
         env.mock_all_auths();
         let cid = env.register(EscrowContract, ());
@@ -147,12 +179,25 @@ mod test {
     fn claim_before_unlock_pays_recipient() {
         let (env, client, from, claimant, token, tc) = setup();
         let id = BytesN::from_array(&env, &[1u8; 32]);
-        client.create(&id, &from, &claimant, &token, &600, &(env.ledger().timestamp() + 3600));
+        client.create(
+            &id,
+            &from,
+            &claimant,
+            &token,
+            &600,
+            &(env.ledger().timestamp() + 3600),
+        );
         assert_eq!(tc.balance(&from), 400);
         assert_eq!(tc.balance(&client.address), 600);
         client.claim(&id); // recipient claims any time
         assert_eq!(tc.balance(&claimant), 600);
-        assert_eq!(client.get(&id).unwrap().status, Status::Claimed);
+        assert!(matches!(
+            client.get(&id),
+            Some(Escrow {
+                status: Status::Claimed,
+                ..
+            })
+        ));
     }
 
     #[test]
@@ -167,7 +212,13 @@ mod test {
         env.ledger().set_timestamp(unlock + 1);
         client.refund(&id);
         assert_eq!(tc.balance(&from), 1_000);
-        assert_eq!(client.get(&id).unwrap().status, Status::Refunded);
+        assert!(matches!(
+            client.get(&id),
+            Some(Escrow {
+                status: Status::Refunded,
+                ..
+            })
+        ));
     }
 
     #[test]

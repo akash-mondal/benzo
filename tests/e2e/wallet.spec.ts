@@ -6,6 +6,8 @@ import { test, expect, type Page } from "@playwright/test";
  * layout is exercised under a real phone profile too.
  */
 const WALLET = "http://localhost:5175";
+const PRIVATE_BALANCE = "$1,240.50";
+const TESTNET_G_ADDRESS = "GBRMUZELYDNXSBYF5KOLLSV4XLQYNZJQNLXQ3HTFCWNRIBS3I6EUBCMP";
 
 async function open(page: Page, path = "/") {
   // skip the one-time onboarding splash + start with the balance visible
@@ -21,7 +23,7 @@ test.describe("wallet — home", () => {
   test("shows the balance, privacy chip, actions, and activity", async ({ page }) => {
     await open(page);
     // demo seed balance
-    await expect(page.getByLabel("$1,240.50")).toBeVisible();
+    await expect(page.getByLabel(PRIVATE_BALANCE)).toBeVisible();
     await expect(page.getByText(/only you can see this/i)).toBeVisible();
     await expect(page.getByTestId("action-send")).toBeVisible();
     await expect(page.getByTestId("action-request")).toBeVisible();
@@ -34,10 +36,10 @@ test.describe("wallet — home", () => {
 
   test("eye toggle masks the balance display", async ({ page }) => {
     await open(page);
-    await expect(page.getByLabel("$1,240.50")).toBeVisible();
+    await expect(page.getByLabel(PRIVATE_BALANCE)).toBeVisible();
     await page.getByRole("button", { name: "Hide balance" }).click();
-    await expect(page.getByLabel("Balance hidden")).toBeVisible();
-    await expect(page.getByLabel("$1,240.50")).toHaveCount(0);
+    await expect(page.getByLabel("Balance hidden", { exact: true })).toBeVisible();
+    await expect(page.getByLabel(PRIVATE_BALANCE)).toHaveCount(0);
   });
 });
 
@@ -68,7 +70,7 @@ test.describe("wallet — send (private, 3-phase ceremony)", () => {
 
   test("a Stellar G-address is flagged as a public payout", async ({ page }) => {
     await open(page, "/send");
-    await page.getByTestId("send-handle").fill("G" + "A".repeat(55));
+    await page.getByTestId("send-handle").fill(TESTNET_G_ADDRESS);
     await expect(page.getByTestId("send-kind")).toContainText(/public/i);
   });
 
@@ -129,9 +131,9 @@ test.describe("wallet — external invite + claim", () => {
 test.describe("wallet — cash (light tabbed widget)", () => {
   test("flips between Add money and Cash out", async ({ page }) => {
     await open(page, "/cash");
-    await expect(page.getByText("Added instantly to your balance")).toBeVisible();
+    await expect(page.getByText("Dispensed from the reserve, shielded on your device")).toBeVisible();
     await page.getByRole("button", { name: "Cash out" }).click();
-    await expect(page.getByText(/Arrives in your bank/)).toBeVisible();
+    await expect(page.getByText(/Unshielded privately/)).toBeVisible();
     await expect(page.getByTestId("cashout-submit")).toBeVisible();
   });
 });

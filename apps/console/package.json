@@ -19,7 +19,8 @@
     "framer-motion": "^11.3.0",
     "@benzo/core": "workspace:*",
     "@benzo/types": "workspace:*",
-    "@benzo/links": "workspace:*"
+    "@benzo/links": "workspace:*",
+    "buffer": "^6.0.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",

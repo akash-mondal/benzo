@@ -26,7 +26,7 @@ import {
   TransactionBuilder,
   rpc,
   scValToNative,
-  xdr,
+  type xdr,
 } from "@stellar/stellar-sdk";
 import { scvalForWriteArg } from "./scval.js";
 import type { ChainClient, InvokeResult } from "./stellar.js";

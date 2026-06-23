@@ -161,7 +161,9 @@ impl BenzoIssuerRegistry {
         }
 
         let levels: u32 = storage.get(&DataKey::Levels).ok_or(Error::NotInitialized)?;
-        let next_index: u32 = storage.get(&DataKey::NextIndex).ok_or(Error::NotInitialized)?;
+        let next_index: u32 = storage
+            .get(&DataKey::NextIndex)
+            .ok_or(Error::NotInitialized)?;
         let max_leaves = 1u64.checked_shl(levels).ok_or(Error::WrongLevels)?;
         if u64::from(next_index) >= max_leaves {
             return Err(Error::RegistryFull);
@@ -173,16 +175,22 @@ impl BenzoIssuerRegistry {
         for lvl in 0..levels {
             if current_index & 1 == 0 {
                 storage.set(&DataKey::FilledSubtree(lvl), &current_hash);
-                let zero: U256 = storage.get(&DataKey::Zeroes(lvl)).ok_or(Error::NotInitialized)?;
+                let zero: U256 = storage
+                    .get(&DataKey::Zeroes(lvl))
+                    .ok_or(Error::NotInitialized)?;
                 current_hash = poseidon2_compress(&env, current_hash, zero);
             } else {
-                let left: U256 = storage.get(&DataKey::FilledSubtree(lvl)).ok_or(Error::NotInitialized)?;
+                let left: U256 = storage
+                    .get(&DataKey::FilledSubtree(lvl))
+                    .ok_or(Error::NotInitialized)?;
                 current_hash = poseidon2_compress(&env, left, current_hash);
             }
             current_index >>= 1;
         }
 
-        let root_index: u32 = storage.get(&DataKey::CurrentRootIndex).ok_or(Error::NotInitialized)?;
+        let root_index: u32 = storage
+            .get(&DataKey::CurrentRootIndex)
+            .ok_or(Error::NotInitialized)?;
         let new_root_index = root_index.checked_add(1).ok_or(Error::Overflow)? % ROOT_HISTORY_SIZE;
         if let Some(evicted) = storage.get::<DataKey, U256>(&DataKey::Root(new_root_index)) {
             storage.remove(&DataKey::KnownRoot(evicted));
@@ -196,16 +204,24 @@ impl BenzoIssuerRegistry {
             &(next_index.checked_add(1).ok_or(Error::Overflow)?),
         );
 
-        IssuerRegisteredEvent { issuer_key_id, index: next_index, root: current_hash.clone() }
-            .publish(&env);
+        IssuerRegisteredEvent {
+            issuer_key_id,
+            index: next_index,
+            root: current_hash.clone(),
+        }
+        .publish(&env);
         Ok(next_index)
     }
 
     /// Current (most recent) registry root.
     pub fn current_root(env: Env) -> Result<U256, Error> {
         let storage = env.storage().persistent();
-        let idx: u32 = storage.get(&DataKey::CurrentRootIndex).ok_or(Error::NotInitialized)?;
-        let root = storage.get(&DataKey::Root(idx)).ok_or(Error::NotInitialized)?;
+        let idx: u32 = storage
+            .get(&DataKey::CurrentRootIndex)
+            .ok_or(Error::NotInitialized)?;
+        let root = storage
+            .get(&DataKey::Root(idx))
+            .ok_or(Error::NotInitialized)?;
         soroban_utils::bump_persistent(&env, &DataKey::Root(idx));
         Ok(root)
     }
@@ -225,17 +241,25 @@ impl BenzoIssuerRegistry {
 
     /// Is this issuer key-id already registered?
     pub fn is_registered(env: Env, issuer_key_id: U256) -> bool {
-        env.storage().persistent().has(&DataKey::IssuerSeen(issuer_key_id))
+        env.storage()
+            .persistent()
+            .has(&DataKey::IssuerSeen(issuer_key_id))
     }
 
     /// Next available leaf index (== number of issuers registered so far).
     pub fn next_index(env: Env) -> Result<u32, Error> {
-        env.storage().persistent().get(&DataKey::NextIndex).ok_or(Error::NotInitialized)
+        env.storage()
+            .persistent()
+            .get(&DataKey::NextIndex)
+            .ok_or(Error::NotInitialized)
     }
 
     /// Tree depth.
     pub fn levels(env: Env) -> Result<u32, Error> {
-        env.storage().persistent().get(&DataKey::Levels).ok_or(Error::NotInitialized)
+        env.storage()
+            .persistent()
+            .get(&DataKey::Levels)
+            .ok_or(Error::NotInitialized)
     }
 }
 

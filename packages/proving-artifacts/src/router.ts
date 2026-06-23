@@ -75,7 +75,6 @@ export function policyForMode(mode: ProvingMode): RoutePolicy {
       return ON_DEVICE_POLICY;
     case "auto":
       return HYBRID_POLICY;
-    case "tee":
     default:
       return TEE_ONLY_POLICY;
   }

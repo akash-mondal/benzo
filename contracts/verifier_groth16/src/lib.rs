@@ -15,8 +15,8 @@ extern crate alloc;
 
 pub use contract_types::{Groth16Error, Groth16Proof, VerificationKeyBytes};
 use soroban_sdk::{
-    Address, Bytes, BytesN, Env, Symbol, Vec, contract, contracterror, contractevent,
-    contractimpl, contracttype,
+    Address, Bytes, BytesN, Env, Symbol, Vec, contract, contracterror, contractevent, contractimpl,
+    contracttype,
     crypto::bn254::{Bn254Fr, Bn254G1Affine as G1Affine, Bn254G2Affine as G2Affine},
     vec,
 };
@@ -150,7 +150,9 @@ impl BenzoVerifier {
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
         validate_vk(&env, &vk)?;
-        env.storage().persistent().set(&DataKey::Vk(vk_id.clone()), &vk);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Vk(vk_id.clone()), &vk);
         VkRotatedEvent { vk_id }.publish(&env);
         Ok(())
     }

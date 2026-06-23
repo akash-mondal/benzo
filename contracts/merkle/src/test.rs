@@ -111,10 +111,8 @@ fn onchain_root_matches_offchain_zkhash_mirror() {
     let onchain_root = client.current_root();
 
     // Off-chain full reconstruction with zkhash.
-    let mut level_nodes: StdVec<Scalar> = leaves
-        .iter()
-        .map(|l| Scalar::from(u64::from(*l)))
-        .collect();
+    let mut level_nodes: StdVec<Scalar> =
+        leaves.iter().map(|l| Scalar::from(u64::from(*l))).collect();
     for lvl in 0..levels {
         let zero = u256_to_scalar(&env, &zeroes[lvl as usize]);
         let mut next: StdVec<Scalar> = StdVec::new();
@@ -180,7 +178,11 @@ fn fuzz_onchain_root_matches_offchain() {
             let mut i = 0;
             while i < nodes.len() {
                 let l = nodes[i];
-                let r = if i + 1 < nodes.len() { nodes[i + 1] } else { zero };
+                let r = if i + 1 < nodes.len() {
+                    nodes[i + 1]
+                } else {
+                    zero
+                };
                 next.push(poseidon2_compression(l, r));
                 i += 2;
             }
@@ -258,7 +260,11 @@ fn insert_leaves_matches_sequential_inserts() {
         let indices = batch.insert_leaves(&leaves);
         assert_eq!(indices.len(), c, "returns one index per leaf");
         // After each chunk the two trees must agree EXACTLY.
-        assert_eq!(batch.next_index(), seq.next_index(), "next_index after chunk");
+        assert_eq!(
+            batch.next_index(),
+            seq.next_index(),
+            "next_index after chunk"
+        );
         assert_eq!(batch.current_root(), seq.current_root(), "root after chunk");
     }
     assert!(seq.is_known_root(&batch.current_root()));

@@ -17,9 +17,14 @@ const WALLET = "http://localhost:5175";
 test.describe.configure({ mode: "serial" });
 
 async function balanceStroops(req: APIRequestContext): Promise<bigint> {
+  const liveRes = await req.get(`${WALLET}/api/live`);
+  const live = (await liveRes.json()) as { live: boolean };
+  expect(live.live, "BFF must be LIVE (load .env)").toBe(true);
   const r = await req.get(`${WALLET}/api/balance`);
-  const b = (await r.json()) as { stroops: string; live: boolean };
-  expect(b.live, "BFF must be LIVE (load .env)").toBe(true);
+  const b = (await r.json()) as { stroops?: string; live?: boolean; error?: string };
+  expect(r.ok(), b.error ?? "balance endpoint failed").toBe(true);
+  expect(b.live, "balance must come from the live BFF").toBe(true);
+  expect(b.stroops, "balance response includes stroops").toBeTruthy();
   return BigInt(b.stroops);
 }
 
@@ -35,8 +40,8 @@ async function openWallet(page: Page, path = "/") {
 test("add money settles a REAL shield (local proof, verified on-chain)", async ({ page, request }) => {
   const before = await balanceStroops(request);
   await openWallet(page, "/cash"); // defaults to the "Add money" tab
-  await expect(page.getByText("Added instantly to your balance")).toBeVisible();
-  await page.getByLabel("Amount").fill("0.20");
+  await expect(page.getByText("Dispensed from the reserve, shielded on your device")).toBeVisible();
+  await page.getByLabel("Amount").fill("10");
   await page.getByTestId("add-submit").click();
   await expect(page.getByTestId("cash-overlay")).toBeVisible();
   await expect(page.getByText("Money added")).toBeVisible();
@@ -46,11 +51,11 @@ test("add money settles a REAL shield (local proof, verified on-chain)", async (
 
 test("cash out settles a REAL unshield (balance decreases)", async ({ page, request }) => {
   const before = await balanceStroops(request);
-  expect(before, "need a shielded balance to cash out (run the add-money test first)").toBeGreaterThan(500_000n);
+  expect(before, "need a shielded balance to cash out (run the add-money test first)").toBeGreaterThan(50_000_000n);
 
   await openWallet(page, "/cash?tab=out");
-  await expect(page.getByText(/Arrives in your bank/)).toBeVisible();
-  await page.getByLabel("Amount").fill("0.05");
+  await expect(page.getByText("Unshielded privately, then cashed out")).toBeVisible();
+  await page.getByLabel("Amount").fill("5");
   await page.getByTestId("cashout-submit").click();
   await expect(page.getByTestId("cash-overlay")).toBeVisible();
   await expect(page.getByText("On its way")).toBeVisible();
@@ -65,8 +70,10 @@ test("send settles a REAL private transfer (joinsplit) to a @handle", async ({ p
   await page.getByTestId("send-handle").fill("@benzowallet"); // registered on the deployment
   await page.getByLabel("Amount").fill("0.05");
   await page.getByTestId("send-submit").click();
+  await expect(page.getByTestId("send-prover-plan")).toBeVisible();
+  await page.getByTestId("send-confirm").click();
   await expect(page.getByTestId("send-overlay")).toBeVisible();
-  await expect(page.getByTestId("send-success")).toContainText("Sent");
+  await expect(page.getByTestId("ceremony-title")).toContainText("Sent privately");
   await expect(page.getByTestId("send-overlay")).not.toContainText("(demo)");
 });
 

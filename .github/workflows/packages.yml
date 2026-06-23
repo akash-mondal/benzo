@@ -60,7 +60,7 @@ jobs:
       # contracts). The live IDs live only in deployments/testnet.json.
       - name: No stale-cluster addresses
         run: |
-          if git grep -nE 'CCWBNQCJ|CAQZCOJU|CCSZAPFM' -- . ':!deployments/*.bak'; then
+          if git grep -nE 'CCWBNQCJ|CAQZCOJU|CCSZAPFM' -- . ':!deployments/*.bak' ':!.github/workflows/packages.yml'; then
             echo "::error::a committed file references a dead pre-redeploy cluster address"; exit 1
           fi
 

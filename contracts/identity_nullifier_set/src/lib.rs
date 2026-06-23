@@ -76,7 +76,9 @@ impl BenzoIdentityNullifierSet {
             .get(&DataKey::Admin)
             .ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        env.storage().persistent().set(&DataKey::Operator, &operator);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Operator, &operator);
         Ok(())
     }
 

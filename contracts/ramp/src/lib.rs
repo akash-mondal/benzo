@@ -24,7 +24,10 @@
 //! with a per-tx memo. Our `ref` field is exactly that memo, and our limits
 //! mirror MoneyGram's published caps, so the swap is a drop-in.
 
-use soroban_sdk::{contract, contracterror, contractevent, contractimpl, contracttype, token::TokenClient, Address, BytesN, Env};
+use soroban_sdk::{
+    Address, BytesN, Env, contract, contracterror, contractevent, contractimpl, contracttype,
+    token::TokenClient,
+};
 
 // MoneyGram Access published per-transaction caps (USDC has 7 decimals on Stellar).
 const MIN: i128 = 5 * 10_000_000; //     5 USDC
@@ -90,7 +93,11 @@ impl RampContract {
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
-        TokenClient::new(&env, &Self::usdc(&env)).transfer(&from, &env.current_contract_address(), &amount);
+        TokenClient::new(&env, &Self::usdc(&env)).transfer(
+            &from,
+            env.current_contract_address(),
+            &amount,
+        );
         Ok(())
     }
 
@@ -98,7 +105,12 @@ impl RampContract {
     /// to back the user's shield. Admin-authorized (the operator confirms the
     /// simulated fiat leg). `reference` is the per-tx memo — replayed cash-ins on
     /// the same reference are rejected (idempotent, like the anchor's memo).
-    pub fn cash_in(env: Env, to: Address, amount: i128, reference: BytesN<32>) -> Result<(), Error> {
+    pub fn cash_in(
+        env: Env,
+        to: Address,
+        amount: i128,
+        reference: BytesN<32>,
+    ) -> Result<(), Error> {
         Self::admin(&env).require_auth();
         Self::guard(&env, amount, MAX_ON, &reference)?;
         let usdc = Self::usdc(&env);
@@ -109,22 +121,49 @@ impl RampContract {
         TokenClient::new(&env, &usdc).transfer(&env.current_contract_address(), &to, &amount);
         Self::mark(&env, reference.clone());
         let total: i128 = env.storage().instance().get(&DataKey::TotalIn).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalIn, &(total + amount));
-        CashIn { to, amount, reference }.publish(&env);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalIn, &(total + amount));
+        CashIn {
+            to,
+            amount,
+            reference,
+        }
+        .publish(&env);
         Ok(())
     }
 
     /// OFF-RAMP (SEP-24 withdrawal): pull `amount` USDC from `from` (the user,
     /// after unshield) into the reserve. The user authorizes the transfer to the
     /// anchor's account; the simulated fiat payout happens off-chain.
-    pub fn cash_out(env: Env, from: Address, amount: i128, reference: BytesN<32>) -> Result<(), Error> {
+    pub fn cash_out(
+        env: Env,
+        from: Address,
+        amount: i128,
+        reference: BytesN<32>,
+    ) -> Result<(), Error> {
         from.require_auth();
         Self::guard(&env, amount, MAX_OFF, &reference)?;
-        TokenClient::new(&env, &Self::usdc(&env)).transfer(&from, &env.current_contract_address(), &amount);
+        TokenClient::new(&env, &Self::usdc(&env)).transfer(
+            &from,
+            env.current_contract_address(),
+            &amount,
+        );
         Self::mark(&env, reference.clone());
-        let total: i128 = env.storage().instance().get(&DataKey::TotalOut).unwrap_or(0);
-        env.storage().instance().set(&DataKey::TotalOut, &(total + amount));
-        CashOut { from, amount, reference }.publish(&env);
+        let total: i128 = env
+            .storage()
+            .instance()
+            .get(&DataKey::TotalOut)
+            .unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&DataKey::TotalOut, &(total + amount));
+        CashOut {
+            from,
+            amount,
+            reference,
+        }
+        .publish(&env);
         Ok(())
     }
 
@@ -137,7 +176,10 @@ impl RampContract {
     pub fn stats(env: Env) -> (i128, i128, i128) {
         (
             env.storage().instance().get(&DataKey::TotalIn).unwrap_or(0),
-            env.storage().instance().get(&DataKey::TotalOut).unwrap_or(0),
+            env.storage()
+                .instance()
+                .get(&DataKey::TotalOut)
+                .unwrap_or(0),
             Self::reserve(env.clone()),
         )
     }
@@ -149,7 +191,10 @@ impl RampContract {
     }
 
     pub fn paused(env: Env) -> bool {
-        env.storage().instance().get(&DataKey::Paused).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
     }
 
     pub fn set_admin(env: Env, new_admin: Address) -> Result<(), Error> {
@@ -160,13 +205,24 @@ impl RampContract {
 
     // ---- internals ----
     fn admin(env: &Env) -> Address {
-        env.storage().instance().get(&DataKey::Admin).unwrap()
+        env.storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .unwrap_or_else(|| panic!("ramp not initialized"))
     }
     fn usdc(env: &Env) -> Address {
-        env.storage().instance().get(&DataKey::Usdc).unwrap()
+        env.storage()
+            .instance()
+            .get(&DataKey::Usdc)
+            .unwrap_or_else(|| panic!("ramp not initialized"))
     }
     fn guard(env: &Env, amount: i128, max: i128, reference: &BytesN<32>) -> Result<(), Error> {
-        if env.storage().instance().get(&DataKey::Paused).unwrap_or(false) {
+        if env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false)
+        {
             return Err(Error::Paused);
         }
         if amount <= 0 {
@@ -178,13 +234,19 @@ impl RampContract {
         if amount > max {
             return Err(Error::AboveMax);
         }
-        if env.storage().persistent().has(&DataKey::Ref(reference.clone())) {
+        if env
+            .storage()
+            .persistent()
+            .has(&DataKey::Ref(reference.clone()))
+        {
             return Err(Error::DuplicateRef);
         }
         Ok(())
     }
     fn mark(env: &Env, reference: BytesN<32>) {
-        env.storage().persistent().set(&DataKey::Ref(reference), &true);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Ref(reference), &true);
     }
 }
 
