@@ -30,6 +30,7 @@ import {
 import { db, id, now, usd } from "./store.js";
 
 const ROOT = process.env.BENZO_ROOT || process.cwd();
+const DEPLOYMENT_URL = new URL("../../../deployments/testnet.json", import.meta.url);
 // The business org's OWN shielded treasury identity + note-discovery state — kept
 // SEPARATE from the consumer wallet (different product, different identity system;
 // the two never share an account). App-specific env vars so a generic override
@@ -72,7 +73,12 @@ export function getClient(relayer = false): BenzoClient | null {
   clientTried = true;
   try {
     if (!process.env.SOROBAN_RPC_URL || !process.env.DEPLOYER_SECRET) return null;
-    const dep = JSON.parse(readFileSync(`${ROOT}/deployments/testnet.json`, "utf8"));
+    let dep: Record<string, any>;
+    try {
+      dep = JSON.parse(readFileSync(DEPLOYMENT_URL, "utf8"));
+    } catch {
+      dep = JSON.parse(readFileSync(`${ROOT}/deployments/testnet.json`, "utf8"));
+    }
     deployment = dep;
     const art = (c: string) => ({
       wasmPath: `${ROOT}/circuits/build/${c}/${c}_js/${c}.wasm`,

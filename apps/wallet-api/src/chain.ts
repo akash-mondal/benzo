@@ -13,6 +13,14 @@ import { readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
+  BASE_FEE,
+  Contract,
+  Keypair,
+  TransactionBuilder,
+  rpc,
+  type xdr,
+} from "@stellar/stellar-sdk";
+import {
   BenzoClient,
   MvkRegistryMirror,
   NodeProver,
@@ -23,6 +31,7 @@ import {
   fetchMvkRegistryLeaves,
   makeTeeProver,
   mvkRegistryLeaf,
+  scvalForWriteArg,
   usdcToStroops,
   type ProverPort,
 } from "@benzo/core";
@@ -32,6 +41,7 @@ import { db, nowSec, type ActivityRow } from "./store.js";
 export type ProverKind = "local" | "tee";
 
 const ROOT = process.env.BENZO_ROOT || process.cwd();
+const DEPLOYMENT_URL = new URL("../../../deployments/testnet.json", import.meta.url);
 // The consumer wallet's OWN shielded identity + note-discovery state — kept
 // SEPARATE from the business console (a wallet user is a different account; the
 // two products never share an identity). App-specific env vars so a generic
@@ -64,7 +74,13 @@ class FileKVStore {
 
 let dep: Record<string, string | number> | null = null;
 function deployment(): Record<string, string | number> {
-  if (!dep) dep = JSON.parse(readFileSync(`${ROOT}/deployments/testnet.json`, "utf8"));
+  if (!dep) {
+    try {
+      dep = JSON.parse(readFileSync(DEPLOYMENT_URL, "utf8"));
+    } catch {
+      dep = JSON.parse(readFileSync(`${ROOT}/deployments/testnet.json`, "utf8"));
+    }
+  }
   return dep!;
 }
 
@@ -1016,10 +1032,54 @@ export async function relaySubmit(contractId: string, fnArgs: string[]): Promise
   const now = nowSec();
   if (now - relayWindowStart >= 60) { relayWindowStart = now; relayWindowCount = 0; }
   if (++relayWindowCount > 30) throw new Error("relay: rate limited");
+  if (process.env.VERCEL === "1") return relaySubmitWithSdk(contractId, fnArgs);
   const c = getClient();
   if (!c) throw new Error("relay: not live");
   const res = await c.opts.cli.invoke({ contractId, source: RELAY_SOURCE, send: true, fnArgs });
   return { txHash: res.txHash };
+}
+
+async function relaySubmitWithSdk(contractId: string, fnArgs: string[]): Promise<{ txHash?: string }> {
+  const secret = process.env.RELAYER_SECRET;
+  const rpcUrl = process.env.SOROBAN_RPC_URL;
+  if (!secret) throw new Error("relay: RELAYER_SECRET missing");
+  if (!rpcUrl) throw new Error("relay: SOROBAN_RPC_URL missing");
+  const kp = Keypair.fromSecret(secret);
+  const server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
+  const { method, scArgs } = buildWriteCall(fnArgs);
+  const source = await server.getAccount(kp.publicKey());
+  const tx = new TransactionBuilder(source, {
+    fee: BASE_FEE,
+    networkPassphrase: process.env.NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015",
+  })
+    .addOperation(new Contract(contractId).call(method, ...scArgs))
+    .setTimeout(60)
+    .build();
+  const prepared = await server.prepareTransaction(tx);
+  prepared.sign(kp);
+  const sent = await server.sendTransaction(prepared);
+  if (sent.status === "ERROR") throw new Error(`relay submit failed: ${sent.errorResult?.toXDR("base64") ?? "unknown error"}`);
+  if (sent.status === "PENDING") {
+    for (let i = 0; i < 20; i += 1) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const txr = await server.getTransaction(sent.hash);
+      if (txr.status === "SUCCESS") return { txHash: sent.hash };
+      if (txr.status === "FAILED") throw new Error(`relay tx failed: ${sent.hash}`);
+      if (txr.status === "NOT_FOUND") continue;
+    }
+  }
+  return { txHash: sent.hash };
+}
+
+function buildWriteCall(fnArgs: string[]): { method: string; scArgs: xdr.ScVal[] } {
+  const method = fnArgs[0];
+  const scArgs: xdr.ScVal[] = [];
+  for (let i = 1; i < fnArgs.length; i += 1) {
+    const tok = fnArgs[i];
+    if (!tok.startsWith("--")) continue;
+    scArgs.push(scvalForWriteArg(tok.slice(2), fnArgs[++i]));
+  }
+  return { method, scArgs };
 }
 
 export function exportAccountForDevice(): { spendSk: string; viewSecret: string; mvkSecret: string } | null {
