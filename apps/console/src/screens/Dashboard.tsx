@@ -111,6 +111,15 @@ export function Dashboard() {
   const nav = useNavigate();
   const { dashboard, treasury, payments, masked, loading, error, refresh } = useConsole();
   const pending = payments.filter((p) => p.status === "needs_approval");
+  // Honest signal: some recent-activity rows are seeded sample data, not real on-chain
+  // settlements. A payment row is "sample" when its backing payment never settled on
+  // chain (mode:"demo" or onChain:false). We flag those so a green "sent" status is never
+  // mistaken for a confirmed on-chain payment.
+  const sampleActivityIds = new Set(
+    payments
+      .filter((p) => p.settlement?.mode === "demo" || p.settlement?.onChain === false)
+      .map((p) => p.id),
+  );
   const targetDollars = Number(treasury?.totalHidden.amount ?? dashboard?.totalPosition.amount ?? "0") / 1e7;
   const animatedTotal = useCountUp(targetDollars);
 
@@ -214,7 +223,10 @@ export function Dashboard() {
                           <td className="border-t border-border px-5 py-3 text-[#2c3744]">{a.title}</td>
                           <td className="border-t border-border px-5 py-3 capitalize text-muted">{a.kind}</td>
                           <td className="border-t border-border px-5 py-3">
-                            <StatusPill status={a.status} />
+                            <span className="inline-flex items-center gap-1.5">
+                              <StatusPill status={a.status} />
+                              {sampleActivityIds.has(a.id) ? <Pill tone="warning">Sample</Pill> : null}
+                            </span>
                           </td>
                           <td className="border-t border-border px-5 py-3 text-right font-display tnum">
                             {isPrivate ? <span className="mask">••••••</span> : <span className="inline-flex items-center gap-1.5 font-semibold text-fg">{a.amountLabel} <ShieldedBadge /></span>}

@@ -172,7 +172,9 @@ export function seed(): Db {
       id: "po_1", orgId, type: "shielded_transfer", status: "confirmed",
       amount: { amount: usd(1200), assetCode: "USDC" }, fromAccountId: "acc_op", toCounterpartyId: "cp_supplier",
       memo: "PO-4471 components", privacy: { amountHidden: true, counterpartyHidden: true, visibleTo: ["mem_owner", "mem_treas"] },
-      settlement: { txHash: "demo-seed-not-on-chain", nullifiers: ["n1"], commitments: ["c1"] }, createdByMemberId: "mem_treas", createdAt: now(), updatedAt: now(),
+      // Seeded sample activity — NOT a real on-chain settlement. mode:"demo" + onChain:false
+      // let the console flag this row as "Sample" instead of presenting it as a live payment.
+      settlement: { txHash: "demo-seed-not-on-chain", nullifiers: ["n1"], commitments: ["c1"], mode: "demo", onChain: false }, createdByMemberId: "mem_treas", createdAt: now(), updatedAt: now(),
     },
     {
       id: "po_2", orgId, type: "shielded_transfer", status: "needs_approval",

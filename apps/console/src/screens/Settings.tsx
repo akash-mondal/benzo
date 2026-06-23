@@ -162,7 +162,15 @@ export function SettingsScreen() {
                 integrations.map((it) => (
                   <div key={it.id} className="flex items-center gap-3 px-5 py-3 text-[13.5px]">
                     <div className="min-w-0 flex-1 truncate capitalize">{it.provider}</div>
-                    <StatusPill status={it.status} />
+                    {/* Honest signal: seeded connectors run against the provider sandbox — no real
+                        OAuth/data link. Show an amber "Sample" pill so a sandbox connection is never
+                        mistaken for a live, production integration. Genuinely disconnected/errored
+                        connectors keep their normal status. */}
+                    {it.sandbox && it.status === "connected" ? (
+                      <Pill tone="warning">Sample · sandbox</Pill>
+                    ) : (
+                      <StatusPill status={it.status} />
+                    )}
                   </div>
                 ))
               )}
