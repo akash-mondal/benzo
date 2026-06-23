@@ -16,6 +16,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = resolve(repoRoot, "circuits/build/artifacts-manifest.json");
 const publicDir = resolve(repoRoot, "apps/wallet/public/circuits");
 const base = process.env.BENZO_ARTIFACTS_BASE_URL ?? "https://github.com/akash-mondal/benzo/releases/download/artifacts";
+const artifactToken = process.env.BENZO_ARTIFACTS_TOKEN ?? process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
 const browserCircuits = ["joinsplit", "proof_of_balance"];
 
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
@@ -58,6 +59,69 @@ async function downloadVerified(url, dest, expected) {
   }
 }
 
+function parseGithubReleaseUrl(url) {
+  const m = /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/releases\/download\/([^/]+)\/([^/]+)$/.exec(url);
+  if (!m) return null;
+  return { owner: m[1], repo: m[2], tag: m[3], asset: decodeURIComponent(m[4]) };
+}
+
+async function downloadGithubAsset(spec, dest, expected) {
+  if (!artifactToken) throw new Error(`private GitHub artifact needs BENZO_ARTIFACTS_TOKEN: ${spec.asset}`);
+  const release = await fetch(`https://api.github.com/repos/${spec.owner}/${spec.repo}/releases/tags/${spec.tag}`, {
+    headers: {
+      accept: "application/vnd.github+json",
+      authorization: `Bearer ${artifactToken}`,
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+  if (!release.ok) throw new Error(`GitHub release lookup failed for ${spec.tag}: HTTP ${release.status}`);
+  const body = await release.json();
+  const asset = body.assets?.find((a) => a.name === spec.asset);
+  if (!asset?.url) throw new Error(`GitHub asset not found: ${spec.asset}`);
+  const res = await fetch(asset.url, {
+    headers: {
+      accept: "application/octet-stream",
+      authorization: `Bearer ${artifactToken}`,
+      "x-github-api-version": "2022-11-28",
+    },
+  });
+  if (!res.ok) throw new Error(`GitHub asset download failed for ${spec.asset}: HTTP ${res.status}`);
+  const tmp = `${dest}.tmp-${Date.now()}`;
+  await mkdir(dirname(dest), { recursive: true });
+  try {
+    await writeFile(tmp, Buffer.from(await res.arrayBuffer()));
+    const got = await sha256(tmp);
+    if (got !== expected) throw new Error(`hash mismatch for ${spec.asset}: got ${got}, want ${expected}`);
+    await rename(tmp, dest);
+  } finally {
+    await rm(tmp, { force: true }).catch(() => undefined);
+  }
+}
+
+async function downloadFromAny(urls, dest, expected) {
+  let lastError;
+  for (const url of urls) {
+    try {
+      await downloadVerified(url, dest, expected);
+      return;
+    } catch (e) {
+      lastError = e;
+      console.warn(`wallet artifact source skipped: ${(e).message}`);
+    }
+    const gh = parseGithubReleaseUrl(url);
+    if (gh) {
+      try {
+        await downloadGithubAsset(gh, dest, expected);
+        return;
+      } catch (e) {
+        lastError = e;
+        console.warn(`wallet artifact GitHub API source skipped: ${(e).message}`);
+      }
+    }
+  }
+  throw lastError ?? new Error(`no artifact source configured for ${dest}`);
+}
+
 async function stage(circuit, ext, expected) {
   const dest = resolve(publicDir, `${circuit}.${ext}`);
   if (await valid(dest, expected)) {
@@ -74,7 +138,16 @@ async function stage(circuit, ext, expected) {
     return;
   }
 
-  await downloadVerified(`${base}/${circuit}/${circuit}.${ext}`, dest, expected);
+  await downloadFromAny(
+    [
+      // GitHub Releases store assets flat under the tag.
+      `${base}/${circuit}.${ext}`,
+      // Mirrors/buckets may prefer per-circuit directories.
+      `${base}/${circuit}/${circuit}.${ext}`,
+    ],
+    dest,
+    expected,
+  );
   console.log(`wallet artifact downloaded + verified: ${circuit}.${ext}`);
 }
 
