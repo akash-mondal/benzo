@@ -2,13 +2,13 @@
  * Share proof of balance — pick a threshold, generate a zero-knowledge proof that
  * you hold at least that much (never the exact amount), and get the "Provable"
  * badge. The proof is a real Groth16 attestation that verifies on-chain when
- * live; the proving path (this device / secure enclave) is selectable.
+ * live; the proving path is decided by the device (this device / secure enclave).
  */
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ShieldCheck, Smartphone } from "lucide-react";
 import { api } from "../lib/api";
-import { proverPlan } from "../lib/proverPolicy";
+import { apiProverKind, proverPlan } from "../lib/proverPolicy";
 import { useWallet } from "../lib/store";
 import { verifyBalanceProofOnChain } from "../lib/chain";
 import { proveBalanceClientSide } from "../lib/benzoClient";
@@ -43,7 +43,7 @@ export function ShareProof() {
       // CAPABLE DESKTOPS ONLY: generate the proof on THIS DEVICE (WasmProver — the
       // witness/notes never leave the browser) and verify it on-chain ourselves,
       // no BFF in the loop. Phones + weak desktops skip this (plan.onDevice=false)
-      // and delegate to the enclave/server so a weak device never grinds.
+      // and delegate to the enclave so a weak device never grinds.
       if (plan.onDevice) {
         const cs = await proveBalanceClientSide(usdcToStroops(min).toString()).catch(() => null);
         if (cs) {
@@ -54,7 +54,7 @@ export function ShareProof() {
           return;
         }
       }
-      const r = await api.shareProof(min, plan.kind);
+      const r = await api.shareProof(min, apiProverKind(plan.kind, teeAvailable));
       setOnChain(r.onChain);
       setPhase("done");
       // Trustless step: this device re-verifies the BFF-made proof on-chain itself.

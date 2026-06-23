@@ -38,6 +38,7 @@ const TESTNET_DEPLOYMENT = {
   mvkRegistry: testnetDeployment.mvkRegistry,
   handleRegistry: testnetDeployment.handleRegistry,
   token: testnetDeployment.token,
+  tee: testnetDeployment.tee,
   treeLevels: testnetDeployment.treeLevels,
   aspLevels: testnetDeployment.aspLevels,
   smtLevels: testnetDeployment.smtLevels,
@@ -50,6 +51,12 @@ export const DEPLOYMENT: typeof TESTNET_DEPLOYMENT = env.VITE_BENZO_DEPLOYMENT
   : TESTNET_DEPLOYMENT;
 
 export const VERIFIER_ID = DEPLOYMENT.verifier;
+
+/** Public TEE prover coordinates. Not secret: the browser uses these to verify
+ * the Phala/TDX quote and seal witnesses to the attested enclave key. */
+export const TEE_CONFIG = DEPLOYMENT.tee?.endpoint && DEPLOYMENT.tee?.composeHash
+  ? { endpoint: DEPLOYMENT.tee.endpoint, measurement: DEPLOYMENT.tee.composeHash }
+  : null;
 
 /** Funded G-address used only as a read/simulation footprint source (never signs). */
 export const SIM_SOURCE = env.VITE_BENZO_SIM_SOURCE ?? "GBRMUZELYDNXSBYF5KOLLSV4XLQYNZJQNLXQ3HTFCWNRIBS3I6EUBCMP";

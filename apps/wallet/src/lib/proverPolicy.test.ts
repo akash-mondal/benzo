@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { preferDeviceProving, delegatedProverKind, proverPlan } from "./proverPolicy";
+import { preferDeviceProving, delegatedProverKind, apiProverKind, proverPlan } from "./proverPolicy";
 
 /** Stub navigator + matchMedia to simulate a given device, run fn, restore. */
 function asDevice(
@@ -69,9 +69,15 @@ describe("proverPolicy — where the proof runs", () => {
     });
   });
 
-  it("delegate prefers the attested enclave (TEE) when available, else the server", () => {
+  it("delegate uses the attested enclave (TEE) from session or deployment config", () => {
     expect(delegatedProverKind(true)).toBe("tee");
-    expect(delegatedProverKind(false)).toBe("local");
+    expect(delegatedProverKind(false)).toBe("tee");
+  });
+
+  it("API boundary converts browser-local plans to TEE", () => {
+    expect(apiProverKind("local", true)).toBe("tee");
+    expect(apiProverKind("local", false)).toBe("tee");
+    expect(apiProverKind("tee", false)).toBe("tee");
   });
 
   it("proverPlan: phone + TEE wired → delegate to TEE", () => {
@@ -82,11 +88,11 @@ describe("proverPolicy — where the proof runs", () => {
     });
   });
 
-  it("proverPlan: phone + no TEE → delegate to server (never grind on the phone)", () => {
+  it("proverPlan: phone + deployment TEE → delegate to TEE", () => {
     asDevice({ ua: "Mozilla/5.0 (iPhone)", coarse: true, touch: 5 }, () => {
       const plan = proverPlan(false);
       expect(plan.onDevice).toBe(false);
-      expect(plan.kind).toBe("local");
+      expect(plan.kind).toBe("tee");
     });
   });
 

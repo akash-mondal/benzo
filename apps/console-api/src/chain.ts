@@ -89,11 +89,16 @@ export function getClient(relayer = false): BenzoClient | null {
         token: dep.token, treeLevels: dep.treeLevels, aspLevels: dep.aspLevels, smtLevels: dep.smtLevels,
       },
       circuits: { shield: art("shield"), joinsplit: art("joinsplit"), unshield: art("unshield"), proofOfBalance: art("proof_of_balance"), proofOfSum: art("proof_of_sum"), proofOfSumOrg: art("proof_of_sum_org"), proofOfBalanceOrg: art("proof_of_balance_org"), spendingCap: art("spending_cap"), payoutInnocence: art("payout_innocence"), orgSpendAuth: art("org_spend_auth"), payrollComputation: art("payroll_computation"), kybCredential: art("kyb_credential"), crossNetting: art("cross_netting"), joinsplitOrg: art("joinsplit_org") },
-      // Business side proves on the TEE when BENZO_PROVER_MODE=tee (PhalaProver +
-      // dcap-qvl attestation), else local NodeProver. Same on-chain soundness;
-      // only WHERE the witness is handled differs. The org circuits are baked into
-      // the enclave image (services/prover-enclave).
-      prover: proverFromEnv(),
+      // Business side ALWAYS proves in the attested TEE. The console is a managed
+      // business workflow, so witnesses never fall back to a server-local
+      // NodeProver. The org circuits are baked into the enclave image.
+      prover: proverFromEnv({
+        ...process.env,
+        BENZO_PROVER_MODE: "tee",
+        BENZO_PROVER_ENDPOINT: process.env.BENZO_PROVER_ENDPOINT || dep.tee?.endpoint,
+        BENZO_PROVER_MEASUREMENT: process.env.BENZO_PROVER_MEASUREMENT || dep.tee?.composeHash,
+        BENZO_PROVER_LOCAL_CIRCUITS: process.env.BENZO_PROVER_LOCAL_CIRCUITS ?? "",
+      }),
       rpcUrl: process.env.SOROBAN_RPC_URL,
       txSource: "benzo-deployer",
       relayer: relayer ? { source: "benzo-relayer", address: process.env.RELAYER_PUBLIC ?? "" } : undefined,

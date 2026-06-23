@@ -16,7 +16,7 @@
 import {
   BenzoClient,
   StellarRpcClient,
-  WasmProver,
+  pickBrowserProver,
   MvkRegistryMirror,
   createAccount,
   fromHex,
@@ -24,7 +24,7 @@ import {
   mvkRegistryLeaf,
 } from "@benzo/core";
 import { verifyBalanceProofOnChain } from "./chain";
-import { RPC_URL, NETWORK_PASSPHRASE, SIM_SOURCE, DEPLOYMENT, RELAYER_ADDRESS } from "./network";
+import { RPC_URL, NETWORK_PASSPHRASE, SIM_SOURCE, DEPLOYMENT, RELAYER_ADDRESS, TEE_CONFIG } from "./network";
 
 const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
@@ -98,8 +98,9 @@ class IdbKVStore {
   }
 }
 
-// On-device proving artifacts for proof_of_balance (served from /public/circuits).
-// snarkjs fetches these URLs; the 25MB zkey is cached by the browser after first use.
+// Browser proving artifacts for local desktop proving (served from /public/circuits).
+// snarkjs fetches these URLs only when pickBrowserProver chooses WasmProver; TEE
+// routes use the circuit id and do not download zkeys.
 const a = (c: string) => ({ wasmPath: `/circuits/${c}.wasm`, zkeyPath: `/circuits/${c}.zkey`, circuit: c });
 // Only joinsplit (transfer) + proof_of_balance are served for on-device proving.
 // shield/unshield are NOT wired client-side yet — they go through the BFF. Earlier
@@ -158,13 +159,13 @@ async function getClient(): Promise<BenzoClient | null> {
     rpcUrl: RPC_URL,
     networkPassphrase: NETWORK_PASSPHRASE,
     addressFor, // "relayer" → relay operator addr; else the read/sim source
-    submitWrite, // writes are proven on-device, then handed to the gas relay
+    submitWrite, // writes are proven in-browser/TEE, then handed to the gas relay
   });
   const client = new BenzoClient({
     cli,
     deployment: DEPLOYMENT,
     circuits: CIRCUITS as never,
-    prover: new WasmProver(), // on-device Groth16 — the witness never leaves the browser
+    prover: pickBrowserProver({ mode: "auto", tee: TEE_CONFIG ?? missingTee() }),
     rpcUrl: RPC_URL,
     txSource: "sim",
     handleRegistry: DEPLOYMENT.handleRegistry,
@@ -197,23 +198,23 @@ async function wireMvkRegistry(client: BenzoClient): Promise<boolean> {
 }
 
 /**
- * FULLY CLIENT-SIDE private send: the browser resolves the @handle, proves the
- * shielded transfer on-device (WasmProver — notes/witness never leave the
- * device), and hands ONLY the proof + public inputs to the stateless gas relay
+ * Client-controlled private send: the browser resolves the @handle, proves the
+ * shielded transfer locally on capable desktops or in the attested TEE on weak
+ * devices, and hands ONLY the proof + public inputs to the stateless gas relay
  * for submission. Returns the tx hash, or null if the device can't do it
  * (account not provisioned / MVK not registered) so the caller falls back.
  */
 export async function sendClientSide(
   handle: string,
   amountStroops: string,
-): Promise<{ txHash?: string } | null> {
+): Promise<{ txHash?: string; prover: "local" | "tee" } | null> {
   const c = await getClient();
   if (!c) return null;
   await c.sync();
   if (!(await wireMvkRegistry(c))) return null;
   const sh = await c.sendToHandle({ handle: handle.replace(/^@/, ""), amount: BigInt(amountStroops), useRelayer: true });
   const r = await sh.settled();
-  return { txHash: r?.txHash };
+  return { txHash: r?.txHash, prover: c.opts.prover.name === "phala" ? "tee" : "local" };
 }
 
 /** True when the device can read shielded state itself (account provisioned). */
@@ -233,9 +234,9 @@ export async function readShieldedBalanceClientSide(): Promise<string | null> {
 }
 
 /**
- * FULLY CLIENT-SIDE "prove your balance": the browser GENERATES the Groth16
- * proof-of-balance on-device (WasmProver — the witness/notes never leave the
- * device) and then VERIFIES it on-chain itself. No BFF anywhere in the loop.
+ * Client-controlled "prove your balance": the browser GENERATES the Groth16
+ * proof-of-balance locally on capable desktops or in the attested TEE on weak
+ * devices, then VERIFIES it on-chain itself. No BFF prover in the loop.
  * Returns { holds, onChain } or null if the device account isn't provisioned.
  */
 export async function proveBalanceClientSide(
@@ -243,16 +244,20 @@ export async function proveBalanceClientSide(
 ): Promise<{ holds: boolean; onChain: boolean; provingMs?: number; verifyMs?: number } | null> {
   const c = await getClient();
   if (!c) return null;
-  // Time the two on-device phases so the "client-side proving" claim is measurable:
-  // (1) prove = sync + load the proving key (cached after first download) + WasmProver
-  // groth16 in the browser; (2) verify = the proof checked on-chain by the verifier.
+  // Time the two client-controlled phases so the proving claim is measurable:
+  // (1) prove = local WASM or attested TEE; (2) verify = the proof checked
+  // on-chain by the verifier.
   const t0 = performance.now();
-  const r = await c.proveBalance({ minAmount: BigInt(minStroops) }); // sync + WasmProver, on-device
+  const r = await c.proveBalance({ minAmount: BigInt(minStroops) });
   const t1 = performance.now();
   const onChain = await verifyBalanceProofOnChain(r.sorobanProof, r.sorobanPublics);
   const t2 = performance.now();
   const provingMs = Math.round(t1 - t0);
   const verifyMs = Math.round(t2 - t1);
-  console.info(`[benzo] client-side proof_of_balance: prove(on-device)=${provingMs}ms verify(on-chain)=${verifyMs}ms`);
+  console.info(`[benzo] client-side proof_of_balance: prove=${provingMs}ms verify(on-chain)=${verifyMs}ms`);
   return { holds: true, onChain, provingMs, verifyMs };
+}
+
+function missingTee(): never {
+  throw new Error("No attested TEE prover is configured for this wallet build.");
 }

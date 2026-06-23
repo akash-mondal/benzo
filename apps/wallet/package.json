@@ -6,7 +6,7 @@
   "description": "Benzo consumer wallet — private USDC, web2 feel (Cash App for money you control).",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node ../../scripts/stage-wallet-browser-artifacts.mjs && vite build",
     "preview": "vite preview --port 5175",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"

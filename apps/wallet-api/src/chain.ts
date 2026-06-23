@@ -85,6 +85,9 @@ function buildProver(kind: ProverKind): ProverPort {
     if (!cfg) throw new Error("no TEE configured in deployments/testnet.json");
     return makeTeeProver({ endpoint: cfg.endpoint, measurement: cfg.measurement });
   }
+  if (process.env.VERCEL === "1") {
+    throw new Error("serverless local proving is disabled; use browser local proving or the attested TEE");
+  }
   return new NodeProver();
 }
 
@@ -165,6 +168,7 @@ export function liveStatus(): { live: boolean; mode: "live" | "demo"; missing: s
 /** Which proving backends are reachable + the attested-TEE coordinates. */
 export function proverInfo(): { available: ProverKind[]; tee: { endpoint: string; measurement: string } | null } {
   const tee = teeConfig();
+  if (process.env.VERCEL === "1") return { available: tee ? ["tee"] : [], tee };
   return { available: tee ? ["local", "tee"] : ["local"], tee };
 }
 
