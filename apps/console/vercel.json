@@ -4,15 +4,6 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
-    {
-      "//": "Proxy the console BFF. Set BENZO_API_ORIGIN in Vercel env to the deployed console-api origin (e.g. https://benzo-console-api.fly.dev). The BFF holds the org's funded operator key + does on-chain submit; the browser sends proofs + public inputs, never the witness.",
-      "source": "/api/:path*",
-      "destination": "https://YOUR-CONSOLE-API-ORIGIN/api/:path*"
-    },
-    {
-      "//": "SPA client-side routing fallback — every non-asset path serves index.html so /payroll, /pay, /treasury, /approvals, /invites, /grants all resolve.",
-      "source": "/((?!api/|assets/).*)",
-      "destination": "/index.html"
-    }
+    { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ]
 }
