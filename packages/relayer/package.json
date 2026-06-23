@@ -5,14 +5,16 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": "./dist/index.js" },
+  "exports": {
+    ".": "./dist/index.js"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "serve": "node dist/server.js"
   },
   "dependencies": {
     "@benzo/core": "workspace:*",
-    "@stellar/stellar-sdk": "^13.0.0"
+    "@stellar/stellar-sdk": "^15.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

@@ -158,6 +158,24 @@ describe("scvalForWriteArg", () => {
     expect(scvalForWriteArg("commitment", "42").switch()).toBe(xdr.ScValType.scvU256());
   });
 
+  it("types ramp references and handle registry keys as fixed 32-byte values", () => {
+    const ref = scvalForWriteArg("reference", "1234");
+    expect(ref.switch()).toBe(xdr.ScValType.scvBytes());
+    expect(ref.bytes()).toHaveLength(32);
+    expect(ref.bytes()[30]).toBe(0x12);
+    expect(ref.bytes()[31]).toBe(0x34);
+
+    for (const name of ["spend_pub", "view_pub", "mvk_scalar"]) {
+      const sv = scvalForWriteArg(name, "ab".repeat(32));
+      expect(sv.switch()).toBe(xdr.ScValType.scvBytes());
+      expect(sv.bytes()).toHaveLength(32);
+    }
+  });
+
+  it("rejects oversized fixed bytes32 values loudly", () => {
+    expect(() => scvalForWriteArg("reference", "ab".repeat(33))).toThrow(/longer than 32 bytes/);
+  });
+
   it("routes --proof through the struct coercion", () => {
     const a = "11".repeat(64);
     const b = "22".repeat(128);

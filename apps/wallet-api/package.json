@@ -12,10 +12,10 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@benzo/types": "workspace:*",
     "@benzo/core": "workspace:*",
     "@benzo/links": "workspace:*",
-    "@stellar/stellar-sdk": "^13.0.0"
+    "@benzo/types": "workspace:*",
+    "@stellar/stellar-sdk": "^15.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

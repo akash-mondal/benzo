@@ -15,6 +15,14 @@
 import { StrKey, nativeToScVal, xdr } from "@stellar/stellar-sdk";
 import { fromHex } from "./crypto/bytes.js";
 
+function fixedBytes32(value: string): Uint8Array {
+  const clean = value.startsWith("0x") ? value.slice(2) : value;
+  if (!/^[0-9a-fA-F]+$/.test(clean)) throw new Error("expected hex for fixed bytes32");
+  if (clean.length > 64) throw new Error("fixed bytes32 value is longer than 32 bytes");
+  const padded = clean.padStart(64, "0");
+  return fromHex(padded);
+}
+
 /** Coerce a single CLI read arg (`name`, `value`) to its ScVal by name. */
 export function scvalForArg(name: string, value: string): xdr.ScVal {
   // VK identifier (e.g. "BALANCE"/"SHIELD") is an on-chain `Symbol`, NOT a
@@ -28,8 +36,12 @@ export function scvalForArg(name: string, value: string): xdr.ScVal {
     const arr = JSON.parse(value) as (string | number)[];
     return xdr.ScVal.scvVec(arr.map((x) => nativeToScVal(BigInt(x), { type: "u256" })));
   }
-  // ciphertexts + public keys: Bytes (hex-encoded)
-  if (/(^|_)ct\d?$/.test(name) || name === "spend_pub" || name === "view_pub") {
+  // fixed 32-byte public keys / references (hex-encoded)
+  if (["reference", "spend_pub", "view_pub", "mvk_scalar"].includes(name)) {
+    return nativeToScVal(fixedBytes32(value), { type: "bytes" });
+  }
+  // ciphertexts: Bytes (hex-encoded)
+  if (/(^|_)ct\d?$/.test(name)) {
     return nativeToScVal(fromHex(value), { type: "bytes" });
   }
   // addresses (G…/C…)
@@ -43,7 +55,7 @@ export function scvalForArg(name: string, value: string): xdr.ScVal {
   // unix timestamps: u64
   if (name === "expiry") return nativeToScVal(BigInt(value), { type: "u64" });
   // human strings
-  if (["handle", "reference", "memo"].includes(name)) {
+  if (["handle", "memo"].includes(name)) {
     return nativeToScVal(value, { type: "string" });
   }
   // default: field element (commitment / root / nullifier / tag / key / scalar) → U256

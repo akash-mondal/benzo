@@ -16,7 +16,7 @@
   "dependencies": {
     "@benzo/core": "workspace:*",
     "@benzo/kyc": "workspace:*",
-    "@stellar/stellar-sdk": "^13.0.0"
+    "@stellar/stellar-sdk": "^15.1.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
