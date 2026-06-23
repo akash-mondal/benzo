@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "pnpm install && pnpm -r --filter \"./packages/**\" build && pnpm --filter @benzo/console build",
+  "buildCommand": "pnpm install && pnpm -r build",
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
