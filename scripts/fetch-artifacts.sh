@@ -47,12 +47,16 @@ for C in $CIRCUITS; do
   echo "== $C =="
   zkeyHash=$(node -e "console.log(require('./$MANIFEST').circuits['$C'].zkeyHash||'')")
   wasmHash=$(node -e "console.log(require('./$MANIFEST').circuits['$C'].wasmHash||'')")
+  # The witness wasm MUST land at the snarkjs `${C}_js/` path that every consumer
+  # reads (circuits/build/$C/${C}_js/$C.wasm — see tests/e2e/flow.mjs and the SDK
+  # circuit map). Writing it flat made cold clones ENOENT before the first proof;
+  # it only worked locally because the author already had the _js dir populated.
   [ -n "$zkeyHash" ] && fetch_verify "$BASE/$C/$C.zkey" "circuits/build/$C/$C.zkey" "$zkeyHash"
-  [ -n "$wasmHash" ] && fetch_verify "$BASE/$C/$C.wasm" "circuits/build/$C/$C.wasm" "$wasmHash"
+  [ -n "$wasmHash" ] && fetch_verify "$BASE/$C/$C.wasm" "circuits/build/$C/${C}_js/$C.wasm" "$wasmHash"
   if is_browser "$C"; then
     mkdir -p apps/wallet/public/circuits
     cp "circuits/build/$C/$C.zkey" "apps/wallet/public/circuits/$C.zkey"
-    cp "circuits/build/$C/$C.wasm" "apps/wallet/public/circuits/$C.wasm"
+    cp "circuits/build/$C/${C}_js/$C.wasm" "apps/wallet/public/circuits/$C.wasm"
     echo "  staged browser artifacts -> apps/wallet/public/circuits/"
   fi
 done
