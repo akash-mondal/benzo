@@ -99,7 +99,7 @@ export class DstackAttestationVerifier implements AttestationVerifier {
 
   constructor(opts: DstackVerifierOptions = {}) {
     this.ok = opts.acceptableStatuses ?? DEFAULT_OK_STATUSES;
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    this.fetchImpl = opts.fetchImpl ?? (((input, init) => fetch(input, init)) as typeof fetch);
     this.verifyQuote = opts.verifyQuote ?? (async () => {
       throw new Error(
         "DstackAttestationVerifier: no QuoteVerifier — use makeNodeAttestationVerifier (Node) or makeWebAttestationVerifier (browser)",
