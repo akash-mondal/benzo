@@ -10,9 +10,11 @@ services:
       - "8080:8080" # HOST:CONTAINER -> https://<app-id>-8080.<node>.phala.network
     environment:
       # Real Google zkLogin (Phase 1) verification runs INSIDE the enclave.
-      # GOOGLE_CLIENT_ID is a PUBLIC OAuth web client id (not a secret). The client
+      # This is a PUBLIC OAuth web client id (it ships in the frontend bundle; only
+      # the client *secret* is sensitive, and we don't use it) — hardcoded so the
+      # value can't be lost to Phala env-interpolation at `cvms upgrade`. The client
       # attests this enclave (dcap-qvl) before trusting any /auth/google verdict.
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_ID=156696138-p7t6ahm4872mek5k2m2l2mp1duguggh2.apps.googleusercontent.com
     volumes:
       - /var/run/dstack.sock:/var/run/dstack.sock
     restart: unless-stopped
