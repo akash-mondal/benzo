@@ -1,0 +1,64 @@
+/**
+ * Real Google ID-token (JWT) verification — RS256 against Google's published JWKs
+ * using Node's built-in crypto (no extra dep). This is the SAME verifier as
+ * apps/console-api/src/google-oidc.ts, ported to ESM so it runs INSIDE the Phala
+ * dstack (Intel TDX) enclave.
+ *
+ * zkLogin Phase 1: confirm the token is a genuine, unexpired Google token for
+ * THIS app (aud = client id) and return the verified sub/iss/aud. The browser
+ * derives the Benzo account from those claims (accountFromOidc) — the chain never
+ * sees the Google identity. Running this inside the attested enclave makes it
+ * ATTESTED-SERVER integrity (a client verifies WHICH code checked the token via
+ * the TDX quote), NOT a zero-knowledge proof. Phase 2 (in-circuit JWT-RSA) is the
+ * trustless upgrade documented in docs/ZKLOGIN.md.
+ */
+import { createPublicKey, verify as cryptoVerify } from "node:crypto";
+
+const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+const GOOGLE_ISS = ["https://accounts.google.com", "accounts.google.com"];
+
+let jwksCache = null;
+async function googleJwks() {
+  if (jwksCache && Date.now() - jwksCache.at < 3_600_000) return jwksCache.keys;
+  const r = await fetch(GOOGLE_JWKS_URL);
+  if (!r.ok) throw new Error(`google JWKS fetch failed: ${r.status}`);
+  const body = await r.json();
+  jwksCache = { at: Date.now(), keys: body.keys };
+  return body.keys;
+}
+
+const b64urlJson = (seg) =>
+  JSON.parse(Buffer.from(seg.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+
+/**
+ * Verify a Google ID token (RS256) against Google's JWKs. Real signature + claim
+ * verification (alg, kid, iss, aud, exp, sub). Throws on any failure.
+ */
+export async function verifyGoogleIdToken(idToken, clientId) {
+  const parts = String(idToken || "").split(".");
+  if (parts.length !== 3) throw new Error("malformed id token");
+  const header = b64urlJson(parts[0]);
+  const payload = b64urlJson(parts[1]);
+  if (header.alg !== "RS256") throw new Error(`unexpected alg ${header.alg}`);
+
+  const keys = await googleJwks();
+  const jwk = keys.find((k) => k.kid === header.kid);
+  if (!jwk) throw new Error("no matching Google JWK for kid");
+  const pub = createPublicKey({ key: jwk, format: "jwk" });
+  const signingInput = Buffer.from(`${parts[0]}.${parts[1]}`);
+  const sig = Buffer.from(parts[2].replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  if (!cryptoVerify("RSA-SHA256", signingInput, pub, sig)) {
+    throw new Error("Google id token signature invalid");
+  }
+
+  if (!GOOGLE_ISS.includes(payload.iss)) throw new Error(`bad iss ${payload.iss}`);
+  if (clientId && payload.aud !== clientId) throw new Error("aud does not match GOOGLE_CLIENT_ID");
+  if (!payload.exp || payload.exp * 1000 < Date.now()) throw new Error("id token expired");
+  if (!payload.sub) throw new Error("id token has no sub");
+  return payload;
+}
+
+/** Is real Google login configured in this enclave? */
+export function googleConfigured() {
+  return !!process.env.GOOGLE_CLIENT_ID;
+}
