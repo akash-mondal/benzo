@@ -12,7 +12,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Landmark, Radio, ShieldCheck, Smartphone } from "lucide-react";
 import { api, type SettleResult } from "../lib/api";
-import { proverPlan } from "../lib/proverPolicy";
+import { apiProverKind, proverPlan } from "../lib/proverPolicy";
 import { useWallet } from "../lib/store";
 import { fmtUsd } from "../lib/format";
 import { Screen } from "../ui/motion";
@@ -60,9 +60,8 @@ export function Cash() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  // The DEVICE decides the proving path: capable desktops prove on-device; phones
-  // + weak desktops delegate to the enclave (TEE). Cash-out always proves through
-  // the BFF, so this just picks the delegate kind (TEE when available, else server).
+  // The DEVICE decides the proving path: capable desktops prove on-device when a
+  // browser path exists; API-mediated ramp operations always use the TEE.
   const teeAvailable = !!session?.prover.available.includes("tee");
   const plan = proverPlan(teeAvailable);
 
@@ -76,7 +75,8 @@ export function Cash() {
     setPhase("busy");
     setErr(null);
     try {
-      const r = tab === "in" ? await api.addMoney(amount) : await api.cashOut(amount, plan.kind);
+      const apiProver = apiProverKind(plan.kind, teeAvailable);
+      const r = tab === "in" ? await api.addMoney(amount, apiProver) : await api.cashOut(amount, apiProver);
       setResult(r);
       setOnChain(r.onChain);
       setPhase("done");
@@ -252,4 +252,3 @@ function QRow({ k, v }: { k: string; v: React.ReactNode }) {
     </div>
   );
 }
-

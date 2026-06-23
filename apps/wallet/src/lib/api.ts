@@ -96,20 +96,20 @@ export const api = {
   balance: () => http<Balance>("/balance"),
   rampReserve: () => http<{ reserve: string | null; live: boolean }>("/ramp/reserve"),
   depositInfo: () => http<{ address: string | null; liquid: string; asset: string; issuer: string; live: boolean }>("/deposit-address"),
-  importDeposit: (amount?: string, prover: ProverKind = "local") =>
+  importDeposit: (amount?: string, prover: ProverKind = "tee") =>
     http<SettleResult>("/import", { method: "POST", body: JSON.stringify({ amount, prover }) }),
   /** The "Public" balance: plain liquid USDC on the account (send to/receive from any wallet). */
   publicBalance: () =>
     http<{ stroops: string; address: string; asset: string; issuer: string; live: boolean }>("/public-balance"),
   /** "Make public": unshield from the private pool back to your own public balance. */
-  makePublic: (amount: string, prover: ProverKind = "local") =>
+  makePublic: (amount: string, prover: ProverKind = "tee") =>
     http<SettleResult>("/make-public", { method: "POST", body: JSON.stringify({ amount, prover }) }),
   /** "Send to a wallet": pay any external Stellar G-address from the Public balance. */
   sendPublic: (to: string, amount: string) =>
     http<{ txHash?: string; onChain: boolean }>("/send-public", { method: "POST", body: JSON.stringify({ to, amount }) }),
   history: () => http<ActivityRow[]>("/history"),
   contacts: () => http<Contact[]>("/contacts"),
-  send: (to: string, amount: string, memo?: string, prover: ProverKind = "local") =>
+  send: (to: string, amount: string, memo?: string, prover: ProverKind = "tee") =>
     http<SettleResult>("/send", { method: "POST", body: JSON.stringify({ to, amount, memo, prover }) }),
   /** Streaming send: drives the 3-phase ceremony via SSE-over-fetch (POST). */
   sendStream: async (
@@ -169,11 +169,11 @@ export const api = {
     http<{ amount: string; txHash?: string; onChain: boolean }>("/invite/refund", { method: "POST", body: JSON.stringify({ localId }) }),
   claim: (secret: string, localId?: string) =>
     http<{ amount: string; txHash?: string; onChain: boolean }>("/claim", { method: "POST", body: JSON.stringify({ secret, localId }) }),
-  cashOut: (amount: string, prover: ProverKind = "local") =>
+  cashOut: (amount: string, prover: ProverKind = "tee") =>
     http<SettleResult>("/cash-out", { method: "POST", body: JSON.stringify({ amount, prover }) }),
-  addMoney: (amount: string) =>
-    http<SettleResult>("/add-money", { method: "POST", body: JSON.stringify({ amount }) }),
-  shareProof: (min: string, prover: ProverKind = "local") =>
+  addMoney: (amount: string, prover: ProverKind = "tee") =>
+    http<SettleResult>("/add-money", { method: "POST", body: JSON.stringify({ amount, prover }) }),
+  shareProof: (min: string, prover: ProverKind = "tee") =>
     http<{ holds: boolean; proof: string; publics: string[]; onChain: boolean; prover: ProverKind }>("/share-proof", {
       method: "POST",
       body: JSON.stringify({ min, prover }),

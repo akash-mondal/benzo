@@ -6,15 +6,16 @@
  * capable laptop but punishing on a phone or a weak machine. So:
  *
  *   - phones / tablets / touch-first devices  → NEVER prove on-device. Delegate
- *     to the attested enclave (TEE); if no TEE is wired, delegate to the server
- *     prover. The witness is offloaded either way — the weak device never grinds.
+ *     to the attested enclave (TEE). If no TEE is wired, fail closed instead of
+ *     falling back to a server-local prover.
  *   - low-power desktops (few CPU cores / little RAM) → same: delegate.
  *   - capable desktops only → prove on-device (witness never leaves the browser).
  *
- * `delegatedProverKind` then picks the delegate: the attested TEE when it is
- * available, otherwise the server prover.
+ * `delegatedProverKind` then picks the delegate: the attested TEE. No server
+ * local-prover fallback is allowed for weak devices.
  */
 import type { ProverKind } from "./api";
+import { TEE_CONFIG } from "./network";
 
 /** Coarse pointer + touch points ⇒ a phone/tablet (no mouse). */
 function isTouchFirst(): boolean {
@@ -43,9 +44,20 @@ export function preferDeviceProving(): boolean {
   return isPowerfulDesktop(); // desktop → only if it has the cores/RAM
 }
 
-/** Which delegate to use when we're NOT proving on-device: TEE if available, else the server. */
+/** Which delegate to use when we're NOT proving on-device: always the TEE. */
 export function delegatedProverKind(teeAvailable: boolean): ProverKind {
-  return teeAvailable ? "tee" : "local";
+  if (teeAvailable || TEE_CONFIG) return "tee";
+  throw new Error("No attested TEE prover is configured for this build.");
+}
+
+/**
+ * Any proof that crosses the wallet API boundary must be delegated to the TEE.
+ * "local" means browser-local only; Vercel/serverless must never become the
+ * machine grinding user witnesses.
+ */
+export function apiProverKind(kind: ProverKind, teeAvailable = false): ProverKind {
+  if (kind === "tee") return "tee";
+  return delegatedProverKind(teeAvailable);
 }
 
 /** One-liner for UI copy / telemetry: how this device will prove. */
@@ -55,8 +67,6 @@ export function proverPlan(teeAvailable: boolean): { onDevice: boolean; kind: Pr
   return {
     onDevice: false,
     kind,
-    reason: kind === "tee"
-      ? "Low-power device — delegating to the attested secure enclave (TEE)"
-      : "Low-power device — delegating to the prover (enclave not wired here)",
+    reason: "Low-power device — delegating to the attested secure enclave (TEE)",
   };
 }

@@ -36,6 +36,11 @@
   "orgAccount": "CCU2VHKMWCWQHF6IY5V6E6HYNMVLCXS64BFRJSBVVKCVF6KRTPNNVTMY",
   "kybIssuer": "GBRMUZELYDNXSBYF5KOLLSV4XLQYNZJQNLXQ3HTFCWNRIBS3I6EUBCMP",
   "identityNullifierSet": "CDMMKDCFTCIGY7EPX3JBFVTVCBUZ5OOV2TKGYYC5DGG7SRDJ3TEDPLFR",
+  "tee": {
+    "endpoint": "https://f660b9588fd8ceae268440f5a28c3bd7e9604c50-8080.dstack-pha-prod5.phala.network",
+    "composeHash": "506a082576535dd4848b884a00cd77b58fe66733a08ecae94591f7a4e5e28934",
+    "note": "Live Phala dstack / Intel TDX prover; browser and console clients pin this compose-hash before any witness is sealed to the enclave."
+  },
   "treeLevels": 32,
   "aspLevels": 16,
   "mvkLevels": 16,

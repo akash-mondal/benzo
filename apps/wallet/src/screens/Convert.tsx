@@ -14,7 +14,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Check, Eye, Globe, Lock, ShieldCheck, Smartphone } from "lucide-react";
 import { api, type SettleResult } from "../lib/api";
-import { proverPlan } from "../lib/proverPolicy";
+import { apiProverKind, proverPlan } from "../lib/proverPolicy";
 import { useWallet } from "../lib/store";
 import { fmtUsd } from "../lib/format";
 import { Screen } from "../ui/motion";
@@ -38,8 +38,8 @@ export function Convert() {
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<SettleResult | null>(null);
 
-  // The DEVICE decides the proving path: capable desktops prove on-device; phones
-  // + weak desktops delegate to the attested enclave (TEE).
+  // The DEVICE decides the proving path. These shield/unshield operations still
+  // cross the API boundary, so they delegate to the attested enclave (TEE).
   const teeAvailable = !!session?.prover.available.includes("tee");
   const plan = proverPlan(teeAvailable);
 
@@ -80,10 +80,11 @@ export function Convert() {
     setPhase("busy");
     setErr(null);
     try {
+      const apiProver = apiProverKind(plan.kind, teeAvailable);
       const r =
         mode === "private"
-          ? await api.importDeposit(amount, plan.kind) // shield Public → Private (BFF expects dollars, like makePublic)
-          : await api.makePublic(amount, plan.kind); // unshield Private → your Public
+          ? await api.importDeposit(amount, apiProver) // shield Public → Private (BFF expects dollars, like makePublic)
+          : await api.makePublic(amount, apiProver); // unshield Private → your Public
       setResult(r);
       setPhase("done");
       void refresh();

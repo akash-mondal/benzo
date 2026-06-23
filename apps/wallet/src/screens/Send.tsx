@@ -91,7 +91,7 @@ export function Send() {
     amount: receipt?.amount ?? toStroopsSafe(amount),
     recipient: display,
     memo: memo || undefined,
-    prover: plan.kind,
+    prover: receipt?.prover ?? plan.kind,
     onChain: receipt?.onChain ?? false, // honesty-bearing flag: fail honest, not optimistic
     txHash: receipt?.txHash,
     provingMs: receipt?.provingMs,
@@ -441,4 +441,3 @@ function ConfirmStep({
     </div>
   );
 }
-
