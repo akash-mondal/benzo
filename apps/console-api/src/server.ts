@@ -897,6 +897,8 @@ route("POST", "/api/integrations", async (req, res) => {
 // --------------------------------------------------------------------- server
 export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+  const rpcPath = url.pathname === "/api/rpc" ? url.searchParams.get("path") : null;
+  const routePath = rpcPath?.startsWith("/") && !rpcPath.startsWith("//") ? `/api${rpcPath}` : url.pathname;
   if (req.method === "OPTIONS") {
     cors(res);
     res.writeHead(204);
@@ -904,7 +906,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
   try {
-    const m = match(req.method ?? "GET", url.pathname);
+    const m = match(req.method ?? "GET", routePath);
     if (!m) return json(res, 404, { error: "not found" });
     await m.handler(req, res, m.params);
   } catch (e) {

@@ -7,7 +7,7 @@ import { useState } from "react";
 import { CheckCheck, Download, ShieldCheck, Users } from "lucide-react";
 import { motion } from "framer-motion";
 import type { PayrollBatch } from "@benzo/types";
-import { api, type OnChainRef } from "../lib/api";
+import { api, apiHref, type OnChainRef } from "../lib/api";
 import { useConsole, useCounterpartyName } from "../lib/store";
 import { explorerTxUrl, fmtUsd, friendlyError } from "../lib/format";
 import { Page, Proving, Stagger } from "../ui/motion";
@@ -277,10 +277,10 @@ export function Payroll() {
                     <div className="mb-1.5 flex items-center justify-between">
                       <span className="text-[12px] font-semibold uppercase tracking-[0.05em] text-muted">Run register</span>
                       <div className="flex items-center gap-4">
-                        <a href={`/api/payrolls/${b.id}/payslips`} download={`benzo-payslips-${b.period}.json`} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline" data-testid="download-payslips">
+                        <a href={apiHref(`/payrolls/${b.id}/payslips`)} download={`benzo-payslips-${b.period}.json`} className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline" data-testid="download-payslips">
                           <Download size={13} /> Payslips
                         </a>
-                        <a href={`/api/payrolls/${b.id}/export`} download className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline" data-testid="export-csv">
+                        <a href={apiHref(`/payrolls/${b.id}/export`)} download className="inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline" data-testid="export-csv">
                           <Download size={13} /> Export CSV
                         </a>
                       </div>

@@ -35,8 +35,12 @@ export interface ApprovalProgressView {
   steps: Array<{ stepIndex: number; role: string; need: number; have: number; satisfied: boolean; kind: "approve" | "release" }>;
 }
 
+export function apiHref(path: string): string {
+  return `/api/rpc?path=${encodeURIComponent(path)}`;
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(apiHref(path), {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
   });
