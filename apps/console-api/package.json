@@ -14,7 +14,8 @@
     "@benzo/types": "workspace:*",
     "@benzo/connectors": "workspace:*",
     "@benzo/core": "workspace:*",
-    "@benzo/links": "workspace:*"
+    "@benzo/links": "workspace:*",
+    "@stellar/stellar-sdk": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

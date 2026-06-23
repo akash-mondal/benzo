@@ -22,17 +22,21 @@ import {
 } from "@stellar/stellar-sdk";
 import {
   BenzoClient,
+  LocalKeypairSigner,
   MvkRegistryMirror,
   NodeProver,
   StellarCli,
+  StellarRpcClient,
   accountFromClaimSecret,
   configFromEnv,
   createOrLoadAccountFile,
   fetchMvkRegistryLeaves,
   makeTeeProver,
+  makeClientSubmitWrite,
   mvkRegistryLeaf,
   scvalForWriteArg,
   usdcToStroops,
+  type ChainClient,
   type ProverPort,
 } from "@benzo/core";
 import { encodeBenzoLink } from "@benzo/links";
@@ -111,6 +115,35 @@ let client: BenzoClient | null = null;
 let clientKind: ProverKind | null = null;
 let triedOnce = false;
 
+function chainClientForRuntime(): ChainClient {
+  const cfg = configFromEnv();
+  if (process.env.VERCEL !== "1") return new StellarCli(cfg);
+  const deployerSecret = process.env.DEPLOYER_SECRET;
+  if (!deployerSecret) throw new Error("DEPLOYER_SECRET is required for Vercel RPC signing");
+  const deployerAddress = Keypair.fromSecret(deployerSecret).publicKey();
+  const relayerSecret = process.env.RELAYER_SECRET;
+  const relayerAddress = relayerSecret ? Keypair.fromSecret(relayerSecret).publicKey() : (process.env.RELAYER_PUBLIC || deployerAddress);
+  const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
+  const signerFor = (source: string) =>
+    source === RELAY_SOURCE && relayerSecret
+      ? LocalKeypairSigner.fromSecret(relayerSecret)
+      : LocalKeypairSigner.fromSecret(deployerSecret);
+  const addressFor = (source: string) => source === RELAY_SOURCE ? relayerAddress : deployerAddress;
+  const submitWrite = async (opts: { contractId: string; source: string; fnArgs: string[] }) =>
+    makeClientSubmitWrite({
+      server,
+      signer: signerFor(opts.source),
+      networkPassphrase: cfg.networkPassphrase,
+      addressFor,
+    })(opts);
+  return new StellarRpcClient({
+    rpcUrl: cfg.rpcUrl,
+    networkPassphrase: cfg.networkPassphrase,
+    addressFor,
+    submitWrite,
+  });
+}
+
 /**
  * Build (and cache) a live BenzoClient with the requested proving backend. The
  * client is rebuilt when the prover kind changes; tests drive the two paths
@@ -138,7 +171,7 @@ export function getClient(prover: ProverKind = process.env.VERCEL === "1" ? "tee
       circuit: c,
     });
     const c = new BenzoClient({
-      cli: new StellarCli(configFromEnv()),
+      cli: chainClientForRuntime(),
       deployment: {
         pool: d.pool as string, verifier: d.verifier as string, merkle: d.merkle as string,
         nullifierSet: d.nullifierSet as string, aspMembership: d.aspMembership as string,

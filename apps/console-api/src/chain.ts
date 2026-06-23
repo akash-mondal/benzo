@@ -17,16 +17,21 @@ import { createHash } from "node:crypto";
 import type { Money, PaymentOrder, TreasuryView } from "@benzo/types";
 import {
   BenzoClient,
+  LocalKeypairSigner,
   MvkRegistryMirror,
   StellarCli,
+  StellarRpcClient,
   configFromEnv,
   createOrLoadAccountFile,
   deriveTvk,
   fetchMvkRegistryLeaves,
   mvkRegistryLeaf,
+  makeClientSubmitWrite,
   proverFromEnv,
   toHex,
+  type ChainClient,
 } from "@benzo/core";
+import { Keypair, rpc } from "@stellar/stellar-sdk";
 import { db, id, now, usd } from "./store.js";
 
 const ROOT = process.env.BENZO_ROOT || process.cwd();
@@ -67,6 +72,35 @@ class FileKVStore {
 let client: BenzoClient | null = null;
 let clientTried = false;
 
+function chainClientForRuntime(): ChainClient {
+  const cfg = configFromEnv();
+  if (process.env.VERCEL !== "1") return new StellarCli(cfg);
+  const deployerSecret = process.env.DEPLOYER_SECRET;
+  if (!deployerSecret) throw new Error("DEPLOYER_SECRET is required for Vercel RPC signing");
+  const deployerAddress = Keypair.fromSecret(deployerSecret).publicKey();
+  const relayerSecret = process.env.RELAYER_SECRET;
+  const relayerAddress = relayerSecret ? Keypair.fromSecret(relayerSecret).publicKey() : (process.env.RELAYER_PUBLIC || deployerAddress);
+  const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
+  const signerFor = (source: string) =>
+    source === "benzo-relayer" && relayerSecret
+      ? LocalKeypairSigner.fromSecret(relayerSecret)
+      : LocalKeypairSigner.fromSecret(deployerSecret);
+  const addressFor = (source: string) => source === "benzo-relayer" ? relayerAddress : deployerAddress;
+  const submitWrite = async (opts: { contractId: string; source: string; fnArgs: string[] }) =>
+    makeClientSubmitWrite({
+      server,
+      signer: signerFor(opts.source),
+      networkPassphrase: cfg.networkPassphrase,
+      addressFor,
+    })(opts);
+  return new StellarRpcClient({
+    rpcUrl: cfg.rpcUrl,
+    networkPassphrase: cfg.networkPassphrase,
+    addressFor,
+    submitWrite,
+  });
+}
+
 /** Build (once) a live BenzoClient bound to the ~/.benzo wallet, or null if env is absent. */
 export function getClient(relayer = false): BenzoClient | null {
   if (clientTried) return client;
@@ -87,7 +121,7 @@ export function getClient(relayer = false): BenzoClient | null {
       circuit: c,
     });
     const c = new BenzoClient({
-      cli: new StellarCli(configFromEnv()),
+      cli: chainClientForRuntime(),
       deployment: {
         pool: dep.pool, verifier: dep.verifier, merkle: dep.merkle,
         nullifierSet: dep.nullifierSet, aspMembership: dep.aspMembership,
