@@ -1075,20 +1075,36 @@ export class BenzoClient {
   }
 
   /**
-   * Verify an already-generated Groth16 proof ON-CHAIN against a VK registered
-   * on the verifier contract (e.g. "BALANCE", "SUM", "FUNDS"). Returns true iff
-   * the on-chain pairing check passes. The verifier fails CLOSED — an invalid
-   * proof traps rather than returning false — so any throw is treated as false.
+   * Verify an already-generated Groth16 proof ON-CHAIN, with a DIAGNOSABLE result.
    *
-   * This is what turns "prove your balance" from a locally-generated proof into
-   * a real on-chain attestation: the chain (not the BFF) is the source of truth
-   * for whether the statement holds.
+   * The old version collapsed three very different outcomes into a single bare
+   * `false`: (1) the VK isn't registered on this cluster (`vk-unregistered`),
+   * (2) the proof is genuinely invalid (`invalid-proof` — the verifier traps
+   * `InvalidProof` and fails closed), and (3) a transport/RPC failure
+   * (`rpc-error`). Conflating them made a real, valid proof against an
+   * unregistered VK read as "verified then false" — i.e. ZK theater. We now
+   * pre-check `has_vk` and classify the trap so the caller (and the logs) can
+   * tell a missing key from a bad proof from a flaky RPC.
    */
-  async verifyProofOnChain(
+  async verifyProofOnChainDetailed(
     vkId: string,
     sorobanProof: ProveResult["sorobanProof"],
     sorobanPublics: string[],
-  ): Promise<boolean> {
+  ): Promise<{ ok: boolean; reason: "verified" | "vk-unregistered" | "invalid-proof" | "rpc-error"; detail?: string }> {
+    // Pre-check the VK exists, so an unregistered key can never masquerade as a
+    // verified-then-false result.
+    try {
+      const present = await this.opts.cli.view(this.opts.deployment.verifier, this.opts.txSource, [
+        "has_vk",
+        "--vk_id",
+        vkId,
+      ]);
+      if (present !== true) {
+        return { ok: false, reason: "vk-unregistered", detail: `VK '${vkId}' is not registered on verifier ${this.opts.deployment.verifier}` };
+      }
+    } catch (e) {
+      return { ok: false, reason: "rpc-error", detail: `has_vk('${vkId}') failed: ${String(e)}` };
+    }
     try {
       const r = await this.opts.cli.view(this.opts.deployment.verifier, this.opts.txSource, [
         "verify_proof",
@@ -1099,10 +1115,33 @@ export class BenzoClient {
         "--public_inputs",
         JSON.stringify(sorobanPublics),
       ]);
-      return r === true;
-    } catch {
-      return false;
+      if (r === true) return { ok: true, reason: "verified" };
+      return { ok: false, reason: "invalid-proof", detail: `verify_proof returned ${JSON.stringify(r)}` };
+    } catch (e) {
+      const msg = String(e);
+      // The verifier traps Error::InvalidProof (#4) on a genuinely-bad proof;
+      // anything else (timeout, transport, host error) is an RPC-class failure.
+      const reason = /InvalidProof|Contract,\s*#4|#4\b/.test(msg) ? "invalid-proof" : "rpc-error";
+      if (reason === "rpc-error") console.warn(`verifyProofOnChain('${vkId}'): RPC error: ${msg}`);
+      return { ok: false, reason, detail: msg };
     }
+  }
+
+  /**
+   * Boolean convenience over {@link verifyProofOnChainDetailed}: true iff the
+   * on-chain pairing check passes. Unlike the old bare-catch version, a `false`
+   * here is logged with its classified reason rather than swallowed silently.
+   */
+  async verifyProofOnChain(
+    vkId: string,
+    sorobanProof: ProveResult["sorobanProof"],
+    sorobanPublics: string[],
+  ): Promise<boolean> {
+    const r = await this.verifyProofOnChainDetailed(vkId, sorobanProof, sorobanPublics);
+    if (!r.ok) {
+      console.warn(`verifyProofOnChain('${vkId}') -> false [${r.reason}]${r.detail ? ": " + r.detail : ""}`);
+    }
+    return r.ok;
   }
 
   /**
