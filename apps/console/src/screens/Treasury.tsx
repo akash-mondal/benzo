@@ -317,7 +317,7 @@ export function Treasury() {
               <ShieldCheck size={16} className="text-primary" /> Prove reserves
             </div>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-              Prove to a lender or your board that the treasury clears a covenant floor, verified on-chain. The real figure stays private.
+              Prove to a lender or your board that the treasury clears a covenant floor — verifiable on-chain. The real figure stays private.
             </p>
             <div className="mt-4">
               <Input label="Prove we hold at least (USDC)" inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value.replace(/[^0-9.]/g, ""))} data-testid="prove-min" />
@@ -345,7 +345,7 @@ export function Treasury() {
               <ShieldCheck size={16} className="text-primary" /> Disclose exact total
             </div>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-              For an auditor who needs the precise figure: a zero-knowledge proof that your shielded notes sum to an exact total, verified on-chain. Individual amounts stay hidden.
+              For an auditor who needs the precise figure: a zero-knowledge proof that your shielded notes sum to an exact total, verifiable on-chain. Individual amounts stay hidden.
             </p>
             {busyTotal ? (
               <Proving className="mt-4" steps={["Summing notes in zero-knowledge", "Verifying the sum proof on-chain"]} />
@@ -370,7 +370,7 @@ export function Treasury() {
               <ShieldCheck size={16} className="text-primary" /> Prove solvency
             </div>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-              One click proves your treasury covers everything you owe — pending payroll plus open invoices — verified on-chain. Neither your balance nor what you owe is revealed.
+              One click proves your treasury covers everything you owe — pending payroll plus open invoices — verifiable on-chain. Neither your balance nor what you owe is revealed.
             </p>
             {busySolv ? (
               <Proving className="mt-4" steps={["Summing liabilities privately", "Proving assets ≥ liabilities", "Verifying on-chain"]} />

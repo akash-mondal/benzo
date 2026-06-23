@@ -201,9 +201,12 @@ export function Payroll() {
                     <div className="text-right">
                       <div className="font-display tnum text-xl font-semibold text-fg" data-testid="payroll-total">{masked ? "••••" : fmtUsd(b.total.amount)}</div>
                       <div className="mt-1 flex flex-wrap items-center justify-end gap-x-2 gap-y-1.5">
+                        {/* Proof pills go green (shielded) ONLY when the proof actually verified
+                            on-chain. A locally generated (demo) proof stays amber so it never reads
+                            as a confirmed on-chain verification. */}
                         {b.fundedProof ? (
                           <span className="inline-flex items-center gap-1" data-testid="funded-badge">
-                            <Pill tone={b.fundedProof.funded ? "shielded" : "danger"}>
+                            <Pill tone={!b.fundedProof.funded ? "danger" : b.fundedProof.onChain ? "shielded" : "warning"}>
                               <ShieldCheck size={11} /> {b.fundedProof.funded ? (b.fundedProof.onChain ? "Funded on-chain" : "Funded (demo)") : "Over budget"}
                             </Pill>
                             {proofRefs?.funded ? <OnChainDetail refData={proofRefs.funded} label="" /> : null}
@@ -211,7 +214,7 @@ export function Payroll() {
                         ) : null}
                         {b.approvalProof ? (
                           <span className="inline-flex items-center gap-1" data-testid="approval-badge">
-                            <Pill tone={b.approvalProof.approved ? "shielded" : "danger"}>
+                            <Pill tone={!b.approvalProof.approved ? "danger" : b.approvalProof.onChain ? "shielded" : "warning"}>
                               <ShieldCheck size={11} /> {b.approvalProof.approved ? `Approved ${b.approvalProof.approvers}-of-${b.approvalProof.memberCount} · anonymous${b.approvalProof.onChain ? "" : " (demo)"}` : "Not approved"}
                             </Pill>
                             {proofRefs?.approval ? <OnChainDetail refData={proofRefs.approval} label="" /> : null}
@@ -219,7 +222,7 @@ export function Payroll() {
                         ) : null}
                         {b.computationProof ? (
                           <span className="inline-flex items-center gap-1" data-testid="computation-badge">
-                            <Pill tone={b.computationProof.ok ? "shielded" : "danger"}>
+                            <Pill tone={!b.computationProof.ok ? "danger" : b.computationProof.onChain ? "shielded" : "warning"}>
                               <ShieldCheck size={11} /> {b.computationProof.ok ? (b.computationProof.onChain ? "Computed from rate card" : "Computed from rate card (demo)") : "Computation unverified"}
                             </Pill>
                             {proofRefs?.computation ? <OnChainDetail refData={proofRefs.computation} label="" /> : null}
@@ -287,19 +290,27 @@ export function Payroll() {
                         <span className="w-40 truncate">{name(l.counterpartyId)}</span>
                         <span className="flex-1 text-[12px] text-danger">{l.status === "failed" && l.error ? l.error : ""}</span>
                         {l.capProof ? (
-                          <Pill tone={l.capProof.withinCap ? "shielded" : "danger"}>
-                            <ShieldCheck size={10} /> {l.capProof.withinCap ? "within cap" : "over cap"}
+                          // Green/shielded only for a real on-chain check; an off-chain (demo) proof
+                          // is shown amber so it can't read as a verified on-chain result.
+                          <Pill tone={!l.capProof.withinCap ? "danger" : l.capProof.onChain ? "shielded" : "warning"}>
+                            <ShieldCheck size={10} /> {l.capProof.withinCap ? (l.capProof.onChain ? "within cap" : "within cap (demo)") : "over cap"}
                           </Pill>
                         ) : null}
                         {l.screenProof ? (
-                          <Pill tone={l.screenProof.innocent ? "shielded" : "danger"}>
-                            <ShieldCheck size={10} /> {l.screenProof.innocent ? "not sanctioned" : "sanctioned"}
+                          <Pill tone={!l.screenProof.innocent ? "danger" : l.screenProof.onChain ? "shielded" : "warning"}>
+                            <ShieldCheck size={10} /> {l.screenProof.innocent ? (l.screenProof.onChain ? "not sanctioned" : "not sanctioned (demo)") : "sanctioned"}
                           </Pill>
                         ) : null}
                         {l.txHash ? (
                           <a href={explorerTxUrl(l.txHash)} target="_blank" rel="noreferrer" className="text-[11px] font-medium text-primary hover:underline">receipt</a>
                         ) : null}
-                        <Pill tone={l.status === "paid" ? "success" : l.status === "failed" ? "danger" : "warning"}>{l.status}</Pill>
+                        {/* A "paid" line that never settled on-chain (no real txHash / onChain flag) is a
+                            sample settlement — show it amber as "paid (sample)", not a green confirmed pill. */}
+                        {l.status === "paid" && !l.onChain ? (
+                          <Pill tone="warning">paid (sample)</Pill>
+                        ) : (
+                          <Pill tone={l.status === "paid" ? "success" : l.status === "failed" ? "danger" : "warning"}>{l.status}</Pill>
+                        )}
                         <span className="font-display tnum w-24 text-right font-semibold text-fg">{masked ? "••••" : fmtUsd(l.amount)}</span>
                       </div>
                     ))}
