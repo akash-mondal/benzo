@@ -72,7 +72,7 @@ export const api = {
   // zkLogin / SSO: is real Google configured, and verify a Google ID token.
   authConfig: () => http<{ googleClientId: string | null; google: boolean }>("/auth/config"),
   googleVerify: (credential: string, nonce?: string) =>
-    http<{ verified: boolean; sub?: string; email?: string; name?: string; error?: string; configured?: boolean }>(
+    http<{ verified: boolean; sub?: string; email?: string; name?: string; error?: string; configured?: boolean; encPub?: string }>(
       "/auth/google",
       { method: "POST", body: JSON.stringify({ credential, nonce }) },
     ),

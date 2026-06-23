@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { BadgeCheck, Building2, Check, FileCheck2, Landmark, Loader2, ScanSearch, ShieldCheck, Sparkles, Users, Wallet } from "lucide-react";
 import { api, type OnboardingDraft } from "../lib/api";
+import { attestAuthEnclave, authEnclaveEndpoint, type EnclaveAttestation } from "../lib/attest";
 import { friendlyError } from "../lib/format";
 import { Logo } from "../ui/Logo";
 import { StageVideo } from "../ui/StageVideo";
@@ -50,15 +51,19 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [attest, setAttest] = useState<EnclaveAttestation | null>(null);
   const gbtn = useRef<HTMLDivElement>(null);
 
-  // Load real Google Identity Services if the BFF has a client id configured.
+  // Load real Google Identity Services if the BFF/enclave has a client id configured.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const cfg = await api.authConfig().catch(() => ({ googleClientId: null }) as { googleClientId: string | null });
       if (cancelled || !cfg.googleClientId) return;
       setClientId(cfg.googleClientId);
+      // Attest the TDX enclave that verifies the Google token, BEFORE trusting any
+      // verdict — this is what makes the hosted sign-in TEE-attested, not a plain server.
+      if (authEnclaveEndpoint()) attestAuthEnclave().then((a) => { if (!cancelled) setAttest(a); });
       const init = () => {
         const g = window.google?.accounts?.id;
         if (!g || !gbtn.current) return;
@@ -66,7 +71,14 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
           client_id: cfg.googleClientId,
           callback: async (resp: { credential: string }) => {
             setBusy("google");
-            const v = await api.googleVerify(resp.credential).catch((e) => ({ verified: false, error: (e as Error).message }));
+            // Fail closed: if a measurement is pinned and attestation didn't pass, refuse.
+            const a = await attestAuthEnclave();
+            if (a.pinned && !a.attested) { setErr(`Enclave attestation failed — ${a.reason}`); setBusy(null); return; }
+            const v = await api.googleVerify(resp.credential).catch((e) => ({ verified: false, error: (e as Error).message }) as Awaited<ReturnType<typeof api.googleVerify>>);
+            // Bind the verdict to the attested instance (encPub must match the attested key).
+            if (v.verified && a.attested && a.enclavePublicKey && v.encPub && v.encPub !== a.enclavePublicKey) {
+              setErr("sign-in verdict did not come from the attested enclave"); setBusy(null); return;
+            }
             if (v.verified) onAuthed();
             else { setErr(v.error || "Google sign-in failed"); setBusy(null); }
           },
@@ -112,6 +124,21 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
               Continue with Google (demo)
             </Button>
           )}
+          {clientId && authEnclaveEndpoint() ? (
+            <div
+              className="rounded-[8px] border px-2.5 py-1.5 text-left text-[11px] leading-snug text-muted"
+              style={{ borderColor: attest?.attested ? "rgba(16,150,90,0.35)" : attest?.pinned ? "rgba(200,60,60,0.35)" : "var(--color-border)" }}
+              data-testid="auth-attestation"
+            >
+              {attest == null
+                ? "Attesting the TDX enclave…"
+                : attest.attested
+                  ? `🛡 Verified inside an attested Intel TDX enclave · ${attest.measurement?.slice(0, 10)}…`
+                  : attest.pinned
+                    ? `⚠ Enclave attestation failed — ${attest.reason}`
+                    : `Enclave-backed (TDX)${attest.measurement ? " · " + attest.measurement.slice(0, 10) + "…" : ""} · measurement not pinned`}
+            </div>
+          ) : null}
           <Button className="w-full" size="md" variant="outline" disabled={!!clientId} loading={busy === "microsoft"} onClick={() => demoSso("microsoft")} data-testid="auth-microsoft" title={clientId ? "Microsoft SSO isn't enabled for this workspace yet" : undefined}>
             Continue with Microsoft{clientId ? "" : " (demo)"}
           </Button>
@@ -125,7 +152,9 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
         {err ? <p className="mt-3 text-[12px] text-danger">{err}</p> : null}
         <p className="mt-5 text-[11.5px] text-muted">
           {clientId
-            ? "Real Google sign-in (zkLogin): the JWT is verified against Google's keys, and your account is derived from it on-chain — your Google identity never goes on-chain."
+            ? authEnclaveEndpoint()
+              ? "Real Google sign-in: the JWT is verified (RS256 vs Google's keys) inside an attested Intel TDX enclave you can check, and your account is derived from it on this device — your Google identity never goes on-chain. (Attested-server integrity, not a ZK proof.)"
+              : "Real Google sign-in (zkLogin Phase 1): the JWT is verified server-side against Google's keys, and your account is derived from it on this device — your Google identity never goes on-chain."
             : "Demo sign-in (set GOOGLE_CLIENT_ID to enable real Google zkLogin). Your treasury keys are generated on this device in the next step — we never see your balances."}
         </p>
       </Card>

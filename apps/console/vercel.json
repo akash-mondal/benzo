@@ -4,6 +4,10 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    {
+      "source": "/api/auth/:path*",
+      "destination": "https://f660b9588fd8ceae268440f5a28c3bd7e9604c50-8080.dstack-pha-prod5.phala.network/auth/:path*"
+    },
     { "source": "/((?!api/|assets/).*)", "destination": "/index.html" }
   ]
 }

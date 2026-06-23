@@ -58,6 +58,26 @@ What Phase 1 trades vs. full zkLogin: the JWT's RSA signature is verified **on t
 BFF (off-chain)**, not in-circuit — so for the JWT step the chain trusts the BFF.
 Everything else (derivation, unlinkability, nonce binding) is the real model.
 
+## Phase 1.5 — TEE-attested (what's deployed on the hosted console)
+
+The hosted console (`console.benzo.space`) has no plain BFF. The Phase-1 JWT
+verification instead runs **inside the Phala dstack (Intel TDX) enclave** that
+already serves the prover: `services/prover-enclave/src/server.mjs` exposes
+`GET /auth/config` + `POST /auth/google` (the same RS256-vs-Google-JWKS check,
+`google-oidc.mjs`), and the console proxies `/api/auth/*` to it. Before trusting
+any verdict the browser fetches the enclave's TDX quote, verifies it client-side
+(`@phala/dcap-qvl-web` via `@benzo/core` `makeWebAttestationVerifier`), pins the
+code measurement (`VITE_BENZO_PROVER_MEASUREMENT`), and binds the verdict to the
+attested instance (the response echoes the enclave `encPub`). See
+`apps/console/src/lib/attest.ts`.
+
+This upgrades the trust from "trust the BFF" to **"trust *which* code verified the
+token, rooted in TDX hardware attestation."** Be precise: it is **attested-server
+integrity, NOT a zero-knowledge proof**, and the login itself is not verified
+on-chain — only Phase 2 (below) removes the trusted verifier entirely. The
+genuinely-private part (sub→address, the Google identity never touching the chain)
+is client-side and identical across all phases.
+
 ## Phase 2 — fully trustless (the in-circuit JWT proof)
 
 Move step 3's RSA verification **in-circuit** so the chain verifies the proof

@@ -24,6 +24,7 @@ import { DstackClient } from "@phala/dstack-sdk";
 import { CIRCUITS, proveCircuit, assertArtifacts } from "./prove.mjs";
 import { genEnclaveKeypair, decryptWitness } from "./ecies.mjs";
 import { contributeCircuit, ceremonyReportData } from "./contribute.mjs";
+import { verifyGoogleIdToken } from "./google-oidc.mjs";
 
 const ARTIFACT_ROOT = process.env.BENZO_ARTIFACT_ROOT || join(import.meta.dirname, "..", "artifacts");
 
@@ -101,6 +102,37 @@ const server = http.createServer(async (req, res) => {
         event_log: q.event_log,
         encPub: ENC.rawPub.toString("hex"),
       });
+    }
+
+    // ---- TEE-attested Google sign-in (zkLogin Phase 1) ----------------------
+    // The browser FIRST attests this enclave (GET /quote → dcap-qvl, pins the code
+    // measurement), then verifies a Google ID token THROUGH the attested enclave.
+    // The RS256-vs-Google-JWKS check runs in the TEE; `encPub` echoes the attested
+    // X25519 key so the client confirms the verdict came from the SAME instance it
+    // attested. This is attested-server integrity (which code verified the token),
+    // NOT a zero-knowledge proof — the sub→address derivation stays client-side.
+    if (req.method === "GET" && url.pathname === "/auth/config") {
+      const id = process.env.GOOGLE_CLIENT_ID || null;
+      return send(res, 200, { googleClientId: id, google: !!id, encPub: ENC.rawPub.toString("hex") });
+    }
+
+    if (req.method === "POST" && url.pathname === "/auth/google") {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      if (!clientId) return send(res, 503, { verified: false, error: "GOOGLE_CLIENT_ID not configured in enclave" });
+      const body = JSON.parse((await readBody(req, 256 * 1024)).toString("utf8"));
+      const credential = body.credential || body.idToken;
+      try {
+        const c = await verifyGoogleIdToken(credential, clientId);
+        if (body.nonce && c.nonce && body.nonce !== c.nonce) throw new Error("nonce mismatch");
+        return send(res, 200, {
+          verified: true,
+          sub: c.sub, iss: c.iss, aud: c.aud,
+          email: c.email, email_verified: c.email_verified, name: c.name,
+          encPub: ENC.rawPub.toString("hex"),
+        });
+      } catch (e) {
+        return send(res, 401, { verified: false, error: String(e?.message || e) });
+      }
     }
 
     if (req.method === "POST" && url.pathname === "/prove") {

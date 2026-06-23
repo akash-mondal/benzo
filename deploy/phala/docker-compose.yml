@@ -5,9 +5,14 @@
 # witness to the attested X25519 key BEFORE any witness is transmitted.
 services:
   benzo-enclave:
-    image: ghcr.io/akash-mondal/benzo-prover:v4
+    image: ghcr.io/akash-mondal/benzo-prover:v5
     ports:
       - "8080:8080" # HOST:CONTAINER -> https://<app-id>-8080.<node>.phala.network
+    environment:
+      # Real Google zkLogin (Phase 1) verification runs INSIDE the enclave.
+      # GOOGLE_CLIENT_ID is a PUBLIC OAuth web client id (not a secret). The client
+      # attests this enclave (dcap-qvl) before trusting any /auth/google verdict.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
     volumes:
       - /var/run/dstack.sock:/var/run/dstack.sock
     restart: unless-stopped
