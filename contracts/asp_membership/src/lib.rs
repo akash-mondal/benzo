@@ -6,11 +6,19 @@
 //! member, and the root serves as a commitment to the entire membership set.
 #![no_std]
 use soroban_sdk::{
-    Address, BytesN, Env, Symbol, U256, Vec, contract, contractclient, contracterror, contractevent,
-    contractimpl, contracttype, crypto::bn254::Bn254Fr,
+    Address, Bytes, BytesN, Env, Symbol, U256, Vec, contract, contractclient, contracterror,
+    contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
 };
 use soroban_utils::{get_zeroes, poseidon2_compress};
 use contract_types::Groth16Proof;
+
+/// Default clock-skew tolerance (seconds) for a credential's `currentTime` when
+/// the admin has not configured one: 5 minutes ahead of ledger time is allowed.
+const DEFAULT_MAX_FUTURE_SKEW: u64 = 300;
+/// Default credential lifetime (seconds) when the admin has not configured one:
+/// a credential whose `currentTime` is more than 1 day behind the ledger clock
+/// is treated as stale/expired. Admin can widen, narrow, or disable (0) this.
+const DEFAULT_MAX_CREDENTIAL_AGE: u64 = 86_400;
 
 /// Cross-contract interface to the Groth16 verifier (for proof-gated admission).
 #[contractclient(name = "VerifierClient")]
@@ -29,6 +37,17 @@ pub trait VerifierInterface {
 #[contractclient(name = "IssuerRegistryClient")]
 pub trait IssuerRegistryInterface {
     fn is_known_root(env: Env, root: U256) -> Result<bool, soroban_sdk::Error>;
+}
+
+/// Cross-contract interface to the identity-nullifier set — sybil resistance
+/// (one human, one account). `register` is NOT idempotent: a repeat of the same
+/// `identityNullifier` is REJECTED with `AlreadyRegistered`, which is exactly the
+/// signal `admit_by_proof` needs to refuse a second admission from the same
+/// credential. Registration is operator-gated, so this contract must be the
+/// registered operator of the set.
+#[contractclient(name = "IdentityNullifierSetClient")]
+pub trait IdentityNullifierSetInterface {
+    fn register(env: Env, identity_nullifier: U256) -> Result<(), soroban_sdk::Error>;
 }
 
 soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
@@ -60,6 +79,16 @@ enum DataKey {
     MinTier,
     /// Optional authorized-issuer registry; when set, admit checks issuerRegistryRoot
     IssuerRegistry,
+    /// Identity-nullifier set (sybil resistance); when set, admit registers the
+    /// credential's identityNullifier (public input #4) fail-closed + atomic with
+    /// admission, so the same credential cannot admit twice.
+    IdentityNullifierSet,
+    /// Max future skew (seconds) allowed between the credential's `currentTime`
+    /// (public input #2) and `env.ledger().timestamp()`. Tunable by admin.
+    MaxFutureSkew,
+    /// Max age (seconds) a credential's `currentTime` may be behind the ledger
+    /// before it is considered stale/expired. Tunable by admin.
+    MaxCredentialAge,
 }
 
 /// Contract error types
@@ -83,6 +112,14 @@ pub enum Error {
     KycNotConfigured = 7,
     /// The credential's assurance tier is below the corridor's required minimum
     InsufficientTier = 8,
+    /// The credential's `currentTime` is stale (too far in the past) or set in
+    /// the future beyond the allowed skew — an expired credential must not admit
+    StaleCredential = 9,
+    /// The credential's identityNullifier is already spent — a second admission
+    /// from the same credential (sybil attempt) is rejected
+    DuplicateNullifier = 10,
+    /// No ledger timestamp is available to evaluate credential freshness against
+    NoLedgerTime = 11,
 }
 
 /// Event emitted when a new leaf is added to the Merkle tree
@@ -327,6 +364,41 @@ impl ASPMembership {
         Ok(())
     }
 
+    /// Wire the identity-nullifier set used for sybil resistance (one human, one
+    /// account). When set, `admit_by_proof` registers the credential's
+    /// `identityNullifier` (public input #4) into this set — fail-closed and
+    /// atomic with admission — so the same credential cannot admit twice. This
+    /// contract must be configured as the set's operator (`set_operator`).
+    /// Admin-only.
+    pub fn set_identity_nullifier_set(env: Env, ident_set: Address) -> Result<(), Error> {
+        let store = env.storage().persistent();
+        let admin: Address = store.get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        store.set(&DataKey::IdentityNullifierSet, &ident_set);
+        Ok(())
+    }
+
+    /// Configure the freshness window (seconds) enforced on the credential's
+    /// `currentTime` (public input #2) in `admit_by_proof`:
+    /// * `max_future_skew` — how far ahead of ledger time the credential may be
+    ///   (clock-skew tolerance); a credential further in the future is rejected.
+    /// * `max_age` — how far behind ledger time the credential may be before it
+    ///   is treated as stale/expired and rejected. `0` disables the age check
+    ///   (no expiry), but the future-skew check still applies.
+    /// Admin-only.
+    pub fn set_freshness_window(
+        env: Env,
+        max_future_skew: u64,
+        max_age: u64,
+    ) -> Result<(), Error> {
+        let store = env.storage().persistent();
+        let admin: Address = store.get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
+        admin.require_auth();
+        store.set(&DataKey::MaxFutureSkew, &max_future_skew);
+        store.set(&DataKey::MaxCredentialAge, &max_age);
+        Ok(())
+    }
+
     /// Admit a holder into the allow-set by a valid KYC-credential proof — the
     /// proof-gated replacement for the operator-trusted insert. The proof IS the
     /// authorization (no admin auth), and no PII touches the chain.
@@ -339,14 +411,20 @@ impl ASPMembership {
     ///
     /// # Security Warning
     /// This function intentionally SKIPS `require_auth()` — the KYC-credential
-    /// proof *is* the authorization. Soundness therefore rests on three checks,
-    /// all of which fail closed: (1) a verifier + KYC `vk_id` must be configured
+    /// proof *is* the authorization. Soundness therefore rests on checks that all
+    /// fail closed: (1) a verifier + KYC `vk_id` must be configured
     /// (`KycNotConfigured` otherwise); (2) `admit_leaf` must equal public input
     /// #6 (`InvalidCredential` otherwise), so a caller cannot insert a different
-    /// leaf than the proof attests; (3) `try_verify_proof` must return
-    /// `Ok(Ok(true))` — any other result, including an invoke error, maps to
-    /// `InvalidCredential` and NO insertion. Do not add an early `do_insert`
-    /// path here.
+    /// leaf than the proof attests; (3) the credential's `currentTime` (public
+    /// input #2) must be FRESH relative to the ledger clock — not set beyond a
+    /// small future skew and not older than the configured max age — else
+    /// `StaleCredential`, so an EXPIRED credential cannot admit; (4) when an
+    /// identity-nullifier set is wired, the credential's `identityNullifier`
+    /// (public input #4) is registered ATOMICALLY with admission and a repeat
+    /// (sybil attempt) is rejected with `DuplicateNullifier`, enforcing
+    /// one-human-one-account; (5) `try_verify_proof` must return `Ok(Ok(true))` —
+    /// any other result, including an invoke error, maps to `InvalidCredential`
+    /// and NO insertion. Do not add an early `do_insert` path here.
     pub fn admit_by_proof(
         env: Env,
         proof: Groth16Proof,
@@ -407,6 +485,35 @@ impl ASPMembership {
             }
         }
 
+        // FRESHNESS: the credential's `currentTime` (public input #2) is signed
+        // by the issuer in-circuit but was previously NEVER checked against the
+        // ledger clock — so an EXPIRED credential still admitted. Pin it to
+        // `env.ledger().timestamp()` and fail closed if it is set in the future
+        // beyond the allowed skew, or older than the configured max age.
+        let pi2 = public_inputs.get(2).ok_or(Error::InvalidCredential)?;
+        let cred_time = Self::fr_to_u64(&pi2).ok_or(Error::StaleCredential)?;
+        let now = env.ledger().timestamp();
+        if now == 0 {
+            // Fail closed: with no usable ledger clock we cannot judge freshness.
+            return Err(Error::NoLedgerTime);
+        }
+        // Defaults keep the check meaningful even before an admin tunes it: a
+        // small clock-skew tolerance and a sane credential lifetime.
+        let max_future_skew: u64 = store
+            .get(&DataKey::MaxFutureSkew)
+            .unwrap_or(DEFAULT_MAX_FUTURE_SKEW);
+        let max_age: u64 = store
+            .get(&DataKey::MaxCredentialAge)
+            .unwrap_or(DEFAULT_MAX_CREDENTIAL_AGE);
+        // Not in the future beyond the allowed skew.
+        if cred_time > now.saturating_add(max_future_skew) {
+            return Err(Error::StaleCredential);
+        }
+        // Not older than max_age (max_age == 0 disables the age/expiry check).
+        if max_age != 0 && now.saturating_sub(cred_time) > max_age {
+            return Err(Error::StaleCredential);
+        }
+
         // Fail-closed: a non-verifying proof (verifier returns InvalidProof) or
         // any invoke error maps to InvalidCredential — never an admission.
         let verified = matches!(
@@ -417,7 +524,47 @@ impl ASPMembership {
             return Err(Error::InvalidCredential);
         }
 
+        // SYBIL (one human, one account): the credential's `identityNullifier`
+        // (public input #4) was previously DISCARDED. When the identity-nullifier
+        // set is wired, register it now — ATOMIC with admission (same host tx, so
+        // a later `do_insert` failure reverts the registration too) and
+        // fail-closed: the set's `register` is non-idempotent, so a repeat of the
+        // same credential returns `AlreadyRegistered` and we map it to
+        // `DuplicateNullifier` with NO admission. The nullifier is the unlinkable
+        // U256 field element from public input #4 (no PII, no account link).
+        if let Some(ident_set) = store.get::<DataKey, Address>(&DataKey::IdentityNullifierSet) {
+            let pi4 = public_inputs.get(4).ok_or(Error::InvalidCredential)?;
+            let mut nbuf = [0u8; 32];
+            pi4.to_bytes().copy_into_slice(&mut nbuf);
+            let identity_nullifier = U256::from_be_bytes(&env, &Bytes::from_array(&env, &nbuf));
+            let registered = matches!(
+                IdentityNullifierSetClient::new(&env, &ident_set)
+                    .try_register(&identity_nullifier),
+                Ok(Ok(()))
+            );
+            if !registered {
+                // Already-spent (sybil) or any invoke error → no admission.
+                return Err(Error::DuplicateNullifier);
+            }
+        }
+
         Self::do_insert(&env, admit_leaf)
+    }
+
+    /// Best-effort decode of a BN254 field element into a u64 for timestamp
+    /// comparison. Returns `None` if any byte above the low 8 is set — a
+    /// timestamp that large is not a plausible Unix time, so callers fail closed
+    /// rather than silently truncating.
+    fn fr_to_u64(fr: &Bn254Fr) -> Option<u64> {
+        let mut buf = [0u8; 32];
+        fr.to_bytes().copy_into_slice(&mut buf);
+        // Big-endian: bytes [0..24) must be zero for the value to fit in u64.
+        if buf[..24].iter().any(|b| *b != 0) {
+            return None;
+        }
+        let mut low = [0u8; 8];
+        low.copy_from_slice(&buf[24..32]);
+        Some(u64::from_be_bytes(low))
     }
 }
 

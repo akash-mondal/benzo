@@ -718,6 +718,7 @@ mod admit {
     use soroban_sdk::{
         BytesN, Symbol,
         crypto::bn254::{Bn254Fr, Bn254G1Affine, Bn254G2Affine},
+        testutils::Ledger as _,
     };
     use soroban_utils::{g1_bytes_from_ark, g2_bytes_from_ark, vk_bytes_from_ark};
     use std::vec::Vec as StdVec;
@@ -769,9 +770,18 @@ mod admit {
         v
     }
 
+    // A realistic ledger "now" for the freshness check (an arbitrary Unix time).
+    // The fixtures put the credential's `currentTime` at exactly this value so a
+    // fresh credential passes by default.
+    const NOW: u64 = 1_700_000_000;
+
     fn setup() -> (Env, ASPMembershipClient<'static>, ProvingKey<Bn254>) {
         let env = test_env();
         env.mock_all_auths();
+        // The freshness check compares the credential's currentTime to the ledger
+        // clock; the default test ledger timestamp is 0 (rejected fail-closed), so
+        // set a realistic time.
+        env.ledger().set_timestamp(NOW);
         let admin = Address::generate(&env);
         let asp_id = env.register(ASPMembership, (admin.clone(), 16u32));
         let asp = ASPMembershipClient::new(&env, &asp_id);
@@ -788,13 +798,33 @@ mod admit {
         (env, asp, pk)
     }
 
+    /// Register a fresh identity-nullifier set with `asp` wired as its operator,
+    /// then point `admit_by_proof` at it (sybil resistance). Returns the set
+    /// client so a test can assert on it.
+    fn wire_ident_set(
+        env: &Env,
+        asp: &ASPMembershipClient<'static>,
+    ) -> benzo_identity_nullifier_set::BenzoIdentityNullifierSetClient<'static> {
+        let admin = Address::generate(env);
+        let set_id = env.register(
+            benzo_identity_nullifier_set::BenzoIdentityNullifierSet,
+            (admin.clone(),),
+        );
+        let set = benzo_identity_nullifier_set::BenzoIdentityNullifierSetClient::new(env, &set_id);
+        // The ASP contract must be the set's operator to register nullifiers.
+        set.set_operator(&asp.address);
+        asp.set_identity_nullifier_set(&set_id);
+        set
+    }
+
     // kyc_credential public order: [issuerRegistryRoot, credType, currentTime,
     // scope, identityNullifier, addressBinding, admitLeaf]; admitLeaf is index 6.
+    // currentTime (#2) is set to the ledger "now" so the credential is fresh.
     fn kyc_publics(env: &Env, admit_leaf: &U256) -> [U256; 7] {
         [
             U256::from_u32(env, 1),
             U256::from_u32(env, 0),
-            U256::from_u32(env, 100),
+            U256::from_u128(env, u128::from(NOW)),
             U256::from_u32(env, 42),
             U256::from_u32(env, 555),
             U256::from_u32(env, 666),
@@ -850,9 +880,28 @@ mod admit {
         [
             U256::from_u32(env, 1),
             U256::from_u32(env, tier),
-            U256::from_u32(env, 100),
+            U256::from_u128(env, u128::from(NOW)),
             U256::from_u32(env, 42),
             U256::from_u32(env, 555),
+            U256::from_u32(env, 666),
+            admit_leaf.clone(),
+        ]
+    }
+
+    // kyc_publics with a chosen currentTime (#2) and identityNullifier (#4), for
+    // the freshness and sybil tests.
+    fn kyc_publics_at(
+        env: &Env,
+        admit_leaf: &U256,
+        cred_time: u64,
+        id_nullifier: u32,
+    ) -> [U256; 7] {
+        [
+            U256::from_u32(env, 1),
+            U256::from_u32(env, 0),
+            U256::from_u128(env, u128::from(cred_time)),
+            U256::from_u32(env, 42),
+            U256::from_u32(env, id_nullifier),
             U256::from_u32(env, 666),
             admit_leaf.clone(),
         ]
@@ -887,5 +936,101 @@ mod admit {
         // Caller claims tier 3 but the proof only attests tier 1 → bound, rejected.
         let res = asp.try_admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &3u32, &U256::from_u32(&env, 1));
         assert!(res.is_err(), "claimed tier must match the credential's credType");
+    }
+
+    // ---- FIX #6(a): FRESHNESS — an expired credential must not admit ----
+
+    #[test]
+    fn admit_rejects_expired_credential() {
+        let (env, asp, pk) = setup();
+        let admit_leaf = U256::from_u32(&env, 778_899);
+        // currentTime two days behind the ledger clock — older than the default
+        // 1-day max age, so the credential is stale and must be rejected even
+        // though the proof itself verifies.
+        let stale_time = NOW - 2 * 86_400;
+        let p = kyc_publics_at(&env, &admit_leaf, stale_time, 555);
+        let proof = prove(&env, &pk, &p);
+        let root_before = asp.get_root();
+        let res = asp.try_admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &0u32, &U256::from_u32(&env, 1));
+        assert!(res.is_err(), "an expired credential must be rejected");
+        assert_eq!(asp.get_root(), root_before, "a stale credential must not admit a leaf");
+    }
+
+    #[test]
+    fn admit_rejects_credential_from_the_future() {
+        let (env, asp, pk) = setup();
+        let admit_leaf = U256::from_u32(&env, 778_899);
+        // currentTime an hour AHEAD of the ledger clock — beyond the default
+        // 5-minute skew tolerance, so it is rejected.
+        let future_time = NOW + 3_600;
+        let p = kyc_publics_at(&env, &admit_leaf, future_time, 555);
+        let proof = prove(&env, &pk, &p);
+        let res = asp.try_admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &0u32, &U256::from_u32(&env, 1));
+        assert!(res.is_err(), "a credential set in the future must be rejected");
+    }
+
+    #[test]
+    fn admit_accepts_credential_within_skew() {
+        let (env, asp, pk) = setup();
+        let admit_leaf = U256::from_u32(&env, 778_899);
+        // Within both the future-skew (60s ahead < 300s) and age bounds.
+        let p = kyc_publics_at(&env, &admit_leaf, NOW + 60, 555);
+        let proof = prove(&env, &pk, &p);
+        let root_before = asp.get_root();
+        asp.admit_by_proof(&proof, &fr_pubs(&env, &p), &admit_leaf, &0u32, &U256::from_u32(&env, 1));
+        assert_ne!(asp.get_root(), root_before, "a fresh credential within skew must admit");
+    }
+
+    // ---- FIX #6(b): SYBIL — the same credential cannot admit twice ----
+
+    #[test]
+    fn admit_registers_nullifier_and_rejects_a_second_admission() {
+        let (env, asp, pk) = setup();
+        let set = wire_ident_set(&env, &asp);
+
+        // First admission: a fresh credential with identityNullifier #4 = 12345.
+        let leaf1 = U256::from_u32(&env, 111);
+        let p1 = kyc_publics_at(&env, &leaf1, NOW, 12_345);
+        let proof1 = prove(&env, &pk, &p1);
+        let root_before = asp.get_root();
+        asp.admit_by_proof(&proof1, &fr_pubs(&env, &p1), &leaf1, &0u32, &U256::from_u32(&env, 1));
+        assert_ne!(asp.get_root(), root_before, "first admission must insert the leaf");
+        // The identityNullifier is now registered in the sybil set.
+        assert!(
+            set.is_registered(&U256::from_u32(&env, 12_345)),
+            "the credential's identityNullifier must be registered on admission"
+        );
+
+        // Second admission with the SAME identityNullifier (#4 = 12345) but a
+        // different leaf: the sybil guard must reject it (one human, one account),
+        // and the tree must be unchanged.
+        let leaf2 = U256::from_u32(&env, 222);
+        let p2 = kyc_publics_at(&env, &leaf2, NOW, 12_345);
+        let proof2 = prove(&env, &pk, &p2);
+        let root_after_first = asp.get_root();
+        let res = asp.try_admit_by_proof(&proof2, &fr_pubs(&env, &p2), &leaf2, &0u32, &U256::from_u32(&env, 1));
+        assert!(res.is_err(), "a second admission from the same credential must be rejected");
+        assert_eq!(
+            asp.get_root(),
+            root_after_first,
+            "a rejected sybil attempt must not mutate the tree"
+        );
+    }
+
+    #[test]
+    fn admit_allows_distinct_credentials_through_the_sybil_set() {
+        let (env, asp, pk) = setup();
+        let _set = wire_ident_set(&env, &asp);
+
+        // Two DIFFERENT humans (distinct identityNullifiers) both admit fine.
+        let leaf1 = U256::from_u32(&env, 111);
+        let p1 = kyc_publics_at(&env, &leaf1, NOW, 1);
+        asp.admit_by_proof(&prove(&env, &pk, &p1), &fr_pubs(&env, &p1), &leaf1, &0u32, &U256::from_u32(&env, 1));
+
+        let leaf2 = U256::from_u32(&env, 222);
+        let p2 = kyc_publics_at(&env, &leaf2, NOW, 2);
+        let root_before = asp.get_root();
+        asp.admit_by_proof(&prove(&env, &pk, &p2), &fr_pubs(&env, &p2), &leaf2, &0u32, &U256::from_u32(&env, 1));
+        assert_ne!(asp.get_root(), root_before, "a distinct credential must still admit");
     }
 }

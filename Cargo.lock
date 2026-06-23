@@ -410,6 +410,7 @@ dependencies = [
  "ark-relations",
  "ark-snark",
  "ark-std 0.6.0",
+ "benzo-identity-nullifier-set",
  "benzo-verifier-groth16",
  "contract-types",
  "num-bigint",
@@ -511,6 +512,7 @@ dependencies = [
 name = "benzo-org-account"
 version = "0.1.0"
 dependencies = [
+ "contract-types",
  "soroban-sdk",
 ]
 

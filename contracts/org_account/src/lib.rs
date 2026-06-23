@@ -20,11 +20,28 @@
 //! POLICY (who may initiate vs approve vs how many), not the cryptography.
 
 use soroban_sdk::{
-    Address, Env, U256, Vec, contract, contracterror, contractevent, contractimpl, contracttype,
+    Address, BytesN, Env, Symbol, U256, Vec, contract, contractclient, contracterror,
+    contractevent, contractimpl, contracttype, crypto::bn254::Bn254Fr,
 };
+use contract_types::Groth16Proof;
 
 soroban_sdk::contractmeta!(key = "binver", val = "0.1.0");
 soroban_sdk::contractmeta!(key = "name", val = "benzo-org-account");
+
+/// Cross-contract interface to the Groth16 verifier. The standalone org verifies
+/// (ORGAUTH and the Z-suite org proofs) must run through `verify_org_proof`,
+/// which pins the prover-chosen `orgMemberRoot`/`threshold` public inputs to THIS
+/// org's REGISTERED policy before delegating here — so a self-minted member set
+/// with `threshold = 1` can no longer produce `approved = true`.
+#[contractclient(name = "VerifierClient")]
+pub trait VerifierInterface {
+    fn verify_proof(
+        env: Env,
+        vk_id: Symbol,
+        proof: Groth16Proof,
+        public_inputs: Vec<Bn254Fr>,
+    ) -> Result<bool, soroban_sdk::Error>;
+}
 
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -54,6 +71,16 @@ pub enum Error {
     NotIssuer = 11,
     /// No KYB issuer has been designated yet
     NoIssuer = 12,
+    /// No Groth16 verifier has been configured for `verify_org_proof`
+    VerifierNotConfigured = 13,
+    /// This org has no registered member-set root to pin the proof to
+    MemberRootNotSet = 14,
+    /// The proof's `orgMemberRoot` / `threshold` public inputs do not match the
+    /// org's REGISTERED policy — a prover-chosen (self-minted) member set or a
+    /// lower threshold is rejected fail-closed
+    PolicyMismatch = 15,
+    /// The proof did not verify against the verifier for the given `vk_id`
+    ProofRejected = 16,
 }
 
 /// On-chain KYB lifecycle for the business entity. The attestation is posted by a
@@ -112,6 +139,8 @@ enum DataKey {
     KybIssuer,
     /// On-chain KYB status + inquiry ref, keyed by org id
     Kyb(u64),
+    /// Groth16 verifier address used by `verify_org_proof`
+    Verifier,
 }
 
 #[contractevent]
@@ -250,6 +279,98 @@ impl BenzoOrgAccount {
             .persistent()
             .get(&DataKey::MemberRoot(org_id))
             .ok_or(Error::OrgNotFound)
+    }
+
+    /// Configure the Groth16 verifier used by `verify_org_proof`. Admin-only.
+    pub fn set_verifier(env: Env, verifier: Address) -> Result<(), Error> {
+        Self::admin(&env)?.require_auth();
+        env.storage().persistent().set(&DataKey::Verifier, &verifier);
+        Ok(())
+    }
+
+    /// The configured verifier address (if any).
+    pub fn verifier(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .persistent()
+            .get(&DataKey::Verifier)
+            .ok_or(Error::VerifierNotConfigured)
+    }
+
+    /// Verify a STANDALONE org proof (ORGAUTH / Z-suite) with the prover-chosen
+    /// `orgMemberRoot` and `threshold` public inputs PINNED to this org's
+    /// REGISTERED policy.
+    ///
+    /// # The soundness gap this closes
+    /// The bare `verifier.verify_proof(vk_id, …)` path accepts ANY internally
+    /// consistent proof — including one a prover built over a SELF-MINTED member
+    /// set with `threshold = 1`, which trivially yields `approved = true`. The
+    /// `orgMemberRoot`/`threshold` public inputs were free, never tied to a real
+    /// org. This function fixes that: it loads the registered `member_root` +
+    /// `threshold` for `org_id` from THIS contract and asserts the proof's public
+    /// inputs equal them BEFORE delegating to the verifier. A mismatch (a
+    /// self-minted root, or a threshold lower than the org's registered bar) is
+    /// rejected fail-closed.
+    ///
+    /// ORGAUTH public-input order is `[orgMemberRoot, threshold, spendMessage,
+    /// authTag]`, so `orgMemberRoot` is index 0 and `threshold` is index 1 — the
+    /// two policy fields pinned here. The remaining inputs (spendMessage, authTag)
+    /// stay prover-supplied and are checked by the proof itself.
+    ///
+    /// No `require_auth`: like the proof-gated ASP admission, the proof IS the
+    /// authorization, and soundness rests on the fail-closed checks below.
+    pub fn verify_org_proof(
+        env: Env,
+        org_id: u64,
+        vk_id: Symbol,
+        proof: Groth16Proof,
+        public_inputs: Vec<Bn254Fr>,
+    ) -> Result<bool, Error> {
+        let store = env.storage().persistent();
+        let verifier: Address = store
+            .get(&DataKey::Verifier)
+            .ok_or(Error::VerifierNotConfigured)?;
+
+        // Load the org's REGISTERED policy: the in-circuit member-set root and the
+        // M-of-N threshold captured at registration.
+        let registered_root: U256 = store
+            .get(&DataKey::MemberRoot(org_id))
+            .ok_or(Error::MemberRootNotSet)?;
+        let org: OrgRecord = store
+            .get(&DataKey::Org(org_id))
+            .ok_or(Error::OrgNotFound)?;
+        let registered_threshold: u32 = org.threshold;
+
+        // Pin public input #0 (orgMemberRoot) to the registered root. Reuse the
+        // canonical U256 -> Bn254Fr big-endian encoding so a self-minted member
+        // set cannot pass.
+        let mut rbuf = [0u8; 32];
+        registered_root.to_be_bytes().copy_into_slice(&mut rbuf);
+        let root_fr = Bn254Fr::from_bytes(BytesN::from_array(&env, &rbuf));
+        let pi0 = public_inputs.get(0).ok_or(Error::PolicyMismatch)?;
+        if pi0 != root_fr {
+            return Err(Error::PolicyMismatch);
+        }
+
+        // Pin public input #1 (threshold) to the registered threshold — so a
+        // prover cannot lower the M-of-N bar (e.g. claim threshold = 1).
+        let mut tbuf = [0u8; 32];
+        tbuf[28..32].copy_from_slice(&registered_threshold.to_be_bytes());
+        let threshold_fr = Bn254Fr::from_bytes(BytesN::from_array(&env, &tbuf));
+        let pi1 = public_inputs.get(1).ok_or(Error::PolicyMismatch)?;
+        if pi1 != threshold_fr {
+            return Err(Error::PolicyMismatch);
+        }
+
+        // Only now delegate to the verifier. Fail-closed: anything but
+        // `Ok(Ok(true))` (a non-verifying proof or any invoke error) is rejected.
+        let verified = matches!(
+            VerifierClient::new(&env, &verifier).try_verify_proof(&vk_id, &proof, &public_inputs),
+            Ok(Ok(true))
+        );
+        if !verified {
+            return Err(Error::ProofRejected);
+        }
+        Ok(true)
     }
 
     /// Designate the on-chain KYB issuer — the key allowed to post KYB
