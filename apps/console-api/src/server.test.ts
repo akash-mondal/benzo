@@ -56,3 +56,31 @@ test("records invoice facts as ciphertext-only private audit packets", async () 
   expect(verifyAuditPacket(body.packet)).toBe(true);
   expect(body.packet.envelopes.some((e) => e.type === "invoice.created" && e.subjectId === created.id)).toBe(true);
 });
+
+test("private audit root anchoring response stays ciphertext-only", async () => {
+  const invoice = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/invoices")}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      counterpartyId: "cp_grace",
+      number: "INV-ANCHOR-PRIVATE-1",
+      lineItems: [{ description: "Anchor packet secret work", quantity: 1, unitAmount: "555000000" }],
+      assetCode: "USDC",
+    }),
+  });
+  expect(invoice.status).toBe(201);
+
+  const anchor = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/audit/private-events/anchor")}`, {
+    method: "POST",
+    body: "{}",
+  });
+  expect(anchor.status).toBe(200);
+  const text = await anchor.text();
+  expect(text).not.toContain("Anchor packet secret work");
+  expect(text).not.toContain("INV-ANCHOR-PRIVATE-1");
+  expect(text).not.toContain("555000000");
+  const body = JSON.parse(text) as { anchor: { onChain: boolean; error?: string }; packetHash: string; orgHash: string };
+  expect(body.anchor.onChain).toBe(false);
+  expect(body.packetHash).toMatch(/^[0-9a-f]{64}$/);
+  expect(body.orgHash).toMatch(/^[0-9a-f]{64}$/);
+});

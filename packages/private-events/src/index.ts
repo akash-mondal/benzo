@@ -90,6 +90,10 @@ function stable(value: unknown): string {
   return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${stable(v)}`).join(",")}}`;
 }
 
+export function stableJson(value: unknown): string {
+  return stable(value);
+}
+
 export function sha256Hex(data: string | Uint8Array): string {
   return createHash("sha256").update(data).digest("hex");
 }
@@ -240,6 +244,11 @@ export function verifyMerkleProof(proof: { eventHash: string; siblings: string[]
 
 export function verifyAuditPacket(packet: AuditPacket): boolean {
   return packet.inclusionProofs.every((proof) => verifyMerkleProof(proof, packet.anchor.merkleRoot));
+}
+
+export function auditPacketHash(packet: AuditPacket): string {
+  const anchor = { ...packet.anchor, txHash: undefined };
+  return sha256Hex(stable({ ...packet, anchor }));
 }
 
 export function buildAnchor(orgId: string, events: PrivateEventEnvelope[], txHash?: string): PrivateEventAnchor {

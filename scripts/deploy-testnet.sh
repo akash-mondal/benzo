@@ -83,6 +83,10 @@ say "deploying viewkey_anchor"
 VKA=$(deploy benzo_viewkey_anchor.wasm --admin "$ADMIN")
 say "viewkey_anchor: $VKA"
 
+say "deploying audit_root (private-event Merkle/hash-chain root anchor)"
+AUDITROOT=$(deploy benzo_audit_root.wasm --admin "$ADMIN")
+say "audit_root: $AUDITROOT"
+
 VERIFIER=${VERIFIER_OVERRIDE:-}
 if [ -z "$VERIFIER" ]; then
   say "deploying verifier"
@@ -238,6 +242,7 @@ cat > "$DEPLOY_OUT" <<EOF
   "aspMembership": "$ASPM",
   "aspNonMembership": "$ASPN",
   "viewkeyAnchor": "$VKA",
+  "auditRoot": "$AUDITROOT",
   "mvkRegistry": "$MVKREG",
   "issuerRegistry": "$ISSUERREG",
   "pool": "$POOL",
@@ -261,6 +266,7 @@ cat > "$DEPLOY_OUT" <<EOF
       "aspMembership": "$(wasmhash asp_membership.wasm)",
       "aspNonMembership": "$(wasmhash asp_non_membership.wasm)",
       "viewkeyAnchor": "$(wasmhash benzo_viewkey_anchor.wasm)",
+      "auditRoot": "$(wasmhash benzo_audit_root.wasm)",
       "mvkRegistry": "$(wasmhash benzo_mvk_registry.wasm)",
       "issuerRegistry": "$(wasmhash benzo_issuer_registry.wasm)",
       "pool": "$(wasmhash benzo_pool.wasm)",

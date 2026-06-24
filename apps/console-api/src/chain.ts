@@ -567,6 +567,49 @@ function onChainRef(vkId: string, verified: boolean, publics?: Array<{ k: string
     ...extra,
   };
 }
+
+export interface AuditRootAnchorResult {
+  onChain: boolean;
+  contractId?: string;
+  txHash?: string;
+  sequence?: string;
+  error?: string;
+}
+
+export async function anchorPrivateAuditRoot(input: {
+  orgHash: string;
+  merkleRoot: string;
+  headHash: string;
+  packetHash: string;
+  eventCount: number;
+}): Promise<AuditRootAnchorResult> {
+  const c = getClient();
+  if (!c) return { onChain: false, error: "console API is not connected to live testnet signing" };
+  const contractId = deployment?.auditRoot as string | undefined;
+  if (!contractId) return { onChain: false, error: "auditRoot contract is not deployed in deployments/testnet.json" };
+  try {
+    const seqRaw = await c.opts.cli.view(contractId, TX_SOURCE, ["next_sequence", "--org_hash", input.orgHash]);
+    const sequence = BigInt(String(seqRaw ?? 0)).toString();
+    const res = await c.opts.cli.invoke({
+      contractId,
+      source: TX_SOURCE,
+      send: true,
+      fnArgs: [
+        "anchor_root",
+        "--org_hash", input.orgHash,
+        "--sequence", sequence,
+        "--merkle_root", input.merkleRoot,
+        "--head_hash", input.headHash,
+        "--packet_hash", input.packetHash,
+        "--event_count", String(input.eventCount),
+      ],
+    });
+    return { onChain: true, contractId, txHash: res.txHash, sequence };
+  } catch (e) {
+    return { onChain: false, contractId, error: String((e as Error)?.message ?? e) };
+  }
+}
+
 /** stroops (7dp) -> "$X.XX" for public-input display. */
 function usdLabel(stroops: string): string {
   const n = Number(BigInt(stroops || "0")) / 1e7;

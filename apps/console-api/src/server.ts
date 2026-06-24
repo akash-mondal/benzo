@@ -26,12 +26,12 @@ import type {
   PayrollLine,
 } from "@benzo/types";
 import { ROLE_PERMISSIONS } from "@benzo/types";
-import { attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic } from "./chain.js";
+import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic } from "./chain.js";
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
 import { db, fmtUsd, id, now, parseRosterCsv } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
-import { buildAnchor, buildAuditPacket, deriveEventKey, MemoryPrivateEventStore, verifyHashChain, type PrivateEventType } from "@benzo/private-events";
+import { auditPacketHash, buildAnchor, buildAuditPacket, deriveEventKey, MemoryPrivateEventStore, sha256Hex, verifyHashChain, type PrivateEventType } from "@benzo/private-events";
 
 /** Recipient @handle stashed per payment so the approve/release step can settle it. */
 const pendingHandles = new Map<string, string>();
@@ -72,6 +72,14 @@ function privateEventAuditSummary() {
     integrity: verifyHashChain(events),
     note: "Encrypted private-event envelopes only. Plaintext requires a scoped viewing key.",
   };
+}
+
+function privateAuditOrgHash(): string {
+  return sha256Hex(`benzo:audit-org:v1:${db.org.id}`);
+}
+
+function stellarExpertTx(txHash?: string): string | undefined {
+  return txHash ? `https://stellar.expert/explorer/testnet/tx/${txHash}` : undefined;
 }
 
 /**
@@ -1045,6 +1053,30 @@ route("GET", "/api/audit/private-events", (req, res) => {
     packet: buildAuditPacket({ orgId: db.org.id, events, scope }),
     integrity: verifyHashChain(events),
     disclosure: "ciphertext-only; decrypt selected records with a scoped viewing key outside this API",
+  });
+});
+route("POST", "/api/audit/private-events/anchor", async (_req, res) => {
+  const events = privateEvents.list();
+  const packet = buildAuditPacket({ orgId: db.org.id, events, scope: { label: "console-private-events" } });
+  const packetHash = auditPacketHash(packet);
+  const anchored = await anchorPrivateAuditRoot({
+    orgHash: privateAuditOrgHash(),
+    merkleRoot: packet.anchor.merkleRoot,
+    headHash: packet.anchor.headHash,
+    packetHash,
+    eventCount: packet.anchor.eventCount,
+  });
+  if (anchored.txHash) packet.anchor.txHash = anchored.txHash;
+  json(res, 200, {
+    packet,
+    integrity: verifyHashChain(events),
+    packetHash,
+    orgHash: privateAuditOrgHash(),
+    anchor: {
+      ...anchored,
+      explorer: stellarExpertTx(anchored.txHash),
+    },
+    disclosure: "only roots/hashes/event counts are submitted on-chain; records remain ciphertext",
   });
 });
 // The audit trail IS the tamper-evident double-entry ledger (hash-chained). Return

@@ -47,7 +47,7 @@ export function scvalForArg(name: string, value: string): xdr.ScVal {
     return xdr.ScVal.scvVec([nativeToScVal(variant, { type: "symbol" })]);
   }
   // fixed 32-byte public keys / references (hex-encoded)
-  if (["reference", "spend_pub", "view_pub", "mvk_scalar"].includes(name)) {
+  if (["reference", "spend_pub", "view_pub", "mvk_scalar", "org_hash", "merkle_root", "head_hash", "packet_hash"].includes(name)) {
     return nativeToScVal(fixedBytes32(value), { type: "bytes" });
   }
   // ciphertexts: Bytes (hex-encoded)
@@ -63,9 +63,9 @@ export function scvalForArg(name: string, value: string): xdr.ScVal {
     return nativeToScVal(BigInt(value), { type: "i128" });
   }
   // u64 ids / timestamps
-  if (["expiry", "org_id"].includes(name)) return nativeToScVal(BigInt(value), { type: "u64" });
+  if (["expiry", "org_id", "sequence"].includes(name)) return nativeToScVal(BigInt(value), { type: "u64" });
   // u32 contract fields
-  if (name === "threshold") return nativeToScVal(Number(value), { type: "u32" });
+  if (["threshold", "event_count"].includes(name)) return nativeToScVal(Number(value), { type: "u32" });
   // human strings
   if (["handle", "memo"].includes(name)) {
     return nativeToScVal(value, { type: "string" });

@@ -12,6 +12,7 @@ members = [
     "contracts/asp_membership",
     "contracts/asp_non_membership",
     "contracts/viewkey_anchor",
+    "contracts/audit_root",
     "contracts/handle_registry",
     "contracts/request_registry",
     "contracts/escrow",
@@ -47,6 +48,7 @@ benzo-pool = { path = "contracts/pool" }
 benzo-request-registry = { path = "contracts/request_registry" }
 benzo-verifier-groth16 = { path = "contracts/verifier_groth16" }
 benzo-viewkey-anchor = { path = "contracts/viewkey_anchor" }
+benzo-audit-root = { path = "contracts/audit_root" }
 cfg-if = { version = "1", default-features = false }
 contract-types = { path = "contracts/common/types" }
 getrandom = { version = "0.2", default-features = false }

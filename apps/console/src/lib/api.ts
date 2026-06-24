@@ -65,6 +65,19 @@ export interface PrivateAuditPacketResponse {
   disclosure: string;
 }
 
+export interface PrivateAuditAnchorResponse extends PrivateAuditPacketResponse {
+  packetHash: string;
+  orgHash: string;
+  anchor: {
+    onChain: boolean;
+    contractId?: string;
+    txHash?: string;
+    sequence?: string;
+    error?: string;
+    explorer?: string;
+  };
+}
+
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
@@ -228,6 +241,8 @@ export const api = {
   // Re-walk the chain server-side and report integrity (ok / brokenAt index).
   ledgerVerify: () => http<{ ok: boolean; length: number; brokenAt?: number }>("/ledger/verify"),
   privateAuditPacket: () => http<PrivateAuditPacketResponse>("/audit/private-events"),
+  anchorPrivateAuditRoot: () =>
+    http<PrivateAuditAnchorResponse>("/audit/private-events/anchor", { method: "POST", body: "{}" }),
   // Per-contractor payslips for one run (gross, status, on-chain receipt).
   payslips: (id: string) =>
     http<Array<{ period: string; contractor: string; gross: string; status: string; txHash?: string; error?: string }>>(`/payrolls/${id}/payslips`),

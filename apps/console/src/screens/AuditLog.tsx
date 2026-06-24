@@ -6,9 +6,9 @@
  * its on-chain settlement. This is the CFO/auditor-readable side of private money.
  */
 import { useEffect, useState } from "react";
-import { CheckCircle2, Download, FileKey2, ScrollText, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Download, ExternalLink, FileKey2, ScrollText, ShieldAlert } from "lucide-react";
 import type { LedgerEntry, LedgerSourceType } from "@benzo/types";
-import { api, type PrivateAuditPacketResponse } from "../lib/api";
+import { api, type PrivateAuditAnchorResponse, type PrivateAuditPacketResponse } from "../lib/api";
 import { explorerTxUrl, fmtUsd, formatAddress, formatDate, friendlyError } from "../lib/format";
 import { Page, Proving, Reveal, Stagger } from "../ui/motion";
 import { Button, Card, EmptyState, Pill, Skeleton, useToast } from "../ui/primitives";
@@ -37,8 +37,10 @@ export function AuditLog() {
   const [verifying, setVerifying] = useState(false);
   const [integrity, setIntegrity] = useState<{ ok: boolean; length: number; brokenAt?: number } | null>(null);
   const [privateAudit, setPrivateAudit] = useState<PrivateAuditPacketResponse | null>(null);
+  const [privateAnchor, setPrivateAnchor] = useState<PrivateAuditAnchorResponse | null>(null);
   const [privateAuditError, setPrivateAuditError] = useState<string | null>(null);
   const [loadingPrivateAudit, setLoadingPrivateAudit] = useState(false);
+  const [anchoringPrivateAudit, setAnchoringPrivateAudit] = useState(false);
 
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
@@ -79,6 +81,7 @@ export function AuditLog() {
     try {
       const r = await api.privateAuditPacket();
       setPrivateAudit(r);
+      setPrivateAnchor(null);
       toast({
         title: r.integrity.ok ? `Private packet ready · ${r.packet.envelopes.length} encrypted events` : "Private event chain failed integrity",
         tone: r.integrity.ok ? "success" : "danger",
@@ -88,6 +91,25 @@ export function AuditLog() {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
       setLoadingPrivateAudit(false);
+    }
+  }
+
+  async function anchorPrivateAuditRoot() {
+    setAnchoringPrivateAudit(true);
+    setPrivateAuditError(null);
+    try {
+      const r = await api.anchorPrivateAuditRoot();
+      setPrivateAudit(r);
+      setPrivateAnchor(r);
+      toast({
+        title: r.anchor.onChain ? `Audit root anchored on-chain · seq ${r.anchor.sequence}` : r.anchor.error ?? "Audit root not anchored",
+        tone: r.anchor.onChain ? "success" : "warning",
+      });
+    } catch (e) {
+      setPrivateAuditError(friendlyError(e, "Couldn't anchor the private audit root."));
+      toast({ title: friendlyError(e), tone: "danger" });
+    } finally {
+      setAnchoringPrivateAudit(false);
     }
   }
 
@@ -190,11 +212,35 @@ export function AuditLog() {
                 </div>
               </div>
             </div>
+            {privateAnchor ? (
+              <div className={`mt-4 rounded-lg border px-3 py-2.5 text-[12.5px] ${privateAnchor.anchor.onChain ? "border-success/30 bg-success/8" : "border-warning/30 bg-warning/10"}`} data-testid="private-audit-anchor-result">
+                <div className={`flex items-center gap-1.5 font-semibold ${privateAnchor.anchor.onChain ? "text-[#1d7a52]" : "text-[#9a6b12]"}`}>
+                  {privateAnchor.anchor.onChain ? <CheckCircle2 size={14} /> : <ShieldAlert size={14} />}
+                  {privateAnchor.anchor.onChain ? `On-chain root anchor · sequence ${privateAnchor.anchor.sequence}` : "Root anchor unavailable"}
+                </div>
+                <div className="mt-1 break-all font-mono text-[11px] text-muted">
+                  packet {formatAddress(privateAnchor.packetHash, 8, 8)}
+                  {privateAnchor.anchor.contractId ? ` · contract ${formatAddress(privateAnchor.anchor.contractId, 6, 6)}` : ""}
+                </div>
+                {privateAnchor.anchor.explorer ? (
+                  <a href={privateAnchor.anchor.explorer} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold text-primary hover:underline">
+                    View root transaction <ExternalLink size={12} />
+                  </a>
+                ) : (
+                  <div className="mt-2 text-[12px] text-muted">{privateAnchor.anchor.error}</div>
+                )}
+              </div>
+            ) : null}
             <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
               <div className="min-w-0 truncate text-[12px] text-muted">{privateAudit.disclosure}</div>
-              <Button variant="outline" onClick={downloadPrivateAuditPacket} data-testid="download-private-audit">
-                <Download size={15} /> Export JSON
-              </Button>
+              <div className="flex flex-none items-center gap-2">
+                <Button variant="outline" loading={anchoringPrivateAudit} onClick={anchorPrivateAuditRoot} disabled={privateAudit.packet.anchor.eventCount === 0} data-testid="anchor-private-audit">
+                  <ShieldAlert size={15} /> Anchor root
+                </Button>
+                <Button variant="outline" onClick={downloadPrivateAuditPacket} data-testid="download-private-audit">
+                  <Download size={15} /> Export JSON
+                </Button>
+              </div>
             </div>
           </Reveal>
         ) : null}
