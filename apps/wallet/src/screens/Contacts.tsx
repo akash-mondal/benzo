@@ -15,8 +15,8 @@ import { Avatar, Button, Card, Input } from "../ui/primitives";
 export function Contacts() {
   const nav = useNavigate();
   const { contacts: bff } = useWallet();
-  const [, bump] = useState(0);
-  const merged = useMemo(() => mergeContacts(bff), [bff]);
+  const [localVersion, bump] = useState(0);
+  const merged = useMemo(() => mergeContacts(bff), [bff, localVersion]);
   const [adding, setAdding] = useState(false);
   const [handle, setHandle] = useState("");
   const [name, setName] = useState("");
