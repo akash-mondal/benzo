@@ -12,6 +12,7 @@ import {
   useId,
   useState,
   type ButtonHTMLAttributes,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
 } from "react";
@@ -91,15 +92,17 @@ export function Card({
   children,
   className = "",
   onClick,
+  ...rest
 }: {
   children: ReactNode;
   className?: string;
   onClick?: () => void;
-}) {
+} & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       onClick={onClick}
       className={`rounded-[var(--radius-card)] bg-card shadow-[var(--shadow-card)] ${onClick ? "cursor-pointer" : ""} ${className}`}
+      {...rest}
     >
       {children}
     </div>

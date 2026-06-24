@@ -6,7 +6,13 @@
  * the org just gets an invoice tied to the contractor's @handle. Defaults to the
  * local console-api; override with VITE_CONSOLE_ORIGIN.
  */
-const ORG_BASE = ((import.meta as { env?: Record<string, string> }).env?.VITE_CONSOLE_ORIGIN) || "http://localhost:8790";
+function defaultOrgBase(): string {
+  if (typeof window === "undefined") return "http://localhost:8790";
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1" ? "http://localhost:8790" : "https://console.benzo.space";
+}
+
+const ORG_BASE = ((import.meta as { env?: Record<string, string> }).env?.VITE_CONSOLE_ORIGIN) || defaultOrgBase();
 
 async function ohttp<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${ORG_BASE}/api${path}`, {
