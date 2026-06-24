@@ -6,9 +6,9 @@
  * its on-chain settlement. This is the CFO/auditor-readable side of private money.
  */
 import { useEffect, useState } from "react";
-import { CheckCircle2, ScrollText, ShieldAlert } from "lucide-react";
+import { CheckCircle2, Download, FileKey2, ScrollText, ShieldAlert } from "lucide-react";
 import type { LedgerEntry, LedgerSourceType } from "@benzo/types";
-import { api } from "../lib/api";
+import { api, type PrivateAuditPacketResponse } from "../lib/api";
 import { explorerTxUrl, fmtUsd, formatAddress, formatDate, friendlyError } from "../lib/format";
 import { Page, Proving, Reveal, Stagger } from "../ui/motion";
 import { Button, Card, EmptyState, Pill, Skeleton, useToast } from "../ui/primitives";
@@ -36,6 +36,9 @@ export function AuditLog() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [integrity, setIntegrity] = useState<{ ok: boolean; length: number; brokenAt?: number } | null>(null);
+  const [privateAudit, setPrivateAudit] = useState<PrivateAuditPacketResponse | null>(null);
+  const [privateAuditError, setPrivateAuditError] = useState<string | null>(null);
+  const [loadingPrivateAudit, setLoadingPrivateAudit] = useState(false);
 
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
@@ -68,6 +71,35 @@ export function AuditLog() {
     } finally {
       setVerifying(false);
     }
+  }
+
+  async function loadPrivateAuditPacket() {
+    setLoadingPrivateAudit(true);
+    setPrivateAuditError(null);
+    try {
+      const r = await api.privateAuditPacket();
+      setPrivateAudit(r);
+      toast({
+        title: r.integrity.ok ? `Private packet ready · ${r.packet.envelopes.length} encrypted events` : "Private event chain failed integrity",
+        tone: r.integrity.ok ? "success" : "danger",
+      });
+    } catch (e) {
+      setPrivateAuditError(friendlyError(e, "Couldn't load the private audit packet."));
+      toast({ title: friendlyError(e), tone: "danger" });
+    } finally {
+      setLoadingPrivateAudit(false);
+    }
+  }
+
+  function downloadPrivateAuditPacket() {
+    if (!privateAudit) return;
+    const blob = new Blob([JSON.stringify(privateAudit.packet, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `benzo-private-audit-${privateAudit.packet.scope.label}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   return (
@@ -111,6 +143,58 @@ export function AuditLog() {
               {integrity.ok
                 ? "Every entry's hash matches its recomputed value. Any after-the-fact change would break the chain from that point on."
                 : "The recorded hash no longer matches the recomputed one. Everything from that entry onward is suspect."}
+            </div>
+          </Reveal>
+        ) : null}
+      </Card>
+
+      <Card className="mb-5 p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2 text-[14px] font-semibold">
+              <FileKey2 size={16} className="text-primary" /> Private event packet
+            </div>
+            <p className="mt-1.5 max-w-2xl text-[12.5px] leading-relaxed text-muted">
+              Ciphertext envelopes, Merkle inclusion proofs, and a chain head for invoice, payroll, payment, approval, and viewing-key events.
+            </p>
+          </div>
+          <Button variant="outline" onClick={loadPrivateAuditPacket} loading={loadingPrivateAudit} data-testid="load-private-audit">
+            <FileKey2 size={15} /> Load packet
+          </Button>
+        </div>
+        {privateAuditError ? (
+          <Reveal tone="danger" className="mt-4 rounded-lg border border-danger/30 bg-danger/8 px-4 py-3">
+            <div className="text-[13px] font-semibold text-danger">{privateAuditError}</div>
+          </Reveal>
+        ) : null}
+        {privateAudit ? (
+          <Reveal tone={privateAudit.integrity.ok ? "success" : "danger"} className="mt-4 rounded-lg border border-border bg-surface/70 px-4 py-3" data-testid="private-audit-result">
+            <div className="grid gap-3 md:grid-cols-4">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Events</div>
+                <div className="font-display mt-1 text-xl text-fg">{privateAudit.packet.envelopes.length}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Merkle root</div>
+                <div className="mt-1 font-mono text-[12px] text-fg">{formatAddress(privateAudit.packet.anchor.merkleRoot, 8, 8)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Head hash</div>
+                <div className="mt-1 font-mono text-[12px] text-fg">{formatAddress(privateAudit.packet.anchor.headHash, 8, 8)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.06em] text-muted">Integrity</div>
+                <div className={`mt-1 flex items-center gap-1.5 text-[13px] font-semibold ${privateAudit.integrity.ok ? "text-[#1d7a52]" : "text-danger"}`}>
+                  {privateAudit.integrity.ok ? <CheckCircle2 size={14} /> : <ShieldAlert size={14} />}
+                  {privateAudit.integrity.ok ? "Verified" : `Broken at ${privateAudit.integrity.brokenAt}`}
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center justify-between gap-3 border-t border-border pt-3">
+              <div className="min-w-0 truncate text-[12px] text-muted">{privateAudit.disclosure}</div>
+              <Button variant="outline" onClick={downloadPrivateAuditPacket} data-testid="download-private-audit">
+                <Download size={15} /> Export JSON
+              </Button>
             </div>
           </Reveal>
         ) : null}

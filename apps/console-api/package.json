@@ -14,6 +14,7 @@
     "@benzo/connectors": "workspace:*",
     "@benzo/core": "workspace:*",
     "@benzo/links": "workspace:*",
+    "@benzo/private-events": "workspace:*",
     "@benzo/types": "workspace:*",
     "@stellar/stellar-sdk": "^15.1.0"
   },

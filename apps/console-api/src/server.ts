@@ -31,6 +31,7 @@ import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
 import { db, fmtUsd, id, now, parseRosterCsv } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
+import { buildAnchor, buildAuditPacket, deriveEventKey, MemoryPrivateEventStore, verifyHashChain, type PrivateEventType } from "@benzo/private-events";
 
 /** Recipient @handle stashed per payment so the approve/release step can settle it. */
 const pendingHandles = new Map<string, string>();
@@ -38,6 +39,40 @@ const pendingHandles = new Map<string, string>();
 const pendingPayrollHandles = new Map<string, { handle?: string; amount: string }[]>();
 /** Per-contractor @handle (from CSV import / roster edit) used for live settlement. */
 const cpHandle = new Map<string, string>();
+
+const privateEventKey = deriveEventKey(
+  process.env.BENZO_PRIVATE_EVENT_SECRET ||
+    process.env.DEPLOYER_SECRET ||
+    "benzo-sandbox-private-event-key",
+  `benzo/private-events/v1/${db.org.id}`,
+);
+const privateEvents = new MemoryPrivateEventStore(privateEventKey);
+
+function appendPrivateEvent<TPayload extends Record<string, unknown>>(
+  type: PrivateEventType,
+  subjectId: string,
+  schema: string,
+  payload: TPayload,
+  publicMeta: Record<string, string | number | boolean | null> = {},
+): void {
+  privateEvents.append({
+    orgId: db.org.id,
+    type,
+    subjectId,
+    schema,
+    payload,
+    publicMeta,
+  });
+}
+
+function privateEventAuditSummary() {
+  const events = privateEvents.list();
+  return {
+    anchor: buildAnchor(db.org.id, events),
+    integrity: verifyHashChain(events),
+    note: "Encrypted private-event envelopes only. Plaintext requires a scoped viewing key.",
+  };
+}
 
 /**
  * Assemble a payroll run by COMPUTING each line from the contractor's stored rate
@@ -125,6 +160,13 @@ function writeRunLedger(batch: PayrollBatch, line: PayrollLine, txId?: string): 
       { accountId: "acc_tre", direction: "credit", amount: line.amount, assetCode: "USDC" },
     ],
   });
+  appendPrivateEvent(
+    "payment.settled",
+    txId ?? `${batch.id}:${line.counterpartyId}`,
+    "payment.settled.v1",
+    { batch, line, txId, settledAt: now() },
+    { status: line.status, source: "payroll", live: Boolean(txId) },
+  );
 }
 
 async function settlePayroll(batch: PayrollBatch): Promise<void> {
@@ -482,6 +524,22 @@ route("POST", "/api/payments", async (req, res) => {
   if (toHandle) pendingHandles.set(po.id, toHandle);
   if (!policy) await submitShieldedTransfer(po, toHandle); // auto-settle when no approval needed
   db.payments.push(po);
+  appendPrivateEvent(
+    "payment.submitted",
+    po.id,
+    "payment.order.v1",
+    { payment: po, toHandle, requestedAt: po.createdAt },
+    { status: po.status, kind: po.type, source: "console" },
+  );
+  if (po.settlement?.onChain || po.settlement?.txHash) {
+    appendPrivateEvent(
+      "payment.settled",
+      po.settlement.txHash ?? po.id,
+      "payment.settled.v1",
+      { payment: po, settlement: po.settlement, settledAt: now() },
+      { status: po.status, source: "direct", live: Boolean(po.settlement.onChain) },
+    );
+  }
   json(res, 201, po);
 });
 route("GET", "/api/payments/:id", (_req, res, p) => {
@@ -498,6 +556,7 @@ route("POST", "/api/payments/:id/approve", async (req, res, p) => {
     recordApproval({ policy, approvals: po.approvals, proposerId: po.createdByMemberId, actorMemberId: body.actorMemberId, decision: "denied", comment: body.comment, paymentOrderId: po.id });
     po.status = "cancelled";
     po.updatedAt = now();
+    appendPrivateEvent("approval.recorded", po.id, "approval.v1", { payment: po, decision: "denied", actorMemberId: body.actorMemberId, comment: body.comment, recordedAt: po.updatedAt }, { status: po.status, source: "payment" });
     return json(res, 200, { ...po, progress: progress(policy, po.approvals) });
   }
   // Record ONE approval against the next unsatisfied step (segregation of duties enforced).
@@ -506,6 +565,16 @@ route("POST", "/api/payments/:id/approve", async (req, res, p) => {
   // Release ONLY when every step + the release gate are satisfied.
   if (r.progress.satisfied) await submitShieldedTransfer(po, pendingHandles.get(po.id));
   po.updatedAt = now();
+  appendPrivateEvent("approval.recorded", po.id, "approval.v1", { payment: po, decision: "approved", actorMemberId: body.actorMemberId, comment: body.comment, progress: r.progress, recordedAt: po.updatedAt }, { status: po.status, source: "payment" });
+  if (po.settlement?.onChain || po.settlement?.txHash) {
+    appendPrivateEvent(
+      "payment.settled",
+      po.settlement.txHash ?? po.id,
+      "payment.settled.v1",
+      { payment: po, settlement: po.settlement, settledAt: po.updatedAt },
+      { status: po.status, source: "approval", live: Boolean(po.settlement.onChain) },
+    );
+  }
   json(res, 200, { ...po, progress: r.progress });
 });
 
@@ -647,6 +716,13 @@ route("POST", "/api/invoices", async (req, res) => {
     dueDate: body.dueDate, hostedUrl: `https://pay.benzo.test/i/${id("secret")}`, paymentOrderIds: [], createdAt: now(),
   };
   db.invoices.push(inv);
+  appendPrivateEvent(
+    "invoice.created",
+    inv.id,
+    "invoice.v1",
+    { invoice: inv, createdAt: inv.createdAt },
+    { status: inv.status, itemCount: inv.lineItems.length, source: "console" },
+  );
   json(res, 201, inv);
 });
 
@@ -670,6 +746,31 @@ route("POST", "/api/invoices/:id/pay", async (_req, res, pp) => {
   db.payments.push(po);
   inv.paymentOrderIds = [...(inv.paymentOrderIds ?? []), po.id];
   if (po.settlement?.onChain || (!policy && po.status === "approved")) inv.status = "paid";
+  appendPrivateEvent(
+    "payment.submitted",
+    po.id,
+    "payment.order.v1",
+    { invoice: inv, payment: po, toHandle: h, requestedAt: po.createdAt },
+    { status: po.status, kind: po.type, source: "invoice" },
+  );
+  if (inv.status === "paid") {
+    appendPrivateEvent(
+      "invoice.paid",
+      inv.id,
+      "invoice.v1",
+      { invoice: inv, payment: po, paidAt: now() },
+      { status: inv.status, source: "invoice" },
+    );
+  }
+  if (po.settlement?.onChain || po.settlement?.txHash) {
+    appendPrivateEvent(
+      "payment.settled",
+      po.settlement.txHash ?? po.id,
+      "payment.settled.v1",
+      { invoice: inv, payment: po, settlement: po.settlement, settledAt: now() },
+      { status: po.status, source: "invoice", live: Boolean(po.settlement.onChain) },
+    );
+  }
   json(res, 201, { invoice: inv, payment: po });
 });
 
@@ -687,6 +788,13 @@ route("POST", "/api/payrolls", async (req, res) => {
   };
   pendingPayrollHandles.set(batch.id, handles);
   db.payrolls.push(batch);
+  appendPrivateEvent(
+    "payroll.computed",
+    batch.id,
+    "payroll.batch.v1",
+    { batch, handles, computedAt: batch.createdAt },
+    { status: batch.status, source: batch.source, itemCount: batch.lines.length },
+  );
   json(res, 201, batch);
 });
 
@@ -737,6 +845,7 @@ route("POST", "/api/payrolls/:id/approve", async (req, res, p) => {
   if (body.decision === "denied") {
     recordApproval({ policy, approvals: batch.approvals, proposerId: db.sessionMemberId, actorMemberId: body.actorMemberId, decision: "denied", payrollBatchId: batch.id });
     batch.status = "cancelled";
+    appendPrivateEvent("approval.recorded", batch.id, "approval.v1", { batch, decision: "denied", actorMemberId: body.actorMemberId, comment: body.comment, recordedAt: now() }, { status: batch.status, source: "payroll" });
     return json(res, 200, { ...batch, progress: progress(policy, batch.approvals) });
   }
   // Record ONE approval against the next unsatisfied step (segregation of duties enforced).
@@ -744,9 +853,11 @@ route("POST", "/api/payrolls/:id/approve", async (req, res, p) => {
   if (r.error) return json(res, 400, { error: r.error });
   if (!r.progress.satisfied) {
     batch.status = "needs_approval"; // more approvals required before release
+    appendPrivateEvent("approval.recorded", batch.id, "approval.v1", { batch, decision: "approved", actorMemberId: body.actorMemberId, comment: body.comment, progress: r.progress, recordedAt: now() }, { status: batch.status, source: "payroll" });
     return json(res, 200, { ...batch, progress: r.progress });
   }
   await settlePayroll(batch); // fully approved → idempotent, funded, resumable settlement
+  appendPrivateEvent("approval.recorded", batch.id, "approval.v1", { batch, decision: "approved", actorMemberId: body.actorMemberId, comment: body.comment, progress: r.progress, recordedAt: now() }, { status: batch.status, source: "payroll" });
   json(res, 200, { ...batch, progress: r.progress });
 });
 
@@ -891,12 +1002,26 @@ route("POST", "/api/grants", async (req, res) => {
     status: "active" as const, createdAt: now(),
   };
   db.grants.push(grant);
+  appendPrivateEvent(
+    "grant.created",
+    grant.id,
+    "viewing-grant.v1",
+    { grant, createdAt: grant.createdAt },
+    { status: grant.status, tier: grant.tier, source: "audit" },
+  );
   json(res, 201, grant);
 });
 route("POST", "/api/grants/:id/revoke", (_req, res, p) => {
   const grant = db.grants.find((x) => x.id === p.id);
   if (!grant) return json(res, 404, { error: "not found" });
   grant.status = "revoked";
+  appendPrivateEvent(
+    "grant.revoked",
+    grant.id,
+    "viewing-grant.v1",
+    { grant, revokedAt: now() },
+    { status: grant.status, tier: grant.tier, source: "audit" },
+  );
   json(res, 200, grant);
 });
 
@@ -904,9 +1029,27 @@ route("GET", "/api/compliance/zones", (_req, res) => json(res, 200, db.zones));
 route("GET", "/api/ledger", (_req, res) => json(res, 200, db.ledger));
 // Tamper-evidence: re-walk the audit hash-chain and report integrity.
 route("GET", "/api/ledger/verify", (_req, res) => json(res, 200, verifyLedgerChain()));
+route("GET", "/api/audit/private-events", (req, res) => {
+  const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
+  const eventTypes = url.searchParams.get("eventTypes")?.split(",").filter(Boolean) as PrivateEventType[] | undefined;
+  const subjectIds = url.searchParams.get("subjectIds")?.split(",").filter(Boolean) || undefined;
+  const scope = {
+    label: url.searchParams.get("label") || "console-private-events",
+    from: url.searchParams.get("from") || undefined,
+    to: url.searchParams.get("to") || undefined,
+    eventTypes,
+    subjectIds,
+  };
+  const events = privateEvents.list();
+  json(res, 200, {
+    packet: buildAuditPacket({ orgId: db.org.id, events, scope }),
+    integrity: verifyHashChain(events),
+    disclosure: "ciphertext-only; decrypt selected records with a scoped viewing key outside this API",
+  });
+});
 // The audit trail IS the tamper-evident double-entry ledger (hash-chained). Return
-// the real entries + chain-integrity, not a misleading empty array.
-route("GET", "/api/audit", (_req, res) => json(res, 200, { entries: db.ledger, integrity: verifyLedgerChain() }));
+// the real entries + chain-integrity, plus the private-event anchor for encrypted facts.
+route("GET", "/api/audit", (_req, res) => json(res, 200, { entries: db.ledger, integrity: verifyLedgerChain(), privateEvents: privateEventAuditSummary() }));
 
 route("GET", "/api/integrations", (_req, res) => json(res, 200, db.integrations));
 route("POST", "/api/integrations", async (req, res) => {

@@ -35,6 +35,36 @@ export interface ApprovalProgressView {
   steps: Array<{ stepIndex: number; role: string; need: number; have: number; satisfied: boolean; kind: "approve" | "release" }>;
 }
 
+export interface PrivateEventEnvelopeView {
+  id: string;
+  orgId: string;
+  type: string;
+  subjectId: string;
+  schema: string;
+  occurredAt: string;
+  publicMeta: Record<string, string | number | boolean | null>;
+  ciphertext: string;
+  iv: string;
+  tag: string;
+  aadHash: string;
+  payloadHash: string;
+  prevHash: string;
+  hash: string;
+}
+
+export interface PrivateAuditPacketResponse {
+  packet: {
+    orgId: string;
+    scope: { label: string; from?: string; to?: string; eventTypes?: string[]; subjectIds?: string[] };
+    anchor: { orgId: string; eventCount: number; headHash: string; merkleRoot: string; anchoredAt: string; txHash?: string };
+    envelopes: PrivateEventEnvelopeView[];
+    inclusionProofs: Array<{ eventHash: string; siblings: string[]; index: number }>;
+    issuedAt: string;
+  };
+  integrity: { ok: boolean; headHash: string; brokenAt?: number };
+  disclosure: string;
+}
+
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
@@ -197,6 +227,7 @@ export const api = {
   ledger: () => http<LedgerEntry[]>("/ledger"),
   // Re-walk the chain server-side and report integrity (ok / brokenAt index).
   ledgerVerify: () => http<{ ok: boolean; length: number; brokenAt?: number }>("/ledger/verify"),
+  privateAuditPacket: () => http<PrivateAuditPacketResponse>("/audit/private-events"),
   // Per-contractor payslips for one run (gross, status, on-chain receipt).
   payslips: (id: string) =>
     http<Array<{ period: string; contractor: string; gross: string; status: string; txHash?: string; error?: string }>>(`/payrolls/${id}/payslips`),

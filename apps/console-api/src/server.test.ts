@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import { afterAll, beforeAll, expect, test } from "vitest";
+import { verifyAuditPacket } from "@benzo/private-events";
 
 let baseUrl = "";
 let server: ReturnType<typeof createServer>;
@@ -24,4 +25,34 @@ test("routes nested console endpoints through the Vercel rpc shim", async () => 
   const res = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/ledger/verify")}`);
   expect(res.status).toBe(200);
   await expect(res.json()).resolves.toMatchObject({ ok: true });
+});
+
+test("records invoice facts as ciphertext-only private audit packets", async () => {
+  const invoice = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/invoices")}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      counterpartyId: "cp_grace",
+      number: "INV-PRIVATE-1",
+      lineItems: [{ description: "Sensitive inspection work", quantity: 1, unitAmount: "1230000000" }],
+      assetCode: "USDC",
+    }),
+  });
+  expect(invoice.status).toBe(201);
+  const created = await invoice.json() as { id: string };
+
+  const audit = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/audit/private-events")}`);
+  expect(audit.status).toBe(200);
+  const text = await audit.text();
+  expect(text).not.toContain("Sensitive inspection work");
+  expect(text).not.toContain("INV-PRIVATE-1");
+  expect(text).not.toContain("1230000000");
+
+  const body = JSON.parse(text) as {
+    packet: Parameters<typeof verifyAuditPacket>[0];
+    integrity: { ok: boolean };
+  };
+  expect(body.integrity.ok).toBe(true);
+  expect(verifyAuditPacket(body.packet)).toBe(true);
+  expect(body.packet.envelopes.some((e) => e.type === "invoice.created" && e.subjectId === created.id)).toBe(true);
 });

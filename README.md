@@ -140,6 +140,25 @@ that indexes encrypted notes, sponsors fees, and bridges fiat.
   @benzo/relayer          @benzo/indexer ── viewing-key scan ──► holders & auditors
 ```
 
+### Private product facts and auditability
+
+Business product facts (invoice lines, payroll rates, handles, approver comments,
+viewing grant details) must stay off-chain and out of public API metadata. The
+console BFF now appends those transitions as AES-256-GCM encrypted private events
+(`invoice.created`, `payment.submitted`, `payment.settled`, `payroll.computed`,
+`approval.recorded`, `grant.created`, `grant.revoked`). Each envelope commits to
+the previous envelope and into a Merkle root; `/api/audit/private-events` returns a
+ciphertext-only audit packet with inclusion proofs, and the console Audit Log can
+export that packet for scoped review.
+
+The public metadata guard rejects obvious sensitive fields (`amount`, `name`,
+`email`, `handle`, `memo`, `description`, etc.) before an event is written. The
+auditable surface is therefore: encrypted records + hash-chain head + Merkle root
++ inclusion proofs + the ZK/on-chain payment/proof refs carried in the encrypted
+payload. A dedicated Soroban audit-root registry is the right next production
+anchor; the current implementation computes the root and packet locally and does
+not disguise it as an invoice/request commitment.
+
 **Canonical invariants** (normative, asserted in tests):
 `commitment = Poseidon2(amount, recipient_pk, blinding, asset_id)` ·
 `nullifier = Poseidon2(spend_sk, leaf_index, DOMAIN)` ·
@@ -173,7 +192,8 @@ Benzo is an **honest work-in-progress**; this table is the source of truth.
 indexer · self-hosted SEP-1/10/24 anchor (real Ed25519, real USDC at both edges) ·
 confidential TEE prover (Phala dstack / Intel TDX; client verifies the live
 attestation quote, witness sealed to the attested key — adds confidentiality, soundness
-still rests on the on-chain proof).
+still rests on the on-chain proof) · encrypted private-event audit packets for the
+console BFF (ciphertext envelopes, hash-chain/Merkle inclusion proofs, UI export).
 
 ### FUTURE / REFERENCE — not load-bearing on-chain here
 
@@ -209,6 +229,11 @@ A confident submission states what it does *not* yet guarantee.
   registered org exists and is tested; routing the standalone SDK attestations
   through it needs an `org_account` redeploy (follow-up). The `JSPLITORG`
   settlement money-path is already sound and unaffected.
+- **Console read models are still sandbox projections.** The BFF now records
+  private product transitions as encrypted audit events, but the seeded
+  org/accounts/invoices/payroll arrays remain in-memory projections for the
+  testnet sandbox. Production needs a durable encrypted blob store plus a
+  dedicated Soroban audit-root registry for periodic root anchoring.
 
 No mainnet keys are used anywhere. Testnet-only, unaudited.
 
@@ -220,7 +245,8 @@ No mainnet keys are used anywhere. Testnet-only, unaudited.
 contracts/    16 Soroban contracts (verifier_groth16, pool, merkle, nullifier_set,
               asp_membership, asp_non_membership, org_account, viewkey_anchor, …)
 circuits/     Circom circuits (Groth16/BN254) + Poseidon2 params + manifest
-packages/     @benzo/core (headless SDK + prover), ui, kyc, anchor, relayer, indexer, …
+packages/     @benzo/core (headless SDK + prover), private-events, ui, kyc, anchor,
+              relayer, indexer, …
 apps/         wallet (consumer) · console (business) · wallet-api · console-api · landing
 tests/        replay-verify (permissionless) + e2e (real-USDC on-chain flows)
 deployments/  testnet.json — the live cluster + VK provenance (single source of truth)
