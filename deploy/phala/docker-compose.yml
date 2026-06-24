@@ -5,7 +5,7 @@
 # witness to the attested X25519 key BEFORE any witness is transmitted.
 services:
   benzo-enclave:
-    image: ghcr.io/akash-mondal/benzo-prover:v5
+    image: ghcr.io/akash-mondal/benzo-prover:v6
     ports:
       - "8080:8080" # HOST:CONTAINER -> https://<app-id>-8080.<node>.phala.network
     environment:

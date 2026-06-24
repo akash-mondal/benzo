@@ -8,7 +8,7 @@ REPO="$(cd "$HERE/../.." && pwd)"
 SRC="$REPO/circuits/build"
 DST="$HERE/artifacts"
 
-CIRCUITS=(shield joinsplit unshield kyc_credential funds_attestation \
+CIRCUITS=(shield joinsplit unshield proof_of_balance kyc_credential funds_attestation \
   proof_of_sum_org proof_of_balance_org spending_cap payout_innocence \
   payroll_computation org_spend_auth kyb_credential cross_netting joinsplit_org)
 

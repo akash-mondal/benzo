@@ -22,6 +22,7 @@ export const CIRCUITS = Object.freeze([
   "shield",
   "joinsplit",
   "unshield",
+  "proof_of_balance",
   "kyc_credential",
   "funds_attestation",
   // Business / org circuits (the managed-service side proves these on the TEE):

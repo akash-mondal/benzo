@@ -6,11 +6,12 @@ key, proven inside the TEE, and only the proof leaves. Soundness is identical to
 local proving (proofs verify on-chain either way) — the TEE only protects WHERE
 the witness is handled.
 
-All org circuits are baked into the image (`services/prover-enclave/src/prove.mjs`
-`CIRCUITS` + `scripts/stage-artifacts.sh`): `proof_of_sum_org`,
-`proof_of_balance_org`, `spending_cap`, `payout_innocence`, `payroll_computation`,
-`org_spend_auth`, `kyb_credential`, `cross_netting`, `joinsplit_org` (plus the
-consumer `shield`/`joinsplit`/`unshield`/`kyc_credential`/`funds_attestation`).
+All TEE-delegated circuits are baked into the image (`services/prover-enclave/src/prove.mjs`
+`CIRCUITS` + `scripts/stage-artifacts.sh`): consumer `shield`, `joinsplit`,
+`unshield`, `proof_of_balance`, `kyc_credential`, `funds_attestation`; org
+`proof_of_sum_org`, `proof_of_balance_org`, `spending_cap`, `payout_innocence`,
+`payroll_computation`, `org_spend_auth`, `kyb_credential`, `cross_netting`,
+`joinsplit_org`.
 
 Verified: `tests/e2e/tee-org-circuits.mjs` drives the enclave's exact proving core
 over the baked org artifacts and verifies the proof ON-CHAIN (cross_netting ->
@@ -27,11 +28,11 @@ by `tests/e2e/tee-onchain.mjs`.
 bash services/prover-enclave/scripts/stage-artifacts.sh        # stage all circuit artifacts (~242M)
 cd services/prover-enclave
 # Cross-build + push for the CVM's architecture in one step:
-docker buildx build --platform linux/amd64 -t ghcr.io/akash-mondal/benzo-prover:v4 --push .
-docker manifest inspect ghcr.io/akash-mondal/benzo-prover:v4 | grep architecture   # must show amd64
+docker buildx build --platform linux/amd64 -t ghcr.io/akash-mondal/benzo-prover:v6 --push .
+docker manifest inspect ghcr.io/akash-mondal/benzo-prover:v6 | grep architecture   # must show amd64
 ```
 
-Then bump the image tag in `deploy/phala/docker-compose.yml` (`:v3` -> `:v4`).
+Then bump the image tag in `deploy/phala/docker-compose.yml`.
 
 ## Upgrade the live CVM (new compose-hash = new measurement)
 

@@ -174,8 +174,8 @@ export function getClient(prover: ProverKind = process.env.VERCEL === "1" ? "tee
     const d = deployment();
     // `circuit` is the short name a delegated/TEE prover uses to find its own
     // staged artifacts (the enclave keys by name, not path); NodeProver/WasmProver
-    // ignore it and use the paths. The enclave stages shield/joinsplit/unshield —
-    // so the TEE cash-out (unshield) resolves; proof_of_balance is local-only.
+    // ignore it and use the paths. The enclave stages the wallet circuits used by
+    // low-power/API flows, including proof_of_balance for mobile Share Proof.
     const art = (c: string) => ({
       wasmPath: `${ROOT}/circuits/build/${c}/${c}_js/${c}.wasm`,
       zkeyPath: `${ROOT}/circuits/build/${c}/${c}.zkey`,
