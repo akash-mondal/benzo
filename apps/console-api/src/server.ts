@@ -542,7 +542,18 @@ function makeInvite(kind: OrgInvite["kind"], opts: { name?: string; email?: stri
   // So only member invites bounce if opened in the wallet (MismatchScreen).
   const app = kind === "member" ? "business" : "consumer";
   const payload = encodeBenzoLink(
-    { type: "org", orgId: db.org.id, kind, role: opts.role, orgName: db.org.name, token, app, expiresAt: String(expiresAt) },
+    {
+      type: "org",
+      orgId: db.org.id,
+      kind,
+      role: opts.role,
+      orgName: db.org.name,
+      counterpartyId: opts.counterpartyId,
+      inviteeName: opts.name ?? opts.email,
+      token,
+      app,
+      expiresAt: String(expiresAt),
+    },
     "scheme",
   );
   const link =
@@ -601,9 +612,19 @@ route("POST", "/api/invites/:id/revoke", (_req, res, p) => {
 });
 /** Accept an invite by token (the contractor/employee onboarding handshake). */
 route("POST", "/api/invites/accept", async (req, res) => {
-  const body = await readJson<{ token: string; handle?: string }>(req);
+  const body = await readJson<{ token: string; handle?: string; counterpartyId?: string; kind?: OrgInvite["kind"]; orgId?: string; name?: string }>(req);
   const inv = invites.find((x) => x.token === body.token);
-  if (!inv) return json(res, 404, { error: "invite not found or expired" });
+  if (!inv) {
+    if (!body.counterpartyId || (body.kind !== "contractor" && body.kind !== "customer")) {
+      return json(res, 404, { error: "invite not found or expired" });
+    }
+    const cp = db.counterparties.find((c) => c.id === body.counterpartyId);
+    if (cp && body.handle) {
+      cpHandle.set(cp.id, body.handle.startsWith("@") ? body.handle : `@${body.handle}`);
+      cp.status = "allowlisted";
+    }
+    return json(res, 200, { ok: true, orgName: db.org.name, kind: body.kind, counterpartyId: body.counterpartyId, orgId: body.orgId ?? db.org.id });
+  }
   if (inv.status === "revoked") return json(res, 400, { error: "invite was revoked" });
   inv.status = "accepted";
   // a contractor accepting from the wallet hands over their @handle for settlement

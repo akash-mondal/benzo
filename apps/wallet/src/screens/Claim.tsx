@@ -200,7 +200,14 @@ function ContractorInvite({ link }: { link: OrgInviteLink }) {
     setErr(null);
     try {
       const handle = session?.handle ?? session?.profile.handle;
-      const r = await orgApi.acceptInvite(link.token, handle);
+      const r = await orgApi.acceptInvite({
+        token: link.token,
+        handle,
+        counterpartyId: link.counterpartyId,
+        kind: link.kind,
+        orgId: link.orgId,
+        name: link.inviteeName,
+      });
       nav(`/work?cp=${encodeURIComponent(r.counterpartyId ?? "")}&org=${encodeURIComponent(r.orgName ?? org)}`);
     } catch (e) {
       setErr(friendlyError(e, "Couldn't accept the invite. The link may have expired — ask the company to resend it."));

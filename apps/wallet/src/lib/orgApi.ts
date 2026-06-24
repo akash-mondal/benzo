@@ -55,8 +55,8 @@ function toStroops(amount: string): string {
 }
 
 export const orgApi = {
-  acceptInvite: (token: string, handle?: string) =>
-    ohttp<AcceptedInvite>("/invites/accept", { method: "POST", body: JSON.stringify({ token, handle }) }),
+  acceptInvite: (body: { token: string; handle?: string; counterpartyId?: string; kind?: "member" | "contractor" | "customer"; orgId?: string; name?: string }) =>
+    ohttp<AcceptedInvite>("/invites/accept", { method: "POST", body: JSON.stringify(body) }),
   submitInvoice: (counterpartyId: string, amount: string, description: string) =>
     ohttp<OrgInvoice>("/invoices", {
       method: "POST",

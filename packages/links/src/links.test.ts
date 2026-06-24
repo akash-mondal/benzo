@@ -29,7 +29,7 @@ const cases: BenzoLink[] = [
   },
   { type: "handle", handle: "asha" },
   { type: "handle", handle: "acme", app: "business" },
-  { type: "org", orgId: "org_1", kind: "contractor", token: "hmac-tok-123", role: "member", orgName: "Acme Inc", app: "business", expiresAt: "1800000000" },
+  { type: "org", orgId: "org_1", kind: "contractor", counterpartyId: "cp_123", inviteeName: "Grace Hopper", token: "hmac-tok-123", role: "member", orgName: "Acme Inc", app: "consumer", expiresAt: "1800000000" },
   { type: "org", orgId: "org_1", kind: "member", token: "tok2", app: "business" },
 ];
 
@@ -77,6 +77,10 @@ describe("app-scope boundary", () => {
 
   it("org links default to business", () => {
     expect(linkApp({ type: "org", orgId: "o", kind: "member", token: "t" })).toBe("business");
+  });
+
+  it("contractor org links can explicitly target the consumer wallet", () => {
+    expect(linkApp({ type: "org", orgId: "o", kind: "contractor", token: "t", app: "consumer" })).toBe("consumer");
   });
 
   it("assertAppScope passes when scopes match", () => {

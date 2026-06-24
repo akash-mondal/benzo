@@ -44,7 +44,8 @@ export function Invites() {
   async function createOne() {
     setBusy(true);
     try {
-      await api.createInvite({ kind: tab, name: name || undefined, email: email || undefined, role: tab === "member" ? role : undefined, handle: handle || undefined });
+      const created = await api.createInvite({ kind: tab, name: name || undefined, email: email || undefined, role: tab === "member" ? role : undefined, handle: handle || undefined });
+      setInvites((prev) => (prev ? [created, ...prev.filter((i) => i.id !== created.id)] : [created]));
       setName("");
       setEmail("");
       setHandle("");
@@ -61,6 +62,7 @@ export function Invites() {
     setBusy(true);
     try {
       const r = await api.bulkInvite(csv);
+      setInvites((prev) => (prev ? [...r.invites, ...prev.filter((i) => !r.invites.some((inv) => inv.id === i.id))] : r.invites));
       setCsv("");
       await load();
       toast({ title: `${r.created} contractor invite${r.created === 1 ? "" : "s"} created`, tone: "success" });

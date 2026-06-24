@@ -77,6 +77,10 @@ export interface OrgInviteLink {
   orgId: string;
   /** what the invitee becomes */
   kind: "member" | "contractor" | "customer";
+  /** business counterparty record created for contractor/customer invites */
+  counterpartyId?: string;
+  /** invited person/customer label, used as a client-side fallback only */
+  inviteeName?: string;
   /** single-use HMAC token — carried in the URL fragment */
   token: string;
   /** role granted (members only) */
@@ -177,6 +181,8 @@ export function encodeBenzoLink(link: BenzoLink, base: "scheme" | "web" = "schem
       const q = new URLSearchParams();
       q.set("o", link.orgId);
       q.set("kind", link.kind);
+      if (link.counterpartyId) q.set("cp", link.counterpartyId);
+      if (link.inviteeName) q.set("n", link.inviteeName);
       if (link.role) q.set("r", link.role);
       if (link.orgName) q.set("org", link.orgName);
       q.set("app", link.app ?? "business");
@@ -262,10 +268,14 @@ export function parseBenzoLink(input: string): BenzoLink | null {
     const kindParam = q.get("kind");
     if (!orgId || (kindParam !== "member" && kindParam !== "contractor" && kindParam !== "customer")) return null;
     const out: OrgInviteLink = { type: "org", orgId, kind: kindParam, token: fragment };
+    const counterpartyId = q.get("cp");
+    const inviteeName = q.get("n");
     const role = q.get("r");
     const orgName = q.get("org");
     const app = parseApp(q.get("app"));
     const exp = q.get("exp");
+    if (counterpartyId) out.counterpartyId = counterpartyId;
+    if (inviteeName) out.inviteeName = inviteeName;
     if (role) out.role = role;
     if (orgName) out.orgName = orgName;
     out.app = app ?? "business";
