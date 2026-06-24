@@ -31,7 +31,7 @@ import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
 import { db, fmtUsd, id, now, parseRosterCsv } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
-import { auditPacketHash, buildAnchor, buildAuditPacket, deriveEventKey, MemoryPrivateEventStore, sha256Hex, verifyHashChain, type PrivateEventType } from "@benzo/private-events";
+import { auditPacketHash, buildAnchor, buildAuditPacket, deriveEventKey, MemoryPrivateEventStore, sha256Hex, verifyHashChain, type AuditPacket, type PrivateEventType } from "@benzo/private-events";
 
 /** Recipient @handle stashed per payment so the approve/release step can settle it. */
 const pendingHandles = new Map<string, string>();
@@ -1055,12 +1055,25 @@ route("GET", "/api/audit/private-events", (req, res) => {
     disclosure: "ciphertext-only; decrypt selected records with a scoped viewing key outside this API",
   });
 });
-route("POST", "/api/audit/private-events/anchor", async (_req, res) => {
+route("POST", "/api/audit/private-events/anchor", async (req, res) => {
+  const body = await readJson<{ packet?: AuditPacket; packetHash?: string; orgHash?: string }>(req);
   const events = privateEvents.list();
-  const packet = buildAuditPacket({ orgId: db.org.id, events, scope: { label: "console-private-events" } });
-  const packetHash = auditPacketHash(packet);
+  const packet = body.packet ?? buildAuditPacket({ orgId: db.org.id, events, scope: { label: "console-private-events" } });
+  const packetHash = body.packet ? auditPacketHash(packet) : auditPacketHash(packet);
+  const orgHash = body.orgHash ?? privateAuditOrgHash();
+  if (body.packetHash && body.packetHash !== packetHash) return json(res, 400, { error: "packetHash does not match packet" });
+  if (packet.anchor.eventCount === 0) {
+    return json(res, 200, {
+      packet,
+      integrity: body.packet ? { ok: true, headHash: packet.anchor.headHash } : verifyHashChain(events),
+      packetHash,
+      orgHash,
+      anchor: { onChain: false, error: "no private events to anchor" },
+      disclosure: "only roots/hashes/event counts are submitted on-chain; records remain ciphertext",
+    });
+  }
   const anchored = await anchorPrivateAuditRoot({
-    orgHash: privateAuditOrgHash(),
+    orgHash,
     merkleRoot: packet.anchor.merkleRoot,
     headHash: packet.anchor.headHash,
     packetHash,
@@ -1069,9 +1082,9 @@ route("POST", "/api/audit/private-events/anchor", async (_req, res) => {
   if (anchored.txHash) packet.anchor.txHash = anchored.txHash;
   json(res, 200, {
     packet,
-    integrity: verifyHashChain(events),
+    integrity: body.packet ? { ok: true, headHash: packet.anchor.headHash } : verifyHashChain(events),
     packetHash,
-    orgHash: privateAuditOrgHash(),
+    orgHash,
     anchor: {
       ...anchored,
       explorer: stellarExpertTx(anchored.txHash),

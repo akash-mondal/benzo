@@ -13,6 +13,7 @@ import { useConsole } from "../lib/store";
 import { fmtUsd, formatAddress } from "../lib/format";
 import { Page } from "../ui/motion";
 import { Button, Card, Input, PrivacyDisclosure, Select, useToast } from "../ui/primitives";
+import { recordConsolePrivateEvent } from "../lib/privateAudit";
 
 function toStroops(human: string): string {
   const [w, f = ""] = human.replace(/[$,]/g, "").trim().split(".");
@@ -22,7 +23,7 @@ function toStroops(human: string): string {
 export function Pay() {
   const nav = useNavigate();
   const toast = useToast();
-  const { accounts, counterparties, dashboard, refresh } = useConsole();
+  const { accounts, counterparties, dashboard, refresh, session } = useConsole();
   // When the workspace is live, a payment that still can't settle on-chain is
   // almost always an unpayable recipient (no payout @handle yet) — not "demo".
   const live = dashboard?.live ?? false;
@@ -48,6 +49,14 @@ export function Pay() {
         toCounterpartyId,
         amount: { amount: toStroops(amount), assetCode: "USDC" },
         memo: memo || undefined,
+      });
+      await recordConsolePrivateEvent({
+        orgId: session?.org.id ?? po.orgId,
+        type: "payment.submitted",
+        subjectId: po.id,
+        schema: "payment.order.v1",
+        payload: { payment: po, requestedAt: po.createdAt },
+        publicMeta: { status: po.status, kind: po.type, source: "console-ui" },
       });
       const settledOnChain = po.settlement?.onChain ?? false;
       // Live workspace + no on-chain settlement => the recipient has no payout

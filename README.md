@@ -145,23 +145,24 @@ that indexes encrypted notes, sponsors fees, and bridges fiat.
 
 Business product facts (invoice lines, payroll rates, handles, approver comments,
 viewing grant details) must stay off-chain and out of public API metadata. The
-console BFF now appends those transitions as AES-256-GCM encrypted private events
+browser console app appends user actions as AES-GCM encrypted private events
 (`invoice.created`, `payment.submitted`, `payment.settled`, `payroll.computed`,
 `approval.recorded`, `grant.created`, `grant.revoked`). Each envelope commits to
-the previous envelope and into a Merkle root; `/api/audit/private-events` returns a
-ciphertext-only audit packet with inclusion proofs, and the console Audit Log can
-export that packet for scoped review.
+the previous envelope and into a Merkle root; the Audit Log builds a
+ciphertext-only packet with inclusion proofs from the browser's encrypted event
+store and can export that packet for scoped review.
 
 The public metadata guard rejects obvious sensitive fields (`amount`, `name`,
 `email`, `handle`, `memo`, `description`, etc.) before an event is written. The
 auditable surface is therefore: encrypted records + hash-chain head + Merkle root
 + inclusion proofs + on-chain `audit_root` anchors + the ZK/on-chain
-payment/proof refs carried in the encrypted payload. `/api/audit/private-events/anchor`
-posts only `org_hash`, `sequence`, `merkle_root`, `head_hash`, `packet_hash`, and
-`event_count` to the deployed testnet registry; the console renders the returned
-tx hash/explorer link as the source for the "anchored" badge. The chain never sees
-invoice lines, payroll rates, approver comments, handles, org names, or viewing
-grant plaintext.
+payment/proof refs carried in the encrypted payload. The Vercel function behind
+`/api/audit/private-events/anchor` receives the ciphertext packet/root from the
+browser and posts only `org_hash`, `sequence`, `merkle_root`, `head_hash`,
+`packet_hash`, and `event_count` to the deployed testnet registry; the console
+renders the returned tx hash/explorer link as the source for the "anchored" badge.
+The chain and serverless function never see invoice lines, payroll rates,
+approver comments, handles, org names, or viewing grant plaintext.
 
 **Canonical invariants** (normative, asserted in tests):
 `commitment = Poseidon2(amount, recipient_pk, blinding, asset_id)` ·
@@ -197,8 +198,8 @@ indexer · self-hosted SEP-1/10/24 anchor (real Ed25519, real USDC at both edges
 confidential TEE prover (Phala dstack / Intel TDX; client verifies the live
 attestation quote, witness sealed to the attested key — adds confidentiality, soundness
 still rests on the on-chain proof) · encrypted private-event audit packets for the
-console BFF (ciphertext envelopes, hash-chain/Merkle inclusion proofs, on-chain
-`audit_root` anchors, UI export).
+console (client-encrypted ciphertext envelopes, hash-chain/Merkle inclusion
+proofs, on-chain `audit_root` anchors, UI export).
 
 ### FUTURE / REFERENCE — not load-bearing on-chain here
 
@@ -234,12 +235,12 @@ A confident submission states what it does *not* yet guarantee.
   registered org exists and is tested; routing the standalone SDK attestations
   through it needs an `org_account` redeploy (follow-up). The `JSPLITORG`
   settlement money-path is already sound and unaffected.
-- **Console read models are still sandbox projections.** The BFF records private
-  product transitions as encrypted audit events and anchors their packet roots in
-  the deployed `audit_root` contract, but the seeded org/accounts/invoices/payroll
-  arrays remain in-memory projections for the testnet sandbox. Production still
-  needs a durable encrypted blob store so ciphertext events survive process
-  restart while roots continue to be anchored on-chain.
+- **Console read models are still sandbox projections.** Private audit packets are
+  client-encrypted and survive serverless cold starts in the browser, with roots
+  anchored in the deployed `audit_root` contract. The seeded
+  org/accounts/invoices/payroll arrays are still Vercel/serverless projections for
+  the testnet sandbox; production should sync those views from a durable encrypted
+  client/cloud blob store instead of treating server memory as product truth.
 
 No mainnet keys are used anywhere. Testnet-only, unaudited.
 
