@@ -45,7 +45,7 @@ export function ShareProof() {
       // no BFF in the loop. Phones + weak desktops skip this (plan.onDevice=false)
       // and delegate to the enclave so a weak device never grinds.
       if (plan.onDevice) {
-        const cs = await proveBalanceClientSide(usdcToStroops(min).toString()).catch(() => null);
+        const cs = await proveBalanceClientSide(usdcToStroops(min).toString());
         if (cs) {
           setOnChain(cs.onChain);
           setSelfVerified(cs.onChain);
@@ -53,6 +53,7 @@ export function ShareProof() {
           setPhase("done");
           return;
         }
+        throw new Error("This device could not load the local proof account.");
       }
       const r = await api.shareProof(min, apiProverKind(plan.kind, teeAvailable));
       setOnChain(r.onChain);
