@@ -28,6 +28,7 @@ import {
   StellarCli,
   StellarRpcClient,
   accountFromClaimSecret,
+  accountFromServerSecret,
   configFromEnv,
   createOrLoadAccountFile,
   fetchMvkRegistryLeaves,
@@ -115,6 +116,16 @@ let client: BenzoClient | null = null;
 let clientKind: ProverKind | null = null;
 let triedOnce = false;
 
+function loadWalletAccount() {
+  if (!process.env.DEPLOYER_SECRET) throw new Error("DEPLOYER_SECRET is required for live wallet account");
+  return process.env.VERCEL === "1"
+    ? accountFromServerSecret(process.env.DEPLOYER_SECRET, "consumer", {
+        label: "wallet",
+        stellarSecret: process.env.DEPLOYER_SECRET,
+      })
+    : createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET }).account;
+}
+
 function chainClientForRuntime(): ChainClient {
   const cfg = configFromEnv();
   if (process.env.VERCEL !== "1") return new StellarCli(cfg);
@@ -190,8 +201,7 @@ export function getClient(prover: ProverKind = process.env.VERCEL === "1" ? "tee
       requestRegistry: d.requestRegistry as string,
       store: new FileKVStore(STATE),
     });
-    const { account } = createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET });
-    c.useAccount(account);
+    c.useAccount(loadWalletAccount());
     client = c;
     clientKind = prover;
     mvkWired = false; // a rebuilt client (e.g. prover switch) must re-wire its MVK mirror
@@ -873,8 +883,7 @@ function sweepExpired(): void {
 
 /** Re-adopt the wallet account after a claim (which mutates the client's account). */
 function restoreWalletAccount(c: BenzoClient): void {
-  const { account } = createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET });
-  c.useAccount(account);
+  c.useAccount(loadWalletAccount());
   mvkWired = false; // wallet MVK must be re-wired after the claim account hijack
 }
 

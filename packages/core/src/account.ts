@@ -110,6 +110,32 @@ export function accountFromSignedMessage(signature: Uint8Array, label = "wallet"
   return createAccount({ label, spendSk, mvkSecret, viewSecret });
 }
 
+/**
+ * Deterministic serverless testnet account derivation. Vercel functions cannot
+ * rely on a durable `~/.benzo/account.json`; deriving from the env-held testnet
+ * wallet keeps note discovery stable across cold starts while preserving app
+ * domain separation. This is for managed sandbox/API identities only — real
+ * end-user wallets should use `accountFromSignedMessage`/passkeys on-device.
+ */
+export function accountFromServerSecret(
+  serverSecret: string | Uint8Array,
+  app: ClaimAppScope,
+  opts: { label?: string; stellarSecret?: string } = {},
+): BenzoAccount {
+  const ikm = typeof serverSecret === "string" ? new TextEncoder().encode(serverSecret) : serverSecret;
+  const spendOkm = hkdf(sha256, ikm, undefined, `benzo/serverless/${app}/spend`, 32);
+  const spendSk = BigInt("0x" + toHex(spendOkm)) % FIELD_MODULUS;
+  const mvkSecret = new Uint8Array(hkdf(sha256, ikm, undefined, `benzo/serverless/${app}/mvk`, 32));
+  const viewSecret = new Uint8Array(hkdf(sha256, ikm, undefined, `benzo/serverless/${app}/view`, 32));
+  return createAccount({
+    label: opts.label ?? `serverless-${app}`,
+    spendSk,
+    mvkSecret,
+    viewSecret,
+    stellarSecret: opts.stellarSecret,
+  });
+}
+
 /** A wallet's message-signing function (Dynamic/Privy/Para/passkey all expose one). */
 export type SignMessage = (message: string) => Promise<Uint8Array> | Uint8Array;
 

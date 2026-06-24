@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { accountFromSignedMessage, accountFromClaimSecret, loginWithSigner, NOTE_KEY_MESSAGE } from "../src/account.js";
+import {
+  accountFromServerSecret,
+  accountFromSignedMessage,
+  accountFromClaimSecret,
+  loginWithSigner,
+  NOTE_KEY_MESSAGE,
+} from "../src/account.js";
 
 const sig = new Uint8Array(64).fill(7);
 const sig2 = new Uint8Array(64).fill(9);
@@ -34,5 +40,23 @@ describe("loginWithSigner — the headless wallet login seam", () => {
   it("accepts an async signer (embedded wallets resolve a promise)", async () => {
     const acct = await loginWithSigner(async () => sig2);
     expect(acct.spendSk).toBe(accountFromSignedMessage(sig2).spendSk);
+  });
+});
+
+describe("accountFromServerSecret — stable serverless sandbox identity", () => {
+  it("recovers the same account from the same env-held secret", () => {
+    const a = accountFromServerSecret("SDETTESTSECRET", "consumer");
+    const b = accountFromServerSecret("SDETTESTSECRET", "consumer");
+    expect(a.spendSk).toBe(b.spendSk);
+    expect(Buffer.from(a.mvkSecret)).toEqual(Buffer.from(b.mvkSecret));
+    expect(Buffer.from(a.viewSecret)).toEqual(Buffer.from(b.viewSecret));
+  });
+
+  it("keeps wallet and console app scopes cryptographically separate", () => {
+    const consumer = accountFromServerSecret("SDETTESTSECRET", "consumer");
+    const business = accountFromServerSecret("SDETTESTSECRET", "business");
+    expect(consumer.spendSk).not.toBe(business.spendSk);
+    expect(Buffer.from(consumer.viewSecret)).not.toEqual(Buffer.from(business.viewSecret));
+    expect(Buffer.from(consumer.mvkSecret)).not.toEqual(Buffer.from(business.mvkSecret));
   });
 });
