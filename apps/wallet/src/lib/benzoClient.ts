@@ -27,7 +27,13 @@ import { verifyBalanceProofOnChain } from "./chain";
 import { RPC_URL, NETWORK_PASSPHRASE, SIM_SOURCE, DEPLOYMENT, RELAYER_ADDRESS, TEE_CONFIG } from "./network";
 import { preferDeviceProving } from "./proverPolicy";
 
-const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+function b64(b: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) {
+    s += String.fromCharCode(...b.slice(i, i + 0x8000));
+  }
+  return btoa(s);
+}
 const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
 /**
