@@ -8,7 +8,7 @@
  * claim secret lives in the link fragment and is sent to the local BFF to settle.
  */
 import { useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Briefcase, Building2, Check, Gift, X } from "lucide-react";
 import { parseBenzoLink, assertAppScope, WrongAppError, type BenzoLink, type OrgInviteLink } from "@benzo/links";
@@ -36,11 +36,23 @@ function parse(raw: string | null): Parsed {
   return { ok: true, link };
 }
 
+function linkFromHash(hash: string): string | null {
+  const raw = hash.replace(/^#/, "");
+  if (!raw) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
 export function Claim() {
   const [params] = useSearchParams();
+  const loc = useLocation();
   const nav = useNavigate();
   const { refresh } = useWallet();
-  const parsed = useMemo(() => parse(params.get("link")), [params]);
+  const rawLink = useMemo(() => params.get("link") ?? linkFromHash(loc.hash), [params, loc.hash]);
+  const parsed = useMemo(() => parse(rawLink), [rawLink]);
   const [phase, setPhase] = useState<"ready" | "claiming" | "done" | "error">("ready");
   const [amount, setAmount] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);

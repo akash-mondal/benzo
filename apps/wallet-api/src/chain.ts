@@ -53,6 +53,25 @@ const DEPLOYMENT_URL = new URL("../../../deployments/testnet.json", import.meta.
 // override can't accidentally re-merge them.
 const WALLET = process.env.BENZO_WALLET_ACCOUNT || join(homedir(), ".benzo", "wallet", "account.json");
 const STATE = process.env.BENZO_WALLET_STATE || join(dirname(WALLET), "state.json");
+const DEFAULT_WALLET_ORIGIN = "https://wallet.benzo.space";
+
+function walletWebOrigin(): string {
+  const direct = process.env.BENZO_WALLET_ORIGIN?.trim().replace(/\/+$/, "");
+  if (direct) return direct;
+  const linkBase = process.env.BENZO_LINK_BASE?.trim();
+  if (linkBase) {
+    try {
+      return new URL(linkBase).origin;
+    } catch {
+      /* ignore malformed overrides */
+    }
+  }
+  return DEFAULT_WALLET_ORIGIN;
+}
+
+function walletRouteLink(link: string): string {
+  return `${walletWebOrigin()}/claim#${encodeURIComponent(link)}`;
+}
 
 /** Durable note-discovery + journal store (atomic-write JSON file). */
 class FileKVStore {
@@ -838,15 +857,20 @@ export async function claimHandle(handle: string): Promise<{ handle: string; txH
 export async function createRequest(amount: string | undefined, memo: string | undefined): Promise<{ link: string; id: string }> {
   const c = getClient();
   if (c) {
-    return c.createRequest({
+    const r = await c.createRequest({
       to: db.profile.handle,
       amount: amount ? toStroops(amount) : undefined,
       expiry: nowSec() + 7 * 86_400,
       memo,
     });
+    return { ...r, link: walletRouteLink(r.link) };
   }
   const id = `req_${Date.now().toString(36)}`;
-  return { link: `benzo://request?to=${db.profile.handle}&id=${id}${amount ? `&amount=${toStroops(amount)}` : ""}`, id };
+  const link = encodeBenzoLink(
+    { type: "request", to: db.profile.handle, id, amount: amount ? toStroops(amount).toString() : undefined, memo },
+    "scheme",
+  );
+  return { link: walletRouteLink(link), id };
 }
 
 // ----------------------------------------------------------------- external invite / claim (P0-3)
@@ -909,10 +933,11 @@ export async function createInvite(amount: string, note: string | undefined, onP
     const r = await c.createClaimLink({ amount: stroops });
     await c.flush();
     const secret = b64urlFromHex(r.claimSecretHex);
-    const link = encodeBenzoLink(
+    const claimLink = encodeBenzoLink(
       { type: "claim", secret, app: "consumer", amount: stroops.toString(), expiresAt: String(expiresAt) },
-      "web",
+      "scheme",
     );
+    const link = walletRouteLink(claimLink);
     escrow.set(localId, { localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
     onPhase?.({ phase: "submitting", txHash: r.sendTx });
     onPhase?.({ phase: "confirmed", txHash: r.sendTx, onChain: true });
@@ -920,10 +945,11 @@ export async function createInvite(amount: string, note: string | undefined, onP
   }
   // demo: a well-formed (non-redeemable) link so the UI flow + escrow card work
   const secret = Buffer.from(`demo-${localId}`).toString("base64url");
-  const link = encodeBenzoLink(
+  const claimLink = encodeBenzoLink(
     { type: "claim", secret, app: "consumer", amount: stroops.toString(), expiresAt: String(expiresAt) },
-    "web",
+    "scheme",
   );
+  const link = walletRouteLink(claimLink);
   escrow.set(localId, { localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
   db.activity.unshift({
     id: `act_${Date.now()}`, type: "send", name: "Invite sent", note: `Pending claim${note ? ` · ${note}` : ""}`,
