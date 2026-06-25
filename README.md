@@ -1,271 +1,340 @@
 # Benzo
 
-**Private-by-default shielded-USDC payments on Stellar — where the zero-knowledge proof, not a trusted server, is what moves the money.**
+Private USDC payments on Stellar, with the proof doing the work.
 
-Benzo is a confidential payments protocol on Stellar (Soroban). Everyday stablecoin
-payments hide **both the amount and the counterparty** through zero-knowledge
-shielded notes, while compliance — selective disclosure via hierarchical viewing
-keys, Association-Set screening, and tiered KYC — is built into the regulated edges.
+Benzo is a consumer wallet and business console for shielded USDC on Stellar
+testnet. Users can add money, move it into a private balance, send privately by
+handle, send publicly to a Stellar address, cash out, request money, invite a new
+recipient, and share proofs. Businesses get a treasury console for confidential
+payroll, invoices, approvals, grants, private audit packets, and proof-of-reserves
+style attestations.
 
-> Built for **Stellar Hacks: Real-World ZK**. The ZK is **load-bearing by
-> construction**: strip the proofs and there is no private payment. The pool
-> verifies a Groth16 proof on Stellar's native BN254 host functions (CAP-0074)
-> **before it moves a cent**, and admission verifies a credential proof on-chain
-> **before a depositor is let in**. Sixteen verification keys are live on testnet.
+The important part: the private money path is not a mocked UI. The Soroban
+contracts verify Groth16 proofs with Stellar's BN254 host functions before value
+moves in or out of the pool. Amounts and counterparties stay out of public chain
+state; nullifiers, commitments, roots, and proof verification stay public.
 
-**Live verifier:** [`CCBR2Y3Z…XYB`](https://stellar.expert/explorer/testnet/contract/CCBR2Y3ZAD75UFLZSED3NJYZDYIYZIGIEMZO6BQ45Y2NQBWPJ7MXKXYB)
-· **Pool:** [`CB4VS4OC…JOT`](https://stellar.expert/explorer/testnet/contract/CB4VS4OCF6HEGCLSPM4E3ILNGP4KF5ZJ7JEXUJIJBUU5IZC2VPDVSJOT)
-· **Network:** Stellar testnet · real Circle testnet USDC · **unaudited**
+Built for **Stellar Hacks: Real-World ZK**.
 
----
+## Open this first
 
-## Reproduce the ZK in 30 seconds (no keys, no funds, no artifacts)
+| Surface | URL | What to try |
+|---|---|---|
+| Wallet | [wallet.benzo.space](https://wallet.benzo.space) | Sign in, claim a handle, add money, make private, send, request, cash out, share a proof |
+| Console | [console.benzo.space](https://console.benzo.space) | Google sign-in, treasury, contractors, payroll, invoices, approvals, grants, audit log |
+| Verifier contract | [CCBR2Y3Z...XYB](https://stellar.expert/explorer/testnet/contract/CCBR2Y3ZAD75UFLZSED3NJYZDYIYZIGIEMZO6BQ45Y2NQBWPJ7MXKXYB) | 16 live verification keys |
+| Privacy pool | [CB4VS4OC...JOT](https://stellar.expert/explorer/testnet/contract/CB4VS4OCF6HEGCLSPM4E3ILNGP4KF5ZJ7JEXUJIJBUU5IZC2VPDVSJOT) | Shield, transfer, unshield, org transfer |
+| Deployment record | [deployments/testnet.json](deployments/testnet.json) | Contract IDs, VK names, tx provenance, TEE endpoint |
 
-The fastest way to see the zero-knowledge doing real work: re-verify a **real,
-committed Groth16 proof** against the live verifier on Stellar, and watch the
-chain reject a tampered one. It funds a throwaway account from friendbot (free)
-just to source a read-only simulation — nothing is ever submitted or spent.
+Network: Stellar testnet. Asset: real Circle testnet USDC. Status: unaudited
+hackathon build, not mainnet software.
+
+## What we built
+
+Benzo combines three products into one working testnet system.
+
+**Consumer wallet**
+
+- Google sign-in or device passkey onboarding.
+- Device-bound account derivation. No seed phrase in the UI.
+- Private balance and public balance.
+- Add money from the ramp reserve into the private pool.
+- Cash out from private balance back to the ramp reserve.
+- Make public and make private.
+- Private send to `@handle`.
+- Public send to any valid Stellar `G...` address.
+- Deposit/import external USDC.
+- Money request links and invite links.
+- Contacts, receipts, on-chain details, explorer links, proof sharing.
+- Security lock using platform passkeys. On Apple this may be Face ID or Touch ID;
+  on Windows this may be Windows Hello PIN, face, fingerprint, or a security key;
+  on Android this may be the device passkey prompt, screen lock, PIN, or pattern.
+  If WebAuthn/passkeys are unavailable, lock toggles are disabled so users are not
+  trapped.
+
+**Business console**
+
+- Google sign-in verified through the hosted console path.
+- Desktop-only console shell with workspace nav, command bar, notifications, and
+  approvals.
+- Treasury with private and public balances, receive QR, public send, make private,
+  proof of reserves, solvency proof, and on-chain details.
+- Contractors, CSV import, rate cards, payment history, and payroll runs.
+- Payroll checks for policy, anonymous approval, computation, and funding.
+- Invoices, single pay, pay all, and private netting.
+- Grants and scoped viewing-key style auditor access.
+- Private audit packets: encrypted client events, hash chain, Merkle packet,
+  downloadable packet, and on-chain root anchor.
+
+**Protocol and infrastructure**
+
+- Soroban contracts for the verifier, pool, Merkle tree, nullifier set, ASP
+  membership and non-membership, handle registry, request registry, ramp,
+  org account, MVK registry, viewing-key anchor, audit root, issuer registry, and
+  identity nullifier set.
+- `@benzo/core`, a headless TypeScript SDK for proving, note scanning, shield,
+  transfer, unshield, org transfer, viewing keys, and relayed writes.
+- Browser proving for capable desktops.
+- Phala dstack / Intel TDX proving for mobile, weak devices, and the console path.
+- Serverless wallet and console APIs that fail closed when live chain config is
+  missing. No demo fallback is accepted in production.
+- CI gates for packages, contracts, Poseidon2 parameter parity, stale deployment
+  addresses, and real proving artifacts when available.
+
+## The ZK is load-bearing
+
+The hackathon asks for ZK that matters. In Benzo, removing the proof breaks the
+payment path.
+
+| User action | Circuit / proof | On-chain gate |
+|---|---|---|
+| Add money / shield | `SHIELD` | Deposit becomes a note only if the proof verifies |
+| Private send | `TRANSFER` | Nullifiers are spent and new commitments inserted only after proof verification |
+| Make public / cash out | `UNSHIELD` | Note burn and public USDC release require proof verification |
+| Business private payout | `JSPLITORG` | Org notes move only with in-circuit M-of-N approval proof |
+| KYC admission | `KYC` | Admission checks issuer, tier, freshness, and identity nullifier |
+| Proof of balance | `BALANCE`, `ORGBAL` | Proves a threshold or funding statement without showing balances |
+| Period total / auditor proof | `SUM`, `ORGSUM` | Proves a disclosed total without revealing line items |
+| Payroll computation | `PAYCOMP` | Proves the run total came from the rate card |
+| Spending policy | `SPENDCAP` | Proves a payout is within an approved cap |
+| Compliance screening | `POIPAYOUT` | Proves a recipient is not in the deny set |
+| KYB | `KYB` | Proves a business credential without revealing underlying docs |
+| Private netting | `NETTING` | Proves the net amount between parties while hiding gross lines |
+
+The verifier has these 16 verification keys live on testnet:
+
+`SHIELD`, `TRANSFER`, `UNSHIELD`, `SUM`, `KYC`, `FUNDS`, `BALANCE`,
+`ORGAUTH`, `JSPLITORG`, `ORGSUM`, `ORGBAL`, `SPENDCAP`, `POIPAYOUT`,
+`PAYCOMP`, `KYB`, `NETTING`.
+
+Seven business-ZK keys were re-registered on the live verifier on 2026-06-23.
+Their tx hashes are in [deployments/testnet.json](deployments/testnet.json)
+under `provenance.vkRegistrations`.
+
+## How privacy and auditability coexist
+
+The public chain sees commitments, nullifiers, Merkle roots, verification key IDs,
+and successful proof checks. It does not see the private amount, recipient handle,
+invoice line, salary, approver comment, or business memo.
+
+The private records needed for a real business workflow are client-encrypted:
+
+- Console events are stored as AES-GCM ciphertext envelopes in the browser.
+- Each envelope commits to the previous one.
+- The audit packet includes the ciphertext records, hash-chain head, Merkle root,
+  inclusion proofs, and linked on-chain proof/payment refs.
+- The console can anchor only the packet/root metadata to `audit_root`.
+- A scoped auditor can receive the packet and verify integrity without the chain
+  learning payroll or invoice details.
+
+This is the product line Benzo is exploring: keep payment and business data
+private by default, but make selected facts provable when a counterparty,
+auditor, lender, or regulator needs confidence.
+
+## Proving model
+
+Benzo has two proving locations.
+
+| Device / surface | Proving path |
+|---|---|
+| Capable desktop wallet | Browser WASM proving on the user's machine |
+| Mobile wallet or weak device | Attested TEE proving through Phala dstack / Intel TDX |
+| Business console | Attested TEE proving |
+| API-mediated ramp / convert flows | TEE by default in hosted serverless |
+
+The TEE path is witness-hiding, not a replacement for ZK soundness. The proof is
+still verified on-chain. The enclave matters because it lets lower-power clients
+prove without sending witnesses to an ordinary backend. The browser and console
+pin the TEE compose hash from [deployments/testnet.json](deployments/testnet.json)
+before sealing witnesses to the enclave key.
+
+## Batched verification
+
+Benzo also implements batched Groth16 verification for same-VK proofs. Instead of
+one pairing check per proof, `verify_batch` folds N proofs into one randomized
+linear-combination transcript inside the contract.
+
+Practical result on testnet:
+
+- `verify_batch` alone fits about 16 same-VK proofs per transaction.
+- `insert_leaves` can insert about 200 leaves with subtree merging.
+- The integrated `batch_transfer_org` path is settlement-bound at about 3 org
+  spends per transaction because it also writes nullifiers, viewing-key bindings,
+  and Merkle leaves.
+
+That is batched verification, not recursion. It gives a real bounded win without
+claiming thousands of payments per proof.
+
+## Reproduce the proof check in 30 seconds
+
+This does not need private keys, funded accounts, or proving artifacts. It replays
+a real committed proof fixture against the live verifier and checks that a forged
+public value fails.
 
 ```bash
 pnpm install
 node tests/replay-verify.mjs
 ```
 
-```
-verify_proof(ORGSUM) over the real total  => true
-verify_proof(ORGSUM) over a forged total  => false   (must be false)
-✅ A real Groth16 proof verifies on Stellar (BN254 / CAP-0074); a forged one is rejected.
+Expected shape:
+
+```text
+verify_proof(ORGSUM) over the real total => true
+verify_proof(ORGSUM) over a forged total => false
 ```
 
-To run the **full** shielded flow (shield → private transfer → unshield) with real
-testnet USDC you need a funded key and the proving artifacts:
+## Run the full testnet money flow
+
+For the full shield, private transfer, and unshield path you need funded testnet
+keys and the exact proving artifacts.
 
 ```bash
-bash scripts/setup-testnet-env.sh    # generate + friendbot-fund keys, write .env
-bash scripts/fetch-artifacts.sh      # the exact zkeys/wasm that match the deployed VKs (sha256-pinned)
+bash scripts/setup-testnet-env.sh
+bash scripts/fetch-artifacts.sh
 set -a; . ./.env; set +a
-node tests/e2e/m1-flow.mjs            # shield → private transfer → unshield, prints Stellar Expert links
+node tests/e2e/m1-flow.mjs
 ```
 
----
+The e2e script prints transaction hashes and Stellar Expert links. Do not use
+mainnet keys. `.env`, proving keys, and Powers of Tau files are intentionally
+gitignored.
 
-## The headline: batched on-chain verification
+More focused live checks:
 
-A naive privacy pool verifies **one proof per transaction** — every confidential
-payout is its own pairing check and its own settlement. Benzo collapses the
-verification of **N proofs sharing one verification key into a single BN254
-pairing check**, using an in-contract Fiat-Shamir random-linear-combination:
-
-```
-∏ᵢ e(−rᵢ·Aᵢ, Bᵢ) · e((Σrᵢ)·α, β) · e(Σrᵢ·vk_xᵢ, γ) · e(Σrᵢ·Cᵢ, δ) = 1
-```
-
-The per-VK `α/γ/δ` terms **collapse** across the batch; the `rᵢ` are derived inside
-the contract (`keccak256` transcript over the VK and every proof point), so a
-prover can't choose them to cancel a bad proof. The matching Merkle side uses a
-**subtree-merge** insert (`insert_leaves`) that commits N leaves in ~`N + depth`
-Poseidon2 hashes instead of `N × depth`. Both are adversarially tested
-(tampered / swapped / foreign-VK proofs all rejected; batch root proven identical
-to sequential inserts).
-
-| | Naive (one proof per tx) | Benzo `verify_batch` |
-|---|---|---|
-| BN254 `pairing_check` calls for N proofs | **N** | **1** (one multi-pairing, N+3 terms) |
-| Merkle hashes for N leaves | N × depth | **~N + depth** (subtree merge) |
-| Settlement transactions | N | **⌈N / cap⌉** (auto-chunked) |
-| Trusted setup | per-circuit | unchanged (reuses the circuit's VK — no new ceremony) |
-
-**Measured on live testnet (protocol 27):** `verify_batch` alone fits **~16**
-same-VK proofs per tx and `insert_leaves` ~200 leaves; the *integrated*
-`batch_transfer_org` (verify **+** 2N nullifier writes **+** 2N viewing-key binds
-**+** 2N Merkle inserts) is settlement-bound at **~3 org spends per tx**, so the SDK
-caps at 3 and auto-chunks larger runs. This is **batched verification, not
-recursion** — the win is one pairing + one tx per chunk, a real but bounded factor.
-Big-N aggregation (one wrapped proof for thousands) is off-chain recursion, future
-work. See [`contracts/verifier_groth16/src/lib.rs`](contracts/verifier_groth16/src/lib.rs).
-
----
-
-## What each of the 16 on-chain verification keys proves
-
-Every key below is **registered and live** on the verifier and checked with the
-BN254 host functions. The four **settle-gate** keys block a value move unless the
-proof verifies; the rest are attestations and admission gates.
-
-| VK | Circuit | What the proof establishes | Role |
-|----|---------|----------------------------|------|
-| `SHIELD` | `shield` | A USDC deposit becomes a valid note commitment | settle-gate |
-| `TRANSFER` | `joinsplit` | 2-in/2-out private transfer; amount + counterparty hidden | settle-gate |
-| `UNSHIELD` | `unshield` | A note is burned for a USDC withdrawal | settle-gate |
-| `JSPLITORG` | `joinsplit_org` | Org transfer carrying **in-circuit M-of-N** member signatures; unlinkable org nullifier | settle-gate |
-| `KYC` | `kyc_credential` | Holder has an issuer-signed KYC credential ≥ tier (admission) | admission gate |
-| `SUM` | `proof_of_sum` | Owned notes sum to an exact disclosed total (no line items) | attestation |
-| `BALANCE` | `proof_of_balance` | A note-backed balance statement | attestation |
-| `FUNDS` | `funds_attestation` | Balance ≥ X (oracle-backed — see Honest limits) | attestation |
-| `ORGAUTH` | `org_spend_auth` | Standalone M-of-N spend authorization | attestation |
-| `ORGSUM` | `proof_of_sum_org` | M-of-N treasury total to an auditor (no salary revealed) | attestation |
-| `ORGBAL` | `proof_of_balance_org` | Org "payroll funded ✓" / reserves / solvency threshold | attestation |
-| `SPENDCAP` | `spending_cap` | A payout is within an approved cap, amount hidden | attestation |
-| `POIPAYOUT` | `payout_innocence` | A payout's recipient is **not** on a deny/sanctions set, recipient hidden | attestation |
-| `PAYCOMP` | `payroll_computation` | A run total was *computed* from a private rate card, not asserted | attestation |
-| `KYB` | `kyb_credential` | Org holds a KYB credential; private, nullifier for Sybil resistance | attestation |
-| `NETTING` | `cross_netting` | The net difference between two parties, balances hidden | attestation |
-
-> Provenance for the seven business-ZK keys (re-registered 2026-06-23) is recorded
-> with their on-chain tx hashes in
-> [`deployments/testnet.json`](deployments/testnet.json) → `provenance.vkRegistrations`.
-
----
-
-## Architecture
-
-Three planes: a **client plane** that holds keys and proves (the headless
-`@benzo/core`, or an attested TEE prover), an **on-chain plane** of Soroban
-contracts that verify proofs and mutate state, and an **off-chain services plane**
-that indexes encrypted notes, sponsors fees, and bridges fiat.
-
-```
-                    ┌──────────────── on-chain (Soroban, testnet) ─────────────────┐
-  @benzo/core       │   pool ── verify ──► verifier_groth16  (BN254 / CAP-0074)     │
-  (headless prover) │    │                   ▲  16 VKs · verify_proof · verify_batch│
-   or PhalaProver ─►│    ├─ insert ─► merkle           (Poseidon2 tree, CAP-0075)  │
-   (attested TEE)   │    ├─ spend  ─► nullifier_set     (persistent, idempotent)    │
-   shield/transfer/ │    ├─ admit  ─► asp_membership ──► KYC-proof gate + freshness  │
-   unshield + proof │    │                └─► issuer_registry · identity_nullifier   │
-                    │    ├─ screen ─► asp_non_membership (deny-SMT, proof-of-innocence)│
-                    │    ├─ bind   ─► viewkey_anchor / mvk_registry (MVK→TVK disclosure)│
-                    │    └─ anchor ─► audit_root (encrypted-packet roots, no plaintext)│
-                    └──────────────────────────────────────────────────────────────┘
-        ▲                       │ events (commitments, ciphertexts, nullifiers)
-        │ gasless submit        ▼
-  @benzo/relayer          @benzo/indexer ── viewing-key scan ──► holders & auditors
+```bash
+node tests/e2e/tee-onchain.mjs
+node tests/e2e/joinsplit-org-settle-onchain.mjs
+node tests/e2e/payroll-computation-onchain.mjs
+node tests/e2e/cross-netting-onchain.mjs
+node tests/e2e/kyb-credential-onchain.mjs
 ```
 
-### Private product facts and auditability
+## Honest status
 
-Business product facts (invoice lines, payroll rates, handles, approver comments,
-viewing grant details) must stay off-chain and out of public API metadata. The
-browser console app appends user actions as AES-GCM encrypted private events
-(`invoice.created`, `payment.submitted`, `payment.settled`, `payroll.computed`,
-`approval.recorded`, `grant.created`, `grant.revoked`). Each envelope commits to
-the previous envelope and into a Merkle root; the Audit Log builds a
-ciphertext-only packet with inclusion proofs from the browser's encrypted event
-store and can export that packet for scoped review.
+This section is intentionally blunt.
 
-The public metadata guard rejects obvious sensitive fields (`amount`, `name`,
-`email`, `handle`, `memo`, `description`, etc.) before an event is written. The
-auditable surface is therefore: encrypted records + hash-chain head + Merkle root
-+ inclusion proofs + on-chain `audit_root` anchors + the ZK/on-chain
-payment/proof refs carried in the encrypted payload. The Vercel function behind
-`/api/audit/private-events/anchor` receives the ciphertext packet/root from the
-browser and posts only `org_hash`, `sequence`, `merkle_root`, `head_hash`,
-`packet_hash`, and `event_count` to the deployed testnet registry; the console
-renders the returned tx hash/explorer link as the source for the "anchored" badge.
-The chain and serverless function never see invoice lines, payroll rates,
-approver comments, handles, org names, or viewing grant plaintext.
-
-**Canonical invariants** (normative, asserted in tests):
-`commitment = Poseidon2(amount, recipient_pk, blinding, asset_id)` ·
-`nullifier = Poseidon2(spend_sk, leaf_index, DOMAIN)` ·
-Merkle `DEPTH = 32`, `ROOT_HISTORY = 128` · Groth16/BN254, one constant-size
-multi-pairing check · Poseidon2 **byte-identical** across the circom circuit, the
-`@benzo/core` TS mirror, and the Soroban host function.
-
----
-
-## What's real vs. simulated (read this first)
-
-Benzo is an **honest work-in-progress**; this table is the source of truth.
-
-### CORE — ZK that gates real value/admission, verified on-chain (testnet)
-
-| Component | Status |
+| Area | Status |
 |---|---|
-| Groth16 proving + BN254 verification | **Real** — snarkjs proofs verified on-chain via CAP-0074 host functions |
-| Poseidon2 commitments / nullifiers / Merkle | **Real** — CAP-0075 host function, byte-identical to circuit & SDK |
-| Shield / private transfer / unshield | **Real** — on testnet, real Circle USDC, on-chain nullifiers + commitments |
-| Batched verification (`verify_batch` / `batch_transfer_org`) | **Real** — one pairing for N same-VK proofs; live, ~3 org spends/tx |
-| Tiered-KYC admission (`asp_membership.admit_by_proof`) | **Real** — verifies the KYC credential proof on-chain, enforces tier + issuer + **credential freshness + sybil nullifier** |
-| ASP allow-membership / proof-of-innocence | **Real** — enforced in-circuit against live on-chain registry roots |
-| Org M-of-N dual-control (`pool.transfer_org`, `JSPLITORG`) | **Real** — settles only a spend carrying a valid in-circuit M-of-N proof; rejects a single-key consumer proof |
-| MVK→TVK viewing-key disclosure | **Real** — HKDF + X25519/AES-GCM, reconstructed from on-chain ciphertext |
-| Auditor disclose-total (`ORGSUM` / `proveTotal`) | **Real on-chain ZK** — proves the disclosed notes sum to a total (see set-completeness limit below) |
+| Shield, private transfer, unshield | Real on Stellar testnet with real Circle testnet USDC |
+| Groth16 verification | Real on-chain BN254 verification through Stellar host functions |
+| Poseidon2 commitments and nullifiers | Real, with parity guards across circuit, SDK, and host parameters |
+| Nullifier storage | Persistent contract storage |
+| Org M-of-N spend | Real money path through `pool.transfer_org` and `JSPLITORG` |
+| TEE proving | Live Phala dstack / Intel TDX endpoint, pinned by compose hash |
+| Wallet and console UI | Live Vercel apps connected to live APIs |
+| Fiat/cash partner leg | Simulated testnet anchor leg. The USDC reserve moves on-chain; no real bank, MoneyGram, Stripe, or cash payout happens |
+| Connector data | CSV and sandbox connectors. Real integrations are env-keyed future work |
+| Mainnet | Not deployed |
+| Audit | Not audited |
 
-### TOOLING — real, supports the core
+Known limits:
 
-`@benzo/core` SDK + `@benzo/cli` · gasless relayer (non-custodial) · note-discovery
-indexer · self-hosted SEP-1/10/24 anchor (real Ed25519, real USDC at both edges) ·
-confidential TEE prover (Phala dstack / Intel TDX; client verifies the live
-attestation quote, witness sealed to the attested key — adds confidentiality, soundness
-still rests on the on-chain proof) · encrypted private-event audit packets for the
-console (client-encrypted ciphertext envelopes, hash-chain/Merkle inclusion
-proofs, on-chain `audit_root` anchors, UI export).
+- Admin governance is still a single deployer key. Mainnet needs Stellar multisig
+  and a timelock-style VK rotation process.
+- Privacy improves with anonymity-set size. A fresh testnet pool is small.
+- `proof_of_sum` proves the disclosed notes sum to a total. It does not prove the
+  holder did not omit another note unless the authorized viewing-key set is
+  complete.
+- `FUNDS` is oracle-backed and should be read as proof of a signed balance claim,
+  not pure note ownership.
+- Console read models are still sandbox projections. Private audit packets are
+  encrypted and anchorable; long-term product storage should move to durable
+  encrypted client/cloud state instead of serverless memory.
 
-### FUTURE / REFERENCE — not load-bearing on-chain here
+## Repository map
 
-KYC providers / on-ramp / CCTP / accounting connectors → **mock / sandbox**, env-keyed
-behind stable interfaces · the **fiat bank/cash leg is simulated** (the anchor credits
-"fiat received/paid" with no real bank — the only simulated *protocol* piece) ·
-Noir → UltraHonk "Track B" is reference-only, not deployed.
+```text
+apps/
+  wallet/        Consumer wallet UI
+  console/       Business treasury/payroll console
+  wallet-api/    Serverless live wallet API, fail-closed
+  console-api/   Serverless live console API, fail-closed
+  landing/       Product entry page
+  cli/           Operator/developer CLI
 
----
+contracts/
+  verifier_groth16/   BN254 Groth16 verifier and batch verifier
+  pool/               Shield, transfer, unshield, org transfer
+  merkle/             Poseidon2 Merkle tree
+  nullifier_set/      Persistent nullifier registry
+  asp_membership/     Allow-set membership and KYC admission
+  asp_non_membership/ Deny-set non-membership
+  org_account/        Org member roots and approval policy checks
+  viewkey_anchor/     Viewing-key binding events
+  audit_root/         Private audit packet root anchors
+  handle_registry/    @handle registry
+  ramp/               Testnet reserve/ramp contract
 
-## Governance & honest limits
+circuits/
+  groth16/            Circom circuits
+  poseidon_params/    Poseidon2 params used by circuits and SDK
+  build/              Artifact manifest and local proving build outputs
 
-A confident submission states what it does *not* yet guarantee.
+packages/
+  core/               Headless client SDK, prover ports, scanner, TEE routing
+  private-events/     Client-encrypted console audit envelopes
+  relayer/            Gasless submit service
+  indexer/            Commitment/event indexing helpers
+  anchor/             Self-hosted SEP-style testnet anchor pieces
+  types/              Shared API/domain types
 
-- **VK governance is a single admin key today.** It can `set_vk`/`rotate_vk` and
-  re-point the pool's verifier with no timelock — so the keys are **not** immutable;
-  they are admin-controlled. The hardening is a Stellar **M-of-N multisig** on the
-  admin account (see [`docs/MAINNET-RUNBOOK.md`](docs/MAINNET-RUNBOOK.md)); until that
-  is set, trust assumes an honest operator.
-- **Anonymity-set cold-start.** Counterparty privacy is a property of the shielded
-  pool's anonymity set. On a freshly-deployed testnet that set is small, so graph
-  privacy here is an *architectural* property that compounds with adoption, not a
-  fully-realized one today.
-- **`proof_of_sum` proves ownership, not set-completeness.** A disclose-total proves
-  the disclosed notes sum to the stated total; it does **not** prove the set is
-  complete (an omitted note is undetectable). Completeness is bounded only by the
-  authorized-MVK registry. Surfaced in the auditor UI, not oversold as "audited".
-- **`FUNDS` (proof-of-funds) is oracle-backed.** It proves *an oracle signed
-  balance ≥ X*, not pure ZK ownership — soundness rests on the oracle. It is not
-  wired into a value-moving entrypoint.
-- **Org-policy pinning (`org_account.verify_org_proof`) is on-chain but not yet
-  SDK-routed.** The contract gate that pins a proof's member-root/threshold to the
-  registered org exists and is tested; routing the standalone SDK attestations
-  through it needs an `org_account` redeploy (follow-up). The `JSPLITORG`
-  settlement money-path is already sound and unaffected.
-- **Console read models are still sandbox projections.** Private audit packets are
-  client-encrypted and survive serverless cold starts in the browser, with roots
-  anchored in the deployed `audit_root` contract. The seeded
-  org/accounts/invoices/payroll arrays are still Vercel/serverless projections for
-  the testnet sandbox; production should sync those views from a durable encrypted
-  client/cloud blob store instead of treating server memory as product truth.
+tests/
+  replay-verify.mjs   Keyless proof replay against live verifier
+  e2e/                Live testnet protocol flows
+  live/               UI/live smoke scripts
 
-No mainnet keys are used anywhere. Testnet-only, unaudited.
-
----
-
-## Repository layout
-
-```
-contracts/    16 Soroban contracts (verifier_groth16, pool, merkle, nullifier_set,
-              asp_membership, asp_non_membership, org_account, viewkey_anchor, …)
-circuits/     Circom circuits (Groth16/BN254) + Poseidon2 params + manifest
-packages/     @benzo/core (headless SDK + prover), private-events, ui, kyc, anchor,
-              relayer, indexer, …
-apps/         wallet (consumer) · console (business) · wallet-api · console-api · landing
-tests/        replay-verify (permissionless) + e2e (real-USDC on-chain flows)
-deployments/  testnet.json — the live cluster + VK provenance (single source of truth)
+deployments/
+  testnet.json        Source of truth for live contract IDs, VKs, TEE config
 ```
 
-A **pnpm + Turborepo** monorepo: one headless core, many surfaces. Build everything
-with `pnpm -r build`; test with `pnpm -r test` (heavy proving tests self-skip without
-artifacts — the opt-in `zk-proofs` CI job fetches them and runs proofs for real).
+## Development
 
----
+```bash
+pnpm install
+pnpm -r build
+pnpm -r test
+```
+
+Contracts:
+
+```bash
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+stellar contract build
+```
+
+Wallet:
+
+```bash
+pnpm --filter @benzo/wallet-app typecheck
+pnpm --filter @benzo/wallet-app test
+pnpm --filter @benzo/wallet-app build
+```
+
+Console:
+
+```bash
+pnpm --filter @benzo/console typecheck
+pnpm --filter @benzo/console test
+pnpm --filter @benzo/console build
+```
+
+CI mirrors these checks and adds the Poseidon2 parity guard plus an opt-in real
+proving gate when artifact hosting is configured.
 
 ## Stack
 
-Soroban (Rust, `no_std`) · BN254 (CAP-0074) + Poseidon2 (CAP-0075), protocol 27 ·
-Circom + snarkjs (Groth16) · TypeScript / React / Vite · `@stellar/stellar-sdk`.
+Stellar testnet, Soroban Rust contracts, BN254 host functions, Poseidon2 host
+hashing, Circom, snarkjs, Groth16, TypeScript, React, Vite, Vercel serverless,
+Phala dstack / Intel TDX, and `@stellar/stellar-sdk`.
+
+## Judge checklist
+
+- ZK is integrated with Stellar smart contracts: yes, proof verification happens
+  in Soroban contracts on Stellar testnet.
+- ZK is load-bearing: yes, shielded value movement and org transfers fail without
+  valid proofs.
+- Real-world use case: private stablecoin wallet, business payroll/invoices,
+  cross-border style ramp corridor, and audit/compliance proofs.
+- Demoable app: yes, wallet and console are live.
+- Honest README: yes, simulated fiat partner leg and other limits are listed.
