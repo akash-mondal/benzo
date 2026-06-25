@@ -28,6 +28,7 @@ import type {
 import { ROLE_PERMISSIONS } from "@benzo/types";
 import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic } from "./chain.js";
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
+import { authFromRequest, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
 import { db, fmtUsd, id, now, parseRosterCsv } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
@@ -1216,13 +1217,30 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   try {
     const m = match(req.method ?? "GET", effectiveUrl.pathname);
     if (!m) return json(res, 404, { error: "not found" });
-    if (effectiveUrl.pathname.startsWith("/api/") && effectiveUrl.pathname !== "/api/live" && !isLive()) {
-      return json(res, 503, {
-        error: "Live testnet client unavailable. Refusing to serve app data.",
-        ...liveStatus(),
-      });
+    const publicHosted =
+      effectiveUrl.pathname === "/api/live" ||
+      effectiveUrl.pathname === "/api/auth/config" ||
+      effectiveUrl.pathname === "/api/auth/google";
+    let auth: Awaited<ReturnType<typeof authFromRequest>> = null;
+    if (process.env.VERCEL === "1") {
+      try {
+        auth = await authFromRequest(req);
+      } catch (e) {
+        return json(res, 401, { error: (e as Error).message, live: false, mode: "unavailable", missing: [] });
+      }
+      if (!auth && effectiveUrl.pathname.startsWith("/api/") && !publicHosted) {
+        return json(res, 401, { error: "Sign in with Google to unlock this console.", live: false, mode: "unavailable", missing: [] });
+      }
     }
-    await m.handler(req, res, m.params);
+    await runWithAuth(auth, async () => {
+      if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && !isLive()) {
+        return json(res, 503, {
+          error: "Live testnet client unavailable. Refusing to serve app data.",
+          ...liveStatus(),
+        });
+      }
+      await m.handler(req, res, m.params);
+    });
   } catch (e) {
     json(res, 500, { error: String((e as Error)?.message ?? e) });
   }

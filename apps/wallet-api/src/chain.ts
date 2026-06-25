@@ -11,7 +11,7 @@
  * soundness (proof verified on-chain), differing only in WHERE the witness lives.
  */
 import { readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   BASE_FEE,
@@ -42,6 +42,7 @@ import {
 } from "@benzo/core";
 import { encodeBenzoLink } from "@benzo/links";
 import { db, nowSec, type ActivityRow } from "./store.js";
+import { currentAuth } from "./auth.js";
 
 export type ProverKind = "local" | "tee";
 
@@ -131,16 +132,34 @@ function buildProver(kind: ProverKind): ProverPort {
   return new NodeProver();
 }
 
-let client: BenzoClient | null = null;
-let clientKind: ProverKind | null = null;
-let triedOnce = false;
+const clients = new Map<string, BenzoClient>();
 
 function loadWalletAccount() {
-  if (!process.env.DEPLOYER_SECRET) throw new Error("DEPLOYER_SECRET is required for live wallet account");
   if (process.env.VERCEL === "1") {
-    throw new Error("Hosted wallet requires an auth-bound user account; refusing shared DEPLOYER_SECRET-derived wallet");
+    const auth = currentAuth();
+    if (!auth) throw new Error("Hosted wallet requires Google/passkey account auth");
+    return auth.account;
   }
+  if (!process.env.DEPLOYER_SECRET) throw new Error("DEPLOYER_SECRET is required for live wallet account");
   return createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET }).account;
+}
+
+function clientCacheKey(prover: ProverKind): string {
+  const auth = currentAuth();
+  if (process.env.VERCEL === "1") {
+    if (!auth) throw new Error("Hosted wallet requires Google/passkey account auth");
+    return `${auth.key}:${prover}`;
+  }
+  return `local:${prover}`;
+}
+
+function statePath(): string {
+  const auth = currentAuth();
+  if (process.env.VERCEL === "1") {
+    if (!auth) throw new Error("Hosted wallet requires Google/passkey account auth");
+    return join(tmpdir(), `benzo-wallet-${auth.key}.json`);
+  }
+  return STATE;
 }
 
 function chainClientForRuntime(): ChainClient {
@@ -149,14 +168,18 @@ function chainClientForRuntime(): ChainClient {
   const deployerSecret = process.env.DEPLOYER_SECRET;
   if (!deployerSecret) throw new Error("DEPLOYER_SECRET is required for Vercel RPC signing");
   const deployerAddress = Keypair.fromSecret(deployerSecret).publicKey();
+  const auth = currentAuth();
+  const userSecret = auth?.account.stellarSecret;
+  const userAddress = auth?.account.stellarAddress;
+  if (!userSecret || !userAddress) throw new Error("Hosted wallet account has no Stellar public-edge signer");
   const relayerSecret = process.env.RELAYER_SECRET;
   const relayerAddress = relayerSecret ? Keypair.fromSecret(relayerSecret).publicKey() : (process.env.RELAYER_PUBLIC || deployerAddress);
   const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
   const signerFor = (source: string) =>
     source === RELAY_SOURCE && relayerSecret
       ? LocalKeypairSigner.fromSecret(relayerSecret)
-      : LocalKeypairSigner.fromSecret(deployerSecret);
-  const addressFor = (source: string) => source === RELAY_SOURCE ? relayerAddress : deployerAddress;
+      : LocalKeypairSigner.fromSecret(userSecret);
+  const addressFor = (source: string) => source === RELAY_SOURCE ? relayerAddress : userAddress;
   const submitWrite = async (opts: { contractId: string; source: string; fnArgs: string[] }) =>
     makeClientSubmitWrite({
       server,
@@ -179,13 +202,11 @@ function chainClientForRuntime(): ChainClient {
  * client is safe.
  */
 export function getClient(prover: ProverKind = process.env.VERCEL === "1" ? "tee" : "local"): BenzoClient | null {
-  if (client && clientKind === prover) return client;
-  if (!client && triedOnce && clientKind === null) return null; // previously failed (no env)
-  triedOnce = true;
   try {
+    const key = clientCacheKey(prover);
+    const existing = clients.get(key);
+    if (existing) return existing;
     if (!process.env.SOROBAN_RPC_URL || !process.env.DEPLOYER_SECRET) {
-      clientKind = null;
-      client = null;
       return null;
     }
     const d = deployment();
@@ -216,18 +237,15 @@ export function getClient(prover: ProverKind = process.env.VERCEL === "1" ? "tee
       txSource: "benzo-deployer",
       handleRegistry: d.handleRegistry as string,
       requestRegistry: d.requestRegistry as string,
-      store: new FileKVStore(STATE),
+      store: new FileKVStore(statePath()),
     });
     c.useAccount(loadWalletAccount());
-    client = c;
-    clientKind = prover;
-    mvkWired = false; // a rebuilt client (e.g. prover switch) must re-wire its MVK mirror
+    clients.set(key, c);
+    return c;
   } catch (e) {
     console.error("[wallet-api] live client unavailable; refusing app data:", (e as Error).message);
-    client = null;
-    clientKind = null;
+    return null;
   }
-  return client;
 }
 
 export function isLive(): boolean {
@@ -258,6 +276,8 @@ const TX_SOURCE = "benzo-deployer";
  * USDC unshields to and shields from.
  */
 async function selfAddress(c: BenzoClient): Promise<string> {
+  if (c.account.stellarAddress) return c.account.stellarAddress;
+  if (process.env.VERCEL === "1") throw new Error("Hosted wallet account has no Stellar public-edge address");
   return c.account.stellarAddress ?? (await c.opts.cli.keyAddress(TX_SOURCE));
 }
 
@@ -268,9 +288,9 @@ async function selfAddress(c: BenzoClient): Promise<string> {
  * mirror can produce its membership path (and self-register on-chain if needed).
  * Fails loud if the mirror root diverges from the on-chain root.
  */
-let mvkWired = false;
+const mvkWired = new WeakSet<BenzoClient>();
 async function wireMvkRegistry(c: BenzoClient): Promise<void> {
-  if (mvkWired) return;
+  if (mvkWired.has(c)) return;
   const d = deployment();
   const registry = d.mvkRegistry as string | undefined;
   const rpc = process.env.SOROBAN_RPC_URL;
@@ -299,7 +319,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
     throw new Error(`mvk registry mirror drift: mirror=${reg.root()} onchain=${onchain}`);
   }
   c.pool.useMvkRegistry(reg);
-  mvkWired = true;
+  mvkWired.add(c);
 }
 
 /** Accept human ("25.50") or stroop ("250000000") amounts; normalise to stroops. */
@@ -858,7 +878,7 @@ function sweepExpired(): void {
 /** Re-adopt the wallet account after a claim (which mutates the client's account). */
 function restoreWalletAccount(c: BenzoClient): void {
   c.useAccount(loadWalletAccount());
-  mvkWired = false; // wallet MVK must be re-wired after the claim account hijack
+  mvkWired.delete(c); // wallet MVK must be re-wired after the claim account hijack
 }
 
 export interface InviteResult {
@@ -906,7 +926,7 @@ async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: st
   // first — the unshield that settles the claim needs the spender's MVK
   // membership path (else "MvkRegistryMirror: MVK not registered").
   c.useAccount(accountFromClaimSecret(claimSecret));
-  mvkWired = false;
+  mvkWired.delete(c);
   await c.sync();
   await wireMvkRegistry(c);
   try {

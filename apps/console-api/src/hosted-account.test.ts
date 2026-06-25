@@ -14,7 +14,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test("hosted console never derives a public org treasury from DEPLOYER_SECRET", async () => {
+test("hosted console never derives a public org treasury from DEPLOYER_SECRET without auth", async () => {
   vi.resetModules();
   const err = vi.spyOn(console, "error").mockImplementation(() => {});
   process.env.VERCEL = "1";
@@ -26,6 +26,6 @@ test("hosted console never derives a public org treasury from DEPLOYER_SECRET", 
   expect(getClient()).toBeNull();
   expect(err).toHaveBeenCalledWith(
     "[console-api] live client unavailable; refusing app data:",
-    expect.stringContaining("refusing shared DEPLOYER_SECRET-derived treasury"),
+    expect.stringContaining("Hosted console requires Google account auth"),
   );
 });

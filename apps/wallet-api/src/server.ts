@@ -37,6 +37,8 @@ import {
   type SendPhase,
 } from "./chain.js";
 import { db } from "./store.js";
+import { authFromRequest, runWithAuth } from "./auth.js";
+import { googleConfigured, verifyGoogleIdToken } from "./google-oidc.js";
 
 const PORT = Number(process.env.WALLET_API_PORT ?? 8791);
 
@@ -79,6 +81,25 @@ const routes: Array<{ method: string; path: string; handler: Handler }> = [];
 const route = (method: string, path: string, handler: Handler) => routes.push({ method, path, handler });
 
 route("GET", "/health", (_q, res) => json(res, 200, { ok: true }));
+
+route("GET", "/api/auth/config", (_q, res) =>
+  json(res, 200, { googleClientId: process.env.GOOGLE_CLIENT_ID ?? null, google: googleConfigured() }),
+);
+
+route("POST", "/api/auth/google", async (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) return json(res, 200, { verified: false, configured: false, note: "GOOGLE_CLIENT_ID not set" });
+  try {
+    const body = await readJson<{ credential: string; nonce?: string }>(req);
+    const claims = await verifyGoogleIdToken(String(body.credential), clientId);
+    if (body.nonce && claims.nonce && body.nonce !== claims.nonce) {
+      return json(res, 400, { verified: false, error: "nonce mismatch (zkLogin binding)" });
+    }
+    json(res, 200, { verified: true, sub: claims.sub, iss: claims.iss, aud: claims.aud, email: claims.email, name: claims.name });
+  } catch (e) {
+    json(res, 401, { verified: false, error: (e as Error).message });
+  }
+});
 
 route("GET", "/api/session", (_q, res) =>
   json(res, 200, { profile: db.profile, handle: db.profile.handle, kycTier: getKycTier(), ...liveStatus(), prover: proverInfo() }),
@@ -258,13 +279,31 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   try {
     const r = routes.find((x) => x.method === (req.method ?? "GET") && x.path === effectiveUrl.pathname);
     if (!r) return json(res, 404, { error: "not found" });
-    if (effectiveUrl.pathname.startsWith("/api/") && effectiveUrl.pathname !== "/api/live" && !isLive()) {
-      return json(res, 503, {
-        error: "Live testnet client unavailable. Refusing to serve app data.",
-        ...liveStatus(),
-      });
+    const publicHosted =
+      effectiveUrl.pathname === "/api/live" ||
+      effectiveUrl.pathname === "/api/prover" ||
+      effectiveUrl.pathname === "/api/auth/config" ||
+      effectiveUrl.pathname === "/api/auth/google";
+    let auth: Awaited<ReturnType<typeof authFromRequest>> = null;
+    if (process.env.VERCEL === "1") {
+      try {
+        auth = await authFromRequest(req);
+      } catch (e) {
+        return json(res, 401, { error: (e as Error).message, live: false, mode: "unavailable", missing: [] });
+      }
+      if (!auth && effectiveUrl.pathname.startsWith("/api/") && !publicHosted) {
+        return json(res, 401, { error: "Sign in with Google to unlock this wallet.", live: false, mode: "unavailable", missing: [] });
+      }
     }
-    await r.handler(req, res, effectiveUrl);
+    await runWithAuth(auth, async () => {
+      if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && !isLive()) {
+        return json(res, 503, {
+          error: "Live testnet client unavailable. Refusing to serve app data.",
+          ...liveStatus(),
+        });
+      }
+      await r.handler(req, res, effectiveUrl);
+    });
   } catch (e) {
     json(res, 500, { error: String((e as Error)?.message ?? e) });
   }

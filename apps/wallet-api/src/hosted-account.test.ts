@@ -14,7 +14,7 @@ afterEach(() => {
   vi.resetModules();
 });
 
-test("hosted wallet never derives a public user account from DEPLOYER_SECRET", async () => {
+test("hosted wallet never derives a public user account from DEPLOYER_SECRET without auth", async () => {
   vi.resetModules();
   const err = vi.spyOn(console, "error").mockImplementation(() => {});
   process.env.VERCEL = "1";
@@ -26,6 +26,6 @@ test("hosted wallet never derives a public user account from DEPLOYER_SECRET", a
   expect(getClient("tee")).toBeNull();
   expect(err).toHaveBeenCalledWith(
     "[wallet-api] live client unavailable; refusing app data:",
-    expect.stringContaining("refusing shared DEPLOYER_SECRET-derived wallet"),
+    expect.stringContaining("Hosted wallet requires Google/passkey account auth"),
   );
 });

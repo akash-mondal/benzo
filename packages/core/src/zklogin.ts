@@ -30,6 +30,7 @@
  */
 import { hkdf } from "@noble/hashes/hkdf";
 import { sha256 } from "@noble/hashes/sha2";
+import { StrKey as StellarStrKey } from "@stellar/stellar-sdk";
 import { hash, FIELD_MODULUS } from "./crypto/poseidon2.js";
 import { toHex } from "./crypto/bytes.js";
 import { type BenzoAccount, createAccount } from "./account.js";
@@ -86,7 +87,9 @@ export function accountFromOidc(
   const spendSk = feFromBytes(new Uint8Array(spendOkm));
   const mvkSecret = new Uint8Array(hkdf(sha256, secret, undefined, `benzo/zklogin/${ns}mvk`, 32));
   const viewSecret = new Uint8Array(hkdf(sha256, secret, undefined, `benzo/zklogin/${ns}view`, 32));
-  return createAccount({ label: "zklogin", spendSk, mvkSecret, viewSecret });
+  const stellarSeed = new Uint8Array(hkdf(sha256, secret, undefined, `benzo/zklogin/${ns}stellar`, 32));
+  const stellarSecret = StellarStrKey.encodeEd25519SecretSeed(Buffer.from(stellarSeed));
+  return createAccount({ label: "zklogin", spendSk, mvkSecret, viewSecret, stellarSecret });
 }
 
 /**

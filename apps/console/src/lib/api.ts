@@ -84,10 +84,21 @@ export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
 
+const GOOGLE_TOKEN_KEY = "benzo.console.googleCredential";
+
+export function storeGoogleCredential(credential: string): void {
+  localStorage.setItem(GOOGLE_TOKEN_KEY, credential);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem(GOOGLE_TOKEN_KEY);
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(apiHref(path), {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "content-type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;

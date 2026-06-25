@@ -56,13 +56,13 @@ test("reports unavailable live status when chain env is absent", async () => {
   await expect(res.json()).resolves.toMatchObject({ live: false, mode: "unavailable" });
 });
 
-test("fails closed for nested console endpoints when live client is unavailable", async () => {
+test("fails closed for nested hosted console endpoints when user is not signed in", async () => {
   const res = await request(`/api/rpc?path=${encodeURIComponent("/ledger/verify")}`);
-  expect(res.status).toBe(503);
+  expect(res.status).toBe(401);
   await expect(res.json()).resolves.toMatchObject({
     live: false,
     mode: "unavailable",
-    error: "Live testnet client unavailable. Refusing to serve app data.",
+    error: "Sign in with Google to unlock this console.",
   });
 });
 
@@ -77,10 +77,10 @@ test("fails closed for console writes when live client is unavailable", async ()
       assetCode: "USDC",
     }),
   });
-  expect(invoice.status).toBe(503);
+  expect(invoice.status).toBe(401);
   await expect(invoice.json()).resolves.toMatchObject({
     live: false,
     mode: "unavailable",
-    error: "Live testnet client unavailable. Refusing to serve app data.",
+    error: "Sign in with Google to unlock this console.",
   });
 });

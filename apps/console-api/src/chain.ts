@@ -11,7 +11,7 @@
  * the CLI does).
  */
 import { readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import type { Money, PaymentOrder, TreasuryView } from "@benzo/types";
@@ -33,6 +33,7 @@ import {
 } from "@benzo/core";
 import { Keypair, rpc } from "@stellar/stellar-sdk";
 import { db, id, now, usd } from "./store.js";
+import { currentAuth } from "./auth.js";
 
 const ROOT = process.env.BENZO_ROOT || process.cwd();
 const DEPLOYMENT_URL = new URL("../../../deployments/testnet.json", import.meta.url);
@@ -69,8 +70,25 @@ class FileKVStore {
   }
 }
 
-let client: BenzoClient | null = null;
-let clientTried = false;
+const clients = new Map<string, BenzoClient>();
+
+function clientCacheKey(): string {
+  const auth = currentAuth();
+  if (process.env.VERCEL === "1") {
+    if (!auth) throw new Error("Hosted console requires Google account auth");
+    return auth.key;
+  }
+  return "local";
+}
+
+function statePath(): string {
+  const auth = currentAuth();
+  if (process.env.VERCEL === "1") {
+    if (!auth) throw new Error("Hosted console requires Google account auth");
+    return join(tmpdir(), `benzo-console-${auth.key}.json`);
+  }
+  return STATE;
+}
 
 function chainClientForRuntime(): ChainClient {
   const cfg = configFromEnv();
@@ -78,14 +96,18 @@ function chainClientForRuntime(): ChainClient {
   const deployerSecret = process.env.DEPLOYER_SECRET;
   if (!deployerSecret) throw new Error("DEPLOYER_SECRET is required for Vercel RPC signing");
   const deployerAddress = Keypair.fromSecret(deployerSecret).publicKey();
+  const auth = currentAuth();
+  const orgSecret = auth?.account.stellarSecret;
+  const orgAddress = auth?.account.stellarAddress;
+  if (!orgSecret || !orgAddress) throw new Error("Hosted console account has no Stellar public-edge signer");
   const relayerSecret = process.env.RELAYER_SECRET;
   const relayerAddress = relayerSecret ? Keypair.fromSecret(relayerSecret).publicKey() : (process.env.RELAYER_PUBLIC || deployerAddress);
   const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
   const signerFor = (source: string) =>
     source === "benzo-relayer" && relayerSecret
       ? LocalKeypairSigner.fromSecret(relayerSecret)
-      : LocalKeypairSigner.fromSecret(deployerSecret);
-  const addressFor = (source: string) => source === "benzo-relayer" ? relayerAddress : deployerAddress;
+      : LocalKeypairSigner.fromSecret(orgSecret);
+  const addressFor = (source: string) => source === "benzo-relayer" ? relayerAddress : orgAddress;
   const submitWrite = async (opts: { contractId: string; source: string; fnArgs: string[] }) =>
     makeClientSubmitWrite({
       server,
@@ -103,9 +125,10 @@ function chainClientForRuntime(): ChainClient {
 
 /** Build (once) a live BenzoClient bound to the configured wallet, or null if env is absent. */
 export function getClient(relayer = false): BenzoClient | null {
-  if (clientTried) return client;
-  clientTried = true;
   try {
+    const key = `${clientCacheKey()}:${relayer ? "relayer" : "direct"}`;
+    const existing = clients.get(key);
+    if (existing) return existing;
     if (!process.env.SOROBAN_RPC_URL || !process.env.DEPLOYER_SECRET) return null;
     let dep: Record<string, any>;
     try {
@@ -144,19 +167,19 @@ export function getClient(relayer = false): BenzoClient | null {
       relayer: relayer ? { source: "benzo-relayer", address: process.env.RELAYER_PUBLIC ?? "" } : undefined,
       handleRegistry: dep.handleRegistry,
       requestRegistry: dep.requestRegistry,
-      store: new FileKVStore(STATE),
+      store: new FileKVStore(statePath()),
     });
-    if (process.env.VERCEL === "1") {
-      throw new Error("Hosted console requires an auth-bound org account; refusing shared DEPLOYER_SECRET-derived treasury");
-    }
-    const account = createOrLoadAccountFile(WALLET, { label: "console", stellarSecret: process.env.DEPLOYER_SECRET }).account;
+    const account = process.env.VERCEL === "1"
+      ? currentAuth()?.account
+      : createOrLoadAccountFile(WALLET, { label: "console", stellarSecret: process.env.DEPLOYER_SECRET }).account;
+    if (!account) throw new Error("Hosted console requires an auth-bound org account");
     c.useAccount(account);
-    client = c;
+    clients.set(key, c);
+    return c;
   } catch (e) {
     console.error("[console-api] live client unavailable; refusing app data:", (e as Error).message);
-    client = null;
+    return null;
   }
-  return client;
 }
 
 export function isLive(): boolean {
@@ -170,6 +193,8 @@ export function isLive(): boolean {
  * is sent to / received from / unshields to. Mirrors the wallet-api helper.
  */
 async function selfAddress(c: BenzoClient): Promise<string> {
+  if (c.account.stellarAddress) return c.account.stellarAddress;
+  if (process.env.VERCEL === "1") throw new Error("Hosted console account has no Stellar public-edge address");
   return c.account.stellarAddress ?? (await c.opts.cli.keyAddress(TX_SOURCE));
 }
 
@@ -257,9 +282,9 @@ export async function treasurySendPublic(toAddress: string, amount: string): Pro
  * note-binding ops produce a `registeredMvkRoot` the registry accepts (else the
  * single-leaf fallback is rejected — Contract #13). Self-registers our MVK if absent.
  */
-let mvkWired = false;
+const mvkWired = new WeakSet<BenzoClient>();
 async function wireMvkRegistry(c: BenzoClient): Promise<void> {
-  if (mvkWired) return;
+  if (mvkWired.has(c)) return;
   const registry = deployment?.mvkRegistry as string | undefined;
   const rpc = process.env.SOROBAN_RPC_URL;
   if (!registry || !rpc) return;
@@ -278,7 +303,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   const onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (reg.root() !== onchain) throw new Error(`mvk registry mirror drift: mirror=${reg.root()} onchain=${onchain}`);
   c.pool.useMvkRegistry(reg);
-  mvkWired = true;
+  mvkWired.add(c);
 }
 
 /**
@@ -300,7 +325,7 @@ export async function registerOwnerMvk(): Promise<{ onChain: boolean; txHash?: s
     const r = await c.opts.cli.invoke({ contractId: registry, source: TX_SOURCE, send: true, fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"] });
     txHash = r.txHash;
   }
-  mvkWired = false; // force a fresh mirror that includes our (possibly new) leaf
+  mvkWired.delete(c); // force a fresh mirror that includes our (possibly new) leaf
   await wireMvkRegistry(c);
   const root = (await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string;
   return { onChain: true, txHash, mvkRoot: String(root) };

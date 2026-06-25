@@ -77,10 +77,25 @@ export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
 
+const GOOGLE_TOKEN_KEY = "benzo.googleCredential";
+
+export function storeGoogleCredential(credential: string): void {
+  localStorage.setItem(GOOGLE_TOKEN_KEY, credential);
+}
+
+export function clearGoogleCredential(): void {
+  localStorage.removeItem(GOOGLE_TOKEN_KEY);
+}
+
+function authHeaders(): Record<string, string> {
+  const token = localStorage.getItem(GOOGLE_TOKEN_KEY);
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(apiHref(path), {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "content-type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
   if (!res.ok) {
     let detail = `HTTP ${res.status}`;
@@ -96,6 +111,12 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  authConfig: () => http<{ googleClientId: string | null; google: boolean }>("/auth/config"),
+  googleVerify: (credential: string, nonce?: string) =>
+    http<{ verified: boolean; sub?: string; email?: string; name?: string; error?: string; configured?: boolean }>(
+      "/auth/google",
+      { method: "POST", body: JSON.stringify({ credential, nonce }) },
+    ),
   session: () => http<Session>("/session"),
   balance: () => http<Balance>("/balance"),
   rampReserve: () => http<{ reserve: string | null; live: boolean }>("/ramp/reserve"),

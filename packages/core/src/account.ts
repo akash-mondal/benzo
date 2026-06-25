@@ -12,8 +12,9 @@
 
 import { toHex } from "./crypto/bytes.js";
 import { hkdf } from "@noble/hashes/hkdf";
+import { ed25519 } from "@noble/curves/ed25519";
 import { sha256 } from "@noble/hashes/sha2";
-import { Keypair as StellarKeypair } from "@stellar/stellar-sdk";
+import { StrKey as StellarStrKey } from "@stellar/stellar-sdk";
 import { FIELD_MODULUS } from "./crypto/poseidon2.js";
 import {
   deriveKeypair,
@@ -52,7 +53,10 @@ export function createAccount(opts: {
   const view = opts.viewSecret ? viewingKeypairFromSecret(opts.viewSecret) : generateViewingKeypair();
   const stellarSecret = opts.stellarSecret;
   let stellarAddress: string | undefined;
-  if (stellarSecret) stellarAddress = StellarKeypair.fromSecret(stellarSecret).publicKey();
+  if (stellarSecret) {
+    const seed = new Uint8Array(StellarStrKey.decodeEd25519SecretSeed(stellarSecret));
+    stellarAddress = StellarStrKey.encodeEd25519PublicKey(Buffer.from(ed25519.getPublicKey(seed)));
+  }
   return {
     label: opts.label ?? "benzo-account",
     spendSk,
@@ -107,7 +111,9 @@ export function accountFromSignedMessage(signature: Uint8Array, label = "wallet"
   const spendSk = BigInt("0x" + toHex(spendOkm)) % FIELD_MODULUS;
   const mvkSecret = new Uint8Array(hkdf(sha256, signature, undefined, "benzo/notekey/mvk", 32));
   const viewSecret = new Uint8Array(hkdf(sha256, signature, undefined, "benzo/notekey/view", 32));
-  return createAccount({ label, spendSk, mvkSecret, viewSecret });
+  const stellarSeed = new Uint8Array(hkdf(sha256, signature, undefined, "benzo/notekey/stellar", 32));
+  const stellarSecret = StellarStrKey.encodeEd25519SecretSeed(Buffer.from(stellarSeed));
+  return createAccount({ label, spendSk, mvkSecret, viewSecret, stellarSecret });
 }
 
 /**

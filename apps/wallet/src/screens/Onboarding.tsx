@@ -14,7 +14,7 @@ import { ArrowLeft, Check, Eye, Fingerprint, Loader2, Send, ShieldCheck, X } fro
 import { LogoMark } from "../ui/Logo";
 import { Button } from "../ui/primitives";
 import { fadeUp, stagger, EASE } from "../ui/motion";
-import { api } from "../lib/api";
+import { api, clearGoogleCredential, storeGoogleCredential } from "../lib/api";
 import { friendlyError } from "../lib/errors";
 import { useWallet } from "../lib/store";
 import { registerPasskey, loginWithPasskey, isWebAuthnAvailable } from "../lib/passkey";
@@ -23,7 +23,7 @@ type Step = "welcome" | "auth" | "handle";
 
 // Real Google sign-in is enabled only when a client id is configured at build time.
 // Without it, the wallet uses the passkey/device path only; no placeholder provider auth.
-const GOOGLE_CLIENT_ID = (import.meta.env as Record<string, string | undefined>).VITE_GOOGLE_CLIENT_ID || "";
+const GOOGLE_CLIENT_ID_FALLBACK = (import.meta.env as Record<string, string | undefined>).VITE_GOOGLE_CLIENT_ID || "";
 declare global {
   interface Window {
     google?: {
@@ -122,12 +122,14 @@ function Welcome({ onNext }: { onNext: () => void }) {
 function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const [busy, setBusy] = useState<"passkey" | "google" | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [clientId, setClientId] = useState(GOOGLE_CLIENT_ID_FALLBACK);
   const gbtn = useRef<HTMLDivElement>(null);
 
   async function withPasskey() {
     setBusy("passkey");
     setErr(null);
     try {
+      clearGoogleCredential();
       await registerPasskey({ userName: "benzo-wallet", displayName: "Benzo wallet" });
       await loginWithPasskey(); // derive the on-device shielded account
       onNext();
@@ -140,16 +142,35 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
   // Real Google sign-in (Google Identity Services). Only mounted when a client id is
   // configured; advances ONLY when Google returns a real credential. No placeholder success.
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !gbtn.current) return;
+    let cancelled = false;
+    void api.authConfig().then((cfg) => {
+      if (!cancelled && cfg.googleClientId) setClientId(cfg.googleClientId);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!clientId || !gbtn.current) return;
     let cancelled = false;
     const init = () => {
       const g = window.google?.accounts?.id;
       if (!g || cancelled || !gbtn.current) return;
       g.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (resp: { credential?: string }) => {
-          if (resp?.credential) onNext(); // a real signed Google credential
-          else setErr("Google sign-in didn't complete. Try again or use Face ID.");
+        client_id: clientId,
+        callback: async (resp: { credential?: string }) => {
+          if (!resp?.credential) {
+            setErr("Google sign-in didn't complete. Try again or use Face ID.");
+            return;
+          }
+          setBusy("google");
+          const v = await api.googleVerify(resp.credential).catch((e) => ({ verified: false, error: (e as Error).message }));
+          if (v.verified) {
+            storeGoogleCredential(resp.credential);
+            onNext();
+          } else {
+            setErr(v.error || "Google sign-in failed.");
+            setBusy(null);
+          }
         },
       });
       g.renderButton(gbtn.current, { theme: "outline", size: "large", width: 320, text: "continue_with" });
@@ -160,7 +181,7 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     s.async = true; s.defer = true; s.onload = init;
     document.head.appendChild(s);
     return () => { cancelled = true; };
-  }, [onNext]);
+  }, [clientId, onNext]);
 
   return (
     <Pane onBack={onBack}>
@@ -178,7 +199,7 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         <Button full size="lg" onClick={withPasskey} loading={busy === "passkey"} data-testid="auth-passkey">
           <Fingerprint size={18} /> {isWebAuthnAvailable() ? "Continue with passkey" : "Continue with this device"}
         </Button>
-        {GOOGLE_CLIENT_ID ? (
+        {clientId ? (
           <div ref={gbtn} className="flex justify-center" data-testid="auth-google" />
         ) : null}
         <p className="pt-1 text-center text-[12px] text-muted">

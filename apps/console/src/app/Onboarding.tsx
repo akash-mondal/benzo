@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { BadgeCheck, Building2, Check, FileCheck2, Landmark, Loader2, ScanSearch, ShieldCheck, Sparkles, Users, Wallet } from "lucide-react";
-import { api, type OnboardingDraft } from "../lib/api";
+import { api, storeGoogleCredential, type OnboardingDraft } from "../lib/api";
 import { attestAuthEnclave, authEnclaveEndpoint, type EnclaveAttestation } from "../lib/attest";
 import { friendlyError } from "../lib/format";
 import { Logo } from "../ui/Logo";
@@ -79,7 +79,10 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
             if (v.verified && a.attested && a.enclavePublicKey && v.encPub && v.encPub !== a.enclavePublicKey) {
               setErr("sign-in verdict did not come from the attested enclave"); setBusy(null); return;
             }
-            if (v.verified) onAuthed();
+            if (v.verified) {
+              storeGoogleCredential(resp.credential);
+              onAuthed();
+            }
             else { setErr(v.error || "Google sign-in failed"); setBusy(null); }
           },
         });
