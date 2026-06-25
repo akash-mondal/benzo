@@ -946,7 +946,8 @@ export class BenzoClient {
     // notes, privately merge the two largest notes to self until one note covers
     // the public edge amount. Amounts stay hidden inside joinsplits; only the
     // final unshield exposes the requested off-ramp amount.
-    for (let i = 0; !input && i < 8; i++) {
+    const maxConsolidations = Math.max(0, working.filter((n) => n.note.amount > 0n).length - 1);
+    for (let i = 0; !input && i < maxConsolidations; i++) {
       const total = working.reduce((s, n) => s + n.note.amount, 0n);
       if (total < opts.amount) throw new Error("insufficient spendable balance");
 
