@@ -345,7 +345,7 @@ route("POST", "/api/auth/google", async (req, res) => {
 // ---------------------------------------------------------------- onboarding (P0-B1)
 // The wizard's draft + the real on-chain actions. KYB is a REAL on-chain
 // attestation (org_account, issuer-signed) — the console reads the decision from
-// chain, it is NOT fabricated here. The member MVK registration is likewise a
+// chain; the member MVK registration is likewise a
 // genuine on-chain tx when live. ZK and KYB paths are on-chain.
 interface OnboardingDraft {
   name?: string;

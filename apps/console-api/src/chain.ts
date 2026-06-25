@@ -621,7 +621,7 @@ function usdLabel(stroops: string): string {
  *   • reserves-to-lender/board floor = covenant amount
  *   • true solvency           floor = Σ liabilities
  * `holds:false` (no proof) when the treasury genuinely can't cover the floor —
- * an honest, cryptographic "no", not a fabricated yes.
+ * an honest, cryptographic "no".
  */
 export async function proveBalance(
   minStroops: string,
@@ -640,7 +640,7 @@ export async function proveBalance(
     const r = await c.proveOrgBalance({ org, minTotal: BigInt(minStroops), context });
     return { holds: r.holds, onChain: r.onChain, minStroops, ref: onChainRef(vkLabel, r.holds && r.onChain, publics, { root: r.root?.toString() }) };
   } catch (e) {
-    // Honest failure: fall back to the view-key figure (no fabricated proof).
+    // Honest failure: fall back to the view-key figure without claiming a proof.
     console.warn(`[console-api] proveBalance(${minStroops}) ZK path failed: ${(e as Error).message}`);
     const bal = await c.orgTreasuryBalance(org);
     return { holds: bal >= BigInt(minStroops), onChain: false, minStroops, ref: onChainRef(vkLabel, false, publics) };

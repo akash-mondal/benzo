@@ -3,7 +3,7 @@
  * loaded (`set -a; . ./.env; set +a`) and the ~/.benzo wallet present, these
  * settle REAL testnet USDC (real Groth16 proofs + Soroban). If the live client
  * cannot be initialized, API routes fail closed instead of serving local balances
- * or fabricated settlement results.
+ * or claiming settlement results.
  *
  * Proving path is selectable per call — `local` (NodeProver, snarkjs on this
  * host) or `tee` (PhalaProver, the attested Phala enclave). This is what the test

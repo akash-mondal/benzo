@@ -103,7 +103,7 @@ route("GET", "/api/balance", async (_q, res) => json(res, 200, await getBalanceS
 route("GET", "/api/ramp/reserve", async (_q, res) => json(res, 200, await getRampReserve()));
 route("GET", "/api/history", async (_q, res) => json(res, 200, await getActivity()));
 // Contacts are device-local in the wallet UI; the hosted API never provides
-// fabricated people.
+// hosted people.
 route("GET", "/api/contacts", (_q, res) => json(res, 200, []));
 
 route("POST", "/api/send", async (req, res, url) => {
