@@ -143,8 +143,18 @@ async function submitWrite(opts: { contractId: string; source: string; fnArgs: s
 
 let cached: BenzoClient | null | undefined;
 
+function canUseDevAccountExport(): boolean {
+  if (typeof window === "undefined") return false;
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
+}
+
 async function getClient(): Promise<BenzoClient | null> {
   if (cached !== undefined) return cached;
+  if (!canUseDevAccountExport()) {
+    cached = null;
+    return null;
+  }
   let a: { spendSk: string; viewSecret: string; mvkSecret: string } | null = null;
   try {
     const r = await fetch("/api/dev/account");
