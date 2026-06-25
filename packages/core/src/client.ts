@@ -899,11 +899,11 @@ export class BenzoClient {
   }
 
   /** Pick the smallest single note that covers `amount` (simple coin select). */
-  private selectNote(amount: bigint): SpendableNote | null {
-    const notes = this.spendableNotes()
+  private selectNote(amount: bigint, notes: SpendableNote[] = this.spendableNotes()): SpendableNote | null {
+    const covering = notes
       .filter((n) => n.note.amount >= amount)
       .sort((a, b) => (a.note.amount < b.note.amount ? -1 : 1));
-    return notes[0] ?? null;
+    return covering[0] ?? null;
   }
 
   private makeRelay() {
@@ -933,19 +933,96 @@ export class BenzoClient {
     amount: bigint;
     toAddress: string;
     scope?: string; // disclosure scope to seal the change-note MVK ciphertext under
-  }): Promise<{ txHash?: string; nullifier: bigint; provingMs: number }> {
+  }): Promise<{ txHash?: string; nullifier: bigint; provingMs: number; consolidationTxs?: string[] }> {
     await this.sync();
     const assetId = await this.assetId();
-    const input = this.selectNote(opts.amount);
+    const scope = opts.scope ?? DISCLOSURE_SCOPE;
+    let working = this.spendableNotes();
+    let input = this.selectNote(opts.amount, working);
+    let consolidationProvingMs = 0;
+    const consolidationTxs: string[] = [];
+
+    // The withdraw circuit is one-input. If funds are split across smaller
+    // notes, privately merge the two largest notes to self until one note covers
+    // the public edge amount. Amounts stay hidden inside joinsplits; only the
+    // final unshield exposes the requested off-ramp amount.
+    for (let i = 0; !input && i < 8; i++) {
+      const total = working.reduce((s, n) => s + n.note.amount, 0n);
+      if (total < opts.amount) throw new Error("insufficient spendable balance");
+
+      const pair = working
+        .filter((n) => n.note.amount > 0n)
+        .sort((a, b) => (a.note.amount > b.note.amount ? -1 : a.note.amount < b.note.amount ? 1 : 0))
+        .slice(0, 2);
+      if (pair.length < 2) {
+        throw new Error(
+          `shielded balance is too fragmented to unshield ${stroopsToUsdc(opts.amount)} USDC in one operation`,
+        );
+      }
+
+      const totalIn = pair[0].note.amount + pair[1].note.amount;
+      const mergedAmount = totalIn >= opts.amount ? opts.amount : totalIn;
+      const changeAmount = totalIn - mergedAmount;
+      const tvk = deriveTvk(this.account.mvkSecret, scope);
+      const mergedNote = newNote(mergedAmount, this.account.spendPub, assetId);
+      const changeNote = newNote(changeAmount, this.account.spendPub, assetId);
+      const mergedPlain = encodeNotePlain({ ...mergedNote });
+      const changePlain = encodeNotePlain({ ...changeNote });
+      const mergedBundle = {
+        kind: "merged" as const,
+        note: mergedNote,
+        output: { note: mergedNote, mvkPubScalar: this.account.mvkScalar },
+        noteCt: seal(mergedPlain, this.account.viewPub).bytes,
+        mvkCt: seal(mergedPlain, tvk.publicKey).bytes,
+      };
+      const changeBundle = {
+        kind: "change" as const,
+        note: changeNote,
+        output: { note: changeNote, mvkPubScalar: this.account.mvkScalar },
+        noteCt: seal(changePlain, this.account.viewPub).bytes,
+        mvkCt: seal(changePlain, tvk.publicKey).bytes,
+      };
+      const bundles =
+        (randomBytes(1)[0] & 1) === 1
+          ? [changeBundle, mergedBundle] as const
+          : [mergedBundle, changeBundle] as const;
+      const tr = await this.pool.transfer({
+        source: this.opts.txSource,
+        inputs: [pair[0], pair[1]],
+        outputs: [bundles[0].output, bundles[1].output],
+        fee: 0n,
+        relayer: await this.opts.cli.keyAddress(this.opts.txSource),
+        noteCts: [bundles[0].noteCt, bundles[1].noteCt],
+        mvkCts: [bundles[0].mvkCt, bundles[1].mvkCt],
+      });
+      consolidationProvingMs += tr.provingMs;
+      if (tr.txHash) consolidationTxs.push(tr.txHash);
+
+      const spent = new Set(pair.map((n) => n.leafIndex));
+      const outputs = bundles.map((b, idx) => ({
+        kind: b.kind,
+        note: b.note,
+        spendSk: this.account.spendSk,
+        leafIndex: tr.outLeafIndices[idx],
+      }));
+      working = [
+        ...working.filter((n) => !spent.has(n.leafIndex)),
+        ...outputs.map(({ kind: _kind, ...n }) => n),
+      ];
+      input =
+        outputs.find((n) => n.kind === "merged" && n.note.amount >= opts.amount) ??
+        this.selectNote(opts.amount, working);
+    }
+
     if (!input) {
       throw new Error(
-        `no single note covers ${stroopsToUsdc(opts.amount)} USDC — unshield withdraws one note at a time`,
+        `shielded balance is too fragmented to unshield ${stroopsToUsdc(opts.amount)} USDC in one operation`,
       );
     }
     const changeAmount = input.note.amount - opts.amount;
     const changeNote = newNote(changeAmount, this.account.spendPub, assetId);
     const changePlain = encodeNotePlain({ ...changeNote });
-    const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
+    const tvk = deriveTvk(this.account.mvkSecret, scope);
     const wd = await this.pool.withdraw({
       source: this.opts.txSource,
       input,
@@ -964,7 +1041,12 @@ export class BenzoClient {
       status: "settled",
       txHash: wd.txHash,
     });
-    return { txHash: wd.txHash, nullifier: wd.nullifier, provingMs: wd.provingMs };
+    return {
+      txHash: wd.txHash,
+      nullifier: wd.nullifier,
+      provingMs: consolidationProvingMs + wd.provingMs,
+      consolidationTxs: consolidationTxs.length ? consolidationTxs : undefined,
+    };
   }
 
   // ------------------------------------------------------ disclosure -----
