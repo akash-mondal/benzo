@@ -54,7 +54,17 @@ jobs:
         run: rustup show
       - uses: Swatinem/rust-cache@v2
       - name: Install Scout
+        id: install_scout
+        continue-on-error: true
         run: cargo install cargo-scout-audit --locked
       - name: Scout (best effort)
-        continue-on-error: true
-        run: cargo scout-audit --output-format md
+        run: |
+          if ! command -v cargo-scout-audit >/dev/null 2>&1; then
+            echo "::warning::cargo-scout-audit could not be installed; skipping best-effort Scout analysis."
+            exit 0
+          fi
+
+          cargo scout-audit --output-format md || {
+            echo "::warning::Scout analysis failed; see logs above. Rust fmt/clippy/tests/wasm build remain the blocking contract gates."
+            exit 0
+          }

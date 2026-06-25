@@ -1,34 +1,64 @@
-import { createServer } from "node:http";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { Readable } from "node:stream";
+import { beforeAll, expect, test } from "vitest";
 import { verifyAuditPacket } from "@benzo/private-events";
 
-let baseUrl = "";
-let server: ReturnType<typeof createServer>;
+let handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
 beforeAll(async () => {
   process.env.VERCEL = "1";
-  const { handle } = await import("./server.js");
-  server = createServer(handle);
-  await new Promise<void>((resolve) => server.listen(0, resolve));
-  const addr = server.address();
-  if (!addr || typeof addr === "string") throw new Error("test server did not bind to a port");
-  baseUrl = `http://127.0.0.1:${addr.port}`;
+  ({ handle } = await import("./server.js"));
 });
 
-afterAll(async () => {
-  await new Promise<void>((resolve, reject) => {
-    server.close((err) => (err ? reject(err) : resolve()));
-  });
-});
+async function request(path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) {
+  const req = Readable.from(init.body ? [Buffer.from(init.body)] : []) as IncomingMessage;
+  req.method = init.method ?? "GET";
+  req.url = path;
+  req.headers = init.headers ?? {};
+
+  let status = 200;
+  let text = "";
+  const headers: Record<string, string | number | readonly string[]> = {};
+  const setHeader = (name: string, value: string | number | readonly string[]) => {
+    headers[name.toLowerCase()] = Array.isArray(value) ? [...value] : value;
+  };
+  const res = {
+    setHeader(name: string, value: string | number | readonly string[]) {
+      setHeader(name, value);
+      return this;
+    },
+    writeHead(code: number, nextHeaders?: Record<string, string | number | readonly string[]>) {
+      status = code;
+      for (const [name, value] of Object.entries(nextHeaders ?? {})) setHeader(name, value);
+      return this;
+    },
+    write(chunk: string | Buffer) {
+      text += chunk.toString();
+      return true;
+    },
+    end(chunk?: string | Buffer) {
+      if (chunk) text += chunk.toString();
+      return this;
+    },
+  } as unknown as ServerResponse;
+
+  await handle(req, res);
+  return {
+    status,
+    headers,
+    text: async () => text,
+    json: async () => JSON.parse(text) as unknown,
+  };
+}
 
 test("routes nested console endpoints through the Vercel rpc shim", async () => {
-  const res = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/ledger/verify")}`);
+  const res = await request(`/api/rpc?path=${encodeURIComponent("/ledger/verify")}`);
   expect(res.status).toBe(200);
   await expect(res.json()).resolves.toMatchObject({ ok: true });
 });
 
 test("records invoice facts as ciphertext-only private audit packets", async () => {
-  const invoice = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/invoices")}`, {
+  const invoice = await request(`/api/rpc?path=${encodeURIComponent("/invoices")}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -41,7 +71,7 @@ test("records invoice facts as ciphertext-only private audit packets", async () 
   expect(invoice.status).toBe(201);
   const created = await invoice.json() as { id: string };
 
-  const audit = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/audit/private-events")}`);
+  const audit = await request(`/api/rpc?path=${encodeURIComponent("/audit/private-events")}`);
   expect(audit.status).toBe(200);
   const text = await audit.text();
   expect(text).not.toContain("Sensitive inspection work");
@@ -58,7 +88,7 @@ test("records invoice facts as ciphertext-only private audit packets", async () 
 });
 
 test("private audit root anchoring response stays ciphertext-only", async () => {
-  const invoice = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/invoices")}`, {
+  const invoice = await request(`/api/rpc?path=${encodeURIComponent("/invoices")}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -70,7 +100,7 @@ test("private audit root anchoring response stays ciphertext-only", async () => 
   });
   expect(invoice.status).toBe(201);
 
-  const anchor = await fetch(`${baseUrl}/api/rpc?path=${encodeURIComponent("/audit/private-events/anchor")}`, {
+  const anchor = await request(`/api/rpc?path=${encodeURIComponent("/audit/private-events/anchor")}`, {
     method: "POST",
     body: "{}",
   });
