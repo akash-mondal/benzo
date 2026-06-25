@@ -6,7 +6,7 @@
  */
 import { Fragment, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Clock, Play, Upload } from "lucide-react";
+import { Check, Clock, Play, Upload } from "lucide-react";
 import type { Counterparty } from "@benzo/types";
 import { api } from "../lib/api";
 import { useConsole } from "../lib/store";
@@ -17,6 +17,7 @@ import { Button, Card, EmptyState, Input, Modal, Pill, Skeleton, StatusPill, use
 type PayEvent = { period: string; amount: string; status: string; txHash?: string; batchId: string };
 
 const period = () => new Date().toISOString().slice(0, 7); // e.g. 2026-06
+const statuses: Counterparty["status"][] = ["draft", "invited", "pending_screening", "allowlisted", "blocked"];
 
 export function Contractors() {
   const toast = useToast();
@@ -26,6 +27,7 @@ export function Contractors() {
   const [csv, setCsv] = useState("Name,Handle,Monthly USDC\nGrace Hopper,@grace,4200\nAda Lovelace,@ada,7000");
   const [busy, setBusy] = useState<string | null>(null);
   const [rateEdits, setRateEdits] = useState<Record<string, string>>({});
+  const [handleEdits, setHandleEdits] = useState<Record<string, string>>({});
   const [savedFlash, setSavedFlash] = useState<string | null>(null);
   const [histOpen, setHistOpen] = useState<string | null>(null);
   const [hist, setHist] = useState<Record<string, PayEvent[]>>({});
@@ -82,6 +84,44 @@ export function Contractors() {
         delete n[c.id];
         return n;
       });
+      await refresh();
+    } catch (e) {
+      toast({ title: friendlyError(e), tone: "danger" });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveHandle(c: Counterparty) {
+    const handle = handleEdits[c.id]?.trim();
+    if (!handle) return;
+    setBusy(c.id);
+    try {
+      await api.updateCounterparty(c.id, { handle: handle.startsWith("@") ? handle : `@${handle}` });
+      toast({ title: `Handle updated for ${c.name}`, tone: "success" });
+      setSavedFlash(c.id);
+      setTimeout(() => setSavedFlash((id) => (id === c.id ? null : id)), 900);
+      setHandleEdits((m) => {
+        const n = { ...m };
+        delete n[c.id];
+        return n;
+      });
+      await refresh();
+    } catch (e) {
+      toast({ title: friendlyError(e), tone: "danger" });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function saveStatus(c: Counterparty, status: Counterparty["status"]) {
+    if (status === c.status) return;
+    setBusy(c.id);
+    try {
+      await api.updateCounterparty(c.id, { status });
+      toast({ title: `Status updated for ${c.name}`, tone: "success" });
+      setSavedFlash(c.id);
+      setTimeout(() => setSavedFlash((id) => (id === c.id ? null : id)), 900);
       await refresh();
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
@@ -164,7 +204,7 @@ export function Contractors() {
             <table className="w-full border-collapse text-[13px]">
               <thead>
                 <tr>
-                  {["Contractor", "Monthly rate", "Tax form", "Status", ""].map((h, i) => (
+                  {["Contractor", "Monthly rate", "Handle", "Tax form", "Status", ""].map((h, i) => (
                     <th key={i} className="bg-bg px-5 py-2.5 text-left text-[11px] font-bold uppercase tracking-[0.05em] text-[#a3a7ac]">{h}</th>
                   ))}
                 </tr>
@@ -172,6 +212,7 @@ export function Contractors() {
               <tbody>
                 {contractors.map((c) => {
                   const editing = rateEdits[c.id] !== undefined;
+                  const editingHandle = handleEdits[c.id] !== undefined;
                   const events = hist[c.id];
                   return (
                     <Fragment key={c.id}>
@@ -190,6 +231,7 @@ export function Contractors() {
                               onChange={(e) => setRateEdits((m) => ({ ...m, [c.id]: e.target.value.replace(/[^0-9.]/g, "") }))}
                               onKeyDown={(e) => e.key === "Enter" && saveRate(c)}
                               onBlur={() => saveRate(c)}
+                              data-testid="contractor-rate-input"
                               className="w-28 rounded-md border border-primary bg-bg px-2 py-1 text-sm outline-none focus:ring-2 focus:ring-primary/20"
                             />
                           ) : (
@@ -197,6 +239,7 @@ export function Contractors() {
                               className="rounded font-display tabular-nums text-[15px] text-fg outline-none transition hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
                               onClick={() => setRateEdits((m) => ({ ...m, [c.id]: c.payRate ? (Number(c.payRate.amount) / 1e7).toString() : "" }))}
                               title="Click to edit rate"
+                              data-testid="contractor-rate-edit"
                             >
                               {c.payRate ? fmtUsd(c.payRate.amount) : <span className="text-danger">set rate</span>}
                               <span className="ml-1 text-[11px] text-muted">/mo</span>
@@ -205,9 +248,60 @@ export function Contractors() {
                         </motion.div>
                       </td>
                       <td className="border-t border-border px-5 py-3">
+                        <motion.div
+                          className="-mx-2 inline-flex items-center gap-1 rounded-md px-2"
+                          animate={{ backgroundColor: savedFlash === c.id ? "rgba(34,197,94,0.18)" : "rgba(34,197,94,0)" }}
+                          transition={{ duration: 0.45, ease: EASE }}
+                        >
+                          {editingHandle ? (
+                            <>
+                              <input
+                                autoFocus
+                                value={handleEdits[c.id]}
+                                onChange={(e) => setHandleEdits((m) => ({ ...m, [c.id]: e.target.value.replace(/[^a-zA-Z0-9_@.-]/g, "") }))}
+                                onKeyDown={(e) => e.key === "Enter" && saveHandle(c)}
+                                data-testid="contractor-handle-input"
+                                className="w-32 rounded-md border border-primary bg-bg px-2 py-1 font-mono text-[12px] outline-none focus:ring-2 focus:ring-primary/20"
+                              />
+                              <button
+                                onClick={() => saveHandle(c)}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-panel text-muted transition hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+                                title="Save handle"
+                                data-testid="contractor-handle-save"
+                              >
+                                <Check size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              className="rounded font-mono text-[12px] text-fg outline-none transition hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/40"
+                              onClick={() => setHandleEdits((m) => ({ ...m, [c.id]: c.paymentAddress?.shielded ?? "@" }))}
+                              title="Click to edit handle"
+                              data-testid="contractor-handle-edit"
+                            >
+                              {c.paymentAddress?.shielded ?? <span className="font-sans text-danger">set handle</span>}
+                            </button>
+                          )}
+                        </motion.div>
+                      </td>
+                      <td className="border-t border-border px-5 py-3">
                         <Pill tone={c.taxFormType && c.taxFormType !== "none" ? "success" : "warning"}>{c.taxFormType ?? "none"}</Pill>
                       </td>
-                      <td className="border-t border-border px-5 py-3"><StatusPill status={c.status} /></td>
+                      <td className="border-t border-border px-5 py-3">
+                        <div className="flex flex-col gap-1">
+                          <StatusPill status={c.status} />
+                          <select
+                            value={c.status}
+                            onChange={(e) => saveStatus(c, e.target.value as Counterparty["status"])}
+                            className="w-36 rounded-md border border-border bg-panel px-2 py-1 text-[12px] outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                            data-testid="contractor-status-select"
+                          >
+                            {statuses.map((s) => (
+                              <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </td>
                       <td className="border-t border-border px-5 py-3 text-right">
                         {busy === c.id ? (
                           <span className="text-[12px] text-muted">saving…</span>
@@ -220,7 +314,7 @@ export function Contractors() {
                     </tr>
                     {histOpen === c.id ? (
                         <tr data-testid="contractor-history-row">
-                          <td colSpan={5} className="border-t border-border bg-[#faf9f6] px-5 py-3">
+                          <td colSpan={6} className="border-t border-border bg-[#faf9f6] px-5 py-3">
                             <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }}>
                               {histBusy === c.id ? (
                                 <div className="text-[12px] text-muted">Loading pay history…</div>
