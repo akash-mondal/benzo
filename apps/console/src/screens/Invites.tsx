@@ -1,5 +1,5 @@
 /**
- * Invites (P0-B2) — onboard employees / contractors / customers via a
+ * Invites (P0-B2) - onboard employees / contractors / customers via a
  * BUSINESS-scoped link. Team invites create a console seat; contractors &
  * customers onboard in the consumer wallet (and the link bounces if opened in the
  * wrong app). Bulk contractor import generates one link per CSV row.

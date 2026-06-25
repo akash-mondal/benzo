@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { isValidStellarAddress, shortAddress } from "./strkey";
 
-// Real testnet ed25519 public keys (from network.ts) — must pass the checksum.
+// Real testnet ed25519 public keys (from network.ts) - must pass the checksum.
 const REAL = [
   "GBRMUZELYDNXSBYF5KOLLSV4XLQYNZJQNLXQ3HTFCWNRIBS3I6EUBCMP",
   "GD2U26BTLNEKRLM7AMXPO5T64I7SPRPUF26T44RHSJBLFI5YGRKLZMT7",

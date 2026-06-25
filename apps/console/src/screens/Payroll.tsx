@@ -1,5 +1,5 @@
 /**
- * Payroll — confidential batch runs. Each batch hides individual salaries on-chain
+ * Payroll - confidential batch runs. Each batch hides individual salaries on-chain
  * (one shielded transfer per person) while the employer can still prove the total.
  * Approve runs the real per-recipient joinsplits on testnet.
  */
@@ -18,7 +18,7 @@ export function Payroll() {
   const toast = useToast();
   const { payrolls, counterparties, masked, refresh, loading } = useConsole();
   const name = useCounterpartyName();
-  // Count recipients with no on-chain payout material on file — those lines can't
+  // Count recipients with no on-chain payout material on file - those lines can't
   // settle privately, so the approver sees it BEFORE an irreversible run, not after.
   const unpayableCount = (b: PayrollBatch) =>
     b.lines.filter((l) => !counterparties.find((c) => c.id === l.counterpartyId)?.paymentAddress?.shielded).length;
@@ -35,7 +35,7 @@ export function Payroll() {
   // each proof badge can offer a "see what happened on-chain" drill-down.
   const [refs, setRefs] = useState<Record<string, { funded?: OnChainRef; approval?: OnChainRef; computation?: OnChainRef }>>({});
 
-  // Verifiable payroll computation (Z6) — prove the run total was COMPUTED from
+  // Verifiable payroll computation (Z6) - prove the run total was COMPUTED from
   // the rate card (rate×period−deductions), on-chain (PAYCOMP), rate card private.
   async function checkComputation(b: PayrollBatch) {
     setComputing(b.id);
@@ -54,7 +54,7 @@ export function Payroll() {
     }
   }
 
-  // Anonymous approver (Z5) — prove >= threshold distinct approvers signed this
+  // Anonymous approver (Z5) - prove >= threshold distinct approvers signed this
   // run on-chain (ORGAUTH) WITHOUT revealing which. Surveillance-free dual control.
   async function checkApproval(b: PayrollBatch) {
     setApproving(b.id);
@@ -75,7 +75,7 @@ export function Payroll() {
     }
   }
 
-  // In-ZK spending policy (Z3) — prove EACH line is within the per-payout cap
+  // In-ZK spending policy (Z3) - prove EACH line is within the per-payout cap
   // on-chain (SPENDCAP), amounts hidden. Over-cap lines are provably blocked.
   async function checkPolicy(b: PayrollBatch) {
     setPolicing(b.id);
@@ -99,7 +99,7 @@ export function Payroll() {
     }
   }
 
-  // "Payroll funded ✓" — prove ON-CHAIN (ORGBAL) the treasury covers this run's
+  // "Payroll funded ✓" - prove ON-CHAIN (ORGBAL) the treasury covers this run's
   // total before anyone approves it. Reveals neither the treasury nor the total.
   async function checkFunded(b: PayrollBatch) {
     setFunding(b.id);
@@ -381,7 +381,7 @@ export function Payroll() {
             </div>
             {unpayableCount(confirmRun) > 0 ? (
               <div className="rounded-lg border border-warning/30 bg-warning/10 px-3.5 py-2.5 text-[12.5px] text-[#9a6b12]">
-                {unpayableCount(confirmRun)} recipient{unpayableCount(confirmRun) === 1 ? "" : "s"} {unpayableCount(confirmRun) === 1 ? "has" : "have"} no payout handle on file — those lines won't settle on-chain until they're invited.
+                {unpayableCount(confirmRun)} recipient{unpayableCount(confirmRun) === 1 ? "" : "s"} {unpayableCount(confirmRun) === 1 ? "has" : "have"} no payout handle on file - those lines won't settle on-chain until they're invited.
               </div>
             ) : null}
             <div className="flex items-center gap-1.5 text-[12.5px] text-muted">

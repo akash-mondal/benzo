@@ -1,7 +1,7 @@
 /**
- * Request (C7) — ask someone for money. Optional amount (omit for "any amount"),
+ * Request (C7) - ask someone for money. Optional amount (omit for "any amount"),
  * an optional note, then a shareable link. Created requests are TRACKED on-device
- * (lib/requests, localStorage — no public feed) with a status, a local Remind
+ * (lib/requests, localStorage - no public feed) with a status, a local Remind
  * (re-share), and Cancel. The payer accepts / pays-different / declines on Claim;
  * settlement reuses the existing ZK transfer.
  */

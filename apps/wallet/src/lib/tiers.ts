@@ -1,7 +1,7 @@
 /**
- * Verification tiers (C5 — Cash App parity, privacy-adapted). The "tier" is the
+ * Verification tiers (C5 - Cash App parity, privacy-adapted). The "tier" is the
  * ZK ASSURANCE LEVEL (proven by the kyc_credential circuit), NOT a record of
- * identity — no SSN/name/DOB ever lives in this app. We surface the *capability*
+ * identity - no SSN/name/DOB ever lives in this app. We surface the *capability*
  * a tier unlocks (a higher private SEND ramp) and gate large sends just-in-time.
  *
  * Privacy rules baked in: receiving is ALWAYS unlimited + anonymous (no receive

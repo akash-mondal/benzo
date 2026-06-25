@@ -1,6 +1,6 @@
 /**
  * Benzo for Business is a desktop product (dense tables, maker-checker, treasury).
- * On small screens we don't cram it — we show a calm message and point phone users
+ * On small screens we don't cram it - we show a calm message and point phone users
  * to the consumer wallet, which is built for mobile.
  */
 import { useEffect, useState } from "react";

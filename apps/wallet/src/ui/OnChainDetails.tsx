@@ -1,5 +1,5 @@
 /**
- * OnChainDetails — a "not-too-hidden" Advanced disclosure that turns any Benzo
+ * OnChainDetails - a "not-too-hidden" Advanced disclosure that turns any Benzo
  * action into something a technical reviewer (or a curious user) can verify on
  * the public ledger, WITHOUT cluttering the web2-clean default view.
  *
@@ -7,8 +7,8 @@
  * facts behind the abstracted UI: the settlement tx (Stellar Expert link), the
  * verifier + pool contract ids, what the ZK proof proved, where it was generated
  * (this device vs the attested TEE) and how long it took, and the privacy
- * invariant in technical terms. Everything here is PUBLIC chain data — never a
- * secret — which is exactly the point: privacy holds even though the proof is
+ * invariant in technical terms. Everything here is PUBLIC chain data - never a
+ * secret - which is exactly the point: privacy holds even though the proof is
  * publicly checkable.
  */
 import { useState } from "react";
@@ -25,9 +25,9 @@ export type OnChainKind = "shield" | "transfer" | "unshield" | "proof";
 
 const KIND_PROOF: Record<OnChainKind, { circuit: string; statement: string }> = {
   shield: { circuit: "SHIELD", statement: "the deposit commits to a hidden note (amount + owner sealed) admitted by a KYC/ASP proof" },
-  transfer: { circuit: "TRANSFER (joinsplit)", statement: "inputs = outputs + fee, you own the inputs, and the nullifiers are fresh — amount + counterparty hidden" },
+  transfer: { circuit: "TRANSFER (joinsplit)", statement: "inputs = outputs + fee, you own the inputs, and the nullifiers are fresh - amount + counterparty hidden" },
   unshield: { circuit: "UNSHIELD", statement: "you own the note being withdrawn and it is NOT on the deny-list (proof-of-innocence)" },
-  proof: { circuit: "BALANCE / SUM", statement: "a balance/total claim holds — without revealing the amounts" },
+  proof: { circuit: "BALANCE / SUM", statement: "a balance/total claim holds - without revealing the amounts" },
 };
 
 export function OnChainDetails({
@@ -75,7 +75,7 @@ export function OnChainDetails({
               <LinkRow k="Pool contract" id={DEPLOYMENT.pool} href={explorerContract(DEPLOYMENT.pool)} />
               <LinkRow k="Groth16 verifier" id={DEPLOYMENT.verifier} href={explorerContract(DEPLOYMENT.verifier)} />
               <div className="pt-1 text-[11px] leading-snug text-muted">
-                Everything here is public — yet your amount, balance and counterparty stay hidden. That is the zero-knowledge guarantee:
+                Everything here is public - yet your amount, balance and counterparty stay hidden. That is the zero-knowledge guarantee:
                 the network verified the payment is valid without learning what it was.
               </div>
             </div>

@@ -1,8 +1,8 @@
 /**
- * Receive — your USDC address + QR so ANY wallet or exchange can pay you. What
+ * Receive - your USDC address + QR so ANY wallet or exchange can pay you. What
  * lands here is your PUBLIC balance (plain liquid USDC). No bank, no ramp. The
  * address + QR are public (anyone can pay you here). Optional one-tap "Make
- * private" moves what's landed into your private balance — the same real
+ * private" moves what's landed into your private balance - the same real
  * Groth16/BN254 on-chain op as Add money. Web2-clean: a clear address, a copy
  * button, a "landed" amount, and one button.
  */
@@ -72,7 +72,7 @@ export function Deposit() {
       void refresh();
     } catch (e) {
       const m = (e as Error).message ?? "";
-      setErr(/raw|invoke|0x|error\(|contract/i.test(m) ? "Couldn't import right now. Your money is safe — please try again." : m);
+      setErr(/raw|invoke|0x|error\(|contract/i.test(m) ? "Couldn't import right now. Your money is safe - please try again." : m);
       setPhase("show");
     }
   }
@@ -155,7 +155,7 @@ function ImportDone({ amount, onChain, result, onDone }: { amount: string; onCha
       </div>
       {onChain ? (
         <div className="flex items-center gap-1.5 text-[12px] text-pos">
-          <ShieldCheck size={13} /> It's now in your private balance — the amount is hidden on-chain
+          <ShieldCheck size={13} /> It's now in your private balance - the amount is hidden on-chain
         </div>
       ) : null}
       <div className="w-full max-w-[320px]"><OnChainDetails txHash={result?.txHash} prover={result?.prover} provingMs={result?.provingMs} onChain={onChain} kind="shield" /></div>

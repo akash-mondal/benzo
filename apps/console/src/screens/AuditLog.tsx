@@ -1,5 +1,5 @@
 /**
- * Audit log — the tamper-evident double-entry ledger, finally on screen. Every
+ * Audit log - the tamper-evident double-entry ledger, finally on screen. Every
  * shielded movement projects to a balanced entry whose hash commits to the one
  * before it, so any after-the-fact edit/insert/delete breaks the chain from that
  * point on. "Verify chain" re-walks it and proves integrity; each entry links to
@@ -68,7 +68,7 @@ export function AuditLog() {
       const r = await api.ledgerVerify();
       setIntegrity(r);
       toast({
-        title: r.ok ? `Chain intact — ${r.length} entries verified` : `Tampering detected at entry #${r.brokenAt}`,
+        title: r.ok ? `Chain intact - ${r.length} entries verified` : `Tampering detected at entry #${r.brokenAt}`,
         tone: r.ok ? "success" : "danger",
       });
     } catch (e) {
@@ -148,7 +148,7 @@ export function AuditLog() {
           <ScrollText size={16} className="text-primary" /> Tamper-evidence
         </div>
         <p className="mt-1.5 max-w-2xl text-[12.5px] leading-relaxed text-muted">
-          Each entry's hash commits to the one before it. Re-walking the chain proves nobody edited, inserted, or deleted a record after the fact — the same guarantee an auditor would re-run themselves.
+          Each entry's hash commits to the one before it. Re-walking the chain proves nobody edited, inserted, or deleted a record after the fact - the same guarantee an auditor would re-run themselves.
         </p>
         <div className="mt-4 flex items-center gap-3">
           {verifying ? (
@@ -292,7 +292,7 @@ export function AuditLog() {
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[11.5px] text-muted">
                     <span className="font-mono" title="audit hash (commits to the previous entry)">
-                      {e.hash ? formatAddress(e.hash, 8, 6) : "—"}
+                      {e.hash ? formatAddress(e.hash, 8, 6) : "-"}
                     </span>
                     {e.txId ? (
                       <a href={explorerTxUrl(e.txId)} target="_blank" rel="noreferrer" className="font-semibold text-primary hover:underline">

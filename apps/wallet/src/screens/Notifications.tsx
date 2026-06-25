@@ -1,6 +1,6 @@
 /**
  * Notifications (C8). A real, client-side feed derived from on-device activity
- * history — incoming payments, settles, cash-outs. Tap the bell to get here;
+ * history - incoming payments, settles, cash-outs. Tap the bell to get here;
  * "Mark all read" clears the badge. No server, no push service.
  */
 import { useEffect, useMemo } from "react";

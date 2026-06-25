@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Benzo console — same brand DNA as the wallet (Helvetica Now headings, #7342E2
+ * Benzo console - same brand DNA as the wallet (Helvetica Now headings, #7342E2
  * accent), a cooler/calmer temperature for software. Red is reserved for failed
  * proofs / compliance blocks; `shielded` is the one calm private-by-default
  * accent. Tokens are consumed by ui/primitives.tsx + ui/controls.tsx.

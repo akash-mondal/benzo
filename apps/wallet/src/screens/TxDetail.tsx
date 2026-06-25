@@ -1,11 +1,11 @@
 /**
- * TxDetail (C3) — the per-payment receipt every money app has and we were missing
+ * TxDetail (C3) - the per-payment receipt every money app has and we were missing
  * (Wise/Cash App parity). Reached at /activity/:id; reads the row straight from
- * the already-loaded history, so it is fully client-side — no extra backend call.
+ * the already-loaded history, so it is fully client-side - no extra backend call.
  *
  * Shows: the amount + who, a plain-English status timeline (created → proved
  * private → settled), the privacy posture, a reference, the full date, and two
- * actions — view the on-chain receipt (explorer) and share a provable receipt.
+ * actions - view the on-chain receipt (explorer) and share a provable receipt.
  */
 import { useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
@@ -33,7 +33,7 @@ function isCashRow(row: ActivityRow): boolean {
   return row.type === "cashOut" || row.type === "unshield" || row.type === "shield" || row.type === "cashIn";
 }
 
-/** Build the status timeline for a row — the steps + which one we're on. */
+/** Build the status timeline for a row - the steps + which one we're on. */
 function timeline(row: ActivityRow): Step[] {
   const failed = row.status === "failed";
   const settled = row.status === "settled";
@@ -63,7 +63,7 @@ function timeline(row: ActivityRow): Step[] {
       { label: "Settled", state: failed ? "failed" : "done" },
     ];
   }
-  // Outgoing private payment — the ZK story, told plainly.
+  // Outgoing private payment - the ZK story, told plainly.
   return [
     { label: "Payment created", state: "done" },
     {
@@ -101,7 +101,7 @@ export function TxDetail() {
   const cash = isCashRow(row);
   const steps = timeline(row);
   // Honest on-chain claim: a legacy local row never counts as "Verified on-chain",
-  // even if it carries a txHash — otherwise we'd link a dead explorer tx.
+  // even if it carries a txHash - otherwise we'd link a dead explorer tx.
   const onChain = !row.unverified && !!row.txHash;
   const privatePayment = row.type !== "cashOut" && row.type !== "unshield";
 

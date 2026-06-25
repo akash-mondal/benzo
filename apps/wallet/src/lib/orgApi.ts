@@ -1,8 +1,8 @@
 /**
- * orgApi (P0-B3) — the ONE place the consumer wallet talks to a business's
+ * orgApi (P0-B3) - the ONE place the consumer wallet talks to a business's
  * console-api: a contractor accepting an org invite and billing that org. This is
  * a deliberate cross-product interaction (a contractor submitting an invoice to a
- * company), NOT identity sharing — the contractor keeps their own wallet identity;
+ * company), NOT identity sharing - the contractor keeps their own wallet identity;
  * the org just gets an invoice tied to the contractor's @handle. Defaults to the
  * local console-api; override with VITE_CONSOLE_ORIGIN.
  */

@@ -12,7 +12,7 @@ const mem = new Map<string, string>();
 
 import { normHandle, saveContact, removeContact, isSaved, listLocal, mergeContacts } from "./contacts.js";
 
-describe("contacts (C6 — local-first recipient management)", () => {
+describe("contacts (C6 - local-first recipient management)", () => {
   beforeEach(() => mem.clear());
 
   it("normalizes handles to a single leading @", () => {

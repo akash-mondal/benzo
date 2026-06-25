@@ -13,7 +13,7 @@ const mem = new Map<string, string>();
 
 import { getLockSettings, setLockSettings, shouldLockOnOpen, shouldLockOnSend } from "./lock.js";
 
-describe("app lock settings (C4 — Security Lock)", () => {
+describe("app lock settings (C4 - Security Lock)", () => {
   beforeEach(() => mem.clear());
 
   it("defaults to both locks off", () => {

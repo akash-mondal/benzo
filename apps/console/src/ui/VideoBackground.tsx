@@ -1,5 +1,5 @@
 /**
- * VideoBackground — ambient looping video behind the console (replaces the canvas
+ * VideoBackground - ambient looping video behind the console (replaces the canvas
  * grid). Fills its positioned parent, sits behind content, carries a soft scrim
  * for legibility, autoplays muted+looped, and falls back to a still frame under
  * prefers-reduced-motion. Drop-in for the old <Canvas tint=… />.

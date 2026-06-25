@@ -56,7 +56,7 @@ function installAuthenticator(prf = true): MockAuth {
 }
 
 beforeEach(() => {
-  // jsdom localStorage persists across tests in a worker — clear it
+  // jsdom localStorage persists across tests in a worker - clear it
   try {
     localStorage.clear();
   } catch {

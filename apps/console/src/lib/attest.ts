@@ -9,7 +9,7 @@
  * `encPub`, which must equal the attested X25519 key).
  *
  * HONEST SCOPE: this proves WHICH code verified the Google token (attested-server
- * integrity rooted in TDX hardware) — it is NOT a zero-knowledge proof, and the
+ * integrity rooted in TDX hardware) - it is NOT a zero-knowledge proof, and the
  * login is not verified on-chain. The genuinely private part (sub→address, the
  * Google identity never touching the chain) is client-side and unchanged.
  */

@@ -1,10 +1,10 @@
 /**
- * Account-bearing client-side reads — the shielded balance + history read
+ * Account-bearing client-side reads - the shielded balance + history read
  * DIRECTLY from the chain in the browser, with NO BFF in the read path. This is
  * the core of "the blockchain is the backend": the device holds the account
  * (viewing + spend keys), constructs a BenzoClient over StellarRpcClient + the
  * note scanner, syncs the pool from the Soroban RPC, trial-decrypts its own
- * notes, and sums the spendable balance — all on-device.
+ * notes, and sums the spendable balance - all on-device.
  *
  * Key provenance: in hosted deployments the account must be derived from the
  * passkey/zk-login material on the device and never leave it. For local testnet
@@ -41,7 +41,7 @@ const unb64 = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
  * note-discovery snapshot + ASP set so the shielded read RESUMES incrementally
  * (warm read ~0.9s vs ~14s cold). The snapshot reveals which on-chain notes are
  * yours, so we AES-GCM seal every value under a key HKDF-derived from the
- * account's VIEWING secret — an attacker with device/disk access learns nothing
+ * account's VIEWING secret - an attacker with device/disk access learns nothing
  * without the account. Fully client-side; nothing leaves the device. A value
  * that won't decrypt (e.g. different account) is treated as a cache miss → re-scan.
  */
@@ -110,13 +110,13 @@ class IdbKVStore {
 // routes use the circuit id and do not download zkeys.
 const a = (c: string) => ({ wasmPath: `/circuits/${c}.wasm`, zkeyPath: `/circuits/${c}.zkey`, circuit: c });
 // Only joinsplit (transfer) + proof_of_balance are served for on-device proving.
-// shield/unshield are NOT wired client-side yet — they go through the BFF. Earlier
+// shield/unshield are NOT wired client-side yet - they go through the BFF. Earlier
 // these aliased proof_of_balance's artifacts "to satisfy the type", which would
 // SILENTLY generate the WRONG proof if ever invoked. Instead, accessing their
 // paths throws loudly so a miswire fails fast rather than producing a bad proof.
 const notWired = (c: string) => ({
-  get wasmPath(): string { throw new Error(`client-side ${c} proving is not wired yet — this op must use the BFF path`); },
-  get zkeyPath(): string { throw new Error(`client-side ${c} proving is not wired yet — this op must use the BFF path`); },
+  get wasmPath(): string { throw new Error(`client-side ${c} proving is not wired yet - this op must use the BFF path`); },
+  get zkeyPath(): string { throw new Error(`client-side ${c} proving is not wired yet - this op must use the BFF path`); },
   circuit: c,
 });
 const CIRCUITS = {
@@ -201,9 +201,9 @@ let mvkWired = false;
 /**
  * Mirror the on-chain MVK registry on-device (READ-ONLY) so spends produce a
  * `registeredMvkRoot` the pool accepts. The account's MVK is already registered
- * on-chain (from prior activity), so we only replay leaves — no write. Returns
+ * on-chain (from prior activity), so we only replay leaves - no write. Returns
  * false if this account's MVK isn't registered (then a client-side send isn't
- * possible without a register write — caller falls back to the BFF).
+ * possible without a register write - caller falls back to the BFF).
  */
 async function wireMvkRegistry(client: BenzoClient): Promise<boolean> {
   if (mvkWired) return true;

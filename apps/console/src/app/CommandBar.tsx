@@ -1,5 +1,5 @@
 /**
- * ⌘K command bar — was a dead affordance (a styled div). Now a real, minimal
+ * ⌘K command bar - was a dead affordance (a styled div). Now a real, minimal
  * jump-to palette: open with ⌘K or a click, type to filter, Enter or click to
  * navigate. Keeps the topbar's search affordance honest.
  */

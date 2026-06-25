@@ -1,19 +1,19 @@
 /**
- * On-device passkey signing (S3) — the consumer wallet's keys live on THIS
- * device, gated by Face ID / fingerprint. No server-side custodial signer.
+ * On-device passkey signing (S3) - the consumer wallet's keys live on THIS
+ * device, gated by the platform passkey check. No server-side custodial signer.
  *
  * How it works: a WebAuthn passkey with the PRF extension can deterministically
- * derive a stable 32-byte secret for a given salt — the modern "encrypt/derive
+ * derive a stable 32-byte secret for a given salt - the modern "encrypt/derive
  * with a passkey" primitive. We hash the message Benzo signs (NOTE_KEY_MESSAGE)
  * into that salt, take the PRF output as the "signature", and feed it to
  * `accountFromSignedMessage` (the same Railgun-style derivation the rest of the
  * app uses). Same passkey → same shielded account, every unlock, no seed phrase.
  *
- * Fallbacks (kept honest, still non-custodial — the secret never leaves the
+ * Fallbacks (kept honest, still non-custodial - the secret never leaves the
  * device): if the authenticator lacks PRF, we generate a device-local random
  * secret at registration and gate access behind a passkey presence check; if
  * WebAuthn is entirely unavailable, we fall back to a device-local secret with
- * no biometric gate (and the UI hides the "Face ID" affordance).
+ * no user-verification gate (and the UI hides the lock affordance).
  */
 import {
   loginWithSigner,
@@ -27,7 +27,7 @@ const LS_KEY = "benzo.passkey.v1";
 interface StoredPasskey {
   /** base64url WebAuthn credential id, or "local" when no authenticator */
   credentialId: string;
-  /** hex device-local secret — only set when PRF is unavailable */
+  /** hex device-local secret - only set when PRF is unavailable */
   fallbackSecret?: string;
 }
 
@@ -106,8 +106,8 @@ export function clearPasskey(): void {
 
 /**
  * True when a real (non-"local") authenticator exists on this device to gate
- * access with — i.e. the app lock (Cash App "Security Lock" parity) can require
- * Face ID / fingerprint. When false the lock toggles stay disabled (there is
+ * access with - i.e. the app lock (Cash App "Security Lock" parity) can require
+ * the platform passkey prompt. When false the lock toggles stay disabled (there is
  * nothing to verify against).
  */
 export function lockCapable(): boolean {
@@ -116,8 +116,8 @@ export function lockCapable(): boolean {
 }
 
 /**
- * Biometric/passkey presence check for the app lock. Resolves on a successful
- * Face ID / fingerprint / device-PIN check, throws if cancelled or failed.
+ * Passkey presence check for the app lock. Resolves on a successful
+ * platform prompt (biometric, device PIN, pattern, or security key), throws if cancelled or failed.
  * No-op (resolves) when there is no authenticator to gate against.
  */
 export async function verifyPresence(): Promise<void> {
@@ -134,7 +134,7 @@ async function saltFor(message: string): Promise<Uint8Array> {
 /** Create (or adopt) a passkey for this device. Idempotent-ish: re-registers. */
 export async function registerPasskey(opts: { userName: string; displayName?: string }): Promise<void> {
   if (!isWebAuthnAvailable()) {
-    // No WebAuthn at all — device-local secret, non-custodial, no biometric gate.
+    // No WebAuthn at all - device-local secret, non-custodial, no user-verification gate.
     saveStored({ credentialId: "local", fallbackSecret: toHex(crypto.getRandomValues(new Uint8Array(32))) });
     return;
   }
@@ -192,7 +192,7 @@ export async function derivePasskeySecret(message: string = NOTE_KEY_MESSAGE): P
   if (!stored) throw new Error("No passkey on this device. Register first.");
 
   if (stored.fallbackSecret) {
-    // require a biometric presence check when an authenticator is present
+    // require a platform presence check when an authenticator is present
     if (stored.credentialId !== "local" && isWebAuthnAvailable()) await assertPresence(stored.credentialId);
     return sha256(concat(fromHex(stored.fallbackSecret), new TextEncoder().encode(message)));
   }
@@ -217,7 +217,7 @@ export async function derivePasskeySecret(message: string = NOTE_KEY_MESSAGE): P
   return new Uint8Array(prfOut);
 }
 
-/** A SignMessage backed by the on-device passkey — drop-in for loginWithSigner. */
+/** A SignMessage backed by the on-device passkey - drop-in for loginWithSigner. */
 export const passkeySignMessage: SignMessage = (message) => derivePasskeySecret(message);
 
 /** Unlock (or first-derive) the Benzo shielded account from the device passkey. */

@@ -1,5 +1,5 @@
 /**
- * Console shell — 240px sidebar (grouped nav with an Approvals badge), a top bar
+ * Console shell - 240px sidebar (grouped nav with an Approvals badge), a top bar
  * (workspace switcher, ⌘K search, Live·testnet badge, mask-eye, bell, avatar),
  * and the routed content area with the cursor-interactive canvas behind the cards.
  */

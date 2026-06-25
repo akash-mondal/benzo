@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Benzo console UI primitives (design system) + showcase. No screens yet — built in the UI phase.",
+  "description": "Benzo console UI primitives (design system) + showcase. No screens yet - built in the UI phase.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

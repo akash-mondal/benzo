@@ -1,6 +1,6 @@
 /**
  * The app-open lock screen (C4). Shown over everything when "require unlock on
- * open" is set, until the on-device passkey / Face ID check passes. Mirrors Cash
+ * open" is set, until the on-device passkey check passes. Mirrors Cash
  * App's Security Lock: nothing is readable until you authenticate.
  */
 import { useState } from "react";
@@ -38,7 +38,7 @@ export function LockGate({ onUnlock }: { onUnlock: () => void }) {
       </motion.div>
       <div className="px-8 text-center">
         <h2 className="font-display text-xl">Benzo is locked</h2>
-        <p className="mt-1.5 text-[14px] text-muted">Unlock with Face ID or your fingerprint to continue.</p>
+        <p className="mt-1.5 text-[14px] text-muted">Unlock with your device passkey to continue.</p>
         {failed ? <p className="mt-2 text-[13px] text-danger" data-testid="lock-failed">Couldn't verify. Try again.</p> : null}
       </div>
       <button

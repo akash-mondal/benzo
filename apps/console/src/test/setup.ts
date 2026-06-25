@@ -1,4 +1,4 @@
-/** Vitest (jsdom) setup — jest-dom matchers + the browser APIs jsdom lacks. */
+/** Vitest (jsdom) setup - jest-dom matchers + the browser APIs jsdom lacks. */
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 

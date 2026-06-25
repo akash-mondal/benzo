@@ -1,5 +1,5 @@
 /**
- * Activity — the full feed, grouped by day (Today / Yesterday / date). Pull-down
+ * Activity - the full feed, grouped by day (Today / Yesterday / date). Pull-down
  * empty + skeleton states; everything in plain English.
  */
 import { useMemo } from "react";

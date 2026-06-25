@@ -1,6 +1,6 @@
 /**
- * Money requests (C7 — Venmo/Wise parity, privacy-adapted). The requester's
- * tracked requests live ON DEVICE (localStorage), like notifications — there is
+ * Money requests (C7 - Venmo/Wise parity, privacy-adapted). The requester's
+ * tracked requests live ON DEVICE (localStorage), like notifications - there is
  * NO public/global request feed and no server keyed to a payer identity. A
  * request is paid only when the requester's own wallet observes the incoming
  * note; here we track the requester's view + the local lifecycle.
@@ -69,7 +69,7 @@ export function cancelRequest(id: string): void {
   patch(id, { status: "cancelled" });
 }
 
-/** Local "remind" — the caller re-shares the link; we just record the timestamp. */
+/** Local "remind" - the caller re-shares the link; we just record the timestamp. */
 export function markReminded(id: string, at: number = nowS()): void {
   patch(id, { lastRemindedAt: at });
 }

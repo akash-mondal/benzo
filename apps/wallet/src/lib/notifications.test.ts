@@ -19,7 +19,7 @@ const rows: ActivityRow[] = [
   { id: "r3", type: "cashOut", name: "Cash out", note: "", amount: "1000000000", direction: "out", status: "arriving", timestamp: 200 },
 ];
 
-describe("notifications (C8 — client-side, derived from history)", () => {
+describe("notifications (C8 - client-side, derived from history)", () => {
   beforeEach(() => mem.clear());
 
   it("derives a line per activity row, newest first", () => {

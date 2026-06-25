@@ -1,5 +1,5 @@
 /**
- * Settings & team — members + roles, counterparties, and connected integrations.
+ * Settings & team - members + roles, counterparties, and connected integrations.
  * Read-mostly here; the heavy actions live on their own screens.
  */
 import { Fragment, useEffect, useState } from "react";
@@ -64,7 +64,7 @@ export function SettingsScreen() {
           </Card>
         </Stagger.Item>
 
-        {/* B5 — roles & permissions matrix (driven by ROLE_PERMISSIONS) */}
+        {/* B5 - roles & permissions matrix (driven by ROLE_PERMISSIONS) */}
         <Stagger.Item index={1}>
           <Card className="p-0" data-testid="roles-matrix">
             <div className="flex items-center gap-2 border-b border-border px-5 py-3.5 text-[13px] font-semibold">
@@ -105,7 +105,7 @@ export function SettingsScreen() {
               </table>
             </div>
             <div className="flex items-center gap-1.5 border-t border-border px-5 py-3 text-[12px] text-muted">
-              <ShieldCheck size={13} className="text-primary" /> Auditor is a scoped viewing-key holder — read-only, never a signer. A privacy-native role.
+              <ShieldCheck size={13} className="text-primary" /> Auditor is a scoped viewing-key holder - read-only, never a signer. A privacy-native role.
             </div>
           </Card>
         </Stagger.Item>

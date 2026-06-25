@@ -1,6 +1,6 @@
 /**
  * Typed client for @benzo/console-api (Vite proxies "/api" → :8790). Screens use
- * ONLY this — typed against @benzo/types, so the UI and BFF share one contract.
+ * ONLY this - typed against @benzo/types, so the UI and BFF share one contract.
  */
 import type {
   Account,
@@ -258,7 +258,7 @@ export const api = {
     localConsole.createPayroll(seedConsole, body),
   approvePayroll: (id: string, body: { decision?: "approved" | "denied"; actorMemberId?: string } = { decision: "approved" }) =>
     localConsole.approvePayroll(seedConsole, id, body, settlePayroll),
-  // "Payroll funded ✓" — prove ON-CHAIN (ORGBAL) the treasury covers this run's total.
+  // "Payroll funded ✓" - prove ON-CHAIN (ORGBAL) the treasury covers this run's total.
   proveFunded: async (id: string) => {
     const { batch } = await localPayrollLines(seedConsole, id);
     const runTotal = batch.lines.filter((l) => !l.onChain && BigInt(l.amount || "0") > 0n).reduce((s, l) => s + BigInt(l.amount), 0n).toString();

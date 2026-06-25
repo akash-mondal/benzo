@@ -25,7 +25,7 @@ export function statusMeta(status: string, ctx: { nextRole?: string | null } = {
       return {
         label: "Pending review",
         tone: "warning",
-        tooltip: "Waiting for an approver — maker-checker keeps spends dual-controlled.",
+        tooltip: "Waiting for an approver - maker-checker keeps spends dual-controlled.",
         eta: ctx.nextRole ? `Waiting on ${ctx.nextRole} to approve` : "Waiting on an approver",
       };
     case "awaiting_kyc":
@@ -37,7 +37,7 @@ export function statusMeta(status: string, ctx: { nextRole?: string | null } = {
     case "submitting":
     case "submitted_onchain":
     case "processing":
-      return { label: "Payment in progress", tone: "warning", tooltip: "Proving privately and settling on-chain — amount and recipient stay hidden.", eta: "Settling now" };
+      return { label: "Payment in progress", tone: "warning", tooltip: "Proving privately and settling on-chain - amount and recipient stay hidden.", eta: "Settling now" };
     case "confirmed":
     case "settled":
     case "paid":
@@ -47,7 +47,7 @@ export function statusMeta(status: string, ctx: { nextRole?: string | null } = {
     case "open":
       return { label: "Awaiting", tone: "warning", tooltip: "Not paid yet.", eta: "Arrives in seconds once paid" };
     case "failed":
-      return { label: "Failed", tone: "danger", tooltip: "Rejected or reversed — retry available.", eta: "" };
+      return { label: "Failed", tone: "danger", tooltip: "Rejected or reversed - retry available.", eta: "" };
     case "overdue":
       return { label: "Overdue", tone: "danger", tooltip: "Past its due date.", eta: "" };
     case "cancelled":
@@ -92,7 +92,7 @@ export function buildTimeline(status: string, ctx: { nextRole?: string | null } 
   };
   const paid: Step = {
     label: failed ? "Failed" : "Paid",
-    hint: failed ? "Rejected or reversed — retry available" : "Settled privately on-chain",
+    hint: failed ? "Rejected or reversed - retry available" : "Settled privately on-chain",
     state: terminalPaid ? "done" : failed ? "active" : "todo",
   };
   return [created, review, proved, paid];

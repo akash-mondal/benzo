@@ -2,7 +2,7 @@
  * The 3-phase send ceremony (S0). A full-screen overlay driven by the shared
  * payment state machine (@benzo/ui): phase 1 encrypts (coin → cipher + closing
  * lock ring), phase 2 settles (coin drops into a block stack), phase 3 reveals a
- * verifiable receipt. The animation is a slave to the machine — never a timer —
+ * verifiable receipt. The animation is a slave to the machine - never a timer -
  * so it tells the truth about proving/settlement. Collapses to a calm, labeled
  * step list under prefers-reduced-motion.
  */
@@ -314,7 +314,7 @@ function CopyChip({ text }: { text: string }) {
 
 // ----------------------------------------------------------------- slow reassurance
 // Three honest stages: quiet (no message), reassurance (~6-8s), and a hard ceiling
-// (~90s) that offers a safe escape WITHOUT claiming failure — the submit→poll loop
+// (~90s) that offers a safe escape WITHOUT claiming failure - the submit→poll loop
 // can legitimately run long, but the user should never be stranded forever.
 const STALL_CEILING_MS = 90_000;
 function SlowReassurance({ phase, onEscape }: { phase: "encrypt" | "settle" | "verify" | "error"; onEscape: () => void }) {
@@ -333,7 +333,7 @@ function SlowReassurance({ phase, onEscape }: { phase: "encrypt" | "settle" | "v
   if (stalled) {
     return (
       <div className="flex flex-col items-center gap-2 px-4" data-testid="ceremony-stalled">
-        <p className="text-[13px] text-muted">Taking longer than usual. The network may be busy — your money hasn't moved yet.</p>
+        <p className="text-[13px] text-muted">Taking longer than usual. The network may be busy - your money hasn't moved yet.</p>
         <button onClick={onEscape} className="text-[13px] font-semibold text-accent" data-testid="ceremony-stalled-retry">
           Start over
         </button>

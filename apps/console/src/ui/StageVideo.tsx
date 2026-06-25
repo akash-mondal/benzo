@@ -1,5 +1,5 @@
 /**
- * StageVideo — the ambient looping video that fills the viewport BEHIND the
+ * StageVideo - the ambient looping video that fills the viewport BEHIND the
  * console card (the area where the grid used to sit). It lives at z-0 so the
  * opaque workspace card floats *over* it; the video is the backdrop, never inside
  * the app content. Autoplays muted + looped, pauses when the tab is hidden, and

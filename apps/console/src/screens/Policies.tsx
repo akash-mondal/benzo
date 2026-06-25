@@ -1,9 +1,9 @@
 /**
- * Approval policies (B4 — Ramp parity). Author M-of-N approval chains: routing
- * CONDITIONS (amount/counterparty — evaluated privately by the BFF over the
+ * Approval policies (B4 - Ramp parity). Author M-of-N approval chains: routing
+ * CONDITIONS (amount/counterparty - evaluated privately by the BFF over the
  * plaintext proposal, since Benzo hides those on-chain), ordered APPROVE STEPS,
  * and a separate RELEASE GATE (sign & settle). This is NOT cosmetic: the release
- * gate's threshold maps onto GENUINELY-ENFORCED dual-control — org_account
+ * gate's threshold maps onto GENUINELY-ENFORCED dual-control - org_account
  * threshold + the in-circuit joinsplit_org M-of-N (JSPLITORG, verified on testnet).
  */
 import { useState } from "react";
@@ -97,7 +97,7 @@ function PolicyEditor({ policy, onSaved }: { policy: ApprovalPolicy; onSaved: ()
       </div>
       <div className="px-5 py-4 text-[13px] text-muted" data-testid="policy-summary">{policySummary(draft)}</div>
 
-      {/* Routing — evaluated privately by the BFF (Benzo hides amount/counterparty on-chain). */}
+      {/* Routing - evaluated privately by the BFF (Benzo hides amount/counterparty on-chain). */}
       <Section label="Routing · evaluated privately by Benzo">
         {conditions.length === 0 ? (
           <div className="text-[13px] text-muted">Applies to every payment.</div>
@@ -122,7 +122,7 @@ function PolicyEditor({ policy, onSaved }: { policy: ApprovalPolicy; onSaved: ()
         )}
       </Section>
 
-      {/* Approve steps — the maker-checker chain. */}
+      {/* Approve steps - the maker-checker chain. */}
       <Section label="Approval steps">
         <div className="space-y-2">
           {steps.map((s, i) => (
@@ -137,7 +137,7 @@ function PolicyEditor({ policy, onSaved }: { policy: ApprovalPolicy; onSaved: ()
         </div>
       </Section>
 
-      {/* Release gate — the part enforced on-chain. */}
+      {/* Release gate - the part enforced on-chain. */}
       {gate ? (
         <Section label="Sign & release (on-chain)">
           <div className="flex items-center gap-3 rounded-lg bg-canvas px-3.5 py-2.5">
@@ -152,7 +152,7 @@ function PolicyEditor({ policy, onSaved }: { policy: ApprovalPolicy; onSaved: ()
       <div className="mx-5 mb-4 flex items-start gap-2 rounded-xl bg-primary/[0.06] px-3.5 py-3 text-[12.5px] text-fg" data-testid="policy-enforcement">
         <ShieldCheck size={15} className="mt-0.5 flex-none text-primary" />
         <span>
-          <b>Enforced on-chain.</b> Org funds live in notes bound to your member set + threshold, and the pool's <code>transfer_org</code> entry only settles a spend that carries a valid in-circuit M-of-N proof (<code>JSPLITORG</code>) — the verifier rejects a single-key spend of org funds. So release is gated by the proof inside the contract, not by this server. <span className="text-muted">Separation of duties is always on: a proposer can never approve their own payment.</span>
+          <b>Enforced on-chain.</b> Org funds live in notes bound to your member set + threshold, and the pool's <code>transfer_org</code> entry only settles a spend that carries a valid in-circuit M-of-N proof (<code>JSPLITORG</code>) - the verifier rejects a single-key spend of org funds. So release is gated by the proof inside the contract, not by this server. <span className="text-muted">Separation of duties is always on: a proposer can never approve their own payment.</span>
         </span>
       </div>
 

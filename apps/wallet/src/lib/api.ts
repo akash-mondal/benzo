@@ -1,6 +1,6 @@
 /**
  * Typed client for @benzo/wallet-api. Same-origin "/api" (Vite proxies to :8791).
- * The UI talks ONLY to this — never to the chain directly — so a screen renders
+ * The UI talks ONLY to this - never to the chain directly - so a screen renders
  * dollars + plain-English status and never touches stroops/proofs/tx plumbing.
  */
 export type ProverKind = "local" | "tee";
@@ -29,7 +29,7 @@ export interface ActivityRow {
   timestamp: number;
   txHash?: string;
   tone?: "accent" | "amber" | "neutral";
-  /** legacy local row, not a real on-chain settlement — the UI badges it. */
+  /** legacy local row, not a real on-chain settlement - the UI badges it. */
   unverified?: boolean;
 }
 export interface Contact {

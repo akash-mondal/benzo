@@ -1,5 +1,5 @@
 /**
- * VideoBackground — the ambient looping video behind every screen (replaces the
+ * VideoBackground - the ambient looping video behind every screen (replaces the
  * canvas dots/grid). Fills its positioned parent, sits BEHIND all cards, and
  * carries a soft scrim so dark-on-light text stays legible over the footage.
  * Autoplays muted + looped (the only way mobile browsers allow autoplay), and
@@ -39,7 +39,7 @@ export function VideoBackground({ tint = "#f2f2ee", src = "/bg.mp4" }: { tint?: 
         playsInline
         preload="auto"
       />
-      {/* Legibility scrim — keeps the brand tint + lets dark text read over the video. */}
+      {/* Legibility scrim - keeps the brand tint + lets dark text read over the video. */}
       <div className="absolute inset-0" style={{ background: `linear-gradient(180deg, ${tint}66 0%, ${tint}26 30%, ${tint}40 100%)` }} />
     </div>
   );

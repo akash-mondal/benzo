@@ -1,8 +1,8 @@
 /**
- * Network configuration — 12-factor (env-driven) so a build targets testnet OR
+ * Network configuration - 12-factor (env-driven) so a build targets testnet OR
  * mainnet WITHOUT any code change. Testnet defaults keep dev/CI zero-config; a
  * mainnet build sets the VITE_BENZO_* vars (RPC, passphrase, deployment JSON,
- * operator addresses). This removes the "hardcoded testnet" smell — going to
+ * operator addresses). This removes the "hardcoded testnet" smell - going to
  * production is an env swap + funded operators + a registered mainnet deployment.
  *
  * Everything here is PUBLIC: RPC URLs, contract IDs, and a funded G-address used
@@ -10,7 +10,7 @@
  */
 // Single source of truth: the live testnet deployment, imported (and inlined at
 // build) straight from deployments/testnet.json. This makes the wallet's contract
-// IDs PHYSICALLY UNABLE to drift from what is actually deployed — the prior
+// IDs PHYSICALLY UNABLE to drift from what is actually deployed - the prior
 // hardcoded block had gone stale against a dead pre-redeploy cluster. A mainnet
 // build overrides via VITE_BENZO_DEPLOYMENT (deployments/mainnet.json). The drift
 // guard in network.drift.test.ts asserts this equality so a future re-hardcode fails CI.
@@ -22,10 +22,10 @@ export const NETWORK = env.VITE_BENZO_NETWORK ?? "testnet";
 export const RPC_URL = env.VITE_SOROBAN_RPC_URL ?? "https://soroban-testnet.stellar.org";
 export const NETWORK_PASSPHRASE = env.VITE_NETWORK_PASSPHRASE ?? "Test SDF Network ; September 2015";
 
-/** Human label for the active network — never hardcode "testnet" on a money screen. */
+/** Human label for the active network - never hardcode "testnet" on a money screen. */
 export const NETWORK_LABEL = NETWORK === "public" || NETWORK === "pubnet" ? "Stellar" : "Stellar Testnet";
 
-/** Testnet deployment — derived from deployments/testnet.json (the zero-config
+/** Testnet deployment - derived from deployments/testnet.json (the zero-config
  *  default), so these IDs are exactly what is live on-chain and cannot go stale. */
 const TESTNET_DEPLOYMENT = {
   pool: testnetDeployment.pool,

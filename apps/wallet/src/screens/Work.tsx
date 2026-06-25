@@ -1,5 +1,5 @@
 /**
- * Work (P0-B3) — the contractor's mini-portal inside the consumer wallet. After
+ * Work (P0-B3) - the contractor's mini-portal inside the consumer wallet. After
  * accepting a business invite they land here to BILL the org: submit an invoice
  * that drops into the company's AP inbox, where it's paid through the same
  * maker-checker + confidential settlement as payroll. Their wallet identity stays
@@ -67,7 +67,7 @@ export function Work() {
     orgApi
       .invoices()
       .then((all) => { setMine(all.filter((i) => i.counterpartyId === cp)); setLoadErr(false); })
-      // A down backend shouldn't masquerade as "No invoices yet" — flag it so we can
+      // A down backend shouldn't masquerade as "No invoices yet" - flag it so we can
       // offer a retry instead of a deceptive empty state (only when we have nothing yet).
       .catch(() => setLoadErr((had) => (mine == null ? true : had)));
   useEffect(() => {

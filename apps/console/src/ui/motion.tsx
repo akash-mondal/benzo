@@ -1,4 +1,4 @@
-/** Console motion vocabulary — one ease, calmer travel than the wallet. */
+/** Console motion vocabulary - one ease, calmer travel than the wallet. */
 import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { ShieldCheck } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
@@ -35,7 +35,7 @@ Stagger.Item = function Item({ children, index = 0, className = "" }: { children
 };
 
 /**
- * ZK "proving" motion — the shared in-flight state for every prove/sign action.
+ * ZK "proving" motion - the shared in-flight state for every prove/sign action.
  * A pulsing shield + a label that steps through the proof lifecycle so a ZK action
  * reads as "signing → proving → verifying on-chain", not a generic spinner.
  *
@@ -43,7 +43,7 @@ Stagger.Item = function Item({ children, index = 0, className = "" }: { children
  * here), so on a 3+-step lifecycle we deliberately HOLD on the penultimate step
  * ("Generating…"/"Proving…") and never let the timer reach the final
  * "Verifying … on-chain" label on its own. That last label only appears if the
- * caller advances to it — so the UI can't claim it's verifying on-chain while the
+ * caller advances to it - so the UI can't claim it's verifying on-chain while the
  * proof is in fact still being generated locally. (2-step flows advance fully:
  * their terminal step is the settle/verify action itself, not a separate claim.)
  */
@@ -83,7 +83,7 @@ export function Proving({ steps, className = "" }: { steps: string[]; className?
 }
 
 /**
- * Result reveal — a spring scale/fade-in for a result card. `tone="danger"` adds a
+ * Result reveal - a spring scale/fade-in for a result card. `tone="danger"` adds a
  * single shake so a negative verdict is felt, not just colored.
  */
 export function Reveal({ children, tone = "neutral", className = "", ...rest }: { children: ReactNode; tone?: "neutral" | "success" | "danger"; className?: string; [k: `data-${string}`]: string | undefined }) {

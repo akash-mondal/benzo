@@ -1,5 +1,5 @@
 /**
- * Contractors — the roster + rate cards that the pay engine COMPUTES runs from.
+ * Contractors - the roster + rate cards that the pay engine COMPUTES runs from.
  * This is the input to every payroll run: a managed payee book with a monthly USDC
  * rate per contractor, CSV import, and a one-click "run this month" that assembles
  * a run whose amounts are computed server-side from these rates (never typed in).
@@ -134,7 +134,7 @@ export function Contractors() {
     if (payable.length === 0) return;
     setBusy("run");
     try {
-      // Amounts are COMPUTED server-side from each rate card — we only choose who's in.
+      // Amounts are COMPUTED server-side from each rate card - we only choose who's in.
       const batch = await api.createPayroll({
         period: period(),
         source: "manual",

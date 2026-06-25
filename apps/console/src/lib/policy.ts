@@ -1,5 +1,5 @@
 /**
- * Approval-policy helpers (B4 — Ramp parity). Turns an ApprovalPolicy into a
+ * Approval-policy helpers (B4 - Ramp parity). Turns an ApprovalPolicy into a
  * human-readable one-liner, and labels its conditions/steps for the builder.
  *
  * The privacy crux (and the differentiator): conditions on amount/counterparty

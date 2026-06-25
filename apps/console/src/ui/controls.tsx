@@ -1,5 +1,5 @@
 /**
- * Form, overlay, and feedback primitives — the load-bearing building blocks every
+ * Form, overlay, and feedback primitives - the load-bearing building blocks every
  * real screen needs (forms, tables, modals, tabs, toasts, loading + the
  * privacy/settlement views that map to the SDK's SendHandle progress events).
  * Self-contained: only react + lucide. Re-exported through ./primitives.
@@ -215,7 +215,7 @@ export function AddressDisplay({ address, head = 4, tail = 4 }: { address: strin
 // ---------------------------------------------------------------- timeline
 
 export type StepStatus = "done" | "active" | "pending" | "failed";
-/** Settlement / proving timeline — drive off SendHandle: pending → proving → settled. */
+/** Settlement / proving timeline - drive off SendHandle: pending → proving → settled. */
 export function Timeline({ steps }: { steps: Array<{ label: ReactNode; status: StepStatus; hint?: ReactNode }> }) {
   const dot: Record<StepStatus, string> = {
     done: "bg-success border-success",
@@ -240,7 +240,7 @@ export function Timeline({ steps }: { steps: Array<{ label: ReactNode; status: S
 
 // ---------------------------------------------------------------- privacy callout
 
-/** What this transaction hides vs. proves — the private-by-default summary. */
+/** What this transaction hides vs. proves - the private-by-default summary. */
 export function PrivacyDisclosure({ hidden, proven }: { hidden: string[]; proven?: string[] }) {
   return (
     <div className="rounded-lg border border-shielded/30 bg-shielded/8 px-4 py-3">

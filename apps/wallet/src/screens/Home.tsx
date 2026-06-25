@@ -1,5 +1,5 @@
 /**
- * Home — the single focal screen. One big balance (Helvetica Now, counts up), the
+ * Home - the single focal screen. One big balance (Helvetica Now, counts up), the
  * ambient Private chip, a 3-pill action row (Send is the purple+glow focal
  * action), and a plain-English activity preview. No tx hashes, gas, or "connect
  * wallet". A blocking banner appears only when the BFF isn't live.
@@ -61,7 +61,7 @@ function MiniAction({ label, icon, onClick, testid }: { label: string; icon: Rea
 }
 
 /**
- * The "Public" balance — plain liquid USDC anyone can pay to / you can send out.
+ * The "Public" balance - plain liquid USDC anyone can pay to / you can send out.
  * Deliberately quieter than the Private hero: it's the everyday "outside world"
  * money, not the privacy-first default. Numbers stay tabular for clean alignment.
  */
@@ -125,7 +125,7 @@ export function Home() {
       ) : null}
 
       <Stagger className="px-5">
-        {/* Balance hero — the focal card; canvas particles drift behind it */}
+        {/* Balance hero - the focal card; canvas particles drift behind it */}
         <Stagger.Item index={0}>
           <Card className="relative overflow-hidden p-6">
             <button
@@ -143,7 +143,7 @@ export function Home() {
                 <span
                   className="inline-flex items-center gap-1.5 rounded-full bg-pos/10 px-2.5 py-1 text-[11.5px] font-semibold text-pos"
                   data-testid="device-verified"
-                  title="Your balance was read and computed on this device, straight from the chain — no server."
+                  title="Your balance was read and computed on this device, straight from the chain - no server."
                 >
                   <Smartphone size={12} /> Read on your device
                 </span>
@@ -169,7 +169,7 @@ export function Home() {
           </div>
         </Stagger.Item>
 
-        {/* Public balance — plain liquid USDC for the outside world */}
+        {/* Public balance - plain liquid USDC for the outside world */}
         <Stagger.Item index={2}>
           <PublicBalanceCard stroops={publicBalance?.stroops ?? "0"} hidden={hidden} loading={loading} onSend={() => nav("/send")} onReceive={() => nav("/deposit")} onMakePrivate={() => nav("/convert?mode=private")} />
         </Stagger.Item>
@@ -200,7 +200,7 @@ export function Home() {
               <div className="flex flex-col items-center gap-3 py-7 text-center">
                 <div className="text-sm font-semibold text-ink">Add money to get going</div>
                 <div className="max-w-[240px] text-[13px] text-muted">
-                  Once there's money in your wallet, your payments show up here — private to you.
+                  Once there's money in your wallet, your payments show up here - private to you.
                 </div>
                 <button
                   onClick={() => nav("/cash")}

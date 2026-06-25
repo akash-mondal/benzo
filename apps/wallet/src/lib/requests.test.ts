@@ -14,7 +14,7 @@ import { addRequest, listRequests, cancelRequest, markPaid, markReminded, remind
 
 const DAY = 24 * 3600;
 
-describe("money requests (C7 — local, private, no public feed)", () => {
+describe("money requests (C7 - local, private, no public feed)", () => {
   beforeEach(() => mem.clear());
 
   it("creates a pending request with a 30-day expiry", () => {

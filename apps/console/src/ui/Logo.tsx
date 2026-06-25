@@ -1,4 +1,4 @@
-/** The Benzo geometric mark — currentColor so it inherits ink/accent. */
+/** The Benzo geometric mark - currentColor so it inherits ink/accent. */
 export function Logo({ size = 24, className = "" }: { size?: number; className?: string }) {
   return (
     <svg width={size} height={size} viewBox="0 0 256 256" fill="currentColor" role="img" aria-label="Benzo" className={className}>

@@ -5,7 +5,7 @@
  * for the wallet app), and the brief says edit only this app's src + "reuse a QR
  * lib if present, else show the address with a copy button". A real scannable QR
  * is a far better Receive experience than a bare address, so this is a small,
- * self-contained encoder — no runtime deps, no network — covering versions 1–10
+ * self-contained encoder - no runtime deps, no network - covering versions 1–10
  * which comfortably fit a Stellar G-address (~56 chars) at EC level M.
  *
  * If anything in encoding fails the caller falls back to the plain address block.

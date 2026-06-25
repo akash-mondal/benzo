@@ -1,5 +1,5 @@
 /**
- * Cash — the on/off ramp, given the "special" treatment. Add money / Cash out
+ * Cash - the on/off ramp, given the "special" treatment. Add money / Cash out
  * over a REAL on-chain reserve (the `ramp` contract = the on-chain analog of a
  * MoneyGram/SEP-24 anchor distribution account): add-money dispenses USDC from
  * the reserve and shields it on your device; cash-out unshields and returns it to
@@ -25,7 +25,7 @@ const QUICK = ["20", "50", "100", "250"];
 type Tab = "in" | "out";
 type Phase = "form" | "busy" | "done";
 
-// MoneyGram Access published per-tx caps (USD). Honest parity — surfaced, enforced.
+// MoneyGram Access published per-tx caps (USD). Honest parity - surfaced, enforced.
 const MIN = 5;
 const MAX_IN = 950;
 const MAX_OUT = 2500;
@@ -45,7 +45,7 @@ export function Cash() {
   const [reserve, setReserve] = useState<string | null>(null);
   const [reserveErr, setReserveErr] = useState(false);
 
-  // Live on-chain reserve — proof that the USDC leg is real.
+  // Live on-chain reserve - proof that the USDC leg is real.
   const loadReserve = () =>
     api
       .rampReserve()
@@ -86,7 +86,7 @@ export function Cash() {
       // surface raw CLI/stack text to a person, even if something upstream forgot.
       const m = (e as Error).message ?? "";
       const looksRaw = /command failed|stellar |invoke|\s--|0x[0-9a-f]|error\(|panic|sequence|xdr|contract/i.test(m);
-      setErr(!m || looksRaw ? "Something went wrong. Your money is safe — please try again." : m);
+      setErr(!m || looksRaw ? "Something went wrong. Your money is safe - please try again." : m);
       setPhase("form");
     }
   }
@@ -153,7 +153,7 @@ export function Cash() {
           </motion.div>
         </AnimatePresence>
 
-        {/* The on-chain reserve — special, and honest: this ramp is backed by a real
+        {/* The on-chain reserve - special, and honest: this ramp is backed by a real
             reserve you can read on-chain, MoneyGram-anchor-style. Sits below the amount
             so the eye lands on the input first, then the trust signal. */}
         <ReserveBadge reserve={reserve} error={reserveErr} onRetry={() => { setReserveErr(false); void loadReserve(); }} />
@@ -166,7 +166,7 @@ export function Cash() {
   );
 }
 
-/** Live on-chain reserve chip — the "this is real" signal, anchor-style. */
+/** Live on-chain reserve chip - the "this is real" signal, anchor-style. */
 function ReserveBadge({ reserve, error, onRetry }: { reserve: string | null; error: boolean; onRetry: () => void }) {
   if (error && reserve == null) {
     return (
@@ -178,7 +178,7 @@ function ReserveBadge({ reserve, error, onRetry }: { reserve: string | null; err
     );
   }
   return (
-    <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-hair bg-gradient-to-br from-accent/[0.07] to-transparent px-4 py-2.5" data-testid="reserve-badge" title="Read live from the on-chain ramp reserve — the on-chain analog of a SEP-24 anchor (MoneyGram-style)">
+    <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-hair bg-gradient-to-br from-accent/[0.07] to-transparent px-4 py-2.5" data-testid="reserve-badge" title="Read live from the on-chain ramp reserve - the on-chain analog of a SEP-24 anchor (MoneyGram-style)">
       <span className="relative flex h-2 w-2">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-pos opacity-60" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-pos" />
@@ -192,7 +192,7 @@ function ReserveBadge({ reserve, error, onRetry }: { reserve: string | null; err
   );
 }
 
-/** The crafted done overlay — plays the REAL journey, step by step. */
+/** The crafted done overlay - plays the REAL journey, step by step. */
 function RampDone({ tab, amount, onChain, result, onDone }: { tab: Tab; amount: string; onChain: boolean; result: SettleResult | null; onDone: () => void }) {
   const steps = tab === "in"
     ? ["Reserve dispensed USDC", "Shielded privately on your device", "Added to your balance"]
@@ -233,7 +233,7 @@ function RampDone({ tab, amount, onChain, result, onDone }: { tab: Tab; amount: 
 
       {onChain ? (
         <div className="flex items-center gap-1.5 text-[12px] text-pos" data-testid="cash-proof">
-          <ShieldCheck size={13} /> {tab === "in" ? "Real USDC, from the on-chain reserve — no one saw your balance" : "The network verified it without seeing your balance"}
+          <ShieldCheck size={13} /> {tab === "in" ? "Real USDC, from the on-chain reserve - no one saw your balance" : "The network verified it without seeing your balance"}
         </div>
       ) : null}
       <div className="w-full max-w-[320px]">

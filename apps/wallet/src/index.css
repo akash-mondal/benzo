@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 /*
- * Benzo wallet — consumer brand. Warm, playful, one focal point.
+ * Benzo wallet - consumer brand. Warm, playful, one focal point.
  * Privacy is ambient (the "Private" chip), never a toggle/lock that screams crypto.
  */
 @theme {
@@ -9,7 +9,7 @@
   --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
 
   /* OKLCH: perceptually uniform, neutrals tinted, chroma eased at the extremes.
-     No pure white/black — the card is a hair-warm near-white above the canvas. */
+     No pure white/black - the card is a hair-warm near-white above the canvas. */
   --color-ink: oklch(0.29 0.028 252);
   --color-accent: oklch(0.553 0.207 292);
   --color-accent-soft: oklch(0.945 0.026 293);
@@ -48,14 +48,14 @@ body {
 .tnum {
   font-variant-numeric: tabular-nums;
 }
-/* Balance hero — the single focal figure on Home. One token so the dollars and
+/* Balance hero - the single focal figure on Home. One token so the dollars and
    the smaller cents/$ glyphs stay in proportion if the hero is ever retuned. */
 .text-hero {
   font-size: 3.375rem; /* 54px */
   line-height: 1;
 }
 .text-hero-sub {
-  font-size: 2.125rem; /* 34px — cents + $ glyph */
+  font-size: 2.125rem; /* 34px - cents + $ glyph */
   line-height: 1;
 }
 /* hide scrollbars inside the app frame for a native feel */

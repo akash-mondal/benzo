@@ -1,5 +1,5 @@
 /**
- * Minimal StrKey (ed25519 public key) validation — no @stellar/stellar-sdk dep,
+ * Minimal StrKey (ed25519 public key) validation - no @stellar/stellar-sdk dep,
  * no Buffer/node polyfills, just the wire rules. A shape match (`^G[A-Z2-7]{55}$`)
  * is NOT enough: a typo can stay shape-valid yet fail the checksum, and money sent
  * to a checksum-valid-but-wrong account is gone. We verify the real StrKey:
@@ -29,7 +29,7 @@ function base32Decode(s: string): Uint8Array | null {
   return new Uint8Array(out);
 }
 
-/** CRC16-XModem (poly 0x1021) — the checksum StrKey appends. */
+/** CRC16-XModem (poly 0x1021) - the checksum StrKey appends. */
 function crc16(bytes: Uint8Array): number {
   let crc = 0x0000;
   for (const b of bytes) {

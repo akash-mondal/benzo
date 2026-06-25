@@ -23,7 +23,7 @@ export function Logo({ size = 28, className = "", title = "Benzo" }: { size?: nu
   );
 }
 
-/** Splash variant — the mark draws/settles in with a spring scale. */
+/** Splash variant - the mark draws/settles in with a spring scale. */
 export function LogoMark({ size = 64, className = "" }: { size?: number; className?: string }) {
   return (
     <motion.svg

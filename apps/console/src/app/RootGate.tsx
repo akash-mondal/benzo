@@ -1,5 +1,5 @@
 /**
- * RootGate — decides between the onboarding flow and the workspace. Gated by a
+ * RootGate - decides between the onboarding flow and the workspace. Gated by a
  * client flag (`benzo.console.onboarded`) so it's isolated per browser session
  * (no shared-BFF state to pollute), exactly like the consumer wallet's first-run.
  * Onboarding finish applies the draft to the org server-side, sets the flag, and

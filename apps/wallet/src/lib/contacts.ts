@@ -1,5 +1,5 @@
 /**
- * Contacts (C6 — Wise/Cash recipient management). Local-first: the BFF supplies
+ * Contacts (C6 - Wise/Cash recipient management). Local-first: the BFF supplies
  * recent contacts, and THIS module adds device-local saved contacts + nicknames
  * in localStorage. Used to surface saved recipients on Send and to power the
  * first-time-recipient nudge (C11) / approved-contacts.

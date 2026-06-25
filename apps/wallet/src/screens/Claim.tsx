@@ -1,7 +1,7 @@
 /**
- * Claim (P0-3) — redeem money sent to "no account". The link is parsed and its
+ * Claim (P0-3) - redeem money sent to "no account". The link is parsed and its
  * app-scope is checked FIRST: a business invite opened here shows the Mismatch
- * screen (the two products never cross — enforced in the UI here AND in key
+ * screen (the two products never cross - enforced in the UI here AND in key
  * derivation). A valid consumer claim link shows the amount and claims it.
  *
  * The link is provided via `?link=<benzo url>` (the in-app deep-link path); the
@@ -70,7 +70,7 @@ export function Claim() {
   const link = parsed.link;
   // A consumer-scoped org invite = a contractor/customer onboarding into the wallet.
   if (link.type === "org") return <ContractorInvite link={link} />;
-  // A money request (C7) — the payer accepts / pays a different amount / declines.
+  // A money request (C7) - the payer accepts / pays a different amount / declines.
   if (link.type === "request") return <PayRequest link={link} />;
   const claimAmount = link.type === "claim" ? link.amount : undefined;
   const secret = link.type === "claim" ? link.secret : "";
@@ -187,7 +187,7 @@ function PayRequest({ link }: { link: Extract<BenzoLink, { type: "request" }> })
   );
 }
 
-/** A contractor/customer accepting a business invite — onboards in THIS wallet. */
+/** A contractor/customer accepting a business invite - onboards in THIS wallet. */
 function ContractorInvite({ link }: { link: OrgInviteLink }) {
   const nav = useNavigate();
   const { session } = useWallet();
@@ -210,7 +210,7 @@ function ContractorInvite({ link }: { link: OrgInviteLink }) {
       });
       nav(`/work?cp=${encodeURIComponent(r.counterpartyId ?? "")}&org=${encodeURIComponent(r.orgName ?? org)}`);
     } catch (e) {
-      setErr(friendlyError(e, "Couldn't accept the invite. The link may have expired — ask the company to resend it."));
+      setErr(friendlyError(e, "Couldn't accept the invite. The link may have expired - ask the company to resend it."));
       setBusy(false);
     }
   }

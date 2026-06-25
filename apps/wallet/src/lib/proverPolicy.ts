@@ -1,5 +1,5 @@
 /**
- * Prover policy — WHERE a ZK proof gets generated, decided by the device.
+ * Prover policy - WHERE a ZK proof gets generated, decided by the device.
  *
  * On-device proving (snarkjs WasmProver) is single-threaded and heavy (a transfer
  * proof is ~tens of seconds, and the proving key is 20–25 MB). That is fine on a
@@ -62,11 +62,11 @@ export function apiProverKind(kind: ProverKind, teeAvailable = false): ProverKin
 
 /** One-liner for UI copy / telemetry: how this device will prove. */
 export function proverPlan(teeAvailable: boolean): { onDevice: boolean; kind: ProverKind; reason: string } {
-  if (preferDeviceProving()) return { onDevice: true, kind: "local", reason: "Capable device — proving on-device, witness stays here" };
+  if (preferDeviceProving()) return { onDevice: true, kind: "local", reason: "Capable device - proving on-device, witness stays here" };
   const kind = delegatedProverKind(teeAvailable);
   return {
     onDevice: false,
     kind,
-    reason: "Low-power device — delegating to the attested secure enclave (TEE)",
+    reason: "Low-power device - delegating to the attested secure enclave (TEE)",
   };
 }

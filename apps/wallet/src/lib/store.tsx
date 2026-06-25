@@ -18,15 +18,15 @@ export interface PublicBalance {
 
 interface WalletState {
   session: Session | null;
-  /** The "Private" balance — shielded in the privacy pool. Only you can see it. */
+  /** The "Private" balance - shielded in the privacy pool. Only you can see it. */
   balance: Balance | null;
-  /** The "Public" balance — plain liquid USDC. What external wallets/exchanges pay to. */
+  /** The "Public" balance - plain liquid USDC. What external wallets/exchanges pay to. */
   publicBalance: PublicBalance | null;
   history: ActivityRow[];
   contacts: Contact[];
   loading: boolean;
   error: string | null;
-  /** display-mask the balance (eye toggle) — UI-only, never changes protection */
+  /** display-mask the balance (eye toggle) - UI-only, never changes protection */
   hidden: boolean;
   toggleHidden: () => void;
   /** the displayed balance was read+computed on THIS device, straight from chain */
@@ -59,7 +59,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const refreshBalance = useCallback(async () => {
     // Independent loads: a transient history/public-balance miss must not drop a
-    // good private balance — each settles on its own.
+    // good private balance - each settles on its own.
     const [b, p, h] = await Promise.allSettled([api.balance(), api.publicBalance(), api.history()]);
     if (b.status === "fulfilled") setBalance(b.value);
     if (p.status === "fulfilled") setPublicBalance(p.value);
@@ -69,7 +69,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    // Each read model loads independently — one transient failure can't blank
+    // Each read model loads independently - one transient failure can't blank
     // the whole wallet (Promise.all rejected atomically; allSettled degrades).
     const results = await Promise.allSettled([api.session(), api.balance(), api.publicBalance(), api.history(), api.contacts()]);
     const [s, b, p, h, c] = results;
@@ -91,7 +91,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     void refresh().then((ok) => {
       if (!ok && !cancelled) retry = setTimeout(() => void refresh(), 1500);
     });
-    // The chain is the source of truth — keep balance + history live while open.
+    // The chain is the source of truth - keep balance + history live while open.
     const interval = setInterval(() => {
       if (typeof document !== "undefined" && !document.hidden) void refreshBalance();
     }, 25_000);

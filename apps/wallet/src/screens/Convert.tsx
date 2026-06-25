@@ -1,5 +1,5 @@
 /**
- * Convert — the two-way bridge between your two balances, in dead-simple words.
+ * Convert - the two-way bridge between your two balances, in dead-simple words.
  *   • "Make private"  (mode=private) : move Public USDC into your Private balance
  *                                      (shield → privacy pool). api.importDeposit.
  *   • "Make public"   (mode=public)  : move Private USDC back to your Public
@@ -67,7 +67,7 @@ export function Convert() {
           toLabel: "To Private",
           fromIcon: <Globe size={14} />,
           toIcon: <Lock size={14} />,
-          sub: "Moves it into your private balance — only you can see it.",
+          sub: "Moves it into your private balance - only you can see it.",
           cta: "Make private",
           chip: "Only you can see this",
         }
@@ -77,7 +77,7 @@ export function Convert() {
           toLabel: "To Public",
           fromIcon: <Lock size={14} />,
           toIcon: <Globe size={14} />,
-          sub: "Moves it to your public balance — ready to send to any wallet.",
+          sub: "Moves it to your public balance - ready to send to any wallet.",
           cta: "Make public",
           chip: "Goes to your own public address",
         };
@@ -98,7 +98,7 @@ export function Convert() {
       // Defense in depth: never surface raw CLI/stack text to a person.
       const m = (e as Error).message ?? "";
       const looksRaw = /command failed|stellar |invoke|\s--|0x[0-9a-f]|error\(|panic|sequence|xdr|contract/i.test(m);
-      setErr(!m || looksRaw ? "Something went wrong. Your money is safe — please try again." : m);
+      setErr(!m || looksRaw ? "Something went wrong. Your money is safe - please try again." : m);
       setPhase("form");
     }
   }
@@ -107,7 +107,7 @@ export function Convert() {
     <Screen>
       <ScreenHeader title={copy.title} />
       <div className="px-5 pt-2">
-        {/* Direction strip — From → To, so the move is unmistakable */}
+        {/* Direction strip - From → To, so the move is unmistakable */}
         <div className="flex items-center justify-center gap-3 text-[13px] font-semibold" data-testid="convert-direction">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-canvas px-3 py-1.5 text-muted">
             {copy.fromIcon} {copy.fromLabel}
@@ -185,7 +185,7 @@ export function Convert() {
   );
 }
 
-/** Crafted done overlay — plays the real journey, mirroring Cash's RampDone. */
+/** Crafted done overlay - plays the real journey, mirroring Cash's RampDone. */
 function ConvertDone({ mode, amount, result, onDone }: { mode: Mode; amount: string; result: SettleResult | null; onDone: () => void }) {
   const onChain = !!result?.onChain;
   const steps =
@@ -229,7 +229,7 @@ function ConvertDone({ mode, amount, result, onDone }: { mode: Mode; amount: str
       {onChain ? (
         <div className="flex items-center gap-1.5 text-[12px] text-pos" data-testid="convert-proof">
           <ShieldCheck size={13} />
-          {mode === "private" ? "Now private — the amount is hidden on-chain" : "Moved to your public balance — ready to send"}
+          {mode === "private" ? "Now private - the amount is hidden on-chain" : "Moved to your public balance - ready to send"}
         </div>
       ) : null}
       <div className="w-full max-w-[320px]">

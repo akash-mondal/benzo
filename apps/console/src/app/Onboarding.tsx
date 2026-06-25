@@ -1,5 +1,5 @@
 /**
- * Business onboarding (P0-B1) — the "same caliber as consumer" front door for the
+ * Business onboarding (P0-B1) - the "same caliber as consumer" front door for the
  * console: sign-in / local workspace unlock → a resumable KYB wizard → register
  * the org's treasury keys on-chain → land in the workspace. On testnet the KYB
  * decision is issuer-signed and recorded on-chain; spend/proof actions use TEE
@@ -18,8 +18,8 @@ import { Button, Card, Pill } from "../ui/primitives";
 import { Field, Input, Select, useToast } from "../ui/controls";
 
 // Team is intentionally NOT a step: it collected nothing and gated nothing (a
-// pure read-only placeholder). Its one piece of guidance — "invite an approver,
-// maker-checker needs proposer ≠ approver" — now lives on the Review step and is
+// pure read-only placeholder). Its one piece of guidance - "invite an approver,
+// maker-checker needs proposer ≠ approver" - now lives on the Review step and is
 // carried into the workspace as a first-run checklist item, so it surfaces where
 // the user can act on it instead of as an inert ceremony step.
 const STEPS = [
@@ -41,7 +41,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 // surfaced via /api/auth/config), this renders the REAL Google Identity Services
 // button: the browser gets a genuine Google ID token (JWT), the BFF verifies its
 // RS256 signature against Google's JWKs (see google-oidc.ts), and the Benzo account
-// is derived from the verified `sub` (accountFromOidc) — the Sui-zkLogin model
+// is derived from the verified `sub` (accountFromOidc) - the Sui-zkLogin model
 // (Phase 1; the in-circuit JWT proof is Phase 2, docs/ZKLOGIN.md). When no client
 // id is set, the console uses a local workspace unlock instead of pretending another provider is enabled.
 declare global {
@@ -62,7 +62,7 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
       if (cancelled || !cfg.googleClientId) return;
       setClientId(cfg.googleClientId);
       // Attest the TDX enclave that verifies the Google token, BEFORE trusting any
-      // verdict — this is what makes the hosted sign-in TEE-attested, not a plain server.
+      // verdict - this is what makes the hosted sign-in TEE-attested, not a plain server.
       if (authEnclaveEndpoint()) attestAuthEnclave().then((a) => { if (!cancelled) setAttest(a); });
       const init = () => {
         const g = window.google?.accounts?.id;
@@ -73,7 +73,7 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
             setBusy("google");
             // Fail closed: if a measurement is pinned and attestation didn't pass, refuse.
             const a = await attestAuthEnclave();
-            if (a.pinned && !a.attested) { setErr(`Enclave attestation failed — ${a.reason}`); setBusy(null); return; }
+            if (a.pinned && !a.attested) { setErr(`Enclave attestation failed - ${a.reason}`); setBusy(null); return; }
             const v = await api.googleVerify(resp.credential).catch((e) => ({ verified: false, error: (e as Error).message }) as Awaited<ReturnType<typeof api.googleVerify>>);
             // Bind the verdict to the attested instance (encPub must match the attested key).
             if (v.verified && a.attested && a.enclavePublicKey && v.encPub && v.encPub !== a.enclavePublicKey) {
@@ -134,7 +134,7 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
                 : attest.attested
                   ? `🛡 Verified inside an attested Intel TDX enclave · ${attest.measurement?.slice(0, 10)}…`
                   : attest.pinned
-                    ? `⚠ Enclave attestation failed — ${attest.reason}`
+                    ? `⚠ Enclave attestation failed - ${attest.reason}`
                     : `Enclave-backed (TDX)${attest.measurement ? " · " + attest.measurement.slice(0, 10) + "…" : ""} · measurement not pinned`}
             </div>
           ) : null}
@@ -149,8 +149,8 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
         <p className="mt-5 text-[11.5px] text-muted">
           {clientId
             ? authEnclaveEndpoint()
-              ? "Real Google sign-in: the JWT is verified (RS256 vs Google's keys) inside an attested Intel TDX enclave you can check, and your account is derived from it on this device — your Google identity never goes on-chain. (Attested-server integrity, not a ZK proof.)"
-              : "Real Google sign-in (zkLogin Phase 1): the JWT is verified server-side against Google's keys, and your account is derived from it on this device — your Google identity never goes on-chain."
+              ? "Real Google sign-in: the JWT is verified (RS256 vs Google's keys) inside an attested Intel TDX enclave you can check, and your account is derived from it on this device - your Google identity never goes on-chain. (Attested-server integrity, not a ZK proof.)"
+              : "Real Google sign-in (zkLogin Phase 1): the JWT is verified server-side against Google's keys, and your account is derived from it on this device - your Google identity never goes on-chain."
             : "Local testnet workspace unlock. Your treasury keys are generated on this device in the next step, and spends/proofs are enforced by the on-chain privacy protocol."}
         </p>
       </Card>
@@ -177,10 +177,10 @@ function Wizard({ onDone }: { onDone: () => void }) {
 
   async function next() {
     if (stepIdx < STEPS.length - 1) {
-      // persist draft as we go (resumable) — if the save fails, let them keep going
+      // persist draft as we go (resumable) - if the save fails, let them keep going
       // but warn so they know progress might not be picked up if they reload.
       void api.saveOnboarding(draft).catch(() =>
-        toast({ title: "Couldn't save your progress — you can keep going, but it may not resume if you reload.", tone: "danger" }),
+        toast({ title: "Couldn't save your progress - you can keep going, but it may not resume if you reload.", tone: "danger" }),
       );
       setStepIdx((i) => i + 1);
     } else {
@@ -287,7 +287,7 @@ function Wizard({ onDone }: { onDone: () => void }) {
                   </div>
                   <div className="flex items-start gap-2.5 rounded-xl border border-dashed border-border p-3.5 text-[12.5px] text-muted">
                     <Users size={15} className="mt-px flex-none text-primary" />
-                    <span>Next, fund your treasury and invite an approver from <b>Settings → Team</b> — maker-checker needs a proposer ≠ approver before your first payout. We'll keep this checklist in your workspace.</span>
+                    <span>Next, fund your treasury and invite an approver from <b>Settings → Team</b> - maker-checker needs a proposer ≠ approver before your first payout. We'll keep this checklist in your workspace.</span>
                   </div>
                 </Step>
               )}

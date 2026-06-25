@@ -1,10 +1,10 @@
 /**
- * On-chain proof detail — the "see what happened on the blockchain" drill-down.
+ * On-chain proof detail - the "see what happened on the blockchain" drill-down.
  * Every ZK proof / settlement result can attach an `OnChainRef`; this renders a
  * compact "View on-chain" link that opens a modal showing the verification key id,
  * the verified verdict, the public inputs, and clickable links to the verifier
  * CONTRACT (explorerContractUrl) and the settlement/verification TX (explorerTxUrl)
- * on stellar.expert — so a viewer can independently confirm the claim.
+ * on stellar.expert - so a viewer can independently confirm the claim.
  */
 import { useEffect, useState } from "react";
 import { ArrowUpRight, ShieldCheck, X } from "lucide-react";
@@ -103,7 +103,7 @@ export function OnChainDetail({ refData, label = "View on-chain" }: { refData: O
                 </div>
                 <p className="mt-3 text-[11.5px] leading-relaxed text-muted">
                   {refData.verified ? (
-                    <>This claim is a real Groth16 proof checked by the on-chain verifier. Anyone can re-run <span className="font-mono">verify_proof</span> against the contract above — no trust in Benzo required.</>
+                    <>This claim is a real Groth16 proof checked by the on-chain verifier. Anyone can re-run <span className="font-mono">verify_proof</span> against the contract above - no trust in Benzo required.</>
                   ) : (
                     <>This proof was generated but is <span className="font-semibold text-fg">not yet verified on-chain</span>. Connect to a live network to settle and re-verify it against the contract.</>
                   )}

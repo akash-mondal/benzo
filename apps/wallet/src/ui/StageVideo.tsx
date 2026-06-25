@@ -1,5 +1,5 @@
 /**
- * StageVideo — the ambient looping video that fills the viewport BEHIND the phone
+ * StageVideo - the ambient looping video that fills the viewport BEHIND the phone
  * (replaces the perspective-grid `DesktopStage`). It sits at z-0 so the opaque
  * device frame floats *over* it; the video is the backdrop, never inside the app.
  *

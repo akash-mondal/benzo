@@ -1,5 +1,5 @@
 /**
- * Dashboard / Overview — the treasury metric (Provable chip + animated sparkline),
+ * Dashboard / Overview - the treasury metric (Provable chip + animated sparkline),
  * a "pending your approval" card, and a recent-activity table with amounts masked
  * by default (private by design). Everything settles on real testnet.
  */
@@ -36,11 +36,11 @@ function useCountUp(target: number, durationMs = 1000): number {
 }
 
 /**
- * First-run checklist — the bridge from onboarding to first value. Onboarding sets
+ * First-run checklist - the bridge from onboarding to first value. Onboarding sets
  * up the org + treasury keys but the workspace is one un-met prerequisite away from
  * a first payout: it needs funds and a distinct approver (maker-checker blocks the
  * first payout otherwise). Rather than letting the user discover that via an error,
- * we surface a guided checklist from REAL store state — each item flips to
+ * we surface a guided checklist from REAL store state - each item flips to
  * done on its own when the underlying condition is met. It auto-hides once all three
  * are complete, and the user can dismiss it (persisted) at any time.
  */
@@ -49,7 +49,7 @@ function FirstRunChecklist() {
   const { treasury, members, payrolls, loading } = useConsole();
   const [dismissed, setDismissed] = useState(() => localStorage.getItem("benzo.console.firstrun.dismissed") === "1");
 
-  // Seed each item from live state — honest, not a stored "seen" flag.
+  // Seed each item from live state - honest, not a stored "seen" flag.
   const funded = Number(treasury?.totalHidden.amount ?? "0") > 0;
   // Maker-checker needs a proposer ≠ approver, so "invited an approver" means there's
   // someone other than just the owner who can approve a payout: more than one member,
@@ -61,7 +61,7 @@ function FirstRunChecklist() {
   const items = [
     { key: "fund", done: funded, icon: Wallet, title: "Fund your treasury", hint: "Add USDC so you can run your first payout.", to: "/treasury", cta: "Fund treasury" },
     { key: "approver", done: hasApprover, icon: UserPlus, title: "Invite an approver", hint: "Maker-checker needs a proposer ≠ approver before any payout.", to: "/invites", cta: "Invite" },
-    { key: "payroll", done: ranPayroll, icon: Users, title: "Run your first payroll", hint: "Pay your contractors privately — amounts stay confidential.", to: "/payroll", cta: "Start payroll" },
+    { key: "payroll", done: ranPayroll, icon: Users, title: "Run your first payroll", hint: "Pay your contractors privately - amounts stay confidential.", to: "/payroll", cta: "Start payroll" },
   ] as const;
 
   const completed = items.filter((i) => i.done).length;

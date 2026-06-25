@@ -1,11 +1,11 @@
 /**
- * Send — three ways to pay, now split cleanly by which BALANCE the money leaves:
- *   • "Send privately"   — to a Benzo @handle, from your PRIVATE balance. Runs the
+ * Send - three ways to pay, now split cleanly by which BALANCE the money leaves:
+ *   • "Send privately"   - to a Benzo @handle, from your PRIVATE balance. Runs the
  *                          real 3-phase ZK ceremony (encrypt → settle → receipt).
- *   • "Send to a wallet" — to any external Stellar G-address, from your PUBLIC
+ *   • "Send to a wallet" - to any external Stellar G-address, from your PUBLIC
  *                          balance (a real on-chain USDC transfer, api.sendPublic).
- *                          Not private — and we say so plainly.
- *   • invite             — someone with no account yet → an invite link.
+ *                          Not private - and we say so plainly.
+ *   • invite             - someone with no account yet → an invite link.
  * The ZK proof + on-chain settle are real on testnet.
  */
 import { useMemo, useState } from "react";
@@ -32,7 +32,7 @@ type Kind = "handle" | "address" | "invite";
 
 function classify(to: string): Kind {
   const t = to.trim();
-  // Only a CHECKSUM-valid StrKey is a payable public address — a shape match isn't
+  // Only a CHECKSUM-valid StrKey is a payable public address - a shape match isn't
   // enough (a typo'd G-string can pass the regex yet fail the checksum). A bad-
   // checksum G-string falls through and is treated as not-on-Benzo, never paid.
   if (/^G[A-Z2-7]{55}$/.test(t)) return isValidStellarAddress(t) ? "address" : "invite";
@@ -59,7 +59,7 @@ export function Send() {
   const [step, setStep] = useState<Step>("form");
   const [stepUp, setStepUp] = useState(false); // C5: just-in-time ID step-up sheet
   const [firing, setFiring] = useState(false); // double-tap guard: requireUnlock() awaits before the overlay shows
-  // Public-send (to a wallet) runs its own flow — a real on-chain USDC transfer
+  // Public-send (to a wallet) runs its own flow - a real on-chain USDC transfer
   // from the PUBLIC balance, not the private ZK ceremony.
   const [pubPhase, setPubPhase] = useState<"idle" | "busy" | "done">("idle");
   const [pubResult, setPubResult] = useState<SettleResult | null>(null);
@@ -72,12 +72,12 @@ export function Send() {
   const plan = useMemo(() => proverPlan(teeAvailable), [teeAvailable]);
   const recipient = to.trim();
   const kind = useMemo(() => (recipient ? classify(recipient) : null), [recipient]);
-  // Looks like a wallet address but the checksum doesn't add up — a typo'd key.
+  // Looks like a wallet address but the checksum doesn't add up - a typo'd key.
   // Surface this clearly instead of routing it to the "invite" flow or paying it.
   const badAddress = useMemo(() => /^G[A-Z2-7]{55}$/.test(recipient) && !isValidStellarAddress(recipient), [recipient]);
   const known = useMemo(() => contacts.find((c) => c.handle === recipient || c.handle === `@${recipient}`), [contacts, recipient]);
   const display = known?.name ?? recipient;
-  // Public sends draw on the PUBLIC balance — flag "not enough" before we ever
+  // Public sends draw on the PUBLIC balance - flag "not enough" before we ever
   // reach confirm so the user gets a clear shortcut to top it up via Make public.
   const publicStroops = BigInt(publicBalance?.stroops ?? "0");
   const wantStroops = BigInt(toStroopsSafe(amount));
@@ -103,11 +103,11 @@ export function Send() {
     if (firing || inFlight || pubInFlight) return;
     setFiring(true);
     try {
-      // Per-send app lock (C4): require Face ID / passkey before money moves.
-      // The native biometric sheet is the feedback; a cancel leaves us on confirm.
+      // Per-send app lock (C4): require the device passkey before money moves.
+      // The native platform prompt is the feedback; a cancel leaves us on confirm.
       if (shouldLockOnSend() && !(await requireUnlock())) return;
       if (kind === "address") {
-        // "Send to a wallet" — a real on-chain USDC transfer from the PUBLIC
+        // "Send to a wallet" - a real on-chain USDC transfer from the PUBLIC
         // balance. No ZK ceremony; this one is public, and we said so.
         setPubPhase("busy");
         setPubErr(null);
@@ -121,12 +121,12 @@ export function Send() {
           const m = (e as Error).message ?? "";
           // Map the common trustline failure to dead-simple copy; never show raw CLI.
           const looksRaw = /command failed|stellar |invoke|\s--|0x[0-9a-f]|error\(|panic|sequence|xdr|contract/i.test(m);
-          setPubErr(/trustline|isn't set up|not set up/i.test(m) ? "That wallet isn't set up to receive USDC yet." : !m || looksRaw ? "Couldn't send right now. Your money is safe — please try again." : m);
+          setPubErr(/trustline|isn't set up|not set up/i.test(m) ? "That wallet isn't set up to receive USDC yet." : !m || looksRaw ? "Couldn't send right now. Your money is safe - please try again." : m);
           setPubPhase("idle");
         }
         return;
       }
-      // "Send privately" — the @handle path: real 3-phase ZK ceremony.
+      // "Send privately" - the @handle path: real 3-phase ZK ceremony.
       await run(recipient, amount, memo || undefined, plan.kind);
       void refresh();
     } finally {
@@ -190,7 +190,7 @@ export function Send() {
               ) : null}
               {lowPublic ? (
                 <div className="mx-auto mt-2 flex max-w-[300px] flex-col items-center gap-1.5 text-center text-[12px] text-[#9a6b12]" data-testid="send-low-public">
-                  <span>Not enough public USDC — Make public first.</span>
+                  <span>Not enough public USDC - Make public first.</span>
                   <button
                     type="button"
                     onClick={() => nav(`/convert?mode=public&amount=${encodeURIComponent(amount)}`)}
@@ -264,7 +264,7 @@ export function Send() {
   );
 }
 
-/** Done overlay for "Send to a wallet" — a public on-chain USDC payout. Honest:
+/** Done overlay for "Send to a wallet" - a public on-chain USDC payout. Honest:
  *  this one isn't private, and the receipt links the real settlement tx. Mirrors
  *  the crafted Cash/Convert done moment rather than a fleeting toast. */
 function PublicSendDone({ display, address, amount, result, onDone }: { display: string; address: string; amount: string; result: SettleResult | null; onDone: () => void }) {
@@ -373,7 +373,7 @@ function ConfirmStep({
         <div className="text-center">
           <div className="font-display tnum text-4xl text-ink">{fmtUsd(amount)}</div>
           {/* For a public address, show the truncated parsed key so the user can
-              eyeball the real on-chain destination — not just a display name. */}
+              eyeball the real on-chain destination - not just a display name. */}
           {kind === "address" && address ? (
             <div className="mx-auto mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-canvas px-3 py-1 font-mono text-[13px] text-ink" data-testid="confirm-address">
               <Globe size={12} className="flex-none text-[#9a6b12]" /> {shortAddress(address)}
@@ -398,7 +398,7 @@ function ConfirmStep({
         <div className="mt-3 flex items-start gap-2 rounded-2xl bg-[#fbf1dd] px-3.5 py-2.5 text-sm text-[#9a6b12]" data-testid="send-address-trustline">
           <AlertTriangle size={15} className="mt-0.5 flex-none" />
           <span>
-            <b>Public address payout.</b> This address must already be set up to receive USDC — if it isn't, the payment can't land. Sends are instant and final, so double-check it.
+            <b>Public address payout.</b> This address must already be set up to receive USDC - if it isn't, the payment can't land. Sends are instant and final, so double-check it.
           </span>
         </div>
       ) : isNewRecipient ? (
@@ -410,16 +410,16 @@ function ConfirmStep({
         </div>
       ) : (
         <div className="mt-3 text-center text-sm text-muted">
-          Sends instantly and can't be undone — double-check the {display.startsWith("@") ? "" : "@"}handle.
+          Sends instantly and can't be undone - double-check the {display.startsWith("@") ? "" : "@"}handle.
         </div>
       )}
 
       {kind === "address" ? (
-        // A public send leaves the PUBLIC balance — no ZK proving here, so say
+        // A public send leaves the PUBLIC balance - no ZK proving here, so say
         // exactly what's happening instead of showing the private prover plan.
         <div className="mt-5 flex items-center gap-2 rounded-2xl border border-hair bg-card px-3.5 py-2.5 text-xs text-muted" data-testid="send-public-note">
           <Globe size={15} className="flex-none text-[#9a6b12]" />
-          <span>Paid from your Public balance — a normal USDC payment any wallet can receive.</span>
+          <span>Paid from your Public balance - a normal USDC payment any wallet can receive.</span>
         </div>
       ) : (
         <div className="mt-5 flex items-center gap-2 rounded-2xl border border-hair bg-card px-3.5 py-2.5 text-xs text-muted" data-testid="send-prover-plan">

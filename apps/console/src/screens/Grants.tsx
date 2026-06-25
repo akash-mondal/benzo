@@ -1,5 +1,5 @@
 /**
- * Auditor grants — issue a scoped viewing key so an auditor sees exactly the
+ * Auditor grants - issue a scoped viewing key so an auditor sees exactly the
  * in-scope notes (a corridor/period), nothing else, and revoke it on-chain. This
  * is the two-sided compliance story: private by default, disclosable on your terms.
  */
@@ -30,7 +30,7 @@ export function Grants() {
   const [confirmRevoke, setConfirmRevoke] = useState<{ id: string; auditorName: string } | null>(null);
   const [revoking, setRevoking] = useState(false);
 
-  // KYB-as-ZK credential (Z7) — prove "verified business, jurisdiction Y, tier Z"
+  // KYB-as-ZK credential (Z7) - prove "verified business, jurisdiction Y, tier Z"
   // on-chain (KYB) without revealing any documents; sybil-resistant.
   async function proveKyb() {
     setBusyKyb(true);
@@ -46,7 +46,7 @@ export function Grants() {
     }
   }
 
-  // Records export (Z2): generate a network-verified period-total attestation —
+  // Records export (Z2): generate a network-verified period-total attestation -
   // a real ORGSUM proof the auditor/tax office can re-verify on-chain. The
   // individual salaries that make up the total are never disclosed.
   async function exportPeriodTotal() {
@@ -145,7 +145,7 @@ export function Grants() {
           Export a network-verified statement of what you paid out for a period, e.g. "Q2 = $X." The total is proven on-chain; the individual salaries behind it stay hidden. The file embeds the proof so your auditor can re-verify it independently.
         </p>
         <p className="mt-1.5 max-w-2xl text-[11.5px] leading-relaxed text-muted/80">
-          Soundness: this proves the disclosed notes sum to the stated total — not that the set is complete. It attests the total you claim, it does not detect a payout deliberately left out (completeness is bounded only by the authorized-key registry).
+          Soundness: this proves the disclosed notes sum to the stated total - not that the set is complete. It attests the total you claim, it does not detect a payout deliberately left out (completeness is bounded only by the authorized-key registry).
         </p>
         <div className="mt-4 flex items-end gap-3">
           <div className="w-48">
@@ -165,7 +165,7 @@ export function Grants() {
               <ShieldCheck size={14} /> {att.period}: {fmtUsd(att.total ?? "0")}
             </div>
             <div className="mt-1 text-[12px] text-muted">
-              {att.onChain ? "The network verified this total against the ORGSUM proof — proven, not asserted." : "The total was not verified on-chain."} No single salary is revealed.
+              {att.onChain ? "The network verified this total against the ORGSUM proof - proven, not asserted." : "The total was not verified on-chain."} No single salary is revealed.
             </div>
             <div className="mt-3 flex items-center gap-3">
               <Button variant="outline" onClick={downloadAttestation} data-testid="download-attestation">
@@ -299,7 +299,7 @@ export function Grants() {
         }
       >
         <p className="text-sm text-muted">
-          This revokes <b>{confirmRevoke?.auditorName}</b>'s read-only access on-chain, immediately. They'll lose visibility into the granted scope and you can't undo it — you'd have to issue a new grant.
+          This revokes <b>{confirmRevoke?.auditorName}</b>'s read-only access on-chain, immediately. They'll lose visibility into the granted scope and you can't undo it - you'd have to issue a new grant.
         </p>
       </Modal>
     </Page>

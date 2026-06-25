@@ -32,7 +32,7 @@ function asDevice(
 
 afterEach(() => vi.restoreAllMocks());
 
-describe("proverPolicy — where the proof runs", () => {
+describe("proverPolicy - where the proof runs", () => {
   it("phone (mobile UA) NEVER proves on-device → delegates", () => {
     asDevice({ ua: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)", coarse: true, touch: 5 }, () => {
       expect(preferDeviceProving()).toBe(false);

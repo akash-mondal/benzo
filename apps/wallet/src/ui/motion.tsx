@@ -1,5 +1,5 @@
 /**
- * Motion vocabulary for the wallet — one easing, one rhythm, everywhere. Built on
+ * Motion vocabulary for the wallet - one easing, one rhythm, everywhere. Built on
  * framer-motion so screens compose `fadeUp`/`stagger` instead of re-deriving
  * springs. Respects prefers-reduced-motion (framer reads it globally via
  * MotionConfig in main.tsx; these variants also collapse to no-transform).

@@ -1,10 +1,10 @@
 /**
- * Treasury — the org's two USDC balances and the prove actions.
+ * Treasury - the org's two USDC balances and the prove actions.
  *
  * Two-balance model (same plain vocab as the wallet, never "shielded"):
- *   • Private — the M-of-N shielded pool (api.treasury). Only you can see it,
+ *   • Private - the M-of-N shielded pool (api.treasury). Only you can see it,
  *     paid privately Benzo-to-Benzo, provable on demand without revealing it.
- *   • Public — plain liquid USDC at the org's own address. This is what any
+ *   • Public - plain liquid USDC at the org's own address. This is what any
  *     external wallet or exchange sends to and receives from.
  * Convert: "Make private" (Public -> pool / shield = api.fundTreasury). There's
  * no "Make public" for the org treasury (M-of-N notes have no direct pool ->
@@ -42,7 +42,7 @@ export function Treasury() {
     try {
       setPub(await api.treasuryPublicBalance());
     } catch {
-      /* leave prior value; the public card shows a calm "—" */
+      /* leave prior value; the public card shows a calm "-" */
     } finally {
       setPubLoading(false);
     }
@@ -76,7 +76,7 @@ export function Treasury() {
     }
   }
 
-  // Note: there is no "Make public" for the org treasury — it's held as M-of-N
+  // Note: there is no "Make public" for the org treasury - it's held as M-of-N
   // notes with no direct pool -> public unshield path, so we don't offer it.
 
   // ---- Send to a wallet (real public on-chain USDC payment) -----------------
@@ -190,7 +190,7 @@ export function Treasury() {
 
       {/* ---- Two-balance header: Private (shielded) + Public ----------------- */}
       <div className="mb-4 grid grid-cols-1 items-stretch gap-4 md:grid-cols-2">
-        {/* Private (shielded) — the main shielded position */}
+        {/* Private (shielded) - the main shielded position */}
         <Card className="flex flex-col p-5">
           <div className="flex items-center gap-2 text-[12.5px] font-medium text-muted">
             Private (shielded)
@@ -208,7 +208,7 @@ export function Treasury() {
           <div className="mt-auto pt-2 text-[12.5px] text-muted">Only you can see this · sent privately to a Benzo @handle</div>
         </Card>
 
-        {/* Public — plain liquid USDC any wallet/exchange sees */}
+        {/* Public - plain liquid USDC any wallet/exchange sees */}
         <Card className="flex flex-col p-5">
           <div className="flex items-center gap-2 text-[12.5px] font-medium text-muted">
             Public
@@ -238,16 +238,16 @@ export function Treasury() {
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[1.4fr_1fr]">
         {/* left: convert actions + accounts */}
         <div className="space-y-4">
-          {/* Make private: Public -> shielded pool. (Make public isn't offered — the org
+          {/* Make private: Public -> shielded pool. (Make public isn't offered - the org
               treasury is M-of-N and has no direct pool -> public unshield path.) */}
           <div className="grid grid-cols-1 gap-4">
-            {/* Make private (shield) — was "Fund treasury" */}
+            {/* Make private (shield) - was "Fund treasury" */}
             <Card className="flex flex-col p-5">
               <div className="flex items-center gap-2 text-[14px] font-semibold">
                 <EyeOff size={16} className="text-shielded" /> Make private
               </div>
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-                Move USDC from Public into the private pool. It lands as an M-of-N org note — dual-controlled the moment it arrives.
+                Move USDC from Public into the private pool. It lands as an M-of-N org note - dual-controlled the moment it arrives.
               </p>
               <div className="mt-4">
                 <Input label="Amount (USDC)" inputMode="decimal" value={fundAmt} onChange={(e) => setFundAmt(e.target.value.replace(/[^0-9.]/g, ""))} data-testid="fund-amount" />
@@ -317,7 +317,7 @@ export function Treasury() {
               <ShieldCheck size={16} className="text-primary" /> Prove reserves
             </div>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-              Prove to a lender or your board that the treasury clears a covenant floor — verifiable on-chain. The real figure stays private.
+              Prove to a lender or your board that the treasury clears a covenant floor - verifiable on-chain. The real figure stays private.
             </p>
             <div className="mt-4">
               <Input label="Prove we hold at least (USDC)" inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value.replace(/[^0-9.]/g, ""))} data-testid="prove-min" />
@@ -370,7 +370,7 @@ export function Treasury() {
               <ShieldCheck size={16} className="text-primary" /> Prove solvency
             </div>
             <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-              One click proves your treasury covers everything you owe — pending payroll plus open invoices — verifiable on-chain. Neither your balance nor what you owe is revealed.
+              One click proves your treasury covers everything you owe - pending payroll plus open invoices - verifiable on-chain. Neither your balance nor what you owe is revealed.
             </p>
             {busySolv ? (
               <Proving className="mt-4" steps={["Summing liabilities privately", "Proving assets ≥ liabilities", "Verifying on-chain"]} />
@@ -380,7 +380,7 @@ export function Treasury() {
             {solvProof ? (
               <Reveal tone={solvProof.solvent && solvProof.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${solvProof.solvent && solvProof.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="prove-solvency-result">
                 <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${solvProof.solvent && solvProof.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
-                  <ShieldCheck size={14} /> {solvProof.solvent ? "Solvent — assets cover all liabilities" : "Not solvent — liabilities exceed treasury"}
+                  <ShieldCheck size={14} /> {solvProof.solvent ? "Solvent - assets cover all liabilities" : "Not solvent - liabilities exceed treasury"}
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2 text-[12px] text-muted">
                   <span>{solvProof.onChain ? "The network verified it." : "Proof was not verified on-chain."}</span>
@@ -408,7 +408,7 @@ export function Treasury() {
       >
         <div className="space-y-3">
           <p className="text-sm text-muted">
-            This moves <b>real USDC</b> on the Stellar {NETWORK_LABEL} network from your Public balance into the private pool — a dual-controlled M-of-N org note. It settles on-chain and <b>can't be undone</b> from here.
+            This moves <b>real USDC</b> on the Stellar {NETWORK_LABEL} network from your Public balance into the private pool - a dual-controlled M-of-N org note. It settles on-chain and <b>can't be undone</b> from here.
           </p>
           <div className="space-y-2 rounded-xl bg-canvas p-4 text-[14px]">
             <div className="flex justify-between"><span className="text-muted">Amount</span><span className="font-display tnum font-semibold">{fmtUsd(toStroops(fundAmt))}</span></div>
@@ -456,7 +456,7 @@ export function Treasury() {
             data-testid="send-wallet-amount"
           />
           <div className="rounded-lg border border-warning/30 bg-warning/8 px-4 py-3 text-[12.5px] leading-relaxed text-[#7a5a12]">
-            This is a <b>public on-chain payment</b> from your Public balance — visible to anyone and <b>can't be undone</b>. To pay a Benzo user privately instead, use Send privately to their @handle.
+            This is a <b>public on-chain payment</b> from your Public balance - visible to anyone and <b>can't be undone</b>. To pay a Benzo user privately instead, use Send privately to their @handle.
           </div>
           {sendResult?.error ? (
             <Reveal tone="danger" className="rounded-lg border border-danger/30 bg-danger/8 px-4 py-3 text-[12.5px] font-medium text-[#b4232a]" data-testid="send-wallet-error">
@@ -482,7 +482,7 @@ export function Treasury() {
       <Modal open={receiveOpen} onClose={() => setReceiveOpen(false)} title="Receive USDC">
         <div className="space-y-4">
           <p className="text-[13px] leading-relaxed text-muted">
-            Share this address (or QR) with any wallet or exchange to be paid in USDC. It lands in your <b>Public</b> balance — then Make private if you want it hidden.
+            Share this address (or QR) with any wallet or exchange to be paid in USDC. It lands in your <b>Public</b> balance - then Make private if you want it hidden.
           </p>
           {recvLoading && !recv ? (
             <div className="flex flex-col items-center gap-3 py-4">

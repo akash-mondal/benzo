@@ -1,8 +1,8 @@
 /**
  * Direct browser → Stellar reads. The thesis: the blockchain is the backend.
  *
- * This module talks to the Soroban RPC straight from the browser — no BFF, no
- * server, no secrets — using the plain JSON-RPC wire protocol (so it adds zero
+ * This module talks to the Soroban RPC straight from the browser - no BFF, no
+ * server, no secrets - using the plain JSON-RPC wire protocol (so it adds zero
  * bundle weight and no node polyfills). It is the first real slice of the
  * client-side migration in docs/ARCHITECTURE-CLIENTSIDE-ZK.md: a public,
  * account-free read that proves the data path works device→chain. Shielded
@@ -16,7 +16,7 @@ import { RPC_URL, VERIFIER_ID, SIM_SOURCE, NETWORK_PASSPHRASE } from "./network"
 export { RPC_URL, VERIFIER_ID }; // re-export for existing importers (network-agnostic)
 
 export interface ChainStatus {
-  /** latest closed ledger sequence — proves liveness */
+  /** latest closed ledger sequence - proves liveness */
   sequence: number;
   /** network protocol version */
   protocolVersion: number;
@@ -80,7 +80,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 }
 
 /**
- * Independently verify a balance proof ON-CHAIN, FROM THE BROWSER — no BFF, no
+ * Independently verify a balance proof ON-CHAIN, FROM THE BROWSER - no BFF, no
  * trust in the server's verdict. The wallet hands the proof + public signals
  * (never the witness) straight to the verifier contract via the Soroban RPC and
  * reads back the chain's pairing-check result. The verifier fails closed, so a

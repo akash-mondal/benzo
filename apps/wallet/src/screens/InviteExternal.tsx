@@ -1,8 +1,8 @@
 /**
- * InviteExternal (P0-3) — send money to someone with NO Benzo account. We fund a
+ * InviteExternal (P0-3) - send money to someone with NO Benzo account. We fund a
  * fresh claim-account and hand back a shareable link; they onboard and claim it.
  * Unclaimed funds return to you (self-claim refund) after the countdown. The link
- * is consumer-scoped — it can't be redeemed in the business app.
+ * is consumer-scoped - it can't be redeemed in the business app.
  */
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";

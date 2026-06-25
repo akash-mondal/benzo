@@ -1,5 +1,5 @@
 /**
- * Send & vendor pay — create a confidential payment. Pick a funding account and
+ * Send & vendor pay - create a confidential payment. Pick a funding account and
  * who you're paying, then review before it goes. Over-threshold payments route to
  * approval; the rest send right away. The payee's payout handle is resolved
  * server-side, so you never re-type it.
@@ -120,7 +120,7 @@ export function Pay() {
               <div className="text-[13px] font-semibold text-ink">Review before sending</div>
               <div className="space-y-2 rounded-xl border border-border p-4 text-[13.5px]">
                 <Row k="Pay from" v={fromName} />
-                <Row k="Pay to" v={payee?.name ?? "—"} />
+                <Row k="Pay to" v={payee?.name ?? "-"} />
                 {/* Show the actual on-chain destination material (not just the display
                     name) so the approver verifies WHO the money settles to. */}
                 {payee?.paymentAddress?.shielded ? (

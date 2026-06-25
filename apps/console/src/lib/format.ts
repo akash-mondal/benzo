@@ -17,7 +17,7 @@ export function formatMoney(minor: string | bigint, decimals = 7, code = "USDC")
   return `${neg ? "-" : ""}${whole}.${frac}${code ? ` ${code}` : ""}`;
 }
 
-/** "$842,300.00" — dollar-prefixed, fixed 2 decimals (the dashboard headline form). */
+/** "$842,300.00" - dollar-prefixed, fixed 2 decimals (the dashboard headline form). */
 export function fmtUsd(minor: string | bigint, decimals = 7): string {
   let n: bigint;
   try {
@@ -33,7 +33,7 @@ export function fmtUsd(minor: string | bigint, decimals = 7): string {
   return `${neg ? "-" : ""}$${whole}.${cents}`;
 }
 
-/** "GABC…WXYZ" — truncate a Stellar address / hash for display. */
+/** "GABC…WXYZ" - truncate a Stellar address / hash for display. */
 export function formatAddress(addr: string, head = 4, tail = 4): string {
   if (!addr) return "";
   return addr.length <= head + tail + 1 ? addr : `${addr.slice(0, head)}…${addr.slice(-tail)}`;

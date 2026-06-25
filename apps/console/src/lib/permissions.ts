@@ -1,6 +1,6 @@
 /**
- * Roles & permissions matrix (B5 — Brex/Ramp parity). The matrix is DRIVEN by
- * ROLE_PERMISSIONS (packages/types/src/org.ts) — the BFF's source of truth — so
+ * Roles & permissions matrix (B5 - Brex/Ramp parity). The matrix is DRIVEN by
+ * ROLE_PERMISSIONS (packages/types/src/org.ts) - the BFF's source of truth - so
  * the UI can never claim authority the backend doesn't grant. Privacy-native
  * differentiator: `auditor` is a scoped VIEWING-KEY holder (read-only, never a
  * signer), a role no Ramp/Brex equivalent has.

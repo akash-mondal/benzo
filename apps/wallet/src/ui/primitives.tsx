@@ -1,5 +1,5 @@
 /**
- * Consumer wallet primitives — pill buttons, cards, bottom sheets, fields, the
+ * Consumer wallet primitives - pill buttons, cards, bottom sheets, fields, the
  * segmented (Alchemy-Pay-style) tabbed control, avatars, toasts, and the success
  * checkmark. Warm + tactile: everything has a hover/active state, the focal
  * action carries the purple glow. Built on react + framer-motion + lucide.

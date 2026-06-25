@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { tierOf, sendCapUsd, needsStepUp, tierForAmount, tierInfo } from "./tiers.js";
 
-describe("verification tiers (C5 — privacy-adapted)", () => {
+describe("verification tiers (C5 - privacy-adapted)", () => {
   it("clamps tier into 0..3", () => {
     expect(tierOf(undefined)).toBe(1); // default
     expect(tierOf(-5)).toBe(0);
@@ -23,7 +23,7 @@ describe("verification tiers (C5 — privacy-adapted)", () => {
     // tier 2 cap = $40,000
     expect(needsStepUp(1_001, 2)).toBe(false);
     expect(needsStepUp(40_001, 2)).toBe(true);
-    // tier 3 is the top — never blocks
+    // tier 3 is the top - never blocks
     expect(needsStepUp(1_000_000, 3)).toBe(false);
     // zero/blank never gates
     expect(needsStepUp(0, 1)).toBe(false);

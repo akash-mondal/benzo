@@ -1,5 +1,5 @@
 /**
- * Contacts (C6 — Wise/Cash recipient management). Local-first: merges the BFF's
+ * Contacts (C6 - Wise/Cash recipient management). Local-first: merges the BFF's
  * recent contacts with device-saved ones, lets you add/nickname/remove, and pay
  * any of them in one tap. Saved contacts live in localStorage (lib/contacts).
  */

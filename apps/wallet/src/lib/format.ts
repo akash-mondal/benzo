@@ -22,7 +22,7 @@ export function usdFromStroops(minor: string | bigint, decimals = 7): string {
   return `${neg ? "-" : ""}${whole}.${frac}`;
 }
 
-/** "$1,240.50" — the headline form. */
+/** "$1,240.50" - the headline form. */
 export function fmtUsd(minor: string | bigint): string {
   const s = usdFromStroops(minor);
   return s.startsWith("-") ? `-$${s.slice(1)}` : `$${s}`;
@@ -51,7 +51,7 @@ export function splitAmount(minor: string | bigint): { dollars: string; cents: s
   return { dollars: d, cents: c.slice(0, 2) };
 }
 
-/** "now" / "2 min ago" / "Jun 18" — relative for recent, calendar for older. */
+/** "now" / "2 min ago" / "Jun 18" - relative for recent, calendar for older. */
 export function relativeTime(tsSeconds: number, nowMs = Date.now()): string {
   const diff = Math.floor(nowMs / 1000) - tsSeconds;
   if (diff < 45) return "now";

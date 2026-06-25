@@ -1,5 +1,5 @@
 /**
- * Invoices to pay (AP) — the second front-door into the pay engine. Contractor-
+ * Invoices to pay (AP) - the second front-door into the pay engine. Contractor-
  * submitted invoices land here; "Pay" runs them through the SAME maker-checker +
  * confidential settlement as a payroll run (over the policy threshold → Approvals
  * first). One engine, two front-doors: employer-pushed runs and contractor invoices.
@@ -107,7 +107,7 @@ export function Invoices() {
   const [netting, setNetting] = useState(false);
   const [netRes, setNetRes] = useState<{ onChain: boolean; net: string; wetPay: boolean; ref?: OnChainRef } | null>(null);
 
-  // Cross-entity private netting (Z8) — net mutual invoices with a counterparty
+  // Cross-entity private netting (Z8) - net mutual invoices with a counterparty
   // and settle only the difference, on-chain (NETTING), neither gross revealed.
   async function netInvoices() {
     setNetting(true);
@@ -169,8 +169,8 @@ export function Invoices() {
   }
 
   // B7 mass-pay: pay every open invoice through the SAME engine (over-threshold
-  // ones route to Approvals). Lines resolve independently — some Paid, some
-  // Pending review — exactly like Deel's Payments tab.
+  // ones route to Approvals). Lines resolve independently - some Paid, some
+  // Pending review - exactly like Deel's Payments tab.
   async function payAll() {
     setPayingAll(true);
     let okPaid = 0, queued = 0, failed = 0;
@@ -310,7 +310,7 @@ export function Invoices() {
                 <div className="flex justify-between"><span className="text-muted">Fee</span><span className="font-semibold text-success">Free</span></div>
                 <div className="flex justify-between"><span className="text-muted">Arrives</span><span className="font-semibold">In seconds</span></div>
               </div>
-              <div className="mt-3 flex items-center gap-1.5 text-sm text-muted"><ShieldCheck size={13} className="text-primary" /> Each payment stays private — amounts and recipients never go on-chain in the clear.</div>
+              <div className="mt-3 flex items-center gap-1.5 text-sm text-muted"><ShieldCheck size={13} className="text-primary" /> Each payment stays private - amounts and recipients never go on-chain in the clear.</div>
               <div className="mt-5 flex gap-2">
                 <Button variant="ghost" onClick={() => setPayAllOpen(false)} disabled={payingAll}>Cancel</Button>
                 <Button className="flex-1" loading={payingAll} onClick={payAll} data-testid="pay-all-confirm">Pay {open.length} privately</Button>

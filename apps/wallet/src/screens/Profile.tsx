@@ -1,5 +1,5 @@
 /**
- * Profile — who you are, the proof-of-balance entry point, and the few honest
+ * Profile - who you are, the proof-of-balance entry point, and the few honest
  * settings (mask balance, live mode, where proofs run). Calm, not a crypto
  * settings dump.
  */
@@ -20,10 +20,10 @@ export function Profile() {
   const live = session?.live;
   const tee = session?.prover.tee;
 
-  // Read the chain's latest ledger DIRECTLY from the browser (no BFF) — the
+  // Read the chain's latest ledger DIRECTLY from the browser (no BFF) - the
   // first real "blockchain is the backend" data path. Degrades silently.
   const [ledger, setLedger] = useState<number | null>(null);
-  // App lock (C4 — Cash App Security Lock parity): two device-local toggles,
+  // App lock (C4 - Cash App Security Lock parity): two device-local toggles,
   // gated by the on-device passkey. Disabled when no authenticator exists.
   const lockable = lockCapable();
   const [lock, setLock] = useState(() => getLockSettings());
@@ -31,7 +31,7 @@ export function Profile() {
   const [verifyOpen, setVerifyOpen] = useState(false);
   async function toggleLock(key: "onOpen" | "onSend") {
     const next = { ...lock, [key]: !lock[key] };
-    // Turning a lock ON requires proving the biometric works right now.
+    // Turning a lock ON requires proving the platform passkey prompt works right now.
     if (next[key] && !(await requireUnlock())) return;
     setLock(next);
     setLockSettings(next);
@@ -77,7 +77,7 @@ export function Profile() {
           </Card>
         </Stagger.Item>
 
-        {/* Verification tier (C5) — the ZK assurance level, never the documents */}
+        {/* Verification tier (C5) - the ZK assurance level, never the documents */}
         <Stagger.Item index={2}>
           <Card className="px-4" data-testid="verify-card">
             <div className="flex items-center gap-3 py-3.5">
@@ -147,7 +147,7 @@ export function Profile() {
               icon={<Activity size={18} />}
               label="Network"
               right={
-                <span className="inline-flex items-center gap-1.5 text-[13px] text-muted" data-testid="profile-network" title="Read directly from the chain in your browser — no server">
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-muted" data-testid="profile-network" title="Read directly from the chain in your browser - no server">
                   {ledger != null ? (
                     <>
                       <span className="h-1.5 w-1.5 rounded-full bg-pos" />
@@ -170,7 +170,7 @@ export function Profile() {
               <div className="flex-1">
                 <div className="text-[15px] font-medium">Security Lock</div>
                 <div className="text-[12.5px] text-muted">
-                  {lockable ? "Use Face ID or your fingerprint" : "Set up a passkey first to enable"}
+                  {lockable ? "Use your device passkey, PIN, or security key" : "Set up a passkey first to enable"}
                 </div>
               </div>
             </div>

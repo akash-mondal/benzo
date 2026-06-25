@@ -1,5 +1,5 @@
 /**
- * Cursor-interactive canvas for the console — the same field as the wallet but a
+ * Cursor-interactive canvas for the console - the same field as the wallet but a
  * cooler, sparser temperature (it lives behind the workspace, under the cards).
  * Capped, DPR-aware, paused when hidden, static under reduced-motion.
  */

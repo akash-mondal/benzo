@@ -1,8 +1,8 @@
 /**
- * Notifications (C8 — every competitor has this; our bell was dead). Fully
+ * Notifications (C8 - every competitor has this; our bell was dead). Fully
  * CLIENT-SIDE: the feed is DERIVED from the activity history already loaded in
  * the store (incoming payments, settles, cash-outs), and read-state lives in
- * localStorage. No server, no push infra — the chain + the device are the source.
+ * localStorage. No server, no push infra - the chain + the device are the source.
  */
 import type { ActivityRow } from "./api";
 import { fmtUsd } from "./format";
@@ -14,7 +14,7 @@ export interface Notif {
   ts: number;
   kind: "in" | "out" | "info";
   read: boolean;
-  /** true ONLY for a real on-chain-settled payment in live mode — drives the
+  /** true ONLY for a real on-chain-settled payment in live mode - drives the
    *  abstracted "proof verified" line. Never set for pending rows (honesty gate). */
   verified: boolean;
 }
@@ -51,7 +51,7 @@ function lineFor(row: ActivityRow): { title: string; body: string; kind: Notif["
 
 /** Derive the notification feed (newest first) from the activity history.
  *  `live` gates the abstracted "proof verified" line so it shows ONLY for real
- *  on-chain-settled payments — a strict honesty gate. */
+ *  on-chain-settled payments - a strict honesty gate. */
 export function deriveNotifications(history: ActivityRow[], opts: { live?: boolean } = {}): Notif[] {
   const read = readSet();
   return [...history]

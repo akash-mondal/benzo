@@ -67,7 +67,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     // Load every read model independently: a single transient failure (or one
-    // slow endpoint) must NOT blank every screen at once — it used to, because
+    // slow endpoint) must NOT blank every screen at once - it used to, because
     // Promise.all rejects atomically. Each slice keeps its prior value on a
     // miss; we only surface an error if the whole load fails.
     const results = await Promise.allSettled([

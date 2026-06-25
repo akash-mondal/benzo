@@ -1,5 +1,5 @@
 /**
- * One activity row — avatar, plain-English line, signed amount, and a soft status
+ * One activity row - avatar, plain-English line, signed amount, and a soft status
  * pill for in-flight states (Arriving / Proving). No tx hashes, no chain words.
  */
 import { motion } from "framer-motion";

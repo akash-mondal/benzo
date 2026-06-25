@@ -1,5 +1,5 @@
 /**
- * The wallet shell — a phone frame (full-screen on mobile, a centered device on
+ * The wallet shell - a phone frame (full-screen on mobile, a centered device on
  * desktop) with the cursor-interactive canvas living BEHIND the cards, animated
  * route transitions, and a tab bar with a sliding active indicator + center FAB.
  */
@@ -101,7 +101,7 @@ export function App() {
   const isDesktop = useIsDesktop();
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem("benzo.onboarded") === "1");
   // App lock (C4): if "require unlock on open" is set, gate the whole shell until
-  // the on-device Face ID / passkey check passes.
+  // the on-device passkey check passes.
   const [locked, setLocked] = useState(() => shouldLockOnOpen());
   function finishOnboarding() {
     localStorage.setItem("benzo.onboarded", "1");
@@ -118,7 +118,7 @@ export function App() {
       {isDesktop ? <StageVideo /> : null}
       <div className="device relative z-10 flex h-[100dvh] w-full flex-col overflow-hidden bg-canvas shadow-[0_40px_90px_rgba(25,40,55,0.28)] sm:h-[min(798px,calc(100dvh-48px))] sm:w-[min(380px,calc((100dvh-48px)/2.1))] sm:rounded-[44px] sm:p-2.5">
         <div className="relative flex flex-1 flex-col overflow-hidden sm:rounded-[34px]">
-          {/* the app's background — the looping sky video, inside the phone on
+          {/* the app's background - the looping sky video, inside the phone on
               EVERY viewport (desktop + mobile). On desktop the StageVideo also
               plays behind the device; on mobile the phone is the whole screen. */}
           <VideoBackground tint="#f2f2ee" />

@@ -1,5 +1,5 @@
 /**
- * Share proof of balance — pick a threshold, generate a zero-knowledge proof that
+ * Share proof of balance - pick a threshold, generate a zero-knowledge proof that
  * you hold at least that much (never the exact amount), and get the "Provable"
  * badge. The proof is a real Groth16 attestation that verifies on-chain when
  * live; the proving path is decided by the device (this device / secure enclave).
@@ -40,7 +40,7 @@ export function ShareProof() {
     setSelfVerified(false);
     setOnDevice(false);
     try {
-      // CAPABLE DESKTOPS ONLY: generate the proof on THIS DEVICE (WasmProver — the
+      // CAPABLE DESKTOPS ONLY: generate the proof on THIS DEVICE (WasmProver - the
       // witness/notes never leave the browser) and verify it on-chain ourselves,
       // no BFF in the loop. Phones + weak desktops skip this (plan.onDevice=false)
       // and delegate to the enclave so a weak device never grinds.
@@ -113,10 +113,10 @@ export function ShareProof() {
             <div className="font-display text-xl" data-testid="proof-success">You can prove you hold at least {fmtUsd(BigInt(Math.round(Number(min) * 1e7)).toString())}</div>
             <div className="max-w-[280px] text-sm text-muted">
               {onDevice
-                ? "Your device generated this proof and the network confirmed it — no server ever saw your balance or your notes."
+                ? "Your device generated this proof and the network confirmed it - no server ever saw your balance or your notes."
                 : onChain
-                  ? "The network checked this proof and confirmed it — without ever seeing your balance."
-                  : "A real private proof, generated right on your device — not yet checked by the network."}{" "}
+                  ? "The network checked this proof and confirmed it - without ever seeing your balance."
+                  : "A real private proof, generated right on your device - not yet checked by the network."}{" "}
               Your exact balance stays private.
             </div>
             {!onChain ? (

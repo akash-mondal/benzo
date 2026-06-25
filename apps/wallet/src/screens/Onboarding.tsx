@@ -1,5 +1,5 @@
 /**
- * Onboarding (P0-1) — a 3-step first-run: a one-screen splash, sign-in (on-device
+ * Onboarding (P0-1) - a 3-step first-run: a one-screen splash, sign-in (on-device
  * passkey first, Google zkLogin as the alternate), then claim your @handle. Keys
  * are derived on THIS device via the passkey (no server custodian); the handle is
  * registered on-chain so people can pay you by name. Dismissal persists, so it
@@ -159,7 +159,7 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         client_id: clientId,
         callback: async (resp: { credential?: string }) => {
           if (!resp?.credential) {
-            setErr("Google sign-in didn't complete. Try again or use Face ID.");
+            setErr("Google sign-in didn't complete. Try again or use your device passkey.");
             return;
           }
           setBusy("google");
@@ -191,7 +191,7 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         </div>
         <h1 className="font-display mt-5 text-[24px] leading-tight sm:text-[26px]">Your keys, your phone</h1>
         <p className="mt-2 max-w-[290px] text-[14px] text-muted">
-          Created on this device, unlocked by Face ID. We never see your keys or your balance.
+          Created on this device, unlocked by your passkey, PIN, or security key. We never see your keys or your balance.
         </p>
         {err ? <p className="mt-3 max-w-[290px] text-[13px] text-[#9a6b12]">{err}</p> : null}
       </div>
@@ -228,7 +228,7 @@ function HandleStep({ onDone, onBack }: { onDone: () => void; onBack: () => void
         const { available } = await api.handleAvailable(clean);
         if (live) setState(available ? "available" : "taken");
       } catch {
-        // A failed check is NOT "available" — say so honestly so we don't push the
+        // A failed check is NOT "available" - say so honestly so we don't push the
         // user toward a name we couldn't verify (claim re-checks server-side anyway).
         if (live) setState("error");
       }
@@ -249,10 +249,10 @@ function HandleStep({ onDone, onBack }: { onDone: () => void; onBack: () => void
       onDone();
     } catch (e) {
       // Only a real "taken" (409 / "taken") should dead-end on this name. Anything
-      // else (network/500) is retryable — don't lie that a free handle is taken.
+      // else (network/500) is retryable - don't lie that a free handle is taken.
       const m = e instanceof Error ? e.message : "";
       if (/taken|already|409|conflict|exists/i.test(m)) setState("taken");
-      else setClaimErr(friendlyError(e, "Couldn't claim that handle — please try again."));
+      else setClaimErr(friendlyError(e, "Couldn't claim that handle - please try again."));
       setClaiming(false);
     }
   }

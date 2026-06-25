@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { statusMeta, buildTimeline } from "./status";
 
-describe("console status vocabulary (B2 — Deel-mirrored, privacy-honest)", () => {
+describe("console status vocabulary (B2 - Deel-mirrored, privacy-honest)", () => {
   it("maps the in-progress states to one plain label", () => {
     for (const s of ["approved", "proving", "submitting", "submitted_onchain", "processing"]) {
       expect(statusMeta(s).label).toBe("Payment in progress");
@@ -13,7 +13,7 @@ describe("console status vocabulary (B2 — Deel-mirrored, privacy-honest)", () 
     for (const s of ["confirmed", "settled", "paid"]) {
       expect(statusMeta(s).label).toBe("Paid");
       expect(statusMeta(s).tone).toBe("success");
-      expect(statusMeta(s).eta).toBe(""); // terminal — no clock
+      expect(statusMeta(s).eta).toBe(""); // terminal - no clock
     }
   });
 

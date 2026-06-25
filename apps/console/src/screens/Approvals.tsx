@@ -1,5 +1,5 @@
 /**
- * Approvals — the dual-control release gate. Each payment awaiting approval shows
+ * Approvals - the dual-control release gate. Each payment awaiting approval shows
  * what it hides vs proves; Approve releases it and settles a real shielded
  * transfer on testnet (when a recipient @handle is attached). Calm tones; red is
  * for failure only.
@@ -113,7 +113,7 @@ export function Approvals() {
                     </div>
                     {(p.approvals ?? []).filter((a) => a.decision === "approved").length > 0 ? (
                       <div className="mt-1.5 text-[11.5px] text-muted">
-                        Your named operational record. A third party sees only the anonymous “approved N-of-M” proof — never who signed.
+                        Your named operational record. A third party sees only the anonymous “approved N-of-M” proof - never who signed.
                       </div>
                     ) : null}
                   </div>

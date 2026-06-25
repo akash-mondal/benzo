@@ -1,5 +1,5 @@
 /**
- * useSendStream — drives the 3-phase send ceremony from real BFF phase events.
+ * useSendStream - drives the 3-phase send ceremony from real BFF phase events.
  * It feeds the shared payment state machine (@benzo/ui) so the animation is a
  * slave to the machine, never a timer. Event mapping is prefix-idempotent: each
  * incoming phase dispatches the whole prefix it implies, so a missing

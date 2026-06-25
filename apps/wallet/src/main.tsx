@@ -1,6 +1,6 @@
 // MUST be first: sets the Node `Buffer` global the Stellar SDK expects, before
 // any SDK-importing module is evaluated. (A body statement here would run too
-// late — ES modules evaluate all imports before the module body.)
+// late - ES modules evaluate all imports before the module body.)
 import "./polyfills";
 
 import { StrictMode } from "react";
