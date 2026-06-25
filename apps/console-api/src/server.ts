@@ -514,21 +514,27 @@ route("POST", "/api/settlements/payment", async (req, res) => {
 });
 route("POST", "/api/settlements/payroll", async (req, res) => {
   const body = await readJson<{ lines?: Array<{ counterpartyId: string; amount: string; handle?: string }> }>(req);
-  const lines = [];
-  for (const l of body.lines ?? []) {
+  const lines = await Promise.all((body.lines ?? []).map(async (l) => {
     if (BigInt(l.amount || "0") <= 0n) {
-      lines.push({ counterpartyId: l.counterpartyId, status: "failed" as const, error: "no rate card / zero amount" });
-      continue;
+      return { counterpartyId: l.counterpartyId, status: "failed" as const, error: "no rate card / zero amount" };
     }
-    const r = await payOne(l.handle, l.amount);
-    lines.push({
-      counterpartyId: l.counterpartyId,
-      status: r.onChain ? "paid" as const : "failed" as const,
-      txHash: r.txHash,
-      onChain: r.onChain,
-      error: r.error,
-    });
-  }
+    try {
+      const r = await payOne(l.handle, l.amount);
+      return {
+        counterpartyId: l.counterpartyId,
+        status: r.onChain ? "paid" as const : "failed" as const,
+        txHash: r.txHash,
+        onChain: r.onChain,
+        error: r.error,
+      };
+    } catch (e) {
+      return {
+        counterpartyId: l.counterpartyId,
+        status: "failed" as const,
+        error: e instanceof Error ? e.message : "payroll payout failed",
+      };
+    }
+  }));
   json(res, 200, { lines });
 });
 route("POST", "/api/payroll-proofs/funded", async (req, res) => {
