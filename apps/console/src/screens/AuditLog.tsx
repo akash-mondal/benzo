@@ -111,7 +111,7 @@ export function AuditLog() {
       setPrivateAnchor(r);
       toast({
         title: r.anchor.onChain ? `Audit root anchored on-chain · seq ${r.anchor.sequence}` : r.anchor.error ?? "Audit root not anchored",
-        tone: r.anchor.onChain ? "success" : "warning",
+        tone: r.anchor.onChain ? "success" : "muted",
       });
     } catch (e) {
       setPrivateAuditError(friendlyError(e, "Couldn't anchor the private audit root."));

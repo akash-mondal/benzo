@@ -505,6 +505,69 @@ route("POST", "/api/treasury/send-public", async (req, res) => {
 });
 route("GET", "/api/live", (_req, res) => json(res, 200, liveStatus()));
 
+// Stateless console actions for the privacy-first UI. Mutable business objects
+// live encrypted in the browser; the BFF only receives the minimum witness data
+// required to prove/sign in the TEE and submit to testnet.
+route("POST", "/api/settlements/payment", async (req, res) => {
+  const body = await readJson<{ amount?: { amount?: string }; toHandle?: string }>(req);
+  json(res, 200, await payOne(body.toHandle, String(body.amount?.amount ?? "0")));
+});
+route("POST", "/api/settlements/payroll", async (req, res) => {
+  const body = await readJson<{ lines?: Array<{ counterpartyId: string; amount: string; handle?: string }> }>(req);
+  const lines = [];
+  for (const l of body.lines ?? []) {
+    if (BigInt(l.amount || "0") <= 0n) {
+      lines.push({ counterpartyId: l.counterpartyId, status: "failed" as const, error: "no rate card / zero amount" });
+      continue;
+    }
+    const r = await payOne(l.handle, l.amount);
+    lines.push({
+      counterpartyId: l.counterpartyId,
+      status: r.onChain ? "paid" as const : "failed" as const,
+      txHash: r.txHash,
+      onChain: r.onChain,
+      error: r.error,
+    });
+  }
+  json(res, 200, { lines });
+});
+route("POST", "/api/payroll-proofs/funded", async (req, res) => {
+  const body = await readJson<{ runTotal?: string }>(req);
+  const r = await proveFunded(String(body.runTotal ?? "0"));
+  json(res, 200, { runTotal: String(body.runTotal ?? "0"), funded: r.funded, onChain: r.onChain, provenAt: now(), ref: r.ref });
+});
+route("POST", "/api/payroll-proofs/approval", async (req, res) => {
+  const body = await readJson<{ batchId?: string }>(req);
+  const { ref, ...r } = await proveAnonymousApproval(body.batchId ?? id("pr"));
+  json(res, 200, { ...r, provenAt: now(), ref });
+});
+route("POST", "/api/payroll-proofs/computation", async (req, res) => {
+  const body = await readJson<{ lines?: Array<{ amount: string; handle?: string }> }>(req);
+  const r = await proveRunComputation((body.lines ?? []).map((l) => ({ amount: l.amount, handle: l.handle })));
+  json(res, 200, { ok: r.ok, onChain: r.onChain, runTotal: r.runTotal, provenAt: now(), ref: r.ref });
+});
+route("POST", "/api/payroll-proofs/policy", async (req, res) => {
+  const body = await readJson<{ cap?: string; lines?: Array<{ counterpartyId: string; amount: string; handle?: string }> }>(req);
+  const capHuman = String(body.cap ?? "0");
+  const capStroops = BigInt(Math.round(Number(capHuman) * 1e7)).toString();
+  const lines = [];
+  for (let i = 0; i < (body.lines ?? []).length; i++) {
+    const l = (body.lines ?? [])[i];
+    if (!l.handle || BigInt(l.amount || "0") <= 0n) {
+      lines.push({ counterpartyId: l.counterpartyId });
+      continue;
+    }
+    const cap = await proveLineCap(l.handle, l.amount, capStroops, BigInt(i + 1));
+    const screen = await proveLineInnocence(l.handle, l.amount, BigInt(1000 + i));
+    lines.push({
+      counterpartyId: l.counterpartyId,
+      capProof: { withinCap: cap.withinCap, onChain: cap.onChain },
+      screenProof: { innocent: screen.innocent, onChain: screen.onChain },
+    });
+  }
+  json(res, 200, { cap: capHuman, lines });
+});
+
 route("GET", "/api/members", (_req, res) => json(res, 200, db.members));
 route("POST", "/api/members", async (req, res) => {
   const body = await readJson<InviteMemberRequest>(req);

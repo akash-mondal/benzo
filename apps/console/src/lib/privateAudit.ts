@@ -43,9 +43,13 @@ function unb64(value: string): Uint8Array {
   return Uint8Array.from(atob(normalized), (c) => c.charCodeAt(0));
 }
 
+function bufferSource(bytes: Uint8Array): BufferSource {
+  return bytes as unknown as BufferSource;
+}
+
 async function sha256Hex(value: string | Uint8Array): Promise<string> {
   const bytes = typeof value === "string" ? new TextEncoder().encode(value) : value;
-  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", bufferSource(bytes))));
 }
 
 async function key(): Promise<CryptoKey> {
@@ -56,7 +60,7 @@ async function key(): Promise<CryptoKey> {
     raw = b64(secret);
     localStorage.setItem(SECRET_KEY, raw);
   }
-  return crypto.subtle.importKey("raw", unb64(raw), "AES-GCM", false, ["encrypt"]);
+  return crypto.subtle.importKey("raw", bufferSource(unb64(raw)), "AES-GCM", false, ["encrypt"]);
 }
 
 function readEvents(): Envelope[] {
@@ -126,7 +130,11 @@ export async function recordConsolePrivateEvent(input: {
   const iv = new Uint8Array(12);
   crypto.getRandomValues(iv);
   const plaintext = new TextEncoder().encode(stable(input.payload));
-  const encrypted = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: new TextEncoder().encode(aad) }, await key(), plaintext));
+  const encrypted = new Uint8Array(await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv: bufferSource(iv), additionalData: bufferSource(new TextEncoder().encode(aad)) },
+    await key(),
+    bufferSource(plaintext),
+  ));
   const ciphertext = encrypted.slice(0, -16);
   const tag = encrypted.slice(-16);
   const withoutHash = {

@@ -6,8 +6,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { FileText, Send, Wallet, ShieldCheck } from "lucide-react";
-import type { Invoice } from "@benzo/types";
-import { api, type OnChainRef } from "../lib/api";
+import type { Invoice, PaymentOrder } from "@benzo/types";
+import { api, type ApprovalProgressView, type OnChainRef } from "../lib/api";
 import { useConsole } from "../lib/store";
 import { fmtUsd, formatDate, friendlyError } from "../lib/format";
 import { statusMeta } from "../lib/status";
@@ -140,7 +140,8 @@ export function Invoices() {
             }),
           }
         : await api.payInvoice(inv.id);
-      const prog = "progress" in r.payment ? r.payment.progress : undefined;
+      const payment = r.payment as PaymentOrder & { progress?: ApprovalProgressView };
+      const prog = payment.progress;
       if (local) {
         if (r.payment.status === "failed") {
           throw new Error("Payment could not settle on-chain. Check that the contractor has a registered payout handle.");
@@ -150,7 +151,7 @@ export function Invoices() {
           throw new Error("Payment was created but did not settle on-chain.");
         }
         setLocalInvoices((rows) => {
-          const next = rows.map((row) => row.invoice.id === inv.id ? { ...row, invoice: { ...row.invoice, status: settled ? "paid" : "open" } } : row);
+          const next: LocalInvoiceRecord[] = rows.map((row) => row.invoice.id === inv.id ? { ...row, invoice: { ...row.invoice, status: settled ? "paid" : "open" } } : row);
           writeLocalInvoices(next);
           return next;
         });
@@ -176,7 +177,8 @@ export function Invoices() {
     for (const inv of open) {
       try {
         const r = await api.payInvoice(inv.id);
-        if (r.payment.progress && !r.payment.progress.satisfied) queued++;
+        const prog = (r.payment as PaymentOrder & { progress?: ApprovalProgressView }).progress;
+        if (prog && !prog.satisfied) queued++;
         else okPaid++;
       } catch {
         failed++;
