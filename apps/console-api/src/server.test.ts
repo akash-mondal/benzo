@@ -61,7 +61,7 @@ test("returns and persists private payout handles for console payees", async () 
   const seeded = await request(`/api/rpc?path=${encodeURIComponent("/counterparties")}`);
   expect(seeded.status).toBe(200);
   const counterparties = await seeded.json() as Array<{ id: string; name: string; paymentAddress?: { shielded?: string } }>;
-  expect(counterparties.find((c) => c.id === "cp_grace")?.paymentAddress?.shielded).toBe("@grace");
+  expect(counterparties.find((c) => c.id === "cp_grace")?.paymentAddress?.shielded).toBe("@benzowallet");
 
   const updated = await request(`/api/rpc?path=${encodeURIComponent("/counterparties/cp_new")}`, {
     method: "PATCH",
