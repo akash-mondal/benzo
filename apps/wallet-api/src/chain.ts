@@ -29,7 +29,6 @@ import {
   StellarCli,
   StellarRpcClient,
   accountFromClaimSecret,
-  accountFromServerSecret,
   configFromEnv,
   createOrLoadAccountFile,
   fetchMvkRegistryLeaves,
@@ -138,12 +137,10 @@ let triedOnce = false;
 
 function loadWalletAccount() {
   if (!process.env.DEPLOYER_SECRET) throw new Error("DEPLOYER_SECRET is required for live wallet account");
-  return process.env.VERCEL === "1"
-    ? accountFromServerSecret(process.env.DEPLOYER_SECRET, "consumer", {
-        label: "wallet",
-        stellarSecret: process.env.DEPLOYER_SECRET,
-      })
-    : createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET }).account;
+  if (process.env.VERCEL === "1") {
+    throw new Error("Hosted wallet requires an auth-bound user account; refusing shared DEPLOYER_SECRET-derived wallet");
+  }
+  return createOrLoadAccountFile(WALLET, { label: "wallet", stellarSecret: process.env.DEPLOYER_SECRET }).account;
 }
 
 function chainClientForRuntime(): ChainClient {

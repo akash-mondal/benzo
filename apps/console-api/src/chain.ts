@@ -21,7 +21,6 @@ import {
   MvkRegistryMirror,
   StellarCli,
   StellarRpcClient,
-  accountFromServerSecret,
   configFromEnv,
   createOrLoadAccountFile,
   deriveTvk,
@@ -147,12 +146,10 @@ export function getClient(relayer = false): BenzoClient | null {
       requestRegistry: dep.requestRegistry,
       store: new FileKVStore(STATE),
     });
-    const account = process.env.VERCEL === "1"
-      ? accountFromServerSecret(process.env.DEPLOYER_SECRET, "business", {
-          label: "console",
-          stellarSecret: process.env.DEPLOYER_SECRET,
-        })
-      : createOrLoadAccountFile(WALLET, { label: "console", stellarSecret: process.env.DEPLOYER_SECRET }).account;
+    if (process.env.VERCEL === "1") {
+      throw new Error("Hosted console requires an auth-bound org account; refusing shared DEPLOYER_SECRET-derived treasury");
+    }
+    const account = createOrLoadAccountFile(WALLET, { label: "console", stellarSecret: process.env.DEPLOYER_SECRET }).account;
     c.useAccount(account);
     client = c;
   } catch (e) {
