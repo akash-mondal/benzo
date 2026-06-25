@@ -52,6 +52,12 @@ export function Convert() {
   const empty = source <= 0n;
   const tooMuch = want > source;
   const valid = n > 0 && !tooMuch && !empty;
+  const inlineError =
+    amount && empty
+      ? `No ${mode === "private" ? "public" : "private"} USDC available to move.`
+      : amount && tooMuch
+        ? `Insufficient ${mode === "private" ? "public" : "private"} balance. You only have ${fmtUsd(sourceStroops)}.`
+        : null;
 
   const copy =
     mode === "private"
@@ -169,7 +175,7 @@ export function Convert() {
         <Button full size="lg" className="mt-4" disabled={!valid} loading={phase === "busy"} onClick={go} data-testid="convert-submit">
           <span className="truncate">{copy.cta}{valid ? ` · ${fmtUsd(toS(amount))}` : ""}</span>
         </Button>
-        {err ? <div className="mt-2 text-center text-sm text-danger" data-testid="convert-error">{err}</div> : null}
+        {err || inlineError ? <div className="mt-2 text-center text-sm text-danger" data-testid="convert-error">{err ?? inlineError}</div> : null}
       </div>
 
       <AnimatePresence>
