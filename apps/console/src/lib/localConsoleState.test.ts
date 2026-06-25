@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalPolicy, AuthSession, Counterparty, PaymentOrder } from "@benzo/types";
+import { parseBenzoLink } from "@benzo/links";
 import { __resetLocalConsoleMemoryForTests, localConsole, type ConsoleSeed } from "./localConsoleState";
 
 const now = "2026-06-25T00:00:00.000Z";
@@ -91,5 +92,21 @@ describe("localConsole encrypted state", () => {
     expect(second.status).toBe("confirmed");
     expect((second as PaymentOrder).settlement.txHash).toBe("tx_test");
     expect(settle).toHaveBeenCalledOnce();
+  });
+
+  it("creates contractor invite links the consumer wallet can parse", async () => {
+    const invite = await localConsole.createInvite(
+      () => Promise.resolve(seed()),
+      { kind: "contractor", name: "Judge Contractor", handle: "@judge" },
+    );
+    const raw = decodeURIComponent(invite.link.split("#")[1] ?? "");
+    const parsed = parseBenzoLink(raw);
+    expect(parsed).toMatchObject({
+      type: "org",
+      orgId: "org_test",
+      kind: "contractor",
+      app: "consumer",
+      inviteeName: "Judge Contractor",
+    });
   });
 });

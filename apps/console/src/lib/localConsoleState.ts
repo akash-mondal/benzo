@@ -14,6 +14,7 @@ import type {
   TreasuryView,
   ViewingGrant,
 } from "@benzo/types";
+import { encodeBenzoLink } from "@benzo/links";
 import type { ApprovalProgressView, OnChainRef } from "./api";
 
 export interface OrgInvite {
@@ -375,7 +376,22 @@ function assembleDashboard(s: ConsoleSnapshot, treasury?: TreasuryView): Dashboa
 function makeInvite(s: ConsoleSnapshot, body: { kind: OrgInvite["kind"]; name?: string; email?: string; role?: string; handle?: string; counterpartyId?: string }): OrgInvite {
   const token = id("tok");
   const app = body.kind === "member" ? "business" : "consumer";
-  const raw = `benzo://org?orgId=${encodeURIComponent(s.session.org.id)}&kind=${body.kind}&token=${token}&app=${app}`;
+  const expiresAt = Math.floor(Date.now() / 1000) + 14 * 86_400;
+  const raw = encodeBenzoLink(
+    {
+      type: "org",
+      orgId: s.session.org.id,
+      kind: body.kind,
+      role: body.role,
+      orgName: s.session.org.name,
+      counterpartyId: body.counterpartyId,
+      inviteeName: body.name ?? body.email,
+      token,
+      app,
+      expiresAt: String(expiresAt),
+    },
+    "scheme",
+  );
   const origin = app === "business" ? CONSOLE_ORIGIN : WALLET_ORIGIN;
   return {
     id: id("invite"),
