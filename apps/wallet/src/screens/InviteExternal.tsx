@@ -174,7 +174,7 @@ function ShareLink({ result, onAnother }: { result: InviteResult; onAnother: () 
       </div>
 
       <p className="mt-4 text-[12.5px] text-muted">
-        Unclaimed funds return to you in {daysLeft(result.expiresAt)} days. {result.onChain ? "" : "(demo link)"}
+        Unclaimed funds return to you in {daysLeft(result.expiresAt)} days. {result.onChain ? "" : "This link is not funded on-chain."}
       </p>
       <button onClick={onAnother} className="mt-4 rounded text-[13px] font-semibold text-accent outline-none focus-visible:ring-2 focus-visible:ring-accent/40">
         Send another

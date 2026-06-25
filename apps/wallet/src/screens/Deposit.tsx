@@ -151,7 +151,7 @@ function ImportDone({ amount, onChain, result, onDone }: { amount: string; onCha
       </motion.div>
       <div>
         <div className="font-display text-2xl">Made private</div>
-        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " (demo)"}</div>
+        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " · not verified on-chain"}</div>
       </div>
       {onChain ? (
         <div className="flex items-center gap-1.5 text-[12px] text-pos">

@@ -49,9 +49,9 @@ function applyCounterpartyHandle(cp: Counterparty, handle: string): string {
   cpHandle.set(cp.id, normalized);
   cp.paymentAddress = {
     shielded: normalized,
-    spendPub: cp.paymentAddress?.spendPub ?? `demo-spend-${cp.id}`,
-    viewPub: cp.paymentAddress?.viewPub ?? `demo-view-${cp.id}`,
-    mvkScalar: cp.paymentAddress?.mvkScalar ?? `demo-mvk-${cp.id}`,
+    spendPub: cp.paymentAddress?.spendPub ?? `testnet-spend-${cp.id}`,
+    viewPub: cp.paymentAddress?.viewPub ?? `testnet-view-${cp.id}`,
+    mvkScalar: cp.paymentAddress?.mvkScalar ?? `testnet-mvk-${cp.id}`,
   };
   return normalized;
 }
@@ -63,7 +63,7 @@ for (const cp of db.counterparties) {
 const privateEventKey = deriveEventKey(
   process.env.BENZO_PRIVATE_EVENT_SECRET ||
     process.env.DEPLOYER_SECRET ||
-    "benzo-sandbox-private-event-key",
+    "benzo-testnet-private-event-key",
   `benzo/private-events/v1/${db.org.id}`,
 );
 const privateEvents = new MemoryPrivateEventStore(privateEventKey);
@@ -247,11 +247,6 @@ async function settlePayroll(batch: PayrollBatch): Promise<void> {
       l.error = undefined;
       remaining -= amt;
       writeRunLedger(batch, l, r.txHash); // immutable record per settled line
-    } else if (r.demo) {
-      l.status = "paid"; // demo-settled — onChain:false makes the demo status explicit
-      l.onChain = false;
-      l.error = undefined;
-      writeRunLedger(batch, l, undefined);
     } else {
       l.status = "failed";
       l.error = r.error ?? "settlement failed";
@@ -325,8 +320,7 @@ route("GET", "/api/session", (_req, res) => {
 });
 
 // ----------------------------------------------------------------- zkLogin / SSO
-// Tells the frontend whether REAL Google sign-in is configured (a GOOGLE_CLIENT_ID
-// is set). When absent, the UI falls back to a clearly-labeled demo sign-in.
+// Tells the frontend whether REAL Google sign-in is configured (a GOOGLE_CLIENT_ID is set).
 route("GET", "/api/auth/config", (_req, res) =>
   json(res, 200, { googleClientId: process.env.GOOGLE_CLIENT_ID ?? null, google: googleConfigured() }),
 );
@@ -335,7 +329,7 @@ route("GET", "/api/auth/config", (_req, res) =>
 // Benzo account from `sub` via accountFromOidc — the chain never sees the identity.
 route("POST", "/api/auth/google", async (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId) return json(res, 200, { verified: false, configured: false, note: "GOOGLE_CLIENT_ID not set — demo sign-in only" });
+  if (!clientId) return json(res, 200, { verified: false, configured: false, note: "GOOGLE_CLIENT_ID not set" });
   try {
     const body = await readJson<{ credential: string; nonce?: string }>(req);
     const claims = await verifyGoogleIdToken(String(body.credential), clientId);
@@ -776,7 +770,7 @@ route("POST", "/api/invoices/:id/pay", async (_req, res, pp) => {
   if (!policy) await submitShieldedTransfer(po, h); // under threshold → settle now
   db.payments.push(po);
   inv.paymentOrderIds = [...(inv.paymentOrderIds ?? []), po.id];
-  if (po.settlement?.onChain || (!policy && po.status === "approved")) inv.status = "paid";
+  if (po.settlement?.onChain) inv.status = "paid";
   appendPrivateEvent(
     "payment.submitted",
     po.id,
@@ -1164,7 +1158,7 @@ sealSeedLedger(); // bring pre-existing (seeded) ledger entries into the audit c
 const server = createServer(handle);
 if (process.env.VERCEL !== "1") server.listen(PORT, () => {
   const s = liveStatus();
-  console.error(`[benzo-console-api] listening on :${PORT} (demo org: ${db.org.name})`);
+  console.error(`[benzo-console-api] listening on :${PORT} (org: ${db.org.name})`);
   if (s.live) {
     console.error("[benzo-console-api] MODE=LIVE — serving REAL on-chain data via @benzo/core (testnet).");
   } else {

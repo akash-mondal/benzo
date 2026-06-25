@@ -1,9 +1,9 @@
 /**
  * Business onboarding (P0-B1) — the "same caliber as consumer" front door for the
- * console: SSO sign-in → a resumable KYB wizard → register the org's treasury
- * keys on-chain → land in the workspace. KYB is a LABELED mock of a real provider
- * integration (Persona/Sumsub-style hosted flow + decision); the member MVK
- * registration is a GENUINE on-chain tx when live (no ZK is mocked).
+ * console: sign-in / local workspace unlock → a resumable KYB wizard → register
+ * the org's treasury keys on-chain → land in the workspace. On testnet the KYB
+ * decision is issuer-signed and recorded on-chain; spend/proof actions use TEE
+ * proving, not a browser-local console prover.
  */
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -43,7 +43,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 // RS256 signature against Google's JWKs (see google-oidc.ts), and the Benzo account
 // is derived from the verified `sub` (accountFromOidc) — the Sui-zkLogin model
 // (Phase 1; the in-circuit JWT proof is Phase 2, docs/ZKLOGIN.md). When no client
-// id is set, it falls back to a clearly-labeled DEMO sign-in.
+// id is set, the console uses a local workspace unlock instead of a fake provider.
 declare global {
   interface Window { google?: any }
 }
@@ -93,18 +93,14 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
     return () => { cancelled = true; };
   }, [onAuthed]);
 
-  function demoSso(provider: string) {
-    // When a real Google client id is configured, never silently advance through a
-    // demo button — that would let someone bypass the real OIDC sign-in. Tell them
-    // to use the live Google button instead.
+  function localUnlock() {
+    // When a real Google client id is configured, do not bypass the configured
+    // OIDC path. Without it, this is a local testnet workspace unlock, not an SSO.
     if (clientId) {
       setErr("Use the Google button above to sign in. Other providers aren't enabled for this workspace yet.");
       return;
     }
-    setBusy(provider);
-    // DEMO sign-in (used only when no GOOGLE_CLIENT_ID is configured). No OAuth;
-    // advances to setup. The genuinely real, on-chain step is the treasury-key
-    // (MVK) registration + the in-circuit M-of-N that gates every spend.
+    setBusy("local");
     setTimeout(onAuthed, 350);
   }
   return (
@@ -120,8 +116,8 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
             // Real Google sign-in (zkLogin Phase 1).
             <div ref={gbtn} className="flex justify-center" data-testid="auth-google" />
           ) : (
-            <Button className="w-full" size="md" loading={busy === "google"} onClick={() => demoSso("google")} data-testid="auth-google">
-              Continue with Google (demo)
+            <Button className="w-full" size="md" loading={busy === "local"} onClick={localUnlock} data-testid="auth-local">
+              Continue with this device
             </Button>
           )}
           {clientId && authEnclaveEndpoint() ? (
@@ -139,9 +135,6 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
                     : `Enclave-backed (TDX)${attest.measurement ? " · " + attest.measurement.slice(0, 10) + "…" : ""} · measurement not pinned`}
             </div>
           ) : null}
-          <Button className="w-full" size="md" variant="outline" disabled={!!clientId} loading={busy === "microsoft"} onClick={() => demoSso("microsoft")} data-testid="auth-microsoft" title={clientId ? "Microsoft SSO isn't enabled for this workspace yet" : undefined}>
-            Continue with Microsoft{clientId ? "" : " (demo)"}
-          </Button>
           <a
             href="mailto:sales@benzo.app?subject=Benzo%20for%20Business%20%E2%80%94%20SSO%20setup"
             className="block w-full rounded-[10px] border border-border py-2.5 text-center text-[13px] font-medium text-muted transition hover:bg-[#f4f3ef]"
@@ -155,7 +148,7 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
             ? authEnclaveEndpoint()
               ? "Real Google sign-in: the JWT is verified (RS256 vs Google's keys) inside an attested Intel TDX enclave you can check, and your account is derived from it on this device — your Google identity never goes on-chain. (Attested-server integrity, not a ZK proof.)"
               : "Real Google sign-in (zkLogin Phase 1): the JWT is verified server-side against Google's keys, and your account is derived from it on this device — your Google identity never goes on-chain."
-            : "Demo sign-in (set GOOGLE_CLIENT_ID to enable real Google zkLogin). Your treasury keys are generated on this device in the next step — we never see your balances."}
+            : "Local testnet workspace unlock. Your treasury keys are generated on this device in the next step, and spends/proofs are enforced by the on-chain privacy protocol."}
         </p>
       </Card>
     </Centered>
@@ -204,7 +197,7 @@ function Wizard({ onDone }: { onDone: () => void }) {
     try {
       const r = await api.registerOwnerMvk();
       setMvk(r);
-      toast({ title: r.onChain ? "Your secure books are ready" : "Set up (demo)", tone: "success" });
+      toast({ title: r.onChain ? "Your secure books are ready" : "Keys prepared, but on-chain registration did not complete", tone: r.onChain ? "success" : "danger" });
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -272,7 +265,7 @@ function Wizard({ onDone }: { onDone: () => void }) {
                 <Step title="Set up your secure books" hint="This creates the keys that let only your team read your books and prove balances to auditors. It's the one step we can't skip.">
                   {mvk ? (
                     <div className="rounded-xl border border-success/25 bg-success/[0.06] p-4" data-testid="mvk-result">
-                      <div className="flex items-center gap-2 text-[14px] font-semibold text-[#1d7a52]"><Check size={16} /> Your secure books are ready{mvk.onChain ? "" : " (demo)"}</div>
+                      <div className="flex items-center gap-2 text-[14px] font-semibold text-[#1d7a52]"><Check size={16} /> Your secure books are ready{mvk.onChain ? "" : " · on-chain registration pending"}</div>
                       {mvk.txHash ? <div className="mt-1 break-all font-mono text-[11px] text-muted">ref {mvk.txHash}</div> : null}
                     </div>
                   ) : (
@@ -287,7 +280,7 @@ function Wizard({ onDone }: { onDone: () => void }) {
                     <Row k="Country" v={draft.country ?? "Not set"} />
                     <Row k="KYB" v={kyb?.status === "approved" ? (kyb.onChain ? "Verified on-chain" : "Verified") : "Pending"} />
                     <Row k="Compliance" v={draft.complianceZoneId === "zone_eu" ? "European Union" : "United States"} />
-                    <Row k="Secure books" v={mvk?.onChain ? "Ready" : mvk ? "Demo" : "Not set up"} />
+                    <Row k="Secure books" v={mvk?.onChain ? "Ready" : mvk ? "Registration pending" : "Not set up"} />
                   </div>
                   <div className="flex items-start gap-2.5 rounded-xl border border-dashed border-border p-3.5 text-[12.5px] text-muted">
                     <Users size={15} className="mt-px flex-none text-primary" />

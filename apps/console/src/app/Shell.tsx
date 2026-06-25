@@ -154,10 +154,10 @@ export function Shell() {
                 live ? "border-success/25 bg-success/10 text-[#1d7a52]" : "border-warning/30 bg-warning/12 text-[#9a6b12]"
               }`}
               data-testid="live-badge"
-              title={live ? `Payments settle on the Stellar ${NETWORK_LABEL} network` : "Demo data — not real money"}
+              title={live ? `Payments settle on the Stellar ${NETWORK_LABEL} network` : "Live chain connection unavailable"}
             >
               <span className={`h-[7px] w-[7px] rounded-full ${live ? "bg-success" : "bg-warning"}`} />
-              {live ? `Live · ${NETWORK_LABEL}` : "Demo"}
+              {live ? `Live · ${NETWORK_LABEL}` : "Chain unavailable"}
             </span>
             <button onClick={toggleMasked} aria-label="Toggle amount masking" data-testid="mask-toggle" className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[9px] border border-border text-[#6b6f74] outline-none transition hover:bg-[#f4f3ef] focus-visible:ring-2 focus-visible:ring-primary/40 active:scale-95">
               {masked ? <EyeOff size={17} /> : <Eye size={17} />}

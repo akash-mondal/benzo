@@ -24,8 +24,6 @@ export function Pay() {
   const nav = useNavigate();
   const toast = useToast();
   const { accounts, counterparties, dashboard, refresh, session } = useConsole();
-  // When the workspace is live, a payment that still can't settle on-chain is
-  // almost always an unpayable recipient (no payout @handle yet) — not "demo".
   const live = dashboard?.live ?? false;
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [fromAccountId, setFrom] = useState("");
@@ -59,9 +57,7 @@ export function Pay() {
         publicMeta: { status: po.status, kind: po.type, source: "console-ui" },
       });
       const settledOnChain = po.settlement?.onChain ?? false;
-      // Live workspace + no on-chain settlement => the recipient has no payout
-      // handle yet (unpayable), which is an action item, not a benign "demo".
-      const unpayable = live && !settledOnChain && po.status !== "needs_approval";
+      const unpayable = !settledOnChain && po.status !== "needs_approval";
       setResult({ status: po.status, onChain: settledOnChain, unpayable });
       toast({
         title:
@@ -70,9 +66,9 @@ export function Pay() {
             : settledOnChain
               ? "Paid privately"
               : unpayable
-                ? "This contractor can't be paid yet — invite them first"
-                : "Created (demo)",
-        tone: unpayable ? "danger" : "success",
+                ? live ? "Payment did not settle on-chain" : "Live chain connection required"
+                : "Payment created",
+        tone: po.status === "needs_approval" || settledOnChain ? "success" : "danger",
       });
       await refresh();
     } catch (e) {
@@ -167,8 +163,8 @@ export function Pay() {
                   : result.onChain
                     ? "Paid privately. All done."
                     : result.unpayable
-                      ? "This contractor has no payout handle yet, so it couldn't settle. Invite them, then pay."
-                      : "Created in demo mode."}
+                      ? "This payment did not settle on-chain. Check the recipient handle and treasury balance, then try again."
+                      : "Payment created."}
               </span>
               {result.status === "needs_approval" ? (
                 <button onClick={() => nav("/approvals")} className="inline-flex flex-none items-center gap-1 font-semibold text-primary hover:underline">

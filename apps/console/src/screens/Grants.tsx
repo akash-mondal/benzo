@@ -38,7 +38,7 @@ export function Grants() {
     try {
       const r = await api.proveKyb();
       setKyb(r);
-      toast({ title: r.ok ? (r.onChain ? "KYB credential proven on-chain" : "KYB proof generated") : "Could not prove KYB", tone: r.ok ? "success" : "danger" });
+      toast({ title: r.ok ? (r.onChain ? "KYB credential proven on-chain" : "KYB proof was not verified on-chain") : "Could not prove KYB", tone: r.ok && r.onChain ? "success" : "danger" });
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -56,7 +56,7 @@ export function Grants() {
       const r = await api.periodTotalAttestation(period);
       setAtt(r);
       if (!r.live) toast({ title: "Not connected. Connect to generate a real attestation.", tone: "muted" });
-      else toast({ title: r.onChain ? "Total proven on-chain" : "Attestation generated (demo)", tone: "success" });
+      else toast({ title: r.onChain ? "Total proven on-chain" : "Attestation was not verified on-chain", tone: r.onChain ? "success" : "danger" });
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -160,12 +160,12 @@ export function Grants() {
           )}
         </div>
         {att?.live ? (
-          <Reveal tone="success" className="mt-4 rounded-lg border border-success/30 bg-success/8 px-4 py-3" data-testid="period-total-result">
-            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[#1d7a52]">
+          <Reveal tone={att.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${att.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="period-total-result">
+            <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${att.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
               <ShieldCheck size={14} /> {att.period}: {fmtUsd(att.total ?? "0")}
             </div>
             <div className="mt-1 text-[12px] text-muted">
-              {att.onChain ? "The network verified this total against the ORGSUM proof — proven, not asserted." : "Demo proof (not live)."} No single salary is revealed.
+              {att.onChain ? "The network verified this total against the ORGSUM proof — proven, not asserted." : "The total was not verified on-chain."} No single salary is revealed.
             </div>
             <div className="mt-3 flex items-center gap-3">
               <Button variant="outline" onClick={downloadAttestation} data-testid="download-attestation">
@@ -194,12 +194,12 @@ export function Grants() {
           </Button>
         )}
         {kyb?.ok ? (
-          <Reveal tone="success" className="mt-4 rounded-lg border border-success/30 bg-success/8 px-4 py-3" data-testid="kyb-result">
-            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[#1d7a52]">
+          <Reveal tone={kyb.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${kyb.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="kyb-result">
+            <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${kyb.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
               <ShieldCheck size={14} /> Verified business · {kyb.jurisdiction} · tier {kyb.tier}
             </div>
             <div className="mt-1 text-[12px] text-muted">
-              {kyb.onChain ? "The network verified the credential. No documents were disclosed." : "Demo proof (not live)."}
+              {kyb.onChain ? "The network verified the credential. No documents were disclosed." : "The credential was not verified on-chain."}
             </div>
             {kyb.ref ? <div className="mt-3"><OnChainDetail refData={kyb.ref} /></div> : null}
           </Reveal>

@@ -5,9 +5,8 @@
  * registered on-chain so people can pay you by name. Dismissal persists, so it
  * shows once.
  *
- * Note on the testnet demo: the passkey step proves on-device key custody for
- * real; the funded operating wallet for live testnet ops is served by the local
- * self-hosted BFF (full client-side proving/signing is the mainnet path).
+ * Testnet note: the passkey step proves on-device key custody for real; funded
+ * operating flows use the live testnet BFF/TEE where delegated proving is needed.
  */
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -23,7 +22,7 @@ import { registerPasskey, loginWithPasskey, isWebAuthnAvailable } from "../lib/p
 type Step = "welcome" | "auth" | "handle";
 
 // Real Google sign-in is enabled only when a client id is configured at build time.
-// Without it we keep an honest, clearly-labelled "(demo)" path — never a fake "signed in".
+// Without it, the wallet uses the passkey/device path only; no fake provider auth.
 const GOOGLE_CLIENT_ID = (import.meta.env as Record<string, string | undefined>).VITE_GOOGLE_CLIENT_ID || "";
 declare global {
   interface Window {
@@ -133,8 +132,7 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
       await loginWithPasskey(); // derive the on-device shielded account
       onNext();
     } catch (e) {
-      // headless / no authenticator / user cancelled → let them use Google instead
-      setErr((e as Error).message.includes("cancel") ? "Passkey cancelled. Use Google instead." : "Passkey didn't work here. Use Google.");
+      setErr((e as Error).message.includes("cancel") ? "Passkey cancelled." : "Passkey didn't work here. Try again on this device.");
       setBusy(null);
     }
   }
@@ -164,16 +162,6 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     return () => { cancelled = true; };
   }, [onNext]);
 
-  // Demo Google path — used ONLY when no client id is configured. Honest: labelled
-  // "(demo)" and it does not pretend to be a real sign-in. NOTE: even the real path
-  // is plain OAuth, not a zkLogin ZK circuit (planned); the passkey above is the
-  // real non-custodial key derivation.
-  function withGoogleDemo() {
-    setBusy("google");
-    setErr(null);
-    setTimeout(onNext, 350);
-  }
-
   return (
     <Pane onBack={onBack}>
       <div className="flex flex-1 flex-col items-center justify-center text-center">
@@ -187,20 +175,14 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         {err ? <p className="mt-3 max-w-[290px] text-[13px] text-[#9a6b12]">{err}</p> : null}
       </div>
       <div className="space-y-3">
-        {isWebAuthnAvailable() ? (
-          <Button full size="lg" onClick={withPasskey} loading={busy === "passkey"} data-testid="auth-passkey">
-            <Fingerprint size={18} /> Continue with Face ID
-          </Button>
-        ) : null}
+        <Button full size="lg" onClick={withPasskey} loading={busy === "passkey"} data-testid="auth-passkey">
+          <Fingerprint size={18} /> {isWebAuthnAvailable() ? "Continue with passkey" : "Continue with this device"}
+        </Button>
         {GOOGLE_CLIENT_ID ? (
           <div ref={gbtn} className="flex justify-center" data-testid="auth-google" />
-        ) : (
-          <Button full size="lg" variant={isWebAuthnAvailable() ? "secondary" : "primary"} onClick={withGoogleDemo} loading={busy === "google"} data-testid="auth-google">
-            Continue with Google (demo)
-          </Button>
-        )}
+        ) : null}
         <p className="pt-1 text-center text-[12px] text-muted">
-          {GOOGLE_CLIENT_ID ? "No seed phrase. No passwords. Just you." : "Demo sign-in (set VITE_GOOGLE_CLIENT_ID for real Google). No seed phrase, no passwords."}
+          No seed phrase. No passwords. Your wallet key is derived on this device.
         </p>
       </div>
     </Pane>

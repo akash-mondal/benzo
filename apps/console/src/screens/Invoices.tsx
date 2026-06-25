@@ -115,7 +115,7 @@ export function Invoices() {
     try {
       const r = await api.netInvoices(weOwe, theyOwe);
       setNetRes(r);
-      toast({ title: r.onChain ? "Netting proven on-chain" : "Netting computed (demo)", tone: "success" });
+      toast({ title: r.onChain ? "Netting proven on-chain" : "Netting was not verified on-chain", tone: r.onChain ? "success" : "danger" });
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -129,7 +129,7 @@ export function Invoices() {
       const local = localMeta(inv.id);
       const r = local
         ? {
-            invoice: { ...inv, status: "paid" as const },
+            invoice: inv,
             payment: await api.createPayment({
               type: "invoice_payment",
               fromAccountId: "acc_op",
@@ -156,8 +156,8 @@ export function Invoices() {
         });
       }
       toast({
-        title: prog && !prog.satisfied ? `Queued for approval · needs ${prog.nextRole}` : r.invoice.status === "paid" ? "Invoice paid privately" : "Payment created",
-        tone: "success",
+        title: prog && !prog.satisfied ? `Queued for approval · needs ${prog.nextRole}` : r.invoice.status === "paid" ? "Invoice paid privately" : "Payment did not settle on-chain",
+        tone: prog && !prog.satisfied || r.invoice.status === "paid" ? "success" : "danger",
       });
       await refresh();
     } catch (e) {
@@ -228,12 +228,12 @@ export function Invoices() {
           )}
         </div>
         {netRes ? (
-          <Reveal tone="success" className="mt-4 rounded-lg border border-success/30 bg-success/8 px-4 py-3" data-testid="net-result">
-            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[#1d7a52]">
+          <Reveal tone={netRes.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${netRes.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="net-result">
+            <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${netRes.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
               <ShieldCheck size={14} /> Settle {fmtUsd(netRes.net)} · {netRes.wetPay ? "you pay them" : "they pay you"}
             </div>
             <div className="mt-1 text-[12px] text-muted">
-              {netRes.onChain ? "The network verified the net. Neither full invoice total was disclosed." : "Demo proof (not live)."}
+              {netRes.onChain ? "The network verified the net. Neither full invoice total was disclosed." : "The net was not verified on-chain."}
             </div>
             {netRes.ref ? <div className="mt-3"><OnChainDetail refData={netRes.ref} /></div> : null}
           </Reveal>

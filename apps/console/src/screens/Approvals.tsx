@@ -36,7 +36,7 @@ export function Approvals() {
       if (decision === "denied") {
         toast({ title: "Payment denied", tone: "muted" });
       } else if (prog?.satisfied) {
-        toast({ title: updated.settlement?.onChain ? "Released and paid" : "Released and paid (demo)", tone: "success" });
+        toast({ title: updated.settlement?.onChain ? "Released and paid" : "Release failed before on-chain settlement", tone: updated.settlement?.onChain ? "success" : "danger" });
       } else {
         toast({ title: `Approved · now needs ${prog?.nextRole ?? "another approver"}${prog?.nextKind === "release" ? " to release" : ""}`, tone: "success" });
       }

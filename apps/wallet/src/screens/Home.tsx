@@ -119,8 +119,8 @@ export function Home() {
       <TopBar hidden={hidden} onToggleHide={toggleHidden} />
 
       {session && !session.live ? (
-        <div className="mx-5 mb-1 rounded-xl bg-amber/12 px-3 py-2 text-[12px] font-medium text-[#9a6b12]" data-testid="demo-banner">
-          Demo mode. These are sample numbers, not your real balance.
+        <div className="mx-5 mb-1 rounded-xl bg-amber/12 px-3 py-2 text-[12px] font-medium text-[#9a6b12]" data-testid="chain-unavailable-banner">
+          Live chain connection unavailable. Balance and money actions are blocked until the app reconnects.
         </div>
       ) : null}
 

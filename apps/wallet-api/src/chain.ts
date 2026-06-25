@@ -317,7 +317,7 @@ export async function getBalanceStroops(): Promise<{ stroops: string; live: bool
     await c.sync();
     return { stroops: (await c.getBalance()).toString(), live: true };
   }
-  return { stroops: db.demoBalance, live: false };
+  return { stroops: "0", live: false };
 }
 
 // ----------------------------------------------------------------- history
@@ -366,13 +366,13 @@ export async function getActivity(): Promise<ActivityRow[]> {
       })
       .sort((a, b) => b.timestamp - a.timestamp);
   }
-  return [...db.activity].sort((a, b) => b.timestamp - a.timestamp);
+  return [];
 }
 
 // ----------------------------------------------------------------- send
 
 export interface SettleResult {
-  status: "settled" | "demo" | "failed";
+  status: "settled" | "failed";
   txHash?: string;
   provingMs?: number;
   prover: ProverKind;
@@ -406,7 +406,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Unified consumer send with live phase events for the 3-phase ceremony. A
  * `@handle` is a private shielded transfer; a `G…` Stellar address is a public
  * payout (unshield) that intentionally leaves the shield. Both move real USDC on
- * testnet when live; demo simulates the same phases (onChain:false).
+ * testnet when live. If no live client exists, value movement fails closed.
  */
 export async function send(
   to: string,
@@ -420,27 +420,8 @@ export async function send(
   const c = getClient(prover);
 
   if (!c) {
-    // Demo: play the ceremony beats so the UI animates, then record into the feed.
-    onPhase?.({ phase: "building" });
-    await sleep(450);
-    onPhase?.({ phase: "proving" });
-    await sleep(750);
-    onPhase?.({ phase: "submitting" });
-    await sleep(550);
-    db.activity.unshift({
-      id: `act_${Date.now()}`,
-      type: kind === "address" ? "cashOut" : "send",
-      name: to,
-      note: `You sent${memo ? ` · ${memo}` : ""}`,
-      amount: stroops.toString(),
-      direction: "out",
-      status: "settled",
-      timestamp: nowSec(),
-      tone: kind === "address" ? "amber" : "neutral",
-      demo: true,
-    });
-    onPhase?.({ phase: "confirmed", onChain: false });
-    return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+    onPhase?.({ phase: "failed", error: "Live testnet client unavailable. No funds were moved." });
+    throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
   }
 
   await c.sync();
@@ -485,12 +466,7 @@ export async function sendToHandle(
     await c.flush();
     return { status: "settled", txHash: r?.txHash, provingMs: r?.provingMs, prover, amount: stroops.toString(), onChain: true };
   }
-  // Demo: record into the seeded feed so the UI reflects the action (NOT on-chain).
-  db.activity.unshift({
-    id: `act_${Date.now()}`, type: "send", name: handle, note: `You sent${memo ? ` · ${memo}` : ""}`,
-    amount: stroops.toString(), direction: "out", status: "settled", timestamp: nowSec(),
-  });
-  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
 }
 
 // ------------------------------------------------------------ fiat ramp reserve
@@ -619,11 +595,7 @@ export async function cashOut(amount: string, prover: ProverKind): Promise<Settl
     await rampCashOut(c, to, stroops);
     return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true };
   }
-  db.activity.unshift({
-    id: `act_${Date.now()}`, type: "cashOut", name: "Cash out to bank", note: "To your bank",
-    amount: stroops.toString(), direction: "out", status: "arriving", timestamp: nowSec(), tone: "amber", demo: true,
-  });
-  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
 }
 
 // ----------------------------------------------------------------- add money
@@ -661,12 +633,7 @@ export async function addMoney(amount: string, prover: ProverKind = "local"): Pr
       throw e;
     }
   }
-  db.demoBalance = (BigInt(db.demoBalance) + stroops).toString();
-  db.activity.unshift({
-    id: `act_${Date.now()}`, type: "shield", name: "Added money", note: "From your bank",
-    amount: stroops.toString(), direction: "in", status: "settled", timestamp: nowSec(), tone: "accent", demo: true,
-  });
-  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
 }
 
 // ----------------------------------------------- direct deposit / import USDC
@@ -694,7 +661,7 @@ export async function getDepositInfo(): Promise<{ address: string; liquid: strin
 export async function importDeposit(amount: string | undefined, prover: ProverKind = "local"): Promise<SettleResult> {
   const stroops0 = amount ? toStroops(amount) : 0n;
   const c = getClient(prover);
-  if (!c) return { status: "demo", prover, amount: (stroops0 || 0n).toString(), onChain: false };
+  if (!c) throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
   await c.sync();
   await wireMvkRegistry(c);
   const from = await selfAddress(c);
@@ -724,7 +691,7 @@ export async function importDeposit(amount: string | undefined, prover: ProverKi
 // back to this same address; "Send to a wallet" pays any external G-address.
 
 /** The "Public" balance: the wallet's liquid (unshielded) USDC, in stroops.
- *  Reuses the same liquid read as getDepositInfo(). Demo → zeros + not-live. */
+ *  Reuses the same liquid read as getDepositInfo(). */
 export async function publicBalance(): Promise<{ stroops: string; address: string; asset: string; issuer: string; live: boolean }> {
   const info = await getDepositInfo();
   if (!info) return { stroops: "0", address: "", asset: "USDC", issuer: "", live: false };
@@ -734,7 +701,7 @@ export async function publicBalance(): Promise<{ stroops: string; address: strin
 /** "Make public": unshield from the private pool to the wallet's OWN public
  *  address (mirrors cashOut WITHOUT the rampCashOut leg — the USDC lands liquid
  *  on the account instead of being absorbed by the reserve). Real unshield, real
- *  proof. Demo branch mirrors cashOut's. */
+ *  proof. */
 export async function makePublic(amount: string, prover: ProverKind): Promise<SettleResult> {
   const stroops = toStroops(amount);
   const c = getClient(prover);
@@ -761,11 +728,7 @@ export async function makePublic(amount: string, prover: ProverKind): Promise<Se
       throw new RampError("busy", "Couldn't move USDC to your Public balance right now. Your money is safe — please try again.");
     }
   }
-  db.activity.unshift({
-    id: `act_${Date.now()}`, type: "unshield", name: "Made public", note: "Moved to your public balance",
-    amount: stroops.toString(), direction: "out", status: "settled", timestamp: nowSec(), tone: "amber", demo: true,
-  });
-  return { status: "demo", prover, amount: stroops.toString(), onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
 }
 
 /** "Send to a wallet": pay any external Stellar G-address from the Public
@@ -801,11 +764,7 @@ export async function sendPublic(toAddress: string, amount: string): Promise<{ t
       throw new RampError("busy", "Couldn't send right now. Your money is safe — please try again.");
     }
   }
-  db.activity.unshift({
-    id: `act_${Date.now()}`, type: "send", name: "Sent to a wallet", note: `To ${to.slice(0, 4)}…${to.slice(-4)}`,
-    amount: stroops.toString(), direction: "out", status: "settled", timestamp: nowSec(), tone: "neutral", demo: true,
-  });
-  return { onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
 }
 
 // ----------------------------------------------------------------- identity / handle
@@ -821,7 +780,7 @@ export function getKycTier(): number {
   return kycTier;
 }
 
-/** Is a @handle free to claim? live → on-chain registry; demo → seeded check. */
+/** Is a @handle free to claim? live → on-chain registry. */
 export async function handleAvailable(handle: string): Promise<boolean> {
   const h = handle.replace(/^@/, "").toLowerCase();
   if (!/^[a-z0-9_.]{3,20}$/.test(h)) return false;
@@ -834,10 +793,10 @@ export async function handleAvailable(handle: string): Promise<boolean> {
       return true; // unresolved → available
     }
   }
-  return h !== db.profile.handle.replace(/^@/, "").toLowerCase();
+  return false;
 }
 
-/** Claim a @handle for THIS wallet. live → on-chain registerHandle; demo → local. */
+/** Claim a @handle for THIS wallet. live → on-chain registerHandle. */
 export async function claimHandle(handle: string): Promise<{ handle: string; txHash?: string; onChain: boolean }> {
   const h = handle.replace(/^@/, "").toLowerCase();
   if (!/^[a-z0-9_.]{3,20}$/.test(h)) throw new Error("handle must be 3–20 chars: letters, numbers, dots, underscores");
@@ -848,8 +807,7 @@ export async function claimHandle(handle: string): Promise<{ handle: string; txH
     db.profile.handle = h;
     return { handle: h, txHash: res.txHash, onChain: true };
   }
-  db.profile.handle = h;
-  return { handle: h, onChain: false };
+  throw new Error("Live testnet client unavailable. Handle was not registered.");
 }
 
 // ----------------------------------------------------------------- request
@@ -865,12 +823,7 @@ export async function createRequest(amount: string | undefined, memo: string | u
     });
     return { ...r, link: walletRouteLink(r.link) };
   }
-  const id = `req_${Date.now().toString(36)}`;
-  const link = encodeBenzoLink(
-    { type: "request", to: db.profile.handle, id, amount: amount ? toStroops(amount).toString() : undefined, memo },
-    "scheme",
-  );
-  return { link: walletRouteLink(link), id };
+  throw new Error("Live testnet client unavailable. Request was not registered.");
 }
 
 // ----------------------------------------------------------------- external invite / claim (P0-3)
@@ -943,25 +896,13 @@ export async function createInvite(amount: string, note: string | undefined, onP
     onPhase?.({ phase: "confirmed", txHash: r.sendTx, onChain: true });
     return { link, localId, claimAccountPub: r.recipient.spendPub.toString(16), amount: stroops.toString(), expiresAt, onChain: true };
   }
-  // demo: a well-formed (non-redeemable) link so the UI flow + escrow card work
-  const secret = Buffer.from(`demo-${localId}`).toString("base64url");
-  const claimLink = encodeBenzoLink(
-    { type: "claim", secret, app: "consumer", amount: stroops.toString(), expiresAt: String(expiresAt) },
-    "scheme",
-  );
-  const link = walletRouteLink(claimLink);
-  escrow.set(localId, { localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
-  db.activity.unshift({
-    id: `act_${Date.now()}`, type: "send", name: "Invite sent", note: `Pending claim${note ? ` · ${note}` : ""}`,
-    amount: stroops.toString(), direction: "out", status: "pending", timestamp: nowSec(),
-  });
-  return { link, localId, claimAccountPub: "demo", amount: stroops.toString(), expiresAt, onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. Invite was not funded.");
 }
 
 /** Sweep a claim account's funds out to the wallet's public address (claim or refund). */
 async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
   const c = getClient();
-  if (!c) return { amount: "0", onChain: false };
+  if (!c) throw new RampError("busy", "Live testnet client unavailable. Claim was not submitted.");
   const to = await selfAddress(c);
   const claimSecret = bytesFromB64url(secret);
   // Adopt the ephemeral claim account and register ITS MVK in the wired mirror
@@ -1016,9 +957,7 @@ export async function claimInvite(secret: string, localId?: string): Promise<{ a
     });
     return { ...r, txHash };
   }
-  const e = [...escrow.values()].find((x) => x.secret === secret) ?? (localId ? escrow.get(localId) : undefined);
-  if (e) e.status = "claimed";
-  return { amount: e?.amount ?? "0", onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. Claim was not submitted.");
 }
 
 export async function refundInvite(localId: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
@@ -1031,8 +970,7 @@ export async function refundInvite(localId: string): Promise<{ amount: string; t
     e.status = "refunded";
     return r;
   }
-  e.status = "refunded";
-  return { amount: e.amount, onChain: false };
+  throw new RampError("busy", "Live testnet client unavailable. Refund was not submitted.");
 }
 
 export function listInvites(): Array<Omit<EscrowEntry, "secret">> {
@@ -1059,7 +997,7 @@ export async function shareProof(
     const onChain = await c.verifyProofOnChain("BALANCE", r.sorobanProof, r.sorobanPublics);
     return { holds: true, proof: JSON.stringify(r.sorobanProof), publics: r.sorobanPublics, onChain, prover };
   }
-  return { holds: true, proof: `stub_${Date.now().toString(36)}`, publics: [], onChain: false, prover };
+  throw new RampError("busy", "Live testnet client unavailable. Proof was not generated.");
 }
 
 // --------------------------------------------------- dev: provision account to device

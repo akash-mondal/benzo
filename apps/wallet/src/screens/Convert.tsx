@@ -203,7 +203,7 @@ function ConvertDone({ mode, amount, result, onDone }: { mode: Mode; amount: str
       </motion.div>
       <div>
         <div className="font-display text-2xl">{mode === "private" ? "Made private" : "Made public"}</div>
-        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " (demo)"}</div>
+        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " · not verified on-chain"}</div>
       </div>
 
       <div className="w-full max-w-[280px] space-y-2.5 text-left">

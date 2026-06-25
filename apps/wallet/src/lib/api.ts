@@ -29,8 +29,8 @@ export interface ActivityRow {
   timestamp: number;
   txHash?: string;
   tone?: "accent" | "amber" | "neutral";
-  /** seeded/demo-mode row (not a real on-chain settlement) — the UI badges it. */
-  demo?: boolean;
+  /** legacy local row, not a real on-chain settlement — the UI badges it. */
+  unverified?: boolean;
 }
 export interface Contact {
   handle: string;
@@ -38,7 +38,7 @@ export interface Contact {
   tone?: "accent" | "amber" | "neutral";
 }
 export interface SettleResult {
-  status: "settled" | "demo" | "failed";
+  status: "settled" | "failed";
   txHash?: string;
   provingMs?: number;
   prover: ProverKind;

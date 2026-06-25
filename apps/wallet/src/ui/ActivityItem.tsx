@@ -41,8 +41,8 @@ export function ActivityItem({ row, last }: { row: ActivityRow; last?: boolean }
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="truncate text-sm font-semibold">{row.name}</span>
-          {row.demo ? (
-            <span className="flex-none rounded-full bg-muted/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted" title="Sample data — not a real on-chain transaction">Demo</span>
+          {row.unverified ? (
+            <span className="flex-none rounded-full bg-muted/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted" title="Not verified on-chain">Unverified</span>
           ) : null}
         </div>
         <div className="truncate text-xs text-muted">{row.note}</div>

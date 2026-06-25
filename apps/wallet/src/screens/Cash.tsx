@@ -214,7 +214,7 @@ function RampDone({ tab, amount, onChain, result, onDone }: { tab: Tab; amount: 
       </motion.div>
       <div>
         <div className="font-display text-2xl">{tab === "in" ? "Money added" : "On its way"}</div>
-        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " (demo)"}</div>
+        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " · not verified on-chain"}</div>
       </div>
 
       <div className="w-full max-w-[280px] space-y-2.5 text-left">

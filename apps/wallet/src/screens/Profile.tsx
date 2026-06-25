@@ -136,7 +136,7 @@ export function Profile() {
             <Row
               icon={<Sparkles size={18} />}
               label="Mode"
-              right={<span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${live ? "bg-pos/12 text-pos" : "bg-amber/12 text-[#9a6b12]"}`} data-testid="profile-mode">{live ? `Live · ${NETWORK_LABEL.replace(/^Stellar ?/, "") || "Mainnet"}` : "Demo"}</span>}
+              right={<span className={`rounded-full px-2.5 py-1 text-[12px] font-semibold ${live ? "bg-pos/12 text-pos" : "bg-amber/12 text-[#9a6b12]"}`} data-testid="profile-mode">{live ? `Live · ${NETWORK_LABEL.replace(/^Stellar ?/, "") || "Mainnet"}` : "Chain unavailable"}</span>}
             />
             <Row
               icon={<ShieldCheck size={18} />}

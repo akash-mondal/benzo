@@ -113,7 +113,8 @@ export function Send() {
         setPubErr(null);
         try {
           const r = await api.sendPublic(recipient, amount);
-          setPubResult({ status: r.onChain ? "settled" : "demo", txHash: r.txHash, onChain: r.onChain, amount: toStroopsSafe(amount), prover: "local" });
+          if (!r.onChain) throw new Error("Payment was not submitted on-chain.");
+          setPubResult({ status: "settled", txHash: r.txHash, onChain: true, amount: toStroopsSafe(amount), prover: "local" });
           setPubPhase("done");
           void refresh();
         } catch (e) {
@@ -279,7 +280,7 @@ function PublicSendDone({ display, address, amount, result, onDone }: { display:
       </motion.div>
       <div>
         <div className="font-display text-2xl" data-testid="send-public-title">Sent to a wallet</div>
-        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " (demo)"}</div>
+        <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " · not verified on-chain"}</div>
         <div className="mt-1 text-[13px] text-muted">to {shortAddress(address)}</div>
       </div>
       <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fbf1dd] px-3 py-1 text-xs font-semibold text-[#9a6b12]">

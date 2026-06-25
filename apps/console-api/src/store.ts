@@ -1,9 +1,8 @@
 /**
- * In-memory product store for the console BFF, seeded with a realistic demo org
- * so the UI phase can build against real-shaped data immediately. Each on-chain
- * action has a seam to @benzo/core (see chain.ts) to swap in live testnet ops;
- * the product state (orgs, ledger, approvals, policies) is genuinely off-chain
- * by design (the double-entry ledger is the CFO-readable system of record).
+ * In-memory product store for the console BFF, seeded with a testnet org and
+ * product objects. On-chain actions route through @benzo/core (see chain.ts);
+ * product state (orgs, ledger, approvals, policies) is genuinely off-chain by
+ * design (the double-entry ledger is the CFO-readable system of record).
  */
 import type {
   Account,
@@ -114,7 +113,7 @@ export interface Db {
   zones: ComplianceZone[];
   ledger: LedgerEntry[];
   integrations: Integration[];
-  /** the demo session member (owner) */
+  /** the session member (owner) */
   sessionMemberId: string;
 }
 
@@ -147,11 +146,11 @@ export function seed(): Db {
 
   const counterparties: Counterparty[] = [
     // Contractors carry a rate card (payRate) — the source a payroll run COMPUTES from.
-    { id: "cp_grace", orgId, name: "Grace Hopper", type: "contractor", status: "allowlisted", email: "grace@contractors.test", paymentAddress: { shielded: "@benzowallet", spendPub: "demo-spend-cp-grace", viewPub: "demo-view-cp-grace", mvkScalar: "demo-mvk-cp-grace" }, externalAccounts: [], taxFormType: "W8-BEN", payRate: { amount: usd(4200), assetCode: "USDC" }, payCadence: "monthly", createdAt: now() },
-    { id: "cp_ada", orgId, name: "Ada Lovelace", type: "contractor", status: "allowlisted", email: "ada@contractors.test", paymentAddress: { shielded: "@benzowallet", spendPub: "demo-spend-cp-ada", viewPub: "demo-view-cp-ada", mvkScalar: "demo-mvk-cp-ada" }, externalAccounts: [], taxFormType: "W8-BEN", payRate: { amount: usd(7000), assetCode: "USDC" }, payCadence: "monthly", createdAt: now() },
-    { id: "cp_nico", orgId, name: "Nico Vega", type: "contractor", status: "allowlisted", email: "nico@contractors.test", paymentAddress: { shielded: "@benzowallet", spendPub: "demo-spend-cp-nico", viewPub: "demo-view-cp-nico", mvkScalar: "demo-mvk-cp-nico" }, externalAccounts: [], taxFormType: "W8-BEN", payRate: { amount: usd(3500), assetCode: "USDC" }, payCadence: "monthly", createdAt: now() },
+    { id: "cp_grace", orgId, name: "Grace Hopper", type: "contractor", status: "allowlisted", email: "grace@contractors.test", paymentAddress: { shielded: "@benzowallet", spendPub: "testnet-spend-cp-grace", viewPub: "testnet-view-cp-grace", mvkScalar: "testnet-mvk-cp-grace" }, externalAccounts: [], taxFormType: "W8-BEN", payRate: { amount: usd(4200), assetCode: "USDC" }, payCadence: "monthly", createdAt: now() },
+    { id: "cp_ada", orgId, name: "Ada Lovelace", type: "contractor", status: "allowlisted", email: "ada@contractors.test", paymentAddress: { shielded: "@benzowallet", spendPub: "testnet-spend-cp-ada", viewPub: "testnet-view-cp-ada", mvkScalar: "testnet-mvk-cp-ada" }, externalAccounts: [], taxFormType: "W8-BEN", payRate: { amount: usd(7000), assetCode: "USDC" }, payCadence: "monthly", createdAt: now() },
+    { id: "cp_nico", orgId, name: "Nico Vega", type: "contractor", status: "allowlisted", email: "nico@contractors.test", paymentAddress: { shielded: "@benzowallet", spendPub: "testnet-spend-cp-nico", viewPub: "testnet-view-cp-nico", mvkScalar: "testnet-mvk-cp-nico" }, externalAccounts: [], taxFormType: "W8-BEN", payRate: { amount: usd(3500), assetCode: "USDC" }, payCadence: "monthly", createdAt: now() },
     { id: "cp_new", orgId, name: "Lucía Marín", type: "contractor", status: "pending_screening", externalAccounts: [], payRate: { amount: usd(2800), assetCode: "USDC" }, payCadence: "monthly", createdAt: now() },
-    { id: "cp_supplier", orgId, name: "Shenzhen Parts Co.", type: "vendor", status: "allowlisted", paymentAddress: { shielded: "@benzowallet", spendPub: "demo-spend-cp-supplier", viewPub: "demo-view-cp-supplier", mvkScalar: "demo-mvk-cp-supplier" }, externalAccounts: [], externalId: "QBO:VEND:11", createdAt: now() },
+    { id: "cp_supplier", orgId, name: "Shenzhen Parts Co.", type: "vendor", status: "allowlisted", paymentAddress: { shielded: "@benzowallet", spendPub: "testnet-spend-cp-supplier", viewPub: "testnet-view-cp-supplier", mvkScalar: "testnet-mvk-cp-supplier" }, externalAccounts: [], externalId: "QBO:VEND:11", createdAt: now() },
   ];
 
   const policies: ApprovalPolicy[] = [
@@ -168,14 +167,6 @@ export function seed(): Db {
   ];
 
   const payments: PaymentOrder[] = [
-    {
-      id: "po_1", orgId, type: "shielded_transfer", status: "confirmed",
-      amount: { amount: usd(1200), assetCode: "USDC" }, fromAccountId: "acc_op", toCounterpartyId: "cp_supplier",
-      memo: "PO-4471 components", privacy: { amountHidden: true, counterpartyHidden: true, visibleTo: ["mem_owner", "mem_treas"] },
-      // Seeded sample activity — NOT a real on-chain settlement. mode:"demo" + onChain:false
-      // let the console flag this row as "Sample" instead of presenting it as a live payment.
-      settlement: { txHash: "demo-seed-not-on-chain", nullifiers: ["n1"], commitments: ["c1"], mode: "demo", onChain: false }, createdByMemberId: "mem_treas", createdAt: now(), updatedAt: now(),
-    },
     {
       id: "po_2", orgId, type: "shielded_transfer", status: "needs_approval",
       amount: { amount: usd(8200), assetCode: "USDC" }, fromAccountId: "acc_op", toCounterpartyId: "cp_supplier",
@@ -227,20 +218,12 @@ export function seed(): Db {
     { id: "zone_eu", orgId, name: "European Union", jurisdiction: "EU", allowRoot: "0xallowEU", denyRoot: "0xdenyEU" },
   ];
 
-  const ledger: LedgerEntry[] = [
-    {
-      id: "le_1", orgId, txId: "demo-seed-not-on-chain", postedAt: now(), sourceType: "transfer", sourceId: "po_1",
-      lines: [
-        { accountId: "acc_op", direction: "credit", amount: usd(1200), assetCode: "USDC" },
-        { accountId: "acc_op", direction: "debit", amount: usd(1200), assetCode: "USDC" },
-      ],
-    },
-  ];
+  const ledger: LedgerEntry[] = [];
 
   const integrations: Integration[] = [
-    { id: "int_merge", orgId, provider: "merge", status: "connected", sandbox: true, connectedAt: now(), lastSyncAt: now() },
+    { id: "int_merge", orgId, provider: "merge", status: "disconnected", sandbox: true },
     { id: "int_qbo", orgId, provider: "quickbooks", status: "disconnected", sandbox: true },
-    { id: "int_slack", orgId, provider: "slack", status: "connected", sandbox: true, connectedAt: now() },
+    { id: "int_slack", orgId, provider: "slack", status: "disconnected", sandbox: true },
   ];
 
   return {

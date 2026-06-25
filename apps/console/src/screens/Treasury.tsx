@@ -100,7 +100,7 @@ export function Treasury() {
         await loadPublic();
       } else {
         setSendResult({ onChain: false, error: r.error });
-        toast({ title: r.demo ? "Sending to a wallet is live-only" : r.error ?? "Couldn't send", tone: "danger" });
+        toast({ title: r.error ?? "Couldn't send", tone: "danger" });
       }
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
@@ -143,7 +143,7 @@ export function Treasury() {
       const minStroops = toStroops(min);
       const r = await api.proveBalance(minStroops);
       setProof({ holds: r.holds, onChain: r.onChain, ref: r.ref ? { ...r.ref, label: "Reserves proof" } : undefined });
-      toast({ title: r.holds ? (r.onChain ? "Reserves verified on-chain" : "Proof generated") : "Below the floor (proven)", tone: r.holds ? "success" : "danger" });
+      toast({ title: r.holds ? (r.onChain ? "Reserves verified on-chain" : "Proof was not verified on-chain") : "Below the floor (proven)", tone: r.holds && r.onChain ? "success" : "danger" });
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -157,7 +157,7 @@ export function Treasury() {
     try {
       const r = await api.proveSolvency();
       setSolvProof({ ...r, ref: r.ref ? { ...r.ref, label: "Solvency proof" } : undefined });
-      toast({ title: r.onChain ? (r.solvent ? "Solvency proven on-chain" : "Not solvent (proven)") : "Proof generated", tone: r.solvent ? "success" : "danger" });
+      toast({ title: r.onChain ? (r.solvent ? "Solvency proven on-chain" : "Not solvent (proven)") : "Proof was not verified on-chain", tone: r.solvent && r.onChain ? "success" : "danger" });
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -171,7 +171,7 @@ export function Treasury() {
     try {
       const r = await api.proveTotal();
       setTotalProof({ ...r, ref: r.ref ? { ...r.ref, label: "Period total proof" } : undefined });
-      toast({ title: r.onChain ? "Total proven on-chain" : "Proof generated", tone: "success" });
+      toast({ title: r.onChain ? "Total proven on-chain" : "Proof was not verified on-chain", tone: r.onChain ? "success" : "danger" });
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -328,12 +328,12 @@ export function Treasury() {
               <Button className="mt-4 w-full" onClick={prove} data-testid="prove-balance">Generate proof</Button>
             )}
             {proof ? (
-              <Reveal tone={proof.holds ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${proof.holds ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="prove-result">
-                <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${proof.holds ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
+              <Reveal tone={proof.holds && proof.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${proof.holds && proof.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="prove-result">
+                <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${proof.holds && proof.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
                   <ShieldCheck size={14} /> {proof.holds ? `Holds ≥ ${fmtUsd(toStroops(min))}` : "Below the requested floor"}
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2 text-[12px] text-muted">
-                  <span>{proof.onChain ? "Anyone can verify this independently." : "Proof generated (not live)."}</span>
+                  <span>{proof.onChain ? "Anyone can verify this independently." : "Proof was not verified on-chain."}</span>
                   {proof.ref ? <OnChainDetail refData={proof.ref} /> : null}
                 </div>
               </Reveal>
@@ -353,12 +353,12 @@ export function Treasury() {
               <Button variant="outline" className="mt-4 w-full" onClick={proveExactTotal} data-testid="prove-total">Prove exact total</Button>
             )}
             {totalProof ? (
-              <Reveal tone="success" className="mt-4 rounded-lg border border-success/30 bg-success/8 px-4 py-3" data-testid="prove-total-result">
-                <div className="flex items-center gap-1.5 text-[13px] font-semibold text-[#1d7a52]">
+              <Reveal tone={totalProof.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${totalProof.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="prove-total-result">
+                <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${totalProof.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
                   <ShieldCheck size={14} /> Total: {fmtUsd(totalProof.total)}
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2 text-[12px] text-muted">
-                  <span>{totalProof.onChain ? "Proven, not asserted." : "Proof generated (not live)."}</span>
+                  <span>{totalProof.onChain ? "Proven, not asserted." : "Proof was not verified on-chain."}</span>
                   {totalProof.ref ? <OnChainDetail refData={totalProof.ref} /> : null}
                 </div>
               </Reveal>
@@ -378,12 +378,12 @@ export function Treasury() {
               <Button variant="outline" className="mt-4 w-full" onClick={proveSolvent} data-testid="prove-solvency">Prove assets ≥ liabilities</Button>
             )}
             {solvProof ? (
-              <Reveal tone={solvProof.solvent ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${solvProof.solvent ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="prove-solvency-result">
-                <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${solvProof.solvent ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
+              <Reveal tone={solvProof.solvent && solvProof.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${solvProof.solvent && solvProof.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="prove-solvency-result">
+                <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${solvProof.solvent && solvProof.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
                   <ShieldCheck size={14} /> {solvProof.solvent ? "Solvent — assets cover all liabilities" : "Not solvent — liabilities exceed treasury"}
                 </div>
                 <div className="mt-1 flex items-center justify-between gap-2 text-[12px] text-muted">
-                  <span>{solvProof.onChain ? "The network verified it." : "Proof generated (not live)."}</span>
+                  <span>{solvProof.onChain ? "The network verified it." : "Proof was not verified on-chain."}</span>
                   {solvProof.ref ? <OnChainDetail refData={solvProof.ref} /> : null}
                 </div>
               </Reveal>

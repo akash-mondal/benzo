@@ -156,7 +156,7 @@ export const api = {
     }>("/records/period-total", { method: "POST", body: JSON.stringify({ period }) }),
   // "Make private" (shield public -> pool). amount in USDC (human).
   fundTreasury: (amount: string) =>
-    http<{ onChain: boolean; txHash?: string; error?: string; demo?: boolean }>("/treasury/fund", { method: "POST", body: JSON.stringify({ amount }) }),
+    http<{ onChain: boolean; txHash?: string; error?: string }>("/treasury/fund", { method: "POST", body: JSON.stringify({ amount }) }),
   // Two-balance model. Public = liquid, unshielded USDC (what external wallets see).
   // The org's M-of-N shielded pool is api.treasury(). stroops are 7dp.
   treasuryPublicBalance: () =>
@@ -167,7 +167,7 @@ export const api = {
   // "Send to a wallet": real on-chain USDC transfer from Public to an external
   // G-address. amount in USDC (human). Friendly trustline/balance errors in `error`.
   treasurySendPublic: (to: string, amount: string) =>
-    http<{ txHash?: string; onChain: boolean; error?: string; demo?: boolean }>("/treasury/send-public", { method: "POST", body: JSON.stringify({ to, amount }) }),
+    http<{ txHash?: string; onChain: boolean; error?: string }>("/treasury/send-public", { method: "POST", body: JSON.stringify({ to, amount }) }),
 
   accounts: () => http<Account[]>("/accounts"),
   members: () => http<Member[]>("/members"),

@@ -252,7 +252,7 @@ function VerifyReveal({ receipt, reduce }: { receipt: SendReceipt; reduce: boole
           </motion.div>
         ))}
         <div className="mt-3 flex items-center justify-center gap-1.5 text-[12px] font-medium text-pos">
-          <ShieldCheck size={13} /> Private payment{receipt.onChain ? "" : " (demo)"}
+          <ShieldCheck size={13} /> Private payment{receipt.onChain ? "" : " · not verified on-chain"}
         </div>
         <div className="mt-2 flex flex-col items-center">
           <button

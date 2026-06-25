@@ -220,9 +220,9 @@ export async function treasuryReceiveInfo(): Promise<{ address: string; asset: s
  * — what external wallets/exchanges see. Pre-checks the liquid balance and maps
  * a missing-trustline failure to friendly copy (NEVER fabricates success).
  */
-export async function treasurySendPublic(toAddress: string, amount: string): Promise<{ txHash?: string; onChain: boolean; error?: string; demo?: boolean }> {
+export async function treasurySendPublic(toAddress: string, amount: string): Promise<{ txHash?: string; onChain: boolean; error?: string }> {
   const c = getClient();
-  if (!c) return { onChain: false, demo: true };
+  if (!c) return { onChain: false, error: "console API is not connected to live testnet signing" };
   const to = toAddress.trim();
   if (!isValidStellarAddress(to)) return { onChain: false, error: "That doesn't look like a valid wallet address." };
   const stroops = BigInt(amount);
@@ -469,9 +469,9 @@ export async function payableBalance(): Promise<{ live: boolean; stroops: bigint
 }
 
 /** Fund the org treasury: shield real USDC into an M-of-N org note. */
-export async function fundTreasury(amountStroops: string): Promise<{ onChain: boolean; txHash?: string; error?: string; demo?: boolean }> {
+export async function fundTreasury(amountStroops: string): Promise<{ onChain: boolean; txHash?: string; error?: string }> {
   const c = getClient();
-  if (!c) return { onChain: false, demo: true };
+  if (!c) return { onChain: false, error: "console API is not connected to live testnet signing" };
   const from = process.env.DEPLOYER_PUBLIC;
   if (!from) return { onChain: false, error: "no funding address (DEPLOYER_PUBLIC)" };
   try {
@@ -491,13 +491,12 @@ export async function fundTreasury(amountStroops: string): Promise<{ onChain: bo
 /**
  * Pay ONE recipient as a confidential joinsplit to their @handle. Returns:
  *  - { onChain, txHash } on real settlement,
- *  - { error } on a real failure (so the operator sees WHY a line failed),
- *  - { demo:true } when the BFF isn't live (no real settlement, not a failure).
+ *  - { error } on a real failure (so the operator sees WHY a line failed).
  * The caller drives idempotency/funding — this just pays one line, safely.
  */
-export async function payOne(handle: string | undefined, amount: string): Promise<{ onChain: boolean; txHash?: string; error?: string; demo?: boolean }> {
+export async function payOne(handle: string | undefined, amount: string): Promise<{ onChain: boolean; txHash?: string; error?: string }> {
   const c = getClient();
-  if (!c) return { onChain: false, demo: true };
+  if (!c) return { onChain: false, error: "console API is not connected to live testnet signing" };
   if (!handle) return { onChain: false, error: "no @handle on file for this contractor" };
   try {
     await c.sync();
@@ -971,14 +970,13 @@ export async function submitShieldedTransfer(po: PaymentOrder, toHandle?: string
       console.warn(`[console-api] payment ${po.id} settlement failed: ${r.error}`);
       return po;
     }
-    // r.demo — fall through to the demo branch below
+    // No live settlement happened; fall through to the failed branch below.
   }
   // NOT settled on-chain — the BFF isn't live, or the recipient has no on-chain
-  // @handle. Do NOT fabricate a txHash that the UI could mistake for a real
-  // settlement: leave the order approved-but-unsettled and mark it demo explicitly.
+  // @handle. Do NOT fabricate a txHash or approved state.
   const reason = c ? "recipient has no on-chain @handle" : "BFF not live (env not loaded)";
-  console.warn(`[console-api] payment ${po.id} NOT settled on-chain (${reason}) — demo mode`);
-  po.status = "approved";
+  console.warn(`[console-api] payment ${po.id} NOT settled on-chain (${reason})`);
+  po.status = "failed";
   po.settlement = { onChain: false, mode: "demo" };
   po.updatedAt = now();
   return po;
@@ -1024,8 +1022,8 @@ export async function runPayroll(
     bustTreasuryCache();
     return res.map((r) => ({ onChain: true, txHash: r.txHash ?? undefined }));
   }
-  // NOT settled on-chain — don't fabricate tx hashes; mark each line demo.
+  // NOT settled on-chain — don't fabricate tx hashes.
   const reason = c ? "missing recipient @handle(s)" : "BFF not live (env not loaded)";
-  console.warn(`[console-api] payroll NOT settled on-chain (${reason}) — demo mode`);
+  console.warn(`[console-api] payroll NOT settled on-chain (${reason})`);
   return items.map(() => ({ onChain: false }));
 }
