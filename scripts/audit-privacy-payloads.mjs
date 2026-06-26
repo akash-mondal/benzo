@@ -121,7 +121,7 @@ function checkServerErrorsAndLogs() {
 }
 
 function checkUrlPayloads() {
-  const sensitiveQuery = /searchParams\.get\("((amount|balance|counterparty|description|email|handle|memo|name|rate|recipient|salary|tax))"\)/i;
+  const sensitiveQuery = /searchParams\.get\("((amount|balance|counterparty|description|email|handle|memo|name|rate|recipient|salary|subjectIds|tax))"\)/i;
   for (const rel of [
     "apps/wallet-api/src/server.ts",
     "apps/console-api/src/server.ts",

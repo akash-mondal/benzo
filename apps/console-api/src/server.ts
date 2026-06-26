@@ -1349,13 +1349,11 @@ route("GET", "/api/proof-receipts", (_req, res) =>
 route("GET", "/api/audit/private-events", (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const eventTypes = url.searchParams.get("eventTypes")?.split(",").filter(Boolean) as PrivateEventType[] | undefined;
-  const subjectIds = url.searchParams.get("subjectIds")?.split(",").filter(Boolean) || undefined;
   const scope = {
     label: url.searchParams.get("label") || "console-private-events",
     from: url.searchParams.get("from") || undefined,
     to: url.searchParams.get("to") || undefined,
     eventTypes,
-    subjectIds,
   };
   const events = db.privateEvents;
   json(res, 200, {

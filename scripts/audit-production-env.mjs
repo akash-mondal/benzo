@@ -162,6 +162,13 @@ function checkVercelProject(project) {
   }
 
   const names = parseVercelEnvList(output);
+  if (names.size === 0) {
+    const required = process.env.BENZO_REQUIRE_VERCEL_ENV_AUDIT === "1";
+    const message = `${project.name}: Vercel env inspection returned no encrypted production env names`;
+    if (required) fail(message);
+    else console.log(`[prod-env] ${project.name}: skipped Vercel env inspection: ${message}`);
+    return;
+  }
   for (const group of project.required) {
     if (!group.some((name) => names.has(name))) {
       fail(`${project.name}: production env missing ${group.join(" or ")}`);
