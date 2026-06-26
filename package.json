@@ -13,6 +13,7 @@
     "fetch:artifacts": "bash scripts/fetch-artifacts.sh",
     "verify:artifacts": "node scripts/check-artifacts.mjs",
     "audit:prod-env": "node scripts/audit-production-env.mjs",
+    "audit:prod-db": "node scripts/audit-production-db.mjs",
     "audit:privacy": "node scripts/audit-privacy-payloads.mjs",
     "audit:actions": "node scripts/audit-action-coverage.mjs",
     "test": "pnpm -r test",
