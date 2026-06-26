@@ -20,6 +20,7 @@ import type {
   ViewingGrant,
 } from "@benzo/types";
 import type { PrivateEventEnvelope } from "@benzo/private-events";
+import type { AccountBinding } from "./auth.js";
 import { loadTenantDocument, saveTenantDocument, tenantStorageMissing } from "./tenantData.js";
 
 let seq = 0;
@@ -119,6 +120,7 @@ export interface Db {
   invites: OrgInvite[];
   onboarding: OnboardingDraft;
   privateEvents: PrivateEventEnvelope[];
+  recovery: RecoveryBinding | null;
   rateLimits: Record<string, RateBucket>;
   proofReceipts: ProofReceipt[];
   idempotency: Record<string, IdempotencyRecord>;
@@ -129,6 +131,23 @@ export interface Db {
 export interface RateBucket {
   windowStart: number;
   count: number;
+}
+
+export interface RecoveryBinding {
+  accountFingerprint: string;
+  subjectKey: string;
+  createdAt: string;
+  lastSeenAt: string;
+}
+
+export class RecoveryRequiredError extends Error {
+  readonly code = "account_binding_changed";
+  constructor(
+    readonly storedAccountFingerprint: string,
+    readonly currentAccountFingerprint: string,
+  ) {
+    super("This account needs recovery before it can use this console.");
+  }
 }
 
 export interface ProofReceipt {
@@ -293,6 +312,7 @@ export function seed(): Db {
     invites: [],
     onboarding: {},
     privateEvents: [],
+    recovery: null,
     rateLimits: {},
     proofReceipts: [],
     idempotency: {},
@@ -360,6 +380,7 @@ export function freshHostedDb(authKey: string, claims?: { email?: string; name?:
     invites: [],
     onboarding: {},
     privateEvents: [],
+    recovery: null,
     rateLimits: {},
     proofReceipts: [],
     idempotency: {},
@@ -397,15 +418,47 @@ export function tenantDataMissing(): string[] {
   return tenantStorageMissing();
 }
 
+function normalizeConsoleDb(value: Db): Db {
+  value.invites ??= [];
+  value.onboarding ??= {};
+  value.privateEvents ??= [];
+  value.recovery ??= null;
+  value.rateLimits ??= {};
+  value.proofReceipts ??= [];
+  value.idempotency ??= {};
+  return value;
+}
+
+function bindRecovery(value: Db, binding: AccountBinding | null): void {
+  if (!binding) return;
+  const seenAt = now();
+  if (!value.recovery) {
+    value.recovery = {
+      accountFingerprint: binding.accountFingerprint,
+      subjectKey: binding.subjectKey,
+      createdAt: seenAt,
+      lastSeenAt: seenAt,
+    };
+    return;
+  }
+  if (value.recovery.accountFingerprint !== binding.accountFingerprint) {
+    throw new RecoveryRequiredError(value.recovery.accountFingerprint, binding.accountFingerprint);
+  }
+  value.recovery.subjectKey = binding.subjectKey;
+  value.recovery.lastSeenAt = seenAt;
+}
+
 export async function runWithConsoleTenant<T>(
   authKey: string | null,
   claims: { email?: string; name?: string } | null,
+  binding: AccountBinding | null,
   fn: () => Promise<T>,
 ): Promise<T> {
   if (process.env.VERCEL !== "1" || !authKey) return fn();
   const tenantKey = `console:${authKey}`;
   const loaded = await loadTenantDocument<Db>("console", tenantKey);
-  const ctx = { key: tenantKey, db: loaded ?? freshHostedDb(authKey, claims ?? undefined) };
+  const ctx = { key: tenantKey, db: normalizeConsoleDb(loaded ?? freshHostedDb(authKey, claims ?? undefined)) };
+  bindRecovery(ctx.db, binding);
   return tenantScope.run(ctx, async () => {
     try {
       return await fn();

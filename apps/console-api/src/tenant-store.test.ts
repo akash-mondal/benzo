@@ -18,7 +18,7 @@ test("hosted console starts empty and partitions org documents by auth key", asy
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
   const { db, runWithConsoleTenant } = await import("./store.js");
 
-  await runWithConsoleTenant("alice", { email: "alice@example.com", name: "Alice" }, async () => {
+  await runWithConsoleTenant("alice", { email: "alice@example.com", name: "Alice" }, { accountFingerprint: "console_alice", subjectKey: "alice" }, async () => {
     expect(db.counterparties).toEqual([]);
     expect(db.invoices).toEqual([]);
     db.org.name = "Alice LLC";
@@ -33,13 +33,13 @@ test("hosted console starts empty and partitions org documents by auth key", asy
     });
   });
 
-  await runWithConsoleTenant("bob", { email: "bob@example.com", name: "Bob" }, async () => {
+  await runWithConsoleTenant("bob", { email: "bob@example.com", name: "Bob" }, { accountFingerprint: "console_bob", subjectKey: "bob" }, async () => {
     expect(db.org.name).toBe("New workspace");
     expect(db.counterparties).toEqual([]);
     expect(db.payments).toEqual([]);
   });
 
-  await runWithConsoleTenant("alice", null, async () => {
+  await runWithConsoleTenant("alice", null, { accountFingerprint: "console_alice", subjectKey: "alice" }, async () => {
     expect(db.org.name).toBe("Alice LLC");
     expect(db.counterparties.map((c) => c.id)).toEqual(["cp_alice"]);
   });
@@ -51,7 +51,7 @@ test("hosted console persists operational state in the encrypted tenant document
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
   const { db, runWithConsoleTenant } = await import("./store.js");
 
-  await runWithConsoleTenant("ops", { email: "ops@example.com", name: "Ops" }, async () => {
+  await runWithConsoleTenant("ops", { email: "ops@example.com", name: "Ops" }, { accountFingerprint: "console_ops", subjectKey: "ops" }, async () => {
     db.onboarding = { name: "Ops Treasury", country: "US" };
     db.invites.push({
       id: "invite_ops",
@@ -108,7 +108,7 @@ test("hosted console persists operational state in the encrypted tenant document
     };
   });
 
-  await runWithConsoleTenant("ops", null, async () => {
+  await runWithConsoleTenant("ops", null, { accountFingerprint: "console_ops", subjectKey: "ops" }, async () => {
     expect(db.onboarding).toMatchObject({ name: "Ops Treasury", country: "US" });
     expect(db.invites.map((i) => i.id)).toEqual(["invite_ops"]);
     expect(db.payrolls[0].lines[0].settlementHandle).toBe("@ops");
@@ -116,5 +116,27 @@ test("hosted console persists operational state in the encrypted tenant document
     expect(db.rateLimits.write.count).toBe(7);
     expect(db.proofReceipts.map((r) => r.vkId)).toEqual(["ORGSUM"]);
     expect(db.idempotency["POST:/api/payments:key_ops"]).toMatchObject({ bodyHash: "hash_ops", status: 201 });
+  });
+});
+
+test("hosted console fails closed when a tenant account binding changes", async () => {
+  process.env.VERCEL = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  const { db, RecoveryRequiredError, runWithConsoleTenant } = await import("./store.js");
+
+  await runWithConsoleTenant("recovery-org", { email: "owner@example.com", name: "Owner" }, { accountFingerprint: "console_original", subjectKey: "recovery-org" }, async () => {
+    db.org.name = "Recovery Org";
+  });
+
+  await expect(
+    runWithConsoleTenant("recovery-org", null, { accountFingerprint: "console_rotated", subjectKey: "recovery-org" }, async () => {
+      db.org.name = "Wrong Org";
+    }),
+  ).rejects.toBeInstanceOf(RecoveryRequiredError);
+
+  await runWithConsoleTenant("recovery-org", null, { accountFingerprint: "console_original", subjectKey: "recovery-org" }, async () => {
+    expect(db.org.name).toBe("Recovery Org");
+    expect(db.recovery?.accountFingerprint).toBe("console_original");
   });
 });

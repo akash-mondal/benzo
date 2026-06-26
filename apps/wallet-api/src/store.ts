@@ -5,6 +5,7 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
+import type { AccountBinding } from "./auth.js";
 import { loadTenantDocument, saveTenantDocument, tenantStorageMissing } from "./tenantData.js";
 export type Direction = "in" | "out";
 
@@ -106,6 +107,23 @@ export interface Profile {
   name: string;
 }
 
+export interface RecoveryBinding {
+  accountFingerprint: string;
+  subjectKey: string;
+  createdAt: number;
+  lastSeenAt: number;
+}
+
+export class RecoveryRequiredError extends Error {
+  readonly code = "account_binding_changed";
+  constructor(
+    readonly storedAccountFingerprint: string,
+    readonly currentAccountFingerprint: string,
+  ) {
+    super("This account needs recovery before it can use this wallet.");
+  }
+}
+
 let seq = 0;
 export function id(prefix: string): string {
   seq += 1;
@@ -120,6 +138,7 @@ export interface WalletDb {
   activity: ActivityRow[];
   invites: WalletInvite[];
   ledger: WalletLedgerEntry[];
+  recovery: RecoveryBinding | null;
   rateLimits: Record<string, RateBucket>;
   proofReceipts: ProofReceipt[];
   idempotency: Record<string, IdempotencyRecord>;
@@ -132,6 +151,7 @@ export function seed(): WalletDb {
     activity: [],
     invites: [],
     ledger: [],
+    recovery: null,
     rateLimits: {},
     proofReceipts: [],
     idempotency: {},
@@ -237,15 +257,36 @@ function normalizeWalletDb(value: WalletDb): WalletDb {
   value.activity ??= [];
   value.invites ??= [];
   value.ledger ??= [];
+  value.recovery ??= null;
   value.rateLimits ??= {};
   value.proofReceipts ??= [];
   value.idempotency ??= {};
   return value;
 }
 
+function bindRecovery(value: WalletDb, binding: AccountBinding | null): void {
+  if (!binding) return;
+  const seenAt = nowSec();
+  if (!value.recovery) {
+    value.recovery = {
+      accountFingerprint: binding.accountFingerprint,
+      subjectKey: binding.subjectKey,
+      createdAt: seenAt,
+      lastSeenAt: seenAt,
+    };
+    return;
+  }
+  if (value.recovery.accountFingerprint !== binding.accountFingerprint) {
+    throw new RecoveryRequiredError(value.recovery.accountFingerprint, binding.accountFingerprint);
+  }
+  value.recovery.subjectKey = binding.subjectKey;
+  value.recovery.lastSeenAt = seenAt;
+}
+
 export async function runWithWalletTenant<T>(
   authKey: string | null,
   claims: { name?: string; email?: string } | null,
+  binding: AccountBinding | null,
   fn: () => Promise<T>,
 ): Promise<T> {
   if (process.env.VERCEL !== "1" || !authKey) return fn();
@@ -255,6 +296,7 @@ export async function runWithWalletTenant<T>(
   if (claims?.name) fresh.profile.name = claims.name;
   if (claims?.email && fresh.profile.name === "You") fresh.profile.name = claims.email.split("@")[0] || "You";
   const ctx = { key: tenantKey, db: normalizeWalletDb(loaded ?? fresh) };
+  bindRecovery(ctx.db, binding);
   return tenantScope.run(ctx, async () => {
     try {
       return await fn();

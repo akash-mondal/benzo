@@ -131,6 +131,10 @@ they become hosted state:
   scoped to the authenticated org/workspace. A fresh Google or passkey account
   starts with zero balance, empty contacts, empty activity, and no seeded console
   objects.
+- Hosted tenant documents pin the first derived account fingerprint. If the same
+  Google/passkey identity later derives a different account, the API returns a
+  recovery-required error instead of silently reusing the old wallet or org
+  state.
 - Console private events are stored as encrypted envelopes. Each envelope
   commits to the previous one, so the packet is tamper-evident.
 - Private audit packets include ciphertext records, hash-chain head, Merkle
@@ -268,10 +272,11 @@ Known limits:
 - Reserve accounting now records the on-chain testnet reserve flow, derived
   balances, and failed attempts. Mainnet still needs reconciliation jobs and
   settlement failure operations before any real fiat partner is connected.
-- Account recovery is deterministic today: Google/passkey identity plus the
-  deployed account salt derives the hosted account. If the Google account,
-  passkey, or salt changes, recovery must be handled by an explicit migration or
-  support flow. That flow is not a self-serve product screen yet.
+- Account recovery fails closed today: Google/passkey identity plus the deployed
+  account salt derives the hosted account, and the tenant document pins that
+  derived account fingerprint. If the Google account, passkey, or salt changes,
+  the API blocks access with a recovery-required response. A self-serve recovery
+  or migration screen is still future work.
 
 ## Repository map
 

@@ -29,9 +29,9 @@ import type {
 import { ROLE_PERMISSIONS } from "@benzo/types";
 import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic, type OnChainRef } from "./chain.js";
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
-import { authFromRequest, currentAuth, runWithAuth } from "./auth.js";
+import { accountBinding, authFromRequest, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
-import { db, fmtUsd, id, now, parseRosterCsv, runWithConsoleTenant, tenantDataMissing, type OrgInvite } from "./store.js";
+import { db, fmtUsd, id, now, parseRosterCsv, RecoveryRequiredError, runWithConsoleTenant, tenantDataMissing, type OrgInvite } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
 import { auditPacketHash, buildAnchor, buildAuditPacket, createPrivateEvent, deriveEventKey, GENESIS_HASH, sha256Hex, verifyHashChain, type AuditPacket, type PrivateEventType } from "@benzo/private-events";
 
@@ -417,6 +417,10 @@ route("GET", "/api/session", (_req, res) => {
   if (!member) return json(res, 404, { error: "no session" });
   json(res, 200, { member, org: db.org, permissions: ROLE_PERMISSIONS[member.role] });
 });
+
+route("GET", "/api/recovery/status", (_req, res) =>
+  json(res, 200, { status: "ok", recovery: db.recovery }),
+);
 
 // ----------------------------------------------------------------- zkLogin / SSO
 // Tells the frontend whether REAL Google sign-in is configured (a GOOGLE_CLIENT_ID is set).
@@ -1336,7 +1340,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       }
     }
     await runWithAuth(auth, async () => {
-      await runWithConsoleTenant(auth?.key ?? null, auth?.claims ?? null, async () => {
+      await runWithConsoleTenant(auth?.key ?? null, auth?.claims ?? null, auth ? accountBinding(auth) : null, async () => {
         if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && (!isLive() || tenantDataMissing().length > 0)) {
           return json(res, 503, {
             error: "Live testnet client unavailable. Refusing to serve app data.",
@@ -1351,6 +1355,18 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       });
     });
   } catch (e) {
+    if (e instanceof RecoveryRequiredError) {
+      return json(res, 409, {
+        error: e.message,
+        code: e.code,
+        recovery: {
+          status: "required",
+          reason: e.code,
+          storedAccountFingerprint: e.storedAccountFingerprint,
+          currentAccountFingerprint: e.currentAccountFingerprint,
+        },
+      });
+    }
     json(res, 500, { error: String((e as Error)?.message ?? e) });
   }
 }

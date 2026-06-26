@@ -44,6 +44,7 @@ import {
   db,
   id,
   nowSec,
+  RecoveryRequiredError,
   runWithWalletTenant,
   tenantDataMissing,
   verifyWalletLedger,
@@ -51,7 +52,7 @@ import {
   type WalletLedgerLine,
   type WalletLedgerSource,
 } from "./store.js";
-import { authFromRequest, runWithAuth } from "./auth.js";
+import { accountBinding, authFromRequest, runWithAuth } from "./auth.js";
 import { googleConfigured, verifyGoogleIdToken } from "./google-oidc.js";
 
 const PORT = Number(process.env.WALLET_API_PORT ?? 8791);
@@ -186,6 +187,10 @@ route("POST", "/api/auth/google", async (req, res) => {
 
 route("GET", "/api/session", (_q, res) =>
   json(res, 200, { profile: db.profile, handle: db.profile.handle, kycTier: getKycTier(), ...liveStatus(), prover: proverInfo() }),
+);
+
+route("GET", "/api/recovery/status", (_q, res) =>
+  json(res, 200, { status: "ok", recovery: db.recovery }),
 );
 
 route("GET", "/api/handle/available", async (_q, res, url) =>
@@ -476,7 +481,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       }
     }
     await runWithAuth(auth, async () => {
-      await runWithWalletTenant(auth?.key ?? null, auth?.claims ?? null, async () => {
+      await runWithWalletTenant(auth?.key ?? null, auth?.claims ?? null, auth ? accountBinding(auth) : null, async () => {
         if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && (!isLive() || tenantDataMissing().length > 0)) {
           return json(res, 503, {
             error: "Live testnet client unavailable. Refusing to serve app data.",
@@ -491,6 +496,18 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       });
     });
   } catch (e) {
+    if (e instanceof RecoveryRequiredError) {
+      return json(res, 409, {
+        error: e.message,
+        code: e.code,
+        recovery: {
+          status: "required",
+          reason: e.code,
+          storedAccountFingerprint: e.storedAccountFingerprint,
+          currentAccountFingerprint: e.currentAccountFingerprint,
+        },
+      });
+    }
     json(res, 500, { error: String((e as Error)?.message ?? e) });
   }
 }

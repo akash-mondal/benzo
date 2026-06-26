@@ -10,12 +10,24 @@ export interface AuthContext {
   claims: GoogleClaims;
 }
 
+export interface AccountBinding {
+  accountFingerprint: string;
+  subjectKey: string;
+}
+
 const storage = new AsyncLocalStorage<AuthContext>();
 
 function accountSalt(): string {
   const salt = process.env.BENZO_ACCOUNT_SALT || process.env.BENZO_AUTH_SALT;
   if (!salt && process.env.VERCEL === "1") throw new Error("BENZO_ACCOUNT_SALT is required for hosted account derivation");
   return salt || "benzo-local-dev";
+}
+
+function fingerprintAccount(account: BenzoAccount): string {
+  return createHash("sha256")
+    .update(`wallet|${account.stellarAddress ?? ""}|${account.spendPub.toString()}|${account.mvkScalar.toString()}`)
+    .digest("hex")
+    .slice(0, 32);
 }
 
 function bearer(req: IncomingMessage): string | null {
@@ -46,4 +58,8 @@ export function runWithAuth<T>(ctx: AuthContext | null, fn: () => Promise<T>): P
 
 export function currentAuth(): AuthContext | null {
   return storage.getStore() ?? null;
+}
+
+export function accountBinding(ctx: AuthContext): AccountBinding {
+  return { accountFingerprint: fingerprintAccount(ctx.account), subjectKey: ctx.key };
 }

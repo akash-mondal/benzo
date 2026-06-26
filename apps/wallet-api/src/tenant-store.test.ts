@@ -18,7 +18,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
   const { appendWalletLedger, db, runWithWalletTenant, verifyWalletLedger, walletLedgerBalances } = await import("./store.js");
 
-  await runWithWalletTenant("alice", { name: "Alice" }, async () => {
+  await runWithWalletTenant("alice", { name: "Alice" }, { accountFingerprint: "wallet_alice", subjectKey: "alice" }, async () => {
     db.profile.handle = "@alice";
     db.contacts.push({ handle: "@bob", name: "Bob" });
     db.invites.push({
@@ -53,7 +53,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
     expect(walletLedgerBalances()).toMatchObject({ private: "30000000", ramp_reserve: "-30000000" });
   });
 
-  await runWithWalletTenant("bob", { name: "Bob" }, async () => {
+  await runWithWalletTenant("bob", { name: "Bob" }, { accountFingerprint: "wallet_bob", subjectKey: "bob" }, async () => {
     expect(db.profile.handle).toBe("@you");
     expect(db.contacts).toEqual([]);
     expect(db.invites).toEqual([]);
@@ -61,7 +61,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
     db.profile.handle = "@bob";
   });
 
-  await runWithWalletTenant("alice", null, async () => {
+  await runWithWalletTenant("alice", null, { accountFingerprint: "wallet_alice", subjectKey: "alice" }, async () => {
     expect(db.profile.handle).toBe("@alice");
     expect(db.contacts).toHaveLength(1);
     expect(db.invites.map((i) => i.localId)).toEqual(["inv_alice"]);
@@ -70,5 +70,27 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
     expect(walletLedgerBalances()).toMatchObject({ private: "30000000", ramp_reserve: "-30000000" });
     db.ledger[0].requestedAmount = "999";
     expect(verifyWalletLedger()).toMatchObject({ ok: false, brokenAt: 0 });
+  });
+});
+
+test("hosted wallet fails closed when a tenant account binding changes", async () => {
+  process.env.VERCEL = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  const { db, RecoveryRequiredError, runWithWalletTenant } = await import("./store.js");
+
+  await runWithWalletTenant("recovery-user", { name: "Recovery" }, { accountFingerprint: "wallet_original", subjectKey: "recovery-user" }, async () => {
+    db.profile.handle = "@recovery";
+  });
+
+  await expect(
+    runWithWalletTenant("recovery-user", null, { accountFingerprint: "wallet_rotated", subjectKey: "recovery-user" }, async () => {
+      db.profile.handle = "@wrong";
+    }),
+  ).rejects.toBeInstanceOf(RecoveryRequiredError);
+
+  await runWithWalletTenant("recovery-user", null, { accountFingerprint: "wallet_original", subjectKey: "recovery-user" }, async () => {
+    expect(db.profile.handle).toBe("@recovery");
+    expect(db.recovery?.accountFingerprint).toBe("wallet_original");
   });
 });
