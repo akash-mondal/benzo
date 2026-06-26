@@ -1,6 +1,6 @@
 /**
- * Typed client for @benzo/console-api (Vite proxies "/api" → :8790). Screens use
- * ONLY this - typed against @benzo/types, so the UI and BFF share one contract.
+ * Typed client for @benzo/console-api (Vite proxies "/api" to :8790). Screens use
+ * only this typed surface, so the UI and BFF share one contract.
  */
 import type {
   Account,
@@ -24,9 +24,45 @@ import type {
 } from "@benzo/types";
 
 import type { OnChainRef } from "../ui/onchain";
-import { localConsole, localPayrollLines, type ConsoleSeed, type OrgInvite, type PayrollProofResponses } from "./localConsoleState";
 export type { OnChainRef };
-export type { OrgInvite };
+
+export interface OrgInvite {
+  id: string;
+  kind: "member" | "contractor" | "customer";
+  name?: string;
+  email?: string;
+  role?: string;
+  counterpartyId?: string;
+  link: string;
+  token: string;
+  status: "sent" | "accepted" | "revoked";
+  createdAt: string;
+}
+
+export interface PayrollProofResponse {
+  funded?: boolean;
+  approved?: boolean;
+  ok?: boolean;
+  onChain: boolean;
+  runTotal?: string;
+  cap?: string;
+  approvers?: number;
+  threshold?: number;
+  memberCount?: number;
+  lines?: unknown[];
+  provenAt?: string;
+  ref?: OnChainRef;
+}
+
+export interface PayrollPolicyProofLine {
+  counterpartyId: string;
+  capProof?: { withinCap: boolean; onChain?: boolean };
+  screenProof?: { innocent: boolean; onChain?: boolean };
+}
+
+export interface PayrollPolicyProofResponse extends PayrollProofResponse {
+  lines: PayrollPolicyProofLine[];
+}
 
 /** Maker-checker progress the BFF returns alongside an approve action. */
 export interface ApprovalProgressView {
@@ -140,31 +176,6 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function seedConsole(): Promise<ConsoleSeed> {
-  const [session, accounts, members, counterparties, payments, payrolls, invoices, grants, policies, invites] = await Promise.all([
-    http<AuthSession>("/session"),
-    http<Account[]>("/accounts"),
-    http<Member[]>("/members"),
-    http<Counterparty[]>("/counterparties"),
-    http<PaymentOrder[]>("/payments"),
-    http<PayrollBatch[]>("/payrolls"),
-    http<Invoice[]>("/invoices"),
-    http<ViewingGrant[]>("/grants"),
-    http<ApprovalPolicy[]>("/policies"),
-    http<OrgInvite[]>("/invites").catch(() => []),
-  ]);
-  return { session, accounts, members, counterparties, payments, payrolls, invoices, grants, policies, invites };
-}
-
-const settlePayment = (body: { amount: { amount: string; assetCode: string }; toHandle?: string; memo?: string }) =>
-  http<{ txHash?: string; onChain: boolean; error?: string }>("/settlements/payment", { method: "POST", body: JSON.stringify(body) });
-
-const settlePayroll = (body: { lines: Array<{ counterpartyId: string; amount: string; handle?: string }> }) =>
-  http<{ lines: Array<{ counterpartyId: string; status: "pending" | "paid" | "failed"; txHash?: string; onChain?: boolean; error?: string }> }>(
-    "/settlements/payroll",
-    { method: "POST", body: JSON.stringify(body) },
-  );
-
 export interface OnboardingDraft {
   name?: string;
   legalName?: string;
@@ -180,7 +191,7 @@ export interface OnboardingDraft {
 }
 
 export const api = {
-  session: () => localConsole.session(seedConsole),
+  session: () => http<AuthSession>("/session"),
   // zkLogin / SSO: is real Google configured, and verify a Google ID token.
   authConfig: () => http<{ googleClientId: string | null; google: boolean }>("/auth/config"),
   googleVerify: (credential: string, nonce?: string) =>
@@ -199,7 +210,7 @@ export const api = {
     http<{ onChain: boolean; txHash?: string; mvkRoot?: string }>("/onboarding/register-mvk", { method: "POST", body: "{}" }),
   finishOnboarding: () => http<AuthSession>("/onboarding/finish", { method: "POST", body: "{}" }),
   live: () => http<LiveStatusResponse>("/live"),
-  dashboard: async () => localConsole.dashboard(seedConsole, await api.treasury().catch(() => undefined)),
+  dashboard: () => http<DashboardSummary>("/dashboard"),
   treasury: () => http<TreasuryView>("/treasury"),
   // Prove reserves: treasury >= a chosen floor on-chain (ORGBAL); returns an on-chain ref.
   proveBalance: (min: string) =>
@@ -234,80 +245,58 @@ export const api = {
   treasurySendPublic: (to: string, amount: string) =>
     http<{ txHash?: string; onChain: boolean; error?: string }>("/treasury/send-public", { method: "POST", body: JSON.stringify({ to, amount }) }),
 
-  accounts: () => localConsole.accounts(seedConsole),
-  members: () => localConsole.members(seedConsole),
-  counterparties: () => localConsole.counterparties(seedConsole),
+  accounts: () => http<Account[]>("/accounts"),
+  members: () => http<Member[]>("/members"),
+  counterparties: () => http<Counterparty[]>("/counterparties"),
   updateCounterparty: (id: string, patch: { payRate?: string; status?: Counterparty["status"]; handle?: string; name?: string }) =>
-    localConsole.updateCounterparty(seedConsole, id, patch),
+    http<Counterparty>(`/counterparties/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
   importRoster: (csv: string) =>
-    localConsole.importRoster(seedConsole, csv),
+    http<{ imported: number; errors: Array<{ line: number; error: string }>; contractors: Counterparty[] }>("/payrolls/import", { method: "POST", body: JSON.stringify({ csv }) }),
   // Employer-visible pay history for one contractor across every run.
   contractorHistory: (id: string) =>
-    localConsole.contractorHistory(seedConsole, id),
+    http<Array<{ period: string; amount: string; status: string; txHash?: string; batchId: string }>>(`/contractors/${id}/history`),
 
-  payments: () => localConsole.payments(seedConsole),
+  payments: () => http<PaymentOrder[]>("/payments"),
   createPayment: (body: CreatePaymentRequest & { toHandle?: string }) =>
-    localConsole.createPayment(seedConsole, body, settlePayment),
+    http<PaymentOrder>("/payments", { method: "POST", body: JSON.stringify(body) }),
   approvePayment: (id: string, body: ApproveRequest & { actorMemberId?: string }) =>
-    localConsole.approvePayment(seedConsole, id, body, settlePayment),
+    http<PaymentOrder & { progress?: ApprovalProgressView }>(`/payments/${id}/approve`, { method: "POST", body: JSON.stringify(body) }),
 
-  payrolls: () => localConsole.payrolls(seedConsole),
+  payrolls: () => http<PayrollBatch[]>("/payrolls"),
   // Amounts are COMPUTED server-side from each contractor's rate card; the caller
   // only chooses WHO is in the run.
   createPayroll: (body: { period: string; source: CreatePayrollRequest["source"]; lines: Array<{ counterpartyId: string }> }) =>
-    localConsole.createPayroll(seedConsole, body),
+    http<PayrollBatch>("/payrolls", { method: "POST", body: JSON.stringify(body) }),
   approvePayroll: (id: string, body: { decision?: "approved" | "denied"; actorMemberId?: string } = { decision: "approved" }) =>
-    localConsole.approvePayroll(seedConsole, id, body, settlePayroll),
+    http<PayrollBatch & { progress?: ApprovalProgressView }>(`/payrolls/${id}/approve`, { method: "POST", body: JSON.stringify(body) }),
   // "Payroll funded ✓" - prove ON-CHAIN (ORGBAL) the treasury covers this run's total.
-  proveFunded: async (id: string) => {
-    const { batch } = await localPayrollLines(seedConsole, id);
-    const runTotal = batch.lines.filter((l) => !l.onChain && BigInt(l.amount || "0") > 0n).reduce((s, l) => s + BigInt(l.amount), 0n).toString();
-    const r = await http<PayrollProofResponses["funded"]>("/payroll-proofs/funded", { method: "POST", body: JSON.stringify({ runTotal }) });
-    await localConsole.markPayrollProof(seedConsole, id, { fundedProof: { funded: r.funded, onChain: r.onChain, provenAt: r.provenAt } });
-    return r;
-  },
+  proveFunded: (id: string) =>
+    http<PayrollProofResponse>(`/payrolls/${id}/prove-funded`, { method: "POST", body: "{}" }),
   // Anonymous approver (Z5): prove >= threshold distinct approvers signed, on-chain (ORGAUTH), who hidden.
-  proveApproval: async (id: string) => {
-    const r = await http<PayrollProofResponses["approval"]>("/payroll-proofs/approval", { method: "POST", body: JSON.stringify({ batchId: id }) });
-    await localConsole.markPayrollProof(seedConsole, id, { approvalProof: { approved: r.approved, onChain: r.onChain, approvers: r.approvers, threshold: r.threshold, memberCount: r.memberCount, provenAt: r.provenAt } });
-    return r;
-  },
+  proveApproval: (id: string) =>
+    http<PayrollProofResponse>(`/payrolls/${id}/prove-approval`, { method: "POST", body: "{}" }),
   // Verifiable payroll computation (Z6): prove run total derived from the rate card, on-chain (PAYCOMP), rate card private.
-  proveComputation: async (id: string) => {
-    const { lines } = await localPayrollLines(seedConsole, id);
-    const r = await http<PayrollProofResponses["computation"]>("/payroll-proofs/computation", { method: "POST", body: JSON.stringify({ lines }) });
-    await localConsole.markPayrollProof(seedConsole, id, { computationProof: { ok: r.ok, onChain: r.onChain, runTotal: r.runTotal, provenAt: r.provenAt } });
-    return r;
-  },
+  proveComputation: (id: string) =>
+    http<PayrollProofResponse>(`/payrolls/${id}/prove-computation`, { method: "POST", body: "{}" }),
   // Compliance pre-flight (Z3 cap + Z4 sanctions screen) per line, on-chain, amounts/recipients hidden.
-  provePolicy: async (id: string, cap: string) => {
-    const { lines } = await localPayrollLines(seedConsole, id);
-    const r = await http<PayrollProofResponses["policy"]>("/payroll-proofs/policy", { method: "POST", body: JSON.stringify({ cap, lines }) });
-    const { batch } = await localPayrollLines(seedConsole, id);
-    await localConsole.markPayrollProof(seedConsole, id, {
-      lines: batch.lines.map((line) => {
-        const proof = r.lines.find((x) => x.counterpartyId === line.counterpartyId);
-        return proof ? { ...line, capProof: proof.capProof, screenProof: proof.screenProof } : line;
-      }),
-    });
-    return r;
-  },
+  provePolicy: (id: string, cap: string) =>
+    http<PayrollPolicyProofResponse>(`/payrolls/${id}/prove-policy`, { method: "POST", body: JSON.stringify({ cap }) }),
 
-  invoices: () => localConsole.invoices(seedConsole),
+  invoices: () => http<Invoice[]>("/invoices"),
   payInvoice: (id: string) =>
-    localConsole.payInvoice(seedConsole, id, settlePayment),
+    http<{ invoice: Invoice; payment: PaymentOrder }>(`/invoices/${id}/pay`, { method: "POST", body: "{}" }),
   // Cross-entity private netting (Z8): net mutual invoices, settle the difference, grosses hidden (NETTING).
   netInvoices: (weOwe: string, theyOwe: string) =>
     http<{ onChain: boolean; net: string; wetPay: boolean; ref?: OnChainRef }>("/invoices/net", { method: "POST", body: JSON.stringify({ weOwe, theyOwe }) }),
 
-  grants: () => localConsole.grants(seedConsole),
+  grants: () => http<ViewingGrant[]>("/grants"),
   createGrant: (body: CreateViewingGrantRequest) =>
-    localConsole.createGrant(seedConsole, body),
-  revokeGrant: (id: string) => localConsole.revokeGrant(seedConsole, id),
+    http<ViewingGrant>("/grants", { method: "POST", body: JSON.stringify(body) }),
+  revokeGrant: (id: string) => http<ViewingGrant>(`/grants/${id}/revoke`, { method: "POST", body: "{}" }),
 
-  policies: () => localConsole.policies(seedConsole),
+  policies: () => http<ApprovalPolicy[]>("/policies"),
   updatePolicy: (id: string, patch: Partial<Pick<ApprovalPolicy, "name" | "conditions" | "steps" | "releaseGate">>) =>
-    localConsole.updatePolicy(seedConsole, id, patch),
+    http<ApprovalPolicy>(`/policies/${id}`, { method: "PATCH", body: JSON.stringify(patch) }),
 
   integrations: () => http<Integration[]>("/integrations"),
 
@@ -326,10 +315,10 @@ export const api = {
   payslips: (id: string) =>
     http<Array<{ period: string; contractor: string; gross: string; status: string; txHash?: string; error?: string }>>(`/payrolls/${id}/payslips`),
 
-  invites: () => localConsole.invites(seedConsole),
+  invites: () => http<OrgInvite[]>("/invites"),
   createInvite: (body: { kind: OrgInvite["kind"]; name?: string; email?: string; role?: string; handle?: string }) =>
-    localConsole.createInvite(seedConsole, body),
+    http<OrgInvite>("/invites", { method: "POST", body: JSON.stringify(body) }),
   bulkInvite: (csv: string) =>
-    localConsole.bulkInvite(seedConsole, csv),
-  revokeInvite: (id: string) => localConsole.revokeInvite(seedConsole, id),
+    http<{ created: number; errors: Array<{ line: number; error: string }>; invites: OrgInvite[] }>("/invites/bulk", { method: "POST", body: JSON.stringify({ csv }) }),
+  revokeInvite: (id: string) => http<OrgInvite>(`/invites/${id}/revoke`, { method: "POST", body: "{}" }),
 };
