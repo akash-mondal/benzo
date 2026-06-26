@@ -76,6 +76,11 @@ jobs:
           if git grep -nE "fetch\(\s*['\"]/?api/(send|relay/submit)" -- apps/wallet/src; then
             echo "::error::wallet money writes must go through the authenticated RPC gateway with idempotency"; exit 1
           fi
+      - name: No fake fiat payout copy in wallet
+        run: |
+          if git grep -nE 'sent to your bank|arriving in your bank|MoneyGram-style|On its way' -- apps/wallet/src ':!apps/wallet/src/screens/TxDetail.test.tsx'; then
+            echo "::error::wallet cash-out UI must describe the testnet reserve, not a real fiat payout"; exit 1
+          fi
       - name: Build wallet app with browser proving artifacts
         if: steps.wallet_artifacts.outputs.available == 'true'
         env:

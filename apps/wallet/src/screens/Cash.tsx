@@ -1,10 +1,10 @@
 /**
  * Cash - the on/off ramp, given the "special" treatment. Add money / Cash out
- * over a REAL on-chain reserve (the `ramp` contract = the on-chain analog of a
- * MoneyGram/SEP-24 anchor distribution account): add-money dispenses USDC from
- * the reserve and shields it on your device; cash-out unshields and returns it to
- * the reserve. The live reserve is read straight from chain. Only the fiat charge
- * is simulated. The done overlay plays the real journey (dispense → prove → settle)
+ * over a REAL on-chain testnet reserve (the `ramp` contract). Add-money
+ * dispenses USDC from the reserve and shields it on your device; cash-out
+ * unshields and returns it to the reserve. No bank, cash, Stripe, or MoneyGram
+ * partner payout is wired in this build. The done overlay plays the real journey
+ * (dispense, prove, settle)
  * so the moment feels crafted, not a toast.
  */
 import { useEffect, useState } from "react";
@@ -25,7 +25,7 @@ const QUICK = ["20", "50", "100", "250"];
 type Tab = "in" | "out";
 type Phase = "form" | "busy" | "done";
 
-// MoneyGram Access published per-tx caps (USD). Honest parity - surfaced, enforced.
+// Testnet reserve per-tx caps (USD). Honest parity, surfaced and enforced.
 const MIN = 5;
 const MAX_IN = 950;
 const MAX_OUT = 2500;
@@ -106,7 +106,7 @@ export function Cash() {
             <div className="mt-5">
               <AmountField value={amount} onChange={setAmount} autoFocus />
               <div className="text-center text-[13px] text-muted">
-                {tab === "in" ? "Dispensed from the reserve, shielded on your device" : "Unshielded privately, then cashed out"}
+                {tab === "in" ? "Dispensed from the testnet reserve, shielded on your device" : "Unshielded privately, then returned to the testnet reserve"}
               </div>
               <div className={`mt-1 text-center text-[12px] ${tooLow || tooHigh ? "text-[#9a6b12]" : "text-muted/70"}`} data-testid="cash-limits">
                 {tooLow ? `Minimum is $${MIN}` : tooHigh ? `Max ${tab === "in" ? "add" : "cash-out"} is $${max.toLocaleString()}` : `$${MIN}–$${max.toLocaleString()} per ${tab === "in" ? "add" : "cash-out"}`}
@@ -125,7 +125,7 @@ export function Cash() {
               <div className="mt-5 space-y-2 rounded-2xl border border-hair bg-card p-4 text-[13px]" data-testid="cash-quote">
                 <QRow k="Amount" v={fmtUsd(toS(amount))} />
                 <QRow k="Fee" v={<span className="font-semibold text-pos">Free</span>} />
-                <QRow k="Settles" v="On Stellar, in seconds" />
+                <QRow k="Settles" v="On Stellar testnet, in seconds" />
                 <QRow k="Privacy" v="Amount stays private" />
               </div>
             ) : null}
@@ -142,7 +142,7 @@ export function Cash() {
             </div>
 
             <Button full size="lg" className="mt-4" disabled={!valid} loading={phase === "busy"} onClick={go} data-testid={tab === "in" ? "add-submit" : "cashout-submit"}>
-              <span className="truncate">{tab === "in" ? "Add money" : "Cash out"}{valid ? ` · ${fmtUsd(toS(amount))}` : ""}</span>
+              <span className="truncate">{tab === "in" ? "Add money" : "Cash out to reserve"}{valid ? ` · ${fmtUsd(toS(amount))}` : ""}</span>
             </Button>
             {tab === "in" ? (
               <button onClick={() => nav("/deposit")} className="mt-3 w-full rounded-lg py-1 text-center text-[13px] font-semibold text-accent outline-none focus-visible:ring-2 focus-visible:ring-accent/40" data-testid="cash-deposit-link">
@@ -154,7 +154,7 @@ export function Cash() {
         </AnimatePresence>
 
         {/* The on-chain reserve - special, and honest: this ramp is backed by a real
-            reserve you can read on-chain, MoneyGram-anchor-style. Sits below the amount
+            testnet reserve you can read on-chain. Sits below the amount
             so the eye lands on the input first, then the trust signal. */}
         <ReserveBadge reserve={reserve} error={reserveErr} onRetry={() => { setReserveErr(false); void loadReserve(); }} />
       </div>
@@ -166,7 +166,7 @@ export function Cash() {
   );
 }
 
-/** Live on-chain reserve chip - the "this is real" signal, anchor-style. */
+/** Live on-chain reserve chip - the "this is real testnet USDC" signal. */
 function ReserveBadge({ reserve, error, onRetry }: { reserve: string | null; error: boolean; onRetry: () => void }) {
   if (error && reserve == null) {
     return (
@@ -178,14 +178,14 @@ function ReserveBadge({ reserve, error, onRetry }: { reserve: string | null; err
     );
   }
   return (
-    <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-hair bg-gradient-to-br from-accent/[0.07] to-transparent px-4 py-2.5" data-testid="reserve-badge" title="Read live from the on-chain ramp reserve - the on-chain analog of a SEP-24 anchor (MoneyGram-style)">
+    <div className="mt-4 flex items-center gap-2.5 rounded-2xl border border-hair bg-gradient-to-br from-accent/[0.07] to-transparent px-4 py-2.5" data-testid="reserve-badge" title="Read live from the on-chain testnet reserve.">
       <span className="relative flex h-2 w-2">
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-pos opacity-60" />
         <span className="relative inline-flex h-2 w-2 rounded-full bg-pos" />
       </span>
       <div className="min-w-0 flex-1 leading-tight">
-        <div className="tnum truncate text-xs font-semibold text-ink">On-chain reserve {reserve != null ? `· ${fmtUsd(reserve)}` : ""}</div>
-        <div className="text-[11px] text-muted">Backed on-chain, settles on Stellar in seconds</div>
+        <div className="tnum truncate text-xs font-semibold text-ink">Testnet reserve {reserve != null ? `· ${fmtUsd(reserve)}` : ""}</div>
+        <div className="text-[11px] text-muted">Backed on-chain, settles on Stellar testnet</div>
       </div>
       <Radio size={15} className="flex-none text-accent" />
     </div>
@@ -196,7 +196,7 @@ function ReserveBadge({ reserve, error, onRetry }: { reserve: string | null; err
 function RampDone({ tab, amount, onChain, result, onDone }: { tab: Tab; amount: string; onChain: boolean; result: SettleResult | null; onDone: () => void }) {
   const steps = tab === "in"
     ? ["Reserve dispensed USDC", "Shielded privately on your device", "Added to your balance"]
-    : ["Unshielded privately", "Returned to the reserve", "Cashing out to your bank"];
+    : ["Unshielded privately", "Returned to the testnet reserve", "Stellar testnet settlement recorded"];
   const [lit, setLit] = useState(0);
   useEffect(() => {
     const timers = steps.map((_, i) => setTimeout(() => setLit(i + 1), 420 * (i + 1)));
@@ -213,7 +213,7 @@ function RampDone({ tab, amount, onChain, result, onDone }: { tab: Tab; amount: 
         <Landmark size={30} />
       </motion.div>
       <div>
-        <div className="font-display text-2xl">{tab === "in" ? "Money added" : "On its way"}</div>
+        <div className="font-display text-2xl">{tab === "in" ? "Money added" : "Returned to reserve"}</div>
         <div className="mt-1 text-[15px] text-muted">{fmtUsd(amount)}{onChain ? "" : " · not verified on-chain"}</div>
       </div>
 
@@ -233,7 +233,7 @@ function RampDone({ tab, amount, onChain, result, onDone }: { tab: Tab; amount: 
 
       {onChain ? (
         <div className="flex items-center gap-1.5 text-[12px] text-pos" data-testid="cash-proof">
-          <ShieldCheck size={13} /> {tab === "in" ? "Real USDC, from the on-chain reserve - no one saw your balance" : "The network verified it without seeing your balance"}
+          <ShieldCheck size={13} /> {tab === "in" ? "Real testnet USDC from the reserve. No one saw your balance" : "The network verified it without seeing your balance"}
         </div>
       ) : null}
       <div className="w-full max-w-[320px]">

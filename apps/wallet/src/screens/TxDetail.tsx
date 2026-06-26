@@ -37,14 +37,14 @@ function isCashRow(row: ActivityRow): boolean {
 function timeline(row: ActivityRow): Step[] {
   const failed = row.status === "failed";
   const settled = row.status === "settled";
-  // Off-ramp (cash out / unshield): created → proved private → arriving at bank.
+  // Off-ramp simulation (cash out / unshield): created, proved private, returned to reserve.
   if (row.type === "cashOut" || row.type === "unshield") {
     return [
       { label: "Cash-out created", state: "done" },
       { label: "Proved private", hint: "Your balance stayed hidden", state: failed ? "failed" : "done" },
       {
-        label: settled ? "Sent to your bank" : "Arriving in your bank",
-        hint: settled ? undefined : "~2 min",
+        label: settled ? "Returned to testnet reserve" : "Returning to testnet reserve",
+        hint: settled ? undefined : "Stellar testnet settlement",
         state: failed ? "upcoming" : settled ? "done" : "active",
       },
     ];
@@ -132,7 +132,7 @@ export function TxDetail() {
           <div className="mt-3">
             {privatePayment ? <PrivateChip label={cash ? "Your balance stayed private" : `Only you and ${row.name} can see this`} /> : (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fbf1dd] px-3 py-1 text-[12px] font-semibold text-[#9a6b12]">
-                <Landmark size={13} /> Off-ramp to your bank
+                <Landmark size={13} /> Testnet reserve cash-out
               </span>
             )}
           </div>

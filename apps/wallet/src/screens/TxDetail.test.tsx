@@ -39,4 +39,30 @@ describe("TxDetail", () => {
     expect(screen.getByTestId("txdetail-explorer")).toBeInTheDocument();
     expect(screen.getByTestId("txdetail-share")).toBeInTheDocument();
   });
+
+  it("describes cash-out rows as testnet reserve settlement, not bank payout", () => {
+    state.history = [{
+      id: "h_cashout",
+      type: "cashOut",
+      name: "Cash out",
+      note: "",
+      amount: "1000000000",
+      direction: "out",
+      status: "arriving",
+      timestamp: 1782370212,
+      tone: "amber",
+    }];
+
+    render(
+      <MemoryRouter initialEntries={["/activity/h_cashout"]}>
+        <Routes>
+          <Route path="/activity/:id" element={<TxDetail />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Testnet reserve cash-out")).toBeInTheDocument();
+    expect(screen.getByText("Returning to testnet reserve")).toBeInTheDocument();
+    expect(screen.queryByText(/bank payout|sent to your bank|arriving in your bank/i)).not.toBeInTheDocument();
+  });
 });

@@ -28,7 +28,7 @@ describe("notifications (C8 - client-side, derived from history)", () => {
     expect(ns[2].title).toBe("Ravi paid you");
     expect(ns[2].body).toBe("+$200.00");
     expect(ns[0].title).toBe("You paid Alex");
-    expect(ns.find((n) => n.id === "r3")?.body).toMatch(/arriving in your bank/i);
+    expect(ns.find((n) => n.id === "r3")?.body).toBe("$100.00 returning to the testnet reserve");
   });
 
   it("counts all as unread initially, then clears on markAllRead", () => {
