@@ -68,6 +68,8 @@ const invariantFiles = [
       "DATABASE_URL is required for hosted tenant storage",
       "BENZO_TENANT_STORE_MEMORY is not allowed on Vercel hosted tenant storage",
       "benzo:tenant-doc:v1:",
+      "benzo_tenant_routes",
+      "benzo:tenant-route:v1:",
     ],
   },
   {
@@ -83,6 +85,8 @@ const invariantFiles = [
     contains: [
       "BENZO_PRIVATE_EVENT_SECRET is required for hosted private-event encryption",
       "Idempotency-Key header is required for hosted console writes.",
+      "x-benzo-org-invite-token",
+      "lookupTenantRoute(\"console\", \"invite\"",
     ],
   },
   {

@@ -52,6 +52,7 @@ export function Work() {
   const { session } = useWallet();
   const cp = params.get("cp") ?? "";
   const org = params.get("org") ?? "the company";
+  const inviteToken = params.get("token") ?? undefined;
   const [amount, setAmount] = useState("");
   const [desc, setDesc] = useState("");
   const [busy, setBusy] = useState(false);
@@ -65,7 +66,7 @@ export function Work() {
 
   const load = () =>
     orgApi
-      .invoices()
+      .invoices(inviteToken)
       .then((all) => { setMine(all.filter((i) => i.counterpartyId === cp)); setLoadErr(false); })
       // A down backend shouldn't masquerade as "No invoices yet" - flag it so we can
       // offer a retry instead of a deceptive empty state (only when we have nothing yet).
@@ -81,7 +82,7 @@ export function Work() {
     if (!amountOk || !desc.trim() || !cp) return;
     setBusy(true);
     try {
-      const inv = await orgApi.submitInvoice(cp, amount, desc.trim());
+      const inv = await orgApi.submitInvoice(cp, amount, desc.trim(), inviteToken);
       setHandoff(invoiceHandoffLink(inv, { org, counterpartyName: session?.profile.name ?? session?.handle, handle: session?.handle ?? session?.profile.handle }));
       setAmount("");
       setDesc("");

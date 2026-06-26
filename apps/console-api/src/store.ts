@@ -193,6 +193,7 @@ export interface OrgInvite {
   counterpartyId?: string;
   link: string;
   token: string;
+  expiresAt?: number;
   status: "sent" | "accepted" | "revoked";
   createdAt: string;
 }
@@ -418,6 +419,10 @@ export function tenantDataMissing(): string[] {
   return tenantStorageMissing();
 }
 
+export function currentConsoleTenantKey(): string | null {
+  return tenantScope.getStore()?.key ?? null;
+}
+
 function hostedTenantMode(): boolean {
   return process.env.VERCEL === "1" || process.env.BENZO_HOSTED_TENANT_TEST === "1";
 }
@@ -463,6 +468,20 @@ export async function runWithConsoleTenant<T>(
   const loaded = await loadTenantDocument<Db>("console", tenantKey);
   const ctx = { key: tenantKey, db: normalizeConsoleDb(loaded ?? freshHostedDb(authKey, claims ?? undefined)) };
   bindRecovery(ctx.db, binding);
+  return tenantScope.run(ctx, async () => {
+    try {
+      return await fn();
+    } finally {
+      await saveTenantDocument("console", tenantKey, ctx.db);
+    }
+  });
+}
+
+export async function runWithConsoleTenantKey<T>(tenantKey: string | null, fn: () => Promise<T>): Promise<T> {
+  if (!hostedTenantMode() || !tenantKey) return fn();
+  const loaded = await loadTenantDocument<Db>("console", tenantKey);
+  if (!loaded) throw new Error("tenant not found");
+  const ctx = { key: tenantKey, db: normalizeConsoleDb(loaded) };
   return tenantScope.run(ctx, async () => {
     try {
       return await fn();

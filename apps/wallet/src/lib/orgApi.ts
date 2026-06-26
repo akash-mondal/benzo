@@ -13,23 +13,64 @@ function defaultOrgBase(): string {
 }
 
 const ORG_BASE = ((import.meta as { env?: Record<string, string> }).env?.VITE_CONSOLE_ORIGIN) || defaultOrgBase();
+const IDEMPOTENCY_PREFIX = "benzo.idempotency.org.v1:";
 
-async function ohttp<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${ORG_BASE}/api/rpc?path=${encodeURIComponent(path)}`, {
-    ...init,
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    let detail = `HTTP ${res.status}`;
-    try {
-      const b = (await res.json()) as { error?: string };
-      if (b.error) detail = b.error;
-    } catch {
-      /* ignore */
-    }
-    throw new Error(detail);
+function shortHash(input: string): string {
+  let h = 0x811c9dc5;
+  for (const ch of input) {
+    h ^= ch.charCodeAt(0);
+    h = Math.imul(h, 0x01000193);
   }
-  return (await res.json()) as T;
+  return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+function randomIdempotencyKey(): string {
+  const uuid = crypto.randomUUID?.();
+  if (uuid) return `idem_${uuid}`;
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `idem_${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function idempotencyKey(path: string, init?: RequestInit): { key: string; clear: () => void } | null {
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (method === "GET" || method === "HEAD" || method === "OPTIONS") return null;
+  const body = typeof init?.body === "string" ? init.body : "";
+  const storageKey = `${IDEMPOTENCY_PREFIX}${shortHash(`${method}:${path}:${body}`)}`;
+  let key = localStorage.getItem(storageKey);
+  if (!key) {
+    key = randomIdempotencyKey();
+    localStorage.setItem(storageKey, key);
+  }
+  return { key, clear: () => localStorage.removeItem(storageKey) };
+}
+
+async function ohttp<T>(path: string, init?: RequestInit & { inviteToken?: string }): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set("content-type", headers.get("content-type") ?? "application/json");
+  if (init?.inviteToken) headers.set("x-benzo-org-invite-token", init.inviteToken);
+  const idem = idempotencyKey(path, init);
+  if (idem) headers.set("Idempotency-Key", idem.key);
+  let res: Response | undefined;
+  try {
+    res = await fetch(`${ORG_BASE}/api/rpc?path=${encodeURIComponent(path)}`, {
+      ...init,
+      headers,
+    });
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const b = (await res.json()) as { error?: string };
+        if (b.error) detail = b.error;
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail);
+    }
+    return (await res.json()) as T;
+  } finally {
+    if (res && res.status < 500) idem?.clear();
+  }
 }
 
 export interface AcceptedInvite {
@@ -57,14 +98,16 @@ function toStroops(amount: string): string {
 export const orgApi = {
   acceptInvite: (body: { token: string; handle?: string; counterpartyId?: string; kind?: "member" | "contractor" | "customer"; orgId?: string; name?: string }) =>
     ohttp<AcceptedInvite>("/invites/accept", { method: "POST", body: JSON.stringify(body) }),
-  submitInvoice: (counterpartyId: string, amount: string, description: string) =>
+  submitInvoice: (counterpartyId: string, amount: string, description: string, inviteToken?: string) =>
     ohttp<OrgInvoice>("/invoices", {
       method: "POST",
+      inviteToken,
       body: JSON.stringify({
         counterpartyId,
+        inviteToken,
         lineItems: [{ description, quantity: 1, unitAmount: toStroops(amount) }],
         assetCode: "USDC",
       }),
     }),
-  invoices: () => ohttp<OrgInvoice[]>("/invoices"),
+  invoices: (inviteToken?: string) => ohttp<OrgInvoice[]>("/invoices", { inviteToken }),
 };

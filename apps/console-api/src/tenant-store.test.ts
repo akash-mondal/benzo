@@ -150,6 +150,51 @@ test("hosted console fails closed when a tenant account binding changes", async 
   });
 });
 
+test("hosted console invite routes resolve back to the inviter org tenant", async () => {
+  process.env.BENZO_HOSTED_TENANT_TEST = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
+  const { currentConsoleTenantKey, db, runWithConsoleTenant, runWithConsoleTenantKey } = await import("./store.js");
+  const { lookupTenantRoute, registerTenantRoute } = await import("./tenantData.js");
+
+  await runWithConsoleTenant("acme-owner", { email: "owner@acme.example", name: "Owner" }, { accountFingerprint: "console_acme", subjectKey: "acme-owner" }, async () => {
+    db.org.name = "Acme";
+    db.counterparties.push({ id: "cp_route", orgId: db.org.id, name: "Route Contractor", type: "contractor", status: "invited", externalAccounts: [], createdAt: new Date().toISOString() });
+    db.invites.push({
+      id: "invite_route",
+      kind: "contractor",
+      name: "Route Contractor",
+      counterpartyId: "cp_route",
+      link: "https://wallet.benzo.space/claim#secret",
+      token: "tok_route",
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      status: "sent",
+      createdAt: new Date().toISOString(),
+    });
+    await registerTenantRoute("console", "invite", "tok_route", currentConsoleTenantKey()!, Math.floor(Date.now() / 1000) + 60);
+  });
+
+  const tenantKey = await lookupTenantRoute("console", "invite", "tok_route");
+  expect(tenantKey).toBe("console:acme-owner");
+
+  await runWithConsoleTenantKey(tenantKey, async () => {
+    const inv = db.invites.find((i) => i.token === "tok_route")!;
+    inv.status = "accepted";
+    db.counterparties.find((c) => c.id === inv.counterpartyId)!.status = "allowlisted";
+  });
+
+  await runWithConsoleTenant("acme-owner", null, { accountFingerprint: "console_acme", subjectKey: "acme-owner" }, async () => {
+    expect(db.invites.find((i) => i.token === "tok_route")?.status).toBe("accepted");
+    expect(db.counterparties.find((c) => c.id === "cp_route")?.status).toBe("allowlisted");
+  });
+
+  await runWithConsoleTenant("other-owner", { email: "other@example.com", name: "Other" }, { accountFingerprint: "console_other", subjectKey: "other-owner" }, async () => {
+    expect(db.invites).toEqual([]);
+    expect(db.counterparties).toEqual([]);
+  });
+});
+
 test("hosted console refuses the in-memory tenant store on Vercel", async () => {
   process.env.VERCEL = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";

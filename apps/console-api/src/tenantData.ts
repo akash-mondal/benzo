@@ -4,6 +4,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 let sqlClient: NeonQueryFunction<false, false> | null | undefined;
 let schemaReady: Promise<void> | null = null;
 const memoryDocuments = new Map<string, string>();
+const memoryRoutes = new Map<string, { tenantKey: string; expiresAt?: number }>();
 
 function useMemoryStore(): boolean {
   if (process.env.VERCEL === "1" && process.env.BENZO_TENANT_STORE_MEMORY === "1") {
@@ -33,16 +34,29 @@ function sql(): NeonQueryFunction<false, false> | null {
 async function ensureSchema(): Promise<void> {
   const db = sql();
   if (!db) return;
-  schemaReady ??= db`
-    create table if not exists benzo_tenant_documents (
-      app text not null,
-      tenant_key text not null,
-      version integer not null default 1,
-      ciphertext text not null,
-      updated_at timestamptz not null default now(),
-      primary key (app, tenant_key)
-    )
-  `.then(() => undefined);
+  schemaReady ??= (async () => {
+    await db`
+      create table if not exists benzo_tenant_documents (
+        app text not null,
+        tenant_key text not null,
+        version integer not null default 1,
+        ciphertext text not null,
+        updated_at timestamptz not null default now(),
+        primary key (app, tenant_key)
+      )
+    `;
+    await db`
+      create table if not exists benzo_tenant_routes (
+        app text not null,
+        route_type text not null,
+        route_hash text not null,
+        tenant_key text not null,
+        expires_at bigint,
+        created_at timestamptz not null default now(),
+        primary key (app, route_type, route_hash)
+      )
+    `;
+  })();
   await schemaReady;
 }
 
@@ -133,4 +147,55 @@ export async function saveTenantDocument(app: string, tenantKey: string, value: 
     on conflict (app, tenant_key)
     do update set ciphertext = excluded.ciphertext, updated_at = now()
   `;
+}
+
+function routeHash(routeType: string, token: string): string {
+  return createHash("sha256").update(`benzo:tenant-route:v1:${routeType}:${token}`).digest("hex");
+}
+
+function routeMemoryKey(app: string, routeType: string, token: string): string {
+  return `${app}:${routeType}:${routeHash(routeType, token)}`;
+}
+
+export async function registerTenantRoute(app: string, routeType: string, token: string, tenantKey: string, expiresAt?: number): Promise<void> {
+  if (!token || !tenantKey) return;
+  if (useMemoryStore()) {
+    memoryRoutes.set(routeMemoryKey(app, routeType, token), { tenantKey, expiresAt });
+    return;
+  }
+  await ensureSchema();
+  const db = sql();
+  if (!db) return;
+  const hash = routeHash(routeType, token);
+  await db`
+    insert into benzo_tenant_routes (app, route_type, route_hash, tenant_key, expires_at, created_at)
+    values (${app}, ${routeType}, ${hash}, ${tenantKey}, ${expiresAt ?? null}, now())
+    on conflict (app, route_type, route_hash)
+    do update set tenant_key = excluded.tenant_key, expires_at = excluded.expires_at
+  `;
+}
+
+export async function lookupTenantRoute(app: string, routeType: string, token: string): Promise<string | null> {
+  if (!token) return null;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (useMemoryStore()) {
+    const route = memoryRoutes.get(routeMemoryKey(app, routeType, token));
+    if (!route) return null;
+    if (route.expiresAt && route.expiresAt < nowSec) return null;
+    return route.tenantKey;
+  }
+  await ensureSchema();
+  const db = sql();
+  if (!db) return null;
+  const hash = routeHash(routeType, token);
+  const rows = await db`
+    select tenant_key, expires_at from benzo_tenant_routes
+    where app = ${app} and route_type = ${routeType} and route_hash = ${hash}
+    limit 1
+  `;
+  const row = rows[0] as { tenant_key?: string; expires_at?: string | number | null } | undefined;
+  if (!row?.tenant_key) return null;
+  const expiresAt = row.expires_at === null || row.expires_at === undefined ? null : Number(row.expires_at);
+  if (expiresAt && expiresAt < nowSec) return null;
+  return row.tenant_key;
 }

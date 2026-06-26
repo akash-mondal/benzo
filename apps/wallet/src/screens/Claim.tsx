@@ -208,7 +208,7 @@ function ContractorInvite({ link }: { link: OrgInviteLink }) {
         orgId: link.orgId,
         name: link.inviteeName,
       });
-      nav(`/work?cp=${encodeURIComponent(r.counterpartyId ?? "")}&org=${encodeURIComponent(r.orgName ?? org)}`);
+      nav(`/work?cp=${encodeURIComponent(r.counterpartyId ?? "")}&org=${encodeURIComponent(r.orgName ?? org)}&token=${encodeURIComponent(link.token)}`);
     } catch (e) {
       setErr(friendlyError(e, "Couldn't accept the invite. The link may have expired - ask the company to resend it."));
       setBusy(false);

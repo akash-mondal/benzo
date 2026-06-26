@@ -31,7 +31,8 @@ import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { accountBinding, authFromRequest, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
-import { db, fmtUsd, id, now, parseRosterCsv, RecoveryRequiredError, runWithConsoleTenant, tenantDataMissing, type OrgInvite } from "./store.js";
+import { db, fmtUsd, id, now, parseRosterCsv, RecoveryRequiredError, runWithConsoleTenant, runWithConsoleTenantKey, tenantDataMissing, currentConsoleTenantKey, type OrgInvite } from "./store.js";
+import { lookupTenantRoute, registerTenantRoute } from "./tenantData.js";
 import { encodeBenzoLink } from "@benzo/links";
 import { auditPacketHash, buildAnchor, buildAuditPacket, createPrivateEvent, deriveEventKey, GENESIS_HASH, sha256Hex, verifyHashChain, type AuditPacket, type PrivateEventType } from "@benzo/private-events";
 
@@ -322,12 +323,13 @@ async function settlePayroll(batch: PayrollBatch): Promise<void> {
 const PORT = Number(process.env.CONSOLE_API_PORT ?? 8790);
 const rawBodies = new WeakMap<IncomingMessage, string>();
 const idempotencyScope = new AsyncLocalStorage<{ key: string; bodyHash: string }>();
+const inviteRouteScope = new AsyncLocalStorage<{ token: string }>();
 
 // ---------------------------------------------------------------- http utils
 function cors(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", process.env.CONSOLE_ALLOWED_ORIGIN ?? "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, idempotency-key");
+  res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, idempotency-key, x-benzo-org-invite-token");
 }
 function json(res: ServerResponse, code: number, body: unknown): void {
   cors(res);
@@ -353,6 +355,10 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   return (raw ? JSON.parse(raw) : {}) as T;
 }
 
+function currentInviteRouteToken(): string | null {
+  return inviteRouteScope.getStore()?.token ?? null;
+}
+
 function idempotencyHeader(req: IncomingMessage): string | null {
   const h = req.headers["idempotency-key"];
   const v = Array.isArray(h) ? h[0] : h;
@@ -365,6 +371,23 @@ function requiresIdempotency(method: string, path: string): boolean {
   const m = method.toUpperCase();
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
   return path !== "/api/auth/google";
+}
+
+async function inviteRouteToken(req: IncomingMessage, path: string): Promise<string | null> {
+  if (path === "/api/invites/accept") {
+    const body = await readJson<{ token?: string }>(req);
+    return body.token?.trim() || null;
+  }
+  if (path === "/api/invoices") {
+    const h = req.headers["x-benzo-org-invite-token"];
+    const fromHeader = (Array.isArray(h) ? h[0] : h)?.trim();
+    if (fromHeader) return fromHeader;
+    if ((req.method ?? "GET").toUpperCase() !== "GET") {
+      const body = await readJson<{ inviteToken?: string }>(req);
+      return body.inviteToken?.trim() || null;
+    }
+  }
+  return null;
 }
 
 async function runIdempotent(req: IncomingMessage, res: ServerResponse, path: string, fn: () => Promise<void>): Promise<void> {
@@ -836,7 +859,13 @@ function makeInvite(kind: OrgInvite["kind"], opts: { name?: string; email?: stri
     app === "consumer"
       ? routeEncodedLink(process.env.BENZO_WALLET_ORIGIN || DEFAULT_WALLET_ORIGIN, payload)
       : routeEncodedLink(process.env.BENZO_CONSOLE_ORIGIN || DEFAULT_CONSOLE_ORIGIN, payload);
-  return { id: id("invite"), kind, name: opts.name, email: opts.email, role: opts.role, counterpartyId: opts.counterpartyId, link, token, status: "sent", createdAt: now() };
+  return { id: id("invite"), kind, name: opts.name, email: opts.email, role: opts.role, counterpartyId: opts.counterpartyId, link, token, expiresAt, status: "sent", createdAt: now() };
+}
+
+async function registerInviteRoute(inv: OrgInvite): Promise<void> {
+  const tenantKey = currentConsoleTenantKey();
+  if (!tenantKey) return;
+  await registerTenantRoute("console", "invite", inv.token, tenantKey, inv.expiresAt);
 }
 
 function upsertContractor(name: string, handle?: string): Counterparty {
@@ -860,6 +889,7 @@ route("POST", "/api/invites", async (req, res) => {
   }
   const inv = makeInvite(kind, { name: body.name, email: body.email, role: body.role, counterpartyId });
   db.invites.push(inv);
+  await registerInviteRoute(inv);
   json(res, 201, inv);
 });
 /** Bulk contractor invites from a CSV (name,handle,rate) — one business-scoped link each. */
@@ -876,6 +906,7 @@ route("POST", "/api/invites/bulk", async (req, res) => {
     }
     const inv = makeInvite("contractor", { name: r.name, counterpartyId: cp.id });
     db.invites.push(inv);
+    await registerInviteRoute(inv);
     created.push(inv);
   }
   json(res, 200, { created: created.length, errors, invites: created });
@@ -914,9 +945,31 @@ route("POST", "/api/invites/accept", async (req, res) => {
   json(res, 200, { ok: true, orgName: db.org.name, kind: inv.kind, counterpartyId: inv.counterpartyId, orgId: db.org.id });
 });
 
-route("GET", "/api/invoices", (_req, res) => json(res, 200, db.invoices));
+function inviteCounterparty(): { ok: true; counterpartyId: string } | { ok: false; error: string } | null {
+  const token = currentInviteRouteToken();
+  if (!token) return null;
+  const inv = db.invites.find((x) => x.token === token);
+  if (!inv || inv.status === "revoked") return { ok: false, error: "invite not found or expired" };
+  if (!inv.counterpartyId || (inv.kind !== "contractor" && inv.kind !== "customer")) {
+    return { ok: false, error: "invite cannot submit invoices" };
+  }
+  return { ok: true, counterpartyId: inv.counterpartyId };
+}
+
+route("GET", "/api/invoices", (_req, res) => {
+  const scoped = inviteCounterparty();
+  if (scoped && !scoped.ok) return json(res, 403, { error: scoped.error });
+  const rows = scoped?.ok ? db.invoices.filter((i) => i.counterpartyId === scoped.counterpartyId) : db.invoices;
+  json(res, 200, rows);
+});
 route("POST", "/api/invoices", async (req, res) => {
-  const body = await readJson<CreateInvoiceRequest>(req);
+  const body = await readJson<CreateInvoiceRequest & { inviteToken?: string }>(req);
+  const scoped = inviteCounterparty();
+  if (scoped && !scoped.ok) return json(res, 403, { error: scoped.error });
+  if (scoped?.ok && body.counterpartyId && body.counterpartyId !== scoped.counterpartyId) {
+    return json(res, 403, { error: "invite cannot bill this counterparty" });
+  }
+  if (scoped?.ok) body.counterpartyId = scoped.counterpartyId;
   if (body.externalId) {
     const existing = db.invoices.find((x) => x.externalId === body.externalId);
     if (existing) return json(res, 200, existing);
@@ -1352,10 +1405,20 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
   try {
     const m = match(req.method ?? "GET", effectiveUrl.pathname);
     if (!m) return json(res, 404, { error: "not found" });
+    const routeToken = process.env.VERCEL === "1" ? await inviteRouteToken(req, effectiveUrl.pathname) : null;
+    const routeTenantKey = routeToken ? await lookupTenantRoute("console", "invite", routeToken) : null;
+    if (
+      process.env.VERCEL === "1" &&
+      (effectiveUrl.pathname === "/api/invites/accept" || (effectiveUrl.pathname === "/api/invoices" && routeToken)) &&
+      !routeTenantKey
+    ) {
+      return json(res, 404, { error: "invite not found or expired" });
+    }
     const publicHosted =
       effectiveUrl.pathname === "/api/live" ||
       effectiveUrl.pathname === "/api/auth/config" ||
-      effectiveUrl.pathname === "/api/auth/google";
+      effectiveUrl.pathname === "/api/auth/google" ||
+      Boolean(routeTenantKey);
     let auth: Awaited<ReturnType<typeof authFromRequest>> = null;
     if (process.env.VERCEL === "1") {
       try {
@@ -1371,7 +1434,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       return json(res, 428, { error: "Idempotency-Key header is required for hosted console writes." });
     }
     await runWithAuth(auth, async () => {
-      await runWithConsoleTenant(auth?.key ?? null, auth?.claims ?? null, auth ? accountBinding(auth) : null, async () => {
+      const runTenant = routeTenantKey
+        ? (fn: () => Promise<void>) => runWithConsoleTenantKey(routeTenantKey, fn)
+        : (fn: () => Promise<void>) => runWithConsoleTenant(auth?.key ?? null, auth?.claims ?? null, auth ? accountBinding(auth) : null, fn);
+      await runTenant(async () => {
         if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && (!isLive() || tenantDataMissing().length > 0)) {
           return json(res, 503, {
             error: "Live testnet client unavailable. Refusing to serve app data.",
@@ -1382,7 +1448,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
           const rl = rateLimit(effectiveUrl.pathname, req.method ?? "GET");
           if (!rl.ok) return json(res, 429, { error: "Too many requests. Please wait a moment and try again.", retryAfter: rl.retryAfter });
         }
-        await runIdempotent(req, res, effectiveUrl.pathname, () => Promise.resolve(m.handler(req, res, m.params)));
+        const invoke = () => runIdempotent(req, res, effectiveUrl.pathname, () => Promise.resolve(m.handler(req, res, m.params)));
+        if (routeToken) await inviteRouteScope.run({ token: routeToken }, invoke);
+        else await invoke();
       });
     });
   } catch (e) {
