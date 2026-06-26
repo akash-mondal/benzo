@@ -359,6 +359,14 @@ function idempotencyHeader(req: IncomingMessage): string | null {
   return v?.trim() || null;
 }
 
+function requiresIdempotency(method: string, path: string): boolean {
+  if (process.env.VERCEL !== "1") return false;
+  if (!path.startsWith("/api/")) return false;
+  const m = method.toUpperCase();
+  if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
+  return path !== "/api/auth/google";
+}
+
 async function runIdempotent(req: IncomingMessage, res: ServerResponse, path: string, fn: () => Promise<void>): Promise<void> {
   const method = req.method ?? "GET";
   const header = method === "GET" ? null : idempotencyHeader(req);
@@ -1358,6 +1366,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       if (!auth && effectiveUrl.pathname.startsWith("/api/") && !publicHosted) {
         return json(res, 401, { error: "Sign in with Google to unlock this console.", live: false, mode: "unavailable", missing: [] });
       }
+    }
+    if (requiresIdempotency(req.method ?? "GET", effectiveUrl.pathname) && !idempotencyHeader(req)) {
+      return json(res, 428, { error: "Idempotency-Key header is required for hosted console writes." });
     }
     await runWithAuth(auth, async () => {
       await runWithConsoleTenant(auth?.key ?? null, auth?.claims ?? null, auth ? accountBinding(auth) : null, async () => {

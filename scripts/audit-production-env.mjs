@@ -80,7 +80,14 @@ const invariantFiles = [
   },
   {
     file: "apps/console-api/src/server.ts",
-    contains: ["BENZO_PRIVATE_EVENT_SECRET is required for hosted private-event encryption"],
+    contains: [
+      "BENZO_PRIVATE_EVENT_SECRET is required for hosted private-event encryption",
+      "Idempotency-Key header is required for hosted console writes.",
+    ],
+  },
+  {
+    file: "apps/wallet-api/src/server.ts",
+    contains: ["Idempotency-Key header is required for hosted wallet writes."],
   },
   {
     file: "packages/relayer/src/abuse-store.ts",
