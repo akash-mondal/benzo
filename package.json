@@ -13,6 +13,7 @@
     "fetch:artifacts": "bash scripts/fetch-artifacts.sh",
     "verify:artifacts": "node scripts/check-artifacts.mjs",
     "audit:prod-env": "node scripts/audit-production-env.mjs",
+    "audit:privacy": "node scripts/audit-privacy-payloads.mjs",
     "test": "pnpm -r test",
     "test:zk": "node scripts/check-artifacts.mjs && pnpm -r test",
     "lint": "biome lint",

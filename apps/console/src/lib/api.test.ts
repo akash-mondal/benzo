@@ -88,4 +88,20 @@ describe("console API idempotency", () => {
     expect(headers.get("authorization")).toBe("Bearer google.jwt");
     expect(headers.get("idempotency-key")).toBeNull();
   });
+
+  it("loads sanitized recovery status without mutation idempotency", async () => {
+    localStorage.setItem("benzo.console.googleCredential", "google.jwt");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "ok", recovery: { bound: true, createdAt: "2026-06-26T00:00:00.000Z", lastSeenAt: "2026-06-26T00:01:00.000Z" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await api.recoveryStatus();
+    expect(result).toMatchObject({ recovery: { bound: true } });
+    expect(result.recovery).not.toHaveProperty("accountFingerprint");
+    expect(result.recovery).not.toHaveProperty("subjectKey");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(apiHref("/recovery/status"));
+    const headers = callHeaders(fetchMock.mock.calls[0]);
+    expect(headers.get("authorization")).toBe("Bearer google.jwt");
+    expect(headers.get("idempotency-key")).toBeNull();
+  });
 });

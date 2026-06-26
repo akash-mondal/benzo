@@ -3,9 +3,9 @@
  * Read-mostly here; the heavy actions live on their own screens.
  */
 import { Fragment, useEffect, useState } from "react";
-import { Building2, Check, Minus, Plug, ShieldCheck, Users } from "lucide-react";
+import { Building2, Check, KeyRound, Minus, Plug, ShieldCheck, Users } from "lucide-react";
 import type { Integration } from "@benzo/types";
-import { api } from "../lib/api";
+import { api, type RecoveryStatus } from "../lib/api";
 import { useConsole } from "../lib/store";
 import { ROLES, roleHas, PERMISSION_GROUPS, ROLE_BLURB } from "../lib/permissions";
 import { Page, Stagger } from "../ui/motion";
@@ -14,8 +14,10 @@ import { Card, Pill, Skeleton, StatusPill } from "../ui/primitives";
 export function SettingsScreen() {
   const { members, counterparties, session, loading } = useConsole();
   const [integrations, setIntegrations] = useState<Integration[] | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryStatus["recovery"] | null>(null);
   useEffect(() => {
     api.integrations().then(setIntegrations).catch(() => setIntegrations([]));
+    api.recoveryStatus().then((r) => setRecovery(r.recovery)).catch(() => setRecovery(null));
   }, []);
 
   return (
@@ -66,6 +68,22 @@ export function SettingsScreen() {
 
         {/* B5 - roles & permissions matrix (driven by ROLE_PERMISSIONS) */}
         <Stagger.Item index={1}>
+          <Card className="p-0" data-testid="account-recovery-card">
+            <div className="flex items-center gap-2 border-b border-border px-5 py-3.5 text-[13px] font-semibold">
+              <KeyRound size={15} /> Account recovery
+            </div>
+            <div className="px-5 py-4 text-[13px] text-muted">
+              <div className="font-medium text-ink" data-testid="console-recovery-status">
+                {recovery?.bound ? "This workspace is bound to your current sign-in." : "This workspace is not bound yet."}
+              </div>
+              <p className="mt-1.5 leading-relaxed">
+                If your Google account or account salt changes, Benzo blocks access instead of attaching this workspace to a different key. Recovery requires an owner-approved migration.
+              </p>
+            </div>
+          </Card>
+        </Stagger.Item>
+
+        <Stagger.Item index={2}>
           <Card className="p-0" data-testid="roles-matrix">
             <div className="flex items-center gap-2 border-b border-border px-5 py-3.5 text-[13px] font-semibold">
               <ShieldCheck size={15} /> Roles & permissions
@@ -110,7 +128,7 @@ export function SettingsScreen() {
           </Card>
         </Stagger.Item>
 
-        <Stagger.Item index={2}>
+        <Stagger.Item index={3}>
           <Card className="p-0">
             <div className="flex items-center gap-2 border-b border-border px-5 py-3.5 text-[13px] font-semibold">
               <Building2 size={15} /> Vendors & contractors
@@ -143,7 +161,7 @@ export function SettingsScreen() {
           </Card>
         </Stagger.Item>
 
-        <Stagger.Item index={3}>
+        <Stagger.Item index={4}>
           <Card className="p-0">
             <div className="flex items-center gap-2 border-b border-border px-5 py-3.5 text-[13px] font-semibold">
               <Plug size={15} /> Integrations

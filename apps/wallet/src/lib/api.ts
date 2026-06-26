@@ -86,6 +86,15 @@ export interface ProofReceipt {
   createdAt: number;
 }
 
+export interface RecoveryStatus {
+  status: "ok";
+  recovery: {
+    bound: boolean;
+    createdAt?: number;
+    lastSeenAt?: number;
+  };
+}
+
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
@@ -214,6 +223,7 @@ export const api = {
       { method: "POST", body: JSON.stringify({ credential, nonce }) },
     ),
   session: () => http<Session>("/session"),
+  recoveryStatus: () => http<RecoveryStatus>("/recovery/status"),
   balance: () => http<Balance>("/balance"),
   rampReserve: () => http<{ reserve: string | null; live: boolean }>("/ramp/reserve"),
   depositInfo: () => http<{ address: string | null; liquid: string; asset: string; issuer: string; live: boolean }>("/deposit-address"),

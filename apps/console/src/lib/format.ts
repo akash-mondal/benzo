@@ -67,8 +67,6 @@ export function explorerContractUrl(id: string, network: string = NETWORK): stri
 export function friendlyError(e: unknown, fallback = "Something went wrong. Please try again."): string {
   const raw = e instanceof Error ? e.message : typeof e === "string" ? e : "";
   if (!raw) return fallback;
-  // eslint-disable-next-line no-console
-  console.error(e);
   if (/network|offline|fetch|timeout|connection|failed to fetch/i.test(raw)) {
     return "Network problem. Check your connection and try again.";
   }

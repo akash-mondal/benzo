@@ -130,6 +130,15 @@ export interface ProofReceipt {
   createdAt: string;
 }
 
+export interface RecoveryStatus {
+  status: "ok";
+  recovery: {
+    bound: boolean;
+    createdAt?: string;
+    lastSeenAt?: string;
+  };
+}
+
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
@@ -244,6 +253,7 @@ export interface OnboardingDraft {
 
 export const api = {
   session: () => http<AuthSession>("/session"),
+  recoveryStatus: () => http<RecoveryStatus>("/recovery/status"),
   // zkLogin / SSO: is real Google configured, and verify a Google ID token.
   authConfig: () => http<{ googleClientId: string | null; google: boolean }>("/auth/config"),
   googleVerify: (credential: string, nonce?: string) =>

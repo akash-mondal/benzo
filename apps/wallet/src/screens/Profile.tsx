@@ -4,9 +4,10 @@
  * settings dump.
  */
 import { useEffect, useState } from "react";
-import { Activity, BadgeCheck, ChevronRight, Eye, EyeOff, Lock, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { Activity, BadgeCheck, ChevronRight, Eye, EyeOff, KeyRound, Lock, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useWallet } from "../lib/store";
+import { api, type RecoveryStatus } from "../lib/api";
 import { getChainStatus } from "../lib/chain";
 import { NETWORK_LABEL } from "../lib/network";
 import { getLockSettings, setLockSettings, lockCapable, requireUnlock } from "../lib/lock";
@@ -23,6 +24,7 @@ export function Profile() {
   // Read the chain's latest ledger DIRECTLY from the browser (no BFF) - the
   // first real "blockchain is the backend" data path. Degrades silently.
   const [ledger, setLedger] = useState<number | null>(null);
+  const [recovery, setRecovery] = useState<RecoveryStatus["recovery"] | null>(null);
   // App lock (C4 - Cash App Security Lock parity): two device-local toggles,
   // gated by the on-device passkey. Disabled when no authenticator exists.
   const lockable = lockCapable();
@@ -46,6 +48,20 @@ export function Profile() {
     return () => {
       ac.abort();
       clearInterval(iv);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.recoveryStatus()
+      .then((r) => {
+        if (!cancelled) setRecovery(r.recovery);
+      })
+      .catch(() => {
+        if (!cancelled) setRecovery(null);
+      });
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -142,6 +158,15 @@ export function Profile() {
               icon={<ShieldCheck size={18} />}
               label="Proofs run"
               right={<span className="text-[13px] text-muted">{tee ? "On device or secure enclave" : "On this device"}</span>}
+            />
+            <Row
+              icon={<KeyRound size={18} />}
+              label="Account recovery"
+              right={
+                <span className="text-right text-[13px] text-muted" data-testid="profile-recovery-status">
+                  {recovery?.bound ? "Bound to this sign-in" : "Not bound yet"}
+                </span>
+              }
             />
             <Row
               icon={<Activity size={18} />}
