@@ -72,6 +72,17 @@ export interface InviteSummary {
   expiresAt: number;
   status: "pending" | "claimed" | "refunded" | "expired";
 }
+export interface ProofReceipt {
+  id: string;
+  action: string;
+  vkId: string;
+  prover?: ProverKind;
+  verified: boolean;
+  publicInputs?: unknown;
+  txHash?: string;
+  verifier?: string;
+  createdAt: number;
+}
 
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
@@ -216,6 +227,7 @@ export const api = {
   sendPublic: (to: string, amount: string) =>
     http<{ txHash?: string; onChain: boolean }>("/send-public", { method: "POST", body: JSON.stringify({ to, amount }) }),
   history: () => http<ActivityRow[]>("/history"),
+  proofReceipts: () => http<ProofReceipt[]>("/proof-receipts"),
   contacts: () => http<Contact[]>("/contacts"),
   send: (to: string, amount: string, memo?: string, prover: ProverKind = "tee") =>
     http<SettleResult>("/send", { method: "POST", body: JSON.stringify({ to, amount, memo, prover }) }),

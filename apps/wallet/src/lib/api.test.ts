@@ -69,4 +69,17 @@ describe("wallet API idempotency", () => {
     await api.addMoney("1", "tee");
     expect(callHeaders(fetchMock.mock.calls[1]).get("idempotency-key")).toBe(firstKey);
   });
+
+  it("loads proof receipts through the authenticated RPC gateway without mutation idempotency", async () => {
+    localStorage.setItem("benzo.googleCredential", "google.jwt");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([{ id: "prf_1", action: "wallet.add-money", vkId: "SHIELD", verified: true, createdAt: 1 }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.proofReceipts()).resolves.toHaveLength(1);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(apiHref("/proof-receipts"));
+    const headers = callHeaders(fetchMock.mock.calls[0]);
+    expect(headers.get("authorization")).toBe("Bearer google.jwt");
+    expect(headers.get("idempotency-key")).toBeNull();
+  });
 });

@@ -75,4 +75,17 @@ describe("console API idempotency", () => {
     await api.payInvoice("inv_1");
     expect(callHeaders(fetchMock.mock.calls[1]).get("idempotency-key")).toBe(firstKey);
   });
+
+  it("loads proof receipts through the authenticated RPC gateway without mutation idempotency", async () => {
+    localStorage.setItem("benzo.console.googleCredential", "google.jwt");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse([{ id: "prf_1", action: "payroll.policy.cap", vkId: "SPENDCAP", verified: true, createdAt: "2026-06-26T00:00:00.000Z" }]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.proofReceipts()).resolves.toHaveLength(1);
+
+    expect(fetchMock.mock.calls[0][0]).toBe(apiHref("/proof-receipts"));
+    const headers = callHeaders(fetchMock.mock.calls[0]);
+    expect(headers.get("authorization")).toBe("Bearer google.jwt");
+    expect(headers.get("idempotency-key")).toBeNull();
+  });
 });

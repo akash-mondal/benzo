@@ -285,6 +285,9 @@ route("GET", "/api/ramp/reserve", async (_q, res) => json(res, 200, await getRam
 route("GET", "/api/history", async (_q, res) => json(res, 200, await getActivity()));
 route("GET", "/api/ledger", (_q, res) => json(res, 200, { entries: db.ledger ?? [], balances: walletLedgerBalances(), verify: verifyWalletLedger() }));
 route("GET", "/api/ledger/verify", (_q, res) => json(res, 200, verifyWalletLedger()));
+route("GET", "/api/proof-receipts", (_q, res) =>
+  json(res, 200, [...(db.proofReceipts ?? [])].sort((a, b) => b.createdAt - a.createdAt)),
+);
 // Contacts are device-local in the wallet UI; the hosted API never provides
 // hosted people.
 route("GET", "/api/contacts", (_q, res) => json(res, 200, []));

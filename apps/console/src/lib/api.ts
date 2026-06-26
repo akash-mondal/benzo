@@ -117,6 +117,19 @@ export interface PrivateAuditAnchorResponse extends PrivateAuditPacketResponse {
   };
 }
 
+export interface ProofReceipt {
+  id: string;
+  action: string;
+  vkId: string;
+  verified: boolean;
+  verifier?: string;
+  network?: string;
+  txHash?: string;
+  root?: string;
+  publicInputs?: unknown;
+  createdAt: string;
+}
+
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
@@ -345,6 +358,7 @@ export const api = {
   ledger: () => http<LedgerEntry[]>("/ledger"),
   // Re-walk the chain server-side and report integrity (ok / brokenAt index).
   ledgerVerify: () => http<{ ok: boolean; length: number; brokenAt?: number }>("/ledger/verify"),
+  proofReceipts: () => http<ProofReceipt[]>("/proof-receipts"),
   privateAuditPacket: () => http<PrivateAuditPacketResponse>("/audit/private-events"),
   anchorPrivateAuditRoot: (body?: {
     packet?: PrivateAuditPacketResponse["packet"];

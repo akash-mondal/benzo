@@ -1249,6 +1249,9 @@ route("GET", "/api/compliance/zones", (_req, res) => json(res, 200, db.zones));
 route("GET", "/api/ledger", (_req, res) => json(res, 200, db.ledger));
 // Tamper-evidence: re-walk the audit hash-chain and report integrity.
 route("GET", "/api/ledger/verify", (_req, res) => json(res, 200, verifyLedgerChain()));
+route("GET", "/api/proof-receipts", (_req, res) =>
+  json(res, 200, [...(db.proofReceipts ?? [])].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))),
+);
 route("GET", "/api/audit/private-events", (req, res) => {
   const url = new URL(req.url ?? "/", `http://localhost:${PORT}`);
   const eventTypes = url.searchParams.get("eventTypes")?.split(",").filter(Boolean) as PrivateEventType[] | undefined;
