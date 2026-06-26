@@ -1,8 +1,10 @@
 /**
- * Consumer-side store. The wallet is single-user: a profile (the @handle the UI
- * greets) and a contact book to send to. Balance and history come straight from
- * @benzo/core (see chain.ts); the profile + contacts stay off-chain UX state.
+ * Consumer-side product state. Hosted requests use an encrypted per-auth tenant
+ * document; local dev keeps the old in-process seed for fast testnet work.
+ * Balance and chain history still come from @benzo/core.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
+import { loadTenantDocument, saveTenantDocument, tenantStorageMissing } from "./tenantData.js";
 export type Direction = "in" | "out";
 
 export interface Contact {
@@ -49,14 +51,58 @@ export interface WalletDb {
 export function seed(): WalletDb {
   return {
     profile: { handle: "@you", name: "You" },
-    contacts: [
-      { handle: "@ravi", name: "Ravi Mehta", tone: "accent" },
-      { handle: "@mara", name: "Mara", tone: "neutral" },
-      { handle: "@nico", name: "Nico", tone: "neutral" },
-      { handle: "@lucia", name: "Lucía", tone: "accent" },
-    ],
+    contacts: [],
     activity: [],
   };
 }
 
-export const db: WalletDb = seed();
+const localDb: WalletDb = seed();
+const tenantScope = new AsyncLocalStorage<{ key: string; db: WalletDb }>();
+
+function activeDb(): WalletDb {
+  return tenantScope.getStore()?.db ?? localDb;
+}
+
+export const db: WalletDb = new Proxy({} as WalletDb, {
+  get(_target, prop: keyof WalletDb) {
+    return activeDb()[prop];
+  },
+  set(_target, prop: keyof WalletDb, value) {
+    activeDb()[prop] = value as never;
+    return true;
+  },
+  has(_target, prop) {
+    return prop in activeDb();
+  },
+  ownKeys() {
+    return Reflect.ownKeys(activeDb());
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    return Object.getOwnPropertyDescriptor(activeDb(), prop);
+  },
+});
+
+export function tenantDataMissing(): string[] {
+  return tenantStorageMissing();
+}
+
+export async function runWithWalletTenant<T>(
+  authKey: string | null,
+  claims: { name?: string; email?: string } | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (process.env.VERCEL !== "1" || !authKey) return fn();
+  const tenantKey = `wallet:${authKey}`;
+  const loaded = await loadTenantDocument<WalletDb>("wallet", tenantKey);
+  const fresh = seed();
+  if (claims?.name) fresh.profile.name = claims.name;
+  if (claims?.email && fresh.profile.name === "You") fresh.profile.name = claims.email.split("@")[0] || "You";
+  const ctx = { key: tenantKey, db: loaded ?? fresh };
+  return tenantScope.run(ctx, async () => {
+    try {
+      return await fn();
+    } finally {
+      await saveTenantDocument("wallet", tenantKey, ctx.db);
+    }
+  });
+}

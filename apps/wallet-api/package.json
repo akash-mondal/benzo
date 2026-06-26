@@ -15,6 +15,7 @@
     "@benzo/core": "workspace:*",
     "@benzo/links": "workspace:*",
     "@benzo/types": "workspace:*",
+    "@neondatabase/serverless": "^1.1.0",
     "@stellar/stellar-sdk": "^15.1.0"
   },
   "devDependencies": {

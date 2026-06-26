@@ -30,7 +30,7 @@ import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { authFromRequest, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
-import { db, fmtUsd, id, now, parseRosterCsv } from "./store.js";
+import { db, fmtUsd, id, now, parseRosterCsv, runWithConsoleTenant, tenantDataMissing } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
 import { auditPacketHash, buildAnchor, buildAuditPacket, deriveEventKey, MemoryPrivateEventStore, sha256Hex, verifyHashChain, type AuditPacket, type PrivateEventType } from "@benzo/private-events";
 
@@ -530,7 +530,14 @@ route("POST", "/api/treasury/send-public", async (req, res) => {
   const stroops = BigInt(Math.round(Number(body.amount) * 1e7)).toString();
   json(res, 200, await treasurySendPublic(String(body.to ?? ""), stroops));
 });
-route("GET", "/api/live", (_req, res) => json(res, 200, liveStatus()));
+function appLiveStatus() {
+  const s = liveStatus();
+  const missing = [...new Set([...s.missing, ...tenantDataMissing()])];
+  const live = s.live && missing.length === 0;
+  return { ...s, live, mode: live ? "live" as const : "unavailable" as const, missing };
+}
+
+route("GET", "/api/live", (_req, res) => json(res, 200, appLiveStatus()));
 
 // Stateless console actions for the privacy-first UI. Mutable business objects
 // live encrypted in the browser; the BFF only receives the minimum witness data
@@ -684,7 +691,9 @@ route("POST", "/api/payments/:id/approve", async (req, res, p) => {
   const r = recordApproval({ policy, approvals: po.approvals, proposerId: po.createdByMemberId, actorMemberId: body.actorMemberId, decision: "approved", comment: body.comment, paymentOrderId: po.id });
   if (r.error) return json(res, 400, { error: r.error });
   // Release ONLY when every step + the release gate are satisfied.
-  if (r.progress.satisfied) await submitShieldedTransfer(po, pendingHandles.get(po.id));
+  const payee = db.counterparties.find((c) => c.id === po.toCounterpartyId);
+  const releaseHandle = pendingHandles.get(po.id) ?? payee?.paymentAddress?.shielded ?? cpHandle.get(po.toCounterpartyId ?? "");
+  if (r.progress.satisfied) await submitShieldedTransfer(po, releaseHandle);
   po.updatedAt = now();
   appendPrivateEvent("approval.recorded", po.id, "approval.v1", { payment: po, decision: "approved", actorMemberId: body.actorMemberId, comment: body.comment, progress: r.progress, recordedAt: po.updatedAt }, { status: po.status, source: "payment" });
   if (po.settlement?.onChain || po.settlement?.txHash) {
@@ -863,7 +872,8 @@ route("POST", "/api/invoices/:id/pay", async (_req, res, pp) => {
     privacy: { amountHidden: true, counterpartyHidden: true, visibleTo: [db.sessionMemberId] },
     settlement: {}, createdByMemberId: db.sessionMemberId, createdAt: now(), updatedAt: now(),
   };
-  const h = cpHandle.get(inv.counterpartyId);
+  const payee = db.counterparties.find((c) => c.id === inv.counterpartyId);
+  const h = payee?.paymentAddress?.shielded ?? cpHandle.get(inv.counterpartyId);
   if (h) pendingHandles.set(po.id, h);
   if (!policy) await submitShieldedTransfer(po, h); // under threshold → settle now
   db.payments.push(po);
@@ -1260,13 +1270,15 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       }
     }
     await runWithAuth(auth, async () => {
-      if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && !isLive()) {
-        return json(res, 503, {
-          error: "Live testnet client unavailable. Refusing to serve app data.",
-          ...liveStatus(),
-        });
-      }
-      await m.handler(req, res, m.params);
+      await runWithConsoleTenant(auth?.key ?? null, auth?.claims ?? null, async () => {
+        if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && (!isLive() || tenantDataMissing().length > 0)) {
+          return json(res, 503, {
+            error: "Live testnet client unavailable. Refusing to serve app data.",
+            ...appLiveStatus(),
+          });
+        }
+        await m.handler(req, res, m.params);
+      });
     });
   } catch (e) {
     json(res, 500, { error: String((e as Error)?.message ?? e) });

@@ -1,9 +1,10 @@
 /**
- * In-memory product store for the console BFF, bootstrapped with a testnet org and
- * product objects. On-chain actions route through @benzo/core (see chain.ts);
- * product state (orgs, ledger, approvals, policies) is genuinely off-chain by
- * design (the double-entry ledger is the CFO-readable system of record).
+ * Console product store. Hosted requests use an encrypted per-org tenant
+ * document; local dev keeps the seeded Acme workspace for fast testnet demos.
+ * Product state is off-chain by design, but it must still be durable and tenant
+ * isolated.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 import type {
   Account,
   ApprovalPolicy,
@@ -18,6 +19,7 @@ import type {
   PayrollBatch,
   ViewingGrant,
 } from "@benzo/types";
+import { loadTenantDocument, saveTenantDocument, tenantStorageMissing } from "./tenantData.js";
 
 let seq = 0;
 export function id(prefix: string): string {
@@ -232,4 +234,111 @@ export function seed(): Db {
   };
 }
 
-export const db: Db = seed();
+export function freshHostedDb(authKey: string, claims?: { email?: string; name?: string }): Db {
+  const orgId = `org_${authKey.slice(0, 12)}`;
+  const createdAt = now();
+  const owner: Member = {
+    id: "mem_owner",
+    orgId,
+    email: claims?.email ?? "owner@benzo.local",
+    name: claims?.name ?? claims?.email?.split("@")[0] ?? "Owner",
+    role: "owner",
+    status: "active",
+    createdAt,
+  };
+  const policies: ApprovalPolicy[] = [
+    {
+      id: "pol_default",
+      orgId,
+      name: "Payments over $5k need approval",
+      conditions: [{ field: "amount", operator: "gte", value: usd(5000) }],
+      steps: [{ role: "owner", mode: "all", minApprovers: 1 }],
+      releaseGate: { role: "owner", mode: "all", minApprovers: 1 },
+      reApprovalTriggers: ["amount", "counterparty", "bank_details"],
+      createdAt,
+    },
+  ];
+  return {
+    org: {
+      id: orgId,
+      name: "New workspace",
+      legalName: "New workspace",
+      country: "US",
+      kybStatus: "unverified",
+      complianceZoneId: "zone_us",
+      baseAssetCode: "USDC",
+      createdAt,
+    },
+    members: [owner],
+    accounts: [
+      { id: "acc_op", orgId, name: "Operating", type: "operating", assetCode: "USDC", createdAt },
+      { id: "acc_pay", orgId, name: "Payroll", type: "payroll", assetCode: "USDC", createdAt },
+      { id: "acc_tre", orgId, name: "Treasury", type: "treasury", assetCode: "USDC", createdAt },
+    ],
+    counterparties: [],
+    payments: [],
+    invoices: [],
+    payrolls: [],
+    policies,
+    grants: [],
+    zones: [
+      { id: "zone_us", orgId, name: "United States", jurisdiction: "US", allowRoot: "0xallowUS", denyRoot: "0xdenyUS" },
+      { id: "zone_eu", orgId, name: "European Union", jurisdiction: "EU", allowRoot: "0xallowEU", denyRoot: "0xdenyEU" },
+    ],
+    ledger: [],
+    integrations: [
+      { id: "int_merge", orgId, provider: "merge", status: "disconnected" },
+      { id: "int_qbo", orgId, provider: "quickbooks", status: "disconnected" },
+      { id: "int_slack", orgId, provider: "slack", status: "disconnected" },
+    ],
+    sessionMemberId: owner.id,
+  };
+}
+
+const localDb: Db = seed();
+const tenantScope = new AsyncLocalStorage<{ key: string; db: Db }>();
+
+function activeDb(): Db {
+  return tenantScope.getStore()?.db ?? localDb;
+}
+
+export const db: Db = new Proxy({} as Db, {
+  get(_target, prop: keyof Db) {
+    return activeDb()[prop];
+  },
+  set(_target, prop: keyof Db, value) {
+    activeDb()[prop] = value as never;
+    return true;
+  },
+  has(_target, prop) {
+    return prop in activeDb();
+  },
+  ownKeys() {
+    return Reflect.ownKeys(activeDb());
+  },
+  getOwnPropertyDescriptor(_target, prop) {
+    return Object.getOwnPropertyDescriptor(activeDb(), prop);
+  },
+});
+
+export function tenantDataMissing(): string[] {
+  return tenantStorageMissing();
+}
+
+export async function runWithConsoleTenant<T>(
+  authKey: string | null,
+  claims: { email?: string; name?: string } | null,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (process.env.VERCEL !== "1" || !authKey) return fn();
+  const tenantKey = `console:${authKey}`;
+  const loaded = await loadTenantDocument<Db>("console", tenantKey);
+  const ctx = { key: tenantKey, db: loaded ?? freshHostedDb(authKey, claims ?? undefined) };
+  return tenantScope.run(ctx, async () => {
+    try {
+      return await fn();
+    } finally {
+      await saveTenantDocument("console", tenantKey, ctx.db);
+    }
+  });
+}

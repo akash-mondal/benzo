@@ -36,7 +36,7 @@ import {
   type ProverKind,
   type SendPhase,
 } from "./chain.js";
-import { db } from "./store.js";
+import { db, runWithWalletTenant, tenantDataMissing } from "./store.js";
 import { authFromRequest, runWithAuth } from "./auth.js";
 import { googleConfigured, verifyGoogleIdToken } from "./google-oidc.js";
 
@@ -117,7 +117,14 @@ route("POST", "/api/handle/claim", async (req, res) => {
     json(res, 400, { error: String((e as Error).message) });
   }
 });
-route("GET", "/api/live", (_q, res) => json(res, 200, liveStatus()));
+function appLiveStatus() {
+  const s = liveStatus();
+  const missing = [...new Set([...s.missing, ...tenantDataMissing()])];
+  const live = s.live && missing.length === 0;
+  return { ...s, live, mode: live ? "live" as const : "unavailable" as const, missing };
+}
+
+route("GET", "/api/live", (_q, res) => json(res, 200, appLiveStatus()));
 route("GET", "/api/prover", (_q, res) => json(res, 200, { ...proverInfo(), live: isLive() }));
 
 route("GET", "/api/balance", async (_q, res) => json(res, 200, await getBalanceStroops()));
@@ -296,13 +303,15 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       }
     }
     await runWithAuth(auth, async () => {
-      if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && !isLive()) {
-        return json(res, 503, {
-          error: "Live testnet client unavailable. Refusing to serve app data.",
-          ...liveStatus(),
-        });
-      }
-      await r.handler(req, res, effectiveUrl);
+      await runWithWalletTenant(auth?.key ?? null, auth?.claims ?? null, async () => {
+        if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted && (!isLive() || tenantDataMissing().length > 0)) {
+          return json(res, 503, {
+            error: "Live testnet client unavailable. Refusing to serve app data.",
+            ...appLiveStatus(),
+          });
+        }
+        await r.handler(req, res, effectiveUrl);
+      });
     });
   } catch (e) {
     json(res, 500, { error: String((e as Error)?.message ?? e) });
