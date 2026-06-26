@@ -52,15 +52,31 @@ function key(): Buffer {
   return createHash("sha256").update(secret).digest();
 }
 
-function encrypt(value: unknown): string {
+function tenantAad(app: string, tenantKey: string): Buffer {
+  return Buffer.from(`benzo:tenant-doc:v1:${app}:${tenantKey}`, "utf8");
+}
+
+function encrypt(app: string, tenantKey: string, value: unknown): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key(), iv);
+  cipher.setAAD(tenantAad(app, tenantKey));
   const body = Buffer.concat([cipher.update(JSON.stringify(value), "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([iv, tag, body]).toString("base64url");
 }
 
-function decrypt<T>(ciphertext: string): T {
+function decryptBound<T>(app: string, tenantKey: string, ciphertext: string): T {
+  const raw = Buffer.from(ciphertext, "base64url");
+  const iv = raw.subarray(0, 12);
+  const tag = raw.subarray(12, 28);
+  const body = raw.subarray(28);
+  const decipher = createDecipheriv("aes-256-gcm", key(), iv);
+  decipher.setAAD(tenantAad(app, tenantKey));
+  decipher.setAuthTag(tag);
+  return JSON.parse(Buffer.concat([decipher.update(body), decipher.final()]).toString("utf8")) as T;
+}
+
+function decryptLegacy<T>(ciphertext: string): T {
   const raw = Buffer.from(ciphertext, "base64url");
   const iv = raw.subarray(0, 12);
   const tag = raw.subarray(12, 28);
@@ -68,6 +84,15 @@ function decrypt<T>(ciphertext: string): T {
   const decipher = createDecipheriv("aes-256-gcm", key(), iv);
   decipher.setAuthTag(tag);
   return JSON.parse(Buffer.concat([decipher.update(body), decipher.final()]).toString("utf8")) as T;
+}
+
+function decrypt<T>(app: string, tenantKey: string, ciphertext: string): T {
+  try {
+    return decryptBound<T>(app, tenantKey, ciphertext);
+  } catch (error) {
+    if (process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT === "1") throw error;
+    return decryptLegacy<T>(ciphertext);
+  }
 }
 
 export function tenantStorageMissing(): string[] {
@@ -83,25 +108,25 @@ export function tenantStorageMissing(): string[] {
 export async function loadTenantDocument<T>(app: string, tenantKey: string): Promise<T | null> {
   if (useMemoryStore()) {
     const ciphertext = memoryDocuments.get(`${app}:${tenantKey}`);
-    return ciphertext ? decrypt<T>(ciphertext) : null;
+    return ciphertext ? decrypt<T>(app, tenantKey, ciphertext) : null;
   }
   await ensureSchema();
   const db = sql();
   if (!db) return null;
   const rows = await db`select ciphertext from benzo_tenant_documents where app = ${app} and tenant_key = ${tenantKey} limit 1`;
   const row = rows[0] as { ciphertext?: string } | undefined;
-  return row?.ciphertext ? decrypt<T>(row.ciphertext) : null;
+  return row?.ciphertext ? decrypt<T>(app, tenantKey, row.ciphertext) : null;
 }
 
 export async function saveTenantDocument(app: string, tenantKey: string, value: unknown): Promise<void> {
   if (useMemoryStore()) {
-    memoryDocuments.set(`${app}:${tenantKey}`, encrypt(value));
+    memoryDocuments.set(`${app}:${tenantKey}`, encrypt(app, tenantKey, value));
     return;
   }
   await ensureSchema();
   const db = sql();
   if (!db) return;
-  const ciphertext = encrypt(value);
+  const ciphertext = encrypt(app, tenantKey, value);
   await db`
     insert into benzo_tenant_documents (app, tenant_key, ciphertext, updated_at)
     values (${app}, ${tenantKey}, ${ciphertext}, now())

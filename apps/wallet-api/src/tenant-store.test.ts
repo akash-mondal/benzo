@@ -1,6 +1,12 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-const ENV_KEYS = ["VERCEL", "BENZO_HOSTED_TENANT_TEST", "BENZO_TENANT_STORE_MEMORY", "BENZO_DATA_ENCRYPTION_SECRET"] as const;
+const ENV_KEYS = [
+  "VERCEL",
+  "BENZO_HOSTED_TENANT_TEST",
+  "BENZO_TENANT_STORE_MEMORY",
+  "BENZO_DATA_ENCRYPTION_SECRET",
+  "BENZO_DISABLE_TENANT_LEGACY_DECRYPT",
+] as const;
 const originalEnv = new Map<string, string | undefined>(ENV_KEYS.map((k) => [k, process.env[k]]));
 
 afterEach(() => {
@@ -16,6 +22,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
   const { appendWalletLedger, appendWalletProofReceipt, db, runWithWalletTenant, verifyWalletLedger, walletLedgerBalances } = await import("./store.js");
 
   await runWithWalletTenant("alice", { name: "Alice" }, { accountFingerprint: "wallet_alice", subjectKey: "alice" }, async () => {
@@ -88,6 +95,7 @@ test("hosted wallet fails closed when a tenant account binding changes", async (
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
   const { db, RecoveryRequiredError, runWithWalletTenant } = await import("./store.js");
 
   await runWithWalletTenant("recovery-user", { name: "Recovery" }, { accountFingerprint: "wallet_original", subjectKey: "recovery-user" }, async () => {

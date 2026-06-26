@@ -1,6 +1,12 @@
 import { afterEach, expect, test, vi } from "vitest";
 
-const ENV_KEYS = ["VERCEL", "BENZO_HOSTED_TENANT_TEST", "BENZO_TENANT_STORE_MEMORY", "BENZO_DATA_ENCRYPTION_SECRET"] as const;
+const ENV_KEYS = [
+  "VERCEL",
+  "BENZO_HOSTED_TENANT_TEST",
+  "BENZO_TENANT_STORE_MEMORY",
+  "BENZO_DATA_ENCRYPTION_SECRET",
+  "BENZO_DISABLE_TENANT_LEGACY_DECRYPT",
+] as const;
 const originalEnv = new Map<string, string | undefined>(ENV_KEYS.map((k) => [k, process.env[k]]));
 
 afterEach(() => {
@@ -16,6 +22,7 @@ test("hosted console starts empty and partitions org documents by auth key", asy
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
   const { db, runWithConsoleTenant } = await import("./store.js");
 
   await runWithConsoleTenant("alice", { email: "alice@example.com", name: "Alice" }, { accountFingerprint: "console_alice", subjectKey: "alice" }, async () => {
@@ -49,6 +56,7 @@ test("hosted console persists operational state in the encrypted tenant document
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
   const { db, runWithConsoleTenant } = await import("./store.js");
 
   await runWithConsoleTenant("ops", { email: "ops@example.com", name: "Ops" }, { accountFingerprint: "console_ops", subjectKey: "ops" }, async () => {
@@ -123,6 +131,7 @@ test("hosted console fails closed when a tenant account binding changes", async 
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
   const { db, RecoveryRequiredError, runWithConsoleTenant } = await import("./store.js");
 
   await runWithConsoleTenant("recovery-org", { email: "owner@example.com", name: "Owner" }, { accountFingerprint: "console_original", subjectKey: "recovery-org" }, async () => {

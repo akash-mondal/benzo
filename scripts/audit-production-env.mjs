@@ -58,6 +58,7 @@ const invariantFiles = [
       "BENZO_DATA_ENCRYPTION_SECRET is required for hosted tenant storage",
       "DATABASE_URL is required for hosted tenant storage",
       "BENZO_TENANT_STORE_MEMORY is not allowed on Vercel hosted tenant storage",
+      "benzo:tenant-doc:v1:",
     ],
   },
   {
@@ -66,6 +67,7 @@ const invariantFiles = [
       "BENZO_DATA_ENCRYPTION_SECRET is required for hosted tenant storage",
       "DATABASE_URL is required for hosted tenant storage",
       "BENZO_TENANT_STORE_MEMORY is not allowed on Vercel hosted tenant storage",
+      "benzo:tenant-doc:v1:",
     ],
   },
   {
