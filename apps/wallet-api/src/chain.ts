@@ -894,6 +894,7 @@ export interface InviteResult {
   expiresAt: number;
   onChain: boolean;
   txHash?: string;
+  sorobanPublics?: string[];
 }
 
 export async function createInvite(amount: string, note: string | undefined, onPhase?: PhaseSink): Promise<InviteResult> {
@@ -917,13 +918,13 @@ export async function createInvite(amount: string, note: string | undefined, onP
     tenantInvites().push({ localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
     onPhase?.({ phase: "submitting", txHash: r.sendTx });
     onPhase?.({ phase: "confirmed", txHash: r.sendTx, onChain: true });
-    return { link, localId, claimAccountPub: r.recipient.spendPub.toString(16), amount: stroops.toString(), expiresAt, onChain: true, txHash: r.sendTx };
+    return { link, localId, claimAccountPub: r.recipient.spendPub.toString(16), amount: stroops.toString(), expiresAt, onChain: true, txHash: r.sendTx, sorobanPublics: r.sorobanPublics };
   }
   throw new RampError("busy", "Live testnet client unavailable. Invite was not funded.");
 }
 
 /** Sweep a claim account's funds out to the wallet's public address (claim or refund). */
-async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
+async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] }> {
   const c = getClient();
   if (!c) throw new RampError("busy", "Live testnet client unavailable. Claim was not submitted.");
   const to = await selfAddress(c);
@@ -938,14 +939,14 @@ async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: st
   try {
     const r = await c.claim({ claimSecret, toAddress: to });
     await c.flush();
-    return { amount: r.amount.toString(), txHash: r.txHash, onChain: true };
+    return { amount: r.amount.toString(), txHash: r.txHash, onChain: true, sorobanPublics: r.sorobanPublics };
   } finally {
     restoreWalletAccount(c); // re-adopt the wallet (mvkWired reset; re-wires lazily)
     await c.sync();
   }
 }
 
-export async function claimInvite(secret: string, localId?: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
+export async function claimInvite(secret: string, localId?: string): Promise<{ amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] }> {
   const c = getClient();
   if (c) {
     // (1) Sweep the escrowed note out of the ephemeral claim-account → the
@@ -954,6 +955,7 @@ export async function claimInvite(secret: string, localId?: string): Promise<{ a
     // under the recipient's distinct spend key — not left sitting as public USDC.
     const r = await sweepClaim(secret);
     let txHash = r.txHash;
+    let sorobanPublics = r.sorobanPublics;
     if (r.onChain && BigInt(r.amount) > 0n) {
       try {
         await c.sync();
@@ -963,6 +965,7 @@ export async function claimInvite(secret: string, localId?: string): Promise<{ a
         const sh = await c.shield({ amount: BigInt(r.amount), fromAddress: from, fromSource: TX_SOURCE });
         await c.flush();
         txHash = sh.txHash ?? txHash;
+        sorobanPublics = sh.sorobanPublics;
       } catch (e) {
         // Same RPC-retention tolerance as addMoney: the shield settles on-chain
         // before the SDK's strict full-tree assertion, which can trip on a
@@ -978,12 +981,12 @@ export async function claimInvite(secret: string, localId?: string): Promise<{ a
       id: `act_${Date.now()}`, type: "receive", name: "Claimed a link", note: "Money received",
       amount: r.amount, direction: "in", status: "settled", timestamp: nowSec(), tone: "accent",
     });
-    return { ...r, txHash };
+    return { ...r, txHash, sorobanPublics };
   }
   throw new RampError("busy", "Live testnet client unavailable. Claim was not submitted.");
 }
 
-export async function refundInvite(localId: string): Promise<{ amount: string; txHash?: string; onChain: boolean }> {
+export async function refundInvite(localId: string): Promise<{ amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] }> {
   const e = tenantInvites().find((x) => x.localId === localId);
   if (!e) throw new Error("invite not found");
   if (e.status === "claimed") throw new Error("already claimed - can't refund");

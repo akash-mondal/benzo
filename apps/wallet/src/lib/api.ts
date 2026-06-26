@@ -63,6 +63,7 @@ export interface InviteResult {
   amount: string;
   expiresAt: number;
   onChain: boolean;
+  sorobanPublics?: string[];
 }
 export interface InviteSummary {
   localId: string;

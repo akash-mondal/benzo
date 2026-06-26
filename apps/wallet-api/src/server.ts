@@ -162,6 +162,17 @@ function settlementPublicInputsRef(r: SettleResult): string[] | { source: "settl
   };
 }
 
+function proofPublicInputsRef(
+  r: { sorobanPublics?: string[]; txHash?: string; localId?: string },
+): string[] | { source: "settlement-tx"; txHash: string | null; localId?: string } {
+  if (r.sorobanPublics?.length) return r.sorobanPublics;
+  return {
+    source: "settlement-tx",
+    txHash: r.txHash ?? null,
+    ...(r.localId ? { localId: r.localId } : {}),
+  };
+}
+
 function recordSettlementProof(action: string, vkId: WalletSettlementVk, r: SettleResult): void {
   appendWalletProofReceipt({
     action,
@@ -350,7 +361,7 @@ route("POST", "/api/invite", async (req, res) => {
       verified: r.onChain,
       verifier: walletVerifierId(),
       txHash: r.txHash,
-      publicInputs: { source: "settlement-tx", txHash: r.txHash ?? null, localId: r.localId },
+      publicInputs: proofPublicInputsRef(r),
     });
     json(res, 201, r);
   } catch (e) {
@@ -370,7 +381,7 @@ route("POST", "/api/invite/refund", async (req, res) => {
       verified: r.onChain,
       verifier: walletVerifierId(),
       txHash: r.txHash,
-      publicInputs: { source: "settlement-tx", txHash: r.txHash ?? null },
+      publicInputs: proofPublicInputsRef(r),
     });
     json(res, 200, r);
   } catch (e) {
@@ -390,7 +401,7 @@ route("POST", "/api/claim", async (req, res) => {
       verified: r.onChain,
       verifier: walletVerifierId(),
       txHash: r.txHash,
-      publicInputs: { source: "settlement-tx", txHash: r.txHash ?? null },
+      publicInputs: proofPublicInputsRef(r),
     });
     json(res, 200, r);
   } catch (e) {

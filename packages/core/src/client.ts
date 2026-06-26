@@ -1701,14 +1701,14 @@ export class BenzoClient {
   async createClaimLink(opts: {
     amount: bigint;
     useRelayer?: boolean;
-  }): Promise<{ link: string; claimSecretHex: string; sendTx?: string; recipient: BenzoRecipient }> {
+  }): Promise<{ link: string; claimSecretHex: string; sendTx?: string; recipient: BenzoRecipient; sorobanPublics: string[] }> {
     const secret = new Uint8Array(randomBytes(32));
     const claimAccount = accountFromClaimSecret(secret);
     const to = paymentAddress(claimAccount);
     const handle = this.send({ amount: opts.amount, to, memo: "claim-link", useRelayer: opts.useRelayer });
     const r = await handle.settled();
     const link = `benzo://claim#${toBase64Url(secret)}`;
-    return { link, claimSecretHex: toHex(secret), sendTx: r?.txHash, recipient: to };
+    return { link, claimSecretHex: toHex(secret), sendTx: r?.txHash, recipient: to, sorobanPublics: r?.sorobanPublics ?? [] };
   }
 
   /** Parse a claim link into its claim secret. */
@@ -1726,13 +1726,14 @@ export class BenzoClient {
   async claim(opts: {
     claimSecret: Uint8Array;
     toAddress: string;
-  }): Promise<{ txHash?: string; amount: bigint }> {
+  }): Promise<{ txHash?: string; amount: bigint; sorobanPublics: string[] }> {
     this.useAccount(accountFromClaimSecret(opts.claimSecret));
     await this.sync();
     // withdraw is 1-input, so a claim account with several notes is claimed one
     // note at a time (a claim link usually holds a single note).
     let amount = 0n;
     let lastTx: string | undefined;
+    const sorobanPublics: string[] = [];
     for (;;) {
       // Skip 0-value change notes left behind by a full-note withdraw.
       const notes = this.spendableNotes().filter((n) => n.note.amount > 0n);
@@ -1740,10 +1741,11 @@ export class BenzoClient {
       const wd = await this.unshield({ amount: notes[0].note.amount, toAddress: opts.toAddress });
       amount += notes[0].note.amount;
       lastTx = wd.txHash;
+      sorobanPublics.push(...wd.sorobanPublics);
       await this.sync(); // refresh the spent-set before the next note
     }
     if (amount === 0n) throw new Error("nothing to claim (already claimed or unfunded)");
-    return { txHash: lastTx, amount };
+    return { txHash: lastTx, amount, sorobanPublics };
   }
 
   // ------------------------------------------------ requests / invoices --
