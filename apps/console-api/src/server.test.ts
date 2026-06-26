@@ -6,6 +6,7 @@ let handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
 
 beforeAll(async () => {
   process.env.VERCEL = "1";
+  process.env.BENZO_PRIVATE_EVENT_SECRET = "console-api-test-private-event-secret";
   ({ handle } = await import("./server.js"));
 });
 

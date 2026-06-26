@@ -165,18 +165,16 @@ function statePath(): string {
 function chainClientForRuntime(): ChainClient {
   const cfg = configFromEnv();
   if (process.env.VERCEL !== "1") return new StellarCli(cfg);
-  const deployerSecret = process.env.DEPLOYER_SECRET;
-  if (!deployerSecret) throw new Error("DEPLOYER_SECRET is required for Vercel RPC signing");
-  const deployerAddress = Keypair.fromSecret(deployerSecret).publicKey();
   const auth = currentAuth();
   const userSecret = auth?.account.stellarSecret;
   const userAddress = auth?.account.stellarAddress;
   if (!userSecret || !userAddress) throw new Error("Hosted wallet account has no Stellar public-edge signer");
   const relayerSecret = process.env.RELAYER_SECRET;
-  const relayerAddress = relayerSecret ? Keypair.fromSecret(relayerSecret).publicKey() : (process.env.RELAYER_PUBLIC || deployerAddress);
+  if (!relayerSecret) throw new Error("RELAYER_SECRET is required for hosted wallet relay signing");
+  const relayerAddress = Keypair.fromSecret(relayerSecret).publicKey();
   const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
   const signerFor = (source: string) =>
-    source === RELAY_SOURCE && relayerSecret
+    source === RELAY_SOURCE
       ? LocalKeypairSigner.fromSecret(relayerSecret)
       : LocalKeypairSigner.fromSecret(userSecret);
   const addressFor = (source: string) => source === RELAY_SOURCE ? relayerAddress : userAddress;
@@ -206,7 +204,10 @@ export function getClient(prover: ProverKind = process.env.VERCEL === "1" ? "tee
     const key = clientCacheKey(prover);
     const existing = clients.get(key);
     if (existing) return existing;
-    if (!process.env.SOROBAN_RPC_URL || !process.env.DEPLOYER_SECRET) {
+    if (!process.env.SOROBAN_RPC_URL) {
+      return null;
+    }
+    if (process.env.VERCEL !== "1" && !process.env.DEPLOYER_SECRET) {
       return null;
     }
     const d = deployment();
@@ -255,8 +256,15 @@ export function isLive(): boolean {
 export function liveStatus(): { live: boolean; mode: "live" | "unavailable"; missing: string[] } {
   const missing: string[] = [];
   if (!process.env.SOROBAN_RPC_URL) missing.push("SOROBAN_RPC_URL");
-  if (!process.env.DEPLOYER_SECRET) missing.push("DEPLOYER_SECRET");
-  const live = isLive();
+  if (process.env.VERCEL === "1") {
+    if (!process.env.GOOGLE_CLIENT_ID) missing.push("GOOGLE_CLIENT_ID");
+    if (!process.env.BENZO_ACCOUNT_SALT && !process.env.BENZO_AUTH_SALT) missing.push("BENZO_ACCOUNT_SALT");
+    if (!process.env.RELAYER_SECRET) missing.push("RELAYER_SECRET");
+  } else if (!process.env.DEPLOYER_SECRET) {
+    missing.push("DEPLOYER_SECRET");
+  }
+  const canProbeClient = process.env.VERCEL !== "1" || currentAuth() !== null;
+  const live = missing.length === 0 && (canProbeClient ? isLive() : true);
   return { live, mode: live ? "live" : "unavailable", missing };
 }
 

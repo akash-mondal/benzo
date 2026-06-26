@@ -28,7 +28,7 @@ import type {
 import { ROLE_PERMISSIONS } from "@benzo/types";
 import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic } from "./chain.js";
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
-import { authFromRequest, runWithAuth } from "./auth.js";
+import { authFromRequest, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
 import { db, fmtUsd, id, now, parseRosterCsv } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
@@ -61,13 +61,40 @@ for (const cp of db.counterparties) {
   if (cp.paymentAddress?.shielded) applyCounterpartyHandle(cp, cp.paymentAddress.shielded);
 }
 
+function privateEventSecret(): string {
+  const secret = process.env.BENZO_PRIVATE_EVENT_SECRET;
+  if (secret) return secret;
+  if (process.env.VERCEL === "1") throw new Error("BENZO_PRIVATE_EVENT_SECRET is required for hosted private-event encryption");
+  return process.env.DEPLOYER_SECRET || "benzo-local-dev-private-event-key";
+}
+
 const privateEventKey = deriveEventKey(
-  process.env.BENZO_PRIVATE_EVENT_SECRET ||
-    process.env.DEPLOYER_SECRET ||
-    "benzo-testnet-private-event-key",
+  privateEventSecret(),
   `benzo/private-events/v1/${db.org.id}`,
 );
-const privateEvents = new MemoryPrivateEventStore(privateEventKey);
+const localPrivateEvents = new MemoryPrivateEventStore(privateEventKey);
+const hostedPrivateEvents = new Map<string, MemoryPrivateEventStore>();
+
+function privateAuditOrgId(): string {
+  const auth = currentAuth();
+  if (process.env.VERCEL === "1") {
+    if (!auth) throw new Error("Hosted console requires Google account auth");
+    return `org-${auth.key}`;
+  }
+  return db.org.id;
+}
+
+function privateEventStore(): MemoryPrivateEventStore {
+  const auth = currentAuth();
+  if (process.env.VERCEL !== "1") return localPrivateEvents;
+  if (!auth) throw new Error("Hosted console requires Google account auth");
+  const existing = hostedPrivateEvents.get(auth.key);
+  if (existing) return existing;
+  const key = deriveEventKey(privateEventSecret(), `benzo/private-events/v1/${auth.key}`);
+  const store = new MemoryPrivateEventStore(key);
+  hostedPrivateEvents.set(auth.key, store);
+  return store;
+}
 
 function appendPrivateEvent<TPayload extends Record<string, unknown>>(
   type: PrivateEventType,
@@ -76,8 +103,8 @@ function appendPrivateEvent<TPayload extends Record<string, unknown>>(
   payload: TPayload,
   publicMeta: Record<string, string | number | boolean | null> = {},
 ): void {
-  privateEvents.append({
-    orgId: db.org.id,
+  privateEventStore().append({
+    orgId: privateAuditOrgId(),
     type,
     subjectId,
     schema,
@@ -87,16 +114,16 @@ function appendPrivateEvent<TPayload extends Record<string, unknown>>(
 }
 
 function privateEventAuditSummary() {
-  const events = privateEvents.list();
+  const events = privateEventStore().list();
   return {
-    anchor: buildAnchor(db.org.id, events),
+    anchor: buildAnchor(privateAuditOrgId(), events),
     integrity: verifyHashChain(events),
     note: "Encrypted private-event envelopes only. Plaintext requires a scoped viewing key.",
   };
 }
 
 function privateAuditOrgHash(): string {
-  return sha256Hex(`benzo:audit-org:v1:${db.org.id}`);
+  return sha256Hex(`benzo:audit-org:v1:${privateAuditOrgId()}`);
 }
 
 function stellarExpertTx(txHash?: string): string | undefined {
@@ -1136,17 +1163,17 @@ route("GET", "/api/audit/private-events", (req, res) => {
     eventTypes,
     subjectIds,
   };
-  const events = privateEvents.list();
+  const events = privateEventStore().list();
   json(res, 200, {
-    packet: buildAuditPacket({ orgId: db.org.id, events, scope }),
+    packet: buildAuditPacket({ orgId: privateAuditOrgId(), events, scope }),
     integrity: verifyHashChain(events),
     disclosure: "ciphertext-only; decrypt selected records with a scoped viewing key outside this API",
   });
 });
 route("POST", "/api/audit/private-events/anchor", async (req, res) => {
   const body = await readJson<{ packet?: AuditPacket; packetHash?: string; orgHash?: string }>(req);
-  const events = privateEvents.list();
-  const packet = body.packet ?? buildAuditPacket({ orgId: db.org.id, events, scope: { label: "console-private-events" } });
+  const events = privateEventStore().list();
+  const packet = body.packet ?? buildAuditPacket({ orgId: privateAuditOrgId(), events, scope: { label: "console-private-events" } });
   const packetHash = body.packet ? auditPacketHash(packet) : auditPacketHash(packet);
   const orgHash = body.orgHash ?? privateAuditOrgHash();
   if (body.packetHash && body.packetHash !== packetHash) return json(res, 400, { error: "packetHash does not match packet" });

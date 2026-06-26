@@ -93,18 +93,16 @@ function statePath(): string {
 function chainClientForRuntime(): ChainClient {
   const cfg = configFromEnv();
   if (process.env.VERCEL !== "1") return new StellarCli(cfg);
-  const deployerSecret = process.env.DEPLOYER_SECRET;
-  if (!deployerSecret) throw new Error("DEPLOYER_SECRET is required for Vercel RPC signing");
-  const deployerAddress = Keypair.fromSecret(deployerSecret).publicKey();
   const auth = currentAuth();
   const orgSecret = auth?.account.stellarSecret;
   const orgAddress = auth?.account.stellarAddress;
   if (!orgSecret || !orgAddress) throw new Error("Hosted console account has no Stellar public-edge signer");
   const relayerSecret = process.env.RELAYER_SECRET;
-  const relayerAddress = relayerSecret ? Keypair.fromSecret(relayerSecret).publicKey() : (process.env.RELAYER_PUBLIC || deployerAddress);
+  if (!relayerSecret) throw new Error("RELAYER_SECRET is required for hosted console relay signing");
+  const relayerAddress = Keypair.fromSecret(relayerSecret).publicKey();
   const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
   const signerFor = (source: string) =>
-    source === "benzo-relayer" && relayerSecret
+    source === "benzo-relayer"
       ? LocalKeypairSigner.fromSecret(relayerSecret)
       : LocalKeypairSigner.fromSecret(orgSecret);
   const addressFor = (source: string) => source === "benzo-relayer" ? relayerAddress : orgAddress;
@@ -129,7 +127,8 @@ export function getClient(relayer = false): BenzoClient | null {
     const key = `${clientCacheKey()}:${relayer ? "relayer" : "direct"}`;
     const existing = clients.get(key);
     if (existing) return existing;
-    if (!process.env.SOROBAN_RPC_URL || !process.env.DEPLOYER_SECRET) return null;
+    if (!process.env.SOROBAN_RPC_URL) return null;
+    if (process.env.VERCEL !== "1" && !process.env.DEPLOYER_SECRET) return null;
     let dep: Record<string, any>;
     try {
       dep = JSON.parse(readFileSync(DEPLOYMENT_URL, "utf8"));
@@ -164,7 +163,7 @@ export function getClient(relayer = false): BenzoClient | null {
       }),
       rpcUrl: process.env.SOROBAN_RPC_URL,
       txSource: "benzo-deployer",
-      relayer: relayer ? { source: "benzo-relayer", address: process.env.RELAYER_PUBLIC ?? "" } : undefined,
+      relayer: relayer ? { source: "benzo-relayer", address: relayerAddress() } : undefined,
       handleRegistry: dep.handleRegistry,
       requestRegistry: dep.requestRegistry,
       store: new FileKVStore(statePath()),
@@ -337,8 +336,17 @@ export async function registerOwnerMvk(): Promise<{ onChain: boolean; txHash?: s
 // chain. The issuer key is the integration seam: today it is our own key; a real
 // provider (Persona/Sumsub) would hold it (or we re-point to theirs) and post
 // decisions on-chain, with NO backend deciding. Org-of-one: the business
-// workspace is org_id 1 in org_account.
-const KYB_ORG_ID = "1";
+// Local/dev uses org_id 1. Hosted console derives a stable, non-PII u64 from the
+// authenticated Google account key so separate orgs never collide on-chain.
+function kybOrgId(): string {
+  const auth = currentAuth();
+  if (process.env.VERCEL === "1") {
+    if (!auth) throw new Error("Hosted console requires Google account auth");
+    const n = BigInt(`0x${auth.key.slice(0, 16)}`) & ((1n << 63n) - 1n);
+    return (n === 0n ? 1n : n).toString();
+  }
+  return "1";
+}
 
 function orgAccountId(): string | undefined {
   return deployment?.orgAccount as string | undefined;
@@ -359,7 +367,11 @@ const ORG_SIGNERS = [0, 1];
  *  anonymous-approval proof (ORGAUTH) shows >= threshold of these signed, hiding
  *  which. Distinct from the treasury spend group (akGroup) used at settlement. */
 const ORG_APPROVER_SEEDS = [11, 12, 13];
-const RELAYER_ADDR = (): string => process.env.RELAYER_PUBLIC || process.env.DEPLOYER_PUBLIC || "";
+function relayerAddress(): string {
+  if (process.env.RELAYER_SECRET) return Keypair.fromSecret(process.env.RELAYER_SECRET).publicKey();
+  return process.env.RELAYER_PUBLIC || "";
+}
+const RELAYER_ADDR = (): string => relayerAddress();
 
 const BN254_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 /** Map a run id to a field-element spend message (binds the approval to the run). */
@@ -369,7 +381,7 @@ function runSpendMessage(runId: string): bigint {
 
 /** The org's deterministic M-of-N identity (cached in the client). */
 async function getOrg(c: BenzoClient) {
-  return c.orgIdentity({ orgId: KYB_ORG_ID, memberCount: ORG_MEMBERS, threshold: ORG_THRESHOLD });
+  return c.orgIdentity({ orgId: kybOrgId(), memberCount: ORG_MEMBERS, threshold: ORG_THRESHOLD });
 }
 
 /** Idempotently register the org + publish its in-circuit member_root on-chain. */
@@ -382,7 +394,7 @@ async function ensureOrgSetup(c: BenzoClient): Promise<void> {
   const org = await getOrg(c);
   let current: string | null = null;
   try {
-    current = String(await c.opts.cli.view(orgContract, TX_SOURCE, ["member_root", "--org_id", KYB_ORG_ID]));
+    current = String(await c.opts.cli.view(orgContract, TX_SOURCE, ["member_root", "--org_id", kybOrgId()]));
   } catch {
     current = null;
   }
@@ -391,7 +403,7 @@ async function ensureOrgSetup(c: BenzoClient): Promise<void> {
       contractId: orgContract,
       source: TX_SOURCE,
       send: true,
-      fnArgs: ["set_member_root", "--org_id", KYB_ORG_ID, "--root", org.memberRoot.toString()],
+      fnArgs: ["set_member_root", "--org_id", kybOrgId(), "--root", org.memberRoot.toString()],
     });
   }
   orgSetupDone = true;
@@ -412,7 +424,7 @@ export async function getKybStatus(): Promise<{ status: "unverified" | "pending"
     const c = getClient();
     const org = orgAccountId();
     if (!c || !org) throw new Error("Live KYB contract unavailable.");
-    const r = await c.opts.cli.view(org, TX_SOURCE, ["kyb_status", "--org_id", KYB_ORG_ID]);
+    const r = await c.opts.cli.view(org, TX_SOURCE, ["kyb_status", "--org_id", kybOrgId()]);
     const arr = Array.isArray(r) ? r : [r, "0"]; // contract returns (KybStatus, U256)
     return { status: kybLabel(arr[0]), inquiryRef: String(arr[1] ?? "0"), onChain: true };
   } catch (e) {
@@ -423,20 +435,20 @@ export async function getKybStatus(): Promise<{ status: "unverified" | "pending"
 /** Ensure the org-of-one exists on-chain so a KYB decision can be attested to it. */
 async function ensureOrgRegistered(c: BenzoClient, org: string): Promise<void> {
   try {
-    await c.opts.cli.view(org, TX_SOURCE, ["get_org", "--org_id", KYB_ORG_ID]);
+    await c.opts.cli.view(org, TX_SOURCE, ["get_org", "--org_id", kybOrgId()]);
     return; // already registered
   } catch {
     /* OrgNotFound → register it below */
   }
-  const admin = (deployment?.admin as string) ?? process.env.DEPLOYER_PUBLIC;
-  if (!admin) throw new Error("no admin address for org registration");
+  const admin = deployment?.admin as string | undefined;
+  if (!admin) throw new Error("deployment missing admin address for org registration");
   await c.opts.cli.invoke({
     contractId: org,
     source: TX_SOURCE,
     send: true,
     fnArgs: [
       "register_org",
-      "--org_id", KYB_ORG_ID,
+      "--org_id", kybOrgId(),
       "--group_pubkey", c.account.mvkScalar.toString(),
       "--threshold", "1",
       "--members", JSON.stringify([admin]),
@@ -458,7 +470,7 @@ export async function attestKyb(approve: boolean): Promise<{ onChain: boolean; s
     contractId: org,
     source: TX_SOURCE,
     send: true,
-    fnArgs: ["attest_kyb", "--org_id", KYB_ORG_ID, "--status", approve ? "Approved" : "Rejected", "--inquiry_ref", inquiryRef],
+    fnArgs: ["attest_kyb", "--org_id", kybOrgId(), "--status", approve ? "Approved" : "Rejected", "--inquiry_ref", inquiryRef],
   });
   const after = await getKybStatus();
   return { onChain: true, status: after.status, txHash: r.txHash, inquiryRef };
@@ -493,8 +505,7 @@ export async function payableBalance(): Promise<{ live: boolean; stroops: bigint
 export async function fundTreasury(amountStroops: string): Promise<{ onChain: boolean; txHash?: string; error?: string }> {
   const c = getClient();
   if (!c) return { onChain: false, error: "console API is not connected to live testnet signing" };
-  const from = process.env.DEPLOYER_PUBLIC;
-  if (!from) return { onChain: false, error: "no funding address (DEPLOYER_PUBLIC)" };
+  const from = await selfAddress(c);
   try {
     await c.sync();
     await wireMvkRegistry(c);
@@ -540,8 +551,16 @@ export async function payOne(handle: string | undefined, amount: string): Promis
 export function liveStatus(): { live: boolean; mode: "live" | "unavailable"; missing: string[] } {
   const missing: string[] = [];
   if (!process.env.SOROBAN_RPC_URL) missing.push("SOROBAN_RPC_URL");
-  if (!process.env.DEPLOYER_SECRET) missing.push("DEPLOYER_SECRET");
-  const live = getClient() !== null;
+  if (process.env.VERCEL === "1") {
+    if (!process.env.GOOGLE_CLIENT_ID) missing.push("GOOGLE_CLIENT_ID");
+    if (!process.env.BENZO_ACCOUNT_SALT && !process.env.BENZO_AUTH_SALT) missing.push("BENZO_ACCOUNT_SALT");
+    if (!process.env.RELAYER_SECRET) missing.push("RELAYER_SECRET");
+    if (!process.env.BENZO_PRIVATE_EVENT_SECRET) missing.push("BENZO_PRIVATE_EVENT_SECRET");
+  } else if (!process.env.DEPLOYER_SECRET) {
+    missing.push("DEPLOYER_SECRET");
+  }
+  const canProbeClient = process.env.VERCEL !== "1" || currentAuth() !== null;
+  const live = missing.length === 0 && (canProbeClient ? getClient() !== null : true);
   return { live, mode: live ? "live" : "unavailable", missing };
 }
 
