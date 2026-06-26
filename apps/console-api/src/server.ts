@@ -485,6 +485,7 @@ route("GET", "/api/onboarding", (_req, res) => json(res, 200, db.onboarding));
 route("PATCH", "/api/onboarding", async (req, res) => {
   const body = await readJson<typeof db.onboarding>(req);
   db.onboarding = { ...db.onboarding, ...body };
+  appendPrivateEvent("onboarding.updated", db.org.id, "onboarding.v1", { onboarding: db.onboarding, updatedAt: now() }, { source: "onboarding" });
   json(res, 200, db.onboarding);
 });
 /**
@@ -506,6 +507,7 @@ route("POST", "/api/onboarding/kyb", async (req, res) => {
       onChain: attested.onChain,
       txHash: attested.txHash,
     };
+    appendPrivateEvent("onboarding.kyb_attested", db.org.id, "onboarding.kyb.v1", { kyb: db.onboarding.kyb, attestedAt: now() }, { status: db.onboarding.kyb.status, source: "onboarding", live: Boolean(attested.onChain) });
     json(res, 200, db.onboarding.kyb);
   } catch (e) {
     console.error("[benzo-console-api] KYB attestation failed:", (e as Error)?.message ?? e);
@@ -521,6 +523,7 @@ route("GET", "/api/onboarding/kyb-status", async (_req, res) => {
 route("POST", "/api/onboarding/register-mvk", async (_req, res) => {
   const r = await registerOwnerMvk();
   db.onboarding.mvk = r;
+  appendPrivateEvent("onboarding.mvk_registered", db.org.id, "onboarding.mvk.v1", { mvk: r, registeredAt: now() }, { source: "onboarding", live: Boolean(r.onChain) });
   json(res, 200, r);
 });
 /** Finish — apply the draft to the org so the console boots into the live workspace. */
@@ -534,6 +537,7 @@ route("POST", "/api/onboarding/finish", async (_req, res) => {
   const chainKyb = await getKybStatus();
   db.org.kybStatus = chainKyb.status;
   const member = db.members.find((m) => m.id === db.sessionMemberId)!;
+  appendPrivateEvent("onboarding.finished", db.org.id, "onboarding.finish.v1", { org: db.org, member, finishedAt: now() }, { status: db.org.kybStatus, source: "onboarding" });
   json(res, 200, { member, org: db.org, permissions: ROLE_PERMISSIONS[member.role] });
 });
 
@@ -621,7 +625,9 @@ route("POST", "/api/treasury/fund", async (req, res) => {
   const body = await readJson<{ amount: string }>(req);
   // amount in USDC (human) -> stroops (7dp). This is also "Make private" (shield).
   const stroops = BigInt(Math.round(Number(body.amount) * 1e7)).toString();
-  json(res, 200, await fundTreasury(stroops));
+  const r = await fundTreasury(stroops);
+  appendPrivateEvent("treasury.funded", r.txHash ?? id("treasury"), "treasury.fund.v1", { requestedAmount: body.amount, stroops, result: r, fundedAt: now() }, { source: "treasury", live: Boolean(r.onChain) });
+  json(res, 200, r);
 });
 // Two-balance model: the treasury's PUBLIC (liquid, unshielded) USDC balance —
 // what external wallets/exchanges see. The org's M-of-N shielded pool is /treasury.
@@ -637,7 +643,9 @@ route("POST", "/api/treasury/send-public", async (req, res) => {
   const body = await readJson<{ to: string; amount: string }>(req);
   // amount in USDC (human) -> stroops (7dp), matching /treasury/fund.
   const stroops = BigInt(Math.round(Number(body.amount) * 1e7)).toString();
-  json(res, 200, await treasurySendPublic(String(body.to ?? ""), stroops));
+  const r = await treasurySendPublic(String(body.to ?? ""), stroops);
+  appendPrivateEvent("treasury.public_sent", r.txHash ?? id("treasury"), "treasury.public-send.v1", { to: body.to, requestedAmount: body.amount, stroops, result: r, sentAt: now() }, { source: "treasury", live: Boolean(r.onChain) });
+  json(res, 200, r);
 });
 function appLiveStatus() {
   const s = liveStatus();
@@ -653,7 +661,9 @@ route("GET", "/api/live", (_req, res) => json(res, 200, appLiveStatus()));
 // required to prove/sign in the TEE and submit to testnet.
 route("POST", "/api/settlements/payment", async (req, res) => {
   const body = await readJson<{ amount?: { amount?: string }; toHandle?: string }>(req);
-  json(res, 200, await payOne(body.toHandle, String(body.amount?.amount ?? "0")));
+  const r = await payOne(body.toHandle, String(body.amount?.amount ?? "0"));
+  appendPrivateEvent("settlement.payment", r.txHash ?? id("settle"), "settlement.payment.v1", { request: body, result: r, settledAt: now() }, { source: "settlement", live: Boolean(r.onChain) });
+  json(res, 200, r);
 });
 route("POST", "/api/settlements/payroll", async (req, res) => {
   const body = await readJson<{ lines?: Array<{ counterpartyId: string; amount: string; handle?: string }> }>(req);
@@ -680,6 +690,7 @@ route("POST", "/api/settlements/payroll", async (req, res) => {
       });
     }
   }
+  appendPrivateEvent("settlement.payroll", id("settle"), "settlement.payroll.v1", { request: body, lines, settledAt: now() }, { source: "settlement", itemCount: lines.length });
   json(res, 200, { lines });
 });
 route("POST", "/api/payroll-proofs/funded", async (req, res) => {
@@ -729,6 +740,7 @@ route("POST", "/api/members", async (req, res) => {
   const body = await readJson<InviteMemberRequest>(req);
   const member = { id: id("mem"), orgId: db.org.id, email: body.email, role: body.role, status: "invited" as const, createdAt: now() };
   db.members.push(member);
+  appendPrivateEvent("member.invited", member.id, "member.v1", { member, invitedAt: member.createdAt }, { status: member.status, source: "members" });
   json(res, 201, member);
 });
 
@@ -742,6 +754,7 @@ route("POST", "/api/counterparties", async (req, res) => {
     status: "pending_screening" as const, externalAccounts: [], createdAt: now(),
   };
   db.counterparties.push(cp);
+  appendPrivateEvent("counterparty.created", cp.id, "counterparty.v1", { counterparty: cp, createdAt: cp.createdAt }, { status: cp.status, kind: cp.type, source: "counterparties" });
   json(res, 201, cp);
 });
 
@@ -890,6 +903,7 @@ route("POST", "/api/invites", async (req, res) => {
   const inv = makeInvite(kind, { name: body.name, email: body.email, role: body.role, counterpartyId });
   db.invites.push(inv);
   await registerInviteRoute(inv);
+  appendPrivateEvent("invite.created", inv.id, "invite.v1", { invite: inv, createdAt: inv.createdAt }, { status: inv.status, kind: inv.kind, source: "invites" });
   json(res, 201, inv);
 });
 /** Bulk contractor invites from a CSV (name,handle,rate) — one business-scoped link each. */
@@ -909,12 +923,14 @@ route("POST", "/api/invites/bulk", async (req, res) => {
     await registerInviteRoute(inv);
     created.push(inv);
   }
+  appendPrivateEvent("invite.created", id("bulk"), "invite.bulk.v1", { invites: created, errors, createdAt: now() }, { status: "sent", kind: "contractor", source: "invites", itemCount: created.length });
   json(res, 200, { created: created.length, errors, invites: created });
 });
 route("POST", "/api/invites/:id/revoke", (_req, res, p) => {
   const inv = db.invites.find((x) => x.id === p.id);
   if (!inv) return json(res, 404, { error: "not found" });
   inv.status = "revoked";
+  appendPrivateEvent("invite.revoked", inv.id, "invite.v1", { invite: inv, revokedAt: now() }, { status: inv.status, kind: inv.kind, source: "invites" });
   json(res, 200, inv);
 });
 /** Accept an invite by token (the contractor/employee onboarding handshake). */
@@ -930,6 +946,7 @@ route("POST", "/api/invites/accept", async (req, res) => {
       applyCounterpartyHandle(cp, body.handle);
       cp.status = "allowlisted";
     }
+    appendPrivateEvent("invite.accepted", body.counterpartyId, "invite.accept.v1", { request: body, acceptedAt: now() }, { status: "accepted", kind: body.kind, source: "invites" });
     return json(res, 200, { ok: true, orgName: db.org.name, kind: body.kind, counterpartyId: body.counterpartyId, orgId: body.orgId ?? db.org.id });
   }
   if (inv.status === "revoked") return json(res, 400, { error: "invite was revoked" });
@@ -942,6 +959,7 @@ route("POST", "/api/invites/accept", async (req, res) => {
       cp.status = "allowlisted";
     }
   }
+  appendPrivateEvent("invite.accepted", inv.id, "invite.accept.v1", { invite: inv, request: body, acceptedAt: now() }, { status: inv.status, kind: inv.kind, source: "invites" });
   json(res, 200, { ok: true, orgName: db.org.name, kind: inv.kind, counterpartyId: inv.counterpartyId, orgId: db.org.id });
 });
 
@@ -1097,6 +1115,7 @@ route("POST", "/api/payrolls/import", async (req, res) => {
     if (r.handle) applyCounterpartyHandle(cp, r.handle);
     imported.push(cp);
   }
+  appendPrivateEvent("roster.imported", id("roster"), "contractor-roster.v1", { rows, errors, imported, importedAt: now() }, { status: errors.length ? "partial" : "imported", source: "contractors", itemCount: imported.length });
   json(res, 200, { imported: imported.length, errors, contractors: db.counterparties.filter((c) => c.type === "contractor") });
 });
 
@@ -1112,6 +1131,7 @@ route("PATCH", "/api/counterparties/:id", async (req, res, p) => {
   if (body.status) cp.status = body.status;
   if (body.name) cp.name = body.name;
   if (body.handle) applyCounterpartyHandle(cp, body.handle);
+  appendPrivateEvent("counterparty.updated", cp.id, "counterparty.v1", { counterparty: cp, update: body, updatedAt: now() }, { status: cp.status, kind: cp.type, source: "counterparties" });
   json(res, 200, cp);
 });
 route("POST", "/api/payrolls/:id/approve", async (req, res, p) => {
@@ -1256,6 +1276,7 @@ route("POST", "/api/policies", async (req, res) => {
   const body = await readJson<{ name: string; policy: Record<string, unknown> }>(req);
   const policy = { id: id("pol"), orgId: db.org.id, createdAt: now(), name: body.name, ...(body.policy as object) } as (typeof db.policies)[number];
   db.policies.push(policy);
+  appendPrivateEvent("policy.created", policy.id, "approval-policy.v1", { policy, createdAt: policy.createdAt }, { source: "policies" });
   json(res, 201, policy);
 });
 route("PATCH", "/api/policies/:id", async (req, res, p) => {
@@ -1266,6 +1287,7 @@ route("PATCH", "/api/policies/:id", async (req, res, p) => {
   if (Array.isArray(body.conditions)) pol.conditions = body.conditions as typeof pol.conditions;
   if (Array.isArray(body.steps)) pol.steps = body.steps as typeof pol.steps;
   if ("releaseGate" in body) pol.releaseGate = body.releaseGate as typeof pol.releaseGate;
+  appendPrivateEvent("policy.updated", pol.id, "approval-policy.v1", { policy: pol, update: body, updatedAt: now() }, { source: "policies" });
   json(res, 200, pol);
 });
 
@@ -1382,10 +1404,12 @@ route("POST", "/api/integrations", async (req, res) => {
   const existing = db.integrations.find((i) => i.provider === body.provider);
   if (existing) {
     existing.status = "disconnected";
+    appendPrivateEvent("integration.changed", existing.id, "integration.v1", { integration: existing, request: body, changedAt: now() }, { status: existing.status, source: "integrations" });
     return json(res, 200, { ...existing, note });
   }
   const integration = { id: id("int"), orgId: db.org.id, provider: body.provider, status: "disconnected" as const, connectedAt: undefined };
   db.integrations.push(integration);
+  appendPrivateEvent("integration.changed", integration.id, "integration.v1", { integration, request: body, changedAt: now() }, { status: integration.status, source: "integrations" });
   json(res, 201, { ...integration, note });
 });
 

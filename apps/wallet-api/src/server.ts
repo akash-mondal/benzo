@@ -513,7 +513,12 @@ route("POST", "/api/share-proof", async (req, res, url) => {
 // from chain (no BFF). Hosted deployments must never export account material.
 route("GET", "/api/dev/account", (_q, res) => {
   const acct = exportAccountForDevice();
-  if (!acct) return json(res, 404, { error: "account export disabled" });
+  if (!acct) {
+    cors(res);
+    res.writeHead(204);
+    res.end();
+    return;
+  }
   json(res, 200, acct);
 });
 

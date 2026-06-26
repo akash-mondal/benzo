@@ -53,6 +53,46 @@ describe("private events", () => {
     ).toThrow(/sensitive key/);
   });
 
+  it("accepts the console audit vocabulary with safe public metadata only", () => {
+    const types = [
+      "onboarding.updated",
+      "onboarding.kyb_attested",
+      "onboarding.mvk_registered",
+      "onboarding.finished",
+      "treasury.funded",
+      "treasury.public_sent",
+      "settlement.payment",
+      "settlement.payroll",
+      "member.invited",
+      "counterparty.created",
+      "counterparty.updated",
+      "roster.imported",
+      "invite.created",
+      "invite.revoked",
+      "invite.accepted",
+      "policy.created",
+      "policy.updated",
+      "integration.changed",
+    ] as const;
+
+    for (const type of types) {
+      const event = createPrivateEvent(
+        {
+          orgId: "org_acme",
+          type,
+          subjectId: "subject_1",
+          schema: `${type}.v1`,
+          publicMeta: { status: "ok", source: "console", itemCount: 1 },
+          payload: { amount: "10000000", handle: "@private", note: "encrypted only" },
+        },
+        { key, id: `pe_${type.replace(/\W/g, "_")}` },
+      );
+      expect(event.type).toBe(type);
+      expect(JSON.stringify(event)).not.toContain("@private");
+      expect(JSON.stringify(event)).not.toContain("10000000");
+    }
+  });
+
   it("detects tampering in the hash chain and decrypt AAD", () => {
     const one = createPrivateEvent(
       { orgId: "org_acme", type: "invoice.created", subjectId: "inv_1", schema: "invoice.v1", payload: { amount: "1" } },

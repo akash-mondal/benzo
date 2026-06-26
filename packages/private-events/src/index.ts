@@ -9,6 +9,21 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
 export type PrivateEventType =
+  | "onboarding.updated"
+  | "onboarding.kyb_attested"
+  | "onboarding.mvk_registered"
+  | "onboarding.finished"
+  | "treasury.funded"
+  | "treasury.public_sent"
+  | "settlement.payment"
+  | "settlement.payroll"
+  | "member.invited"
+  | "counterparty.created"
+  | "counterparty.updated"
+  | "roster.imported"
+  | "invite.created"
+  | "invite.revoked"
+  | "invite.accepted"
   | "invoice.created"
   | "invoice.imported"
   | "invoice.paid"
@@ -16,8 +31,11 @@ export type PrivateEventType =
   | "payment.settled"
   | "payroll.computed"
   | "approval.recorded"
+  | "policy.created"
+  | "policy.updated"
   | "grant.created"
-  | "grant.revoked";
+  | "grant.revoked"
+  | "integration.changed";
 
 export interface PrivateEventInput<TPayload extends Record<string, unknown> = Record<string, unknown>> {
   orgId: string;
