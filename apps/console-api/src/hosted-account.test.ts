@@ -24,10 +24,7 @@ test("hosted console never derives a public org treasury from DEPLOYER_SECRET wi
   const { getClient } = await import("./chain.js");
 
   expect(getClient()).toBeNull();
-  expect(err).toHaveBeenCalledWith(
-    "[console-api] live client unavailable; refusing app data:",
-    expect.stringContaining("Hosted console requires Google account auth"),
-  );
+  expect(err).toHaveBeenCalledWith("[console-api] live client unavailable; refusing app data");
 });
 
 test("hosted console live status does not depend on DEPLOYER_SECRET", async () => {

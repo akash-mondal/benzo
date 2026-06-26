@@ -175,8 +175,8 @@ export function getClient(relayer = false): BenzoClient | null {
     c.useAccount(account);
     clients.set(key, c);
     return c;
-  } catch (e) {
-    console.error("[console-api] live client unavailable; refusing app data:", (e as Error).message);
+  } catch {
+    console.error("[console-api] live client unavailable; refusing app data");
     return null;
   }
 }
@@ -643,7 +643,7 @@ export async function anchorPrivateAuditRoot(input: {
     });
     return { onChain: true, contractId, txHash: res.txHash, sequence };
   } catch (e) {
-    return { onChain: false, contractId, error: String((e as Error)?.message ?? e) };
+    return { onChain: false, contractId, error: "Could not anchor private audit root." };
   }
 }
 
@@ -682,7 +682,7 @@ export async function proveBalance(
     return { holds: r.holds, onChain: r.onChain, minStroops, ref: onChainRef(vkLabel, r.holds && r.onChain, publics, { root: r.root?.toString() }) };
   } catch (e) {
     // Honest failure: fall back to the view-key figure without claiming a proof.
-    console.warn(`[console-api] proveBalance(${minStroops}) ZK path failed: ${(e as Error).message}`);
+    console.warn("[console-api] balance proof failed; returning unverified fallback result");
     const bal = await c.orgTreasuryBalance(org);
     return { holds: bal >= BigInt(minStroops), onChain: false, minStroops, ref: onChainRef(vkLabel, false, publics) };
   }
@@ -715,8 +715,8 @@ export async function proveLineCap(
     const to = await c.resolveHandle(handle.replace(/^@/, ""));
     const r = await c.proveOrgPayoutCap({ to, amount: BigInt(amountStroops), cap: BigInt(capStroops), context });
     return { withinCap: r.withinCap, onChain: r.onChain };
-  } catch (e) {
-    console.warn(`[console-api] proveLineCap(${handle}) failed: ${(e as Error).message}`);
+  } catch {
+    console.warn("[console-api] spending-cap proof failed; returning blocked proof result");
     return { withinCap: false, onChain: false };
   }
 }
@@ -738,8 +738,8 @@ export async function proveLineInnocence(
     const to = await c.resolveHandle(handle.replace(/^@/, ""));
     const r = await c.proveOrgPayoutInnocence({ to, amount: BigInt(amountStroops), context });
     return { innocent: r.innocent, onChain: r.onChain };
-  } catch (e) {
-    console.warn(`[console-api] proveLineInnocence(${handle}) failed: ${(e as Error).message}`);
+  } catch {
+    console.warn("[console-api] recipient-screen proof failed; returning blocked proof result");
     return { innocent: false, onChain: false };
   }
 }
@@ -763,8 +763,8 @@ export async function proveNetting(
       onChain: r.onChain, net: r.net.toString(), wetPay,
       ref: onChainRef("NETTING", r.onChain, [{ k: "Net to settle", v: usdLabel(r.net.toString()) }, { k: "Direction", v: wetPay ? "You pay them" : "They pay you" }]),
     };
-  } catch (e) {
-    console.warn(`[console-api] proveNetting failed: ${(e as Error).message}`);
+  } catch {
+    console.warn("[console-api] netting proof failed; returning unverified result");
     return { onChain: false, net: "0", wetPay: true };
   }
 }
@@ -808,8 +808,8 @@ export async function proveKybCredential(): Promise<{ ok: boolean; onChain: bool
       ok: r.ok, onChain: r.onChain, jurisdiction: jur, tier: r.tier.toString(),
       ref: onChainRef("KYB", r.onChain, [{ k: "Jurisdiction", v: jur }, { k: "Tier", v: r.tier.toString() }, { k: "Documents", v: "hidden (only the credential is disclosed)" }]),
     };
-  } catch (e) {
-    console.warn(`[console-api] proveKybCredential failed: ${(e as Error).message}`);
+  } catch {
+    console.warn("[console-api] KYB proof failed; returning unverified result");
     return { ok: false, onChain: false, jurisdiction: jurisdictionLabel(KYB_JURISDICTION.toString()), tier: KYB_TIER.toString() };
   }
 }
@@ -847,8 +847,8 @@ export async function proveRunComputation(
       ok: r.ok, onChain: r.onChain, runTotal: r.runTotal.toString(),
       ref: onChainRef("PAYCOMP", r.onChain, [{ k: "Run total (computed)", v: usdLabel(r.runTotal.toString()) }, { k: "Rate card", v: "private (rate × period − deductions)" }]),
     };
-  } catch (e) {
-    console.warn(`[console-api] proveRunComputation failed: ${(e as Error).message}`);
+  } catch {
+    console.warn("[console-api] payroll computation proof failed; returning unverified result");
     return { ok: false, onChain: false, runTotal: "0" };
   }
 }
@@ -875,8 +875,8 @@ export async function proveAnonymousApproval(
       approved: r.approved, onChain: r.onChain, approvers: r.approvers, threshold: Number(r.threshold), memberCount: r.memberCount,
       ref: onChainRef("ORGAUTH", r.approved && r.onChain, [{ k: "Approvers", v: `${r.approvers} of ${r.memberCount}` }, { k: "Threshold (M-of-N)", v: String(r.threshold) }]),
     };
-  } catch (e) {
-    console.warn(`[console-api] proveAnonymousApproval(${runId}) failed: ${(e as Error).message}`);
+  } catch {
+    console.warn("[console-api] anonymous approval proof failed; returning unverified result");
     return { approved: false, onChain: false, approvers: 0, threshold: Number(ORG_THRESHOLD), memberCount: ORG_MEMBERS };
   }
 }
@@ -1001,15 +1001,14 @@ export async function submitShieldedTransfer(po: PaymentOrder, toHandle?: string
       po.status = "failed";
       po.settlement = { onChain: false, mode: "failed" };
       po.updatedAt = now();
-      console.warn(`[console-api] payment ${po.id} settlement failed: ${r.error}`);
+      console.warn("[console-api] payment settlement failed; marking payment failed");
       return po;
     }
     // No live settlement happened; fall through to the failed branch below.
   }
   // NOT settled on-chain — the BFF isn't live, or the recipient has no on-chain
   // @handle. Do NOT fabricate a txHash or approved state.
-  const reason = c ? "recipient has no on-chain @handle" : "live client unavailable";
-  console.warn(`[console-api] payment ${po.id} NOT settled on-chain (${reason})`);
+  console.warn(c ? "[console-api] payment was not settled on-chain" : "[console-api] payment settlement skipped because live client is unavailable");
   po.status = "failed";
   po.settlement = { onChain: false, mode: "failed" };
   po.updatedAt = now();
@@ -1045,7 +1044,7 @@ export async function runPayroll(
       res = await c.orgBatchPayroll({ org, payouts, signerIndices: ORG_SIGNERS, relayer: RELAYER_ADDR() });
     } catch (e) {
       if (/distinct note/.test((e as Error).message)) {
-        console.warn(`[console-api] batch payroll fell back to chained orgPayroll: ${(e as Error).message}`);
+        console.warn("[console-api] batch payroll fell back to chained org payroll");
         res = await c.orgPayroll({ org, payouts, signerIndices: ORG_SIGNERS, relayer: RELAYER_ADDR() });
       } else {
         throw e;
@@ -1056,7 +1055,6 @@ export async function runPayroll(
     return res.map((r) => ({ onChain: true, txHash: r.txHash ?? undefined }));
   }
   // NOT settled on-chain — don't fabricate tx hashes.
-  const reason = c ? "missing recipient @handle(s)" : "live client unavailable";
-  console.warn(`[console-api] payroll NOT settled on-chain (${reason})`);
+  console.warn(c ? "[console-api] payroll was not settled on-chain" : "[console-api] payroll settlement skipped because live client is unavailable");
   return items.map(() => ({ onChain: false }));
 }

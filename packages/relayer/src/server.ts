@@ -100,6 +100,10 @@ function send(res: ServerResponse, origin: string | undefined, code: number, bod
   res.end(JSON.stringify(body));
 }
 
+function safeServerError(): { error: string } {
+  return { error: "Relayer temporarily unavailable. Please try again." };
+}
+
 function authed(req: IncomingMessage): boolean {
   if (!AUTH_TOKEN) return true; // open dev mode (warned at boot)
   const h = req.headers.authorization;
@@ -210,8 +214,8 @@ const server = createServer(async (req, res) => {
     }
 
     send(res, origin, 404, { error: "not found" });
-  } catch (e) {
-    send(res, origin, 500, { error: String((e as Error)?.message ?? e) });
+  } catch {
+    send(res, origin, 500, safeServerError());
   }
 });
 

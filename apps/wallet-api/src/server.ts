@@ -243,8 +243,8 @@ route("POST", "/api/handle/claim", async (req, res) => {
   if (!body.handle) return json(res, 400, { error: "handle required" });
   try {
     json(res, 200, await claimHandle(body.handle));
-  } catch (e) {
-    json(res, 400, { error: String((e as Error).message) });
+  } catch {
+    json(res, 400, { error: "Handle could not be claimed. Please try another handle." });
   }
 });
 function appLiveStatus() {
@@ -407,7 +407,7 @@ route("POST", "/api/invite/refund", async (req, res) => {
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("invite_refund", undefined, e, "in", body.localId);
-    json(res, 400, { error: String((e as Error).message) });
+    json(res, 400, { error: "Could not refund this invite. It may already be claimed or expired." });
   }
 });
 route("POST", "/api/claim", async (req, res) => {
@@ -427,7 +427,7 @@ route("POST", "/api/claim", async (req, res) => {
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("invite_claim", undefined, e, "in", body.localId);
-    json(res, 400, { error: String((e as Error).message) });
+    json(res, 400, { error: "Could not claim this invite. Check the link and try again." });
   }
 });
 
@@ -605,10 +605,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
         },
       });
     }
-    if (process.env.VERCEL === "1") {
-      return json(res, 500, { error: "Server unavailable. Please try again.", live: false, mode: "unavailable" });
-    }
-    json(res, 500, { error: String((e as Error)?.message ?? e) });
+    json(res, 500, { error: "Server unavailable. Please try again.", live: false, mode: "unavailable" });
   }
 }
 
@@ -618,7 +615,7 @@ const server = createServer(handle);
 
 if (process.env.VERCEL !== "1") server.listen(PORT, () => {
   const s = liveStatus();
-  console.error(`[benzo-wallet-api] listening on :${PORT} (profile: ${db.profile.handle})`);
+  console.error(`[benzo-wallet-api] listening on :${PORT}`);
   if (s.live) {
     console.error("[benzo-wallet-api] MODE=LIVE — REAL on-chain shielded USDC via @benzo/core (testnet).");
   } else {

@@ -91,12 +91,65 @@ function checkBrowserLogs() {
   }
 }
 
+function checkServerErrorsAndLogs() {
+  for (const rel of [
+    "apps/wallet-api/src/server.ts",
+    "apps/console-api/src/server.ts",
+    "packages/relayer/src/server.ts",
+  ]) {
+    assertNotContains(rel, [
+      "error: String((e as Error)",
+      "error: String((e as Error)?.message ?? e)",
+      "profile: ${",
+      "org: ${",
+    ]);
+  }
+  assertNotContains("apps/wallet-api/src/chain.ts", [
+    "live client unavailable; refusing app data:\",",
+  ]);
+  assertNotContains("apps/console-api/src/chain.ts", [
+    "live client unavailable; refusing app data:\",",
+    "proveLineCap(${handle})",
+    "proveLineInnocence(${handle})",
+    "proveAnonymousApproval(${runId})",
+    "payment ${po.id}",
+    "${(e as Error).message}",
+  ]);
+  assertNotContains("apps/console-api/src/server.ts", [
+    "KYB attestation failed:\",",
+  ]);
+}
+
+function checkUrlPayloads() {
+  const sensitiveQuery = /searchParams\.get\("((amount|balance|counterparty|description|email|handle|memo|name|rate|recipient|salary|tax))"\)/i;
+  for (const rel of [
+    "apps/wallet-api/src/server.ts",
+    "apps/console-api/src/server.ts",
+    "packages/anchor/src/server.ts",
+    "packages/indexer/src/server.ts",
+  ]) {
+    const src = read(rel);
+    if (sensitiveQuery.test(src)) fail(`${rel} reads sensitive data from URL query params`);
+  }
+  for (const rel of ["apps/wallet/src/lib/api.ts", "apps/console/src/lib/api.ts", "apps/wallet/src/lib/orgApi.ts"]) {
+    assertNotContains(rel, [
+      "?amount=",
+      "?memo=",
+      "?email=",
+      "?recipient=",
+      "?salary=",
+    ]);
+  }
+}
+
 checkHostedWriteGuard("apps/wallet-api/src/server.ts", "wallet-api");
 checkHostedWriteGuard("apps/console-api/src/server.ts", "console-api");
 checkRecoverySanitized("apps/wallet-api/src/server.ts");
 checkRecoverySanitized("apps/console-api/src/server.ts");
 checkPrivateEventPublicMeta();
 checkBrowserLogs();
+checkServerErrorsAndLogs();
+checkUrlPayloads();
 
 if (failed) process.exit(1);
 console.log("[privacy] payload, recovery, log, and idempotency invariants passed");

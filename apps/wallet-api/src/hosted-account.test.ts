@@ -24,10 +24,7 @@ test("hosted wallet never derives a public user account from DEPLOYER_SECRET wit
   const { getClient } = await import("./chain.js");
 
   expect(getClient("tee")).toBeNull();
-  expect(err).toHaveBeenCalledWith(
-    "[wallet-api] live client unavailable; refusing app data:",
-    expect.stringContaining("Hosted wallet requires Google/passkey account auth"),
-  );
+  expect(err).toHaveBeenCalledWith("[wallet-api] live client unavailable; refusing app data");
 });
 
 test("hosted wallet live status does not depend on DEPLOYER_SECRET", async () => {

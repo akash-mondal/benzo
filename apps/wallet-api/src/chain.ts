@@ -247,8 +247,8 @@ export function getClient(prover: ProverKind = process.env.VERCEL === "1" ? "tee
     c.useAccount(loadWalletAccount());
     clients.set(key, c);
     return c;
-  } catch (e) {
-    console.error("[wallet-api] live client unavailable; refusing app data:", (e as Error).message);
+  } catch {
+    console.error("[wallet-api] live client unavailable; refusing app data");
     return null;
   }
 }

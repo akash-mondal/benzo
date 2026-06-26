@@ -520,8 +520,8 @@ route("POST", "/api/onboarding/kyb", async (req, res) => {
     };
     appendPrivateEvent("onboarding.kyb_attested", db.org.id, "onboarding.kyb.v1", { kyb: db.onboarding.kyb, attestedAt: now() }, { status: db.onboarding.kyb.status, source: "onboarding", live: Boolean(attested.onChain) });
     json(res, 200, db.onboarding.kyb);
-  } catch (e) {
-    console.error("[benzo-console-api] KYB attestation failed:", (e as Error)?.message ?? e);
+  } catch {
+    console.error("[benzo-console-api] KYB attestation failed");
     json(res, 502, { error: "Could not post the KYB attestation on-chain. Please try again." });
   }
 });
@@ -1499,10 +1499,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
         },
       });
     }
-    if (process.env.VERCEL === "1") {
-      return json(res, 500, { error: "Server unavailable. Please try again.", live: false, mode: "unavailable" });
-    }
-    json(res, 500, { error: String((e as Error)?.message ?? e) });
+    json(res, 500, { error: "Server unavailable. Please try again.", live: false, mode: "unavailable" });
   }
 }
 
@@ -1512,7 +1509,7 @@ sealSeedLedger(); // bring pre-existing ledger entries into the audit chain as g
 const server = createServer(handle);
 if (process.env.VERCEL !== "1") server.listen(PORT, () => {
   const s = liveStatus();
-  console.error(`[benzo-console-api] listening on :${PORT} (org: ${db.org.name})`);
+  console.error(`[benzo-console-api] listening on :${PORT}`);
   if (s.live) {
     console.error("[benzo-console-api] MODE=LIVE — serving REAL on-chain data via @benzo/core (testnet).");
   } else {
