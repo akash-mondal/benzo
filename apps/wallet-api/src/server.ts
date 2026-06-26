@@ -36,7 +36,7 @@ import {
   type ProverKind,
   type SendPhase,
 } from "./chain.js";
-import { db, runWithWalletTenant, tenantDataMissing } from "./store.js";
+import { db, id, nowSec, runWithWalletTenant, tenantDataMissing } from "./store.js";
 import { authFromRequest, runWithAuth } from "./auth.js";
 import { googleConfigured, verifyGoogleIdToken } from "./google-oidc.js";
 
@@ -126,6 +126,23 @@ function appLiveStatus() {
 
 route("GET", "/api/live", (_q, res) => json(res, 200, appLiveStatus()));
 route("GET", "/api/prover", (_q, res) => json(res, 200, { ...proverInfo(), live: isLive() }));
+
+function rateLimit(path: string, method: string): { ok: true } | { ok: false; retryAfter: number } {
+  const write = method !== "GET";
+  const key = write ? "write" : "read";
+  const limit = write ? 40 : 180;
+  const now = nowSec();
+  db.rateLimits ??= {};
+  const bucket = db.rateLimits[key] ?? { windowStart: now, count: 0 };
+  if (now - bucket.windowStart >= 60) {
+    bucket.windowStart = now;
+    bucket.count = 0;
+  }
+  bucket.count += path.startsWith("/api/relay") ? 4 : 1;
+  db.rateLimits[key] = bucket;
+  if (bucket.count > limit) return { ok: false, retryAfter: Math.max(1, 60 - (now - bucket.windowStart)) };
+  return { ok: true };
+}
 
 route("GET", "/api/balance", async (_q, res) => json(res, 200, await getBalanceStroops()));
 route("GET", "/api/ramp/reserve", async (_q, res) => json(res, 200, await getRampReserve()));
@@ -248,7 +265,18 @@ route("POST", "/api/send-public", async (req, res) => {
 route("POST", "/api/share-proof", async (req, res, url) => {
   const body = await readJson<{ min: string; prover?: string }>(req);
   if (!body.min) return json(res, 400, { error: "min required" });
-  json(res, 200, await shareProof(body.min, proverOf(url, body)));
+  const receipt = await shareProof(body.min, proverOf(url, body));
+  db.proofReceipts ??= [];
+  db.proofReceipts.push({
+    id: id("prf"),
+    action: "wallet.share-proof",
+    vkId: "BALANCE",
+    prover: receipt.prover,
+    verified: receipt.onChain,
+    publicInputs: receipt.publics,
+    createdAt: nowSec(),
+  });
+  json(res, 200, receipt);
 });
 
 // LOCAL TESTNET-DEV ONLY (BENZO_DEV_EXPORT=1): provision the account to a
@@ -309,6 +337,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
             error: "Live testnet client unavailable. Refusing to serve app data.",
             ...appLiveStatus(),
           });
+        }
+        if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted) {
+          const rl = rateLimit(effectiveUrl.pathname, req.method ?? "GET");
+          if (!rl.ok) return json(res, 429, { error: "Too many requests. Please wait a moment and try again.", retryAfter: rl.retryAfter });
         }
         await r.handler(req, res, effectiveUrl);
       });

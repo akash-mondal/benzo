@@ -29,6 +29,23 @@ export interface ActivityRow {
   unverified?: boolean;
 }
 
+export interface RateBucket {
+  windowStart: number;
+  count: number;
+}
+
+export interface ProofReceipt {
+  id: string;
+  action: string;
+  vkId: string;
+  prover?: string;
+  verified: boolean;
+  publicInputs?: unknown;
+  txHash?: string;
+  verifier?: string;
+  createdAt: number;
+}
+
 export interface Profile {
   handle: string;
   name: string;
@@ -46,6 +63,8 @@ export interface WalletDb {
   profile: Profile;
   contacts: Contact[];
   activity: ActivityRow[];
+  rateLimits: Record<string, RateBucket>;
+  proofReceipts: ProofReceipt[];
 }
 
 export function seed(): WalletDb {
@@ -53,6 +72,8 @@ export function seed(): WalletDb {
     profile: { handle: "@you", name: "You" },
     contacts: [],
     activity: [],
+    rateLimits: {},
+    proofReceipts: [],
   };
 }
 

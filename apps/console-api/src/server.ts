@@ -26,20 +26,13 @@ import type {
   PayrollLine,
 } from "@benzo/types";
 import { ROLE_PERMISSIONS } from "@benzo/types";
-import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic } from "./chain.js";
+import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury, fundTreasury, getKybStatus, isLive, liveStatus, payOne, payableBalance, proveAnonymousApproval, proveBalance, proveFunded, proveKybCredential, proveLineCap, proveLineInnocence, proveNetting, proveRunComputation, proveSolvency, proveTotal, proveTotalAttestation, registerOwnerMvk, submitShieldedTransfer, treasuryPublicBalance, treasuryReceiveInfo, treasurySendPublic, type OnChainRef } from "./chain.js";
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { authFromRequest, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
-import { db, fmtUsd, id, now, parseRosterCsv, runWithConsoleTenant, tenantDataMissing } from "./store.js";
+import { db, fmtUsd, id, now, parseRosterCsv, runWithConsoleTenant, tenantDataMissing, type OrgInvite } from "./store.js";
 import { encodeBenzoLink } from "@benzo/links";
-import { auditPacketHash, buildAnchor, buildAuditPacket, deriveEventKey, MemoryPrivateEventStore, sha256Hex, verifyHashChain, type AuditPacket, type PrivateEventType } from "@benzo/private-events";
-
-/** Recipient @handle stashed per payment so the approve/release step can settle it. */
-const pendingHandles = new Map<string, string>();
-/** Per-payroll-batch recipient @handles, for the live batch payout on approve. */
-const pendingPayrollHandles = new Map<string, { handle?: string; amount: string }[]>();
-/** Per-contractor @handle (from CSV import / roster edit) used for live settlement. */
-const cpHandle = new Map<string, string>();
+import { auditPacketHash, buildAnchor, buildAuditPacket, createPrivateEvent, deriveEventKey, GENESIS_HASH, sha256Hex, verifyHashChain, type AuditPacket, type PrivateEventType } from "@benzo/private-events";
 
 function normalizeHandle(handle: string): string {
   return handle.startsWith("@") ? handle : `@${handle}`;
@@ -47,7 +40,6 @@ function normalizeHandle(handle: string): string {
 
 function applyCounterpartyHandle(cp: Counterparty, handle: string): string {
   const normalized = normalizeHandle(handle);
-  cpHandle.set(cp.id, normalized);
   cp.paymentAddress = {
     shielded: normalized,
     spendPub: cp.paymentAddress?.spendPub ?? `testnet-spend-${cp.id}`,
@@ -57,23 +49,12 @@ function applyCounterpartyHandle(cp: Counterparty, handle: string): string {
   return normalized;
 }
 
-for (const cp of db.counterparties) {
-  if (cp.paymentAddress?.shielded) applyCounterpartyHandle(cp, cp.paymentAddress.shielded);
-}
-
 function privateEventSecret(): string {
   const secret = process.env.BENZO_PRIVATE_EVENT_SECRET;
   if (secret) return secret;
   if (process.env.VERCEL === "1") throw new Error("BENZO_PRIVATE_EVENT_SECRET is required for hosted private-event encryption");
   return process.env.DEPLOYER_SECRET || "benzo-local-dev-private-event-key";
 }
-
-const privateEventKey = deriveEventKey(
-  privateEventSecret(),
-  `benzo/private-events/v1/${db.org.id}`,
-);
-const localPrivateEvents = new MemoryPrivateEventStore(privateEventKey);
-const hostedPrivateEvents = new Map<string, MemoryPrivateEventStore>();
 
 function privateAuditOrgId(): string {
   const auth = currentAuth();
@@ -84,16 +65,8 @@ function privateAuditOrgId(): string {
   return db.org.id;
 }
 
-function privateEventStore(): MemoryPrivateEventStore {
-  const auth = currentAuth();
-  if (process.env.VERCEL !== "1") return localPrivateEvents;
-  if (!auth) throw new Error("Hosted console requires Google account auth");
-  const existing = hostedPrivateEvents.get(auth.key);
-  if (existing) return existing;
-  const key = deriveEventKey(privateEventSecret(), `benzo/private-events/v1/${auth.key}`);
-  const store = new MemoryPrivateEventStore(key);
-  hostedPrivateEvents.set(auth.key, store);
-  return store;
+function privateEventKey(): Buffer {
+  return deriveEventKey(privateEventSecret(), `benzo/private-events/v1/${privateAuditOrgId()}`);
 }
 
 function appendPrivateEvent<TPayload extends Record<string, unknown>>(
@@ -103,18 +76,12 @@ function appendPrivateEvent<TPayload extends Record<string, unknown>>(
   payload: TPayload,
   publicMeta: Record<string, string | number | boolean | null> = {},
 ): void {
-  privateEventStore().append({
-    orgId: privateAuditOrgId(),
-    type,
-    subjectId,
-    schema,
-    payload,
-    publicMeta,
-  });
+  const prevHash = db.privateEvents[db.privateEvents.length - 1]?.hash ?? GENESIS_HASH;
+  db.privateEvents.push(createPrivateEvent({ orgId: privateAuditOrgId(), type, subjectId, schema, payload, publicMeta }, { key: privateEventKey(), prevHash }));
 }
 
 function privateEventAuditSummary() {
-  const events = privateEventStore().list();
+  const events = db.privateEvents;
   return {
     anchor: buildAnchor(privateAuditOrgId(), events),
     integrity: verifyHashChain(events),
@@ -128,6 +95,73 @@ function privateAuditOrgHash(): string {
 
 function stellarExpertTx(txHash?: string): string | undefined {
   return txHash ? `https://stellar.expert/explorer/testnet/tx/${txHash}` : undefined;
+}
+
+function recordProofReceipt(action: string, ref: OnChainRef | undefined, publicInputs?: unknown): void {
+  if (!ref) return;
+  db.proofReceipts ??= [];
+  db.proofReceipts.push({
+    id: id("prf"),
+    action,
+    vkId: ref.vkId,
+    verified: ref.verified,
+    verifier: ref.verifier,
+    network: ref.network,
+    txHash: ref.txHash,
+    root: ref.root,
+    publicInputs: publicInputs ?? ref.publics,
+    createdAt: now(),
+  });
+}
+
+function recordProofReceiptParts(action: string, input: {
+  vkId: string;
+  verified: boolean;
+  verifier?: string;
+  network?: string;
+  txHash?: string;
+  root?: string;
+  publicInputs?: unknown;
+}): void {
+  db.proofReceipts ??= [];
+  db.proofReceipts.push({
+    id: id("prf"),
+    action,
+    vkId: input.vkId,
+    verified: input.verified,
+    verifier: input.verifier,
+    network: input.network ?? process.env.NETWORK_PASSPHRASE ?? "testnet",
+    txHash: input.txHash,
+    root: input.root,
+    publicInputs: input.publicInputs,
+    createdAt: now(),
+  });
+}
+
+function rateLimit(path: string, method: string): { ok: true } | { ok: false; retryAfter: number } {
+  const write = method !== "GET";
+  const key = write ? "write" : "read";
+  const limit = write ? 50 : 240;
+  const nowMs = Date.now();
+  db.rateLimits ??= {};
+  const bucket = db.rateLimits[key] ?? { windowStart: nowMs, count: 0 };
+  if (nowMs - bucket.windowStart >= 60_000) {
+    bucket.windowStart = nowMs;
+    bucket.count = 0;
+  }
+  bucket.count += path.includes("/settlements/") ? 3 : 1;
+  db.rateLimits[key] = bucket;
+  if (bucket.count > limit) return { ok: false, retryAfter: Math.max(1, Math.ceil((60_000 - (nowMs - bucket.windowStart)) / 1000)) };
+  return { ok: true };
+}
+
+function counterpartyHandle(counterpartyId?: string): string | undefined {
+  if (!counterpartyId) return undefined;
+  return db.counterparties.find((c) => c.id === counterpartyId)?.paymentAddress?.shielded;
+}
+
+function payrollLineHandle(line: PayrollLine): string | undefined {
+  return line.settlementHandle ?? counterpartyHandle(line.counterpartyId);
 }
 
 /**
@@ -159,8 +193,9 @@ function assemblePayroll(reqLines: Array<{ counterpartyId: string }>): {
     }
     // v1: fixed-monthly retainer — gross is the stored rate, computed here, not by the caller.
     total += BigInt(rate);
-    lines.push({ counterpartyId: cp.id, amount: rate, rate, status: "pending" });
-    handles.push({ handle: cp.paymentAddress?.shielded ?? cpHandle.get(cp.id), amount: rate });
+    const handle = cp.paymentAddress?.shielded;
+    lines.push({ counterpartyId: cp.id, amount: rate, rate, settlementHandle: handle, status: "pending" });
+    handles.push({ handle, amount: rate });
   }
   return { lines, total: total.toString(), handles };
 }
@@ -226,7 +261,6 @@ function writeRunLedger(batch: PayrollBatch, line: PayrollLine, txId?: string): 
 }
 
 async function settlePayroll(batch: PayrollBatch): Promise<void> {
-  const handles: { handle?: string; amount: string }[] = pendingPayrollHandles.get(batch.id) ?? batch.lines.map(() => ({ amount: "0" }));
   const { live, stroops: balance } = await payableBalance();
 
   // "Payroll funded ✓" — before moving a cent, prove ON-CHAIN (vk_id ORGBAL) that
@@ -267,7 +301,7 @@ async function settlePayroll(batch: PayrollBatch): Promise<void> {
       l.error = "insufficient treasury balance — top up and re-approve to retry";
       continue;
     }
-    const r = await payOne(handles[i]?.handle, l.amount);
+    const r = await payOne(payrollLineHandle(l), l.amount);
     if (r.onChain) {
       l.status = "paid";
       l.txHash = r.txHash;
@@ -375,26 +409,11 @@ route("POST", "/api/auth/google", async (req, res) => {
 // attestation (org_account, issuer-signed) — the console reads the decision from
 // chain; the member MVK registration is likewise a
 // genuine on-chain tx when live. ZK and KYB paths are on-chain.
-interface OnboardingDraft {
-  name?: string;
-  legalName?: string;
-  country?: string;
-  entityType?: string;
-  registrationNumber?: string;
-  taxId?: string;
-  beneficialOwners?: Array<{ name: string; ownership?: string }>;
-  complianceZoneId?: string;
-  team?: Array<{ email: string; role: string }>;
-  kyb?: { status: "approved" | "pending" | "rejected" | "unverified"; provider: string; inquiryRef: string; checks: string[]; onChain: boolean; txHash?: string };
-  mvk?: { onChain: boolean; txHash?: string; mvkRoot?: string };
-}
-let onboarding: OnboardingDraft = {};
-
-route("GET", "/api/onboarding", (_req, res) => json(res, 200, onboarding));
+route("GET", "/api/onboarding", (_req, res) => json(res, 200, db.onboarding));
 route("PATCH", "/api/onboarding", async (req, res) => {
-  const body = await readJson<Partial<OnboardingDraft>>(req);
-  onboarding = { ...onboarding, ...body };
-  json(res, 200, onboarding);
+  const body = await readJson<typeof db.onboarding>(req);
+  db.onboarding = { ...db.onboarding, ...body };
+  json(res, 200, db.onboarding);
 });
 /**
  * KYB — a REAL on-chain attestation. The provider's checks gate the decision,
@@ -403,11 +422,11 @@ route("PATCH", "/api/onboarding", async (req, res) => {
  * is ours today; a real provider would hold it (or we re-point to theirs).
  */
 route("POST", "/api/onboarding/kyb", async (req, res) => {
-  const body = await readJson<Partial<OnboardingDraft> & { approve?: boolean }>(req);
-  onboarding = { ...onboarding, ...body };
+  const body = await readJson<typeof db.onboarding & { approve?: boolean }>(req);
+  db.onboarding = { ...db.onboarding, ...body };
   try {
     const attested = await attestKyb(body.approve !== false);
-    onboarding.kyb = {
+    db.onboarding.kyb = {
       status: attested.status as "approved" | "pending" | "rejected" | "unverified",
       provider: "On-chain attestation (org_account)",
       inquiryRef: attested.inquiryRef,
@@ -415,7 +434,7 @@ route("POST", "/api/onboarding/kyb", async (req, res) => {
       onChain: attested.onChain,
       txHash: attested.txHash,
     };
-    json(res, 200, onboarding.kyb);
+    json(res, 200, db.onboarding.kyb);
   } catch (e) {
     console.error("[benzo-console-api] KYB attestation failed:", (e as Error)?.message ?? e);
     json(res, 502, { error: "Could not post the KYB attestation on-chain. Please try again." });
@@ -429,15 +448,15 @@ route("GET", "/api/onboarding/kyb-status", async (_req, res) => {
 /** Register the org owner's MVK on-chain — the real ZK action of onboarding. */
 route("POST", "/api/onboarding/register-mvk", async (_req, res) => {
   const r = await registerOwnerMvk();
-  onboarding.mvk = r;
+  db.onboarding.mvk = r;
   json(res, 200, r);
 });
 /** Finish — apply the draft to the org so the console boots into the live workspace. */
 route("POST", "/api/onboarding/finish", async (_req, res) => {
-  if (onboarding.name) db.org.name = onboarding.name;
-  if (onboarding.legalName) db.org.legalName = onboarding.legalName;
-  if (onboarding.country) db.org.country = onboarding.country;
-  if (onboarding.complianceZoneId) db.org.complianceZoneId = onboarding.complianceZoneId;
+  if (db.onboarding.name) db.org.name = db.onboarding.name;
+  if (db.onboarding.legalName) db.org.legalName = db.onboarding.legalName;
+  if (db.onboarding.country) db.org.country = db.onboarding.country;
+  if (db.onboarding.complianceZoneId) db.org.complianceZoneId = db.onboarding.complianceZoneId;
   // Reflect the REAL on-chain KYB decision (read from chain when live), so the
   // workspace boots with the attested status rather than an assumed one.
   const chainKyb = await getKybStatus();
@@ -470,15 +489,21 @@ route("GET", "/api/dashboard", async (_req, res) => {
 route("GET", "/api/treasury", async (_req, res) => json(res, 200, await computeTreasury()));
 route("POST", "/api/treasury/prove-balance", async (req, res) => {
   const body = await readJson<{ min: string }>(req);
-  json(res, 200, await proveBalance(String(body.min)));
+  const proof = await proveBalance(String(body.min));
+  recordProofReceipt("treasury.prove-balance", proof.ref);
+  json(res, 200, proof);
 });
 route("POST", "/api/treasury/prove-total", async (_req, res) => {
-  json(res, 200, await proveTotal());
+  const proof = await proveTotal();
+  recordProofReceipt("treasury.prove-total", proof.ref);
+  json(res, 200, proof);
 });
 // KYB-as-ZK credential (Z7): prove "verified business, jurisdiction Y, tier Z"
 // on-chain (vk_id KYB) without revealing the documents; sybil-resistant.
 route("POST", "/api/compliance/kyb-credential", async (_req, res) => {
-  json(res, 200, await proveKybCredential());
+  const proof = await proveKybCredential();
+  recordProofReceipt("compliance.kyb-credential", proof.ref);
+  json(res, 200, proof);
 });
 // Cross-entity private netting (Z8): net mutual invoices with a counterparty and
 // settle only the difference on-chain (vk_id NETTING); grosses hidden.
@@ -486,7 +511,9 @@ route("POST", "/api/invoices/net", async (req, res) => {
   const body = await readJson<{ weOwe: string; theyOwe: string }>(req);
   const we = BigInt(Math.round(Number(body.weOwe) * 1e7)).toString();
   const they = BigInt(Math.round(Number(body.theyOwe) * 1e7)).toString();
-  json(res, 200, await proveNetting(we, they));
+  const proof = await proveNetting(we, they);
+  recordProofReceipt("invoices.net", proof.ref);
+  json(res, 200, proof);
 });
 // Records export (Z2): network-verified period-total attestation for a tax
 // authority/auditor. Embeds the real ORGSUM proof + publics for independent
@@ -494,6 +521,14 @@ route("POST", "/api/invoices/net", async (req, res) => {
 route("POST", "/api/records/period-total", async (req, res) => {
   const body = await readJson<{ period?: string }>(req);
   const att = await proveTotalAttestation(body.period || db.org?.name + " period");
+  recordProofReceiptParts("records.period-total", {
+    vkId: att.vkId,
+    verified: att.onChain,
+    verifier: att.verifier,
+    network: att.network,
+    root: att.root,
+    publicInputs: att.sorobanPublics,
+  });
   json(res, 200, { live: true, org: db.org?.name ?? "Organization", ...att });
 });
 // True solvency — prove treasury >= Σ liabilities (pending payroll + open
@@ -506,7 +541,9 @@ route("POST", "/api/treasury/prove-solvency", async (_req, res) => {
     .filter((i) => i.status !== "paid" && i.status !== "cancelled")
     .reduce((s, i) => s + BigInt(i.total.amount || "0"), 0n);
   const liabilities = (pendingPayroll + openInvoices).toString();
-  json(res, 200, await proveSolvency(liabilities));
+  const proof = await proveSolvency(liabilities);
+  recordProofReceipt("treasury.prove-solvency", proof.ref);
+  json(res, 200, proof);
 });
 route("POST", "/api/treasury/fund", async (req, res) => {
   const body = await readJson<{ amount: string }>(req);
@@ -576,16 +613,19 @@ route("POST", "/api/settlements/payroll", async (req, res) => {
 route("POST", "/api/payroll-proofs/funded", async (req, res) => {
   const body = await readJson<{ runTotal?: string }>(req);
   const r = await proveFunded(String(body.runTotal ?? "0"));
+  recordProofReceipt("payroll.funded", r.ref);
   json(res, 200, { runTotal: String(body.runTotal ?? "0"), funded: r.funded, onChain: r.onChain, provenAt: now(), ref: r.ref });
 });
 route("POST", "/api/payroll-proofs/approval", async (req, res) => {
   const body = await readJson<{ batchId?: string }>(req);
   const { ref, ...r } = await proveAnonymousApproval(body.batchId ?? id("pr"));
+  recordProofReceipt("payroll.approval", ref);
   json(res, 200, { ...r, provenAt: now(), ref });
 });
 route("POST", "/api/payroll-proofs/computation", async (req, res) => {
   const body = await readJson<{ lines?: Array<{ amount: string; handle?: string }> }>(req);
   const r = await proveRunComputation((body.lines ?? []).map((l) => ({ amount: l.amount, handle: l.handle })));
+  recordProofReceipt("payroll.computation", r.ref);
   json(res, 200, { ok: r.ok, onChain: r.onChain, runTotal: r.runTotal, provenAt: now(), ref: r.ref });
 });
 route("POST", "/api/payroll-proofs/policy", async (req, res) => {
@@ -601,6 +641,8 @@ route("POST", "/api/payroll-proofs/policy", async (req, res) => {
     }
     const cap = await proveLineCap(l.handle, l.amount, capStroops, BigInt(i + 1));
     const screen = await proveLineInnocence(l.handle, l.amount, BigInt(1000 + i));
+    recordProofReceiptParts("payroll.policy.cap", { vkId: "SPENDCAP", verified: cap.withinCap && cap.onChain });
+    recordProofReceiptParts("payroll.policy.screen", { vkId: "POIPAYOUT", verified: screen.innocent && screen.onChain });
     lines.push({
       counterpartyId: l.counterpartyId,
       capProof: { withinCap: cap.withinCap, onChain: cap.onChain },
@@ -648,8 +690,8 @@ route("POST", "/api/payments", async (req, res) => {
   // from the selected payee's saved handle when the caller didn't pass one, so
   // the UI never makes the user re-type a handle the dropdown already implies.
   const payee = db.counterparties.find((c) => c.id === po.toCounterpartyId);
-  const toHandle = (body as CreatePaymentRequest & { toHandle?: string }).toHandle ?? payee?.paymentAddress?.shielded ?? cpHandle.get(po.toCounterpartyId ?? "");
-  if (toHandle) pendingHandles.set(po.id, toHandle);
+  const toHandle = (body as CreatePaymentRequest & { toHandle?: string }).toHandle ?? payee?.paymentAddress?.shielded;
+  if (toHandle && payee) applyCounterpartyHandle(payee, toHandle);
   if (!policy) await submitShieldedTransfer(po, toHandle); // auto-settle when no approval needed
   db.payments.push(po);
   appendPrivateEvent(
@@ -691,8 +733,7 @@ route("POST", "/api/payments/:id/approve", async (req, res, p) => {
   const r = recordApproval({ policy, approvals: po.approvals, proposerId: po.createdByMemberId, actorMemberId: body.actorMemberId, decision: "approved", comment: body.comment, paymentOrderId: po.id });
   if (r.error) return json(res, 400, { error: r.error });
   // Release ONLY when every step + the release gate are satisfied.
-  const payee = db.counterparties.find((c) => c.id === po.toCounterpartyId);
-  const releaseHandle = pendingHandles.get(po.id) ?? payee?.paymentAddress?.shielded ?? cpHandle.get(po.toCounterpartyId ?? "");
+  const releaseHandle = counterpartyHandle(po.toCounterpartyId);
   if (r.progress.satisfied) await submitShieldedTransfer(po, releaseHandle);
   po.updatedAt = now();
   appendPrivateEvent("approval.recorded", po.id, "approval.v1", { payment: po, decision: "approved", actorMemberId: body.actorMemberId, comment: body.comment, progress: r.progress, recordedAt: po.updatedAt }, { status: po.status, source: "payment" });
@@ -713,19 +754,6 @@ route("POST", "/api/payments/:id/approve", async (req, res, p) => {
 // `app:"business"` tag means the consumer wallet refuses it (MismatchScreen) and
 // a consumer claim secret can't reconstruct a business account (HKDF domain sep).
 // Only TEAM invites create a console seat; contractor/customer onboard in the wallet.
-interface OrgInvite {
-  id: string;
-  kind: "member" | "contractor" | "customer";
-  name?: string;
-  email?: string;
-  role?: string;
-  counterpartyId?: string;
-  link: string;
-  token: string;
-  status: "sent" | "accepted" | "revoked";
-  createdAt: string;
-}
-const invites: OrgInvite[] = [];
 const DEFAULT_WALLET_ORIGIN = "https://wallet.benzo.space";
 const DEFAULT_CONSOLE_ORIGIN = "https://console.benzo.space";
 
@@ -772,7 +800,7 @@ function upsertContractor(name: string, handle?: string): Counterparty {
   return cp;
 }
 
-route("GET", "/api/invites", (_req, res) => json(res, 200, invites));
+route("GET", "/api/invites", (_req, res) => json(res, 200, db.invites));
 route("POST", "/api/invites", async (req, res) => {
   const body = await readJson<{ kind?: OrgInvite["kind"]; name?: string; email?: string; role?: string; handle?: string }>(req);
   const kind = body.kind ?? "member";
@@ -782,7 +810,7 @@ route("POST", "/api/invites", async (req, res) => {
     db.members.push({ id: id("mem"), orgId: db.org.id, email: body.email, role: (body.role as Member["role"]) ?? "approver", status: "invited", createdAt: now() });
   }
   const inv = makeInvite(kind, { name: body.name, email: body.email, role: body.role, counterpartyId });
-  invites.push(inv);
+  db.invites.push(inv);
   json(res, 201, inv);
 });
 /** Bulk contractor invites from a CSV (name,handle,rate) — one business-scoped link each. */
@@ -798,13 +826,13 @@ route("POST", "/api/invites/bulk", async (req, res) => {
       cp.payCadence = "monthly";
     }
     const inv = makeInvite("contractor", { name: r.name, counterpartyId: cp.id });
-    invites.push(inv);
+    db.invites.push(inv);
     created.push(inv);
   }
   json(res, 200, { created: created.length, errors, invites: created });
 });
 route("POST", "/api/invites/:id/revoke", (_req, res, p) => {
-  const inv = invites.find((x) => x.id === p.id);
+  const inv = db.invites.find((x) => x.id === p.id);
   if (!inv) return json(res, 404, { error: "not found" });
   inv.status = "revoked";
   json(res, 200, inv);
@@ -812,7 +840,7 @@ route("POST", "/api/invites/:id/revoke", (_req, res, p) => {
 /** Accept an invite by token (the contractor/employee onboarding handshake). */
 route("POST", "/api/invites/accept", async (req, res) => {
   const body = await readJson<{ token: string; handle?: string; counterpartyId?: string; kind?: OrgInvite["kind"]; orgId?: string; name?: string }>(req);
-  const inv = invites.find((x) => x.token === body.token);
+  const inv = db.invites.find((x) => x.token === body.token);
   if (!inv) {
     if (!body.counterpartyId || (body.kind !== "contractor" && body.kind !== "customer")) {
       return json(res, 404, { error: "invite not found or expired" });
@@ -873,8 +901,7 @@ route("POST", "/api/invoices/:id/pay", async (_req, res, pp) => {
     settlement: {}, createdByMemberId: db.sessionMemberId, createdAt: now(), updatedAt: now(),
   };
   const payee = db.counterparties.find((c) => c.id === inv.counterpartyId);
-  const h = payee?.paymentAddress?.shielded ?? cpHandle.get(inv.counterpartyId);
-  if (h) pendingHandles.set(po.id, h);
+  const h = payee?.paymentAddress?.shielded;
   if (!policy) await submitShieldedTransfer(po, h); // under threshold → settle now
   db.payments.push(po);
   inv.paymentOrderIds = [...(inv.paymentOrderIds ?? []), po.id];
@@ -919,7 +946,6 @@ route("POST", "/api/payrolls", async (req, res) => {
     status: (policy ? "needs_approval" : "approved") as "needs_approval" | "approved",
     lines, total: { amount: total, assetCode: "USDC" }, approvals: [], scheduledAt: body.scheduledAt, createdAt: now(),
   };
-  pendingPayrollHandles.set(batch.id, handles);
   db.payrolls.push(batch);
   appendPrivateEvent(
     "payroll.computed",
@@ -1007,6 +1033,7 @@ route("POST", "/api/payrolls/:id/prove-funded", async (_req, res, p) => {
     .reduce((s, l) => s + BigInt(l.amount), 0n);
   const f = await proveFunded(runTotal.toString());
   batch.fundedProof = { funded: f.funded, onChain: f.onChain, provenAt: now() };
+  recordProofReceipt("payroll.run-funded", f.ref);
   json(res, 200, { runTotal: runTotal.toString(), ...batch.fundedProof, ref: f.ref });
 });
 
@@ -1022,15 +1049,16 @@ route("POST", "/api/payrolls/:id/prove-policy", async (req, res, p) => {
   if (!batch) return json(res, 404, { error: "not found" });
   const body = await readJson<{ cap: string }>(req);
   const capStroops = BigInt(Math.round(Number(body.cap) * 1e7)).toString();
-  const handles = pendingPayrollHandles.get(batch.id) ?? [];
   for (let i = 0; i < batch.lines.length; i++) {
     const l = batch.lines[i];
-    const handle = handles[i]?.handle;
+    const handle = payrollLineHandle(l);
     if (!handle || BigInt(l.amount || "0") <= 0n) continue;
     const cap = await proveLineCap(handle, l.amount, capStroops, BigInt(i + 1));
     l.capProof = { withinCap: cap.withinCap, onChain: cap.onChain };
     const screen = await proveLineInnocence(handle, l.amount, BigInt(1000 + i));
     l.screenProof = { innocent: screen.innocent, onChain: screen.onChain };
+    recordProofReceiptParts("payroll.run-policy.cap", { vkId: "SPENDCAP", verified: cap.withinCap && cap.onChain });
+    recordProofReceiptParts("payroll.run-policy.screen", { vkId: "POIPAYOUT", verified: screen.innocent && screen.onChain });
   }
   json(res, 200, {
     cap: body.cap,
@@ -1048,6 +1076,7 @@ route("POST", "/api/payrolls/:id/prove-approval", async (_req, res, p) => {
   if (!batch) return json(res, 404, { error: "not found" });
   const { ref, ...r } = await proveAnonymousApproval(batch.id);
   batch.approvalProof = { ...r, provenAt: now() };
+  recordProofReceipt("payroll.run-approval", ref);
   json(res, 200, { ...batch.approvalProof, ref });
 });
 
@@ -1059,10 +1088,10 @@ route("POST", "/api/payrolls/:id/prove-approval", async (_req, res, p) => {
 route("POST", "/api/payrolls/:id/prove-computation", async (_req, res, p) => {
   const batch = db.payrolls.find((x) => x.id === p.id);
   if (!batch) return json(res, 404, { error: "not found" });
-  const handles = pendingPayrollHandles.get(batch.id) ?? [];
-  const lines = batch.lines.map((l, i) => ({ handle: handles[i]?.handle, amount: l.amount }));
+  const lines = batch.lines.map((l) => ({ handle: payrollLineHandle(l), amount: l.amount }));
   const r = await proveRunComputation(lines);
   batch.computationProof = { ok: r.ok, onChain: r.onChain, runTotal: r.runTotal, provenAt: now() };
+  recordProofReceipt("payroll.run-computation", r.ref);
   json(res, 200, { ...batch.computationProof, ref: r.ref });
 });
 
@@ -1173,7 +1202,7 @@ route("GET", "/api/audit/private-events", (req, res) => {
     eventTypes,
     subjectIds,
   };
-  const events = privateEventStore().list();
+  const events = db.privateEvents;
   json(res, 200, {
     packet: buildAuditPacket({ orgId: privateAuditOrgId(), events, scope }),
     integrity: verifyHashChain(events),
@@ -1182,7 +1211,7 @@ route("GET", "/api/audit/private-events", (req, res) => {
 });
 route("POST", "/api/audit/private-events/anchor", async (req, res) => {
   const body = await readJson<{ packet?: AuditPacket; packetHash?: string; orgHash?: string }>(req);
-  const events = privateEventStore().list();
+  const events = db.privateEvents;
   const packet = body.packet ?? buildAuditPacket({ orgId: privateAuditOrgId(), events, scope: { label: "console-private-events" } });
   const packetHash = body.packet ? auditPacketHash(packet) : auditPacketHash(packet);
   const orgHash = body.orgHash ?? privateAuditOrgHash();
@@ -1276,6 +1305,10 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
             error: "Live testnet client unavailable. Refusing to serve app data.",
             ...appLiveStatus(),
           });
+        }
+        if (effectiveUrl.pathname.startsWith("/api/") && !publicHosted) {
+          const rl = rateLimit(effectiveUrl.pathname, req.method ?? "GET");
+          if (!rl.ok) return json(res, 429, { error: "Too many requests. Please wait a moment and try again.", retryAfter: rl.retryAfter });
         }
         await m.handler(req, res, m.params);
       });

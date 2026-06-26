@@ -44,3 +44,70 @@ test("hosted console starts empty and partitions org documents by auth key", asy
     expect(db.counterparties.map((c) => c.id)).toEqual(["cp_alice"]);
   });
 });
+
+test("hosted console persists operational state in the encrypted tenant document", async () => {
+  process.env.VERCEL = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  const { db, runWithConsoleTenant } = await import("./store.js");
+
+  await runWithConsoleTenant("ops", { email: "ops@example.com", name: "Ops" }, async () => {
+    db.onboarding = { name: "Ops Treasury", country: "US" };
+    db.invites.push({
+      id: "invite_ops",
+      kind: "contractor",
+      name: "Private Contractor",
+      counterpartyId: "cp_ops",
+      link: "https://wallet.benzo.space/claim#secret",
+      token: "tok_ops",
+      status: "sent",
+      createdAt: new Date().toISOString(),
+    });
+    db.payrolls.push({
+      id: "pr_ops",
+      orgId: db.org.id,
+      period: "2026-06",
+      source: "manual",
+      status: "needs_approval",
+      lines: [{ counterpartyId: "cp_ops", amount: "10000000", settlementHandle: "@ops", status: "pending" }],
+      total: { amount: "10000000", assetCode: "USDC" },
+      createdAt: new Date().toISOString(),
+    });
+    db.privateEvents.push({
+      id: "pe_ops",
+      orgId: `org-ops`,
+      type: "payment.submitted",
+      subjectId: "po_ops",
+      schema: "payment.order.v1",
+      occurredAt: new Date().toISOString(),
+      publicMeta: { status: "needs_approval" },
+      ciphertext: "cipher",
+      iv: "iv",
+      tag: "tag",
+      aadHash: "aad",
+      payloadHash: "payload",
+      prevHash: "GENESIS",
+      hash: "hash",
+    });
+    db.rateLimits.write = { windowStart: Date.now(), count: 7 };
+    db.proofReceipts.push({
+      id: "prf_ops",
+      action: "treasury.prove-total",
+      vkId: "ORGSUM",
+      verified: true,
+      verifier: "verifier_contract",
+      network: "testnet",
+      publicInputs: [{ k: "Total", v: "hidden" }],
+      createdAt: new Date().toISOString(),
+    });
+  });
+
+  await runWithConsoleTenant("ops", null, async () => {
+    expect(db.onboarding).toMatchObject({ name: "Ops Treasury", country: "US" });
+    expect(db.invites.map((i) => i.id)).toEqual(["invite_ops"]);
+    expect(db.payrolls[0].lines[0].settlementHandle).toBe("@ops");
+    expect(db.privateEvents.map((e) => e.id)).toEqual(["pe_ops"]);
+    expect(db.rateLimits.write.count).toBe(7);
+    expect(db.proofReceipts.map((r) => r.vkId)).toEqual(["ORGSUM"]);
+  });
+});

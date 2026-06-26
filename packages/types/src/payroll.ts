@@ -29,6 +29,8 @@ export interface PayrollLine {
   amount: string;
   /** the rate card the gross was computed from (for the payslip/record audit trail) */
   rate?: string;
+  /** encrypted tenant-only recipient handle used to resume settlement after a cold start */
+  settlementHandle?: string;
   status: PayrollLineStatus;
   /** settlement tx hash once paid */
   txHash?: string;

@@ -19,6 +19,7 @@ import type {
   PayrollBatch,
   ViewingGrant,
 } from "@benzo/types";
+import type { PrivateEventEnvelope } from "@benzo/private-events";
 import { loadTenantDocument, saveTenantDocument, tenantStorageMissing } from "./tenantData.js";
 
 let seq = 0;
@@ -115,8 +116,58 @@ export interface Db {
   zones: ComplianceZone[];
   ledger: LedgerEntry[];
   integrations: Integration[];
+  invites: OrgInvite[];
+  onboarding: OnboardingDraft;
+  privateEvents: PrivateEventEnvelope[];
+  rateLimits: Record<string, RateBucket>;
+  proofReceipts: ProofReceipt[];
   /** the session member (owner) */
   sessionMemberId: string;
+}
+
+export interface RateBucket {
+  windowStart: number;
+  count: number;
+}
+
+export interface ProofReceipt {
+  id: string;
+  action: string;
+  vkId: string;
+  verified: boolean;
+  verifier?: string;
+  network?: string;
+  txHash?: string;
+  root?: string;
+  publicInputs?: unknown;
+  createdAt: string;
+}
+
+export interface OnboardingDraft {
+  name?: string;
+  legalName?: string;
+  country?: string;
+  entityType?: string;
+  registrationNumber?: string;
+  taxId?: string;
+  beneficialOwners?: Array<{ name: string; ownership?: string }>;
+  complianceZoneId?: string;
+  team?: Array<{ email: string; role: string }>;
+  kyb?: { status: "approved" | "pending" | "rejected" | "unverified"; provider: string; inquiryRef: string; checks: string[]; onChain: boolean; txHash?: string };
+  mvk?: { onChain: boolean; txHash?: string; mvkRoot?: string };
+}
+
+export interface OrgInvite {
+  id: string;
+  kind: "member" | "contractor" | "customer";
+  name?: string;
+  email?: string;
+  role?: string;
+  counterpartyId?: string;
+  link: string;
+  token: string;
+  status: "sent" | "accepted" | "revoked";
+  createdAt: string;
 }
 
 export function seed(): Db {
@@ -230,7 +281,13 @@ export function seed(): Db {
 
   return {
     org, members, accounts, counterparties, payments, invoices, payrolls,
-    policies, grants, zones, ledger, integrations, sessionMemberId: owner.id,
+    policies, grants, zones, ledger, integrations,
+    invites: [],
+    onboarding: {},
+    privateEvents: [],
+    rateLimits: {},
+    proofReceipts: [],
+    sessionMemberId: owner.id,
   };
 }
 
@@ -291,6 +348,11 @@ export function freshHostedDb(authKey: string, claims?: { email?: string; name?:
       { id: "int_qbo", orgId, provider: "quickbooks", status: "disconnected" },
       { id: "int_slack", orgId, provider: "slack", status: "disconnected" },
     ],
+    invites: [],
+    onboarding: {},
+    privateEvents: [],
+    rateLimits: {},
+    proofReceipts: [],
     sessionMemberId: owner.id,
   };
 }
