@@ -79,6 +79,14 @@ export function SettingsScreen() {
               <p className="mt-1.5 leading-relaxed">
                 If your Google account or account salt changes, Benzo blocks access instead of attaching this workspace to a different key. Recovery requires an owner-approved migration.
               </p>
+              <ul className="mt-3 space-y-1.5" data-testid="console-recovery-plan">
+                {(recovery?.nextSteps?.length ? recovery.nextSteps : ["Finish sign-in as an owner to bind this workspace key."]).map((step) => (
+                  <li key={step} className="flex gap-2">
+                    <span className="mt-[7px] h-1 w-1 flex-none rounded-full bg-primary" />
+                    <span>{step}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           </Card>
         </Stagger.Item>

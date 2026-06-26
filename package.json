@@ -14,6 +14,7 @@
     "verify:artifacts": "node scripts/check-artifacts.mjs",
     "audit:prod-env": "node scripts/audit-production-env.mjs",
     "audit:privacy": "node scripts/audit-privacy-payloads.mjs",
+    "audit:actions": "node scripts/audit-action-coverage.mjs",
     "test": "pnpm -r test",
     "test:zk": "node scripts/check-artifacts.mjs && pnpm -r test",
     "lint": "biome lint",

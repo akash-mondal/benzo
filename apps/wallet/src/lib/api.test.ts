@@ -111,11 +111,12 @@ describe("wallet API idempotency", () => {
 
   it("loads sanitized recovery status without mutation idempotency", async () => {
     localStorage.setItem("benzo.googleCredential", "google.jwt");
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "ok", recovery: { bound: true, createdAt: 1, lastSeenAt: 2 } }));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "ok", recovery: { bound: true, status: "healthy", custody: "non-custodial", createdAt: 1, lastSeenAt: 2, nextSteps: ["Use this Google sign-in."] } }));
     vi.stubGlobal("fetch", fetchMock);
 
     const result = await api.recoveryStatus();
     expect(result).toMatchObject({ recovery: { bound: true } });
+    expect(result.recovery.nextSteps[0]).toContain("Google");
     expect(result.recovery).not.toHaveProperty("accountFingerprint");
     expect(result.recovery).not.toHaveProperty("subjectKey");
 

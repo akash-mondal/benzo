@@ -138,6 +138,9 @@ export interface RecoverySummary {
   bound: boolean;
   createdAt?: string;
   lastSeenAt?: string;
+  status: "unbound" | "healthy";
+  custody: "non-custodial";
+  nextSteps: string[];
 }
 
 export class RecoveryRequiredError extends Error {
@@ -456,11 +459,27 @@ function bindRecovery(value: Db, binding: AccountBinding | null): void {
 
 export function recoverySummary(): RecoverySummary {
   const recovery = db.recovery;
-  if (!recovery) return { bound: false };
+  if (!recovery) {
+    return {
+      bound: false,
+      status: "unbound",
+      custody: "non-custodial",
+      nextSteps: [
+        "Finish sign-in as an owner to bind this workspace key.",
+        "Add at least one backup owner before moving real funds.",
+      ],
+    };
+  }
   return {
     bound: true,
+    status: "healthy",
+    custody: "non-custodial",
     createdAt: recovery.createdAt,
     lastSeenAt: recovery.lastSeenAt,
+    nextSteps: [
+      "Use this Google sign-in to keep access to the workspace key.",
+      "If the key changes, another owner must approve a reviewed workspace migration.",
+    ],
   };
 }
 

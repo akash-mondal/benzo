@@ -169,6 +169,15 @@ export function Profile() {
               }
             />
             <Row
+              icon={<KeyRound size={18} />}
+              label="Recovery path"
+              right={
+                <span className="max-w-[180px] text-right text-[12.5px] leading-tight text-muted" data-testid="profile-recovery-plan">
+                  {recovery?.nextSteps?.[0] ?? "Sign in to bind this wallet."}
+                </span>
+              }
+            />
+            <Row
               icon={<Activity size={18} />}
               label="Network"
               right={

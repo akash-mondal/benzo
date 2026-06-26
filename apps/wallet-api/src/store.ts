@@ -113,6 +113,9 @@ export interface RecoverySummary {
   bound: boolean;
   createdAt?: number;
   lastSeenAt?: number;
+  status: "unbound" | "healthy";
+  custody: "non-custodial";
+  nextSteps: string[];
 }
 
 export class RecoveryRequiredError extends Error {
@@ -308,11 +311,27 @@ function bindRecovery(value: WalletDb, binding: AccountBinding | null): void {
 
 export function recoverySummary(): RecoverySummary {
   const recovery = db.recovery;
-  if (!recovery) return { bound: false };
+  if (!recovery) {
+    return {
+      bound: false,
+      status: "unbound",
+      custody: "non-custodial",
+      nextSteps: [
+        "Finish sign-in on this device to bind the wallet key.",
+        "After binding, use the same Google account to keep the same shielded account.",
+      ],
+    };
+  }
   return {
     bound: true,
+    status: "healthy",
+    custody: "non-custodial",
     createdAt: recovery.createdAt,
     lastSeenAt: recovery.lastSeenAt,
+    nextSteps: [
+      "Use this Google sign-in to keep access to the same shielded account.",
+      "If your account or account salt changes, sign back in with the original account or request a reviewed migration.",
+    ],
   };
 }
 

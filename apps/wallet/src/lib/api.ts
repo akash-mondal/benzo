@@ -92,6 +92,9 @@ export interface RecoveryStatus {
     bound: boolean;
     createdAt?: number;
     lastSeenAt?: number;
+    status: "unbound" | "healthy";
+    custody: "non-custodial";
+    nextSteps: string[];
   };
 }
 

@@ -136,6 +136,9 @@ export interface RecoveryStatus {
     bound: boolean;
     createdAt?: string;
     lastSeenAt?: string;
+    status: "unbound" | "healthy";
+    custody: "non-custodial";
+    nextSteps: string[];
   };
 }
 
