@@ -16,7 +16,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
   process.env.VERCEL = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
-  const { appendWalletLedger, db, runWithWalletTenant, verifyWalletLedger, walletLedgerBalances } = await import("./store.js");
+  const { appendWalletLedger, appendWalletProofReceipt, db, runWithWalletTenant, verifyWalletLedger, walletLedgerBalances } = await import("./store.js");
 
   await runWithWalletTenant("alice", { name: "Alice" }, { accountFingerprint: "wallet_alice", subjectKey: "alice" }, async () => {
     db.profile.handle = "@alice";
@@ -49,6 +49,15 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
       errorCode: "reserve",
       error: "The cash reserve is topping up. Try again in a moment, or a smaller amount.",
     });
+    appendWalletProofReceipt({
+      action: "wallet.add-money",
+      vkId: "SHIELD",
+      prover: "tee",
+      verified: true,
+      txHash: "tx_shield",
+      verifier: "verifier_contract",
+      publicInputs: { source: "settlement-tx", txHash: "tx_shield" },
+    });
     expect(verifyWalletLedger()).toMatchObject({ ok: true, length: 2 });
     expect(walletLedgerBalances()).toMatchObject({ private: "30000000", ramp_reserve: "-30000000" });
   });
@@ -58,6 +67,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
     expect(db.contacts).toEqual([]);
     expect(db.invites).toEqual([]);
     expect(db.ledger).toEqual([]);
+    expect(db.proofReceipts).toEqual([]);
     db.profile.handle = "@bob";
   });
 
@@ -66,6 +76,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
     expect(db.contacts).toHaveLength(1);
     expect(db.invites.map((i) => i.localId)).toEqual(["inv_alice"]);
     expect(db.ledger.map((e) => e.sourceType)).toEqual(["onramp", "offramp"]);
+    expect(db.proofReceipts.map((r) => [r.action, r.vkId, r.txHash])).toEqual([["wallet.add-money", "SHIELD", "tx_shield"]]);
     expect(verifyWalletLedger()).toMatchObject({ ok: true, length: 2 });
     expect(walletLedgerBalances()).toMatchObject({ private: "30000000", ramp_reserve: "-30000000" });
     db.ledger[0].requestedAmount = "999";

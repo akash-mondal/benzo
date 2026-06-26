@@ -78,7 +78,7 @@ jobs:
           fi
       - name: No fake fiat payout copy in wallet
         run: |
-          if git grep -nE 'sent to your bank|arriving in your bank|MoneyGram-style|On its way' -- apps/wallet/src ':!apps/wallet/src/screens/TxDetail.test.tsx'; then
+          if git grep -nE 'sent to your bank|arriving in your bank|to your bank|From your bank|To your bank|MoneyGram-style|MoneyGram-modeled|On its way' -- apps/wallet/src apps/wallet-api/src ':!apps/wallet/src/screens/TxDetail.test.tsx'; then
             echo "::error::wallet cash-out UI must describe the testnet reserve, not a real fiat payout"; exit 1
           fi
       - name: Build wallet app with browser proving artifacts

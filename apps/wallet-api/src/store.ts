@@ -217,6 +217,23 @@ export function appendWalletLedger(entry: Omit<WalletLedgerEntry, "id" | "posted
   return next;
 }
 
+export function appendWalletProofReceipt(entry: Omit<ProofReceipt, "id" | "createdAt"> & { id?: string; createdAt?: number }): ProofReceipt {
+  db.proofReceipts ??= [];
+  const next: ProofReceipt = {
+    id: entry.id ?? id("prf"),
+    action: entry.action,
+    vkId: entry.vkId,
+    prover: entry.prover,
+    verified: entry.verified,
+    publicInputs: entry.publicInputs,
+    txHash: entry.txHash,
+    verifier: entry.verifier,
+    createdAt: entry.createdAt ?? nowSec(),
+  };
+  db.proofReceipts.push(next);
+  return next;
+}
+
 export function verifyWalletLedger(): { ok: boolean; length: number; brokenAt?: number } {
   db.ledger ??= [];
   let prev: string | undefined;

@@ -109,6 +109,10 @@ function deployment(): Record<string, string | number> {
   return dep!;
 }
 
+export function walletVerifierId(): string {
+  return String(deployment().verifier ?? "");
+}
+
 /** The TEE config (endpoint + pinned measurement) from the deployment record. */
 export function teeConfig(): { endpoint: string; measurement: string } | null {
   try {
@@ -355,7 +359,7 @@ const NOTE: Record<string, (cp?: string) => string> = {
   shield: () => "Added money",
   cashIn: () => "Added money",
   unshield: () => "Cash out",
-  cashOut: () => "Cash out · to your bank",
+  cashOut: () => "Cash out · testnet reserve",
 };
 const DIRECTION: Record<string, "in" | "out"> = {
   receive: "in", shield: "in", cashIn: "in", send: "out", unshield: "out", cashOut: "out",
@@ -363,8 +367,8 @@ const DIRECTION: Record<string, "in" | "out"> = {
 
 /** Friendly display name + note for an edge (cash/shield) vs a person (send/receive). */
 function nameFor(type: string, counterparty?: string): { name: string; note: string } {
-  if (type === "shield" || type === "cashIn") return { name: "Added money", note: "From your bank" };
-  if (type === "unshield" || type === "cashOut") return { name: "Cash out", note: "To your bank" };
+  if (type === "shield" || type === "cashIn") return { name: "Added money", note: "From testnet reserve" };
+  if (type === "unshield" || type === "cashOut") return { name: "Cash out", note: "To testnet reserve" };
   // person-to-person: prefer a friendly @handle/label, never a raw G-address.
   const friendly = counterparty && counterparty !== "shielded" && !/^G[A-Z2-7]{40,}$/.test(counterparty);
   return { name: friendly ? counterparty! : NOTE[type]?.() ?? type, note: NOTE[type]?.() ?? type };
@@ -496,11 +500,10 @@ export async function sendToHandle(
   throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
 }
 
-// ------------------------------------------------------------ fiat ramp reserve
-// The on-ramp/off-ramp USDC leg runs through the on-chain `ramp` reserve contract
-// (the on-chain analog of a MoneyGram/SEP-24 anchor distribution account): cash_in
-// dispenses real USDC from the reserve to back a shield; cash_out pulls the
-// unshielded USDC back into the reserve. Only the fiat charge/payout is simulated.
+// ------------------------------------------------------------ testnet ramp reserve
+// The on-ramp/off-ramp USDC leg runs through the on-chain `ramp` reserve contract:
+// cash_in dispenses real testnet USDC from the reserve to back a shield; cash_out
+// pulls the unshielded USDC back into the reserve. No real fiat partner settles.
 
 function rampId(): string | undefined {
   return deployment().ramp as string | undefined;
@@ -598,9 +601,9 @@ async function rampCashOut(c: BenzoClient, from: string, stroops: bigint): Promi
 
 // ----------------------------------------------------------------- cash out
 
-// MoneyGram-modeled per-transaction caps (USD), enforced on-chain by the ramp
-// contract. We validate them HERE too so a below-minimum / over-cap request fails
-// fast BEFORE the irreversible unshield — never leaving a half-completed cash-out.
+// Reserve-modeled per-transaction caps (USD), enforced on-chain by the ramp
+// contract. We validate them here too so a below-minimum / over-cap request fails
+// fast before the irreversible unshield, never leaving a half-completed cash-out.
 const CASHOUT_MIN = 50_000_000n; // $5.00
 const CASHOUT_MAX = 25_000_000_000n; // $2,500.00
 
@@ -889,6 +892,7 @@ export interface InviteResult {
   amount: string;
   expiresAt: number;
   onChain: boolean;
+  txHash?: string;
 }
 
 export async function createInvite(amount: string, note: string | undefined, onPhase?: PhaseSink): Promise<InviteResult> {
@@ -912,7 +916,7 @@ export async function createInvite(amount: string, note: string | undefined, onP
     tenantInvites().push({ localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
     onPhase?.({ phase: "submitting", txHash: r.sendTx });
     onPhase?.({ phase: "confirmed", txHash: r.sendTx, onChain: true });
-    return { link, localId, claimAccountPub: r.recipient.spendPub.toString(16), amount: stroops.toString(), expiresAt, onChain: true };
+    return { link, localId, claimAccountPub: r.recipient.spendPub.toString(16), amount: stroops.toString(), expiresAt, onChain: true, txHash: r.sendTx };
   }
   throw new RampError("busy", "Live testnet client unavailable. Invite was not funded.");
 }

@@ -33,16 +33,18 @@ import {
   send,
   classifyRecipient,
   shareProof,
+  walletVerifierId,
   exportAccountForDevice,
   relaySubmit,
   RampError,
   type ProverKind,
   type SendPhase,
+  type SettleResult,
 } from "./chain.js";
 import {
   appendWalletLedger,
+  appendWalletProofReceipt,
   db,
-  id,
   nowSec,
   RecoveryRequiredError,
   runWithWalletTenant,
@@ -147,6 +149,27 @@ function recordSettledMovement(sourceType: WalletLedgerSource, amount: string, o
     prover: opts.prover,
     requestedAmount: opts.requestedAmount,
     lines: walletLedgerLines(sourceType, amount),
+  });
+}
+
+type WalletSettlementVk = "SHIELD" | "TRANSFER" | "UNSHIELD";
+
+function settlementPublicInputsRef(r: SettleResult): { source: "settlement-tx"; txHash: string | null } {
+  return {
+    source: "settlement-tx",
+    txHash: r.txHash ?? null,
+  };
+}
+
+function recordSettlementProof(action: string, vkId: WalletSettlementVk, r: SettleResult): void {
+  appendWalletProofReceipt({
+    action,
+    vkId,
+    prover: r.prover,
+    verified: r.onChain && r.status === "settled",
+    verifier: walletVerifierId(),
+    txHash: r.txHash,
+    publicInputs: settlementPublicInputsRef(r),
   });
 }
 
@@ -282,6 +305,7 @@ route("POST", "/api/send", async (req, res, url) => {
     try {
       const r = await send(to, body.amount, body.memo, prover, emit);
       recordSettledMovement(classifyRecipient(to) === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
+      recordSettlementProof(classifyRecipient(to) === "address" ? "wallet.send-public-from-private" : "wallet.send-private", classifyRecipient(to) === "address" ? "UNSHIELD" : "TRANSFER", r);
       rememberIdempotency(200, r);
       res.write(`event: done\ndata: ${JSON.stringify(r)}\n\n`);
     } catch (e) {
@@ -295,6 +319,7 @@ route("POST", "/api/send", async (req, res, url) => {
   try {
     const r = await send(to, body.amount, body.memo, prover);
     recordSettledMovement(classifyRecipient(to) === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
+    recordSettlementProof(classifyRecipient(to) === "address" ? "wallet.send-public-from-private" : "wallet.send-private", classifyRecipient(to) === "address" ? "UNSHIELD" : "TRANSFER", r);
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement(classifyRecipient(to) === "address" ? "send_public" : "send_private", body.amount, e, "out");
@@ -315,6 +340,14 @@ route("POST", "/api/invite", async (req, res) => {
   try {
     const r = await createInvite(body.amount, body.note);
     recordSettledMovement("invite_fund", r.amount, { sourceId: r.localId, requestedAmount: body.amount });
+    appendWalletProofReceipt({
+      action: "wallet.invite-fund",
+      vkId: "TRANSFER",
+      verified: r.onChain,
+      verifier: walletVerifierId(),
+      txHash: r.txHash,
+      publicInputs: { source: "settlement-tx", txHash: r.txHash ?? null, localId: r.localId },
+    });
     json(res, 201, r);
   } catch (e) {
     recordFailedMovement("invite_fund", body.amount, e, "out");
@@ -327,6 +360,14 @@ route("POST", "/api/invite/refund", async (req, res) => {
   try {
     const r = await refundInvite(body.localId);
     recordSettledMovement("invite_refund", r.amount, { txHash: r.txHash, sourceId: body.localId });
+    appendWalletProofReceipt({
+      action: "wallet.invite-refund",
+      vkId: "UNSHIELD",
+      verified: r.onChain,
+      verifier: walletVerifierId(),
+      txHash: r.txHash,
+      publicInputs: { source: "settlement-tx", txHash: r.txHash ?? null },
+    });
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("invite_refund", undefined, e, "in", body.localId);
@@ -339,6 +380,14 @@ route("POST", "/api/claim", async (req, res) => {
   try {
     const r = await claimInvite(body.secret, body.localId);
     recordSettledMovement("invite_claim", r.amount, { txHash: r.txHash, sourceId: body.localId });
+    appendWalletProofReceipt({
+      action: "wallet.invite-claim",
+      vkId: "SHIELD",
+      verified: r.onChain,
+      verifier: walletVerifierId(),
+      txHash: r.txHash,
+      publicInputs: { source: "settlement-tx", txHash: r.txHash ?? null },
+    });
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("invite_claim", undefined, e, "in", body.localId);
@@ -352,6 +401,7 @@ route("POST", "/api/cash-out", async (req, res, url) => {
   try {
     const r = await cashOut(body.amount, proverOf(url, body));
     recordSettledMovement("offramp", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
+    recordSettlementProof("wallet.cash-out", "UNSHIELD", r);
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("offramp", body.amount, e, "out");
@@ -365,6 +415,7 @@ route("POST", "/api/add-money", async (req, res, url) => {
   try {
     const r = await addMoney(body.amount, proverOf(url, body));
     recordSettledMovement("onramp", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
+    recordSettlementProof("wallet.add-money", "SHIELD", r);
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("onramp", body.amount, e, "in");
@@ -379,6 +430,7 @@ route("POST", "/api/import", async (req, res, url) => {
   try {
     const r = await importDeposit(body.amount, proverOf(url, body));
     recordSettledMovement("import", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount ?? "all" });
+    recordSettlementProof("wallet.import", "SHIELD", r);
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("import", body.amount ?? "all", e, "in");
@@ -397,6 +449,7 @@ route("POST", "/api/make-public", async (req, res, url) => {
   try {
     const r = await makePublic(body.amount, proverOf(url, body));
     recordSettledMovement("make_public", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
+    recordSettlementProof("wallet.make-public", "UNSHIELD", r);
     json(res, 200, r);
   } catch (e) {
     recordFailedMovement("make_public", body.amount, e, "out");
@@ -420,15 +473,13 @@ route("POST", "/api/share-proof", async (req, res, url) => {
   const body = await readJson<{ min: string; prover?: string }>(req);
   if (!body.min) return json(res, 400, { error: "min required" });
   const receipt = await shareProof(body.min, proverOf(url, body));
-  db.proofReceipts ??= [];
-  db.proofReceipts.push({
-    id: id("prf"),
+  appendWalletProofReceipt({
     action: "wallet.share-proof",
     vkId: "BALANCE",
     prover: receipt.prover,
     verified: receipt.onChain,
+    verifier: walletVerifierId(),
     publicInputs: receipt.publics,
-    createdAt: nowSec(),
   });
   json(res, 200, receipt);
 });
