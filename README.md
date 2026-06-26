@@ -318,7 +318,6 @@ packages/
 tests/
   replay-verify.mjs   Keyless proof replay against live verifier
   e2e/                Live testnet protocol flows
-  live/               UI/live smoke scripts
 
 deployments/
   testnet.json        Source of truth for live contract IDs, VKs, TEE config

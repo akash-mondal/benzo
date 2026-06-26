@@ -8,7 +8,7 @@
  * Privacy note: a public on-chain attestation tied to a Stellar address is for
  * the TRANSPARENT surface (e.g. business/org gating, the issuer's own audit
  * trail) — NEVER the private shielded-admission path (which consumes credentials
- * in ZK to avoid deanonymizing the user). See docs/ZK-ARCHITECTURE.
+ * in ZK to avoid deanonymizing the user).
  *
  * The AttestProtocol client is injected (structural `AttestClientLike`) so this
  * package is unit-testable without the SDK; `attestClientFromEnv()` wires the

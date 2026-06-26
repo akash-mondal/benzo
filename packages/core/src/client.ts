@@ -1247,7 +1247,7 @@ export class BenzoClient {
    *
    * Completeness note: this proves "these owned notes sum to `total`", not
    * "these are ALL my notes" — set-completeness composes with the authorized-MVK
-   * registry binding (docs/ZK-AUDIT-AND-STANDARDS.md B.3).
+   * registry binding.
    */
   async proveTotal(opts?: { context?: bigint }): Promise<{
     proof: ProveResult["proof"];

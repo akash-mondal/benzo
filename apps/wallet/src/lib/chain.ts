@@ -4,10 +4,9 @@
  * This module talks to the Soroban RPC straight from the browser - no BFF, no
  * server, no secrets - using the plain JSON-RPC wire protocol (so it adds zero
  * bundle weight and no node polyfills). It is the first real slice of the
- * client-side migration in docs/ARCHITECTURE-CLIENTSIDE-ZK.md: a public,
- * account-free read that proves the data path works device→chain. Shielded
- * balance/history reads (which need the account's viewing key) are the next
- * step, gated on browser-resident keys (the passkey already derives them).
+ * client-side migration: a public, account-free read that proves the data path
+ * works device→chain. Shielded balance/history reads need the account's viewing
+ * key and are gated on browser-resident keys.
  */
 
 import { StellarRpcClient } from "@benzo/core";

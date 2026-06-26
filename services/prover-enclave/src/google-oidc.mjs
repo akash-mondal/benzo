@@ -9,8 +9,8 @@
  * derives the Benzo account from those claims (accountFromOidc) — the chain never
  * sees the Google identity. Running this inside the attested enclave makes it
  * ATTESTED-SERVER integrity (a client verifies WHICH code checked the token via
- * the TDX quote), NOT a zero-knowledge proof. Phase 2 (in-circuit JWT-RSA) is the
- * trustless upgrade documented in docs/ZKLOGIN.md.
+ * the TDX quote), NOT a zero-knowledge proof. Phase 2 is the trustless upgrade:
+ * move JWT-RSA verification into the Groth16 circuit so the chain verifies it.
  */
 import { createPublicKey, verify as cryptoVerify } from "node:crypto";
 

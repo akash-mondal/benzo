@@ -10,7 +10,7 @@
  * COMPLETENESS: this proves "I own notes summing to claimedTotal", NOT "these
  * are ALL my in-scope notes" — a discloser could still under-report by omitting
  * a note. The set-completeness guarantee composes with the authorized-MVK
- * registry binding; see docs/ZK-AUDIT-AND-STANDARDS.md B.3.
+ * registry binding.
  */
 
 import type { MerkleTreeMirror } from "./merkle.js";

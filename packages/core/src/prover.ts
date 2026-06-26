@@ -135,8 +135,7 @@ export class WasmProver implements ProverPort {
  * MVP: a TRUSTED delegate — the witness is sent in clear to an operator-run
  * prover, so use ONLY with an explicitly-trusted endpoint and label it as such.
  * MAINNET MUST make this witness-HIDING (TEE-attested, or an MPC/coSNARK split)
- * so amounts, spend keys, and blindings never leave the device — see
- * docs/ZK-AUDIT-AND-STANDARDS.md B.5.
+ * so amounts, spend keys, and blindings never leave the device.
  */
 export class DelegatedProver implements ProverPort {
   readonly name = "delegated";

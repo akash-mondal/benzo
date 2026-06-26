@@ -1,6 +1,5 @@
 /**
- * Non-custodial client-side signing for Soroban writes (the custody-seam
- * removal — docs/ZK-AUDIT-AND-STANDARDS.md B.5).
+ * Non-custodial client-side signing for Soroban writes.
  *
  * Background: `StellarRpcClient` delegates writes to an injected `submitWrite`.
  * The MVP wired that to a self-hosted relayer that held a `DEPLOYER_SECRET` and

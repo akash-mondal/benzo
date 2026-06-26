@@ -23,8 +23,7 @@ pragma circom 2.2.2;
 // claimedTotal", not "these are ALL my in-scope notes" — a discloser could still
 // UNDER-report by omitting a note. The set-completeness guarantee (bind the
 // summed set to the universe of the org's registered-MVK-tagged notes) composes
-// with the authorized-MVK registry binding and is added there; see
-// docs/ZK-AUDIT-AND-STANDARDS.md B.3.
+// with the authorized-MVK registry binding and is added there.
 
 include "./note.circom";
 include "../lib/merkleProof.circom";

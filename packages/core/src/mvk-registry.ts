@@ -17,7 +17,7 @@
  *  - **Single-leaf** (current default, pending the registry deployment + the
  *    pool.rs `registeredMvkRoot` validation + a re-ceremony for the new VKs):
  *    `MvkRegistryMirror.singleLeaf(mvkPub)` builds a one-entry registry so the
- *    proof is well-formed. See docs/ZK-AUDIT-AND-STANDARDS.md B.4.
+ *    proof is well-formed.
  */
 import { MerkleTreeMirror, type MerklePath } from "./merkle.js";
 import { mvkRegistryLeaf } from "./notes.js";

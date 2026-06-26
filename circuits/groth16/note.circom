@@ -21,7 +21,7 @@ function NULLIFIER_DOMAIN() { return 0x02; }
 function KEYPAIR_DOMAIN()   { return 0x03; }
 function MVK_TAG_DOMAIN()   { return 0x05; }
 function ASP_LEAF_DOMAIN()  { return 0x01; }
-// Key-hierarchy domains (canonical map, see docs/ZK-AUDIT-AND-STANDARDS.md C.2).
+// Key-hierarchy domains. Keep byte-identical with the TS mirror and contracts.
 function SPENDAUTH_DOMAIN() { return 0x06; }
 function NK_DOMAIN()        { return 0x07; }
 function MVK_REGISTRY_LEAF_DOMAIN() { return 0x08; }

@@ -18,15 +18,10 @@
  * witness it was sealed — never mint or double-spend.
  */
 import http from "node:http";
-import { createReadStream, existsSync } from "node:fs";
-import { join } from "node:path";
 import { DstackClient } from "@phala/dstack-sdk";
 import { CIRCUITS, proveCircuit, assertArtifacts } from "./prove.mjs";
 import { genEnclaveKeypair, decryptWitness } from "./ecies.mjs";
-import { contributeCircuit, ceremonyReportData } from "./contribute.mjs";
 import { verifyGoogleIdToken } from "./google-oidc.mjs";
-
-const ARTIFACT_ROOT = process.env.BENZO_ARTIFACT_ROOT || join(import.meta.dirname, "..", "artifacts");
 
 const PORT = Number(process.env.BENZO_PROVER_PORT || 8080);
 
@@ -149,35 +144,6 @@ const server = http.createServer(async (req, res) => {
       const { proof, publicSignals } = await proveCircuit(circuit, input);
       console.log(`[prover] proved ${circuit} in ${Date.now() - t0}ms (sealed=${!!body.enc})`);
       return send(res, 200, { proof, publicSignals });
-    }
-
-    // ---- TEE-attested phase-2 ceremony contribution -------------------------
-    // POST /contribute { circuit } → contribute to <circuit>.zkey with entropy
-    // generated INSIDE this enclave (never returned), and return a TDX quote
-    // binding (inputZkeyHash ‖ outputZkeyHash). The new (PUBLIC) zkey is then
-    // fetched via GET /artifact. Makes a SOLO contribution credibly 1-of-N honest.
-    if (req.method === "POST" && url.pathname === "/contribute") {
-      const body = JSON.parse((await readBody(req)).toString("utf8"));
-      const circuit = body.circuit;
-      const t0 = Date.now();
-      const r = await contributeCircuit(circuit, body.name || "benzo-tee-contributor");
-      let quote = null, event_log = null;
-      try {
-        const q = await getDstack().getQuote(ceremonyReportData(r.inputZkeyHash, r.outputZkeyHash));
-        quote = q.quote; event_log = q.event_log;
-      } catch (e) { console.warn("[ceremony] no quote (not in a CVM?):", e?.message); }
-      console.log(`[ceremony] contributed ${circuit} in ${Date.now() - t0}ms`);
-      return send(res, 200, { ...r, outPath: undefined, artifact: `${circuit}.contrib.zkey`, quote, event_log });
-    }
-
-    // GET /artifact?name=<circuit>.contrib.zkey → stream a PUBLIC ceremony output.
-    if (req.method === "GET" && url.pathname === "/artifact") {
-      const name = (url.searchParams.get("name") || "").replace(/[^a-zA-Z0-9._-]/g, "");
-      const circuit = name.split(".")[0];
-      const path = join(ARTIFACT_ROOT, circuit, name);
-      if (!name.endsWith(".contrib.zkey") || !existsSync(path)) return send(res, 404, { error: "no such artifact" });
-      res.writeHead(200, { "content-type": "application/octet-stream", ...CORS });
-      return createReadStream(path).pipe(res);
     }
 
     return send(res, 404, { error: "not found" });

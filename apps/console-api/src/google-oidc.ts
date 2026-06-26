@@ -6,7 +6,7 @@
  * genuine, unexpired Google token for THIS app (aud = client id) and returns the
  * verified `sub`/`iss`/`aud`. The browser then derives the Benzo account from
  * those claims (accountFromOidc) — the chain never sees the Google identity.
- * Phase 2 moves this RSA check in-circuit (see docs/ZKLOGIN.md).
+ * Phase 2 moves this RSA check in-circuit so the chain verifies the JWT step.
  */
 import { createPublicKey, verify as cryptoVerify, type JsonWebKey as NodeJWK } from "node:crypto";
 

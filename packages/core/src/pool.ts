@@ -117,8 +117,7 @@ export class BenzoPoolClient {
    * draw `registeredMvkRoot` + the membership path from it, so the root the
    * proof targets is one the deployed pool's `check_mvk_root` already knows.
    * Unset → each op builds a local single-leaf stand-in (well-formed proof, but
-   * only valid when the pool has no registry configured). See
-   * docs/ZK-AUDIT-AND-STANDARDS.md B.4.
+   * only valid when the pool has no registry configured).
    */
   private mvkRegistry?: MvkRegistryMirror;
 
@@ -238,7 +237,7 @@ export class BenzoPoolClient {
     // Authorized-MVK registry membership (closes the audit P0: the note's MVK
     // must be a registered, nonzero key). A shared synced registry (if set) gives
     // an on-chain-known root; otherwise a single-leaf stand-in keeps the proof
-    // well-formed. See docs/ZK-AUDIT-AND-STANDARDS.md B.4.
+    // well-formed.
     const mvkKeyMeta = DEFAULT_MVK_KEY_META;
     const mvkReg = this.mvkRegistry ?? MvkRegistryMirror.singleLeaf(opts.mvkPubScalar, mvkKeyMeta);
     const mvkPath = mvkReg.pathFor(opts.mvkPubScalar);

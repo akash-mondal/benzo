@@ -42,7 +42,7 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 // button: the browser gets a genuine Google ID token (JWT), the BFF verifies its
 // RS256 signature against Google's JWKs (see google-oidc.ts), and the Benzo account
 // is derived from the verified `sub` (accountFromOidc) - the Sui-zkLogin model
-// (Phase 1; the in-circuit JWT proof is Phase 2, docs/ZKLOGIN.md). When no client
+// (Phase 1; the in-circuit JWT proof is Phase 2). When no client
 // id is set, the console uses a local workspace unlock instead of pretending another provider is enabled.
 declare global {
   interface Window { google?: any }

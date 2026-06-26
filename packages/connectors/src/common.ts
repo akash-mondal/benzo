@@ -1,9 +1,9 @@
 /**
  * Shared shape for third-party SANDBOX connectors. Every connector is built for
- * a provider's self-serve public sandbox (no sales call) — see
- * docs/B2B-SANDBOX-MVP-SCOPE.md. Until creds are supplied the methods return
- * realistic stub shapes so the BFF + UI integrate against a stable contract;
- * wiring the real sandbox fetch is a marked TODO per method.
+ * a provider's self-serve public sandbox (no sales call). Until creds are
+ * supplied the methods return realistic stub shapes so the BFF + UI integrate
+ * against a stable contract; wiring the real sandbox fetch is a marked TODO per
+ * method.
  */
 
 export interface ConnectorConfig {

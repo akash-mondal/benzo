@@ -21,10 +21,10 @@
  *     the verified (iss, aud, sub) via HKDF. Same ephemeral-nonce binding + same
  *     unlinkable address model as Sui; the JWT's RSA signature is checked
  *     OFF-CHAIN (the BFF), so the chain trusts the BFF for the JWT step.
- *   - Phase 2 (docs/ZKLOGIN.md): move the JWT RSA verification IN-CIRCUIT
- *     (the heavy ~2^20 ptau circuit) so the chain verifies the proof against
- *     Google's JWKs directly — fully trustless, no BFF trust. The verifier needs
- *     no change (it already verifies Groth16/BN254).
+ *   - Phase 2: move the JWT RSA verification IN-CIRCUIT (the heavy ~2^20
+ *     ptau circuit) so the chain verifies the proof against Google's JWKs
+ *     directly — fully trustless, no BFF trust. The verifier needs no change
+ *     (it already verifies Groth16/BN254).
  *
  * This module is the Phase-1 derivation: pure, browser-safe, deterministic.
  */

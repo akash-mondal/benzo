@@ -65,11 +65,9 @@ ASP set *curation* are operator responsibilities, not circuit-enforced.
 ## Known attack surface (the classes an audit must scrutinize)
 
 - **Under-constrained circuit signals** — the #1 ZK bug class. Mitigation status:
-  constraints read correct + negative-tested, and **Circomspect (Trail of Bits)
-  reports no issues on all production circuits** (`audits/circomspect-report.txt`)
-  — the same analyzer that surfaced the closest audited peer's (0xbow Privacy
-  Pools) findings. This is necessary, not sufficient: a full external circuit
-  audit (E2) is still required, and Picus/Ecne formal checks remain to run.
+  constraints read correct + negative-tested, and Circomspect has been run on the
+  production circuits during development. Generated analyzer reports stay out of
+  the repo; a fresh external circuit audit is still required before mainnet.
 - **Hash desync** (circom ↔ TS ↔ Soroban Poseidon2 constants) — a real
   fund-loss class. Mitigation: cross-implementation parity tests, **plus a CI
   guard that regenerates the params from the circom source and fails on any
@@ -84,10 +82,11 @@ ASP set *curation* are operator responsibilities, not circuit-enforced.
 
 ## Trusted setup / ceremony
 
-**Current (testnet):** `scripts/ceremony.sh` runs a Groth16 Phase-2
+**Current (testnet):** `scripts/ceremony.sh` can run a Groth16 Phase-2
 multi-*contribution* sequence + beacon, but on a single machine with locally
-generated contributors and `/dev/urandom` entropy — a **simulation, not a real
-ceremony**, and only the `joinsplit` transcript currently exists.
+generated contributors and `/dev/urandom` entropy. Local transcripts and zkeys
+are generated under ignored `ceremony/` and `circuits/build/` paths. This is a
+**simulation, not a real ceremony**.
 
 **Required before mainnet (gap E1):** a real Phase-2 for **all** circuits
 (`shield`, `joinsplit`, `unshield`, `proof_of_balance`) with **≥2 independent
