@@ -57,6 +57,32 @@ describe("wallet API idempotency", () => {
     expect(headers.get("idempotency-key")).toMatch(/^idem_/);
   });
 
+  it("adds idempotency headers to wallet mutation helpers", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({})));
+    vi.stubGlobal("fetch", fetchMock);
+    const actions: Array<() => Promise<unknown>> = [
+      () => api.importDeposit("1", "tee"),
+      () => api.makePublic("1", "tee"),
+      () => api.sendPublic("G".padEnd(56, "A"), "1"),
+      () => api.send("@mara", "1", "memo", "tee"),
+      () => api.claimHandle("@alice"),
+      () => api.request("1", "memo"),
+      () => api.invite("1", "note"),
+      () => api.refundInvite("inv_1"),
+      () => api.claim("secret", "inv_1"),
+      () => api.cashOut("1", "tee"),
+      () => api.addMoney("1", "tee"),
+      () => api.shareProof("1", "tee"),
+    ];
+
+    for (const action of actions) await action();
+
+    expect(fetchMock).toHaveBeenCalledTimes(actions.length);
+    for (const call of fetchMock.mock.calls) {
+      expect(callHeaders(call).get("idempotency-key")).toMatch(/^idem_/);
+    }
+  });
+
   it("keeps a mutation idempotency key after a 5xx response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ error: "temporarily unavailable" }, 503))

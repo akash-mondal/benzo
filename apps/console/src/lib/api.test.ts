@@ -63,6 +63,57 @@ describe("console API idempotency", () => {
     expect(headers.get("idempotency-key")).toMatch(/^idem_/);
   });
 
+  it("adds idempotency headers to console mutation helpers", async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({})));
+    vi.stubGlobal("fetch", fetchMock);
+    const payment = {
+      type: "shielded_transfer",
+      fromAccountId: "acc_operating",
+      toCounterpartyId: "cp_vendor",
+      amount: { amount: "10000000", assetCode: "USDC" },
+    } satisfies CreatePaymentRequest;
+    const actions: Array<() => Promise<unknown>> = [
+      () => api.saveOnboarding({ name: "Acme" }),
+      () => api.submitKyb({ legalName: "Acme Inc." }),
+      () => api.registerOwnerMvk(),
+      () => api.finishOnboarding(),
+      () => api.proveBalance("1"),
+      () => api.proveTotal(),
+      () => api.proveSolvency(),
+      () => api.proveKyb(),
+      () => api.periodTotalAttestation("2026-06"),
+      () => api.fundTreasury("1"),
+      () => api.treasurySendPublic("G".padEnd(56, "A"), "1"),
+      () => api.updateCounterparty("cp_1", { status: "allowlisted" }),
+      () => api.importRoster("name,handle,rate\\nA,@a,1"),
+      () => api.createPayment(payment),
+      () => api.approvePayment("po_1", { decision: "approved", actorMemberId: "mem_1" }),
+      () => api.createPayroll({ period: "2026-06", source: "manual", lines: [] }),
+      () => api.approvePayroll("pr_1", { decision: "approved", actorMemberId: "mem_1" }),
+      () => api.proveFunded("pr_1"),
+      () => api.proveApproval("pr_1"),
+      () => api.proveComputation("pr_1"),
+      () => api.provePolicy("pr_1", "5000"),
+      () => api.createInvoice({ number: "INV-1", counterpartyId: "cp_1", lineItems: [], dueDate: "2026-07-01" }),
+      () => api.payInvoice("inv_1"),
+      () => api.netInvoices("10", "7"),
+      () => api.createGrant({ auditorName: "Auditor", auditorPubKey: "0xaud", tier: "outgoing", scope: { label: "Q2" }, expiry: "2026-09-30T00:00:00Z" }),
+      () => api.revokeGrant("vg_1"),
+      () => api.updatePolicy("pol_1", { name: "Updated" }),
+      () => api.anchorPrivateAuditRoot(),
+      () => api.createInvite({ kind: "member", email: "member@example.com", role: "viewer" }),
+      () => api.bulkInvite("name,email,role\\nA,a@example.com,viewer"),
+      () => api.revokeInvite("invite_1"),
+    ];
+
+    for (const action of actions) await action();
+
+    expect(fetchMock).toHaveBeenCalledTimes(actions.length);
+    for (const call of fetchMock.mock.calls) {
+      expect(callHeaders(call).get("idempotency-key")).toMatch(/^idem_/);
+    }
+  });
+
   it("keeps a mutation idempotency key after a 5xx response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ error: "temporarily unavailable" }, 503))
