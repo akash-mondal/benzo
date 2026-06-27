@@ -840,10 +840,24 @@ export async function cashOut(amount: string, prover: ProverKind): Promise<Settl
     // then hand that USDC to the on-chain ramp reserve (the anchor absorbs it;
     // the fiat payout is the only simulated leg).
     const to = await selfAddress(c);
-    const wd = await c.unshield({ amount: stroops, toAddress: to });
-    await c.flush();
-    await rampCashOut(c, to, stroops);
-    return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: wd.sorobanPublics };
+    try {
+      const wd = await c.unshield({ amount: stroops, toAddress: to });
+      await c.flush();
+      await rampCashOut(c, to, stroops);
+      return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: wd.sorobanPublics };
+    } catch (e) {
+      // The unshield submit can settle and make liquid USDC visible before the
+      // SDK's post-submit pool-root assertion catches up. If so, keep the
+      // off-ramp atomic from the user's point of view by finishing the reserve
+      // cash_out leg instead of leaving public USDC stranded.
+      if (/out of sync/.test((e as Error).message)) {
+        await waitForLiquidUsdc(c, to, stroops);
+        await rampCashOut(c, to, stroops);
+        await c.flush();
+        return { status: "settled", prover, amount: stroops.toString(), onChain: true };
+      }
+      throw e;
+    }
   }
   throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
 }
