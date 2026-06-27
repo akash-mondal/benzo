@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CreatePaymentRequest } from "@benzo/types";
-import { api, apiHref } from "./api";
+import { api, apiHref, currentGoogleCredential, storeGoogleCredential } from "./api";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -94,10 +94,10 @@ describe("console API idempotency", () => {
       () => api.proveApproval("pr_1"),
       () => api.proveComputation("pr_1"),
       () => api.provePolicy("pr_1", "5000"),
-      () => api.createInvoice({ number: "INV-1", counterpartyId: "cp_1", lineItems: [], dueDate: "2026-07-01" }),
+      () => api.createInvoice({ number: "INV-1", counterpartyId: "cp_1", lineItems: [], assetCode: "USDC", dueDate: "2026-07-01" }),
       () => api.payInvoice("inv_1"),
       () => api.netInvoices("10", "7"),
-      () => api.createGrant({ auditorName: "Auditor", auditorPubKey: "0xaud", tier: "outgoing", scope: { label: "Q2" }, expiry: "2026-09-30T00:00:00Z" }),
+      () => api.createGrant({ auditorName: "Auditor", auditorPubKey: "0xaud", tier: "outgoing", scope: { label: "Q2", accountIds: [], from: null, to: null }, expiry: "2026-09-30T00:00:00Z" }),
       () => api.revokeGrant("vg_1"),
       () => api.updatePolicy("pol_1", { name: "Updated" }),
       () => api.anchorPrivateAuditRoot(),
@@ -155,5 +155,32 @@ describe("console API idempotency", () => {
     const headers = callHeaders(fetchMock.mock.calls[0]);
     expect(headers.get("authorization")).toBe("Bearer google.jwt");
     expect(headers.get("idempotency-key")).toBeNull();
+  });
+
+  it("does not clear a fresh console sign-in when an older unauthenticated request returns 401", async () => {
+    let resolveFetch!: (value: Response) => void;
+    const fetchMock = vi.fn().mockReturnValue(new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = api.dashboard();
+    storeGoogleCredential("fresh.console.jwt");
+    resolveFetch(jsonResponse({ error: "Unauthorized" }, 401));
+
+    await expect(pending).rejects.toThrow("Unauthorized");
+    expect(currentGoogleCredential()).toBe("fresh.console.jwt");
+  });
+
+  it("does not clear a newer console sign-in when a stale-token request returns 401", async () => {
+    localStorage.setItem("benzo.console.googleCredential", "old.console.jwt");
+    let resolveFetch!: (value: Response) => void;
+    const fetchMock = vi.fn().mockReturnValue(new Promise<Response>((resolve) => { resolveFetch = resolve; }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = api.dashboard();
+    storeGoogleCredential("fresh.console.jwt");
+    resolveFetch(jsonResponse({ error: "Unauthorized" }, 401));
+
+    await expect(pending).rejects.toThrow("Unauthorized");
+    expect(currentGoogleCredential()).toBe("fresh.console.jwt");
   });
 });

@@ -17,7 +17,7 @@ import type {
   TreasuryView,
   ViewingGrant,
 } from "@benzo/types";
-import { api } from "./api";
+import { api, AUTH_CHANGED_EVENT, currentGoogleCredential } from "./api";
 
 interface ConsoleState {
   session: AuthSession | null;
@@ -56,6 +56,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [masked, setMasked] = useState<boolean>(() => localStorage.getItem("benzo.masked") === "1");
+  const [authenticated, setAuthenticated] = useState(() => !!currentGoogleCredential());
 
   const toggleMasked = useCallback(() => {
     setMasked((m) => {
@@ -104,6 +105,25 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
+    if (!authenticated) {
+      setSession(null);
+      setDashboard(null);
+      setTreasury(null);
+      setPayments([]);
+      setPayrolls([]);
+      setInvoices([]);
+      setGrants([]);
+      setCounterparties([]);
+      setAccounts([]);
+      setMembers([]);
+      setPolicies([]);
+      setError(null);
+      setLoading(false);
+      return () => {
+        cancelled = true;
+        if (retry) clearTimeout(retry);
+      };
+    }
     // First load; if the treasury/dashboard lost a race with a cold-starting
     // backend (the $0.00 bug), retry once so the dashboard isn't stuck empty.
     void refresh().then((ok) => {
@@ -118,7 +138,13 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
       if (retry) clearTimeout(retry);
       clearInterval(interval);
     };
-  }, [refresh]);
+  }, [authenticated, refresh]);
+
+  useEffect(() => {
+    const onAuthChanged = () => setAuthenticated(!!currentGoogleCredential());
+    window.addEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+    return () => window.removeEventListener(AUTH_CHANGED_EVENT, onAuthChanged);
+  }, []);
 
   return (
     <Ctx.Provider
