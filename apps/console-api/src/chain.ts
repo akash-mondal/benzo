@@ -214,8 +214,15 @@ export async function treasuryPublicBalance(): Promise<{ stroops: string; addres
   if (!c) throw new Error("Live console client unavailable. Treasury balance was not read.");
   const address = await selfAddress(c);
   const token = deployment?.token as string;
-  const stroops = String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", address]));
   const [asset, issuer] = String((deployment?.usdcAsset as string) ?? "USDC:").split(":");
+  let stroops = "0";
+  try {
+    stroops = String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", address]));
+  } catch (e) {
+    // A fresh org can have a valid Stellar account with no SAC balance entry yet.
+    // Surface that as zero liquid USDC, not as an app-breaking 500.
+    console.warn("[console-api] public treasury balance unavailable; treating as zero", e instanceof Error ? e.message : e);
+  }
   return { stroops, address, asset: asset || "USDC", issuer: issuer || "", live: true };
 }
 
@@ -386,16 +393,17 @@ async function getOrg(c: BenzoClient) {
 }
 
 /** Idempotently register the org + publish its in-circuit member_root on-chain. */
-let orgSetupDone = false;
+const orgSetupDone = new Set<string>();
 async function ensureOrgSetup(c: BenzoClient): Promise<void> {
-  if (orgSetupDone) return;
+  const setupKey = kybOrgId();
+  if (orgSetupDone.has(setupKey)) return;
   const orgContract = orgAccountId();
   if (!orgContract) return;
   await ensureOrgRegistered(c, orgContract);
   const org = await getOrg(c);
   let current: string | null = null;
   try {
-    current = String(await c.opts.cli.view(orgContract, TX_SOURCE, ["member_root", "--org_id", kybOrgId()]));
+    current = String(await c.opts.cli.view(orgContract, TX_SOURCE, ["member_root", "--org_id", setupKey]));
   } catch {
     current = null;
   }
@@ -404,10 +412,10 @@ async function ensureOrgSetup(c: BenzoClient): Promise<void> {
       contractId: orgContract,
       source: TX_SOURCE,
       send: true,
-      fnArgs: ["set_member_root", "--org_id", kybOrgId(), "--root", org.memberRoot.toString()],
+      fnArgs: ["set_member_root", "--org_id", setupKey, "--root", org.memberRoot.toString()],
     });
   }
-  orgSetupDone = true;
+  orgSetupDone.add(setupKey);
 }
 
 /** Normalize the on-chain KybStatus union (returned as a variant name) to a UI string. */
@@ -674,17 +682,22 @@ export async function proveBalance(
   const publics = [{ k: publicLabel, v: usdLabel(minStroops) }];
   const c = getClient();
   if (!c) throw new Error("Live console client unavailable. Balance proof was not generated.");
-  await c.sync();
-  await wireMvkRegistry(c);
-  await ensureOrgSetup(c);
-  const org = await getOrg(c);
   try {
+    await c.sync();
+    await wireMvkRegistry(c);
+    await ensureOrgSetup(c);
+    const org = await getOrg(c);
     const r = await c.proveOrgBalance({ org, minTotal: BigInt(minStroops), context });
     return { holds: r.holds, onChain: r.onChain, minStroops, ref: onChainRef(vkLabel, r.holds && r.onChain, publics, { root: r.root?.toString() }) };
   } catch (e) {
     // Honest failure: fall back to the view-key figure without claiming a proof.
-    console.warn("[console-api] balance proof failed; returning unverified fallback result");
-    const bal = await c.orgTreasuryBalance(org);
+    console.warn("[console-api] balance proof failed; returning unverified fallback result", e instanceof Error ? e.message : e);
+    let bal = 0n;
+    try {
+      bal = await c.orgTreasuryBalance(await getOrg(c));
+    } catch {
+      bal = 0n;
+    }
     return { holds: bal >= BigInt(minStroops), onChain: false, minStroops, ref: onChainRef(vkLabel, false, publics) };
   }
 }
@@ -950,21 +963,43 @@ export async function proveTotalAttestation(period: string): Promise<{
 }> {
   const c = getClient();
   if (!c) throw new Error("Live console client unavailable. Total attestation was not generated.");
-  await c.sync();
-  await wireMvkRegistry(c);
-  await ensureOrgSetup(c);
   const org = await getOrg(c);
-  const r = await c.proveOrgTotal({ org });
+  try {
+    await c.sync();
+    await wireMvkRegistry(c);
+    await ensureOrgSetup(c);
+    const r = await c.proveOrgTotal({ org });
+    return {
+      period,
+      total: r.total.toString(),
+      onChain: r.onChain,
+      vkId: "ORGSUM",
+      verifier: (deployment?.verifier as string) ?? "",
+      network: process.env.NETWORK_PASSPHRASE ?? "testnet",
+      root: r.root.toString(),
+      sorobanProof: r.sorobanProof,
+      sorobanPublics: r.sorobanPublics,
+      issuedAt: now(),
+    };
+  } catch (e) {
+    console.warn("[console-api] total attestation proof failed; returning unverified fallback result", e instanceof Error ? e.message : e);
+  }
+  let total = "0";
+  try {
+    total = (await c.orgTreasuryBalance(org)).toString();
+  } catch {
+    total = "0";
+  }
   return {
     period,
-    total: r.total.toString(),
-    onChain: r.onChain,
+    total,
+    onChain: false,
     vkId: "ORGSUM",
     verifier: (deployment?.verifier as string) ?? "",
     network: process.env.NETWORK_PASSPHRASE ?? "testnet",
-    root: r.root.toString(),
-    sorobanProof: r.sorobanProof,
-    sorobanPublics: r.sorobanPublics,
+    root: "",
+    sorobanProof: null,
+    sorobanPublics: [],
     issuedAt: now(),
   };
 }

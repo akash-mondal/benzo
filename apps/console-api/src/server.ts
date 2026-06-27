@@ -1516,6 +1516,12 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       });
     });
   } catch (e) {
+    console.error("[benzo-console-api] route failed", {
+      method: req.method,
+      path: req.url,
+      error: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    });
     if (e instanceof RecoveryRequiredError) {
       return json(res, 409, {
         error: e.message,
