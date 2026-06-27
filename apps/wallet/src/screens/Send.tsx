@@ -30,12 +30,17 @@ import { SendCeremony, type SendReceipt } from "../ui/send/SendCeremony";
 type Step = "form" | "confirm";
 type Kind = "handle" | "address" | "invite";
 
+function looksLikeStellarAddressInput(to: string): boolean {
+  const t = to.trim();
+  return /^G[A-Z2-7]+$/.test(t) && t.length > 20;
+}
+
 function classify(to: string): Kind {
   const t = to.trim();
   // Only a CHECKSUM-valid StrKey is a payable public address - a shape match isn't
-  // enough (a typo'd G-string can pass the regex yet fail the checksum). A bad-
-  // checksum G-string falls through and is treated as not-on-Benzo, never paid.
-  if (/^G[A-Z2-7]{55}$/.test(t)) return isValidStellarAddress(t) ? "address" : "invite";
+  // enough. A typo'd G-string is surfaced as a wallet-address error by
+  // `badAddress` below, never routed into the invite flow.
+  if (looksLikeStellarAddressInput(t)) return isValidStellarAddress(t) ? "address" : "invite";
   if (t.startsWith("@")) return "handle";
   if (/^[a-z0-9_.]{3,20}$/i.test(t)) return "handle";
   return "invite";
@@ -74,7 +79,7 @@ export function Send() {
   const kind = useMemo(() => (recipient ? classify(recipient) : null), [recipient]);
   // Looks like a wallet address but the checksum doesn't add up - a typo'd key.
   // Surface this clearly instead of routing it to the "invite" flow or paying it.
-  const badAddress = useMemo(() => /^G[A-Z2-7]{55}$/.test(recipient) && !isValidStellarAddress(recipient), [recipient]);
+  const badAddress = useMemo(() => looksLikeStellarAddressInput(recipient) && !isValidStellarAddress(recipient), [recipient]);
   const known = useMemo(() => contacts.find((c) => c.handle === recipient || c.handle === `@${recipient}`), [contacts, recipient]);
   const display = known?.name ?? recipient;
   // Public sends draw on the PUBLIC balance - flag "not enough" before we ever
