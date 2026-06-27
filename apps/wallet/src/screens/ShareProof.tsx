@@ -53,7 +53,10 @@ export function ShareProof() {
           setPhase("done");
           return;
         }
-        throw new Error("This device could not load the local proof account.");
+        // Hosted Google accounts may be signed in on a capable desktop before
+        // local passkey proof material exists. In that case, keep the UX usable
+        // by delegating to the attested TEE instead of dead-ending the action.
+        if (!teeAvailable) throw new Error("Set up a passkey on this device to prove locally.");
       }
       const r = await api.shareProof(min, apiProverKind(plan.kind, teeAvailable));
       setOnChain(r.onChain);
