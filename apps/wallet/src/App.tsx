@@ -28,6 +28,7 @@ import { InviteExternal } from "./screens/InviteExternal";
 import { Claim } from "./screens/Claim";
 import { Work } from "./screens/Work";
 import { Onboarding } from "./screens/Onboarding";
+import { AUTH_REQUIRED_EVENT } from "./lib/api";
 
 const TABS = [
   { to: "/", label: "Home", icon: HomeIcon },
@@ -103,6 +104,14 @@ export function App() {
   // App lock (C4): if "require unlock on open" is set, gate the whole shell until
   // the on-device passkey check passes.
   const [locked, setLocked] = useState(() => shouldLockOnOpen());
+  useEffect(() => {
+    const onAuthRequired = () => {
+      setLocked(false);
+      setOnboarded(false);
+    };
+    window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+    return () => window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+  }, []);
   function finishOnboarding() {
     localStorage.setItem("benzo.onboarded", "1");
     setOnboarded(true);

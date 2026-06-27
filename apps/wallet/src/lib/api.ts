@@ -105,6 +105,7 @@ export function apiHref(path: string): string {
 const GOOGLE_TOKEN_KEY = "benzo.googleCredential";
 const GOOGLE_IDENTITY_KEY = "benzo.identityKey";
 const IDEMPOTENCY_PREFIX = "benzo.idempotency.wallet.v1:";
+export const AUTH_REQUIRED_EVENT = "benzo:auth-required";
 
 function b64urlJson(seg: string): Record<string, unknown> | null {
   try {
@@ -147,6 +148,16 @@ export function storeGoogleCredential(credential: string): void {
 export function clearGoogleCredential(): void {
   localStorage.removeItem(GOOGLE_TOKEN_KEY);
   localStorage.removeItem(GOOGLE_IDENTITY_KEY);
+}
+
+export function clearHostedAuthState(): void {
+  clearGoogleCredential();
+  localStorage.removeItem("benzo.onboarded");
+}
+
+export function notifyAuthRequired(): void {
+  clearHostedAuthState();
+  window.dispatchEvent(new Event(AUTH_REQUIRED_EVENT));
 }
 
 export function authHeaders(): Record<string, string> {
@@ -210,6 +221,7 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       } catch {
         /* ignore */
       }
+      if (res.status === 401 && path !== "/auth/google") notifyAuthRequired();
       throw new Error(detail);
     }
     return (await res.json()) as T;

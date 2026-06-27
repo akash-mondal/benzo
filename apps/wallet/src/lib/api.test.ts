@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, apiHref } from "./api";
+import { api, apiHref, AUTH_REQUIRED_EVENT } from "./api";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -124,5 +124,23 @@ describe("wallet API idempotency", () => {
     const headers = callHeaders(fetchMock.mock.calls[0]);
     expect(headers.get("authorization")).toBe("Bearer google.jwt");
     expect(headers.get("idempotency-key")).toBeNull();
+  });
+
+  it("clears stale hosted auth state when the API requires sign-in again", async () => {
+    localStorage.setItem("benzo.googleCredential", "expired.jwt");
+    localStorage.setItem("benzo.identityKey", "g123");
+    localStorage.setItem("benzo.onboarded", "1");
+    const onAuthRequired = vi.fn();
+    window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: "Sign in with Google to unlock this wallet." }, 401));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.session()).rejects.toThrow("Sign in with Google");
+
+    expect(localStorage.getItem("benzo.googleCredential")).toBeNull();
+    expect(localStorage.getItem("benzo.identityKey")).toBeNull();
+    expect(localStorage.getItem("benzo.onboarded")).toBeNull();
+    expect(onAuthRequired).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
   });
 });
