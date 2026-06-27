@@ -33,7 +33,7 @@ COPY scripts ./scripts
 COPY deployments ./deployments
 COPY circuits/build ./circuits/build
 RUN pnpm install --frozen-lockfile=false
-RUN pnpm --filter "$PACKAGE" build
+RUN pnpm --filter "$PACKAGE..." build
 
 FROM alpine:3.20
 ARG APP_DIR
