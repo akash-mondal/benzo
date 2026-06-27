@@ -88,7 +88,7 @@ export function Profile() {
       <div className="px-5 pb-2 pt-6">
         <h1 className="font-display text-2xl">Profile</h1>
       </div>
-      <Stagger className="space-y-4 px-5">
+      <Stagger className="space-y-4 px-5 pb-28">
         <Stagger.Item index={0}>
           <Card className="flex items-center gap-3 p-5">
             <Avatar name={session?.profile.name ?? "You"} tone="accent" size={52} />
