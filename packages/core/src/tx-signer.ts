@@ -26,6 +26,7 @@ import {
   TransactionBuilder,
   rpc,
   scValToNative,
+  type FeeBumpTransaction,
   type Transaction,
   type xdr,
 } from "@stellar/stellar-sdk";
@@ -88,7 +89,7 @@ export function signerFromFn(
 /** The slice of `rpc.Server` the submit path needs — narrowed so tests can
  *  inject a fake without standing up a chain. */
 export interface SubmitRpc {
-  sendTransaction(tx: Transaction): Promise<{
+  sendTransaction(tx: Transaction | FeeBumpTransaction): Promise<{
     status: string;
     hash: string;
     errorResult?: unknown;
@@ -127,6 +128,8 @@ export async function signAndSubmit(opts: {
   preparedXdr: string;
   signer: TxSignerPort;
   networkPassphrase: string;
+  feeBumpSigner?: TxSignerPort;
+  feeBumpBaseFee?: string;
   pollAttempts?: number;
   pollIntervalMs?: number;
 }): Promise<InvokeResult> {
@@ -134,8 +137,22 @@ export async function signAndSubmit(opts: {
     networkPassphrase: opts.networkPassphrase,
   });
   const signed = TransactionBuilder.fromXDR(signedXdr, opts.networkPassphrase) as Transaction;
+  let tx: Transaction | FeeBumpTransaction = signed;
+  if (opts.feeBumpSigner) {
+    const feeSource = await opts.feeBumpSigner.publicKey();
+    tx = TransactionBuilder.buildFeeBumpTransaction(
+      feeSource,
+      opts.feeBumpBaseFee ?? BASE_FEE,
+      signed,
+      opts.networkPassphrase,
+    );
+    const feeBumpXdr = await opts.feeBumpSigner.signTransaction(tx.toXDR(), {
+      networkPassphrase: opts.networkPassphrase,
+    });
+    tx = TransactionBuilder.fromXDR(feeBumpXdr, opts.networkPassphrase) as FeeBumpTransaction;
+  }
 
-  const sent = await opts.server.sendTransaction(signed);
+  const sent = await opts.server.sendTransaction(tx);
   if (sent.status === "ERROR" || sent.status === "DUPLICATE" || sent.status === "TRY_AGAIN_LATER") {
     throw new Error(`sendTransaction ${sent.status}: ${JSON.stringify(sent.errorResult ?? {})}`);
   }
@@ -203,6 +220,8 @@ export async function buildInvokeTx(opts: {
 export function makeClientSubmitWrite(deps: {
   server: rpc.Server;
   signer: TxSignerPort;
+  feeBumpSigner?: TxSignerPort;
+  feeBumpBaseFee?: string;
   networkPassphrase: string;
   addressFor: (name: string) => string;
 }): (opts: { contractId: string; source: string; fnArgs: string[] }) => Promise<InvokeResult> {
@@ -218,6 +237,8 @@ export function makeClientSubmitWrite(deps: {
       server: deps.server,
       preparedXdr,
       signer: deps.signer,
+      feeBumpSigner: deps.feeBumpSigner,
+      feeBumpBaseFee: deps.feeBumpBaseFee,
       networkPassphrase: deps.networkPassphrase,
     });
   };

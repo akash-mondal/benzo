@@ -106,6 +106,33 @@ describe("signAndSubmit", () => {
     expect(polls).toBe(2);
   });
 
+  it("can wrap a user-signed write in a relayer-signed fee bump", async () => {
+    const feeKp = Keypair.random();
+    const feeBumpSigner = new LocalKeypairSigner(feeKp.secret());
+    const server: SubmitRpc = {
+      async sendTransaction(tx) {
+        expect(tx.toEnvelope().switch().name).toBe("envelopeTypeTxFeeBump");
+        expect(feeKp.verify(tx.hash(), tx.signatures[0].signature())).toBe(true);
+        return { status: "PENDING", hash: "fee-bumped" };
+      },
+      async getTransaction() {
+        return { status: "SUCCESS", returnValue: nativeToScVal(true) };
+      },
+    };
+
+    const res = await signAndSubmit({
+      server,
+      preparedXdr: prepared,
+      signer,
+      feeBumpSigner,
+      networkPassphrase: NET,
+      pollIntervalMs: 0,
+    });
+
+    expect(res.txHash).toBe("fee-bumped");
+    expect(res.result).toBe(true);
+  });
+
   it("throws when send is rejected", async () => {
     const server: SubmitRpc = {
       async sendTransaction() {

@@ -229,6 +229,7 @@ function chainClientForRuntime(): ChainClient {
     makeClientSubmitWrite({
       server,
       signer: signerFor(opts.source),
+      feeBumpSigner: opts.source === RELAY_SOURCE ? undefined : LocalKeypairSigner.fromSecret(relayerSecret),
       networkPassphrase: cfg.networkPassphrase,
       addressFor,
     })(opts);
