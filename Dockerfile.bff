@@ -6,8 +6,9 @@
 #         docker build -f Dockerfile.bff --build-arg APP=console-api -t benzo-console-api .
 # Run:    docker run -p 8791:8791 --env-file .env benzo-wallet-api
 #
-# It needs the `stellar` CLI (the SDK shells out to it for contract invoke/view),
-# plus the repo's deployments/ + circuits/ build artifacts (copied below).
+# It needs the `stellar` CLI for contract reads/invocations. Hosted deployments
+# use the attested TEE for proving; this image copies only the committed
+# deployment metadata / artifact manifest, not private proving keys.
 FROM node:20-bookworm-slim AS base
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl tar \
   && rm -rf /var/lib/apt/lists/*
@@ -35,7 +36,7 @@ WORKDIR /repo
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/packages ./packages
 COPY --from=build /repo/apps ./apps
-# The on-chain deployment record + proving artifacts the BFF reads at runtime.
+# The on-chain deployment record + committed artifact manifest.
 COPY deployments ./deployments
 COPY circuits/build ./circuits/build
 # Secrets (DEPLOYER_SECRET, SOROBAN_RPC_URL, …) come from the runtime env, NEVER baked in.
