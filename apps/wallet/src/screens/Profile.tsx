@@ -4,20 +4,20 @@
  * settings dump.
  */
 import { useEffect, useState } from "react";
-import { Activity, BadgeCheck, ChevronRight, Eye, EyeOff, KeyRound, Lock, ShieldCheck, Sparkles, Users } from "lucide-react";
+import { Activity, BadgeCheck, ChevronRight, Eye, EyeOff, KeyRound, Lock, ShieldCheck, Sparkles, Trash2, Users } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useWallet } from "../lib/store";
-import { api, type RecoveryStatus } from "../lib/api";
+import { api, clearHostedAuthState, type RecoveryStatus } from "../lib/api";
 import { getChainStatus } from "../lib/chain";
 import { NETWORK_LABEL } from "../lib/network";
 import { getLockSettings, setLockSettings, lockCapable, requireUnlock } from "../lib/lock";
 import { tierInfo, sendCapUsd } from "../lib/tiers";
 import { Screen, Stagger } from "../ui/motion";
-import { Avatar, Card } from "../ui/primitives";
+import { Avatar, Button, Card } from "../ui/primitives";
 
 export function Profile() {
   const nav = useNavigate();
-  const { session, hidden, toggleHidden } = useWallet();
+  const { session, balance, publicBalance, hidden, toggleHidden } = useWallet();
   const live = session?.live;
   const tee = session?.prover.tee;
 
@@ -31,6 +31,11 @@ export function Profile() {
   const [lock, setLock] = useState(() => getLockSettings());
   const tier = tierInfo(session?.kycTier);
   const [verifyOpen, setVerifyOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteErr, setDeleteErr] = useState<string | null>(null);
+  const privateHasFunds = BigInt(balance?.stroops ?? "0") > 0n;
+  const publicHasFunds = BigInt(publicBalance?.stroops ?? "0") > 0n;
   async function toggleLock(key: "onOpen" | "onSend") {
     const next = { ...lock, [key]: !lock[key] };
     // Turning a lock ON requires proving the platform passkey prompt works right now.
@@ -50,6 +55,19 @@ export function Profile() {
       clearInterval(iv);
     };
   }, []);
+
+  async function deleteAccount() {
+    setDeleting(true);
+    setDeleteErr(null);
+    try {
+      await api.deleteAccount();
+      clearHostedAuthState();
+    } catch (e) {
+      setDeleteErr((e as Error).message || "Account could not be deleted yet.");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -216,6 +234,44 @@ export function Profile() {
         </Stagger.Item>
 
         <Stagger.Item index={6}>
+          <Card className="space-y-3 p-4" data-testid="account-freedom-card">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 flex-none items-center justify-center rounded-full bg-canvas text-ink"><KeyRound size={18} /></div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[15px] font-semibold">Your account stays yours</div>
+                <div className="mt-1 text-[12.5px] leading-relaxed text-muted">
+                  Move money to any Stellar wallet before leaving. Private funds must be made public or cashed out first. Deleting creates a fresh Benzo wallet next time you sign in.
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="secondary" size="sm" onClick={() => nav("/deposit")} data-testid="account-receive">Receive address</Button>
+              <Button variant="secondary" size="sm" onClick={() => nav("/send?mode=public")} data-testid="account-send-out">Send out</Button>
+              <Button variant="secondary" size="sm" onClick={() => nav("/convert?mode=public")} data-testid="account-make-public">Make public</Button>
+              <Button variant="secondary" size="sm" onClick={() => setDeleteOpen((v) => !v)} data-testid="account-delete-open">
+                <Trash2 size={14} /> Delete data
+              </Button>
+            </div>
+            {deleteOpen ? (
+              <div className="rounded-xl border border-hair bg-canvas/70 p-3" data-testid="account-delete-panel">
+                <div className="text-[12.5px] leading-relaxed text-muted">
+                  Deletion clears hosted Benzo profile data for this sign-in and rotates your Benzo wallet. It will be refused while any private balance, public balance, or pending invite funds remain.
+                </div>
+                {(privateHasFunds || publicHasFunds) ? (
+                  <div className="mt-2 rounded-lg bg-amber/12 px-3 py-2 text-[12px] font-medium text-[#9a6b12]" data-testid="account-delete-blocked">
+                    Move funds out first. Private: {privateHasFunds ? "not empty" : "empty"} · Public: {publicHasFunds ? "not empty" : "empty"}
+                  </div>
+                ) : null}
+                {deleteErr ? <div className="mt-2 text-[12px] font-medium text-danger" data-testid="account-delete-error">{deleteErr}</div> : null}
+                <Button full variant="danger" size="sm" className="mt-3" loading={deleting} onClick={deleteAccount} data-testid="account-delete-confirm">
+                  Delete hosted data
+                </Button>
+              </div>
+            ) : null}
+          </Card>
+        </Stagger.Item>
+
+        <Stagger.Item index={7}>
           <p className="px-2 text-center text-[12px] leading-relaxed text-muted">
             Your balance and payments are private by default. Only you can see them, and you choose what to prove.
           </p>

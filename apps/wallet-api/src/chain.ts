@@ -46,7 +46,7 @@ import {
 } from "@benzo/core";
 import { encodeBenzoLink } from "@benzo/links";
 import { db, nowSec, type ActivityRow, type WalletInvite } from "./store.js";
-import { currentAuth } from "./auth.js";
+import { accountFingerprint, currentAuth } from "./auth.js";
 import { hostedRuntime } from "./runtime.js";
 
 export type ProverKind = "local" | "tee";
@@ -56,6 +56,7 @@ const DEPLOYMENT_URL = new URL("../../../deployments/testnet.json", import.meta.
 const TX_SOURCE = "benzo-deployer";
 const RELAY_SOURCE = "benzo-relayer";
 const OPERATOR_ADMIN_SOURCE = "benzo-operator-admin";
+const HOSTED_USER_SOURCE = "benzo-hosted-user";
 const HORIZON_URL = process.env.HORIZON_URL ?? "https://horizon-testnet.stellar.org";
 // The consumer wallet's OWN shielded identity + note-discovery state — kept
 // SEPARATE from the business console (a wallet user is a different account; the
@@ -93,6 +94,10 @@ function operatorAdminSecret(): string | null {
 
 function operatorAdminSource(): string {
   return hostedRuntime() ? OPERATOR_ADMIN_SOURCE : TX_SOURCE;
+}
+
+function walletUserSource(): string {
+  return hostedRuntime() ? HOSTED_USER_SOURCE : TX_SOURCE;
 }
 
 function errorSummary(e: unknown): { message: string; name?: string; stack?: string } {
@@ -182,7 +187,7 @@ function clientCacheKey(prover: ProverKind): string {
   const auth = currentAuth();
   if (hostedRuntime()) {
     if (!auth) throw new Error("Hosted wallet requires Google/passkey account auth");
-    return `${auth.key}:${prover}`;
+    return `${auth.key}:${accountFingerprint(auth.account)}:${prover}`;
   }
   return `local:${prover}`;
 }
@@ -191,7 +196,7 @@ function statePath(): string {
   const auth = currentAuth();
   if (hostedRuntime()) {
     if (!auth) throw new Error("Hosted wallet requires Google/passkey account auth");
-    return join(tmpdir(), `benzo-wallet-${auth.key}.json`);
+    return join(tmpdir(), `benzo-wallet-${auth.key}-${accountFingerprint(auth.account)}.json`);
   }
   return STATE;
 }
@@ -283,7 +288,7 @@ export function getClient(prover: ProverKind = hostedRuntime() ? "tee" : "local"
       },
       prover: buildProver(prover),
       rpcUrl: process.env.SOROBAN_RPC_URL,
-      txSource: "benzo-deployer",
+      txSource: hostedRuntime() ? HOSTED_USER_SOURCE : TX_SOURCE,
       aspSource: hostedRuntime() ? operatorAdminSource() : "benzo-deployer",
       handleRegistry: d.handleRegistry as string,
       requestRegistry: d.requestRegistry as string,
@@ -352,6 +357,10 @@ function isMissingAccountError(e: unknown): boolean {
     /account.*not.*found|not.*found|404/i.test(String(maybe.message ?? e));
 }
 
+function isRpcAccountNotFound(e: unknown): boolean {
+  return /Account not found|txNoAccount|tx_no_account/i.test(String((e as Error)?.message ?? e));
+}
+
 async function sponsoredTrustline(params: { accountSecret: string; sponsorSecret: string; asset: { code: string; issuer: string } }): Promise<void> {
   const sponsor = Keypair.fromSecret(params.sponsorSecret);
   const account = Keypair.fromSecret(params.accountSecret);
@@ -371,6 +380,22 @@ async function sponsoredTrustline(params: { accountSecret: string; sponsorSecret
   const tx = builder.setTimeout(120).build();
   tx.sign(sponsor, account);
   await server.submitTransaction(tx);
+}
+
+async function waitForHostedRpcAccount(accountAddress: string): Promise<void> {
+  const cfg = configFromEnv();
+  const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
+  let lastErr: unknown;
+  for (let i = 0; i < 12; i++) {
+    try {
+      await server.getAccount(accountAddress);
+      return;
+    } catch (e) {
+      lastErr = e;
+      await new Promise((r) => setTimeout(r, 500 * (i < 5 ? 1 : 2)));
+    }
+  }
+  throw new Error(`Hosted wallet account is not visible to Soroban RPC yet: ${String((lastErr as Error)?.message ?? lastErr)}`);
 }
 
 async function ensureHostedPublicAccount(): Promise<void> {
@@ -405,6 +430,7 @@ async function ensureHostedPublicAccount(): Promise<void> {
         newAccountSecret: accountSecret,
       });
     }
+    await waitForHostedRpcAccount(accountAddress);
   })();
   hostedProvisioning.set(auth.key, work);
   try {
@@ -432,6 +458,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   const myMvk = c.account.mvkScalar;
   const myLeaf = mvkRegistryLeaf(myMvk, 0n);
   let leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  let onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (!leaves.includes(myLeaf)) {
     // not yet registered — register our MVK on-chain, then refetch.
     try {
@@ -445,6 +472,19 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
       console.error("[wallet-api] mvk registration failed", errorSummary(e));
       throw e;
     }
+  }
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const reg = new MvkRegistryMirror();
+    if (leaves.includes(myLeaf)) {
+      reg.syncWithOwnedKey(leaves, myMvk, 0n);
+      onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
+      if (reg.root() === onchain) {
+        c.pool.useMvkRegistry(reg);
+        mvkWired.add(c);
+        return;
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500 + attempt * 250));
     leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
   }
   if (!leaves.includes(myLeaf)) throw new Error("mvk registry: own MVK missing after registration");
@@ -453,7 +493,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   // after us. The root then always matches on-chain.
   const reg = new MvkRegistryMirror();
   reg.syncWithOwnedKey(leaves, myMvk, 0n);
-  const onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
+  onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (reg.root() !== onchain) {
     throw new Error(`mvk registry mirror drift: mirror=${reg.root()} onchain=${onchain}`);
   }
@@ -716,8 +756,32 @@ async function rampCashIn(c: BenzoClient, to: string, stroops: bigint): Promise<
     });
   } catch (e) {
     console.error("[wallet-api] ramp cash_in failed", errorSummary(e));
+    if (/not confirmed after \d+ polls/i.test(String((e as Error)?.message ?? e))) {
+      try {
+        await waitForLiquidUsdc(c, to, stroops);
+        return;
+      } catch {
+        // The timeout did not settle into a visible USDC balance; report the
+        // original chain failure through the normal user-safe mapper.
+      }
+    }
     throw mapRampError(e, "in");
   }
+}
+
+async function waitForLiquidUsdc(c: BenzoClient, address: string, minStroops: bigint): Promise<void> {
+  const token = deployment().token as string;
+  let last = 0n;
+  for (let attempt = 0; attempt < 18; attempt++) {
+    try {
+      last = BigInt(String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", address])));
+      if (last >= minStroops) return;
+    } catch {
+      // A newly created trustline can briefly read as missing; keep polling.
+    }
+    await new Promise((r) => setTimeout(r, 600 + attempt * 200));
+  }
+  throw new RampError("busy", `USDC is still settling to your wallet (${last.toString()} < ${minStroops.toString()}). Please try again.`);
 }
 
 /** Off-ramp: pull `stroops` USDC from `from` back into the reserve. */
@@ -727,7 +791,7 @@ async function rampCashOut(c: BenzoClient, from: string, stroops: bigint): Promi
   try {
     await c.opts.cli.invoke({
       contractId: ramp,
-      source: TX_SOURCE,
+      source: walletUserSource(),
       send: true,
       fnArgs: ["cash_out", "--from", from, "--amount", stroops.toString(), "--reference", rampRef()],
     });
@@ -783,7 +847,8 @@ export async function addMoney(amount: string, prover: ProverKind = "local"): Pr
       // address (the anchor's distribution account), then we shield it. Only the
       // fiat *charge* is simulated; every USDC movement here is real + on-chain.
       await rampCashIn(c, from, stroops);
-      const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: TX_SOURCE });
+      await waitForLiquidUsdc(c, from, stroops);
+      const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: walletUserSource() });
       await c.flush();
       return { status: "settled", txHash: sh.txHash, provingMs: sh.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: sh.sorobanPublics };
     } catch (e) {
@@ -823,7 +888,7 @@ export async function getDepositInfo(): Promise<{ address: string; liquid: strin
     const [asset, issuer] = String(deployment().usdcAsset ?? "USDC:").split(":");
     let liquid = "0";
     try {
-      liquid = String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", address]));
+      liquid = String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", address]));
     } catch (e) {
       // A newly sponsored account can have no SAC balance entry until the first
       // USDC lands. The deposit address is still valid; liquid USDC is 0.
@@ -846,13 +911,13 @@ export async function importDeposit(amount: string | undefined, prover: ProverKi
   await wireMvkRegistry(c);
   const from = await selfAddress(c);
   const token = deployment().token as string;
-  const liquid = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", from])));
+  const liquid = BigInt(String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", from])));
   const stroops = amount ? stroops0 : liquid;
   if (stroops <= 0n) throw new RampError("balance", "No deposited USDC to import yet. Send USDC to your address first.");
   if (stroops > liquid) throw new RampError("balance", "That's more than the USDC deposited to your address.");
   const before = await c.getBalance();
   try {
-    const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: TX_SOURCE });
+    const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: walletUserSource() });
     await c.flush();
     return { status: "settled", txHash: sh.txHash, provingMs: sh.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: sh.sorobanPublics };
   } catch (e) {
@@ -890,7 +955,7 @@ export async function makePublic(amount: string, prover: ProverKind): Promise<Se
     await wireMvkRegistry(c);
     const to = await selfAddress(c);
     const token = deployment().token as string;
-    const liquidBefore = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", to])));
+    const liquidBefore = BigInt(String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", to])));
     try {
       const wd = await c.unshield({ amount: stroops, toAddress: to });
       try { await c.flush(); } catch { /* local persistence is best-effort; the withdraw already settled on-chain */ }
@@ -901,7 +966,7 @@ export async function makePublic(amount: string, prover: ProverKind): Promise<Se
       // false error — otherwise the UI shows "failed" on money that actually moved.
       try {
         await c.sync();
-        const liquidAfter = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", to])));
+        const liquidAfter = BigInt(String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", to])));
         if (liquidAfter > liquidBefore) return { status: "settled", prover, amount: stroops.toString(), onChain: true };
       } catch { /* fall through */ }
       if (e instanceof RampError) throw e;
@@ -924,14 +989,14 @@ export async function sendPublic(toAddress: string, amount: string): Promise<{ t
     await ensureHostedPublicAccount();
     const token = deployment().token as string;
     const from = await selfAddress(c);
-    const liquid = BigInt(String(await c.opts.cli.view(token, TX_SOURCE, ["balance", "--id", from])));
+    const liquid = BigInt(String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", from])));
     if (stroops > liquid) throw new RampError("balance", "That's more than your Public balance.");
     try {
       // SAC transfer(from, to, amount) — `from` is the custodial public account
-      // (authorized via the TX_SOURCE key); `to` is the external wallet.
+      // (authorized by this wallet user's public-edge key); `to` is the external wallet.
       const res = await c.opts.cli.invoke({
         contractId: token,
-        source: TX_SOURCE,
+        source: walletUserSource(),
         send: true,
         fnArgs: ["transfer", "--from", from, "--to", to, "--amount", stroops.toString()],
       });
@@ -984,7 +1049,19 @@ export async function claimHandle(handle: string): Promise<{ handle: string; txH
   if (c) {
     await ensureHostedPublicAccount();
     await c.sync();
-    const res = await c.registerHandle({ handle: h });
+    let res: { txHash?: string } | null = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        res = await c.registerHandle({ handle: h });
+        break;
+      } catch (e) {
+        const auth = currentAuth();
+        if (!hostedRuntime() || !auth?.account.stellarAddress || !isRpcAccountNotFound(e) || attempt === 4) throw e;
+        await waitForHostedRpcAccount(auth.account.stellarAddress);
+        await new Promise((r) => setTimeout(r, 1500 + attempt * 1000));
+      }
+    }
+    if (!res) throw new Error("Handle could not be claimed.");
     db.profile.handle = h;
     return { handle: h, txHash: res.txHash, onChain: true };
   }
@@ -1117,7 +1194,7 @@ export async function claimInvite(secret: string, localId?: string): Promise<{ a
         await wireMvkRegistry(c);
         const from = await selfAddress(c);
         const before = await c.getBalance();
-        const sh = await c.shield({ amount: BigInt(r.amount), fromAddress: from, fromSource: TX_SOURCE });
+        const sh = await c.shield({ amount: BigInt(r.amount), fromAddress: from, fromSource: walletUserSource() });
         await c.flush();
         txHash = sh.txHash ?? txHash;
         sorobanPublics = sh.sorobanPublics;

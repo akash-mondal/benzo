@@ -117,6 +117,38 @@ test("hosted wallet fails closed when a tenant account binding changes", async (
   });
 });
 
+test("hosted wallet account deletion clears only the current tenant document", async () => {
+  process.env.BENZO_HOSTED_TENANT_TEST = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
+  const { db, deleteCurrentWalletTenant, runWithWalletTenant } = await import("./store.js");
+
+  await runWithWalletTenant("delete-alice", { name: "Alice" }, { accountFingerprint: "wallet_alice", subjectKey: "delete-alice" }, async () => {
+    db.profile.handle = "@deletealice";
+  });
+  await runWithWalletTenant("delete-bob", { name: "Bob" }, { accountFingerprint: "wallet_bob", subjectKey: "delete-bob" }, async () => {
+    db.profile.handle = "@deletebob";
+  });
+
+  await runWithWalletTenant("delete-alice", null, { accountFingerprint: "wallet_alice", subjectKey: "delete-alice" }, async () => {
+    expect(db.profile.handle).toBe("@deletealice");
+    expect(db.accountGeneration).toBe(0);
+    await deleteCurrentWalletTenant();
+    expect(db.accountGeneration).toBe(1);
+  });
+
+  await runWithWalletTenant("delete-alice", { name: "Alice" }, { accountFingerprint: "wallet_alice_rotated", subjectKey: "delete-alice" }, async () => {
+    expect(db.accountGeneration).toBe(1);
+    expect(db.profile.handle).toBe("@you");
+    expect(db.contacts).toEqual([]);
+    expect(db.ledger).toEqual([]);
+  });
+  await runWithWalletTenant("delete-bob", null, { accountFingerprint: "wallet_bob", subjectKey: "delete-bob" }, async () => {
+    expect(db.profile.handle).toBe("@deletebob");
+  });
+});
+
 test("hosted wallet request limits are tenant-scoped outside the product document", async () => {
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";

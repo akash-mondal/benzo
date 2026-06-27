@@ -7,7 +7,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
 import type { AccountBinding } from "./auth.js";
 import { hostedRuntime } from "./runtime.js";
-import { loadTenantDocument, saveTenantDocument, tenantStorageMissing } from "./tenantData.js";
+import { deleteTenantDocument, loadTenantDocument, saveTenantDocument, tenantStorageMissing } from "./tenantData.js";
 export type Direction = "in" | "out";
 
 export interface Contact {
@@ -138,6 +138,7 @@ export function nowSec(): number {
   return Math.floor(Date.now() / 1000);
 }
 export interface WalletDb {
+  accountGeneration: number;
   profile: Profile;
   contacts: Contact[];
   activity: ActivityRow[];
@@ -150,6 +151,7 @@ export interface WalletDb {
 
 export function seed(): WalletDb {
   return {
+    accountGeneration: 0,
     profile: { handle: "@you", name: "You" },
     contacts: [],
     activity: [],
@@ -162,7 +164,7 @@ export function seed(): WalletDb {
 }
 
 const localDb: WalletDb = seed();
-const tenantScope = new AsyncLocalStorage<{ key: string; db: WalletDb }>();
+const tenantScope = new AsyncLocalStorage<{ key: string; db: WalletDb; deleted?: boolean }>();
 
 function activeDb(): WalletDb {
   return tenantScope.getStore()?.db ?? localDb;
@@ -193,6 +195,17 @@ export function tenantDataMissing(): string[] {
 
 export function currentWalletTenantKey(): string | null {
   return tenantScope.getStore()?.key ?? null;
+}
+
+export async function deleteCurrentWalletTenant(): Promise<void> {
+  const ctx = tenantScope.getStore();
+  if (!ctx) {
+    Object.assign(localDb, seed());
+    return;
+  }
+  const accountGeneration = Number(ctx.db.accountGeneration ?? 0) + 1;
+  await deleteTenantDocument("wallet", ctx.key);
+  Object.assign(ctx.db, seed(), { accountGeneration });
 }
 
 function hostedTenantMode(): boolean {
@@ -281,6 +294,7 @@ export function walletLedgerBalances(): Record<WalletLedgerAccount, string> {
 }
 
 function normalizeWalletDb(value: WalletDb): WalletDb {
+  value.accountGeneration ??= 0;
   value.contacts ??= [];
   value.activity ??= [];
   value.invites ??= [];
@@ -348,13 +362,13 @@ export async function runWithWalletTenant<T>(
   const fresh = seed();
   if (claims?.name) fresh.profile.name = claims.name;
   if (claims?.email && fresh.profile.name === "You") fresh.profile.name = claims.email.split("@")[0] || "You";
-  const ctx = { key: tenantKey, db: normalizeWalletDb(loaded ?? fresh) };
+  const ctx: { key: string; db: WalletDb; deleted?: boolean } = { key: tenantKey, db: normalizeWalletDb(loaded ?? fresh) };
   bindRecovery(ctx.db, binding);
   return tenantScope.run(ctx, async () => {
     try {
       return await fn();
     } finally {
-      await saveTenantDocument("wallet", tenantKey, ctx.db);
+      if (!ctx.deleted) await saveTenantDocument("wallet", tenantKey, ctx.db);
     }
   });
 }

@@ -98,6 +98,10 @@ export interface RecoveryStatus {
   };
 }
 
+export interface DeleteAccountResult {
+  deleted: boolean;
+}
+
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
@@ -255,6 +259,7 @@ export const api = {
     ),
   session: () => http<Session>("/session"),
   recoveryStatus: () => http<RecoveryStatus>("/recovery/status"),
+  deleteAccount: () => http<DeleteAccountResult>("/account", { method: "DELETE", body: "{}" }),
   balance: () => http<Balance>("/balance"),
   rampReserve: () => http<{ reserve: string | null; live: boolean }>("/ramp/reserve"),
   depositInfo: () => http<{ address: string | null; liquid: string; asset: string; issuer: string; live: boolean }>("/deposit-address"),

@@ -46,6 +46,7 @@ import {
   appendWalletProofReceipt,
   currentWalletTenantKey,
   db,
+  deleteCurrentWalletTenant,
   nowSec,
   recoverySummary,
   RecoveryRequiredError,
@@ -68,7 +69,7 @@ const localRateLimits = new Map<string, { windowStart: number; count: number }>(
 
 function cors(res: ServerResponse): void {
   res.setHeader("Access-Control-Allow-Origin", process.env.WALLET_ALLOWED_ORIGIN ?? "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "content-type, authorization, idempotency-key, x-benzo-test-secret");
 }
 function json(res: ServerResponse, code: number, body: unknown): void {
@@ -289,7 +290,8 @@ route("POST", "/api/handle/claim", async (req, res) => {
   if (!body.handle) return json(res, 400, { error: "handle required" });
   try {
     json(res, 200, await claimHandle(body.handle));
-  } catch {
+  } catch (e) {
+    logRouteError("handle claim", e);
     json(res, 400, { error: "Handle could not be claimed. Please try another handle." });
   }
 });
@@ -367,6 +369,40 @@ route("GET", "/api/ledger/verify", (_q, res) => json(res, 200, verifyWalletLedge
 route("GET", "/api/proof-receipts", (_q, res) =>
   json(res, 200, [...(db.proofReceipts ?? [])].sort((a, b) => b.createdAt - a.createdAt)),
 );
+
+route("DELETE", "/api/account", async (_q, res) => {
+  let privateBalance = 0n;
+  let publicBalanceStroops = 0n;
+  try {
+    privateBalance = BigInt((await getBalanceStroops()).stroops);
+    publicBalanceStroops = BigInt((await publicBalance()).stroops);
+  } catch {
+    return json(res, 409, {
+      error: "Couldn't verify this wallet is empty. Move funds out, then try again.",
+      blockers: ["balance_check_unavailable"],
+    });
+  }
+  const pendingInvites = listInvites().filter((inv) => inv.status === "pending");
+  const ledgerBalances = walletLedgerBalances();
+  const claimEscrow = BigInt(ledgerBalances.claim_escrow ?? "0");
+  const blockers: string[] = [];
+  if (privateBalance > 0n) blockers.push("private_balance");
+  if (publicBalanceStroops > 0n) blockers.push("public_balance");
+  if (claimEscrow > 0n || pendingInvites.length > 0) blockers.push("pending_invites");
+  if (blockers.length) {
+    return json(res, 409, {
+      error: "Move or refund all funds before deleting this Benzo account.",
+      blockers,
+      balances: {
+        private: privateBalance.toString(),
+        public: publicBalanceStroops.toString(),
+        claimEscrow: claimEscrow.toString(),
+      },
+    });
+  }
+  await deleteCurrentWalletTenant();
+  json(res, 200, { deleted: true });
+});
 // Contacts are device-local in the wallet UI; the hosted API never provides
 // hosted people.
 route("GET", "/api/contacts", (_q, res) => json(res, 200, []));

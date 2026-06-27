@@ -150,6 +150,18 @@ export async function saveTenantDocument(app: string, tenantKey: string, value: 
   `;
 }
 
+export async function deleteTenantDocument(app: string, tenantKey: string): Promise<void> {
+  if (useMemoryStore()) {
+    memoryDocuments.delete(`${app}:${tenantKey}`);
+    return;
+  }
+  await ensureSchema();
+  const db = sql();
+  if (!db) return;
+  await db`delete from benzo_tenant_documents where app = ${app} and tenant_key = ${tenantKey}`;
+  await db`delete from benzo_request_limits where app = ${app} and tenant_key = ${tenantKey}`;
+}
+
 function currentWindow(nowSec: number, windowSeconds: number): number {
   return Math.floor(nowSec / windowSeconds) * windowSeconds;
 }

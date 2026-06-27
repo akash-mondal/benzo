@@ -298,8 +298,22 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   const myMvk = c.account.mvkScalar;
   const myLeaf = mvkRegistryLeaf(myMvk, 0n);
   let leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  let onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (!leaves.includes(myLeaf)) {
     await c.opts.cli.invoke({ contractId: registry, source: TX_SOURCE, send: true, fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"] });
+  }
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const reg = new MvkRegistryMirror();
+    if (leaves.includes(myLeaf)) {
+      reg.syncWithOwnedKey(leaves, myMvk, 0n);
+      onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
+      if (reg.root() === onchain) {
+        c.pool.useMvkRegistry(reg);
+        mvkWired.add(c);
+        return;
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500 + attempt * 250));
     leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
   }
   if (!leaves.includes(myLeaf)) throw new Error("mvk registry: own MVK missing after registration");
@@ -307,7 +321,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   // or not another key was registered after us (matches the wallet-api fix).
   const reg = new MvkRegistryMirror();
   reg.syncWithOwnedKey(leaves, myMvk, 0n);
-  const onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
+  onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (reg.root() !== onchain) throw new Error(`mvk registry mirror drift: mirror=${reg.root()} onchain=${onchain}`);
   c.pool.useMvkRegistry(reg);
   mvkWired.add(c);

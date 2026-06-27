@@ -4,6 +4,7 @@ import type { IncomingMessage } from "node:http";
 import { accountFromOidc, type BenzoAccount } from "@benzo/core";
 import { verifyGoogleIdToken, type GoogleClaims } from "./google-oidc.js";
 import { hostedRuntime } from "./runtime.js";
+import { loadTenantDocument, tenantStorageMissing } from "./tenantData.js";
 
 export interface AuthContext {
   key: string;
@@ -24,7 +25,7 @@ function accountSalt(): string {
   return salt || "benzo-local-dev";
 }
 
-function fingerprintAccount(account: BenzoAccount): string {
+export function accountFingerprint(account: BenzoAccount): string {
   return createHash("sha256")
     .update(`wallet|${account.stellarAddress ?? ""}|${account.spendPub.toString()}|${account.mvkScalar.toString()}`)
     .digest("hex")
@@ -90,28 +91,44 @@ function verifyTestAuthToken(token: string): GoogleClaims | null {
   return claims;
 }
 
+function tenantKeyForClaims(claims: Pick<GoogleClaims, "iss" | "aud" | "sub">): string {
+  return createHash("sha256").update(`wallet|${claims.iss}|${claims.aud}|${claims.sub}`).digest("hex").slice(0, 32);
+}
+
+async function accountGenerationForTenant(key: string): Promise<number> {
+  if (!hostedRuntime()) return 0;
+  if (tenantStorageMissing().length > 0) return 0;
+  const doc = await loadTenantDocument<{ accountGeneration?: number }>("wallet", `wallet:${key}`);
+  const generation = Number(doc?.accountGeneration ?? 0);
+  return Number.isSafeInteger(generation) && generation >= 0 ? generation : 0;
+}
+
+async function deriveHostedAccount(claims: Pick<GoogleClaims, "iss" | "aud" | "sub">, key: string): Promise<BenzoAccount> {
+  const generation = await accountGenerationForTenant(key);
+  const baseSalt = accountSalt();
+  const salt = generation === 0 ? baseSalt : `${baseSalt}:wallet-generation:${generation}`;
+  const account = accountFromOidc(
+    { iss: claims.iss, aud: claims.aud, sub: claims.sub },
+    { app: "consumer", salt },
+  );
+  account.label = generation === 0 ? `wallet-${key.slice(0, 8)}` : `wallet-${key.slice(0, 8)}-g${generation}`;
+  return account;
+}
+
 export async function authFromRequest(req: IncomingMessage): Promise<AuthContext | null> {
   const token = bearer(req);
   if (!token) return null;
   const testClaims = verifyTestAuthToken(token);
   if (testClaims) {
-    const key = createHash("sha256").update(`wallet|${testClaims.iss}|${testClaims.aud}|${testClaims.sub}`).digest("hex").slice(0, 32);
-    const account = accountFromOidc(
-      { iss: testClaims.iss, aud: testClaims.aud, sub: testClaims.sub },
-      { app: "consumer", salt: accountSalt() },
-    );
-    account.label = `wallet-${key.slice(0, 8)}`;
+    const key = tenantKeyForClaims(testClaims);
+    const account = await deriveHostedAccount(testClaims, key);
     return { key, account, claims: testClaims };
   }
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) throw new Error("GOOGLE_CLIENT_ID is required for hosted Google accounts");
   const claims = await verifyGoogleIdToken(token, clientId);
-  const key = createHash("sha256").update(`wallet|${claims.iss}|${claims.aud}|${claims.sub}`).digest("hex").slice(0, 32);
-  const account = accountFromOidc(
-    { iss: claims.iss, aud: claims.aud, sub: claims.sub },
-    { app: "consumer", salt: accountSalt() },
-  );
-  account.label = `wallet-${key.slice(0, 8)}`;
+  const key = tenantKeyForClaims(claims);
+  const account = await deriveHostedAccount(claims, key);
   return { key, account, claims };
 }
 
@@ -124,5 +141,5 @@ export function currentAuth(): AuthContext | null {
 }
 
 export function accountBinding(ctx: AuthContext): AccountBinding {
-  return { accountFingerprint: fingerprintAccount(ctx.account), subjectKey: ctx.key };
+  return { accountFingerprint: accountFingerprint(ctx.account), subjectKey: ctx.key };
 }

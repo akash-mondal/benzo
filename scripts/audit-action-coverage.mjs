@@ -43,10 +43,10 @@ function checkHostedIdempotencyServer(rel, appName) {
   const src = read(rel);
   const required = [
     "function requiresIdempotency(method: string, path: string): boolean",
-    "if (process.env.VERCEL !== \"1\") return false;",
+    "if (!hostedRuntime()) return false;",
     "if (!path.startsWith(\"/api/\")) return false;",
     "if (m === \"GET\" || m === \"HEAD\" || m === \"OPTIONS\") return false;",
-    "return path !== \"/api/auth/google\";",
+    "return path !== \"/api/auth/google\" && path !== \"/api/auth/test\";",
     "if (requiresIdempotency(req.method ?? \"GET\", effectiveUrl.pathname) && !idempotencyHeader(req))",
   ];
   for (const needle of required) {
@@ -69,7 +69,7 @@ function checkHostedIdempotencyServer(rel, appName) {
 function checkConsoleMutations() {
   const rel = "apps/console-api/src/server.ts";
   const src = read(rel);
-  const ignored = new Set(["/api/auth/google"]);
+  const ignored = new Set(["/api/auth/google", "/api/auth/test"]);
   const acceptableMarkers = [
     "appendPrivateEvent(",
     "recordProofReceipt(",
