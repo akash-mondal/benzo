@@ -88,6 +88,18 @@ fetch_verify() { # url, dest, expected_sha
   echo "  verified $dest"
 }
 
+fetch_verify_any() { # dest, expected_sha, url...
+  local dest=$1 want=$2
+  shift 2
+  local last_status=1
+  for url in "$@"; do
+    if fetch_verify "$url" "$dest" "$want"; then return 0; fi
+    last_status=$?
+    echo "  artifact source skipped: $url"
+  done
+  return "$last_status"
+}
+
 for C in $CIRCUITS; do
   echo "== $C =="
   zkeyHash=$(node -e "console.log(require('./$MANIFEST').circuits['$C'].zkeyHash||'')")
@@ -96,8 +108,8 @@ for C in $CIRCUITS; do
   # reads (circuits/build/$C/${C}_js/$C.wasm — see tests/e2e/flow.mjs and the SDK
   # circuit map). Writing it flat made cold clones ENOENT before the first proof;
   # it only worked locally because the author already had the _js dir populated.
-  [ -n "$zkeyHash" ] && fetch_verify "$BASE/$C/$C.zkey" "circuits/build/$C/$C.zkey" "$zkeyHash"
-  [ -n "$wasmHash" ] && fetch_verify "$BASE/$C/$C.wasm" "circuits/build/$C/${C}_js/$C.wasm" "$wasmHash"
+  [ -n "$zkeyHash" ] && fetch_verify_any "circuits/build/$C/$C.zkey" "$zkeyHash" "$BASE/$C.zkey" "$BASE/$C/$C.zkey"
+  [ -n "$wasmHash" ] && fetch_verify_any "circuits/build/$C/${C}_js/$C.wasm" "$wasmHash" "$BASE/$C.wasm" "$BASE/$C/$C.wasm"
   if is_browser "$C"; then
     mkdir -p apps/wallet/public/circuits
     cp "circuits/build/$C/$C.zkey" "apps/wallet/public/circuits/$C.zkey"
