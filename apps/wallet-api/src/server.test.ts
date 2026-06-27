@@ -3,13 +3,14 @@ import { Readable } from "node:stream";
 import { beforeAll, expect, test } from "vitest";
 
 let handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
+let proverOf: (url: URL, body?: { prover?: string }) => string;
 
 beforeAll(async () => {
   process.env.VERCEL = "1";
   process.env.BENZO_DEV_EXPORT = "1";
   process.env.BENZO_ACCOUNT_SALT = "wallet-server-test-salt";
   process.env.BENZO_TEST_AUTH_SECRET = "wallet-server-test-secret";
-  ({ handle } = await import("./server.js"));
+  ({ handle, proverOf } = await import("./server.js"));
 });
 
 async function request(path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) {
@@ -99,4 +100,11 @@ test("mints secret-gated wallet test auth for backend smoke tests", async () => 
     headers: { authorization: `Bearer ${body.token}` },
   });
   expect(protectedRes.status).not.toBe(401);
+});
+
+test("rejects hosted local prover requests before they can run on the API host", () => {
+  expect(() => proverOf(new URL("http://localhost/api/send?prover=local"))).toThrow(
+    "Hosted wallet APIs cannot run local proving",
+  );
+  expect(proverOf(new URL("http://localhost/api/send?prover=tee"))).toBe("tee");
 });

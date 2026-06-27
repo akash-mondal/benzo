@@ -27,6 +27,7 @@ import { verifyBalanceProofOnChain } from "./chain";
 import { RPC_URL, NETWORK_PASSPHRASE, SIM_SOURCE, DEPLOYMENT, RELAYER_ADDRESS, TEE_CONFIG } from "./network";
 import { preferDeviceProving } from "./proverPolicy";
 import { prepareApiRequest } from "./api";
+import { hasPasskey, loginWithPasskey } from "./passkey";
 
 function b64(b: Uint8Array): string {
   let s = "";
@@ -155,29 +156,32 @@ function canUseDevAccountExport(): boolean {
   return host === "localhost" || host === "127.0.0.1" || host === "::1" || host.endsWith(".local");
 }
 
-async function getClient(): Promise<BenzoClient | null> {
-  if (cached !== undefined) return cached;
-  if (!canUseDevAccountExport()) {
-    cached = null;
-    return null;
-  }
-  let a: { spendSk: string; viewSecret: string; mvkSecret: string } | null = null;
+async function accountFromDevExport(): Promise<{ spendSk: string; viewSecret: string; mvkSecret: string } | null> {
+  if (!canUseDevAccountExport()) return null;
   try {
     const r = await fetch("/api/dev/account");
-    a = r.ok ? await r.json() : null;
+    return r.ok ? await r.json() : null;
   } catch {
-    a = null;
-  }
-  if (!a) {
-    cached = null;
     return null;
   }
-  const account = createAccount({
-    label: "wallet",
-    spendSk: BigInt(a.spendSk),
-    viewSecret: fromHex(a.viewSecret),
-    mvkSecret: fromHex(a.mvkSecret),
-  });
+}
+
+async function getClient(opts: { interactive?: boolean } = {}): Promise<BenzoClient | null> {
+  if (cached !== undefined && (cached !== null || !opts.interactive)) return cached;
+  const exported = await accountFromDevExport();
+  const account = exported
+    ? createAccount({
+        label: "wallet",
+        spendSk: BigInt(exported.spendSk),
+        viewSecret: fromHex(exported.viewSecret),
+        mvkSecret: fromHex(exported.mvkSecret),
+      })
+    : opts.interactive && hasPasskey()
+      ? await loginWithPasskey()
+      : null;
+  if (!account) {
+    return null;
+  }
   const cli = new StellarRpcClient({
     rpcUrl: RPC_URL,
     networkPassphrase: NETWORK_PASSPHRASE,
@@ -234,7 +238,7 @@ export async function sendClientSide(
   handle: string,
   amountStroops: string,
 ): Promise<{ txHash?: string; prover: "local" | "tee" } | null> {
-  const c = await getClient();
+  const c = await getClient({ interactive: true });
   if (!c) return null;
   await c.sync();
   if (!(await wireMvkRegistry(c))) return null;
@@ -245,7 +249,7 @@ export async function sendClientSide(
 
 /** True when the device can read shielded state itself (account provisioned). */
 export async function clientSideReadsAvailable(): Promise<boolean> {
-  return (await getClient()) !== null;
+  return (await getClient({ interactive: true })) !== null;
 }
 
 /**
@@ -268,7 +272,7 @@ export async function readShieldedBalanceClientSide(): Promise<string | null> {
 export async function proveBalanceClientSide(
   minStroops: string,
 ): Promise<{ holds: boolean; onChain: boolean; provingMs?: number; verifyMs?: number } | null> {
-  const c = await getClient();
+  const c = await getClient({ interactive: true });
   if (!c) return null;
   // Time the two client-controlled phases so the proving claim is measurable:
   // (1) prove = local WASM or attested TEE; (2) verify = the proof checked

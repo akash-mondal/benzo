@@ -97,9 +97,17 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   const raw = await rawBody(req);
   return (raw ? JSON.parse(raw) : {}) as T;
 }
-/** Read `prover` from query or body; Vercel can only prove via the attested TEE. */
-function proverOf(url: URL, body?: { prover?: string }): ProverKind {
+class HostedLocalProverError extends Error {
+  readonly code = "hosted_local_prover_disabled";
+  constructor() {
+    super("Hosted wallet APIs cannot run local proving. Prove in the browser on desktop, or use the TEE.");
+  }
+}
+
+/** Read `prover` from query or body; hosted APIs can only delegate to the attested TEE. */
+export function proverOf(url: URL, body?: { prover?: string }): ProverKind {
   const p = (url.searchParams.get("prover") || body?.prover || (hostedRuntime() ? "tee" : "local")).toLowerCase();
+  if (hostedRuntime() && p !== "tee") throw new HostedLocalProverError();
   return p === "tee" ? "tee" : "local";
 }
 
@@ -636,6 +644,9 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       });
     });
   } catch (e) {
+    if (e instanceof HostedLocalProverError) {
+      return json(res, 400, { error: e.message, code: e.code });
+    }
     if (e instanceof RecoveryRequiredError) {
       return json(res, 409, {
         error: e.message,
