@@ -14,25 +14,23 @@ www.benzo.space {
 }
 
 wallet.benzo.space {
-	route {
-		@api path /api/*
-		reverse_proxy @api wallet-api:8791
+	@api path /api/*
+	@site not path /api/*
+	reverse_proxy @api wallet-api:8791
 
-		root * /srv/wallet
-		try_files {path} /index.html
-		file_server
-	}
+	root * /srv/wallet
+	try_files @site {path} /index.html
+	file_server @site
 	encode zstd gzip
 }
 
 console.benzo.space {
-	route {
-		@api path /api/*
-		reverse_proxy @api console-api:8790
+	@api path /api/*
+	@site not path /api/*
+	reverse_proxy @api console-api:8790
 
-		root * /srv/console
-		try_files {path} /index.html
-		file_server
-	}
+	root * /srv/console
+	try_files @site {path} /index.html
+	file_server @site
 	encode zstd gzip
 }
