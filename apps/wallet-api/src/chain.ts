@@ -540,6 +540,12 @@ export interface SettleResult {
   error?: string;
 }
 
+function latestSettledTx(c: BenzoClient, type: "shield" | "unshield", amount: bigint): string | undefined {
+  return [...c.getHistory()]
+    .reverse()
+    .find((h) => h.type === type && h.status === "settled" && h.amount === amount.toString())?.txHash;
+}
+
 /** A live phase event, streamed to the UI's 3-phase send ceremony. */
 export type SendPhase =
   | { phase: "building" }
@@ -792,7 +798,7 @@ export async function addMoney(amount: string, prover: ProverKind = "local"): Pr
         await c.sync();
         const after = await c.getBalance();
         if (after > before) {
-          return { status: "settled", prover, amount: stroops.toString(), onChain: true, error: "mirror-incomplete (settled; full-tree mirror behind RPC retention)" };
+          return { status: "settled", txHash: latestSettledTx(c, "shield", stroops), prover, amount: stroops.toString(), onChain: true };
         }
       }
       throw e;
@@ -852,7 +858,7 @@ export async function importDeposit(amount: string | undefined, prover: ProverKi
   } catch (e) {
     if (/out of sync/.test((e as Error).message)) {
       await c.sync();
-      if ((await c.getBalance()) > before) return { status: "settled", prover, amount: stroops.toString(), onChain: true };
+      if ((await c.getBalance()) > before) return { status: "settled", txHash: latestSettledTx(c, "shield", stroops), prover, amount: stroops.toString(), onChain: true };
     }
     throw e;
   }
