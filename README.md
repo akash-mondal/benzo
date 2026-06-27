@@ -9,6 +9,8 @@ two reference apps. The README focuses on the protocol: what is proven, what is
 stored on-chain, what is private, and where the ZK boundary sits.
 
 > Status: Stellar testnet, unaudited, not mainnet software.
+> Repository note: early local commit dates were normalized before public release
+> after correcting bad local metadata.
 
 ## Links
 
