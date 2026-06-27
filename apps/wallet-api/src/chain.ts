@@ -586,6 +586,23 @@ function latestSettledTx(c: BenzoClient, type: "shield" | "unshield", amount: bi
     .find((h) => h.type === type && h.status === "settled" && h.amount === amount.toString())?.txHash;
 }
 
+async function waitForShieldedBalanceIncrease(c: BenzoClient, before: bigint, amount: bigint): Promise<string | undefined> {
+  const target = before + amount;
+  for (let attempt = 0; attempt < 18; attempt++) {
+    await sleep(700 + attempt * 250);
+    try {
+      await c.sync();
+      const after = await c.getBalance();
+      if (after >= target) return latestSettledTx(c, "shield", amount);
+    } catch {
+      // RPC/event indexing can lag briefly after a submitted shield. Keep the
+      // user-facing path bounded, then surface the original error if it never
+      // becomes visible.
+    }
+  }
+  return undefined;
+}
+
 /** A live phase event, streamed to the UI's 3-phase send ceremony. */
 export type SendPhase =
   | { phase: "building" }
@@ -860,11 +877,8 @@ export async function addMoney(amount: string, prover: ProverKind = "local"): Pr
       // Shield correctness doesn't depend on the full tree (it only inserts a new
       // commitment), so confirm settlement by the balance delta and report success.
       if (/out of sync/.test((e as Error).message)) {
-        await c.sync();
-        const after = await c.getBalance();
-        if (after > before) {
-          return { status: "settled", txHash: latestSettledTx(c, "shield", stroops), prover, amount: stroops.toString(), onChain: true };
-        }
+        const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
+        if (txHash !== undefined) return { status: "settled", txHash, prover, amount: stroops.toString(), onChain: true };
       }
       throw e;
     }
@@ -922,8 +936,8 @@ export async function importDeposit(amount: string | undefined, prover: ProverKi
     return { status: "settled", txHash: sh.txHash, provingMs: sh.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: sh.sorobanPublics };
   } catch (e) {
     if (/out of sync/.test((e as Error).message)) {
-      await c.sync();
-      if ((await c.getBalance()) > before) return { status: "settled", txHash: latestSettledTx(c, "shield", stroops), prover, amount: stroops.toString(), onChain: true };
+      const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
+      if (txHash !== undefined) return { status: "settled", txHash, prover, amount: stroops.toString(), onChain: true };
     }
     throw e;
   }
