@@ -95,6 +95,15 @@ function operatorAdminSource(): string {
   return hostedRuntime() ? OPERATOR_ADMIN_SOURCE : TX_SOURCE;
 }
 
+function errorSummary(e: unknown): { message: string; name?: string; stack?: string } {
+  const err = e as { message?: string; name?: string; stack?: string };
+  return {
+    message: String(err?.message ?? e),
+    name: err?.name,
+    stack: err?.stack,
+  };
+}
+
 /** Durable note-discovery + journal store (atomic-write JSON file). */
 class FileKVStore {
   constructor(private readonly path: string) {}
@@ -423,12 +432,17 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   let leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
   if (!leaves.includes(myLeaf)) {
     // not yet registered — register our MVK on-chain, then refetch.
-    await c.opts.cli.invoke({
-      contractId: registry,
-      source: operatorAdminSource(),
-      send: true,
-      fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"],
-    });
+    try {
+      await c.opts.cli.invoke({
+        contractId: registry,
+        source: operatorAdminSource(),
+        send: true,
+        fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"],
+      });
+    } catch (e) {
+      console.error("[wallet-api] mvk registration failed", errorSummary(e));
+      throw e;
+    }
     leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
   }
   if (!leaves.includes(myLeaf)) throw new Error("mvk registry: own MVK missing after registration");
@@ -653,7 +667,7 @@ function mapRampError(e: unknown, dir: "in" | "out"): RampError {
   }
   if (/duplicateref|#6\b/.test(m)) return new RampError("busy", "That request was already processed. Please try again.");
   // bad sequence / timeout / rate-limit / anything else internal → generic busy.
-  return new RampError("busy", dir === "in" ? "Couldn't add money right now. Your money is safe — please try again." : "Couldn't cash out right now. Your money is safe — please try again.");
+  return new RampError("busy", dir === "in" ? "Couldn't add money right now. Your money is safe. Please try again." : "Couldn't cash out right now. Your money is safe. Please try again.");
 }
 
 /** Live USDC reserve balance (stroops) — readable by anyone, straight from chain. */
@@ -693,6 +707,7 @@ async function rampCashIn(c: BenzoClient, to: string, stroops: bigint): Promise<
       fnArgs: ["cash_in", "--to", to, "--amount", stroops.toString(), "--reference", rampRef()],
     });
   } catch (e) {
+    console.error("[wallet-api] ramp cash_in failed", errorSummary(e));
     throw mapRampError(e, "in");
   }
 }
@@ -709,6 +724,7 @@ async function rampCashOut(c: BenzoClient, from: string, stroops: bigint): Promi
       fnArgs: ["cash_out", "--from", from, "--amount", stroops.toString(), "--reference", rampRef()],
     });
   } catch (e) {
+    console.error("[wallet-api] ramp cash_out failed", errorSummary(e));
     throw mapRampError(e, "out");
   }
 }
@@ -763,6 +779,7 @@ export async function addMoney(amount: string, prover: ProverKind = "local"): Pr
       await c.flush();
       return { status: "settled", txHash: sh.txHash, provingMs: sh.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: sh.sorobanPublics };
     } catch (e) {
+      console.error("[wallet-api] add-money failed", errorSummary(e));
       // The shield's on-chain submit + proof verification happen BEFORE the SDK's
       // post-submit `assertSynced` full-tree check. On a long-lived deployment the
       // historical pool-tree mirror can't be fully rebuilt from RPC (event
