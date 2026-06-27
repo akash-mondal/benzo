@@ -105,7 +105,7 @@ export function ShareProof() {
       <AnimatePresence>
         {phase === "done" ? (
           <motion.div
-            className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas/95 px-8 text-center backdrop-blur"
+            className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-canvas px-8 text-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

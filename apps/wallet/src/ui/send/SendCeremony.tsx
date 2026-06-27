@@ -47,7 +47,7 @@ export function SendCeremony({
 
   return (
     <motion.div
-      className="absolute inset-0 z-50 flex flex-col items-center justify-between bg-canvas/95 px-8 pb-10 pt-14 text-center backdrop-blur"
+      className="absolute inset-0 z-50 flex flex-col items-center justify-between bg-canvas px-8 pb-10 pt-14 text-center"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}

@@ -386,7 +386,7 @@ async function waitForHostedRpcAccount(accountAddress: string): Promise<void> {
   const cfg = configFromEnv();
   const server = new rpc.Server(cfg.rpcUrl, { allowHttp: cfg.rpcUrl.startsWith("http://") });
   let lastErr: unknown;
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 30; i++) {
     try {
       await server.getAccount(accountAddress);
       return;
@@ -764,25 +764,45 @@ async function rampCashIn(c: BenzoClient, to: string, stroops: bigint): Promise<
     if (e instanceof RampError) throw e;
     /* reserve read failed — let the invoke be the source of truth */
   }
-  try {
-    await c.opts.cli.invoke({
-      contractId: ramp,
-      source: operatorAdminSource(),
-      send: true,
-      fnArgs: ["cash_in", "--to", to, "--amount", stroops.toString(), "--reference", rampRef()],
-    });
-  } catch (e) {
-    console.error("[wallet-api] ramp cash_in failed", errorSummary(e));
-    if (/not confirmed after \d+ polls/i.test(String((e as Error)?.message ?? e))) {
-      try {
-        await waitForLiquidUsdc(c, to, stroops);
-        return;
-      } catch {
-        // The timeout did not settle into a visible USDC balance; report the
-        // original chain failure through the normal user-safe mapper.
+  const reference = rampRef();
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await c.opts.cli.invoke({
+        contractId: ramp,
+        source: operatorAdminSource(),
+        send: true,
+        fnArgs: ["cash_in", "--to", to, "--amount", stroops.toString(), "--reference", reference],
+      });
+      return;
+    } catch (e) {
+      last = e;
+      const msg = String((e as Error)?.message ?? e);
+      console.error("[wallet-api] ramp cash_in failed", errorSummary(e));
+      if (/not confirmed after \d+ polls|duplicateref|#6\b/i.test(msg)) {
+        try {
+          await waitForLiquidUsdc(c, to, stroops);
+          return;
+        } catch {
+          // No visible USDC yet. Retrying with the SAME reference is safe: if the
+          // timed-out tx later lands, the duplicate-ref path falls back to this
+          // same balance check instead of dispensing twice.
+        }
+        if (attempt < 2) {
+          await sleep(1_500 + attempt * 1_500);
+          continue;
+        }
       }
+      throw mapRampError(e, "in");
     }
-    throw mapRampError(e, "in");
+  }
+  if (last) {
+    try {
+      await waitForLiquidUsdc(c, to, stroops);
+      return;
+    } catch {
+      throw mapRampError(last, "in");
+    }
   }
 }
 
@@ -799,6 +819,29 @@ async function waitForLiquidUsdc(c: BenzoClient, address: string, minStroops: bi
     await new Promise((r) => setTimeout(r, 600 + attempt * 200));
   }
   throw new RampError("busy", `USDC is still settling to your wallet (${last.toString()} < ${minStroops.toString()}). Please try again.`);
+}
+
+async function waitForLiquidUsdcAtMost(c: BenzoClient, address: string, maxStroops: bigint): Promise<boolean> {
+  const token = deployment().token as string;
+  let last: bigint | null = null;
+  for (let attempt = 0; attempt < 18; attempt++) {
+    try {
+      last = BigInt(String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", address])));
+      if (last <= maxStroops) return true;
+    } catch (e) {
+      // A fully drained SAC balance can briefly be unreadable while indexes catch
+      // up. For a zero target, treat that as good enough after a couple of reads.
+      if (maxStroops === 0n && attempt >= 2) return true;
+      console.warn("[wallet-api] public USDC balance lag after shield", errorSummary(e));
+    }
+    await sleep(700 + attempt * 250);
+  }
+  console.warn("[wallet-api] public USDC balance still appears stale after shield", {
+    address,
+    last: last?.toString(),
+    expectedAtMost: maxStroops.toString(),
+  });
+  return false;
 }
 
 /** Off-ramp: pull `stroops` USDC from `from` back into the reserve. */
@@ -844,6 +887,7 @@ async function shieldLiquidUsdc(
   stroops: bigint,
   before: bigint,
   prover: ProverKind,
+  expectedLiquidAfter?: bigint,
 ): Promise<SettleResult> {
   let last: unknown;
   for (let attempt = 0; attempt < 8; attempt++) {
@@ -852,6 +896,9 @@ async function shieldLiquidUsdc(
       const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: walletUserSource() });
       await c.flush();
       const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
+      if (expectedLiquidAfter !== undefined) {
+        await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter);
+      }
       return {
         status: "settled",
         txHash: sh.txHash ?? txHash,
@@ -863,11 +910,21 @@ async function shieldLiquidUsdc(
       };
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
-      if (/out of sync/i.test(msg)) {
+      if (/out of sync|ASP membership mirror|not synced to the on-chain root|unknown root|Error\(Contract, #5\)/i.test(msg)) {
         const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
         if (txHash !== undefined) {
+          if (expectedLiquidAfter !== undefined) {
+            await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter);
+          }
           return { status: "settled", txHash, prover, amount: stroops.toString(), onChain: true };
         }
+        last = e;
+        console.warn("[wallet-api] shield mirror lag before settlement; retrying shield", {
+          attempt: attempt + 1,
+          message: msg,
+        });
+        await sleep(1_500 + attempt * 1_000);
+        continue;
       }
       if (!/insufficient USDC|trustline|still settling|Error\(Contract, #13\)/i.test(msg)) throw e;
       last = e;
@@ -949,12 +1006,19 @@ export async function addMoney(amount: string, prover: ProverKind = "local"): Pr
     await wireMvkRegistry(c);
     const from = await selfAddress(c);
     const before = await c.getBalance();
+    const token = deployment().token as string;
+    let liquidBefore = 0n;
+    try {
+      liquidBefore = await publicBalanceOf(c, token, from);
+    } catch {
+      // A new account may have no visible SAC balance entry yet.
+    }
     try {
       // On-ramp: the on-chain ramp reserve dispenses real USDC to the funding
       // address (the anchor's distribution account), then we shield it. Only the
       // fiat *charge* is simulated; every USDC movement here is real + on-chain.
       await rampCashIn(c, from, stroops);
-      return await shieldLiquidUsdc(c, from, stroops, before, prover);
+      return await shieldLiquidUsdc(c, from, stroops, before, prover, liquidBefore);
     } catch (e) {
       console.error("[wallet-api] add-money failed", errorSummary(e));
       // The shield's on-chain submit + proof verification happen BEFORE the SDK's
@@ -1018,10 +1082,7 @@ export async function importDeposit(amount: string | undefined, prover: ProverKi
   if (stroops > liquid) throw new RampError("balance", "That's more than the USDC deposited to your address.");
   const before = await c.getBalance();
   try {
-    const sh = await c.shield({ amount: stroops, fromAddress: from, fromSource: walletUserSource() });
-    await c.flush();
-    await waitForShieldedBalanceIncrease(c, before, stroops);
-    return { status: "settled", txHash: sh.txHash, provingMs: sh.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: sh.sorobanPublics };
+    return await shieldLiquidUsdc(c, from, stroops, before, prover, liquid - stroops);
   } catch (e) {
     console.error("[wallet-api] import-deposit failed", errorSummary(e));
     if (/out of sync/.test((e as Error).message)) {
@@ -1224,13 +1285,13 @@ export async function claimHandle(handle: string): Promise<{ handle: string; txH
     await ensureHostedPublicAccount();
     await c.sync();
     let res: { txHash?: string } | null = null;
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 8; attempt++) {
       try {
         res = await c.registerHandle({ handle: h });
         break;
       } catch (e) {
         const auth = currentAuth();
-        if (!hostedRuntime() || !auth?.account.stellarAddress || !isRpcAccountNotFound(e) || attempt === 4) throw e;
+        if (!hostedRuntime() || !auth?.account.stellarAddress || !isRpcAccountNotFound(e) || attempt === 7) throw e;
         await waitForHostedRpcAccount(auth.account.stellarAddress);
         await new Promise((r) => setTimeout(r, 1500 + attempt * 1000));
       }

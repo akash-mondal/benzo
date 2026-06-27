@@ -205,7 +205,7 @@ function RampDone({ tab, amount, onChain, result, onDone }: { tab: Tab; amount: 
 
   return (
     <motion.div
-      className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-canvas/95 px-8 text-center backdrop-blur-xl"
+      className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-canvas px-8 text-center"
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} data-testid="cash-overlay"
     >
       <motion.div initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: "spring", stiffness: 240, damping: 16 }}
