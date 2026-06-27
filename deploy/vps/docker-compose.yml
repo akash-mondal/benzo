@@ -8,8 +8,8 @@ services:
       - console-web
       - wallet-api
       - console-api
-    env_file:
-      - /opt/benzo/.env
+    environment:
+      ACME_EMAIL: "${ACME_EMAIL}"
     ports:
       - "80:80"
       - "443:443"
