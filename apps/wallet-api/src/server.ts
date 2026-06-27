@@ -123,6 +123,16 @@ function rampStatus(e: unknown): number {
   return 503;
 }
 
+function logRouteError(scope: string, e: unknown): void {
+  const err = e as { message?: string; name?: string; stack?: string; code?: string };
+  console.error(`[wallet-api] ${scope} failed`, {
+    code: err?.code,
+    name: err?.name,
+    message: String(err?.message ?? e),
+    stack: err?.stack,
+  });
+}
+
 function ledgerError(e: unknown, dir: "in" | "out"): { error: string; code: string } {
   return rampError(e, dir);
 }
@@ -476,6 +486,7 @@ route("POST", "/api/cash-out", async (req, res, url) => {
     recordSettlementProof("wallet.cash-out", "UNSHIELD", r);
     json(res, 200, r);
   } catch (e) {
+    logRouteError("cash-out", e);
     recordFailedMovement("offramp", body.amount, e, "out");
     json(res, rampStatus(e), rampError(e, "out"));
   }
@@ -490,6 +501,7 @@ route("POST", "/api/add-money", async (req, res, url) => {
     recordSettlementProof("wallet.add-money", "SHIELD", r);
     json(res, 200, r);
   } catch (e) {
+    logRouteError("add-money", e);
     recordFailedMovement("onramp", body.amount, e, "in");
     json(res, rampStatus(e), rampError(e, "in"));
   }
