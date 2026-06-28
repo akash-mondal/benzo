@@ -302,12 +302,9 @@ export const api = {
     const dec = new TextDecoder();
     let buf = "";
     let final: SettleResult | null = null;
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
+    const processFrames = (flush = false) => {
       const frames = buf.split("\n\n");
-      buf = frames.pop() ?? "";
+      buf = flush ? "" : frames.pop() ?? "";
       for (const frame of frames) {
         let ev = "message";
         let data = "";
@@ -319,7 +316,15 @@ export const api = {
         if (ev === "phase") onPhase(JSON.parse(data) as SendPhaseEvent);
         else if (ev === "done") final = JSON.parse(data) as SettleResult;
       }
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      processFrames();
     }
+    buf += dec.decode();
+    processFrames(true);
     if (!final) throw new Error("send did not complete");
     prepared.clearIdempotency?.();
     return final;

@@ -8,6 +8,19 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+function sseResponse(chunks: string[]): Response {
+  const enc = new TextEncoder();
+  return new Response(
+    new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) controller.enqueue(enc.encode(chunk));
+        controller.close();
+      },
+    }),
+    { status: 200, headers: { "content-type": "text/event-stream" } },
+  );
+}
+
 function callHeaders(call: unknown[]): Headers {
   return call[1] instanceof Object && "headers" in call[1]
     ? call[1].headers as Headers
@@ -55,6 +68,33 @@ describe("wallet API idempotency", () => {
     expect(headers.get("authorization")).toBe("Bearer google.jwt");
     expect(headers.get("accept")).toBe("text/event-stream");
     expect(headers.get("idempotency-key")).toMatch(/^idem_/);
+  });
+
+  it("parses streamed send phases and a done event split across chunks", async () => {
+    const settle = { status: "settled", amount: "25000000", prover: "tee", onChain: true, txHash: "tx_send" };
+    const phase = { phase: "submitting", txHash: "tx_send" };
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
+      `event: phase\ndata: ${JSON.stringify(phase)}\n\n`,
+      "event: do",
+      `ne\ndata: ${JSON.stringify(settle)}\n\n`,
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const onPhase = vi.fn();
+
+    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "tee" }, onPhase)).resolves.toMatchObject(settle);
+
+    expect(onPhase).toHaveBeenCalledWith(phase);
+  });
+
+  it("parses a final streamed done event even without a trailing blank frame", async () => {
+    const settle = { status: "settled", amount: "25000000", prover: "tee", onChain: true, txHash: "tx_send" };
+    const fetchMock = vi.fn().mockResolvedValue(sseResponse([
+      `event: phase\ndata: ${JSON.stringify({ phase: "confirmed", txHash: "tx_send", onChain: true })}\n\n`,
+      `event: done\ndata: ${JSON.stringify(settle)}`,
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "tee" }, vi.fn())).resolves.toMatchObject(settle);
   });
 
   it("adds idempotency headers to wallet mutation helpers", async () => {
