@@ -93,7 +93,7 @@ export function Modal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-fg/40 backdrop-blur-sm" onClick={onClose} />
-      <div className={`relative w-full ${width} rounded-[var(--radius-card)] border border-border bg-surface shadow-xl`}>
+      <div className={`relative z-10 w-full ${width} rounded-[var(--radius-card)] border border-border bg-surface shadow-xl`}>
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div className="text-sm font-semibold text-fg">{title}</div>
           <button type="button" onClick={onClose} className="rounded-md p-1 text-muted outline-none transition hover:bg-border/50 focus-visible:ring-2 focus-visible:ring-primary/40" aria-label="Close">

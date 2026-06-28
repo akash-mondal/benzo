@@ -258,7 +258,7 @@ export function Invoices() {
 
       {payAllOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-6 backdrop-blur-sm" onClick={() => !payingAll && setPayAllOpen(false)} data-testid="pay-all-sheet">
-          <Card className="w-full max-w-md p-6" >
+          <Card className="relative z-10 w-full max-w-md p-6" >
             <div onClick={(e) => e.stopPropagation()}>
               <h2 className="font-display text-xl">Pay everyone privately</h2>
               <p className="mt-1 text-sm text-muted">{open.length} invoices through the same maker-checker + confidential settlement. Over-threshold ones route to Approvals.</p>
@@ -280,7 +280,7 @@ export function Invoices() {
 
       {confirmPay ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/30 p-6 backdrop-blur-sm" onClick={() => busy !== confirmPay.id && setConfirmPay(null)} data-testid="pay-sheet">
-          <Card className="w-full max-w-md p-6">
+          <Card className="relative z-10 w-full max-w-md p-6">
             <div onClick={(e) => e.stopPropagation()}>
               <h2 className="font-display text-xl">Pay this invoice privately</h2>
               <p className="mt-1 text-sm text-muted">Runs through the same maker-checker + confidential settlement. If it's over your approval limit, it routes to Approvals first.</p>
