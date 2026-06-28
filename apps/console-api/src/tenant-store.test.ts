@@ -156,6 +156,60 @@ test("hosted console read-only tenant runs cannot clobber persisted writes", asy
   });
 });
 
+test("accepted member invites activate the invited console seat", async () => {
+  process.env.BENZO_HOSTED_TENANT_TEST = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
+  const { activateAcceptedMemberInvite, db, runWithConsoleTenant } = await import("./store.js");
+
+  await runWithConsoleTenant("member-accept", { email: "owner@example.com", name: "Owner" }, { accountFingerprint: "console_member_accept", subjectKey: "member-accept" }, async () => {
+    const invitedAt = new Date().toISOString();
+    db.members.push({ id: "mem_second", orgId: db.org.id, email: "second-owner@example.com", name: "Second Owner", role: "owner", status: "invited", createdAt: invitedAt });
+    const invite = {
+      id: "invite_second",
+      kind: "member" as const,
+      name: "Second Owner",
+      email: "second-owner@example.com",
+      role: "owner",
+      link: "https://console.benzo.space/claim#secret",
+      token: "tok_second",
+      status: "accepted" as const,
+      createdAt: invitedAt,
+    };
+
+    const member = activateAcceptedMemberInvite(invite, "Second Owner");
+    expect(member).toMatchObject({ email: "second-owner@example.com", role: "owner", status: "active" });
+    const again = activateAcceptedMemberInvite(invite, "Second Owner");
+    expect(again?.id).toBe("mem_second");
+    expect(db.members.filter((m) => m.email === "second-owner@example.com")).toHaveLength(1);
+  });
+});
+
+test("accepted member invite creates an active seat when the pending seat is missing", async () => {
+  process.env.BENZO_HOSTED_TENANT_TEST = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
+  const { activateAcceptedMemberInvite, db, runWithConsoleTenant } = await import("./store.js");
+
+  await runWithConsoleTenant("member-accept-create", { email: "owner@example.com", name: "Owner" }, { accountFingerprint: "console_member_accept_create", subjectKey: "member-accept-create" }, async () => {
+    const member = activateAcceptedMemberInvite({
+      id: "invite_missing",
+      kind: "member",
+      name: "Approver",
+      email: "approver@example.com",
+      role: "approver",
+      link: "https://console.benzo.space/claim#secret",
+      token: "tok_missing",
+      status: "accepted",
+      createdAt: new Date().toISOString(),
+    }, "Approver");
+    expect(member).toMatchObject({ email: "approver@example.com", role: "approver", status: "active" });
+    expect(db.members.filter((m) => m.email === "approver@example.com")).toHaveLength(1);
+  });
+});
+
 test("hosted console request limits are tenant-scoped outside the product document", async () => {
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";

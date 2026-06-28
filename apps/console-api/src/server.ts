@@ -31,7 +31,7 @@ import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { accountBinding, authFromRequest, createTestAuthToken, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
-import { db, fmtUsd, id, now, parseRosterCsv, recoverySummary, RecoveryRequiredError, runWithConsoleTenant, runWithConsoleTenantKey, tenantDataMissing, currentConsoleTenantKey, type OrgInvite } from "./store.js";
+import { activateAcceptedMemberInvite, db, fmtUsd, id, now, parseRosterCsv, recoverySummary, RecoveryRequiredError, runWithConsoleTenant, runWithConsoleTenantKey, tenantDataMissing, currentConsoleTenantKey, type OrgInvite } from "./store.js";
 import { lookupTenantRoute, registerTenantRoute, takeTenantRateLimit } from "./tenantData.js";
 import { hostedRuntime, serverlessRuntime } from "./runtime.js";
 import { encodeBenzoLink } from "@benzo/links";
@@ -990,6 +990,7 @@ route("POST", "/api/invites/accept", async (req, res) => {
   }
   if (inv.status === "revoked") return json(res, 400, { error: "invite was revoked" });
   inv.status = "accepted";
+  activateAcceptedMemberInvite(inv, body.name);
   // a contractor accepting from the wallet hands over their @handle for settlement
   if (inv.counterpartyId && body.handle) {
     const cp = db.counterparties.find((c) => c.id === inv.counterpartyId);

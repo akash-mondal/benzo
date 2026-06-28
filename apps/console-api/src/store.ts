@@ -484,6 +484,29 @@ export function recoverySummary(): RecoverySummary {
   };
 }
 
+export function activateAcceptedMemberInvite(inv: OrgInvite, name?: string): Member | null {
+  if (inv.kind !== "member" || !inv.email) return null;
+  let member = db.members.find((m) => m.email === inv.email && m.status === "invited");
+  if (!member) {
+    member = db.members.find((m) => m.email === inv.email && m.status === "active");
+  }
+  if (!member) {
+    member = {
+      id: id("mem"),
+      orgId: db.org.id,
+      email: inv.email,
+      name: name ?? inv.name,
+      role: (inv.role as Member["role"]) ?? "approver",
+      status: "invited",
+      createdAt: now(),
+    };
+    db.members.push(member);
+  }
+  member.status = "active";
+  member.name = name ?? member.name ?? inv.name;
+  return member;
+}
+
 export async function runWithConsoleTenant<T>(
   authKey: string | null,
   claims: { email?: string; name?: string } | null,
