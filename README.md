@@ -26,6 +26,20 @@ Network: Stellar testnet. Asset: Circle testnet USDC. Proof system: Groth16 over
 BN254. Hashing: Poseidon2 with parity guards across Circom, TypeScript, and
 Soroban host functions.
 
+## VPS Deployment
+
+The VPS deployment uses Docker Compose behind Caddy. Put production values in
+`/opt/benzo/.env` on the server and deploy from `deploy/vps` with:
+
+```sh
+sudo ./deploy.sh
+```
+
+Use the script rather than a plain `docker compose build`. The API containers use
+`env_file`, but the static wallet and console bundles also need build-time values
+for Google and enclave attestation. `deploy.sh` passes `/opt/benzo/.env` through
+Compose so runtime env and frontend build args stay in sync.
+
 ## Product Conviction
 
 Stablecoins are already fast, global, and programmable. The missing piece for
