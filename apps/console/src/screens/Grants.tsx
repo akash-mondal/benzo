@@ -56,7 +56,13 @@ export function Grants() {
       const r = await api.periodTotalAttestation(period);
       setAtt(r);
       if (!r.live) toast({ title: "Not connected. Connect to generate a real attestation.", tone: "muted" });
-      else toast({ title: r.onChain ? "Total proven on-chain" : "Attestation was not verified on-chain", tone: r.onChain ? "success" : "danger" });
+      else {
+        const emptyPeriod = !r.onChain && !(r.sorobanPublics?.length) && Number(r.total ?? "0") === 0;
+        toast({
+          title: r.onChain ? "Total proven on-chain" : emptyPeriod ? "No period notes to attest yet" : "Attestation was not verified on-chain",
+          tone: r.onChain ? "success" : emptyPeriod ? "muted" : "danger",
+        });
+      }
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
