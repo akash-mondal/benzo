@@ -910,7 +910,7 @@ async function shieldLiquidUsdc(
       };
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
-      if (/out of sync|ASP membership mirror|not synced to the on-chain root|unknown root|Error\(Contract, #5\)/i.test(msg)) {
+      if (/out of sync|ASP membership mirror|not synced to the on-chain root|unknown root|WrongAspRoot|Error\(Contract, #(5|8)\)/i.test(msg)) {
         const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
         if (txHash !== undefined) {
           if (expectedLiquidAfter !== undefined) {

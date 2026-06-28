@@ -168,6 +168,38 @@ describe("signAndSubmit", () => {
     expect(rebuilds).toBe(1);
   });
 
+  it("re-broadcasts the same signed tx when RPC never indexes the first pending send", async () => {
+    let sends = 0;
+    let polls = 0;
+    const server: SubmitRpc = {
+      async sendTransaction(tx) {
+        sends++;
+        expect((tx as Transaction).signatures).toHaveLength(1);
+        return sends === 1 ? { status: "PENDING", hash: "slow-index" } : { status: "DUPLICATE", hash: "slow-index" };
+      },
+      async getTransaction() {
+        polls++;
+        if (polls < 4) return { status: "NOT_FOUND" };
+        return { status: "SUCCESS", returnValue: nativeToScVal(true) };
+      },
+    };
+
+    const res = await signAndSubmit({
+      server,
+      preparedXdr: prepared,
+      signer,
+      networkPassphrase: NET,
+      pollAttempts: 2,
+      pollIntervalMs: 0,
+      notFoundResubmits: 1,
+    });
+
+    expect(res.txHash).toBe("slow-index");
+    expect(res.result).toBe(true);
+    expect(sends).toBe(2);
+    expect(polls).toBe(4);
+  });
+
   it("throws when send is rejected", async () => {
     const server: SubmitRpc = {
       async sendTransaction() {

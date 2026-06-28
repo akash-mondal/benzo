@@ -137,6 +137,7 @@ export async function signAndSubmit(opts: {
   badSeqRetryDelayMs?: number;
   pollAttempts?: number;
   pollIntervalMs?: number;
+  notFoundResubmits?: number;
 }): Promise<InvokeResult> {
   const buildSigned = async (preparedXdr: string): Promise<Transaction | FeeBumpTransaction> => {
     const signedXdr = await opts.signer.signTransaction(preparedXdr, {
@@ -172,11 +173,39 @@ export async function signAndSubmit(opts: {
   if (sent.status === "ERROR" || sent.status === "DUPLICATE" || sent.status === "TRY_AGAIN_LATER") {
     throw new Error(`sendTransaction ${sent.status}: ${JSON.stringify(sent.errorResult ?? {})}`);
   }
-  const hash = sent.hash;
+  let hash = sent.hash;
 
   const attempts = opts.pollAttempts ?? 30;
   const interval = opts.pollIntervalMs ?? 1000;
-  for (let i = 0; i < attempts; i++) {
+  const poll = async (): Promise<InvokeResult | null> => {
+    for (let i = 0; i < attempts; i++) {
+      const got = await opts.server.getTransaction(hash);
+      if (got.status === "SUCCESS") {
+        return { ...nativeResult(got.returnValue), txHash: hash };
+      }
+      if (got.status === "FAILED") {
+        throw new Error(`transaction ${hash} FAILED on-chain`);
+      }
+      // NOT_FOUND → still settling; back off and retry.
+      await sleep(interval);
+    }
+    return null;
+  };
+
+  const first = await poll();
+  if (first) return first;
+
+  // RPC can accept a transaction, return PENDING, then fail to surface it via
+  // getTransaction before the polling window ends. Re-broadcasting the exact
+  // same signed transaction is safe: it has the same source sequence/hash, so it
+  // cannot double-execute a non-idempotent Soroban write.
+  for (let i = 0; i < (opts.notFoundResubmits ?? 2); i += 1) {
+    sent = await opts.server.sendTransaction(tx);
+    if (sent.status === "PENDING") {
+      hash = sent.hash || hash;
+    } else if (sent.status !== "DUPLICATE") {
+      throw new Error(`sendTransaction ${sent.status}: ${JSON.stringify(sent.errorResult ?? {})}`);
+    }
     const got = await opts.server.getTransaction(hash);
     if (got.status === "SUCCESS") {
       return { ...nativeResult(got.returnValue), txHash: hash };
@@ -184,8 +213,9 @@ export async function signAndSubmit(opts: {
     if (got.status === "FAILED") {
       throw new Error(`transaction ${hash} FAILED on-chain`);
     }
-    // NOT_FOUND → still settling; back off and retry.
     await sleep(interval);
+    const recovered = await poll();
+    if (recovered) return recovered;
   }
   throw new Error(`transaction ${hash} not confirmed after ${attempts} polls`);
 }
