@@ -62,7 +62,6 @@ beforeEach(() => {
       importDeposit: vi.fn(),
       publicBalance: vi.fn(async () => ({ stroops: publicBalanceStroops, address: "G".padEnd(56, "A"), asset: "USDC", issuer: "G".padEnd(56, "B"), live: true })),
       makePublic: vi.fn(),
-      sendPublic: vi.fn(),
       getKycTier: vi.fn(() => 1),
       handleAvailable: vi.fn(async () => true),
       isLive: vi.fn(() => true),
@@ -74,6 +73,13 @@ beforeEach(() => {
       walletVerifierId: vi.fn(() => "wallet-verifier"),
       exportAccountForDevice: vi.fn(() => null),
       relaySubmit: vi.fn(),
+      sendPublic: vi.fn(async (_to: string, amount: string) => {
+        const requested = BigInt(Math.max(0, Math.round(Number(amount) * 1e7)));
+        if (requested <= 0n) throw new RampError("amount", "Enter an amount.");
+        if (requested > BigInt(publicBalanceStroops)) throw new RampError("insufficient_public_balance", "Not enough Public balance.");
+        publicBalanceStroops = (BigInt(publicBalanceStroops) - requested).toString();
+        return { txHash: "tx_send_public", onChain: true, amount: requested.toString() };
+      }),
       RampError,
     };
   });
@@ -198,6 +204,38 @@ test("hosted wallet account deletion clears profile state only after wallet is e
   const history = await request(handle, "/api/history", { headers: nextHeaders });
   await expect(contacts.json()).resolves.toEqual([]);
   await expect(history.json()).resolves.toEqual([]);
+});
+
+test("hosted wallet can move public funds out before account deletion", async () => {
+  const { default: handle } = await importServer();
+  const headers = await authHeaders(handle, "delete-after-public-send");
+
+  publicBalanceStroops = "2000000";
+  const blocked = await request(handle, "/api/account", { method: "DELETE", headers, body: "{}" });
+  expect(blocked.status).toBe(409);
+  await expect(blocked.json()).resolves.toMatchObject({ blockers: ["public_balance"] });
+
+  const sent = await request(handle, "/api/send-public", {
+    method: "POST",
+    headers: {
+      ...headers,
+      "idempotency-key": `move-out-${Date.now()}-${Math.random()}`,
+    },
+    body: JSON.stringify({ to: "G".padEnd(56, "C"), amount: "0.2" }),
+  });
+  expect(sent.status).toBe(200);
+  await expect(sent.json()).resolves.toMatchObject({ txHash: "tx_send_public", onChain: true, amount: "2000000" });
+
+  const deleted = await request(handle, "/api/account", {
+    method: "DELETE",
+    headers: {
+      ...headers,
+      "idempotency-key": `delete-after-move-out-${Date.now()}-${Math.random()}`,
+    },
+    body: "{}",
+  });
+  expect(deleted.status).toBe(200);
+  await expect(deleted.json()).resolves.toMatchObject({ deleted: true });
 });
 
 test("hosted wallet account deletion rotates the derived wallet account", async () => {

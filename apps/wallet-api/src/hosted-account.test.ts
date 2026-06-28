@@ -26,6 +26,33 @@ afterEach(() => {
   vi.resetModules();
 });
 
+test("hosted wallet derives stable unique accounts per auth subject", async () => {
+  vi.resetModules();
+  process.env.VERCEL = "1";
+  process.env.BENZO_ACCOUNT_SALT = "stable-account-salt";
+  process.env.BENZO_TEST_AUTH_SECRET = "wallet-hosted-auth-secret";
+  vi.doMock("./tenantData.js", () => ({
+    loadTenantDocument: vi.fn(async () => null),
+    tenantStorageMissing: vi.fn(() => []),
+  }));
+  const { accountFingerprint, authFromRequest, createTestAuthToken } = await import("./auth.js");
+
+  const alice = createTestAuthToken({ subject: "alice", email: "alice@example.test" });
+  const aliceAgain = createTestAuthToken({ subject: "alice", email: "alice@example.test" });
+  const bob = createTestAuthToken({ subject: "bob", email: "bob@example.test" });
+  const req = (token: string) => ({ headers: { authorization: `Bearer ${token}` } });
+
+  const aliceAuth = await authFromRequest(req(alice) as never);
+  const aliceAgainAuth = await authFromRequest(req(aliceAgain) as never);
+  const bobAuth = await authFromRequest(req(bob) as never);
+
+  expect(aliceAuth?.key).toBe(aliceAgainAuth?.key);
+  expect(accountFingerprint(aliceAuth!.account)).toBe(accountFingerprint(aliceAgainAuth!.account));
+  expect(aliceAuth?.key).not.toBe(bobAuth?.key);
+  expect(accountFingerprint(aliceAuth!.account)).not.toBe(accountFingerprint(bobAuth!.account));
+  expect(aliceAuth!.account.stellarAddress).not.toBe(bobAuth!.account.stellarAddress);
+});
+
 test("hosted wallet never derives a public user account from DEPLOYER_SECRET without auth", async () => {
   vi.resetModules();
   const err = vi.spyOn(console, "error").mockImplementation(() => {});
