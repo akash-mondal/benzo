@@ -168,6 +168,51 @@ describe("signAndSubmit", () => {
     expect(rebuilds).toBe(1);
   });
 
+  it("recognizes SDK-shaped nested txBadSeq errors and keeps rebuilding", async () => {
+    let sends = 0;
+    let rebuilds = 0;
+    const server: SubmitRpc = {
+      async sendTransaction() {
+        sends++;
+        if (sends <= 2) {
+          return {
+            status: "ERROR",
+            hash: "",
+            errorResult: {
+              _attributes: {
+                result: {
+                  _switch: { name: "txBadSeq", value: -5 },
+                },
+              },
+            },
+          };
+        }
+        return { status: "PENDING", hash: "fresh-after-nested-badseq" };
+      },
+      async getTransaction() {
+        return { status: "SUCCESS", returnValue: nativeToScVal(true) };
+      },
+    };
+
+    const res = await signAndSubmit({
+      server,
+      preparedXdr: prepared,
+      retryPreparedXdr: async () => {
+        rebuilds++;
+        return prepared;
+      },
+      signer,
+      networkPassphrase: NET,
+      badSeqRetryDelayMs: 0,
+      pollIntervalMs: 0,
+    });
+
+    expect(res.txHash).toBe("fresh-after-nested-badseq");
+    expect(res.result).toBe(true);
+    expect(sends).toBe(3);
+    expect(rebuilds).toBe(2);
+  });
+
   it("re-broadcasts the same signed tx when RPC never indexes the first pending send", async () => {
     let sends = 0;
     let polls = 0;

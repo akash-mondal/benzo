@@ -160,7 +160,7 @@ export async function signAndSubmit(opts: {
 
   let tx = await buildSigned(opts.preparedXdr);
   let sent = await opts.server.sendTransaction(tx);
-  const badSeqRetries = opts.badSeqRetries ?? 5;
+  const badSeqRetries = opts.badSeqRetries ?? 12;
   for (let i = 0; sent.status === "ERROR" && opts.retryPreparedXdr && isBadSequenceResult(sent.errorResult) && i < badSeqRetries; i += 1) {
     await sleep((opts.badSeqRetryDelayMs ?? 1000) + i * 500);
     tx = await buildSigned(await opts.retryPreparedXdr());
@@ -220,8 +220,20 @@ export async function signAndSubmit(opts: {
   throw new Error(`transaction ${hash} not confirmed after ${attempts} polls`);
 }
 
-function isBadSequenceResult(result: unknown): boolean {
-  return /txBadSeq/.test(JSON.stringify(result ?? {}));
+function isBadSequenceResult(result: unknown, seen = new WeakSet<object>()): boolean {
+  if (typeof result === "string") return /txBadSeq/i.test(result);
+  if (result === null || result === undefined) return false;
+  if (typeof result !== "object") return /txBadSeq/i.test(String(result));
+  if (seen.has(result)) return false;
+  seen.add(result);
+  const tagged = result as { name?: unknown; value?: unknown; result?: unknown };
+  if (tagged.name === "txBadSeq" || tagged.value === "txBadSeq" || tagged.result === "txBadSeq") return true;
+  try {
+    if (/txBadSeq/i.test(JSON.stringify(result))) return true;
+  } catch {
+    /* fall through to recursive inspection */
+  }
+  return Object.values(result as Record<string, unknown>).some((v) => isBadSequenceResult(v, seen));
 }
 
 /**

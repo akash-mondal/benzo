@@ -8,7 +8,7 @@
  */
 import { useCallback, useReducer, useState } from "react";
 import { paymentReducer, initialPaymentState, type PaymentState } from "@benzo/ui/payment-state";
-import { api, type ProverKind, type SettleResult, type SendPhaseEvent } from "./api";
+import { api, currentGoogleCredential, type ProverKind, type SettleResult, type SendPhaseEvent } from "./api";
 import { clientSideReadsAvailable, sendClientSide } from "./benzoClient";
 import { usdcToStroops } from "./format";
 import { apiProverKind } from "./proverPolicy";
@@ -50,7 +50,7 @@ export function useSendStream() {
         // client. The client picks the backend: capable desktops use local WASM;
         // mobile/weak devices seal the witness to the attested TEE. Vercel never
         // proves; it can only relay already-proven writes.
-        if (isHandleSend(to)) {
+        if (isHandleSend(to) && !currentGoogleCredential()) {
           try {
             if (await clientSideReadsAvailable()) {
               apply({ phase: "proving" });
