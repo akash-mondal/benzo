@@ -377,7 +377,7 @@ export function Contractors() {
           <textarea
             value={csv}
             onChange={(e) => setCsv(e.target.value)}
-            placeholder={"Name,Handle,Monthly USDC\nContractor Name,@handle,2500"}
+            placeholder={"Name,Handle,Monthly USDC"}
             rows={7}
             data-testid="import-csv"
             className="w-full rounded-lg border border-border bg-bg p-3 font-mono text-[12.5px] outline-none focus:border-primary"

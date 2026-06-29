@@ -142,11 +142,11 @@ export function Invites() {
         >
           <Card className="p-5">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder={tab === "member" ? "Sam Rivera" : "Grace Hopper"} data-testid="invite-name" /></Field>
+              <Field label="Name"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" data-testid="invite-name" /></Field>
               {tab === "member" ? (
-                <Field label="Email"><Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="sam@acme.com" /></Field>
+                <Field label="Email"><Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" /></Field>
               ) : (
-                <Field label="@handle (optional)"><Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@grace" /></Field>
+                <Field label="@handle (optional)"><Input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@handle" /></Field>
               )}
               {tab === "member" ? (
                 <Select label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
@@ -162,7 +162,7 @@ export function Invites() {
             {tab === "contractor" ? (
               <div className="mt-6 border-t border-border pt-5">
                 <div className="mb-2 text-[13px] font-semibold text-ink">Bulk import (CSV: name, @handle, rate)</div>
-                <Textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={3} placeholder={"Grace Hopper, @grace, 4200\nAda Lovelace, @ada, 7000"} data-testid="invite-csv" />
+                <Textarea value={csv} onChange={(e) => setCsv(e.target.value)} rows={3} placeholder={"Name, @handle, monthly USDC"} data-testid="invite-csv" />
                 <Button variant="outline" className="mt-3" onClick={bulk} loading={busy} disabled={!csv.trim()} data-testid="invite-bulk">
                   <Upload size={15} /> Import & invite
                 </Button>

@@ -258,8 +258,8 @@ function Wizard({ onDone }: { onDone: () => void }) {
           <motion.div key={step.key} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: EASE }} className="flex-1">
               {step.key === "org" ? (
                 <Step title="About your business" hint="The legal entity that will hold the treasury.">
-                  <Field label="Business name"><Input value={draft.name ?? ""} maxLength={80} onChange={(e) => set({ name: e.target.value })} placeholder="Acme Robotics" data-testid="org-name" /></Field>
-                  <Field label="Legal name"><Input value={draft.legalName ?? ""} maxLength={80} onChange={(e) => set({ legalName: e.target.value })} placeholder="Acme Robotics Inc." data-testid="org-legal" /></Field>
+                  <Field label="Business name"><Input value={draft.name ?? ""} maxLength={80} onChange={(e) => set({ name: e.target.value })} placeholder="Company name" data-testid="org-name" /></Field>
+                  <Field label="Legal name"><Input value={draft.legalName ?? ""} maxLength={80} onChange={(e) => set({ legalName: e.target.value })} placeholder="Legal company name" data-testid="org-legal" /></Field>
                   <div className="grid grid-cols-2 gap-3">
                     <Select label="Country" value={draft.country} onChange={(e) => set({ country: e.target.value })}>
                       <option value="US">United States</option><option value="GB">United Kingdom</option><option value="DE">Germany</option><option value="SG">Singapore</option>
@@ -272,8 +272,8 @@ function Wizard({ onDone }: { onDone: () => void }) {
               ) : step.key === "kyb" ? (
                 <Step title="Verify your business (KYB)" hint="Business registration + beneficial-owner screening. The decision is recorded on-chain, not in a backend.">
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Registration #"><Input value={draft.registrationNumber ?? ""} onChange={(e) => set({ registrationNumber: e.target.value })} placeholder="C1234567" disabled={kyb?.status === "approved"} /></Field>
-                    <Field label="Tax ID (EIN)"><Input value={draft.taxId ?? ""} onChange={(e) => set({ taxId: e.target.value })} placeholder="88-1234567" disabled={kyb?.status === "approved"} /></Field>
+                    <Field label="Registration #"><Input value={draft.registrationNumber ?? ""} onChange={(e) => set({ registrationNumber: e.target.value })} placeholder="Registration number" disabled={kyb?.status === "approved"} /></Field>
+                    <Field label="Tax ID (EIN)"><Input value={draft.taxId ?? ""} onChange={(e) => set({ taxId: e.target.value })} placeholder="Tax identifier" disabled={kyb?.status === "approved"} /></Field>
                   </div>
                   <KybVerify draft={draft} kyb={kyb} onVerified={setKyb} onError={(m) => toast({ title: m, tone: "danger" })} />
                 </Step>

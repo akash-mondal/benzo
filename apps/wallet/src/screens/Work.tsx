@@ -111,7 +111,7 @@ export function Work() {
         <Card className="mt-5 p-5">
           <div className="mb-1 text-[13px] font-semibold text-ink">New invoice</div>
           <AmountField value={amount} onChange={setAmount} />
-          <Input className="mt-3" label="What's it for?" placeholder="Design work, June" value={desc} onChange={(e) => setDesc(e.target.value)} data-testid="work-desc" />
+          <Input className="mt-3" label="What's it for?" placeholder="Services for this period" value={desc} onChange={(e) => setDesc(e.target.value)} data-testid="work-desc" />
           <Button full size="lg" className="mt-4" loading={busy} disabled={!amountOk || !desc.trim() || !cp} onClick={submit} data-testid="work-submit">
             <Send size={16} /> Send invoice
           </Button>

@@ -43,13 +43,13 @@ export function Contacts() {
           </Button>
         ) : (
           <Card className="space-y-3 p-4" data-testid="contacts-add-form">
-            <Input label="Handle" placeholder="@alex" value={handle} onChange={(e) => setHandle(e.target.value)} data-testid="contacts-handle" />
+            <Input label="Handle" placeholder="@handle" value={handle} onChange={(e) => setHandle(e.target.value)} data-testid="contacts-handle" />
             {handle && !validHandle ? (
               <div className="-mt-2 text-[12px] font-medium text-danger" data-testid="contacts-handle-error">
                 Use 3 to 20 letters, numbers, dots, or underscores.
               </div>
             ) : null}
-            <Input label="Name (optional)" placeholder="Alex Rivera" value={name} onChange={(e) => setName(e.target.value)} data-testid="contacts-name" />
+            <Input label="Name (optional)" placeholder="Contact name" value={name} onChange={(e) => setName(e.target.value)} data-testid="contacts-name" />
             <div className="flex gap-2">
               <Button variant="secondary" size="sm" onClick={() => setAdding(false)}>Cancel</Button>
               <Button size="sm" onClick={add} disabled={!validHandle} data-testid="contacts-save">Save</Button>
