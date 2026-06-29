@@ -8,7 +8,7 @@
  *   • invite             - someone with no account yet → an invite link.
  * The ZK proof + on-chain settle are real on testnet.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AlertTriangle, AtSign, Globe, Send as SendIcon, ShieldCheck, Smartphone, UserPlus } from "lucide-react";
 import { api, currentGoogleCredential, type ProverKind, type SettleResult } from "../lib/api";
@@ -55,6 +55,7 @@ export function Send() {
   const [pubPhase, setPubPhase] = useState<"idle" | "busy" | "done">("idle");
   const [pubResult, setPubResult] = useState<SettleResult | null>(null);
   const [pubErr, setPubErr] = useState<string | null>(null);
+  const [handleStatus, setHandleStatus] = useState<{ value: string; available: boolean | null; checking: boolean; error: boolean }>({ value: "", available: null, checking: false, error: false });
   const overCap = needsStepUp(Number(amount), session?.kycTier);
 
   const teeAvailable = !!session?.prover.available.includes("tee");
@@ -72,6 +73,33 @@ export function Send() {
   // Surface this clearly instead of routing it to the "invite" flow or paying it.
   const badAddress = useMemo(() => looksLikeStellarAddressInput(recipient) && !isValidStellarAddress(recipient), [recipient]);
   const badHandle = useMemo(() => hasBadHandleSyntax(recipient), [recipient]);
+  const shouldLookupHandle = kind === "handle" && recipient.length > 0 && !badHandle;
+  const handleLookupValue = shouldLookupHandle ? recipient.replace(/^@/, "").toLowerCase() : "";
+  useEffect(() => {
+    if (!shouldLookupHandle) {
+      setHandleStatus({ value: "", available: null, checking: false, error: false });
+      return;
+    }
+    let cancelled = false;
+    const value = handleLookupValue;
+    setHandleStatus({ value, available: null, checking: true, error: false });
+    const id = window.setTimeout(() => {
+      api.handleAvailable(value)
+        .then(({ available }) => {
+          if (!cancelled) setHandleStatus({ value, available, checking: false, error: false });
+        })
+        .catch(() => {
+          if (!cancelled) setHandleStatus({ value, available: null, checking: false, error: true });
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [handleLookupValue, shouldLookupHandle]);
+  const handleChecking = shouldLookupHandle && handleStatus.value === handleLookupValue && handleStatus.checking;
+  const handleLookupError = shouldLookupHandle && handleStatus.value === handleLookupValue && handleStatus.error;
+  const unclaimedHandle = shouldLookupHandle && handleStatus.value === handleLookupValue && handleStatus.available === true;
   const known = useMemo(() => contacts.find((c) => c.handle === recipient || c.handle === `@${recipient}`), [contacts, recipient]);
   const display = known?.name ?? recipient;
   // Public sends draw on the PUBLIC balance - flag "not enough" before we ever
@@ -79,9 +107,10 @@ export function Send() {
   const privateStroops = BigInt(balance?.stroops ?? "0");
   const publicStroops = BigInt(publicBalance?.stroops ?? "0");
   const wantStroops = BigInt(toStroopsSafe(amount));
-  const lowPrivate = kind === "handle" && wantStroops > 0n && wantStroops > privateStroops;
+  const checkingPrivateBalance = kind === "handle" && wantStroops > 0n && balance == null && !unclaimedHandle;
+  const lowPrivate = kind === "handle" && wantStroops > 0n && balance != null && wantStroops > privateStroops;
   const lowPublic = kind === "address" && wantStroops > 0n && wantStroops > publicStroops;
-  const valid = recipient.length > 0 && Number(amount) > 0 && kind !== "invite" && !badAddress && !badHandle && !lowPrivate && !(kind === "address" && lowPublic);
+  const valid = recipient.length > 0 && Number(amount) > 0 && kind !== "invite" && !badAddress && !badHandle && !handleChecking && !handleLookupError && !unclaimedHandle && !checkingPrivateBalance && !lowPrivate && !(kind === "address" && lowPublic);
 
   const inFlight = state.phase !== "idle";
   const pubInFlight = pubPhase !== "idle";
@@ -157,7 +186,7 @@ export function Send() {
               spellCheck={false}
             />
             {/* recipient kind chip (suppressed when the address looks mistyped) */}
-            {recipient && !badAddress && !badHandle ? <KindChip key={kind} kind={kind!} /> : null}
+            {recipient && !badAddress && !badHandle && !unclaimedHandle ? <KindChip key={kind} kind={kind!} /> : null}
             {badAddress ? (
               <div className="mt-2 flex items-center gap-1.5 rounded-full bg-danger/10 px-2.5 py-1 text-[11.5px] font-semibold text-danger" data-testid="send-bad-address">
                 <AlertTriangle size={12} /> This doesn't look like a valid wallet address. Double-check it.
@@ -166,6 +195,14 @@ export function Send() {
             {badHandle ? (
               <div className="mt-2 flex items-center gap-1.5 rounded-full bg-danger/10 px-2.5 py-1 text-[11.5px] font-semibold text-danger" data-testid="send-bad-handle">
                 <AlertTriangle size={12} /> Handles are 3 to 20 characters: letters, numbers, dots, or underscores.
+              </div>
+            ) : null}
+            {handleChecking ? (
+              <div className="mt-2 text-[12px] font-medium text-muted" data-testid="send-handle-checking">Checking handle...</div>
+            ) : null}
+            {handleLookupError ? (
+              <div className="mt-2 flex items-center gap-1.5 rounded-full bg-danger/10 px-2.5 py-1 text-[11.5px] font-semibold text-danger" data-testid="send-handle-lookup-error">
+                <AlertTriangle size={12} /> Couldn't check that handle. Try again.
               </div>
             ) : null}
 
@@ -210,6 +247,11 @@ export function Send() {
                   Not enough private USDC. Add money or use a smaller amount.
                 </div>
               ) : null}
+              {checkingPrivateBalance ? (
+                <div className="mx-auto mt-2 max-w-[300px] text-center text-[12px] text-muted" data-testid="send-private-balance-checking">
+                  Checking private balance...
+                </div>
+              ) : null}
               <div className="mt-3 flex justify-center gap-2">
                 {["5", "10", "20", "50", "100"].map((q) => (
                   <button
@@ -228,7 +270,7 @@ export function Send() {
 
             <Input className="mt-6" label="Note (optional)" placeholder="What's it for?" value={memo} onChange={(e) => setMemo(e.target.value)} data-testid="send-memo" />
 
-            {kind === "invite" && recipient && !badAddress ? (
+            {((kind === "invite" && recipient) || unclaimedHandle) && !badAddress && !badHandle ? (
               <div className="mt-6 flex items-center gap-3 rounded-2xl bg-accent/[0.06] p-4">
                 <div className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-accent/15 text-accent">
                   <UserPlus size={17} />
@@ -243,7 +285,7 @@ export function Send() {
               </div>
             ) : null}
 
-            {kind !== "invite" ? (
+            {kind !== "invite" && !unclaimedHandle ? (
               <Button full size="lg" className="mt-6" disabled={!valid} onClick={() => (overCap ? setStepUp(true) : setStep("confirm"))} data-testid="send-submit">
                 {amount && valid ? `Review · ${fmtUsd(toStroopsSafe(amount))}` : "Review"}
               </Button>
