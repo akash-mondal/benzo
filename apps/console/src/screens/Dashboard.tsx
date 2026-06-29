@@ -41,12 +41,12 @@ function useCountUp(target: number, durationMs = 1000): number {
  * a first payout: it needs funds and a distinct approver (maker-checker blocks the
  * first payout otherwise). Rather than letting the user discover that via an error,
  * we surface a guided checklist from REAL store state - each item flips to
- * done on its own when the underlying condition is met. It auto-hides once all three
+ * done on its own when the underlying condition is met. It auto-hides once all
  * are complete, and the user can dismiss it (persisted) at any time.
  */
 function FirstRunChecklist() {
   const nav = useNavigate();
-  const { treasury, members, payrolls, loading } = useConsole();
+  const { treasury, members, policies, counterparties, payrolls, loading } = useConsole();
   const [dismissed, setDismissed] = useState(() => localStorage.getItem("benzo.console.firstrun.dismissed") === "1");
 
   // Seed each item from live state - honest, not a stored "seen" flag.
@@ -56,12 +56,16 @@ function FirstRunChecklist() {
   // at least one of whom holds an approve-capable role.
   const canApprove = (r: string) => r === "approver" || r === "admin" || r === "owner";
   const hasApprover = members.length > 1 && members.some((m) => m.status !== "suspended" && canApprove(m.role));
+  const hasPolicy = policies.length > 0;
+  const hasContractor = counterparties.some((c) => c.type === "contractor");
   const ranPayroll = payrolls.length > 0;
 
   const items = [
-    { key: "fund", done: funded, icon: Wallet, title: "Fund your treasury", hint: "Add USDC so you can run your first payout.", to: "/treasury", cta: "Fund treasury" },
-    { key: "approver", done: hasApprover, icon: UserPlus, title: "Invite an approver", hint: "Maker-checker needs a proposer ≠ approver before any payout.", to: "/invites", cta: "Invite" },
-    { key: "payroll", done: ranPayroll, icon: Users, title: "Run your first payroll", hint: "Pay your contractors privately - amounts stay confidential.", to: "/payroll", cta: "Start payroll" },
+    { key: "fund", done: funded, icon: Wallet, title: "Fund your treasury", hint: "Add USDC so you can run your first payout.", to: "/treasury", cta: "Fund treasury", doneCta: "Open" },
+    { key: "approver", done: hasApprover, icon: UserPlus, title: "Invite an approver", hint: "Maker-checker needs a proposer ≠ approver before any payout.", to: "/invites", cta: "Invite", doneCta: "Manage" },
+    { key: "policy", done: hasPolicy, icon: ShieldCheck, title: "Review approval policy", hint: "Confirm who can approve, release, and re-approve private payouts.", to: "/policies", cta: "Review policy", doneCta: "Review" },
+    { key: "contractors", done: hasContractor, icon: Users, title: "Add contractors", hint: "Import or invite the people you want to pay privately.", to: "/contractors", cta: "Add contractors", doneCta: "Open" },
+    { key: "payroll", done: ranPayroll, icon: Users, title: "Run your first payroll", hint: "Pay your contractors privately - amounts stay confidential.", to: "/payroll", cta: "Start payroll", doneCta: "Open" },
   ] as const;
 
   const completed = items.filter((i) => i.done).length;
@@ -95,11 +99,9 @@ function FirstRunChecklist() {
               <div className={`text-[13.5px] font-semibold ${it.done ? "text-muted line-through" : "text-ink"}`}>{it.title}</div>
               {!it.done ? <div className="text-[12px] text-muted">{it.hint}</div> : null}
             </div>
-            {it.done ? (
-              <Pill tone="success"><Check size={11} /> Done</Pill>
-            ) : (
-              <Button size="sm" variant="outline" className="flex-none" onClick={() => nav(it.to)} data-testid={`firstrun-${it.key}`}>{it.cta}</Button>
-            )}
+            <Button size="sm" variant="outline" className="flex-none" onClick={() => nav(it.to)} data-testid={`firstrun-${it.key}`}>
+              {it.done ? it.doneCta : it.cta}
+            </Button>
           </div>
         ))}
       </div>

@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./Dashboard";
 
@@ -26,6 +26,8 @@ describe("Dashboard", () => {
       },
       payments: [],
       members: [],
+      policies: [],
+      counterparties: [],
       payrolls: [],
       masked: true,
       loading: false,
@@ -43,5 +45,31 @@ describe("Dashboard", () => {
 
     expect(screen.getByTestId("treasury-total")).toHaveTextContent("••••••");
     expect(screen.queryByText("$123.00")).not.toBeInTheDocument();
+  });
+
+  it("offers first-run routes for treasury, invites, policies, contractors, and payroll", () => {
+    function PathProbe() {
+      return <span data-testid="path">{useLocation().pathname}</span>;
+    }
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <Dashboard />
+        <Routes>
+          <Route path="*" element={<PathProbe />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(screen.getByTestId("firstrun-fund"));
+    expect(screen.getByTestId("path")).toHaveTextContent("/treasury");
+    fireEvent.click(screen.getByTestId("firstrun-approver"));
+    expect(screen.getByTestId("path")).toHaveTextContent("/invites");
+    fireEvent.click(screen.getByTestId("firstrun-policy"));
+    expect(screen.getByTestId("path")).toHaveTextContent("/policies");
+    fireEvent.click(screen.getByTestId("firstrun-contractors"));
+    expect(screen.getByTestId("path")).toHaveTextContent("/contractors");
+    fireEvent.click(screen.getByTestId("firstrun-payroll"));
+    expect(screen.getByTestId("path")).toHaveTextContent("/payroll");
   });
 });
