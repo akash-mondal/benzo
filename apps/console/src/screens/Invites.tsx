@@ -122,7 +122,7 @@ export function Invites() {
               )}
               {tab === "member" ? (
                 <Select label="Role" value={role} onChange={(e) => setRole(e.target.value)}>
-                  <option value="admin">Admin</option><option value="treasurer">Treasurer</option><option value="approver">Approver</option><option value="auditor">Auditor</option>
+                  <option value="owner">Owner</option><option value="admin">Admin</option><option value="treasurer">Treasurer</option><option value="approver">Approver</option><option value="auditor">Auditor</option>
                 </Select>
               ) : null}
             </div>

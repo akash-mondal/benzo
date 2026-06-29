@@ -38,6 +38,7 @@ import { Treasury } from "../screens/Treasury";
 import { Grants } from "../screens/Grants";
 import { AuditLog } from "../screens/AuditLog";
 import { Invites } from "../screens/Invites";
+import { InviteClaim } from "../screens/InviteClaim";
 import { SettingsScreen } from "../screens/Settings";
 
 function NavItem({ to, icon: Icon, label, badge }: { to: string; icon: typeof Users; label: string; badge?: number }) {
@@ -241,6 +242,7 @@ export function Shell() {
                 <Route path="/grants" element={<Grants />} />
                 <Route path="/audit" element={<AuditLog />} />
                 <Route path="/invites" element={<Invites />} />
+                <Route path="/claim" element={<InviteClaim />} />
                 <Route path="/settings" element={<SettingsScreen />} />
                 <Route path="*" element={<Dashboard />} />
               </Routes>

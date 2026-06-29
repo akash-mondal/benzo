@@ -417,6 +417,8 @@ export const api = {
   invites: () => http<OrgInvite[]>("/invites"),
   createInvite: (body: { kind: OrgInvite["kind"]; name?: string; email?: string; role?: string; handle?: string }) =>
     http<OrgInvite>("/invites", { method: "POST", body: JSON.stringify(body) }),
+  acceptInvite: (body: { token: string; name?: string }) =>
+    http<{ ok: boolean; orgName: string; kind: OrgInvite["kind"]; counterpartyId?: string; orgId: string }>("/invites/accept", { method: "POST", body: JSON.stringify(body) }),
   bulkInvite: (csv: string) =>
     http<{ created: number; errors: Array<{ line: number; error: string }>; invites: OrgInvite[] }>("/invites/bulk", { method: "POST", body: JSON.stringify({ csv }) }),
   revokeInvite: (id: string) => http<OrgInvite>(`/invites/${id}/revoke`, { method: "POST", body: "{}" }),
