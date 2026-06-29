@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 import { ShieldCheck, Lock, Plus, Minus, Save } from "lucide-react";
-import type { ApprovalPolicy, ApprovalStep } from "@benzo/types";
+import type { ApprovalPolicy, ApprovalStep, Member } from "@benzo/types";
 import { api } from "../lib/api";
 import { useConsole } from "../lib/store";
 import { friendlyError } from "../lib/format";
@@ -30,7 +30,7 @@ function humanToStroops(v: string): string {
 }
 
 export function Policies() {
-  const { policies, refresh, loading } = useConsole();
+  const { policies, members, refresh, loading } = useConsole();
 
   return (
     <Page>
@@ -45,7 +45,7 @@ export function Policies() {
         <Stagger className="space-y-4">
           {policies.map((p, i) => (
             <Stagger.Item key={p.id} index={i}>
-              <PolicyEditor policy={p} onSaved={refresh} />
+              <PolicyEditor policy={p} members={members} onSaved={refresh} />
             </Stagger.Item>
           ))}
         </Stagger>
@@ -54,7 +54,11 @@ export function Policies() {
   );
 }
 
-function PolicyEditor({ policy, onSaved }: { policy: ApprovalPolicy; onSaved: () => Promise<unknown> }) {
+function roleCapacity(members: Member[], role: ApprovalStep["role"]): number {
+  return members.filter((m) => m.role === role && m.status === "active").length;
+}
+
+function PolicyEditor({ policy, members, onSaved }: { policy: ApprovalPolicy; members: Member[]; onSaved: () => Promise<unknown> }) {
   const toast = useToast();
   const [conditions, setConditions] = useState(() => policy.conditions.map((c) => ({ ...c })));
   const [steps, setSteps] = useState<ApprovalStep[]>(() => policy.steps.map((s) => ({ ...s })));
@@ -62,6 +66,16 @@ function PolicyEditor({ policy, onSaved }: { policy: ApprovalPolicy; onSaved: ()
   const [busy, setBusy] = useState(false);
   const dirty = JSON.stringify({ conditions, steps, gate }) !== JSON.stringify({ conditions: policy.conditions, steps: policy.steps, gate: policy.releaseGate });
   const draft = { ...policy, conditions, steps, releaseGate: gate };
+  const validationErrors = [
+    ...conditions.flatMap((c) => (c.field === "amount" && BigInt(String(c.value || "0")) <= 0n ? ["Amount condition must be greater than $0."] : [])),
+    ...steps.flatMap((s) => {
+      const capacity = roleCapacity(members, s.role);
+      return s.minApprovers > capacity ? [`Approval step needs ${s.minApprovers} active ${s.role} approver${s.minApprovers === 1 ? "" : "s"}, but only ${capacity} active.`] : [];
+    }),
+    ...(gate && gate.minApprovers > roleCapacity(members, gate.role)
+      ? [`Release gate needs ${gate.minApprovers} active ${gate.role} signer${gate.minApprovers === 1 ? "" : "s"}, but only ${roleCapacity(members, gate.role)} active.`]
+      : []),
+  ];
 
   function bumpStep(idx: number, delta: number) {
     setSteps((ss) => ss.map((s, i) => (i === idx ? { ...s, minApprovers: Math.max(1, s.minApprovers + delta) } : s)));
@@ -155,9 +169,17 @@ function PolicyEditor({ policy, onSaved }: { policy: ApprovalPolicy; onSaved: ()
           <b>Enforced on-chain.</b> Org funds live in notes bound to your member set + threshold, and the pool's <code>transfer_org</code> entry only settles a spend that carries a valid in-circuit M-of-N proof (<code>JSPLITORG</code>) - the verifier rejects a single-key spend of org funds. So release is gated by the proof inside the contract, not by this server. <span className="text-muted">Separation of duties is always on: a proposer can never approve their own payment.</span>
         </span>
       </div>
+      {validationErrors.length ? (
+        <div className="mx-5 mb-4 rounded-xl border border-danger/30 bg-danger/8 px-3.5 py-3 text-[12.5px] text-[#b4232a]" data-testid="policy-errors">
+          <div className="mb-1 font-semibold">Fix the policy before saving.</div>
+          <ul className="space-y-1">
+            {validationErrors.map((err, i) => <li key={i}>{err}</li>)}
+          </ul>
+        </div>
+      ) : null}
 
       <div className="flex justify-end border-t border-border px-5 py-3">
-        <Button onClick={save} loading={busy} disabled={!dirty} data-testid="policy-save"><Save size={14} /> Save policy</Button>
+        <Button onClick={save} loading={busy} disabled={!dirty || validationErrors.length > 0} data-testid="policy-save"><Save size={14} /> Save policy</Button>
       </div>
     </Card>
   );

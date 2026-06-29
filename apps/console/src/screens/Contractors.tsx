@@ -24,7 +24,8 @@ export function Contractors() {
   const nav = useNavigate();
   const { counterparties, loading, refresh } = useConsole();
   const [importOpen, setImportOpen] = useState(false);
-  const [csv, setCsv] = useState("Name,Handle,Monthly USDC\nGrace Hopper,@grace,4200\nAda Lovelace,@ada,7000");
+  const [csv, setCsv] = useState("");
+  const [importErrors, setImportErrors] = useState<Array<{ line: number; error: string }>>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [rateEdits, setRateEdits] = useState<Record<string, string>>({});
   const [handleEdits, setHandleEdits] = useState<Record<string, string>>({});
@@ -56,11 +57,12 @@ export function Contractors() {
     setBusy("import");
     try {
       const r = await api.importRoster(csv);
+      setImportErrors(r.errors);
       toast({
         title: `Imported ${r.imported} contractor${r.imported === 1 ? "" : "s"}${r.errors.length ? ` · ${r.errors.length} row error(s)` : ""}`,
         tone: r.errors.length ? "danger" : "success",
       });
-      setImportOpen(false);
+      if (r.errors.length === 0) setImportOpen(false);
       await refresh();
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
@@ -349,12 +351,23 @@ export function Contractors() {
 
       <Modal
         open={importOpen}
-        onClose={() => setImportOpen(false)}
+        onClose={() => {
+          setImportErrors([]);
+          setImportOpen(false);
+        }}
         title="Import contractor roster"
         footer={
           <>
-            <Button variant="ghost" onClick={() => setImportOpen(false)}>Cancel</Button>
-            <Button loading={busy === "import"} onClick={doImport} data-testid="import-submit"><Upload size={15} /> Import</Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setImportErrors([]);
+                setImportOpen(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button loading={busy === "import"} onClick={doImport} disabled={!csv.trim()} data-testid="import-submit"><Upload size={15} /> Import</Button>
           </>
         }
       >
@@ -363,10 +376,21 @@ export function Contractors() {
           <textarea
             value={csv}
             onChange={(e) => setCsv(e.target.value)}
+            placeholder={"Name,Handle,Monthly USDC\nContractor Name,@handle,2500"}
             rows={7}
             data-testid="import-csv"
             className="w-full rounded-lg border border-border bg-bg p-3 font-mono text-[12.5px] outline-none focus:border-primary"
           />
+          {importErrors.length ? (
+            <div className="rounded-lg border border-danger/30 bg-danger/8 px-3 py-2 text-[12.5px] text-[#b4232a]" data-testid="import-errors">
+              <div className="mb-1 font-semibold">Fix these rows, then import again.</div>
+              <ul className="space-y-1">
+                {importErrors.map((err, idx) => (
+                  <li key={`${err.line}-${idx}`}>Line {err.line}: {err.error}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </div>
       </Modal>
     </Page>
