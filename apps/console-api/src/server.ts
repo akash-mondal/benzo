@@ -32,6 +32,7 @@ import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { accountBinding, authFromRequest, createTestAuthToken, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
 import { validateInviteInput } from "./inviteValidation.js";
+import { validateNettingAmounts } from "./nettingValidation.js";
 import { activateAcceptedMemberInvite, db, fmtUsd, id, now, parseRosterCsv, recoverySummary, RecoveryRequiredError, runWithConsoleTenant, runWithConsoleTenantKey, tenantDataMissing, currentConsoleTenantKey, type OrgInvite } from "./store.js";
 import { lookupTenantRoute, registerTenantRoute, takeTenantRateLimit } from "./tenantData.js";
 import { hostedRuntime, serverlessRuntime } from "./runtime.js";
@@ -624,10 +625,10 @@ route("POST", "/api/compliance/kyb-credential", async (_req, res) => {
 // Cross-entity private netting (Z8): net mutual invoices with a counterparty and
 // settle only the difference on-chain (vk_id NETTING); grosses hidden.
 route("POST", "/api/invoices/net", async (req, res) => {
-  const body = await readJson<{ weOwe: string; theyOwe: string }>(req);
-  const we = BigInt(Math.round(Number(body.weOwe) * 1e7)).toString();
-  const they = BigInt(Math.round(Number(body.theyOwe) * 1e7)).toString();
-  const proof = await proveNetting(we, they);
+  const body = await readJson<{ weOwe?: unknown; theyOwe?: unknown }>(req);
+  const validation = validateNettingAmounts(body);
+  if ("error" in validation) return json(res, 400, { error: validation.error });
+  const proof = await proveNetting(validation.we, validation.they);
   recordProofReceipt("invoices.net", proof.ref);
   json(res, 200, proof);
 });

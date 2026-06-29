@@ -85,12 +85,35 @@ export function Invoices() {
   const [weOwe, setWeOwe] = useState("0.30");
   const [theyOwe, setTheyOwe] = useState("0.18");
   const [netting, setNetting] = useState(false);
+  const [netError, setNetError] = useState<string | null>(null);
   const [netRes, setNetRes] = useState<{ onChain: boolean; net: string; wetPay: boolean; ref?: OnChainRef } | null>(null);
+
+  function validateNetInput(): string | null {
+    const amount = /^\d+(\.\d{1,7})?$/;
+    const left = weOwe.trim();
+    const right = theyOwe.trim();
+    if (!left || !right) return "Enter both invoice totals before proving the net.";
+    if (!amount.test(left) || !amount.test(right)) return "Use positive USDC amounts, e.g. 0.30.";
+    const leftNum = Number(left);
+    const rightNum = Number(right);
+    if (!Number.isFinite(leftNum) || !Number.isFinite(rightNum) || leftNum <= 0 || rightNum <= 0) {
+      return "Both invoice totals must be greater than $0.";
+    }
+    if (Math.round(leftNum * 1e7) === Math.round(rightNum * 1e7)) return "There is no net difference to settle.";
+    return null;
+  }
 
   // Cross-entity private netting (Z8) - net mutual invoices with a counterparty
   // and settle only the difference, on-chain (NETTING), neither gross revealed.
   async function netInvoices() {
+    const validation = validateNetInput();
+    if (validation) {
+      setNetError(validation);
+      setNetRes(null);
+      return;
+    }
     setNetting(true);
+    setNetError(null);
     setNetRes(null);
     try {
       const r = await api.netInvoices(weOwe, theyOwe);
@@ -169,10 +192,10 @@ export function Invoices() {
         </p>
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <div className="w-40">
-            <Input label="We owe them (USDC)" inputMode="decimal" value={weOwe} onChange={(e) => setWeOwe(e.target.value.replace(/[^0-9.]/g, ""))} data-testid="net-we-owe" />
+            <Input label="We owe them (USDC)" inputMode="decimal" value={weOwe} onChange={(e) => { setWeOwe(e.target.value); setNetError(null); }} data-testid="net-we-owe" aria-invalid={!!netError} />
           </div>
           <div className="w-40">
-            <Input label="They owe us (USDC)" inputMode="decimal" value={theyOwe} onChange={(e) => setTheyOwe(e.target.value.replace(/[^0-9.]/g, ""))} data-testid="net-they-owe" />
+            <Input label="They owe us (USDC)" inputMode="decimal" value={theyOwe} onChange={(e) => { setTheyOwe(e.target.value); setNetError(null); }} data-testid="net-they-owe" aria-invalid={!!netError} />
           </div>
           {netting ? (
             <Proving steps={["Reading both invoice totals", "Proving the net difference", "Verifying the difference on-chain"]} />
@@ -182,6 +205,11 @@ export function Invoices() {
             </Button>
           )}
         </div>
+        {netError ? (
+          <div className="mt-2 text-[12.5px] font-semibold text-danger" data-testid="net-error">
+            {netError}
+          </div>
+        ) : null}
         {netRes ? (
           <Reveal tone={netRes.onChain ? "success" : "danger"} className={`mt-4 rounded-lg border px-4 py-3 ${netRes.onChain ? "border-success/30 bg-success/8" : "border-danger/30 bg-danger/8"}`} data-testid="net-result">
             <div className={`flex items-center gap-1.5 text-[13px] font-semibold ${netRes.onChain ? "text-[#1d7a52]" : "text-[#b4232a]"}`}>
