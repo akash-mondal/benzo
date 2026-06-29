@@ -40,6 +40,33 @@ interface ConsoleState {
 }
 
 const Ctx = createContext<ConsoleState | null>(null);
+const DEFAULT_READ_TIMEOUT_MS = 6_000;
+const CHAIN_READ_TIMEOUT_MS = 3_500;
+
+function readModel<T>(label: string, load: () => Promise<T>, timeoutMs = DEFAULT_READ_TIMEOUT_MS): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timer = window.setTimeout(() => {
+      done = true;
+      reject(new Error(`${label} timed out`));
+    }, timeoutMs);
+
+    load().then(
+      (value) => {
+        if (done) return;
+        done = true;
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (done) return;
+        done = true;
+        window.clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 export function ConsoleProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -70,19 +97,21 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     // Load every read model independently: a single transient failure (or one
     // slow endpoint) must NOT blank every screen at once - it used to, because
     // Promise.all rejects atomically. Each slice keeps its prior value on a
-    // miss; we only surface an error if the whole load fails.
+    // miss; slow chain-backed slices also time out independently so grants,
+    // invites, settings, and audit screens don't sit in skeleton state while
+    // Stellar/RPC is degraded. We only surface an error if the whole load fails.
     const results = await Promise.allSettled([
-      api.session(),
-      api.dashboard(),
-      api.treasury(),
-      api.payments(),
-      api.payrolls(),
-      api.invoices(),
-      api.grants(),
-      api.counterparties(),
-      api.accounts(),
-      api.members(),
-      api.policies(),
+      readModel("session", api.session),
+      readModel("dashboard", api.dashboard, CHAIN_READ_TIMEOUT_MS),
+      readModel("treasury", api.treasury, CHAIN_READ_TIMEOUT_MS),
+      readModel("payments", api.payments),
+      readModel("payrolls", api.payrolls),
+      readModel("invoices", api.invoices),
+      readModel("grants", api.grants),
+      readModel("counterparties", api.counterparties),
+      readModel("accounts", api.accounts),
+      readModel("members", api.members),
+      readModel("policies", api.policies),
     ]);
     const [s, d, t, p, pr, inv, g, c, a, m, pol] = results;
     if (s.status === "fulfilled") setSession(s.value);

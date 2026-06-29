@@ -3,10 +3,11 @@
  * in-scope notes (a corridor/period), nothing else, and revoke it on-chain. This
  * is the two-sided compliance story: private by default, disclosable on your terms.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Eye, FileCheck, Plus, ShieldCheck, XCircle } from "lucide-react";
-import type { DisclosureTier } from "@benzo/types";
+import type { DisclosureTier, ViewingGrant } from "@benzo/types";
 import { api, type OnChainRef } from "../lib/api";
+import { validateViewingGrantForm } from "../lib/grants";
 import { useConsole } from "../lib/store";
 import { fmtUsd, formatDate, friendlyError } from "../lib/format";
 import { Page, Proving, Reveal, Stagger } from "../ui/motion";
@@ -17,7 +18,8 @@ type PeriodTotal = Awaited<ReturnType<typeof api.periodTotalAttestation>>;
 
 export function Grants() {
   const toast = useToast();
-  const { grants, accounts, refresh, loading } = useConsole();
+  const { grants: savedGrants, accounts, refresh, loading } = useConsole();
+  const [grants, setGrants] = useState<ViewingGrant[]>(savedGrants);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ auditorName: "", auditorPubKey: "", tier: "outgoing" as DisclosureTier, label: "2026-Q2", accountId: "" });
@@ -30,6 +32,10 @@ export function Grants() {
   // Confirm gate for an irreversible on-chain revoke that cuts auditor access.
   const [confirmRevoke, setConfirmRevoke] = useState<{ id: string; auditorName: string } | null>(null);
   const [revoking, setRevoking] = useState(false);
+
+  useEffect(() => {
+    setGrants(savedGrants);
+  }, [savedGrants]);
 
   // KYB-as-ZK credential (Z7) - prove "verified business, jurisdiction Y, tier Z"
   // on-chain (KYB) without revealing any documents; sybil-resistant.
@@ -85,27 +91,25 @@ export function Grants() {
   async function create() {
     const auditorName = form.auditorName.trim();
     const auditorPubKey = form.auditorPubKey.trim();
-    if (!auditorName) {
-      setFormError("Enter the auditor's name before issuing a grant.");
-      return;
-    }
-    if (!auditorPubKey) {
-      setFormError("Enter the auditor's public key before issuing a grant.");
+    const validationError = validateViewingGrantForm({ auditorName, auditorPubKey });
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
     setBusy(true);
     setFormError(null);
     try {
-      await api.createGrant({
+      const grant = await api.createGrant({
         auditorName,
         auditorPubKey,
         tier: form.tier,
         scope: { accountIds: form.accountId ? [form.accountId] : [], from: null, to: null, label: form.label },
         expiry: new Date(Date.now() + 90 * 86_400_000).toISOString(),
       });
+      setGrants((prev) => [grant, ...prev.filter((g) => g.id !== grant.id)]);
       toast({ title: "Viewing grant issued", tone: "success" });
       setOpen(false);
-      await refresh();
+      void refresh();
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {
@@ -116,10 +120,11 @@ export function Grants() {
   async function revoke(id: string) {
     setRevoking(true);
     try {
-      await api.revokeGrant(id);
+      const grant = await api.revokeGrant(id);
+      setGrants((prev) => prev.map((g) => (g.id === grant.id ? grant : g)));
       toast({ title: "Grant revoked", tone: "muted" });
       setConfirmRevoke(null);
-      await refresh();
+      void refresh();
     } catch (e) {
       toast({ title: friendlyError(e), tone: "danger" });
     } finally {

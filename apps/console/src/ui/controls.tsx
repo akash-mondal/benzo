@@ -151,7 +151,7 @@ export function Tabs<T extends string>({
 
 // ---------------------------------------------------------------- toast
 
-type Toast = { id: number; title: ReactNode; tone?: "success" | "danger" | "muted" };
+type Toast = { id: number; title: ReactNode; tone?: "success" | "danger" | "muted" | "warning" };
 const ToastCtx = createContext<(t: Omit<Toast, "id">) => void>(() => {});
 export function useToast() { return useContext(ToastCtx); }
 
@@ -162,7 +162,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((xs) => [...xs, { ...t, id }]);
     setTimeout(() => setToasts((xs) => xs.filter((x) => x.id !== id)), 4000);
   }, []);
-  const toneCls = { success: "border-success/40 text-success", danger: "border-danger/40 text-danger", muted: "border-border text-fg" };
+  const toneCls = { success: "border-success/40 text-success", danger: "border-danger/40 text-danger", muted: "border-border text-fg", warning: "border-warning/40 text-warning" };
   return (
     <ToastCtx.Provider value={push}>
       {children}
