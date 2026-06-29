@@ -176,7 +176,7 @@ function walletLedgerLines(sourceType: WalletLedgerSource, amount: string): Wall
   }
 }
 
-function recordSettledMovement(sourceType: WalletLedgerSource, amount: string, opts: { txHash?: string; prover?: string; sourceId?: string; requestedAmount?: string } = {}) {
+function recordSettledMovement(sourceType: WalletLedgerSource, amount: string, opts: { txHash?: string; prover?: string; sourceId?: string; requestedAmount?: string; counterparty?: string } = {}) {
   appendWalletLedger({
     sourceType,
     sourceId: opts.sourceId,
@@ -184,6 +184,7 @@ function recordSettledMovement(sourceType: WalletLedgerSource, amount: string, o
     txId: opts.txHash,
     prover: opts.prover,
     requestedAmount: opts.requestedAmount,
+    counterparty: opts.counterparty,
     lines: walletLedgerLines(sourceType, amount),
   });
 }
@@ -436,6 +437,11 @@ route("POST", "/api/send", async (req, res, url) => {
     return json(res, 400, { error });
   }
   const prover = proverOf(url, body);
+  const recipientKind = classifyRecipient(to);
+  const privateCounterparty =
+    recipientKind === "handle"
+      ? (to.trim().startsWith("@") ? to.trim() : `@${to.trim()}`)
+      : undefined;
 
   // Stream the 3-phase ceremony when the client asks for it (fetch + reader, not
   // EventSource, so a POST body works). Otherwise fall back to a single JSON reply
@@ -446,14 +452,14 @@ route("POST", "/api/send", async (req, res, url) => {
     const emit = (e: SendPhase) => res.write(`event: phase\ndata: ${JSON.stringify(e)}\n\n`);
     try {
       const r = await send(to, body.amount, body.memo, prover, body.requestId, emit);
-      recordSettledMovement(classifyRecipient(to) === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, sourceId: body.requestId, requestedAmount: body.amount });
-      recordSettlementProof(classifyRecipient(to) === "address" ? "wallet.send-public-from-private" : "wallet.send-private", classifyRecipient(to) === "address" ? "UNSHIELD" : "TRANSFER", r);
+      recordSettledMovement(recipientKind === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, sourceId: body.requestId, requestedAmount: body.amount, counterparty: privateCounterparty });
+      recordSettlementProof(recipientKind === "address" ? "wallet.send-public-from-private" : "wallet.send-private", recipientKind === "address" ? "UNSHIELD" : "TRANSFER", r);
       rememberIdempotency(200, r);
       res.write(`event: done\ndata: ${JSON.stringify(r)}\n\n`);
     } catch (e) {
       logRouteError("send stream", e);
       const safe = sendError(e);
-      recordFailedMovement(classifyRecipient(to) === "address" ? "send_public" : "send_private", body.amount, e, "out");
+      recordFailedMovement(recipientKind === "address" ? "send_public" : "send_private", body.amount, e, "out");
       const amount =
         Number.isFinite(Number(body.amount)) && Number(body.amount) > 0
           ? String(BigInt(Math.round(Number(body.amount) * 10_000_000)))
@@ -467,11 +473,11 @@ route("POST", "/api/send", async (req, res, url) => {
   }
   try {
     const r = await send(to, body.amount, body.memo, prover, body.requestId);
-    recordSettledMovement(classifyRecipient(to) === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, sourceId: body.requestId, requestedAmount: body.amount });
-    recordSettlementProof(classifyRecipient(to) === "address" ? "wallet.send-public-from-private" : "wallet.send-private", classifyRecipient(to) === "address" ? "UNSHIELD" : "TRANSFER", r);
+    recordSettledMovement(recipientKind === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, sourceId: body.requestId, requestedAmount: body.amount, counterparty: privateCounterparty });
+    recordSettlementProof(recipientKind === "address" ? "wallet.send-public-from-private" : "wallet.send-private", recipientKind === "address" ? "UNSHIELD" : "TRANSFER", r);
     json(res, 200, r);
   } catch (e) {
-    recordFailedMovement(classifyRecipient(to) === "address" ? "send_public" : "send_private", body.amount, e, "out");
+    recordFailedMovement(recipientKind === "address" ? "send_public" : "send_private", body.amount, e, "out");
     json(res, rampStatus(e), sendError(e));
   }
 });

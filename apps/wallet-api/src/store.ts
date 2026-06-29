@@ -92,6 +92,7 @@ export interface WalletLedgerEntry {
   txId?: string;
   prover?: string;
   requestedAmount?: string;
+  counterparty?: string;
   lines: WalletLedgerLine[];
   errorCode?: string;
   error?: string;
@@ -235,6 +236,7 @@ export function appendWalletLedger(entry: Omit<WalletLedgerEntry, "id" | "posted
     txId: entry.txId,
     prover: entry.prover,
     requestedAmount: entry.requestedAmount,
+    counterparty: entry.counterparty,
     lines: entry.lines,
     errorCode: entry.errorCode,
     error: entry.error,

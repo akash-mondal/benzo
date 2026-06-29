@@ -648,10 +648,14 @@ function ledgerActivityRow(e: WalletLedgerEntry, i: number): ActivityRow | null 
   const meta = LEDGER_ACTIVITY[e.sourceType];
   if (!meta) return null;
   const amount = ledgerAmount(e);
+  const privateCounterparty =
+    e.sourceType === "send_private" && e.counterparty
+      ? (e.counterparty.startsWith("@") ? e.counterparty : `@${e.counterparty}`)
+      : null;
   return {
     id: `ledger_${i}_${e.id}`,
     type: meta.type,
-    name: meta.name,
+    name: privateCounterparty ?? meta.name,
     note: e.status === "failed" && e.error ? `${meta.note} · ${e.error}` : meta.note,
     amount,
     direction: meta.direction,
