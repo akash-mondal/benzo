@@ -57,6 +57,7 @@ beforeEach(() => {
       refundInvite: vi.fn(),
       getActivity: vi.fn(() => []),
       getBalanceStroops: vi.fn(async () => ({ stroops: privateBalance, live: true })),
+      getChainBalanceStroops: vi.fn(async () => ({ stroops: privateBalance, live: true })),
       getRampReserve: vi.fn(async () => ({ reserve: "0", live: true })),
       getDepositInfo: vi.fn(async () => ({ address: "G".padEnd(56, "A"), liquid: publicBalanceStroops, asset: "USDC", issuer: "G".padEnd(56, "B"), live: true })),
       importDeposit: vi.fn(),

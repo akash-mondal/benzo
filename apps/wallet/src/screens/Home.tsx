@@ -148,6 +148,15 @@ export function Home() {
                   <Smartphone size={12} /> Read on your device
                 </span>
               ) : null}
+              {balance?.syncing ? (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full bg-amber/12 px-2.5 py-1 text-[11.5px] font-semibold text-[#9a6b12]"
+                  data-testid="balance-syncing"
+                  title="Showing the encrypted wallet ledger while the chain index catches up."
+                >
+                  Syncing chain
+                </span>
+              ) : null}
               {/* Move money out of Private → Public (so it can be sent to any wallet) */}
               <button
                 onClick={() => nav("/convert?mode=public")}

@@ -46,9 +46,20 @@ import {
   type ProverPort,
 } from "@benzo/core";
 import { encodeBenzoLink } from "@benzo/links";
-import { db, nowSec, type ActivityRow, type WalletInvite, type WalletLedgerEntry, type WalletLedgerSource } from "./store.js";
+import {
+  currentWalletTenantKey,
+  db,
+  nowSec,
+  verifyWalletLedger,
+  walletLedgerBalances,
+  type ActivityRow,
+  type WalletInvite,
+  type WalletLedgerEntry,
+  type WalletLedgerSource,
+} from "./store.js";
 import { accountFingerprint, currentAuth } from "./auth.js";
 import { hostedRuntime } from "./runtime.js";
+import { loadTenantDocument, saveTenantDocument } from "./tenantData.js";
 
 export type ProverKind = "local" | "tee";
 
@@ -134,15 +145,30 @@ class FileKVStore {
   }
 }
 
-/** Hosted core scanner/journal state belongs inside the encrypted wallet tenant
- * document, not a shared server temp file. */
+/** Hosted core scanner/journal state lives in encrypted tenant-bound KV rows so
+ * simple profile reads do not load multi-megabyte scanner snapshots. */
 class TenantKVStore {
+  private keyFor(key: string): string | null {
+    const tenantKey = currentWalletTenantKey();
+    return tenantKey ? `${tenantKey}:${key}` : null;
+  }
+
   async get(key: string): Promise<string | null> {
+    const tenantKey = this.keyFor(key);
+    if (tenantKey) {
+      const doc = await loadTenantDocument<{ value?: string }>("wallet-core", tenantKey);
+      if (typeof doc?.value === "string") return doc.value;
+    }
     db.coreState ??= {};
     return db.coreState[key] ?? null;
   }
 
   async set(key: string, value: string): Promise<void> {
+    const tenantKey = this.keyFor(key);
+    if (tenantKey) {
+      await saveTenantDocument("wallet-core", tenantKey, { value });
+      return;
+    }
     db.coreState ??= {};
     db.coreState[key] = value;
   }
@@ -550,10 +576,22 @@ export function toStroops(amount: string): bigint {
 // ----------------------------------------------------------------- balance
 
 export async function getBalanceStroops(): Promise<{ stroops: string; live: boolean }> {
+  try {
+    return await getChainBalanceStroops({ timeoutMs: readSyncTimeoutMs() });
+  } catch (e) {
+    if (!isTimeoutError(e)) throw e;
+    const verify = verifyWalletLedger();
+    if (!verify.ok) throw e;
+    return { stroops: walletLedgerBalances().private, live: true, source: "ledger", syncing: true } as { stroops: string; live: boolean };
+  }
+}
+
+export async function getChainBalanceStroops(opts: { timeoutMs?: number } = {}): Promise<{ stroops: string; live: boolean }> {
   const c = getClient();
   if (c) {
-    await c.sync();
-    return { stroops: (await c.getBalance()).toString(), live: true };
+    if (opts.timeoutMs) await withTimeout(c.sync(), opts.timeoutMs, "balance sync");
+    else await c.sync();
+    return { stroops: (await c.getBalance()).toString(), live: true, source: "chain" } as { stroops: string; live: boolean };
   }
   throw new Error("Live testnet client unavailable. Balance was not read.");
 }
@@ -624,13 +662,32 @@ function ledgerActivityRow(e: WalletLedgerEntry, i: number): ActivityRow | null 
   };
 }
 
+function ledgerActivityRows(): ActivityRow[] {
+  return (db.ledger ?? [])
+    .map(ledgerActivityRow)
+    .filter((r): r is ActivityRow => !!r && BigInt(r.amount || "0") > 0n)
+    .sort((a, b) => b.timestamp - a.timestamp);
+}
+
+function readSyncTimeoutMs(): number {
+  const raw = Number(process.env.BENZO_WALLET_READ_SYNC_TIMEOUT_MS ?? 12_000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 12_000;
+}
+
+function isTimeoutError(e: unknown): boolean {
+  return /timed out/i.test(String((e as Error)?.message ?? e));
+}
+
 export async function getActivity(): Promise<ActivityRow[]> {
   const c = getClient();
   if (c) {
-    await c.sync();
-    const ledgerRows = (db.ledger ?? [])
-      .map(ledgerActivityRow)
-      .filter((r): r is ActivityRow => !!r && BigInt(r.amount || "0") > 0n);
+    const ledgerRows = ledgerActivityRows();
+    try {
+      await withTimeout(c.sync(), readSyncTimeoutMs(), "activity sync");
+    } catch (e) {
+      if (isTimeoutError(e) && verifyWalletLedger().ok) return ledgerRows;
+      throw e;
+    }
     const ledgerTxs = new Set(ledgerRows.map((r) => r.txHash).filter(Boolean));
     const items = c.getHistory();
     const chainRows = items

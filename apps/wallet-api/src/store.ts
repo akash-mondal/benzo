@@ -298,6 +298,7 @@ export function walletLedgerBalances(): Record<WalletLedgerAccount, string> {
 
 function normalizeWalletDb(value: WalletDb): WalletDb {
   value.accountGeneration ??= 0;
+  value.profile ??= { handle: "@you", name: "You" };
   value.contacts ??= [];
   value.activity ??= [];
   value.invites ??= [];
@@ -307,6 +308,69 @@ function normalizeWalletDb(value: WalletDb): WalletDb {
   value.idempotency ??= {};
   value.coreState ??= {};
   return value;
+}
+
+function isSeedHandle(handle: string | undefined): boolean {
+  const h = (handle ?? "").trim().toLowerCase();
+  return h === "" || h === "@you" || h === "you";
+}
+
+function keyed<T>(items: T[], keyOf: (item: T) => string | undefined): T[] {
+  const order: string[] = [];
+  const map = new Map<string, T>();
+  for (const item of items) {
+    const key = keyOf(item) ?? JSON.stringify(item);
+    if (!map.has(key)) order.push(key);
+    map.set(key, item);
+  }
+  return order.map((key) => map.get(key)!);
+}
+
+function mergeAppendOnly<T>(
+  current: T[] | undefined,
+  next: T[] | undefined,
+  keyOf: (item: T) => string | undefined,
+): T[] {
+  return keyed([...(current ?? []), ...(next ?? [])], keyOf);
+}
+
+export function mergeWalletDbForSave(currentInput: WalletDb, nextInput: WalletDb): WalletDb {
+  const current = normalizeWalletDb(JSON.parse(JSON.stringify(currentInput)) as WalletDb);
+  const next = normalizeWalletDb(JSON.parse(JSON.stringify(nextInput)) as WalletDb);
+  const merged: WalletDb = {
+    ...current,
+    ...next,
+    accountGeneration: Math.max(Number(current.accountGeneration ?? 0), Number(next.accountGeneration ?? 0)),
+    profile: next.profile,
+    contacts: mergeAppendOnly(current.contacts, next.contacts, (c) => c.handle?.toLowerCase()),
+    activity: mergeAppendOnly(current.activity, next.activity, (a) => a.id || a.txHash || `${a.type}:${a.timestamp}:${a.amount}:${a.direction}`),
+    invites: mergeAppendOnly(current.invites, next.invites, (i) => i.localId),
+    ledger: mergeAppendOnly(current.ledger, next.ledger, (e) => e.id || e.hash || e.txId),
+    proofReceipts: mergeAppendOnly(current.proofReceipts, next.proofReceipts, (r) => r.id || `${r.action}:${r.txHash ?? ""}:${r.createdAt}`),
+    idempotency: { ...(current.idempotency ?? {}), ...(next.idempotency ?? {}) },
+    coreState: {},
+  };
+  if (isSeedHandle(next.profile?.handle) && !isSeedHandle(current.profile?.handle)) {
+    merged.profile = current.profile;
+  }
+  return normalizeWalletDb(merged);
+}
+
+async function migrateLegacyCoreState(tenantKey: string, value: WalletDb): Promise<boolean> {
+  const entries = Object.entries(value.coreState ?? {});
+  if (entries.length === 0) return false;
+  for (const [key, state] of entries) {
+    await saveTenantDocument("wallet-core", `${tenantKey}:${key}`, { value: state });
+  }
+  value.coreState = {};
+  return true;
+}
+
+async function saveWalletTenantDocument(tenantKey: string, next: WalletDb): Promise<void> {
+  await migrateLegacyCoreState(tenantKey, next);
+  const current = await loadTenantDocument<WalletDb>("wallet", tenantKey);
+  const toSave = current ? mergeWalletDbForSave(current, next) : normalizeWalletDb(next);
+  await saveTenantDocument("wallet", tenantKey, toSave);
 }
 
 function bindRecovery(value: WalletDb, binding: AccountBinding | null): void {
@@ -368,12 +432,13 @@ export async function runWithWalletTenant<T>(
   if (claims?.name) fresh.profile.name = claims.name;
   if (claims?.email && fresh.profile.name === "You") fresh.profile.name = claims.email.split("@")[0] || "You";
   const ctx: { key: string; db: WalletDb; deleted?: boolean } = { key: tenantKey, db: normalizeWalletDb(loaded ?? fresh) };
+  const migratedCoreState = await migrateLegacyCoreState(tenantKey, ctx.db);
   bindRecovery(ctx.db, binding);
   return tenantScope.run(ctx, async () => {
     try {
       return await fn();
     } finally {
-      if (!ctx.deleted && opts.persist !== false) await saveTenantDocument("wallet", tenantKey, ctx.db);
+      if (!ctx.deleted && (opts.persist !== false || migratedCoreState)) await saveWalletTenantDocument(tenantKey, ctx.db);
     }
   });
 }

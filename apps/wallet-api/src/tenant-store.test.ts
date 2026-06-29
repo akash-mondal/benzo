@@ -23,6 +23,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
   process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
+  const { loadTenantDocument } = await import("./tenantData.js");
   const { appendWalletLedger, appendWalletProofReceipt, db, runWithWalletTenant, verifyWalletLedger, walletLedgerBalances } = await import("./store.js");
 
   await runWithWalletTenant("alice", { name: "Alice" }, { accountFingerprint: "wallet_alice", subjectKey: "alice" }, async () => {
@@ -88,13 +89,62 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
     expect(db.invites.map((i) => i.localId)).toEqual(["inv_alice"]);
     expect(db.ledger.map((e) => e.sourceType)).toEqual(["onramp", "offramp"]);
     expect(db.proofReceipts.map((r) => [r.action, r.vkId, r.txHash])).toEqual([["wallet.add-money", "SHIELD", "tx_shield"]]);
-    expect(Object.keys(db.coreState).sort()).toEqual(["benzo:alice-view:journal", "benzo:global:asp"]);
+    expect(db.coreState).toEqual({});
+    await expect(loadTenantDocument("wallet-core", "wallet:alice:benzo:alice-view:journal")).resolves.toMatchObject({
+      value: JSON.stringify([{ type: "shield", amount: "30000000" }]),
+    });
+    await expect(loadTenantDocument("wallet-core", "wallet:alice:benzo:global:asp")).resolves.toMatchObject({
+      value: JSON.stringify({ cursorLedger: 12, leaves: ["1"] }),
+    });
+    await expect(loadTenantDocument("wallet-core", "wallet:alice:benzo:bob-view:journal")).resolves.toBeNull();
     expect(db.coreState["benzo:bob-view:journal"]).toBeUndefined();
     expect(verifyWalletLedger()).toMatchObject({ ok: true, length: 2 });
     expect(walletLedgerBalances()).toMatchObject({ private: "30000000", ramp_reserve: "-30000000" });
     db.ledger[0].requestedAmount = "999";
     expect(verifyWalletLedger()).toMatchObject({ ok: false, brokenAt: 0 });
   });
+});
+
+test("hosted wallet save merge preserves a claimed handle from a stale seed write", async () => {
+  process.env.BENZO_HOSTED_TENANT_TEST = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
+  const { mergeWalletDbForSave, seed } = await import("./store.js");
+
+  const current = seed();
+  current.profile = { handle: "claimed", name: "Claimed User" };
+  current.ledger.push({
+    id: "old-ledger",
+    postedAt: 1,
+    sourceType: "onramp",
+    status: "settled",
+    txId: "tx_old",
+    lines: [
+      { accountId: "ramp_reserve", direction: "debit", amount: "10000000", assetCode: "USDC" },
+      { accountId: "private", direction: "credit", amount: "10000000", assetCode: "USDC" },
+    ],
+  });
+
+  const staleNext = seed();
+  staleNext.profile = { handle: "@you", name: "Late request" };
+  staleNext.ledger.push({
+    id: "new-ledger",
+    postedAt: 2,
+    sourceType: "send_private",
+    status: "settled",
+    txId: "tx_new",
+    lines: [
+      { accountId: "private", direction: "debit", amount: "1000000", assetCode: "USDC" },
+      { accountId: "external", direction: "credit", amount: "1000000", assetCode: "USDC" },
+    ],
+  });
+
+  const merged = mergeWalletDbForSave(current, staleNext);
+
+  expect(merged.profile).toEqual({ handle: "claimed", name: "Claimed User" });
+  expect(merged.ledger.map((entry) => entry.id)).toEqual(["old-ledger", "new-ledger"]);
+  expect(merged.coreState).toEqual({});
 });
 
 test("hosted wallet fails closed when a tenant account binding changes", async () => {

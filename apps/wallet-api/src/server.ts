@@ -22,6 +22,7 @@ import {
   reconcileMoneyRequest,
   getActivity,
   getBalanceStroops,
+  getChainBalanceStroops,
   getRampReserve,
   getDepositInfo,
   importDeposit,
@@ -385,7 +386,7 @@ route("DELETE", "/api/account", async (_q, res) => {
   let privateBalance = 0n;
   let publicBalanceStroops = 0n;
   try {
-    privateBalance = BigInt((await getBalanceStroops()).stroops);
+    privateBalance = BigInt((await getChainBalanceStroops()).stroops);
     publicBalanceStroops = BigInt((await publicBalance()).stroops);
   } catch {
     return json(res, 409, {

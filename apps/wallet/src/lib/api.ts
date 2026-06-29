@@ -17,6 +17,8 @@ export interface Session {
 export interface Balance {
   stroops: string;
   live: boolean;
+  source?: "chain" | "ledger";
+  syncing?: boolean;
 }
 export interface ActivityRow {
   id: string;
