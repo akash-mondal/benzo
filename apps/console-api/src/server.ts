@@ -404,7 +404,7 @@ function requiresIdempotency(method: string, path: string): boolean {
   if (!path.startsWith("/api/")) return false;
   const m = method.toUpperCase();
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
-  return path !== "/api/auth/google" && path !== "/api/auth/test";
+  return path !== "/api/auth/google" && path !== "/api/auth/test" && path !== "/api/auth/local";
 }
 
 async function inviteRouteToken(req: IncomingMessage, path: string): Promise<string | null> {
@@ -521,6 +521,34 @@ function secretMatches(provided: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
+function hostnameIsLocalhost(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    const parsed = value.includes("://")
+      ? new URL(value).hostname
+      : value.startsWith("[::1]")
+        ? "::1"
+        : value.split(":")[0];
+    return parsed === "localhost" || parsed === "127.0.0.1" || parsed === "::1" || parsed === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
+function isLocalVerificationRequest(req: IncomingMessage): boolean {
+  if (process.env.BENZO_LOCAL_UI_TEST_AUTH !== "1") return false;
+  const host = req.headers.host;
+  const forwardedHost = Array.isArray(req.headers["x-forwarded-host"])
+    ? req.headers["x-forwarded-host"][0]
+    : req.headers["x-forwarded-host"];
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+  const referer = Array.isArray(req.headers.referer) ? req.headers.referer[0] : req.headers.referer;
+  if (!hostnameIsLocalhost(forwardedHost || host)) return false;
+  if (origin && !hostnameIsLocalhost(origin)) return false;
+  if (!origin && referer && !hostnameIsLocalhost(referer)) return false;
+  return true;
+}
+
 route("POST", "/api/auth/test", async (req, res) => {
   const expected = hostedRuntime() ? process.env.BENZO_TEST_AUTH_SECRET : undefined;
   if (!expected) return json(res, 404, { error: "not found" });
@@ -532,6 +560,19 @@ route("POST", "/api/auth/test", async (req, res) => {
     subject: body.subject,
     email: body.email,
     name: body.name,
+    ttlSeconds: body.ttlSeconds,
+  });
+  json(res, 200, { token, tokenType: "Bearer", expiresIn: Math.max(60, Math.min(body.ttlSeconds ?? 900, 3600)) });
+});
+
+route("POST", "/api/auth/local", async (req, res) => {
+  if (!isLocalVerificationRequest(req)) return json(res, 404, { error: "not found" });
+  const body = await readJson<{ subject?: string; name?: string; ttlSeconds?: number }>(req);
+  const subject = String(body.subject || `codex-console-ui-${Date.now()}`).replace(/[^a-zA-Z0-9_.:-]/g, "").slice(0, 80);
+  const token = createTestAuthToken({
+    subject,
+    email: `${subject}@benzo.local`,
+    name: body.name || "Local Verification Console",
     ttlSeconds: body.ttlSeconds,
   });
   json(res, 200, { token, tokenType: "Bearer", expiresIn: Math.max(60, Math.min(body.ttlSeconds ?? 900, 3600)) });
@@ -1517,6 +1558,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       effectiveUrl.pathname === "/api/auth/config" ||
       effectiveUrl.pathname === "/api/auth/google" ||
       effectiveUrl.pathname === "/api/auth/test" ||
+      effectiveUrl.pathname === "/api/auth/local" ||
       Boolean(routeTenantKey);
     let auth: Awaited<ReturnType<typeof authFromRequest>> = null;
     if (hostedRuntime()) {

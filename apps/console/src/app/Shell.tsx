@@ -70,9 +70,9 @@ function Eyebrow({ children }: { children: React.ReactNode }) {
 export function Shell() {
   const loc = useLocation();
   const nav = useNavigate();
-  const { session, dashboard, payments, masked, toggleMasked } = useConsole();
+  const { session, liveStatus, dashboard, payments, masked, toggleMasked } = useConsole();
   const pending = dashboard?.pendingApprovals ?? payments.filter((p) => p.status === "needs_approval").length;
-  const live = dashboard?.live ?? false;
+  const live = liveStatus?.live ?? dashboard?.live ?? false;
   // Top-bar popovers (workspace switcher + notifications).
   const [menu, setMenu] = useState<null | "workspace" | "bell">(null);
   const barRef = useRef<HTMLDivElement>(null);

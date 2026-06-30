@@ -11,6 +11,7 @@ import type {
   Counterparty,
   DashboardSummary,
   Invoice,
+  LiveStatusResponse,
   Member,
   PaymentOrder,
   PayrollBatch,
@@ -21,6 +22,7 @@ import { api, AUTH_CHANGED_EVENT, currentGoogleCredential } from "./api";
 
 interface ConsoleState {
   session: AuthSession | null;
+  liveStatus: LiveStatusResponse | null;
   dashboard: DashboardSummary | null;
   treasury: TreasuryView | null;
   payments: PaymentOrder[];
@@ -70,6 +72,7 @@ function readModel<T>(label: string, load: () => Promise<T>, timeoutMs = DEFAULT
 
 export function ConsoleProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [liveStatus, setLiveStatus] = useState<LiveStatusResponse | null>(null);
   const [dashboard, setDashboard] = useState<DashboardSummary | null>(null);
   const [treasury, setTreasury] = useState<TreasuryView | null>(null);
   const [payments, setPayments] = useState<PaymentOrder[]>([]);
@@ -101,6 +104,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     // invites, settings, and audit screens don't sit in skeleton state while
     // Stellar/RPC is degraded. We only surface an error if the whole load fails.
     const results = await Promise.allSettled([
+      readModel("live", api.live),
       readModel("session", api.session),
       readModel("dashboard", api.dashboard, CHAIN_READ_TIMEOUT_MS),
       readModel("treasury", api.treasury, CHAIN_READ_TIMEOUT_MS),
@@ -113,7 +117,8 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
       readModel("members", api.members),
       readModel("policies", api.policies),
     ]);
-    const [s, d, t, p, pr, inv, g, c, a, m, pol] = results;
+    const [l, s, d, t, p, pr, inv, g, c, a, m, pol] = results;
+    if (l.status === "fulfilled") setLiveStatus(l.value);
     if (s.status === "fulfilled") setSession(s.value);
     if (d.status === "fulfilled") setDashboard(d.value);
     if (t.status === "fulfilled") setTreasury(t.value);
@@ -136,6 +141,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
     let retry: ReturnType<typeof setTimeout> | undefined;
     if (!authenticated) {
       setSession(null);
+      setLiveStatus(null);
       setDashboard(null);
       setTreasury(null);
       setPayments([]);
@@ -177,7 +183,7 @@ export function ConsoleProvider({ children }: { children: ReactNode }) {
 
   return (
     <Ctx.Provider
-      value={{ session, dashboard, treasury, payments, payrolls, invoices, grants, counterparties, accounts, members, policies, loading, error, masked, toggleMasked, refresh }}
+      value={{ session, liveStatus, dashboard, treasury, payments, payrolls, invoices, grants, counterparties, accounts, members, policies, loading, error, masked, toggleMasked, refresh }}
     >
       {children}
     </Ctx.Provider>

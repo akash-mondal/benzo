@@ -1,6 +1,6 @@
 /**
- * Auto-load `.env` into process.env on import (side effect) — so the wallet BFF
- * can fail closed if the operator forgot to source live env.
+ * Auto-load `.env` and `.env.local` into process.env on import (side effect),
+ * so the wallet BFF can fail closed if the operator forgot to source live env.
  * Zero-dep; never clobbers an already-set var. Imported FIRST in server.ts.
  * (Identical in spirit to apps/console-api/src/loadEnv.ts.)
  */
@@ -29,4 +29,6 @@ function loadEnv(path = join(process.env.BENZO_ROOT || process.cwd(), ".env")): 
   }
 }
 
-loadEnv();
+const root = process.env.BENZO_ROOT || process.cwd();
+loadEnv(join(root, ".env"));
+loadEnv(join(root, ".env.local"));

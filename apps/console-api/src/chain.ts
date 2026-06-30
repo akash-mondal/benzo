@@ -25,6 +25,7 @@ import {
   configFromEnv,
   createOrLoadAccountFile,
   deriveTvk,
+  fetchLatestMvkRegistryWitnessFromStorage,
   fetchMvkRegistryLeaves,
   mvkRegistryLeaf,
   makeClientSubmitWrite,
@@ -32,6 +33,7 @@ import {
   sponsoredOnboard,
   sponsoredTrustlineOps,
   toHex,
+  type AspMembershipWitness,
   type ChainClient,
 } from "@benzo/core";
 import { Asset, BASE_FEE, Horizon, Keypair, TransactionBuilder, rpc } from "@stellar/stellar-sdk";
@@ -443,17 +445,67 @@ export async function treasurySendPublic(toAddress: string, amount: string): Pro
  * single-leaf fallback is rejected — Contract #13). Self-registers our MVK if absent.
  */
 const mvkWiredRoot = new WeakMap<BenzoClient, bigint>();
-async function wireMvkRegistry(c: BenzoClient): Promise<void> {
+const mvkStorageWitness = new WeakMap<BenzoClient, AspMembershipWitness>();
+function isDuplicateMvkError(e: unknown): boolean {
+  return /DuplicateMvk|Error\(Contract, #6\)/i.test(String((e as Error)?.message ?? e));
+}
+
+async function registerOwnMvk(c: BenzoClient, registry: string, myMvk: bigint): Promise<{ status: "registered" | "already-registered"; txHash?: string }> {
+  try {
+    const r = await c.opts.cli.invoke({ contractId: registry, source: operatorAdminSource(), send: true, fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"] });
+    return { status: "registered", txHash: r.txHash };
+  } catch (e) {
+    if (isDuplicateMvkError(e)) return { status: "already-registered" };
+    throw e;
+  }
+}
+
+async function fetchStorageBackedMvkWitness(
+  c: BenzoClient,
+  registry: string,
+  myLeaf: bigint,
+): Promise<AspMembershipWitness> {
+  const rpcUrl = process.env.SOROBAN_RPC_URL;
+  if (!rpcUrl) throw new Error("mvk registry storage witness unavailable: missing SOROBAN_RPC_URL");
+  const witness = await fetchLatestMvkRegistryWitnessFromStorage(
+    rpcUrl,
+    registry,
+    Number(deployment?.mvkLevels ?? 16),
+    myLeaf,
+  );
+  const onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
+  if (witness.root !== onchain) {
+    throw new Error(`mvk registry storage witness stale: witness=${witness.root} onchain=${onchain}`);
+  }
+  mvkWiredRoot.set(c, onchain);
+  mvkStorageWitness.set(c, witness);
+  return witness;
+}
+
+async function wireMvkRegistry(c: BenzoClient): Promise<AspMembershipWitness | undefined> {
   const registry = deployment?.mvkRegistry as string | undefined;
   const rpc = process.env.SOROBAN_RPC_URL;
   if (!registry || !rpc) return;
   const myMvk = c.account.mvkScalar;
   const myLeaf = mvkRegistryLeaf(myMvk, 0n);
   let onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
-  if (mvkWiredRoot.get(c) === onchain) return;
-  let leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  if (mvkWiredRoot.get(c) === onchain) return mvkStorageWitness.get(c);
+  let leaves: bigint[];
+  try {
+    leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    if (!/MVK registry leaf index \d+ missing from events/.test(msg)) throw e;
+    await registerOwnMvk(c, registry, myMvk);
+    return await fetchStorageBackedMvkWitness(c, registry, myLeaf);
+  }
   if (!leaves.includes(myLeaf)) {
-    await c.opts.cli.invoke({ contractId: registry, source: operatorAdminSource(), send: true, fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"] });
+    await registerOwnMvk(c, registry, myMvk);
+    try {
+      return await fetchStorageBackedMvkWitness(c, registry, myLeaf);
+    } catch {
+      // If storage is briefly unavailable after registration, fall back to event replay.
+    }
   }
   for (let attempt = 0; attempt < 12; attempt++) {
     const reg = new MvkRegistryMirror();
@@ -463,11 +515,18 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
       if (reg.root() === onchain) {
         c.pool.useMvkRegistry(reg);
         mvkWiredRoot.set(c, onchain);
+        mvkStorageWitness.delete(c);
         return;
       }
     }
     await new Promise((r) => setTimeout(r, 500 + attempt * 250));
-    leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+    try {
+      leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (!/MVK registry leaf index \d+ missing from events/.test(msg)) throw e;
+      return await fetchStorageBackedMvkWitness(c, registry, myLeaf);
+    }
   }
   if (!leaves.includes(myLeaf)) throw new Error("mvk registry: own MVK missing after registration");
   // Rebuild the full mirror + record our key at its real index — robust whether
@@ -478,6 +537,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   if (reg.root() !== onchain) throw new Error(`mvk registry mirror drift: mirror=${reg.root()} onchain=${onchain}`);
   c.pool.useMvkRegistry(reg);
   mvkWiredRoot.set(c, onchain);
+  mvkStorageWitness.delete(c);
 }
 
 /**
@@ -493,11 +553,17 @@ export async function registerOwnerMvk(): Promise<{ onChain: boolean; txHash?: s
   if (!registry || !rpc) throw new Error("MVK registry deployment is missing.");
   const myMvk = c.account.mvkScalar;
   const myLeaf = mvkRegistryLeaf(myMvk, 0n);
-  let leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  let leaves: bigint[];
+  try {
+    leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    if (!/MVK registry leaf index \d+ missing from events/.test(msg)) throw e;
+    leaves = [];
+  }
   let txHash: string | undefined;
   if (!leaves.includes(myLeaf)) {
-    const r = await c.opts.cli.invoke({ contractId: registry, source: operatorAdminSource(), send: true, fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"] });
-    txHash = r.txHash;
+    txHash = (await registerOwnMvk(c, registry, myMvk)).txHash;
   }
   mvkWiredRoot.delete(c); // force a fresh mirror that includes our (possibly new) leaf
   await wireMvkRegistry(c);
@@ -693,10 +759,10 @@ export async function fundTreasury(amountStroops: string): Promise<{ onChain: bo
   try {
     await ensureHostedPublicAccount();
     await c.sync();
-    await wireMvkRegistry(c);
+    const mvkWitness = await wireMvkRegistry(c);
     await ensureOrgSetup(c);
     const org = await getOrg(c);
-    const r = await c.fundTreasury({ org, amount: BigInt(amountStroops), fromAddress: from, fromSource: consoleOrgSource() });
+    const r = await c.fundTreasury({ org, amount: BigInt(amountStroops), fromAddress: from, fromSource: consoleOrgSource(), mvkWitness });
     await c.flush();
     bustTreasuryCache();
     return { onChain: true, txHash: r.txHash };

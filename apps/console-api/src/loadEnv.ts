@@ -1,8 +1,8 @@
 /**
- * Auto-load `.env` into process.env as a SIDE EFFECT on import so the BFF can
- * fail closed when live env is absent. Zero-dep; never overwrites already-set
- * vars (an explicit shell export still wins). Imported FIRST in server.ts so it
- * runs before chain.ts reads any env.
+ * Auto-load `.env` and `.env.local` into process.env as a SIDE EFFECT so the
+ * BFF can fail closed when live env is absent. Zero-dep; never overwrites
+ * already-set vars (an explicit shell export still wins). Imported FIRST in
+ * server.ts so it runs before chain.ts reads any env.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -29,4 +29,6 @@ function loadEnv(path = join(process.env.BENZO_ROOT || process.cwd(), ".env")): 
   }
 }
 
-loadEnv();
+const root = process.env.BENZO_ROOT || process.cwd();
+loadEnv(join(root, ".env"));
+loadEnv(join(root, ".env.local"));

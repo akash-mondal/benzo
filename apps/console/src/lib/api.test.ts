@@ -157,6 +157,18 @@ describe("console API idempotency", () => {
     expect(headers.get("idempotency-key")).toBeNull();
   });
 
+  it("calls the localhost verification auth endpoint without a stored credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ token: "benzo-test-v1.body.sig", tokenType: "Bearer", expiresIn: 3600 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.localVerificationAuth("local-ui-console")).resolves.toMatchObject({ tokenType: "Bearer" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(apiHref("/auth/local"));
+    const headers = callHeaders(fetchMock.mock.calls[0]);
+    expect(headers.get("authorization")).toBeNull();
+  });
+
   it("does not clear a fresh console sign-in when an older unauthenticated request returns 401", async () => {
     let resolveFetch!: (value: Response) => void;
     const fetchMock = vi.fn().mockReturnValue(new Promise<Response>((resolve) => { resolveFetch = resolve; }));

@@ -47,12 +47,18 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 declare global {
   interface Window { google?: any }
 }
+
+function isLocalVerificationUi(): boolean {
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
 function AuthShell({ onAuthed }: { onAuthed: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [attest, setAttest] = useState<EnclaveAttestation | null>(null);
   const [hasStoredCredential, setHasStoredCredential] = useState(() => !!currentGoogleCredential());
+  const [showLocalVerification] = useState(() => isLocalVerificationUi());
   const gbtn = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,6 +118,20 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
     setTimeout(onAuthed, 350);
   }
 
+  async function withLocalVerification() {
+    setBusy("local-test");
+    setErr(null);
+    try {
+      const subject = `codex-console-ui-${Date.now()}`;
+      const minted = await api.localVerificationAuth(subject);
+      storeGoogleCredential(minted.token);
+      onAuthed();
+    } catch (e) {
+      setErr(friendlyError(e, "Local verification sign-in is not available in this runtime."));
+      setBusy(null);
+    }
+  }
+
   async function withStoredCredential() {
     setBusy("stored");
     setErr(null);
@@ -146,6 +166,11 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
               Continue with this device
             </Button>
           )}
+          {showLocalVerification ? (
+            <Button className="w-full" variant="outline" size="md" loading={busy === "local-test"} onClick={withLocalVerification} data-testid="auth-local-verification">
+              Use local verification account
+            </Button>
+          ) : null}
           {clientId && authEnclaveEndpoint() ? (
             <div
               className="rounded-[8px] border px-2.5 py-1.5 text-left text-[11px] leading-snug text-muted"

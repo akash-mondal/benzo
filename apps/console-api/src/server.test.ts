@@ -114,3 +114,23 @@ test("mints secret-gated console test auth for backend smoke tests", async () =>
   });
   expect(protectedRes.status).not.toBe(401);
 });
+
+test("mints local verification auth only for localhost when explicitly enabled", async () => {
+  process.env.BENZO_LOCAL_UI_TEST_AUTH = "1";
+  const minted = await request("/api/auth/local", {
+    method: "POST",
+    headers: { "content-type": "application/json", host: "localhost:8790", origin: "http://localhost:5174" },
+    body: JSON.stringify({ subject: "console-local-ui" }),
+  });
+  expect(minted.status).toBe(200);
+  await expect(minted.json()).resolves.toMatchObject({ tokenType: "Bearer" });
+
+  const publicHost = await request("/api/auth/local", {
+    method: "POST",
+    headers: { "content-type": "application/json", host: "console.benzo.space", origin: "https://console.benzo.space" },
+    body: JSON.stringify({ subject: "console-public-ui" }),
+  });
+  expect(publicHost.status).toBe(404);
+
+  delete process.env.BENZO_LOCAL_UI_TEST_AUTH;
+});
