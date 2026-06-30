@@ -148,6 +148,7 @@ export interface WalletDb {
   recovery: RecoveryBinding | null;
   proofReceipts: ProofReceipt[];
   idempotency: Record<string, IdempotencyRecord>;
+  requestReconciledTxs: Record<string, string[]>;
   /** @benzo/core scanner snapshots, ASP cache, and transaction journal. */
   coreState: Record<string, string>;
 }
@@ -163,6 +164,7 @@ export function seed(): WalletDb {
     recovery: null,
     proofReceipts: [],
     idempotency: {},
+    requestReconciledTxs: {},
     coreState: {},
   };
 }
@@ -288,6 +290,27 @@ export function appendWalletProofReceipt(entry: Omit<ProofReceipt, "id" | "creat
   return next;
 }
 
+function canonicalTxHash(txHash: string): string {
+  return txHash.trim().toLowerCase();
+}
+
+export function isRequestTxReconciled(requestId: string, txHash: string): boolean {
+  const id = requestId.trim();
+  const tx = canonicalTxHash(txHash);
+  if (!id || !tx) return false;
+  return new Set(db.requestReconciledTxs?.[id] ?? []).has(tx);
+}
+
+export function markRequestTxReconciled(requestId: string, txHash: string): void {
+  const id = requestId.trim();
+  const tx = canonicalTxHash(txHash);
+  if (!id || !tx) return;
+  db.requestReconciledTxs ??= {};
+  const set = new Set(db.requestReconciledTxs[id] ?? []);
+  set.add(tx);
+  db.requestReconciledTxs[id] = [...set].sort();
+}
+
 export function verifyWalletLedger(): { ok: boolean; length: number; brokenAt?: number } {
   db.ledger ??= [];
   return verifyWalletLedgerEntries(db.ledger);
@@ -328,6 +351,7 @@ function normalizeWalletDb(value: WalletDb): WalletDb {
   value.recovery ??= null;
   value.proofReceipts ??= [];
   value.idempotency ??= {};
+  value.requestReconciledTxs ??= {};
   value.coreState ??= {};
   return value;
 }
@@ -356,6 +380,24 @@ function mergeAppendOnly<T>(
   return keyed([...(current ?? []), ...(next ?? [])], keyOf);
 }
 
+function mergeStringArrayRecords(
+  current: Record<string, string[]> | undefined,
+  next: Record<string, string[]> | undefined,
+): Record<string, string[]> {
+  const merged: Record<string, string[]> = {};
+  for (const source of [current, next]) {
+    for (const [key, values] of Object.entries(source ?? {})) {
+      const set = new Set(merged[key] ?? []);
+      for (const value of values ?? []) {
+        const normalized = canonicalTxHash(value);
+        if (normalized) set.add(normalized);
+      }
+      merged[key] = [...set].sort();
+    }
+  }
+  return merged;
+}
+
 export function mergeWalletDbForSave(currentInput: WalletDb, nextInput: WalletDb): WalletDb {
   const current = normalizeWalletDb(JSON.parse(JSON.stringify(currentInput)) as WalletDb);
   const next = normalizeWalletDb(JSON.parse(JSON.stringify(nextInput)) as WalletDb);
@@ -370,6 +412,7 @@ export function mergeWalletDbForSave(currentInput: WalletDb, nextInput: WalletDb
     ledger: rechainWalletLedger(mergeAppendOnly(current.ledger, next.ledger, (e) => e.id || e.hash || e.txId)),
     proofReceipts: mergeAppendOnly(current.proofReceipts, next.proofReceipts, (r) => r.id || `${r.action}:${r.txHash ?? ""}:${r.createdAt}`),
     idempotency: { ...(current.idempotency ?? {}), ...(next.idempotency ?? {}) },
+    requestReconciledTxs: mergeStringArrayRecords(current.requestReconciledTxs, next.requestReconciledTxs),
     coreState: {},
   };
   if (isSeedHandle(next.profile?.handle) && !isSeedHandle(current.profile?.handle)) {

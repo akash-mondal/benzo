@@ -52,6 +52,8 @@ import { encodeBenzoLink } from "@benzo/links";
 import {
   currentWalletTenantKey,
   db,
+  isRequestTxReconciled,
+  markRequestTxReconciled,
   nowSec,
   verifyWalletLedger,
   walletLedgerBalances,
@@ -648,7 +650,8 @@ export async function getBalanceStroops(): Promise<{ stroops: string; live: bool
   const verify = verifyWalletLedger();
   const ledgerBalances = walletLedgerBalances();
   const hasLedgerRows = (db.ledger?.length ?? 0) > 0;
-  if (hostedRuntime() && verify.ok && hasLedgerRows) {
+  const ledgerPrivate = BigInt(ledgerBalances.private);
+  if (hostedRuntime() && verify.ok && hasLedgerRows && ledgerPrivate >= 0n) {
     return { stroops: ledgerBalances.private, live: true, source: "ledger", syncing: true } as { stroops: string; live: boolean };
   }
   try {
@@ -656,6 +659,9 @@ export async function getBalanceStroops(): Promise<{ stroops: string; live: bool
   } catch (e) {
     if (!isTimeoutError(e)) throw e;
     if (!verify.ok || !hasLedgerRows) throw e;
+    if (ledgerPrivate < 0n) {
+      return { stroops: "0", live: true, source: "ledger", syncing: true } as { stroops: string; live: boolean };
+    }
     return { stroops: ledgerBalances.private, live: true, source: "ledger", syncing: true } as { stroops: string; live: boolean };
   }
 }
@@ -1816,7 +1822,6 @@ export async function reconcileMoneyRequest(id: string): Promise<{
   if (!c) throw new Error("Live testnet client unavailable. Request status was not reconciled.");
   await ensureHostedPublicAccount();
   await c.sync(hostedSyncOpts());
-  await wireMvkRegistry(c);
 
   let current = await getMoneyRequestStatus(id);
   if (current.status !== "open" && current.status !== "partially_paid") {
@@ -1828,30 +1833,45 @@ export async function reconcileMoneyRequest(id: string): Promise<{
     .filter((h) => parseRequestPaymentMemo(h.memo)?.requestId === id)
     .sort((a, b) => a.timestamp - b.timestamp);
 
+  let lastError: unknown;
   for (const h of receives) {
     if (!h.txHash) continue;
-    const nullifiers = c.nullifiersForTxHash(h.txHash);
-    for (const nullifier of nullifiers) {
-      try {
-        await c.markRequestPaid({
-          id,
-          nullifier,
-          amount: BigInt(h.amount),
-          payeeSource: walletUserSource(),
-        });
-        await waitForRequestPaidProgress(c, id);
-        current = await getMoneyRequestStatus(id);
-        return { ...current, reconciled: true, txHash: h.txHash };
-      } catch {
-        current = await getMoneyRequestStatus(id);
-        if (current.status === "paid" || current.status === "partially_paid") {
-          return { ...current, reconciled: true, txHash: h.txHash };
-        }
+    if (isRequestTxReconciled(id, h.txHash)) {
+      current = await getMoneyRequestStatus(id);
+      return { ...current, reconciled: false, txHash: h.txHash };
+    }
+    const [nullifier] = c.nullifiersForTxHash(h.txHash);
+    if (nullifier === undefined) continue;
+    const beforePaidTotal = BigInt(current.paidTotal ?? "0");
+    try {
+      await c.markRequestPaid({
+        id,
+        nullifier,
+        amount: BigInt(h.amount),
+        payeeSource: walletUserSource(),
+      });
+      markRequestTxReconciled(id, h.txHash);
+      await waitForRequestPaidProgress(c, id);
+      current = await getMoneyRequestStatus(id);
+      return { ...current, reconciled: true, txHash: h.txHash };
+    } catch (e) {
+      lastError = e;
+      current = await getMoneyRequestStatus(id);
+      const afterPaidTotal = BigInt(current.paidTotal ?? "0");
+      if (isRequestNullifierAlreadyUsed(e) || afterPaidTotal > beforePaidTotal) {
+        markRequestTxReconciled(id, h.txHash);
+        return { ...current, reconciled: afterPaidTotal > beforePaidTotal, txHash: h.txHash };
       }
     }
   }
 
+  if (lastError) throw lastError;
   return { ...current, reconciled: false };
+}
+
+function isRequestNullifierAlreadyUsed(e: unknown): boolean {
+  const msg = errorSummary(e).message.toLowerCase();
+  return msg.includes("nullifieralreadyused") || /(^|[^0-9])#7([^0-9]|$)/.test(msg);
 }
 
 function normalizeRequestStatus(status: string): "open" | "partially_paid" | "paid" | "expired" | "cancelled" {

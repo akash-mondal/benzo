@@ -151,6 +151,39 @@ test("hosted wallet save merge preserves a claimed handle from a stale seed writ
   expect(merged.coreState).toEqual({});
 });
 
+test("hosted wallet request reconciliation markers persist and merge", async () => {
+  process.env.BENZO_HOSTED_TENANT_TEST = "1";
+  process.env.BENZO_TENANT_STORE_MEMORY = "1";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
+  process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
+  const { db, isRequestTxReconciled, markRequestTxReconciled, mergeWalletDbForSave, runWithWalletTenant, seed } = await import("./store.js");
+
+  await runWithWalletTenant("request-user", { name: "Request User" }, { accountFingerprint: "wallet_request", subjectKey: "request-user" }, async () => {
+    expect(isRequestTxReconciled("req_1", "ABC123")).toBe(false);
+    markRequestTxReconciled("req_1", "ABC123");
+    expect(isRequestTxReconciled("req_1", "abc123")).toBe(true);
+    expect(db.requestReconciledTxs).toEqual({ req_1: ["abc123"] });
+  });
+
+  await runWithWalletTenant("request-user", null, { accountFingerprint: "wallet_request", subjectKey: "request-user" }, async () => {
+    expect(isRequestTxReconciled("req_1", "abc123")).toBe(true);
+    expect(isRequestTxReconciled("req_1", "def456")).toBe(false);
+  });
+
+  const current = seed();
+  current.requestReconciledTxs = { req_1: ["abc123"], req_2: ["old"] };
+  const staleNext = seed();
+  staleNext.requestReconciledTxs = { req_1: ["ABC123", "def456"], req_3: ["new"] };
+
+  const merged = mergeWalletDbForSave(current, staleNext);
+
+  expect(merged.requestReconciledTxs).toEqual({
+    req_1: ["abc123", "def456"],
+    req_2: ["old"],
+    req_3: ["new"],
+  });
+});
+
 test("hosted wallet fails closed when a tenant account binding changes", async () => {
   process.env.BENZO_HOSTED_TENANT_TEST = "1";
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
