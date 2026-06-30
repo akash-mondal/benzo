@@ -14,7 +14,8 @@
  */
 
 import { toHex, fromHex } from "./crypto/bytes.js";
-import { xdr, scValToNative } from "@stellar/stellar-sdk";
+import { compress } from "./crypto/poseidon2.js";
+import { rpc, StrKey, xdr, scValToNative } from "@stellar/stellar-sdk";
 import { MerkleTreeMirror } from "./merkle.js";
 import { noteCommitment, noteNullifier, orgNullifier } from "./notes.js";
 import { decodeNotePlain, open, type NotePlain } from "./viewkeys.js";
@@ -79,6 +80,13 @@ export interface AspSnapshot {
   v: 1;
   cursorLedger: number;
   leaves: string[];
+}
+
+export interface AspMembershipWitness {
+  leafIndex: number;
+  pathElements: bigint[];
+  pathIndices: bigint;
+  root: bigint;
 }
 
 function hexToBytes(hex: string): Uint8Array {
@@ -463,6 +471,232 @@ export async function fetchAspLeavesSince(
     leaves.push(leaf);
   }
   return { leaves, cursor };
+}
+
+function scvSymbol(symbol: string): xdr.ScVal {
+  return xdr.ScVal.scvSymbol(symbol);
+}
+
+function scvU32(value: number): xdr.ScVal {
+  return xdr.ScVal.scvU32(value);
+}
+
+function contractStorageKey(contractId: string, key: xdr.ScVal): xdr.LedgerKey {
+  const contractHash = StrKey.decodeContract(contractId) as unknown as xdr.Hash;
+  return xdr.LedgerKey.contractData(
+    new xdr.LedgerKeyContractData({
+      contract: xdr.ScAddress.scAddressTypeContract(contractHash),
+      key,
+      durability: xdr.ContractDataDurability.persistent(),
+    }),
+  );
+}
+
+function dataKey(parts: xdr.ScVal[]): xdr.ScVal {
+  return xdr.ScVal.scvVec(parts);
+}
+
+function foldMerklePath(leaf: bigint, pathElements: bigint[], pathIndices: bigint): bigint {
+  let current = leaf;
+  let idx = pathIndices;
+  for (const sibling of pathElements) {
+    current = (idx & 1n) === 1n ? compress(sibling, current) : compress(current, sibling);
+    idx >>= 1n;
+  }
+  return current;
+}
+
+/**
+ * Reconstruct the witness for the latest ASP membership leaf from contract
+ * storage. This is used when a long-lived testnet deployment has older ASP
+ * events outside RPC retention, but storage still contains the incremental
+ * Merkle frontier. It only works for the most recently inserted leaf and fails
+ * closed if the folded path does not match the live ASP root.
+ */
+export async function fetchLatestAspWitnessFromStorage(
+  rpcUrl: string,
+  aspContractId: string,
+  levels: number,
+  leaf: bigint,
+): Promise<AspMembershipWitness> {
+  const server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
+  const requests: Array<{ name: string; key: xdr.LedgerKey }> = [
+    { name: "NextIndex", key: contractStorageKey(aspContractId, dataKey([scvSymbol("NextIndex")])) },
+    { name: "Root", key: contractStorageKey(aspContractId, dataKey([scvSymbol("Root")])) },
+  ];
+  for (let level = 0; level < levels; level++) {
+    requests.push({
+      name: `FilledSubtrees:${level}`,
+      key: contractStorageKey(aspContractId, dataKey([scvSymbol("FilledSubtrees"), scvU32(level)])),
+    });
+    requests.push({
+      name: `Zeroes:${level}`,
+      key: contractStorageKey(aspContractId, dataKey([scvSymbol("Zeroes"), scvU32(level)])),
+    });
+  }
+
+  const response = await server.getLedgerEntries(...requests.map((r) => r.key));
+  if (response.entries.length !== requests.length) {
+    throw new Error(`ASP storage witness unavailable: expected ${requests.length} entries, got ${response.entries.length}`);
+  }
+
+  const values = response.entries.map((entry) => scValToNative(entry.val.contractData().val()));
+  const nextIndex = Number(toBig(values[0]));
+  if (!Number.isSafeInteger(nextIndex) || nextIndex <= 0) {
+    throw new Error("ASP storage witness unavailable: no inserted leaves");
+  }
+  const root = toBig(values[1]);
+  const leafIndex = nextIndex - 1;
+  const pathElements: bigint[] = [];
+  let cursor = leafIndex;
+  for (let level = 0; level < levels; level++) {
+    const filled = toBig(values[2 + level * 2]);
+    const zero = toBig(values[2 + level * 2 + 1]);
+    pathElements.push((cursor & 1) === 1 ? filled : zero);
+    cursor >>= 1;
+  }
+  const pathIndices = BigInt(leafIndex);
+  const folded = foldMerklePath(leaf, pathElements, pathIndices);
+  if (folded !== root) {
+    throw new Error("ASP storage witness does not match the live root");
+  }
+  return { leafIndex, pathElements, pathIndices, root };
+}
+
+/**
+ * Same latest-leaf witness recovery for the authorized-MVK registry. The MVK
+ * registry keeps roots in a ring buffer (`Root(CurrentRootIndex)`) and uses a
+ * singular `FilledSubtree(level)` storage key.
+ */
+export async function fetchLatestMvkRegistryWitnessFromStorage(
+  rpcUrl: string,
+  registryContractId: string,
+  levels: number,
+  leaf: bigint,
+): Promise<AspMembershipWitness> {
+  const server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
+  const requests: Array<{ name: string; key: xdr.LedgerKey }> = [
+    { name: "NextIndex", key: contractStorageKey(registryContractId, dataKey([scvSymbol("NextIndex")])) },
+    { name: "CurrentRootIndex", key: contractStorageKey(registryContractId, dataKey([scvSymbol("CurrentRootIndex")])) },
+  ];
+  for (let level = 0; level < levels; level++) {
+    requests.push({
+      name: `FilledSubtree:${level}`,
+      key: contractStorageKey(registryContractId, dataKey([scvSymbol("FilledSubtree"), scvU32(level)])),
+    });
+    requests.push({
+      name: `Zeroes:${level}`,
+      key: contractStorageKey(registryContractId, dataKey([scvSymbol("Zeroes"), scvU32(level)])),
+    });
+  }
+
+  const response = await server.getLedgerEntries(...requests.map((r) => r.key));
+  if (response.entries.length !== requests.length) {
+    throw new Error(`MVK storage witness unavailable: expected ${requests.length} entries, got ${response.entries.length}`);
+  }
+
+  const values = response.entries.map((entry) => scValToNative(entry.val.contractData().val()));
+  const nextIndex = Number(toBig(values[0]));
+  const rootIndex = Number(toBig(values[1]));
+  if (!Number.isSafeInteger(nextIndex) || nextIndex <= 0) {
+    throw new Error("MVK storage witness unavailable: no inserted leaves");
+  }
+  if (!Number.isSafeInteger(rootIndex) || rootIndex < 0) {
+    throw new Error("MVK storage witness unavailable: invalid current root index");
+  }
+
+  const rootResponse = await server.getLedgerEntries(
+    contractStorageKey(registryContractId, dataKey([scvSymbol("Root"), scvU32(rootIndex)])),
+  );
+  if (rootResponse.entries.length !== 1) {
+    throw new Error("MVK storage witness unavailable: current root missing");
+  }
+  const root = toBig(scValToNative(rootResponse.entries[0].val.contractData().val()));
+
+  const leafIndex = nextIndex - 1;
+  const pathElements: bigint[] = [];
+  let cursor = leafIndex;
+  for (let level = 0; level < levels; level++) {
+    const filled = toBig(values[2 + level * 2]);
+    const zero = toBig(values[2 + level * 2 + 1]);
+    pathElements.push((cursor & 1) === 1 ? filled : zero);
+    cursor >>= 1;
+  }
+  const pathIndices = BigInt(leafIndex);
+  const folded = foldMerklePath(leaf, pathElements, pathIndices);
+  if (folded !== root) {
+    throw new Error("MVK storage witness does not match the live root");
+  }
+  return { leafIndex, pathElements, pathIndices, root };
+}
+
+/**
+ * Reconstruct the witness for the latest pool commitment leaf from the shared
+ * Merkle contract storage. This covers fresh notes on long-lived testnet
+ * deployments where old pool events have aged out before a durable indexer
+ * snapshot existed. It fails closed unless the supplied commitment folds to the
+ * live Merkle root.
+ */
+export async function fetchLatestPoolWitnessFromStorage(
+  rpcUrl: string,
+  merkleContractId: string,
+  levels: number,
+  commitment: bigint,
+): Promise<AspMembershipWitness> {
+  const server = new rpc.Server(rpcUrl, { allowHttp: rpcUrl.startsWith("http://") });
+  const requests: Array<{ name: string; key: xdr.LedgerKey }> = [
+    { name: "NextIndex", key: contractStorageKey(merkleContractId, dataKey([scvSymbol("NextIndex")])) },
+    { name: "CurrentRootIndex", key: contractStorageKey(merkleContractId, dataKey([scvSymbol("CurrentRootIndex")])) },
+  ];
+  for (let level = 0; level < levels; level++) {
+    requests.push({
+      name: `FilledSubtree:${level}`,
+      key: contractStorageKey(merkleContractId, dataKey([scvSymbol("FilledSubtree"), scvU32(level)])),
+    });
+    requests.push({
+      name: `Zeroes:${level}`,
+      key: contractStorageKey(merkleContractId, dataKey([scvSymbol("Zeroes"), scvU32(level)])),
+    });
+  }
+
+  const response = await server.getLedgerEntries(...requests.map((r) => r.key));
+  if (response.entries.length !== requests.length) {
+    throw new Error(`pool storage witness unavailable: expected ${requests.length} entries, got ${response.entries.length}`);
+  }
+
+  const values = response.entries.map((entry) => scValToNative(entry.val.contractData().val()));
+  const nextIndex = Number(toBig(values[0]));
+  const rootIndex = Number(toBig(values[1]));
+  if (!Number.isSafeInteger(nextIndex) || nextIndex <= 0) {
+    throw new Error("pool storage witness unavailable: no inserted leaves");
+  }
+  if (!Number.isSafeInteger(rootIndex) || rootIndex < 0) {
+    throw new Error("pool storage witness unavailable: invalid current root index");
+  }
+
+  const rootResponse = await server.getLedgerEntries(
+    contractStorageKey(merkleContractId, dataKey([scvSymbol("Root"), scvU32(rootIndex)])),
+  );
+  if (rootResponse.entries.length !== 1) {
+    throw new Error("pool storage witness unavailable: current root missing");
+  }
+  const root = toBig(scValToNative(rootResponse.entries[0].val.contractData().val()));
+
+  const leafIndex = nextIndex - 1;
+  const pathElements: bigint[] = [];
+  let cursor = leafIndex;
+  for (let level = 0; level < levels; level++) {
+    const filled = toBig(values[2 + level * 2]);
+    const zero = toBig(values[2 + level * 2 + 1]);
+    pathElements.push((cursor & 1) === 1 ? filled : zero);
+    cursor >>= 1;
+  }
+  const pathIndices = BigInt(leafIndex);
+  const folded = foldMerklePath(commitment, pathElements, pathIndices);
+  if (folded !== root) {
+    throw new Error("pool storage witness does not match the live root");
+  }
+  return { leafIndex, pathElements, pathIndices, root };
 }
 
 /**

@@ -201,6 +201,12 @@ export function currentWalletTenantKey(): string | null {
   return tenantScope.getStore()?.key ?? null;
 }
 
+export async function persistCurrentWalletTenant(): Promise<void> {
+  const ctx = tenantScope.getStore();
+  if (!ctx || ctx.deleted) return;
+  await saveWalletTenantDocument(ctx.key, ctx.db);
+}
+
 export async function deleteCurrentWalletTenant(): Promise<void> {
   const ctx = tenantScope.getStore();
   if (!ctx) {
@@ -223,6 +229,25 @@ function canonicalLedgerEntry(e: WalletLedgerEntry): string {
 
 function ledgerHash(prevHash: string | undefined, e: WalletLedgerEntry): string {
   return createHash("sha256").update(`${prevHash ?? "GENESIS"}:${canonicalLedgerEntry(e)}`).digest("hex");
+}
+
+function rechainWalletLedger(entries: WalletLedgerEntry[]): WalletLedgerEntry[] {
+  let prev: string | undefined;
+  return entries.map((entry) => {
+    const next = { ...entry };
+    next.hash = ledgerHash(prev, next);
+    prev = next.hash;
+    return next;
+  });
+}
+
+export function verifyWalletLedgerEntries(entries: WalletLedgerEntry[]): { ok: boolean; length: number; brokenAt?: number } {
+  let prev: string | undefined;
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].hash !== ledgerHash(prev, entries[i])) return { ok: false, length: entries.length, brokenAt: i };
+    prev = entries[i].hash;
+  }
+  return { ok: true, length: entries.length };
 }
 
 export function appendWalletLedger(entry: Omit<WalletLedgerEntry, "id" | "postedAt" | "hash"> & { id?: string; postedAt?: number }): WalletLedgerEntry {
@@ -265,12 +290,7 @@ export function appendWalletProofReceipt(entry: Omit<ProofReceipt, "id" | "creat
 
 export function verifyWalletLedger(): { ok: boolean; length: number; brokenAt?: number } {
   db.ledger ??= [];
-  let prev: string | undefined;
-  for (let i = 0; i < db.ledger.length; i++) {
-    if (db.ledger[i].hash !== ledgerHash(prev, db.ledger[i])) return { ok: false, length: db.ledger.length, brokenAt: i };
-    prev = db.ledger[i].hash;
-  }
-  return { ok: true, length: db.ledger.length };
+  return verifyWalletLedgerEntries(db.ledger);
 }
 
 export function walletLedgerBalances(): Record<WalletLedgerAccount, string> {
@@ -347,7 +367,7 @@ export function mergeWalletDbForSave(currentInput: WalletDb, nextInput: WalletDb
     contacts: mergeAppendOnly(current.contacts, next.contacts, (c) => c.handle?.toLowerCase()),
     activity: mergeAppendOnly(current.activity, next.activity, (a) => a.id || a.txHash || `${a.type}:${a.timestamp}:${a.amount}:${a.direction}`),
     invites: mergeAppendOnly(current.invites, next.invites, (i) => i.localId),
-    ledger: mergeAppendOnly(current.ledger, next.ledger, (e) => e.id || e.hash || e.txId),
+    ledger: rechainWalletLedger(mergeAppendOnly(current.ledger, next.ledger, (e) => e.id || e.hash || e.txId)),
     proofReceipts: mergeAppendOnly(current.proofReceipts, next.proofReceipts, (r) => r.id || `${r.action}:${r.txHash ?? ""}:${r.createdAt}`),
     idempotency: { ...(current.idempotency ?? {}), ...(next.idempotency ?? {}) },
     coreState: {},

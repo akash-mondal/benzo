@@ -52,6 +52,7 @@ import {
   db,
   deleteCurrentWalletTenant,
   nowSec,
+  persistCurrentWalletTenant,
   recoverySummary,
   RecoveryRequiredError,
   runWithWalletTenant,
@@ -81,6 +82,13 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.writeHead(code, { "content-type": "application/json" });
   res.end(JSON.stringify(body));
   rememberIdempotency(code, body);
+}
+async function jsonPersisted(res: ServerResponse, code: number, body: unknown): Promise<void> {
+  rememberIdempotency(code, body);
+  await persistCurrentWalletTenant();
+  cors(res);
+  res.writeHead(code, { "content-type": "application/json" });
+  res.end(JSON.stringify(body));
 }
 function rememberIdempotency(code: number, body: unknown): void {
   const idem = idempotencyScope.getStore();
@@ -455,6 +463,7 @@ route("POST", "/api/send", async (req, res, url) => {
       recordSettledMovement(recipientKind === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, sourceId: body.requestId, requestedAmount: body.amount, counterparty: privateCounterparty });
       recordSettlementProof(recipientKind === "address" ? "wallet.send-public-from-private" : "wallet.send-private", recipientKind === "address" ? "UNSHIELD" : "TRANSFER", r);
       rememberIdempotency(200, r);
+      await persistCurrentWalletTenant();
       res.write(`event: done\ndata: ${JSON.stringify(r)}\n\n`);
     } catch (e) {
       logRouteError("send stream", e);
@@ -475,7 +484,7 @@ route("POST", "/api/send", async (req, res, url) => {
     const r = await send(to, body.amount, body.memo, prover, body.requestId);
     recordSettledMovement(recipientKind === "address" ? "send_public" : "send_private", r.amount, { txHash: r.txHash, prover: r.prover, sourceId: body.requestId, requestedAmount: body.amount, counterparty: privateCounterparty });
     recordSettlementProof(recipientKind === "address" ? "wallet.send-public-from-private" : "wallet.send-private", recipientKind === "address" ? "UNSHIELD" : "TRANSFER", r);
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     recordFailedMovement(recipientKind === "address" ? "send_public" : "send_private", body.amount, e, "out");
     json(res, rampStatus(e), sendError(e));
@@ -484,7 +493,7 @@ route("POST", "/api/send", async (req, res, url) => {
 
 route("POST", "/api/request", async (req, res) => {
   const body = await readJson<{ amount?: string; memo?: string }>(req);
-  json(res, 200, await createRequest(body.amount, body.memo));
+  await jsonPersisted(res, 200, await createRequest(body.amount, body.memo));
 });
 
 route("GET", "/api/request/status", async (_req, res, url) => {
@@ -497,7 +506,7 @@ route("POST", "/api/request/reconcile", async (req, res) => {
   const body = await readJson<{ id?: string }>(req);
   if (!body.id) return json(res, 400, { error: "request id required" });
   try {
-    json(res, 200, await reconcileMoneyRequest(body.id));
+    await jsonPersisted(res, 200, await reconcileMoneyRequest(body.id));
   } catch (e) {
     logRouteError("request reconcile", e);
     json(res, 503, { error: "Couldn't verify this request payment yet. Please try again." });
@@ -508,7 +517,7 @@ route("POST", "/api/request/cancel", async (req, res) => {
   const body = await readJson<{ id?: string }>(req);
   if (!body.id) return json(res, 400, { error: "request id required" });
   try {
-    json(res, 200, await cancelMoneyRequest(body.id));
+    await jsonPersisted(res, 200, await cancelMoneyRequest(body.id));
   } catch (e) {
     logRouteError("request cancel", e);
     json(res, 503, { error: (e as Error).message || "Couldn't cancel the request. Please try again." });
@@ -531,7 +540,7 @@ route("POST", "/api/invite", async (req, res) => {
       txHash: r.txHash,
       publicInputs: proofPublicInputsRef(r),
     });
-    json(res, 201, r);
+    await jsonPersisted(res, 201, r);
   } catch (e) {
     logRouteError("invite fund", e);
     recordFailedMovement("invite_fund", body.amount, e, "out");
@@ -552,7 +561,7 @@ route("POST", "/api/invite/refund", async (req, res) => {
       txHash: r.txHash,
       publicInputs: proofPublicInputsRef(r),
     });
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     recordFailedMovement("invite_refund", undefined, e, "in", body.localId);
     json(res, 400, { error: "Could not refund this invite. It may already be claimed or expired." });
@@ -572,7 +581,7 @@ route("POST", "/api/claim", async (req, res) => {
       txHash: r.txHash,
       publicInputs: proofPublicInputsRef(r),
     });
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     recordFailedMovement("invite_claim", undefined, e, "in", body.localId);
     json(res, 400, { error: "Could not claim this invite. Check the link and try again." });
@@ -586,7 +595,7 @@ route("POST", "/api/cash-out", async (req, res, url) => {
     const r = await cashOut(body.amount, proverOf(url, body));
     recordSettledMovement("offramp", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
     recordSettlementProof("wallet.cash-out", "UNSHIELD", r);
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     logRouteError("cash-out", e);
     recordFailedMovement("offramp", body.amount, e, "out");
@@ -601,7 +610,7 @@ route("POST", "/api/add-money", async (req, res, url) => {
     const r = await addMoney(body.amount, proverOf(url, body));
     recordSettledMovement("onramp", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
     recordSettlementProof("wallet.add-money", "SHIELD", r);
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     logRouteError("add-money", e);
     recordFailedMovement("onramp", body.amount, e, "in");
@@ -623,7 +632,7 @@ route("POST", "/api/import", async (req, res, url) => {
     const r = await importDeposit(body.amount, proverOf(url, body));
     recordSettledMovement("import", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount ?? "all" });
     recordSettlementProof("wallet.import", "SHIELD", r);
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     recordFailedMovement("import", body.amount ?? "all", e, "in");
     json(res, rampStatus(e), rampError(e, "in"));
@@ -648,7 +657,7 @@ route("POST", "/api/make-public", async (req, res, url) => {
     const r = await makePublic(body.amount, proverOf(url, body));
     recordSettledMovement("make_public", r.amount, { txHash: r.txHash, prover: r.prover, requestedAmount: body.amount });
     recordSettlementProof("wallet.make-public", "UNSHIELD", r);
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     recordFailedMovement("make_public", body.amount, e, "out");
     json(res, rampStatus(e), rampError(e, "out"));
@@ -660,7 +669,7 @@ route("POST", "/api/send-public", async (req, res) => {
   try {
     const r = await sendPublic(body.to, body.amount);
     recordSettledMovement("send_public", r.amount, { txHash: r.txHash, requestedAmount: body.amount });
-    json(res, 200, r);
+    await jsonPersisted(res, 200, r);
   } catch (e) {
     recordFailedMovement("send_public", body.amount, e, "out");
     json(res, rampStatus(e), rampError(e, "out"));
@@ -679,7 +688,7 @@ route("POST", "/api/share-proof", async (req, res, url) => {
     verifier: walletVerifierId(),
     publicInputs: receipt.publics,
   });
-  json(res, 200, receipt);
+  await jsonPersisted(res, 200, receipt);
 });
 
 // LOCAL TESTNET-DEV ONLY (BENZO_DEV_EXPORT=1): provision the account to a

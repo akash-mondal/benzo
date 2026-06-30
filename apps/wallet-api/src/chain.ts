@@ -34,6 +34,7 @@ import {
   accountFromClaimSecret,
   configFromEnv,
   createOrLoadAccountFile,
+  fetchLatestMvkRegistryWitnessFromStorage,
   fetchMvkRegistryLeaves,
   makeTeeProver,
   makeClientSubmitWrite,
@@ -42,6 +43,7 @@ import {
   sponsoredOnboard,
   sponsoredTrustlineOps,
   usdcToStroops,
+  type AspMembershipWitness,
   type ChainClient,
   type ProverPort,
 } from "@benzo/core";
@@ -349,6 +351,14 @@ export function getClient(prover: ProverKind = hostedRuntime() ? "tee" : "local"
   }
 }
 
+function evictClient(prover: ProverKind = hostedRuntime() ? "tee" : "local"): void {
+  try {
+    clients.delete(clientCacheKey(prover));
+  } catch {
+    // No active hosted auth context. The next getClient() call will fail loudly.
+  }
+}
+
 export function isLive(): boolean {
   return getClient() !== null;
 }
@@ -515,7 +525,49 @@ async function ensureHostedPublicAccount(opts: { waitForRpc?: boolean } = {}): P
  * Fails loud if the mirror root diverges from the on-chain root.
  */
 const mvkWiredRoot = new WeakMap<BenzoClient, bigint>();
-async function wireMvkRegistry(c: BenzoClient): Promise<void> {
+async function fetchStorageBackedMvkWitness(
+  c: BenzoClient,
+  registry: string,
+  myLeaf: bigint,
+): Promise<AspMembershipWitness> {
+  const d = deployment();
+  const rpcUrl = process.env.SOROBAN_RPC_URL;
+  if (!rpcUrl) throw new Error("mvk registry storage witness unavailable: missing SOROBAN_RPC_URL");
+  const witness = await fetchLatestMvkRegistryWitnessFromStorage(
+    rpcUrl,
+    registry,
+    Number(d.mvkLevels ?? 16),
+    myLeaf,
+  );
+  const onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
+  if (witness.root !== onchain) {
+    throw new Error(`mvk registry storage witness stale: witness=${witness.root} onchain=${onchain}`);
+  }
+  mvkWiredRoot.set(c, onchain);
+  return witness;
+}
+
+function isDuplicateMvkError(e: unknown): boolean {
+  return /DuplicateMvk|Error\(Contract, #6\)/i.test(String((e as Error)?.message ?? e));
+}
+
+async function registerOwnMvk(c: BenzoClient, registry: string, myMvk: bigint): Promise<"registered" | "already-registered"> {
+  try {
+    await c.opts.cli.invoke({
+      contractId: registry,
+      source: operatorAdminSource(),
+      send: true,
+      fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"],
+    });
+    return "registered";
+  } catch (e) {
+    if (isDuplicateMvkError(e)) return "already-registered";
+    console.error("[wallet-api] mvk registration failed", errorSummary(e));
+    throw e;
+  }
+}
+
+async function wireMvkRegistry(c: BenzoClient): Promise<AspMembershipWitness | undefined> {
   const d = deployment();
   const registry = d.mvkRegistry as string | undefined;
   const rpc = process.env.SOROBAN_RPC_URL;
@@ -524,19 +576,23 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   const myLeaf = mvkRegistryLeaf(myMvk, 0n);
   let onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (mvkWiredRoot.get(c) === onchain) return;
-  let leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  let leaves: bigint[];
+  try {
+    leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+  } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    if (!/MVK registry leaf index \d+ missing from events/.test(msg)) throw e;
+    await registerOwnMvk(c, registry, myMvk);
+    return await fetchStorageBackedMvkWitness(c, registry, myLeaf);
+  }
   if (!leaves.includes(myLeaf)) {
-    // not yet registered — register our MVK on-chain, then refetch.
+    // not yet registered. Registering makes this MVK the latest leaf, so a
+    // storage-derived membership path is available even when old events expired.
+    await registerOwnMvk(c, registry, myMvk);
     try {
-      await c.opts.cli.invoke({
-        contractId: registry,
-        source: operatorAdminSource(),
-        send: true,
-        fnArgs: ["register_mvk", "--mvk_pub", myMvk.toString(), "--key_meta", "0"],
-      });
-    } catch (e) {
-      console.error("[wallet-api] mvk registration failed", errorSummary(e));
-      throw e;
+      return await fetchStorageBackedMvkWitness(c, registry, myLeaf);
+    } catch {
+      // If the storage witness is briefly unavailable, fall back to event replay.
     }
   }
   for (let attempt = 0; attempt < 12; attempt++) {
@@ -547,11 +603,17 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
       if (reg.root() === onchain) {
         c.pool.useMvkRegistry(reg);
         mvkWiredRoot.set(c, onchain);
-        return;
+        return undefined;
       }
     }
     await new Promise((r) => setTimeout(r, 500 + attempt * 250));
-    leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+    try {
+      leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (!/MVK registry leaf index \d+ missing from events/.test(msg)) throw e;
+      return await fetchStorageBackedMvkWitness(c, registry, myLeaf);
+    }
   }
   if (!leaves.includes(myLeaf)) throw new Error("mvk registry: own MVK missing after registration");
   // Rebuild the full mirror from ALL leaves and record our key at its real index
@@ -565,6 +627,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<void> {
   }
   c.pool.useMvkRegistry(reg);
   mvkWiredRoot.set(c, onchain);
+  return undefined;
 }
 
 /** Accept human ("25.50") or stroop ("250000000") amounts; normalise to stroops. */
@@ -576,21 +639,25 @@ export function toStroops(amount: string): bigint {
 // ----------------------------------------------------------------- balance
 
 export async function getBalanceStroops(): Promise<{ stroops: string; live: boolean }> {
+  const verify = verifyWalletLedger();
+  const ledgerBalances = walletLedgerBalances();
+  if (hostedRuntime() && verify.ok && (db.ledger?.length ?? 0) > 0) {
+    return { stroops: ledgerBalances.private, live: true, source: "ledger", syncing: true } as { stroops: string; live: boolean };
+  }
   try {
     return await getChainBalanceStroops({ timeoutMs: readSyncTimeoutMs() });
   } catch (e) {
     if (!isTimeoutError(e)) throw e;
-    const verify = verifyWalletLedger();
     if (!verify.ok) throw e;
-    return { stroops: walletLedgerBalances().private, live: true, source: "ledger", syncing: true } as { stroops: string; live: boolean };
+    return { stroops: ledgerBalances.private, live: true, source: "ledger", syncing: true } as { stroops: string; live: boolean };
   }
 }
 
 export async function getChainBalanceStroops(opts: { timeoutMs?: number } = {}): Promise<{ stroops: string; live: boolean }> {
   const c = getClient();
   if (c) {
-    if (opts.timeoutMs) await withTimeout(c.sync(), opts.timeoutMs, "balance sync");
-    else await c.sync();
+    if (opts.timeoutMs) await withTimeout(c.sync(hostedSyncOpts()), opts.timeoutMs, "balance sync");
+    else await c.sync(hostedSyncOpts());
     return { stroops: (await c.getBalance()).toString(), live: true, source: "chain" } as { stroops: string; live: boolean };
   }
   throw new Error("Live testnet client unavailable. Balance was not read.");
@@ -674,20 +741,25 @@ function ledgerActivityRows(): ActivityRow[] {
 }
 
 function readSyncTimeoutMs(): number {
-  const raw = Number(process.env.BENZO_WALLET_READ_SYNC_TIMEOUT_MS ?? 12_000);
-  return Number.isFinite(raw) && raw > 0 ? raw : 12_000;
+  const raw = Number(process.env.BENZO_WALLET_READ_SYNC_TIMEOUT_MS ?? 3_500);
+  return Number.isFinite(raw) && raw > 0 ? raw : 3_500;
 }
 
 function isTimeoutError(e: unknown): boolean {
   return /timed out/i.test(String((e as Error)?.message ?? e));
 }
 
+function hostedSyncOpts(): { allowPoolMirrorGaps?: boolean; allowAspMirrorGaps?: boolean } {
+  return hostedRuntime() ? { allowPoolMirrorGaps: true, allowAspMirrorGaps: true } : {};
+}
+
 export async function getActivity(): Promise<ActivityRow[]> {
   const c = getClient();
   if (c) {
     const ledgerRows = ledgerActivityRows();
+    if (hostedRuntime() && ledgerRows.length > 0 && verifyWalletLedger().ok) return ledgerRows;
     try {
-      await withTimeout(c.sync(), readSyncTimeoutMs(), "activity sync");
+      await withTimeout(c.sync(hostedSyncOpts()), readSyncTimeoutMs(), "activity sync");
     } catch (e) {
       if (isTimeoutError(e) && verifyWalletLedger().ok) return ledgerRows;
       throw e;
@@ -763,7 +835,7 @@ async function waitForShieldedBalanceIncrease(c: BenzoClient, before: bigint, am
   for (let attempt = 0; attempt < 18; attempt++) {
     await sleep(700 + attempt * 250);
     try {
-      await c.sync();
+      await c.sync(hostedSyncOpts());
       const after = await c.getBalance();
       if (after >= target) return latestSettledTx(c, "shield", amount);
     } catch {
@@ -827,7 +899,7 @@ async function privateDebitLooksSettled(c: BenzoClient, before: bigint, amount: 
   const target = before - amount;
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
-      await c.sync();
+      await c.sync(hostedSyncOpts());
       if (await c.getBalance() <= target) return true;
     } catch {
       /* retry below */
@@ -856,7 +928,7 @@ async function privateSendToHandle(
     let txHash = r?.txHash;
     if (!txHash && r?.nullifier) {
       try {
-        await c.sync();
+        await c.sync(hostedSyncOpts());
         txHash = c.txHashForNullifier(r.nullifier);
       } catch {
         /* best effort */
@@ -911,14 +983,14 @@ export async function send(
   }
 
   await ensureHostedPublicAccount();
-  await c.sync();
-  await wireMvkRegistry(c);
+  await c.sync(hostedSyncOpts());
+  const mvkWitness = await wireMvkRegistry(c);
   onPhase?.({ phase: "building" });
 
   if (kind === "address") {
     // public payout — unshield to the given Stellar address
     onPhase?.({ phase: "proving" });
-    const wd = await c.unshield({ amount: stroops, toAddress: to.trim() });
+    const wd = await c.unshield({ amount: stroops, toAddress: to.trim(), mvkWitness });
     onPhase?.({ phase: "submitting", provingMs: wd.provingMs, txHash: wd.txHash });
     await flushBestEffort(c, "public payout flush");
     onPhase?.({ phase: "confirmed", txHash: wd.txHash, provingMs: wd.provingMs, onChain: true });
@@ -941,7 +1013,7 @@ export async function sendToHandle(
   const c = getClient(prover);
   if (c) {
     await ensureHostedPublicAccount();
-    await c.sync();
+    await c.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
     await wireMvkRegistry(c);
     const chainMemo = requestId ? requestPaymentMemo(requestId, memo) : memo;
     return privateSendToHandle(c, handle, stroops, chainMemo, prover, requestId);
@@ -1163,13 +1235,14 @@ async function shieldLiquidUsdc(
   before: bigint,
   prover: ProverKind,
   expectedLiquidAfter?: bigint,
+  mvkWitness?: AspMembershipWitness,
 ): Promise<SettleResult> {
   let last: unknown;
   for (let attempt = 0; attempt < 8; attempt++) {
     try {
       await waitForLiquidUsdc(c, from, stroops);
       const sh = await withTimeout(
-        c.shield({ amount: stroops, fromAddress: from, fromSource: walletUserSource() }),
+        c.shield({ amount: stroops, fromAddress: from, fromSource: walletUserSource(), mvkWitness }),
         90_000,
         "shield submit",
       );
@@ -1246,11 +1319,12 @@ export async function cashOut(amount: string, prover: ProverKind): Promise<Settl
   if (stroops < CASHOUT_MIN || stroops > CASHOUT_MAX) {
     throw new RampError("limit", "Cash-out must be between $5 and $2,500.");
   }
+  if (hostedRuntime()) evictClient(prover);
   const c = getClient(prover);
   if (c) {
     await ensureHostedPublicAccount();
-    await c.sync();
-    await wireMvkRegistry(c);
+    await c.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+    const mvkWitness = await wireMvkRegistry(c);
     const privateBalance = await c.getBalance();
     if (stroops > privateBalance) {
       throw new RampError("balance", "That's more than your private balance.");
@@ -1268,7 +1342,7 @@ export async function cashOut(amount: string, prover: ProverKind): Promise<Settl
     }
     const expectedLiquid = liquidBefore + stroops;
     try {
-      const wd = await c.unshield({ amount: stroops, toAddress: to });
+      const wd = await c.unshield({ amount: stroops, toAddress: to, mvkWitness });
       await flushBestEffort(c, "cash-out unshield flush");
       await finishRampCashOut(c, to, stroops, expectedLiquid);
       return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: wd.sorobanPublics };
@@ -1289,9 +1363,9 @@ export async function cashOut(amount: string, prover: ProverKind): Promise<Settl
       }
       if (/UnknownRoot|is_known_root].*false|Error\(Contract, #5\)/is.test(String((e as Error).message ?? e))) {
         await sleep(2_000);
-        await c.sync();
-        await wireMvkRegistry(c);
-        const wd = await c.unshield({ amount: stroops, toAddress: to });
+        await c.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+        const retryMvkWitness = await wireMvkRegistry(c);
+        const wd = await c.unshield({ amount: stroops, toAddress: to, mvkWitness: retryMvkWitness ?? mvkWitness });
         await flushBestEffort(c, "cash-out retry flush");
         await finishRampCashOut(c, to, stroops, expectedLiquid);
         return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: wd.sorobanPublics };
@@ -1309,11 +1383,12 @@ export async function cashOut(amount: string, prover: ProverKind): Promise<Settl
 
 export async function addMoney(amount: string, prover: ProverKind = "local"): Promise<SettleResult> {
   const stroops = toStroops(amount);
+  if (hostedRuntime()) evictClient(prover);
   const c = getClient(prover);
   if (c) {
     await ensureHostedPublicAccount();
-    await c.sync();
-    await wireMvkRegistry(c);
+    await c.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+    const mvkWitness = await wireMvkRegistry(c);
     const from = await selfAddress(c);
     const before = await c.getBalance();
     const token = deployment().token as string;
@@ -1323,12 +1398,15 @@ export async function addMoney(amount: string, prover: ProverKind = "local"): Pr
     } catch {
       // A new account may have no visible SAC balance entry yet.
     }
+    if (liquidBefore >= stroops) {
+      return await shieldLiquidUsdc(c, from, stroops, before, prover, liquidBefore - stroops, mvkWitness);
+    }
     try {
       // On-ramp: the on-chain ramp reserve dispenses real USDC to the funding
       // address (the anchor's distribution account), then we shield it. Only the
       // fiat *charge* is simulated; every USDC movement here is real + on-chain.
       await rampCashIn(c, from, stroops);
-      return await shieldLiquidUsdc(c, from, stroops, before, prover, liquidBefore);
+      return await shieldLiquidUsdc(c, from, stroops, before, prover, liquidBefore, mvkWitness);
     } catch (e) {
       console.error("[wallet-api] add-money failed", errorSummary(e));
       // The shield's on-chain submit + proof verification happen BEFORE the SDK's
@@ -1409,8 +1487,8 @@ export async function importDeposit(amount: string | undefined, prover: ProverKi
   const c = getClient(prover);
   if (!c) throw new RampError("busy", "Live testnet client unavailable. No funds were moved.");
   await ensureHostedPublicAccount();
-  await c.sync();
-  await wireMvkRegistry(c);
+  await c.sync(hostedSyncOpts());
+  const mvkWitness = await wireMvkRegistry(c);
   const from = await selfAddress(c);
   const token = deployment().token as string;
   const liquid = BigInt(String(await c.opts.cli.view(token, walletUserSource(), ["balance", "--id", from])));
@@ -1419,7 +1497,7 @@ export async function importDeposit(amount: string | undefined, prover: ProverKi
   if (stroops > liquid) throw new RampError("balance", "That's more than the USDC deposited to your address.");
   const before = await c.getBalance();
   try {
-    return await shieldLiquidUsdc(c, from, stroops, before, prover, liquid - stroops);
+    return await shieldLiquidUsdc(c, from, stroops, before, prover, liquid - stroops, mvkWitness);
   } catch (e) {
     console.error("[wallet-api] import-deposit failed", errorSummary(e));
     if (/out of sync/.test((e as Error).message)) {
@@ -1455,7 +1533,7 @@ async function publicBalanceOf(c: BenzoClient, token: string, address: string): 
 async function waitForPublicBalanceAtLeast(c: BenzoClient, token: string, address: string, target: bigint): Promise<boolean> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
-      await c.sync();
+      await c.sync(hostedSyncOpts());
       if (await publicBalanceOf(c, token, address) >= target) return true;
     } catch {
       /* retry below */
@@ -1474,8 +1552,8 @@ export async function makePublic(amount: string, prover: ProverKind): Promise<Se
   const c = getClient(prover);
   if (c) {
     await ensureHostedPublicAccount();
-    await c.sync();
-    await wireMvkRegistry(c);
+    await c.sync(hostedSyncOpts());
+    const mvkWitness = await wireMvkRegistry(c);
     const to = await selfAddress(c);
     const token = deployment().token as string;
     const liquidBefore = await publicBalanceOf(c, token, to);
@@ -1483,7 +1561,7 @@ export async function makePublic(amount: string, prover: ProverKind): Promise<Se
     let last: unknown;
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
-        const wd = await c.unshield({ amount: stroops, toAddress: to });
+        const wd = await c.unshield({ amount: stroops, toAddress: to, mvkWitness });
         try { await c.flush(); } catch { /* local persistence is best-effort; the withdraw already settled on-chain */ }
         if (wd.txHash || await waitForPublicBalanceAtLeast(c, token, to, target)) {
           return { status: "settled", txHash: wd.txHash, provingMs: wd.provingMs, prover, amount: stroops.toString(), onChain: true, sorobanPublics: wd.sorobanPublics };
@@ -1495,7 +1573,7 @@ export async function makePublic(amount: string, prover: ProverKind): Promise<Se
         // (RPC retention). Treat a real Public-balance increase as success, not a
         // false error — otherwise the UI shows "failed" on money that actually moved.
         try {
-          await c.sync();
+          await c.sync(hostedSyncOpts());
           const liquidAfter = await publicBalanceOf(c, token, to);
           if (liquidAfter >= target) return { status: "settled", prover, amount: stroops.toString(), onChain: true };
         } catch { /* fall through */ }
@@ -1509,7 +1587,7 @@ export async function makePublic(amount: string, prover: ProverKind): Promise<Se
       // (RPC retention). Treat a real Public-balance increase as success, not a
       // false error — otherwise the UI shows "failed" on money that actually moved.
       try {
-        await c.sync();
+        await c.sync(hostedSyncOpts());
         const liquidAfter = await publicBalanceOf(c, token, to);
         if (liquidAfter >= target) return { status: "settled", prover, amount: stroops.toString(), onChain: true };
       } catch { /* fall through */ }
@@ -1697,7 +1775,7 @@ export async function reconcileMoneyRequest(id: string): Promise<{
   const c = getClient();
   if (!c) throw new Error("Live testnet client unavailable. Request status was not reconciled.");
   await ensureHostedPublicAccount();
-  await c.sync();
+  await c.sync(hostedSyncOpts());
   await wireMvkRegistry(c);
 
   let current = await getMoneyRequestStatus(id);
@@ -1846,7 +1924,7 @@ function inviteFundRetryable(e: unknown): boolean {
 async function waitForPrivateBalanceAtLeast(c: BenzoClient, target: bigint): Promise<boolean> {
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
-      await c.sync();
+      await c.sync(hostedSyncOpts());
       if (await c.getBalance() >= target) return true;
     } catch {
       /* retry below */
@@ -1866,7 +1944,7 @@ export async function createInvite(amount: string, note: string | undefined, onP
     let last: unknown;
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
-        await c.sync();
+        await c.sync(hostedSyncOpts());
         await wireMvkRegistry(c);
         if ((await c.getBalance()) < stroops && !(await waitForPrivateBalanceAtLeast(c, stroops))) {
           throw new RampError("balance", "Not enough private balance to fund this invite.");
@@ -1923,7 +2001,7 @@ async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: st
   // membership path (else "MvkRegistryMirror: MVK not registered").
   c.useAccount(accountFromClaimSecret(claimSecret));
   mvkWiredRoot.delete(c);
-  await c.sync();
+  await c.sync(hostedSyncOpts());
   await wireMvkRegistry(c);
   try {
     const r = await c.claim({ claimSecret, toAddress: to });
@@ -1931,7 +2009,7 @@ async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: st
     return { amount: r.amount.toString(), txHash: r.txHash, onChain: true, sorobanPublics: r.sorobanPublics };
   } finally {
     restoreWalletAccount(c); // re-adopt the wallet (MVK root cache reset; re-wires lazily)
-    await c.sync();
+    await c.sync(hostedSyncOpts());
   }
 }
 
@@ -1948,7 +2026,7 @@ export async function claimInvite(secret: string, localId?: string, fallbackAmou
     } catch (e) {
       const amount = fallbackAmount ? BigInt(fallbackAmount) : 0n;
       if (amount <= 0n) throw e;
-      await c.sync();
+      await c.sync(hostedSyncOpts());
       await wireMvkRegistry(c);
       const from = await selfAddress(c);
       const token = deployment().token as string;
@@ -1974,8 +2052,8 @@ async function shieldClaimLiquid(
   sorobanPublics?: string[],
 ): Promise<{ amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] }> {
   if (amount <= 0n) throw new RampError("balance", "Invite has no USDC to settle.");
-  await c.sync();
-  await wireMvkRegistry(c);
+  await c.sync(hostedSyncOpts());
+  const mvkWitness = await wireMvkRegistry(c);
   const from = await selfAddress(c);
   const before = await c.getBalance();
   const token = deployment().token as string;
@@ -1992,6 +2070,7 @@ async function shieldClaimLiquid(
     before,
     hostedRuntime() ? "tee" : "local",
     liquidBefore === undefined ? undefined : liquidBefore > amount ? liquidBefore - amount : 0n,
+    mvkWitness,
   );
   return {
     amount: amount.toString(),
@@ -2008,7 +2087,7 @@ export async function refundInvite(localId: string): Promise<{ amount: string; t
   const c = getClient();
   if (c) {
     await ensureHostedPublicAccount();
-    await c.sync();
+    await c.sync(hostedSyncOpts());
     await wireMvkRegistry(c);
     const amount = BigInt(e.amount);
     const from = await selfAddress(c);
@@ -2052,7 +2131,7 @@ export async function shareProof(
 ): Promise<{ holds: boolean; proof: string; publics: string[]; onChain: boolean; prover: ProverKind }> {
   const c = getClient(prover);
   if (c) {
-    await c.sync();
+    await c.sync(hostedSyncOpts());
     const r = await c.proveBalance({ minAmount: toStroops(minAmount) });
     // The proof is real (Groth16 over real notes), Soroban-encoded, AND now
     // VERIFIED ON-CHAIN: the deploy registers a BALANCE verifier VK, so we call

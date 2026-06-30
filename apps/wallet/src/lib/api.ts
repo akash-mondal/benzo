@@ -190,7 +190,7 @@ export function credentialLooksWellFormed(credential = currentGoogleCredential()
   if (!payload) return false;
   if (typeof payload.sub !== "string" || !payload.sub) return false;
   if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now()) return false;
-  if (parts[0] === "benzo-test") return payload.iss === "benzo:test";
+  if (parts[0] === "benzo-test" || parts[0] === "benzo-test-v1") return payload.iss === "benzo:test";
   return typeof payload.iss === "string" && typeof payload.aud === "string";
 }
 

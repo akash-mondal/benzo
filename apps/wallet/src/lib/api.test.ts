@@ -232,6 +232,7 @@ describe("wallet API idempotency", () => {
     expect(credentialLooksWellFormed("benzo-test.not-json.sig")).toBe(false);
     expect(credentialLooksWellFormed(token({ iss: "benzo:test", sub: "alice", exp: past }))).toBe(false);
     expect(credentialLooksWellFormed(token({ iss: "benzo:test", sub: "alice", exp: future }))).toBe(true);
+    expect(credentialLooksWellFormed(token({ iss: "benzo:test", aud: "benzo:wallet", sub: "alice", exp: future }, "benzo-test-v1"))).toBe(true);
     expect(credentialLooksWellFormed(token({ iss: "https://accounts.google.com", aud: "client", sub: "google-sub", exp: future }, "header"))).toBe(true);
   });
 });

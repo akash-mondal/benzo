@@ -8,12 +8,15 @@
  */
 
 import { toHex } from "./crypto/bytes.js";
+import { compress } from "./crypto/poseidon2.js";
 import { MerkleTreeMirror } from "./merkle.js";
 import { MvkRegistryMirror, DEFAULT_MVK_KEY_META } from "./mvk-registry.js";
 import {
   type Note,
+  aspLeaf,
   deriveKeypair,
   mvkTag,
+  mvkRegistryLeaf,
   noteCommitment,
   noteNullifier,
   randomFieldElement,
@@ -210,6 +213,16 @@ export class BenzoPoolClient {
     mvkPubScalar: bigint;
     aspBlinding: bigint;
     aspLeafIndex: number;
+    aspWitness?: {
+      pathElements: bigint[];
+      pathIndices: bigint;
+      root: bigint;
+    };
+    mvkWitness?: {
+      pathElements: bigint[];
+      pathIndices: bigint;
+      root: bigint;
+    };
     noteCt: Uint8Array;
     mvkCt: Uint8Array;
   }): Promise<{
@@ -229,8 +242,26 @@ export class BenzoPoolClient {
     const depositor = await this.depositorScalar(opts.from);
     const allowRoot = await this.aspAllowRoot();
 
-    const aspPath = this.aspTree.path(opts.aspLeafIndex);
-    if (this.aspTree.root() !== allowRoot) {
+    const aspPath = opts.aspWitness
+      ? { pathElements: opts.aspWitness.pathElements, pathIndices: opts.aspWitness.pathIndices }
+      : this.aspTree.path(opts.aspLeafIndex);
+    if (opts.aspWitness) {
+      if (opts.aspWitness.root !== allowRoot) {
+        throw new Error("ASP membership witness root is stale");
+      }
+      if (opts.aspWitness.pathIndices !== BigInt(opts.aspLeafIndex)) {
+        throw new Error("ASP membership witness index mismatch");
+      }
+      let folded = aspLeaf(depositor, opts.aspBlinding);
+      let idx = aspPath.pathIndices;
+      for (const sibling of aspPath.pathElements) {
+        folded = (idx & 1n) === 1n ? compress(sibling, folded) : compress(folded, sibling);
+        idx >>= 1n;
+      }
+      if (folded !== allowRoot) {
+        throw new Error("ASP membership witness does not match on-chain root");
+      }
+    } else if (this.aspTree.root() !== allowRoot) {
       throw new Error("ASP membership mirror out of sync with on-chain root");
     }
 
@@ -239,8 +270,22 @@ export class BenzoPoolClient {
     // an on-chain-known root; otherwise a single-leaf stand-in keeps the proof
     // well-formed.
     const mvkKeyMeta = DEFAULT_MVK_KEY_META;
-    const mvkReg = this.mvkRegistry ?? MvkRegistryMirror.singleLeaf(opts.mvkPubScalar, mvkKeyMeta);
-    const mvkPath = mvkReg.pathFor(opts.mvkPubScalar);
+    const mvkReg = opts.mvkWitness ? undefined : (this.mvkRegistry ?? MvkRegistryMirror.singleLeaf(opts.mvkPubScalar, mvkKeyMeta));
+    const mvkPath = opts.mvkWitness
+      ? { pathElements: opts.mvkWitness.pathElements, pathIndices: opts.mvkWitness.pathIndices }
+      : mvkReg!.pathFor(opts.mvkPubScalar);
+    const registeredMvkRoot = opts.mvkWitness?.root ?? mvkReg!.root();
+    if (opts.mvkWitness) {
+      let folded = mvkRegistryLeaf(opts.mvkPubScalar, mvkKeyMeta);
+      let idx = mvkPath.pathIndices;
+      for (const sibling of mvkPath.pathElements) {
+        folded = (idx & 1n) === 1n ? compress(sibling, folded) : compress(folded, sibling);
+        idx >>= 1n;
+      }
+      if (folded !== registeredMvkRoot) {
+        throw new Error("MVK registry witness does not match on-chain root");
+      }
+    }
 
     const witness = toWitnessInput({
       commitment,
@@ -249,7 +294,7 @@ export class BenzoPoolClient {
       depositor,
       aspMembershipRoot: allowRoot,
       mvkTag: tag,
-      registeredMvkRoot: mvkReg.root(),
+      registeredMvkRoot,
       recipientPk: note.recipientPk,
       blinding: note.blinding,
       mvkPub: opts.mvkPubScalar,
@@ -277,7 +322,7 @@ export class BenzoPoolClient {
         "--note_ct", hexBytes(opts.noteCt),
         "--mvk_ct", hexBytes(opts.mvkCt),
         "--asp_membership_root", allowRoot.toString(),
-        "--registered_mvk_root", mvkReg.root().toString(),
+        "--registered_mvk_root", registeredMvkRoot.toString(),
         "--proof", JSON.stringify(proof.sorobanProof),
       ],
     });
@@ -850,6 +895,16 @@ export class BenzoPoolClient {
     changeMvkPubScalar: bigint;
     changeNoteCt: Uint8Array;
     changeMvkCt: Uint8Array;
+    changeMvkWitness?: {
+      pathElements: bigint[];
+      pathIndices: bigint;
+      root: bigint;
+    };
+    inputWitness?: {
+      pathElements: bigint[];
+      pathIndices: bigint;
+      root: bigint;
+    };
   }): Promise<{
     txHash?: string;
     nullifier: bigint;
@@ -859,7 +914,7 @@ export class BenzoPoolClient {
     provingMs: number;
   }> {
     const assetId = await this.assetId();
-    const root = this.poolTree.root();
+    const root = opts.inputWitness?.root ?? this.poolTree.root();
     const denyRoot = await this.aspDenyRoot();
 
     const changeAmount = opts.input.note.amount - opts.amount;
@@ -869,8 +924,24 @@ export class BenzoPoolClient {
     const changeCommitment = noteCommitment(changeNote);
     const changeTag = mvkTag(opts.changeMvkPubScalar, changeNote.blinding);
     const nullifier = noteNullifier(opts.input.spendSk, BigInt(opts.input.leafIndex));
-    const path = this.poolTree.path(opts.input.leafIndex);
     const inCommitment = noteCommitment(opts.input.note);
+    const path = opts.inputWitness
+      ? { pathElements: opts.inputWitness.pathElements, pathIndices: opts.inputWitness.pathIndices }
+      : this.poolTree.path(opts.input.leafIndex);
+    if (opts.inputWitness) {
+      if (opts.inputWitness.pathIndices !== BigInt(opts.input.leafIndex)) {
+        throw new Error("pool storage witness index mismatch");
+      }
+      let folded = inCommitment;
+      let idx = path.pathIndices;
+      for (const sibling of path.pathElements) {
+        folded = (idx & 1n) === 1n ? compress(sibling, folded) : compress(folded, sibling);
+        idx >>= 1n;
+      }
+      if (folded !== root) {
+        throw new Error("pool storage witness does not match the spend root");
+      }
+    }
 
     // Non-membership witness from the on-chain SMT (proof-of-innocence).
     const fr = (await this.cli.view(this.dep.aspNonMembership, this.viewSource, [
@@ -903,8 +974,22 @@ export class BenzoPoolClient {
     // audit P0 — see shield). Shared synced registry (if set) → on-chain-known
     // root; otherwise a single-leaf stand-in over the change MVK.
     const mvkKeyMeta = DEFAULT_MVK_KEY_META;
-    const mvkReg = this.mvkRegistry ?? MvkRegistryMirror.singleLeaf(opts.changeMvkPubScalar, mvkKeyMeta);
-    const mvkPathReg = mvkReg.pathFor(opts.changeMvkPubScalar);
+    const mvkReg = opts.changeMvkWitness ? undefined : (this.mvkRegistry ?? MvkRegistryMirror.singleLeaf(opts.changeMvkPubScalar, mvkKeyMeta));
+    const mvkPathReg = opts.changeMvkWitness
+      ? { pathElements: opts.changeMvkWitness.pathElements, pathIndices: opts.changeMvkWitness.pathIndices }
+      : mvkReg!.pathFor(opts.changeMvkPubScalar);
+    const registeredMvkRoot = opts.changeMvkWitness?.root ?? mvkReg!.root();
+    if (opts.changeMvkWitness) {
+      let folded = mvkRegistryLeaf(opts.changeMvkPubScalar, mvkKeyMeta);
+      let idx = mvkPathReg.pathIndices;
+      for (const sibling of mvkPathReg.pathElements) {
+        folded = (idx & 1n) === 1n ? compress(sibling, folded) : compress(folded, sibling);
+        idx >>= 1n;
+      }
+      if (folded !== registeredMvkRoot) {
+        throw new Error("MVK registry witness does not match on-chain root");
+      }
+    }
 
     const witness = toWitnessInput({
       root,
@@ -915,7 +1000,7 @@ export class BenzoPoolClient {
       extDataHash: BigInt(extHash as string),
       aspNonMembershipRoot: denyRoot,
       changeMvkTag: changeTag,
-      registeredMvkRoot: mvkReg.root(),
+      registeredMvkRoot,
       inAmount: opts.input.note.amount,
       inOrgSpendId: opts.input.spendSk,
       inBlinding: opts.input.note.blinding,
@@ -953,12 +1038,17 @@ export class BenzoPoolClient {
         "--change_note_ct", hexBytes(opts.changeNoteCt),
         "--change_mvk_ct", hexBytes(opts.changeMvkCt),
         "--asp_non_membership_root", denyRoot.toString(),
-        "--registered_mvk_root", mvkReg.root().toString(),
+        "--registered_mvk_root", registeredMvkRoot.toString(),
         "--proof", JSON.stringify(proof.sorobanProof),
       ],
     });
     this.poolTree.insert(changeCommitment);
-    await this.assertSynced();
+    try {
+      await this.assertSynced();
+    } catch (e) {
+      if (!/out of sync/i.test(String((e as Error)?.message ?? e))) throw e;
+      console.warn("[benzo-core] pool mirror lag after withdraw submit", (e as Error).message);
+    }
     return { txHash: res.txHash, nullifier, changeNote, changeCommitment, proof, provingMs };
   }
 }

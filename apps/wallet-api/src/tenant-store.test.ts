@@ -113,7 +113,7 @@ test("hosted wallet save merge preserves a claimed handle from a stale seed writ
   process.env.BENZO_TENANT_STORE_MEMORY = "1";
   process.env.BENZO_DATA_ENCRYPTION_SECRET = "tenant-store-test-secret";
   process.env.BENZO_DISABLE_TENANT_LEGACY_DECRYPT = "1";
-  const { mergeWalletDbForSave, seed } = await import("./store.js");
+  const { mergeWalletDbForSave, seed, verifyWalletLedgerEntries } = await import("./store.js");
 
   const current = seed();
   current.profile = { handle: "claimed", name: "Claimed User" };
@@ -147,6 +147,7 @@ test("hosted wallet save merge preserves a claimed handle from a stale seed writ
 
   expect(merged.profile).toEqual({ handle: "claimed", name: "Claimed User" });
   expect(merged.ledger.map((entry) => entry.id)).toEqual(["old-ledger", "new-ledger"]);
+  expect(verifyWalletLedgerEntries(merged.ledger)).toMatchObject({ ok: true, length: 2 });
   expect(merged.coreState).toEqual({});
 });
 

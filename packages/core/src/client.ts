@@ -25,8 +25,11 @@ import {
   syncFromRpc,
   fetchAspLeaves,
   fetchAspLeavesSince,
+  fetchLatestAspWitnessFromStorage,
+  fetchLatestPoolWitnessFromStorage,
   type ScannerSnapshot,
   type AspSnapshot,
+  type AspMembershipWitness,
 } from "./scanner.js";
 import type { KVStore } from "./store.js";
 import {
@@ -292,7 +295,7 @@ export class BenzoClient {
    * durable store this is incremental (resume from the persisted cursor) and
    * restart-safe; without one it re-scans from genesis each call.
    */
-  async sync(): Promise<void> {
+  async sync(opts: { allowPoolMirrorGaps?: boolean; allowAspMirrorGaps?: boolean } = {}): Promise<void> {
     const { rpcUrl, deployment, store } = this.opts;
     if (!store) {
       // No durable store: full re-scan from genesis (correct, not incremental).
@@ -312,9 +315,11 @@ export class BenzoClient {
     const poolFrom = this.scanner.cursorLedger > 0 ? Math.max(1, this.scanner.cursorLedger - 100) : 1;
     await syncFromRpc(this.scanner, rpcUrl, [deployment.pool, deployment.viewkeyAnchor], poolFrom);
     await store.set(this.key("scan"), JSON.stringify(this.scanner.snapshot()));
+    let poolMirrorSynced = false;
     try {
       this.pool.poolRebuild(this.scanner.orderedLeaves());
       await this.pool.assertSynced();
+      poolMirrorSynced = true;
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
       if (!/commitment leaf \d+ missing from events|pool tree mirror out of sync/.test(msg)) throw e;
@@ -325,22 +330,50 @@ export class BenzoClient {
       this.scanner = new NoteScanner(deployment.treeLevels, 1);
       await syncFromRpc(this.scanner, rpcUrl, [deployment.pool, deployment.viewkeyAnchor], 1);
       await store.set(this.key("scan"), JSON.stringify(this.scanner.snapshot()));
-      this.pool.poolRebuild(this.scanner.orderedLeaves());
-      await this.pool.assertSynced();
+      try {
+        this.pool.poolRebuild(this.scanner.orderedLeaves());
+        await this.pool.assertSynced();
+        poolMirrorSynced = true;
+      } catch (rebuildErr) {
+        const rebuildMsg = String((rebuildErr as Error)?.message ?? rebuildErr);
+        if (!opts.allowPoolMirrorGaps || !/commitment leaf \d+ missing from events|pool tree mirror out of sync/.test(rebuildMsg)) {
+          throw rebuildErr;
+        }
+        // RPC retention can omit very old commitment leaves on long-lived
+        // testnet deployments. Shielding a new note does not spend or witness
+        // old leaves, so callers that opt in may continue after ASP sync below.
+        // Spending paths keep the default strict behavior and still fail closed.
+      }
     }
 
-    // ASP allow-set: same incremental, persisted resume.
-    const aspFrom = this.aspCursor > 0 ? Math.max(1, this.aspCursor - 100) : 1;
-    const asp = await fetchAspLeavesSince(rpcUrl, deployment.aspMembership, aspFrom, this.aspLeaves);
-    this.aspLeaves = asp.leaves;
-    this.aspCursor = asp.cursor;
-    const aspSnap: AspSnapshot = {
-      v: 1,
-      cursorLedger: this.aspCursor,
-      leaves: this.aspLeaves.map(String),
-    };
-    await store.set(this.globalKey("asp"), JSON.stringify(aspSnap));
-    this.pool.aspRebuild(this.aspLeaves);
+    // ASP allow-set: same incremental, persisted resume. Fresh shield callers
+    // can opt into a storage-backed latest-leaf witness when the oldest ASP
+    // events have aged out of testnet RPC retention and no durable snapshot
+    // exists yet. Spend/read paths stay strict.
+    let aspMirrorSynced = false;
+    try {
+      const aspFrom = this.aspCursor > 0 ? Math.max(1, this.aspCursor - 100) : 1;
+      const asp = await fetchAspLeavesSince(rpcUrl, deployment.aspMembership, aspFrom, this.aspLeaves);
+      this.aspLeaves = asp.leaves;
+      this.aspCursor = asp.cursor;
+      const aspSnap: AspSnapshot = {
+        v: 1,
+        cursorLedger: this.aspCursor,
+        leaves: this.aspLeaves.map(String),
+      };
+      await store.set(this.globalKey("asp"), JSON.stringify(aspSnap));
+      this.pool.aspRebuild(this.aspLeaves);
+      aspMirrorSynced = true;
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (!opts.allowAspMirrorGaps || !/ASP leaf index \d+ missing from events/.test(msg)) throw e;
+    }
+    if (!poolMirrorSynced && !opts.allowPoolMirrorGaps) {
+      throw new Error("pool tree mirror out of sync");
+    }
+    if (!aspMirrorSynced && !opts.allowAspMirrorGaps) {
+      throw new Error("ASP membership mirror is not synced to the on-chain root yet");
+    }
   }
 
   /**
@@ -351,27 +384,43 @@ export class BenzoClient {
    * ordered event set, so the witness is built against the same root the chain
    * will verify.
    */
-  private async syncAspMembershipAndLocate(leaf: bigint): Promise<number> {
+  private async syncAspMembershipAndLocate(leaf: bigint): Promise<{ index: number; witness?: AspMembershipWitness }> {
+    let lastErr: unknown;
     for (let attempt = 0; attempt < 12; attempt++) {
-      await this.sync();
-      const index = this.aspLeaves.findIndex((l) => l === leaf);
-      if (index >= 0) {
-        const onchainRoot = await this.pool.aspAllowRoot();
-        if (this.pool.aspTree.root() === onchainRoot) return index;
+      try {
+        await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+        const index = this.aspLeaves.findIndex((l) => l === leaf);
+        if (index >= 0) {
+          const onchainRoot = await this.pool.aspAllowRoot();
+          if (this.pool.aspTree.root() === onchainRoot) return { index };
+        }
+      } catch (e) {
+        lastErr = e;
+      }
+      try {
+        const witness = await fetchLatestAspWitnessFromStorage(
+          this.opts.rpcUrl,
+          this.opts.deployment.aspMembership,
+          this.opts.deployment.aspLevels,
+          leaf,
+        );
+        return { index: witness.leafIndex, witness };
+      } catch (e) {
+        lastErr = e;
       }
       await new Promise((resolve) => setTimeout(resolve, 500 + attempt * 250));
     }
-    throw new Error("ASP membership mirror is not synced to the on-chain root yet");
+    throw lastErr instanceof Error ? lastErr : new Error("ASP membership mirror is not synced to the on-chain root yet");
   }
 
   private async shieldWithFreshAspRoot(
     leaf: bigint,
-    build: (aspLeafIndex: number) => Parameters<BenzoPoolClient["shield"]>[0],
+    build: (aspLeafIndex: number, aspWitness?: AspMembershipWitness) => Parameters<BenzoPoolClient["shield"]>[0],
   ): Promise<Awaited<ReturnType<BenzoPoolClient["shield"]>>> {
     for (let attempt = 0; attempt < 4; attempt++) {
-      const aspLeafIndex = await this.syncAspMembershipAndLocate(leaf);
+      const { index: aspLeafIndex, witness: aspWitness } = await this.syncAspMembershipAndLocate(leaf);
       try {
-        return await this.pool.shield(build(aspLeafIndex));
+        return await this.pool.shield(build(aspLeafIndex, aspWitness));
       } catch (e) {
         const msg = String((e as Error)?.message ?? e);
         if (attempt < 3 && /ASP membership mirror|on-chain root|WrongAspRoot|unknown root/i.test(msg)) {
@@ -504,8 +553,9 @@ export class BenzoClient {
     fromAddress: string;
     fromSource: string;
     scope?: string;
+    mvkWitness?: AspMembershipWitness;
   }): Promise<{ txHash?: string; leafIndex: number; note: Note }> {
-    await this.sync();
+    await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
     await this.assertDepositorCanFund(opts.fromAddress, opts.amount);
     const assetId = await this.assetId();
 
@@ -528,13 +578,15 @@ export class BenzoClient {
     const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
     const noteCt = seal(plain, this.account.viewPub).bytes;
     const mvkCt = seal(plain, tvk.publicKey).bytes;
-    const res = await this.shieldWithFreshAspRoot(leaf, (aspLeafIndex) => ({
+    const res = await this.shieldWithFreshAspRoot(leaf, (aspLeafIndex, aspWitness) => ({
       source: opts.fromSource,
       from: opts.fromAddress,
       note: orgNote,
       mvkPubScalar: this.account.mvkScalar,
       aspBlinding,
       aspLeafIndex,
+      aspWitness,
+      mvkWitness: opts.mvkWitness,
       noteCt,
       mvkCt,
     }));
@@ -844,8 +896,9 @@ export class BenzoClient {
     fromAddress: string; // public depositor G-address (must auth the SAC pull)
     fromSource: string; // CLI identity authorizing the deposit
     scope?: string; // disclosure scope to seal the MVK ciphertext under
+    mvkWitness?: AspMembershipWitness;
   }): Promise<{ txHash?: string; leafIndex: number; commitment: bigint; note: Note; provingMs: number; sorobanPublics: string[] }> {
-    await this.sync();
+    await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
     await this.assertDepositorCanFund(opts.fromAddress, opts.amount);
     const assetId = await this.assetId();
 
@@ -864,13 +917,15 @@ export class BenzoClient {
     const tvk = deriveTvk(this.account.mvkSecret, opts.scope ?? DISCLOSURE_SCOPE);
     const noteCt = seal(plain, this.account.viewPub).bytes;
     const mvkCt = seal(plain, tvk.publicKey).bytes;
-    const res = await this.shieldWithFreshAspRoot(leaf, (aspLeafIndex) => ({
+    const res = await this.shieldWithFreshAspRoot(leaf, (aspLeafIndex, aspWitness) => ({
       source: opts.fromSource,
       from: opts.fromAddress,
       note,
       mvkPubScalar: this.account.mvkScalar,
       aspBlinding,
       aspLeafIndex,
+      aspWitness,
+      mvkWitness: opts.mvkWitness,
       noteCt,
       mvkCt,
     }));
@@ -988,6 +1043,31 @@ export class BenzoClient {
     return covering[0] ?? null;
   }
 
+  private async spendWitnessForSelectedNote(input: SpendableNote): Promise<AspMembershipWitness | undefined> {
+    const commitment = noteCommitment(input.note);
+    let storageErr: unknown;
+    try {
+      const witness = await fetchLatestPoolWitnessFromStorage(
+        this.opts.rpcUrl,
+        this.opts.deployment.merkle,
+        this.opts.deployment.treeLevels,
+        commitment,
+      );
+      if (witness.leafIndex === input.leafIndex) return witness;
+      storageErr = new Error(`latest pool leaf is ${witness.leafIndex}, selected note is ${input.leafIndex}`);
+    } catch (e) {
+      storageErr = e;
+    }
+
+    try {
+      await this.pool.assertSynced();
+      return undefined;
+    } catch (e) {
+      const reason = String((storageErr as Error)?.message ?? storageErr ?? (e as Error)?.message ?? e);
+      throw new Error(`pool witness unavailable for selected note ${input.leafIndex}: ${reason}`);
+    }
+  }
+
   private makeRelay() {
     const { relayer, deployment, cli } = this.opts;
     if (!relayer) return undefined;
@@ -1015,8 +1095,9 @@ export class BenzoClient {
     amount: bigint;
     toAddress: string;
     scope?: string; // disclosure scope to seal the change-note MVK ciphertext under
+    mvkWitness?: AspMembershipWitness;
   }): Promise<{ txHash?: string; nullifier: bigint; provingMs: number; consolidationTxs?: string[]; sorobanPublics: string[] }> {
-    await this.sync();
+    await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
     const assetId = await this.assetId();
     const scope = opts.scope ?? DISCLOSURE_SCOPE;
     let working = this.spendableNotes();
@@ -1106,6 +1187,7 @@ export class BenzoClient {
     const changeNote = newNote(changeAmount, this.account.spendPub, assetId);
     const changePlain = encodeNotePlain({ ...changeNote });
     const tvk = deriveTvk(this.account.mvkSecret, scope);
+    const inputWitness = await this.spendWitnessForSelectedNote(input);
     const wd = await this.pool.withdraw({
       source: this.opts.txSource,
       input,
@@ -1115,6 +1197,8 @@ export class BenzoClient {
       changeMvkPubScalar: this.account.mvkScalar,
       changeNoteCt: seal(changePlain, this.account.viewPub).bytes,
       changeMvkCt: seal(changePlain, tvk.publicKey).bytes,
+      changeMvkWitness: opts.mvkWitness,
+      inputWitness,
     });
     this.record({
       type: "unshield",
