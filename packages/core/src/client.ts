@@ -1981,9 +1981,10 @@ export class BenzoClient {
   async claim(opts: {
     claimSecret: Uint8Array;
     toAddress: string;
+    mvkWitness?: AspMembershipWitness;
   }): Promise<{ txHash?: string; amount: bigint; sorobanPublics: string[] }> {
     this.useAccount(accountFromClaimSecret(opts.claimSecret));
-    await this.sync();
+    await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
     // withdraw is 1-input, so a claim account with several notes is claimed one
     // note at a time (a claim link usually holds a single note).
     let amount = 0n;
@@ -1993,11 +1994,11 @@ export class BenzoClient {
       // Skip 0-value change notes left behind by a full-note withdraw.
       const notes = this.spendableNotes().filter((n) => n.note.amount > 0n);
       if (notes.length === 0) break;
-      const wd = await this.unshield({ amount: notes[0].note.amount, toAddress: opts.toAddress });
+      const wd = await this.unshield({ amount: notes[0].note.amount, toAddress: opts.toAddress, mvkWitness: opts.mvkWitness });
       amount += notes[0].note.amount;
       lastTx = wd.txHash;
       sorobanPublics.push(...wd.sorobanPublics);
-      await this.sync(); // refresh the spent-set before the next note
+      await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true }); // refresh the spent-set before the next note
     }
     if (amount === 0n) throw new Error("nothing to claim (already claimed or unfunded)");
     return { txHash: lastTx, amount, sorobanPublics };

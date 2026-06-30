@@ -451,7 +451,7 @@ route("DELETE", "/api/account", async (_q, res) => {
       blockers: ["balance_check_unavailable"],
     });
   }
-  const pendingInvites = listInvites().filter((inv) => inv.status === "pending");
+  const pendingInvites = (await listInvites()).filter((inv) => inv.status === "pending");
   const ledgerBalances = walletLedgerBalances();
   const claimEscrow = BigInt(ledgerBalances.claim_escrow ?? "0");
   const blockers: string[] = [];
@@ -574,7 +574,7 @@ route("POST", "/api/request/cancel", async (req, res) => {
 });
 
 // external invite / claim (send to / claim from someone with no account)
-route("GET", "/api/invites", (_q, res) => json(res, 200, listInvites()));
+route("GET", "/api/invites", async (_q, res) => json(res, 200, await listInvites()));
 route("POST", "/api/invite", async (req, res) => {
   const body = await readJson<{ amount: string; note?: string }>(req);
   if (!body.amount) return json(res, 400, { error: "amount required" });
@@ -632,6 +632,7 @@ route("POST", "/api/claim", async (req, res) => {
     });
     await jsonPersisted(res, 200, r);
   } catch (e) {
+    logRouteError("invite claim", e);
     recordFailedMovement("invite_claim", undefined, e, "in", body.localId);
     json(res, 400, { error: "Could not claim this invite. Check the link and try again." });
   }

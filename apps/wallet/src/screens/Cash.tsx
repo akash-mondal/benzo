@@ -73,6 +73,7 @@ export function Cash() {
   const valid = n >= MIN && n <= max;
 
   async function go() {
+    if (phase !== "form") return;
     setPhase("busy");
     setErr(null);
     try {
@@ -144,7 +145,7 @@ export function Cash() {
               <PrivateChip label={tab === "in" ? "Your balance stays private" : "Amount stays private"} />
             </div>
 
-            <Button full size="lg" className="mt-4" disabled={!valid} loading={phase === "busy"} onClick={go} data-testid={tab === "in" ? "add-submit" : "cashout-submit"}>
+            <Button full size="lg" className="mt-4" disabled={!valid || phase !== "form"} loading={phase === "busy"} onClick={go} data-testid={tab === "in" ? "add-submit" : "cashout-submit"}>
               <span className="truncate">{tab === "in" ? "On-ramp" : "Off-ramp to reserve"}{valid ? ` · ${fmtUsd(toS(amount))}` : ""}</span>
             </Button>
             {tab === "in" ? (

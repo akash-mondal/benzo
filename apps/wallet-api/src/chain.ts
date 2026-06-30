@@ -10,6 +10,7 @@
  * matrix exercises: "proving on tee + locally" both settle on-chain, identical
  * soundness (proof verified on-chain), differing only in WHERE the witness lives.
  */
+import { createHash } from "node:crypto";
 import { readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -401,7 +402,11 @@ const hostedRpcVisibility = new Map<string, Promise<void>>();
  */
 async function selfAddress(c: BenzoClient): Promise<string> {
   if (c.account.stellarAddress) return c.account.stellarAddress;
-  if (hostedRuntime()) throw new Error("Hosted wallet account has no Stellar public-edge address");
+  if (hostedRuntime()) {
+    const auth = currentAuth();
+    if (auth?.account.stellarAddress) return auth.account.stellarAddress;
+    throw new Error("Hosted wallet account has no Stellar public-edge address");
+  }
   return c.account.stellarAddress ?? (await c.opts.cli.keyAddress(TX_SOURCE));
 }
 
@@ -2029,20 +2034,95 @@ const INVITE_TTL = 7 * 86_400;
 const b64urlFromHex = (hex: string): string => Buffer.from(hex, "hex").toString("base64url");
 const bytesFromB64url = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, "base64url"));
 
+interface InviteStatusIndex {
+  localId?: string;
+  senderTenantKey?: string | null;
+  amount: string;
+  expiresAt?: number;
+  status: WalletInvite["status"];
+  txHash?: string;
+  createdAt?: number;
+  claimedAt?: number;
+  refundedAt?: number;
+  updatedAt: number;
+}
+
+function inviteIndexKey(secret: string): string {
+  return createHash("sha256").update(`benzo:wallet-invite:v1:${secret}`).digest("hex");
+}
+
+async function loadInviteIndex(secret: string): Promise<InviteStatusIndex | null> {
+  return loadTenantDocument<InviteStatusIndex>("wallet-invite", inviteIndexKey(secret));
+}
+
+async function saveInviteIndex(secret: string, doc: InviteStatusIndex): Promise<void> {
+  await saveTenantDocument("wallet-invite", inviteIndexKey(secret), doc);
+}
+
+async function upsertInviteIndex(secret: string, patch: Partial<InviteStatusIndex> & { amount: string; status: WalletInvite["status"] }): Promise<void> {
+  const current = await loadInviteIndex(secret);
+  await saveInviteIndex(secret, {
+    ...current,
+    ...patch,
+    amount: patch.amount,
+    status: patch.status,
+    updatedAt: nowSec(),
+  });
+}
+
 function tenantInvites(): WalletInvite[] {
   db.invites ??= [];
   return db.invites;
 }
 
-function sweepExpired(): void {
+async function sweepExpired(): Promise<void> {
   const now = nowSec();
-  for (const e of tenantInvites()) if (e.status === "pending" && now > e.expiresAt) e.status = "expired";
+  for (const e of tenantInvites()) {
+    if (e.status === "pending" && now > e.expiresAt) {
+      e.status = "expired";
+      await upsertInviteIndex(e.secret, { amount: e.amount, status: "expired", expiresAt: e.expiresAt });
+    }
+  }
+}
+
+async function reconcileInviteStatuses(): Promise<void> {
+  await sweepExpired();
+  for (const invite of tenantInvites()) {
+    const indexed = await loadInviteIndex(invite.secret);
+    if (!indexed) continue;
+    if (indexed.status === "claimed" || indexed.status === "refunded" || indexed.status === "expired") {
+      invite.status = indexed.status;
+    }
+  }
 }
 
 /** Re-adopt the wallet account after a claim (which mutates the client's account). */
 function restoreWalletAccount(c: BenzoClient): void {
   c.useAccount(loadWalletAccount());
   mvkWiredRoot.delete(c); // wallet MVK must be re-wired after the claim account handoff
+}
+
+async function safePrivateBalance(c: BenzoClient): Promise<bigint> {
+  try {
+    await c.sync(hostedSyncOpts());
+    return await c.getBalance();
+  } catch {
+    return 0n;
+  }
+}
+
+function markInviteClaimed(secret: string, localId: string | undefined, amount: string, txHash?: string): void {
+  const invite = localId ? tenantInvites().find((e) => e.localId === localId) : tenantInvites().find((e) => e.secret === secret);
+  if (invite) invite.status = "claimed";
+  const hasActivity = txHash
+    ? db.activity.some((a) => a.type === "receive" && a.txHash === txHash)
+    : db.activity.some((a) => a.type === "receive" && a.name === "Claimed a link" && a.amount === amount);
+  if (!hasActivity) {
+    db.activity.unshift({
+      id: `act_${Date.now()}`, type: "receive", name: "Claimed a link", note: "Money received",
+      amount, direction: "in", status: "settled", timestamp: nowSec(), txHash, tone: "accent",
+    });
+  }
 }
 
 export interface InviteResult {
@@ -2105,7 +2185,17 @@ export async function createInvite(amount: string, note: string | undefined, onP
           "scheme",
         );
         const link = walletRouteLink(claimLink);
-        tenantInvites().push({ localId, amount: stroops.toString(), note, link, secret, createdAt: nowSec(), expiresAt, status: "pending" });
+        const createdAt = nowSec();
+        tenantInvites().push({ localId, amount: stroops.toString(), note, link, secret, createdAt, expiresAt, status: "pending" });
+        await saveInviteIndex(secret, {
+          localId,
+          senderTenantKey: currentWalletTenantKey(),
+          amount: stroops.toString(),
+          expiresAt,
+          status: "pending",
+          createdAt,
+          updatedAt: createdAt,
+        });
         onPhase?.({ phase: "submitting", txHash: r.sendTx });
         onPhase?.({ phase: "confirmed", txHash: r.sendTx, onChain: true });
         return { link, localId, claimAccountPub: r.recipient.spendPub.toString(16), amount: stroops.toString(), expiresAt, onChain: true, txHash: r.sendTx, sorobanPublics: r.sorobanPublics };
@@ -2142,9 +2232,9 @@ async function sweepClaim(secret: string): Promise<{ amount: string; txHash?: st
   c.useAccount(accountFromClaimSecret(claimSecret));
   mvkWiredRoot.delete(c);
   await c.sync(hostedSyncOpts());
-  await wireMvkRegistry(c);
+  const claimMvkWitness = await wireMvkRegistry(c);
   try {
-    const r = await c.claim({ claimSecret, toAddress: to });
+    const r = await c.claim({ claimSecret, toAddress: to, mvkWitness: claimMvkWitness });
     await c.flush();
     return { amount: r.amount.toString(), txHash: r.txHash, onChain: true, sorobanPublics: r.sorobanPublics };
   } finally {
@@ -2160,6 +2250,7 @@ export async function claimInvite(secret: string, localId?: string, fallbackAmou
     // recipient's liquid USDC address. (2) Then shield it into the recipient's
     // OWN note so it lands in the in-app (shielded) balance and is spendable
     // under the recipient's distinct spend key — not left sitting as public USDC.
+    const beforePrivate = await safePrivateBalance(c);
     const recipientMvkWitness = await wireMvkRegistry(c);
     let r: { amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] };
     try {
@@ -2173,13 +2264,30 @@ export async function claimInvite(secret: string, localId?: string, fallbackAmou
       if (!(await waitForPublicBalanceAtLeast(c, token, from, amount))) throw e;
       r = { amount: amount.toString(), onChain: true };
     }
-    const shielded = await shieldClaimLiquid(c, BigInt(r.amount), r.txHash, r.sorobanPublics, recipientMvkWitness);
-    const invite = localId ? tenantInvites().find((e) => e.localId === localId) : tenantInvites().find((e) => e.secret === secret);
-    if (invite) invite.status = "claimed";
-    db.activity.unshift({
-      id: `act_${Date.now()}`, type: "receive", name: "Claimed a link", note: "Money received",
-      amount: r.amount, direction: "in", status: "settled", timestamp: nowSec(), tone: "accent",
-    });
+    let shielded: { amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] };
+    try {
+      shielded = await shieldClaimLiquid(c, BigInt(r.amount), r.txHash, r.sorobanPublics, recipientMvkWitness);
+    } catch (e) {
+      const amount = BigInt(r.amount);
+      const afterPrivate = await safePrivateBalance(c);
+      if (afterPrivate >= beforePrivate + amount) {
+        markInviteClaimed(secret, localId, r.amount, r.txHash);
+        await upsertInviteIndex(secret, { amount: r.amount, status: "claimed", txHash: r.txHash, claimedAt: nowSec() });
+        return { amount: r.amount, txHash: r.txHash, onChain: true, sorobanPublics: r.sorobanPublics };
+      }
+      const from = await selfAddress(c);
+      const token = deployment().token as string;
+      if (await waitForPublicBalanceAtLeast(c, token, from, amount)) {
+        mvkWiredRoot.delete(c);
+        mvkStorageWitness.delete(c);
+        const retryMvkWitness = await wireMvkRegistry(c);
+        shielded = await shieldClaimLiquid(c, amount, r.txHash, r.sorobanPublics, retryMvkWitness ?? recipientMvkWitness);
+      } else {
+        throw e;
+      }
+    }
+    markInviteClaimed(secret, localId, r.amount, r.txHash);
+    await upsertInviteIndex(secret, { amount: r.amount, status: "claimed", txHash: r.txHash, claimedAt: nowSec() });
     return shielded;
   }
   throw new RampError("busy", "Live testnet client unavailable. Claim was not submitted.");
@@ -2222,9 +2330,12 @@ async function shieldClaimLiquid(
 }
 
 export async function refundInvite(localId: string): Promise<{ amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] }> {
+  await reconcileInviteStatuses();
   const e = tenantInvites().find((x) => x.localId === localId);
   if (!e) throw new Error("invite not found");
   if (e.status === "claimed") throw new Error("already claimed - can't refund");
+  if (e.status === "refunded") throw new Error("already refunded");
+  if (e.status === "expired") throw new Error("expired invite");
   const c = getClient();
   if (c) {
     await ensureHostedPublicAccount();
@@ -2250,6 +2361,7 @@ export async function refundInvite(localId: string): Promise<{ amount: string; t
     }
     const shielded = await shieldClaimLiquid(c, BigInt(r.amount), r.txHash, r.sorobanPublics);
     e.status = "refunded";
+    await upsertInviteIndex(e.secret, { amount: shielded.amount, status: "refunded", txHash: shielded.txHash, refundedAt: nowSec() });
     db.activity.unshift({
       id: `act_${Date.now()}`, type: "receive", name: "Invite refunded", note: "Unclaimed link returned",
       amount: shielded.amount, direction: "in", status: "settled", timestamp: nowSec(), tone: "accent",
@@ -2259,8 +2371,8 @@ export async function refundInvite(localId: string): Promise<{ amount: string; t
   throw new RampError("busy", "Live testnet client unavailable. Refund was not submitted.");
 }
 
-export function listInvites(): Array<Omit<WalletInvite, "secret">> {
-  sweepExpired();
+export async function listInvites(): Promise<Array<Omit<WalletInvite, "secret">>> {
+  await reconcileInviteStatuses();
   return [...tenantInvites()].sort((a, b) => b.createdAt - a.createdAt).map(({ secret: _s, ...rest }) => rest);
 }
 
