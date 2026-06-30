@@ -20,6 +20,8 @@ export function Profile() {
   const { session, balance, publicBalance, hidden, toggleHidden } = useWallet();
   const live = session?.live;
   const tee = session?.prover.tee;
+  const rawHandle = session?.handle ?? session?.profile.handle ?? "@you";
+  const displayHandle = rawHandle.startsWith("@") ? rawHandle : `@${rawHandle}`;
 
   // Read the chain's latest ledger DIRECTLY from the browser (no BFF) - the
   // first real "blockchain is the backend" data path. Degrades silently.
@@ -94,7 +96,7 @@ export function Profile() {
             <Avatar name={session?.profile.name ?? "You"} tone="accent" size={52} />
             <div>
               <div className="font-display text-lg">{session?.profile.name ?? "You"}</div>
-              <div className="text-sm text-muted">{session?.profile.handle ?? "@you"}</div>
+              <div className="text-sm text-muted">{displayHandle}</div>
             </div>
           </Card>
         </Stagger.Item>
