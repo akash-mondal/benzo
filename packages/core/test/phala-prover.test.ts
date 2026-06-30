@@ -59,6 +59,23 @@ describe("PhalaProver", () => {
     expect(counter.sent).toBe(0); // witness never transmitted
   });
 
+  it("retries transient attestation fetch failures without sending the witness early", async () => {
+    const counter = { sent: 0, sealed: false };
+    let attempts = 0;
+    const flakyAttestor: AttestationVerifier = {
+      async verify() {
+        attempts += 1;
+        if (attempts === 1) throw new Error("fetch failed");
+        return { ok: true, measurement: MEASUREMENT, enclavePublicKey: ENCLAVE_PUB };
+      },
+    };
+    const prover = new PhalaProver("https://enclave", flakyAttestor, MEASUREMENT, countingFetch(counter));
+    await prover.prove({ wasmPath: "", zkeyPath: "", circuit: "joinsplit" }, { x: "1" });
+    expect(attempts).toBe(2);
+    expect(counter.sent).toBe(1);
+    expect(counter.sealed).toBe(true);
+  });
+
   it("does NOT send the witness if the measurement doesn't match the pin", async () => {
     const counter = { sent: 0, sealed: false };
     const prover = new PhalaProver("https://enclave", wrongMeasure, MEASUREMENT, countingFetch(counter));

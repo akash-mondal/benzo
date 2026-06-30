@@ -1955,11 +1955,12 @@ export class BenzoClient {
   async createClaimLink(opts: {
     amount: bigint;
     useRelayer?: boolean;
+    mvkWitness?: AspMembershipWitness;
   }): Promise<{ link: string; claimSecretHex: string; sendTx?: string; recipient: BenzoRecipient; sorobanPublics: string[] }> {
     const secret = new Uint8Array(randomBytes(32));
     const claimAccount = accountFromClaimSecret(secret);
     const to = paymentAddress(claimAccount);
-    const handle = this.send({ amount: opts.amount, to, memo: "claim-link", useRelayer: opts.useRelayer });
+    const handle = this.send({ amount: opts.amount, to, memo: "claim-link", useRelayer: opts.useRelayer, mvkWitness: opts.mvkWitness });
     const r = await handle.settled();
     const link = `benzo://claim#${toBase64Url(secret)}`;
     return { link, claimSecretHex: toHex(secret), sendTx: r?.txHash, recipient: to, sorobanPublics: r?.sorobanPublics ?? [] };

@@ -530,6 +530,81 @@ async function ensureHostedPublicAccount(opts: { waitForRpc?: boolean } = {}): P
  */
 const mvkWiredRoot = new WeakMap<BenzoClient, bigint>();
 const mvkStorageWitness = new WeakMap<BenzoClient, AspMembershipWitness>();
+
+type SerializedMvkWitness = {
+  leaf: string;
+  leafIndex: number;
+  pathElements: string[];
+  pathIndices: string;
+  root: string;
+  savedAt: number;
+};
+
+function mvkWitnessKey(registry: string, leaf: bigint): string {
+  return `benzo:mvk-witness:${registry}:${leaf.toString()}`;
+}
+
+function serializeMvkWitness(leaf: bigint, witness: AspMembershipWitness): SerializedMvkWitness {
+  return {
+    leaf: leaf.toString(),
+    leafIndex: witness.leafIndex,
+    pathElements: witness.pathElements.map((x) => x.toString()),
+    pathIndices: witness.pathIndices.toString(),
+    root: witness.root.toString(),
+    savedAt: nowSec(),
+  };
+}
+
+function parseMvkWitness(raw: string, leaf: bigint): AspMembershipWitness | null {
+  try {
+    const doc = JSON.parse(raw) as Partial<SerializedMvkWitness>;
+    if (doc.leaf !== leaf.toString()) return null;
+    const leafIndex = Number(doc.leafIndex);
+    if (!Number.isSafeInteger(leafIndex) || leafIndex < 0) return null;
+    if (!Array.isArray(doc.pathElements) || typeof doc.pathIndices !== "string" || typeof doc.root !== "string") return null;
+    return {
+      leafIndex,
+      pathElements: doc.pathElements.map((x) => BigInt(x)),
+      pathIndices: BigInt(doc.pathIndices),
+      root: BigInt(doc.root),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function mvkRootKnown(c: BenzoClient, registry: string, root: bigint): Promise<boolean> {
+  try {
+    return Boolean(await c.opts.cli.view(registry, TX_SOURCE, ["is_known_root", "--root", root.toString()]));
+  } catch {
+    return false;
+  }
+}
+
+async function loadCachedMvkWitness(
+  c: BenzoClient,
+  registry: string,
+  leaf: bigint,
+): Promise<AspMembershipWitness | undefined> {
+  const raw = await coreStateStore().get(mvkWitnessKey(registry, leaf));
+  if (!raw) return undefined;
+  const witness = parseMvkWitness(raw, leaf);
+  if (!witness) return undefined;
+  if (!(await mvkRootKnown(c, registry, witness.root))) return undefined;
+  mvkWiredRoot.set(c, witness.root);
+  mvkStorageWitness.set(c, witness);
+  return witness;
+}
+
+async function saveCachedMvkWitness(registry: string, leaf: bigint, witness: AspMembershipWitness): Promise<void> {
+  await coreStateStore().set(mvkWitnessKey(registry, leaf), JSON.stringify(serializeMvkWitness(leaf, witness)));
+}
+
+function mvkWitnessFromMirror(reg: MvkRegistryMirror, myMvk: bigint, leafIndex: number): AspMembershipWitness {
+  const p = reg.pathFor(myMvk);
+  return { leafIndex, pathElements: p.pathElements, pathIndices: p.pathIndices, root: reg.root() };
+}
+
 async function fetchStorageBackedMvkWitness(
   c: BenzoClient,
   registry: string,
@@ -550,6 +625,7 @@ async function fetchStorageBackedMvkWitness(
   }
   mvkWiredRoot.set(c, onchain);
   mvkStorageWitness.set(c, witness);
+  await saveCachedMvkWitness(registry, myLeaf, witness);
   return witness;
 }
 
@@ -582,6 +658,8 @@ async function wireMvkRegistry(c: BenzoClient): Promise<AspMembershipWitness | u
   const myLeaf = mvkRegistryLeaf(myMvk, 0n);
   let onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (mvkWiredRoot.get(c) === onchain) return mvkStorageWitness.get(c);
+  const cached = await loadCachedMvkWitness(c, registry, myLeaf);
+  if (cached) return cached;
   let leaves: bigint[];
   try {
     leaves = await fetchMvkRegistryLeaves(rpc, registry, 1);
@@ -604,12 +682,13 @@ async function wireMvkRegistry(c: BenzoClient): Promise<AspMembershipWitness | u
   for (let attempt = 0; attempt < 12; attempt++) {
     const reg = new MvkRegistryMirror();
     if (leaves.includes(myLeaf)) {
-      reg.syncWithOwnedKey(leaves, myMvk, 0n);
+      const leafIndex = reg.syncWithOwnedKey(leaves, myMvk, 0n);
       onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
       if (reg.root() === onchain) {
         c.pool.useMvkRegistry(reg);
         mvkWiredRoot.set(c, onchain);
         mvkStorageWitness.delete(c);
+        await saveCachedMvkWitness(registry, myLeaf, mvkWitnessFromMirror(reg, myMvk, leafIndex));
         return undefined;
       }
     }
@@ -627,7 +706,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<AspMembershipWitness | u
   // — robust whether or not someone (e.g. a claimed link account) registered
   // after us. The root then always matches on-chain.
   const reg = new MvkRegistryMirror();
-  reg.syncWithOwnedKey(leaves, myMvk, 0n);
+  const leafIndex = reg.syncWithOwnedKey(leaves, myMvk, 0n);
   onchain = BigInt((await c.opts.cli.view(registry, TX_SOURCE, ["current_root"])) as string);
   if (reg.root() !== onchain) {
     throw new Error(`mvk registry mirror drift: mirror=${reg.root()} onchain=${onchain}`);
@@ -635,6 +714,7 @@ async function wireMvkRegistry(c: BenzoClient): Promise<AspMembershipWitness | u
   c.pool.useMvkRegistry(reg);
   mvkWiredRoot.set(c, onchain);
   mvkStorageWitness.delete(c);
+  await saveCachedMvkWitness(registry, myLeaf, mvkWitnessFromMirror(reg, myMvk, leafIndex));
   return undefined;
 }
 
@@ -2005,13 +2085,13 @@ export async function createInvite(amount: string, note: string | undefined, onP
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
         await c.sync(hostedSyncOpts());
-        await wireMvkRegistry(c);
+        const mvkWitness = await wireMvkRegistry(c);
         if ((await c.getBalance()) < stroops && !(await waitForPrivateBalanceAtLeast(c, stroops))) {
           throw new RampError("balance", "Not enough private balance to fund this invite.");
         }
         onPhase?.({ phase: "building" });
         onPhase?.({ phase: "proving" });
-        const r = await c.createClaimLink({ amount: stroops });
+        const r = await c.createClaimLink({ amount: stroops, mvkWitness });
         try {
           await withTimeout(c.flush(), 45_000, "invite flush");
         } catch (e) {
@@ -2080,6 +2160,7 @@ export async function claimInvite(secret: string, localId?: string, fallbackAmou
     // recipient's liquid USDC address. (2) Then shield it into the recipient's
     // OWN note so it lands in the in-app (shielded) balance and is spendable
     // under the recipient's distinct spend key — not left sitting as public USDC.
+    const recipientMvkWitness = await wireMvkRegistry(c);
     let r: { amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] };
     try {
       r = await sweepClaim(secret);
@@ -2087,13 +2168,12 @@ export async function claimInvite(secret: string, localId?: string, fallbackAmou
       const amount = fallbackAmount ? BigInt(fallbackAmount) : 0n;
       if (amount <= 0n) throw e;
       await c.sync(hostedSyncOpts());
-      await wireMvkRegistry(c);
       const from = await selfAddress(c);
       const token = deployment().token as string;
       if (!(await waitForPublicBalanceAtLeast(c, token, from, amount))) throw e;
       r = { amount: amount.toString(), onChain: true };
     }
-    const shielded = await shieldClaimLiquid(c, BigInt(r.amount), r.txHash, r.sorobanPublics);
+    const shielded = await shieldClaimLiquid(c, BigInt(r.amount), r.txHash, r.sorobanPublics, recipientMvkWitness);
     const invite = localId ? tenantInvites().find((e) => e.localId === localId) : tenantInvites().find((e) => e.secret === secret);
     if (invite) invite.status = "claimed";
     db.activity.unshift({
@@ -2110,10 +2190,11 @@ async function shieldClaimLiquid(
   amount: bigint,
   txHash?: string,
   sorobanPublics?: string[],
+  mvkWitness?: AspMembershipWitness,
 ): Promise<{ amount: string; txHash?: string; onChain: boolean; sorobanPublics?: string[] }> {
   if (amount <= 0n) throw new RampError("balance", "Invite has no USDC to settle.");
   await c.sync(hostedSyncOpts());
-  const mvkWitness = await wireMvkRegistry(c);
+  mvkWitness ??= await wireMvkRegistry(c);
   const from = await selfAddress(c);
   const before = await c.getBalance();
   const token = deployment().token as string;

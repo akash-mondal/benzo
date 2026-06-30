@@ -18,11 +18,15 @@ const fromHex = (s: string): Uint8Array => {
   return out;
 };
 
-/** Default Node verifier: dcap-qvl against Intel collateral (via Phala PCCS). */
-export const dcapQuoteVerifier: QuoteVerifier = async (quoteHex, _collateral) => {
-  const qvl = await import("@phala/dcap-qvl");
-  const bytes = fromHex(quoteHex);
-  const verified = await qvl.getCollateralAndVerify(Buffer.from(bytes));
+type QvlVerifiedReport = {
+  status: unknown;
+  report: {
+    asTd10?: () => { rtMr3: Uint8Array; mrTd: Uint8Array; mrConfigId: Uint8Array; reportData: Uint8Array } | undefined;
+    asTd15?: () => { base: { rtMr3: Uint8Array; mrTd: Uint8Array; mrConfigId: Uint8Array; reportData: Uint8Array } } | undefined;
+  };
+};
+
+function reduceVerifiedReport(verified: QvlVerifiedReport) {
   const td = verified.report.asTd10?.() ?? verified.report.asTd15?.()?.base;
   if (!td) throw new Error("quote is not a TDX (td10/td15) report");
   return {
@@ -32,6 +36,26 @@ export const dcapQuoteVerifier: QuoteVerifier = async (quoteHex, _collateral) =>
     mrConfigId: toHex(td.mrConfigId),
     reportData: Uint8Array.from(td.reportData),
   };
+}
+
+/** Default Node verifier: dcap-qvl against Intel collateral (via Phala PCCS). */
+export const dcapQuoteVerifier: QuoteVerifier = async (quoteHex, collateral) => {
+  const qvl = await import("@phala/dcap-qvl");
+  const bytes = fromHex(quoteHex);
+  const raw = Buffer.from(bytes);
+  if (collateral) {
+    return reduceVerifiedReport(qvl.verify(raw, collateral as never, Math.floor(Date.now() / 1000)) as QvlVerifiedReport);
+  }
+
+  let last: unknown;
+  for (const pccs of [undefined, qvl.PHALA_PCCS_URL, qvl.INTEL_PCS_URL]) {
+    try {
+      return reduceVerifiedReport((await qvl.getCollateralAndVerify(raw, pccs)) as QvlVerifiedReport);
+    } catch (e) {
+      last = e;
+    }
+  }
+  throw last instanceof Error ? last : new Error("quote collateral verification failed");
 };
 
 /** A `DstackAttestationVerifier` wired to the Node dcap-qvl verifier. */

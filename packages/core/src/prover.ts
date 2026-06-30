@@ -194,6 +194,13 @@ export interface AttestationVerifier {
   verify(endpoint: string): Promise<AttestationResult>;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isTransientAttestationError(e: unknown): boolean {
+  const msg = String((e as Error)?.message ?? e).toLowerCase();
+  return /fetch failed|network|timeout|timed out|econnreset|econnrefused|enotfound|eai_again|gateway|temporarily|\b(429|502|503|504)\b/.test(msg);
+}
+
 /**
  * Witness-hiding delegated proving in an ATTESTED Phala TEE — the "tee" proving
  * mode (the user's other choice is on-device WasmProver). Before any witness is
@@ -217,10 +224,24 @@ export class PhalaProver implements ProverPort {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
+  private async verifyAttestationWithRetry(): Promise<AttestationResult> {
+    let last: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.attestation.verify(this.endpoint);
+      } catch (e) {
+        last = e;
+        if (!isTransientAttestationError(e) || attempt === 2) throw e;
+        await sleep(250 * 2 ** attempt);
+      }
+    }
+    throw last instanceof Error ? last : new Error("phala: enclave attestation failed");
+  }
+
   async prove(artifacts: CircuitArtifacts, input: WitnessInput): Promise<ProveResult> {
     // Gate: attest BEFORE sending the witness. Any failure throws here, so the
     // witness is never transmitted to an unverified enclave.
-    const att = await this.attestation.verify(this.endpoint);
+    const att = await this.verifyAttestationWithRetry();
     if (!att.ok) throw new Error("phala: enclave attestation failed — witness NOT sent");
     if (att.measurement !== this.expectedMeasurement) {
       throw new Error(

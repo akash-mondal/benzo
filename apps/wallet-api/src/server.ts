@@ -580,7 +580,7 @@ route("POST", "/api/invite", async (req, res) => {
   if (!body.amount) return json(res, 400, { error: "amount required" });
   try {
     const r = await createInvite(body.amount, body.note);
-    recordSettledMovement("invite_fund", r.amount, { sourceId: r.localId, requestedAmount: body.amount });
+    recordSettledMovement("invite_fund", r.amount, { txHash: r.txHash, sourceId: r.localId, requestedAmount: body.amount });
     appendWalletProofReceipt({
       action: "wallet.invite-fund",
       vkId: "TRANSFER",
