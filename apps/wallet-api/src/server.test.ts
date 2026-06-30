@@ -102,6 +102,33 @@ test("mints secret-gated wallet test auth for backend smoke tests", async () => 
   expect(protectedRes.status).not.toBe(401);
 });
 
+test("mints local verification auth only for localhost when explicitly enabled", async () => {
+  process.env.BENZO_LOCAL_UI_TEST_AUTH = "1";
+  const minted = await request("/api/auth/local", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      host: "127.0.0.1:8791",
+      origin: "http://127.0.0.1:5175",
+    },
+    body: JSON.stringify({ subject: "local-ui-wallet" }),
+  });
+  expect(minted.status).toBe(200);
+  await expect(minted.json()).resolves.toMatchObject({ tokenType: "Bearer" });
+
+  const publicHost = await request("/api/auth/local", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      host: "wallet.benzo.space",
+      origin: "https://wallet.benzo.space",
+    },
+    body: JSON.stringify({ subject: "public-ui-wallet" }),
+  });
+  expect(publicHost.status).toBe(404);
+  delete process.env.BENZO_LOCAL_UI_TEST_AUTH;
+});
+
 test("rejects hosted local prover requests before they can run on the API host", () => {
   expect(() => proverOf(new URL("http://localhost/api/send?prover=local"))).toThrow(
     "Hosted wallet APIs cannot run local proving",

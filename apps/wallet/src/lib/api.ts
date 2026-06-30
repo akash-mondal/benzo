@@ -268,6 +268,15 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   authConfig: () => http<{ googleClientId: string | null; google: boolean }>("/auth/config"),
+  localVerificationAuth: (subject?: string) =>
+    http<{ token: string; tokenType: string; expiresIn: number }>("/auth/local", {
+      method: "POST",
+      body: JSON.stringify({
+        subject,
+        name: "Local Verification Wallet",
+        ttlSeconds: 3600,
+      }),
+    }),
   googleVerify: (credential: string, nonce?: string) =>
     http<{ verified: boolean; sub?: string; email?: string; name?: string; error?: string; configured?: boolean }>(
       "/auth/google",

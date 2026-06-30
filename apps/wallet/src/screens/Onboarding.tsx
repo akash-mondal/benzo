@@ -38,6 +38,10 @@ const POINTS = [
   { icon: <ShieldCheck size={18} />, title: "Prove it without showing it", body: "Show you hold enough, or that you got paid. Never the amount." },
 ];
 
+function isLocalVerificationUi(): boolean {
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState<Step>("welcome");
   return (
@@ -120,10 +124,11 @@ function Welcome({ onNext }: { onNext: () => void }) {
 }
 
 function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
-  const [busy, setBusy] = useState<"passkey" | "google" | "stored" | null>(null);
+  const [busy, setBusy] = useState<"passkey" | "google" | "stored" | "local" | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [clientId, setClientId] = useState(GOOGLE_CLIENT_ID_FALLBACK);
   const [hasStoredCredential, setHasStoredCredential] = useState(() => !!currentGoogleCredential());
+  const [showLocalVerification] = useState(() => isLocalVerificationUi());
   const gbtn = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -152,6 +157,20 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
       onNext();
     } catch (e) {
       setErr(friendlyError(e, "Sign in again to continue."));
+      setBusy(null);
+    }
+  }
+
+  async function withLocalVerification() {
+    setBusy("local");
+    setErr(null);
+    try {
+      const subject = `codex-wallet-ui-${Date.now()}`;
+      const minted = await api.localVerificationAuth(subject);
+      storeGoogleCredential(minted.token);
+      onNext();
+    } catch (e) {
+      setErr(friendlyError(e, "Local verification sign-in is not available in this runtime."));
       setBusy(null);
     }
   }
@@ -227,6 +246,11 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
         {hasStoredCredential ? (
           <Button full variant="secondary" size="lg" onClick={withStoredCredential} loading={busy === "stored"} data-testid="auth-stored">
             Continue with signed-in account
+          </Button>
+        ) : null}
+        {showLocalVerification ? (
+          <Button full variant="secondary" size="lg" onClick={withLocalVerification} loading={busy === "local"} data-testid="auth-local-verification">
+            <ShieldCheck size={18} /> Use local verification account
           </Button>
         ) : null}
         {clientId ? (
