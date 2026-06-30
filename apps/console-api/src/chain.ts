@@ -729,18 +729,29 @@ export async function attestKyb(approve: boolean): Promise<{ onChain: boolean; s
 // The org treasury balance requires an incremental chain re-sync, which is slow
 // to run on every dashboard/treasury poll. Cache it with a short TTL and bust the
 // cache on any treasury mutation (fund / payout) so reads stay fast + correct.
-let treasuryBalCache: { at: number; stroops: bigint } | null = null;
+let treasuryBalCache: { at: number; stroops: bigint; tolerant: boolean } | null = null;
 const TREASURY_TTL_MS = 12_000;
 export function bustTreasuryCache(): void {
   treasuryBalCache = null;
 }
-async function orgTreasuryStroops(c: BenzoClient): Promise<bigint> {
-  if (treasuryBalCache && Date.now() - treasuryBalCache.at < TREASURY_TTL_MS) {
+async function orgTreasuryStroops(c: BenzoClient, opts: { allowPoolMirrorGaps?: boolean } = {}): Promise<bigint> {
+  const tolerant = Boolean(opts.allowPoolMirrorGaps);
+  if (treasuryBalCache && treasuryBalCache.tolerant === tolerant && Date.now() - treasuryBalCache.at < TREASURY_TTL_MS) {
     return treasuryBalCache.stroops;
   }
   const org = await getOrg(c);
-  const stroops = await c.orgTreasuryBalance(org);
-  treasuryBalCache = { at: Date.now(), stroops };
+  let stroops: bigint;
+  if (tolerant) {
+    // Dashboard/balance display is a read path: decrypt the org notes that are
+    // present in the scanner, even if historical commitment events have aged out
+    // and a complete Merkle mirror cannot be rebuilt. Proof and spend paths
+    // still call the strict SDK methods below.
+    await c.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+    stroops = c.orgTreasuryNotes(org).reduce((sum, n) => sum + n.note.amount, 0n);
+  } else {
+    stroops = await c.orgTreasuryBalance(org);
+  }
+  treasuryBalCache = { at: Date.now(), stroops, tolerant };
   return stroops;
 }
 
@@ -758,7 +769,11 @@ export async function fundTreasury(amountStroops: string): Promise<{ onChain: bo
   const from = await selfAddress(c);
   try {
     await ensureHostedPublicAccount();
-    await c.sync();
+    // Funding inserts a fresh org note; it does not spend historical pool
+    // notes. Long-lived testnet RPC can have event-retention gaps for old
+    // commitments, so use the same gap-tolerant sync the wallet uses for
+    // shield/import paths and let spend/proof paths remain strict.
+    await c.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
     const mvkWitness = await wireMvkRegistry(c);
     await ensureOrgSetup(c);
     const org = await getOrg(c);
@@ -824,7 +839,7 @@ function toBig(v: unknown): bigint {
 export async function computeTreasury(): Promise<TreasuryView> {
   const c = getClient();
   if (c) {
-    const stroops = toBig(await orgTreasuryStroops(c));
+    const stroops = toBig(await orgTreasuryStroops(c, { allowPoolMirrorGaps: true }));
     const money = (a: string): Money => ({ amount: a, assetCode: "USDC" });
     const accounts = db.accounts.map((account, i) => ({
       account,
