@@ -57,6 +57,38 @@ export function Claim() {
   const [phase, setPhase] = useState<"ready" | "claiming" | "done" | "error">("ready");
   const [amount, setAmount] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [checkingClaim, setCheckingClaim] = useState(false);
+  const [claimUnavailable, setClaimUnavailable] = useState<"claimed" | "refunded" | "expired" | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setClaimUnavailable(null);
+    if (!parsed.ok || parsed.link.type !== "claim") {
+      setCheckingClaim(false);
+      return () => { cancelled = true; };
+    }
+    const link = parsed.link;
+    const expiresAt = Number(link.expiresAt ?? 0);
+    const now = Math.floor(Date.now() / 1000);
+    if (expiresAt && now >= expiresAt) {
+      setClaimUnavailable("expired");
+      setCheckingClaim(false);
+      return () => { cancelled = true; };
+    }
+    setCheckingClaim(true);
+    api.claimStatus(link.secret, link.amount, link.expiresAt)
+      .then((status) => {
+        if (cancelled) return;
+        setClaimUnavailable(status.status === "open" ? null : status.status);
+      })
+      .catch(() => {
+        if (!cancelled) setClaimUnavailable(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingClaim(false);
+      });
+    return () => { cancelled = true; };
+  }, [parsed, rawLink]);
 
   if (!parsed.ok && parsed.reason === "mismatch") return <Mismatch scope={parsed.scope} />;
   if (!parsed.ok) {
@@ -75,6 +107,29 @@ export function Claim() {
   if (link.type === "request") return <PayRequest link={link} />;
   const claimAmount = link.type === "claim" ? link.amount : undefined;
   const secret = link.type === "claim" ? link.secret : "";
+
+  if (checkingClaim) {
+    return (
+      <Screen>
+        <ScreenHeader title="Claim" />
+        <Empty title="Checking link" hint="Making sure this claim link is still open." />
+      </Screen>
+    );
+  }
+
+  if (claimUnavailable) {
+    const copy = {
+      claimed: { title: "This link was already claimed", hint: "No money moved. Ask the sender for a fresh link if needed." },
+      refunded: { title: "This link was refunded", hint: "No money moved. Ask the sender to send a fresh link." },
+      expired: { title: "This link expired", hint: "No money moved. Ask the sender to send a fresh link." },
+    }[claimUnavailable];
+    return (
+      <Screen>
+        <ScreenHeader title="Claim" />
+        <Empty title={copy.title} hint={copy.hint} testId="claim-unavailable" />
+      </Screen>
+    );
+  }
 
   async function doClaim() {
     setPhase("claiming");
@@ -351,9 +406,9 @@ function Mismatch({ scope }: { scope?: string }) {
   );
 }
 
-function Empty({ title, hint }: { title: string; hint: string }) {
+function Empty({ title, hint, testId }: { title: string; hint: string; testId?: string }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-7 pb-12 text-center">
+    <div className="flex flex-1 flex-col items-center justify-center px-7 pb-12 text-center" data-testid={testId}>
       <div className="flex h-16 w-16 items-center justify-center rounded-full bg-ink/[0.06] text-ink"><X size={26} /></div>
       <div className="font-display mt-4 text-xl">{title}</div>
       <p className="mt-2 max-w-[280px] text-[14px] text-muted">{hint}</p>

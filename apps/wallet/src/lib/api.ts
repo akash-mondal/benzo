@@ -78,6 +78,12 @@ export interface InviteSummary {
   expiresAt: number;
   status: "pending" | "claimed" | "refunded" | "expired";
 }
+export interface ClaimStatus {
+  status: "open" | "claimed" | "refunded" | "expired";
+  amount?: string;
+  expiresAt?: number;
+  onChain: boolean;
+}
 export interface ProofReceipt {
   id: string;
   action: string;
@@ -395,6 +401,12 @@ export const api = {
   invites: () => http<InviteSummary[]>("/invites"),
   refundInvite: (localId: string) =>
     http<{ amount: string; txHash?: string; onChain: boolean }>("/invite/refund", { method: "POST", body: JSON.stringify({ localId }) }),
+  claimStatus: (secret: string, amount?: string, expiresAt?: string) => {
+    const qs = new URLSearchParams({ secret });
+    if (amount) qs.set("amount", amount);
+    if (expiresAt) qs.set("expiresAt", expiresAt);
+    return http<ClaimStatus>(`/claim/status?${qs.toString()}`);
+  },
   claim: (secret: string, localId?: string, amount?: string) =>
     http<{ amount: string; txHash?: string; onChain: boolean }>("/claim", { method: "POST", body: JSON.stringify({ secret, localId, amount }) }),
   cashOut: (amount: string, prover: ProverKind = "local") =>

@@ -2266,6 +2266,23 @@ export async function claimInvite(secret: string, localId?: string, fallbackAmou
   throw new RampError("busy", "Live testnet client unavailable. Claim was not submitted.");
 }
 
+export async function claimInviteStatus(
+  secret: string,
+  fallback?: { amount?: string; expiresAt?: number },
+): Promise<{ status: "open" | "claimed" | "refunded" | "expired"; amount?: string; expiresAt?: number; onChain: boolean }> {
+  const indexed = await loadInviteIndex(secret);
+  const now = nowSec();
+  const expiresAt = indexed?.expiresAt ?? fallback?.expiresAt;
+  const amount = indexed?.amount ?? fallback?.amount;
+  if ((indexed?.status === "pending" || !indexed) && expiresAt && now >= expiresAt) {
+    if (indexed) await upsertInviteIndex(secret, { amount: indexed.amount, status: "expired", expiresAt });
+    return { status: "expired", amount, expiresAt, onChain: Boolean(indexed) };
+  }
+  if (!indexed) return { status: "open", amount, expiresAt, onChain: false };
+  if (indexed.status === "pending") return { status: "open", amount: indexed.amount, expiresAt: indexed.expiresAt, onChain: true };
+  return { status: indexed.status, amount: indexed.amount, expiresAt: indexed.expiresAt, onChain: true };
+}
+
 async function shieldClaimLiquid(
   c: BenzoClient,
   amount: bigint,

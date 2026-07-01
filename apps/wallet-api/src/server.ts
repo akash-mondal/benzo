@@ -13,6 +13,7 @@ import {
   cashOut,
   claimHandle,
   claimInvite,
+  claimInviteStatus,
   createInvite,
   createRequest,
   cancelMoneyRequest,
@@ -634,6 +635,18 @@ route("POST", "/api/claim", async (req, res) => {
     logRouteError("invite claim", e);
     recordFailedMovement("invite_claim", undefined, e, "in", body.localId);
     json(res, 400, { error: "Could not claim this invite. Check the link and try again." });
+  }
+});
+route("GET", "/api/claim/status", async (req, res, url) => {
+  const secret = url.searchParams.get("secret") || "";
+  if (!secret) return json(res, 400, { error: "secret required" });
+  const amount = url.searchParams.get("amount") || undefined;
+  const exp = url.searchParams.get("expiresAt") || undefined;
+  const expiresAt = exp && /^\d+$/.test(exp) ? Number(exp) : undefined;
+  try {
+    json(res, 200, await claimInviteStatus(secret, { amount, expiresAt }));
+  } catch {
+    json(res, 200, { status: "open", amount, expiresAt, onChain: false });
   }
 });
 
