@@ -69,7 +69,11 @@ function timeline(row: ActivityRow): Step[] {
   if (isMakePublicRow(row)) {
     return [
       { label: "Make-public created", state: "done" },
-      { label: "Proved private", hint: "The source balance stayed hidden", state: failed ? "failed" : "done" },
+      {
+        label: failed ? "Private proof or settlement failed" : "Proved private",
+        hint: failed ? "No on-chain settlement was recorded" : "The source balance stayed hidden",
+        state: failed ? "failed" : "done",
+      },
       {
         label: settled ? "Moved to Public balance" : "Moving to Public balance",
         hint: settled ? undefined : "Stellar testnet settlement",
@@ -81,7 +85,11 @@ function timeline(row: ActivityRow): Step[] {
   if (row.type === "cashOut" || row.type === "unshield") {
     return [
       { label: "Cash-out created", state: "done" },
-      { label: "Proved private", hint: "Your balance stayed hidden", state: failed ? "failed" : "done" },
+      {
+        label: failed ? "Private proof or settlement failed" : "Proved private",
+        hint: failed ? "No on-chain settlement was recorded" : "Your balance stayed hidden",
+        state: failed ? "failed" : "done",
+      },
       {
         label: settled ? "Returned to testnet reserve" : "Returning to testnet reserve",
         hint: settled ? undefined : "Stellar testnet settlement",
