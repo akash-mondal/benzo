@@ -147,6 +147,7 @@ async function submitWrite(opts: { contractId: string; source: string; fnArgs: s
 }
 
 let cached: BenzoClient | null | undefined;
+const RELAXED_SYNC = { allowPoolMirrorGaps: true, allowAspMirrorGaps: true };
 
 function canUseDevAccountExport(): boolean {
   if (typeof window === "undefined") return false;
@@ -237,7 +238,7 @@ export async function sendClientSide(
 ): Promise<{ txHash?: string; prover: "local" } | null> {
   const c = await getClient({ interactive: true });
   if (!c) return null;
-  await c.sync();
+  await c.sync(RELAXED_SYNC);
   if (!(await wireMvkRegistry(c))) return null;
   const sh = await c.sendToHandle({ handle: handle.replace(/^@/, ""), amount: BigInt(amountStroops), useRelayer: true });
   const r = await sh.settled();
@@ -256,7 +257,7 @@ export async function clientSideReadsAvailable(): Promise<boolean> {
 export async function readShieldedBalanceClientSide(): Promise<string | null> {
   const c = await getClient();
   if (!c) return null;
-  await c.sync();
+  await c.sync(RELAXED_SYNC);
   return (await c.getBalance()).toString();
 }
 
@@ -270,6 +271,7 @@ export async function proveBalanceClientSide(
 ): Promise<{ holds: boolean; onChain: boolean; provingMs?: number; verifyMs?: number } | null> {
   const c = await getClient({ interactive: true });
   if (!c) return null;
+  await c.sync(RELAXED_SYNC);
   // Time the two client-controlled phases so the proving claim is measurable:
   // (1) prove locally; (2) verify = the proof checked
   // on-chain by the verifier.

@@ -4,6 +4,10 @@
 
 benzo.space {
 	root * /srv/landing
+	@assets path /assets/*
+	@notAssets not path /assets/*
+	header @assets Cache-Control "public, max-age=31536000, immutable"
+	header @notAssets Cache-Control "no-cache"
 	try_files {path} /index.html
 	file_server
 	encode zstd gzip
@@ -20,6 +24,10 @@ wallet.benzo.space {
 
 	handle {
 		root * /srv/wallet
+		@assets path /assets/*
+		@notAssets not path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header @notAssets Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
@@ -33,6 +41,10 @@ console.benzo.space {
 
 	handle {
 		root * /srv/console
+		@assets path /assets/*
+		@notAssets not path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header @notAssets Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
