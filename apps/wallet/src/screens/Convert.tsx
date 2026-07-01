@@ -27,6 +27,13 @@ type Mode = "private" | "public";
 type Phase = "form" | "busy" | "done";
 
 const toS = (a: string): string => BigInt(Math.max(0, Math.round(Number(a) * 1e7) || 0)).toString();
+const PRESET_AMOUNTS = ["1", "5", "10", "20", "50", "100"];
+
+export function convertQuickAmounts(sourceStroops: string): string[] {
+  const source = BigInt(sourceStroops || "0");
+  const enabled = PRESET_AMOUNTS.filter((q) => BigInt(toS(q)) <= source);
+  return enabled.slice(Math.max(0, enabled.length - 3));
+}
 
 export function Convert() {
   const [sp] = useSearchParams();
@@ -134,13 +141,12 @@ export function Convert() {
           </div>
         </div>
 
-        {/* Quick "move all" + presets, clamped to the source balance */}
+        {/* Quick presets + "move all", clamped to the source balance. */}
         <div className="mt-4 flex justify-center gap-2">
-          {["20", "50", "100"].map((q) => (
+          {convertQuickAmounts(sourceStroops).map((q) => (
             <button
               key={q}
               type="button"
-              disabled={BigInt(toS(q)) > source}
               onClick={() => setAmount(q)}
               className={`rounded-full border px-4 py-1.5 text-[13px] font-semibold transition outline-none disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-accent/40 ${amount === q ? "border-accent bg-accent/10 text-accent" : "border-hair bg-card text-ink hover:bg-canvas"}`}
             >

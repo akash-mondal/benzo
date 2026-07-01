@@ -42,6 +42,16 @@ function isLocalVerificationUi(): boolean {
   return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
 }
 
+const LOCAL_VERIFICATION_SUBJECT_KEY = "benzo.localVerificationSubject";
+
+function localVerificationSubject(): string {
+  const existing = localStorage.getItem(LOCAL_VERIFICATION_SUBJECT_KEY);
+  if (existing) return existing;
+  const subject = `codex-wallet-ui-${crypto.randomUUID?.() ?? Date.now().toString(36)}`;
+  localStorage.setItem(LOCAL_VERIFICATION_SUBJECT_KEY, subject);
+  return subject;
+}
+
 export function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState<Step>("welcome");
   return (
@@ -165,8 +175,7 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     setBusy("local");
     setErr(null);
     try {
-      const subject = `codex-wallet-ui-${Date.now()}`;
-      const minted = await api.localVerificationAuth(subject);
+      const minted = await api.localVerificationAuth(localVerificationSubject());
       storeGoogleCredential(minted.token);
       onNext();
     } catch (e) {

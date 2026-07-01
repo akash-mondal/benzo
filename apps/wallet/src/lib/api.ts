@@ -113,6 +113,7 @@ export function apiHref(path: string): string {
 const GOOGLE_TOKEN_KEY = "benzo.googleCredential";
 const GOOGLE_IDENTITY_KEY = "benzo.identityKey";
 const IDEMPOTENCY_PREFIX = "benzo.idempotency.wallet.v1:";
+const READ_TIMEOUT_MS = 15_000;
 export const AUTH_REQUIRED_EVENT = "benzo:auth-required";
 export const AUTH_CHANGED_EVENT = "benzo:auth-changed";
 
@@ -241,9 +242,18 @@ export function prepareApiRequest(path: string, init?: RequestInit): { url: stri
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const prepared = prepareApiRequest(path, init);
+  const method = (init?.method ?? "GET").toUpperCase();
+  const timeoutController = method === "GET" ? new AbortController() : null;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const requestInit = timeoutController
+    ? { ...prepared.init, signal: timeoutController.signal }
+    : prepared.init;
   let res: Response | undefined;
   try {
-    res = await fetch(prepared.url, prepared.init);
+    if (timeoutController) {
+      timeout = setTimeout(() => timeoutController.abort(), READ_TIMEOUT_MS);
+    }
+    res = await fetch(prepared.url, requestInit);
     if (!res.ok) {
       let detail = `HTTP ${res.status}`;
       try {
@@ -261,7 +271,13 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       throw new Error(detail);
     }
     return (await res.json()) as T;
+  } catch (e) {
+    if ((e as Error)?.name === "AbortError") {
+      throw new Error("This is taking too long. Please try again.");
+    }
+    throw e;
   } finally {
+    if (timeout) clearTimeout(timeout);
     if (res && res.status < 500) prepared.clearIdempotency?.();
   }
 }

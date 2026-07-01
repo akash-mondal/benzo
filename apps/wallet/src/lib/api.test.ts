@@ -34,6 +34,7 @@ function token(payload: Record<string, unknown>, prefix = "benzo-test"): string 
 
 describe("wallet API idempotency", () => {
   afterEach(() => {
+    vi.useRealTimers();
     localStorage.clear();
     vi.unstubAllGlobals();
   });
@@ -169,6 +170,34 @@ describe("wallet API idempotency", () => {
     const headers = callHeaders(fetchMock.mock.calls[0]);
     expect(headers.get("authorization")).toBe("Bearer google.jwt");
     expect(headers.get("idempotency-key")).toBeNull();
+  });
+
+  it("times out hanging read requests with a clean error", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pending = api.balance();
+    const assertion = expect(pending).rejects.toThrow("This is taking too long. Please try again.");
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await assertion;
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
+    vi.useRealTimers();
+  });
+
+  it("does not timeout long-running write requests", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "settled", amount: "10000000", prover: "tee", onChain: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.addMoney("1", "tee");
+
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeUndefined();
   });
 
   it("calls the localhost verification auth endpoint without a stored credential", async () => {
