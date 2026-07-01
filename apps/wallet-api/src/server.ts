@@ -784,6 +784,7 @@ route("POST", "/api/import", async (req, res, url) => {
     recordSettlementProof("wallet.import", "SHIELD", r);
     await jsonPersisted(res, 200, r);
   } catch (e) {
+    logRouteError("import", e);
     recordFailedMovement("import", body.amount ?? "all", e, "in");
     json(res, rampStatus(e), rampError(e, "in"));
   }
