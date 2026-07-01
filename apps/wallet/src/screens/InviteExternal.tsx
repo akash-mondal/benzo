@@ -11,15 +11,11 @@ import { api, type InviteResult, type InviteSummary } from "../lib/api";
 import { friendlyError } from "../lib/errors";
 import { useWallet } from "../lib/store";
 import { fmtUsd } from "../lib/format";
+import { inviteAmountToStroops, validateFundedInviteAmount } from "../lib/inviteValidation";
 import { Screen } from "../ui/motion";
 import { ScreenHeader } from "../ui/chrome";
 import { AmountField, Button, Card, Input, Skeleton, useToast } from "../ui/primitives";
 
-function toStroopsSafe(amount: string): string {
-  const n = Number(amount);
-  if (!Number.isFinite(n) || n <= 0) return "0";
-  return BigInt(Math.round(n * 1e7)).toString();
-}
 function daysLeft(expiresAt: number): number {
   return Math.max(0, Math.ceil((expiresAt * 1000 - Date.now()) / 86_400_000));
 }
@@ -27,7 +23,7 @@ function daysLeft(expiresAt: number): number {
 export function InviteExternal() {
   const [params] = useSearchParams();
   const toast = useToast();
-  const { refresh } = useWallet();
+  const { balance, refresh } = useWallet();
   const [amount, setAmount] = useState(params.get("amount") ?? "");
   const [note, setNote] = useState("");
   const [creating, setCreating] = useState(false);
@@ -40,11 +36,14 @@ export function InviteExternal() {
     void load();
   }, []);
 
-  const n = Number(amount);
-  const amountOk = Number.isFinite(n) && n > 0;
+  const amountState = validateFundedInviteAmount(amount, balance?.stroops);
+  const canCreate = amountState.amountOk && !amountState.insufficient;
 
   async function create() {
-    if (!amountOk) return;
+    if (!canCreate) {
+      if (amountState.message) toast({ title: amountState.message, tone: "danger" });
+      return;
+    }
     setCreating(true);
     try {
       const r = await api.invite(amount, note || undefined);
@@ -87,11 +86,12 @@ export function InviteExternal() {
             <div className="mt-6">
               <AmountField value={amount} onChange={setAmount} autoFocus />
               <div className="text-center text-[13px] text-muted">they'll claim this amount</div>
+              {amountState.message ? <div className="mt-2 text-center text-[12px] font-medium text-danger" data-testid="invite-amount-error">{amountState.message}</div> : null}
             </div>
             <Input className="mt-5" label="Note (optional)" placeholder="What's it for?" value={note} onChange={(e) => setNote(e.target.value)} data-testid="invite-note" />
 
-            <Button full size="lg" className="mt-6" loading={creating} disabled={!amountOk} onClick={create} data-testid="invite-create">
-              {amountOk ? `Create link · ${fmtUsd(toStroopsSafe(amount))}` : "Create link"}
+            <Button full size="lg" className="mt-6" loading={creating} disabled={!canCreate} onClick={create} data-testid="invite-create">
+              {amountState.amountOk ? `Create link · ${fmtUsd(inviteAmountToStroops(amount))}` : "Create link"}
             </Button>
           </>
         ) : (
