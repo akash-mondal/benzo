@@ -1,15 +1,24 @@
-# Benzo
+<h1 align="center">
+  <img src="assets/readme/benzo-logo-violet.png" alt="Benzo" width="96" />
+</h1>
 
-![Benzo README banner](assets/readme/benzo-readme-banner.png)
+<p align="center">
+  <img src="assets/readme/benzo-readme-banner.png" alt="Benzo" />
+</p>
 
-Private USDC payments on Stellar. Benzo gives users a normal payments wallet and
-businesses a finance console, while zero-knowledge proofs keep balances,
-transfers, payroll, invoices, and audit packets private by default.
+<p align="center">
+  <strong>Private USDC payments on Stellar.</strong><br />
+  A normal payments wallet and business finance console, with zero-knowledge
+  proofs keeping balances, transfers, payroll, invoices, and audit packets
+  private by default.
+</p>
 
-[Wallet](https://wallet.benzo.space) |
-[Console](https://console.benzo.space) |
-[Testnet deployment](deployments/testnet.json) |
-[Security](SECURITY.md)
+<p align="center">
+  <a href="https://wallet.benzo.space">Wallet</a> |
+  <a href="https://console.benzo.space">Console</a> |
+  <a href="deployments/testnet.json">Testnet deployment</a> |
+  <a href="SECURITY.md">Security</a>
+</p>
 
 ## What Benzo Is
 
