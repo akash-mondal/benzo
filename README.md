@@ -1,7 +1,3 @@
-<h1 align="center">
-  <img src="assets/readme/benzo-logo-violet.png" alt="Benzo" width="96" />
-</h1>
-
 <p align="center">
   <img src="assets/readme/benzo-readme-banner.png" alt="Benzo" />
 </p>
