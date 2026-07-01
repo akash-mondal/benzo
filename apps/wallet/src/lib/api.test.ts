@@ -247,6 +247,20 @@ describe("wallet API idempotency", () => {
     window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
   });
 
+  it("returns to sign-in when a protected API call has no credential", async () => {
+    localStorage.setItem("benzo.onboarded", "1");
+    const onAuthRequired = vi.fn();
+    window.addEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: "Sign in with Google to unlock this wallet." }, 401));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.handleAvailable("akashtest")).rejects.toThrow("Sign in with Google");
+
+    expect(localStorage.getItem("benzo.onboarded")).toBeNull();
+    expect(onAuthRequired).toHaveBeenCalledOnce();
+    window.removeEventListener(AUTH_REQUIRED_EVENT, onAuthRequired);
+  });
+
   it("does not let an old unauthenticated 401 wipe a fresh Google sign-in", async () => {
     let resolveFetch: ((r: Response) => void) | undefined;
     const fetchMock = vi.fn().mockReturnValue(new Promise<Response>((resolve) => { resolveFetch = resolve; }));

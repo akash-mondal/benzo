@@ -276,12 +276,12 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
       } catch {
         /* ignore */
       }
-      if (
-        res.status === 401 &&
-        path !== "/auth/google" &&
-        prepared.authToken &&
-        currentGoogleCredential() === prepared.authToken
-      ) notifyAuthRequired();
+      if (res.status === 401 && path !== "/auth/google") {
+        const currentToken = currentGoogleCredential();
+        const sameStaleToken = !!prepared.authToken && currentToken === prepared.authToken;
+        const stillUnauthenticated = !prepared.authToken && !currentToken;
+        if (sameStaleToken || stillUnauthenticated) notifyAuthRequired();
+      }
       throw new Error(detail);
     }
     return (await res.json()) as T;
