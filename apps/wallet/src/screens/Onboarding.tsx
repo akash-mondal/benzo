@@ -17,7 +17,7 @@ import { fadeUp, stagger, EASE } from "../ui/motion";
 import { api, clearGoogleCredential, currentGoogleCredential, storeGoogleCredential } from "../lib/api";
 import { friendlyError } from "../lib/errors";
 import { useWallet } from "../lib/store";
-import { registerPasskey, loginWithPasskey, isWebAuthnAvailable } from "../lib/passkey";
+import { createDeviceAuthProof, registerPasskey, loginWithPasskey, isWebAuthnAvailable } from "../lib/passkey";
 
 type Step = "welcome" | "auth" | "handle";
 
@@ -151,7 +151,9 @@ function AuthStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }
     try {
       clearGoogleCredential();
       await registerPasskey({ userName: "benzo-wallet", displayName: "Benzo wallet" });
-      await loginWithPasskey(); // derive the on-device shielded account
+      const account = await loginWithPasskey(); // derive the on-device shielded account
+      const minted = await api.deviceAuth(createDeviceAuthProof(account));
+      storeGoogleCredential(minted.token);
       onNext();
     } catch (e) {
       setErr((e as Error).message.includes("cancel") ? "Passkey cancelled." : "Passkey didn't work here. Try again on this device.");

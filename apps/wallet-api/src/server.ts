@@ -9,6 +9,9 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
+  verifyStellarSignature,
+} from "@benzo/core";
+import {
   addMoney,
   cashOut,
   claimHandle,
@@ -63,7 +66,7 @@ import {
   type WalletLedgerLine,
   type WalletLedgerSource,
 } from "./store.js";
-import { accountBinding, authFromRequest, createTestAuthToken, runWithAuth } from "./auth.js";
+import { accountBinding, authFromRequest, createDeviceAuthToken, createTestAuthToken, runWithAuth } from "./auth.js";
 import { walletContactsFromDb } from "./contacts.js";
 import { googleConfigured, verifyGoogleIdToken } from "./google-oidc.js";
 import { takeTenantRateLimit, tenantStorageStatus } from "./tenantData.js";
@@ -316,6 +319,91 @@ function isLocalVerificationRequest(req: IncomingMessage): boolean {
   return true;
 }
 
+function requestOrigin(req: IncomingMessage): string | null {
+  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
+  if (origin) return origin;
+  const referer = Array.isArray(req.headers.referer) ? req.headers.referer[0] : req.headers.referer;
+  if (!referer) return null;
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
+}
+
+function allowedDeviceAuthOrigin(origin: string): boolean {
+  if (hostnameIsLocalhost(origin)) return true;
+  const configured = process.env.BENZO_WALLET_ORIGIN || process.env.WALLET_ALLOWED_ORIGIN || "https://wallet.benzo.space";
+  const allowed = configured.split(",").map((x) => x.trim()).filter(Boolean);
+  return allowed.some((candidate) => {
+    if (candidate === "*") return false;
+    try {
+      return new URL(candidate).origin === new URL(origin).origin;
+    } catch {
+      return candidate === origin;
+    }
+  });
+}
+
+function fromB64url(value: string): Uint8Array {
+  return new Uint8Array(Buffer.from(value, "base64url"));
+}
+
+function parseDeviceAuthMessage(message: string): Record<string, string> | null {
+  const lines = message.split("\n");
+  if (lines.shift() !== "BENZO-DEVICE-AUTH-v1") return null;
+  const out: Record<string, string> = {};
+  for (const line of lines) {
+    const i = line.indexOf("=");
+    if (i <= 0) return null;
+    const k = line.slice(0, i);
+    const v = line.slice(i + 1);
+    if (!k || !v || out[k] !== undefined) return null;
+    out[k] = v;
+  }
+  return out;
+}
+
+function deviceAuthTtl(ttlSeconds: number | undefined): number {
+  return Math.max(60, Math.min(ttlSeconds ?? 86_400, 604_800));
+}
+
+route("POST", "/api/auth/device", async (req, res) => {
+  const body = await readJson<{ address?: string; message?: string; signature?: string; ttlSeconds?: number }>(req);
+  const address = String(body.address || "").trim();
+  const message = String(body.message || "");
+  const signature = String(body.signature || "");
+  if (!address || !message || !signature) return json(res, 400, { error: "address, message, and signature required" });
+
+  const parsed = parseDeviceAuthMessage(message);
+  if (!parsed) return json(res, 400, { error: "device auth message is malformed" });
+  if (parsed.address !== address) return json(res, 400, { error: "device auth address mismatch" });
+  if (!parsed.origin || !allowedDeviceAuthOrigin(parsed.origin)) return json(res, 401, { error: "device auth origin is not allowed" });
+  const actualOrigin = requestOrigin(req);
+  if (actualOrigin && new URL(parsed.origin).origin !== new URL(actualOrigin).origin) {
+    return json(res, 401, { error: "device auth origin mismatch" });
+  }
+  const issuedAt = Number(parsed.issuedAt);
+  if (!Number.isFinite(issuedAt)) return json(res, 400, { error: "device auth timestamp is invalid" });
+  const ageMs = Date.now() - issuedAt;
+  if (ageMs < -60_000 || ageMs > 5 * 60_000) return json(res, 401, { error: "device auth challenge expired" });
+
+  let sigBytes: Uint8Array;
+  try {
+    sigBytes = fromB64url(signature);
+  } catch {
+    return json(res, 400, { error: "device auth signature is malformed" });
+  }
+  if (!verifyStellarSignature(address, message, sigBytes)) return json(res, 401, { error: "device auth signature invalid" });
+
+  const ttl = deviceAuthTtl(body.ttlSeconds);
+  json(res, 200, {
+    token: createDeviceAuthToken({ address, ttlSeconds: ttl }),
+    tokenType: "Bearer",
+    expiresIn: ttl,
+  });
+});
+
 route("POST", "/api/auth/test", async (req, res) => {
   const expected = hostedRuntime() ? process.env.BENZO_TEST_AUTH_SECRET : undefined;
   if (!expected) return json(res, 404, { error: "not found" });
@@ -413,7 +501,7 @@ function requiresIdempotency(method: string, path: string): boolean {
   if (!path.startsWith("/api/")) return false;
   const m = method.toUpperCase();
   if (m === "GET" || m === "HEAD" || m === "OPTIONS") return false;
-  return path !== "/api/auth/google" && path !== "/api/auth/test" && path !== "/api/auth/local";
+  return path !== "/api/auth/google" && path !== "/api/auth/test" && path !== "/api/auth/local" && path !== "/api/auth/device";
 }
 
 async function runIdempotent(req: IncomingMessage, res: ServerResponse, path: string, fn: () => Promise<void>): Promise<void> {
@@ -799,7 +887,8 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       effectiveUrl.pathname === "/api/auth/config" ||
       effectiveUrl.pathname === "/api/auth/google" ||
       effectiveUrl.pathname === "/api/auth/test" ||
-      effectiveUrl.pathname === "/api/auth/local";
+      effectiveUrl.pathname === "/api/auth/local" ||
+      effectiveUrl.pathname === "/api/auth/device";
     let auth: Awaited<ReturnType<typeof authFromRequest>> = null;
     if (hostedRuntime()) {
       try {

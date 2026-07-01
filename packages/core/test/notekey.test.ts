@@ -5,6 +5,8 @@ import {
   accountFromClaimSecret,
   loginWithSigner,
   NOTE_KEY_MESSAGE,
+  signWithStellarSecret,
+  verifyStellarSignature,
 } from "../src/account.js";
 
 const sig = new Uint8Array(64).fill(7);
@@ -40,6 +42,19 @@ describe("loginWithSigner — the headless wallet login seam", () => {
   it("accepts an async signer (embedded wallets resolve a promise)", async () => {
     const acct = await loginWithSigner(async () => sig2);
     expect(acct.spendSk).toBe(accountFromSignedMessage(sig2).spendSk);
+  });
+});
+
+describe("Stellar edge-key challenge signatures", () => {
+  it("signs and verifies short device-auth challenges without a chain lookup", () => {
+    const acct = accountFromSignedMessage(sig);
+    expect(acct.stellarAddress).toMatch(/^G/);
+    expect(acct.stellarSecret).toMatch(/^S/);
+    const message = `BENZO-DEVICE-AUTH-v1\norigin=https://wallet.benzo.space\naddress=${acct.stellarAddress}\nissuedAt=1\nnonce=test`;
+    const signature = signWithStellarSecret(acct.stellarSecret!, message);
+
+    expect(verifyStellarSignature(acct.stellarAddress!, message, signature)).toBe(true);
+    expect(verifyStellarSignature(acct.stellarAddress!, `${message}!`, signature)).toBe(false);
   });
 });
 

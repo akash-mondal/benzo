@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
+import { accountFromSignedMessage, signWithStellarSecret } from "@benzo/core";
 import { beforeAll, expect, test } from "vitest";
 
 let handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -9,6 +10,7 @@ beforeAll(async () => {
   process.env.VERCEL = "1";
   process.env.BENZO_DEV_EXPORT = "1";
   process.env.BENZO_ACCOUNT_SALT = "wallet-server-test-salt";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "wallet-server-test-data-secret";
   process.env.BENZO_TEST_AUTH_SECRET = "wallet-server-test-secret";
   ({ handle, proverOf } = await import("./server.js"));
 });
@@ -100,6 +102,67 @@ test("mints secret-gated wallet test auth for backend smoke tests", async () => 
     headers: { authorization: `Bearer ${body.token}` },
   });
   expect(protectedRes.status).not.toBe(401);
+});
+
+function deviceAuthPayload(origin = "https://wallet.benzo.space") {
+  const account = accountFromSignedMessage(new Uint8Array(64).fill(13));
+  const message = [
+    "BENZO-DEVICE-AUTH-v1",
+    `origin=${origin}`,
+    `address=${account.stellarAddress}`,
+    `issuedAt=${Date.now()}`,
+    "nonce=wallet-server-test",
+  ].join("\n");
+  return {
+    address: account.stellarAddress!,
+    message,
+    signature: Buffer.from(signWithStellarSecret(account.stellarSecret!, message)).toString("base64url"),
+    ttlSeconds: 3600,
+  };
+}
+
+test("mints device auth from a signed passkey-derived wallet account", async () => {
+  const minted = await request("/api/auth/device", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://wallet.benzo.space",
+    },
+    body: JSON.stringify(deviceAuthPayload()),
+  });
+  expect(minted.status).toBe(200);
+  const body = await minted.json() as { token: string; tokenType: string };
+  expect(body).toMatchObject({ tokenType: "Bearer" });
+  expect(body.token).toMatch(/^benzo-device-v1\./);
+
+  const protectedRes = await request(`/api/rpc?path=${encodeURIComponent("/session")}`, {
+    headers: { authorization: `Bearer ${body.token}` },
+  });
+  expect(protectedRes.status).not.toBe(401);
+});
+
+test("rejects device auth when the signed origin or signature does not match", async () => {
+  const wrongOrigin = await request("/api/auth/device", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://wallet.benzo.space",
+    },
+    body: JSON.stringify(deviceAuthPayload("https://evil.example")),
+  });
+  expect(wrongOrigin.status).toBe(401);
+
+  const body = deviceAuthPayload();
+  body.signature = Buffer.from(new Uint8Array(64).fill(1)).toString("base64url");
+  const badSignature = await request("/api/auth/device", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "https://wallet.benzo.space",
+    },
+    body: JSON.stringify(body),
+  });
+  expect(badSignature.status).toBe(401);
 });
 
 test("mints local verification auth only for localhost when explicitly enabled", async () => {

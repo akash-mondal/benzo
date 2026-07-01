@@ -41,6 +41,8 @@ function bearer(req: IncomingMessage): string | null {
 
 const TEST_AUTH_PREFIX = "benzo-test-v1";
 const TEST_AUTH_AUD = "benzo:wallet";
+const DEVICE_AUTH_PREFIX = "benzo-device-v1";
+const DEVICE_AUTH_ISS = "benzo:device";
 
 function b64url(input: string | Buffer): string {
   return Buffer.from(input).toString("base64url");
@@ -54,6 +56,12 @@ function safeEqual(a: string, b: string): boolean {
 
 function testAuthSecret(): string | null {
   return hostedRuntime() ? process.env.BENZO_TEST_AUTH_SECRET || null : null;
+}
+
+function deviceAuthSecret(): string {
+  const secret = process.env.BENZO_DATA_ENCRYPTION_SECRET || process.env.BENZO_ACCOUNT_SALT || process.env.BENZO_AUTH_SALT;
+  if (!secret && hostedRuntime()) throw new Error("BENZO_DATA_ENCRYPTION_SECRET is required for hosted device auth");
+  return secret || "benzo-local-dev-device-auth";
 }
 
 export function createTestAuthToken(input: { subject?: string; email?: string; name?: string; ttlSeconds?: number } = {}): string {
@@ -91,6 +99,38 @@ function verifyTestAuthToken(token: string): GoogleClaims | null {
   return claims;
 }
 
+export function createDeviceAuthToken(input: { address: string; name?: string; ttlSeconds?: number }): string {
+  if (!input.address) throw new Error("device auth address required");
+  const now = Math.floor(Date.now() / 1000);
+  const ttl = Math.max(60, Math.min(input.ttlSeconds ?? 86_400, 604_800));
+  const payload: GoogleClaims = {
+    iss: DEVICE_AUTH_ISS,
+    aud: TEST_AUTH_AUD,
+    sub: input.address,
+    email_verified: false,
+    name: input.name || "Device wallet",
+    exp: now + ttl,
+  };
+  const body = b64url(JSON.stringify(payload));
+  const signed = `${DEVICE_AUTH_PREFIX}.${body}`;
+  const sig = b64url(createHmac("sha256", deviceAuthSecret()).update(signed).digest());
+  return `${signed}.${sig}`;
+}
+
+function verifyDeviceAuthToken(token: string): GoogleClaims | null {
+  if (!token.startsWith(`${DEVICE_AUTH_PREFIX}.`)) return null;
+  const parts = token.split(".");
+  if (parts.length !== 3 || parts[0] !== DEVICE_AUTH_PREFIX) throw new Error("malformed device auth token");
+  const signed = `${parts[0]}.${parts[1]}`;
+  const expected = b64url(createHmac("sha256", deviceAuthSecret()).update(signed).digest());
+  if (!safeEqual(parts[2], expected)) throw new Error("device auth token signature invalid");
+  const claims = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8")) as GoogleClaims;
+  if (claims.iss !== DEVICE_AUTH_ISS || claims.aud !== TEST_AUTH_AUD) throw new Error("device auth token audience invalid");
+  if (!claims.exp || claims.exp * 1000 < Date.now()) throw new Error("device auth token expired");
+  if (!claims.sub) throw new Error("device auth token has no sub");
+  return claims;
+}
+
 function tenantKeyForClaims(claims: Pick<GoogleClaims, "iss" | "aud" | "sub">): string {
   return createHash("sha256").update(`wallet|${claims.iss}|${claims.aud}|${claims.sub}`).digest("hex").slice(0, 32);
 }
@@ -123,6 +163,12 @@ export async function authFromRequest(req: IncomingMessage): Promise<AuthContext
     const key = tenantKeyForClaims(testClaims);
     const account = await deriveHostedAccount(testClaims, key);
     return { key, account, claims: testClaims };
+  }
+  const deviceClaims = verifyDeviceAuthToken(token);
+  if (deviceClaims) {
+    const key = tenantKeyForClaims(deviceClaims);
+    const account = await deriveHostedAccount(deviceClaims, key);
+    return { key, account, claims: deviceClaims };
   }
   const clientId = process.env.GOOGLE_CLIENT_ID;
   if (!clientId) throw new Error("GOOGLE_CLIENT_ID is required for hosted Google accounts");

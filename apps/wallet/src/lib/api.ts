@@ -112,6 +112,13 @@ export interface DeleteAccountResult {
   deleted: boolean;
 }
 
+export interface DeviceAuthProof {
+  address: string;
+  message: string;
+  signature: string;
+  ttlSeconds?: number;
+}
+
 export function apiHref(path: string): string {
   return `/api/rpc?path=${encodeURIComponent(path)}`;
 }
@@ -198,6 +205,7 @@ export function credentialLooksWellFormed(credential = currentGoogleCredential()
   if (typeof payload.sub !== "string" || !payload.sub) return false;
   if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now()) return false;
   if (parts[0] === "benzo-test" || parts[0] === "benzo-test-v1") return payload.iss === "benzo:test";
+  if (parts[0] === "benzo-device-v1") return payload.iss === "benzo:device" && payload.aud === "benzo:wallet";
   return typeof payload.iss === "string" && typeof payload.aud === "string";
 }
 
@@ -298,6 +306,11 @@ export const api = {
         name: "Local Verification Wallet",
         ttlSeconds: 3600,
       }),
+    }),
+  deviceAuth: (proof: DeviceAuthProof) =>
+    http<{ token: string; tokenType: string; expiresIn: number }>("/auth/device", {
+      method: "POST",
+      body: JSON.stringify(proof),
     }),
   googleVerify: (credential: string, nonce?: string) =>
     http<{ verified: boolean; sub?: string; email?: string; name?: string; error?: string; configured?: boolean }>(

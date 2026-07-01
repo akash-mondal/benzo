@@ -212,6 +212,23 @@ describe("wallet API idempotency", () => {
     expect(headers.get("authorization")).toBeNull();
   });
 
+  it("calls the device auth endpoint without a stored credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ token: "benzo-device-v1.body.sig", tokenType: "Bearer", expiresIn: 3600 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.deviceAuth({
+      address: "G".padEnd(56, "A"),
+      message: "BENZO-DEVICE-AUTH-v1\norigin=http://localhost:5175\naddress=G\nissuedAt=1\nnonce=n",
+      signature: "sig",
+      ttlSeconds: 3600,
+    })).resolves.toMatchObject({ tokenType: "Bearer" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(apiHref("/auth/device"));
+    const headers = callHeaders(fetchMock.mock.calls[0]);
+    expect(headers.get("authorization")).toBeNull();
+  });
+
   it("clears stale hosted auth state when the API requires sign-in again", async () => {
     localStorage.setItem("benzo.googleCredential", "expired.jwt");
     localStorage.setItem("benzo.identityKey", "g123");
@@ -274,6 +291,7 @@ describe("wallet API idempotency", () => {
     expect(credentialLooksWellFormed(token({ iss: "benzo:test", sub: "alice", exp: past }))).toBe(false);
     expect(credentialLooksWellFormed(token({ iss: "benzo:test", sub: "alice", exp: future }))).toBe(true);
     expect(credentialLooksWellFormed(token({ iss: "benzo:test", aud: "benzo:wallet", sub: "alice", exp: future }, "benzo-test-v1"))).toBe(true);
+    expect(credentialLooksWellFormed(token({ iss: "benzo:device", aud: "benzo:wallet", sub: "GABC", exp: future }, "benzo-device-v1"))).toBe(true);
     expect(credentialLooksWellFormed(token({ iss: "https://accounts.google.com", aud: "client", sub: "google-sub", exp: future }, "header"))).toBe(true);
   });
 });

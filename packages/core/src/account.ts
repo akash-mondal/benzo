@@ -116,6 +116,26 @@ export function accountFromSignedMessage(signature: Uint8Array, label = "wallet"
   return createAccount({ label, spendSk, mvkSecret, viewSecret, stellarSecret });
 }
 
+function messageBytes(message: Uint8Array | string): Uint8Array {
+  return typeof message === "string" ? new TextEncoder().encode(message) : message;
+}
+
+/** Sign a short protocol challenge with the account's Stellar edge key. */
+export function signWithStellarSecret(stellarSecret: string, message: Uint8Array | string): Uint8Array {
+  const seed = new Uint8Array(StellarStrKey.decodeEd25519SecretSeed(stellarSecret));
+  return ed25519.sign(messageBytes(message), seed);
+}
+
+/** Verify a Stellar edge-key signature without needing Horizon/RPC. */
+export function verifyStellarSignature(stellarAddress: string, message: Uint8Array | string, signature: Uint8Array): boolean {
+  try {
+    const pub = new Uint8Array(StellarStrKey.decodeEd25519PublicKey(stellarAddress));
+    return ed25519.verify(signature, messageBytes(message), pub);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Deterministic serverless testnet account derivation. Vercel functions cannot
  * rely on a durable `~/.benzo/account.json`; deriving from the env-held testnet
