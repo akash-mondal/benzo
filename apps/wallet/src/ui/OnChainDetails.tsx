@@ -48,7 +48,6 @@ export function OnChainDetails({
   const [open, setOpen] = useState(false);
   if (!onChain) return null; // nothing real to point at
   const proverLabel = "Local prover";
-  const p = kind === "public" ? null : KIND_PROOF[kind];
 
   return (
     <div className="w-full rounded-2xl border border-hair bg-card/60" data-testid="onchain-details">
@@ -79,26 +78,41 @@ export function OnChainDetails({
                     This receipt is for a normal Stellar USDC payment. It is not a shielded transfer, so the recipient and amount are public on-chain.
                   </div>
                 </>
-              ) : (
-                <>
-                  <Row k="Proof" v={`Groth16 / BN254 · ${p.circuit}`} />
-                  <Row k="Verified on-chain" v={<span className="font-semibold text-pos">Yes · inside the pool contract</span>} />
-                  <Row k="What it proves" v={<span className="text-ink">{p.statement}</span>} />
-                  <Row k="Proven on" v={`${proverLabel}${provingMs ? ` · ${(provingMs / 1000).toFixed(2)}s` : ""}`} />
-                  {txHash ? <LinkRow k="Settlement tx" id={txHash} href={explorerTx(txHash)} /> : null}
-                  <LinkRow k="Pool contract" id={DEPLOYMENT.pool} href={explorerContract(DEPLOYMENT.pool)} />
-                  <LinkRow k="Groth16 verifier" id={DEPLOYMENT.verifier} href={explorerContract(DEPLOYMENT.verifier)} />
-                  <div className="pt-1 text-[11px] leading-snug text-muted">
-                    Everything here is public - yet your amount, balance and counterparty stay hidden. That is the zero-knowledge guarantee:
-                    the network verified the payment is valid without learning what it was.
-                  </div>
-                </>
-              )}
+              ) : <ShieldedProofRows kind={kind} proverLabel={proverLabel} provingMs={provingMs} txHash={txHash} />}
             </div>
           </motion.div>
         ) : null}
       </AnimatePresence>
     </div>
+  );
+}
+
+function ShieldedProofRows({
+  kind,
+  proverLabel,
+  provingMs,
+  txHash,
+}: {
+  kind: ZkOnChainKind;
+  proverLabel: string;
+  provingMs?: number;
+  txHash?: string;
+}) {
+  const p = KIND_PROOF[kind];
+  return (
+    <>
+      <Row k="Proof" v={`Groth16 / BN254 · ${p.circuit}`} />
+      <Row k="Verified on-chain" v={<span className="font-semibold text-pos">Yes · inside the pool contract</span>} />
+      <Row k="What it proves" v={<span className="text-ink">{p.statement}</span>} />
+      <Row k="Proven on" v={`${proverLabel}${provingMs ? ` · ${(provingMs / 1000).toFixed(2)}s` : ""}`} />
+      {txHash ? <LinkRow k="Settlement tx" id={txHash} href={explorerTx(txHash)} /> : null}
+      <LinkRow k="Pool contract" id={DEPLOYMENT.pool} href={explorerContract(DEPLOYMENT.pool)} />
+      <LinkRow k="Groth16 verifier" id={DEPLOYMENT.verifier} href={explorerContract(DEPLOYMENT.verifier)} />
+      <div className="pt-1 text-[11px] leading-snug text-muted">
+        Everything here is public - yet your amount, balance and counterparty stay hidden. That is the zero-knowledge guarantee:
+        the network verified the payment is valid without learning what it was.
+      </div>
+    </>
   );
 }
 
