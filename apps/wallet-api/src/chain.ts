@@ -320,7 +320,7 @@ export function getClient(prover: ProverKind = "local"): BenzoClient | null {
       handleRegistry: d.handleRegistry as string,
       requestRegistry: d.requestRegistry as string,
       store: coreStateStore(),
-      initialScanLookbackLedgers: Number(process.env.BENZO_WALLET_INITIAL_SCAN_LOOKBACK_LEDGERS ?? 1_000),
+      initialScanLookbackLedgers: Number(process.env.BENZO_WALLET_INITIAL_SCAN_LOOKBACK_LEDGERS ?? 0),
     });
     c.useAccount(loadWalletAccount());
     clients.set(key, c);

@@ -460,6 +460,25 @@ export class BenzoClient {
     throw new Error("ASP membership mirror is not synced to the on-chain root yet");
   }
 
+  /**
+   * Spending needs a complete pool mirror so old or non-latest notes can produce
+   * Merkle witnesses. Hosted read/shield paths may allow pool gaps and recover
+   * the latest leaf from storage, but private sends/unshields should first try a
+   * strict rebuild. If the deployment's early events really aged out, fall back
+   * to the latest-leaf storage path and fail closed for older notes.
+   */
+  private async syncForSpend(): Promise<void> {
+    try {
+      await this.sync({ allowAspMirrorGaps: true });
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (!/commitment leaf \d+ missing from events|pool tree mirror out of sync/i.test(msg)) {
+        throw e;
+      }
+      await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+    }
+  }
+
   // ----------------------------------------------------- persistence ------
 
   private stateLoaded = false;
@@ -1006,7 +1025,7 @@ export class BenzoClient {
   ): Promise<void> {
     try {
       handle._emit({ op: "send", status: "pending", detail: "selecting note" });
-      await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+      await this.syncForSpend();
       const assetId = await this.assetId();
 
       // Spend one covering note (+ a dummy), or two notes when no single note
@@ -1178,7 +1197,7 @@ export class BenzoClient {
     scope?: string; // disclosure scope to seal the change-note MVK ciphertext under
     mvkWitness?: AspMembershipWitness;
   }): Promise<{ txHash?: string; nullifier: bigint; provingMs: number; consolidationTxs?: string[]; sorobanPublics: string[] }> {
-    await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+    await this.syncForSpend();
     const assetId = await this.assetId();
     const scope = opts.scope ?? DISCLOSURE_SCOPE;
     let working = this.spendableNotes();
@@ -1986,7 +2005,7 @@ export class BenzoClient {
     mvkWitness?: AspMembershipWitness;
   }): Promise<{ txHash?: string; amount: bigint; sorobanPublics: string[] }> {
     this.useAccount(accountFromClaimSecret(opts.claimSecret));
-    await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true });
+    await this.syncForSpend();
     // withdraw is 1-input, so a claim account with several notes is claimed one
     // note at a time (a claim link usually holds a single note).
     let amount = 0n;
@@ -2000,7 +2019,7 @@ export class BenzoClient {
       amount += notes[0].note.amount;
       lastTx = wd.txHash;
       sorobanPublics.push(...wd.sorobanPublics);
-      await this.sync({ allowPoolMirrorGaps: true, allowAspMirrorGaps: true }); // refresh the spent-set before the next note
+      await this.syncForSpend(); // refresh the spent-set before the next note
     }
     if (amount === 0n) throw new Error("nothing to claim (already claimed or unfunded)");
     return { txHash: lastTx, amount, sorobanPublics };
