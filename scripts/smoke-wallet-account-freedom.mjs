@@ -162,7 +162,7 @@ const { kp: recipient, horizon } = await createRecipientTrustline();
 console.log(`[wallet-smoke] external recipient=${recipient.publicKey()}`);
 console.log(`[wallet-smoke] recipient initial USDC=${await recipientUsdc(horizon, recipient.publicKey())}`);
 
-const add = await api("/add-money", { method: "POST", body: { amount, prover: "tee" }, idem: `add-${run}` });
+const add = await api("/add-money", { method: "POST", body: { amount, prover: "local" }, idem: `add-${run}` });
 console.log(`[wallet-smoke] add-money tx=${add.txHash || "none"} ${explorer(add.txHash) || ""}`);
 const privateAfterAdd = await waitFor("private balance after add", async () => {
   const balance = await api("/balance");
@@ -179,7 +179,7 @@ if (!deleteWhileFunded.blockers?.includes("private_balance")) {
 }
 console.log(`[wallet-smoke] delete while funded refused blockers=${JSON.stringify(deleteWhileFunded.blockers)}`);
 
-const makePublic = await api("/make-public", { method: "POST", body: { amount, prover: "tee" }, idem: `make-public-${run}` });
+const makePublic = await api("/make-public", { method: "POST", body: { amount, prover: "local" }, idem: `make-public-${run}` });
 console.log(`[wallet-smoke] make-public tx=${makePublic.txHash || "none"} ${explorer(makePublic.txHash) || ""}`);
 const publicAfter = await waitFor("public balance after make-public", async () => {
   const balance = await api("/public-balance");

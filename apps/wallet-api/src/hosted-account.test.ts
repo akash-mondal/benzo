@@ -11,8 +11,6 @@ const ENV_KEYS = [
   "GOOGLE_CLIENT_ID",
   "BENZO_ACCOUNT_SALT",
   "RELAYER_SECRET",
-  "BENZO_PROVER_ENDPOINT",
-  "BENZO_PROVER_MEASUREMENT",
 ] as const;
 const originalEnv = new Map<string, string | undefined>(ENV_KEYS.map((k) => [k, process.env[k]]));
 
@@ -62,7 +60,7 @@ test("hosted wallet never derives a public user account from DEPLOYER_SECRET wit
 
   const { getClient } = await import("./chain.js");
 
-  expect(getClient("tee")).toBeNull();
+  expect(getClient("local")).toBeNull();
   expect(err).toHaveBeenCalledWith("[wallet-api] live client unavailable; refusing app data");
 });
 

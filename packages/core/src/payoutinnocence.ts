@@ -21,7 +21,7 @@ export interface SmtNonMembershipWitness {
 }
 
 export interface ProvePayoutInnocenceParams {
-  prover: ProverPort; // proving backend (Node / browser WASM / TEE)
+  prover: ProverPort; // local proving backend (Node / browser WASM)
   artifacts: CircuitArtifacts; // payout_innocence wasm + zkey
   note: Note; // the payout note { amount, recipientPk, blinding, assetId }
   denyRoot: bigint; // root of the sanctions/deny SMT (keyed by recipientPk)

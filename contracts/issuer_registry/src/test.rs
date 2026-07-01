@@ -65,18 +65,18 @@ fn unknown_root_is_rejected() {
 }
 
 #[test]
-fn pins_and_reads_attested_measurement() {
+fn pins_and_reads_issuer_build_id() {
     let (env, reg, _admin) = setup();
     assert_eq!(
-        reg.attested_measurement(),
+        reg.issuer_build_id(),
         U256::from_u32(&env, 0),
         "none pinned initially"
     );
     let m = U256::from_u32(&env, 0xABCD);
-    reg.set_attested_measurement(&m);
+    reg.set_issuer_build_id(&m);
     assert_eq!(
-        reg.attested_measurement(),
+        reg.issuer_build_id(),
         m,
-        "the pinned measurement is read back"
+        "the pinned build id is read back"
     );
 }

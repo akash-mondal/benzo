@@ -17,7 +17,7 @@ import { noteCommitment, type Note } from "./notes.js";
 import { toWitnessInput, type CircuitArtifacts, type ProveResult, type ProverPort } from "./prover.js";
 
 export interface ProveSpendingCapParams {
-  prover: ProverPort; // proving backend (Node / browser WASM / TEE)
+  prover: ProverPort; // local proving backend (Node / browser WASM)
   artifacts: CircuitArtifacts; // spending_cap wasm + zkey
   note: Note; // the payout note { amount, recipientPk, blinding, assetId }
   cap: bigint; // the approved per-payout ceiling (the policy limit)

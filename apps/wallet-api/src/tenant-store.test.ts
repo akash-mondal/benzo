@@ -63,7 +63,7 @@ test("hosted wallet UX, invites, and accounting state are encrypted and partitio
     appendWalletProofReceipt({
       action: "wallet.add-money",
       vkId: "SHIELD",
-      prover: "tee",
+      prover: "local",
       verified: true,
       txHash: "tx_shield",
       verifier: "verifier_contract",

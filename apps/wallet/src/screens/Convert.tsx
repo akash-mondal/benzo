@@ -38,18 +38,16 @@ export function convertQuickAmounts(sourceStroops: string): string[] {
 export function Convert() {
   const [sp] = useSearchParams();
   const nav = useNavigate();
-  const { balance, publicBalance, refresh, session } = useWallet();
+  const { balance, publicBalance, refresh } = useWallet();
   const [mode, setMode] = useState<Mode>(sp.get("mode") === "public" ? "public" : "private");
   const [amount, setAmount] = useState(() => sp.get("amount") ?? "");
   const [phase, setPhase] = useState<Phase>("form");
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<SettleResult | null>(null);
 
-  // The DEVICE decides the proving path. These shield/unshield operations still
-  // cross the API boundary, so they delegate to the attested enclave (TEE).
-  const teeAvailable = !!session?.prover.available.includes("tee");
-  const devicePlan = proverPlan(teeAvailable);
-  const plan = apiBoundaryProverPlan(devicePlan, teeAvailable);
+  // Local-only proving. API-mediated shield/unshield uses the local Benzo runtime.
+  const devicePlan = proverPlan();
+  const plan = apiBoundaryProverPlan(devicePlan);
 
   // Source = where the money comes FROM. Make private pulls from Public; make
   // public pulls from Private. We cap the entry to the source balance.
@@ -94,7 +92,7 @@ export function Convert() {
     setPhase("busy");
     setErr(null);
     try {
-      const apiProver = apiProverKind(plan.kind, teeAvailable);
+      const apiProver = apiProverKind(plan.kind);
       const r =
         mode === "private"
           ? await api.importDeposit(amount, apiProver) // shield Public → Private (BFF expects dollars, like makePublic)
@@ -165,7 +163,7 @@ export function Convert() {
         </div>
 
         <div className="mt-6 flex items-center gap-2 rounded-2xl border border-hair bg-card px-3.5 py-2.5 text-[12.5px] text-muted" data-testid="convert-prover-plan">
-          {plan.onDevice ? <Smartphone size={15} className="flex-none text-accent" /> : <ShieldCheck size={15} className="flex-none text-accent" />}
+          <Smartphone size={15} className="flex-none text-accent" />
           <span>{plan.reason}</span>
         </div>
 

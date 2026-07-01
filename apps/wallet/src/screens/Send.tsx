@@ -58,16 +58,15 @@ export function Send() {
   const [handleStatus, setHandleStatus] = useState<{ value: string; available: boolean | null; checking: boolean; error: boolean }>({ value: "", available: null, checking: false, error: false });
   const overCap = needsStepUp(Number(amount), session?.kycTier);
 
-  const teeAvailable = !!session?.prover.available.includes("tee");
-  // Proving path is chosen by the DEVICE, not a manual toggle: capable desktops
-  // prove on-device; phones + weak desktops delegate to the enclave (TEE).
-  const plan = useMemo(() => proverPlan(teeAvailable), [teeAvailable]);
+  // Proving path is local-only: capable desktops prove on-device; API-bound
+  // private sends use the local Benzo runtime.
+  const plan = useMemo(() => proverPlan(), []);
   const recipient = to.trim();
   const kind = useMemo(() => (recipient ? classifyRecipientInput(recipient) : null), [recipient]);
   const hostedPrivateSend = kind === "handle" && !!currentGoogleCredential();
   const effectivePrivatePlan = useMemo(
-    () => hostedPrivateSend ? apiBoundaryProverPlan(plan, teeAvailable) : plan,
-    [hostedPrivateSend, plan, teeAvailable],
+    () => hostedPrivateSend ? apiBoundaryProverPlan(plan) : plan,
+    [hostedPrivateSend, plan],
   );
   // Looks like a wallet address but the checksum doesn't add up - a typo'd key.
   // Surface this clearly instead of routing it to the "invite" flow or paying it.
@@ -159,7 +158,7 @@ export function Send() {
         return;
       }
       // "Send privately" - the @handle path: real 3-phase ZK ceremony.
-      await run(recipient, amount, memo || undefined, effectivePrivatePlan.kind, teeAvailable, requestId);
+      await run(recipient, amount, memo || undefined, effectivePrivatePlan.kind, false, requestId);
       void refresh();
     } finally {
       setFiring(false);

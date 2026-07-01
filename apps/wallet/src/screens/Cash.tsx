@@ -31,7 +31,7 @@ const toS = (a: string): string => BigInt(Math.max(0, Math.round(Number(a) * 1e7
 export function Cash() {
   const [sp] = useSearchParams();
   const nav = useNavigate();
-  const { refresh, session } = useWallet();
+  const { refresh } = useWallet();
   const [tab, setTab] = useState<Tab>(sp.get("tab") === "out" ? "out" : "in");
   const [amount, setAmount] = useState("");
   const [phase, setPhase] = useState<Phase>("form");
@@ -56,15 +56,10 @@ export function Cash() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
 
-  // The DEVICE decides the proving path: capable desktops prove on-device when a
-  // browser path exists; API-mediated ramp operations always use the TEE.
-  const teeAvailable = !!session?.prover.available.includes("tee");
-  const plan = proverPlan(teeAvailable);
-  const apiProver = apiProverKind(plan.kind, teeAvailable);
-  const rampProverReason =
-    apiProver === "tee"
-      ? "Ramp proof uses the attested secure enclave (TEE)"
-      : plan.reason;
+  // Local-only proving: ramp proofs use the local Benzo runtime.
+  const plan = proverPlan();
+  const apiProver = apiProverKind(plan.kind);
+  const rampProverReason = plan.onDevice ? plan.reason : "Ramp proof uses the local Benzo runtime.";
 
   const n = Number(amount);
   const max = tab === "in" ? MAX_IN : MAX_OUT;
@@ -136,7 +131,7 @@ export function Cash() {
 
             {tab === "out" ? (
               <div className="mt-6 flex items-center gap-2 rounded-2xl border border-hair bg-card px-3.5 py-2.5 text-[12.5px] text-muted" data-testid="cash-prover-plan">
-                {apiProver === "tee" ? <ShieldCheck size={15} className="flex-none text-accent" /> : <Smartphone size={15} className="flex-none text-accent" />}
+                <Smartphone size={15} className="flex-none text-accent" />
                 <span>{rampProverReason}</span>
               </div>
             ) : null}

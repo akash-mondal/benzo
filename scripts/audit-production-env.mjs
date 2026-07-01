@@ -17,11 +17,7 @@ const projects = [
       ["GOOGLE_CLIENT_ID"],
       ["RELAYER_SECRET"],
       ["SOROBAN_RPC_URL"],
-      ["BENZO_PROVER_ENDPOINT"],
-      ["BENZO_PROVER_MEASUREMENT"],
       ["VITE_GOOGLE_CLIENT_ID"],
-      ["VITE_BENZO_PROVER_ENDPOINT"],
-      ["VITE_BENZO_PROVER_MEASUREMENT"],
     ],
   },
   {
@@ -35,10 +31,6 @@ const projects = [
       ["GOOGLE_CLIENT_ID"],
       ["RELAYER_SECRET"],
       ["SOROBAN_RPC_URL"],
-      ["BENZO_PROVER_ENDPOINT"],
-      ["BENZO_PROVER_MEASUREMENT"],
-      ["VITE_BENZO_PROVER_ENDPOINT"],
-      ["VITE_BENZO_PROVER_MEASUREMENT"],
     ],
   },
 ];

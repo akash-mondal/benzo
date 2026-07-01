@@ -37,8 +37,8 @@ sudo ./deploy.sh
 
 Use the script rather than a plain `docker compose build`. The API containers use
 `env_file`, but the static wallet and console bundles also need build-time values
-for Google and enclave attestation. `deploy.sh` passes `/opt/benzo/.env` through
-Compose so runtime env and frontend build args stay in sync.
+for Google sign-in. `deploy.sh` passes `/opt/benzo/.env` through Compose so
+runtime env and frontend build args stay in sync.
 
 ## Product Conviction
 
@@ -128,7 +128,7 @@ verifier accepts the proof.
 
 ```mermaid
 flowchart LR
-  Witness["Private witness\nnotes, keys, amounts, paths"] --> Prover["Groth16 prover\nWASM or TEE"]
+  Witness["Private witness\nnotes, keys, amounts, paths"] --> Prover["Local Groth16 prover\nbrowser WASM or Node"]
   Prover --> Proof["proof + public inputs"]
   Proof --> Pool["Soroban pool method"]
   Pool --> Verifier["verifier_groth16"]
@@ -414,30 +414,31 @@ flowchart TD
 
 ## Proving Location
 
-Benzo uses local proving where practical and TEE proving where the device or
-surface makes local proving unsuitable.
+Benzo is local-only for proving. Wallet proofs use the browser/on-device WASM
+prover when the account is device-held. Hosted API and console proof work uses
+the local Node proving runtime inside the Benzo service. The product does not
+send private witnesses to outside proving services.
 
 | Surface | Proving path |
 |---|---|
 | Capable desktop wallet | Browser WASM prover |
-| Mobile wallet or weak device | Attested Phala dstack / Intel TDX prover |
-| Business console | Attested Phala dstack / Intel TDX prover |
-| Hosted ramp or convert flow | TEE by default |
+| Mobile wallet or weak device | Local-only; heavy proof actions fail clearly or ask for a capable device |
+| Business console | Local Node prover in the console runtime |
+| Hosted ramp or convert flow | Local Node prover in the hosted API runtime |
 
-The TEE path protects witness handling. It does not replace ZK soundness. The
-proof still verifies on-chain, and clients pin the enclave measurement before
-sealing witness data to the enclave key.
+The prover location never replaces ZK soundness. Proofs still verify on-chain.
+The local-only rule is about witness custody: private amounts, note keys, and
+business ledger facts are not sent to a third-party proving endpoint.
 
 ```mermaid
 flowchart TD
-  NeedProof["Need proof"] --> CanLocal{Local proving acceptable?}
-  CanLocal -->|yes| WASM["Browser WASM"]
-  CanLocal -->|no| Quote["Fetch TDX quote"]
-  Quote --> Pin["Check compose hash"]
-  Pin --> Seal["Seal witness to enclave key"]
-  Seal --> TEE["TEE prover"]
+  NeedProof["Need proof"] --> Surface{Where did action start?}
+  Surface -->|Wallet device-held account| WASM["Browser WASM prover"]
+  Surface -->|Hosted wallet API| NodeWallet["Wallet API Node prover"]
+  Surface -->|Console| NodeConsole["Console API Node prover"]
   WASM --> Proof["Groth16 proof"]
-  TEE --> Proof
+  NodeWallet --> Proof
+  NodeConsole --> Proof
   Proof --> Soroban["Soroban verification"]
 ```
 
@@ -540,7 +541,6 @@ Focused live checks:
 ```bash
 set -a; . ./.env; set +a
 node tests/e2e/m1-flow.mjs
-node tests/e2e/tee-onchain.mjs
 node tests/e2e/joinsplit-org-settle-onchain.mjs
 node tests/e2e/payroll-computation-onchain.mjs
 node tests/e2e/cross-netting-onchain.mjs
@@ -557,13 +557,12 @@ packages/core/              Headless SDK, note logic, scanner, prover ports
 packages/proving-artifacts/ Browser artifact manifest and cache helpers
 packages/proving-worker/    Browser worker proving adapter
 packages/private-events/    Encrypted audit envelopes
-services/prover-enclave/    Phala dstack / Intel TDX proving service
 apps/wallet/                Reference consumer wallet
 apps/console/               Reference business console
 apps/wallet-api/            Hosted wallet API
 apps/console-api/           Hosted console API
 tests/e2e/                  Live testnet protocol checks
-deployments/testnet.json    Live contract IDs, VK IDs, TEE config
+deployments/testnet.json    Live contract IDs and VK IDs
 ```
 
 ## Security Status

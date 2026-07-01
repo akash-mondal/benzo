@@ -7,8 +7,8 @@
  * twin of the vendored circomlib). `credType` carries the assurance TIER, so the
  * tier is authenticated and later bound on-chain by `admit_by_proof`.
  *
- * In production this runs inside the attested Phala enclave with the issuer key
- * sealed by dstack-kms — so the signing key never leaves the attested code.
+ * In production this signer must run behind tightly scoped key custody and audit
+ * controls. The issued credential is still checked in-circuit before admission.
  */
 import { hexToBytes } from "@noble/hashes/utils";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment

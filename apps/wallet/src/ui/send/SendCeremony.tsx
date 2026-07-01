@@ -24,7 +24,7 @@ export interface SendReceipt {
   txHash?: string;
   onChain: boolean;
   provingMs?: number;
-  prover: "local" | "tee";
+  prover: "local";
 }
 
 /** Network-aware tx explorer URL. Re-exported from the single source (OnChainDetails)

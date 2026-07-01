@@ -1,7 +1,7 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { afterEach, expect, test, vi } from "vitest";
 
-const ENV_KEYS = ["VERCEL", "DEPLOYER_SECRET", "BENZO_OPERATOR_ADMIN_SECRET", "BENZO_CONSOLE_ADMIN_SECRET", "SOROBAN_RPC_URL", "GOOGLE_CLIENT_ID", "BENZO_ACCOUNT_SALT", "RELAYER_SECRET", "BENZO_PRIVATE_EVENT_SECRET", "BENZO_PROVER_ENDPOINT", "BENZO_PROVER_MEASUREMENT"] as const;
+const ENV_KEYS = ["VERCEL", "DEPLOYER_SECRET", "BENZO_OPERATOR_ADMIN_SECRET", "BENZO_CONSOLE_ADMIN_SECRET", "SOROBAN_RPC_URL", "GOOGLE_CLIENT_ID", "BENZO_ACCOUNT_SALT", "RELAYER_SECRET", "BENZO_PRIVATE_EVENT_SECRET"] as const;
 const originalEnv = new Map<string, string | undefined>(ENV_KEYS.map((k) => [k, process.env[k]]));
 
 afterEach(() => {

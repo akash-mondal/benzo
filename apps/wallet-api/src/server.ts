@@ -111,18 +111,18 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   const raw = await rawBody(req);
   return (raw ? JSON.parse(raw) : {}) as T;
 }
-class HostedLocalProverError extends Error {
-  readonly code = "hosted_local_prover_disabled";
+class UnsupportedProverError extends Error {
+  readonly code = "unsupported_prover";
   constructor() {
-    super("Hosted wallet APIs cannot run local proving. Prove in the browser on desktop, or use the TEE.");
+    super("Only local proving is enabled for this build.");
   }
 }
 
-/** Read `prover` from query or body; hosted APIs can only delegate to the attested TEE. */
+/** Read `prover` from query or body; active builds only allow local proving. */
 export function proverOf(url: URL, body?: { prover?: string }): ProverKind {
-  const p = (url.searchParams.get("prover") || body?.prover || (hostedRuntime() ? "tee" : "local")).toLowerCase();
-  if (hostedRuntime() && p !== "tee") throw new HostedLocalProverError();
-  return p === "tee" ? "tee" : "local";
+  const p = (url.searchParams.get("prover") || body?.prover || "local").toLowerCase();
+  if (p !== "local") throw new UnsupportedProverError();
+  return "local";
 }
 
 /** Clean ramp error body — a RampError carries a user-safe message + code; any
@@ -485,7 +485,7 @@ route("POST", "/api/send", async (req, res, url) => {
       cors(res);
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
       res.write(`event: phase\ndata: ${JSON.stringify({ phase: "failed", error })}\n\n`);
-      res.write(`event: done\ndata: ${JSON.stringify({ status: "failed", prover: "tee", amount: "0", onChain: false, error })}\n\n`);
+      res.write(`event: done\ndata: ${JSON.stringify({ status: "failed", prover: "local", amount: "0", onChain: false, error })}\n\n`);
       res.end();
       return;
     }
@@ -823,7 +823,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
       logRouteError("post-response handler error", e);
       return;
     }
-    if (e instanceof HostedLocalProverError) {
+    if (e instanceof UnsupportedProverError) {
       return json(res, 400, { error: e.message, code: e.code });
     }
     if (e instanceof RecoveryRequiredError) {

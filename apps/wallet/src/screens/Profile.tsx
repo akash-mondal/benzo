@@ -19,7 +19,6 @@ export function Profile() {
   const nav = useNavigate();
   const { session, balance, publicBalance, hidden, toggleHidden } = useWallet();
   const live = session?.live;
-  const tee = session?.prover.tee;
   const rawHandle = session?.handle ?? session?.profile.handle ?? "@you";
   const displayHandle = rawHandle.startsWith("@") ? rawHandle : `@${rawHandle}`;
 
@@ -177,7 +176,7 @@ export function Profile() {
             <Row
               icon={<ShieldCheck size={18} />}
               label="Proofs run"
-              right={<span className="text-[13px] text-muted">{tee ? "On device or secure enclave" : "On this device"}</span>}
+              right={<span className="text-[13px] text-muted">Local only</span>}
             />
             <Row
               icon={<KeyRound size={18} />}

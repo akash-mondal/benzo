@@ -31,9 +31,8 @@ describe("send ceremony — phase mapping (slave to the machine)", () => {
     expect(ceremonyPhase("idle")).toBe("encrypt");
   });
 
-  it("the encrypt sub-line reflects the prover (device vs enclave)", () => {
-    expect(sendCeremonyView(at("proving"), { prover: "local" }).sub).toMatch(/this device/i);
-    expect(sendCeremonyView(at("proving"), { prover: "tee" }).sub).toMatch(/enclave/i);
+  it("the encrypt sub-line reflects local proving", () => {
+    expect(sendCeremonyView(at("proving"), { prover: "local" }).sub).toMatch(/local prover/i);
   });
 
   it("surfaces the error message on failure and marks failed", () => {

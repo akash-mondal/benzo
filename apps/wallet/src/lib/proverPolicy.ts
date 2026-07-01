@@ -1,21 +1,11 @@
 /**
- * Prover policy - WHERE a ZK proof gets generated, decided by the device.
+ * Prover policy - WHERE a ZK proof gets generated.
  *
- * On-device proving (snarkjs WasmProver) is single-threaded and heavy (a transfer
- * proof is ~tens of seconds, and the proving key is 20–25 MB). That is fine on a
- * capable laptop but punishing on a phone or a weak machine. So:
- *
- *   - phones / tablets / touch-first devices  → NEVER prove on-device. Delegate
- *     to the attested enclave (TEE). If no TEE is wired, fail closed instead of
- *     falling back to a server-local prover.
- *   - low-power desktops (few CPU cores / little RAM) → same: delegate.
- *   - capable desktops only → prove on-device (witness never leaves the browser).
- *
- * `delegatedProverKind` then picks the delegate: the attested TEE. No server
- * local-prover fallback is allowed for weak devices.
+ * Product direction is local-only proving. Capable desktops prove in-browser.
+ * API-mediated proof actions use the local runtime prover. Weak devices fail
+ * clearly instead of silently sending witness data to an outside service.
  */
 import type { ProverKind } from "./api";
-import { TEE_CONFIG } from "./network";
 
 export interface ProverPlan {
   onDevice: boolean;
@@ -42,55 +32,41 @@ function isPowerfulDesktop(): boolean {
 }
 
 /**
- * True only when this device should grind the proof locally. Phones, tablets and
- * weak desktops return false → the caller must delegate (TEE / server).
+ * True only when this device should grind a browser-local proof.
  */
 export function preferDeviceProving(): boolean {
-  if (isTouchFirst()) return false; // mobile/tablet → always delegate
-  return isPowerfulDesktop(); // desktop → only if it has the cores/RAM
+  if (isTouchFirst()) return false;
+  return isPowerfulDesktop();
 }
 
-/** Which delegate to use when we're NOT proving on-device: always the TEE. */
-export function delegatedProverKind(teeAvailable: boolean): ProverKind {
-  if (teeAvailable || TEE_CONFIG) return "tee";
-  throw new Error("No attested TEE prover is configured for this build.");
+/** Local-only builds have no remote delegate. */
+export function delegatedProverKind(_available = false): ProverKind {
+  return "local";
 }
 
 /**
- * Any proof that crosses the wallet API boundary must be delegated to the TEE.
- * "local" means browser-local only; Vercel/serverless must never become the
- * machine grinding user witnesses.
+ * API-bound proof calls remain local-only; the API runtime must use the same
+ * local prover configuration as the hosted/VPS runtime.
  */
-export function apiProverKind(kind: ProverKind, teeAvailable = false): ProverKind {
-  if (kind === "tee") return "tee";
-  return delegatedProverKind(teeAvailable);
+export function apiProverKind(_kind: ProverKind, _available = false): ProverKind {
+  return "local";
 }
 
 /** One-liner for UI copy / telemetry: how this device will prove. */
-export function proverPlan(teeAvailable: boolean): ProverPlan {
-  if (preferDeviceProving()) return { onDevice: true, kind: "local", reason: "Capable device - proving on-device, witness stays here" };
-  const kind = delegatedProverKind(teeAvailable);
+export function proverPlan(_available = false): ProverPlan {
+  if (preferDeviceProving()) {
+    return { onDevice: true, kind: "local", reason: "Local proof on this device. Witness stays here." };
+  }
   return {
     onDevice: false,
-    kind,
-    reason: "Low-power device - delegating to the attested secure enclave (TEE)",
+    kind: "local",
+    reason: "Local proof required. Use a capable desktop for heavy proof actions.",
   };
 }
 
 /**
- * UI copy for proofs that cross the wallet API boundary. Browser-local proving
- * is only true when the browser owns the whole proof+submit path; API-bound
- * actions delegate to the attested TEE so Vercel/serverless never handles a
- * user witness.
+ * UI copy for proofs that cross the wallet API boundary.
  */
-export function apiBoundaryProverPlan(plan: ProverPlan, teeAvailable = false): ProverPlan {
-  const kind = apiProverKind(plan.kind, teeAvailable);
-  if (kind === "tee") {
-    return {
-      onDevice: false,
-      kind,
-      reason: "Proof runs in the attested secure enclave (TEE); Vercel never proves with your witness",
-    };
-  }
-  return { ...plan, kind };
+export function apiBoundaryProverPlan(plan: ProverPlan, _available = false): ProverPlan {
+  return { ...plan, kind: "local", reason: plan.onDevice ? plan.reason : "Proof runs on the local Benzo runtime." };
 }

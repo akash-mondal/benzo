@@ -2,14 +2,13 @@
  * Business onboarding (P0-B1) - the "same caliber as consumer" front door for the
  * console: sign-in / local workspace unlock → a resumable KYB wizard → register
  * the org's treasury keys on-chain → land in the workspace. On testnet the KYB
- * decision is issuer-signed and recorded on-chain; spend/proof actions use TEE
- * proving, not a browser-local console prover.
+ * decision is issuer-signed and recorded on-chain; spend/proof actions use the
+ * local proving runtime.
  */
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { BadgeCheck, Building2, Check, FileCheck2, Landmark, Loader2, ScanSearch, ShieldCheck, Sparkles, Users, Wallet } from "lucide-react";
 import { api, currentGoogleCredential, storeGoogleCredential, type OnboardingDraft } from "../lib/api";
-import { attestAuthEnclave, authEnclaveEndpoint, type EnclaveAttestation } from "../lib/attest";
 import { friendlyError } from "../lib/format";
 import { Logo } from "../ui/Logo";
 import { StageVideo } from "../ui/StageVideo";
@@ -42,8 +41,9 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
 // button: the browser gets a genuine Google ID token (JWT), the BFF verifies its
 // RS256 signature against Google's JWKs (see google-oidc.ts), and the Benzo account
 // is derived from the verified `sub` (accountFromOidc) - the Sui-zkLogin model
-// (Phase 1; the in-circuit JWT proof is Phase 2). When no client
-// id is set, the console uses a local workspace unlock instead of pretending another provider is enabled.
+// (Phase 1; the in-circuit JWT proof is Phase 2). When no client id is set, the
+// console uses a local workspace unlock instead of pretending another provider
+// is enabled.
 declare global {
   interface Window { google?: any }
 }
@@ -56,7 +56,6 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [clientId, setClientId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [attest, setAttest] = useState<EnclaveAttestation | null>(null);
   const [hasStoredCredential, setHasStoredCredential] = useState(() => !!currentGoogleCredential());
   const [showLocalVerification] = useState(() => isLocalVerificationUi());
   const gbtn = useRef<HTMLDivElement>(null);
@@ -65,16 +64,13 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
     setHasStoredCredential(!!currentGoogleCredential());
   }, []);
 
-  // Load real Google Identity Services if the BFF/enclave has a client id configured.
+  // Load real Google Identity Services if the BFF has a client id configured.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const cfg = await api.authConfig().catch(() => ({ googleClientId: null }) as { googleClientId: string | null });
       if (cancelled || !cfg.googleClientId) return;
       setClientId(cfg.googleClientId);
-      // Attest the TDX enclave that verifies the Google token, BEFORE trusting any
-      // verdict - this is what makes the hosted sign-in TEE-attested, not a plain server.
-      if (authEnclaveEndpoint()) attestAuthEnclave().then((a) => { if (!cancelled) setAttest(a); });
       const init = () => {
         const g = window.google?.accounts?.id;
         if (!g || !gbtn.current) return;
@@ -82,14 +78,7 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
           client_id: cfg.googleClientId,
           callback: async (resp: { credential: string }) => {
             setBusy("google");
-            // Fail closed: if a measurement is pinned and attestation didn't pass, refuse.
-            const a = await attestAuthEnclave();
-            if (a.pinned && !a.attested) { setErr(`Enclave attestation failed - ${a.reason}`); setBusy(null); return; }
             const v = await api.googleVerify(resp.credential).catch((e) => ({ verified: false, error: (e as Error).message }) as Awaited<ReturnType<typeof api.googleVerify>>);
-            // Bind the verdict to the attested instance (encPub must match the attested key).
-            if (v.verified && a.attested && a.enclavePublicKey && v.encPub && v.encPub !== a.enclavePublicKey) {
-              setErr("sign-in verdict did not come from the attested enclave"); setBusy(null); return;
-            }
             if (v.verified) {
               storeGoogleCredential(resp.credential);
               onAuthed();
@@ -171,21 +160,6 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
               Use local verification account
             </Button>
           ) : null}
-          {clientId && authEnclaveEndpoint() ? (
-            <div
-              className="rounded-[8px] border px-2.5 py-1.5 text-left text-[11px] leading-snug text-muted"
-              style={{ borderColor: attest?.attested ? "rgba(16,150,90,0.35)" : attest?.pinned ? "rgba(200,60,60,0.35)" : "var(--color-border)" }}
-              data-testid="auth-attestation"
-            >
-              {attest == null
-                ? "Attesting the TDX enclave…"
-                : attest.attested
-                  ? `🛡 Verified inside an attested Intel TDX enclave · ${attest.measurement?.slice(0, 10)}…`
-                  : attest.pinned
-                    ? `⚠ Enclave attestation failed - ${attest.reason}`
-                    : `Enclave-backed (TDX)${attest.measurement ? " · " + attest.measurement.slice(0, 10) + "…" : ""} · measurement not pinned`}
-            </div>
-          ) : null}
           <a
             href="mailto:sales@benzo.app?subject=Benzo%20for%20Business%20%E2%80%94%20SSO%20setup"
             className="block w-full rounded-[10px] border border-border py-2.5 text-center text-[13px] font-medium text-muted transition hover:bg-[#f4f3ef]"
@@ -196,9 +170,7 @@ function AuthShell({ onAuthed }: { onAuthed: () => void }) {
         {err ? <p className="mt-3 text-[12px] text-danger">{err}</p> : null}
         <p className="mt-5 text-[11.5px] text-muted">
           {clientId
-            ? authEnclaveEndpoint()
-              ? "Real Google sign-in: the JWT is verified (RS256 vs Google's keys) inside an attested Intel TDX enclave you can check, and your account is derived from it on this device - your Google identity never goes on-chain. (Attested-server integrity, not a ZK proof.)"
-              : "Real Google sign-in (zkLogin Phase 1): the JWT is verified server-side against Google's keys, and your account is derived from it on this device - your Google identity never goes on-chain."
+            ? "Real Google sign-in: the JWT is verified server-side against Google's keys, and your account is derived from it on this device - your Google identity never goes on-chain."
             : "Local testnet workspace unlock. Your treasury keys are generated on this device in the next step, and spends/proofs are enforced by the on-chain privacy protocol."}
         </p>
       </Card>

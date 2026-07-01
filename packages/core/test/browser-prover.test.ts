@@ -1,13 +1,12 @@
 /**
- * Device-aware browser prover routing: a capable desktop proves on-device (WASM);
- * any mobile / no-WASM / under-powered device routes to the attested TEE.
+ * Device-aware browser prover hints: all browser proving stays local. Weak
+ * devices return a capability warning, but the prover selector never delegates.
  */
 import { describe, it, expect } from "vitest";
-import { canProveOnDevice, pickBrowserProver } from "../src/attestation-web.js";
+import { canProveOnDevice, pickBrowserProver } from "../src/browser-prover.js";
 
-const tee = { endpoint: "https://enclave.example", measurement: "0".repeat(64) };
 const pick = (device: Parameters<typeof canProveOnDevice>[0]) =>
-  pickBrowserProver({ mode: "auto", device, tee }).name;
+  pickBrowserProver({ device }).name;
 
 describe("canProveOnDevice (capability gate)", () => {
   it("capable desktop → on-device", () => {
@@ -16,25 +15,23 @@ describe("canProveOnDevice (capability gate)", () => {
   it("desktop with cores/mem unknown but not mobile → on-device (optimistic)", () => {
     expect(canProveOnDevice({ isMobile: false })).toBe(true);
   });
-  it("any mobile → TEE", () => {
+  it("any mobile is not considered heavy-proving capable", () => {
     expect(canProveOnDevice({ isMobile: true, cores: 8, memoryGB: 16 })).toBe(false);
   });
-  it("WASM unsupported → TEE", () => {
+  it("WASM unsupported is not considered heavy-proving capable", () => {
     expect(canProveOnDevice({ isMobile: false, hasWasm: false, cores: 8 })).toBe(false);
   });
-  it("too few cores → TEE", () => {
+  it("too few cores is not considered heavy-proving capable", () => {
     expect(canProveOnDevice({ isMobile: false, cores: 2 })).toBe(false);
   });
-  it("too little RAM → TEE", () => {
+  it("too little RAM is not considered heavy-proving capable", () => {
     expect(canProveOnDevice({ isMobile: false, cores: 8, memoryGB: 4 })).toBe(false);
   });
 });
 
 describe("pickBrowserProver", () => {
-  it("auto: strong desktop → wasm", () => expect(pick({ isMobile: false, cores: 8, memoryGB: 16, hasWasm: true })).toBe("wasm"));
-  it("auto: mobile → phala (TEE)", () => expect(pick({ isMobile: true })).toBe("phala"));
-  it("auto: weak desktop → phala (TEE)", () => expect(pick({ isMobile: false, cores: 2 })).toBe("phala"));
-  it("auto: no-WASM desktop → phala (TEE)", () => expect(pick({ isMobile: false, hasWasm: false })).toBe("phala"));
-  it("mode tee always → phala", () => expect(pickBrowserProver({ mode: "tee", tee }).name).toBe("phala"));
-  it("mode on-device always → wasm", () => expect(pickBrowserProver({ mode: "on-device", tee }).name).toBe("wasm"));
+  it("strong desktop uses wasm", () => expect(pick({ isMobile: false, cores: 8, memoryGB: 16, hasWasm: true })).toBe("wasm"));
+  it("mobile still uses local wasm", () => expect(pick({ isMobile: true })).toBe("wasm"));
+  it("weak desktop still uses local wasm", () => expect(pick({ isMobile: false, cores: 2 })).toBe("wasm"));
+  it("explicit local mode uses wasm", () => expect(pickBrowserProver({ mode: "local" }).name).toBe("wasm"));
 });

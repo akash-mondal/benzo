@@ -68,7 +68,7 @@ async function wireMvk(c) {
 }
 
 log("=== Console-layer confidential payroll (BenzoClient.orgPayroll, M-of-N) ===");
-log(`pool=${dep.pool}  (JSPLITORG = TEE-rotated VK)`);
+log(`pool=${dep.pool}  (JSPLITORG canonical VK)`);
 
 // --- the org (employer) -------------------------------------------------
 const org = makeClient();

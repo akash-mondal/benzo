@@ -763,7 +763,7 @@ route("GET", "/api/live", (_req, res) => json(res, 200, appLiveStatus()));
 
 // Stateless console actions for the privacy-first UI. Mutable business objects
 // live encrypted in the browser; the BFF only receives the minimum witness data
-// required to prove/sign in the TEE and submit to testnet.
+// required to prove locally and submit to testnet.
 route("POST", "/api/settlements/payment", async (req, res) => {
   const body = await readJson<{ amount?: { amount?: string }; toHandle?: string }>(req);
   const r = await payOne(body.toHandle, String(body.amount?.amount ?? "0"));

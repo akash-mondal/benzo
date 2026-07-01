@@ -69,37 +69,37 @@ describe("proverPolicy - where the proof runs", () => {
     });
   });
 
-  it("delegate uses the attested enclave (TEE) from session or deployment config", () => {
-    expect(delegatedProverKind(true)).toBe("tee");
-    expect(delegatedProverKind(false)).toBe("tee");
+  it("delegate selection stays local because outside proving is disabled", () => {
+    expect(delegatedProverKind(true)).toBe("local");
+    expect(delegatedProverKind(false)).toBe("local");
   });
 
-  it("API boundary converts browser-local plans to TEE", () => {
-    expect(apiProverKind("local", true)).toBe("tee");
-    expect(apiProverKind("local", false)).toBe("tee");
-    expect(apiProverKind("tee", false)).toBe("tee");
+  it("API boundary keeps proof requests on the local prover", () => {
+    expect(apiProverKind("local", true)).toBe("local");
+    expect(apiProverKind("local", false)).toBe("local");
   });
 
-  it("API-bound UI copy says TEE when a desktop-local plan crosses the API boundary", () => {
-    const plan = { onDevice: true, kind: "local" as const, reason: "Capable device - proving on-device, witness stays here" };
+  it("API-bound UI copy says local runtime when a weak-device plan crosses the API boundary", () => {
+    const plan = { onDevice: false, kind: "local" as const, reason: "Local proof required. Use a capable desktop for heavy proof actions." };
     const apiPlan = apiBoundaryProverPlan(plan, true);
-    expect(apiPlan).toMatchObject({ onDevice: false, kind: "tee" });
-    expect(apiPlan.reason).toContain("attested secure enclave");
+    expect(apiPlan).toMatchObject({ onDevice: false, kind: "local" });
+    expect(apiPlan.reason).toContain("local Benzo runtime");
   });
 
-  it("proverPlan: phone + TEE wired → delegate to TEE", () => {
+  it("proverPlan: phone still stays local-only and asks for capable desktop/runtime", () => {
     asDevice({ ua: "Mozilla/5.0 (iPhone)", coarse: true, touch: 5 }, () => {
       const plan = proverPlan(true);
       expect(plan.onDevice).toBe(false);
-      expect(plan.kind).toBe("tee");
+      expect(plan.kind).toBe("local");
+      expect(plan.reason).toContain("Local proof required");
     });
   });
 
-  it("proverPlan: phone + deployment TEE → delegate to TEE", () => {
+  it("proverPlan: phone without outside proving also stays local-only", () => {
     asDevice({ ua: "Mozilla/5.0 (iPhone)", coarse: true, touch: 5 }, () => {
       const plan = proverPlan(false);
       expect(plan.onDevice).toBe(false);
-      expect(plan.kind).toBe("tee");
+      expect(plan.kind).toBe("local");
     });
   });
 

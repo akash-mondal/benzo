@@ -129,9 +129,9 @@ test("mints local verification auth only for localhost when explicitly enabled",
   delete process.env.BENZO_LOCAL_UI_TEST_AUTH;
 });
 
-test("rejects hosted local prover requests before they can run on the API host", () => {
-  expect(() => proverOf(new URL("http://localhost/api/send?prover=local"))).toThrow(
-    "Hosted wallet APIs cannot run local proving",
+test("accepts only local prover requests", () => {
+  expect(proverOf(new URL("http://localhost/api/send?prover=local"))).toBe("local");
+  expect(() => proverOf(new URL("http://localhost/api/send?prover=remote"))).toThrow(
+    "Only local proving is enabled",
   );
-  expect(proverOf(new URL("http://localhost/api/send?prover=tee"))).toBe("tee");
 });

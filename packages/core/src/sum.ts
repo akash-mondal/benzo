@@ -32,7 +32,7 @@ export interface SumNote {
 }
 
 export interface ProveSumParams {
-  prover: ProverPort; // proving backend (Node / browser WASM / delegated)
+  prover: ProverPort; // local proving backend (Node / browser WASM)
   artifacts: CircuitArtifacts; // proof_of_sum wasm + zkey
   spendSk: bigint; // owner of all the notes (root orgSpendId)
   assetId: bigint;

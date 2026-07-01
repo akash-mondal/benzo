@@ -6,7 +6,7 @@
  * Collapsed by default ("Advanced · on-chain details"); one tap reveals the real
  * facts behind the abstracted UI: the settlement tx (Stellar Expert link), the
  * verifier + pool contract ids, what the ZK proof proved, where it was generated
- * (this device vs the attested TEE) and how long it took, and the privacy
+ * locally and how long it took, and the privacy
  * invariant in technical terms. Everything here is PUBLIC chain data - never a
  * secret - which is exactly the point: privacy holds even though the proof is
  * publicly checkable.
@@ -40,14 +40,14 @@ export function OnChainDetails({
   kind = "transfer",
 }: {
   txHash?: string;
-  prover?: "local" | "tee";
+  prover?: "local";
   provingMs?: number;
   onChain?: boolean;
   kind?: OnChainKind;
 }) {
   const [open, setOpen] = useState(false);
   if (!onChain) return null; // nothing real to point at
-  const proverLabel = prover === "tee" ? "Secure enclave (Phala TEE, attested)" : "This device (in-browser)";
+  const proverLabel = "Local prover";
   const p = kind === "public" ? null : KIND_PROOF[kind];
 
   return (

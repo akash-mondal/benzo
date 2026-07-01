@@ -1,17 +1,7 @@
 /**
- * `pickProver` — decide whether a given circuit proves ON-DEVICE (WasmProver)
- * or via a DELEGATED witness-hiding prover (PhalaProver, RA-TLS).
- *
- * The policy encodes the senior design stance:
- *   - On-device is the ZERO-TRUST DEFAULT. A capable device (desktop / strong
- *     phone) always proves locally — the witness never leaves.
- *   - Delegation is a CONFIDENTIALITY fallback for weak devices, used only when
- *     local proving is impractical: a "heavy" circuit (passport register,
- *     joinsplit) or an oversized artifact. Even then soundness is unchanged
- *     (Groth16); delegation only moves *where* the witness is sealed (the TEE).
- *
- * So a TEE outage can only ever degrade UX (fall back to on-device or fail
- * closed), never soundness — which is the invariant we never cross.
+ * `pickProver` — local-only proving policy for browser/runtime artifact routing.
+ * The selector never sends a witness outside the local runtime. Weak devices are a
+ * UX and capability problem, not a reason to move private witness data elsewhere.
  */
 
 export interface DeviceProfile {
@@ -22,32 +12,16 @@ export interface DeviceProfile {
   cores?: number;
 }
 
-export type ProverChoice = "wasm" | "delegated";
+export type ProverChoice = "wasm";
 
 export interface RoutePolicy {
-  /**
-   * Route EVERYTHING to the delegated (attested TEE) prover. This is Benzo's
-   * default: all proving + signing run in the Phala enclave, so clients never
-   * download a zkey and the witness is sealed to the attested enclave (RA-TLS).
-   * Soundness is unaffected — proofs are still verified on-chain — so a TEE
-   * compromise can never mint or double-spend; it only ever touches witness
-   * confidentiality / the keys the enclave holds.
-   */
-  teeOnly?: boolean;
   /** Force on-device proving (witness never leaves the device). */
   onDeviceOnly?: boolean;
-  /** circuits too heavy to prove on-device on a weak device (only used when !teeOnly) */
+  /** Circuits treated as heavy by UX. They still use local proving. */
   heavyCircuits: string[];
-  /** zkey byte ceiling above which a weak device delegates (only used when !teeOnly) */
+  /** zkey byte ceiling used for warnings. Proving still stays local. */
   maxOnDeviceBytes: number;
 }
-
-/** Benzo default: all proving in the attested TEE. */
-export const TEE_ONLY_POLICY: RoutePolicy = {
-  teeOnly: true,
-  heavyCircuits: [],
-  maxOnDeviceBytes: 0,
-};
 
 /** Force on-device proving (the user's witness never leaves their device). */
 export const ON_DEVICE_POLICY: RoutePolicy = {
@@ -57,30 +31,24 @@ export const ON_DEVICE_POLICY: RoutePolicy = {
 };
 
 /**
- * The user's proving preference. Benzo lets each user choose where their witness
- * is processed:
- *   - "tee"       → always the attested Phala enclave (zero local download; the
- *                   witness is sealed to the enclave; convenience + weak devices).
- *   - "on-device" → always local WasmProver (witness never leaves the device;
- *                   maximal privacy; requires the one-time artifact download).
- *   - "auto"      → on-device when the device can handle it, TEE for heavy/weak.
- * Soundness is identical in all three (proofs verified on-chain); only WHERE the
- * witness is handled differs.
+ * The user's proving preference. The accepted values are intentionally local
+ * aliases for backward-compatible UI plumbing. Every mode resolves to local.
  */
-export type ProvingMode = "tee" | "on-device" | "auto";
+export type ProvingMode = "on-device" | "local" | "auto";
 
 export function policyForMode(mode: ProvingMode): RoutePolicy {
   switch (mode) {
-    case "on-device":
-      return ON_DEVICE_POLICY;
     case "auto":
       return HYBRID_POLICY;
+    case "on-device":
+    case "local":
+      return ON_DEVICE_POLICY;
     default:
-      return TEE_ONLY_POLICY;
+      return ON_DEVICE_POLICY;
   }
 }
 
-/** Hybrid policy (kept for environments that opt into on-device proving). */
+/** Hybrid policy keeps heavy-circuit metadata for warnings, not delegation. */
 export const HYBRID_POLICY: RoutePolicy = {
   heavyCircuits: [
     "joinsplit",
@@ -93,8 +61,8 @@ export const HYBRID_POLICY: RoutePolicy = {
   maxOnDeviceBytes: 30 * 1024 * 1024, // 30 MB
 };
 
-/** Default policy = TEE-only (per the trusted-TEE architecture decision). */
-export const DEFAULT_POLICY: RoutePolicy = TEE_ONLY_POLICY;
+/** Default policy = local-only. */
+export const DEFAULT_POLICY: RoutePolicy = ON_DEVICE_POLICY;
 
 /** A device is "weak" if mobile, low-memory, or low-core. */
 export function isWeakDevice(d: DeviceProfile): boolean {
@@ -106,22 +74,13 @@ export function isWeakDevice(d: DeviceProfile): boolean {
 }
 
 /**
- * Pick the prover for `circuit` (whose zkey is `sizeBytes`) on `device`.
- * Strong device → always on-device. Weak device → delegate heavy/oversized
- * circuits, prove the rest locally.
+ * Pick the prover for `circuit` on `device`. It always returns local WASM.
  */
 export function pickProver(
-  circuit: string,
-  sizeBytes: number,
-  device: DeviceProfile,
-  policy: RoutePolicy = DEFAULT_POLICY,
+  _circuit: string,
+  _sizeBytes: number,
+  _device: DeviceProfile,
+  _policy: RoutePolicy = DEFAULT_POLICY,
 ): ProverChoice {
-  if (policy.teeOnly) return "delegated"; // user chose TEE — all proving in the enclave
-  if (policy.onDeviceOnly) return "wasm"; // user chose on-device — witness never leaves
-  if (!isWeakDevice(device)) return "wasm"; // (auto/hybrid) on-device for capable devices
-  if (policy.heavyCircuits.some((c) => circuit === c || circuit.startsWith(c))) {
-    return "delegated";
-  }
-  if (sizeBytes > policy.maxOnDeviceBytes) return "delegated";
   return "wasm";
 }

@@ -55,8 +55,6 @@ services:
       args:
         PACKAGE: "@benzo/console"
         APP_DIR: apps/console
-        VITE_BENZO_PROVER_ENDPOINT: "${BENZO_PROVER_ENDPOINT}"
-        VITE_BENZO_PROVER_MEASUREMENT: "${BENZO_PROVER_MEASUREMENT}"
     command: sh -c "cp -a /srv/. /out/ && tail -f /dev/null"
     volumes:
       - console-static:/out

@@ -2,7 +2,7 @@
  * FULL real-USDC org dual-control SETTLE on live testnet (not just verify_proof).
  *
  * Proves the in-circuit M-of-N org spend end-to-end on the live pool, with real
- * Circle testnet USDC, against the TEE-rotated JSPLITORG VK:
+ * Circle testnet USDC, against the canonical JSPLITORG VK:
  *
  *   1. SHIELD real USDC into an ORG note whose recipientPk = orgRecipientPk(
  *      memberRoot, threshold, akGroup) — a preimage no single key can satisfy.
@@ -43,7 +43,7 @@ const strInput = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k,
 
 const B = `${repo}/circuits/build/joinsplit_org`;
 const ORG_WASM = `${B}/joinsplit_org_js/joinsplit_org.wasm`;
-const ORG_ZKEY = `${B}/joinsplit_org.zkey`; // the TEE-rotated canonical proving key
+const ORG_ZKEY = `${B}/joinsplit_org.zkey`; // canonical proving key
 const POOL_DEPTH = dep.treeLevels, MVKL = 16, ML = 16;
 
 const eddsa = await buildEddsa();
@@ -84,7 +84,7 @@ const poolUsdc = async () => BigInt(await cli.view(dep.token, "benzo-deployer", 
 
 log("=== FULL real-USDC org dual-control settle (testnet) → pool.transfer_org ===");
 log(`pool=${dep.pool}`);
-log(`JSPLITORG VK = TEE-rotated (ceremony tx ${dep.ceremonies?.[0]?.rotateVkTx ?? "?"})`);
+log(`JSPLITORG VK = canonical (ceremony tx ${dep.ceremonies?.[0]?.rotateVkTx ?? "?"})`);
 
 const assetId = await client.assetId();
 
@@ -268,7 +268,7 @@ if (!(Number(afterExit) > Number(beforeExit))) { console.error("❌ exit account
 
 log(`\n✅ FULL real-USDC org dual-control round-trip, ON-CHAIN:`);
 log(`   • real USDC shielded into an ORG note (recipientPk = M-of-N preimage)`);
-log(`   • spent via pool.transfer_org under a 2-of-3 quorum (JSPLITORG, TEE-rotated VK) — settled`);
+log(`   • spent via pool.transfer_org under a 2-of-3 quorum (JSPLITORG canonical VK) — settled`);
 log(`   • org nullifier recorded + 2 outputs inserted (next_index +2)`);
 log(`   • one output WITHDRAWN to a public account — real USDC exited the pool`);
 log(`   ⇒ org funds moved only because ≥threshold members signed in-circuit. Not a server. Real money.`);

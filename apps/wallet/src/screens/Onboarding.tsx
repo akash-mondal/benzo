@@ -6,7 +6,7 @@
  * shows once.
  *
  * Testnet note: the passkey step proves on-device key custody for real; funded
- * operating flows use the live testnet BFF/TEE where delegated proving is needed.
+ * operating flows use local proving and fail clearly if that runtime is absent.
  */
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";

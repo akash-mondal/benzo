@@ -29,7 +29,7 @@ export interface OnChainRef {
   root?: string;
   /** named public inputs disclosed by the proof */
   publics?: Array<{ k: string; v: string }>;
-  /** TEE attestation compose-hash, when proven in the enclave */
+  /** Optional prover build/hash metadata, when a proof result includes it. */
   composeHash?: string;
 }
 
@@ -93,7 +93,7 @@ export function OnChainDetail({ refData, label = "View on-chain" }: { refData: O
                   {refData.network ? <Row k="Network" v={`Stellar ${net}`} /> : null}
                   {(refData.publics ?? []).map((p) => <Row key={p.k} k={p.k} v={p.v} />)}
                   {refData.root ? <Row k="Merkle root" v={formatAddress(refData.root, 8, 6)} mono /> : null}
-                  {refData.composeHash ? <Row k="TEE compose-hash" v={formatAddress(refData.composeHash, 8, 6)} mono /> : null}
+                  {refData.composeHash ? <Row k="Prover build hash" v={formatAddress(refData.composeHash, 8, 6)} mono /> : null}
                   {refData.verified && refData.verifier ? (
                     <Row k="Verifier contract" v={<a className="inline-flex items-center gap-1 text-primary hover:underline" href={explorerContractUrl(refData.verifier, net)} target="_blank" rel="noreferrer">{formatAddress(refData.verifier, 6, 4)} <ArrowUpRight size={11} /></a>} />
                   ) : null}

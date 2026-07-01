@@ -14,7 +14,7 @@ import type { PaymentPhase, PaymentState } from "./payment-state.js";
 
 export type CeremonyPhase = "encrypt" | "settle" | "verify" | "error";
 
-/** Minimum on-screen time per phase so a fast (e.g. TEE) proof never flashes. */
+/** Minimum on-screen time per phase so a fast local proof never flashes. */
 export const SEND_PHASE_FLOOR_MS: Record<Exclude<CeremonyPhase, "error">, number> = {
   encrypt: 1200,
   settle: 800,
@@ -57,13 +57,12 @@ export function ceremonyPhase(p: PaymentPhase): CeremonyPhase {
 }
 
 export interface CeremonyOpts {
-  prover?: "local" | "tee";
+  prover?: "local";
   reducedMotion?: boolean;
 }
 
 /** Project a payment state into everything the ceremony UI needs to render. */
 export function sendCeremonyView(state: PaymentState, opts: CeremonyOpts = {}): CeremonyView {
-  const prover = opts.prover ?? "local";
   const reducedMotion = opts.reducedMotion ?? false;
   const phase = ceremonyPhase(state.phase);
 
@@ -75,7 +74,7 @@ export function sendCeremonyView(state: PaymentState, opts: CeremonyOpts = {}): 
     case "encrypt":
       step = 0;
       title = "Encrypting your payment";
-      sub = prover === "tee" ? "Proving in a secure enclave" : "Proving privately on this device";
+      sub = "Proving privately with the local prover";
       floorMs = SEND_PHASE_FLOOR_MS.encrypt;
       break;
     case "settle":

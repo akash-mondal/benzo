@@ -67,7 +67,7 @@ beforeEach(() => {
       handleAvailable: vi.fn(async () => true),
       isLive: vi.fn(() => true),
       liveStatus: vi.fn(() => ({ live: true, mode: "live", missing: [] })),
-      proverInfo: vi.fn(() => ({ available: ["tee"], tee: { endpoint: "https://tee.example", measurement: "test" } })),
+      proverInfo: vi.fn(() => ({ available: ["local"], mode: "local", location: "local" })),
       send: vi.fn(),
       classifyRecipient: vi.fn(() => "handle"),
       shareProof: vi.fn(),

@@ -2,14 +2,13 @@
  * Share proof of balance - pick a threshold, generate a zero-knowledge proof that
  * you hold at least that much (never the exact amount), and get the "Provable"
  * badge. The proof is a real Groth16 attestation that verifies on-chain when
- * live; the proving path is decided by the device (this device / secure enclave).
+ * live; the proving path is local-only.
  */
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ShieldCheck, Smartphone } from "lucide-react";
 import { api } from "../lib/api";
 import { apiProverKind, proverPlan } from "../lib/proverPolicy";
-import { useWallet } from "../lib/store";
 import { verifyBalanceProofOnChain } from "../lib/chain";
 import { proveBalanceClientSide } from "../lib/benzoClient";
 import { fmtUsd, usdcToStroops } from "../lib/format";
@@ -21,17 +20,15 @@ import { ProvableChip } from "../ui/privacy";
 type Phase = "form" | "busy" | "done";
 
 export function ShareProof() {
-  const { session } = useWallet();
   const [min, setMin] = useState("100");
   const [phase, setPhase] = useState<Phase>("form");
   const [err, setErr] = useState<string | null>(null);
   const [onChain, setOnChain] = useState(false);
   const [selfVerified, setSelfVerified] = useState(false);
   const [onDevice, setOnDevice] = useState(false);
-  const teeAvailable = !!session?.prover.available.includes("tee");
-  // The DEVICE decides where the proof runs: capable desktops prove on-device;
-  // phones + weak desktops delegate to the enclave (TEE), never grinding locally.
-  const plan = proverPlan(teeAvailable);
+  // Local-only proving: capable desktops prove in-browser; otherwise the local
+  // runtime endpoint must generate the proof. No outside prover fallback.
+  const plan = proverPlan();
   const valid = Number(min) > 0;
 
   async function generate() {
@@ -40,10 +37,9 @@ export function ShareProof() {
     setSelfVerified(false);
     setOnDevice(false);
     try {
-      // CAPABLE DESKTOPS ONLY: generate the proof on THIS DEVICE (WasmProver - the
-      // witness/notes never leave the browser) and verify it on-chain ourselves,
-      // no BFF in the loop. Phones + weak desktops skip this (plan.onDevice=false)
-      // and delegate to the enclave so a weak device never grinds.
+      // CAPABLE DESKTOPS ONLY: generate the proof on THIS DEVICE (WasmProver).
+      // The witness/notes never leave the browser and the proof is verified
+      // on-chain locally.
       if (plan.onDevice) {
         const cs = await proveBalanceClientSide(usdcToStroops(min).toString());
         if (cs) {
@@ -53,12 +49,8 @@ export function ShareProof() {
           setPhase("done");
           return;
         }
-        // Hosted Google accounts may be signed in on a capable desktop before
-        // local passkey proof material exists. In that case, keep the UX usable
-        // by delegating to the attested TEE instead of dead-ending the action.
-        if (!teeAvailable) throw new Error("Set up a passkey on this device to prove locally.");
       }
-      const r = await api.shareProof(min, apiProverKind(plan.kind, teeAvailable));
+      const r = await api.shareProof(min, apiProverKind(plan.kind));
       setOnChain(r.onChain);
       setPhase("done");
       // Trustless step: this device re-verifies the BFF-made proof on-chain itself.
@@ -71,8 +63,8 @@ export function ShareProof() {
       }
     } catch (e) {
       const msg = (e as Error).message ?? "";
-      setErr(/phala prover failed|HTTP 400|proof_of_balance/i.test(msg)
-        ? "Balance proofs in the secure enclave are not available on this testnet build yet. Use a capable desktop to prove on-device."
+      setErr(/proof_of_balance/i.test(msg)
+        ? "Balance proofs are not available in this local build yet. Use a capable desktop or try again after local proof artifacts finish loading."
         : msg);
       setPhase("form");
     }

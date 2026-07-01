@@ -1,8 +1,8 @@
 /**
  * @benzo/proving-artifacts — client-side proving-artifact delivery: a
- * cache-once manifest + integrity-checked fetch + the on-device-vs-delegated
+ * cache-once manifest + integrity-checked fetch + the local-only
  * routing policy. Turns the "huge zkey download" problem into a one-time
- * background prefetch (or zero download via the TEE delegate).
+ * background prefetch.
  */
 export * from "./manifest.js";
 export * from "./cache.js";

@@ -43,7 +43,7 @@ const circuits = Object.fromEntries(
     zkeyPath: `${repo}/circuits/build/${c}/${c}.zkey`,
   }]),
 );
-// the M-of-N org circuit (TEE-rotated canonical proving key)
+// the M-of-N org circuit (canonical proving key)
 circuits.joinsplitOrg = {
   wasmPath: `${repo}/circuits/build/joinsplit_org/joinsplit_org_js/joinsplit_org.wasm`,
   zkeyPath: `${repo}/circuits/build/joinsplit_org/joinsplit_org.zkey`,
@@ -65,7 +65,7 @@ async function usdcBalance(account) {
 }
 
 log("=== Confidential PAYROLL via SDK transferOrg (M-of-N) — live testnet ===");
-log(`pool=${dep.pool}  (JSPLITORG = TEE-rotated VK)`);
+log(`pool=${dep.pool}  (JSPLITORG canonical VK)`);
 
 const assetId = await client.assetId();
 

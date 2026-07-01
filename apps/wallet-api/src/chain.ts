@@ -5,10 +5,9 @@
  * cannot be initialized, API routes fail closed instead of serving local balances
  * or claiming settlement results.
  *
- * Proving path is selectable per call — `local` (NodeProver, snarkjs on this
- * host) or `tee` (PhalaProver, the attested Phala enclave). This is what the test
- * matrix exercises: "proving on tee + locally" both settle on-chain, identical
- * soundness (proof verified on-chain), differing only in WHERE the witness lives.
+ * Proving path is local-only. Wallet proof jobs use the local Groth16 prover and
+ * still settle through Soroban verifier contracts; no external proving service
+ * is part of the active runtime.
  */
 import { createHash } from "node:crypto";
 import { readFileSync, mkdirSync, writeFileSync, renameSync } from "node:fs";
@@ -37,7 +36,6 @@ import {
   createOrLoadAccountFile,
   fetchLatestMvkRegistryWitnessFromStorage,
   fetchMvkRegistryLeaves,
-  makeTeeProver,
   makeClientSubmitWrite,
   mvkRegistryLeaf,
   scvalForWriteArg,
@@ -67,7 +65,7 @@ import { accountFingerprint, currentAuth } from "./auth.js";
 import { hostedRuntime } from "./runtime.js";
 import { loadTenantDocument, saveTenantDocument } from "./tenantData.js";
 
-export type ProverKind = "local" | "tee";
+export type ProverKind = "local";
 
 const ROOT = process.env.BENZO_ROOT || fileURLToPath(new URL("../../..", import.meta.url));
 const DEPLOYMENT_URL = new URL("../../../deployments/testnet.json", import.meta.url);
@@ -196,26 +194,7 @@ export function walletVerifierId(): string {
   return String(deployment().verifier ?? "");
 }
 
-/** The TEE config (endpoint + pinned measurement) from the deployment record. */
-export function teeConfig(): { endpoint: string; measurement: string } | null {
-  try {
-    const d = deployment() as { tee?: { endpoint?: string; composeHash?: string } };
-    if (d.tee?.endpoint && d.tee?.composeHash) return { endpoint: d.tee.endpoint, measurement: d.tee.composeHash };
-  } catch {
-    // deployment record unreadable — no TEE info.
-  }
-  return null;
-}
-
-function buildProver(kind: ProverKind): ProverPort {
-  if (kind === "tee") {
-    const cfg = teeConfig();
-    if (!cfg) throw new Error("no TEE configured in deployments/testnet.json");
-    return makeTeeProver({ endpoint: cfg.endpoint, measurement: cfg.measurement });
-  }
-  if (hostedRuntime()) {
-    throw new Error("hosted local proving is disabled; use browser local proving or the attested TEE");
-  }
+function buildProver(_kind: ProverKind): ProverPort {
   return new NodeProver();
 }
 
@@ -299,12 +278,9 @@ function chainClientForRuntime(): ChainClient {
 }
 
 /**
- * Build (and cache) a live BenzoClient with the requested proving backend. The
- * client is rebuilt when the prover kind changes; tests drive the two paths
- * sequentially (never concurrently on the same wallet/state), so a single cached
- * client is safe.
+ * Build (and cache) a live BenzoClient with the local proving backend.
  */
-export function getClient(prover: ProverKind = hostedRuntime() ? "tee" : "local"): BenzoClient | null {
+export function getClient(prover: ProverKind = "local"): BenzoClient | null {
   try {
     const key = clientCacheKey(prover);
     const existing = clients.get(key);
@@ -316,10 +292,8 @@ export function getClient(prover: ProverKind = hostedRuntime() ? "tee" : "local"
       return null;
     }
     const d = deployment();
-    // `circuit` is the short name a delegated/TEE prover uses to find its own
-    // staged artifacts (the enclave keys by name, not path); NodeProver/WasmProver
-    // ignore it and use the paths. The enclave stages the wallet circuits used by
-    // low-power/API flows, including proof_of_balance for mobile Share Proof.
+    // `circuit` is the stable short name for logs/tooling; NodeProver uses the
+    // local artifact paths below.
     const art = (c: string) => ({
       wasmPath: `${ROOT}/circuits/build/${c}/${c}_js/${c}.wasm`,
       zkeyPath: `${ROOT}/circuits/build/${c}/${c}.zkey`,
@@ -356,7 +330,7 @@ export function getClient(prover: ProverKind = hostedRuntime() ? "tee" : "local"
   }
 }
 
-function evictClient(prover: ProverKind = hostedRuntime() ? "tee" : "local"): void {
+function evictClient(prover: ProverKind = "local"): void {
   try {
     clients.delete(clientCacheKey(prover));
   } catch {
@@ -384,11 +358,9 @@ export function liveStatus(): { live: boolean; mode: "live" | "unavailable"; mis
   return { live, mode: live ? "live" : "unavailable", missing };
 }
 
-/** Which proving backends are reachable + the attested-TEE coordinates. */
-export function proverInfo(): { available: ProverKind[]; tee: { endpoint: string; measurement: string } | null } {
-  const tee = teeConfig();
-  if (hostedRuntime()) return { available: tee ? ["tee"] : [], tee };
-  return { available: tee ? ["local", "tee"] : ["local"], tee };
+/** Which proving backends are reachable. */
+export function proverInfo(): { available: ProverKind[]; mode: "local"; location: "local" } {
+  return { available: ["local"], mode: "local", location: "local" };
 }
 
 const hostedProvisioning = new Map<string, Promise<string>>();
@@ -2317,7 +2289,7 @@ async function shieldClaimLiquid(
     from,
     amount,
     before,
-    hostedRuntime() ? "tee" : "local",
+    "local",
     liquidBefore === undefined ? undefined : liquidBefore > amount ? liquidBefore - amount : 0n,
     mvkWitness,
   );

@@ -38,7 +38,7 @@ function buildWitness() {
   const BALANCE = 1_000_000n; // hidden; >= threshold
   const HOLDER_SK = 12345n;
 
-  // Oracle EdDSA keypair (Plaid-backed enclave signer).
+  // Oracle EdDSA keypair for signed funds attestations.
   const oraclePrv = Buffer.alloc(32, 5);
   const oraclePub = eddsa.prv2pub(oraclePrv);
   const oracleAx = F.toObject(oraclePub[0]);

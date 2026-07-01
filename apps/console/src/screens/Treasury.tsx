@@ -437,13 +437,13 @@ export function Treasury() {
             This moves <b>real USDC</b> on the Stellar {NETWORK_LABEL} network from your Public balance into the private pool - a dual-controlled M-of-N org note. It settles on-chain and <b>can't be undone</b> from here.
           </p>
           <p className="text-[12.5px] leading-relaxed text-muted">
-            Proof location: TEE. The Console prover creates the shield proof outside the browser before the on-chain settlement is accepted.
+            Proof location: local. The Console prover creates the shield proof in the Benzo runtime before the on-chain settlement is accepted.
           </p>
           <div className="space-y-2 rounded-xl bg-canvas p-4 text-[14px]">
             <div className="flex justify-between"><span className="text-muted">Amount</span><span className="font-display tnum font-semibold">{fmtUsd(toStroops(fundAmt))}</span></div>
             <div className="flex justify-between"><span className="text-muted">From</span><span className="font-semibold">Public</span></div>
             <div className="flex justify-between"><span className="text-muted">Into</span><span className="font-semibold">Private (M-of-N note)</span></div>
-            <div className="flex justify-between"><span className="text-muted">Proof location</span><span className="font-semibold">TEE</span></div>
+            <div className="flex justify-between"><span className="text-muted">Proof location</span><span className="font-semibold">Local</span></div>
           </div>
         </div>
       </Modal>

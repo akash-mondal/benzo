@@ -5,15 +5,15 @@ pragma circom 2.2.2;
 // Proves the holder possesses an ORACLE-SIGNED bank-balance attestation showing
 // `balance >= threshold`, that the attestation is FRESH (not stale), and that it
 // is bound to the holder — WITHOUT revealing the balance, the timestamp, or the
-// bank. The oracle (a Plaid-backed Phala enclave) signs
+// bank. The authorized oracle signs
 // Poseidon(holderBinding, balance, assetId, timestamp) with EdDSA-over-BabyJubJub
 // (circomlib EdDSAPoseidonVerifier, which carries the mandatory S<l malleability
 // guard). The on-chain contract pins the oracle via the public `oracleKeyId`.
 //
 // SOUNDNESS NOTE: this is an ORACLE-backed claim. Its trust base is
-// (Plaid data integrity + the enclave's attested signing key), which is distinct
-// from — and weaker than — the pure-Groth16 soundness of the shielded pool. It
-// is deliberately fenced off and labeled as such.
+// the issuer's data integrity and signing-key controls, which is distinct from
+// the pure-Groth16 soundness of the shielded pool. It is deliberately fenced off
+// and labeled as such.
 //
 // Public  : [oracleKeyId, threshold, assetId, currentTime, maxAgeSeconds, holderBinding]
 // Private : oracle pubkey + signature, balance, timestamp, holder secret.

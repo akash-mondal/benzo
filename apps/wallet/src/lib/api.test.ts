@@ -42,20 +42,20 @@ describe("wallet API idempotency", () => {
   it("reuses a mutation idempotency key after a network failure, then clears it after a response", async () => {
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new TypeError("network down"))
-      .mockResolvedValueOnce(jsonResponse({ status: "settled", amount: "10000000", prover: "tee", onChain: true }))
-      .mockResolvedValueOnce(jsonResponse({ status: "settled", amount: "10000000", prover: "tee", onChain: true }));
+      .mockResolvedValueOnce(jsonResponse({ status: "settled", amount: "10000000", prover: "local", onChain: true }))
+      .mockResolvedValueOnce(jsonResponse({ status: "settled", amount: "10000000", prover: "local", onChain: true }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api.addMoney("1", "tee")).rejects.toThrow("network down");
+    await expect(api.addMoney("1", "local")).rejects.toThrow("network down");
     const firstKey = callHeaders(fetchMock.mock.calls[0]).get("idempotency-key");
     expect(firstKey).toMatch(/^idem_/);
 
-    await api.addMoney("1", "tee");
+    await api.addMoney("1", "local");
     const retryKey = callHeaders(fetchMock.mock.calls[1]).get("idempotency-key");
     expect(retryKey).toBe(firstKey);
     expect(Object.keys(localStorage).filter((k) => k.startsWith("benzo.idempotency.wallet.v1:"))).toEqual([]);
 
-    await api.addMoney("1", "tee");
+    await api.addMoney("1", "local");
     const nextKey = callHeaders(fetchMock.mock.calls[2]).get("idempotency-key");
     expect(nextKey).toMatch(/^idem_/);
     expect(nextKey).not.toBe(firstKey);
@@ -63,11 +63,11 @@ describe("wallet API idempotency", () => {
 
   it("streams private sends through the authenticated RPC gateway with an idempotency key", async () => {
     localStorage.setItem("benzo.googleCredential", "google.jwt");
-    const settle = { status: "settled", amount: "25000000", prover: "tee", onChain: true, txHash: "tx_send" };
+    const settle = { status: "settled", amount: "25000000", prover: "local", onChain: true, txHash: "tx_send" };
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(settle));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "tee" }, vi.fn())).resolves.toMatchObject(settle);
+    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "local" }, vi.fn())).resolves.toMatchObject(settle);
 
     expect(fetchMock.mock.calls[0][0]).toBe(apiHref("/send"));
     const headers = callHeaders(fetchMock.mock.calls[0]);
@@ -77,7 +77,7 @@ describe("wallet API idempotency", () => {
   });
 
   it("parses streamed send phases and a done event split across chunks", async () => {
-    const settle = { status: "settled", amount: "25000000", prover: "tee", onChain: true, txHash: "tx_send" };
+    const settle = { status: "settled", amount: "25000000", prover: "local", onChain: true, txHash: "tx_send" };
     const phase = { phase: "submitting", txHash: "tx_send" };
     const fetchMock = vi.fn().mockResolvedValue(sseResponse([
       `event: phase\ndata: ${JSON.stringify(phase)}\n\n`,
@@ -87,38 +87,38 @@ describe("wallet API idempotency", () => {
     vi.stubGlobal("fetch", fetchMock);
     const onPhase = vi.fn();
 
-    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "tee" }, onPhase)).resolves.toMatchObject(settle);
+    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "local" }, onPhase)).resolves.toMatchObject(settle);
 
     expect(onPhase).toHaveBeenCalledWith(phase);
   });
 
   it("parses a final streamed done event even without a trailing blank frame", async () => {
-    const settle = { status: "settled", amount: "25000000", prover: "tee", onChain: true, txHash: "tx_send" };
+    const settle = { status: "settled", amount: "25000000", prover: "local", onChain: true, txHash: "tx_send" };
     const fetchMock = vi.fn().mockResolvedValue(sseResponse([
       `event: phase\ndata: ${JSON.stringify({ phase: "confirmed", txHash: "tx_send", onChain: true })}\n\n`,
       `event: done\ndata: ${JSON.stringify(settle)}`,
     ]));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "tee" }, vi.fn())).resolves.toMatchObject(settle);
+    await expect(api.sendStream({ to: "@mara", amount: "2.5", prover: "local" }, vi.fn())).resolves.toMatchObject(settle);
   });
 
   it("adds idempotency headers to wallet mutation helpers", async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse({})));
     vi.stubGlobal("fetch", fetchMock);
     const actions: Array<() => Promise<unknown>> = [
-      () => api.importDeposit("1", "tee"),
-      () => api.makePublic("1", "tee"),
+      () => api.importDeposit("1", "local"),
+      () => api.makePublic("1", "local"),
       () => api.sendPublic("G".padEnd(56, "A"), "1"),
-      () => api.send("@mara", "1", "memo", "tee"),
+      () => api.send("@mara", "1", "memo", "local"),
       () => api.claimHandle("@alice"),
       () => api.request("1", "memo"),
       () => api.invite("1", "note"),
       () => api.refundInvite("inv_1"),
       () => api.claim("secret", "inv_1"),
-      () => api.cashOut("1", "tee"),
-      () => api.addMoney("1", "tee"),
-      () => api.shareProof("1", "tee"),
+      () => api.cashOut("1", "local"),
+      () => api.addMoney("1", "local"),
+      () => api.shareProof("1", "local"),
     ];
 
     for (const action of actions) await action();
@@ -132,13 +132,13 @@ describe("wallet API idempotency", () => {
   it("keeps a mutation idempotency key after a 5xx response", async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ error: "temporarily unavailable" }, 503))
-      .mockResolvedValueOnce(jsonResponse({ status: "settled", amount: "10000000", prover: "tee", onChain: true }));
+      .mockResolvedValueOnce(jsonResponse({ status: "settled", amount: "10000000", prover: "local", onChain: true }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api.addMoney("1", "tee")).rejects.toThrow("temporarily unavailable");
+    await expect(api.addMoney("1", "local")).rejects.toThrow("temporarily unavailable");
     const firstKey = callHeaders(fetchMock.mock.calls[0]).get("idempotency-key");
 
-    await api.addMoney("1", "tee");
+    await api.addMoney("1", "local");
     expect(callHeaders(fetchMock.mock.calls[1]).get("idempotency-key")).toBe(firstKey);
   });
 
@@ -192,10 +192,10 @@ describe("wallet API idempotency", () => {
   });
 
   it("does not timeout long-running write requests", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "settled", amount: "10000000", prover: "tee", onChain: true }));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ status: "settled", amount: "10000000", prover: "local", onChain: true }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await api.addMoney("1", "tee");
+    await api.addMoney("1", "local");
 
     expect(fetchMock.mock.calls[0][1]?.signal).toBeUndefined();
   });

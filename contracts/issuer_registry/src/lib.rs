@@ -6,18 +6,17 @@
 //! authorized to sign credentials**. The `kyc_credential` circuit proves, in
 //! zero knowledge, that the issuer who signed a credential is a member of this
 //! registry under a recent root (`issuerRegistryRoot`) — so a credential is only
-//! admitted if it was signed by a genuinely-authorized issuer (Self-backed
-//! enclave, a document IDV, etc.), not a key the prover made up.
+//! admitted if it was signed by a genuinely-authorized issuer (Self-backed,
+//! document IDV, etc.), not a key the prover made up.
 //!
 //! Leaf = the issuer key-id `Poseidon(issuerAx, issuerAy)` inserted DIRECTLY
 //! (matching the circuit's `itree.leaf <== ik.out` and the SDK's
 //! `MerkleTreeMirror.insert(issuerKeyId)`). The tree is a Poseidon2 twin of
 //! `benzo-merkle` (frontier + 128-root ring), so `is_known_root` works unchanged.
 //!
-//! Also pins the **attested enclave measurement** (mrenclave): the issuer runs
-//! inside a Phala TEE, and pinning its measurement here lets governance assert
-//! "credentials are only signed by the attested issuer build." Admin-gated; the
-//! admin should be a multisig/timelock before mainnet.
+//! Also pins an **issuer build identifier**: governance can require credentials
+//! to come from a reviewed issuer implementation. Admin-gated; the admin should
+//! be a multisig/timelock before mainnet.
 
 use soroban_sdk::{
     Address, Env, U256, Vec, contract, contracterror, contractevent, contractimpl, contracttype,
@@ -71,8 +70,8 @@ enum DataKey {
     KnownRoot(U256),
     /// Presence index for registered issuer key-ids (rejects double-registration)
     IssuerSeen(U256),
-    /// Pinned attested enclave measurement (mrenclave) of the issuer build
-    AttestedMeasurement,
+    /// Pinned issuer build identifier
+    IssuerBuildId,
 }
 
 /// Emitted on every registration so indexers can mirror the registry.
@@ -127,21 +126,21 @@ impl BenzoIssuerRegistry {
         Ok(())
     }
 
-    /// Pin the attested enclave measurement (mrenclave) of the authorized issuer
-    /// build. Admin-only. Credentials should only be trusted from this build.
-    pub fn set_attested_measurement(env: Env, measurement: U256) -> Result<(), Error> {
+    /// Pin the authorized issuer build identifier. Admin-only. Credentials
+    /// should only be trusted from this reviewed build.
+    pub fn set_issuer_build_id(env: Env, build_id: U256) -> Result<(), Error> {
         let storage = env.storage().persistent();
         let admin: Address = storage.get(&DataKey::Admin).ok_or(Error::NotInitialized)?;
         admin.require_auth();
-        storage.set(&DataKey::AttestedMeasurement, &measurement);
+        storage.set(&DataKey::IssuerBuildId, &build_id);
         Ok(())
     }
 
-    /// The pinned attested enclave measurement (zero if none set).
-    pub fn attested_measurement(env: Env) -> U256 {
+    /// The pinned issuer build identifier (zero if none set).
+    pub fn issuer_build_id(env: Env) -> U256 {
         env.storage()
             .persistent()
-            .get(&DataKey::AttestedMeasurement)
+            .get(&DataKey::IssuerBuildId)
             .unwrap_or_else(|| U256::from_u32(&env, 0))
     }
 

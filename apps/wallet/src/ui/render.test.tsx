@@ -85,7 +85,7 @@ describe("OnChainDetails", () => {
   });
 
   it("keeps ZK proof details for shielded actions", () => {
-    render(<OnChainDetails txHash={txHash} onChain kind="shield" prover="tee" provingMs={10120} />);
+    render(<OnChainDetails txHash={txHash} onChain kind="shield" prover="local" provingMs={10120} />);
 
     fireEvent.click(screen.getByTestId("onchain-toggle"));
 
@@ -93,6 +93,6 @@ describe("OnChainDetails", () => {
     expect(screen.getByText("Pool contract")).toBeInTheDocument();
     expect(screen.getByText("Groth16 verifier")).toBeInTheDocument();
     expect(screen.getByText(/zero-knowledge guarantee/i)).toBeInTheDocument();
-    expect(screen.getByText("Secure enclave (Phala TEE, attested) · 10.12s")).toBeInTheDocument();
+    expect(screen.getByText("Local prover · 10.12s")).toBeInTheDocument();
   });
 });
