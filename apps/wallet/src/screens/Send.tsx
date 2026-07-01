@@ -346,7 +346,7 @@ function PublicSendDone({ display, address, amount, result, onDone }: { display:
       <span className="inline-flex items-center gap-1.5 rounded-full bg-[#fbf1dd] px-3 py-1 text-xs font-semibold text-[#9a6b12]">
         <Globe size={13} /> This one is public, not private.
       </span>
-      <div className="w-full max-w-[320px]"><OnChainDetails txHash={result?.txHash} onChain={onChain} kind="unshield" /></div>
+      <div className="w-full max-w-[320px]"><OnChainDetails txHash={result?.txHash} onChain={onChain} kind="public" /></div>
       <Button className="mt-1" onClick={onDone} data-testid="send-public-done">Done</Button>
     </motion.div>
   );

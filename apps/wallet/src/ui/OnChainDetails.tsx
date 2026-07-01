@@ -22,9 +22,10 @@ export const explorerTx = (h: string) => `${EXPLORER}/tx/${h}`;
 export const explorerContract = (id: string) => `${EXPLORER}/contract/${id}`;
 const short = (s: string, n = 6) => (s.length > n * 2 + 1 ? `${s.slice(0, n)}…${s.slice(-n)}` : s);
 
-export type OnChainKind = "shield" | "transfer" | "unshield" | "proof";
+export type OnChainKind = "shield" | "transfer" | "unshield" | "proof" | "public";
+type ZkOnChainKind = Exclude<OnChainKind, "public">;
 
-const KIND_PROOF: Record<OnChainKind, { circuit: string; statement: string }> = {
+const KIND_PROOF: Record<ZkOnChainKind, { circuit: string; statement: string }> = {
   shield: { circuit: "SHIELD", statement: "the deposit commits to a hidden note (amount + owner sealed) admitted by a KYC/ASP proof" },
   transfer: { circuit: "TRANSFER (joinsplit)", statement: "inputs = outputs + fee, you own the inputs, and the nullifiers are fresh - amount + counterparty hidden" },
   unshield: { circuit: "UNSHIELD", statement: "you own the note being withdrawn and it is NOT on the deny-list (proof-of-innocence)" },
@@ -46,8 +47,8 @@ export function OnChainDetails({
 }) {
   const [open, setOpen] = useState(false);
   if (!onChain) return null; // nothing real to point at
-  const p = KIND_PROOF[kind];
   const proverLabel = prover === "tee" ? "Secure enclave (Phala TEE, attested)" : "This device (in-browser)";
+  const p = kind === "public" ? null : KIND_PROOF[kind];
 
   return (
     <div className="w-full rounded-2xl border border-hair bg-card/60" data-testid="onchain-details">
@@ -68,17 +69,31 @@ export function OnChainDetails({
           >
             <div className="space-y-2.5 border-t border-hair px-4 py-3 text-[12px]">
               <Row k="Network" v={NETWORK_LABEL} />
-              <Row k="Proof" v={`Groth16 / BN254 · ${p.circuit}`} />
-              <Row k="Verified on-chain" v={<span className="font-semibold text-pos">Yes · inside the pool contract</span>} />
-              <Row k="What it proves" v={<span className="text-ink">{p.statement}</span>} />
-              <Row k="Proven on" v={`${proverLabel}${provingMs ? ` · ${(provingMs / 1000).toFixed(2)}s` : ""}`} />
-              {txHash ? <LinkRow k="Settlement tx" id={txHash} href={explorerTx(txHash)} /> : null}
-              <LinkRow k="Pool contract" id={DEPLOYMENT.pool} href={explorerContract(DEPLOYMENT.pool)} />
-              <LinkRow k="Groth16 verifier" id={DEPLOYMENT.verifier} href={explorerContract(DEPLOYMENT.verifier)} />
-              <div className="pt-1 text-[11px] leading-snug text-muted">
-                Everything here is public - yet your amount, balance and counterparty stay hidden. That is the zero-knowledge guarantee:
-                the network verified the payment is valid without learning what it was.
-              </div>
+              {kind === "public" ? (
+                <>
+                  <Row k="Settlement" v="Public Stellar USDC payment" />
+                  <Row k="Verified on-chain" v={<span className="font-semibold text-pos">Yes · Stellar ledger</span>} />
+                  <Row k="What is public" v={<span className="text-ink">recipient and amount are visible on-chain</span>} />
+                  {txHash ? <LinkRow k="Settlement tx" id={txHash} href={explorerTx(txHash)} /> : null}
+                  <div className="pt-1 text-[11px] leading-snug text-muted">
+                    This receipt is for a normal Stellar USDC payment. It is not a shielded transfer, so the recipient and amount are public on-chain.
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Row k="Proof" v={`Groth16 / BN254 · ${p.circuit}`} />
+                  <Row k="Verified on-chain" v={<span className="font-semibold text-pos">Yes · inside the pool contract</span>} />
+                  <Row k="What it proves" v={<span className="text-ink">{p.statement}</span>} />
+                  <Row k="Proven on" v={`${proverLabel}${provingMs ? ` · ${(provingMs / 1000).toFixed(2)}s` : ""}`} />
+                  {txHash ? <LinkRow k="Settlement tx" id={txHash} href={explorerTx(txHash)} /> : null}
+                  <LinkRow k="Pool contract" id={DEPLOYMENT.pool} href={explorerContract(DEPLOYMENT.pool)} />
+                  <LinkRow k="Groth16 verifier" id={DEPLOYMENT.verifier} href={explorerContract(DEPLOYMENT.verifier)} />
+                  <div className="pt-1 text-[11px] leading-snug text-muted">
+                    Everything here is public - yet your amount, balance and counterparty stay hidden. That is the zero-knowledge guarantee:
+                    the network verified the payment is valid without learning what it was.
+                  </div>
+                </>
+              )}
             </div>
           </motion.div>
         ) : null}

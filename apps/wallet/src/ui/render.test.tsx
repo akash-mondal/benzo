@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { BalanceHero } from "./money";
+import { OnChainDetails } from "./OnChainDetails";
 import { PrivateChip, ProvableChip } from "./privacy";
 import { Button } from "./primitives";
 import { ActivityItem } from "./ActivityItem";
@@ -63,5 +64,35 @@ describe("ActivityItem", () => {
     render(<MemoryRouter><ActivityItem row={{ ...base, type: "cashOut", name: "Cash out", direction: "out", status: "arriving" }} /></MemoryRouter>);
     expect(screen.getByText(/Arriving/)).toBeInTheDocument();
     expect(screen.getByText("−$200.00")).toBeInTheDocument();
+  });
+});
+
+describe("OnChainDetails", () => {
+  const txHash = "928c3535ab8833e4c59514b4628c1d580c59aea0cf7595f347824c249b5db61d";
+
+  it("labels public wallet sends as public Stellar settlement, not ZK proof", () => {
+    render(<OnChainDetails txHash={txHash} onChain kind="public" />);
+
+    fireEvent.click(screen.getByTestId("onchain-toggle"));
+
+    expect(screen.getByText("Public Stellar USDC payment")).toBeInTheDocument();
+    expect(screen.getByText("recipient and amount are visible on-chain")).toBeInTheDocument();
+    expect(screen.getByText(/normal Stellar USDC payment/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Groth16/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Pool contract")).not.toBeInTheDocument();
+    expect(screen.queryByText("Groth16 verifier")).not.toBeInTheDocument();
+    expect(screen.queryByText(/zero-knowledge guarantee/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps ZK proof details for shielded actions", () => {
+    render(<OnChainDetails txHash={txHash} onChain kind="shield" prover="tee" provingMs={10120} />);
+
+    fireEvent.click(screen.getByTestId("onchain-toggle"));
+
+    expect(screen.getByText("Groth16 / BN254 · SHIELD")).toBeInTheDocument();
+    expect(screen.getByText("Pool contract")).toBeInTheDocument();
+    expect(screen.getByText("Groth16 verifier")).toBeInTheDocument();
+    expect(screen.getByText(/zero-knowledge guarantee/i)).toBeInTheDocument();
+    expect(screen.getByText("Secure enclave (Phala TEE, attested) · 10.12s")).toBeInTheDocument();
   });
 });
