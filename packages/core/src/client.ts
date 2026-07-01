@@ -1270,10 +1270,11 @@ export class BenzoClient {
         noteCt: seal(changePlain, this.account.viewPub).bytes,
         mvkCt: seal(changePlain, tvk.publicKey).bytes,
       };
-      const bundles =
-        (randomBytes(1)[0] & 1) === 1
-          ? [changeBundle, mergedBundle] as const
-          : [mergedBundle, changeBundle] as const;
+      // This consolidation is immediately followed by an unshield. On long-lived
+      // testnet deployments, storage-backed witness recovery is most reliable
+      // for the latest inserted leaf, so put the note we will spend next in the
+      // second slot.
+      const bundles = [changeBundle, mergedBundle] as const;
       const inputWitnesses = await Promise.all(
         pair.map((input) => this.spendWitnessForSelectedNote(input)),
       ) as [

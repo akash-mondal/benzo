@@ -166,6 +166,15 @@ export class BenzoPoolClient {
     return BigInt(v as string);
   }
 
+  async onchainPoolNextIndex(): Promise<number> {
+    const v = await this.cli.view(this.dep.merkle, this.viewSource, ["next_index"]);
+    const n = Number(v);
+    if (!Number.isSafeInteger(n) || n < 0) {
+      throw new Error(`invalid on-chain pool next_index: ${String(v)}`);
+    }
+    return n;
+  }
+
   async aspAllowRoot(): Promise<bigint> {
     const v = await this.cli.view(this.dep.aspMembership, this.viewSource, ["get_root"]);
     return BigInt(v as string);
@@ -504,6 +513,7 @@ export class BenzoPoolClient {
     const proof = await this.prover.prove(this.circuits.joinsplit, witness);
     const provingMs = Date.now() - _pt;
 
+    const chainI0 = await this.onchainPoolNextIndex();
     let txHash: string | undefined;
     if (opts.relay) {
       const r = await opts.relay({
@@ -551,8 +561,8 @@ export class BenzoPoolClient {
       });
       txHash = res.txHash;
     }
-    const i0 = this.poolTree.insert(outCommitments[0]);
-    const i1 = this.poolTree.insert(outCommitments[1]);
+    this.poolTree.insert(outCommitments[0]);
+    this.poolTree.insert(outCommitments[1]);
     try {
       await this.assertSynced();
     } catch (e) {
@@ -564,7 +574,7 @@ export class BenzoPoolClient {
       outNotes,
       nullifiers,
       outCommitments,
-      outLeafIndices: [i0, i1],
+      outLeafIndices: [chainI0, chainI0 + 1],
       proof,
       provingMs,
     };
@@ -835,16 +845,17 @@ export class BenzoPoolClient {
       proof: JSON.stringify(b.spend.proof),
     });
     fnArgs[0] = "transfer_org"; // same arg shape; settles under the JSPLITORG VK
+    const chainI0 = await this.onchainPoolNextIndex();
     const res = await this.cli.invoke({ contractId: this.dep.pool, source: opts.source, send: true, fnArgs });
-    const i0 = this.poolTree.insert(b.outCommitments[0]);
-    const i1 = this.poolTree.insert(b.outCommitments[1]);
+    this.poolTree.insert(b.outCommitments[0]);
+    this.poolTree.insert(b.outCommitments[1]);
     await this.assertSynced();
     return {
       txHash: res.txHash,
       outNotes: b.outNotes,
       nullifiers: b.nullifiers,
       outCommitments: b.outCommitments,
-      outLeafIndices: [i0, i1],
+      outLeafIndices: [chainI0, chainI0 + 1],
       spendMessage: b.spendMessage,
       proof: b.proof,
       provingMs: b.provingMs,
@@ -913,6 +924,7 @@ export class BenzoPoolClient {
       proof: b.spend.proof,
     }));
     const fnArgs = ["batch_transfer_org", "--submitter", submitter, "--spends", JSON.stringify(spendsJson)];
+    const chainI0 = await this.onchainPoolNextIndex();
     const res = await this.cli.invoke({
       contractId: this.dep.pool,
       source: opts.source,
@@ -920,14 +932,15 @@ export class BenzoPoolClient {
       fnArgs,
     });
 
-    const out = built.map((b) => {
-      const i0 = this.poolTree.insert(b.outCommitments[0]);
-      const i1 = this.poolTree.insert(b.outCommitments[1]);
+    const out = built.map((b, i) => {
+      const offset = i * 2;
+      this.poolTree.insert(b.outCommitments[0]);
+      this.poolTree.insert(b.outCommitments[1]);
       return {
         outNotes: b.outNotes,
         nullifiers: b.nullifiers,
         outCommitments: b.outCommitments,
-        outLeafIndices: [i0, i1] as [number, number],
+        outLeafIndices: [chainI0 + offset, chainI0 + offset + 1] as [number, number],
         provingMs: b.provingMs,
       };
     });
