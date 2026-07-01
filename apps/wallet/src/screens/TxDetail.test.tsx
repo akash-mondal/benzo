@@ -91,7 +91,10 @@ describe("TxDetail", () => {
     expect(screen.getByText("Public Stellar payment")).toBeInTheDocument();
     expect(screen.getByText("Recipient and amount are public on-chain")).toBeInTheDocument();
     expect(screen.getByText("Public")).toBeInTheDocument();
-    expect(screen.getByTestId("txdetail-explorer")).toBeInTheDocument();
+    expect(screen.getByTestId("txdetail-explorer")).toHaveAttribute(
+      "href",
+      "https://stellar.expert/explorer/testnet/tx/fd9117d121b3d574b0f0899d25779f0784bb0743815089771e560c93f0736fae",
+    );
     expect(screen.queryByTestId("txdetail-share")).not.toBeInTheDocument();
     expect(screen.queryByText(/Only you and/i)).not.toBeInTheDocument();
   });

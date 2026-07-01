@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtUsd, formatAddress, formatMoney } from "./format";
+import { explorerContractUrl, explorerTxUrl, fmtUsd, formatAddress, formatMoney } from "./format";
 
 describe("console money formatting", () => {
   it("fmtUsd renders dollar-prefixed, fixed 2 decimals", () => {
@@ -14,5 +14,9 @@ describe("console money formatting", () => {
   it("formatAddress truncates long Stellar addresses", () => {
     expect(formatAddress("GA4R5FSOPHFY3EWHWILL43KEEEPKCTGC6EKVJJS3R63TMG2RYJLQ4OCS")).toBe("GA4R…4OCS");
     expect(formatAddress("short")).toBe("short");
+  });
+  it("builds Stellar testnet explorer links by default", () => {
+    expect(explorerTxUrl("abc123")).toBe("https://stellar.expert/explorer/testnet/tx/abc123");
+    expect(explorerContractUrl("CDLZ...")).toBe("https://stellar.expert/explorer/testnet/contract/CDLZ...");
   });
 });
