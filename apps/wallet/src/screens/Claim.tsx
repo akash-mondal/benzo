@@ -265,6 +265,14 @@ function PayRequest({ link }: { link: Extract<BenzoLink, { type: "request" }> })
 }
 
 /** A contractor/customer accepting a business invite - onboards in THIS wallet. */
+function realWalletHandle(handle?: string): string | undefined {
+  const normalized = handle?.trim();
+  if (!normalized) return undefined;
+  const bare = normalized.replace(/^@/, "").toLowerCase();
+  if (!bare || bare === "you") return undefined;
+  return normalized.startsWith("@") ? normalized : `@${normalized}`;
+}
+
 function ContractorInvite({ link }: { link: OrgInviteLink }) {
   const nav = useNavigate();
   const { session } = useWallet();
@@ -276,7 +284,13 @@ function ContractorInvite({ link }: { link: OrgInviteLink }) {
     setBusy(true);
     setErr(null);
     try {
-      const handle = session?.handle ?? session?.profile.handle;
+      const freshSession = await api.session().catch(() => session);
+      const handle =
+        realWalletHandle(freshSession?.handle) ??
+        realWalletHandle(freshSession?.profile.handle) ??
+        realWalletHandle(session?.handle) ??
+        realWalletHandle(session?.profile.handle);
+      if (!handle) throw new Error("Claim your wallet handle before accepting this invite.");
       const r = await orgApi.acceptInvite({
         token: link.token,
         handle,

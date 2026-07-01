@@ -32,6 +32,7 @@ import { anchorPrivateAuditRoot, attestKyb, auditorGrantViewKey, computeTreasury
 import { verifyGoogleIdToken, googleConfigured } from "./google-oidc.js";
 import { accountBinding, authFromRequest, createTestAuthToken, currentAuth, runWithAuth } from "./auth.js";
 import { matchPolicy, progress, recordApproval } from "./approvals.js";
+import { auditOrgIdForScope } from "./auditScope.js";
 import { validateInviteInput } from "./inviteValidation.js";
 import { validateNettingAmounts } from "./nettingValidation.js";
 import { validateGrantInput } from "./grantValidation.js";
@@ -65,11 +66,12 @@ function privateEventSecret(): string {
 
 function privateAuditOrgId(): string {
   const auth = currentAuth();
-  if (hostedRuntime()) {
-    if (!auth) throw new Error("Hosted console requires Google account auth");
-    return `org-${auth.key}`;
-  }
-  return db.org.id;
+  return auditOrgIdForScope({
+    authKey: auth?.key,
+    tenantKey: currentConsoleTenantKey(),
+    hosted: hostedRuntime(),
+    localOrgId: db.org.id,
+  });
 }
 
 function unavailableTreasury(): TreasuryView {
