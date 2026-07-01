@@ -32,7 +32,8 @@ services:
         VITE_WALLET_URL: "https://wallet.benzo.space"
         VITE_CONSOLE_URL: "https://console.benzo.space"
         BENZO_ARTIFACTS_BASE_URL: "${BENZO_ARTIFACTS_BASE_URL:-https://github.com/akash-mondal/benzo/releases/download/artifacts}"
-        BENZO_ARTIFACTS_TOKEN: "${BENZO_ARTIFACTS_TOKEN:-}"
+      secrets:
+        - benzo_artifacts_token
     command: sh -c "cp -a /srv/. /out/ && tail -f /dev/null"
     volumes:
       - landing-static:/out
@@ -47,7 +48,8 @@ services:
         VITE_CONSOLE_ORIGIN: "https://console.benzo.space"
         VITE_GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID}"
         BENZO_ARTIFACTS_BASE_URL: "${BENZO_ARTIFACTS_BASE_URL:-https://github.com/akash-mondal/benzo/releases/download/artifacts}"
-        BENZO_ARTIFACTS_TOKEN: "${BENZO_ARTIFACTS_TOKEN:-}"
+      secrets:
+        - benzo_artifacts_token
     command: sh -c "cp -a /srv/. /out/ && tail -f /dev/null"
     volumes:
       - wallet-static:/out
@@ -60,7 +62,8 @@ services:
         PACKAGE: "@benzo/console"
         APP_DIR: apps/console
         BENZO_ARTIFACTS_BASE_URL: "${BENZO_ARTIFACTS_BASE_URL:-https://github.com/akash-mondal/benzo/releases/download/artifacts}"
-        BENZO_ARTIFACTS_TOKEN: "${BENZO_ARTIFACTS_TOKEN:-}"
+      secrets:
+        - benzo_artifacts_token
     command: sh -c "cp -a /srv/. /out/ && tail -f /dev/null"
     volumes:
       - console-static:/out
@@ -71,6 +74,9 @@ services:
       dockerfile: Dockerfile.bff
       args:
         APP: wallet-api
+        BENZO_ARTIFACTS_BASE_URL: "${BENZO_ARTIFACTS_BASE_URL:-https://github.com/akash-mondal/benzo/releases/download/artifacts}"
+      secrets:
+        - benzo_artifacts_token
     restart: unless-stopped
     env_file:
       - /opt/benzo/.env
@@ -90,6 +96,9 @@ services:
       dockerfile: Dockerfile.bff
       args:
         APP: console-api
+        BENZO_ARTIFACTS_BASE_URL: "${BENZO_ARTIFACTS_BASE_URL:-https://github.com/akash-mondal/benzo/releases/download/artifacts}"
+      secrets:
+        - benzo_artifacts_token
     restart: unless-stopped
     env_file:
       - /opt/benzo/.env
@@ -109,3 +118,7 @@ volumes:
   console-static:
   caddy_data:
   caddy_config:
+
+secrets:
+  benzo_artifacts_token:
+    environment: BENZO_ARTIFACTS_TOKEN

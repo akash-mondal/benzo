@@ -13,6 +13,11 @@ dist
 build
 **/*.tsbuildinfo
 
+# The API images fetch verified proving artifacts from this committed manifest.
+!circuits
+!circuits/build
+!circuits/build/artifacts-manifest.json
+
 target
 reference
 docs
