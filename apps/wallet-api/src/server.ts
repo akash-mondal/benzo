@@ -137,6 +137,13 @@ function rampError(e: unknown, dir: "in" | "out"): { error: string; code: string
 }
 function sendError(e: unknown): { error: string; code: string } {
   if (e instanceof RampError) return { error: e.message, code: e.code };
+  const msg = String((e as Error)?.message ?? e);
+  if (/insufficient spendable balance/i.test(msg)) {
+    return { error: "That's more than your Private balance.", code: "balance" };
+  }
+  if (/pool witness unavailable/i.test(msg)) {
+    return { error: "Your private balance is still syncing. Please try again in a moment.", code: "busy" };
+  }
   return { error: "Couldn't send right now. Your money is safe. Please try again.", code: "busy" };
 }
 function malformedHandle(to: string): boolean {
@@ -242,6 +249,7 @@ function recordFailedMovement(
   dir: "in" | "out",
   sourceId?: string,
   safeOverride?: { error: string; code: string },
+  counterparty?: string,
 ) {
   const safe = safeOverride ?? ledgerError(e, dir);
   appendWalletLedger({
@@ -252,6 +260,7 @@ function recordFailedMovement(
     lines: [],
     errorCode: safe.code,
     error: safe.error,
+    counterparty,
   });
 }
 
@@ -604,7 +613,7 @@ route("POST", "/api/send", async (req, res, url) => {
     } catch (e) {
       logRouteError("send stream", e);
       const safe = sendError(e);
-      recordFailedMovement(recipientKind === "address" ? "send_public" : "send_private", body.amount, e, "out", undefined, safe);
+      recordFailedMovement(recipientKind === "address" ? "send_public" : "send_private", body.amount, e, "out", body.requestId, safe, privateCounterparty);
       const amount =
         Number.isFinite(Number(body.amount)) && Number(body.amount) > 0
           ? String(BigInt(Math.round(Number(body.amount) * 10_000_000)))
@@ -623,7 +632,7 @@ route("POST", "/api/send", async (req, res, url) => {
     await jsonPersisted(res, 200, r);
   } catch (e) {
     const safe = sendError(e);
-    recordFailedMovement(recipientKind === "address" ? "send_public" : "send_private", body.amount, e, "out", undefined, safe);
+    recordFailedMovement(recipientKind === "address" ? "send_public" : "send_private", body.amount, e, "out", body.requestId, safe, privateCounterparty);
     json(res, rampStatus(e), safe);
   }
 });

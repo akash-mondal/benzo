@@ -963,18 +963,23 @@ async function flushBestEffort(c: BenzoClient, label: string): Promise<void> {
   }
 }
 
-async function privateDebitLooksSettled(c: BenzoClient, before: bigint, amount: bigint): Promise<boolean> {
+async function privateDebitSettlement(c: BenzoClient, before: bigint, amount: bigint): Promise<{ settled: boolean; txHash?: string }> {
   const target = before - amount;
   for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
       await c.sync(hostedSyncOpts());
-      if (await c.getBalance() <= target) return true;
+      if (await c.getBalance() <= target) {
+        const txHash = [...c.getHistory()]
+          .reverse()
+          .find((h) => h.type === "send" && h.status === "settled" && h.amount === amount.toString())?.txHash;
+        return { settled: true, txHash };
+      }
     } catch {
       /* retry below */
     }
     await sleep(900 + attempt * 300);
   }
-  return false;
+  return { settled: false };
 }
 
 async function privateSendToHandle(
@@ -1019,11 +1024,22 @@ async function privateSendToHandle(
       requestId,
     };
   } catch (e) {
-    if (isPrivateStateLag(e) && await privateDebitLooksSettled(c, before, amount)) {
-      onPhase?.({ phase: "submitting" });
+    const msg = String((e as Error)?.message ?? e);
+    if (/insufficient spendable balance/i.test(msg)) {
+      throw new RampError("balance", "That's more than your Private balance.");
+    }
+    if (/pool witness unavailable/i.test(msg)) {
+      throw new RampError("busy", "Your private balance is still syncing. Please try again in a moment.");
+    }
+    const recovered = await privateDebitSettlement(c, before, amount);
+    if (recovered.settled) {
+      onPhase?.({ phase: "submitting", txHash: recovered.txHash });
       await flushBestEffort(c, "private send recovery flush");
-      onPhase?.({ phase: "confirmed", onChain: true });
-      return { status: "settled", prover, amount: amount.toString(), onChain: true, requestId };
+      onPhase?.({ phase: "confirmed", txHash: recovered.txHash, onChain: true });
+      return { status: "settled", txHash: recovered.txHash, prover, amount: amount.toString(), onChain: true, requestId };
+    }
+    if (isPrivateStateLag(e)) {
+      throw new RampError("busy", "The private transfer is still syncing. Please try again in a moment.");
     }
     throw e;
   }
@@ -1332,30 +1348,20 @@ async function shieldLiquidUsdc(
       };
     } catch (e) {
       const msg = String((e as Error)?.message ?? e);
+      const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
+      if (txHash !== undefined) {
+        if (expectedLiquidAfter !== undefined) {
+          await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter);
+        }
+        return { status: "settled", txHash, prover, amount: stroops.toString(), onChain: true };
+      }
+      if (expectedLiquidAfter !== undefined && await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter)) {
+        return { status: "settled", prover, amount: stroops.toString(), onChain: true };
+      }
       if (/shield (submit|flush) timed out/i.test(msg)) {
-        const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
-        if (txHash !== undefined) {
-          if (expectedLiquidAfter !== undefined) {
-            await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter);
-          }
-          return { status: "settled", txHash, prover, amount: stroops.toString(), onChain: true };
-        }
-        if (expectedLiquidAfter !== undefined && await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter)) {
-          return { status: "settled", prover, amount: stroops.toString(), onChain: true };
-        }
         throw new RampError("busy", "USDC is still settling to your wallet. Please try again in a moment.");
       }
       if (/out of sync|ASP membership mirror|not synced to the on-chain root|unknown root|WrongAspRoot|WrongMvkRoot|Error\(Contract, #(5|8|13)\)/i.test(msg)) {
-        const txHash = await waitForShieldedBalanceIncrease(c, before, stroops);
-        if (txHash !== undefined) {
-          if (expectedLiquidAfter !== undefined) {
-            await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter);
-          }
-          return { status: "settled", txHash, prover, amount: stroops.toString(), onChain: true };
-        }
-        if (expectedLiquidAfter !== undefined && await waitForLiquidUsdcAtMost(c, from, expectedLiquidAfter)) {
-          return { status: "settled", prover, amount: stroops.toString(), onChain: true };
-        }
         if (/WrongMvkRoot|Error\(Contract, #13\)/i.test(msg)) {
           mvkWiredRoot.delete(c);
           mvkStorageWitness.delete(c);
