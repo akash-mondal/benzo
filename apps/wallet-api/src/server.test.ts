@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { accountFromSignedMessage, signWithStellarSecret } from "@benzo/core";
+import { Keypair } from "@stellar/stellar-sdk";
 import { beforeAll, expect, test } from "vitest";
 
 let handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>;
@@ -60,6 +61,36 @@ test("reports unavailable live status when chain env is absent", async () => {
   const res = await request("/api/live");
   expect(res.status).toBe(200);
   await expect(res.json()).resolves.toMatchObject({ live: false, mode: "unavailable" });
+});
+
+test("reports local prover as live when hosted app env is complete", async () => {
+  const prev = new Map(
+    [
+      "SOROBAN_RPC_URL",
+      "GOOGLE_CLIENT_ID",
+      "RELAYER_SECRET",
+      "BENZO_OPERATOR_ADMIN_SECRET",
+      "DATABASE_URL",
+      "BENZO_DATA_ENCRYPTION_SECRET",
+    ].map((key) => [key, process.env[key]]),
+  );
+  process.env.SOROBAN_RPC_URL = "https://soroban-testnet.stellar.org";
+  process.env.GOOGLE_CLIENT_ID = "google-client";
+  process.env.RELAYER_SECRET = Keypair.random().secret();
+  process.env.BENZO_OPERATOR_ADMIN_SECRET = Keypair.random().secret();
+  process.env.DATABASE_URL = "postgres://user:pass@example.neon.tech/neondb";
+  process.env.BENZO_DATA_ENCRYPTION_SECRET = "wallet-server-test-data-secret";
+
+  try {
+    const res = await request("/api/prover");
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({ available: ["local"], mode: "local", location: "local", live: true });
+  } finally {
+    for (const [key, value] of prev) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
 });
 
 test("allows browser idempotency headers", async () => {

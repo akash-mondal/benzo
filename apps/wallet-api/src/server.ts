@@ -462,7 +462,7 @@ function appLiveStatus() {
 }
 
 route("GET", "/api/live", (_q, res) => json(res, 200, appLiveStatus()));
-route("GET", "/api/prover", (_q, res) => json(res, 200, { ...proverInfo(), live: isLive() }));
+route("GET", "/api/prover", (_q, res) => json(res, 200, { ...proverInfo(), live: appLiveStatus().live }));
 
 function takeLocalRateLimit(path: string, method: string): { ok: true } | { ok: false; retryAfter: number } {
   const write = method !== "GET";
