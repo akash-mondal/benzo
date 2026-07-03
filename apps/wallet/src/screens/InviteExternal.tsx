@@ -60,7 +60,8 @@ export function InviteExternal() {
         link: res.link,
         amount: stroops,
         expiresAt: Math.floor(Date.now() / 1000) + 30 * 24 * 3600,
-        claimSecretHex: res.claimSecretHex,
+        localId: res.claimSecretHex,
+        claimAccountPub: "",
         onChain: !!res.txHash,
       });
       await load();

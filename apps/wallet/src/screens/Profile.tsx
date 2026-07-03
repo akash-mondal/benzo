@@ -21,7 +21,7 @@ export function Profile() {
   const { session, balance, publicBalance, hidden, toggleHidden } = useWallet();
   const live = session?.live;
   const summary = getLocalAccountSummary();
-  const displayHandle = summary ? `${summary.address.slice(0, 8)}…${summary.address.slice(-8)}` : "Local Wallet";
+  const displayHandle = summary?.address ? `${summary.address.slice(0, 8)}…${summary.address.slice(-8)}` : "Local Wallet";
 
   // Read the chain's latest ledger DIRECTLY from the browser (no BFF) - the
   // first real "blockchain is the backend" data path. Degrades silently.

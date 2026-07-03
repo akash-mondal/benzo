@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bell, Check, Copy, Inbox, Link2, X } from "lucide-react";
 import { copyTextToClipboard } from "../lib/clipboard";
-import { friendlyError } from "../lib/format"; // friendlyError is imported from format/errors? Wait, in the original it was from "../lib/errors". Let's check imports.
+import { friendlyError } from "../lib/errors"; // friendlyError is imported from format/errors? Wait, in the original it was from "../lib/errors". Let's check imports.
 import { fmtUsd } from "../lib/format";
 import { addRequest, listRequests, cancelRequest, markReminded, remindedToday, updateRequestStatus, type MoneyRequest } from "../lib/requests";
 import { Screen } from "../ui/motion";

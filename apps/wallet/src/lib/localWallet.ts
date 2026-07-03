@@ -1,5 +1,6 @@
 import { IndexedDbKVStore, Keychain, passphraseWrappingKey, prfWrappingKey, newSalt } from "@benzo/wallet";
 import { createAccount, accountFromSignedMessage, type BenzoAccount } from "@benzo/core";
+import { StrKey } from "@stellar/stellar-sdk";
 import { derivePasskeySecret, registerPasskey, createDeviceAuthProof } from "./passkey";
 import { api } from "./api";
 

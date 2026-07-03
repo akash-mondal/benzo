@@ -244,7 +244,7 @@ export async function readPublicBalanceClientSide(): Promise<string | null> {
   const c = await getClient();
   if (!c) return null;
   const summary = getLocalAccountSummary();
-  if (!summary) return null;
+  if (!summary || !summary.address) return null;
   try {
     const bal = await c.opts.cli.view(DEPLOYMENT.token, "sim", ["balance", "--id", summary.address]);
     return String(bal);
@@ -297,7 +297,7 @@ export async function refundInviteClientSide(claimSecretHex: string): Promise<{ 
   if (!c) return null;
   await c.sync(RELAXED_SYNC);
   const summary = getLocalAccountSummary();
-  if (!summary) return null;
+  if (!summary || !summary.address) return null;
   const toAddress = summary.address;
   const claimSecret = fromHex(claimSecretHex);
   const res = await c.claim({ claimSecret, toAddress });
@@ -316,7 +316,7 @@ export async function claimLinkClientSide(claimSecretHexOrBase64: string): Promi
   if (!c) return null;
   await c.sync(RELAXED_SYNC);
   const summary = getLocalAccountSummary();
-  if (!summary) return null;
+  if (!summary || !summary.address) return null;
   const toAddress = summary.address;
   
   let claimSecret: Uint8Array;

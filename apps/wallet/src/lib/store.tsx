@@ -55,7 +55,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const pBalVal = await readPublicBalanceClientSide();
       const summary = getLocalAccountSummary();
-      if (pBalVal && summary) {
+      if (pBalVal && summary && summary.address) {
         setPublicBalance({
           stroops: pBalVal,
           address: summary.address,
@@ -80,7 +80,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         coreHistory = c.getHistory().map((item) => ({
           id: item.txHash || Math.random().toString(),
           type: item.type,
-          name: item.counterparty,
+          name: item.counterparty || "External",
           note: item.memo || "",
           amount: item.amount,
           direction: item.type === "shield" || item.type === "receive" ? "in" : "out",
@@ -118,7 +118,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return false;
       }
       const summary = getLocalAccountSummary();
-      if (summary) {
+      if (summary && summary.address) {
         const addr = summary.address;
         const shortAddr = `${addr.slice(0, 4)}...${addr.slice(-4)}`;
         setSession({
