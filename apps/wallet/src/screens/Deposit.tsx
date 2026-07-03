@@ -14,7 +14,7 @@ import { api, type SettleResult } from "../lib/api";
 import { copyTextToClipboard } from "../lib/clipboard";
 import { useWallet } from "../lib/store";
 import { fmtUsd } from "../lib/format";
-import { NETWORK_LABEL } from "../lib/network";
+import { NETWORK_LABEL, USDC_ASSET } from "../lib/network";
 import { Screen } from "../ui/motion";
 import { ScreenHeader } from "../ui/chrome";
 import { Button } from "../ui/primitives";
@@ -53,12 +53,16 @@ export function Deposit() {
   const ready = liquid > 0n;
   const displayAddress = info?.address ?? localAddress;
 
+  const [fallbackAssetCode, fallbackAssetIssuer] = (USDC_ASSET ?? "USDC:").split(":");
+  const assetCode = info?.asset || fallbackAssetCode || "USDC";
+  const assetIssuer = info?.issuer || fallbackAssetIssuer || "";
+
   // SEP-0007 payment URI so external wallets prefill the USDC asset (avoids users
   // sending XLM or the wrong asset). Falls back to the bare address if no issuer.
   const qrValue =
-    info?.address && info.issuer
-      ? `web+stellar:pay?destination=${info.address}&asset_code=${encodeURIComponent(info.asset || "USDC")}&asset_issuer=${info.issuer}`
-      : (info?.address ?? localAddress ?? "");
+    displayAddress && assetIssuer
+      ? `web+stellar:pay?destination=${displayAddress}&asset_code=${encodeURIComponent(assetCode)}&asset_issuer=${assetIssuer}`
+      : (displayAddress ?? "");
 
   async function copy() {
     if (!displayAddress) return;
@@ -114,12 +118,16 @@ export function Deposit() {
               <div className={`mt-1 text-center text-[11.5px] font-semibold ${copyState === "copied" ? "text-pos" : "text-danger"}`} data-testid="deposit-copy-status">
                 {copyState === "copied" ? "Address copied" : "Copy blocked. Select the address above."}
               </div>
+            ) : !info?.address && displayAddress ? (
+              <div className="mt-1.5 text-center text-[11px] font-semibold text-amber" data-testid="deposit-offline-warning">
+                Confirming with network…
+              </div>
             ) : null}
           </div>
           <div className="w-full rounded-xl bg-canvas/60 px-3 py-2 text-[11.5px] text-muted">
-            <Row k="Asset" v={info?.asset ?? "USDC"} />
+            <Row k="Asset" v={assetCode} />
             <Row k="Network" v={NETWORK_LABEL} />
-            {info?.issuer ? <Row k="Issuer" v={`${info.issuer.slice(0, 6)}…${info.issuer.slice(-6)}`} /> : null}
+            {assetIssuer ? <Row k="Issuer" v={`${assetIssuer.slice(0, 6)}…${assetIssuer.slice(-6)}`} /> : null}
           </div>
         </div>
 
