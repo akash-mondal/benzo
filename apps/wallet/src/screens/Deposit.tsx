@@ -20,6 +20,7 @@ import { ScreenHeader } from "../ui/chrome";
 import { Button } from "../ui/primitives";
 import { PrivateChip } from "../ui/privacy";
 import { OnChainDetails } from "../ui/OnChainDetails";
+import { getLocalAccountSummary } from "../lib/localWallet";
 
 type Info = { address: string | null; liquid: string; asset: string; issuer: string; live: boolean };
 type Phase = "show" | "busy" | "done";
@@ -32,6 +33,8 @@ export function Deposit() {
   const [phase, setPhase] = useState<Phase>("show");
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<SettleResult | null>(null);
+
+  const localAddress = getLocalAccountSummary()?.address ?? null;
 
   // Poll the address + its liquid (unshielded) balance so "ready to import"
   // updates the moment the user's external deposit lands on-chain.
@@ -48,17 +51,18 @@ export function Deposit() {
 
   const liquid = BigInt(info?.liquid ?? "0");
   const ready = liquid > 0n;
+  const displayAddress = info?.address ?? localAddress;
 
   // SEP-0007 payment URI so external wallets prefill the USDC asset (avoids users
   // sending XLM or the wrong asset). Falls back to the bare address if no issuer.
   const qrValue =
     info?.address && info.issuer
       ? `web+stellar:pay?destination=${info.address}&asset_code=${encodeURIComponent(info.asset || "USDC")}&asset_issuer=${info.issuer}`
-      : (info?.address ?? "");
+      : (info?.address ?? localAddress ?? "");
 
   async function copy() {
-    if (!info?.address) return;
-    const ok = await copyTextToClipboard(info.address);
+    if (!displayAddress) return;
+    const ok = await copyTextToClipboard(displayAddress);
     setCopyState(ok ? "copied" : "blocked");
     setTimeout(() => setCopyState("idle"), ok ? 1500 : 3000);
   }
@@ -88,7 +92,7 @@ export function Deposit() {
 
         {/* QR + address */}
         <div className="mt-5 flex flex-col items-center gap-4 rounded-2xl border border-hair bg-card p-5">
-          {info?.address ? (
+          {displayAddress ? (
             <div className="rounded-xl bg-white p-3 shadow-sm">
               <QRCodeSVG value={qrValue} size={168} level="M" />
             </div>
@@ -102,8 +106,8 @@ export function Deposit() {
           )}
           <div className="w-full">
             <div className="text-center text-[11px] font-semibold uppercase tracking-wide text-muted">Your USDC address (Stellar)</div>
-            <button onClick={copy} aria-label={info?.address ? `Copy receive address ${info.address}` : "Receive address loading"} className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-xl bg-canvas px-3 py-2.5 font-mono text-[12px] leading-tight text-ink transition outline-none hover:bg-canvas/70 focus-visible:ring-2 focus-visible:ring-accent/40" data-testid="deposit-address">
-              <span className="break-all text-left">{info?.address ?? "…"}</span>
+            <button onClick={copy} aria-label={displayAddress ? `Copy receive address ${displayAddress}` : "Receive address loading"} className="mt-1.5 flex w-full items-center justify-center gap-2 rounded-xl bg-canvas px-3 py-2.5 font-mono text-[12px] leading-tight text-ink transition outline-none hover:bg-canvas/70 focus-visible:ring-2 focus-visible:ring-accent/40" data-testid="deposit-address">
+              <span className="break-all text-left">{displayAddress ?? "…"}</span>
               {copyState === "copied" ? <Check size={14} className="flex-none text-pos" /> : <Copy size={14} className="flex-none text-muted" />}
             </button>
             {copyState !== "idle" ? (
