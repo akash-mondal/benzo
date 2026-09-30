@@ -8,14 +8,14 @@ A direct user instruction that changes scope, gates, pins, tests or evidence is 
 
 ## Phase 1 ([docs/PHASE-1.md](PHASE-1.md)): READY FOR REVIEW
 
-Updated: 2026-09-30 19:23 UTC · Evidence run: 512296f · Evidence commit: 1a94638
+Updated: 2026-09-30 19:24 UTC · Evidence run: 512296f · Evidence commit: 1a94638
 
 - **Needs user:** none. User approved final live run and its temporary bidder-total dip below 98,000,000 zats at 2026-09-30 19:05 UTC. The user sent 1 TAZ from fauzec: tx `6dc286e42646a5d2216e3480a1d14396dd54491fa3866bcc3267a9089f4ffb41`, mined at 4422713, one Ironwood note of 100000000 zats, spendable at 17:29 UTC (`wallet balance --json`).
 - **Questions for the head agent:**
   - User instruction (2026-09-30 19:05 UTC), answer to the quoted approval request: "Run the final evidence test". Authorizes the third live run’s temporary bidder-total dip below STATUS’s 98,000,000-zat floor while deposits await refund, within the existing 0.002 TAZ fee budget.
-  - User instruction (2026-09-30 17:36 UTC): "hey make sure this project is called benzo not blindfold". Done in `docs/research/DESIGN.md`, the only file that used the old name (title, line 31 and the memo marker `"BLF"` -> `"BNZ"`, which matches PHASE-1 section 6). AGENTS.md makes `docs/research/` read-only, so please fold this into a Ruling or tell me to revert it.
-  - Q1 (2026-09-30 16:08 UTC): hand-written code is 1,385 lines by `wc -l` (comments and config included; the two specs are 368 of them), over section 11's ~1,000. Everything in it is named by the phase doc (bootstrap, setup, sealer, scanner with three modes, two specs and their CLI glue, verify.sh). I'd rather not compress formatting to hit a number. Meanwhile I am: continuing as written.
-  - Q2 (2026-09-30 16:08 UTC): C3 says the two bids' nonces differ. The nonce sits inside the sealed plaintext, so the test compares plaintext bytes 45–60 after `tle` opens them (C3 runs after C7). Is that the intended reading? Meanwhile I am: using it.
+  - User instruction (2026-09-30 17:36 UTC): "hey make sure this project is called benzo not blindfold". Done in `docs/research/DESIGN.md`, the only file that used the old name (title, line 31 and the memo marker `"BLF"` -> `"BNZ"`, which matches PHASE-1 section 6). Confirmed by R1 in head-authored commit 6269a35; the rename stands and research remains read-only.
+  - Q1 (2026-09-30 16:08 UTC): hand-written code is 1,385 lines by `wc -l` (comments and config included; the two specs are 368 of them), over section 11's ~1,000. Everything in it is named by the phase doc (bootstrap, setup, sealer, scanner with three modes, two specs and their CLI glue, verify.sh). I'd rather not compress formatting to hit a number. Resolved by R2 in 6269a35: the size is accepted; the estimate is not a gate.
+  - Q2 (2026-09-30 16:08 UTC): C3 says the two bids' nonces differ. The nonce sits inside the sealed plaintext, so the test compares plaintext bytes 45–60 after `tle` opens them (C3 runs after C7). Resolved by R3 in 6269a35: that is the intended reading.
 - **Fund budget (user asked on 2026-09-30 to use the TAZ very cautiously):** three live runs completed (development, M5–M7, evidence), within the 0.002 TAZ fee budget; no broadcasts outside the tests; no blind reruns after a failure; I ask the user before a fourth live run or if the bidder total falls below 98,000,000 zats. Measured development run: bidder total 100,000,000 -> 99,955,000 zats; 45,000 zats in fees; vault total 0. Mutation run: bidder 98,930,000; vault 990,000; cumulative fees 80,000 zats (0.0008 TAZ). Final evidence run swept M7’s note back to the bidder: final bidder 99,885,000 zats (0.99885 TAZ), vault 0, cumulative fees 115,000 zats (0.00115 TAZ). User approved the temporary balance dip on 2026-09-30 19:05 UTC; measured minimum before refund was 97,910,000 zats.
 - **Blockers:** none. Details go under Blocked items.
 - **Finish line:** all five gates READY FOR REVIEW; all 16 assertion IDs passed in one clean-tree live evidence run; M1–M7 seen failing; verifier passed and rejected the corrupted copy; three decisions recorded here and in `docs/evidence/phase-1/EVIDENCE.md`. Awaiting head-agent review.
@@ -43,6 +43,8 @@ Only the head agent records PASSED, as a Ruling in the phase doc.
 | B: exact memo bytes after mining and scan | READY FOR REVIEW | `memo/bid{1,2}.{sent,scanned}.hex`, `memo/{sha256sums.txt,deposits.json}`; 512 bytes each; deposit heights 4423177, 4423183 | same evidence run, B1 PASS | 512296f; artifacts 1a94638 |
 | C: browser tlock stays closed before R, opens after R via Go `tle` | READY FOR REVIEW | `tlock/{before.txt,after.txt,beacon-R.json,requests.jsonl,bid{1,2}.{ct,pt}.hex}`; 487-byte ciphertext, 494-byte envelope before padding | same evidence run, C1–C7 PASS | 512296f; artifacts 1a94638 |
 | D: fixed-C deposits scanned to the right per-bid address | READY FOR REVIEW | `scan/{addresses.json,operator-view.jsonl}`; two new Ironwood notes at exactly 500,000 zats each | same evidence run, D1–D3 PASS | 512296f; artifacts 1a94638 |
+
+R4 in head-authored commit 6269a35 accepts the M5–M7 run at 4c5e4a9 as the required mutation evidence; it is not gate evidence. No gate has a PASSED ruling yet.
 
 Paths above are under `docs/evidence/phase-1/`. Setup wrote `setup/group-key.txt` at b0019e1, committed in e34f95c; it never regenerated keys.
 
@@ -111,7 +113,7 @@ none
 
 ## Last session
 
-- **Window:** 2026-09-30 18:47–19:23 UTC.
+- **Window:** 2026-09-30 18:47–19:24 UTC.
 - **Outcome:** Phase 1 READY FOR REVIEW. [EVIDENCE.md](evidence/phase-1/EVIDENCE.md) records all gates, three decisions and limitations. No head-agent PASSED ruling exists.
 - **Fixed:** prior live run was FAIL, despite its outer exit-0 notification. `tmp/e2e/live-1.log` / `live-1-cli.log` showed bid 2 at height 4422729 while vault sync stopped at 4422728, causing B1/D1–D3 failures and a later missing-memo scanner error. Commits d11fb22 and 4c5e4a9 wait on synced wallet tips and enhance settlement memos. Assertions and deadlines unchanged. Final run passed the same harness.
 - **Verified:** M5–M7 at 4c5e4a9 exited 1 with exactly B1/D1/A4/A5 failing; patches restored before `.out` files were written (status capture `tmp/e2e/live-mutations-status.txt`). Setup at b0019e1 exited 0 and reused the DKG keys. Evidence run at 512296f exited 0 with all 16 IDs PASS, committed in 1a94638. Verifier exit 0; corrupted-copy verifier exit 1 with chain and memo errors. TypeScript typecheck and verifier Bash syntax check passed before the run.
