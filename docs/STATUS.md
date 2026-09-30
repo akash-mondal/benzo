@@ -8,14 +8,14 @@ A direct user instruction that changes scope, gates, pins, tests or evidence is 
 
 ## Phase 1 ([docs/PHASE-1.md](PHASE-1.md)): IN PROGRESS
 
-Updated: 2026-09-30 16:07 UTC · Last commit: c52c345
+Updated: 2026-09-30 17:32 UTC · Last commit: e147dee
 
-- **Needs user:** send at least 0.1 TAZ (0.5 recommended) to the bidder wallet: `[redacted address 4a8fa11836]`. Gates A, B and D and the trap-1 PCZT parse check wait on it. Faucets are listed in `.env.example` item 6.
+- **Needs user:** none. The user sent 1 TAZ from fauzec: tx `6dc286e42646a5d2216e3480a1d14396dd54491fa3866bcc3267a9089f4ffb41`, mined at 4422713, one Ironwood note of 100000000 zats, spendable at 17:29 UTC (`wallet balance --json`).
 - **Questions for the head agent:**
   - Q1 (2026-09-30 16:08 UTC): hand-written code is 1,385 lines by `wc -l` (comments and config included; the two specs are 368 of them), over section 11's ~1,000. Everything in it is named by the phase doc (bootstrap, setup, sealer, scanner with three modes, two specs and their CLI glue, verify.sh). I'd rather not compress formatting to hit a number. Meanwhile I am: continuing as written.
   - Q2 (2026-09-30 16:08 UTC): C3 says the two bids' nonces differ. The nonce sits inside the sealed plaintext, so the test compares plaintext bytes 45–60 after `tle` opens them (C3 runs after C7). Is that the intended reading? Meanwhile I am: using it.
 - **Blockers:** none. Details go under Blocked items.
-- **Next:** when TAZ arrives: trap-1 PCZT parse check on the bidder wallet, then a development run of `npm run e2e:live`, then M5–M7, then the evidence run (setup with `BNZ_EVIDENCE_DIR` + `e2e:live`), verify.sh and its negative check, `EVIDENCE.md`.
+- **Next:** a development run of `npm run e2e:live` is running (started 17:30 UTC, log `tmp/e2e/live-1.log`); then M5–M7, then the evidence run (setup with `BNZ_EVIDENCE_DIR` + `e2e:live`), verify.sh and its negative check, `EVIDENCE.md`.
 
 **Phase states:**
 - IN PROGRESS
@@ -79,6 +79,8 @@ none
 
 ## Deviations from the phase doc
 
+**Trap 1 (PCZT version gap): no deviation needed.** 2026-09-30 17:30 UTC: `zcash-devtool pczt -w $BNZ_STATE_DIR/bidder create --address <bidder UA> --value 10000` (devtool 5a26ee85, pczt 0.9.3) wrote a PCZT whose header is `PCZT` + version `02000000`; `zcash-sign sign -n test -i created.pczt` (pczt 0.8.0-rc.1) printed `SIGHASH: 36afc41c…6b` and `Randomizer #3 (ironwood): 1bd559be…04`, then exited 1 on the closed stdin as expected. Nothing was broadcast; devtool's `propose_transfer` is called with `lock_inputs: None`, so no note was locked. Output in `$BNZ_STATE_DIR/run/trap1/`.
+
 <!-- Pin changes, patches and fallbacks that the phase doc pre-authorizes or a Ruling allows. For each, give the output that forced it, and why in at most two sentences. -->
 none
 
@@ -112,6 +114,7 @@ none
   - Both endpoints answer: `GetLightdInfo` on testnet.zec.rocks gave lightwalletd v0.5.4, Zebra v6.3.0, branch `37a5165b`, height 4422262; Zaino `GetLatestBlock` 4422263. `benzo-scan verify` parsed v6 tx `c5a1c4a1…` (height 4246513) from Zaino.
 - **Unverified:** test 2 as a whole, the trap-1 PCZT parse (devtool pczt 0.9.3 vs zcash-sign 0.8.0-rc.1), and the scanner's `scan` output on real notes. All need TAZ.
 - **Found:**
+  - Zaino (`BNZ_LWD_URL_ALT`) answered `GetTransaction` for the unmined faucet tx with `height: 4422712` (its tip), and the tx was then mined at 4422713; lightwalletd omitted `height` for it while unmined. So a Zaino height alone does not prove mining: test 2 reads heights from the primary first and queries Zaino only once its tip has reached that height.
   - `WalletTest::get_notes` in zcash_client_sqlite 0.22.0 unwraps `get_spendable_note`, so it panics once a note is spent; the scanner reads the library's `v_received_outputs` / `v_received_output_spends` views instead, and memos through `WalletRead::get_memo`.
   - frostd at 06c0dbdb logs only startup lines at `RUST_LOG=info`, so `setup/group-key.txt` and A2 rely on the frost-client transcripts, not frostd log lines.
   - `frost-client dkg` joiners fail with "no sessions" if they start before the creator's session exists; setup waits for `frost-client sessions` to list it.
