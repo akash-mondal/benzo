@@ -9,7 +9,7 @@ export default defineConfig({
   retries: 0,
   forbidOnly: true,
   workers: 2,
-  reporter: [["line"]],
+  reporter: [["./e2e/lib/reporter.ts"], ["json", { outputFile: "tmp/e2e/report.json" }]],
   globalSetup: "./e2e/lib/global-setup.ts",
   globalTeardown: "./e2e/lib/global-teardown.ts",
   use: { browserName: "chromium", headless: true },

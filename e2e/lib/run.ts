@@ -6,6 +6,16 @@ import { DRAND, E2E, OUT } from "./env";
 
 type Result = "PASS" | "FAIL" | "NOT RUN";
 
+// One line: the assertion's name plus its expected and received values, without colour codes.
+const reason = (message: string) =>
+  message
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("expect("))
+    .join(" | ")
+    .slice(0, 400);
+
 export class Run {
   results: Record<string, Result> = {};
   constructor(private spec: string) {}
@@ -26,7 +36,7 @@ export class Run {
       }
       const errors = test.info().errors.slice(before);
       this.results[id] = errors.length ? "FAIL" : "PASS";
-      if (errors.length) console.log(`ERROR ${id} ${(errors[0].message ?? "").split("\n").find((l) => l.trim()) ?? ""}`);
+      if (errors.length) console.log(`ERROR ${id} ${reason(errors[0].message ?? "")}`);
       this.save();
     });
   }
