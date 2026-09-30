@@ -1,0 +1,17 @@
+{
+  "name": "benzo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:seal": "esbuild seal/src/main.ts --bundle --format=esm --platform=browser --outfile=seal/dist/main.js && cp seal/src/index.html seal/dist/index.html",
+    "e2e": "playwright test --project=default",
+    "e2e:live": "BNZ_LIVE=1 playwright test --project=live"
+  },
+  "dependencies": {
+    "tlock-js": "0.9.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "esbuild": "0.28.2"
+  }
+}
