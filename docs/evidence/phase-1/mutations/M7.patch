@@ -1,0 +1,13 @@
+diff --git a/e2e/testnet-golden-path.spec.ts b/e2e/testnet-golden-path.spec.ts
+index 3914139..82a5666 100644
+--- a/e2e/testnet-golden-path.spec.ts
++++ b/e2e/testnet-golden-path.spec.ts
+@@ -149,7 +149,7 @@ test("golden path on testnet", async ({ page }) => {
+     z.sync("vault");
+     z.sync("bidder");
+     const before = { bidder: z.balance("bidder").total, vault: z.balance("vault").total };
+-    const refundTo = z.generateAddress("bidder");
++    const refundTo = z.generateAddress("vault");
+     const dir = path.join(STATE, "run", `pczt-${new Date().toISOString().replace(/[:.]/g, "")}`);
+     mkdirSync(dir, { recursive: true });
+     const [created, proven, signed] = ["created", "proven", "signed"].map((n) => path.join(dir, `${n}.pczt`));
