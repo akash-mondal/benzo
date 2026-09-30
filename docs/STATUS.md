@@ -2,10 +2,10 @@
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): IN PROGRESS
 
-Updated: 2026-09-30T22:41:06.118447+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
+Updated: 2026-09-30T22:41:46.427863+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
 
 - **Phase 1:** PASSED, R5–R10 at 04926a7. Closed; decisions stand: binary_memo, frost_2of3, tlock-js@0.9.0. Evidence remains under `docs/evidence/phase-1/` at run 512296f / artifact commit 1a94638.
-- **Current:** Development v2 E1–I1 PASS and artifact verifier exit 0. Funds recovered. Running the unchanged default regression before serial live mutations; logs tmp/e2e/phase2-development-v2.log and phase2-development-v2-verify.log.
+- **Current:** Running N1 on auction-core only, with fresh real deposits and an 80-minute monitor / 75-minute spec deadline. Output tmp/e2e/N1-v2.log. Wallet/frostd use is serialized.
 - **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`.
 - **Funds (last verified before current drill):** Recovery tx `db1b7fce58fe0bc1a9585ba39fff4284e65d7865d111f92b870408e50a9d316b` mined at 4424057 on both endpoints. Bidder 99,780,000 zats; vault 0; exact 2,500,000 returned, reserve fee 30,000. `tmp/e2e/recovery.json`, `recovery-proof.json`, `recovery.log` are development output only. Floor remains 1,540,000 zats; only one live wallet/frostd worker is active.
 - **Needs user:** none.
@@ -126,6 +126,7 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 
 ## Last session
 
+- 2026-09-30T22:41:46.427863+00:00: Running N1 on auction-core only, with fresh real deposits and an 80-minute monitor / 75-minute spec deadline. Output tmp/e2e/N1-v2.log. Wallet/frostd use is serialized.
 - 2026-09-30T22:41:06.118447+00:00: Development v2 E1–I1 PASS and artifact verifier exit 0. Funds recovered. Running the unchanged default regression before serial live mutations; logs tmp/e2e/phase2-development-v2.log and phase2-development-v2-verify.log.
 - 2026-09-30 22:02 UTC: Development v2 and continuation monitors are active under `.benzo/run/phase2-{development,overnight}-v2.pid`. N1–N7 isolated compiler checks PASS (`tmp/phase2/mutant-compile.log`), not live evidence. Next concrete step: inspect development completion; the continuation will stop on a red baseline/verifier rather than spend again. On verified success it proceeds through mutations and final evidence, records decisions/audit and sets READY FOR REVIEW. Only then start Phase 3 J/K. Each live spec owns and stops its frostd PID. Overall continuation log `tmp/e2e/phase2-overnight-v2.log`.
 - 2026-09-30 21:53 UTC: Recovered the original five deposits using a fresh 2-of-3 signed PCZT, checked mining on both endpoints, and stopped frostd by owned PID. Recovery is not gate evidence.
