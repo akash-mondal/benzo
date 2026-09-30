@@ -15,7 +15,7 @@ Updated: 2026-09-30 20:32 UTC · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at 
 - Q1 resolved by R2 at cc2ced0: exact-C cancellation refund, separate fixed fee-reserve note, one live drill authorized.
 - Q2 resolved by R3 at cc2ced0: auction-core project only, serialized live wallet/frostd access; both Phase 1 specs retained unchanged.
 - Q3 resolved by R4 at cc2ced0: full five-note drill; floor remains 3C + 40,000 zats.
-- Q4: N3 asks freeze to hash plaintext while freeze must occur before R and operator has no plaintext. May N3 instead hash the ciphertext's hex encoding rather than its raw bytes (same wrong-commitment regression, F2 fails against an independent raw-byte verifier)? No plaintext input or test-only production seam will be added; N3 awaits ruling while other work continues.
+- Q4 withdrawn: literal N3 is feasible as a mutation that waits for the real release round, opens with pinned Go tle and hashes the actual plaintext into the root. This deliberately breaks sealed freeze; independent F2 must reject its plaintext root. No alternate mutation, supplied plaintext or test-only seam is needed. Patch exists; live red run pending.
 - User instruction (2026-09-30 20:18 UTC), verbatim:
 
 > Overnight head-agent orders for Benzo. You are the build agent. Unattended session.
@@ -110,11 +110,11 @@ Freeze commitment: pending F1–F2. Clearing spec: pending G1–G3. Receipt form
 
 ## E2E tests
 
-Exactly one Phase 2 spec added: `e2e/auction-core.spec.ts`, E1, E2, F1, F2, G1, G2, G3, H1, H2, H3, H4, I1. N1, N2, N4–N7 patches written and `git apply --check` PASS; no red mutation runs yet. N3 awaits Q4. Existing two Phase 1 tests retained; total will be 3 of 8.
+Exactly one Phase 2 spec added: `e2e/auction-core.spec.ts`, E1, E2, F1, F2, G1, G2, G3, H1, H2, H3, H4, I1. N1–N7 patches written; `git apply --check` PASS, no red mutation runs yet. N3 uses actual Go-tle plaintext after the real release round. Existing two Phase 1 tests retained; total will be 3 of 8.
 
 ## Blocked items
 
-No outside dependency failure observed. N3 mutation definition awaits Q4 ruling; independent work continues.
+No outside dependency failure observed. No pending ruling blocks implementation; the development run awaits real confirmations and release deadlines.
 
 ## Deviations / Environment changes / Upstream code reused
 
