@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.benzo/
+tmp/
+node_modules/
+target/
+seal/dist/
+test-results/
+playwright-report/
+*.sqlite
+*.sqlite-*
+.DS_Store
