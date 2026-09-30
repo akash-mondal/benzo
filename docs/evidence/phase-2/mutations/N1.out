@@ -1,0 +1,18 @@
+commit c58cdd4245302b3053cb56fb27847406f799631d
+start_utc 2026-09-30T22:41:46.517684+00:00
+end_utc 2026-09-30T23:29:18.973856+00:00
+command npm run e2e:live
+exit 1
+npm notice run e2e:live
+npm notice run BNZ_LIVE=1 playwright test --project=auction-core
+ERROR E1 Error: expect(received).not.toBe(expected) // Object.is equality | Expected: not 0
+deposit 1/6 broadcast 5f1d6308bb9f342e618fab8bc09c7ef4817dec4017786364566f80e23e6bf568
+deposit 2/6 broadcast 1e13d31c85387c942c918666c2b45c4c52cb6162cfd292b693c066bdc2ed4145
+deposit 3/6 broadcast 72f5a44bd25a34946affae251f75dd2c8afe2febb182efca3d88431e17193e6c
+deposit 4/6 broadcast eff64439ec64fbb15f9a41acb3e27a4de5ac975ef868c9cd3567c2d98fa20fdd
+deposit 5/6 broadcast c73ba97d930189d6e20b18ce9159c81f37924f3e6adf6a1f931cd87f264b398c
+deposit 6/6 broadcast 63c7bb0518ba3bdeb786395435cdad5b42db88fb788826f1423352be97421ba5
+refund broadcast d21f33f9baf36487b04f6df4ff1ebb69c764853c4e8526f6e7c2230e2263c05e
+run.json -> tmp/e2e/out
+FAILED auction-core signed sealed auction on testnet (2851 s)
+run failed; details in tmp/e2e/report.json
