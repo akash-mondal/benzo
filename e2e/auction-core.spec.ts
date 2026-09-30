@@ -144,11 +144,11 @@ test("signed sealed auction on testnet",async({page})=> {
     let golden:any;
     await run.check("G1","fresh Go tle clean-room input reproduces canonical result",()=> {
       const opening=ac("open");expect.soft(opening.code).toBe(0);
-      const result=ac("clear",auction,{mode:"uniform"}); golden=result.value;
+      const result=ac("clear"); golden=result.value;
       const independent=frozen.leaves.map((l:any)=> {
         const r=tleDecrypt(Buffer.from(l.ciphertext_hex,"hex"));expect.soft(r.code).toBe(0);return {leaf_index:l.leaf_index,plaintext_hex:r.stdout.toString("hex")};
       }).reverse();
-      const input={manifest:signed,signer,frozen,opened:independent,mode:"uniform"};
+      const input={manifest:signed,signer,frozen,opened:independent};
       const clean=cli("clear/dist/cli.mjs",[],input);expect.soft(clean.out).toBe(result.out);
       write("auction/opened.json",bytes(independent));write("auction/result.json",result.out);write("auction/clear-input.json",bytes(input));
     });
@@ -158,11 +158,13 @@ test("signed sealed auction on testnet",async({page})=> {
       expect.soft(result?.clearing_price_zats).toBe(price);expect.soft(result?.allocations.map((a:any)=>a.fill)).toEqual([2,1]);expect.soft(result?.allocations.map((a:any)=>a.payment_zats)).toEqual([String(2*Number(price)),price]);
     });
     await run.check("G3","single-lot winner pays second price",()=> {
-      const input=JSON.parse(readFileSync(path.join(ROOT,"tmp/e2e/out/auction/clear-input.json"),"utf8"));const result=cli("clear/dist/cli.mjs",[],{...input,mode:"vickrey"}).value;
+      const input=JSON.parse(readFileSync(path.join(ROOT,"tmp/e2e/out/auction/clear-input.json"),"utf8"));const result=cli("clear/dist/cli.mjs",[],input).value?.comparison;
       expect.soft(result?.allocations.map((a:any)=>a.fill)).toEqual([1,0]);expect.soft(result?.allocations[0].payment_zats).toBe(price);write("auction/vickrey.json",bytes(result));
     });
+    await run.check("I1","exact C cancel refund with fee-reserve and zero opening calls",async()=> {
     const cancelled=ac("cancel",cancelId);write("auction/cancel.json",bytes({code:cancelled.code,response:cancelled.value,error:cancelled.error}));
-    z.sync("vault"); z.sync("bidder");
+    const freshTip=Math.max(z.tip(),z.tip(ALT));
+    await waitFor({height:freshTip,tip:()=>{z.sync("vault");z.sync("bidder");return Math.min(z.balance("vault").chain_tip_height,z.balance("bidder").chain_tip_height)}},Date.now()+MINE);
     const before={bidder:z.balance("bidder").total,vault:z.balance("vault").total};
     const refundTo=z.generateAddress("bidder"), dir=path.join(STATE,"run",`auction-pczt-${Date.now()}`);mkdirSync(dir,{recursive:true,mode:0o700});
     const [created,proven,signedPczt]=["created","proven","signed"].map(n=>path.join(dir,`${n}.pczt`));
@@ -171,15 +173,21 @@ test("signed sealed auction on testnet",async({page})=> {
     const signing=await zcashSign(proven,signedPczt);
     const sum=(re:RegExp)=>[...inspect.matchAll(re)].reduce((n,m)=>n+Number(m[1]),0), inputs=sum(/^ {2}- Spend: (\d+) zatoshis$/gm), outputs=sum(/^ {2}- Output: (\d+) zatoshis/gm),fee=inputs-outputs;
     if(fee!==reserve)throw Error(`fee reserve ${reserve} differs from inspected fee ${fee}; refusing refund broadcast`);
+    const metadata=JSON.parse(z.run(z.scanner,["pczt",signedPczt])),broadcastTip=Math.max(z.tip(),z.tip(ALT));
+    if(metadata.tx_version!==6 || metadata.consensus_branch_id!=="37a5165b" || metadata.expiry_height<=broadcastTip)throw Error(`PCZT preflight: version/branch/expiry ${JSON.stringify(metadata)} at tip ${broadcastTip}; no broadcast`);
     const refundTxid=z.send(signedPczt), sent=Date.now();console.log(`refund broadcast ${refundTxid}`);
-    const height=await waitFor({height:1,tip:()=>z.getTransaction(refundTxid).height},sent+MINE);
+    const walletHeight=await waitFor({height:1,tip:()=> {
+      z.sync("vault");const txs=JSON.parse(z.wallet("vault","list-tx","--json"));
+      const tx=txs.find((t:any)=>t.txid===refundTxid);return tx?.mined_height??0; // documented null means unmined, not invented transaction data
+    }},sent+MINE);
+    const height=z.getTransaction(refundTxid).height;
+    if(height!==walletHeight)throw Error(`refund chain height ${height} differs from wallet-confirmed height ${walletHeight}`);
     await waitFor({height,tip:()=>z.tip(ALT)},sent+MINE);
     const alternate=z.getTransaction(refundTxid,ALT);
     await waitFor({height,tip:()=>{z.sync("bidder");z.sync("vault");return Math.min(z.balance("bidder").chain_tip_height,z.balance("vault").chain_tip_height)}},sent+MINE);
     z.enhance("vault"); const spent=z.scanVault().filter(n=>n.spent_in_txid===refundTxid),after={bidder:z.balance("bidder").total,vault:z.balance("vault").total};
-    const settlement={refund_txid:refundTxid,height,alternate_height:alternate.height,fee_reserve_zats:reserve,fee_zats:fee,input_zats:inputs,output_zats:outputs,before,after,deposits:spent.filter(n=>txids.includes(n.txid)),cancel_deposit_txid:txids[4],cancel_refund_zats:C};
+    const settlement={refund_txid:refundTxid,height,alternate_height:alternate.height,fee_reserve_zats:reserve,fee_zats:fee,input_zats:inputs,output_zats:outputs,before,after,deposits:spent.filter(n=>txids.includes(n.txid)),cancel_deposit_txid:txids[4],cancel_refund_zats:C,preflight:{fresh_tip:freshTip,broadcast_tip:broadcastTip,...metadata}};
     write("auction/refund.json",bytes(settlement));write("auction/pczt-inspect.txt",inspect);write("auction/signatures.json",bytes(signing));
-    await run.check("I1","exact C cancel refund with fee-reserve and zero opening calls",()=> {
       expect.soft(cancelled.code).toBe(0);expect.soft(cancelled.value?.refunds.map((r:any)=>r.amount_zats)).toEqual([String(C)]);
       expect.soft(cancelled.value?.trace.filter((r:any)=>r.operation==="tle -d").length).toBe(0);
       expect.soft(spent.find(n=>n.txid===txids[4])?.value_zats).toBe(C);

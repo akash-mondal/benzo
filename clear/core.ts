@@ -2,18 +2,16 @@
 import { client, requireThat, zats, type Signed } from "../manifest/schema";
 import { checkFrozen, type Frozen } from "./merkle";
 export type Opened = { leaf_index: number; plaintext_hex: string | null; error?: string };
-export type ClearInput = { manifest: Signed; signer: string; frozen: Frozen; opened: Opened[]; mode: "uniform" | "vickrey"; removed_leaf_indices?: number[] };
-export function clear(input: ClearInput) {
+export type ClearInput = { manifest: Signed; signer: string; frozen: Frozen; opened: Opened[] };
+function calculate(input: ClearInput, mode: "uniform" | "vickrey") {
   const {manifest:m,manifest_hash} = client(input.manifest,input.signer);
   checkFrozen(input.frozen,m.auction_id,manifest_hash);
-  requireThat(input.mode === "uniform" || input.mode === "vickrey", "clearing mode");
-  const removed = new Set(input.removed_leaf_indices ?? []);
   const C=zats(m.C_zats,"C"), fee=zats(m.fee_zats,"fee"), reserve=zats(m.reserve_zats,"reserve"), tick=zats(m.tick_zats,"tick"), cap=zats(m.B_max_zats,"B_max");
   requireThat(input.opened.length === input.frozen.leaf_count && new Set(input.opened.map(o=>o.leaf_index)).size === input.opened.length, "one opening per frozen leaf");
   const bids = input.frozen.leaves.map(l => {
     const o=input.opened.find(o=>o.leaf_index === l.leaf_index)!;
     let price=0n, quantity=0, reason="";
-    if (removed.has(l.leaf_index)) reason="reorg";
+    if (o?.error === "reorg") reason="reorg";
     else if (!o || o.plaintext_hex === null) reason="undecryptable";
     else if (!/^[0-9a-f]{256}$/.test(o.plaintext_hex)) reason="plaintext_length";
     else {
@@ -26,7 +24,7 @@ export function clear(input: ClearInput) {
   });
   const ranked=bids.filter(b=>!b.reason).sort((a,b)=>a.price !== b.price ? (a.price > b.price ? -1:1) : a.leaf_index-b.leaf_index);
   let clearingPrice=0n;
-  if (input.mode === "vickrey") {
+  if (mode === "vickrey") {
     if (ranked.length) { ranked[0].fill=1; clearingPrice=ranked[1]?.price ?? reserve; }
   } else {
     let left=m.supply;
@@ -48,11 +46,17 @@ export function clear(input: ClearInput) {
   let payout=0n, refunds=0n;
   const allocations=bids.map(b=> {
     const paid=clearingPrice*BigInt(b.fill), refund=C-fee-paid; payout+=paid; refunds+=refund;
-    return {leaf_index:b.leaf_index,price_zats:input.mode === "vickrey" ? null:b.price.toString(),quantity:b.quantity,
+    return {leaf_index:b.leaf_index,price_zats:mode === "vickrey" ? null:b.price.toString(),quantity:b.quantity,
       fill:b.fill,payment_zats:paid.toString(),refund_zats:refund.toString(),outcome:b.reason || (b.fill ? "winner":"unfilled")};
   });
   const total=C*BigInt(bids.length), fees=fee*BigInt(bids.length);
   requireThat(total === payout+refunds+fees, "conservation");
-  return {auction_id:m.auction_id,manifest_hash,freeze_root:input.frozen.root,mode:input.mode,clearing_price_zats:clearingPrice.toString(),allocations,
+  return {auction_id:m.auction_id,manifest_hash,freeze_root:input.frozen.root,mode,clearing_price_zats:clearingPrice.toString(),allocations,
     conservation:{input_zats:total.toString(),payout_zats:payout.toString(),refund_zats:refunds.toString(),fees_zats:fees.toString()}};
+}
+
+// The signed manifest selects settlement; the reference Vickrey calculation is deterministic too.
+export function clear(input: ClearInput) {
+  const mode=client(input.manifest,input.signer).manifest.clearing.mode;
+  return {...calculate(input,mode),comparison:mode === "uniform" ? calculate(input,"vickrey") : null};
 }

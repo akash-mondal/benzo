@@ -11,7 +11,7 @@ export type Manifest = {
   lot: string; supply: number; reserve_zats: string; tick_zats: string; B_max_zats: string;
   q_max: number; C_zats: string; fee_zats: string; deposit_addresses: string[];
   drand: typeof QUICKNET & { R: number }; T_submit: number; T_freeze: number; confirmations: 10;
-  clearing: { band: "floor_pro_rata_units"; dust: "ascending_leaf_index"; tie: "ascending_leaf_index"; minimum_fill: number };
+  clearing: { mode: "uniform" | "vickrey"; band: "floor_pro_rata_units"; dust: "ascending_leaf_index"; tie: "ascending_leaf_index"; minimum_fill: number };
   refund: { invalid: "C_minus_fee"; reorg: "C_minus_fee_remove_leaf"; cancel: "full_C" };
   freeze: "merkle_root_v1";
 };
@@ -61,7 +61,8 @@ export function validateManifest(m: Manifest): void {
   requireThat(m.T_submit < m.T_freeze && m.T_freeze - m.T_submit >= 750 &&
     m.T_freeze < QUICKNET.genesis + (m.drand.R - 1) * QUICKNET.period, "submit/freeze/release ordering or confirmation buffer");
   requireThat(m.confirmations === 10 && m.freeze === "merkle_root_v1", "confirmations/freeze");
-  keys(m.clearing, "band dust tie minimum_fill");
+  keys(m.clearing, "mode band dust tie minimum_fill");
+  requireThat(m.clearing.mode === "uniform" || (m.clearing.mode === "vickrey" && m.supply === 1), "clearing mode/supply");
   requireThat(m.clearing.band === "floor_pro_rata_units" && m.clearing.dust === "ascending_leaf_index" && m.clearing.tie === "ascending_leaf_index", "clearing rules");
   integer(m.clearing.minimum_fill, "minimum fill", 1, m.supply);
   keys(m.refund, "invalid reorg cancel");

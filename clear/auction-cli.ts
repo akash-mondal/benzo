@@ -70,12 +70,18 @@ try {
         ledger.leaves.push({...receipt,ciphertext_hex:ct}); const signed=signRecord(receipt,readFileSync(key,"utf8")); ledger.receipts.push(signed); result={replay:false,receipt:signed};
       }
     } else if(command==="freeze") {
-      requireThat(ledger.state==="OPEN" && now>=m.T_submit && now<m.T_freeze,"freeze outside confirmation buffer");
+      requireThat(ledger.state==="OPEN" && now>=m.T_submit,"freeze outside confirmation buffer");
+      const cutoff=(ok:unknown,reason:string)=> {
+        if(!ok) { ledger.state="CANCELLED"; writeFileSync(file+".new",jsonBytes(ledger),{mode:0o600}); renameSync(file+".new",file); throw new Error(`refused: ${reason}`); }
+      };
+      cutoff(now<m.T_freeze,"freeze missed cutoff");
       requireThat(now<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"freeze after release");
       const {notes}=observed();
-      requireThat(ledger.leaves.every(l=>notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height && !n.spent_in_txid)),"freeze deposit left chain");
+      cutoff(ledger.leaves.every(l=>notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height && !n.spent_in_txid)),"freeze deposit left chain");
       const commitment=tree(ledger.leaves);
-      ledger.frozen={auction_id:id,manifest_hash,...commitment,leaf_count:ledger.leaves.length,cutoff:m.T_freeze,published_at:now,leaves:ledger.leaves}; ledger.state="SEALED-WAIT"; result=ledger.frozen;
+      const published=Math.floor(Date.now()/1000);
+      cutoff(published<m.T_freeze && published<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"freeze publication cutoff");
+      ledger.frozen={auction_id:id,manifest_hash,...commitment,leaf_count:ledger.leaves.length,cutoff:m.T_freeze,published_at:published,leaves:ledger.leaves}; ledger.state="SEALED-WAIT"; result=ledger.frozen;
     } else if(command==="open") {
       requireThat(ledger.state==="SEALED-WAIT" && now>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"opening state/release");
       const {notes}=observed();
@@ -98,9 +104,9 @@ try {
       }); ledger.state="OPENED"; result={opened:ledger.opened,trace:ledger.trace};
     } else if(command==="clear") {
       requireThat(ledger.state==="OPENED" || ledger.state==="CLEARED","clearing state");
-      ledger.result=clear({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!,mode:input.mode,removed_leaf_indices:ledger.opened!.filter(o=>o.error==="reorg").map(o=>o.leaf_index)}); ledger.state="CLEARED"; result=ledger.result;
+      ledger.result=clear({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!}); ledger.state="CLEARED"; result=ledger.result;
     } else if(command==="cancel") {
-      requireThat(["OPEN","SEALED-WAIT"].includes(ledger.state) && !ledger.opened,"cancel after opening");
+      requireThat(["OPEN","SEALED-WAIT","CANCELLED"].includes(ledger.state) && !ledger.opened,"cancel after opening");
       ledger.state="CANCELLED";
       const {notes}=observed();
       const deposits=notes.filter(n=>m.deposit_addresses.includes(n.address) && n.height && !n.spent_in_txid);

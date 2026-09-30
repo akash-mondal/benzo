@@ -2,12 +2,12 @@
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): IN PROGRESS
 
-Updated: 2026-09-30T21:13:56.674493+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
+Updated: 2026-09-30 21:53 UTC · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
 
 - **Phase 1:** PASSED, R5–R10 at 04926a7. Closed; decisions stand: binary_memo, frost_2of3, tlock-js@0.9.0. Evidence remains under `docs/evidence/phase-1/` at run 512296f / artifact commit 1a94638.
-- **Current:** Development run failed; mutations not started. Inspect tmp/e2e/phase2-development.log and fix first.
-- **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`. No prior pidfiles or services remained running.
-- **Funds:** bidder total 99,885,000 zats, spendable 97,910,000 at the stored wallet tip (not resynced yet). New floor is 3C + 40,000 = 1,540,000 zats; ask before spending below it. Development run at e5bf985 has broadcast the five deposits and a 30,000-zat fee reserve (2,530,000 zats in vault, recorded tip 4423628). Bidder remains above the floor; no additional run is concurrent.
+- **Current:** Signed clearing mode, freeze publication cutoff, refund expiry preflight and mined-height polling fixed; build, typecheck and scanner build PASS. Fresh development run is next, followed by N1–N7 and the separate clean evidence run.
+- **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`.
+- **Funds:** Recovery tx `db1b7fce58fe0bc1a9585ba39fff4284e65d7865d111f92b870408e50a9d316b` mined at 4424057 on both endpoints. Bidder 99,780,000 zats; vault 0; exact 2,500,000 returned, reserve fee 30,000. `tmp/e2e/recovery.json`, `recovery-proof.json`, `recovery.log` are development output only. Floor remains 1,540,000 zats; no concurrent wallet run or frostd.
 - **Needs user:** none.
 
 ## Questions
@@ -101,8 +101,8 @@ Updated: 2026-09-30T21:13:56.674493+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 | E: signed manifest | IN PROGRESS | none yet |
 | F: admission, receipts, freeze | IN PROGRESS | CLI and spec build/typecheck pass; no live evidence |
 | G: uniform-price and Vickrey recomputation | IN PROGRESS | pure CLI development checks only |
-| H: deterministic bad-bid handling | IN PROGRESS | five-note drill implemented, not run |
-| I: cancel without decrypt | IN PROGRESS | exact-C plan and fee reserve implemented, not run |
+| H: deterministic bad-bid handling | IN PROGRESS | first development H1–H4 PASS; fresh clean evidence pending |
+| I: cancel without decrypt | IN PROGRESS | first refund failed unmined; harness fixed and funds recovered; I1 pass pending |
 
 ## Decisions
 
@@ -114,11 +114,11 @@ Exactly one Phase 2 spec added: `e2e/auction-core.spec.ts`, E1, E2, F1, F2, G1, 
 
 ## Blocked items
 
-Development failed after refund broadcast: primary GetTransaction first returned a mempool tx, then NotFound; alternate lookup/send returned InternalServerError. The transaction is now expired (expiry 4423740; wallet tip 4423953) and its 2,530,000 zats remain spendable. Exact cause of mempool disappearance is unresolved. Harness prematurely queried the unmined refund; fix to use real wallet mined-height polling and pre-send expiry validation. No mutation runs started; no gate evidence.
+None currently. First development failed after an unmined refund lookup: primary GetTransaction returned a mempool tx then NotFound; alternate lookup/send returned InternalServerError (`tmp/e2e/refund-primary.err`, `refund-alternate.err`, `rebroadcast-alternate.log`). That refund expired unmined; original disappearance cause unresolved. Own harness now waits for wallet mined height, then requires both endpoint proofs, and checks fresh tip/expiry before send. Manual recovery succeeded on both endpoints without new deposits.
 
 ## Deviations / Environment changes / Upstream code reused
 
-None this phase. All pins unchanged. Read pinned devtool sync/enhance and tle help before new CLI calls. NU7 safety check 2026-09-30 20:25 UTC: https://zips.z.cash/zip-0259 lines 60–62 still list testnet activation TBD (set Oct 5); current tip 4423601 from `wallet get-info`, output `tmp/phase2/chain-info.json`.
+All tool pins unchanged; no environment changes. Scanner now applies the pinned wallet's unexpired-spend condition instead of counting expired unmined spend candidates. Actual six notes were reported spent before this fix and spendable afterwards; the recovery then consumed them on chain. Adapted SQL: `source: zcash/librustzcash@97aefdc39a037da9c4f19a0e8a450d2c7932f53e:zcash_client_sqlite/src/wallet/common.rs` (`tx_unexpired_condition`, lines 114–125). PCZT public version/branch/expiry getter uses exact pczt 0.9.3 already in the pinned devtool graph. Read pinned CLI help/source before calls. NU7 check 20:25 UTC: ZIP-259 testnet activation still TBD (Oct 5); recheck before next broadcast.
 
 ## Deferred
 
@@ -126,16 +126,10 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 
 ## Last session
 
-- 2026-09-30T21:13:56.674493+00:00: Development run failed; mutations not started. Inspect tmp/e2e/phase2-development.log and fix first.
-- 2026-09-30T21:13:56.653016+00:00: Development failed; fix it first. Signed-mode change not applied.
-- 2026-09-30T21:13:43.719069+00:00: Development failed; fix it first. Signed-mode change not applied.
-- Resumed 2026-09-30 19:49 UTC. Clean tree at 0ec8c02; read committed Phase 1 pass rulings and Phase 2 contract/research; ran default E2E before new work.
-- Baseline PASS: `tmp/e2e/phase2-baseline.log`. Core build/typecheck PASS 2026-09-30 20:17 UTC. Development `npm run e2e:live` at e5bf985 is running, E1 PASS, all six payments broadcast; output `tmp/e2e/phase2-development.log`. Monitor PID `.benzo/run/phase2-development.pid`, exit file `tmp/e2e/phase2-development.exit`, explicit 80-minute monitor deadline (75-minute test). Next: inspect completion and fix any own-code/harness failure; then mutation runs and the separate evidence run. Verifier draft passes Bash and Node syntax checks, but has not yet run on live artifacts.
+- 2026-09-30 21:53 UTC: Recovered the original five deposits using a fresh 2-of-3 signed PCZT, checked mining on both endpoints, and stopped frostd by owned PID. Recovery is not gate evidence.
+- Failed source e5bf985/run aa5ef0f: 11 assertion IDs PASS; I1 not reached. Full log `tmp/e2e/phase2-development.log`; artifacts preserved `tmp/phase2/failed-development-artifacts`. E1 signed-mode fixture then failed before any payment at e3e6337 (`tmp/e2e/phase2-mode-before.log`); schema/core fix builds and typechecks, live after-fix validation pending.
+- Next: commit verified fixes; run fresh auction-core development with an 80-minute monitor and 75-minute test deadline, log `tmp/e2e/phase2-development-v2.log`; inspect all 12 IDs before mutations. Verifier is drafted, not yet a verified positive check.
 
 ## Mutation runs
 
-- 2026-09-30T21:13:43.719069+00:00: Development failed; fix it first. Signed-mode change not applied.
-- 2026-09-30T21:13:56.653016+00:00: Development failed; fix it first. Signed-mode change not applied.
-- 2026-09-30T21:13:56.674493+00:00: Development run failed; mutations not started. Inspect tmp/e2e/phase2-development.log and fix first.
-
-- 2026-09-30 21:34 UTC: Failed development at e5bf985 (run record aa5ef0f; source unchanged): 11 E1–H4/G1–G3 IDs PASS, I1 not reached. Output tmp/e2e/phase2-development.log and tmp/e2e/report.json; artifacts preserved under tmp/phase2/failed-development-artifacts. No frostd remains. Current: require signed clearing mode in E1 before init; then fix its missing schema support, refund waiting and expiry preflight. Recover existing deposits before another full drill.
+N1–N7 patches apply cleanly; no live red mutation outputs yet. N3 waits for actual release and hashes fresh Go-tle plaintext, deliberately breaking the sealed freeze commitment. No test data or network response is fabricated.

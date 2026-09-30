@@ -15,7 +15,7 @@ use serde_json::json;
 use zcash_client_backend::{data_api::WalletRead, decrypt_transaction, wallet::NoteId};
 use zcash_client_sqlite::WalletDb;
 use zcash_keys::keys::UnifiedFullViewingKey;
-use zcash_primitives::transaction::Transaction;
+use zcash_primitives::transaction::{Transaction, builder::DEFAULT_TX_EXPIRY_DELTA};
 use zcash_protocol::{
     ShieldedPool,
     consensus::{BlockHeight, BranchId, Network},
@@ -40,17 +40,21 @@ fn scan(params: Network, wallet_dir: &str) -> anyhow::Result<()> {
     let db_path = Path::new(wallet_dir).join("data.sqlite");
     let conn = Connection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
     let wallet = WalletDb::for_path(&db_path, params, (), ())?;
+    let target_height = u32::from(wallet.chain_height()?.ok_or_else(|| anyhow!("wallet chain tip unknown"))?) + 1;
     let mut stmt = conn.prepare(
         "SELECT t.txid, t.mined_height, ro.pool, ro.output_index, ro.value, a.address, a.diversifier_index_be,
                 (SELECT st.txid FROM v_received_output_spends s JOIN transactions st ON st.id_tx = s.transaction_id
-                 WHERE s.pool = ro.pool AND s.received_output_id = ro.id_within_pool_table) AS spent_in
+                 WHERE s.pool = ro.pool AND s.received_output_id = ro.id_within_pool_table
+                   AND (st.mined_height < ?1 OR st.expiry_height = 0 OR st.expiry_height >= ?1
+                        OR (st.expiry_height IS NULL AND st.min_observed_height + ?2 >= ?1))
+                 ORDER BY st.mined_height IS NULL, st.id_tx DESC LIMIT 1) AS spent_in
          FROM v_received_outputs ro
          JOIN transactions t ON t.id_tx = ro.transaction_id
          LEFT JOIN addresses a ON a.id = ro.address_id
          WHERE ro.pool IN (2, 3, 4)
          ORDER BY t.mined_height, t.txid, ro.output_index",
     )?;
-    let mut rows = stmt.query([])?;
+    let mut rows = stmt.query([target_height, DEFAULT_TX_EXPIRY_DELTA])?;
     while let Some(row) = rows.next()? {
         let txid = TxId::from_bytes(row.get::<_, [u8; 32]>(0)?);
         let (pool, name) = match row.get::<_, i64>(2)? {
