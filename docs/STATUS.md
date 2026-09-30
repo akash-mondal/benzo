@@ -8,14 +8,13 @@ A direct user instruction that changes scope, gates, pins, tests or evidence is 
 
 ## Phase 1 ([docs/PHASE-1.md](PHASE-1.md)): IN PROGRESS
 
-Updated: <UTC from `date -u`> · Last commit: none
+Updated: 2026-09-30 15:45 UTC · Last commit: 56890f5
 
-- **Needs user:** none
-  <!-- Or: the exact action, why it is needed, and what waits on it. Example: send >= 0.1 TAZ (0.5 recommended) to utest1... (bidder wallet); gates A, B and D wait on it. -->
+- **Needs user:** send at least 0.1 TAZ (0.5 recommended) to the bidder wallet: `[redacted address 4a8fa11836]`. Gates A, B and D and the trap-1 PCZT parse check wait on it. Faucets are listed in `.env.example` item 6.
 - **Questions for the head agent:** none
   <!-- Or: Q1 (<UTC>): the question. Meanwhile I am: what you do until a Ruling appears. -->
 - **Blockers:** none. Details go under Blocked items.
-- **Next:** G0. Write `tools/pins.env` and `tools/bootstrap.sh`, then build the pinned tools.
+- **Next:** gate C: finish `e2e/seal-open.spec.ts`, run it, then mutations M1–M4. Scanner (`scan/`) while waiting for TAZ.
 
 **Phase states:**
 - IN PROGRESS
@@ -35,7 +34,7 @@ Only the head agent records PASSED, as a Ruling in the phase doc.
 
 | Gate | State | Evidence (paths, txids, rounds) | Command, exit code | Commit |
 |---|---|---|---|---|
-| G0: pinned toolchain builds | TODO | | | |
+| G0: pinned toolchain builds | READY FOR REVIEW | `docs/evidence/phase-1/versions.txt` | `tools/bootstrap.sh`, exit 0 (log `$BNZ_STATE_DIR/run/bootstrap-g0.log`) | 23f660a (evidence in d995df0) |
 | A: 2-of-3 FROST spend of received Ironwood notes | TODO | | | |
 | B: exact memo bytes after mining and scan | TODO | | | |
 | C: browser tlock stays closed before R, opens after R via Go `tle` | TODO | | | |
@@ -85,7 +84,7 @@ none
 ## Environment changes
 
 <!-- Anything installed or changed outside this repository, other than package-manager caches. -->
-none
+none. (Playwright Chromium went to `~/Library/Caches/ms-playwright`, a package-manager cache. npm 12 blocked esbuild's postinstall; esbuild 0.28.2 runs without it: `npx esbuild --version` printed `0.28.2`.)
 
 ## Upstream code reused
 
