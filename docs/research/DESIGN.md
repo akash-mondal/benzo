@@ -1,4 +1,4 @@
-# BLINDFOLD — the auction house where the auctioneer is blindfolded
+# Benzo — the auction house where the auctioneer is blindfolded
 
 Working name. Zecathon · Private Markets. Synthesized 2026-09-30 from: 826 judged auctions (87 winners), 38 code-read dossiers,
 the Zcash feasibility study (`zcash-feasibility.md`), the 68-threat model (`threat-model.md`) and the organizer forensics
@@ -28,7 +28,7 @@ claimed; the threat model shows that claim would be false.
 - **Timelock sealing is rare (12 of 826).** Unlike commit-reveal, it needs **no reveal step**, so the "bidders who never reveal"
   griefing problem disappears.
 - **The organizer's own flow leaks.** Zilkroad's registration POSTs `{address, quantity, maxBidZec}` in plaintext to their API
-  before funding, and deposits equal the bid. BLINDFOLD is the next version of their auction.
+  before funding, and deposits equal the bid. Benzo is the next version of their auction.
 - **Live demand:**
   - LASTWICK has announced wanting sealed and fixed-price modes.
   - The organizer's Sep 23 video is about royalty-funded buybacks, which is our mode B.
@@ -61,7 +61,7 @@ ever admitted after T_freeze, and the same auction is never reopened after the p
    There is no address in it.
 3. The client tlock-encrypts that plaintext to round R (age/tlock, in the browser). This is the only place plaintext exists, and
    there are no network calls with bid data.
-4. Memo = `0xFF "BLF" v len ciphertext`. That is **494 of 512 bytes**, which fits. Fallback: replicated off-chain ciphertext plus
+4. Memo = `0xFF "BNZ" v len ciphertext`. That is **494 of 512 bytes**, which fits. Fallback: replicated off-chain ciphertext plus
    a SHA-256 digest in a text memo, if the wallet mangles binary memos (week-1 gate).
 5. The refund destination is a **fresh diversified address from the bidder's own wallet**. It goes into a separate *settlement
    envelope* encrypted to the escrow signers and is never in the public tlock opening.
