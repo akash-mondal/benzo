@@ -88,11 +88,11 @@ Budget: about 1,200 lines of hand-written code total with Phase 1 included (Phas
 - drand relay failover; owner-key / settlement-envelope encryption (Phase 1 placeholders stay placeholders).
 - More than the tests named in section 7.
 
-## 7. Tests this phase adds: exactly two
+## 7. Tests this phase adds: exactly one
 
-Project ceiling is still eight automated tests for the whole project (AGENTS.md). Phase 1 owns two. These two own gates E–I. Same harness rules: `BNZ_LIVE=1` project `live` adds them; each spec has one `test()`; assertions are `test.step` IDs with `expect.soft`; failures print `ERROR <ID> <reason>`. Locked assertion lists; changing one needs a Ruling.
+Project ceiling is still eight automated tests for the whole project (AGENTS.md); the master plan gives Phase 2 **one** (a full auction on testnet). Phase 1 owns two. This spec owns gates E–I. Same harness rules: `BNZ_LIVE=1` project `live` adds it; one `test()`; assertions are `test.step` IDs with `expect.soft`; failures print `ERROR <ID> <reason>`. Locked assertion lists; changing one needs a Ruling.
 
-**3. `e2e/auction-core.spec.ts`** (live; ~40–50 minutes; fees ≈ one sealed round of deposits + one refund). Owns **E, F, G**.
+**3. `e2e/auction-core.spec.ts`** (live; ~50 minutes; fees ≈ one sealed round of deposits + one refund/cancel). Owns **E, F, G, H, I**.
 
 Preconditions: Phase 1 binaries match pins; both endpoints and drand answer; bidder spendable ≥ 3C + 40,000 zats; `.benzo` holds vault + frost configs. Same frostd start/stop rule as test 2.
 
@@ -104,22 +104,17 @@ Steps:
 - **G1** After `R`, a clean-room clear (CLI or spec-side pure call into `clear/`) from (manifest, frozen set, ciphertexts) equals the result.json the golden path produced (byte-stable canonical JSON).
 - **G2** Mode A: uniform price, pro-rata band and tie-by-leaf-index hold on the opened bids (use small crafted quantities in this run so the band is hit).
 - **G3** Single-lot mode on the same envelopes (or a paired mini-auction): winner pays second price.
+- **H1** Truncated / wrong-length envelope is rejected, no receipt.
+- **H2** Deposit ≠ C (under and over) is rejected or refunded at the pinned value; never partially accepted.
+- **H3** Replay of a known ciphertext+deposit is rejected (idempotent receipt; no double leaf).
+- **H4** A bid after `T_freeze` (and a bid with `R` already passed) is rejected.
+- **I1** Cancelled auction (use a second mini-auction in the same spec, or the cancel drill after G): all deposits refunded at C, **zero** `tle -d` invocations in the cancel path's request/log trace.
 
 Mutations (each turns the spec red):
 - **N1** Manifest signer skips the drand round field (E1 fails).
 - **N2** Admission ignores `T_freeze` (E2 fails).
 - **N3** Freeze commits plaintext hash instead of ciphertext hash (F2 or G1 fails).
 - **N4** Clearing sorts ties by reveal order (G2 fails).
-
-**4. `e2e/bad-bids.spec.ts`** (live; may share one auction with test 3 if a Ruling allows; otherwise its own small auction). Owns **H, I**.
-
-- **H1** Truncated / wrong-length envelope is rejected, no receipt, no deposit taken (or deposit returned per pinned rule).
-- **H2** Deposit ≠ C (under and over) is rejected or refunded at the pinned value; never partially accepted.
-- **H3** Replay of a known ciphertext+deposit is rejected (idempotent receipt; no double leaf).
-- **H4** A bid after `T_freeze` (and a bid with `R` already passed) is rejected.
-- **I1** Cancelled auction: all deposits refunded at C, **zero** `tle -d` invocations in the cancel path's request/log trace.
-
-Mutations:
 - **N5** Accept deposits of any amount (H2 fails).
 - **N6** Allow a duplicate ciphertext leaf (H3 fails).
 - **N7** Cancel path decrypts before refund (I1 fails).
@@ -171,4 +166,4 @@ NU7 may activate in this window. Keep the pre-activation evidence; record `NU7 r
 
 Only the head agent writes here, in commits authored by `head@benzo.invalid`. Entries go newest last, as `R<n> <UTC date>: <ruling>`. A gate is PASSED only when a Ruling names it with its commit.
 
-None yet.
+- R1 2026-10-01: Master plan (user-locked) gives Phase 2 **one** test. `e2e/auction-core.spec.ts` is that test and owns gates E–I. Do not add a second spec. H and I are steps inside it.
