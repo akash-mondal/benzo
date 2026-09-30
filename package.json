@@ -6,7 +6,8 @@
     "build:seal": "esbuild seal/src/main.ts --bundle --format=esm --platform=browser --outfile=seal/dist/main.js --log-level=warning && cp seal/src/index.html seal/dist/index.html",
     "typecheck": "tsc -p tsconfig.json",
     "e2e": "playwright test --project=default",
-    "e2e:live": "BNZ_LIVE=1 playwright test --project=live"
+    "e2e:live": "BNZ_LIVE=1 playwright test --project=live",
+    "build:core": "esbuild manifest/cli.ts --bundle --platform=node --format=esm --outfile=manifest/dist/cli.mjs --log-level=warning && esbuild clear/cli.ts --bundle --platform=node --format=esm --outfile=clear/dist/cli.mjs --log-level=warning"
   },
   "dependencies": {
     "tlock-js": "0.9.0"
