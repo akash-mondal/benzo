@@ -1,0 +1,11 @@
+--- a/clear/auction-cli.ts
++++ b/clear/auction-cli.ts
+@@ -52,7 +52,7 @@
+     ledger=JSON.parse(readFileSync(file,"utf8"));
+     const {manifest:m,manifest_hash}=client(ledger.manifest,ledger.signer), now=Math.floor(Date.now()/1000);
+     if(command==="admit") {
+-      requireThat(now<m.T_freeze && ledger.state==="OPEN","admission cutoff");
++      // Defect: admission ignores the freeze cutoff and closed state.
+       requireThat(now<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"round already passed");
+       const ct=ciphertext(input.envelope_hex,m.drand.R);
+       requireThat(/^[0-9a-f]{64}$/.test(input.txid) && m.deposit_addresses.includes(input.address),"deposit reference/address");

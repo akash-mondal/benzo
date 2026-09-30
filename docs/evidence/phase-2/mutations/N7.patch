@@ -1,0 +1,11 @@
+--- a/clear/auction-cli.ts
++++ b/clear/auction-cli.ts
+@@ -101,6 +101,8 @@
+       ledger.result=clear({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!,mode:input.mode,removed_leaf_indices:ledger.opened!.filter(o=>o.error==="reorg").map(o=>o.leaf_index)}); ledger.state="CLEARED"; result=ledger.result;
+     } else if(command==="cancel") {
+       requireThat(["OPEN","SEALED-WAIT"].includes(ledger.state) && !ledger.opened,"cancel after opening");
++      const ct=path.join(dir,`${id}-cancel.age`); writeFileSync(ct,Buffer.from(ledger.leaves[0].ciphertext_hex,"hex"),{mode:0o600});
++      ledger.trace.push({operation:"tle -d",time:now}); execute(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash,ct]);
+       ledger.state="CANCELLED";
+       const {notes}=observed();
+       const deposits=notes.filter(n=>m.deposit_addresses.includes(n.address) && n.height && !n.spent_in_txid);

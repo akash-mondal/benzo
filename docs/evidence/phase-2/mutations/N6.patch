@@ -1,0 +1,11 @@
+--- a/clear/auction-cli.ts
++++ b/clear/auction-cli.ts
+@@ -63,7 +63,7 @@
+       requireThat(BigInt(n.value_zats)===BigInt(m.C_zats),"deposit amount differs from C");
+       const deposit:Deposit={txid:n.txid,pool:"ironwood",address:n.address,diversifier_index:n.diversifier_index};
+       const ciphertext_hash=hash(Buffer.from(ct,"hex"));
+-      const old=ledger.leaves.find(l=>l.ciphertext_hash===ciphertext_hash || jsonBytes(l.deposit).equals(jsonBytes(deposit)));
++      const old=ledger.leaves.find(l=>false && (l.ciphertext_hash===ciphertext_hash || jsonBytes(l.deposit).equals(jsonBytes(deposit))));
+       if(old) { requireThat(old.ciphertext_hash===ciphertext_hash && jsonBytes(old.deposit).equals(jsonBytes(deposit)),"ciphertext/deposit replay conflict"); result={replay:true,receipt:ledger.receipts[old.leaf_index]}; }
+       else {
+         const receipt:Receipt={auction_id:id,manifest_hash,ciphertext_hash,deposit,leaf_index:ledger.leaves.length};
