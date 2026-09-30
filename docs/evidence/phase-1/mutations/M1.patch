@@ -1,0 +1,13 @@
+diff --git a/seal/src/main.ts b/seal/src/main.ts
+index 220769b..d3a37b7 100644
+--- a/seal/src/main.ts
++++ b/seal/src/main.ts
+@@ -32,7 +32,7 @@ function parseUint(s: string, max: bigint, what: string): bigint {
+ 
+ // First round at or after UTC time t (seconds).
+ function roundAt(t: number): number {
+-  return 1 + Math.ceil((t - QUICKNET.genesis_time) / QUICKNET.period);
++  return Math.ceil((t - QUICKNET.genesis_time) / QUICKNET.period);
+ }
+ 
+ function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint8Array {

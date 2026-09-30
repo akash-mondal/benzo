@@ -1,0 +1,13 @@
+diff --git a/seal/src/main.ts b/seal/src/main.ts
+index 220769b..a130df3 100644
+--- a/seal/src/main.ts
++++ b/seal/src/main.ts
+@@ -41,7 +41,7 @@ function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint
+   pt[0] = 0x00;
+   pt.set(auctionId, 1);
+   view.setBigUint64(33, price, false);
+-  view.setUint32(41, quantity, false);
++  view.setUint32(41, quantity, true);
+   pt.set(random(16), 45); // nonce
+   pt.set(random(32), 61); // owner_pubkey (random in Phase 1)
+   pt.set(random(32), 93); // settlement_commitment (random in Phase 1)

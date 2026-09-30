@@ -1,0 +1,12 @@
+diff --git a/seal/src/main.ts b/seal/src/main.ts
+index 220769b..fbe890c 100644
+--- a/seal/src/main.ts
++++ b/seal/src/main.ts
+@@ -70,7 +70,6 @@ async function seal(): Promise<void> {
+ 
+   const round = roundAt(t / 1000);
+   const current = 1 + Math.floor((Date.now() / 1000 - QUICKNET.genesis_time) / QUICKNET.period);
+-  if (round <= current) throw new Error(`refused: round ${round} is not in the future (current round ${current})`);
+ 
+   const pt = plaintext(Buffer.from(auctionHex, "hex"), price, quantity);
+   const armored = await timelockEncrypt(round, Buffer.from(pt), pinnedClient);
