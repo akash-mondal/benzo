@@ -5,7 +5,7 @@ import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeF
 import path from "node:path";
 import { bin, E2E, OUT, ROOT, STATE } from "./env";
 
-const RUN_DIRS = ["frost", "memo", "tlock", "scan"];
+const RUN_DIRS = ["frost", "memo", "tlock", "scan", "auction"];
 const sha256 = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex");
 const files = (dir: string): string[] =>
   existsSync(dir)
@@ -24,7 +24,7 @@ export default function globalTeardown() {
     for (const d of RUN_DIRS) if (existsSync(path.join(OUT, d))) cpSync(path.join(OUT, d), path.join(dest, d), { recursive: true });
   }
   const hashed = [...files(path.join(dest, "setup")), ...RUN_DIRS.flatMap((d) => files(path.join(dest, d)))];
-  const built = ["seal/dist/index.html", "seal/dist/main.js", "scan/target/release/benzo-scan"].filter((p) => existsSync(path.join(ROOT, p)));
+  const built = ["seal/dist/index.html", "seal/dist/main.js", "scan/target/release/benzo-scan", "manifest/dist/cli.mjs", "clear/dist/cli.mjs", "clear/dist/auction.mjs"].filter((p) => existsSync(path.join(ROOT, p)));
   const tools = execFileSync("cargo", ["install", "--list", "--root", STATE]).toString().split("\n").filter((l) => /^\S/.test(l));
   for (const t of ["tle", "grpcurl"])
     if (existsSync(bin(t))) tools.push(`${t} ` + execFileSync("go", ["version", "-m", bin(t)]).toString().split("\n").find((l) => l.startsWith("\tmod\t"))!.trim());

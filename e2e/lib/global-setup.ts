@@ -18,6 +18,7 @@ export default function globalSetup() {
   writeFileSync(path.join(E2E, "start.txt"), new Date().toISOString());
   execFileSync("npm", ["run", "--silent", "build:seal"], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
   if (process.env.BNZ_LIVE === "1") {
+    execFileSync("npm", ["run", "--silent", "build:core"], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
     execFileSync("cargo", ["build", "--release", "--locked", "--quiet", "--manifest-path", "scan/Cargo.toml"], {
       cwd: ROOT,
       stdio: ["ignore", "ignore", "inherit"],

@@ -2,12 +2,12 @@
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): IN PROGRESS
 
-Updated: 2026-09-30 20:18 UTC · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
+Updated: 2026-09-30 20:27 UTC · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
 
 - **Phase 1:** PASSED, R5–R10 at 04926a7. Closed; decisions stand: binary_memo, frost_2of3, tlock-js@0.9.0. Evidence remains under `docs/evidence/phase-1/` at run 512296f / artifact commit 1a94638.
-- **Current:** signed manifest schema/client and pure uniform-price / Vickrey CLI implemented. `npm run build:core` and `npm run typecheck` PASS. Scratch CLI checks refused a changed round and returned fills 2/1 with reversed openings; these are development checks, not gate evidence (`tmp/phase2/manifest-check.log`, `tmp/phase2/clear-check.log`). Admission is next.
+- **Current:** signed manifest schema/client and pure uniform-price / Vickrey CLI implemented. `npm run build:core` and `npm run typecheck` PASS. Scratch CLI checks refused a changed round and returned fills 2/1 with reversed openings; these are development checks, not gate evidence (`tmp/phase2/manifest-check.log`, `tmp/phase2/clear-check.log`). Admission, signed inclusion receipts, Merkle freeze, Go-tle opening and cancel-plan CLI now implemented; the single auction-core spec typechecks. Live validation is next.
 - **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`. No prior pidfiles or services remained running.
-- **Funds:** bidder total 99,885,000 zats, spendable 97,910,000 at the stored wallet tip (not resynced yet). New floor is 3C + 40,000 = 1,540,000 zats; ask before spending below it. No Phase 2 payments yet.
+- **Funds:** bidder total 99,885,000 zats, spendable 97,910,000 at the stored wallet tip (not resynced yet). New floor is 3C + 40,000 = 1,540,000 zats; ask before spending below it. No Phase 2 payments yet; first development auction-core run is about to start.
 - **Needs user:** none.
 
 ## Questions
@@ -99,10 +99,10 @@ Updated: 2026-09-30 20:18 UTC · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at 
 | Gate | State | Evidence / command / commit |
 |---|---|---|
 | E: signed manifest | IN PROGRESS | none yet |
-| F: admission, receipts, freeze | TODO | none yet |
-| G: uniform-price and Vickrey recomputation | TODO | none yet |
-| H: deterministic bad-bid handling | TODO | none yet |
-| I: cancel without decrypt | TODO | none yet; R2 fee reserve |
+| F: admission, receipts, freeze | IN PROGRESS | CLI and spec build/typecheck pass; no live evidence |
+| G: uniform-price and Vickrey recomputation | IN PROGRESS | pure CLI development checks only |
+| H: deterministic bad-bid handling | IN PROGRESS | five-note drill implemented, not run |
+| I: cancel without decrypt | IN PROGRESS | exact-C plan and fee reserve implemented, not run |
 
 ## Decisions
 
@@ -110,7 +110,7 @@ Freeze commitment: pending F1–F2. Clearing spec: pending G1–G3. Receipt form
 
 ## E2E tests
 
-Exactly one Phase 2 spec will be added: `e2e/auction-core.spec.ts`, E1, E2, F1, F2, G1, G2, G3, H1, H2, H3, H4, I1. N1–N7 pending. Existing two Phase 1 tests retained; total will be 3 of 8.
+Exactly one Phase 2 spec added: `e2e/auction-core.spec.ts`, E1, E2, F1, F2, G1, G2, G3, H1, H2, H3, H4, I1. N1–N7 pending. Existing two Phase 1 tests retained; total will be 3 of 8.
 
 ## Blocked items
 
@@ -118,7 +118,7 @@ No outside dependency failure observed. N3 mutation definition awaits Q4 ruling;
 
 ## Deviations / Environment changes / Upstream code reused
 
-None this phase. All pins unchanged.
+None this phase. All pins unchanged. Read pinned devtool sync/enhance and tle help before new CLI calls. NU7 safety check 2026-09-30 20:25 UTC: https://zips.z.cash/zip-0259 lines 60–62 still list testnet activation TBD (set Oct 5); current tip 4423601 from `wallet get-info`, output `tmp/phase2/chain-info.json`.
 
 ## Deferred
 
@@ -127,4 +127,4 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 ## Last session
 
 - Resumed 2026-09-30 19:49 UTC. Clean tree at 0ec8c02; read committed Phase 1 pass rulings and Phase 2 contract/research; ran default E2E before new work.
-- Baseline PASS: `tmp/e2e/phase2-baseline.log`. Core build/typecheck PASS 2026-09-30 20:17 UTC. No Phase 2 gate evidence or broadcasts yet. Next: admission/receipt/freeze CLI against the inherited scanner, then the one auction-core spec.
+- Baseline PASS: `tmp/e2e/phase2-baseline.log`. Core build/typecheck PASS 2026-09-30 20:17 UTC. No Phase 2 gate evidence or broadcasts yet. Next: run `npm run e2e:live` (auction-core only, one worker) as a development run, output `tmp/e2e/phase2-development.log`; then mutations and evidence.
