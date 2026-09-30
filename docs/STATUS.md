@@ -105,6 +105,6 @@ none
 
 - **Window:** resumed 2026-09-30 18:47 UTC; ongoing.
 - **Outcome:** previous live run failed, not passed. Root cause confirmed in `tmp/e2e/live-1-cli.log`: transaction lookup reported bid 2 height 4422729, sync read cached tip 4422728, then enhance fetched only bid 1. The later sync found bid 2, but the settlement scanner lacked its memo.
-- **Changed:** test 2 waits on the synced wallet's `balance --json` chain tip before first scan and settlement; first payment change also uses the synced wallet tip. Assertions and deadlines unchanged.
+- **Changed:** test 2 waits on the synced wallet's `balance --json` chain tip before first scan and settlement; first payment change also uses the synced wallet tip. Settlement also enhances full transactions before scanning, so M7’s incoming vault refund has its memo. Assertions and deadlines unchanged.
 - **Verified:** `npm run e2e` exit 0 at 6862341 (C1–C7); `npm run typecheck` exit 0 on the fix. Scratch recovery `wallet enhance` then scanner found both 512-byte memos, both 500,000-zat deposits spent by `a3c6d2d81e6cfeeb7c4314ead3042f4a99b8a1420fd83048a4e8525d157e9083`; not gate evidence. Bidder total 99,955,000; vault total 0.
 - **Unverified:** live fix, M5–M7, single-run gate evidence, verify.sh on that evidence and its negative check. No pidfiles or prior live work remained running at resume.

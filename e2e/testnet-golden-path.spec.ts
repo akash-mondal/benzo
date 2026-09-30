@@ -189,6 +189,7 @@ test("golden path on testnet", async ({ page }) => {
       ) + "\n",
     );
     await waitFor({ height: heightPrimary, tip: () => { z.sync("vault"); z.sync("bidder"); return Math.min(z.balance("vault").chain_tip_height, z.balance("bidder").chain_tip_height); } }, sentRefund + MINE);
+    z.enhance("vault");
     const after = { bidder: z.balance("bidder").total, vault: z.balance("vault").total };
     const spent = z.scanVault().filter((l) => l.spent_in_txid === refundTxid);
     const depositLines = deposits.map((d) => spent.find((l) => l.txid === d.txid));
