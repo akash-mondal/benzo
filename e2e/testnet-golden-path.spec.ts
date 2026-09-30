@@ -96,8 +96,7 @@ test("golden path on testnet", async ({ page }) => {
     z.sync("bidder");
     if (z.spendable(z.balance("bidder")) < C + 15_000) {
       const h = await waitFor({ height: 1, tip: minedHeight(tx1) }, sent1 + MINE);
-      await waitFor({ height: h + 2, tip: () => z.tip() }, sent1 + MINE + 10 * 60_000); // change: 3 confirmations
-      z.sync("bidder");
+      await waitFor({ height: h + 2, tip: () => { z.sync("bidder"); return z.balance("bidder").chain_tip_height; } }, sent1 + MINE + 10 * 60_000); // change: 3 confirmations
     }
     const tx2 = z.pay(sealed[1].uri);
     const sent2 = Date.now();
@@ -108,7 +107,8 @@ test("golden path on testnet", async ({ page }) => {
     write("memo/deposits.json", JSON.stringify(deposits, null, 1) + "\n");
 
     // 8. Scan the vault: sync, fetch full transactions, then read received notes.
-    z.sync("vault");
+    // GetTransaction can report a mined height ahead of the endpoint's cached sync tip.
+    await waitFor({ height: Math.max(...deposits.map((d) => d.height)), tip: () => { z.sync("vault"); return z.balance("vault").chain_tip_height; } }, sent2 + MINE);
     z.enhance("vault");
     const mine = deposits.map((d) => z.scanVault().filter((l) => l.txid === d.txid));
     write("scan/operator-view.jsonl", mine.flat().map((l) => JSON.stringify(l)).join("\n") + "\n");
@@ -188,8 +188,7 @@ test("golden path on testnet", async ({ page }) => {
         1,
       ) + "\n",
     );
-    z.sync("vault");
-    z.sync("bidder");
+    await waitFor({ height: heightPrimary, tip: () => { z.sync("vault"); z.sync("bidder"); return Math.min(z.balance("vault").chain_tip_height, z.balance("bidder").chain_tip_height); } }, sentRefund + MINE);
     const after = { bidder: z.balance("bidder").total, vault: z.balance("vault").total };
     const spent = z.scanVault().filter((l) => l.spent_in_txid === refundTxid);
     const depositLines = deposits.map((d) => spent.find((l) => l.txid === d.txid));

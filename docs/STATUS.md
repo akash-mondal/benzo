@@ -8,16 +8,16 @@ A direct user instruction that changes scope, gates, pins, tests or evidence is 
 
 ## Phase 1 ([docs/PHASE-1.md](PHASE-1.md)): IN PROGRESS
 
-Updated: 2026-09-30 17:32 UTC · Last commit: e147dee
+Updated: 2026-09-30 18:50 UTC · Last completed run commit: 6862341
 
 - **Needs user:** none. The user sent 1 TAZ from fauzec: tx `6dc286e42646a5d2216e3480a1d14396dd54491fa3866bcc3267a9089f4ffb41`, mined at 4422713, one Ironwood note of 100000000 zats, spendable at 17:29 UTC (`wallet balance --json`).
 - **Questions for the head agent:**
   - User instruction (2026-09-30 17:36 UTC): "hey make sure this project is called benzo not blindfold". Done in `docs/research/DESIGN.md`, the only file that used the old name (title, line 31 and the memo marker `"BLF"` -> `"BNZ"`, which matches PHASE-1 section 6). AGENTS.md makes `docs/research/` read-only, so please fold this into a Ruling or tell me to revert it.
   - Q1 (2026-09-30 16:08 UTC): hand-written code is 1,385 lines by `wc -l` (comments and config included; the two specs are 368 of them), over section 11's ~1,000. Everything in it is named by the phase doc (bootstrap, setup, sealer, scanner with three modes, two specs and their CLI glue, verify.sh). I'd rather not compress formatting to hit a number. Meanwhile I am: continuing as written.
   - Q2 (2026-09-30 16:08 UTC): C3 says the two bids' nonces differ. The nonce sits inside the sealed plaintext, so the test compares plaintext bytes 45–60 after `tle` opens them (C3 runs after C7). Is that the intended reading? Meanwhile I am: using it.
-- **Fund budget (user asked on 2026-09-30 to use the TAZ very cautiously):** at most three live runs (the current dev run, one M5–M7 mutation run, one evidence run), about 0.002 TAZ in fees in total; no broadcasts outside the tests; no blind reruns after a failure; I ask the user before a fourth live run or if the bidder total falls below 98,000,000 zats. Measured so far: the first deposit cost 500,000 collateral + 25,000 fee (bidder total 100,000,000 -> 99,475,000).
+- **Fund budget (user asked on 2026-09-30 to use the TAZ very cautiously):** at most three live runs (the current dev run, one M5–M7 mutation run, one evidence run), about 0.002 TAZ in fees in total; no broadcasts outside the tests; no blind reruns after a failure; I ask the user before a fourth live run or if the bidder total falls below 98,000,000 zats. Measured development run: bidder total 100,000,000 -> 99,955,000 zats; 45,000 zats in fees; vault total 0. Mutation M7 deliberately keeps the refund in the vault. Before the evidence run I must ask to allow the bidder total to dip below 98,000,000 while its next two deposits await refund (projected about 97,885,000).
 - **Blockers:** none. Details go under Blocked items.
-- **Next:** a development run of `npm run e2e:live` is running (started 17:30 UTC, log `tmp/e2e/live-1.log`); then M5–M7, then the evidence run (setup with `BNZ_EVIDENCE_DIR` + `e2e:live`), verify.sh and its negative check, `EVIDENCE.md`.
+- **Next:** commit the wallet-tip wait fix (typecheck PASS; live validation pending), then run M5–M7 together as live run 2. Evidence run 3 needs the temporary bidder-balance floor exception described above. Then verify.sh, its negative check and `EVIDENCE.md`.
 
 **Phase states:**
 - IN PROGRESS
@@ -38,10 +38,10 @@ Only the head agent records PASSED, as a Ruling in the phase doc.
 | Gate | State | Evidence (paths, txids, rounds) | Command, exit code | Commit |
 |---|---|---|---|---|
 | G0: pinned toolchain builds | READY FOR REVIEW | `docs/evidence/phase-1/versions.txt` | `tools/bootstrap.sh`, exit 0 (log `$BNZ_STATE_DIR/run/bootstrap-g0.log`) | 23f660a (evidence in d995df0) |
-| A: 2-of-3 FROST spend of received Ironwood notes | IN PROGRESS | not yet. DKG done (group key `b078b5f6…ff03`), test 2 written, not run: no TAZ | | |
-| B: exact memo bytes after mining and scan | IN PROGRESS | not yet. Scanner and test 2 written, not run: no TAZ | | |
+| A: 2-of-3 FROST spend of received Ironwood notes | IN PROGRESS | not yet. Dev refund `a3c6d2d8…` spent both received notes, but settlement scanner threw before A assertions: harness defect, live validation pending | | |
+| B: exact memo bytes after mining and scan | IN PROGRESS | dev run FAIL (harness): bid 2 mined at 4422729; vault sync tip 4422728 omitted it. Fix waits for wallet tip; no gate evidence yet | | |
 | C: browser tlock stays closed before R, opens after R via Go `tle` | IN PROGRESS | test 1 passes (C1–C7) and M1–M4 were seen failing; gate evidence comes from the single `e2e:live` evidence run | `npm run e2e`, exit 0 (`tmp/e2e/seal-open.log`) | c41fb1b |
-| D: fixed-C deposits scanned to the right per-bid address | IN PROGRESS | not yet. Scanner and test 2 written, not run: no TAZ | | |
+| D: fixed-C deposits scanned to the right per-bid address | IN PROGRESS | dev run FAIL (harness): bid 2 mined at 4422729; vault sync tip 4422728 omitted it. Fix waits for wallet tip; no gate evidence yet | | |
 
 `verify.sh` seen failing: not yet on real evidence. Dev runs only: empty dir gives `ERROR A missing frost/refund.json` … exit 1. <!-- the ERROR A and ERROR B lines, and the output path -->
 
@@ -59,8 +59,8 @@ Only the head agent records PASSED, as a Ruling in the phase doc.
 
 | Test | Last run (UTC, commit) | Result | Log | Mutations seen failing (`mutations/<ID>.patch` and `.out`) | Audit (R/F/C/D) |
 |---|---|---|---|---|---|
-| `e2e/seal-open.spec.ts` | 2026-09-30 16:01 UTC, c41fb1b (working tree before that commit; the committed diff only touched test 2 glue and types) | PASS (37 s) | `tmp/e2e/seal-open.log` | M1 → `ERROR C2` (+C6), M2 → `ERROR C7`, M3 → `ERROR C5`, M4 → `ERROR C4`, all at 36913b6: `docs/evidence/phase-1/mutations/M{1..4}.{patch,out}` | |
-| `e2e/testnet-golden-path.spec.ts` | 2026-09-30 16:04 UTC, 8267d29 (dry run) | NOT RUN: `bidder spendable 0 zats < 2C + 30000 = 1030000`, after its pin, drand, endpoint and state preconditions passed | `tmp/e2e/live-dry.log` | M5–M7 patches committed in c52c345; not yet run | |
+| `e2e/seal-open.spec.ts` | 2026-09-30 18:48 UTC, 6862341 | PASS (39 s), C1–C7 | `tmp/e2e/resume-default.log` | M1 → `ERROR C2` (+C6), M2 → `ERROR C7`, M3 → `ERROR C5`, M4 → `ERROR C4`, all at 36913b6: `docs/evidence/phase-1/mutations/M{1..4}.{patch,out}` | |
+| `e2e/testnet-golden-path.spec.ts` | 2026-09-30 17:42 UTC, started at 68883d5; HEAD moved to 6862341 during run | FAIL (harness): B1, D1–D3; scanner later threw on missing bid 2 memo before A1–A5 ran. Exit 1 in log; outer background notification was exit 0. | `tmp/e2e/live-1.log`, full CLI output `tmp/e2e/live-1-cli.log` | M5–M7 patches committed in c52c345; not yet run | |
 
 **Results:**
 - PASS
@@ -103,20 +103,8 @@ none
 
 ## Last session
 
-<!-- Rewrite this block before ending each turn, for a reader who saw nothing. -->
-- **Window:** 2026-09-30 15:34 UTC to 16:07 UTC
-- **Outcome:** G0 ready for review; setup done; gate C test and mutations done; test 2, scanner and verify.sh written. Waiting for TAZ: a background poll (`tmp/wait-funds.sh`, log `$BNZ_STATE_DIR/run/wait-funds.log`) syncs the bidder every 5 min and exits when it has a spendable note, deadline 2026-10-01 04:00 UTC.
-- **Changed:** commits 23f660a … 723887e: `tools/`, `seal/`, `scan/`, `e2e/`, `playwright.config.ts`, `package*.json`, `tsconfig.json`, `docs/evidence/phase-1/{versions.txt,verify.sh,mutations/}`.
-- **Verified:**
-  - G0: `tools/bootstrap.sh` exit 0 at 23f660a; `versions.txt` lists every pin with `?rev=`/`mod` lines.
-  - Setup: `tools/setup-testnet.sh` exit 0; the three configs print the same group key `b078b5f632ec2d0b25f75d55a27d216139fafcf8b7fa2ac9facbb4db71c2ff03` (log `$BNZ_STATE_DIR/run/setup.log`).
-  - `benzo-scan ak test $BNZ_STATE_DIR/ufvk.txt` printed that same key, so verify.sh can check `ak` (no Found entry needed).
-  - Gate C: `npm run e2e` PASS; before R `tle` printed `too early to decrypt: expected round 32659910 > 32659900 current round` and `/public/R` gave 425; after R both plaintexts opened byte-exact. Measured ciphertext 487 bytes, envelope 494 of 512.
-  - FROST session glue: a scratch run (`tmp/frost-check.ts`, not committed) signed a random message with alice+bob through frostd; both participants saw the same message; a 64-byte signature came back.
-  - Both endpoints answer: `GetLightdInfo` on testnet.zec.rocks gave lightwalletd v0.5.4, Zebra v6.3.0, branch `37a5165b`, height 4422262; Zaino `GetLatestBlock` 4422263. `benzo-scan verify` parsed v6 tx `c5a1c4a1…` (height 4246513) from Zaino.
-- **Unverified:** test 2 as a whole, the trap-1 PCZT parse (devtool pczt 0.9.3 vs zcash-sign 0.8.0-rc.1), and the scanner's `scan` output on real notes. All need TAZ.
-- **Found:**
-  - Zaino (`BNZ_LWD_URL_ALT`) answered `GetTransaction` for the unmined faucet tx with `height: 4422712` (its tip), and the tx was then mined at 4422713; lightwalletd omitted `height` for it while unmined. So a Zaino height alone does not prove mining: test 2 reads heights from the primary first and queries Zaino only once its tip has reached that height.
-  - `WalletTest::get_notes` in zcash_client_sqlite 0.22.0 unwraps `get_spendable_note`, so it panics once a note is spent; the scanner reads the library's `v_received_outputs` / `v_received_output_spends` views instead, and memos through `WalletRead::get_memo`.
-  - frostd at 06c0dbdb logs only startup lines at `RUST_LOG=info`, so `setup/group-key.txt` and A2 rely on the frost-client transcripts, not frostd log lines.
-  - `frost-client dkg` joiners fail with "no sessions" if they start before the creator's session exists; setup waits for `frost-client sessions` to list it.
+- **Window:** resumed 2026-09-30 18:47 UTC; ongoing.
+- **Outcome:** previous live run failed, not passed. Root cause confirmed in `tmp/e2e/live-1-cli.log`: transaction lookup reported bid 2 height 4422729, sync read cached tip 4422728, then enhance fetched only bid 1. The later sync found bid 2, but the settlement scanner lacked its memo.
+- **Changed:** test 2 waits on the synced wallet's `balance --json` chain tip before first scan and settlement; first payment change also uses the synced wallet tip. Assertions and deadlines unchanged.
+- **Verified:** `npm run e2e` exit 0 at 6862341 (C1–C7); `npm run typecheck` exit 0 on the fix. Scratch recovery `wallet enhance` then scanner found both 512-byte memos, both 500,000-zat deposits spent by `a3c6d2d81e6cfeeb7c4314ead3042f4a99b8a1420fd83048a4e8525d157e9083`; not gate evidence. Bidder total 99,955,000; vault total 0.
+- **Unverified:** live fix, M5–M7, single-run gate evidence, verify.sh on that evidence and its negative check. No pidfiles or prior live work remained running at resume.
