@@ -73,13 +73,17 @@ check('H',()=> {
   }
 });
 check('I',()=> {
-  const refund=json('auction/refund.json'),cancel=json('auction/cancel.json');
+  const refund=json('auction/refund.json'),cancel=json('auction/cancel.json'),deposits=json('auction/deposits.json');
   need(cancel.code===0&&cancel.response.refunds.length===1&&cancel.response.refunds[0].amount_zats===manifest.C_zats,'cancel refund not exact C');
   need(!cancel.response.trace.some(t=>t.operation==='tle -d'),'cancel opened ciphertext');
   need(refund.input_zats===refund.output_zats+refund.fee_zats&&refund.fee_zats===refund.fee_reserve_zats,'fee reserve/conservation');
+  need(refund.deposits.some(d=>d.txid===deposits.txids[5]&&d.value_zats===refund.fee_reserve_zats&&d.spent_in_txid===refund.refund_txid),'fee-reserve note not spent');
   need(refund.after.bidder-refund.before.bidder===refund.output_zats&&refund.after.vault===0,'wallet refund balances');
   const signatures=json('auction/signatures.json');need(Buffer.from(signatures.sighash,'hex').reverse().toString('hex')===refund.refund_txid,'sighash/txid');
   for(const endpoint of [process.env.BNZ_LWD_URL,process.env.BNZ_LWD_URL_ALT]) {
+    const reserve=tx(endpoint,deposits.txids[5]);
+    const notes=execute(path.join(root,'scan/target/release/benzo-scan'),['verify','test',path.join(state,'ufvk.txt'),String(reserve.height)],reserve.raw.toString('hex')).toString().trim().split('\n').map(l=>JSON.parse(l));
+    need(notes.some(n=>n.value_zats===refund.fee_reserve_zats),'fee-reserve amount on chain');
     const t=tx(endpoint,refund.refund_txid);need(t.height===refund.height,'refund height');
     for(const session of signatures.sessions)need(session.signers.length===2&&t.raw.includes(Buffer.from(session.signature,'hex')),'threshold signature absent');
   }
