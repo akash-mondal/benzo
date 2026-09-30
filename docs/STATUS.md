@@ -14,6 +14,7 @@ Updated: 2026-09-30 17:32 UTC · Last commit: e147dee
 - **Questions for the head agent:**
   - Q1 (2026-09-30 16:08 UTC): hand-written code is 1,385 lines by `wc -l` (comments and config included; the two specs are 368 of them), over section 11's ~1,000. Everything in it is named by the phase doc (bootstrap, setup, sealer, scanner with three modes, two specs and their CLI glue, verify.sh). I'd rather not compress formatting to hit a number. Meanwhile I am: continuing as written.
   - Q2 (2026-09-30 16:08 UTC): C3 says the two bids' nonces differ. The nonce sits inside the sealed plaintext, so the test compares plaintext bytes 45–60 after `tle` opens them (C3 runs after C7). Is that the intended reading? Meanwhile I am: using it.
+- **Fund budget (user asked on 2026-09-30 to use the TAZ very cautiously):** at most three live runs (the current dev run, one M5–M7 mutation run, one evidence run), about 0.002 TAZ in fees in total; no broadcasts outside the tests; no blind reruns after a failure; I ask the user before a fourth live run or if the bidder total falls below 98,000,000 zats. Measured so far: the first deposit cost 500,000 collateral + 25,000 fee (bidder total 100,000,000 -> 99,475,000).
 - **Blockers:** none. Details go under Blocked items.
 - **Next:** a development run of `npm run e2e:live` is running (started 17:30 UTC, log `tmp/e2e/live-1.log`); then M5–M7, then the evidence run (setup with `BNZ_EVIDENCE_DIR` + `e2e:live`), verify.sh and its negative check, `EVIDENCE.md`.
 
