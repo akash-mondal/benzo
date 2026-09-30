@@ -3,6 +3,7 @@
 //! benzo-scan scan   <network> <wallet dir>        one JSON line per note the vault wallet received
 //! benzo-scan verify <network> <ufvk file> <height>  raw tx hex on stdin; one JSON line per output the UFVK decrypts
 //! benzo-scan ak     <network> <ufvk file>           the Orchard-protocol `ak` in the UFVK, hex
+//! benzo-scan pczt   <PCZT file>                     public version, branch and expiry metadata only
 //!
 //! `scan` reads only the vault wallet that zcash-devtool maintains: notes and spends through zcash_client_sqlite's
 //! views, memos through `WalletRead::get_memo`. It never decrypts anything itself. `verify` uses no wallet database.
@@ -123,6 +124,16 @@ fn main() -> anyhow::Result<()> {
             println!("{}", hex::encode(&orchard.to_bytes()[..32]));
             Ok(())
         }
-        _ => bail!("usage: benzo-scan scan <network> <wallet dir> | verify <network> <ufvk file> <height> | ak <network> <ufvk file>"),
+        ["pczt", file] => {
+            let pczt = pczt::Pczt::parse(&std::fs::read(file)?)
+                .map_err(|e| anyhow!("invalid PCZT: {e:?}"))?;
+            println!("{}", json!({
+                "tx_version": pczt.global().tx_version(),
+                "consensus_branch_id": format!("{:08x}", pczt.global().consensus_branch_id()),
+                "expiry_height": pczt.global().expiry_height(),
+            }));
+            Ok(())
+        }
+        _ => bail!("usage: benzo-scan scan <network> <wallet dir> | verify <network> <ufvk file> <height> | ak <network> <ufvk file> | pczt <PCZT file>"),
     }
 }

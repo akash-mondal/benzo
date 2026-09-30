@@ -63,13 +63,14 @@ test("signed sealed auction on testnet",async({page})=> {
     const addresses=Array.from({length:6},()=>z.generateAddress("vault"));
     const start=Math.ceil(Date.now()/1000), T=start+45*60, R=1+Math.ceil((T-Number(env("BNZ_DRAND_GENESIS")))/3);
     const auction=randomBytes(32).toString("hex"), cancelId=randomBytes(32).toString("hex"), price=String(100+10*randomBytes(1)[0]);
-    const manifest=(id:string,release:number,addrs:string[])=>({version:1,network:"test",auction_id:id,escrow_ua:addrs[0],frost_group_key:readFileSync(path.join(STATE,"group-key.txt"),"utf8").trim(),lot:"testnet auction drill",supply:3,reserve_zats:"10",tick_zats:"10",B_max_zats:"3000",q_max:3,C_zats:String(C),fee_zats:"0",deposit_addresses:addrs,drand:{chain_hash:env("BNZ_DRAND_CHAIN_HASH"),public_key:env("BNZ_DRAND_PUBLIC_KEY"),scheme:"bls-unchained-g1-rfc9380",genesis:Number(env("BNZ_DRAND_GENESIS")),period:3,R:release},T_submit:start+29*60,T_freeze:start+42*60,confirmations:10,clearing:{band:"floor_pro_rata_units",dust:"ascending_leaf_index",tie:"ascending_leaf_index",minimum_fill:1},refund:{invalid:"C_minus_fee",reorg:"C_minus_fee_remove_leaf",cancel:"full_C"},freeze:"merkle_root_v1"});
+    const manifest=(id:string,release:number,addrs:string[])=>({version:1,network:"test",auction_id:id,escrow_ua:addrs[0],frost_group_key:readFileSync(path.join(STATE,"group-key.txt"),"utf8").trim(),lot:"testnet auction drill",supply:3,reserve_zats:"10",tick_zats:"10",B_max_zats:"3000",q_max:3,C_zats:String(C),fee_zats:"0",deposit_addresses:addrs,drand:{chain_hash:env("BNZ_DRAND_CHAIN_HASH"),public_key:env("BNZ_DRAND_PUBLIC_KEY"),scheme:"bls-unchained-g1-rfc9380",genesis:Number(env("BNZ_DRAND_GENESIS")),period:3,R:release},T_submit:start+29*60,T_freeze:start+42*60,confirmations:10,clearing:{mode:"uniform",band:"floor_pro_rata_units",dust:"ascending_leaf_index",tie:"ascending_leaf_index",minimum_fill:1},refund:{invalid:"C_minus_fee",reorg:"C_minus_fee_remove_leaf",cancel:"full_C"},freeze:"merkle_root_v1"});
     const m=manifest(auction,R,addresses.slice(0,4)), cm={...manifest(cancelId,R+900,addresses.slice(4,5)),T_submit:start+74*60,T_freeze:start+87*60};
-    const signed=cli("manifest/dist/cli.mjs",["sign",key],m).value, cancelSigned=cli("manifest/dist/cli.mjs",["sign",key],cm).value;
+    const signingPacket=cli("manifest/dist/cli.mjs",["sign",key],m),cancelPacket=cli("manifest/dist/cli.mjs",["sign",key],cm);
+    const signed=signingPacket.value,cancelSigned=cancelPacket.value;
     const ac=(command:string,id=auction,input:any={})=>cli("clear/dist/auction.mjs",[command,id],input);
-    for(const [id,packet] of [[auction,signed],[cancelId,cancelSigned]]) {const r=ac("init",id,{manifest:packet,signer});if(r.code!==0)throw Error(r.error)}
     write("auction/manifest.json",bytes(signed)); write("auction/cancel-manifest.json",bytes(cancelSigned));write("auction/signer.json",bytes({signer}));
     await run.check("E1","signed bytes bind the exact round",()=> {
+      if(signingPacket.code!==0 || cancelPacket.code!==0)throw Error(`manifest signing: ${signingPacket.error || cancelPacket.error}`);
       const display=cli("manifest/dist/cli.mjs",["client",signer],signed);
       expect.soft(display.value?.manifest_hash).toBe(sha(Buffer.from(signed.bytes,"base64")));
       const original=Buffer.from(signed.bytes,"base64"), changed=Buffer.from(original);
@@ -78,6 +79,7 @@ test("signed sealed auction on testnet",async({page})=> {
       const r=cli("manifest/dist/cli.mjs",["client",signer],{...signed,bytes:changed.toString("base64"),sha256:sha(changed)});
       expect.soft(r.code).not.toBe(0);expect.soft(r.error).toContain("refused: manifest signature");
     });
+    for(const [id,packet] of [[auction,signed],[cancelId,cancelSigned]]) {const r=ac("init",id,{manifest:packet,signer});if(r.code!==0)throw Error(r.error)}
     const server=await serveSealer(); const sealed:Awaited<ReturnType<typeof sealBid>>[]=[];
     try {
       await page.goto(server.url);

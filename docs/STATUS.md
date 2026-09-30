@@ -2,10 +2,10 @@
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): IN PROGRESS
 
-Updated: 2026-09-30 20:32 UTC · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
+Updated: 2026-09-30T21:13:56.674493+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
 
 - **Phase 1:** PASSED, R5–R10 at 04926a7. Closed; decisions stand: binary_memo, frost_2of3, tlock-js@0.9.0. Evidence remains under `docs/evidence/phase-1/` at run 512296f / artifact commit 1a94638.
-- **Current:** signed manifest schema/client and pure uniform-price / Vickrey CLI implemented. `npm run build:core` and `npm run typecheck` PASS. Scratch CLI checks refused a changed round and returned fills 2/1 with reversed openings; these are development checks, not gate evidence (`tmp/phase2/manifest-check.log`, `tmp/phase2/clear-check.log`). Admission, signed inclusion receipts, Merkle freeze, Go-tle opening and cancel-plan CLI now implemented; the single auction-core spec typechecks. Development live run is in progress (E1 PASS so far; remaining steps pending confirmations/deadlines).
+- **Current:** Development run failed; mutations not started. Inspect tmp/e2e/phase2-development.log and fix first.
 - **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`. No prior pidfiles or services remained running.
 - **Funds:** bidder total 99,885,000 zats, spendable 97,910,000 at the stored wallet tip (not resynced yet). New floor is 3C + 40,000 = 1,540,000 zats; ask before spending below it. Development run at e5bf985 has broadcast the five deposits and a 30,000-zat fee reserve (2,530,000 zats in vault, recorded tip 4423628). Bidder remains above the floor; no additional run is concurrent.
 - **Needs user:** none.
@@ -114,7 +114,7 @@ Exactly one Phase 2 spec added: `e2e/auction-core.spec.ts`, E1, E2, F1, F2, G1, 
 
 ## Blocked items
 
-No outside dependency failure observed. No pending ruling blocks implementation; the development run awaits real confirmations and release deadlines.
+Development failed after refund broadcast: primary GetTransaction first returned a mempool tx, then NotFound; alternate lookup/send returned InternalServerError. The transaction is now expired (expiry 4423740; wallet tip 4423953) and its 2,530,000 zats remain spendable. Exact cause of mempool disappearance is unresolved. Harness prematurely queried the unmined refund; fix to use real wallet mined-height polling and pre-send expiry validation. No mutation runs started; no gate evidence.
 
 ## Deviations / Environment changes / Upstream code reused
 
@@ -126,5 +126,16 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 
 ## Last session
 
+- 2026-09-30T21:13:56.674493+00:00: Development run failed; mutations not started. Inspect tmp/e2e/phase2-development.log and fix first.
+- 2026-09-30T21:13:56.653016+00:00: Development failed; fix it first. Signed-mode change not applied.
+- 2026-09-30T21:13:43.719069+00:00: Development failed; fix it first. Signed-mode change not applied.
 - Resumed 2026-09-30 19:49 UTC. Clean tree at 0ec8c02; read committed Phase 1 pass rulings and Phase 2 contract/research; ran default E2E before new work.
 - Baseline PASS: `tmp/e2e/phase2-baseline.log`. Core build/typecheck PASS 2026-09-30 20:17 UTC. Development `npm run e2e:live` at e5bf985 is running, E1 PASS, all six payments broadcast; output `tmp/e2e/phase2-development.log`. Monitor PID `.benzo/run/phase2-development.pid`, exit file `tmp/e2e/phase2-development.exit`, explicit 80-minute monitor deadline (75-minute test). Next: inspect completion and fix any own-code/harness failure; then mutation runs and the separate evidence run. Verifier draft passes Bash and Node syntax checks, but has not yet run on live artifacts.
+
+## Mutation runs
+
+- 2026-09-30T21:13:43.719069+00:00: Development failed; fix it first. Signed-mode change not applied.
+- 2026-09-30T21:13:56.653016+00:00: Development failed; fix it first. Signed-mode change not applied.
+- 2026-09-30T21:13:56.674493+00:00: Development run failed; mutations not started. Inspect tmp/e2e/phase2-development.log and fix first.
+
+- 2026-09-30 21:34 UTC: Failed development at e5bf985 (run record aa5ef0f; source unchanged): 11 E1–H4/G1–G3 IDs PASS, I1 not reached. Output tmp/e2e/phase2-development.log and tmp/e2e/report.json; artifacts preserved under tmp/phase2/failed-development-artifacts. No frostd remains. Current: require signed clearing mode in E1 before init; then fix its missing schema support, refund waiting and expiry preflight. Recover existing deposits before another full drill.

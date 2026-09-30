@@ -111,6 +111,7 @@ dependencies = [
  "anyhow",
  "hex",
  "orchard",
+ "pczt",
  "rusqlite",
  "serde_json",
  "zcash_client_backend",
