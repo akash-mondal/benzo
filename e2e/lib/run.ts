@@ -65,7 +65,7 @@ export async function latestRound(): Promise<number> {
 }
 
 // Polls until the drand round or chain height reaches `target`; throws at the deadline (ms since epoch).
-export async function waitFor(what: { round: number } | { height: number; tip: () => Promise<number> }, deadline: number) {
+export async function waitFor(what: { round: number } | { height: number; tip: () => number | Promise<number> }, deadline: number) {
   for (;;) {
     const now = "round" in what ? await latestRound() : await what.tip();
     const target = "round" in what ? what.round : what.height;

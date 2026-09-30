@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build:seal": "esbuild seal/src/main.ts --bundle --format=esm --platform=browser --outfile=seal/dist/main.js --log-level=warning && cp seal/src/index.html seal/dist/index.html",
+    "typecheck": "tsc -p tsconfig.json",
     "e2e": "playwright test --project=default",
     "e2e:live": "BNZ_LIVE=1 playwright test --project=live"
   },
@@ -12,6 +13,8 @@
   },
   "devDependencies": {
     "@playwright/test": "1.63.0",
-    "esbuild": "0.28.2"
+    "@types/node": "24.10.1",
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
   }
 }
