@@ -28,6 +28,9 @@ export default function globalTeardown() {
   const tools = execFileSync("cargo", ["install", "--list", "--root", STATE]).toString().split("\n").filter((l) => /^\S/.test(l));
   for (const t of ["tle", "grpcurl"])
     if (existsSync(bin(t))) tools.push(`${t} ` + execFileSync("go", ["version", "-m", bin(t)]).toString().split("\n").find((l) => l.startsWith("\tmod\t"))!.trim());
+  const packages = JSON.parse(readFileSync(path.join(ROOT, "package-lock.json"), "utf8")).packages;
+  for (const name of ["tlock-js", "@playwright/test", "playwright-core", "esbuild", "typescript", "@types/node"])
+    tools.push(`${name} ${packages[`node_modules/${name}`].version}`);
   const run = {
     command: process.env.BNZ_LIVE === "1" ? "npm run e2e:live" : "npm run e2e",
     commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT }).toString().trim(),

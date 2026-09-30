@@ -8,16 +8,16 @@ A direct user instruction that changes scope, gates, pins, tests or evidence is 
 
 ## Phase 1 ([docs/PHASE-1.md](PHASE-1.md)): IN PROGRESS
 
-Updated: 2026-09-30 18:50 UTC · Last completed run commit: 6862341
+Updated: 2026-09-30 19:02 UTC · Last completed run commit: 4c5e4a9
 
 - **Needs user:** none. The user sent 1 TAZ from fauzec: tx `6dc286e42646a5d2216e3480a1d14396dd54491fa3866bcc3267a9089f4ffb41`, mined at 4422713, one Ironwood note of 100000000 zats, spendable at 17:29 UTC (`wallet balance --json`).
 - **Questions for the head agent:**
   - User instruction (2026-09-30 17:36 UTC): "hey make sure this project is called benzo not blindfold". Done in `docs/research/DESIGN.md`, the only file that used the old name (title, line 31 and the memo marker `"BLF"` -> `"BNZ"`, which matches PHASE-1 section 6). AGENTS.md makes `docs/research/` read-only, so please fold this into a Ruling or tell me to revert it.
   - Q1 (2026-09-30 16:08 UTC): hand-written code is 1,385 lines by `wc -l` (comments and config included; the two specs are 368 of them), over section 11's ~1,000. Everything in it is named by the phase doc (bootstrap, setup, sealer, scanner with three modes, two specs and their CLI glue, verify.sh). I'd rather not compress formatting to hit a number. Meanwhile I am: continuing as written.
   - Q2 (2026-09-30 16:08 UTC): C3 says the two bids' nonces differ. The nonce sits inside the sealed plaintext, so the test compares plaintext bytes 45–60 after `tle` opens them (C3 runs after C7). Is that the intended reading? Meanwhile I am: using it.
-- **Fund budget (user asked on 2026-09-30 to use the TAZ very cautiously):** at most three live runs (the current dev run, one M5–M7 mutation run, one evidence run), about 0.002 TAZ in fees in total; no broadcasts outside the tests; no blind reruns after a failure; I ask the user before a fourth live run or if the bidder total falls below 98,000,000 zats. Measured development run: bidder total 100,000,000 -> 99,955,000 zats; 45,000 zats in fees; vault total 0. Mutation M7 deliberately keeps the refund in the vault. Before the evidence run I must ask to allow the bidder total to dip below 98,000,000 while its next two deposits await refund (projected about 97,885,000).
+- **Fund budget (user asked on 2026-09-30 to use the TAZ very cautiously):** at most three live runs (the current dev run, one M5–M7 mutation run, one evidence run), about 0.002 TAZ in fees in total; no broadcasts outside the tests; no blind reruns after a failure; I ask the user before a fourth live run or if the bidder total falls below 98,000,000 zats. Measured development run: bidder total 100,000,000 -> 99,955,000 zats; 45,000 zats in fees; vault total 0. Mutation run: bidder 98,930,000; vault 990,000; cumulative fees 80,000 zats (0.0008 TAZ). Mutation M7 deliberately keeps the refund in the vault. Before the evidence run I must ask to allow the bidder total to dip below 98,000,000 while its next two deposits await refund (projected about 97,905,000).
 - **Blockers:** none. Details go under Blocked items.
-- **Next:** commit the wallet-tip wait fix (typecheck PASS; live validation pending), then run M5–M7 together as live run 2. Evidence run 3 needs the temporary bidder-balance floor exception described above. Then verify.sh, its negative check and `EVIDENCE.md`.
+- **Next:** run setup for recorded evidence; ask for the temporary bidder-balance floor exception before live run 3. Then the final evidence run, verify.sh, its negative check and `EVIDENCE.md`.
 
 **Phase states:**
 - IN PROGRESS
@@ -60,7 +60,7 @@ Only the head agent records PASSED, as a Ruling in the phase doc.
 | Test | Last run (UTC, commit) | Result | Log | Mutations seen failing (`mutations/<ID>.patch` and `.out`) | Audit (R/F/C/D) |
 |---|---|---|---|---|---|
 | `e2e/seal-open.spec.ts` | 2026-09-30 18:48 UTC, 6862341 | PASS (39 s), C1–C7 | `tmp/e2e/resume-default.log` | M1 → `ERROR C2` (+C6), M2 → `ERROR C7`, M3 → `ERROR C5`, M4 → `ERROR C4`, all at 36913b6: `docs/evidence/phase-1/mutations/M{1..4}.{patch,out}` | |
-| `e2e/testnet-golden-path.spec.ts` | 2026-09-30 17:42 UTC, started at 68883d5; HEAD moved to 6862341 during run | FAIL (harness): B1, D1–D3; scanner later threw on missing bid 2 memo before A1–A5 ran. Exit 1 in log; outer background notification was exit 0. | `tmp/e2e/live-1.log`, full CLI output `tmp/e2e/live-1-cli.log` | M5–M7 patches committed in c52c345; not yet run | |
+| `e2e/testnet-golden-path.spec.ts` | 2026-09-30 18:59 UTC, 4c5e4a9, M5–M7 applied | Expected FAIL (exit 1): B1, D1, A4, A5. D2, D3, A1–A3 PASS; all IDs ran. Original dev failure at `tmp/e2e/live-1.log` was a harness defect. | `tmp/e2e/live-mutations.log`, report `tmp/e2e/live-mutations-report.json` | M5 → `ERROR B1`, M6 → `ERROR D1`, M7 → `ERROR A4` and `ERROR A5`, together at 4c5e4a9; `docs/evidence/phase-1/mutations/M{5..7}.{patch,out}` | |
 
 **Results:**
 - PASS
@@ -103,8 +103,10 @@ none
 
 ## Last session
 
-- **Window:** resumed 2026-09-30 18:47 UTC; ongoing.
+- **Window:** resumed 2026-09-30 18:47 UTC; ongoing (mutation run finished 18:59 UTC).
 - **Outcome:** previous live run failed, not passed. Root cause confirmed in `tmp/e2e/live-1-cli.log`: transaction lookup reported bid 2 height 4422729, sync read cached tip 4422728, then enhance fetched only bid 1. The later sync found bid 2, but the settlement scanner lacked its memo.
 - **Changed:** test 2 waits on the synced wallet's `balance --json` chain tip before first scan and settlement; first payment change also uses the synced wallet tip. Settlement also enhances full transactions before scanning, so M7’s incoming vault refund has its memo. Assertions and deadlines unchanged.
 - **Verified:** `npm run e2e` exit 0 at 6862341 (C1–C7); `npm run typecheck` exit 0 on the fix. Scratch recovery `wallet enhance` then scanner found both 512-byte memos, both 500,000-zat deposits spent by `a3c6d2d81e6cfeeb7c4314ead3042f4a99b8a1420fd83048a4e8525d157e9083`; not gate evidence. Bidder total 99,955,000; vault total 0.
-- **Unverified:** live fix, M5–M7, single-run gate evidence, verify.sh on that evidence and its negative check. No pidfiles or prior live work remained running at resume.
+- **Verified mutation run:** at 4c5e4a9, `npm run e2e:live` with M5–M7 exited 1 in 263 s. All 16 IDs ran; only B1, D1, A4 and A5 failed, as required. Refund `2d6418be459f16a998de51c6a902153d616d70e5f7ae94891403a1230e9fa7d4` spent both deposits through 2 signer sessions; 990,000 zats deliberately remained in the vault. Patches restored; `tmp/e2e/live-mutations-status.txt` shows only the three new `.out` files. No live services remain running.
+- **Evidence preparation:** `run.json` now records all six pinned npm dependency/tool versions; default E2E PASS (38 s) with those lines in `tmp/e2e/out/run.json`, log `tmp/e2e/metadata-default.log`. `verify.sh` now checks both deposit headers/branch IDs; `bash -n` and TypeScript typecheck PASS. No scanner, sealer or live assertion change since M5–M7.
+- **Unverified:** normal live pass after the fix, single-run gate evidence, verify.sh on that evidence and its negative check.

@@ -71,10 +71,18 @@ if need B memo/deposits.json memo/bid1.sent.hex memo/bid2.sent.hex memo/bid1.sca
   for i in 1 2; do
     txid="$(jq -r ".[$((i - 1))].txid" "$EV/memo/deposits.json")"
     want_h="$(jq -r ".[$((i - 1))].height" "$EV/memo/deposits.json")"
-    read -r h1 _ < <(gettx "$BNZ_LWD_URL" "$txid") || true
+    read -r h1 raw1 < <(gettx "$BNZ_LWD_URL" "$txid") || true
     read -r h2 raw < <(gettx "$BNZ_LWD_URL_ALT" "$txid") || true
     [ "${h1:-}" = "$want_h" ] && [ "${h2:-}" = "$want_h" ] && ok "B deposit $i $txid at height $want_h on both endpoints" \
       || err "B deposit $i $txid heights ${h1:-none}/${h2:-none}, want $want_h"
+    # Phase 1's pinned NU6.3 v6 header and branch, checked on each endpoint.
+    for bytes in "${raw1:-}" "${raw:-}"; do
+      if [ "${bytes:0:16}" = "0600008098b684d8" ] && [ "$(revhex "${bytes:16:8}")" = "37a5165b" ]; then
+        ok "B deposit $i v6 header, branch 37a5165b"
+      else
+        err "B deposit $i header ${bytes:0:16}, branch $(revhex "${bytes:16:8}") differs from pinned NU6.3 v6"
+      fi
+    done
     memo="$("$SCAN" verify "$BNZ_NETWORK" "$STATE/ufvk.txt" "${h2:-0}" <<<"${raw:-}" | jq -r 'select(.pool == "ironwood") | .memo_hex')"
     if [ -n "$memo" ] && [ "$memo" = "$(hexof memo/bid$i.scanned.hex)" ] && [ "$memo" = "$(hexof memo/bid$i.sent.hex)" ]; then
       ok "B memo $i re-derived from $BNZ_LWD_URL_ALT equals bid$i.scanned.hex and bid$i.sent.hex"
