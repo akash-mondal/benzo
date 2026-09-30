@@ -1,0 +1,2 @@
+bid1 utc=2026-09-30T19:05:59.064Z latest=32663930 public_R_status=425 tle_exit=1 tle: too early to decrypt: expected round 32663941 > 32663931 current round
+bid2 utc=2026-09-30T19:06:00.335Z latest=32663930 public_R_status=425 tle_exit=1 tle: too early to decrypt: expected round 32663941 > 32663932 current round

@@ -1,0 +1,10 @@
+{
+ "txid": "f408b4392a3e0390ad50733d01fabf124695bd17cbcd892471d0c3bc4b494c02",
+ "height": {
+  "testnet.zec.rocks:443": 4423194,
+  "zaino.testnet.unsafe.zec.rocks:443": 4423194
+ },
+ "header_hex": "06000080",
+ "version_group_id_hex": "98b684d8",
+ "consensus_branch_id": "37a5165b"
+}
