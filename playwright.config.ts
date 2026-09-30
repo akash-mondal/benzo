@@ -1,0 +1,17 @@
+import { defineConfig } from "@playwright/test";
+
+const projects = [{ name: "default", testMatch: /seal-open\.spec\.ts/ }];
+if (process.env.BNZ_LIVE === "1") projects.push({ name: "live", testMatch: /(seal-open|testnet-golden-path)\.spec\.ts/ });
+
+export default defineConfig({
+  testDir: "e2e",
+  outputDir: "tmp/e2e/test-results",
+  retries: 0,
+  forbidOnly: true,
+  workers: 2,
+  reporter: [["line"]],
+  globalSetup: "./e2e/lib/global-setup.ts",
+  globalTeardown: "./e2e/lib/global-teardown.ts",
+  use: { browserName: "chromium", headless: true },
+  projects,
+});

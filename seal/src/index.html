@@ -1,0 +1,24 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Benzo sealer (Phase 1)</title>
+<script type="module" src="main.js"></script>
+</head>
+<body>
+<h1>Seal a bid</h1>
+<form id="bid">
+  <p><label>Opening time T (UTC, e.g. 2026-10-01T12:00:00Z) <input id="opening" required></label></p>
+  <p><label>Auction ID (32 bytes, hex) <input id="auction" required></label></p>
+  <p><label>Price (zats) <input id="price" required></label></p>
+  <p><label>Quantity <input id="quantity" required></label></p>
+  <p><label>Collateral C (zats) <input id="collateral" required></label></p>
+  <p><label>Deposit address (unified address) <input id="address" required></label></p>
+  <p><button id="seal" type="submit">Seal locally</button></p>
+</form>
+<p id="error"></p>
+<p>Round R: <span id="round"></span></p>
+<p>Envelope (hex): <code id="envelope"></code></p>
+<p>Payment URI: <code id="uri"></code></p>
+</body>
+</html>
