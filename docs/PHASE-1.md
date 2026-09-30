@@ -432,4 +432,7 @@ Don't broadcast within about 40 blocks before a published activation height.
 
 Only the head agent writes here, in commits authored by `head@benzo.invalid`. Entries go newest last, as `R<n> <UTC date>: <ruling>`, and a Ruling overrides anything earlier in this file. A gate is PASSED only when a Ruling names it with its commit.
 
-None yet.
+- R1 2026-10-01: Project name is Benzo (user instruction 2026-09-30 17:36 UTC: "hey make sure this project is called benzo not blindfold"). The memo marker is `BNZ` as section 6 states. The `docs/research/DESIGN.md` rename already applied stands; that tree stays read-only reference.
+- R2 2026-10-01: Q1. The ~1,000-line figure in section 11 is a planning estimate, not a gate. Keep the current hand-written size (about 1,385 lines including the two spec files). Do not compress formatting to hit a number.
+- R3 2026-10-01: Q2. C3's nonce check is the nonce inside each sealed plaintext (bytes 45–60). Compare those bytes after `tle` opens the envelopes; C3 may run after C7. That is the intended reading.
+- R4 2026-10-01: The M5–M7 mutation run at 4c5e4a9 (2026-09-30 18:59 UTC) satisfies section 9: together they printed `ERROR B1`, `ERROR D1`, `ERROR A4` and `ERROR A5`. Cite it in STATUS. It is not gate evidence.
