@@ -1,0 +1,19 @@
+[package]
+name = "benzo-scan"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Crate versions match zcash-devtool 5a26ee85's Cargo.lock (tools/pins.env), so the scanner reads the wallet
+# database that devtool writes with the same zcash_client_sqlite.
+[dependencies]
+anyhow = "1"
+hex = "0.4.3"
+orchard = { version = "=0.15.3", default-features = false }
+rusqlite = "0.37.0"
+serde_json = "1.0.151"
+zcash_client_backend = { version = "=0.24.0", features = ["orchard"] }
+zcash_client_sqlite = { version = "=0.22.0", features = ["orchard"] }
+zcash_keys = { version = "=0.16.1", features = ["orchard"] }
+zcash_primitives = "=0.30.1"
+zcash_protocol = "=0.10.5"
