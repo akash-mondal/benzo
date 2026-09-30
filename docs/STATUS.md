@@ -8,7 +8,7 @@ A direct user instruction that changes scope, gates, pins, tests or evidence is 
 
 ## Phase 1 ([docs/PHASE-1.md](PHASE-1.md)): IN PROGRESS
 
-Updated: 2026-09-30 16:10 UTC · Last commit: 723887e
+Updated: 2026-09-30 16:07 UTC · Last commit: c52c345
 
 - **Needs user:** send at least 0.1 TAZ (0.5 recommended) to the bidder wallet: `[redacted address 4a8fa11836]`. Gates A, B and D and the trap-1 PCZT parse check wait on it. Faucets are listed in `.env.example` item 6.
 - **Questions for the head agent:**
@@ -58,7 +58,7 @@ Only the head agent records PASSED, as a Ruling in the phase doc.
 | Test | Last run (UTC, commit) | Result | Log | Mutations seen failing (`mutations/<ID>.patch` and `.out`) | Audit (R/F/C/D) |
 |---|---|---|---|---|---|
 | `e2e/seal-open.spec.ts` | 2026-09-30 16:01 UTC, c41fb1b (working tree before that commit; the committed diff only touched test 2 glue and types) | PASS (37 s) | `tmp/e2e/seal-open.log` | M1 → `ERROR C2` (+C6), M2 → `ERROR C7`, M3 → `ERROR C5`, M4 → `ERROR C4`, all at 36913b6: `docs/evidence/phase-1/mutations/M{1..4}.{patch,out}` | |
-| `e2e/testnet-golden-path.spec.ts` | never | NOT RUN: bidder wallet has 0 TAZ (`wallet balance --json` total 0 at 16:03 UTC) | | M5–M7: not yet | |
+| `e2e/testnet-golden-path.spec.ts` | 2026-09-30 16:04 UTC, 8267d29 (dry run) | NOT RUN: `bidder spendable 0 zats < 2C + 30000 = 1030000`, after its pin, drand, endpoint and state preconditions passed | `tmp/e2e/live-dry.log` | M5–M7 patches committed in c52c345; not yet run | |
 
 **Results:**
 - PASS
@@ -100,8 +100,8 @@ none
 ## Last session
 
 <!-- Rewrite this block before ending each turn, for a reader who saw nothing. -->
-- **Window:** 2026-09-30 15:34 UTC to 16:10 UTC
-- **Outcome:** G0 ready for review; setup done; gate C test and mutations done; test 2, scanner and verify.sh written. Waiting for TAZ.
+- **Window:** 2026-09-30 15:34 UTC to 16:07 UTC
+- **Outcome:** G0 ready for review; setup done; gate C test and mutations done; test 2, scanner and verify.sh written. Waiting for TAZ: a background poll (`tmp/wait-funds.sh`, log `$BNZ_STATE_DIR/run/wait-funds.log`) syncs the bidder every 5 min and exits when it has a spendable note, deadline 2026-10-01 04:00 UTC.
 - **Changed:** commits 23f660a … 723887e: `tools/`, `seal/`, `scan/`, `e2e/`, `playwright.config.ts`, `package*.json`, `tsconfig.json`, `docs/evidence/phase-1/{versions.txt,verify.sh,mutations/}`.
 - **Verified:**
   - G0: `tools/bootstrap.sh` exit 0 at 23f660a; `versions.txt` lists every pin with `?rev=`/`mod` lines.
