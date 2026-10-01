@@ -1,7 +1,7 @@
 --- a/api/public-auction.ts
 +++ b/api/public-auction.ts
-@@ -181,7 +181,7 @@
-     for (const a of pub.result.allocations) {
+@@ -217,7 +217,7 @@
+     for (const a of result.allocations) {
        requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
      }
 -    if (!pub.settlement) return;
@@ -9,11 +9,10 @@
      const receipts = pub.settlement.receipts ?? [];
      const rows = pub.settlement.rows ?? [];
      for (const [i, r] of receipts.entries()) {
-@@ -201,7 +201,7 @@
-     }
+@@ -238,6 +238,6 @@
    });
    run("accounting-strays", () => {
--    if (!pub.settlement) return;
+-    if (!pub.settlement || !pub.result) return;
 +    return; // U3: skips ledger total check
      const receipts = pub.settlement.receipts ?? [];
      const rows = pub.settlement.rows ?? [];
