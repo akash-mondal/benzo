@@ -30,7 +30,7 @@ export function publish(id:string) {
     const s=read(summary);
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
-      return {...b,state:b.height?'mined':'exception',inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>({...o,matches_pinned_routing:true}))}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
+      return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>({...o,matches_pinned_routing:true}))}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
     })};
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');
@@ -41,7 +41,7 @@ export async function runCommand(command:string,args:string[]) {
   const o=options(args),id=o.id;
   if(id)requireThat(/^[0-9a-f]{64}$/.test(id),'auction id');
   if(command==='auction create') {
-    const m=input(o);validateManifest(m);requireThat(!existsSync(draft(m.auction_id))&&!existsSync(ledger(m.auction_id)),'auction already exists');
+    const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");validateManifest(m);requireThat(!existsSync(draft(m.auction_id))&&!existsSync(ledger(m.auction_id)),'auction already exists');
     save(draft(m.auction_id),{manifest:m,state:'DRAFT'});return {auction_id:m.auction_id,state:'DRAFT',manifest:m};
   }
   if(command==='auction sign') {
@@ -55,6 +55,7 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(id&&o.dir&&o.config,'--id --dir --config required');
     const d=read(draft(id));requireThat(d.signed,'sign the manifest first');
     const cfg=read(privatePath(o.config));requireThat(cfg.settlement&&cfg.routing,'operator config needs settlement and private routing');
+    requireThat(Number.isInteger(cfg.settlement.batch_cap)&&cfg.settlement.batch_cap>=1&&cfg.settlement.batch_cap<=50&&Number.isInteger(cfg.settlement.pczt_expiry_blocks)&&cfg.settlement.pczt_expiry_blocks>=1&&cfg.settlement.pczt_expiry_blocks<=10000,'batch cap/expiry config');
     save(config(id),{...cfg,public_dir:path.resolve(o.dir)});
     ac('init',id,{manifest:d.signed,signer:d.signed.signer});sc('init',id,[],cfg.routing);return publish(id);
   }
@@ -83,13 +84,24 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(id,'--id required');const bid=input(o),a=read(ledger(id)),m=client(a.manifest,a.signer).manifest;
     if(o.pay==='true') {
       requireThat(Date.now()/1000<m.T_submit,'submission deadline');
-      const uri=new URL(bid.uri);requireThat(uri.pathname===bid.address&&m.deposit_addresses.includes(bid.address)&&uri.searchParams.get('memo')===Buffer.from(bid.envelope_hex,'hex').toString('base64url'),'deposit URI binding');
-      const c=BigInt(m.C_zats),zec=`${c/100000000n}.${String(c%100000000n).padStart(8,'0')}`;requireThat(Number(uri.searchParams.get('amount'))===Number(zec),'deposit amount differs from C');
+      const bids=bid.bids??[bid],params=new URLSearchParams();
+      for(const [index,b] of bids.entries()) {
+        const uri=new URL(b.uri);requireThat(uri.pathname===b.address&&m.deposit_addresses.includes(b.address)&&uri.searchParams.get('memo')===Buffer.from(b.envelope_hex,'hex').toString('base64url'),'deposit URI binding');
+        requireThat(Number(uri.searchParams.get('amount'))===Number(m.C_zats)/1e8,'deposit amount differs from C');
+        const suffix=index?`.${index}`:'';params.set('address'+suffix,b.address);params.set('amount'+suffix,uri.searchParams.get('amount')!);params.set('memo'+suffix,uri.searchParams.get('memo')!);
+      }
+      const reserve=bid.reserve;
+      if(reserve) {
+        requireThat(reserve.address===read(config(id)).routing.fee_reserve_ua&&/^[1-9][0-9]*$/.test(reserve.amount_zats),'reserve must match operator config');
+        const suffix='.'+bids.length;params.set('address'+suffix,reserve.address);params.set('amount'+suffix,(Number(reserve.amount_zats)/1e8).toFixed(8));
+      }
+      execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]);
       const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'balance','--json']));
-      const available=balance.sapling_spendable+balance.orchard_spendable+balance.ironwood_spendable;
-      requireThat(available-Number(c)-40000>=3*Number(c)+40000,'bidder floor; Needs user funds');
-      bid.txid=execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'pay','-i',path.join(STATE,'bidder.age'),'--disable-confirmation','-s',process.env.BNZ_LWD_URL!,'--payment-uri',bid.uri]).trim().split('\n').at(-1);
-      return {txid:bid.txid,C_zats:m.C_zats,state:'broadcast'};
+      const available=balance.sapling_spendable+balance.orchard_spendable+balance.ironwood_spendable,c=Number(m.C_zats);
+      requireThat(available-c*bids.length-Number(reserve?.amount_zats??0)-5000*(bids.length+2)>=3*c+40000,'bidder floor; Needs user funds');
+      const output=execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'pay','-i',path.join(STATE,'bidder.age'),'--disable-confirmation','-s',process.env.BNZ_LWD_URL!,'--payment-uri','zcash:?'+params]);
+      const txid=output.match(/^[0-9a-f]{64}$/gm)?.at(-1);requireThat(txid,'payment produced no txid');
+      return {txid,C_zats:m.C_zats,deposits:bids.length,state:'broadcast'};
     }
     const admitted=ac('admit',id,bid);publish(id);return {...admitted,C_zats:m.C_zats};
   }
@@ -103,7 +115,7 @@ export async function runCommand(command:string,args:string[]) {
     if(command==='cancel'){ac('cancel',id);publish(id)}
     const p=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:'inherit'});
     await new Promise<void>((resolve,reject)=>{p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`settle exit ${c}`)))});
-    const a=read(ledger(id));a.state=command==='cancel'?'CANCELLED':'SETTLED';save(ledger(id),a);return publish(id);
+    const a=read(ledger(id)),status=JSON.parse(sc('status',id));a.state=status.rows.some((r:any)=>r.state==='exception')?'SETTLING':command==='cancel'?'CANCELLED':'SETTLED';save(ledger(id),a);return publish(id);
   }
   if(command==='sign inspect') {requireThat(id&&o.batch&&o.candidate&&o.name,'--id --batch --candidate --name required');return JSON.parse(sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']))}
   throw Error('unknown Track A command');

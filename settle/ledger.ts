@@ -14,21 +14,27 @@ export class Ledger {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS plan(hash TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS obligations(party TEXT PRIMARY KEY,kind TEXT NOT NULL,amount_zats TEXT NOT NULL,state TEXT NOT NULL,batch INTEGER,txid TEXT,output_index INTEGER,pool TEXT);
-      CREATE TABLE IF NOT EXISTS batches(id INTEGER PRIMARY KEY,pczt_path TEXT,pczt_hash TEXT,txid TEXT UNIQUE,height INTEGER);`);
+      CREATE TABLE IF NOT EXISTS batches(id INTEGER PRIMARY KEY,pczt_path TEXT,pczt_hash TEXT,txid TEXT UNIQUE,height INTEGER,state TEXT NOT NULL DEFAULT 'staged');`);
+    if(!this.db.prepare("PRAGMA table_info(batches)").all().some(c=>c.name==="state"))this.db.exec("ALTER TABLE batches ADD COLUMN state TEXT NOT NULL DEFAULT 'staged'");
   }
   private atomic<T>(fn:()=>T):T {
     this.db.exec("BEGIN IMMEDIATE");
     try {const result=fn();this.db.exec("COMMIT");return result} catch(e) {this.db.exec("ROLLBACK");throw e}
   }
-  pin(plan:Obligation[]) {
+  pin(plan:Obligation[],exceptions:Obligation[]=[]) {
+    const ready=new Set(plan.map(o=>o.party));plan=[...plan,...exceptions].sort((a,b)=>a.party.localeCompare(b.party));
     requireThat(plan.length>0 && new Set(plan.map(o=>o.party)).size===plan.length,"unique settlement parties");
     requireThat(plan.every(o=>["payout","refund"].includes(o.kind)&&/^[1-9][0-9]*$/.test(o.amount_zats)&&BigInt(o.amount_zats)<=2_100_000_000_000_000n),"settlement obligation amounts");
     const digest=hash(jsonBytes(plan));
     this.atomic(()=> {
-      const previous=this.db.prepare("SELECT hash FROM plan").get() as {hash:string}|undefined;
-      if(previous) {requireThat(previous.hash===digest,"settlement plan changed on resume");return}
-      this.db.prepare("INSERT INTO plan VALUES(?)").run(digest);
-      for(const o of plan)this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,'seen')").run(o.party,o.kind,o.amount_zats);
+      for(const o of plan) {
+        const old=this.rows().find(r=>r.party===o.party);
+        requireThat(!old||old.amount_zats===o.amount_zats&&old.kind===o.kind,"settlement obligation changed on resume");
+        if(!old)this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
+        else if(old.state==="exception"&&ready.has(o.party))this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
+      }
+      requireThat(this.rows().every(o=>plan.some(p=>p.party===o.party)),"settlement obligation disappeared on resume");
+      this.db.exec("DELETE FROM plan");this.db.prepare("INSERT INTO plan VALUES(?)").run(digest);
     });
     return digest;
   }
@@ -39,11 +45,11 @@ export class Ledger {
       this.db.exec("UPDATE obligations SET state='eligible' WHERE state='confirmed'");
     });
   }
-  allocate():{id:number;outputs:Row[]}|null {
+  allocate(cap=50):{id:number;outputs:Row[]}|null {
     return this.atomic(()=> {
-      const pending=this.db.prepare("SELECT id FROM batches WHERE height IS NULL ORDER BY id LIMIT 1").get() as {id:number}|undefined;
+      const pending=this.db.prepare("SELECT id FROM batches WHERE height IS NULL AND state!='exception' ORDER BY id LIMIT 1").get() as {id:number}|undefined;
       if(pending)return {id:pending.id,outputs:this.rows().filter(o=>o.batch===pending.id&&o.state==="allocated")};
-      const outputs=this.db.prepare("SELECT * FROM obligations WHERE state='eligible' ORDER BY party LIMIT 50").all() as Row[];
+      const outputs=this.db.prepare("SELECT * FROM obligations WHERE state='eligible' ORDER BY party LIMIT ?").all(cap) as Row[];
       if(!outputs.length)return null;
       const id=Number(this.db.prepare("SELECT COALESCE(MAX(id),0)+1 AS id FROM batches").get()!.id);
       this.db.prepare("INSERT INTO batches(id) VALUES(?)").run(id);
@@ -60,6 +66,13 @@ export class Ledger {
       this.db.prepare("UPDATE batches SET pczt_path=?,pczt_hash=?,txid=? WHERE id=?").run(file,digest,txid,id);
     });
   }
+  expire(id:number) {
+    this.atomic(()=> {
+      requireThat(!this.batch(id)?.height,"cannot expire a mined batch");
+      this.db.prepare("UPDATE obligations SET state='exception',batch=NULL WHERE batch=? AND state='allocated'").run(id);
+      this.db.prepare("UPDATE batches SET state='exception' WHERE id=?").run(id);
+    });
+  }
   confirm(id:number,txid:string,height:number,outputs:{party:string;amount_zats:string;index:number;pool:string}[]) {
     requireThat(Number.isInteger(height)&&height>0,"settlement is not mined");
     this.atomic(()=> {
@@ -70,11 +83,11 @@ export class Ledger {
         const o=outputs.find(o=>o.party===r.party);requireThat(o?.amount_zats===r.amount_zats&&Number.isInteger(o.index)&&o.index>=0,"mined output differs from obligation");
         this.db.prepare("UPDATE obligations SET state=?,txid=?,output_index=?,pool=? WHERE party=?").run(r.kind==="refund"?"refunded":"paid",txid,o!.index,o!.pool,r.party);
       }
-      this.db.prepare("UPDATE batches SET height=? WHERE id=?").run(height,id);
+      this.db.prepare("UPDATE batches SET height=?,state='mined' WHERE id=?").run(height,id);
     });
   }
   rows() {return this.db.prepare("SELECT * FROM obligations ORDER BY party").all() as Row[]}
-  batch(id:number) {return this.db.prepare("SELECT * FROM batches WHERE id=?").get(id) as {id:number;pczt_path:string|null;pczt_hash:string|null;txid:string|null;height:number|null}|undefined}
+  batch(id:number) {return this.db.prepare("SELECT * FROM batches WHERE id=?").get(id) as {id:number;pczt_path:string|null;pczt_hash:string|null;txid:string|null;height:number|null;state:string}|undefined}
   receipts() {return this.rows().filter(o=>["paid","refunded"].includes(o.state)).map(o=>({auction_id:this.auction,party:o.party,txid:o.txid,pool:o.pool,output_index:o.output_index,amount_zats:o.amount_zats}))}
   close() {this.db.close()}
 }

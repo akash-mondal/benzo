@@ -30,24 +30,26 @@ try {
   const ledgerFile=path.join(state,"settle",id,"ledger.sqlite"),owned=new Set<string>();
   if(existsSync(ledgerFile)) {
     const db=new DatabaseSync(ledgerFile,{readOnly:true});
-    try {for(const b of db.prepare("SELECT txid,pczt_path,pczt_hash FROM batches WHERE txid IS NOT NULL").all()) {
+    try {for(const b of db.prepare("SELECT txid,pczt_path,pczt_hash FROM batches WHERE txid IS NOT NULL AND state!='exception'").all()) {
       requireThat(hash(readFileSync(String(b.pczt_path)))===b.pczt_hash,"staged PCZT changed on resume");owned.add(String(b.txid));
     }} finally {db.close()}
   }
   const depositNotes=notes.filter(n=>m.deposit_addresses.includes(n.address)&&(!n.spent_in_txid||owned.has(n.spent_in_txid)));
-  requireThat(depositNotes.every(n=>n.height&&tip-n.height+1>=m.confirmations&&String(n.value_zats)===m.C_zats),"settlement deposit amount/confirmation");
+  const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
+  const stray=depositNotes.filter(n=>!auction.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
+  const exceptions=stray.filter(n=>!confirmed(n)).map(n=>({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)}));
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[];
   let result_hash:string|null=null;
   if(["CANCELLED","REFUNDING"].includes(auction.state)) {
     requireThat(!auction.opened,"cancelled plan has opened bids");
-    for(const n of depositNotes)obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:m.C_zats});
+    for(const n of depositNotes.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   } else {
-    requireThat(auction.state==="CLEARED"&&auction.result&&auction.frozen,"settlement requires cleared result");
+    requireThat(["CLEARED","SETTLING","SETTLED"].includes(auction.state)&&auction.result&&auction.frozen,"settlement requires cleared result");
     checkFrozen(auction.frozen,id,manifest_hash);
     requireThat(Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"settlement before release");
     const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
     const opened=auction.frozen.leaves.map((leaf:any)=> {
-      requireThat(depositNotes.some(n=>n.txid===leaf.deposit.txid&&n.address===leaf.deposit.address),"frozen deposit missing or spent; resume needs mined-batch reconciliation");
+      requireThat(depositNotes.some(n=>n.txid===leaf.deposit.txid&&n.address===leaf.deposit.address&&confirmed(n)&&String(n.value_zats)===m.C_zats),"frozen deposit missing or spent; resume needs mined-batch reconciliation");
       const ct=path.join(dir,`${leaf.leaf_index}.age`),pt=path.join(dir,`${leaf.leaf_index}.bin`);
       writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
       checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(leaf.ciphertext_hex,"hex"))});
@@ -66,6 +68,8 @@ try {
     for(const a of result.allocations)if(BigInt(a.refund_zats)>0n)obligations.push({party:`leaf:${a.leaf_index}`,kind:"refund",amount_zats:a.refund_zats});
     if(BigInt(result.conservation.payout_zats)>0n)obligations.push({party:"seller",kind:"payout",amount_zats:result.conservation.payout_zats});
   }
-  requireThat(obligations.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,obligations,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  if(!["CANCELLED","REFUNDING"].includes(auction.state))for(const n of stray.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
+  obligations.sort((a,b)=>a.party.localeCompare(b.party));
+  requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,obligations,exceptions,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

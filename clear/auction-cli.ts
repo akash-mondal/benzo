@@ -110,8 +110,7 @@ try {
       ledger.state="CANCELLED";
       const {notes}=observed();
       const deposits=notes.filter(n=>m.deposit_addresses.includes(n.address) && n.height && !n.spent_in_txid);
-      requireThat(deposits.every(n=>BigInt(n.value_zats)===BigInt(m.C_zats)),"cancel deposit amount differs from C");
-      result={auction_id:id,state:"REFUNDING",refunds:deposits.map(n=>({txid:n.txid,address:n.address,amount_zats:m.C_zats})),trace:ledger.trace}; ledger.state="REFUNDING";
+      result={auction_id:id,state:"REFUNDING",refunds:deposits.map(n=>({txid:n.txid,address:n.address,amount_zats:String(n.value_zats)})),trace:ledger.trace}; ledger.state="REFUNDING";
     } else if(command==="receipt") {
       result={included:receiptMember(input.receipt,input.frozen,ledger.signer)};
     } else if(command==="status") result=ledger;

@@ -12,7 +12,7 @@ export type Manifest = {
   q_max: number; C_zats: string; fee_zats: string; deposit_addresses: string[];
   drand: typeof QUICKNET & { R: number }; T_submit: number; T_freeze: number; confirmations: 10;
   clearing: { mode: "uniform" | "vickrey"; band: "floor_pro_rata_units"; dust: "ascending_leaf_index"; tie: "ascending_leaf_index"; minimum_fill: number };
-  refund: { invalid: "C_minus_fee"; reorg: "C_minus_fee_remove_leaf"; cancel: "full_C" };
+  refund: { invalid: "full_C" | "C_minus_fee"; reorg: "C_minus_fee_remove_leaf"; cancel: "full_C" };
   freeze: "merkle_root_v1";
 };
 export type Signed = { bytes: string; sha256: string; signer: string; signature: string };
@@ -66,7 +66,7 @@ export function validateManifest(m: Manifest): void {
   requireThat(m.clearing.band === "floor_pro_rata_units" && m.clearing.dust === "ascending_leaf_index" && m.clearing.tie === "ascending_leaf_index", "clearing rules");
   integer(m.clearing.minimum_fill, "minimum fill", 1, m.supply);
   keys(m.refund, "invalid reorg cancel");
-  requireThat(m.refund.invalid === "C_minus_fee" && m.refund.reorg === "C_minus_fee_remove_leaf" && m.refund.cancel === "full_C", "refund policies");
+  requireThat(["full_C","C_minus_fee"].includes(m.refund.invalid) && m.refund.reorg === "C_minus_fee_remove_leaf" && m.refund.cancel === "full_C", "refund policies");
 }
 
 // Both signing and verification use every canonical byte, including the exact drand round.

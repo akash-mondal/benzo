@@ -14,7 +14,8 @@ use zcash_protocol::{consensus::Network, ShieldedPool, value::Zatoshis};
 use zip321::{Payment, TransactionRequest};
 use zcash_note_encryption::Domain;
 
-fn create(wallet: &str, output: &str) -> anyhow::Result<()> {
+fn create(wallet: &str, output: &str, expiry_blocks: u32) -> anyhow::Result<()> {
+    ensure!(expiry_blocks>0&&expiry_blocks<=10000,"expiry blocks must be 1–10000");
     let mut text=String::new(); io::stdin().read_to_string(&mut text)?;
     let outputs: Vec<Value>=serde_json::from_str(&text)?;
     ensure!(!outputs.is_empty() && outputs.len()<=50,"batch must have 1–50 recipients");
@@ -29,7 +30,7 @@ fn create(wallet: &str, output: &str) -> anyhow::Result<()> {
     ensure!(accounts.len()==1,"wallet must have one account");
     let change=MultiOutputChangeStrategy::new(StandardFeeRule::Zip317,None,ShieldedPool::Orchard,DustOutputPolicy::default(),SplitPolicy::with_min_output_value(NonZeroUsize::new(1).unwrap(),Zatoshis::from_u64(10_000_000)?));
     let proposal=propose_transfer::<_,_,_,_,zcash_client_sqlite::wallet::commitment_tree::Error>(&mut db,&Network::TestNetwork,accounts[0],&GreedyInputSelector::new(),&change,TransactionRequest::new(payments)?,ConfirmationsPolicy::default(),&SpendPolicy::default(),None,None).map_err(|e|anyhow!("proposal: {e:?}"))?;
-    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Sender,&proposal,Some(proposal.min_target_height()+200),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
+    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Sender,&proposal,Some(proposal.min_target_height()+expiry_blocks),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
     std::fs::write(output,pczt.serialize().map_err(|e|anyhow!("serialization: {e:?}"))?)?;
     Ok(())
 }
@@ -100,7 +101,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_>=std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("address") if args.len()==3=>address(&args[2]),
-        Some("create") if args.len()==4=>create(&args[2],&args[3]),
+        Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {200}),
         Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
         _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file>"))
     }
