@@ -1,4 +1,13 @@
 #!/bin/sh
+# Path flags resolve against the caller's directory (a stranger verifying a cold copy), then run from the repo.
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+caller=$(pwd -P)
+n=$#; i=0; abs=0
+while [ "$i" -lt "$n" ]; do
+  a=$1; shift; i=$((i + 1))
+  if [ "$abs" = 1 ]; then case "$a" in /*) ;; *) a="$caller/$a" ;; esac; abs=0; fi
+  case "$a" in --dir|--receipt) abs=1 ;; esac
+  set -- "$@" "$a"
+done
 cd "$repo" || exit 1
 exec node "$repo/cli/dist/benzo.mjs" "$@"
