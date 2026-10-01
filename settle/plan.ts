@@ -14,7 +14,7 @@ for(const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
 const state=path.resolve(root,process.env.BNZ_STATE_DIR!);
 function execute(cmd:string,args:string[],input?:string):string {
   const r=spawnSync(cmd,args,{input,encoding:"utf8",maxBuffer:64<<20});
-  appendFileSync(path.join(state,"run","settle-plan.log"),`\n${path.basename(cmd)}\n${r.stdout??""}${r.stderr??""}`);
+  appendFileSync(path.join(state,"run","settle-plan.log"),`\n${path.basename(cmd)}\n${r.stderr??""}`);
   if(r.error)throw r.error;
   requireThat(r.status===0,`${path.basename(cmd)} failed: ${(r.stderr||r.stdout).trim().slice(-250)}`);return r.stdout;
 }

@@ -27,12 +27,13 @@ let doc,m,result,expected;
 check('O/P',()=> {
  doc=json('cli/auction.json');m=JSON.parse(execute(process.execPath,['manifest/dist/cli.mjs','client',doc.signer],bytes(doc.manifest))).manifest;
  need(doc.auction_id===m.auction_id&&doc.state==='SETTLED','auction is not bound or settled');
- for(const name of ['manifest','frozen','result'])need(bytes(doc[name]).equals(read(`cli/${name}.json`)),`${name} projection differs`);
+ for(const name of ['manifest','frozen','result','opened','beacon'])need(bytes(doc[name]).equals(read(`cli/${name}.json`)),`${name} projection differs`);
  need(doc.frozen.published_at<m.T_freeze&&doc.frozen.published_at<m.drand.genesis+(m.drand.R-1)*m.drand.period,'freeze after cutoff or release');
  const opened=doc.frozen.leaves.map(l=> {
   const r=spawnSync(bin('tle'),['-d','-c',m.drand.chain_hash],{input:Buffer.from(l.ciphertext_hex,'hex'),maxBuffer:1<<20});if(r.error)throw r.error;
   need(r.status===0,`Go tle failed: ${r.stderr.toString().trim()}`);return {leaf_index:l.leaf_index,plaintext_hex:r.stdout.toString('hex')};
  });
+ need(bytes(opened).equals(bytes(doc.opened)),'published openings differ from Go tle');need(doc.beacon.round===m.drand.R&&doc.beacon.chain_hash===m.drand.chain_hash,'published beacon binding');
  result=JSON.parse(execute(process.execPath,['clear/dist/cli.mjs'],bytes({manifest:doc.manifest,signer:doc.signer,frozen:doc.frozen,opened})));
  need(bytes(result).equals(bytes(doc.result)),'fresh clear differs from result');
 });
@@ -64,7 +65,7 @@ check('T2/S',()=> {
  need(!/price_zats|quantity|plaintext_hex|recipient_hash|refund_ua/.test(JSON.stringify(api.operator)),'operator API leaks plaintext/recipient data');need(bytes(api.result).equals(bytes(doc.result)),'API result differs');
  for(const r of doc.settlement.receipts)need(JSON.stringify(Object.keys(r).sort())===JSON.stringify(['auction_id','party','txid','pool','output_index','amount_zats'].sort()),'non-settlement receipt fields');
 });
-check('R',()=>execute(path.join(root,'bin/benzo'),['verify',path.join(ev,'cli')]));
+check('R',()=>execute(path.join(root,'bin/benzo'),['verify','--dir',path.join(ev,'cli'),'--signer',doc.signer]));
 check('run',()=> {
  const r=json('run.json'),ids=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5'];need(Object.keys(r.results).length===ids.length&&ids.every(id=>r.results[id]==='PASS'),'not all contracted IDs passed');
  for(const [f,want]of Object.entries(r.sha256)){const p=existsSync(path.join(ev,f))?path.join(ev,f):path.join(root,f);need(sha(readFileSync(p))===want,`file hash ${f}`)}

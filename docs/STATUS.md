@@ -34,6 +34,8 @@ Current fresh run e0e0b9a: npm run e2e:live, tmp/e2e/phase4-cli-development-v4.l
 
 2026-10-01T16:50:00Z: development v4 T4 PASS at the wrong-amount real PCZT; honest worker allocated 13 obligations. R15–R17 source changes and adapted positional/root-route harness typecheck PASS; runtime builds deferred until current worker finishes to preserve its starting binaries. U1–U5 patch definitions prepared/apply-check passed; no red runs yet.
 
+2026-10-01T16:58:12Z: committed head R20 read/author checked; Q11 schema budget accepted, Q12 permission handling acknowledged, Q13 canonical reader/flags/stray accounting assigned to B. Harness/verifier aligned to R20 flags and root API paths. Explicit action count and per-batch height metrics added; cargo check --release --locked and typecheck PASS. Planner no longer logs clear stdout. Current v4 still signing first 13-recipient candidate; recovery result pending.
+
 Needs user: none currently. Questions Q10–Q13 below. No commands in the other checkout; no Track B file edits.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
@@ -57,11 +59,11 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 
 ## Questions
 
-- Q13: merged B currently reads legacy projections (signer/opened/summary) rather than auction.json, and positional verify/receipt arguments. A is publishing those safe projections and adapting flags/routes. B must finish R16/R18 and bind/check canonical auction.json plus stray obligations: current accounting skips all result obligations if any stray party is present. A cannot edit api/**. Please merge the follow-up before final evidence.
+- Q13 resolved/assigned to B by R20 at 48fa81f; follow-up merge pending. Original report: merged B currently reads legacy projections (signer/opened/summary) rather than auction.json, and positional verify/receipt arguments. A is publishing those safe projections and adapting flags/routes. B must finish R16/R18 and bind/check canonical auction.json plus stray obligations: current accounting skips all result obligations if any stray party is present. A cannot edit api/**. Please merge the follow-up before final evidence.
 
 - Q10 resolved by R19 / affdb97: Track B merged; R16/R18 follow-up remains on Track B. Original request: Track A public schema/router committed at ba18805 / 6f629e8. Please merge Track B at R13 READY FOR MERGE; its verifier/API modules are required for a green whole-spec baseline, U2/U3 patches, all U1–U5 red-to-green demonstrations and final evidence. Expected product invocation is verify --dir PUBLIC --signer HEX; receipt show --dir PUBLIC --ciphertext-hash HEX. After merge A adapts its spec to B’s actual help/routes, without editing B-owned files.
-- Q11: Track A has about 380 new TypeScript/verifier lines plus carry-over edits; the explicit public JSON schema adds 792 formatted lines. If schema lines count toward the ~600 code estimate, the overage is requested for the strict shared interface, not additional scope.
-- Q12 (permission record): approval review rejected a recovery command containing stale pidfile deletion. Deletion was not retried or replaced; the file remained and normal service startup updated it with the current PID. No permission bypass or hook change.
+- Q11 resolved by R20 at 48fa81f: schema is a data contract, excluded from the code budget. Original question: Track A has about 380 new TypeScript/verifier lines plus carry-over edits; the explicit public JSON schema adds 792 formatted lines. If schema lines count toward the ~600 code estimate, the overage is requested for the strict shared interface, not additional scope.
+- Q12 acknowledged by R20 at 48fa81f (permission record): approval review rejected a recovery command containing stale pidfile deletion. Deletion was not retried or replaced; the file remained and normal service startup updated it with the current PID. No permission bypass or hook change.
 
 - Q9 (routine implementation decision for head review): explicit finite PCZT expiry is now proposal target + 200 blocks via the pinned SDK API, keeping expiry/NU7 refusal and all assertions. Actual clean-run chain advanced 60 blocks during signing, beyond the SDK default 40; no pins, test timeout, assertion or line-count change. Cheapest P1 rerun red at L1 and clean evidence 742feb9 PASS, both verifiers completed; no scope change requested.
 

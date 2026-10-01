@@ -44,7 +44,7 @@ const frostClient = (args: string[]) => start(bin("frost-client"), args, { SSL_C
 
 export type Session = { signers: string[]; sighash: string; randomizer: string; signature: string; participantsSaw: string[]; coordinator_started_at:number;duration_ms:number };
 
-// One coordinator session (alice coordinates; alice and bob sign) for one sighash and one randomizer.
+// One coordinator session (the first selected member coordinates; both selected members sign) for one sighash and one randomizer.
 async function signOnce(sighash: string, randomizer: string, check: (name:string, randomizer:string, sighash:string)=>void,pair:string[],auction?:string,batch?:number,candidate?:string): Promise<Session> {
   const started=Date.now();
   for(const name of pair)check(name,randomizer,sighash);

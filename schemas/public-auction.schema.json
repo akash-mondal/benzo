@@ -697,6 +697,9 @@
         "consensus_branch_id": {
           "type": "string",
           "pattern": "^[0-9a-f]{8}$"
+        },
+        "actions": {
+          "$ref": "#/$defs/uint"
         }
       }
     },
@@ -828,5 +831,26 @@
         }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "enum": [
+              "OPENED",
+              "CLEARED",
+              "SETTLED"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "opened",
+          "beacon"
+        ]
+      }
+    }
+  ]
 }
