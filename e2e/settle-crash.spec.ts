@@ -79,7 +79,7 @@ test("settlement survives a worker crash and drand outage with one signer offlin
   try{await fetch(`${DRAND}/info`).then(r=>{if(!r.ok)throw Error(`drand HTTP ${r.status}`)});for(const e of [env("BNZ_LWD_URL"),ALT])if(Math.abs(z.tip(e)-4465026)<=40)throw Error("NU7 window")}catch(e){run.notRun(IDS,(e as Error).message)}
   z.sync("bidder");z.sync("vault");z.enhance("vault");
   if(z.balance("vault").total!==0)run.notRun(IDS,"vault not empty; reconcile before new deposits");
-  if(z.spendable(z.balance("bidder"))-4*C-50_000<3*C+40_000)run.notRun(IDS,"main drill would cross bidder floor; ask before spending");
+  if(z.spendable(z.balance("bidder"))-4*C-100_000<3*C+40_000)run.notRun(IDS,"main drill would cross bidder floor; ask before spending");
   const stop=await startFrostd();
   try {
     const now=Math.ceil(Date.now()/1000),release=now+22*60,R=1+Math.ceil((release-Number(env("BNZ_DRAND_GENESIS")))/3);
@@ -98,7 +98,7 @@ test("settlement survives a worker crash and drand outage with one signer offlin
     const server=await serveSealer(),sealed:any[]=[];
     try{await page.goto(server.url);for(let i=0;i<6;i++)sealed.push(await sealBid(page,{opening:new Date((i<4?release:release+5880)*1000).toISOString(),auction:i<4?id:cancel,price:String(i<4?[price+20,price+10,price,3010][i]:price),quantity:"1",collateral:String(C),address:addresses[i]}))}finally{server.close()}
     if(sealed.some(s=>!s.envelope))throw Error(sealed.find(s=>!s.envelope).error);
-    const mainTx=z.pay(batchUri(addresses.slice(0,4),sealed.slice(0,4).map(s=>s.envelope),addresses[6],25000));console.log(`main deposits broadcast ${mainTx}`);await mature(mainTx);
+    const mainTx=z.pay(batchUri(addresses.slice(0,4),sealed.slice(0,4).map(s=>s.envelope),addresses[6],30000));console.log(`main deposits broadcast ${mainTx}`);await mature(mainTx);
     for(let i=0;i<4;i++){const r=ac("admit",id,{txid:mainTx,address:addresses[i],envelope_hex:sealed[i].envelope});if(r.code)throw Error(r.error)}
     await waitFor({round:1+Math.ceil((now+4*60-Number(env("BNZ_DRAND_GENESIS")))/3)},(now+5*60)*1000);
     const freeze=ac("freeze",id);if(freeze.code)throw Error(freeze.error);write("settle/main/frozen.json",bytes(freeze.value));
@@ -115,9 +115,9 @@ test("settlement survives a worker crash and drand outage with one signer offlin
       expect.soft(resumed.code).toBe(0);expect.soft(main.receipts.map((r:any)=>Number(r.amount_zats)).sort((a:number,b:number)=>a-b)).toEqual([...expected].sort((a,b)=>a-b));
       const got=z.run(z.scanner,["scan","test",path.join(STATE,"bidder")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
       [refunds[0],refunds[1],refunds[2],refunds[3],refunds[6]].forEach((address,i)=>expect.soft(got.filter(n=>n.address===address).reduce((n,l)=>n+l.value_zats,0)).toBe(expected[i]));
-      for(const b of main.batches){expect.soft(b.inspect?.input_zats).toBe(4*C+25000);expect.soft(b.inspect?.output_zats).toBe(4*C);expect.soft(b.inspect?.fee_zats).toBe(25000);expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
+      for(const b of main.batches){expect.soft(b.inspect?.input_zats).toBe(4*C+30000);expect.soft(b.inspect?.output_zats).toBe(4*C);expect.soft(b.inspect?.fee_zats).toBe(30000);expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
       expect.soft(after-before).toBe(4*C);expect.soft(z.balance("vault").total).toBe(0);
-      write("settle/main/balances.json",bytes({before,after,vault:z.balance("vault").total,deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:25000,expected_output_zats:expected}));
+      write("settle/main/balances.json",bytes({before,after,vault:z.balance("vault").total,deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:30000,expected_output_zats:expected}));
     });
     await run.check("L1","real kill and resume produce one final receipt per obligation",()=> {
       expect.soft(killed.signal).toBe("SIGKILL");expect.soft(killed.allocated).toBe(5);expect.soft(allocated.rows.filter((r:any)=>r.state==="allocated").length).toBe(5);
@@ -130,11 +130,11 @@ test("settlement survives a worker crash and drand outage with one signer offlin
     await run.check("K1","each participant checked result before each FROST session",()=> {
       const sessions=main.batches.flatMap((b:any)=>b.signing?.sessions??[]);expect.soft(sessions.length).toBeGreaterThan(0);
       expect.soft(new Set(sessions.map((s:any)=>s.randomizer)).size).toBe(sessions.length);
-      for(const s of sessions){expect.soft(s.signature).toMatch(/^[0-9a-f]{128}$/);for(const name of ["alice","bob"]){const checks=main.signoffs.filter((c:any)=>c.randomizer===s.randomizer&&c.participant===name);expect.soft(checks.length).toBe(1);expect.soft(checks[0]?.pubkey).toBe(pubkey(name));expect.soft(checks[0]?.checked_at).toBeLessThanOrEqual(s.coordinator_started_at);expect.soft(checks[0]?.result_hash).toMatch(/^[0-9a-f]{64}$/);expect.soft(checks[0]?.checks.length).toBe(4)}}
+      for(const s of sessions){expect.soft(s.signature).toMatch(/^[0-9a-f]{128}$/);for(const name of ["alice","bob"]){const checks=main.signoffs.filter((c:any)=>c.randomizer===s.randomizer&&c.participant===name);expect.soft(checks.length).toBe(1);expect.soft(checks[0]?.pubkey).toBe(pubkey(name));expect.soft(checks[0]?.checked_at).toBeLessThanOrEqual(s.coordinator_started_at);expect.soft(checks[0]?.result_hash).toBe(sha(readFileSync(path.join(ROOT,"tmp/e2e/out/settle/main/result.json"))));expect.soft(checks[0]?.checks.length).toBe(4)}}
     });
     await run.check("N1","Carol remains offline while Alice and Bob complete",()=> {expect.soft(main.batches.flatMap((b:any)=>b.signing?.sessions??[]).length).toBeGreaterThan(0);for(const b of main.batches)for(const s of b.signing?.sessions??[]){expect.soft(s.signers).toEqual([pubkey("alice"),pubkey("bob")]);expect.soft(s.signers).not.toContain(pubkey("carol"));expect.soft(s.participantsSaw).toEqual([s.sighash,s.sighash])}expect.soft(main.offline_signer).toBe("carol")});
     await recovery();
-    z.sync("bidder");if(z.spendable(z.balance("bidder"))-2*C-30000<3*C+40000)throw Error("ask before cancel spend below bidder floor");
+    z.sync("bidder");if(z.spendable(z.balance("bidder"))-2*C-100000<3*C+40000)throw Error("ask before cancel spend below bidder floor");
     const cancelTx=z.pay(batchUri(addresses.slice(4,6),sealed.slice(4,6).map(s=>s.envelope),addresses[7],15000));console.log(`cancel deposits broadcast ${cancelTx}`);await mature(cancelTx);
     for(let i=4;i<6;i++){const r=ac("admit",cancel,{txid:cancelTx,address:addresses[i],envelope_hex:sealed[i].envelope});if(r.code)throw Error(r.error)}
     const cancelled=ac("cancel",cancel);if(cancelled.code)throw Error(cancelled.error);
