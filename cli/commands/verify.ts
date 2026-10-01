@@ -10,7 +10,7 @@ import type { Opened } from "../../clear/core";
 
 export const noun = "verify";
 export const verb = "";
-export const help = "benzo verify <public-auction-dir> [--offline] — reproduce clear + settlement accounting from public inputs (default re-derives openings with tle; --offline trusts published openings)";
+export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--offline] — reproduce clear + settlement accounting from public inputs (default re-derives openings with tle; --offline trusts published openings)";
 
 function tleBin(): string {
   const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
@@ -42,22 +42,26 @@ function deriveOpenings(pub: PublicAuction): Opened[] {
 }
 
 export async function run(argv: string[]): Promise<number> {
-  const offline = argv.includes("--offline");
-  const args = argv.filter(a => a !== "--offline");
-  if (args.includes("--help")) {
+  if (argv.includes("--help")) {
     process.stdout.write(help + "\n");
     return 0;
   }
-  if (args.length === 0) {
-    process.stdout.write(help + "\n");
-    return 2;
+  let dir = "", signerHex = "", offline = false;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--dir") dir = argv[++i] ?? "";
+    else if (argv[i] === "--signer") signerHex = argv[++i] ?? "";
+    else if (argv[i] === "--offline") offline = true;
+    else {
+      process.stderr.write(`ERROR verify usage: ${help}\n`);
+      return 2;
+    }
   }
-  if (args.length !== 1) {
+  if (!dir || !/^[0-9a-f]{88}$/.test(signerHex)) {
     process.stderr.write(`ERROR verify usage: ${help}\n`);
     return 2;
   }
   try {
-    const pub = loadPublicAuction(args[0]);
+    const pub = loadPublicAuction(dir, { signer: signerHex });
     if (pub.legacy) process.stderr.write("WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs\n");
     if (offline) {
       requireThat(pub.opened.length === pub.frozen.leaf_count, "--offline needs one published opening per leaf");

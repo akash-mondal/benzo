@@ -41,7 +41,8 @@ const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SE
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
 
-export function loadPublicAuction(dir: string): PublicAuction {
+// `signer`, when given, is the out-of-band trust anchor (R20): the document's own signer claim must match it.
+export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): PublicAuction {
   const root = path.resolve(dir);
   const file = (name: string): Buffer => {
     const p = path.join(root, name);
@@ -49,6 +50,11 @@ export function loadPublicAuction(dir: string): PublicAuction {
     return readFileSync(p);
   };
   const text = (name: string) => file(name).toString("utf8");
+  const anchor = (claimed: string): string => {
+    requireThat(/^[0-9a-f]{88}$/.test(claimed), "signer");
+    if (opts.signer) requireThat(claimed === opts.signer, "signer mismatch");
+    return opts.signer ?? claimed;
+  };
   const legacy = !existsSync(path.join(root, "auction.json"));
   let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string;
   let frozen: Frozen, opened: Opened[], beacon: Beacon | null;
@@ -60,7 +66,7 @@ export function loadPublicAuction(dir: string): PublicAuction {
     requireThat(Object.keys(doc).every(k => canonicalKeys.has(k)) && doc.version === 1, "auction.json schema");
     requireThat(/^[0-9a-f]{64}$/.test(String(doc.auction_id)), "auction id");
     requireThat(typeof doc.state === "string" && states.has(doc.state), "state");
-    signer = String(doc.signer);
+    signer = anchor(String(doc.signer));
     manifestPacket = doc.manifest as Signed;
     ({ manifest, manifest_hash } = client(manifestPacket, signer));
     requireThat(doc.auction_id === manifest.auction_id, "auction id binding");
@@ -77,7 +83,7 @@ export function loadPublicAuction(dir: string): PublicAuction {
     settlement = (doc.settlement ?? null) as SettlementSummary | null;
   } else {
     // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the Phase 2/3 evidence dirs.
-    signer = String(JSON.parse(text("signer.json")).signer);
+    signer = anchor(String(JSON.parse(text("signer.json")).signer));
     manifestPacket = JSON.parse(text("manifest.json")) as Signed;
     ({ manifest, manifest_hash } = client(manifestPacket, signer));
     frozen = JSON.parse(text("frozen.json")) as Frozen;
