@@ -75,7 +75,8 @@ async function worker(ledger:Ledger) {
       const metadata=inspect(staged.pczt_path!),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       if(metadata.expiry_height<=tip) {
         const m=client(auction().manifest,auction().signer).manifest;
-        const start=Math.min(...notes().filter(n=>m.deposit_addresses.includes(n.address)&&n.height>0&&n.value_zats>0).map(n=>n.height));
+        const funding=notes().filter(n=>m.deposit_addresses.includes(n.address)&&n.height>0&&n.height<=metadata.expiry_height&&n.value_zats>0);
+        const start=Math.min(...funding.map(n=>n.height));
         requireThat(Number.isSafeInteger(start)&&start>0&&start<=metadata.expiry_height,"expired batch deposit range missing");
         let endHash:string|undefined;
         // Pinned service.proto:259 GetBlockRange and compact_formats.proto:54 CompactTx.txid.
@@ -84,7 +85,10 @@ async function worker(ledger:Ledger) {
           const raw=run(bin("grpcurl"),["-import-path",path.join(STATE,"proto"),"-proto","service.proto","-d",JSON.stringify({start:{height:start},end:{height:metadata.expiry_height}}),endpoint,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlockRange"]);
           const blocks=raw.trim().split(/\n(?=\{)/).map(l=>JSON.parse(l));
           requireThat(blocks.length===metadata.expiry_height-start+1&&blocks.every((b,i)=>Number(b.height)===start+i),"incomplete expired batch block range");
-          requireThat(!blocks.flatMap(b=>b.vtx??[]).some(t=>Buffer.from(t.txid,"base64").reverse().toString("hex")===staged.txid),"expired batch is mined; reconcile before replanning");
+          const ids=blocks.flatMap(b=>b.vtx??[]).map(t=>Buffer.from(t.txid,"base64").reverse().toString("hex"));
+          requireThat(funding.every(n=>ids.includes(n.txid)),"expired batch range omits known funding transactions");
+          requireThat(!ids.includes(staged.txid!),"expired batch is mined; reconcile before replanning");
+          requireThat(typeof blocks.at(-1).hash==="string"&&Buffer.from(blocks.at(-1).hash,"base64").length===32,"expired batch end hash missing");
           requireThat(!endHash||endHash===blocks.at(-1).hash,"expired batch endpoints disagree");endHash=blocks.at(-1).hash;
         }
         ledger.expire(batch.id);console.log(JSON.stringify({auction_id:id,batch:batch.id,state:"exception",expiry_height:metadata.expiry_height,tip}));ledger.pin(plan.obligations,plan.exceptions);ledger.eligible();continue;

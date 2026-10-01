@@ -20,6 +20,8 @@ Evidence work: verifier shell/JS syntax checked, actual positive/corrupt runs pe
 
 2026-10-01T17:27:09Z: settlement CLI now returns only status/count after publishing the R16 post-R openings; avoids logging the full plaintext-bearing public document. Typecheck/scratch compilation PASS; live validation follows this unchanged v5 binary run.
 
+2026-10-01T17:39:38Z: both direct block ranges also contain the known funding tx, validating txid decoding (tmp/e2e/phase4-expiry-range-funding.log). Added funding-presence/end-hash guards; typecheck/scratch compilation PASS. Current v5 O1/P1/T4 PASS; first candidate signing remains active.
+
 Needs user: none. Head: merge B follow-up per R20; Q14 lifecycle API finding below. Gates and final evidence/regression/mutation audits remain owed.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
