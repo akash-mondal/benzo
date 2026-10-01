@@ -10,7 +10,7 @@ export type SettlementReceipt = { auction_id: string; party: string; txid: strin
 export type Beacon = { round: number; signature: string; chain_hash: string };
 export type SettlementSummary = {
   auction_id?: string;
-  rows?: { party: string; amount_zats: string }[];
+  rows?: { party: string; amount_zats: string; state?: string }[];
   receipts?: SettlementReceipt[];
 };
 export type PublicAuction = {
@@ -169,6 +169,8 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     requireThat(jsonBytes(fresh).equals(pub.resultBytes), "canonical result differs");
     projection("result.json", pub.result);
   });
+  // R20c: result obligations and stray-deposit obligations (T1) are checked in separate passes, so one
+  // class can never mask the other. Strays never gate the result checks and vice versa.
   run("accounting", () => {
     const c = pub.result.conservation;
     requireThat(
@@ -179,23 +181,50 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     for (const a of pub.result.allocations) {
       requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
     }
-    if (pub.settlement?.receipts) {
-      for (const [i, r] of pub.settlement.receipts.entries()) {
-        requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
-      }
-      const expected = obligations(pub.result);
-      const parties = pub.settlement.receipts.map(r => r.party);
-      const resultBound = parties.every(p => expected.has(p));
-      if (resultBound) {
-        for (const r of pub.settlement.receipts) {
-          requireThat(expected.get(r.party) === r.amount_zats, `settlement ${r.party} amount`);
-          expected.delete(r.party);
-        }
-        requireThat(expected.size === 0, "settlement missing obligations");
-      }
-      const rows = pub.settlement.rows ?? [];
-      for (const row of rows) {
-        requireThat(pub.settlement.receipts!.some(r => r.party === row.party && r.amount_zats === row.amount_zats), `row ${row.party} without receipt`);
+    if (!pub.settlement) return;
+    const receipts = pub.settlement.receipts ?? [];
+    const rows = pub.settlement.rows ?? [];
+    for (const [i, r] of receipts.entries()) {
+      requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
+    }
+    const expected = obligations(pub.result);
+    for (const [party, amount] of expected) {
+      const rs = receipts.filter(r => r.party === party);
+      requireThat(rs.length > 0, `settlement missing obligation ${party}`);
+      requireThat(rs.length === 1, `duplicate settlement ${party}`);
+      requireThat(rs[0].amount_zats === amount, `settlement ${party} amount`);
+    }
+    for (const row of rows) {
+      if (!expected.has(row.party)) continue;
+      requireThat(row.amount_zats === expected.get(row.party), `row ${row.party} amount`);
+      requireThat(receipts.some(r => r.party === row.party && r.amount_zats === row.amount_zats), `row ${row.party} without receipt`);
+    }
+  });
+  run("accounting-strays", () => {
+    if (!pub.settlement) return;
+    const receipts = pub.settlement.receipts ?? [];
+    const rows = pub.settlement.rows ?? [];
+    const expected = obligations(pub.result);
+    const stray = (party: string): void => {
+      requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
+    };
+    // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.
+    for (const r of receipts) {
+      if (expected.has(r.party)) continue;
+      stray(r.party);
+      const row = rows.find(x => x.party === r.party);
+      requireThat(row, `stray receipt ${r.party} without row`);
+      requireThat(row!.amount_zats === r.amount_zats, `stray ${r.party} amount`);
+    }
+    for (const row of rows) {
+      if (expected.has(row.party)) continue;
+      stray(row.party);
+      const rs = receipts.filter(r => r.party === row.party);
+      if (row.state === "exception") requireThat(rs.length === 0, `stray ${row.party} exception row with receipt`);
+      else {
+        requireThat(rs.length > 0, `stray ${row.party} not refunded or exception`);
+        requireThat(rs.length === 1, `duplicate stray ${row.party}`);
+        requireThat(rs[0].amount_zats === row.amount_zats, `stray ${row.party} amount`);
       }
     }
   });
