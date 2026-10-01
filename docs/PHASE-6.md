@@ -52,6 +52,12 @@ Ceiling 8. After Phase 5 part 2: 7 used (`markets.spec.ts`), 1 reserved for the 
 
 Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue, Track A ~250). Docs prose excluded.
 
+## 7. Research adoptions (R3 of Phase 5, 2026-10-02) — part of this phase's gates
+- **DOC headline:** README, the results page and the video's first 10 seconds use the organizer's own track words: *“the price should be public and the participants should not.”* State the honest limit plainly: all bids open (anonymised) at R; losing bids are not secret forever.
+- **DOC “Why drand timelock is safe enough here”:** threshold beacon; exact UTC for R (genesis + 3 s × (R−1)); witnessed root before R; no-decrypt C refunds if the beacon never arrives; real escrowed ZEC, not commitments (answers the Starknet STRK20 RFP's timelock objection).
+- **Evidence checklist = Logos LP-0004 criteria:** ≥ 5 complete testnet auction cycles with ≥ 3 distinct bidders each (plus the Phase 7 mainnet one), refunds not linkable to bids, restart/resume drill, refund-failure recovery, fee benchmarks (zats per bid / clear / refund), and a **narrated** demo video. One EVIDENCE table row per auction: frozen root, drand round, bidders, txids, `benzo verify` output, fees.
+- **H gate:** record the signer-binding (Phase 5 R3 item 8) and the mid-batch signer-kill drill as the evidence for threat-model #13/#15.
+
 ## 6. Rulings
 
 (none yet; contract not final)
