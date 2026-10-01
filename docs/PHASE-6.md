@@ -38,7 +38,7 @@ After Phase 5 the product is feature-complete on the CLI. This phase makes it **
 
 ## 3. Tests
 
-Ceiling 8. After Phase 5: 6 used, 1 reserved for the user's browser bid flow, 1 spare. This phase adds **none**; scale and leak audit are evidence runs, not specs.
+Ceiling 8. After Phase 5 part 2: 7 used (`markets.spec.ts`), 1 reserved for the user's browser bid flow. This phase adds **none**; scale and leak audit are evidence runs, not specs.
 
 ## 4. Traps
 
