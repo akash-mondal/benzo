@@ -145,6 +145,8 @@ Phase 4 UI/hosting excluded from this overnight session. Full owner-key / settle
 
 ## Last session
 
+- 2026-10-01T06:03:23.772325+00:00: Development v2 FAILED (harness): confirmed deposits reached freeze before T_submit, and the real auction CLI refused “freeze outside confirmation buffer”. Recovery tx 0c29f52f6b3978ce32335123339bd79253324e09996368d4f1109f2a988ecf40 mined in the wallet; no gate evidence. Added required drand-round polling to T_submit; no gate assertion weakened. Next full run v3. Evidence verifier drafted, not yet validated.
+
 - 2026-10-01T05:58:04.235603+00:00: First development at 28585e0 failed before funding on devtool transparent-address reservation index 40 (tmp/e2e/phase3-development.log and report.json). Harness cause: all-receiver address requests. Pinned CLI has no receiver option; same pinned SDK exposes UnifiedAddressRequest::ORCHARD. Added shielded-only address generation to our SDK driver, without patching/upgrading upstream. Build/typecheck and actual bidder address generation pass; retry running at d34c78b in tmp/e2e/phase3-development-v2.log. Main funding tx 3b7966ac4b3d58aa1c54ebde7a00151ffce9e019873c72039aedf953a99d3472 broadcast; waiting for ten real confirmations before admission/settlement.
 
 - 2026-10-01T05:55:00.310286+00:00: Added the single Phase 3 spec and live selection; build/typecheck PASS. Default regression PASS (`tmp/e2e/phase3-resume-regression.log`). Next is fresh real development run, output `tmp/e2e/phase3-development.log`, spec deadline 80 minutes; each worker has a 30-minute deadline. No evidence claim before its six IDs pass.

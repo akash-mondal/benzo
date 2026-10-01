@@ -100,6 +100,7 @@ test("settlement survives a worker crash and drand outage with one signer offlin
     if(sealed.some(s=>!s.envelope))throw Error(sealed.find(s=>!s.envelope).error);
     const mainTx=z.pay(batchUri(addresses.slice(0,4),sealed.slice(0,4).map(s=>s.envelope),addresses[6],25000));console.log(`main deposits broadcast ${mainTx}`);await mature(mainTx);
     for(let i=0;i<4;i++){const r=ac("admit",id,{txid:mainTx,address:addresses[i],envelope_hex:sealed[i].envelope});if(r.code)throw Error(r.error)}
+    await waitFor({round:1+Math.ceil((now+4*60-Number(env("BNZ_DRAND_GENESIS")))/3)},(now+5*60)*1000);
     const freeze=ac("freeze",id);if(freeze.code)throw Error(freeze.error);write("settle/main/frozen.json",bytes(freeze.value));
     await waitFor({round:R},(release+60)*1000);
     for(const op of ["open","clear"]){const r=ac(op,id);if(r.code)throw Error(r.error);if(op==="clear")write("settle/main/result.json",bytes(r.value))}
