@@ -2,10 +2,10 @@
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): IN PROGRESS
 
-Updated: 2026-10-01T01:04:12.042286+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
+Updated: 2026-10-01T01:50:54.101720+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
 
 - **Phase 1:** PASSED, R5–R10 at 04926a7. Closed; decisions stand: binary_memo, frost_2of3, tlock-js@0.9.0. Evidence remains under `docs/evidence/phase-1/` at run 512296f / artifact commit 1a94638.
-- **Current:** Running N4 on auction-core only, with fresh real deposits and an 80-minute monitor / 75-minute spec deadline. Output tmp/e2e/N4-v2.log. Wallet/frostd use is serialized.
+- **Current:** N4 turned the full auction-core spec red at G2; mined refund completed, patch reversed, source unchanged. docs/evidence/phase-2/mutations/N4.patch and docs/evidence/phase-2/mutations/N4.out; full output tmp/e2e/N4-v2.log.
 - **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`.
 - **Funds (last verified before current drill):** Recovery tx `db1b7fce58fe0bc1a9585ba39fff4284e65d7865d111f92b870408e50a9d316b` mined at 4424057 on both endpoints. Bidder 99,780,000 zats; vault 0; exact 2,500,000 returned, reserve fee 30,000. `tmp/e2e/recovery.json`, `recovery-proof.json`, `recovery.log` are development output only. Floor remains 1,540,000 zats; only one live wallet/frostd worker is active.
 - **Needs user:** none.
@@ -126,6 +126,7 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 
 ## Last session
 
+- 2026-10-01T01:50:54.101720+00:00: N4 turned the full auction-core spec red at G2; mined refund completed, patch reversed, source unchanged. docs/evidence/phase-2/mutations/N4.patch and docs/evidence/phase-2/mutations/N4.out; full output tmp/e2e/N4-v2.log.
 - 2026-10-01T01:04:12.042286+00:00: Running N4 on auction-core only, with fresh real deposits and an 80-minute monitor / 75-minute spec deadline. Output tmp/e2e/N4-v2.log. Wallet/frostd use is serialized.
 - 2026-10-01T01:04:11.857919+00:00: N3 turned the full auction-core spec red at F2; mined refund completed, patch reversed, source unchanged. docs/evidence/phase-2/mutations/N3.patch and docs/evidence/phase-2/mutations/N3.out; full output tmp/e2e/N3-v2.log.
 - 2026-10-01T00:16:51.334768+00:00: Running N3 on auction-core only, with fresh real deposits and an 80-minute monitor / 75-minute spec deadline. Output tmp/e2e/N3-v2.log. Wallet/frostd use is serialized.
