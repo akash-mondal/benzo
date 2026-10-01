@@ -1,21 +1,30 @@
 # Status: build agent handoff
 
+## Phase 3 ([PHASE-3.md](PHASE-3.md)): IN PROGRESS
+
+Contract d0fbe61 / R1. Started only after Phase 2 READY FOR REVIEW at 28ddd09: live run b834747, artifacts aa4676b, positive verifier 0 and corrupted-copy exit 1 with ERROR E/F. Read Phase 3 in full and DESIGN §6/§14. `npm run e2e` regression PASS before new work (`tmp/e2e/phase3-baseline.log`).
+
+Gates J/K/L/M/N: IN PROGRESS. First step: pinned-SDK multi-output PCZT creation and an inspector for signer recipient/amount/fee checks. Existing devtool `pczt create --help` accepts one address/value; its pinned `src/commands/pczt/create.rs` uses a single Payment vector. A small SDK driver will extend that vector without changing the upstream tool or its pins. No Phase 3 broadcasts or new spec yet.
+
+
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): READY FOR REVIEW
 
-Updated: 2026-10-01T04:11:26.083256+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
+Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
 
 - **Phase 1:** PASSED, R5–R10 at 04926a7. Closed; decisions stand: binary_memo, frost_2of3, tlock-js@0.9.0. Evidence remains under `docs/evidence/phase-1/` at run 512296f / artifact commit 1a94638.
-- **Current:** Phase 2 finish line met: all 12 IDs PASS, N1–N7 red, positive verifier 0 and corrupted copy rejected. Phase 3 implementation is next; no Phase 3 code started.
+- **Current:** Phase 2 remains READY FOR REVIEW, not PASSED. Phase 3 baseline regression passed; implementing J/K first. No UI or mainnet work.
 - **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`.
 - **Funds (last verified before current drill):** Recovery tx `db1b7fce58fe0bc1a9585ba39fff4284e65d7865d111f92b870408e50a9d316b` mined at 4424057 on both endpoints. Bidder 99,780,000 zats; vault 0; exact 2,500,000 returned, reserve fee 30,000. `tmp/e2e/recovery.json`, `recovery-proof.json`, `recovery.log` are development output only. Floor remains 1,540,000 zats; only one live wallet/frostd worker is active.
 - **Needs user:** none.
 
 ## Questions
 
+- User instruction (2026-10-01T04:35:38.725868+00:00), verbatim: “but I hadn’t arranged for this agent to resume automatically for Phase 3 . make sure you never repeat this msitake when waiting next time”
+- Session discipline: stay active during waits unless a confirmed mechanism resumes this agent, including its dependent phase work; background-command completion alone does not do that.
 - Q1 resolved by R2 at cc2ced0: exact-C cancellation refund, separate fixed fee-reserve note, one live drill authorized.
 - Q2 resolved by R3 at cc2ced0: auction-core project only, serialized live wallet/frostd access; both Phase 1 specs retained unchanged.
 - Q3 resolved by R4 at cc2ced0: full five-note drill; floor remains 3C + 40,000 zats.
-- Q4 withdrawn: literal N3 is feasible as a mutation that waits for the real release round, opens with pinned Go tle and hashes the actual plaintext into the root. This deliberately breaks sealed freeze; independent F2 must reject its plaintext root. No alternate mutation, supplied plaintext or test-only seam is needed. Patch exists; live red run pending.
+- Q4 withdrawn: literal N3 is feasible as a mutation that waits for the real release round, opens with pinned Go tle and hashes the actual plaintext into the root. This deliberately breaks sealed freeze; independent F2 must reject its plaintext root. No alternate mutation, supplied plaintext or test-only seam is needed. N3 live red at F2 is recorded in mutations/N3.out.
 - User instruction (2026-09-30 20:18 UTC), verbatim:
 
 > Overnight head-agent orders for Benzo. You are the build agent. Unattended session.
@@ -132,6 +141,7 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 
 ## Last session
 
+- 2026-10-01T05:02:58.031222+00:00: Read Phase 3 and its committed R1 after Phase 2 READY; baseline regression PASS. Pinned tool help/source shows single-recipient PCZT create; next is the minimal multi-recipient SDK driver and strict inspection, then the worker and signer checks. NU7 height now 4,465,026 (ZIP-259); primary/alternate tips 4,425,675/676 at 04:12 UTC, safely outside the 40-block window. Raw observations `tmp/phase2/nu7-tip-{primary,alternate}.json`. Waiting instruction recorded verbatim; this turn stays active.
 - 2026-10-01T04:58:36.867192+00:00: Phase 2 READY FOR REVIEW. Run b834747bd297ba9708f2eec89789be0512f8f9cc; artifacts aa4676b2e0fddee20e63d2bb00fb9b724555b234; all gates, mutations and verification complete. Owned frostd stopped. Next concrete step: read Phase 3 Rulings and DESIGN §6/§14, then implement settlement J/K before crash/cancel/offline drills. Do not start UI.
 - 2026-10-01T04:11:26.083256+00:00: All seven live mutation runs completed and patches reversed. Next: one clean Phase 2 evidence run, positive verification and corrupted-copy rejection.
 - 2026-10-01T04:11:25.885212+00:00: N7 turned the full auction-core spec red at I1; mined refund completed, patch reversed, source unchanged. docs/evidence/phase-2/mutations/N7.patch and docs/evidence/phase-2/mutations/N7.out; full output tmp/e2e/N7-v2.log.
