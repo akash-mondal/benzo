@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { requireThat } from "../../manifest/schema";
-import { checkPublicAuction, loadPublicAuction, type PublicAuction } from "../../api/public-auction";
+import { checkPublicAuction, loadCompletePublicAuction, type CompletePublicAuction } from "../../api/public-auction";
 import type { Opened } from "../../clear/core";
 
 export const noun = "verify";
@@ -21,7 +21,7 @@ function tleBin(): string {
 }
 
 // Re-derive every opening with the pinned Go tle against drand quicknet (the published beacon binds the chain).
-function deriveOpenings(pub: PublicAuction): Opened[] {
+function deriveOpenings(pub: CompletePublicAuction): Opened[] {
   const tle = tleBin();
   const chain = pub.beacon ? pub.beacon.chain_hash : pub.manifest.drand.chain_hash;
   return pub.frozen.leaves.map(leaf => {
@@ -61,7 +61,8 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    const pub = loadPublicAuction(dir, { signer: signerHex });
+    // verify keeps requiring frozen and result (R21 item 5); the read API is the lifecycle-safe reader.
+    const pub = loadCompletePublicAuction(dir, { signer: signerHex });
     if (pub.legacy) process.stderr.write("WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs\n");
     if (offline) {
       requireThat(pub.opened.length === pub.frozen.leaf_count, "--offline needs one published opening per leaf");
