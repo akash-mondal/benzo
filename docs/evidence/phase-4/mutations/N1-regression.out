@@ -1,0 +1,14 @@
+commit 3174c605d1ffb91158f11eb0ceac06736b839f1e
+UTC 2026-10-01T18:56:22Z
+command BNZ_LIVE=1 node node_modules/.bin/playwright test --project=auction-core
+ERROR E1 Error: expect(received).not.toBe(expected) // Object.is equality | Expected: not 0
+deposit 1/6 broadcast 92f25ec4129e0e242319ff9fef39fa7a3a9f1b03a9a1bf8651b07d93fb0fd3a1
+deposit 2/6 broadcast 19e008ee51ab41340a29b4505c5f1ef39eca9c541acd5ebc238c69da9dfb8411
+deposit 3/6 broadcast b25a2d3e914c6d950b806e27af8a42aadbf5b0556c6c305e79464d1363889ae9
+deposit 4/6 broadcast 73cc907e53f8627067ee5f8c8d8e73a77f9582867c2218554ff3424b3589d056
+deposit 5/6 broadcast 743fd37359cc99609c3b81a7a43e39ddf4b730661d5afd8c0299be46235e0d9c
+deposit 6/6 broadcast ad159202c16009308b0a694a1f3d64c88a553b43a6681dddabccb45800f33943
+ERROR I1 Error: I1 threw | Expected: "" | Received: "zcash-devtool wallet -w /Users/akshmnd/Dev Projects/benzo/.benzo/bidder generate-address exited 1: Error: The proposal cannot be constructed until a transaction with outputs to a previously reserved external transparent address has been mined. The address at index 40 could not be safely reserved."
+run.json -> tmp/e2e/out
+FAILED auction-core signed sealed auction on testnet (2725 s)
+run failed; details in tmp/e2e/report.json

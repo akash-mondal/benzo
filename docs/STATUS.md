@@ -2,9 +2,9 @@
 
 ## Phase 4 ([PHASE-4.md](PHASE-4.md)): Track A IN PROGRESS
 
-Updated: 2026-10-01T18:18:01Z. Builder A on main. AGENTS.md and Phase 1–4 read; Phase 1–3 PASSED by committed head rulings. Phase 4 R1–R20 author-checked, latest 48fa81f. Never touched the other checkout or Track B-owned files. Baseline `npm run e2e` PASS (41s), `tmp/e2e/phase4-baseline.log`.
+Updated: 2026-10-01T19:04:15Z. Builder A on main. AGENTS.md and Phase 1–4 read; Phase 1–3 PASSED by committed head rulings. Phase 4 R1–R22 author-checked, latest fe2af18. Never touched the other checkout or Track B-owned files. Baseline `npm run e2e` PASS (41s), `tmp/e2e/phase4-baseline.log`.
 
-Plan: shared schema first (ba18805, done); shipped CLI router/A commands (6f629e8, implemented); T1–T5/R6–R9 carry-overs; one cli-auction spec/U1–U5; after B follow-up merge, clean evidence + positive/corrupt verifier + all five specs at one commit. O/P/Q/T IN PROGRESS (development all IDs PASS except P2/R1 blocked on B flags). R/S owned by B, initial merge affdb97; R16/R18/R20 follow-up pending. No gate evidence or READY claim yet.
+Plan: shared schema first (ba18805, done); shipped CLI router/A commands (6f629e8, implemented); T1–T5/R6–R9 carry-overs; one cli-auction spec/U1–U5; B R16/R18/R20 follow-up merged (33fe7e4, R21). Remaining: P1 regression, U1–U5 red runs, clean evidence run, positive/corrupt verify, all five specs at one commit, then READY FOR REVIEW. O/P/Q/T development all IDs PASS except P2/R1 (usage exit 2 against pre-merge B; merged B now takes R20 flags). R/S covered by B merge c402f9e. No gate evidence or READY claim yet.
 
 Implemented: public schema/canonical projections; CLI lifecycle/bid sealing/payment/receipt plumbing; existing clear/settle entry points; private pinned routes; fresh signer amounts and inspected join approvals; runtime pair; stray received-value obligations; exception/re-plan; actual-expiry NU7 guard; post-R openings/beacon (R16); numeric router exits (R17); API compile/typecheck config (R15). Browser seal smoke passed, no payment, tmp/e2e/phase4-cli-smoke.log. Source checks: CLI/core/settle builds, typecheck/cargo check PASS. A wrappers now lazy-load operator code so public reads/help do not initialize A's .env loader; scratch compilation/typecheck PASS, live validation pending.
 
@@ -30,7 +30,11 @@ N1 regression mutation ACTIVE at clean base3174c60: BNZ_LIVE=1 node node_modules
 
 2026-10-01T18:40:49Z: removed unused allowMissing/NotFound-to-zero branch from chainTx; all lookup failures surface. Expired recovery already uses direct complete-range proof. Typecheck PASS. N1 H1/H2/H3 PASS; E1 expected red, later freeze/open/refund stages pending.
 
-Needs user: none. Head: merge B follow-up per R20; Q14 lifecycle API finding below. Gates and final evidence/regression/mutation audits remain owed.
+2026-10-01T19:04:15Z: N1 regression complete at base 3174c60 (`BNZ_LIVE=1 node node_modules/.bin/playwright test --project=auction-core`, wrapper reversed the patch after): ERROR E1 as intended, red observed. Collateral ERROR I1 from the pinned devtool `generate-address` transparent gap limit ("address at index 40 could not be safely reserved") — known harness failure, fixed by head 4dfd011 (shielded-only `generateAddress`) and ruled in R22. Run 2725s, FAILED auction-core as expected under the mutation. `docs/evidence/phase-4/mutations/N1-regression.{patch,out}`; artifacts `tmp/e2e/phase4-N1-regression-artifacts`. Per R22 item 2 no N1 rerun: R8 regression evidence does not need a clean single-cause red.
+
+2026-10-01T19:04:15Z: R22 item 1 audited every address call site: the product path generates no addresses at all (escrow/deposit/refund/seller/fee-reserve arrive from operator/manifest inputs); the sole generator is `settle/src/main.rs:44` `get_next_available_address(..., UnifiedAddressRequest::ORCHARD)` (shielded-only); `e2e/lib/zcash.ts generateAddress` is shielded-only after 4dfd011; devtool `generate-address` remains only in a comment. No transparent-address payment performed (R22 prohibition). Regenerated `U3.patch` for the R20c split accounting (returns before both settlement passes; the spec's `rows[0]` stray-amount corruption is caught today only by `accounting-strays`); apply-check PASS. Added `P1-regression.patch` (copy of Phase 3 cheapest P1 on settle/ledger.ts); apply-check PASS. Next: P1 regression live run on settle-crash, then U1–U5 red runs.
+
+Needs user: none. Head: R21/R22 recorded; B owes lifecycle-safe API (Q14) before Phase 5. Gates and final evidence/regression/mutation audits remain owed.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
 
