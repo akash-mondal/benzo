@@ -147,6 +147,8 @@ All frontend implementation, styling and hosting UI are user-owned per Phase 3 R
 
 ## Last session
 
+- 2026-10-01T10:43:06Z: P3 active from clean da560d55a48ea8ac1b347c9aed2bdc8796c66313 + literal cancel opening-attempt patch. Main funding cfb6cdb176cc51d832cdb0baa4c3f3fbe4b2d4191a28607be8cefe13de6ca7f8 confirmed/frozen; release 2026-10-01T10:52:45+00:00. Log tmp/e2e/phase3-P3.log; 80-minute spec deadline from 10:30:30 UTC. Stay active through main settlement, expected M1 rejection and real cleanup; then restore plan.ts and run clean final evidence.
+
 - 2026-10-01T10:30:11Z: P2 finished (1706s), ERROR J1; J2/K1/L1/M1/N1 PASS. Saved docs/evidence/phase-3/mutations/P2.out from tmp/e2e/phase3-P2.log, labeled “intentional incorrect-amount sample at the signer amount checker; expected J1 fail; cleanup/recovery only.” Guard restored with git apply -R; artifacts preserved tmp/e2e/phase3-P2-artifacts/. R7 accepts Q8, R8 accepts this real regression. Next concrete step: P3 cancel opening-attempt mutation, then one clean Phase 3 evidence run and both verifier checks.
 
 - 2026-10-01T09:36:16Z: P2 active from clean 5bcb5ec6fd6a7ac0db64dfc7174ed671912ea4c3 + literal omitted amount guard; start 09:24:38 UTC, 80-minute spec deadline. Funding 17f1dfbdaf0dd90d55715255601b7bad3467d0a1884e4e02590218798e43718f confirmed/frozen, release 09:46:48 UTC. Output tmp/e2e/phase3-P2.log. No mutation result yet; keep run active through real settlement/cancel and cleanup, then reverse patch and record J1 at the faulted real PCZT.
