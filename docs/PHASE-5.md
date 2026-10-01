@@ -121,3 +121,36 @@ Same rules as Phases 1–4: `run.json` (command, commit, window, one result per 
 ## 10. Rulings
 
 - R1 2026-10-02: **Scope locked (user: "i just want a contained great product").** Benzo is one product: the operator-blind sealed-bid auction house (Mode A auctions + Mode B buybacks). NEAR Intents funding is removed from this phase and from the roadmap; no RFQ, call market, prediction market, launchpad or cross-chain execution. Time saved goes to Phase 6 quality (P0 closure, scale, leak audit, packaging, docs) and the demo.
+- R2 2026-10-02: **Scope widened inside one engine (supersedes R1's "no RFQ, call market, launchpad").** User, verbatim: “cant we support more private markets in our core we build including this” and “ok lets add this”. Benzo stays **one product**: the operator-blind market engine on Zcash. New market types are **clearing modes** on the shared pipeline plus **core features**, specified in §11 below. Still out: NEAR Intents, any cross-chain execution or token delivery by Benzo, prediction markets, anything needing an outside oracle. Part 1 (gates V–Z, current Track B work) is unchanged and lands first. Target moves to **2026-10-12** for part 1 and **2026-10-14** for part 2 (Phase 4 is finishing ~2 weeks early).
+
+## 11. Part 2: the blind market engine (added by R2)
+
+Every market shares one pipeline: identical C deposit with a sealed order in the memo → freeze (witness-certified) before R → open at R → **public deterministic clearing function selected by `mode`** → settlement through the ledger and 2-of-3 vault → private receipts → `benzo verify`. A new market is a clearing function plus manifest fields, never a new pipeline.
+
+### Gates
+
+| Gate | Question |
+|---|---|
+| EN | **Mode registry.** Does `clear/` dispatch on the signed manifest's `mode`, with a versioned 128-byte plaintext layout per mode, and do `benzo verify`, the API and signers' recomputation all go through the same registry (one code path per mode, no per-mode copies of verify)? |
+| CF | **Core features, usable by every mode where meaningful:** (1) **bond-then-pay** — C is a bond (e.g. 10% of cap); winners pay the balance in a window after clearing; a defaulter forfeits the bond to the seller net of fees and the lot stays unfilled (no re-clear by default); (2) **sealed reserve/floor** — tlock-encrypted to R in the manifest, opened with the bids; (3) **bid revision** — a later order signed by the same one-time owner key supersedes earlier ones; only the latest admitted before `T_submit` counts; superseded orders are refunded exactly once; (4) **multi-lot rounds** — many distinct lots cleared in one round, one deposit per (bidder, lot); (5) **recurring rounds** — a schedule of rounds, each its own manifest hash, R, freeze and vault. |
+| MK | **Modes** (auction and buyback exist): **collection drop** (multi-lot auction preset), **launch** (uniform-price sale; private allocation receipts; a published allocation file — fresh destination, amount in **standard lot sizes**, one delivery batch for all winners, file hash in the public dir; delivery on the token's own chain is the project's job and is stated as such), **RFQ desk** (allowlisted dealer quote keys in the manifest; best quote meeting the reserve wins; non-allowlisted quotes refunded exact C), **call market** (two-sided uniform-price uncrossing per round; sellers' asks bound to a marketplace-adapter serial checked before freeze; recurring), **blind OTC deal** (two parties seal a max and a min; trade at the midpoint if max ≥ min; otherwise both refunded). Each: pure clearing in `clear/`, manifest fields, verify + API support, one live testnet run. |
+
+### Decisions
+
+| Decision | Default |
+|---|---|
+| Bond size | Manifest field `bond_bps` of the cap; balance window in blocks; defaults 1,000 bps and 288 blocks |
+| Revision privacy | After R, superseded orders open too (anonymized, linked by owner key). Disclosed in README limits |
+| Launch delivery | Allocation file + hash only; no chain-specific code |
+| OTC disclosure | Both limits open at R (tlock opens everything). Disclosed; no claim of "match bit only" |
+| Seller collateral (call market) | Sellers post the same C, so side is invisible before R |
+
+### Work split
+- **Track B (offline), after its part-1 items merge:** EN registry + per-mode plaintext layouts; pure clearing for drop, launch (incl. standard-lot split + allocation file), RFQ, call market, OTC; CF pure logic (bond/balance accounting, sealed reserve open, revision supersede rules, multi-lot, round linkage); verify + API for all modes. Files: `clear/` new mode files + registry, `envelope/`, `witness/`, `adapters/`, Track B CLI commands, `api/`.
+- **Track A (live), after part 1 PASSED:** manifest/schema fields, `benzo auction create --mode …`, balance-payment intake and default handling in settle, round scheduler (`benzo market run --rounds N`), live runs of every mode, the spec, evidence.
+
+### Test: one more (the spare slot)
+Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live, Track A); the 8th stays reserved for the user's browser bid flow. One run covers: a collection drop with a sealed reserve and bond-then-pay (one winner pays the balance, one defaults); an RFQ with one non-allowlisted quote; two call-market rounds; one OTC match and one no-match; one launch with its allocation file; one bid revision. Assertions per mode: CLI result equals the registry's pure clear; conservation; `benzo verify` on a cold copy. Mutations: **5M6** registry dispatches the wrong mode for one lot; **5M7** defaulter's bond refunded instead of forfeited; **5M8** superseded order counted; **5M9** RFQ ignores the allowlist; **5M10** call market clears at the highest bid instead of the uncrossing price.
+
+### Budget
++1,200 hand-written lines for part 2 (Track B ~750, Track A ~450). Schema and docs excluded.
