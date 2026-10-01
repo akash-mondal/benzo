@@ -7,6 +7,7 @@ import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle
 import { clear, type Opened } from "../clear/core";
 
 export type SettlementReceipt = { auction_id: string; party: string; txid: string; pool: string; output_index: number; amount_zats: string };
+export type Beacon = { round: number; signature: string; chain_hash: string };
 export type SettlementSummary = {
   auction_id?: string;
   rows?: { party: string; amount_zats: string }[];
@@ -20,6 +21,7 @@ export type PublicAuction = {
   manifest_hash: string;
   frozen: Frozen;
   opened: Opened[];
+  beacon: Beacon | null;
   result: {
     auction_id: string; manifest_hash: string; freeze_root: string; mode: string;
     clearing_price_zats: string;
@@ -44,7 +46,13 @@ export function loadPublicAuction(dir: string): PublicAuction {
   const manifestPacket = JSON.parse(text("manifest.json")) as Signed;
   const { manifest, manifest_hash } = client(manifestPacket, signer);
   const frozen = JSON.parse(text("frozen.json")) as Frozen;
-  const opened = JSON.parse(text("opened.json")) as Opened[];
+  const opened = existsSync(path.join(root, "opened.json"))
+    ? (JSON.parse(text("opened.json")) as Opened[])
+    : [];
+  const beacon = readBeacon(
+    existsSync(path.join(root, "beacon.json")) ? JSON.parse(text("beacon.json")) : null,
+    manifest,
+  );
   const resultBytes = file("result.json");
   const result = JSON.parse(resultBytes.toString("utf8")) as PublicAuction["result"];
   const receipts = existsSync(path.join(root, "receipts.json"))
@@ -53,7 +61,19 @@ export function loadPublicAuction(dir: string): PublicAuction {
   const settlement = existsSync(path.join(root, "summary.json"))
     ? (JSON.parse(text("summary.json")) as SettlementSummary)
     : null;
-  return { dir: root, signer, manifestPacket, manifest, manifest_hash, frozen, opened, result, resultBytes, receipts, settlement };
+  return { dir: root, signer, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, settlement };
+}
+
+// The published drand beacon (R16) is a public input; bind it to the signed manifest before any use.
+function readBeacon(raw: unknown, manifest: Manifest): Beacon | null {
+  if (raw === null || raw === undefined) return null;
+  const b = raw as Beacon;
+  requireThat(
+    b && typeof b.round === "number" && /^[0-9a-f]{96}$/.test(String(b.signature)) && /^[0-9a-f]{64}$/.test(String(b.chain_hash)),
+    "beacon",
+  );
+  requireThat(b.round === manifest.drand.R && b.chain_hash === manifest.drand.chain_hash, "beacon binding");
+  return b;
 }
 
 const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");

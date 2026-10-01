@@ -1,6 +1,7 @@
 // Read-only JSON API over a public auction directory. Bind 127.0.0.1 by default; never returns bid plaintext.
 import http from "node:http";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { freezeBoard, loadPublicAuction, operatorView, receiptShow, resultHash } from "./public-auction";
 
 export type ServerOptions = { dir: string; host?: string; port?: number };
@@ -60,12 +61,14 @@ export function startServer(options: ServerOptions): http.Server {
   return server;
 }
 
-const argv = process.argv.slice(2);
-if (argv.length) {
+// Standalone entry: `node api/dist/server.mjs --dir <public-auction-dir> [--host 127.0.0.1] [--port 8787]`.
+// Guarded so importing startServer (cli/commands/api.ts) never parses the CLI's own argv.
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  const argv = process.argv.slice(2);
   let dir = "", host = "127.0.0.1", port = 8787;
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i] === "--dir") dir = path.resolve(argv[++i]);
-    else if (argv[i] === "--host") host = argv[++i];
+    if (argv[i] === "--dir") dir = path.resolve(argv[++i] ?? "");
+    else if (argv[i] === "--host") host = argv[++i] ?? "";
     else if (argv[i] === "--port") port = Number(argv[++i]);
     else if (argv[i] === "--help") {
       process.stdout.write("api server --dir <public-auction-dir> [--host 127.0.0.1] [--port 8787]\n");
@@ -79,6 +82,16 @@ if (argv.length) {
     process.stderr.write("ERROR api usage: --dir required\n");
     process.exit(2);
   }
+  try {
+    loadPublicAuction(dir);
+  } catch (e) {
+    process.stderr.write(`ERROR api ${(e as Error).message}\n`);
+    process.exit(1);
+  }
   const server = startServer({ dir, host, port });
   server.on("listening", () => process.stdout.write(`api listening http://${host}:${port} dir=${dir}\n`));
+  server.on("error", (e) => {
+    process.stderr.write(`ERROR api ${e.message}\n`);
+    process.exit(1);
+  });
 }
