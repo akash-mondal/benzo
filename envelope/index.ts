@@ -4,6 +4,7 @@
 // The owner signature and the salted settlement commitment bind the envelope to the tlock-sealed bid.
 import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, sign, verify } from "node:crypto";
 import { requireThat } from "../manifest/schema";
+import { requireShieldedDestination } from "./destination";
 
 export type OwnerKey = { public_hex: string; private_hex: string };
 export type EnvelopeKey = { public_hex: string; private_hex: string };
@@ -33,24 +34,46 @@ export function generateEnvelopeKey(): EnvelopeKey {
 function derive(shared: Buffer, eph: string, recipient: string): Buffer {
   return createHash("sha256").update("benzo-envelope-v1").update(shared).update(raw(eph, 32)).update(raw(recipient, 32)).digest();
 }
+// Fixed 512-byte plaintext (R4 item 3): u16be payload length || payload || zero pad, so every envelope ciphertext
+// has the same length and reveals nothing about the receiver type. openEnvelope strips and checks the padding.
+export const ENVELOPE_PT_BYTES = 512;
+function padPlaintext(plaintext: string): Buffer {
+  requireThat(typeof plaintext === "string" && plaintext.length > 0, "envelope plaintext");
+  const payload = Buffer.from(plaintext, "utf8");
+  requireThat(payload.length <= ENVELOPE_PT_BYTES - 2, "envelope plaintext too long");
+  const pt = Buffer.alloc(ENVELOPE_PT_BYTES);
+  pt.writeUInt16BE(payload.length, 0);
+  payload.copy(pt, 2);
+  return pt;
+}
+function unpadPlaintext(pt: Buffer): string {
+  requireThat(pt.length === ENVELOPE_PT_BYTES, "envelope plaintext length");
+  const n = pt.readUInt16BE(0);
+  requireThat(n > 0 && n <= ENVELOPE_PT_BYTES - 2 && pt.subarray(2 + n).equals(Buffer.alloc(ENVELOPE_PT_BYTES - 2 - n)), "envelope padding");
+  return pt.subarray(2, 2 + n).toString("utf8");
+}
 export function sealEnvelope(plaintext: string, recipientPublicHex: string): string {
-  requireThat(typeof plaintext === "string" && plaintext.length > 0 && plaintext.length <= 512, "envelope plaintext");
+  requireShieldedDestination(plaintext);
   const eph = generateKeyPairSync("x25519"), ephPub = hex(eph.publicKey.export({ type: "spki", format: "der" }).subarray(12));
   const shared = diffieHellman({ privateKey: eph.privateKey, publicKey: xPublic(recipientPublicHex) });
   const nonce = createHash("sha256").update(shared).update(ephPub).digest().subarray(0, 12);
   const cipher = createCipheriv("chacha20-poly1305", derive(shared, ephPub, recipientPublicHex), nonce, { authTagLength: 16 });
-  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final(), cipher.getAuthTag()]);
+  const ct = Buffer.concat([cipher.update(padPlaintext(plaintext)), cipher.final(), cipher.getAuthTag()]);
   return hex(Buffer.concat([raw(ephPub, 32), nonce, ct]));
 }
 export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string): string {
   const body = raw(envelopeCtHex, 0);
-  requireThat(body.length > 32 + 12 + 16, "envelope length");
+  requireThat(body.length === 32 + 12 + ENVELOPE_PT_BYTES + 16, "envelope length");
   const ephPub = body.subarray(0, 32).toString("hex"), nonce = body.subarray(32, 44);
   const shared = diffieHellman({ privateKey: xPrivate(recipientPrivateHex), publicKey: xPublic(ephPub) });
   const recipientPub = hex(createPublicKey(xPrivate(recipientPrivateHex)).export({ type: "spki", format: "der" }).subarray(12));
   const decipher = createDecipheriv("chacha20-poly1305", derive(shared, ephPub, recipientPub), nonce, { authTagLength: 16 });
   decipher.setAuthTag(body.subarray(body.length - 16));
-  return Buffer.concat([decipher.update(body.subarray(44, body.length - 16)), decipher.final()]).toString("utf8");
+  const pt = Buffer.concat([decipher.update(body.subarray(44, body.length - 16)), decipher.final()]);
+  // Signer side: a destination that is not shielded is refused here too, so a tampered sealer cannot smuggle one in.
+  const destination = unpadPlaintext(pt);
+  requireShieldedDestination(destination);
+  return destination;
 }
 
 // Owner binding over (auction_id, ciphertext_hash, envelope_ct) and the salted public commitment (threat #7/#32).
