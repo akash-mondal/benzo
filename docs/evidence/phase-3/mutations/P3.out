@@ -1,0 +1,14 @@
+Base commit: da560d55a48ea8ac1b347c9aed2bdc8796c66313
+Start UTC: 2026-10-01T10:30:30Z
+Recorded UTC: 2026-10-01T11:08:56Z
+Observed: one real Go tle opening attempt on cancel against closed drand endpoint; no plaintext opening claimed. M1 FAIL; J1/J2/K1/L1/N1 PASS. Refund delta before cleanup: 0 / 1,000,000 zats.
+Cleanup only: recovery 489235ddb527a2700569c1dadb53fce205a3adc01080ffcd5cb11401ccfb8ca1 mined before process exit.
+npm notice run e2e:live
+npm notice run BNZ_LIVE=1 playwright test --project=settle-crash
+main deposits broadcast cfb6cdb176cc51d832cdb0baa4c3f3fbe4b2d4191a28607be8cefe13de6ca7f8
+cancel deposits broadcast 67fd60b85b8b3daa41f9dd6644a134bb8dfee5ead518be1456f6805f3d10ef1d
+ERROR M1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+development-only fund recovery 489235ddb527a2700569c1dadb53fce205a3adc01080ffcd5cb11401ccfb8ca1
+run.json -> tmp/e2e/out
+FAILED settle-crash settlement survives a worker crash and drand outage with one signer offline (2279 s)
+run failed; details in tmp/e2e/report.json

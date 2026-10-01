@@ -147,6 +147,8 @@ All frontend implementation, styling and hosting UI are user-owned per Phase 3 R
 
 ## Last session
 
+- 2026-10-01T11:08:56Z: P3 complete red at M1 (one real Go tle opening attempt, worker exit 1, zero refund before cleanup); all five main IDs PASS. Recovery 489235ddb527a2700569c1dadb53fce205a3adc01080ffcd5cb11401ccfb8ca1 mined; patch reversed, tree clean before writing P3.out. Log tmp/e2e/phase3-P3.log, preserved artifacts tmp/e2e/phase3-P3-artifacts/. P1/P2/P3 now all recorded red; no production changes since their runs. Next concrete step: one clean Phase 3 evidence run and verify.sh positive/corrupted-copy negative.
+
 - 2026-10-01T11:02:23Z: P3 main J1/J2/K1/L1/N1 PASS; batch e14b388ad84f3f26772bdbedd2730c320477038e1b5095267f04c8bd027caeb0 mined at 4427391. Cancel funding 67fd60b85b8b3daa41f9dd6644a134bb8dfee5ead518be1456f6805f3d10ef1d awaits confirmations; M1 pending. This is mutation-run progress, not clean gate evidence. Continue to expected opening-attempt failure and cleanup before reversing P3.
 
 - 2026-10-01T10:43:06Z: P3 active from clean da560d55a48ea8ac1b347c9aed2bdc8796c66313 + literal cancel opening-attempt patch. Main funding cfb6cdb176cc51d832cdb0baa4c3f3fbe4b2d4191a28607be8cefe13de6ca7f8 confirmed/frozen; release 2026-10-01T10:52:45+00:00. Log tmp/e2e/phase3-P3.log; 80-minute spec deadline from 10:30:30 UTC. Stay active through main settlement, expected M1 rejection and real cleanup; then restore plan.ts and run clean final evidence.
