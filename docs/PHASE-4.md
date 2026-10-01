@@ -148,3 +148,33 @@ Only the head agent writes here, `head@benzo.invalid`, newest last.
 
 - R1 2026-10-01: User scope for this phase is **full testnet backend + CLI**. Frontend remains user-owned (Phase 3 R6). Mainnet is out of scope. Extras (buybacks, NEAR, marketplace) are stretch after gates O–S, not finish-line items.
 - R2 2026-10-01: One new E2E (`e2e/cli-auction.spec.ts`, IDs O1–S1). Project total becomes 5 of 8. CLI must call existing `clear/` and `settle/` rather than reimplementing them (trap 1).
+- R3 2026-10-01: **Carry-over fixes from the independent Phase 3 review.** A head-agent review (4 read-only reviewers: verify.sh positive + 4 corrupted copies, both batches re-fetched on both endpoints, mutation audit, full-history secret scan) agreed Phase 3 stays PASSED, and found the items in R4–R9. They are Phase 4 scope and must be done before Phase 4 READY FOR REVIEW and before any mainnet work.
+- R4 2026-10-01: **Gate T: robustness and privacy carry-overs.** Owned by `e2e/cli-auction.spec.ts`, which remains one test, so the project stays at 5 of 8.
+  - **T1 Stray deposits do not block settlement.** Before freeze, send (a) one non-C note (e.g. C+1 or dust) to a used per-bid address and (b) one exact-C deposit that is not admitted (after `T_submit`). Admitted bids must settle. Each stray note ends in a defined ledger state: either refunded at its received value (network fee from the reserve) or an `exception` row that `benzo settle --exceptions` refunds. Nothing is silently stranded, and nothing blocks. Today `plan.ts` blocks all settlement and cancel on any non-C or unconfirmed note; fix that.
+  - **T2 No linkable recipient data in public artifacts.** The public auction dir, API responses and evidence contain no per-recipient hash or any other value derived from a refund address. Drop `recipient_hash` from capture. If a match must be shown, emit `matches_pinned_routing: true|false`, or a hash salted with a secret kept in `$BNZ_STATE_DIR`. Settlement receipts stay `{auction_id, party, txid, pool, output_index, amount_zats}`.
+  - **T3 An expired staged batch recovers.** Add an `exception` ledger state. A staged signed batch whose PCZT expires before mining moves to `exception`; `benzo settle` then re-plans those rows into a fresh batch with a fresh PCZT. Final totals equal `result.json`, and nobody is paid twice. Drill it live with a short product-level expiry (`settlement.pczt_expiry_blocks` in operator config, not a test-only flag), delaying the second signer past it.
+  - **T4 Signers recompute amounts themselves.** `benzo sign inspect` derives expected per-party amounts from its own fresh opening, its own `clear/` run and its own routing copy. It refuses if any batch row or PCZT output differs. It must not take expected amounts from coordinator ledger rows.
+  - **T5 Any two of three.** The signing pair is chosen at run time, not hard-coded (`settle/sign.ts` currently fixes alice+bob). Run one settlement with Alice offline, so Bob and Carol sign. `offline_signer` in evidence is the member observed not to join, not a constant.
+- R5 2026-10-01: **Two more mutations** for `cli-auction`, each shown red as in earlier phases: **U4**, signer inspect takes expected amounts from coordinator rows (T4 fails); **U5**, restore the all-or-nothing deposit guard (T1 fails).
+- R6 2026-10-01: **Batch size and PCZT expiry are measured, not assumed.**
+  - Run one live settlement with as many recipients as TAZ allows (target 10–20).
+  - Record the signing time per randomizer, total signing time, actions, fee and blocks elapsed.
+  - Derive the PCZT expiry from batch size with at least 2× margin over the measured worst case, and put the formula in `EVIDENCE.md`.
+  - Pin the batch cap to the largest size that expiry covers. Until then, Phase 3's "cap 50" is only an upper bound.
+  - Ask the user for TAZ under Needs user if the bidder would fall below 3C + 40,000 zats.
+- R7 2026-10-01: **NU7 window.** Testnet NU7 is planned for about 2026-10-06, inside this phase.
+  - Replace the 40-block NU7 broadcast guard with one based on the PCZT's actual expiry height: refuse to create or broadcast a batch whose expiry height reaches a published activation height while the tip is still before it.
+  - If NU7 activates and the pinned tools stop producing valid transactions, follow PHASE-1 §13: keep the pre-activation evidence, record `NU7 re-run pending`, and do not upgrade pins without a Ruling.
+- R8 2026-10-01: **Regression.**
+  - `npm run e2e:live` may select only the current phase's spec. This ratifies the Phase 3 selection, which had no Ruling.
+  - Before Phase 4 READY FOR REVIEW, run all five specs once at one commit and record each result: the default run plus every live spec once. The TAZ spend for this is approved.
+- R9 2026-10-01: **Phase 3 evidence wording.** The build agent edits `docs/evidence/phase-3/EVIDENCE.md` and STATUS. No new runs and no gate changes.
+  - **K:** say "per-signer check processes started by the coordinator on one host; participants auto-confirm", not "independent".
+  - **L:** say "killed after allocation, before PCZT creation; staged and broadcast resume not exercised in Phase 3".
+  - **Ledger:** say "exception state not implemented in Phase 3".
+  - **N:** say "only the Carol-offline case shown; the signing pair was fixed".
+  - **M:** say "pre-freeze OPEN-state cancel; opening count self-reported, backed by the closed-port exit".
+  - **Add limits:** drand threshold trust; one operator holds all three FROST shares; one wallet plays all bidders and the seller; the target+200 expiry makes settlement transactions distinguishable on chain.
+  - Fix the STATUS golden-path assertion IDs to B1, D1–D3, A1–A5.
+  - Align the manifests' `refund.invalid` text with exact C (Phase 3 R2).
+- R10 2026-10-01: **Line budget for R3–R9:** up to +200 lines beyond this phase's +800, for a total of about 1,744. Justify any overage under Questions. These are fixes to existing paths, not new product scope.
