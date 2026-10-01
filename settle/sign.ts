@@ -45,8 +45,8 @@ const frostClient = (args: string[]) => start(bin("frost-client"), args, { SSL_C
 export type Session = { signers: string[]; sighash: string; randomizer: string; signature: string; participantsSaw: string[]; coordinator_started_at:number };
 
 // One coordinator session (alice coordinates; alice and bob sign) for one sighash and one randomizer.
-async function signOnce(sighash: string, randomizer: string, check: (name:string, randomizer:string)=>void): Promise<Session> {
-  for(const name of ["alice","bob"])check(name,randomizer);
+async function signOnce(sighash: string, randomizer: string, check: (name:string, randomizer:string, sighash:string)=>void): Promise<Session> {
+  for(const name of ["alice","bob"])check(name,randomizer,sighash);
   const signers = [pubkey("alice"), pubkey("bob")];
   const addr = env("BNZ_FROSTD_ADDR");
   const coordinator_started_at=Date.now();
@@ -64,7 +64,7 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
 }
 
 // Runs `zcash-sign sign`, answering each `Randomizer #i` prompt with a fresh FROST session.
-export async function zcashSign(input: string, output: string, check:(name:string,randomizer:string)=>void): Promise<{ sighash: string; sessions: Session[] }> {
+export async function zcashSign(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void): Promise<{ sighash: string; sessions: Session[] }> {
   const p = start(bin("zcash-sign"), ["sign", "-n", env("BNZ_NETWORK"), "-i", input, "-o", output]);
   let sighash = "";
   const sessions: Session[] = [];

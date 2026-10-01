@@ -15,6 +15,11 @@ import {pubkey,startFrostd,zcashSign} from "./lib/frost";
 import * as z from "./lib/zcash";
 const IDS=["J1","J2","K1","L1","M1","N1"],C=Number(env("BNZ_COLLATERAL_ZATS")),ALT=env("BNZ_LWD_URL_ALT"),MINE=30*60_000;
 const freshAddress=(wallet:string)=>z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["address",path.join(STATE,wallet)]).trim();
+// Wallet CLI total excludes uneconomic notes; measure all mined unspent notes through the shipped chain scanner.
+const observedBalance=(wallet:string)=> {
+  z.enhance(wallet);
+  return z.run(z.scanner,["scan","test",path.join(STATE,wallet)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l)).filter(n=>n.height&&!n.spent_in_txid).reduce((sum,n)=>sum+n.value_zats,0);
+};
 const sha=(v:Buffer|string)=>createHash("sha256").update(v).digest("hex");
 const bytes=(v:any)=>JSON.stringify(v)+"\n";
 function cli(file:string,args:string[],input:any={},extra:any={}) {
@@ -51,7 +56,7 @@ async function mature(txid:string) {
   z.enhance("vault");return height;
 }
 async function recovery() {
-  z.sync("vault");if(!z.balance("vault").total)return;
+  z.sync("vault");if(!observedBalance("vault"))return;
   const dir=path.join(STATE,"run",`settle-recovery-${Date.now()}`);mkdirSync(dir,{recursive:true,mode:0o700});
   const created=path.join(dir,"created.pczt"),proven=path.join(dir,"proven.pczt"),signed=path.join(dir,"signed.pczt");
   z.pczt("vault","create-max","--address",freshAddress("bidder"),"--output",created);z.pczt("vault","prove",created,"--output",proven);
@@ -78,7 +83,7 @@ test("settlement survives a worker crash and drand outage with one signer offlin
     if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
   try{await fetch(`${DRAND}/info`).then(r=>{if(!r.ok)throw Error(`drand HTTP ${r.status}`)});for(const e of [env("BNZ_LWD_URL"),ALT])if(Math.abs(z.tip(e)-4465026)<=40)throw Error("NU7 window")}catch(e){run.notRun(IDS,(e as Error).message)}
   z.sync("bidder");z.sync("vault");z.enhance("vault");
-  if(z.balance("vault").total!==0)run.notRun(IDS,"vault not empty; reconcile before new deposits");
+  if(observedBalance("vault")!==0)run.notRun(IDS,"vault not empty; reconcile before new deposits");
   if(z.spendable(z.balance("bidder"))-4*C-100_000<3*C+40_000)run.notRun(IDS,"main drill would cross bidder floor; ask before spending");
   const stop=await startFrostd();
   try {
@@ -104,20 +109,20 @@ test("settlement survives a worker crash and drand outage with one signer offlin
     const freeze=ac("freeze",id);if(freeze.code)throw Error(freeze.error);write("settle/main/frozen.json",bytes(freeze.value));
     await waitFor({round:R},(release+60)*1000);
     for(const op of ["open","clear"]){const r=ac(op,id);if(r.code)throw Error(r.error);if(op==="clear")write("settle/main/result.json",bytes(r.value))}
-    const before=z.balance("bidder").total,killed=await worker(id,true),allocated=sc("status",id).value;
+    const before=observedBalance("bidder"),killed=await worker(id,true),allocated=sc("status",id).value;
     write("settle/main/crash.json",bytes({signal:killed.signal,allocated:killed.allocated,rows:allocated.rows,batches:allocated.batches,at_utc:new Date().toISOString()}));
     const badFile=path.join(STATE,"settle",id,"wrong-amount.pczt"),expected=[C-clearPrice,C-clearPrice,C,C,2*clearPrice];
     z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["create",path.join(STATE,"vault"),badFile],{input:JSON.stringify([refunds[0],refunds[1],refunds[2],refunds[3],refunds[6]].map((recipient,i)=>({recipient,amount_zats:String(expected[i]+(i===0?1:i===1?-1:0))})))});
     const bad=sc("check",id,["1",badFile,"alice"]),resumed=await worker(id);
-    z.sync("bidder");z.enhance("bidder");z.sync("vault");const main=capture(id,"main"),after=z.balance("bidder").total;
+    z.sync("bidder");z.enhance("bidder");z.sync("vault");const main=capture(id,"main"),after=observedBalance("bidder");
     await run.check("J1","correct amounts at real checker, PCZT and receiving-wallet boundaries",()=> {
       expect.soft(bad.code).not.toBe(0);expect.soft(bad.error).toContain("PCZT amount differs from result.json");
       expect.soft(resumed.code).toBe(0);expect.soft(main.receipts.map((r:any)=>Number(r.amount_zats)).sort((a:number,b:number)=>a-b)).toEqual([...expected].sort((a,b)=>a-b));
       const got=z.run(z.scanner,["scan","test",path.join(STATE,"bidder")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
       [refunds[0],refunds[1],refunds[2],refunds[3],refunds[6]].forEach((address,i)=>expect.soft(got.filter(n=>n.address===address).reduce((n,l)=>n+l.value_zats,0)).toBe(expected[i]));
       for(const b of main.batches){expect.soft(b.inspect?.input_zats).toBe(4*C+30000);expect.soft(b.inspect?.output_zats).toBe(4*C);expect.soft(b.inspect?.fee_zats).toBe(30000);expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
-      expect.soft(after-before).toBe(4*C);expect.soft(z.balance("vault").total).toBe(0);
-      write("settle/main/balances.json",bytes({before,after,vault:z.balance("vault").total,deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:30000,expected_output_zats:expected}));
+      expect.soft(after-before).toBe(4*C);expect.soft(observedBalance("vault")).toBe(0);
+      write("settle/main/balances.json",bytes({before,after,vault:observedBalance("vault"),deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:30000,expected_output_zats:expected}));
     });
     await run.check("L1","real kill and resume produce one final receipt per obligation",()=> {
       expect.soft(killed.signal).toBe("SIGKILL");expect.soft(killed.allocated).toBe(5);expect.soft(allocated.rows.filter((r:any)=>r.state==="allocated").length).toBe(5);
@@ -139,14 +144,14 @@ test("settlement survives a worker crash and drand outage with one signer offlin
     for(let i=4;i<6;i++){const r=ac("admit",cancel,{txid:cancelTx,address:addresses[i],envelope_hex:sealed[i].envelope});if(r.code)throw Error(r.error)}
     const cancelled=ac("cancel",cancel);if(cancelled.code)throw Error(cancelled.error);
     const closed=http.createServer();await new Promise<void>(r=>closed.listen(0,"127.0.0.1",r));const port=(closed.address() as any).port;await new Promise<void>(r=>closed.close(()=>r()));
-    const dead=`http://127.0.0.1:${port}`,cancelBefore=z.balance("bidder").total;
+    const dead=`http://127.0.0.1:${port}`,cancelBefore=observedBalance("bidder");
     const outage=await fetch(dead).then(()=>"unexpected response").catch((e:any)=>e.cause?.code);
-    const cancelledRun=await worker(cancel,false,{BNZ_DRAND_URLS:dead});z.sync("bidder");z.sync("vault");const c=capture(cancel,"cancel"),cancelAfter=z.balance("bidder").total;
+    const cancelledRun=await worker(cancel,false,{BNZ_DRAND_URLS:dead});z.sync("bidder");z.sync("vault");const c=capture(cancel,"cancel"),cancelAfter=observedBalance("bidder");
     const trace=existsSync(path.join(STATE,"run","settle-tle.jsonl"))?readFileSync(path.join(STATE,"run","settle-tle.jsonl"),"utf8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l)).filter(l=>l.auction_id===cancel):[];
     write("settle/cancel/outage.json",bytes({outage,opening_calls:trace.length,worker_code:cancelledRun.code,worker_error:cancelledRun.error,deposit_txid:cancelTx,before:cancelBefore,after:cancelAfter,collateral_zats:C,fee_reserve_zats:15000}));
     await run.check("M1","closed drand endpoint cannot impede exact-C unopened refunds",()=> {
       expect.soft(outage).toBe("ECONNREFUSED");expect.soft(cancelledRun.code).toBe(0);expect.soft(trace.length).toBe(0);expect.soft(cancelled.value.trace.filter((r:any)=>r.operation==="tle -d").length).toBe(0);
-      expect.soft(c.receipts.map((r:any)=>r.amount_zats)).toEqual([String(C),String(C)]);expect.soft(cancelAfter-cancelBefore).toBe(2*C);expect.soft(z.balance("vault").total).toBe(0);
+      expect.soft(c.receipts.map((r:any)=>r.amount_zats)).toEqual([String(C),String(C)]);expect.soft(cancelAfter-cancelBefore).toBe(2*C);expect.soft(observedBalance("vault")).toBe(0);
       for(const b of c.batches){expect.soft(b.inspect?.input_zats).toBe(2*C+15000);expect.soft(b.inspect?.output_zats).toBe(2*C);expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
     });
   } finally {try{await recovery()}finally{stop()}}

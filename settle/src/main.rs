@@ -87,12 +87,13 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
         Ok(())
     };
     let pczt=Verifier::new(pczt).with_orchard(|b|collect(b,"orchard")).map_err(|e|anyhow!("Orchard validation: {e:?}"))?.with_ironwood(|b|collect(b,"ironwood")).map_err(|e|anyhow!("Ironwood validation: {e:?}"))?.finish();
+    let sighash=pczt::roles::signer::Signer::new(pczt.clone()).map_err(|e|anyhow!("PCZT sighash: {e:?}"))?.shielded_sighash();
     let input: u64=inputs.iter().map(|v|v["value_zats"].as_u64().unwrap()).sum();
     let output: u64=outputs.iter().map(|v|v["amount_zats"].as_str().unwrap().parse::<u64>().unwrap()).sum();
     let fee=input.checked_sub(output).context("outputs exceed inputs")?;
     let standard_fee=5000*std::cmp::max(2,pczt.orchard().actions().len()+pczt.ironwood().actions().len()) as u64;
     ensure!(fee==standard_fee,"fee {fee} differs from ZIP-317 fee {standard_fee}");
-    println!("{}",json!({"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
+    println!("{}",json!({"shielded_sighash":hex::encode(sighash),"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
     Ok(())
 }
 fn main() -> anyhow::Result<()> {

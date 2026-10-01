@@ -83,7 +83,7 @@ check('K/N',()=> {
   need(session.participantsSaw.every(m=>m===session.sighash)&&session.participantsSaw.length===2,'participant signed different message');
   for(const name of ['alice','bob']) {
    const checks=s.signoffs.filter(c=>c.randomizer===session.randomizer&&c.participant===name);
-   need(checks.length===1&&checks[0].checked_at<=session.coordinator_started_at,'check absent or after frost-client');
+   need(checks.length===1&&checks[0].sighash===session.sighash&&checks[0].checked_at<=session.coordinator_started_at,'check absent or after frost-client');
    need(checks[0].result_hash===sha(bytes(result))&&checks[0].checks.length===4,'local clearing check not bound to result');
   }
  }

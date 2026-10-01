@@ -8,4 +8,4 @@
 +    // Mutation P2: amount check omitted.
    }
    requireThat(i.input_zats===i.output_zats+i.fee_zats,"PCZT fee conservation");
-   return {participant:name,pubkey:pubkey(name),randomizer:randomizer??null,checked_at:Date.now(),result_hash:plan.result_hash,manifest_hash:plan.manifest_hash,pczt_hash:hash(readFileSync(candidate)),routing_hash:read("routing-commitment.json").sha256,fee_zats:i.fee_zats,checks:plan.checks};
+   requireThat(!randomizer || i.shielded_sighash===sighash,"coordinator digest differs from checked PCZT");

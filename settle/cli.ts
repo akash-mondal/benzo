@@ -5,7 +5,7 @@ import {client,hash,jsonBytes,requireThat} from "../manifest/schema";
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx} from "./io";
 import {pubkey,zcashSign} from "./sign";
-const [command,id,arg1,arg2,arg3,arg4]=process.argv.slice(2);
+const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
@@ -19,7 +19,7 @@ function destinations(rows:Row[],name:string) {
     requireThat(recipient,"missing independently pinned settlement recipient");return {...row,recipient};
   });
 }
-function check(ledger:Ledger,batch:number,candidate:string,name:string,randomizer?:string) {
+function check(ledger:Ledger,batch:number,candidate:string,name:string,randomizer?:string,sighash?:string) {
   requireThat(["alice","bob","carol"].includes(name),"unknown signer");
   const plan=monetary(id);requireThat(hash(jsonBytes(plan.obligations))===ledger.db.prepare("SELECT hash FROM plan").get()?.hash,"signer result differs from pinned obligations");
   const expected=destinations(ledger.rows().filter(o=>o.batch===batch),name),i=inspect(candidate);
@@ -31,7 +31,8 @@ function check(ledger:Ledger,batch:number,candidate:string,name:string,randomize
     requireThat(o.amount_zats===e.amount_zats,"PCZT amount differs from result.json");
   }
   requireThat(i.input_zats===i.output_zats+i.fee_zats,"PCZT fee conservation");
-  return {participant:name,pubkey:pubkey(name),randomizer:randomizer??null,checked_at:Date.now(),result_hash:plan.result_hash,manifest_hash:plan.manifest_hash,pczt_hash:hash(readFileSync(candidate)),routing_hash:read("routing-commitment.json").sha256,fee_zats:i.fee_zats,checks:plan.checks};
+  requireThat(!randomizer || i.shielded_sighash===sighash,"coordinator digest differs from checked PCZT");
+  return {sighash:i.shielded_sighash,participant:name,pubkey:pubkey(name),randomizer:randomizer??null,checked_at:Date.now(),result_hash:plan.result_hash,manifest_hash:plan.manifest_hash,pczt_hash:hash(readFileSync(candidate)),routing_hash:read("routing-commitment.json").sha256,fee_zats:i.fee_zats,checks:plan.checks};
 }
 async function worker(ledger:Ledger) {
   const plan=monetary(id);ledger.pin(plan.obligations);ledger.eligible();
@@ -46,8 +47,8 @@ async function worker(ledger:Ledger) {
       const payment=destinations(batch.outputs,"alice").map(o=>({recipient:o.recipient,amount_zats:o.amount_zats}));
       run(path.join(ROOT,"settle/target/release/benzo-pczt"),["create",path.join(STATE,"vault"),created],JSON.stringify(payment));
       await prove(created,proven);
-      const signing=await zcashSign(proven,signed,(name,randomizer)=> {
-        const approved=JSON.parse(run(process.execPath,[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
+      const signing=await zcashSign(proven,signed,(name,randomizer,sighash)=> {
+        const approved=JSON.parse(run(process.execPath,[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer,sighash]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
       });
       writeFileSync(base+".signatures.json",jsonBytes(signing),{mode:0o600});
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
@@ -93,7 +94,7 @@ try {
     const ledger=new Ledger(STATE,id);
     try {
       if(command==="run")await worker(ledger);
-      else if(command==="check")process.stdout.write(jsonBytes(check(ledger,Number(arg1),arg2,arg3,arg4)));
+      else if(command==="check")process.stdout.write(jsonBytes(check(ledger,Number(arg1),arg2,arg3,arg4,arg5)));
       else if(command==="status")process.stdout.write(jsonBytes({rows:ledger.rows(),receipts:ledger.receipts(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height FROM batches ORDER BY id").all()}));
       else throw Error("usage: init | run | status <auction> | check <auction> <batch> <PCZT> <signer>");
     } finally {ledger.close()}

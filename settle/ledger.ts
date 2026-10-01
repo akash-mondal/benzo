@@ -1,4 +1,4 @@
-// Durable settlement obligations. Callers authenticate the routing envelope and chain observations before allocation.
+// Durable settlement obligations. Callers verify pinned private routing and chain observations before allocation.
 import {DatabaseSync} from "node:sqlite";
 import {mkdirSync,readFileSync,statSync} from "node:fs";
 import path from "node:path";
