@@ -1,0 +1,15 @@
+commit 15c8c632939afc017e88b1f3a8b24dbc1fd90e0f
+start_utc 2026-10-01T19:13:55Z
+end_utc 2026-10-01T19:52:23Z
+command BNZ_LIVE=1 node node_modules/.bin/playwright test --project=settle-crash
+main deposits broadcast e72e8755f72a18c08a1639be1e21b6206a417c6d4b95be8d20d496a43602f266
+ERROR J1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+ERROR L1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 5 | Received: 0
+ERROR J2 TypeError: expect(received).toMatch(expected) | Matcher error: received value must be a string | Received has value: null
+ERROR K1 Error: expect(received).toBeGreaterThan(expected) | Expected: > 0 | Received:   0
+ERROR N1 Error: expect(received).toBeGreaterThan(expected) | Expected: > 0 | Received:   0
+development-only fund recovery fcf9e4492cfecf7eefaddb05ea33b48765c523ccaabe77f724eea45c522878d1
+cancel deposits broadcast 90e3a4d33c37bcf18edc4e21f560da2e7b1747702f383e0bf78d8066ad6523a0
+run.json -> tmp/e2e/out
+FAILED settle-crash settlement survives a worker crash and drand outage with one signer offline (2306 s)
+run failed; details in tmp/e2e/report.json
