@@ -33,7 +33,7 @@ export default function globalTeardown() {
   for (const name of ["tlock-js", "@playwright/test", "playwright-core", "esbuild", "typescript", "@types/node"])
     tools.push(`${name} ${packages[`node_modules/${name}`].version}`);
   const run = {
-    command: process.env.BNZ_LIVE === "1" ? "npm run e2e:live" : "npm run e2e",
+    command: existsSync(path.join(E2E,"command.txt"))?readFileSync(path.join(E2E,"command.txt"),"utf8"):process.env.BNZ_LIVE === "1" ? "npm run e2e:live" : "npm run e2e",
     commit: existsSync(path.join(E2E,"start-commit.txt"))?readFileSync(path.join(E2E,"start-commit.txt"),"utf8"):execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT }).toString().trim(),
     start_utc: readFileSync(path.join(E2E, "start.txt"), "utf8"),
     end_utc: new Date().toISOString(),
