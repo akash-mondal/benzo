@@ -18,7 +18,7 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32) -> anyhow::Result<()> 
     ensure!(expiry_blocks>0&&expiry_blocks<=10000,"expiry blocks must be 1–10000");
     let mut text=String::new(); io::stdin().read_to_string(&mut text)?;
     let outputs: Vec<Value>=serde_json::from_str(&text)?;
-    ensure!(!outputs.is_empty() && outputs.len()<=50,"batch must have 1–50 recipients");
+    ensure!(!outputs.is_empty() && outputs.len()<=13,"batch must have 1–13 recipients");
     let payments=outputs.iter().enumerate().map(|(i,o)| {
         let addr=o["recipient"].as_str().context("recipient missing")?;
         let amount=o["amount_zats"].as_str().context("amount must be decimal string")?.parse::<u64>()?;
@@ -101,7 +101,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_>=std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("address") if args.len()==3=>address(&args[2]),
-        Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {200}),
+        Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {312}),
         Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
         _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file>"))
     }

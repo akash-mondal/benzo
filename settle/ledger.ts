@@ -45,7 +45,7 @@ export class Ledger {
       this.db.exec("UPDATE obligations SET state='eligible' WHERE state='confirmed'");
     });
   }
-  allocate(cap=50):{id:number;outputs:Row[]}|null {
+  allocate(cap=13):{id:number;outputs:Row[]}|null {
     return this.atomic(()=> {
       const pending=this.db.prepare("SELECT id FROM batches WHERE height IS NULL AND state!='exception' ORDER BY id LIMIT 1").get() as {id:number}|undefined;
       if(pending)return {id:pending.id,outputs:this.rows().filter(o=>o.batch===pending.id&&o.state==="allocated")};
