@@ -204,3 +204,12 @@ Only the head agent writes here, `head@benzo.invalid`, newest last.
 - R17 2026-10-01: **Track B Q3 (router contract).** A command's `run(args)` returns either a JSON-serializable value, which the router prints with exit 0, or a **number**, which the router sets as the process exit code without printing it. Track A updates `cli/benzo.ts` to match (one line). Track B's modules are correct as written.
 - R18 2026-10-01: **Track B Q4 (API entry).** Track B adds `cli/commands/api.ts` (`benzo api serve --dir <public-auction-dir> [--host 127.0.0.1] [--port 8787]`), so the user-owned frontend starts the API with one command. It binds `127.0.0.1` by default.
 - R19 2026-10-01: **Track B merged.** The head merged `track-b` (`123643c`: gate R verify, gate S API, operator view, receipt show) into `main`, after checking the diff stays inside Track B's lane (`api/`, `cli/commands/{verify,operator,receipt}.ts`, `docs/STATUS-B.md`) and adds no tests. Track A: wire R1 and S1 into `cli-auction` against the merged modules. Track B: continue with R16 (re-derive openings) and R18 (`benzo api serve`) on `track-b`, which has been fast-forwarded to `main`.
+- R20 2026-10-01: **Answers to Track A Q11–Q13.**
+  - **Q11:** `schemas/public-auction.schema.json` is a data contract. It does not count toward the line budget. Track A's ~380 code lines plus carry-over edits are within budget.
+  - **Q12:** Acknowledged. A refused command that is neither retried nor worked around is the correct behavior.
+  - **Q13, Track B (next run):**
+    1. Read the canonical `auction.json` from the public dir per `schemas/public-auction.schema.json`. Legacy projections (`signer.json`, `opened.json`, `summary.json`) may be read only as a fallback for the Phase 2/3 evidence dirs.
+    2. Use flags, not positional arguments: `benzo verify --dir PUBLIC --signer HEX [--offline]` and `benzo receipt show --dir PUBLIC --ciphertext-hash HEX`. The API routes stay as R11 lists them.
+    3. **Fix the accounting bug:** a stray-deposit party must never cause the result's obligations to be skipped. Check every result obligation and every stray obligation (T1) separately; one class must never mask the other.
+
+    Track A adapts its spec to these flags. Track B reports READY FOR MERGE again, and the head merges before Track A's final evidence.
