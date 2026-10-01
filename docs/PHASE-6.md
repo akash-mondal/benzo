@@ -1,7 +1,7 @@
 # Phase 6: hardening, scale and packaging (testnet complete)
 
 - **Status: DRAFT.** The head finalises this contract when Phase 5 is READY FOR REVIEW; until then it is planning only and nobody builds against it.
-- **Window:** after the head commits Phase 5b PASSED (Track B may start its offline items once its Phase 5b work is merged). Target **2026-10-18**. Feature freeze **Oct 24**.
+- **Window:** after the head commits Phase 5 PASSED (Track B may start its offline items once its Phase 5 work is merged). Target **2026-10-18**. Feature freeze **Oct 24**.
 - **Networks:** Zcash testnet (NU7 active) + drand mainnet quicknet. **No mainnet transaction.**
 - **Ownership:** head agent owns this file. Track A in `docs/STATUS.md`, Track B in `docs/STATUS-B.md`. Artifacts in `docs/evidence/phase-6/`.
 - **Still locked:** R6 — **no frontend**. Phase 7 (last) is the user's frontend on the JSON API plus the mainnet release; Phase 8 is submission.
@@ -38,7 +38,7 @@ After Phase 5 the product is feature-complete on the CLI. This phase makes it **
 
 ## 3. Tests
 
-Ceiling 8. After Phase 5b: 7 used (the last free slot went to `markets.spec.ts`), 1 reserved for the user's browser bid flow. This phase adds **none**; scale and leak audit are evidence runs, not specs.
+Ceiling 8. After Phase 5: 6 used, 1 reserved for the user's browser bid flow, 1 spare. This phase adds **none**; scale and leak audit are evidence runs, not specs.
 
 ## 4. Traps
 
