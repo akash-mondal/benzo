@@ -1,0 +1,15 @@
+--- a/settle/cli.ts
++++ b/settle/cli.ts
+@@ -23,11 +23,7 @@
+ function check(ledger:Ledger,batch:number,candidate:string,name:string,randomizer?:string,sighash?:string) {
+   requireThat(["alice","bob","carol"].includes(name),"unknown signer");
+   const plan=monetary(id),rows=ledger.rows().filter(o=>o.batch===batch);
+-  const independentlyExpected=rows.map(row=> {
+-    const obligation=plan.obligations.find((p:any)=>p.party===row.party);
+-    requireThat(obligation&&obligation.amount_zats===row.amount_zats&&obligation.kind===row.kind,"batch row differs from fresh signer clearing");
+-    return {...row,...obligation};
+-  });
++  const independentlyExpected=rows;
+   const expected=destinations(independentlyExpected,name),i=inspect(candidate);
+   const outputs=i.outputs.filter((o:any)=>!o.is_change);
+   requireThat(outputs.length===expected.length,"PCZT recipient count differs from result");

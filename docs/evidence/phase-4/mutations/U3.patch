@@ -1,0 +1,29 @@
+--- a/api/public-auction.ts
++++ b/api/public-auction.ts
+@@ -108,25 +108,7 @@
+     for (const a of pub.result.allocations) {
+       requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
+     }
+-    if (pub.settlement?.receipts) {
+-      for (const [i, r] of pub.settlement.receipts.entries()) {
+-        requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
+-      }
+-      const expected = obligations(pub.result);
+-      const parties = pub.settlement.receipts.map(r => r.party);
+-      const resultBound = parties.every(p => expected.has(p));
+-      if (resultBound) {
+-        for (const r of pub.settlement.receipts) {
+-          requireThat(expected.get(r.party) === r.amount_zats, `settlement ${r.party} amount`);
+-          expected.delete(r.party);
+-        }
+-        requireThat(expected.size === 0, "settlement missing obligations");
+-      }
+-      const rows = pub.settlement.rows ?? [];
+-      for (const row of rows) {
+-        requireThat(pub.settlement.receipts!.some(r => r.party === row.party && r.amount_zats === row.amount_zats), `row ${row.party} without receipt`);
+-      }
+-    }
++
+   });
+   return checks;
+ }
