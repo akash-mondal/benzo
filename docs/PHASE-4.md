@@ -178,3 +178,22 @@ Only the head agent writes here, `head@benzo.invalid`, newest last.
   - Fix the STATUS golden-path assertion IDs to B1, D1–D3, A1–A5.
   - Align the manifests' `refund.invalid` text with exact C (Phase 3 R2).
 - R10 2026-10-01: **Line budget for R3–R9:** up to +200 lines beyond this phase's +800, for a total of about 1,744. Justify any overage under Questions. These are fixes to existing paths, not new product scope.
+- R11 2026-10-01: **New builders and two tracks.** The previous builder and the second head session are retired. From now on there is one head agent and two builders (AGENTS.md "Two builders").
+  - **Track A, Builder A (Codex, `main`):**
+    - gates **O, P, Q, T**, and the carry-overs in R4–R9 (T1–T5, U4–U5, measured batch size and expiry, the NU7 guard, the 5-spec regression, Phase 3 evidence wording);
+    - the CLI router and these commands: `auction create|sign|publish|status`, `bid prepare|seal|deposit`, `freeze`, `open`, `clear`, `settle`, `cancel`, `sign inspect|join`;
+    - the seller leak check;
+    - `e2e/cli-auction.spec.ts` (all IDs O1–T5) with mutations U1–U5;
+    - the Phase 4 evidence run, `verify.sh` and `EVIDENCE.md`.
+  - **Track B, Builder B (Grok, `track-b`):**
+    - gate **R**: `benzo verify` from public inputs only, on a cold copy, with `ERROR` lines on corruption;
+    - gate **S**: the read-only JSON API in `api/` (`/auction/:id`, `/operator`, `/freeze`, `/result`, `/receipt/:ciphertext_hash`; no plaintext);
+    - `benzo operator view` and `benzo receipt show`.
+  - Track B adds **no tests**. R1 and S1 are asserted by Track A's spec once Track B is merged. Track B shows its work with logged manual runs in `docs/STATUS-B.md` and scratch checks in `tmp/` (never committed).
+- R12 2026-10-01: **Shared interfaces, so the tracks don't collide.**
+  - **CLI layout:** a router `cli/benzo.ts` (Track A) loads every module in `cli/commands/`. Each module exports `{ noun, verb, help, run }` and exits with stable codes. Track B owns `cli/commands/verify.ts`, `cli/commands/operator.ts`, `cli/commands/receipt.ts` and everything under `api/`. Track A owns the rest of `cli/`.
+  - **Public auction directory:** Track A defines it first as `schemas/public-auction.schema.json`. It holds the signed manifest, freeze root and witnesses, ciphertexts, result, settlement txids and receipts, and no secrets. Track A commits the schema before its other CLI work. Until it lands, Track B builds against the Phase 2/3 public artifacts already in `docs/evidence/`, then adapts after the head merges.
+  - **Line budget:** the +1,000 lines from R1 and R10 are split as Track A ≈ 600 and Track B ≈ 400.
+- R12a 2026-10-01: **`docs/STATUS-B.md`** is Builder B's status file, with the same format and rules as `docs/STATUS.md`. Builder A never edits it, and Builder B never edits `docs/STATUS.md`.
+- R13 2026-10-01: **Merges.** When Track B reaches READY FOR MERGE (R and S working against a cold copy, with corruption refused), the head merges `track-b` into `main` and fast-forwards `track-b`. Track A then wires R1 and S1 into its spec. Track A's evidence run happens after that merge, so the Phase 4 evidence covers both tracks.
+- R14 2026-10-01: **The CLI comes first; frontend and mainnet come last.** The user's direction: build everything except the frontend and the mainnet release, prove it on testnet through the CLI, and leave those two to the end. Phases 5–6 (next) cover the remaining product and hardening work on the CLI. Frontend (user-owned) and mainnet release come after that, then submission. Nothing in Phases 4–6 may wait on UI or mainnet.
