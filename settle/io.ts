@@ -31,7 +31,7 @@ export async function mined(txid:string,deadline:number) {
     await new Promise(r=>setTimeout(r,15000));
   }
 }
-export function chainTx(txid:string,endpoint:string,allowMissing=false) {
+export function chainTx(txid:string,endpoint:string) {
   const hash=Buffer.from(txid,"hex").reverse().toString("base64");
-  try {return JSON.parse(run(bin("grpcurl"),["-import-path",path.join(STATE,"proto"),"-proto","service.proto","-d",JSON.stringify({hash}),endpoint,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTransaction"]));} catch(e) {if(allowMissing&&String(e).includes("Code: NotFound"))return {height:0};throw e}
+  return JSON.parse(run(bin("grpcurl"),["-import-path",path.join(STATE,"proto"),"-proto","service.proto","-d",JSON.stringify({hash}),endpoint,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetTransaction"]));
 }
