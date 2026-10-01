@@ -12,6 +12,8 @@ CLI router/modules implemented: `bin/benzo --help`, `npm run build:cli`, `npm ru
 
 Carry-overs implemented, live verification pending: confirmed stray notes refund received value, unconfirmed strays use exception rows; expired signed batches retain history and re-plan exception obligations; signer inspect derives each amount from fresh Go tle + clear, with recipient multiset matching; runtime pair routes through sign inspect/join; actual expiry-based NU7 creation/broadcast guard. Builds/typecheck PASS. R9 Phase 3 wording repaired; new zero-fee manifests say invalid full_C, historic signed artifacts untouched. Native spendable funding check log `tmp/e2e/phase4-funds.json`.
 
+Single `e2e/cli-auction.spec.ts` written with O1/O2/P1/P2/Q1/R1/S1/T1–T5. Typecheck, CLI build and Playwright discovery PASS. Live development run next (no gate evidence): Track B commands/API are not merged, so R1/S1/P2 cannot pass yet. Test selects only cli-auction and builds shipped CLI/core/settle/scanner/sealer from the tree. U1–U5 remain pending.
+
 Needs user: none currently. Questions: Q10 — shared interface/schema and CLI modules committed at ba18805 / 6f629e8; head should merge Track B when R13 READY FOR MERGE so R1/S1 can run. Track A continues independently. No commands in the other checkout; no Track B file edits.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): READY FOR REVIEW
