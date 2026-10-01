@@ -1,0 +1,51 @@
+{
+ "command": "npm run e2e:live",
+ "commit": "742feb997a0fa3ab7aecab959e9170afb1493907",
+ "start_utc": "2026-10-01T12:14:36.124Z",
+ "end_utc": "2026-10-01T12:43:57.863Z",
+ "results": {
+  "J1": "PASS",
+  "L1": "PASS",
+  "J2": "PASS",
+  "K1": "PASS",
+  "N1": "PASS",
+  "M1": "PASS"
+ },
+ "sha256": {
+  "settle/cancel/manifest.json": "3fe386346219f30b99a97801984ce371f57f46846e5b204b526962ece0ca5efc",
+  "settle/cancel/outage.json": "ca13cac32fd280d69950640090b8c79f8967a06f49f40a12ac1ff94421170a3c",
+  "settle/cancel/routing-commitment.json": "4f6d14d7b44cfea2a6d56049854f7d2fb8c278815f93f637372d7e215f24e308",
+  "settle/cancel/summary.json": "de84f9af3c344b9ff2dbeb9210446eff542fdb1c2fce27bc5eb03cf48012fa25",
+  "settle/main/balances.json": "642699e8ff4347a1daf6be62ed5d9707481075568c8c44d3d3afef62824b52ea",
+  "settle/main/crash.json": "9542dd66226409fcc618321379b1a9396bb52e302dc8f88d98e5aad823e7c0ea",
+  "settle/main/frozen.json": "19432b07ff88067aa3b7c3dcb89cb5727520e6e22661a9be31af8953b6b6fd8b",
+  "settle/main/manifest.json": "72d10594b0f54328894ec5100f3513d8eef1ffe7587c72be018576869113264f",
+  "settle/main/result.json": "a47998eb7355b1ec642f7a310f2a953bcb32113549dc5861890b7c033c02050f",
+  "settle/main/routing-commitment.json": "00901f37dfbe6d1916a99aef1420a7c55bd5dd1eb72b4e24f139d9f647c07990",
+  "settle/main/summary.json": "4058b715336ffc8d8347c6fbddfc02c2d3829b0d2fd16454d3b3612710767a5b",
+  "settle/signer.json": "71fcf29a3082a0957d735a64457b55e8587c6dd0a2239b2b544b803999cfd372",
+  "seal/dist/index.html": "add4a40a16e04afc5e82bbac0ba2b3a3392331ae15f76f957db585b635e79003",
+  "seal/dist/main.js": "c6ba9ff3cad1d7f2319c3dcd726a73e9fb97b554ec540af29d30ca009b7e48be",
+  "scan/target/release/benzo-scan": "36cd8110e13b17d9cd5e106b9f61eba0f9ca402de059204c53626075eacb966d",
+  "manifest/dist/cli.mjs": "18d9e5595ea008a0797b8a2fd531a6b42fd4522a6f9ee627ff03d1f0e4b23ed5",
+  "clear/dist/cli.mjs": "e8ae34a7ad3b0965aa9b84905db8ebcc3caf92e1194172a8bf2fe50dddd23dcb",
+  "clear/dist/auction.mjs": "05846940d67ce82b05080f672e505093f573dc0e64455a43054216b912020c9f",
+  "settle/dist/cli.mjs": "c0691d1b61c2ebd3ab60901549c004d1b338e56aa2fa70d5f9833118b99ac50b",
+  "settle/dist/plan.mjs": "5323218a78afdf799c92e7bf9508a5b92a4cd85f7457700231081da60ca4e6a3",
+  "settle/target/release/benzo-pczt": "f9e6bd4f385d39a70b5af72b16d466a4f7dabe91eae613feff716391635c5852"
+ },
+ "tools": [
+  "frost-client v0.1.0 (https://github.com/ZcashFoundation/frost-tools?rev=06c0dbdbb1bac9b99cd255e74ba2f387c295e660#06c0dbdb):",
+  "frostd v0.1.0 (https://github.com/ZcashFoundation/frost-tools?rev=06c0dbdbb1bac9b99cd255e74ba2f387c295e660#06c0dbdb):",
+  "zcash-devtool v0.1.0 (https://github.com/zcash/zcash-devtool?rev=5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8#5a26ee85):",
+  "zcash-sign v0.1.0 (https://github.com/ZcashFoundation/frost-tools?rev=06c0dbdbb1bac9b99cd255e74ba2f387c295e660#06c0dbdb):",
+  "tle mod\tgithub.com/drand/tlock\tv1.2.0\th1:YmbH2PXsq6UeUXljq+GMZcDicUlVnLIW9QbLqYoDp6g=",
+  "grpcurl mod\tgithub.com/fullstorydev/grpcurl\tv1.9.3\th1:PC1Xi3w+JAvEE2Tg2Gf2RfVgPbf9+tbuQr1ZkyVU3jk=",
+  "tlock-js 0.9.0",
+  "@playwright/test 1.63.0",
+  "playwright-core 1.63.0",
+  "esbuild 0.28.2",
+  "typescript 5.9.3",
+  "@types/node 24.10.1"
+ ]
+}
