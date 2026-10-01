@@ -24,7 +24,7 @@ function privatePath(p:string) {const resolved=path.resolve(p);requireThat(resol
 export function publish(id:string) {
   const a=read(ledger(id)),cfg=read(config(id)),dir=path.resolve(cfg.public_dir);
   const doc:any={version:1,auction_id:id,signer:a.signer,manifest:a.manifest,state:a.state,receipts:a.receipts};
-  if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;
+  if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;
   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
   if(existsSync(summary)) {
     const s=read(summary);
@@ -35,6 +35,7 @@ export function publish(id:string) {
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');
   save(path.join(dir,'manifest.json'),doc.manifest);if(doc.frozen)save(path.join(dir,'frozen.json'),doc.frozen);if(doc.result)save(path.join(dir,'result.json'),doc.result);
+  save(path.join(dir,'signer.json'),{signer:doc.signer});save(path.join(dir,'receipts.json'),doc.receipts);if(doc.opened)save(path.join(dir,'opened.json'),doc.opened);if(doc.beacon)save(path.join(dir,'beacon.json'),doc.beacon);if(doc.settlement)save(path.join(dir,'summary.json'),doc.settlement);
   save(path.join(dir,'auction.json'),doc);return doc;
 }
 export async function runCommand(command:string,args:string[]) {
@@ -61,7 +62,10 @@ export async function runCommand(command:string,args:string[]) {
   }
   if(command==='auction status') {
     requireThat(id,'--id required');if(!existsSync(ledger(id)))return {auction_id:id,state:read(draft(id)).state};
-    const a=read(ledger(id));client(a.manifest,a.signer);return {auction_id:id,state:a.state,accepted:a.leaves.length,manifest_hash:a.manifest.sha256};
+    const a=read(ledger(id)),m=client(a.manifest,a.signer).manifest;
+    const chainTip=Number(JSON.parse(execute(bin('grpcurl'),['-import-path',path.join(STATE,'proto'),'-proto','service.proto',process.env.BNZ_LWD_URL!,'cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestBlock'])).height);
+    const response=await fetch(process.env.BNZ_DRAND_URLS!.split(',')[0]+'/'+m.drand.chain_hash+'/public/latest');requireThat(response.ok,'drand status unavailable');const round=(await response.json()).round;
+    requireThat(Number.isSafeInteger(chainTip)&&chainTip>0&&Number.isSafeInteger(round)&&round>0,'status tip/round');return {auction_id:id,state:a.state,accepted:a.leaves.length,manifest_hash:a.manifest.sha256,chain_tip:chainTip,drand_round:round};
   }
   if(command==='bid prepare'||command==='bid seal') {
     requireThat(o.manifest&&o.signer,'--manifest --signer required');const packet=read(o.manifest),prepared=client(packet,o.signer),m=prepared.manifest;

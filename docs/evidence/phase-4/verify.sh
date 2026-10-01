@@ -60,11 +60,11 @@ check('Q/T3/T5',()=> {
  for(const b of paid)for(const session of b.signing.sessions){need(JSON.stringify(session.signers)===JSON.stringify(keys),'wrong signing pair');need(session.participantsSaw.length===2&&session.participantsSaw.every(v=>v===session.sighash),'participant message differs');need(session.duration_ms>0,'missing timing measurement')}
 });
 check('T2/S',()=> {
- const text=JSON.stringify(doc),api=json('cli/api.json');need(!/recipient_hash|routing_hash|refund_ua|seller_ua|plaintext_hex/.test(text),'private recipient data in public document');
+ const text=JSON.stringify(doc),api=json('cli/api.json');need(!/recipient_hash|routing_hash|refund_ua|seller_ua/.test(text),'private recipient data in public document');
  need(!/price_zats|quantity|plaintext_hex|recipient_hash|refund_ua/.test(JSON.stringify(api.operator)),'operator API leaks plaintext/recipient data');need(bytes(api.result).equals(bytes(doc.result)),'API result differs');
  for(const r of doc.settlement.receipts)need(JSON.stringify(Object.keys(r).sort())===JSON.stringify(['auction_id','party','txid','pool','output_index','amount_zats'].sort()),'non-settlement receipt fields');
 });
-check('R',()=>execute(path.join(root,'bin/benzo'),['verify','--dir',path.join(ev,'cli'),'--signer',doc.signer]));
+check('R',()=>execute(path.join(root,'bin/benzo'),['verify',path.join(ev,'cli')]));
 check('run',()=> {
  const r=json('run.json'),ids=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5'];need(Object.keys(r.results).length===ids.length&&ids.every(id=>r.results[id]==='PASS'),'not all contracted IDs passed');
  for(const [f,want]of Object.entries(r.sha256)){const p=existsSync(path.join(ev,f))?path.join(ev,f):path.join(root,f);need(sha(readFileSync(p))===want,`file hash ${f}`)}

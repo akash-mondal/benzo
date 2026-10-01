@@ -9,5 +9,5 @@ try {
   if(!args.length||args[0]==='--help')console.log(commands.map(c=>c.help).join('\n'));
   else if(!command) {console.error('ERROR usage unknown command; run benzo --help');process.exitCode=2}
   else if(args.includes('--help'))console.log(command.help);
-  else {const value=await command.run(args.slice(command.verb?2:1));if(value!==undefined)console.log(JSON.stringify(value))}
+  else {const value=await command.run(args.slice(command.verb?2:1));if(typeof value==='number')process.exitCode=value;else if(value!==undefined)console.log(JSON.stringify(value))}
 } catch(e) {console.error(`ERROR benzo ${(e as Error).message}`);process.exitCode=1}

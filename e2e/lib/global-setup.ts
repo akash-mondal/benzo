@@ -16,6 +16,7 @@ export default function globalSetup() {
   rmSync(path.join(E2E, "results"), { recursive: true, force: true });
   mkdirSync(path.join(E2E, "out"), { recursive: true });
   writeFileSync(path.join(E2E, "start.txt"), new Date().toISOString());
+  writeFileSync(path.join(E2E,"start-commit.txt"),execFileSync("git",["rev-parse","HEAD"],{cwd:ROOT}).toString().trim());
   execFileSync("npm", ["run", "--silent", "build:seal"], { cwd: ROOT, stdio: ["ignore", "ignore", "inherit"] });
   if (process.env.BNZ_LIVE === "1") {
     execFileSync("npm", ["run", "--silent", "build:cli"], {cwd:ROOT,stdio:["ignore","ignore","inherit"]});

@@ -7,7 +7,7 @@ import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, 
 import {clear, type Opened} from "./core";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
-type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; frozen?:Frozen; opened?:Opened[]; result?:ReturnType<typeof clear>; trace:{operation:string; time:number}[]};
+type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; frozen?:Frozen; opened?:Opened[]; beacon?:{round:number;signature:string;chain_hash:string}; result?:ReturnType<typeof clear>; trace:{operation:string; time:number}[]};
 const root=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
 for (const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/); if(m && process.env[m[1]]===undefined)process.env[m[1]]=m[2];
@@ -88,6 +88,7 @@ try {
       requireThat(ledger.frozen,"no frozen set"); checkFrozen(ledger.frozen!,id,manifest_hash);
       const beacon=await fetch(`${process.env.BNZ_DRAND_URLS!.split(",")[0]}/${QUICKNET.chain_hash}/public/${m.drand.R}`);
       requireThat(beacon.ok,"drand unavailable at opening");
+      const b=await beacon.json() as {round:number;signature:string};requireThat(b.round===m.drand.R && /^[0-9a-f]{96}$/.test(b.signature),"drand opening beacon round/signature");ledger.beacon={round:b.round,signature:b.signature,chain_hash:QUICKNET.chain_hash};
       ledger.opened=ledger.leaves.map(l=> {
         if(!notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height))return {leaf_index:l.leaf_index,plaintext_hex:null,error:"reorg"};
         const ct=path.join(dir,`${id}-${l.leaf_index}.age`), pt=path.join(dir,`${id}-${l.leaf_index}.bin`); writeFileSync(ct,Buffer.from(l.ciphertext_hex,"hex"),{mode:0o600});

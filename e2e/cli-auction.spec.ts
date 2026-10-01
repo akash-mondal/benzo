@@ -18,7 +18,7 @@ const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const fresh=(name:string)=>z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['address',path.join(STATE,name)]).trim();
 function cli(args:string[],input?:any) {
   const p=spawnSync(path.join(ROOT,'bin/benzo'),args,{input:input===undefined?undefined:JSON.stringify(input),encoding:'utf8',maxBuffer:64<<20});
-  if(p.error)throw p.error;return {code:p.status,error:p.stderr,value:p.status===0?JSON.parse(p.stdout):null};
+  if(p.error)throw p.error;return {code:p.status,error:p.stderr,value:p.status===0?(p.stdout.trim().startsWith('{')||p.stdout.trim().startsWith('[')?JSON.parse(p.stdout):p.stdout):null};
 }
 function good(args:string[],input?:any) {const r=cli(args,input);if(r.code)throw Error(r.error);return r.value}
 async function mature(txid:string) {
@@ -44,6 +44,10 @@ async function cleanup() {
 }
 test('CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery',async()=> {
   test.setTimeout(90*60_000);const run=new Run('cli-auction');
+  const pins=Object.fromEntries(readFileSync(path.join(ROOT,'tools/pins.env'),'utf8').split('\n').map(l=>l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter(Boolean).map(m=>[m![1],m![2]]));
+  const installed=execFileSync('cargo',['install','--list','--root',STATE],{encoding:'utf8'});
+  for(const name of ['zcash-devtool','frostd','frost-client','zcash-sign'])if(!installed.split('\n').some(l=>l.startsWith(name+' v')&&l.includes('?rev='+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']+'#')))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
+  for(const [name,module,tag] of [['tle','github.com/drand/tlock',pins.TLE_TAG],['grpcurl','github.com/fullstorydev/grpcurl',pins.GRPCURL_TAG]])if(!execFileSync('go',['version','-m',path.join(STATE,'bin',name)],{encoding:'utf8'}).includes('\tmod\t'+module+'\t'+tag+'\t'))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
   for(const file of ['vault/data.sqlite','frost/alice.toml','frost/bob.toml','frost/carol.toml','ufvk.txt'])if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
   try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of [env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')])z.tip(e)}catch(e){run.notRun(IDS,String(e))}
   z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');
@@ -121,22 +125,22 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     await run.check('Q1','two inspected signers join through CLI and complete FROST',()=>{expect.soft(sessions.length).toBeGreaterThan(0);for(const s of sessions){expect.soft(s.signature).toMatch(/^[0-9a-f]{128}$/);expect.soft(s.participantsSaw).toEqual([s.sighash,s.sighash]);expect.soft(s.signers).toHaveLength(2)}});
     await run.check('T5','Alice remains offline while Bob and Carol sign',()=>{expect.soft(settlement.offline_signer).toBe('alice');for(const s of sessions){expect.soft(s.signers).toEqual([pubkey('bob'),pubkey('carol')]);expect.soft(s.signers).not.toContain(pubkey('alice'))}});
     const cold=path.join(ROOT,'tmp/e2e/cold',id);cpSync(publicDir,cold,{recursive:true});
-    const verified=cli(['verify','--dir',cold,'--signer',signer]);
-    const shown=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash]);
+    const verified=cli(['verify',cold]);
+    const shown=cli(['receipt','show',cold,frozen.leaves[0].ciphertext_hash]);
     await run.check('P2','receipt show and verify agree on inclusion and settlement fields',()=>{expect.soft(shown.code).toBe(0);expect.soft(verified.code).toBe(0);expect.soft(JSON.stringify(shown.value)).toContain(settlement.receipts.find((r:any)=>r.party==='leaf:0')?.txid);expect.soft(JSON.stringify(shown.value)).toContain(frozen.leaves[0].ciphertext_hash)});
-    const corruptDir=path.join(ROOT,'tmp/e2e/corrupt',id);cpSync(cold,corruptDir,{recursive:true});const badDoc=json(path.join(corruptDir,'auction.json'));badDoc.settlement.rows[0].amount_zats=String(BigInt(badDoc.settlement.rows[0].amount_zats)+1n);writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badDoc));const badTotals=cli(['verify','--dir',corruptDir,'--signer',signer]);
-    const badRoot={...doc,frozen:{...doc.frozen,root:'00'.repeat(32)}};writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badRoot));writeFileSync(path.join(corruptDir,'frozen.json'),JSON.stringify(badRoot.frozen));const rootRefusal=cli(['verify','--dir',corruptDir,'--signer',signer]);
+    const corruptDir=path.join(ROOT,'tmp/e2e/corrupt',id);cpSync(cold,corruptDir,{recursive:true});const badDoc=json(path.join(corruptDir,'auction.json'));badDoc.settlement.rows[0].amount_zats=String(BigInt(badDoc.settlement.rows[0].amount_zats)+1n);writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badDoc));writeFileSync(path.join(corruptDir,'summary.json'),JSON.stringify(badDoc.settlement));const badTotals=cli(['verify',corruptDir]);
+    const badRoot={...doc,frozen:{...doc.frozen,root:'00'.repeat(32)}};writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badRoot));writeFileSync(path.join(corruptDir,'frozen.json'),JSON.stringify(badRoot.frozen));const rootRefusal=cli(['verify',corruptDir]);
     await run.check('R1','cold public verification passes and corrupt amounts/root fail specifically',()=>{expect.soft(verified.code).toBe(0);expect.soft(badTotals.code).not.toBe(0);expect.soft(badTotals.error).toMatch(/ERROR.*(amount|total|ledger)/);expect.soft(rootRefusal.code).not.toBe(0);expect.soft(rootRefusal.error).toMatch(/ERROR.*(root|freeze)/)});
     await run.check('S1','read API returns opaque operator data, exact result and rejects manifest flip',async()=> {
       api=spawn(process.execPath,[path.join(ROOT,'api/dist/server.mjs'),'--dir',publicDir,'--port','8787'],{stdio:['ignore','pipe','pipe']});
       let ready=false;await new Promise<void>((resolve,reject)=>{api.on('error',reject);api.stdout.on('data',()=>{ready=true;resolve()});api.on('close',()=>{if(!ready)reject(Error('API exited before ready'))})});
-      const base=`http://127.0.0.1:8787/auction/${id}`;const operator=await fetch(base+'/operator').then(r=>r.json());const apiResult=await fetch(base+'/result').then(r=>r.json());
-      apiData={operator,result:apiResult,auction:await fetch(base).then(r=>r.json()),freeze:await fetch(base+'/freeze').then(r=>r.json()),receipt:await fetch(base+'/receipt/'+frozen.leaves[0].ciphertext_hash).then(r=>r.json())};
+      const root='http://127.0.0.1:8787',base=root+`/auction/${id}`;const operator=await fetch(root+'/operator').then(r=>r.json());const apiResult=await fetch(root+'/result').then(r=>r.json());
+      apiData={operator,result:apiResult,auction:await fetch(base).then(r=>r.json()),freeze:await fetch(root+'/freeze').then(r=>r.json()),receipt:await fetch(root+'/receipt/'+frozen.leaves[0].ciphertext_hash).then(r=>r.json())};
       expect.soft(JSON.stringify(operator)).not.toMatch(/price_zats|quantity|plaintext_hex/);expect.soft(JSON.stringify(operator)).toContain(String(C));expect.soft(apiResult).toEqual(result);
       writeFileSync(path.join(publicDir,'manifest.json'),JSON.stringify(corrupted));const response=await fetch(base);expect.soft(response.ok).toBe(false);writeFileSync(path.join(publicDir,'manifest.json'),manifestBytes);write('cli/api.json',JSON.stringify(apiData)+'\n');
     });
     await run.check('T2','public document, evidence and API expose no recipient-derived values',()=>{expect.soft(apiData).toBeDefined();const serialized=JSON.stringify({doc,api:apiData});expect.soft(serialized).not.toMatch(/recipient_hash|routing_hash|refund_ua|seller_ua/);for(const address of refund){expect.soft(serialized).not.toContain(address);expect.soft(serialized).not.toContain(sha(address))}for(const r of settlement.receipts)expect.soft(Object.keys(r).sort()).toEqual(['auction_id','party','txid','pool','output_index','amount_zats'].sort())});
-    write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
+    write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
     write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');
   } finally {if(paused)process.kill(paused,'SIGCONT');if(active){process.kill(-active.p.pid!,'SIGKILL');await active.done}if(api)api.kill();try{await cleanup()}finally{stop()}}
 });

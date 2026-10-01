@@ -4,3 +4,5 @@ const options={bundle:true,platform:'node',format:'esm',packages:'external',logL
 mkdirSync('cli/dist/commands',{recursive:true});
 await build({...options,entryPoints:['cli/benzo.ts'],outfile:'cli/dist/benzo.mjs'});
 for(const file of readdirSync('cli/commands').filter(f=>f.endsWith('.ts')))await build({...options,entryPoints:['cli/commands/'+file],outfile:'cli/dist/commands/'+file.replace(/\.ts$/,'.mjs')});
+
+mkdirSync('api/dist',{recursive:true});await build({...options,entryPoints:['api/server.ts'],outfile:'api/dist/server.mjs'});

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Benzo public auction directory v1",
-  "description": "The directory contains auction.json, the complete public document defined here, plus byte-identical manifest.json, frozen.json and result.json projections when available. Ciphertexts and witnesses are in frozen.leaves and frozen.paths. Manifest signer must be trusted out of band; decoding bytes uses manifest/schema.ts validation. Private routing, address-derived hashes, opening plaintexts, keys, UFVKs, PCZTs and wallets are forbidden. Amounts are decimal zatoshis. Deposit addresses identify escrow deposits, never refund destinations. Receipts contain only the six settlement fields. Export atomically refreshes auction.json after each lifecycle action.",
+  "description": "The directory contains auction.json, the complete public document defined here, plus byte-identical manifest.json, frozen.json and result.json projections when available. After release, opened and beacon are public. Ciphertexts and witnesses are in frozen.leaves and frozen.paths. Manifest signer must be trusted out of band; decoding bytes uses manifest/schema.ts validation. Private routing, address-derived hashes, keys, UFVKs, PCZTs and wallets are forbidden. Amounts are decimal zatoshis. Deposit addresses identify escrow deposits, never refund destinations. Receipts contain only the six settlement fields. Export atomically refreshes auction.json after each lifecycle action.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -53,6 +53,56 @@
     },
     "settlement": {
       "$ref": "#/$defs/settlement"
+    },
+    "opened": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "leaf_index",
+          "plaintext_hex"
+        ],
+        "properties": {
+          "leaf_index": {
+            "$ref": "#/$defs/uint"
+          },
+          "plaintext_hex": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]*$"
+          },
+          "error": {
+            "enum": [
+              "reorg",
+              "undecryptable"
+            ]
+          }
+        }
+      }
+    },
+    "beacon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "round",
+        "signature",
+        "chain_hash"
+      ],
+      "properties": {
+        "round": {
+          "$ref": "#/$defs/uint"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{96}$"
+        },
+        "chain_hash": {
+          "$ref": "#/$defs/hash"
+        }
+      }
     }
   },
   "$defs": {

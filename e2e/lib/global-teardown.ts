@@ -24,7 +24,7 @@ export default function globalTeardown() {
     for (const d of RUN_DIRS) if (existsSync(path.join(OUT, d))) cpSync(path.join(OUT, d), path.join(dest, d), { recursive: true });
   }
   const hashed = [...files(path.join(dest, "setup")), ...RUN_DIRS.flatMap((d) => files(path.join(dest, d)))];
-  const cliBuilt=files(path.join(ROOT,"cli/dist")).map(p=>path.relative(ROOT,p));
+  const cliBuilt=[...files(path.join(ROOT,"cli/dist")),...files(path.join(ROOT,"api/dist"))].map(p=>path.relative(ROOT,p));
   const built = [...cliBuilt,"seal/dist/index.html", "seal/dist/main.js", "scan/target/release/benzo-scan", "manifest/dist/cli.mjs", "clear/dist/cli.mjs", "clear/dist/auction.mjs", "settle/dist/cli.mjs", "settle/dist/plan.mjs", "settle/target/release/benzo-pczt"].filter((p) => existsSync(path.join(ROOT, p)));
   const tools = execFileSync("cargo", ["install", "--list", "--root", STATE]).toString().split("\n").filter((l) => /^\S/.test(l));
   for (const t of ["tle", "grpcurl"])
@@ -34,7 +34,7 @@ export default function globalTeardown() {
     tools.push(`${name} ${packages[`node_modules/${name}`].version}`);
   const run = {
     command: process.env.BNZ_LIVE === "1" ? "npm run e2e:live" : "npm run e2e",
-    commit: execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT }).toString().trim(),
+    commit: existsSync(path.join(E2E,"start-commit.txt"))?readFileSync(path.join(E2E,"start-commit.txt"),"utf8"):execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT }).toString().trim(),
     start_utc: readFileSync(path.join(E2E, "start.txt"), "utf8"),
     end_utc: new Date().toISOString(),
     results,
