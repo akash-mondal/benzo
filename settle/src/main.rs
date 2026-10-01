@@ -7,7 +7,7 @@ use pczt::{Pczt, roles::verifier::{Verifier, OrchardError}};
 use rand::rngs::OsRng;
 use serde_json::{json, Value};
 use zcash_address::ZcashAddress;
-use zcash_client_backend::{data_api::{WalletRead, wallet::{ConfirmationsPolicy, create_pczt_from_proposal, input_selection::{GreedyInputSelector, SpendPolicy}, propose_transfer}}, fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, standard::MultiOutputChangeStrategy}, wallet::OvkPolicy};
+use zcash_client_backend::{data_api::{WalletRead, WalletWrite, wallet::{ConfirmationsPolicy, create_pczt_from_proposal, input_selection::{GreedyInputSelector, SpendPolicy}, propose_transfer}}, fees::{DustOutputPolicy, SplitPolicy, StandardFeeRule, standard::MultiOutputChangeStrategy}, wallet::OvkPolicy};
 use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::{address::Address, keys::UnifiedFullViewingKey};
 use zcash_protocol::{consensus::Network, ShieldedPool, value::Zatoshis};
@@ -31,6 +31,14 @@ fn create(wallet: &str, output: &str) -> anyhow::Result<()> {
     let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Sender,&proposal,None,zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
     std::fs::write(output,pczt.serialize().map_err(|e|anyhow!("serialization: {e:?}"))?)?;
     Ok(())
+}
+// source: zcash/zcash-devtool@5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8:src/commands/wallet/gen_addr.rs
+fn address(wallet: &str) -> anyhow::Result<()> {
+    use zcash_keys::keys::UnifiedAddressRequest;
+    let mut db=WalletDb::for_path(Path::new(wallet).join("data.sqlite"),Network::TestNetwork,SystemClock,OsRng)?;
+    let accounts=db.get_account_ids()?;ensure!(accounts.len()==1,"wallet must have one account");
+    let (ua,_)=db.get_next_available_address(accounts[0],UnifiedAddressRequest::ORCHARD)?.context("no shielded address")?;
+    println!("{}",ua.encode(&Network::TestNetwork));Ok(())
 }
 fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
     let pczt=Pczt::parse(&std::fs::read(file)?).map_err(|e|anyhow!("PCZT parse: {e:?}"))?;
@@ -78,6 +86,7 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
 fn main() -> anyhow::Result<()> {
     let args: Vec<_>=std::env::args().collect();
     match args.get(1).map(String::as_str) {
+        Some("address") if args.len()==3=>address(&args[2]),
         Some("create") if args.len()==4=>create(&args[2],&args[3]),
         Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
         _=>Err(anyhow!("usage: benzo-pczt create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file>"))

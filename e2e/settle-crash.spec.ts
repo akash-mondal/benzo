@@ -14,6 +14,7 @@ import {serveSealer,sealBid} from "./lib/sealer";
 import {pubkey,startFrostd,zcashSign} from "./lib/frost";
 import * as z from "./lib/zcash";
 const IDS=["J1","J2","K1","L1","M1","N1"],C=Number(env("BNZ_COLLATERAL_ZATS")),ALT=env("BNZ_LWD_URL_ALT"),MINE=30*60_000;
+const freshAddress=(wallet:string)=>z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["address",path.join(STATE,wallet)]).trim();
 const sha=(v:Buffer|string)=>createHash("sha256").update(v).digest("hex");
 const bytes=(v:any)=>JSON.stringify(v)+"\n";
 function cli(file:string,args:string[],input:any={},extra:any={}) {
@@ -53,7 +54,7 @@ async function recovery() {
   z.sync("vault");if(!z.balance("vault").total)return;
   const dir=path.join(STATE,"run",`settle-recovery-${Date.now()}`);mkdirSync(dir,{recursive:true,mode:0o700});
   const created=path.join(dir,"created.pczt"),proven=path.join(dir,"proven.pczt"),signed=path.join(dir,"signed.pczt");
-  z.pczt("vault","create-max","--address",z.generateAddress("bidder"),"--output",created);z.pczt("vault","prove",created,"--output",proven);
+  z.pczt("vault","create-max","--address",freshAddress("bidder"),"--output",created);z.pczt("vault","prove",created,"--output",proven);
   await zcashSign(proven,signed);const txid=z.send(signed);
   await waitFor({height:1,tip:()=>{z.sync("vault");return JSON.parse(z.wallet("vault","list-tx","--json")).find((t:any)=>t.txid===txid)?.mined_height??0}},Date.now()+MINE);
   z.sync("bidder");z.sync("vault");console.log(`development-only fund recovery ${txid}`);
@@ -83,7 +84,7 @@ test("settlement survives a worker crash and drand outage with one signer offlin
   try {
     const now=Math.ceil(Date.now()/1000),release=now+22*60,R=1+Math.ceil((release-Number(env("BNZ_DRAND_GENESIS")))/3);
     const id=randomBytes(32).toString("hex"),cancel=randomBytes(32).toString("hex"),price=100+10*randomBytes(1)[0],clearPrice=price+10;
-    const addresses=Array.from({length:8},()=>z.generateAddress("vault")),refunds=Array.from({length:8},()=>z.generateAddress("bidder"));
+    const addresses=Array.from({length:8},()=>freshAddress("vault")),refunds=Array.from({length:8},()=>freshAddress("bidder"));
     const key=path.join(STATE,"auction/manifest-signing.pem"),signer=cli("manifest/dist/cli.mjs",["public",key]).value.signer;
     const manifest=(auction_id:string,addrs:string[],cancelled=false)=>({version:1,network:"test",auction_id,escrow_ua:addrs[0],frost_group_key:readFileSync(path.join(STATE,"group-key.txt"),"utf8").trim(),lot:"settlement testnet drill",supply:2,reserve_zats:"10",tick_zats:"10",B_max_zats:"3000",q_max:1,C_zats:String(C),fee_zats:"0",deposit_addresses:addrs,drand:{chain_hash:env("BNZ_DRAND_CHAIN_HASH"),public_key:env("BNZ_DRAND_PUBLIC_KEY"),scheme:"bls-unchained-g1-rfc9380",genesis:Number(env("BNZ_DRAND_GENESIS")),period:3,R:cancelled?R+1960:R},T_submit:now+(cancelled?90:4)*60,T_freeze:now+(cancelled?106:20)*60,confirmations:10,clearing:{mode:"uniform",band:"floor_pro_rata_units",dust:"ascending_leaf_index",tie:"ascending_leaf_index",minimum_fill:1},refund:{invalid:"C_minus_fee",reorg:"C_minus_fee_remove_leaf",cancel:"full_C"},freeze:"merkle_root_v1"});
     const packets=[cli("manifest/dist/cli.mjs",["sign",key],manifest(id,addresses.slice(0,4))).value,cli("manifest/dist/cli.mjs",["sign",key],manifest(cancel,addresses.slice(4,6),true)).value];
