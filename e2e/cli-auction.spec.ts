@@ -45,7 +45,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
   test.setTimeout(90*60_000);const run=new Run('cli-auction');
   for(const file of ['vault/data.sqlite','frost/alice.toml','frost/bob.toml','frost/carol.toml','ufvk.txt'])if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
   try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of [env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')])z.tip(e)}catch(e){run.notRun(IDS,String(e))}
-  z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid))run.notRun(IDS,'vault not empty; reconcile before funding');
+  z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');
   if(z.spendable(z.balance('bidder'))-10*C-200000<3*C+40000)run.notRun(IDS,'drill would cross bidder floor; Needs user funds');
   const stop=await startFrostd();let active:ReturnType<typeof worker>|undefined,paused:number|undefined,api:any;
   try {
