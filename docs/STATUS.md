@@ -2,7 +2,7 @@
 
 ## Phase 4 ([PHASE-4.md](PHASE-4.md)): Track A IN PROGRESS
 
-Updated: 2026-10-01T17:17:19Z. Builder A on main. AGENTS.md and Phase 1–4 read; Phase 1–3 PASSED by committed head rulings. Phase 4 R1–R20 author-checked, latest 48fa81f. Never touched the other checkout or Track B-owned files. Baseline `npm run e2e` PASS (41s), `tmp/e2e/phase4-baseline.log`.
+Updated: 2026-10-01T18:18:01Z. Builder A on main. AGENTS.md and Phase 1–4 read; Phase 1–3 PASSED by committed head rulings. Phase 4 R1–R20 author-checked, latest 48fa81f. Never touched the other checkout or Track B-owned files. Baseline `npm run e2e` PASS (41s), `tmp/e2e/phase4-baseline.log`.
 
 Plan: shared schema first (ba18805, done); shipped CLI router/A commands (6f629e8, implemented); T1–T5/R6–R9 carry-overs; one cli-auction spec/U1–U5; after B follow-up merge, clean evidence + positive/corrupt verifier + all five specs at one commit. O/P/Q/T IN PROGRESS (development all IDs PASS except P2/R1 blocked on B flags). R/S owned by B, initial merge affdb97; R16/R18/R20 follow-up pending. No gate evidence or READY claim yet.
 
@@ -24,7 +24,7 @@ Evidence work: verifier shell/JS syntax checked, actual positive/corrupt runs pe
 
 2026-10-01T17:42:16Z: run recorder now captures selected Playwright arguments for R8 project-by-project regression; typecheck PASS. Regression/mutation runs still pending, no new assertions.
 
-Next independent work: cheapest carry-over N1 on auction-core, then P1 on settle-crash, before final same-commit R8 regression. Source00425c1 pins cap13/normal312 and build/typecheck PASS. Mutation runs have no BNZ_EVIDENCE_DIR.
+N1 regression mutation ACTIVE at clean base3174c60: BNZ_LIVE=1 node node_modules/.bin/playwright test --project=auction-core; tmp/e2e/phase4-N1-regression.log. ERROR E1 observed, full live stages/cleanup and reversal pending; manifest/schema.ts is intentionally patched. Then P1 on settle-crash before final same-commit R8 regression. Source00425c1 pins cap13/normal312 and build/typecheck PASS. Mutation runs have no BNZ_EVIDENCE_DIR.
 
 Needs user: none. Head: merge B follow-up per R20; Q14 lifecycle API finding below. Gates and final evidence/regression/mutation audits remain owed.
 
