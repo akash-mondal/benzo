@@ -13,26 +13,31 @@ export type SettlementSummary = {
   rows?: { party: string; amount_zats: string; state?: string }[];
   receipts?: SettlementReceipt[];
 };
+export type PublicResult = {
+  auction_id: string; manifest_hash: string; freeze_root: string; mode: string;
+  clearing_price_zats: string;
+  allocations: { leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string }[];
+  conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string };
+};
+// Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
+// yet. Readers that must run past freeze (benzo verify) use loadCompletePublicAuction instead.
 export type PublicAuction = {
   dir: string;
   signer: string;
   legacy: boolean;
+  state: string;
   manifestPacket: Signed;
   manifest: Manifest;
   manifest_hash: string;
-  frozen: Frozen;
+  frozen: Frozen | null;
   opened: Opened[];
   beacon: Beacon | null;
-  result: {
-    auction_id: string; manifest_hash: string; freeze_root: string; mode: string;
-    clearing_price_zats: string;
-    allocations: { leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string }[];
-    conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string };
-  };
-  resultBytes: Buffer;
+  result: PublicResult | null;
+  resultBytes: Buffer | null;
   receipts: Signed[];
   settlement: SettlementSummary | null;
 };
+export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: PublicResult; resultBytes: Buffer };
 export type Check = { id: string; error?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
@@ -56,9 +61,9 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     return opts.signer ?? claimed;
   };
   const legacy = !existsSync(path.join(root, "auction.json"));
-  let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string;
-  let frozen: Frozen, opened: Opened[], beacon: Beacon | null;
-  let resultBytes: Buffer, result: PublicAuction["result"], receipts: Signed[], settlement: SettlementSummary | null;
+  let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string, state: string;
+  let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
+  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], settlement: SettlementSummary | null;
   if (!legacy) {
     // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
     const doc = JSON.parse(text("auction.json"));
@@ -66,19 +71,20 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     requireThat(Object.keys(doc).every(k => canonicalKeys.has(k)) && doc.version === 1, "auction.json schema");
     requireThat(/^[0-9a-f]{64}$/.test(String(doc.auction_id)), "auction id");
     requireThat(typeof doc.state === "string" && states.has(doc.state), "state");
+    state = doc.state;
     signer = anchor(String(doc.signer));
     manifestPacket = doc.manifest as Signed;
     ({ manifest, manifest_hash } = client(manifestPacket, signer));
     requireThat(doc.auction_id === manifest.auction_id, "auction id binding");
     requireThat(Array.isArray(doc.receipts), "receipts");
-    frozen = doc.frozen as Frozen;
-    result = doc.result as PublicAuction["result"];
-    requireThat(frozen && typeof frozen === "object", "missing frozen");
-    requireThat(result && typeof result === "object", "missing result");
+    requireThat(doc.frozen === undefined || (doc.frozen && typeof doc.frozen === "object"), "frozen");
+    requireThat(doc.result === undefined || (doc.result && typeof doc.result === "object"), "result");
+    frozen = (doc.frozen ?? null) as Frozen | null;
+    result = (doc.result ?? null) as PublicResult | null;
     if (openedStates.has(doc.state)) requireThat(Array.isArray(doc.opened) && doc.beacon, "opened/beacon required from OPENED");
     opened = Array.isArray(doc.opened) ? (doc.opened as Opened[]) : [];
     beacon = readBeacon(doc.beacon ?? null, manifest);
-    resultBytes = jsonBytes(doc.result);
+    resultBytes = result ? jsonBytes(doc.result) : null;
     receipts = doc.receipts as Signed[];
     settlement = (doc.settlement ?? null) as SettlementSummary | null;
   } else {
@@ -95,15 +101,25 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       manifest,
     );
     resultBytes = file("result.json");
-    result = JSON.parse(resultBytes.toString("utf8")) as PublicAuction["result"];
+    result = JSON.parse(resultBytes.toString("utf8")) as PublicResult;
     receipts = existsSync(path.join(root, "receipts.json"))
       ? (JSON.parse(text("receipts.json")) as Signed[])
       : [];
     settlement = existsSync(path.join(root, "summary.json"))
       ? (JSON.parse(text("summary.json")) as SettlementSummary)
       : null;
+    // Legacy evidence dirs carry no state field; derive it from the artifacts they do carry.
+    state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
   }
-  return { dir: root, signer, legacy, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, settlement };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, settlement };
+}
+
+// Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
+export function loadCompletePublicAuction(dir: string, opts: { signer?: string } = {}): CompletePublicAuction {
+  const pub = loadPublicAuction(dir, opts);
+  requireThat(pub.frozen, "missing frozen");
+  requireThat(pub.result, "missing result");
+  return pub as CompletePublicAuction;
 }
 
 // The published drand beacon (R16) is a public input; bind it to the signed manifest before any use.
@@ -120,7 +136,7 @@ function readBeacon(raw: unknown, manifest: Manifest): Beacon | null {
 
 const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
 
-function obligations(result: PublicAuction["result"]): Map<string, string> {
+function obligations(result: PublicResult): Map<string, string> {
   const map = new Map<string, string>();
   for (const a of result.allocations) if (BigInt(a.refund_zats) > 0n) map.set(`leaf:${a.leaf_index}`, a.refund_zats);
   if (BigInt(result.conservation.payout_zats) > 0n) map.set("seller", result.conservation.payout_zats);
@@ -134,51 +150,66 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     catch (e) { checks.push({ id, error: (e as Error).message }); }
   };
   // Canonical dirs carry byte-identical manifest.json, frozen.json and result.json projections (schema description).
+  // A projection for a field the document does not carry is refused as loudly as a differing one.
   const projection = (name: string, value: unknown): void => {
     if (pub.legacy) return;
     const p = path.join(pub.dir, name);
+    if (value === null || value === undefined) {
+      requireThat(!existsSync(p), `${name} projection without document field`);
+      return;
+    }
     if (existsSync(p)) requireThat(jsonBytes(value).equals(readFileSync(p)), `${name} projection differs`);
   };
+  // Checks apply to the fields the current state carries (R21 item 5): manifest always, freeze/receipts
+  // once frozen, clear/accounting once result. A pre-freeze dir is valid when its manifest is.
   run("manifest", () => {
     const again = client(pub.manifestPacket, pub.signer);
     requireThat(again.manifest_hash === pub.manifest_hash, "manifest hash changed");
-    requireThat(pub.result.auction_id === pub.manifest.auction_id && pub.result.manifest_hash === pub.manifest_hash, "result manifest binding");
+    if (pub.result) requireThat(pub.result.auction_id === pub.manifest.auction_id && pub.result.manifest_hash === pub.manifest_hash, "result manifest binding");
     projection("manifest.json", pub.manifestPacket);
   });
   run("freeze", () => {
-    checkFrozen(pub.frozen, pub.manifest.auction_id, pub.manifest_hash);
-    requireThat(pub.frozen.published_at < pub.manifest.T_freeze, "freeze published too late");
-    requireThat(pub.frozen.published_at < releaseTime(pub.manifest), "freeze published after release");
-    for (const [i, l] of pub.frozen.leaves.entries()) {
+    const frozen = pub.frozen;
+    if (!frozen) return projection("frozen.json", null);
+    checkFrozen(frozen, pub.manifest.auction_id, pub.manifest_hash);
+    requireThat(frozen.published_at < pub.manifest.T_freeze, "freeze published too late");
+    requireThat(frozen.published_at < releaseTime(pub.manifest), "freeze published after release");
+    for (const [i, l] of frozen.leaves.entries()) {
       requireThat(l.leaf_index === i, `leaf order ${i}`);
       requireThat(
-        member(l.ciphertext_hash, l.deposit, i, pub.frozen.leaf_count, pub.frozen.paths[i] ?? [], pub.frozen.root),
+        member(l.ciphertext_hash, l.deposit, i, frozen.leaf_count, frozen.paths[i] ?? [], frozen.root),
         `witness ${i}`,
       );
     }
-    requireThat(pub.frozen.root === pub.result.freeze_root, "result freeze root");
-    projection("frozen.json", pub.frozen);
+    if (pub.result) requireThat(frozen.root === pub.result.freeze_root, "result freeze root");
+    projection("frozen.json", frozen);
   });
   run("receipts", () => {
+    if (!pub.frozen) return;
     for (const [i, packet] of pub.receipts.entries()) {
       requireThat(receiptMember(packet, pub.frozen, pub.signer), `receipt ${i} not a member`);
     }
   });
   run("clear", () => {
-    const fresh = clear({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen, opened: pub.opened });
-    requireThat(jsonBytes(fresh).equals(pub.resultBytes), "canonical result differs");
-    projection("result.json", pub.result);
+    const result = pub.result, resultBytes = pub.resultBytes;
+    if (!result || !resultBytes) return projection("result.json", null);
+    requireThat(pub.frozen, "missing frozen");
+    const fresh = clear({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened });
+    requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
+    projection("result.json", result);
   });
   // R20c: result obligations and stray-deposit obligations (T1) are checked in separate passes, so one
   // class can never mask the other. Strays never gate the result checks and vice versa.
   run("accounting", () => {
-    const c = pub.result.conservation;
+    const result = pub.result;
+    if (!result) return;
+    const c = result.conservation;
     requireThat(
       BigInt(c.input_zats) === BigInt(c.payout_zats) + BigInt(c.refund_zats) + BigInt(c.fees_zats),
       "conservation",
     );
     const fee = BigInt(pub.manifest.fee_zats), C = BigInt(pub.manifest.C_zats);
-    for (const a of pub.result.allocations) {
+    for (const a of result.allocations) {
       requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
     }
     if (!pub.settlement) return;
@@ -187,7 +218,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     for (const [i, r] of receipts.entries()) {
       requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
     }
-    const expected = obligations(pub.result);
+    const expected = obligations(result);
     for (const [party, amount] of expected) {
       const rs = receipts.filter(r => r.party === party);
       requireThat(rs.length > 0, `settlement missing obligation ${party}`);
@@ -201,7 +232,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     }
   });
   run("accounting-strays", () => {
-    if (!pub.settlement) return;
+    if (!pub.settlement || !pub.result) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
     const expected = obligations(pub.result);
@@ -239,12 +270,15 @@ export function operatorView(pub: PublicAuction): {
   auction_id: string; C_zats: string; count: number; total_collateral_zats: string;
   blobs: { leaf_index: number; ciphertext_hash: string; ciphertext_hex: string }[];
 } {
+  // Pre-freeze there is no frozen set to take blobs from; counts track admitted receipts instead (R21 item 5).
+  const leaves = pub.frozen?.leaves ?? [];
+  const count = pub.frozen ? pub.frozen.leaf_count : pub.receipts.length;
   return {
     auction_id: pub.manifest.auction_id,
     C_zats: pub.manifest.C_zats,
-    count: pub.frozen.leaf_count,
-    total_collateral_zats: (BigInt(pub.manifest.C_zats) * BigInt(pub.frozen.leaf_count)).toString(),
-    blobs: pub.frozen.leaves.map(l => ({
+    count,
+    total_collateral_zats: (BigInt(pub.manifest.C_zats) * BigInt(count)).toString(),
+    blobs: leaves.map(l => ({
       leaf_index: l.leaf_index,
       ciphertext_hash: l.ciphertext_hash,
       ciphertext_hex: l.ciphertext_hex,
@@ -253,20 +287,26 @@ export function operatorView(pub: PublicAuction): {
 }
 
 export function freezeBoard(pub: PublicAuction): {
-  auction_id: string; manifest_hash: string; root: string; leaf_count: number;
-  cutoff: number; published_at: number;
+  auction_id: string; manifest_hash: string; frozen: boolean; root: string | null; leaf_count: number;
+  cutoff: number | null; published_at: number | null;
   leaves: { leaf_index: number; ciphertext_hash: string }[];
   paths: { side: string; hash: string }[][];
 } {
+  const frozen = pub.frozen;
+  if (!frozen) return {
+    auction_id: pub.manifest.auction_id, manifest_hash: pub.manifest_hash, frozen: false,
+    root: null, leaf_count: 0, cutoff: null, published_at: null, leaves: [], paths: [],
+  };
   return {
-    auction_id: pub.frozen.auction_id,
-    manifest_hash: pub.frozen.manifest_hash,
-    root: pub.frozen.root,
-    leaf_count: pub.frozen.leaf_count,
-    cutoff: pub.frozen.cutoff,
-    published_at: pub.frozen.published_at,
-    leaves: pub.frozen.leaves.map(l => ({ leaf_index: l.leaf_index, ciphertext_hash: l.ciphertext_hash })),
-    paths: pub.frozen.paths,
+    auction_id: frozen.auction_id,
+    manifest_hash: frozen.manifest_hash,
+    frozen: true,
+    root: frozen.root,
+    leaf_count: frozen.leaf_count,
+    cutoff: frozen.cutoff,
+    published_at: frozen.published_at,
+    leaves: frozen.leaves.map(l => ({ leaf_index: l.leaf_index, ciphertext_hash: l.ciphertext_hash })),
+    paths: frozen.paths,
   };
 }
 
@@ -274,8 +314,10 @@ export function receiptShow(pub: PublicAuction, ciphertextHash: string, packet?:
   inclusion: Record<string, unknown>;
   settlement: SettlementReceipt | null;
 } {
+  requireThat(pub.frozen, "missing frozen");
+  const frozen = pub.frozen as Frozen;
   requireThat(/^[0-9a-f]{64}$/.test(ciphertextHash), "ciphertext hash");
-  const leaf = pub.frozen.leaves.find(l => l.ciphertext_hash === ciphertextHash);
+  const leaf = frozen.leaves.find(l => l.ciphertext_hash === ciphertextHash);
   requireThat(leaf, "ciphertext not in frozen set");
   let signed: Record<string, unknown> | null = null;
   if (packet) {
@@ -283,7 +325,7 @@ export function receiptShow(pub: PublicAuction, ciphertextHash: string, packet?:
     requireThat(signed.ciphertext_hash === ciphertextHash, "receipt ciphertext hash");
     requireThat(signed.leaf_index === leaf!.leaf_index, "receipt leaf index");
   }
-  const included = member(leaf!.ciphertext_hash, leaf!.deposit, leaf!.leaf_index, pub.frozen.leaf_count, pub.frozen.paths[leaf!.leaf_index] ?? [], pub.frozen.root);
+  const included = member(leaf!.ciphertext_hash, leaf!.deposit, leaf!.leaf_index, frozen.leaf_count, frozen.paths[leaf!.leaf_index] ?? [], frozen.root);
   const inclusion: Record<string, unknown> = {
     auction_id: leaf!.auction_id,
     manifest_hash: leaf!.manifest_hash,
@@ -298,6 +340,6 @@ export function receiptShow(pub: PublicAuction, ciphertextHash: string, packet?:
   return { inclusion, settlement };
 }
 
-export function resultHash(pub: PublicAuction): string {
-  return hash(pub.resultBytes);
+export function resultHash(pub: PublicAuction): string | null {
+  return pub.resultBytes ? hash(pub.resultBytes) : null;
 }
