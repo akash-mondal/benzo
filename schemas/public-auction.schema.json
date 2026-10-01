@@ -1,0 +1,782 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Benzo public auction directory v1",
+  "description": "The directory contains auction.json, the complete public document defined here, plus byte-identical manifest.json, frozen.json and result.json projections when available. Ciphertexts and witnesses are in frozen.leaves and frozen.paths. Manifest signer must be trusted out of band; decoding bytes uses manifest/schema.ts validation. Private routing, address-derived hashes, opening plaintexts, keys, UFVKs, PCZTs and wallets are forbidden. Amounts are decimal zatoshis. Deposit addresses identify escrow deposits, never refund destinations. Receipts contain only the six settlement fields. Export atomically refreshes auction.json after each lifecycle action.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "auction_id",
+    "signer",
+    "manifest",
+    "state",
+    "receipts"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "auction_id": {
+      "$ref": "#/$defs/hash"
+    },
+    "signer": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{88}$"
+    },
+    "manifest": {
+      "$ref": "#/$defs/signed"
+    },
+    "state": {
+      "enum": [
+        "DRAFT",
+        "OPEN",
+        "SEALED-WAIT",
+        "OPENED",
+        "CLEARED",
+        "SETTLING",
+        "SETTLED",
+        "CANCELLED",
+        "REFUNDING"
+      ]
+    },
+    "receipts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/signed"
+      }
+    },
+    "frozen": {
+      "$ref": "#/$defs/frozen"
+    },
+    "result": {
+      "$ref": "#/$defs/result"
+    },
+    "settlement": {
+      "$ref": "#/$defs/settlement"
+    }
+  },
+  "$defs": {
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "uint": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "zats": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "signed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bytes",
+        "sha256",
+        "signer",
+        "signature"
+      ],
+      "properties": {
+        "bytes": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "sha256": {
+          "$ref": "#/$defs/hash"
+        },
+        "signer": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{88}$"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{128}$"
+        }
+      }
+    },
+    "deposit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "txid",
+        "pool",
+        "address",
+        "diversifier_index"
+      ],
+      "properties": {
+        "txid": {
+          "$ref": "#/$defs/hash"
+        },
+        "pool": {
+          "const": "ironwood"
+        },
+        "address": {
+          "type": "string",
+          "pattern": "^utest1[a-z0-9]+$"
+        },
+        "diversifier_index": {
+          "type": "string"
+        }
+      }
+    },
+    "leaf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auction_id",
+        "manifest_hash",
+        "ciphertext_hash",
+        "deposit",
+        "leaf_index",
+        "ciphertext_hex"
+      ],
+      "properties": {
+        "auction_id": {
+          "$ref": "#/$defs/hash"
+        },
+        "manifest_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "ciphertext_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "deposit": {
+          "$ref": "#/$defs/deposit"
+        },
+        "leaf_index": {
+          "$ref": "#/$defs/uint"
+        },
+        "ciphertext_hex": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{2})+$"
+        }
+      }
+    },
+    "frozen": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auction_id",
+        "manifest_hash",
+        "root",
+        "leaf_count",
+        "cutoff",
+        "published_at",
+        "leaves",
+        "paths"
+      ],
+      "properties": {
+        "auction_id": {
+          "$ref": "#/$defs/hash"
+        },
+        "manifest_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "root": {
+          "$ref": "#/$defs/hash"
+        },
+        "leaf_count": {
+          "$ref": "#/$defs/uint"
+        },
+        "cutoff": {
+          "$ref": "#/$defs/uint"
+        },
+        "published_at": {
+          "$ref": "#/$defs/uint"
+        },
+        "leaves": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/leaf"
+          }
+        },
+        "paths": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "side",
+                "hash"
+              ],
+              "properties": {
+                "side": {
+                  "enum": [
+                    "left",
+                    "right"
+                  ]
+                },
+                "hash": {
+                  "$ref": "#/$defs/hash"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "allocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "leaf_index",
+        "price_zats",
+        "quantity",
+        "fill",
+        "payment_zats",
+        "refund_zats",
+        "outcome"
+      ],
+      "properties": {
+        "leaf_index": {
+          "$ref": "#/$defs/uint"
+        },
+        "price_zats": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/zats"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quantity": {
+          "$ref": "#/$defs/uint"
+        },
+        "fill": {
+          "$ref": "#/$defs/uint"
+        },
+        "payment_zats": {
+          "$ref": "#/$defs/zats"
+        },
+        "refund_zats": {
+          "$ref": "#/$defs/zats"
+        },
+        "outcome": {
+          "type": "string"
+        }
+      }
+    },
+    "calculation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auction_id",
+        "manifest_hash",
+        "freeze_root",
+        "mode",
+        "clearing_price_zats",
+        "allocations",
+        "conservation"
+      ],
+      "properties": {
+        "auction_id": {
+          "$ref": "#/$defs/hash"
+        },
+        "manifest_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "freeze_root": {
+          "$ref": "#/$defs/hash"
+        },
+        "mode": {
+          "enum": [
+            "uniform",
+            "vickrey"
+          ]
+        },
+        "clearing_price_zats": {
+          "$ref": "#/$defs/zats"
+        },
+        "allocations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/allocation"
+          }
+        },
+        "conservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_zats",
+            "payout_zats",
+            "refund_zats",
+            "fees_zats"
+          ],
+          "properties": {
+            "input_zats": {
+              "$ref": "#/$defs/zats"
+            },
+            "payout_zats": {
+              "$ref": "#/$defs/zats"
+            },
+            "refund_zats": {
+              "$ref": "#/$defs/zats"
+            },
+            "fees_zats": {
+              "$ref": "#/$defs/zats"
+            }
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auction_id",
+        "manifest_hash",
+        "freeze_root",
+        "mode",
+        "clearing_price_zats",
+        "allocations",
+        "conservation",
+        "comparison"
+      ],
+      "properties": {
+        "auction_id": {
+          "$ref": "#/$defs/hash"
+        },
+        "manifest_hash": {
+          "$ref": "#/$defs/hash"
+        },
+        "freeze_root": {
+          "$ref": "#/$defs/hash"
+        },
+        "mode": {
+          "enum": [
+            "uniform",
+            "vickrey"
+          ]
+        },
+        "clearing_price_zats": {
+          "$ref": "#/$defs/zats"
+        },
+        "allocations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/allocation"
+          }
+        },
+        "conservation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "input_zats",
+            "payout_zats",
+            "refund_zats",
+            "fees_zats"
+          ],
+          "properties": {
+            "input_zats": {
+              "$ref": "#/$defs/zats"
+            },
+            "payout_zats": {
+              "$ref": "#/$defs/zats"
+            },
+            "refund_zats": {
+              "$ref": "#/$defs/zats"
+            },
+            "fees_zats": {
+              "$ref": "#/$defs/zats"
+            }
+          }
+        },
+        "comparison": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/calculation"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "settlement_receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "auction_id",
+        "party",
+        "txid",
+        "pool",
+        "output_index",
+        "amount_zats"
+      ],
+      "properties": {
+        "auction_id": {
+          "$ref": "#/$defs/hash"
+        },
+        "party": {
+          "type": "string"
+        },
+        "txid": {
+          "$ref": "#/$defs/hash"
+        },
+        "pool": {
+          "enum": [
+            "ironwood",
+            "orchard"
+          ]
+        },
+        "output_index": {
+          "$ref": "#/$defs/uint"
+        },
+        "amount_zats": {
+          "$ref": "#/$defs/zats"
+        }
+      }
+    },
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "party",
+        "kind",
+        "amount_zats",
+        "state",
+        "batch",
+        "txid",
+        "output_index",
+        "pool"
+      ],
+      "properties": {
+        "party": {
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "refund",
+            "payout"
+          ]
+        },
+        "amount_zats": {
+          "$ref": "#/$defs/zats"
+        },
+        "state": {
+          "enum": [
+            "seen",
+            "confirmed",
+            "eligible",
+            "allocated",
+            "paid",
+            "refunded",
+            "exception"
+          ]
+        },
+        "batch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "txid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "output_index": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pool": {
+          "anyOf": [
+            {
+              "enum": [
+                "ironwood",
+                "orchard"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "signers",
+        "sighash",
+        "randomizer",
+        "signature",
+        "participantsSaw",
+        "coordinator_started_at"
+      ],
+      "properties": {
+        "signers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hash"
+          }
+        },
+        "sighash": {
+          "$ref": "#/$defs/hash"
+        },
+        "randomizer": {
+          "$ref": "#/$defs/hash"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{128}$"
+        },
+        "participantsSaw": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hash"
+          }
+        },
+        "coordinator_started_at": {
+          "$ref": "#/$defs/uint"
+        },
+        "duration_ms": {
+          "$ref": "#/$defs/uint"
+        }
+      }
+    },
+    "inspect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "shielded_sighash",
+        "inputs",
+        "outputs",
+        "input_zats",
+        "output_zats",
+        "fee_zats",
+        "expiry_height",
+        "tx_version",
+        "consensus_branch_id"
+      ],
+      "properties": {
+        "shielded_sighash": {
+          "$ref": "#/$defs/hash"
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pool",
+              "index",
+              "value_zats"
+            ],
+            "properties": {
+              "pool": {
+                "type": "string"
+              },
+              "index": {
+                "$ref": "#/$defs/uint"
+              },
+              "value_zats": {
+                "$ref": "#/$defs/uint"
+              }
+            }
+          }
+        },
+        "outputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "pool",
+              "index",
+              "is_change",
+              "amount_zats",
+              "matches_pinned_routing"
+            ],
+            "properties": {
+              "pool": {
+                "type": "string"
+              },
+              "index": {
+                "$ref": "#/$defs/uint"
+              },
+              "is_change": {
+                "type": "boolean"
+              },
+              "amount_zats": {
+                "$ref": "#/$defs/zats"
+              },
+              "matches_pinned_routing": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        "input_zats": {
+          "$ref": "#/$defs/uint"
+        },
+        "output_zats": {
+          "$ref": "#/$defs/uint"
+        },
+        "fee_zats": {
+          "$ref": "#/$defs/uint"
+        },
+        "expiry_height": {
+          "$ref": "#/$defs/uint"
+        },
+        "tx_version": {
+          "$ref": "#/$defs/uint"
+        },
+        "consensus_branch_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}$"
+        }
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "pczt_hash",
+        "txid",
+        "height",
+        "state",
+        "inspect",
+        "signing"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/uint"
+        },
+        "pczt_hash": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "txid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hash"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "height": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/uint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "state": {
+          "enum": [
+            "staged",
+            "mined",
+            "exception"
+          ]
+        },
+        "inspect": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/inspect"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "signing": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sighash",
+                "sessions"
+              ],
+              "properties": {
+                "sighash": {
+                  "$ref": "#/$defs/hash"
+                },
+                "sessions": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/session"
+                  }
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "settlement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rows",
+        "receipts",
+        "batches",
+        "offline_signer"
+      ],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/row"
+          }
+        },
+        "receipts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/settlement_receipt"
+          }
+        },
+        "batches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/batch"
+          }
+        },
+        "offline_signer": {
+          "enum": [
+            "alice",
+            "bob",
+            "carol"
+          ]
+        }
+      }
+    }
+  }
+}

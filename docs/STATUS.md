@@ -1,5 +1,15 @@
 # Status: build agent handoff
 
+## Phase 4 ([PHASE-4.md](PHASE-4.md)): Track A IN PROGRESS
+
+Updated: 2026-10-01T14:57:55Z. New Builder A, branch main. Contract R1–R14/R12a in head-authored bbf9010, 2f93d98, 343d08a verified with git log. Read AGENTS.md in full, Phase 4 in full, Phase 1–3 contracts and evidence summaries; Phase 1–3 PASSED by committed rulings. No inherited run pidfiles found. Baseline `npm run e2e` PASS (41 seconds); log `tmp/e2e/phase4-baseline.log`.
+
+Shared interface: `auction.json` embeds the signed manifest, frozen ciphertexts/witnesses, result and sanitized settlement; manifest/frozen/result projections are byte-identical. `schemas/public-auction.schema.json` JSON parse passed. No refund-address-derived fields are allowed.
+
+Plan, in order: commit `schemas/public-auction.schema.json`; implement CLI router and Track A commands calling existing clear/settle; fix T1–T5 and R6–R9; implement the single cli-auction spec and U1–U5; after head merges Track B, run Phase 4 evidence, verifier positive/corrupt checks and all five regression specs at one commit. Gates O/P/Q/T IN PROGRESS; R/S belong to Track B. Evidence and READY FOR REVIEW remain pending. Keep bidder above 3C + 40,000; check native spendable funds before each live drill.
+
+Needs user: none currently. Questions: none currently. No commands in the other checkout; no Track B file edits.
+
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): READY FOR REVIEW
 
 Contract d0fbe61 / R1 plus R2–R5 at 5afd2b2, R6 at e1225dc and R7–R8 at dc28c08 (head@benzo.invalid). Started only after Phase 2 READY FOR REVIEW at 28ddd09: live run b834747, artifacts aa4676b, positive verifier 0 and corrupted-copy exit 1 with ERROR E/F. Read Phase 3 in full and DESIGN §6/§14. `npm run e2e` regression PASS before new work (`tmp/e2e/phase3-baseline.log`).
