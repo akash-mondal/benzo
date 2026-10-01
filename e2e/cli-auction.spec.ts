@@ -22,7 +22,8 @@ function cli(args:string[],input?:any) {
 }
 function good(args:string[],input?:any) {const r=cli(args,input);if(r.code)throw Error(r.error);return r.value}
 async function mature(txid:string) {
-  const h=await waitFor({height:1,tip:()=>z.getTransaction(txid).height},Date.now()+MINE);
+  const h=await waitFor({height:1,tip:()=>{z.sync('vault');return JSON.parse(z.wallet('vault','list-tx','--json')).find((t:any)=>t.txid===txid)?.mined_height??0}},Date.now()+MINE);
+  for(const endpoint of [env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')])if(z.getTransaction(txid,endpoint).height!==h)throw Error('deposit mined heights differ across endpoints');
   await waitFor({height:h+9,tip:()=>{z.sync('vault');z.sync('bidder');return Math.min(z.balance('vault').chain_tip_height,z.balance('bidder').chain_tip_height)}},Date.now()+MINE);z.enhance('vault');return h;
 }
 function worker(id:string,allocatedKill=false) {
@@ -63,13 +64,15 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const refused=cli(['bid','prepare','--manifest',corruptFile,'--signer',signer]);
     const prepared=good(['bid','prepare','--manifest',manifestFile,'--signer',signer]);
     const price=100+10*randomBytes(1)[0],bids=deposit.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address}),address}));
-    const paid=good(['bid','deposit','--id',id,'--pay'],{bids,reserve:{address:reserve,amount_zats:'70000'}});console.log(`CLI funding ${paid.txid}`);await mature(paid.txid);
-    const included=bids.map(b=>good(['bid','deposit','--id',id],{txid:paid.txid,address:b.address,envelope_hex:b.envelope_hex}));
-    await run.check('P1','manifest flip refused, sealed bid framing and fixed collateral tracked',()=>{expect.soft(refused.code).not.toBe(0);expect.soft(refused.error).toContain('manifest byte hash');expect.soft(prepared.manifest_hash).toBe(packet.sha256);for(const b of bids){const memo=Buffer.from(b.envelope_hex,'hex');expect.soft(memo.length).toBe(512);expect.soft(memo.subarray(0,5).toString('hex')).toBe('ff424e5a01');expect.soft(b.round).toBe(R)}for(const r of included)expect.soft(r.C_zats).toBe(String(C));const notes=z.scanVault().filter(n=>n.txid===paid.txid&&deposit.includes(n.address!));expect.soft(notes.length).toBe(10);for(const n of notes)expect.soft(n.value_zats).toBe(C)});
+    const paid=good(['bid','deposit','--id',id,'--pay'],{bids,reserve:{address:reserve,amount_zats:'70000'}});console.log(`CLI funding ${paid.txid}`);
     await waitFor({round:1+Math.ceil((manifest.T_submit+1-Number(env('BNZ_DRAND_GENESIS')))/3)},(manifest.T_submit+60)*1000);
     // Real boundary fault: non-C and late unadmitted exact-C transfers to used escrow addresses.
     const strayUri='zcash:?'+new URLSearchParams({address:deposit[0],amount:((C+1)/1e8).toFixed(8),'address.1':deposit[1],'amount.1':(C/1e8).toFixed(8)});
-    const strayTx=z.pay(strayUri);console.log(`CLI stray funding ${strayTx}`);await mature(strayTx);
+    const strayTx=z.pay(strayUri);console.log(`CLI stray funding ${strayTx}`);
+    await mature(paid.txid);await mature(strayTx);
+    const included=bids.map(b=>good(['bid','deposit','--id',id],{txid:paid.txid,address:b.address,envelope_hex:b.envelope_hex}));
+    await run.check('P1','manifest flip refused, sealed bid framing and fixed collateral tracked',()=>{expect.soft(refused.code).not.toBe(0);expect.soft(refused.error).toContain('manifest byte hash');expect.soft(prepared.manifest_hash).toBe(packet.sha256);for(const b of bids){const memo=Buffer.from(b.envelope_hex,'hex');expect.soft(memo.length).toBe(512);expect.soft(memo.subarray(0,5).toString('hex')).toBe('ff424e5a01');expect.soft(b.round).toBe(R)}for(const r of included)expect.soft(r.C_zats).toBe(String(C));const notes=z.scanVault().filter(n=>n.txid===paid.txid&&deposit.includes(n.address!));expect.soft(notes.length).toBe(10);for(const n of notes)expect.soft(n.value_zats).toBe(C)});
+
     const frozen=good(['freeze','--id',id]);await waitFor({round:R},(release+60)*1000);
     good(['open','--id',id]);const result=good(['clear','--id',id]);
     const referenceOpened=frozen.leaves.map((leaf:any)=>{const p=spawnSync(path.join(STATE,'bin/tle'),['-d','-c',env('BNZ_DRAND_CHAIN_HASH')],{input:Buffer.from(leaf.ciphertext_hex,'hex')});if(p.error)throw p.error;if(p.status!==0)throw Error(p.stderr.toString());return {leaf_index:leaf.leaf_index,plaintext_hex:p.stdout.toString('hex')}});

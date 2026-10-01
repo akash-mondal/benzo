@@ -24,6 +24,10 @@ Upstream control-flow read: source: ZcashFoundation/frost-tools@06c0dbdbb1bac9b9
 
 Signing performance fix: the CLI inspector still performs fresh Go-tle clearing for each signer/randomizer. Join now checks the inspector’s private approval against the exact candidate hash, digest, manifest and randomizer instead of repeating those openings; no timeout extension or skipped check. Build/typecheck PASS. Next: fresh 10-bid/13-output full CLI development run, including actual staged expiry.
 
+2026-10-01T16:09:31Z: v3 development run FAILED after funding 91381b41cade1e106a1ef7fd1cabf0d3230f0b43137fdaa002b1345da175e777: primary GetTransaction NotFound before mining (`tmp/e2e/phase4-cli-development-v3.log`, report.json). No gate evidence. Harness polling now uses receiving-wallet mined state, then independently cross-checks both endpoints; no network error is caught or replaced with fake data. Reconcile these funded notes before fresh work. Also moved late-stray broadcast to just after T_submit, before awaiting confirmations, so both real funding batches mature within the existing freeze window; no deadline/confirmation change. A dedicated testnet-golden-path Playwright project permits R8 to run the default plus each live spec exactly once without grep/skips.
+
+2026-10-01T16:22:56Z: v3 development cleanup tx 14f79ff80a325dc0711f7c551fd7cbed9ab1abff4095a7ad15a869dbfd4dd571 mined at 4428776; real pinned create-max/prove/FROST/send, log tmp/e2e/phase4-v3-recovery.log. Scanner confirms positive vault unspent value 0. This is fund reconciliation, not gate evidence. Fresh full-spec development run follows from the repaired commit.
+
 Needs user: none currently. Questions Q10–Q12 below. No commands in the other checkout; no Track B file edits.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
