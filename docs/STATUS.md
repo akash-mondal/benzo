@@ -1,11 +1,11 @@
 # Status: build agent handoff
 
-## Phase 2 ([PHASE-2.md](PHASE-2.md)): IN PROGRESS
+## Phase 2 ([PHASE-2.md](PHASE-2.md)): READY FOR REVIEW
 
 Updated: 2026-10-01T04:11:26.083256+00:00 · Contract: 44931b4 + R1 at 0ec8c02 + R2–R4 at cc2ced0 (head@benzo.invalid). Phase 3 contract d0fbe61 read in full; work starts only after Phase 2 READY FOR REVIEW.
 
 - **Phase 1:** PASSED, R5–R10 at 04926a7. Closed; decisions stand: binary_memo, frost_2of3, tlock-js@0.9.0. Evidence remains under `docs/evidence/phase-1/` at run 512296f / artifact commit 1a94638.
-- **Current:** All seven live mutation runs completed and patches reversed. Next: one clean Phase 2 evidence run, positive verification and corrupted-copy rejection.
+- **Current:** Phase 2 finish line met: all 12 IDs PASS, N1–N7 red, positive verifier 0 and corrupted copy rejected. Phase 3 implementation is next; no Phase 3 code started.
 - **Verified baseline:** `npm run e2e` PASS at 0ec8c02, `tmp/e2e/phase2-baseline.log`.
 - **Funds (last verified before current drill):** Recovery tx `db1b7fce58fe0bc1a9585ba39fff4284e65d7865d111f92b870408e50a9d316b` mined at 4424057 on both endpoints. Bidder 99,780,000 zats; vault 0; exact 2,500,000 returned, reserve fee 30,000. `tmp/e2e/recovery.json`, `recovery-proof.json`, `recovery.log` are development output only. Floor remains 1,540,000 zats; only one live wallet/frostd worker is active.
 - **Needs user:** none.
@@ -96,21 +96,27 @@ Updated: 2026-10-01T04:11:26.083256+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 
 ## Gates
 
-| Gate | State | Evidence / command / commit |
+| Gate | State | Command / commit / evidence |
 |---|---|---|
-| E: signed manifest | IN PROGRESS | none yet |
-| F: admission, receipts, freeze | IN PROGRESS | CLI and spec build/typecheck pass; no live evidence |
-| G: uniform-price and Vickrey recomputation | IN PROGRESS | pure CLI development checks only |
-| H: deterministic bad-bid handling | IN PROGRESS | first development H1–H4 PASS; fresh clean evidence pending |
-| I: cancel without decrypt | IN PROGRESS | first refund failed unmined; harness fixed and funds recovered; I1 pass pending |
+| E | READY FOR REVIEW | `BNZ_EVIDENCE_DIR=docs/evidence/phase-2 npm run e2e:live`, b834747bd297ba9708f2eec89789be0512f8f9cc; `docs/evidence/phase-2/auction/` |
+| F | READY FOR REVIEW | `BNZ_EVIDENCE_DIR=docs/evidence/phase-2 npm run e2e:live`, b834747bd297ba9708f2eec89789be0512f8f9cc; `docs/evidence/phase-2/auction/` |
+| G | READY FOR REVIEW | `BNZ_EVIDENCE_DIR=docs/evidence/phase-2 npm run e2e:live`, b834747bd297ba9708f2eec89789be0512f8f9cc; `docs/evidence/phase-2/auction/` |
+| H | READY FOR REVIEW | `BNZ_EVIDENCE_DIR=docs/evidence/phase-2 npm run e2e:live`, b834747bd297ba9708f2eec89789be0512f8f9cc; `docs/evidence/phase-2/auction/` |
+| I | READY FOR REVIEW | `BNZ_EVIDENCE_DIR=docs/evidence/phase-2 npm run e2e:live`, b834747bd297ba9708f2eec89789be0512f8f9cc; `docs/evidence/phase-2/auction/` |
+
+Generated artifact commit: aa4676b2e0fddee20e63d2bb00fb9b724555b234. Positive verifier exit 0; corrupted-copy verifier exit 1 with ERROR E and F/G. Logs `tmp/e2e/phase2-verify-{positive,negative}-v2.log`.
 
 ## Decisions
 
-Freeze commitment: pending F1–F2. Clearing spec: pending G1–G3. Receipt format: pending live inclusion verification.
+- **Freeze:** `merkle_root_v1`, SHA-256(00 || ciphertext SHA-256 bytes || canonical deposit JSON plus newline); parent SHA-256(01 || left || right), duplicate odd sibling, empty SHA-256(02). Ordered leaves commit to ciphertext and deposit; F1/F2 verified receipts and independent paths/non-members.
+- **Clearing:** signed mode selects settlement. Uniform-price sorts price descending and leaf index ascending; fully fills upper bands; marginal units floor(supply × quantity / band demand), residual units by ascending leaf index; minimum-fill failure clears all fills; reserve filters low bids. Winners pay the lowest winning price, integer zatoshis. Vickrey pays second price (reserve for a sole bidder), hides maximum-price fields, and is also a deterministic comparison on the same envelopes. G1/G2/G3 verified the live inputs.
+- **Receipt:** Ed25519 signature and SHA-256 over canonical newline-terminated JSON fields `auction_id`, `manifest_hash`, `ciphertext_hash`, `deposit` (`txid`, Ironwood pool, address, diversifier index), `leaf_index`. Independent verification uses trusted manifest signer, published root and sibling path; F2 and verify.sh exercised that boundary.
 
-## E2E tests
+## E2E audit
 
-Exactly one Phase 2 spec added: `e2e/auction-core.spec.ts`, E1, E2, F1, F2, G1, G2, G3, H1, H2, H3, H4, I1. N1–N7 patches written; `git apply --check` PASS, no red mutation runs yet. N3 uses actual Go-tle plaintext after the real release round. Existing two Phase 1 tests retained; total will be 3 of 8.
+- R `e2e/seal-open.spec.ts`: C1–C7, unchanged Phase 1 regression; default rerun PASS in `tmp/e2e/phase2-default-regression.log`. Sealer behavior unchanged since its mutation run.
+- R `e2e/testnet-golden-path.spec.ts`: A1–A5/B1–B3/D1, unchanged Phase 1 regression, not reopened per R3. Scanner expired-unmined-spend filtering changed; recorded Phase 1 mined-spend behavior remains the same. Phase 2 real scanner path exercised by N5/H2 and I1; no new Phase 1 mutation claim.
+- R `e2e/auction-core.spec.ts`: E1/E2/F1/F2/G1/G2/G3/H1/H2/H3/H4/I1. N1–N7 red; production source unchanged from their runs to final evidence. Exactly three tests total of ceiling eight.
 
 ## Blocked items
 
@@ -126,6 +132,7 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 
 ## Last session
 
+- 2026-10-01T04:58:36.867192+00:00: Phase 2 READY FOR REVIEW. Run b834747bd297ba9708f2eec89789be0512f8f9cc; artifacts aa4676b2e0fddee20e63d2bb00fb9b724555b234; all gates, mutations and verification complete. Owned frostd stopped. Next concrete step: read Phase 3 Rulings and DESIGN §6/§14, then implement settlement J/K before crash/cancel/offline drills. Do not start UI.
 - 2026-10-01T04:11:26.083256+00:00: All seven live mutation runs completed and patches reversed. Next: one clean Phase 2 evidence run, positive verification and corrupted-copy rejection.
 - 2026-10-01T04:11:25.885212+00:00: N7 turned the full auction-core spec red at I1; mined refund completed, patch reversed, source unchanged. docs/evidence/phase-2/mutations/N7.patch and docs/evidence/phase-2/mutations/N7.out; full output tmp/e2e/N7-v2.log.
 - 2026-10-01T03:24:41.598263+00:00: Running N7 on auction-core only, with fresh real deposits and an 80-minute monitor / 75-minute spec deadline. Output tmp/e2e/N7-v2.log. Wallet/frostd use is serialized.
