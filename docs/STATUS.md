@@ -1,10 +1,12 @@
 # Status: build agent handoff
 
-## Phase 3 ([PHASE-3.md](PHASE-3.md)): IN PROGRESS
+## Phase 3 ([PHASE-3.md](PHASE-3.md)): READY FOR REVIEW
 
 Contract d0fbe61 / R1 plus R2–R5 at 5afd2b2, R6 at e1225dc and R7–R8 at dc28c08 (head@benzo.invalid). Started only after Phase 2 READY FOR REVIEW at 28ddd09: live run b834747, artifacts aa4676b, positive verifier 0 and corrupted-copy exit 1 with ERROR E/F. Read Phase 3 in full and DESIGN §6/§14. `npm run e2e` regression PASS before new work (`tmp/e2e/phase3-baseline.log`).
 
-Gates J/K/L/M/N: IN PROGRESS. No Phase 3 live gate evidence yet. Implemented worker, durable SQLite obligations, separate signer checks with fresh Go tle, and pre-broadcast signed-PCZT staging; integration not verified. First step: pinned-SDK multi-output PCZT creation and an inspector for signer recipient/amount/fee checks. Existing devtool `pczt create --help` accepts one address/value; its pinned `src/commands/pczt/create.rs` uses a single Payment vector. SDK driver now compiles against exactly the versions/source identities in the pinned devtool Cargo.lock; inspector checks CV/nullifier/rk/note commitments, note-ciphertext recovery, actual recipients, owned change and ZIP-317 fee. `npm run build:settle` and strict TypeScript check pass; scratch inspection of an existing real PCZT passes, not gate evidence. One new spec, e2e/settle-crash.spec.ts (J1/J2/K1/L1/M1/N1), typechecks; live development v6 passed all six IDs; mutations and final clean evidence remain pending. Prior failures and recovery commands are recorded below. Phase 1 specs unchanged. Live selection moves to settle-crash only for this phase; wallet/frostd remain serialized.
+Gates J/K/L/M/N: READY FOR REVIEW. Clean real-stack run `742feb997a0fa3ab7aecab959e9170afb1493907` (2026-10-01T12:14:36.124Z–2026-10-01T12:43:57.863Z) exited 0, all J1/J2/K1/L1/M1/N1 PASS. Command: `BNZ_EVIDENCE_DIR=docs/evidence/phase-3 npm run e2e:live`; evidence `docs/evidence/phase-3/settle/` and `run.json`, artifact commit `7951dd7d45f5dd4813f35df8c1f31fe482b76bc3`. `verify.sh docs/evidence/phase-3` exit 0; corrupted-copy exit 1 with ERROR J/L. Logs `tmp/e2e/phase3-final-evidence-v2.log`, `phase3-final-verify-positive.log`, `phase3-final-verify-negative.log`. P1/P2/P3 recorded red and restored; cheapest P1 rerun after the finite-expiry repair. Decisions/limits in [EVIDENCE.md](evidence/phase-3/EVIDENCE.md). Head review pending.
+
+Final observed bidder all-mined-unspent-note balance 98,025,000 zats; vault 0. Spending preconditions checked native spendable balance against floor 3C + 40,000 = 1,540,000. Owned service/worker pidfiles show no active processes. No frontend or mainnet work.
 
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): head approved at 5afd2b2
@@ -19,7 +21,7 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 
 ## Questions
 
-- Q9: explicit finite PCZT expiry is now proposal target + 200 blocks via the pinned SDK API, keeping expiry/NU7 refusal and all assertions. Actual clean-run chain advanced 60 blocks during signing, beyond the SDK default 40; no pins, test timeout, assertion or line-count change. Cheapest Phase 3 mutation and clean evidence will be rerun before readiness.
+- Q9 (routine implementation decision for head review): explicit finite PCZT expiry is now proposal target + 200 blocks via the pinned SDK API, keeping expiry/NU7 refusal and all assertions. Actual clean-run chain advanced 60 blocks during signing, beyond the SDK default 40; no pins, test timeout, assertion or line-count change. Cheapest P1 rerun red at L1 and clean evidence 742feb9 PASS, both verifiers completed; no scope change requested.
 
 - Q8 resolved by R7 at dc28c08: 744 lines accepted. Original question (after R5): the balance-definition fix and local PCZT digest binding added seven essential lines, total 744 (483 production + 158 spec + 103 verifier) versus the accepted ~737. This repairs the observed uneconomic-note accounting error and binds the coordinator digest to every signer check; no extra test, assertion or feature.
 - Q7 resolved by R2 at 5afd2b2: exact C for losers/invalid/cancel, network reserve pays fees; nonzero auction fees must come from winner payments/reserve. Zero-fee drills explicitly continue. Original question: Phase 2 clearing subtracts signed fee_zats from refunds, while Phase 3 requires exact C for losers/invalid. Current worker rejects nonzero auction fees and uses only separate network reserves; please rule on nonzero auction-fee settlement rather than silently changing the pinned clearing result. Zero-fee drills continue.
@@ -113,6 +115,18 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 
 ## Gates
 
+Phase 3 command for every row: `BNZ_EVIDENCE_DIR=docs/evidence/phase-3 npm run e2e:live`, run 742feb997a0fa3ab7aecab959e9170afb1493907, artifact commit 7951dd7d45f5dd4813f35df8c1f31fe482b76bc3.
+
+| Gate | State | Evidence |
+|---|---|---|
+| J | READY FOR REVIEW | phase-3/settle/main/{result,balances,summary}.json; cancel summary |
+| K | READY FOR REVIEW | phase-3/settle/{main,cancel}/summary.json signer check/session payloads |
+| L | READY FOR REVIEW | phase-3/settle/main/{crash,balances,summary}.json |
+| M | READY FOR REVIEW | phase-3/settle/cancel/{outage,summary}.json |
+| N | READY FOR REVIEW | phase-3/settle/{main,cancel}/summary.json; Carol offline |
+
+Phase 2 historical evidence (head approved in 5afd2b2):
+
 | Gate | State | Command / commit / evidence |
 |---|---|---|
 | E | READY FOR REVIEW | `BNZ_EVIDENCE_DIR=docs/evidence/phase-2 npm run e2e:live`, b834747bd297ba9708f2eec89789be0512f8f9cc; `docs/evidence/phase-2/auction/` |
@@ -125,6 +139,11 @@ Generated artifact commit: aa4676b2e0fddee20e63d2bb00fb9b724555b234. Positive ve
 
 ## Decisions
 
+- **Phase 3 batch:** cap 50; measured five main recipients (6 actions / 30,000 fee) and two cancel recipients (3 actions / 15,000 fee). 50 not measured. Actual two batch txids/heights, fee accounting and signature sessions in phase-3/settle/*/summary.json.
+- **Phase 3 ledger:** seen → confirmed → eligible → allocated → paid/refunded after mining; SQLite transactions, signed-PCZT hash/stable txid staged and fsynced before broadcast. Crash SIGKILL after five allocations, final five unique receipts and exact 2,000,000 total. Post-broadcast crash/exception state not drilled.
+- **Phase 3 receipt:** private fields auction_id, party, txid, pool, output_index, amount_zats, no bid plaintext/destination. Actual samples in summaries and EVIDENCE.md.
+- **Phase 3 expiry/fees:** finite target+200 SDK expiry, real expiry/NU7 refusal retained. Separate reserves fund ZIP-317 fees; losers/invalid/cancel receive exact C. Zero auction-fee drill per R2; nonzero auction-fee settlement not demonstrated. Private routing copies per R3; no bidder-owned envelope authentication claim.
+
 - **Freeze:** `merkle_root_v1`, SHA-256(00 || ciphertext SHA-256 bytes || canonical deposit JSON plus newline); parent SHA-256(01 || left || right), duplicate odd sibling, empty SHA-256(02). Ordered leaves commit to ciphertext and deposit; F1/F2 verified receipts and independent paths/non-members.
 - **Clearing:** signed mode selects settlement. Uniform-price sorts price descending and leaf index ascending; fully fills upper bands; marginal units floor(supply × quantity / band demand), residual units by ascending leaf index; minimum-fill failure clears all fills; reserve filters low bids. Winners pay the lowest winning price, integer zatoshis. Vickrey pays second price (reserve for a sole bidder), hides maximum-price fields, and is also a deterministic comparison on the same envelopes. G1/G2/G3 verified the live inputs.
 - **Receipt:** Ed25519 signature and SHA-256 over canonical newline-terminated JSON fields `auction_id`, `manifest_hash`, `ciphertext_hash`, `deposit` (`txid`, Ironwood pool, address, diversifier index), `leaf_index`. Independent verification uses trusted manifest signer, published root and sibling path; F2 and verify.sh exercised that boundary.
@@ -133,7 +152,9 @@ Generated artifact commit: aa4676b2e0fddee20e63d2bb00fb9b724555b234. Positive ve
 
 - R `e2e/seal-open.spec.ts`: C1–C7, unchanged Phase 1 regression; default rerun PASS in `tmp/e2e/phase2-default-regression.log`. Sealer behavior unchanged since its mutation run.
 - R `e2e/testnet-golden-path.spec.ts`: A1–A5/B1–B3/D1, unchanged Phase 1 regression, not reopened per R3. Scanner expired-unmined-spend filtering changed; recorded Phase 1 mined-spend behavior remains the same. Phase 2 real scanner path exercised by N5/H2 and I1; no new Phase 1 mutation claim.
-- R `e2e/auction-core.spec.ts`: E1/E2/F1/F2/G1/G2/G3/H1/H2/H3/H4/I1. N1–N7 red; production source unchanged from their runs to final evidence. Exactly three tests total of ceiling eight.
+- R `e2e/auction-core.spec.ts`: E1/E2/F1/F2/G1/G2/G3/H1/H2/H3/H4/I1. N1–N7 red; production source unchanged from their runs to final evidence. Exactly four tests total of ceiling eight after Phase 3; its covered source did not change this phase.
+
+- R `e2e/settle-crash.spec.ts`: J1/J2/K1/L1/M1/N1. P1/P2/P3 red; SDK expiry changed after initial mutations, cheapest P1 rerun red at 311f1d2 and restored. Production source unchanged through clean 742feb9; six IDs PASS. No test/assertion changes. Exactly four E2E tests total.
 
 ## Blocked items
 
@@ -148,6 +169,12 @@ All tool pins unchanged; no environment changes. Note reconstruction follows sou
 All frontend implementation, styling and hosting UI are user-owned per Phase 3 R6 at e1225dc; build-agent scope remains backend/CLI/verifier/settlement. Full owner-key / settlement-envelope delivery remains unresolved under Q5; current routing fixture must be declared explicitly.
 
 ## Last session
+
+- 2026-10-01T12:48:18Z: Phase 3 READY FOR REVIEW. Clean run 742feb997a0fa3ab7aecab959e9170afb1493907, generated artifacts 7951dd7d45f5dd4813f35df8c1f31fe482b76bc3, all six IDs PASS; positive verifier 0, corrupted-copy verifier 1 ERROR J/L. P1/P2/P3 red and restored, cheapest P1 rerun after finite-expiry repair. Gates J–N, three decisions, limits and four-spec audit recorded. Bidder all-note balance 98,025,000 zats, vault 0; no active owned processes. Next concrete step: head reviews PHASE-3 evidence at these commits and rules; remain in Phase 3, no frontend work.
+
+- 2026-10-01T12:43:08Z: Clean v2 main J1/J2/K1/L1/N1 PASS, batch cb7e3b2828f8133480ebd733f27c3853f632674b52acedba45695b257d9aba09 mined at 4428068; four refunded rows and one paid row. This verifies the finite-expiry fix on the same harness after the prior expired-PCZT refusal. Cancel funding 7df8d761123b8549739428c9ed6e7f2b00c0927d20271c6415f3ce5d67fe197a confirming; M1 and both final verifier checks still pending. Remain active.
+
+- 2026-10-01T12:27:04Z: Clean Phase 3 evidence v2 active from 742feb997a0fa3ab7aecab959e9170afb1493907, start 12:14:35 UTC. Funding c6e1a666ad285dd69210ec5ee7b7d4ca8a674555481b502a50c98f22b8c108fb confirmed/frozen; release 12:36:45 UTC. Finite 200-block SDK expiry repair builds/typechecks, cheapest P1 rerun recorded red; all patches restored. Output tmp/e2e/phase3-final-evidence-v2.log. Next: six clean IDs, verifier positive/corrupted copy, evidence-only commit and READY FOR REVIEW handoff.
 
 - 2026-10-01T12:14:35Z: Cheapest P1 rerun after finite-expiry repair complete: ERROR L1, actual 0 / 2,000,000 refund before cleanup; honest cancel M1 PASS (1,000,000 refunded, zero openings). Recovery 0d1e58b910a637d21f1ec72fc9d682a3a2defa0e1bc91f780a33ecf7bbca9e01 mined. Patch reversed; docs/evidence/phase-3/mutations/P1.out updated from tmp/e2e/phase3-P1-expiry.log at clean base 311f1d2; artifacts tmp/e2e/phase3-P1-expiry-artifacts/. Next concrete step: fresh clean evidence with finite expiry, then both verifier checks and READY FOR REVIEW.
 
