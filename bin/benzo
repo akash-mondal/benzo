@@ -1,0 +1,4 @@
+#!/bin/sh
+repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+cd "$repo" || exit 1
+exec node "$repo/cli/dist/benzo.mjs" "$@"

@@ -14,3 +14,4 @@ playwright-report/
 manifest/dist/
 clear/dist/
 settle/dist/
+cli/dist/

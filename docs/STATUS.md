@@ -8,6 +8,8 @@ Shared interface: `auction.json` embeds the signed manifest, frozen ciphertexts/
 
 Plan, in order: commit `schemas/public-auction.schema.json`; implement CLI router and Track A commands calling existing clear/settle; fix T1–T5 and R6–R9; implement the single cli-auction spec and U1–U5; after head merges Track B, run Phase 4 evidence, verifier positive/corrupt checks and all five regression specs at one commit. Gates O/P/Q/T IN PROGRESS; R/S belong to Track B. Evidence and READY FOR REVIEW remain pending. Keep bidder above 3C + 40,000; check native spendable funds before each live drill.
 
+CLI router/modules implemented: `bin/benzo --help`, `npm run build:cli`, `npm run typecheck` PASS. Scratch shipped-CLI run creates/signs a fresh DRAFT, verifies its signed manifest and seals through headless Chromium to a 512-byte envelope at quicknet round 32688218 (`tmp/e2e/phase4-cli-smoke.log`). No payment made; lifecycle/settlement not yet verified. Module contract is named exports `{noun, verb, help, run(args:string[])}`; router prints returned JSON. Build discovers every `cli/commands/*.ts` without Track B edits.
+
 Needs user: none currently. Questions: none currently. No commands in the other checkout; no Track B file edits.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): READY FOR REVIEW

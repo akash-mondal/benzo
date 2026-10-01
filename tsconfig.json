@@ -20,6 +20,7 @@
     "playwright.config.ts",
     "manifest",
     "clear",
-    "settle"
+    "settle",
+    "cli"
   ]
 }
