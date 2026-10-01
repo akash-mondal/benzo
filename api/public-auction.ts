@@ -5,6 +5,14 @@ import path from "node:path";
 import { client, hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle";
 import { clear, type Opened } from "../clear/core";
+import { clearModeB, clientBuyback, isBuyback } from "../clear/mode-b";
+
+// Mode B manifests (clearing.mode "buyback") validate through clear/mode-b.ts; Mode A keeps the unchanged client().
+function readClient(packet: Signed, signer: string): { manifest_hash: string; manifest: Manifest } {
+  const peek = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8"));
+  // The buyback extra fields ride along in the untyped manifest value; callers read them only through clear/mode-b.
+  return peek?.clearing?.mode === "buyback" ? (clientBuyback(packet, signer) as unknown as { manifest_hash: string; manifest: Manifest }) : client(packet, signer);
+}
 
 export type SettlementReceipt = { auction_id: string; party: string; txid: string; pool: string; output_index: number; amount_zats: string };
 export type Beacon = { round: number; signature: string; chain_hash: string };
@@ -74,7 +82,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     state = doc.state;
     signer = anchor(String(doc.signer));
     manifestPacket = doc.manifest as Signed;
-    ({ manifest, manifest_hash } = client(manifestPacket, signer));
+    ({ manifest, manifest_hash } = readClient(manifestPacket, signer));
     requireThat(doc.auction_id === manifest.auction_id, "auction id binding");
     requireThat(Array.isArray(doc.receipts), "receipts");
     requireThat(doc.frozen === undefined || (doc.frozen && typeof doc.frozen === "object"), "frozen");
@@ -91,7 +99,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the Phase 2/3 evidence dirs.
     signer = anchor(String(JSON.parse(text("signer.json")).signer));
     manifestPacket = JSON.parse(text("manifest.json")) as Signed;
-    ({ manifest, manifest_hash } = client(manifestPacket, signer));
+    ({ manifest, manifest_hash } = readClient(manifestPacket, signer));
     frozen = JSON.parse(text("frozen.json")) as Frozen;
     opened = existsSync(path.join(root, "opened.json"))
       ? (JSON.parse(text("opened.json")) as Opened[])
@@ -136,10 +144,14 @@ function readBeacon(raw: unknown, manifest: Manifest): Beacon | null {
 
 const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
 
-function obligations(result: PublicResult): Map<string, string> {
+function obligations(result: PublicResult, buyback: boolean): Map<string, string> {
   const map = new Map<string, string>();
-  for (const a of result.allocations) if (BigInt(a.refund_zats) > 0n) map.set(`leaf:${a.leaf_index}`, a.refund_zats);
-  if (BigInt(result.conservation.payout_zats) > 0n) map.set("seller", result.conservation.payout_zats);
+  // Mode B refunds every leaf exact C and pays winners from the treasury leg; one obligation per leaf, no seller row.
+  for (const a of result.allocations) {
+    const owed = buyback ? BigInt(a.refund_zats) + BigInt(a.payment_zats) : BigInt(a.refund_zats);
+    if (owed > 0n) map.set(`leaf:${a.leaf_index}`, owed.toString());
+  }
+  if (!buyback && BigInt(result.conservation.payout_zats) > 0n) map.set("seller", result.conservation.payout_zats);
   return map;
 }
 
@@ -163,7 +175,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   // Checks apply to the fields the current state carries (R21 item 5): manifest always, freeze/receipts
   // once frozen, clear/accounting once result. A pre-freeze dir is valid when its manifest is.
   run("manifest", () => {
-    const again = client(pub.manifestPacket, pub.signer);
+    const again = readClient(pub.manifestPacket, pub.signer);
     requireThat(again.manifest_hash === pub.manifest_hash, "manifest hash changed");
     if (pub.result) requireThat(pub.result.auction_id === pub.manifest.auction_id && pub.result.manifest_hash === pub.manifest_hash, "result manifest binding");
     projection("manifest.json", pub.manifestPacket);
@@ -194,7 +206,9 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const result = pub.result, resultBytes = pub.resultBytes;
     if (!result || !resultBytes) return projection("result.json", null);
     requireThat(pub.frozen, "missing frozen");
-    const fresh = clear({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened });
+    const fresh = isBuyback(pub.manifest)
+      ? clearModeB({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened })
+      : clear({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened });
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
     projection("result.json", result);
   });
@@ -208,9 +222,16 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       BigInt(c.input_zats) === BigInt(c.payout_zats) + BigInt(c.refund_zats) + BigInt(c.fees_zats),
       "conservation",
     );
-    const fee = BigInt(pub.manifest.fee_zats), C = BigInt(pub.manifest.C_zats);
+    const fee = BigInt(pub.manifest.fee_zats), C = BigInt(pub.manifest.C_zats), price = BigInt(result.clearing_price_zats);
     for (const a of result.allocations) {
-      requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
+      if (isBuyback(pub.manifest)) {
+        // Mode B: the refund is exact C and the treasury payment is the uniform price net of the fee taken from it.
+        const gross = price * BigInt(a.fill), feeShare = a.fill ? (fee < gross ? fee : gross) : 0n;
+        requireThat(BigInt(a.refund_zats) === C, `allocation ${a.leaf_index} refund is not exact C`);
+        requireThat(BigInt(a.payment_zats) + feeShare === gross, `allocation ${a.leaf_index} payment`);
+      } else {
+        requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
+      }
     }
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
@@ -218,7 +239,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     for (const [i, r] of receipts.entries()) {
       requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
     }
-    const expected = obligations(result);
+    const expected = obligations(result, isBuyback(pub.manifest));
     for (const [party, amount] of expected) {
       const rs = receipts.filter(r => r.party === party);
       requireThat(rs.length > 0, `settlement missing obligation ${party}`);
@@ -235,7 +256,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     if (!pub.settlement || !pub.result) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    const expected = obligations(pub.result);
+    const expected = obligations(pub.result, isBuyback(pub.manifest));
     const stray = (party: string): void => {
       requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };

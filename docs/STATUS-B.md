@@ -3,6 +3,24 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Phase 5, Track B (items 1–3): IN PROGRESS
+
+Updated: 2026-10-02 · scope locked by the user this session (see Questions): NEAR funding removed; items 4–5 (fund/claim, marketplace adapter) are not in the ordered work. No tests (R11). No testnet, funds or keys; scratch only in `tmp/` (gitignored).
+
+| Item | State | Evidence (command, output) | Commit |
+|---|---|---|---|
+| 1. Mode B clearing (`clear/mode-b.ts`) | DONE | Pure `clearModeB` + `clientBuyback` next to Mode A (core.ts untouched): buyback manifest = Mode A manifest + `buyback {budget_zats, floor_zats}` + `clearing.mode "buyback"`, every other signed field held to the unchanged Mode A rules. Mirrored rules: asks rank ascending, tie by committed leaf index, budget caps spend at the uniform price (= highest accepted ask), marginal band pro-rata `floor(room·q/demand)` with dust by ascending leaf index, `price > floor → above_floor`, exact C refunds and fees only from winner payments (PHASE-3 R2). Same result.json shape, `mode:"buyback"`, `comparison:null`. Corpus `tmp/canon-modeb` (tmp/proof-modeb.ts: fresh 128-byte ask plaintexts tlock-sealed with pinned `tle -e` to real quicknet round 32694698, opened with `tle -d`, real beacon; fresh Ed25519 fixture signer): `bin/benzo verify --dir tmp/canon-modeb --signer HEX` → `OK manifest/freeze/receipts/clear/accounting/accounting-strays`, exit 0 (default mode re-derives every opening with tle and reproduces the Mode B result byte-for-byte). Clearing: price 20000; winners leaf0 10000×2→2, leaf1 10000×3→3, leaf2 20000×3→1, leaf3 20000×5→1 (budget 150000: 10k band full, 20k band pro-rata F=2 units, dust to leaf2 by ascending index), leaf4 45000 `above_floor`, leaf5 60000 `over_cap`, leaf6 qty 0 `over_cap`, leaf above 30k-budget unfilled. Conservation `input 3640000 = payout 140000 + refunds 3500000 + fees 0` (7·C + treasury leg; refunds exact C each). Corrupted copies (`tmp/proof-modeb-neg.mjs`, logs `tmp/proof-logs/modeb-*`): inflated winner payment in result+projection → `ERROR clear refused: canonical result differs` + `ERROR accounting refused: allocation 0 payment`, exit 1; tampered published opening → `ERROR verify refused: opening 0 published differs from re-derived`, exit 1. | (this commit) |
+| 2. Settlement envelopes (`envelope/`) | TODO | — | — |
+| 3. Witness certificates (`witness/`) | TODO | — | — |
+
+### Questions (Phase 5)
+
+- **User instruction (2026-10-02, this session; recorded 2026-10-01T20:49Z UTC), verbatim:** “the user locked scope on 2026-10-02 — NEAR funding is removed from Phase 5 (Ruling R1 on main; it reaches you at the next merge). Do not build `benzo fund` or any NEAR code.” The ordered work is items 1–3 of PHASE-5 §3 Track B, then READY FOR MERGE; “Add no tests. Touch only Track B files.” PHASE-5.md on track-b still lists NEAR (item 4) and the marketplace adapter (item 5) — both left unbuilt pending the merge of R1 and a Ruling on item 5.
+- **Mode B manifest shape (for Track A's `benzo auction create --mode buyback`, Ruling requested):** manifest = Mode A manifest + `buyback: {budget_zats, floor_zats}` + `clearing.mode: "buyback"` (result `mode:"buyback"`). `clear/mode-b.ts` validates it: signature over all bytes, then the unchanged Mode A rules on the base fields, then `budget > 0`, `floor ≥ tick`, `floor % tick == 0`.
+- **Mode B floor semantics (Ruling requested):** `floor_zats` is the treasury's maximum accepted ask (`price > floor → above_floor`, mirror of Mode A `below_reserve`); the uniform price is the highest accepted ask (mirror of Mode A's lowest winning bid), budget caps `uniform × total fill`; ties/dust exactly as Mode A mirrored. Alternative readings (floor as a support price `max(marginal, floor)`, or the uniform price being the floor) were considered; say if one of those is intended and I will rework `clear/mode-b.ts`.
+- **Mode B settlement obligations (Track A + head):** each leaf is owed `refund_zats` (exact C) plus, for winners, `payment_zats` (uniform price net of the fee taken from it). Suggested ledger shape without forking settle/: one obligation per leaf for `refund + payment`, no `seller` payout row (the treasury is the funding leg). Receipt/row cross-checks in `benzo verify` accept `leaf:N` totals accordingly — confirm or Ruling a different shape.
+
+
 ## Phase 4, Track B (R16, R18, R20, R21 item 5): READY FOR MERGE
 
 Updated: 2026-10-01T19:12:41Z · Last commit: cad928d · Commits: 971da62 (R16+R18), 4258f54 (R20a), 53a7355 (R20b), 2e6b650 (R20c), cad928d (R21 item 5)
