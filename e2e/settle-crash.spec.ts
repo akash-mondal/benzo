@@ -71,7 +71,7 @@ function capture(id:string,label:string) {
     const base=path.join(dir,`batch-${b.id}`),i=existsSync(base+".inspect.json")?JSON.parse(readFileSync(base+".inspect.json","utf8")):null;
     const signing=existsSync(base+".signatures.json")?JSON.parse(readFileSync(base+".signatures.json","utf8")):null;
     const proofs=b.height?[z.getTransaction(b.txid),z.getTransaction(b.txid,ALT)]:[];
-    return {...b,inspect:i?{...i,outputs:i.outputs.map((o:any)=>({...o,recipient_hash:o.recipient?sha(o.recipient):null,recipient:undefined}))}:null,signing,proofs:proofs.map(p=>({height:p.height,raw_hash:sha(p.raw)}))};
+    return {...b,pczt_path:undefined,inspect:i?{...i,outputs:i.outputs.map((o:any)=>({...o,recipient_hash:o.recipient?sha(o.recipient):null,recipient:undefined}))}:null,signing,proofs:proofs.map(p=>({height:p.height,raw_hash:sha(p.raw)}))};
   });
   const artifact={auction_id:id,rows:status.rows,receipts:status.receipts,batches,signoffs:summary?.signoffs??[],plan:summary?.plan??null,offline_signer:"carol"};
   write(`settle/${label}/summary.json`,bytes(artifact));return artifact;
