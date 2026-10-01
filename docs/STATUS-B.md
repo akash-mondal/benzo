@@ -5,7 +5,7 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Phase 4, Track B ([docs/PHASE-4.md](PHASE-4.md) R11–R14): READY FOR MERGE
 
-Updated: 2026-10-01T15:20:00Z · Last commit: (this commit)
+Updated: 2026-10-01T15:25:00Z · Last commit: c971f8f
 
 - **Questions for the head agent:** see below (shared config files, public-dir contract, CLI router shape).
 - **Blockers:** none
@@ -13,10 +13,10 @@ Updated: 2026-10-01T15:20:00Z · Last commit: (this commit)
 
 | Item | State | Evidence (command, output path) | Commit |
 |---|---|---|---|
-| R: `benzo verify` (public inputs only, cold copy) | READY FOR MERGE | `node tmp/benzo.mjs verify tmp/cold-p3/public` (cold copy of Phase 3 public dir) → `OK manifest/freeze/receipts/clear/accounting`, exit 0. Corrupted `payment_zats` → `ERROR clear refused: canonical result differs` + `ERROR accounting refused: allocation 0 does not account C`, exit 1. Corrupted freeze root (Phase 2) → `ERROR freeze refused: freeze root`, exit 1. Corrupted manifest byte → `ERROR verify refused: manifest byte hash`, exit 1. Also green on `docs/evidence/phase-2/auction` and `tmp/p3-public` (Phase 3 settle/main + real `summary.json`). | this commit |
-| S: read-only JSON API (`api/`) | READY FOR MERGE | `node tmp/api.mjs --dir tmp/p3-public --port 8788` then curl all five routes. `GET /auction/:id` `valid:true`; `GET /operator` keys `[C_zats,auction_id,blobs,count,total_collateral_zats]` only (no price/quantity/plaintext); `GET /result` matches `result.json`; `GET /freeze` root `e36ba607…`; `GET /receipt/:ciphertext_hash` T2 settlement shape. Flipped manifest byte → HTTP 400 `{"valid":false,"error":"refused: manifest byte hash"}`. Binds `127.0.0.1`. | this commit |
-| `benzo operator view` | READY FOR MERGE | `node tmp/benzo.mjs operator view tmp/cold-p3/public` → `{auction_id, C_zats:"500000", count, total_collateral_zats, blobs:[{leaf_index,ciphertext_hash,ciphertext_hex}]}`. Asserted no `price/quantity/plaintext/payment/refund/outcome` fields. | this commit |
-| `benzo receipt show` | READY FOR MERGE | `node tmp/benzo.mjs receipt show tmp/p3-public <ciphertext_hash>` → inclusion (auction_id, manifest_hash, ciphertext_hash, deposit, leaf_index, included:true) + settlement `{auction_id,party:"leaf:0",txid,pool,output_index,amount_zats}` (Phase 3 real receipt). `--receipt <signed.json>` also sets `receipt_signed:true`. Phase 2 without settlement → `settlement: null`. | this commit |
+| R: `benzo verify` (public inputs only, cold copy) | READY FOR MERGE | `node tmp/benzo.mjs verify tmp/cold-p3/public` (cold copy of Phase 3 public dir) → `OK manifest/freeze/receipts/clear/accounting`, exit 0. Corrupted `payment_zats` → `ERROR clear refused: canonical result differs` + `ERROR accounting refused: allocation 0 does not account C`, exit 1. Corrupted freeze root (Phase 2) → `ERROR freeze refused: freeze root`, exit 1. Corrupted manifest byte → `ERROR verify refused: manifest byte hash`, exit 1. Also green on `docs/evidence/phase-2/auction` and `tmp/p3-public` (Phase 3 settle/main + real `summary.json`). | c971f8f |
+| S: read-only JSON API (`api/`) | READY FOR MERGE | `node tmp/api.mjs --dir tmp/p3-public --port 8788` then curl all five routes. `GET /auction/:id` `valid:true`; `GET /operator` keys `[C_zats,auction_id,blobs,count,total_collateral_zats]` only (no price/quantity/plaintext); `GET /result` matches `result.json`; `GET /freeze` root `e36ba607…`; `GET /receipt/:ciphertext_hash` T2 settlement shape. Flipped manifest byte → HTTP 400 `{"valid":false,"error":"refused: manifest byte hash"}`. Binds `127.0.0.1`. | c971f8f |
+| `benzo operator view` | READY FOR MERGE | `node tmp/benzo.mjs operator view tmp/cold-p3/public` → `{auction_id, C_zats:"500000", count, total_collateral_zats, blobs:[{leaf_index,ciphertext_hash,ciphertext_hex}]}`. Asserted no `price/quantity/plaintext/payment/refund/outcome` fields. | c971f8f |
+| `benzo receipt show` | READY FOR MERGE | `node tmp/benzo.mjs receipt show tmp/p3-public <ciphertext_hash>` → inclusion (auction_id, manifest_hash, ciphertext_hash, deposit, leaf_index, included:true) + settlement `{auction_id,party:"leaf:0",txid,pool,output_index,amount_zats}` (Phase 3 real receipt). `--receipt <signed.json>` also sets `receipt_signed:true`. Phase 2 without settlement → `settlement: null`. | c971f8f |
 
 States: TODO · IN PROGRESS · READY FOR MERGE · BLOCKED (outside cause, with repro).
 
