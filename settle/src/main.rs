@@ -12,6 +12,7 @@ use zcash_client_sqlite::{WalletDb, util::SystemClock};
 use zcash_keys::{address::Address, keys::UnifiedFullViewingKey};
 use zcash_protocol::{consensus::Network, ShieldedPool, value::Zatoshis};
 use zip321::{Payment, TransactionRequest};
+use zcash_note_encryption::Domain;
 
 fn create(wallet: &str, output: &str) -> anyhow::Result<()> {
     let mut text=String::new(); io::stdin().read_to_string(&mut text)?;
@@ -47,28 +48,39 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
     let key=UnifiedFullViewingKey::decode(&Network::TestNetwork,std::fs::read_to_string(ufvk)?.trim()).map_err(|e|anyhow!("UFVK decode: {e}"))?;
     let fvk=key.orchard().context("Orchard FVK missing")?;
     let mut inputs=vec![]; let mut outputs=vec![];
-    let mut collect=|b: &Bundle,pool: &str| -> Result<(),OrchardError<()>> {
+    let mut collect=|b: &Bundle,pool: &str| -> Result<(),OrchardError<&'static str>> {
         b.verify_cross_address_restriction()?;
         for (index,a) in b.actions().iter().enumerate() {
             a.verify_cv_net()?; a.spend().verify_nullifier(Some(fvk))?; a.spend().verify_rk(Some(fvk))?; a.output().verify_note_commitment(a.spend())?;
-            let value=a.spend().value().ok_or_else(||OrchardError::Custom(()))?.inner();
+            let value=a.spend().value().ok_or_else(||OrchardError::Custom("missing spend value"))?.inner();
             if value>0 { inputs.push(json!({"pool":pool,"index":index,"value_zats":value})); }
-            let value=a.output().value().ok_or_else(||OrchardError::Custom(()))?.inner();
+            let value=a.output().value().ok_or_else(||OrchardError::Custom("missing output value"))?.inner();
             if value>0 {
-                let receiver=a.output().recipient().as_ref().ok_or_else(||OrchardError::Custom(()))?;
-                let ock=a.output().ock().as_ref().ok_or_else(||OrchardError::Custom(()))?;
+                let receiver=a.output().recipient().as_ref().ok_or_else(||OrchardError::Custom("missing output recipient"))?;
+                let rho=orchard::note::Rho::from_bytes(&a.spend().nullifier().to_bytes()).into_option().ok_or(OrchardError::Custom("invalid output rho"))?;
+                let note=orchard::Note::from_parts(*receiver,*a.output().value().as_ref().unwrap(),rho,*a.output().rseed().as_ref().ok_or(OrchardError::Custom("missing output randomness"))?,*a.output().note_version()).into_option().ok_or(OrchardError::Custom("invalid output note"))?;
                 let recovered=if pool=="ironwood" {
-                    zcash_note_encryption::try_output_recovery_with_ock(&orchard::note_encryption::IronwoodDomain::for_pczt_action(a),ock,a,&a.output().encrypted_note().out_ciphertext)
+                    type D=orchard::note_encryption::IronwoodDomain;
+                    zcash_note_encryption::try_output_recovery_with_pkd_esk(&D::for_pczt_action(a),D::get_pk_d(&note),D::derive_esk(&note).ok_or(OrchardError::Custom("missing encryption secret"))?,a)
                 } else {
-                    zcash_note_encryption::try_output_recovery_with_ock(&orchard::note_encryption::OrchardDomain::for_pczt_action(a),ock,a,&a.output().encrypted_note().out_ciphertext)
-                }.ok_or_else(||OrchardError::Custom(()))?;
-                if recovered.0.value().inner()!=value || &recovered.1!=receiver {return Err(OrchardError::Custom(()));}
+                    type D=orchard::note_encryption::OrchardDomain;
+                    zcash_note_encryption::try_output_recovery_with_pkd_esk(&D::for_pczt_action(a),D::get_pk_d(&note),D::derive_esk(&note).ok_or(OrchardError::Custom("missing encryption secret"))?,a)
+                }.ok_or(OrchardError::Custom("encrypted output recovery failed"))?;
+                if let Some(ock)=a.output().ock() {
+                    let outgoing=if pool=="ironwood" {
+                        zcash_note_encryption::try_output_recovery_with_ock(&orchard::note_encryption::IronwoodDomain::for_pczt_action(a),ock,a,&a.output().encrypted_note().out_ciphertext)
+                    } else {
+                        zcash_note_encryption::try_output_recovery_with_ock(&orchard::note_encryption::OrchardDomain::for_pczt_action(a),ock,a,&a.output().encrypted_note().out_ciphertext)
+                    }.ok_or(OrchardError::Custom("outgoing ciphertext recovery failed"))?;
+                    if outgoing.0!=recovered.0 || outgoing.1!=recovered.1 {return Err(OrchardError::Custom("outgoing ciphertext mismatch"));}
+                }
+                if recovered.0.value().inner()!=value || &recovered.1!=receiver {return Err(OrchardError::Custom("encrypted recipient or amount mismatch"));}
                 let address=a.output().user_address().as_ref();
                 let is_change=address.is_none() && fvk.scope_for_address(receiver).is_some();
                 if let Some(address)=address {
-                    let decoded=match Address::decode(&Network::TestNetwork,address) {Some(Address::Unified(ua))=>ua.orchard().copied(),_=>None}.ok_or_else(||OrchardError::Custom(()))?;
-                    if receiver!=&decoded {return Err(OrchardError::Custom(()));}
-                } else if !is_change {return Err(OrchardError::Custom(()));}
+                    let decoded=match Address::decode(&Network::TestNetwork,address) {Some(Address::Unified(ua))=>ua.orchard().copied(),_=>None}.ok_or_else(||OrchardError::Custom("user address is not a shielded UA"))?;
+                    if receiver!=&decoded {return Err(OrchardError::Custom("user address receiver mismatch"));}
+                } else if !is_change {return Err(OrchardError::Custom("output has no user address and is not owned change"));}
                 outputs.push(json!({"pool":pool,"index":index,"recipient":address,"is_change":is_change,"amount_zats":value.to_string()}));
             }
         }
@@ -89,6 +101,6 @@ fn main() -> anyhow::Result<()> {
         Some("address") if args.len()==3=>address(&args[2]),
         Some("create") if args.len()==4=>create(&args[2],&args[3]),
         Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
-        _=>Err(anyhow!("usage: benzo-pczt create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file>"))
+        _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file>"))
     }
 }
