@@ -19,6 +19,7 @@
     "seal/src",
     "playwright.config.ts",
     "manifest",
-    "clear"
+    "clear",
+    "settle"
   ]
 }

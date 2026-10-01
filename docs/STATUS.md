@@ -4,7 +4,7 @@
 
 Contract d0fbe61 / R1. Started only after Phase 2 READY FOR REVIEW at 28ddd09: live run b834747, artifacts aa4676b, positive verifier 0 and corrupted-copy exit 1 with ERROR E/F. Read Phase 3 in full and DESIGN §6/§14. `npm run e2e` regression PASS before new work (`tmp/e2e/phase3-baseline.log`).
 
-Gates J/K/L/M/N: IN PROGRESS. First step: pinned-SDK multi-output PCZT creation and an inspector for signer recipient/amount/fee checks. Existing devtool `pczt create --help` accepts one address/value; its pinned `src/commands/pczt/create.rs` uses a single Payment vector. A small SDK driver will extend that vector without changing the upstream tool or its pins. No Phase 3 broadcasts or new spec yet.
+Gates J/K/L/M/N: IN PROGRESS. No Phase 3 live gate evidence yet. Implemented worker, durable SQLite obligations, separate signer checks with fresh Go tle, and pre-broadcast signed-PCZT staging; integration not verified. First step: pinned-SDK multi-output PCZT creation and an inspector for signer recipient/amount/fee checks. Existing devtool `pczt create --help` accepts one address/value; its pinned `src/commands/pczt/create.rs` uses a single Payment vector. SDK driver now compiles against exactly the versions/source identities in the pinned devtool Cargo.lock; inspector checks CV/nullifier/rk/note commitments, note-ciphertext recovery, actual recipients, owned change and ZIP-317 fee. `npm run build:settle` and strict TypeScript check pass; scratch inspection of an existing real PCZT passes, not gate evidence. No Phase 3 broadcasts or new spec yet.
 
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): READY FOR REVIEW
@@ -18,6 +18,10 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 - **Needs user:** none.
 
 ## Questions
+
+- Q5 (Phase 3 routing): inherited bids have random owner/settlement fields and the signed manifest has no seller destination. Current fixture design pins private bidder/seller destination copies for each signer before funding and accepts no run-time recipient override; Gate K can check PCZT recipients against those copies, but this does not prove bidder-owned settlement-envelope authentication. Please rule whether this is sufficient for Phase 3 evidence or require the encrypted envelope/manifest extension now; no such privacy/authentication claim will be made.
+- Q6 (Phase 3 mutations): P2 needs a wrong-amount real PCZT at the checker boundary, since deleting a guard on an honest proposal leaves all amounts unchanged. Proposed J1 negative candidate check protects DESIGN §6 output validation; omitted amount guard is the regression; previous tests never inspect settlement proposals; the checker CLI is used by real signer sessions, with no test seam. P1 premature paid state may cause missing refunds after a pre-broadcast crash, which L1's required final-total check will reject; do not mislabel that failure as observed double payment.
+- Phase 3 line budget: production is currently 459 hand-written lines; the one E2E spec and evidence verifier will exceed +600. The overage is for actual multi-output SDK glue, encrypted-note/recipient verification, durable resume, independent signer processes and the six contracted assertion IDs, not new features or tests.
 
 - User instruction (2026-10-01T04:35:38.725868+00:00), verbatim: “but I hadn’t arranged for this agent to resume automatically for Phase 3 . make sure you never repeat this msitake when waiting next time”
 - Session discipline: stay active during waits unless a confirmed mechanism resumes this agent, including its dependent phase work; background-command completion alone does not do that.
@@ -137,9 +141,11 @@ All tool pins unchanged; no environment changes. Scanner now applies the pinned 
 
 ## Deferred
 
-Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI/hosting excluded from this overnight session.
+Phase 4 UI/hosting excluded from this overnight session. Full owner-key / settlement-envelope delivery remains unresolved under Q5; current routing fixture must be declared explicitly.
 
 ## Last session
+
+- 2026-10-01T05:46:27.062970+00:00: Resumed after interruption; no active owned pidfile processes. Phase 3 SDK/worker compile and typecheck; no broadcasts. Next concrete step: one settle-crash live spec, strict signer amount fault at the real checker boundary, actual crash/resume, cancel and offline drills. Keep turn active through every wait.
 
 - 2026-10-01T05:02:58.031222+00:00: Read Phase 3 and its committed R1 after Phase 2 READY; baseline regression PASS. Pinned tool help/source shows single-recipient PCZT create; next is the minimal multi-recipient SDK driver and strict inspection, then the worker and signer checks. NU7 height now 4,465,026 (ZIP-259); primary/alternate tips 4,425,675/676 at 04:12 UTC, safely outside the 40-block window. Raw observations `tmp/phase2/nu7-tip-{primary,alternate}.json`. Waiting instruction recorded verbatim; this turn stays active.
 - 2026-10-01T04:58:36.867192+00:00: Phase 2 READY FOR REVIEW. Run b834747bd297ba9708f2eec89789be0512f8f9cc; artifacts aa4676b2e0fddee20e63d2bb00fb9b724555b234; all gates, mutations and verification complete. Owned frostd stopped. Next concrete step: read Phase 3 Rulings and DESIGN §6/§14, then implement settlement J/K before crash/cancel/offline drills. Do not start UI.
@@ -166,4 +172,4 @@ Phase 3 batch settlement and signer review after Phase 2 finish line; Phase 4 UI
 
 ## Mutation runs
 
-N1–N7 patches apply cleanly; no live red mutation outputs yet. N3 waits for actual release and hashes fresh Go-tle plaintext, deliberately breaking the sealed freeze commitment. No test data or network response is fabricated.
+N1–N7 live mutation outputs and reversed patches are recorded under docs/evidence/phase-2/mutations/; Phase 2 production source unchanged through the final evidence run. N3 waits for actual release and hashes fresh Go-tle plaintext, deliberately breaking the sealed freeze commitment. No test data or network response is fabricated.
