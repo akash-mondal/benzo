@@ -24,6 +24,8 @@ Evidence work: verifier shell/JS syntax checked, actual positive/corrupt runs pe
 
 2026-10-01T17:42:16Z: run recorder now captures selected Playwright arguments for R8 project-by-project regression; typecheck PASS. Regression/mutation runs still pending, no new assertions.
 
+Next independent work: cheapest carry-over N1 on auction-core, then P1 on settle-crash, before final same-commit R8 regression. Source00425c1 pins cap13/normal312 and build/typecheck PASS. Mutation runs have no BNZ_EVIDENCE_DIR.
+
 Needs user: none. Head: merge B follow-up per R20; Q14 lifecycle API finding below. Gates and final evidence/regression/mutation audits remain owed.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
