@@ -122,7 +122,7 @@ export async function runCommand(command:string,args:string[]) {
     if(command==='cancel'){ac('cancel',id);publish(id)}
     const p=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:'inherit'});
     await new Promise<void>((resolve,reject)=>{p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`settle exit ${c}`)))});
-    const a=read(ledger(id)),status=JSON.parse(sc('status',id));a.state=status.rows.some((r:any)=>r.state==='exception')?'SETTLING':command==='cancel'?'CANCELLED':'SETTLED';save(ledger(id),a);return publish(id);
+    const a=read(ledger(id)),status=JSON.parse(sc('status',id));a.state=status.rows.some((r:any)=>r.state==='exception')?'SETTLING':command==='cancel'?'CANCELLED':'SETTLED';save(ledger(id),a);const pub=publish(id);return {auction_id:id,state:pub.state,settled:pub.settlement.receipts.length};
   }
   if(command==='sign inspect') {requireThat(['alice','bob','carol'].includes(o.name)&&(!o.randomizer||/^[0-9a-f]{64}$/.test(o.randomizer)),'signer/randomizer');requireThat(id&&o.batch&&o.candidate&&o.name,'--id --batch --candidate --name required');const approved=JSON.parse(sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']));if(o.randomizer)save(path.join(STATE,'settle',id,'approvals',o.name+'-'+o.randomizer+'.json'),approved);return approved}
   throw Error('unknown Track A command');

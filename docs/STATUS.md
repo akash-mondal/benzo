@@ -18,6 +18,8 @@ Development failures/fund reconciliation (all real tools; none gate evidence):
 
 Evidence work: verifier shell/JS syntax checked, actual positive/corrupt runs pending. U1–U5 definitions prepared/apply-check passed under docs/evidence/phase-4/mutations, no red outputs yet. Existing cheapest N1/P1 regression patches apply. Explicit action count/per-batch height metrics implemented; R6 measured cap/expiry formula awaits a completed sample. R9 Phase3 wording repaired; historical signed artifacts untouched. Public docs may contain post-R bid plaintext per R16; no refund addresses or address-derived hashes. Funds guarded before each drill at3C+40000=1540000; no Needs user funds currently.
 
+2026-10-01T17:27:09Z: settlement CLI now returns only status/count after publishing the R16 post-R openings; avoids logging the full plaintext-bearing public document. Typecheck/scratch compilation PASS; live validation follows this unchanged v5 binary run.
+
 Needs user: none. Head: merge B follow-up per R20; Q14 lifecycle API finding below. Gates and final evidence/regression/mutation audits remain owed.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
