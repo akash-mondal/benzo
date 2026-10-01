@@ -147,6 +147,8 @@ All frontend implementation, styling and hosting UI are user-owned per Phase 3 R
 
 ## Last session
 
+- 2026-10-01T11:02:23Z: P3 main J1/J2/K1/L1/N1 PASS; batch e14b388ad84f3f26772bdbedd2730c320477038e1b5095267f04c8bd027caeb0 mined at 4427391. Cancel funding 67fd60b85b8b3daa41f9dd6644a134bb8dfee5ead518be1456f6805f3d10ef1d awaits confirmations; M1 pending. This is mutation-run progress, not clean gate evidence. Continue to expected opening-attempt failure and cleanup before reversing P3.
+
 - 2026-10-01T10:43:06Z: P3 active from clean da560d55a48ea8ac1b347c9aed2bdc8796c66313 + literal cancel opening-attempt patch. Main funding cfb6cdb176cc51d832cdb0baa4c3f3fbe4b2d4191a28607be8cefe13de6ca7f8 confirmed/frozen; release 2026-10-01T10:52:45+00:00. Log tmp/e2e/phase3-P3.log; 80-minute spec deadline from 10:30:30 UTC. Stay active through main settlement, expected M1 rejection and real cleanup; then restore plan.ts and run clean final evidence.
 
 - 2026-10-01T10:30:11Z: P2 finished (1706s), ERROR J1; J2/K1/L1/M1/N1 PASS. Saved docs/evidence/phase-3/mutations/P2.out from tmp/e2e/phase3-P2.log, labeled “intentional incorrect-amount sample at the signer amount checker; expected J1 fail; cleanup/recovery only.” Guard restored with git apply -R; artifacts preserved tmp/e2e/phase3-P2-artifacts/. R7 accepts Q8, R8 accepts this real regression. Next concrete step: P3 cancel opening-attempt mutation, then one clean Phase 3 evidence run and both verifier checks.
