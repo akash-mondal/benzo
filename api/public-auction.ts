@@ -6,6 +6,10 @@ import { client, hash, jsonBytes, requireThat, verifyRecord, type Manifest, type
 import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle";
 import { clear, type Opened } from "../clear/core";
 import { clearModeB, clientBuyback, isBuyback } from "../clear/mode-b";
+import { settlementCommitment, verifyEnvelope } from "../envelope/index";
+
+// Published settlement envelopes (gate W): ciphertexts and owner signatures only; plaintext destinations never.
+export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
 // Mode B manifests (clearing.mode "buyback") validate through clear/mode-b.ts; Mode A keeps the unchanged client().
 function readClient(packet: Signed, signer: string): { manifest_hash: string; manifest: Manifest } {
@@ -43,13 +47,14 @@ export type PublicAuction = {
   result: PublicResult | null;
   resultBytes: Buffer | null;
   receipts: Signed[];
+  envelopes: EnvelopeRecord[];
   settlement: SettlementSummary | null;
 };
 export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: PublicResult; resultBytes: Buffer };
 export type Check = { id: string; error?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -71,7 +76,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   const legacy = !existsSync(path.join(root, "auction.json"));
   let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string, state: string;
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
-  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], settlement: SettlementSummary | null;
+  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], settlement: SettlementSummary | null;
   if (!legacy) {
     // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
     const doc = JSON.parse(text("auction.json"));
@@ -94,6 +99,8 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     beacon = readBeacon(doc.beacon ?? null, manifest);
     resultBytes = result ? jsonBytes(doc.result) : null;
     receipts = doc.receipts as Signed[];
+    requireThat(doc.envelopes === undefined || Array.isArray(doc.envelopes), "envelopes");
+    envelopes = (doc.envelopes ?? []) as EnvelopeRecord[];
     settlement = (doc.settlement ?? null) as SettlementSummary | null;
   } else {
     // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the Phase 2/3 evidence dirs.
@@ -113,13 +120,16 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     receipts = existsSync(path.join(root, "receipts.json"))
       ? (JSON.parse(text("receipts.json")) as Signed[])
       : [];
+    envelopes = existsSync(path.join(root, "envelope.json"))
+      ? (JSON.parse(text("envelope.json")) as EnvelopeRecord[])
+      : [];
     settlement = existsSync(path.join(root, "summary.json"))
       ? (JSON.parse(text("summary.json")) as SettlementSummary)
       : null;
     // Legacy evidence dirs carry no state field; derive it from the artifacts they do carry.
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, settlement };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, envelopes, settlement };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -211,6 +221,33 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       : clear({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened });
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
     projection("result.json", result);
+  });
+  // Gate W: published envelope records verify against the owner pubkey inside each opening, and the opening's
+  // salted settlement commitment binds the same envelope ciphertext (threat #7, #32). Dirs without records are pre-W.
+  run("envelope", () => {
+    const records = pub.envelopes;
+    if (!records.length) return projection("envelope.json", null);
+    const frozen = pub.frozen;
+    requireThat(frozen, "missing frozen");
+    const byLeaf = new Map<number, EnvelopeRecord>();
+    for (const rec of records) {
+      requireThat(rec && typeof rec === "object" && Object.keys(rec).sort().join(",") === "ciphertext_hash,envelope_ct,owner_sig", "envelope record shape");
+      const leaf = frozen!.leaves.find(l => l.ciphertext_hash === rec.ciphertext_hash);
+      requireThat(leaf, "envelope for unknown ciphertext");
+      requireThat(!byLeaf.has(leaf!.leaf_index), `duplicate envelope ${leaf!.leaf_index}`);
+      byLeaf.set(leaf!.leaf_index, rec);
+    }
+    for (const l of frozen!.leaves) requireThat(byLeaf.has(l.leaf_index), `missing envelope ${l.leaf_index}`);
+    if (pub.opened.length) {
+      for (const [i, rec] of byLeaf) {
+        const opening = pub.opened.find(o => o.leaf_index === i);
+        requireThat(opening && /^[0-9a-f]{256}$/.test(opening!.plaintext_hex ?? ""), `opening ${i} for envelope`);
+        const pt = Buffer.from(opening!.plaintext_hex!, "hex");
+        requireThat(verifyEnvelope(pt.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig), `envelope ${i} signature`);
+        requireThat(pt.subarray(93, 125).toString("hex") === settlementCommitment(pt.subarray(45, 61).toString("hex"), rec.envelope_ct), `envelope ${i} commitment`);
+      }
+    }
+    projection("envelope.json", records);
   });
   // R20c: result obligations and stray-deposit obligations (T1) are checked in separate passes, so one
   // class can never mask the other. Strays never gate the result checks and vice versa.

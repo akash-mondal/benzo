@@ -35,6 +35,17 @@ function roundAt(t: number): number {
   return 1 + Math.ceil((t - QUICKNET.genesis_time) / QUICKNET.period);
 }
 
+// Owner material is filled by the driver (benzo bid seal produces real one-time owner keys and the salted
+// settlement commitment); the standalone form falls back to Phase 1's random bytes. The 128-byte layout is unchanged.
+function material(id: string, n: number): Uint8Array {
+  const v = $(id).value.trim();
+  if (!v) return random(n);
+  if (!new RegExp(`^[0-9a-f]{${n * 2}}$`).test(v)) throw new Error(`${id} must be ${n * 2} hex characters`);
+  const out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) out[i] = parseInt(v.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
 function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint8Array {
   const pt = new Uint8Array(128);
   const view = new DataView(pt.buffer);
@@ -42,9 +53,9 @@ function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint
   pt.set(auctionId, 1);
   view.setBigUint64(33, price, false);
   view.setUint32(41, quantity, false);
-  pt.set(random(16), 45); // nonce
-  pt.set(random(32), 61); // owner_pubkey (random in Phase 1)
-  pt.set(random(32), 93); // settlement_commitment (random in Phase 1)
+  pt.set(material("nonce", 16), 45);
+  pt.set(material("owner", 32), 61);
+  pt.set(material("commitment", 32), 93);
   return pt;
 }
 

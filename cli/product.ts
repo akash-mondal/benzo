@@ -6,6 +6,7 @@ import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
 import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,QUICKNET} from '../manifest/schema';
+import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
@@ -72,16 +73,28 @@ export async function runCommand(command:string,args:string[]) {
     if(command==='bid prepare')return prepared;
     const bid=input(o);requireThat(m.deposit_addresses.includes(bid.address),'unlisted per-bid address');
     requireThat(Date.now()/1000<m.T_submit,'submission deadline');
+    // Real one-time owner key and salted settlement commitment for the 128-byte layout; the destination (if the
+    // bid carries refund_ua) is sealed to the per-auction envelope key and never leaves this process in plaintext.
+    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,envelope_public_hex:bid.envelope_pubkey});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {
       const page=await browser.newPage();await page.goto(`http://127.0.0.1:${(server.address() as any).port}`);
-      const fields={opening:new Date((QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period)*1000).toISOString(),auction:m.auction_id,price:bid.price_zats,quantity:String(bid.quantity),collateral:m.C_zats,address:bid.address};
+      const fields={opening:new Date((QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period)*1000).toISOString(),auction:m.auction_id,price:bid.price_zats,quantity:String(bid.quantity),collateral:m.C_zats,address:bid.address,owner:prep.owner.public_hex,nonce:prep.nonce_hex,commitment:prep.settlement_commitment_hex};
       await page.route('**/*',route=>route.abort());
-      for(const [k,v] of Object.entries(fields))await page.locator('#'+k).fill(v);
+      for(const [k,v] of Object.entries(fields)) {
+        // the owner-material inputs are hidden; Playwright fill only types into visible fields
+        if(['owner','nonce','commitment'].includes(k))await page.locator('#'+k).evaluate((el,value)=>{(el as HTMLInputElement).value=String(value)},v);
+        else await page.locator('#'+k).fill(v);
+      }
       await page.locator('#seal').click();await page.waitForFunction(()=>document.getElementById('envelope')!.textContent||document.getElementById('error')!.textContent);
       const error=await page.locator('#error').innerText();requireThat(!error,error);
-      return {auction_id:m.auction_id,envelope_hex:await page.locator('#envelope').innerText(),uri:await page.locator('#uri').innerText(),round:Number(await page.locator('#round').innerText())};
+      const envelope_hex=await page.locator('#envelope').innerText();
+      const memo=Buffer.from(envelope_hex,'hex'),bound=bindSealedBid(prep,m.auction_id,hash(memo.subarray(7,7+memo.readUInt16BE(5))));
+      save(path.join(STATE,'bids',m.auction_id,bound.ciphertext_hash_hex+'.json'),{owner_private_hex:prep.owner.private_hex,auction_id:m.auction_id,ciphertext_hash:bound.ciphertext_hash_hex});
+      return {auction_id:m.auction_id,envelope_hex,uri:await page.locator('#uri').innerText(),round:Number(await page.locator('#round').innerText()),
+        ciphertext_hash:bound.ciphertext_hash_hex,owner_pubkey_hex:bound.owner.public_hex,owner_sig_hex:bound.owner_sig_hex,
+        nonce_hex:bound.nonce_hex,settlement_commitment_hex:bound.settlement_commitment_hex,envelope_ct_hex:bound.envelope_ct_hex};
     } finally {await browser.close();server.close()}
   }
   if(command==='bid deposit') {
