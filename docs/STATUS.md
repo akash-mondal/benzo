@@ -137,7 +137,7 @@ None currently. First development failed after an unmined refund lookup: primary
 
 ## Deviations / Environment changes / Upstream code reused
 
-All tool pins unchanged; no environment changes. Scanner now applies the pinned wallet's unexpired-spend condition instead of counting expired unmined spend candidates. Actual six notes were reported spent before this fix and spendable afterwards; the recovery then consumed them on chain. Adapted SQL: `source: zcash/librustzcash@97aefdc39a037da9c4f19a0e8a450d2c7932f53e:zcash_client_sqlite/src/wallet/common.rs` (`tx_unexpired_condition`, lines 114–125). PCZT public version/branch/expiry getter uses exact pczt 0.9.3 already in the pinned devtool graph. Read pinned CLI help/source before calls. NU7 check 20:25 UTC: ZIP-259 testnet activation still TBD (Oct 5); recheck before next broadcast.
+All tool pins unchanged; no environment changes. Multi-output SDK create and shielded address generation adapted from `source: zcash/zcash-devtool@5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8:src/commands/pczt/create.rs` and `src/commands/wallet/gen_addr.rs`; exact dependency identities remain its lockfile versions. Scanner now applies the pinned wallet's unexpired-spend condition instead of counting expired unmined spend candidates. Actual six notes were reported spent before this fix and spendable afterwards; the recovery then consumed them on chain. Adapted SQL: `source: zcash/librustzcash@97aefdc39a037da9c4f19a0e8a450d2c7932f53e:zcash_client_sqlite/src/wallet/common.rs` (`tx_unexpired_condition`, lines 114–125). PCZT public version/branch/expiry getter uses exact pczt 0.9.3 already in the pinned devtool graph. Read pinned CLI help/source before calls. NU7 check 20:25 UTC: ZIP-259 testnet activation still TBD (Oct 5); recheck before next broadcast.
 
 ## Deferred
 
@@ -145,7 +145,9 @@ Phase 4 UI/hosting excluded from this overnight session. Full owner-key / settle
 
 ## Last session
 
-- 2026-10-01T05:55:00.310286+00:00: Added the single Phase 3 spec and live selection; build/typecheck PASS. Default regression PASS (`tmp/e2e/phase3-resume-regression.log`). Next is fresh real development run, output `tmp/e2e/phase3-development.log`, overall deadline 85 minutes and spec deadline 80 minutes. No evidence claim before its six IDs pass.
+- 2026-10-01T05:58:04.235603+00:00: First development at 28585e0 failed before funding on devtool transparent-address reservation index 40 (tmp/e2e/phase3-development.log and report.json). Harness cause: all-receiver address requests. Pinned CLI has no receiver option; same pinned SDK exposes UnifiedAddressRequest::ORCHARD. Added shielded-only address generation to our SDK driver, without patching/upgrading upstream. Build/typecheck and actual bidder address generation pass; retry running at d34c78b in tmp/e2e/phase3-development-v2.log. Main funding tx 3b7966ac4b3d58aa1c54ebde7a00151ffce9e019873c72039aedf953a99d3472 broadcast; waiting for ten real confirmations before admission/settlement.
+
+- 2026-10-01T05:55:00.310286+00:00: Added the single Phase 3 spec and live selection; build/typecheck PASS. Default regression PASS (`tmp/e2e/phase3-resume-regression.log`). Next is fresh real development run, output `tmp/e2e/phase3-development.log`, spec deadline 80 minutes; each worker has a 30-minute deadline. No evidence claim before its six IDs pass.
 
 - 2026-10-01T05:46:27.062970+00:00: Resumed after interruption; no active owned pidfile processes. Phase 3 SDK/worker compile and typecheck; no broadcasts. Next concrete step: one settle-crash live spec, strict signer amount fault at the real checker boundary, actual crash/resume, cancel and offline drills. Keep turn active through every wait.
 
