@@ -16,6 +16,7 @@ export type SettlementSummary = {
 export type PublicAuction = {
   dir: string;
   signer: string;
+  legacy: boolean;
   manifestPacket: Signed;
   manifest: Manifest;
   manifest_hash: string;
@@ -34,6 +35,12 @@ export type PublicAuction = {
 };
 export type Check = { id: string; error?: string };
 
+// Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon"]);
+const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
+// The schema requires opened + beacon once the state reaches OPENED.
+const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
+
 export function loadPublicAuction(dir: string): PublicAuction {
   const root = path.resolve(dir);
   const file = (name: string): Buffer => {
@@ -42,26 +49,55 @@ export function loadPublicAuction(dir: string): PublicAuction {
     return readFileSync(p);
   };
   const text = (name: string) => file(name).toString("utf8");
-  const signer = String(JSON.parse(text("signer.json")).signer);
-  const manifestPacket = JSON.parse(text("manifest.json")) as Signed;
-  const { manifest, manifest_hash } = client(manifestPacket, signer);
-  const frozen = JSON.parse(text("frozen.json")) as Frozen;
-  const opened = existsSync(path.join(root, "opened.json"))
-    ? (JSON.parse(text("opened.json")) as Opened[])
-    : [];
-  const beacon = readBeacon(
-    existsSync(path.join(root, "beacon.json")) ? JSON.parse(text("beacon.json")) : null,
-    manifest,
-  );
-  const resultBytes = file("result.json");
-  const result = JSON.parse(resultBytes.toString("utf8")) as PublicAuction["result"];
-  const receipts = existsSync(path.join(root, "receipts.json"))
-    ? (JSON.parse(text("receipts.json")) as Signed[])
-    : [];
-  const settlement = existsSync(path.join(root, "summary.json"))
-    ? (JSON.parse(text("summary.json")) as SettlementSummary)
-    : null;
-  return { dir: root, signer, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, settlement };
+  const legacy = !existsSync(path.join(root, "auction.json"));
+  let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string;
+  let frozen: Frozen, opened: Opened[], beacon: Beacon | null;
+  let resultBytes: Buffer, result: PublicAuction["result"], receipts: Signed[], settlement: SettlementSummary | null;
+  if (!legacy) {
+    // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
+    const doc = JSON.parse(text("auction.json"));
+    requireThat(doc && typeof doc === "object" && !Array.isArray(doc), "auction.json");
+    requireThat(Object.keys(doc).every(k => canonicalKeys.has(k)) && doc.version === 1, "auction.json schema");
+    requireThat(/^[0-9a-f]{64}$/.test(String(doc.auction_id)), "auction id");
+    requireThat(typeof doc.state === "string" && states.has(doc.state), "state");
+    signer = String(doc.signer);
+    manifestPacket = doc.manifest as Signed;
+    ({ manifest, manifest_hash } = client(manifestPacket, signer));
+    requireThat(doc.auction_id === manifest.auction_id, "auction id binding");
+    requireThat(Array.isArray(doc.receipts), "receipts");
+    frozen = doc.frozen as Frozen;
+    result = doc.result as PublicAuction["result"];
+    requireThat(frozen && typeof frozen === "object", "missing frozen");
+    requireThat(result && typeof result === "object", "missing result");
+    if (openedStates.has(doc.state)) requireThat(Array.isArray(doc.opened) && doc.beacon, "opened/beacon required from OPENED");
+    opened = Array.isArray(doc.opened) ? (doc.opened as Opened[]) : [];
+    beacon = readBeacon(doc.beacon ?? null, manifest);
+    resultBytes = jsonBytes(doc.result);
+    receipts = doc.receipts as Signed[];
+    settlement = (doc.settlement ?? null) as SettlementSummary | null;
+  } else {
+    // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the Phase 2/3 evidence dirs.
+    signer = String(JSON.parse(text("signer.json")).signer);
+    manifestPacket = JSON.parse(text("manifest.json")) as Signed;
+    ({ manifest, manifest_hash } = client(manifestPacket, signer));
+    frozen = JSON.parse(text("frozen.json")) as Frozen;
+    opened = existsSync(path.join(root, "opened.json"))
+      ? (JSON.parse(text("opened.json")) as Opened[])
+      : [];
+    beacon = readBeacon(
+      existsSync(path.join(root, "beacon.json")) ? JSON.parse(text("beacon.json")) : null,
+      manifest,
+    );
+    resultBytes = file("result.json");
+    result = JSON.parse(resultBytes.toString("utf8")) as PublicAuction["result"];
+    receipts = existsSync(path.join(root, "receipts.json"))
+      ? (JSON.parse(text("receipts.json")) as Signed[])
+      : [];
+    settlement = existsSync(path.join(root, "summary.json"))
+      ? (JSON.parse(text("summary.json")) as SettlementSummary)
+      : null;
+  }
+  return { dir: root, signer, legacy, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, settlement };
 }
 
 // The published drand beacon (R16) is a public input; bind it to the signed manifest before any use.
@@ -91,10 +127,17 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     try { fn(); checks.push({ id }); }
     catch (e) { checks.push({ id, error: (e as Error).message }); }
   };
+  // Canonical dirs carry byte-identical manifest.json, frozen.json and result.json projections (schema description).
+  const projection = (name: string, value: unknown): void => {
+    if (pub.legacy) return;
+    const p = path.join(pub.dir, name);
+    if (existsSync(p)) requireThat(jsonBytes(value).equals(readFileSync(p)), `${name} projection differs`);
+  };
   run("manifest", () => {
     const again = client(pub.manifestPacket, pub.signer);
     requireThat(again.manifest_hash === pub.manifest_hash, "manifest hash changed");
     requireThat(pub.result.auction_id === pub.manifest.auction_id && pub.result.manifest_hash === pub.manifest_hash, "result manifest binding");
+    projection("manifest.json", pub.manifestPacket);
   });
   run("freeze", () => {
     checkFrozen(pub.frozen, pub.manifest.auction_id, pub.manifest_hash);
@@ -108,6 +151,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       );
     }
     requireThat(pub.frozen.root === pub.result.freeze_root, "result freeze root");
+    projection("frozen.json", pub.frozen);
   });
   run("receipts", () => {
     for (const [i, packet] of pub.receipts.entries()) {
@@ -117,6 +161,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   run("clear", () => {
     const fresh = clear({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen, opened: pub.opened });
     requireThat(jsonBytes(fresh).equals(pub.resultBytes), "canonical result differs");
+    projection("result.json", pub.result);
   });
   run("accounting", () => {
     const c = pub.result.conservation;

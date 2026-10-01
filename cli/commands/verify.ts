@@ -58,6 +58,7 @@ export async function run(argv: string[]): Promise<number> {
   }
   try {
     const pub = loadPublicAuction(args[0]);
+    if (pub.legacy) process.stderr.write("WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs\n");
     if (offline) {
       requireThat(pub.opened.length === pub.frozen.leaf_count, "--offline needs one published opening per leaf");
       process.stderr.write("WARN openings not re-derived\n");

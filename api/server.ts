@@ -2,7 +2,7 @@
 import http from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { freezeBoard, loadPublicAuction, operatorView, receiptShow, resultHash } from "./public-auction";
+import { checkPublicAuction, freezeBoard, loadPublicAuction, operatorView, receiptShow, resultHash } from "./public-auction";
 
 export type ServerOptions = { dir: string; host?: string; port?: number };
 
@@ -28,8 +28,12 @@ export function startServer(options: ServerOptions): http.Server {
       }
       if (parts[0] === "auction" && parts[1]) {
         if (parts[1] !== pub.manifest.auction_id) return send(res, 404, { error: "unknown auction id" });
+        const failed = checkPublicAuction(pub).filter(c => c.error);
+        // A manifest failure means the document cannot be trusted at all (same verdict as `benzo verify`).
+        const manifestBroken = failed.find(c => c.id === "manifest");
+        if (manifestBroken) return send(res, 400, { valid: false, error: `manifest ${manifestBroken.error}` });
         return send(res, 200, {
-          valid: true,
+          valid: failed.length === 0,
           auction_id: pub.manifest.auction_id,
           manifest_hash: pub.manifest_hash,
           result_hash: resultHash(pub),
