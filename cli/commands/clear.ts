@@ -1,3 +1,2 @@
-import {runCommand} from '../product';
 export const noun='clear',verb='',help='benzo clear --id ID';
-export const run=(args:string[])=>runCommand('clear',args);
+export const run=async(args:string[])=>{const {runCommand}=await import('../product');return runCommand('clear',args)};
