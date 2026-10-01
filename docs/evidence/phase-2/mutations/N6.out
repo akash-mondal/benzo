@@ -1,0 +1,35 @@
+commit f8707e017fc26dcc8d3d2c463ddc69a80cfa7d04
+start_utc 2026-10-01T02:37:44.329573+00:00
+end_utc 2026-10-01T03:24:41.412239+00:00
+command npm run e2e:live
+exit 1
+npm notice run e2e:live
+npm notice run BNZ_LIVE=1 playwright test --project=auction-core
+▲ [WARNING] The "&&" operator here will always return the left operand [suspicious-logical-operator]
+
+    clear/auction-cli.ts:66:44:
+      66 │ ...ld=ledger.leaves.find(l=>false && (l.ciphertext_hash===cipherte...
+         ╵                                   ~~
+
+  The "=>" symbol creates an arrow function expression in JavaScript. Did you mean to use the greater-than-or-equal-to operator ">=" here instead?
+
+    clear/auction-cli.ts:66:36:
+      66 │ ... const old=ledger.leaves.find(l=>false && (l.ciphertext_hash===...
+         │                                   ~~
+         ╵                                   >=
+
+deposit 1/6 broadcast 0aafb45c095dbcc81b9008fed191185215f19a925dd674162bfa452f763a31c2
+deposit 2/6 broadcast 04ef9862369096df9665361f884b7aef12e1864db4cf2085fc17e3aebb44f1bf
+deposit 3/6 broadcast a52cbb2f1b51ae66a9e2127089389813375694d1bcae581cff6a795b41f66de7
+deposit 4/6 broadcast 2458e9891da8924d37f6e8ca70fafda211b53cdc7fb94a402aa17ec73fa39c02
+deposit 5/6 broadcast 3eb7334e03544ec7b9f9d25e9d93ab67ffee2f3eaa23cdecaa7f87b48711f6f6
+deposit 6/6 broadcast 9452011d0fb24ad3424bf83019922a4323afe41b3bd4d8cd8862b33c005ba325
+ERROR H3 Error: expect(received).toBe(expected) // Object.is equality | Expected: true | Received: false
+ERROR F1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 2 | Received: 3
+ERROR G1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+ERROR G2 Error: expect(received).toBe(expected) // Object.is equality | Expected: "1380" | Received: undefined
+ERROR G3 Error: expect(received).toEqual(expected) // deep equality | Expected: [1, 0] | Received: undefined
+refund broadcast fcf6e7d3ce9b28ab0147e4a26989b6d00644c50c00d307a3fc01d5ab534cbb59
+run.json -> tmp/e2e/out
+FAILED auction-core signed sealed auction on testnet (2816 s)
+run failed; details in tmp/e2e/report.json
