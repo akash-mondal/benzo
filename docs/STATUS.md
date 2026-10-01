@@ -147,6 +147,8 @@ All frontend implementation, styling and hosting UI are user-owned per Phase 3 R
 
 ## Last session
 
+- 2026-10-01T09:36:16Z: P2 active from clean 5bcb5ec6fd6a7ac0db64dfc7174ed671912ea4c3 + literal omitted amount guard; start 09:24:38 UTC, 80-minute spec deadline. Funding 17f1dfbdaf0dd90d55715255601b7bad3467d0a1884e4e02590218798e43718f confirmed/frozen, release 09:46:48 UTC. Output tmp/e2e/phase3-P2.log. No mutation result yet; keep run active through real settlement/cancel and cleanup, then reverse patch and record J1 at the faulted real PCZT.
+
 - 2026-10-01T09:24:38Z: P2 clean-start preflight initially stopped on the head’s concurrent protected PHASE-3.md edit, before mutation/spend. Head committed e1225dc (R6); read-only file untouched and tree now clean. R6 prohibits frontend implementation/styling/hosting UI by build agent; current backend/CLI settlement work continues. Next: P2 fresh real faulted-PCZT amount-check run.
 
 - 2026-10-01T09:20:36Z: P1 completed red at L1 from clean d6864f5 + P1.patch. Observed missing refunds (0 / 2,000,000 zats before cleanup), not literal double-pay, recorded in docs/evidence/phase-3/mutations/P1.out. M1 PASS; development recovery c7c001a8565963b0dc6159080b9d5df691880dc3c819408fe1da038c5793916a mined. Patch reversed; git status showed only new P1.out. Full log tmp/e2e/phase3-P1.log; artifacts phase3-P1-artifacts/. Next concrete step: clean P2 amount-guard mutation at the real faulted-PCZT checker, then P3 and final clean evidence.
