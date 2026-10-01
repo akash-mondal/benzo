@@ -74,8 +74,18 @@ async function worker(ledger:Ledger) {
     if(!known?.mined_height) {
       const metadata=inspect(staged.pczt_path!),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       if(metadata.expiry_height<=tip) {
+        const m=client(auction().manifest,auction().signer).manifest;
+        const start=Math.min(...notes().filter(n=>m.deposit_addresses.includes(n.address)&&n.height>0&&n.value_zats>0).map(n=>n.height));
+        requireThat(Number.isSafeInteger(start)&&start>0&&start<=metadata.expiry_height,"expired batch deposit range missing");
+        let endHash:string|undefined;
+        // Pinned service.proto:259 GetBlockRange and compact_formats.proto:54 CompactTx.txid.
+        // A complete range through expiry proves absence; expired transactions cannot mine later.
         for(const endpoint of [env("BNZ_LWD_URL"),env("BNZ_LWD_URL_ALT")]) {
-          const observed=chainTx(staged.txid!,endpoint,true);requireThat(Number(observed.height)===0||Number(observed.height)>=2**32-1,"expired batch is mined; reconcile before replanning");
+          const raw=run(bin("grpcurl"),["-import-path",path.join(STATE,"proto"),"-proto","service.proto","-d",JSON.stringify({start:{height:start},end:{height:metadata.expiry_height}}),endpoint,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlockRange"]);
+          const blocks=raw.trim().split(/\n(?=\{)/).map(l=>JSON.parse(l));
+          requireThat(blocks.length===metadata.expiry_height-start+1&&blocks.every((b,i)=>Number(b.height)===start+i),"incomplete expired batch block range");
+          requireThat(!blocks.flatMap(b=>b.vtx??[]).some(t=>Buffer.from(t.txid,"base64").reverse().toString("hex")===staged.txid),"expired batch is mined; reconcile before replanning");
+          requireThat(!endHash||endHash===blocks.at(-1).hash,"expired batch endpoints disagree");endHash=blocks.at(-1).hash;
         }
         ledger.expire(batch.id);console.log(JSON.stringify({auction_id:id,batch:batch.id,state:"exception",expiry_height:metadata.expiry_height,tip}));ledger.pin(plan.obligations,plan.exceptions);ledger.eligible();continue;
       }

@@ -36,6 +36,8 @@ Current fresh run e0e0b9a: npm run e2e:live, tmp/e2e/phase4-cli-development-v4.l
 
 2026-10-01T16:58:12Z: committed head R20 read/author checked; Q11 schema budget accepted, Q12 permission handling acknowledged, Q13 canonical reader/flags/stray accounting assigned to B. Harness/verifier aligned to R20 flags and root API paths. Explicit action count and per-batch height metrics added; cargo check --release --locked and typecheck PASS. Planner no longer logs clear stdout. Current v4 still signing first 13-recipient candidate; recovery result pending.
 
+2026-10-01T17:07:19Z: v4 FAILED (2290 seconds), not gate evidence. O1/P1/T4 PASS; expired candidate reconciliation stopped on primary GetTransaction InternalServerError, before any broadcast. Complete direct GetBlockRange proofs from both endpoints cover all 33 blocks from first deposit through expiry, candidate absent (tmp/e2e/phase4-expiry-range.log; pinned service.proto:259, compact_formats.proto:54). Worker now uses that direct complete-range proof, with no error fallback; build/core/CLI/settle and typecheck PASS. Cleanup 271901de42b0e0d42cb1026e6ecd40869c707c8ac80510dde7bf2e914c8ed902 mined; positive unspent vault value 0, native bidder spendable 97633380. First candidate signed 13 randomizers / 611423 ms, worst 141227 ms including deliberate suspension; no settled sample claimed. Fresh v5 follows to validate the recovery fix; Track B R20 follow-up still pending.
+
 Needs user: none currently. Questions Q10–Q13 below. No commands in the other checkout; no Track B file edits.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
