@@ -5,7 +5,7 @@ import path from "node:path";
 import { client, hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle";
 import { clear, type Opened } from "../clear/core";
-import { clearModeB, clientPhase5, isBuyback } from "../clear/mode-b";
+import { clearModeB, clientPhase5, isBuyback, checkResultBuyback, type BuybackManifest } from "../clear/mode-b";
 import { settlementCommitment, verifyEnvelope } from "../envelope/index";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
@@ -29,7 +29,7 @@ export type PublicResult = {
   auction_id: string; manifest_hash: string; freeze_root: string; mode: string;
   clearing_price_zats: string;
   allocations: { leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string }[];
-  conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string };
+  conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string; treasury_zats?: string };
 };
 // Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
 // yet. Readers that must run past freeze (benzo verify) use loadCompletePublicAuction instead.
@@ -300,14 +300,13 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       BigInt(c.input_zats) === BigInt(c.payout_zats) + BigInt(c.refund_zats) + BigInt(c.fees_zats),
       "conservation",
     );
-    const fee = BigInt(pub.manifest.fee_zats), C = BigInt(pub.manifest.C_zats), price = BigInt(result.clearing_price_zats);
-    for (const a of result.allocations) {
-      if (isBuyback(pub.manifest)) {
-        // Mode B: the refund is exact C and the treasury payment is the uniform price net of the fee taken from it.
-        const gross = price * BigInt(a.fill), feeShare = a.fill ? (fee < gross ? fee : gross) : 0n;
-        requireThat(BigInt(a.refund_zats) === C, `allocation ${a.leaf_index} refund is not exact C`);
-        requireThat(BigInt(a.payment_zats) + feeShare === gross, `allocation ${a.leaf_index} payment`);
-      } else {
+    const fee = BigInt(pub.manifest.fee_zats), C = BigInt(pub.manifest.C_zats);
+    if (isBuyback(pub.manifest)) {
+      // Mode B money rules live with the mode (clear/mode-b.ts checkResultBuyback): exact-C refunds, fees only
+      // from winner payments, treasury_zats = payout + fees, and the budget/fill/ask invariants (R4 item 3).
+      checkResultBuyback(pub.manifest as unknown as BuybackManifest, result);
+    } else {
+      for (const a of result.allocations) {
         requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
       }
     }
