@@ -4,7 +4,8 @@
 // Every leaf gets exact C back; fees come only from winner payments (PHASE-3 R2). Integers only; no clock or network.
 import { hash, requireThat, validateManifest, verifyRecord, zats, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen } from "./merkle";
-import type { ClearInput } from "./core";
+import { LAYOUT_V0, readOrder } from "./layout";
+import type { ClearBody, ClearInput } from "./core";
 
 // R3 item 4: max_price_zats is the treasury's maximum accepted ask (was floor_zats).
 export type Buyback = { budget_zats: string; max_price_zats: string };
@@ -37,7 +38,6 @@ export function clientBuyback(packet: Signed, trustedSigner: string): { manifest
   requireThat(r.manifest.clearing.mode === "buyback" && r.manifest.buyback, "buyback clearing mode");
   return r;
 }
-export const isBuyback = (m: Manifest): boolean => (m as unknown as BuybackManifest).clearing.mode === "buyback";
 
 function calculate(input: ClearInput) {
   const { manifest: m, manifest_hash } = clientBuyback(input.manifest, input.signer);
@@ -50,12 +50,12 @@ function calculate(input: ClearInput) {
     let price = 0n, quantity = 0, reason = "";
     if (o?.error === "reorg") reason = "reorg";
     else if (!o || o.plaintext_hex === null) reason = "undecryptable";
-    else if (!/^[0-9a-f]{256}$/.test(o.plaintext_hex)) reason = "plaintext_length";
     else {
-      const pt = Buffer.from(o.plaintext_hex, "hex"); price = pt.readBigUInt64BE(33); quantity = pt.readUInt32BE(41);
-      if (pt[0] !== 0 || !pt.subarray(125).equals(Buffer.alloc(3)) || pt.subarray(1, 33).toString("hex") !== m.auction_id) reason = "plaintext_binding";
-      else if (!price || !quantity || quantity > m.q_max || price > cap || price % tick !== 0n || price * BigInt(quantity) + fee > C) reason = "over_cap";
-      else if (price > maxPrice) reason = "above_max_price";
+      const order = readOrder(LAYOUT_V0, o.plaintext_hex, m.auction_id); price = order.price; quantity = order.quantity; reason = order.reason;
+      if (!reason) {
+        if (!price || !quantity || quantity > m.q_max || price > cap || price % tick !== 0n || price * BigInt(quantity) + fee > C) reason = "over_cap";
+        else if (price > maxPrice) reason = "above_max_price";
+      }
     }
     return { leaf_index: l.leaf_index, price, quantity, reason, fill: 0 };
   });
@@ -109,11 +109,7 @@ export function clearModeB(input: ClearInput) {
 // Verify-side money invariants for a published Mode B result (R4 item 3): the same invariants calculate enforces,
 // plus the recorded treasury leg and the exact-C refunds with fees taken only from winner payments. benzo verify's
 // accounting check runs this on the published result, so a corrupted one is refused on its own numbers.
-export function checkResultBuyback(m: BuybackManifest, result: {
-  clearing_price_zats: string;
-  allocations: { leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string }[];
-  conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string; treasury_zats?: string };
-}): void {
+export function checkResultBuyback(m: BuybackManifest, result: ClearBody): void {
   const C = zats(m.C_zats, "C"), fee = zats(m.fee_zats, "fee"), budget = zats(m.buyback.budget_zats, "budget");
   const price = zats(result.clearing_price_zats, "clearing price");
   const c = result.conservation;
@@ -128,4 +124,14 @@ export function checkResultBuyback(m: BuybackManifest, result: {
     totalFill += a.fill;
   }
   requireThat(price * BigInt(totalFill) <= budget, "budget exceeded");
+}
+
+// Mode B settlement rows: one obligation per leaf for refund + payment (the treasury is the funding leg).
+export function obligationsModeB(result: ClearBody): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const a of result.allocations) {
+    const owed = BigInt(a.refund_zats) + BigInt(a.payment_zats);
+    if (owed > 0n) map.set(`leaf:${a.leaf_index}`, owed.toString());
+  }
+  return map;
 }

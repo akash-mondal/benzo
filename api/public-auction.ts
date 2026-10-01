@@ -2,19 +2,17 @@
 // Reads only public files; never loads BNZ_STATE_DIR secrets or bid-side keys.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { client, hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
+import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle";
-import { clear, type Opened } from "../clear/core";
-import { clearModeB, clientPhase5, isBuyback, checkResultBuyback, type BuybackManifest } from "../clear/mode-b";
+import { type ClearBody, type Opened } from "../clear/core";
+import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { settlementCommitment, verifyEnvelope } from "../envelope/index";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
-// Buyback manifests (clearing.mode "buyback" + `buyback` fields) validate through clear/mode-b.ts; Mode A keeps
-// the unchanged client(). The witness set rides in a separate signed packet, not in the manifest.
+// Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
+// The witness set rides in a separate signed packet, not in the manifest.
 function readClient(packet: Signed, signer: string): { manifest_hash: string; manifest: Manifest } {
-  const peek = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8"));
-  // The buyback extra fields ride along in the untyped manifest value; callers read them only through clear/mode-b.
-  return peek?.clearing?.mode === "buyback" ? (clientPhase5(packet, signer) as unknown as { manifest_hash: string; manifest: Manifest }) : client(packet, signer);
+  return clientForMode(packet, signer) as { manifest_hash: string; manifest: Manifest };
 }
 export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
@@ -171,17 +169,6 @@ function readBeacon(raw: unknown, manifest: Manifest): Beacon | null {
 
 const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
 
-function obligations(result: PublicResult, buyback: boolean): Map<string, string> {
-  const map = new Map<string, string>();
-  // Mode B refunds every leaf exact C and pays winners from the treasury leg; one obligation per leaf, no seller row.
-  for (const a of result.allocations) {
-    const owed = buyback ? BigInt(a.refund_zats) + BigInt(a.payment_zats) : BigInt(a.refund_zats);
-    if (owed > 0n) map.set(`leaf:${a.leaf_index}`, owed.toString());
-  }
-  if (!buyback && BigInt(result.conservation.payout_zats) > 0n) map.set("seller", result.conservation.payout_zats);
-  return map;
-}
-
 export function checkPublicAuction(pub: PublicAuction): Check[] {
   const checks: Check[] = [];
   const run = (id: string, fn: () => string | void) => {
@@ -257,9 +244,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const result = pub.result, resultBytes = pub.resultBytes;
     if (!result || !resultBytes) return projection("result.json", null);
     requireThat(pub.frozen, "missing frozen");
-    const fresh = isBuyback(pub.manifest)
-      ? clearModeB({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened })
-      : clear({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened });
+    const fresh = clearForMode({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened });
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
     projection("result.json", result);
   });
@@ -300,23 +285,17 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       BigInt(c.input_zats) === BigInt(c.payout_zats) + BigInt(c.refund_zats) + BigInt(c.fees_zats),
       "conservation",
     );
-    const fee = BigInt(pub.manifest.fee_zats), C = BigInt(pub.manifest.C_zats);
-    if (isBuyback(pub.manifest)) {
-      // Mode B money rules live with the mode (clear/mode-b.ts checkResultBuyback): exact-C refunds, fees only
-      // from winner payments, treasury_zats = payout + fees, and the budget/fill/ask invariants (R4 item 3).
-      checkResultBuyback(pub.manifest as unknown as BuybackManifest, result);
-    } else {
-      for (const a of result.allocations) {
-        requireThat(BigInt(a.payment_zats) + BigInt(a.refund_zats) + fee === C, `allocation ${a.leaf_index} does not account C`);
-      }
-    }
+    // Per-mode money rules live with the mode (checkResultModeA / checkResultBuyback) and are reached through the
+    // registry — Mode B adds treasury_zats = payout + fees and the budget/fill/ask invariants (R4 item 3).
+    modeEntry(pub.manifestPacket).checkResult(pub.manifest, result as ClearBody);
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
     for (const [i, r] of receipts.entries()) {
       requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
     }
-    const expected = obligations(result, isBuyback(pub.manifest));
+    // Settlement obligations per mode live with the mode (obligationsModeA / obligationsModeB) via the registry.
+    const expected = modeEntry(pub.manifestPacket).obligations(result as ClearBody);
     for (const [party, amount] of expected) {
       const rs = receipts.filter(r => r.party === party);
       requireThat(rs.length > 0, `settlement missing obligation ${party}`);
@@ -333,7 +312,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     if (!pub.settlement || !pub.result) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    const expected = obligations(pub.result, isBuyback(pub.manifest));
+    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody);
     const stray = (party: string): void => {
       requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
