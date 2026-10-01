@@ -18,7 +18,7 @@ function options(args:string[]) {
   for(let i=0;i<args.length;i++){requireThat(/^--[a-z-]+$/.test(args[i]),'expected named option');const k=args[i].slice(2);requireThat(!result[k],'duplicate option');result[k]=args[i+1]&&!args[i+1].startsWith('--')?args[++i]:'true'}return result;
 }
 const input=(o:Record<string,string>)=>read(o.file??'/dev/stdin');
-const ac=(verb:string,id:string,v:any={})=>JSON.parse(execute(process.execPath,[path.join(ROOT,'clear/dist/auction.mjs'),verb,id],JSON.stringify(v)));
+const ac=(verb:string,id:string,v:any={})=> {const p=spawnSync(process.execPath,[path.join(ROOT,'clear/dist/auction.mjs'),verb,id],{input:JSON.stringify(v),encoding:'utf8',maxBuffer:64<<20});if(p.error)throw p.error;requireThat(p.status===0,p.stderr.trim().slice(-300));return JSON.parse(p.stdout)};
 const sc=(verb:string,id:string,args:string[]=[],v:any={})=>execute(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),verb,id,...args],JSON.stringify(v));
 function privatePath(p:string) {const resolved=path.resolve(p);requireThat(resolved.startsWith(STATE+path.sep),'private file must live under BNZ_STATE_DIR');return resolved}
 export function publish(id:string) {
@@ -105,7 +105,7 @@ export async function runCommand(command:string,args:string[]) {
     }
     const admitted=ac('admit',id,bid);publish(id);return {...admitted,C_zats:m.C_zats};
   }
-  if(['freeze','open','clear'].includes(command)) {requireThat(id,'--id required');const result=ac(command,id);publish(id);return result}
+  if(['freeze','open','clear'].includes(command)) {requireThat(id,'--id required');const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result}
   if(command==='settle'||command==='cancel'||command==='sign join') {
     requireThat(id,'--id required');
     if(command==='sign join'&&o.name) {

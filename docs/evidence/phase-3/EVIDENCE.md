@@ -1,6 +1,6 @@
 # Phase 3 evidence: READY FOR REVIEW
 
-Contract: PHASE-3 R1–R8 (latest head commit dc28c08). Head approval is pending; no frontend work.
+Contract: PHASE-3 R1–R8 (latest head commit dc28c08). Head recorded gates J–N PASSED in R9–R14 at 0090781; no frontend work.
 
 `BNZ_EVIDENCE_DIR=docs/evidence/phase-3 npm run e2e:live` exited 0 at `742feb997a0fa3ab7aecab959e9170afb1493907`; 2026-10-01T12:14:36.124Z–2026-10-01T12:43:57.863Z (1761 seconds). J1/J2/K1/L1/M1/N1 all PASS. Generated artifacts were committed separately at `7951dd7d45f5dd4813f35df8c1f31fe482b76bc3`. Full output: `tmp/e2e/phase3-final-evidence-v2.log`.
 

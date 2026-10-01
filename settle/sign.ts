@@ -46,6 +46,7 @@ export type Session = { signers: string[]; sighash: string; randomizer: string; 
 
 // One coordinator session (alice coordinates; alice and bob sign) for one sighash and one randomizer.
 async function signOnce(sighash: string, randomizer: string, check: (name:string, randomizer:string, sighash:string)=>void,pair:string[],auction?:string,batch?:number,candidate?:string): Promise<Session> {
+  const started=Date.now();
   for(const name of pair)check(name,randomizer,sighash);
   const signers = pair.map(pubkey);
   const addr = env("BNZ_FROSTD_ADDR");
@@ -56,7 +57,7 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
   const participants:Proc[]=[];
   for(const n of pair) {
     const p=auction?start(process.execPath,[path.join(ROOT,"cli/dist/benzo.mjs"),"sign","join","--id",auction,"--batch",String(batch),"--candidate",candidate!,"--name",n,"--randomizer",randomizer,"--sighash",sighash]):frostClient(["participant", "-c", cfg(n), "-s", addr, "-g", groupKey()]);
-    participants.push(p);await when(p,"Do you want to sign it? (y/n)");
+    participants.push(p);await when(p,"Joining signing session...");
   }
   await Promise.all(participants.map((p) => when(p, "Do you want to sign it? (y/n)").then(() => p.child.stdin!.end("y\n"))));
   const codes = await Promise.all([coordinator.done, ...participants.map((p) => p.done)]);
@@ -64,7 +65,7 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
   const sigs = coordinator.out.match(/^[0-9a-f]{128}$/gm);
   if (!sigs) throw new Error("coordinator printed no signature");
   const participantsSaw = participants.map((p) => p.out.match(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/)?.[1] ?? "");
-  return { signers, sighash, randomizer, signature: sigs[sigs.length - 1], participantsSaw, coordinator_started_at,duration_ms:Date.now()-coordinator_started_at };
+  return { signers, sighash, randomizer, signature: sigs[sigs.length - 1], participantsSaw, coordinator_started_at,duration_ms:Date.now()-started };
 }
 
 // Runs `zcash-sign sign`, answering each `Randomizer #i` prompt with a fresh FROST session.

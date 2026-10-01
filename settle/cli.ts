@@ -94,7 +94,7 @@ async function worker(ledger:Ledger) {
     writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
   }
   writeFileSync(file("receipts.json"),jsonBytes(ledger.receipts()),{mode:0o600});
-  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!settings().signers.includes(n))}),{mode:0o600});
+  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));
 }
 try {
