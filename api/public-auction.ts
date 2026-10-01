@@ -60,6 +60,8 @@ const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "s
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
+const frozenStates = new Set(["SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED"]);
+const resultStates = new Set(["CLEARED", "SETTLING", "SETTLED"]);
 
 // `signer`, when given, is the out-of-band trust anchor (R20): the document's own signer claim must match it.
 export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): PublicAuction {
@@ -96,6 +98,9 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     requireThat(doc.result === undefined || (doc.result && typeof doc.result === "object"), "result");
     frozen = (doc.frozen ?? null) as Frozen | null;
     result = (doc.result ?? null) as PublicResult | null;
+    // A state past freeze/clear must carry what it claims, or readers would report a stripped document as valid.
+    requireThat(!frozenStates.has(doc.state) || frozen, `state ${doc.state} requires frozen`);
+    requireThat(!resultStates.has(doc.state) || result, `state ${doc.state} requires result`);
     if (openedStates.has(doc.state)) requireThat(Array.isArray(doc.opened) && doc.beacon, "opened/beacon required from OPENED");
     opened = Array.isArray(doc.opened) ? (doc.opened as Opened[]) : [];
     beacon = readBeacon(doc.beacon ?? null, manifest);

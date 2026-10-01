@@ -1,0 +1,11 @@
+--- a/settle/ledger.ts
++++ b/settle/ledger.ts
+@@ -47,7 +47,7 @@
+       if(!outputs.length)return null;
+       const id=Number(this.db.prepare("SELECT COALESCE(MAX(id),0)+1 AS id FROM batches").get()!.id);
+       this.db.prepare("INSERT INTO batches(id) VALUES(?)").run(id);
+-      for(const o of outputs)this.db.prepare("UPDATE obligations SET state='allocated',batch=? WHERE party=? AND state='eligible'").run(id,o.party);
++      for(const o of outputs)this.db.prepare("UPDATE obligations SET state='paid',batch=? WHERE party=? AND state='eligible'").run(id,o.party);
+       return {id,outputs:this.rows().filter(o=>o.batch===id)};
+     });
+   }

@@ -24,10 +24,12 @@ export const enhance = (name: string) => wallet(name, "enhance", "-s", LWD);
 export const balance = (name: string): Record<string, number> => JSON.parse(wallet(name, "balance", "--json"));
 export const spendable = (b: Record<string, number>) => b.sapling_spendable + b.orchard_spendable + b.ironwood_spendable;
 
+// Shielded-only fresh address via benzo-pczt (as settle-crash does). The pinned devtool's generate-address
+// requests all receivers and stops once 20 reserved transparent receivers are unused (bidder hit index 40).
 export function generateAddress(name: string): string {
-  const m = wallet(name, "generate-address").match(/^\s*Address: (\S+)$/m);
-  if (!m) throw new Error(`generate-address on ${name} printed no address`);
-  return m[1];
+  const ua = run(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, name)]).trim();
+  if (!/^utest1[0-9a-z]+$/.test(ua)) throw new Error(`benzo-pczt address on ${name} printed no address`);
+  return ua;
 }
 
 const lastTxid = (out: string) => {

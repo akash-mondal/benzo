@@ -16,7 +16,7 @@ Phase 4 made one product that runs a Mode A auction from the CLI. This phase clo
 | W | Is every bidder's **refund/delivery destination in an authenticated settlement envelope** (encrypted to the custody signers, signed by the bid's one-time owner key whose pubkey is inside the tlock plaintext), never in public plaintext, and do signers **refuse** any PCZT output that does not match a valid envelope? (threat model #7, #32, #38) |
 | X | Is the frozen root **co-signed by a board-witness quorum** (`n_w`, `q_w` separate from custody `t_s`) before round R, and do `benzo verify` and every signer refuse a root without a valid certificate or with two conflicting certificates? (threat model #5, #6, #22) |
 | Y | Do the three custody signers run as **separately hosted processes** (own state, own key share, own `frostd` TLS connection, no shared filesystem), with a **dealerless DKG per auction** from the CLI, and does settlement still complete with any 2 of 3? (threat model #13, #15, #19) |
-| Z | Offline product hooks: **NEAR Intents funding** (`benzo fund quote` / dry run: quote shape, the bidder's *own* wallet as destination, EXACT_OUTPUT = C + fee, no auction/bid identifiers in any quote field, docs stating the public source leg) and **one marketplace adapter** (manifest binds collection, serial range and metadata commitment; `benzo claim` turns the winner's private settlement receipt into a delivery claim; exception queue for paid-not-delivered). |
+| Z | **One marketplace adapter** (manifest binds collection, serial range and metadata commitment; `benzo claim` turns the winner's private settlement receipt into a delivery claim; exception queue for paid-not-delivered). |
 
 | Decision | Options |
 |---|---|
@@ -49,11 +49,10 @@ Library and CLI pieces A will wire into the live path. Each lands with logged ma
 1. **Mode B clearing (V):** a pure function next to Mode A in `clear/` (new file `clear/mode-b.ts`; do not edit Mode A logic). Same `result.json` shape with a `mode` field; conservation check holds. `benzo verify` reproduces Mode B results.
 2. **Settlement envelopes (W):** `envelope/` module: seal (client side), open (signer side), owner-key signature, binding to `auction_id` + `ciphertext_hash`. `benzo bid seal` gains real owner keys (replacing the Phase 1 random bytes in the plaintext layout; the 128-byte layout stays). Envelope ciphertexts are published; plaintext destinations never are. `benzo verify` checks that every envelope signature verifies against the owner pubkey in its opening.
 3. **Witness certificates (X):** `witness/` module and `benzo witness sign|verify`: certificate format over (auction_id, frozen_root, leaf_count, T_freeze, chain anchor), `q_w`-of-`n_w` check, equivocation detection (two certificates, different roots → refuse). `benzo verify` requires a valid certificate.
-4. **NEAR funding dry run (Z):** `benzo fund quote` against the public 1Click quote API in dry-run mode only. It prints the request it would send and the quote, and refuses any field carrying auction or bid identifiers. Docs page `docs/funding-near.md` stating the public source leg. No deposits, no live swap.
 5. **Marketplace adapter (Z):** `adapters/zilkroad.ts` (or the decided alternative), manifest fields for collection, serial range and metadata commitment, `benzo claim` and an exception-queue file format.
 6. **Schema:** Track B proposes additions to `schemas/public-auction.schema.json` under Questions; Track A applies schema changes (as in R20).
 
-Track B files: `clear/mode-b.ts`, `envelope/`, `witness/`, `adapters/`, `cli/commands/{verify,operator,receipt,api,witness,fund,claim}.ts`, `api/`, `docs/funding-near.md`, `docs/STATUS-B.md`.
+Track B files: `clear/mode-b.ts`, `envelope/`, `witness/`, `adapters/`, `cli/commands/{verify,operator,receipt,api,witness,claim}.ts`, `api/`, `docs/STATUS-B.md`.
 
 ### Track A (live testnet) — starts after Phase 4 PASSED
 
@@ -72,7 +71,6 @@ Track A files: everything else, including `settle/`, `cli/benzo.ts` (router), A'
 3. Witness keys must not be the custody shares (threat model #6). Same human may run both only if disclosed.
 4. Envelope plaintext (refund addresses) must never appear in logs, public dirs, API output or evidence. Only ciphertexts and hashes.
 5. Mode B must not fork the settlement path: payouts to sellers and refunds both go through the existing ledger and 2-of-3 flow.
-6. NEAR is dry-run only. No funds move on any chain for Z.
 7. Phase 1–4 specs stay green as regression; do not spend their live budget every tick.
 8. Testnet TAZ: ask before any spend that would drop the bidder below 3C + 40,000 zats.
 
@@ -102,7 +100,7 @@ Mutations (each must turn the spec red):
 
 ## 7. Evidence
 
-Same rules as Phases 1–4: `run.json` (command, commit, window, one result per ID, SHA-256 of written files, tool versions). `EVIDENCE.md` one page: gate table, decisions, host-isolation proof, limitations (one physical machine unless the user provides another, public endpoints, testnet only, CLI-driven not UI, sample size, NEAR dry-run only). `verify.sh` + corrupted-copy negative check. Evidence dir < 1 MB.
+Same rules as Phases 1–4: `run.json` (command, commit, window, one result per ID, SHA-256 of written files, tool versions). `EVIDENCE.md` one page: gate table, decisions, host-isolation proof, limitations (one physical machine unless the user provides another, public endpoints, testnet only, CLI-driven not UI, sample size). `verify.sh` + corrupted-copy negative check. Evidence dir < 1 MB.
 
 ## 8. Schedule
 
@@ -110,7 +108,7 @@ Same rules as Phases 1–4: `run.json` (command, commit, window, one result per 
 |---|---|---|
 | Day 1 | Mode B clearing; envelope module | (Phase 4 finish and review) |
 | Day 2 | Witness certificates; verify extensions | Signer hosts + per-auction DKG |
-| Day 3 | NEAR dry run; marketplace adapter | Wire envelopes and witnesses |
+| Day 3 | Marketplace adapter | Wire envelopes and witnesses |
 | Day 4 | Follow-ups from head review | Mode B live; spec |
 | Day 5 | — | Mutations, Mode A regression on new path, evidence, READY FOR REVIEW |
 
@@ -122,4 +120,48 @@ Same rules as Phases 1–4: `run.json` (command, commit, window, one result per 
 
 ## 10. Rulings
 
-(none yet)
+- R1 2026-10-02: **Scope locked (user: "i just want a contained great product").** Benzo is one product: the operator-blind sealed-bid auction house (Mode A auctions + Mode B buybacks). NEAR Intents funding is removed from this phase and from the roadmap; no RFQ, call market, prediction market, launchpad or cross-chain execution. Time saved goes to Phase 6 quality (P0 closure, scale, leak audit, packaging, docs) and the demo.
+- R2 2026-10-02: **Scope widened inside one engine (supersedes R1's "no RFQ, call market, launchpad").** User, verbatim: “cant we support more private markets in our core we build including this” and “ok lets add this”. Benzo stays **one product**: the operator-blind market engine on Zcash. New market types are **clearing modes** on the shared pipeline plus **core features**, specified in §11 below. Still out: NEAR Intents, any cross-chain execution or token delivery by Benzo, prediction markets, anything needing an outside oracle. Part 1 (gates V–Z, current Track B work) is unchanged and lands first. Target moves to **2026-10-12** for part 1 and **2026-10-14** for part 2 (Phase 4 is finishing ~2 weeks early).
+
+## 11. Part 2: the blind market engine (added by R2)
+
+Every market shares one pipeline: identical C deposit with a sealed order in the memo → freeze (witness-certified) before R → open at R → **public deterministic clearing function selected by `mode`** → settlement through the ledger and 2-of-3 vault → private receipts → `benzo verify`. A new market is a clearing function plus manifest fields, never a new pipeline.
+
+### Gates
+
+| Gate | Question |
+|---|---|
+| EN | **Mode registry.** Does `clear/` dispatch on the signed manifest's `mode`, with a versioned 128-byte plaintext layout per mode, and do `benzo verify`, the API and signers' recomputation all go through the same registry (one code path per mode, no per-mode copies of verify)? |
+| CF | **Core features, usable by every mode where meaningful:** (1) **bond-then-pay** — C is a bond (e.g. 10% of cap); winners pay the balance in a window after clearing; a defaulter forfeits the bond to the seller net of fees and the lot stays unfilled (no re-clear by default); (2) **sealed reserve/floor** — tlock-encrypted to R in the manifest, opened with the bids; (3) **bid revision** — a later order signed by the same one-time owner key supersedes earlier ones; only the latest admitted before `T_submit` counts; superseded orders are refunded exactly once; (4) **multi-lot rounds** — many distinct lots cleared in one round, one deposit per (bidder, lot); (5) **recurring rounds** — a schedule of rounds, each its own manifest hash, R, freeze and vault. |
+| MK | **Modes** (auction and buyback exist): **collection drop** (multi-lot auction preset), **launch** (uniform-price sale; private allocation receipts; a published allocation file — fresh destination, amount in **standard lot sizes**, one delivery batch for all winners, file hash in the public dir; delivery on the token's own chain is the project's job and is stated as such), **RFQ desk** (allowlisted dealer quote keys in the manifest; best quote meeting the reserve wins; non-allowlisted quotes refunded exact C), **call market** (two-sided uniform-price uncrossing per round; sellers' asks bound to a marketplace-adapter serial checked before freeze; recurring), **blind OTC deal** (two parties seal a max and a min; trade at the midpoint if max ≥ min; otherwise both refunded). Each: pure clearing in `clear/`, manifest fields, verify + API support, one live testnet run. |
+
+### Decisions
+
+| Decision | Default |
+|---|---|
+| Bond size | Manifest field `bond_bps` of the cap; balance window in blocks; defaults 1,000 bps and 288 blocks |
+| Revision privacy | After R, superseded orders open too (anonymized, linked by owner key). Disclosed in README limits |
+| Launch delivery | Allocation file + hash only; no chain-specific code |
+| OTC disclosure | Both limits open at R (tlock opens everything). Disclosed; no claim of "match bit only" |
+| Seller collateral (call market) | Sellers post the same C, so side is invisible before R |
+
+### Work split
+- **Track B (offline), after its part-1 items merge:** EN registry + per-mode plaintext layouts; pure clearing for drop, launch (incl. standard-lot split + allocation file), RFQ, call market, OTC; CF pure logic (bond/balance accounting, sealed reserve open, revision supersede rules, multi-lot, round linkage); verify + API for all modes. Files: `clear/` new mode files + registry, `envelope/`, `witness/`, `adapters/`, Track B CLI commands, `api/`.
+- **Track A (live), after part 1 PASSED:** manifest/schema fields, `benzo auction create --mode …`, balance-payment intake and default handling in settle, round scheduler (`benzo market run --rounds N`), live runs of every mode, the spec, evidence.
+
+### Test: one more (the spare slot)
+Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live, Track A); the 8th stays reserved for the user's browser bid flow. One run covers: a collection drop with a sealed reserve and bond-then-pay (one winner pays the balance, one defaults); an RFQ with one non-allowlisted quote; two call-market rounds; one OTC match and one no-match; one launch with its allocation file; one bid revision. Assertions per mode: CLI result equals the registry's pure clear; conservation; `benzo verify` on a cold copy. Mutations: **5M6** registry dispatches the wrong mode for one lot; **5M7** defaulter's bond refunded instead of forfeited; **5M8** superseded order counted; **5M9** RFQ ignores the allowlist; **5M10** call market clears at the highest bid instead of the uncrossing price.
+
+### Budget
++1,200 hand-written lines for part 2 (Track B ~750, Track A ~450). Schema and docs excluded.
+- R3 2026-10-02: **Research adopted (user: “ship the updates and whatever to be dropped from your research and put that in work”).** Source: `zcash/research/benzo-ideas/STEAL-LIST.md` + `REPORT.md` (head). Changes to §11 and part 1:
+  1. **Dropped: call market** (value 2/5, effort L: one on-chain asset, sell side needs off-chain escrow). Remove it from MK, the markets spec and mutation 5M10. Still out: prediction markets, perps, bonding curves, NEAR/cross-chain, per-person caps/KYC, netting, atomic swaps.
+  2. **RFQ = reverse-Vickrey procurement** (Tirai, HackCanton S2 3rd): lowest valid ask wins and is paid the **second-lowest** ask; **fewer than 2 valid quotes → cancel, refund all exact C**; dealer bonds forfeited if the winner misses the delivery deadline (signer-attested). Replaces “best quote wins”. 5M9 becomes “RFQ pays the winner its own ask (first price)”.
+  3. **Launch tranches + minimum raise** (Zama public auction; SealPad): optional (a) holder tranche at the floor gated by marketplace-adapter holder receipts, (b) the main sealed uniform-price auction, (c) a follow-on at the published clearing price filled by mined height; **minimum raise not met → everyone refunded**. Caps are per deposit (a per-person cap is unenforceable on shielded deposits; say so).
+  4. **Recurring buyback windows** (Confidential Buybacks, Zama S3 3rd): Mode B series via recurring rounds, fresh vault per window, sealed treasury max price; a **public per-window report** (units bought, clearing price, ZEC spent, serials). Rename the manifest field `floor_zats` → `max_price_zats` (it is the treasury's maximum).
+  5. **Fair serial assignment for drops** (Pulla, HackCanton S2 RWA winner): after clearing, winners map to serials by a Fisher–Yates shuffle seeded from drand round `R + k` (k in the manifest, k ≥ 1); `benzo verify` replays it. No operator choice.
+  6. **“Missing bid? Prove it”** (ZecBit paid-but-missing; lost reservation): `benzo receipt prove` outputs the inclusion proof against the frozen root; a deposit mined before `T_submit` but absent from the root is moved to the exception queue and refunded automatically; `benzo bid` warns that exchange withdrawals can miss `T_submit`.
+  7. **Signed settlement statement + no transparent refunds** (zooko/forum, @mert): `benzo receipt statement` emits an owner-key-signed JSON (auction, leaf, fill, price, payout/refund txid) checkable against `result.json` and the chain; the envelope validator **rejects t-addrs, TEX and UAs without a shielded receiver** (part 1, gate W).
+  8. **Signer approval binding** (Alluvren; BitSafe rubric, part 1 gate Y/T): each signer signs only over `H(manifest ‖ frozen_root ‖ drand_sig ‖ result.json ‖ batch-plan version)`; a changed plan voids prior approvals; the signer CLI refuses before freeze and before R. Phase 5 evidence includes a drill killing one signer **mid-batch** with settlement completing.
+  9. Budget: part 2 stays +1,200 (call market out pays for items 2–7). Dates unchanged (part 1 Oct 12, part 2 Oct 14).
+  Track B owns the pure logic for 2–7 (clearing, shuffle, statements, envelope validator, verify/API); Track A owns manifests, live runs, settlement/default handling, the signer binding (8) and the drill.
