@@ -20,6 +20,10 @@ Upstream control-flow read: source: ZcashFoundation/frost-tools@06c0dbdbb1bac9b9
 
 2026-10-01T15:48:34Z: v2 development run INTERRUPTED (exit 130), not gate evidence. O1/P1/T4 passed; own sequential participant-start defect deadlocked Bob before Carol could send commitments. Pinned source frost-client/src/participant/comms.rs:65 confirms confirmation comes after signing-package receipt; repaired startup to wait for Joining signing session instead. Test process suspension now polls the real process boundary with a deadline and detects worker exit. Positive-value funding remains escrowed; recovery uses the existing auction and fixed CLI, no new deposits. Full log tmp/e2e/phase4-cli-development-v2.log. Approval review rejected deletion of a stale pidfile; deletion not retried, file remains and service startup writes its normal current PID.
 
+2026-10-01T16:03:06Z: development-only fixed-CLI recovery succeeded using the original auction, no new deposits. Tx 78c5d255739ec8b312c9baba4c757d09584716455211ccece0962c7034ce7985 at 4428759 checked by the worker on both endpoints; 11 rows/receipts, Bob+Carol, Alice absent; 5,060,001 in = 5,000,001 outputs + 60,000 fee, 11 randomizers / 635,224 ms signing. Positive vault unspent value 0; native bidder spendable 92,889,339 zats (`tmp/e2e/phase4-recovery-funds.json`). No active frostd/worker observed by ps. Log `.benzo/run/phase4-recovery.log`; private state only, not gate evidence.
+
+Signing performance fix: the CLI inspector still performs fresh Go-tle clearing for each signer/randomizer. Join now checks the inspector’s private approval against the exact candidate hash, digest, manifest and randomizer instead of repeating those openings; no timeout extension or skipped check. Build/typecheck PASS. Next: fresh 10-bid/13-output full CLI development run, including actual staged expiry.
+
 Needs user: none currently. Questions Q10–Q12 below. No commands in the other checkout; no Track B file edits.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781

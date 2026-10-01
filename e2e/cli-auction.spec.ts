@@ -92,15 +92,16 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     let delay:any=null;
     // Suspend Carol at the real process boundary, allowing the signed candidate to expire before mining.
     await new Promise<void>((resolve,reject)=> {
-      const deadline=Date.now()+MINE;
+      const deadline=Date.now()+MINE;let finished=false;
       const poll=()=> {
+        if(finished)return;
         const processes=execFileSync('ps',['-axo','pid=,pgid=,command='],{encoding:'utf8'}).split('\n');
         const line=processes.find(l=>l.includes('frost-client participant')&&l.includes('carol.toml')&&Number(l.trim().split(/\s+/)[1])===active!.p.pid);
-        if(line){paused=Number(line.trim().split(/\s+/)[0]);process.kill(paused,'SIGSTOP');resolve();return}
-        if(Date.now()>deadline){reject(Error('deadline waiting for real Carol process'));return}
+        if(line){finished=true;paused=Number(line.trim().split(/\s+/)[0]);process.kill(paused,'SIGSTOP');resolve();return}
+        if(Date.now()>deadline){finished=true;reject(Error('deadline waiting for real Carol process'));return}
         setTimeout(poll,100);
       };
-      active!.done.then(v=>reject(Error(`worker exited before signer delay: ${v.err}`)));poll();
+      active!.done.then(v=>{if(!finished){finished=true;reject(Error(`worker exited before signer delay: ${v.err}`))}});poll();
     });
     const candidate=path.join(STATE,'settle',id,'batch-1.proven.pczt');const metadata=JSON.parse(z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['inspect',candidate,path.join(STATE,'ufvk.txt')],{quietArgs:true}));
     const pausedAt=z.tip();await waitFor({height:metadata.expiry_height+1,tip:()=>z.tip()},Date.now()+MINE);

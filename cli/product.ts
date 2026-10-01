@@ -5,7 +5,7 @@ import {createPublicKey,generateKeyPairSync} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {client,jsonBytes,requireThat,signRecord,validateManifest,QUICKNET} from '../manifest/schema';
+import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,QUICKNET} from '../manifest/schema';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
@@ -109,7 +109,10 @@ export async function runCommand(command:string,args:string[]) {
   if(command==='settle'||command==='cancel'||command==='sign join') {
     requireThat(id,'--id required');
     if(command==='sign join'&&o.name) {
-      requireThat(o.batch&&o.candidate,'--batch --candidate required');sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']);
+      requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.randomizer),'signer/randomizer');
+      requireThat(o.batch&&o.candidate&&o.randomizer&&o.sighash,'--batch --candidate --randomizer --sighash required');
+      const candidate=privatePath(o.candidate),approved=read(path.join(STATE,'settle',id,'approvals',o.name+'-'+o.randomizer+'.json'));
+      requireThat(approved.participant===o.name&&approved.randomizer===o.randomizer&&approved.sighash===o.sighash&&approved.pczt_hash===hash(readFileSync(candidate))&&approved.manifest_hash===read(ledger(id)).manifest.sha256,'inspect approval differs from join candidate');
       await new Promise<void>((resolve,reject)=>{const p=spawn(bin('frost-client'),['participant','-c',path.join(STATE,'frost',o.name+'.toml'),'-s',process.env.BNZ_FROSTD_ADDR!,'-g',readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim()],{stdio:'inherit',env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});return;
     }
     if(command==='cancel'){ac('cancel',id);publish(id)}
@@ -117,6 +120,6 @@ export async function runCommand(command:string,args:string[]) {
     await new Promise<void>((resolve,reject)=>{p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`settle exit ${c}`)))});
     const a=read(ledger(id)),status=JSON.parse(sc('status',id));a.state=status.rows.some((r:any)=>r.state==='exception')?'SETTLING':command==='cancel'?'CANCELLED':'SETTLED';save(ledger(id),a);return publish(id);
   }
-  if(command==='sign inspect') {requireThat(id&&o.batch&&o.candidate&&o.name,'--id --batch --candidate --name required');return JSON.parse(sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']))}
+  if(command==='sign inspect') {requireThat(['alice','bob','carol'].includes(o.name)&&(!o.randomizer||/^[0-9a-f]{64}$/.test(o.randomizer)),'signer/randomizer');requireThat(id&&o.batch&&o.candidate&&o.name,'--id --batch --candidate --name required');const approved=JSON.parse(sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']));if(o.randomizer)save(path.join(STATE,'settle',id,'approvals',o.name+'-'+o.randomizer+'.json'),approved);return approved}
   throw Error('unknown Track A command');
 }
