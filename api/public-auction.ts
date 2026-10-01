@@ -3,10 +3,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
-import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle";
+import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
-import { settlementCommitment, verifyEnvelope } from "../envelope/index";
+import { settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -415,6 +415,70 @@ export function receiptShow(pub: PublicAuction, ciphertextHash: string, packet?:
   const party = `leaf:${leaf!.leaf_index}`;
   const settlement = pub.settlement?.receipts?.find(r => r.party === party) ?? null;
   return { inclusion, settlement };
+}
+
+// R3 item 6: the inclusion proof is a self-contained bundle — root, path, leaf — so anyone can recheck it offline.
+export type InclusionProof = {
+  auction_id: string; manifest_hash: string; root: string; leaf_count: number; leaf_index: number;
+  ciphertext_hash: string; deposit: Deposit; path: Path; included: boolean;
+};
+export function inclusionProof(pub: PublicAuction, ciphertextHash: string): InclusionProof {
+  requireThat(pub.frozen, "missing frozen");
+  const frozen = pub.frozen as Frozen;
+  requireThat(/^[0-9a-f]{64}$/.test(ciphertextHash), "ciphertext hash");
+  const leaf = frozen.leaves.find(l => l.ciphertext_hash === ciphertextHash);
+  requireThat(leaf, "ciphertext not in frozen set");
+  const path = frozen.paths[leaf!.leaf_index] ?? [];
+  return {
+    auction_id: frozen.auction_id, manifest_hash: frozen.manifest_hash, root: frozen.root,
+    leaf_count: frozen.leaf_count, leaf_index: leaf!.leaf_index, ciphertext_hash: leaf!.ciphertext_hash,
+    deposit: leaf!.deposit, path,
+    included: member(leaf!.ciphertext_hash, leaf!.deposit, leaf!.leaf_index, frozen.leaf_count, path, frozen.root),
+  };
+}
+export function checkInclusionProof(proof: InclusionProof): boolean {
+  return member(proof.ciphertext_hash, proof.deposit, proof.leaf_index, proof.leaf_count, proof.path, proof.root);
+}
+
+// R3 item 7: owner-key-signed settlement statement (auction, leaf, fill, price, payout/refund txid), checkable
+// against result.json and the chain. payout_txid is set only when the mode owes this leaf a payment (via the
+// registry's obligations); both txids name the leaf's settlement receipt and stay null until settlement.
+export type SettlementStatement = {
+  version: 1; auction_id: string; ciphertext_hash: string; leaf_index: number; fill: number;
+  price_zats: string | null; clearing_price_zats: string; payment_zats: string; refund_zats: string;
+  payout_txid: string | null; refund_txid: string | null; owner_pubkey: string; signature: string;
+};
+export type StatementBody = Omit<SettlementStatement, "signature">;
+const statementFields = "auction_id,ciphertext_hash,clearing_price_zats,fill,leaf_index,owner_pubkey,payment_zats,payout_txid,price_zats,refund_txid,refund_zats,signature,version";
+export function settlementStatementBody(pub: PublicAuction, ciphertextHash: string): StatementBody {
+  requireThat(pub.frozen && pub.result, "missing frozen or result");
+  const frozen = pub.frozen as Frozen, result = pub.result as PublicResult;
+  const leaf = frozen.leaves.find(l => l.ciphertext_hash === ciphertextHash);
+  requireThat(leaf, "ciphertext not in frozen set");
+  const a = result.allocations.find(x => x.leaf_index === leaf!.leaf_index);
+  requireThat(a, "allocation missing");
+  const opening = pub.opened.find(o => o.leaf_index === leaf!.leaf_index);
+  requireThat(opening && /^[0-9a-f]{256}$/.test(opening!.plaintext_hex ?? ""), "opening for statement");
+  const owner_pubkey = Buffer.from(opening!.plaintext_hex!, "hex").subarray(61, 93).toString("hex");
+  const owed = BigInt(modeEntry(pub.manifestPacket).obligations(result as ClearBody).get(`leaf:${leaf!.leaf_index}`) ?? "0");
+  const receipt = (pub.settlement?.receipts ?? []).find(r => r.party === `leaf:${leaf!.leaf_index}`);
+  return {
+    version: 1, auction_id: frozen.auction_id, ciphertext_hash: ciphertextHash, leaf_index: leaf!.leaf_index,
+    fill: a!.fill, price_zats: a!.price_zats, clearing_price_zats: result.clearing_price_zats,
+    payment_zats: a!.payment_zats, refund_zats: a!.refund_zats,
+    payout_txid: receipt && owed > BigInt(a!.refund_zats) ? receipt.txid : null,
+    refund_txid: receipt ? receipt.txid : null,
+    owner_pubkey,
+  };
+}
+export function checkSettlementStatement(pub: PublicAuction, ciphertextHash: string, statement: SettlementStatement): void {
+  requireThat(statement && typeof statement === "object" && !Array.isArray(statement), "statement shape");
+  requireThat(Object.keys(statement).sort().join(",") === statementFields, "statement field set");
+  requireThat(/^[0-9a-f]{128}$/.test(String(statement.signature)), "statement signature");
+  const { signature, ...body } = statement;
+  const wanted = settlementStatementBody(pub, ciphertextHash);
+  requireThat(jsonBytes(body).equals(jsonBytes(wanted)), "statement differs from result/settlement");
+  requireThat(verifyStatement(wanted.owner_pubkey, body, signature), "statement signature");
 }
 
 export function resultHash(pub: PublicAuction): string | null {

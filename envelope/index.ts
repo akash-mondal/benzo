@@ -3,7 +3,7 @@
 // ciphertext_hash, envelope_ct — threat model #7, #32, #38). Envelope ciphertexts are public; plaintexts never are.
 // The owner signature and the salted settlement commitment bind the envelope to the tlock-sealed bid.
 import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, sign, verify } from "node:crypto";
-import { requireThat } from "../manifest/schema";
+import { jsonBytes, requireThat } from "../manifest/schema";
 import { requireShieldedDestination } from "./destination";
 
 export type OwnerKey = { public_hex: string; private_hex: string };
@@ -23,6 +23,10 @@ export function generateOwnerKey(): OwnerKey {
   const k = generateKeyPairSync("ed25519");
   return { private_hex: k.privateKey.export({ type: "pkcs8", format: "der" }).subarray(16).toString("hex"),
     public_hex: k.publicKey.export({ type: "spki", format: "der" }).subarray(12).toString("hex") };
+}
+export function ownerPublic(ownerPrivateHex: string): string {
+  return createPublicKey(createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), raw(ownerPrivateHex, 32)]), type: "pkcs8", format: "der" }))
+    .export({ type: "spki", format: "der" }).subarray(12).toString("hex");
 }
 export function generateEnvelopeKey(): EnvelopeKey {
   const k = generateKeyPairSync("x25519");
@@ -90,4 +94,18 @@ export function verifyEnvelope(ownerPublicHex: string, auctionIdHex: string, cip
 }
 export function settlementCommitment(nonceHex: string, envelopeCtHex: string): string {
   return createHash("sha256").update(raw(nonceHex, 16)).update(raw(envelopeCtHex, 0)).digest("hex");
+}
+
+// Settlement statement (R3 item 7): the bid's one-time owner key signs a canonical JSON body — auction, leaf,
+// fill, price, payout/refund txid — that anyone can check against result.json and the chain.
+export function statementBinding(body: Record<string, unknown>): Buffer {
+  return Buffer.concat([Buffer.from("benzo-settlement-statement-v1"), jsonBytes(body)]);
+}
+export function signStatement(owner: OwnerKey, body: Record<string, unknown>): string {
+  return sign(null, statementBinding(body),
+    createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), raw(owner.private_hex, 32)]), type: "pkcs8", format: "der" })).toString("hex");
+}
+export function verifyStatement(ownerPublicHex: string, body: Record<string, unknown>, signatureHex: string): boolean {
+  const key = createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw(ownerPublicHex, 32)]), type: "spki", format: "der" });
+  return verify(null, statementBinding(body), key, raw(signatureHex, 64));
 }
