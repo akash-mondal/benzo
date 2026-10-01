@@ -1,0 +1,16 @@
+Mutation P1; clean base d6864f5b5c776798642c6530b07270f31050b68d; start 2026-10-01T08:38:27Z; recorded 2026-10-01T09:18:22Z
+Observed missing refunds, not literal double-payment: receiving-wallet delta 0 zats; required 2000000 zats, before development-only recovery. L1 final-total equality failed. Cancel M1 PASS; patch reversed.
+
+npm notice run e2e:live
+npm notice run BNZ_LIVE=1 playwright test --project=settle-crash
+main deposits broadcast a3bfa979b932d06e6fa268ceba83b311f51d36b41fff7a1d4fea6063b750edd1
+ERROR J1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+ERROR L1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 5 | Received: 0
+ERROR J2 TypeError: expect(received).toMatch(expected) | Matcher error: received value must be a string | Received has value: null
+ERROR K1 Error: expect(received).toBeGreaterThan(expected) | Expected: > 0 | Received:   0
+ERROR N1 Error: expect(received).toBeGreaterThan(expected) | Expected: > 0 | Received:   0
+development-only fund recovery c7c001a8565963b0dc6159080b9d5df691880dc3c819408fe1da038c5793916a
+cancel deposits broadcast b2bc91a8e982286351f2a46396cf04174108cc2250b3fb5e3f1a751a6e38d30e
+run.json -> tmp/e2e/out
+FAILED settle-crash settlement survives a worker crash and drand outage with one signer offline (2288 s)
+run failed; details in tmp/e2e/report.json

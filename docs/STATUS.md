@@ -147,6 +147,8 @@ Phase 4 UI/hosting excluded from this overnight session. Full owner-key / settle
 
 ## Last session
 
+- 2026-10-01T09:20:36Z: P1 completed red at L1 from clean d6864f5 + P1.patch. Observed missing refunds (0 / 2,000,000 zats before cleanup), not literal double-pay, recorded in docs/evidence/phase-3/mutations/P1.out. M1 PASS; development recovery c7c001a8565963b0dc6159080b9d5df691880dc3c819408fe1da038c5793916a mined. Patch reversed; git status showed only new P1.out. Full log tmp/e2e/phase3-P1.log; artifacts phase3-P1-artifacts/. Next concrete step: clean P2 amount-guard mutation at the real faulted-PCZT checker, then P3 and final clean evidence.
+
 - 2026-10-01T08:58:56Z: P1 active from clean d6864f5b5c776798642c6530b07270f31050b68d + literal ledger mutation; start 08:38:27 UTC, 80-minute spec deadline. Full log tmp/e2e/phase3-P1.log. Funding a3bfa979b932d06e6fa268ceba83b311f51d36b41fff7a1d4fea6063b750edd1 confirmed/frozen; release 09:00:39 UTC. No observed mutation result yet. Next: inspect L1 and actual totals, allow real fund cleanup to finish, reverse patch, then generate P1.out from recorded output.
 
 - 2026-10-01T08:36:06Z: Development v6 PASS all J1/J2/K1/L1/M1/N1, run 71ec4cd245ccf24c6248dde23cad433e24ed2bf9, 07:55:05–08:28:11 UTC. Positive verifier exit 0 (tmp/e2e/phase3-development-v6-verify.log); one corrupted summary amount gives exit 1 with ERROR J/L (phase3-development-v6-verify-negative.log). Artifacts preserved tmp/e2e/phase3-development-v6-artifacts/. Owned processes stopped. Removed unnecessary private pczt_path from public summary generation, no assertion change. Next concrete step: P1 on a clean committed tree, observe actual missing-refund L1 failure, reverse patch and record output; then P2/P3 and clean final evidence.
