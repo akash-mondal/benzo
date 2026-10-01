@@ -12,19 +12,29 @@ export type BuybackManifest = Omit<Manifest, "clearing"> & {
   buyback: Buyback;
 };
 
-// A buyback manifest is the Mode A manifest plus `buyback` and clearing.mode "buyback"; every other signed field is
-// held to the unchanged Mode A rules. The signature covers the buyback fields like every other manifest byte.
-export function clientBuyback(packet: Signed, trustedSigner: string): { manifest_hash: string; manifest: BuybackManifest } {
+// A buyback manifest is the Mode A manifest plus `buyback` (with clearing.mode "buyback"); every other signed
+// field is held to the unchanged Mode A rules. The signature covers the buyback fields like every manifest byte.
+export function clientPhase5(packet: Signed, trustedSigner: string): { manifest_hash: string; manifest: BuybackManifest } {
   const m = verifyRecord<any>(packet, trustedSigner);
-  requireThat(m.clearing && m.clearing.mode === "buyback", "buyback clearing mode");
-  requireThat(m.buyback && typeof m.buyback === "object" && !Array.isArray(m.buyback), "buyback parameters");
-  requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,floor_zats", "buyback field set");
-  const base = { ...m, clearing: { ...m.clearing, mode: "uniform" as const }, buyback: undefined };
+  requireThat(m.clearing && ["uniform", "vickrey", "buyback"].includes(m.clearing.mode), "clearing mode");
+  requireThat((m.clearing.mode === "buyback") === (m.buyback !== undefined), "buyback parameters/mode");
+  if (m.buyback !== undefined) {
+    requireThat(m.buyback && typeof m.buyback === "object" && !Array.isArray(m.buyback), "buyback parameters");
+    requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,floor_zats", "buyback field set");
+  }
+  const base = { ...m, clearing: { ...m.clearing, mode: m.clearing.mode === "buyback" ? "uniform" : m.clearing.mode }, buyback: undefined };
   delete base.buyback;
   validateManifest(base as Manifest);
-  const tick = zats(m.tick_zats, "tick"), budget = zats(m.buyback.budget_zats, "budget"), floor = zats(m.buyback.floor_zats, "floor");
-  requireThat(budget > 0n && floor >= tick && floor % tick === 0n, "buyback budget/floor");
+  if (m.buyback !== undefined) {
+    const tick = zats(m.tick_zats, "tick"), budget = zats(m.buyback.budget_zats, "budget"), floor = zats(m.buyback.floor_zats, "floor");
+    requireThat(budget > 0n && floor >= tick && floor % tick === 0n, "buyback budget/floor");
+  }
   return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest: m as BuybackManifest };
+}
+export function clientBuyback(packet: Signed, trustedSigner: string): { manifest_hash: string; manifest: BuybackManifest } {
+  const r = clientPhase5(packet, trustedSigner);
+  requireThat(r.manifest.clearing.mode === "buyback" && r.manifest.buyback, "buyback clearing mode");
+  return r;
 }
 export const isBuyback = (m: Manifest): boolean => (m as unknown as BuybackManifest).clearing.mode === "buyback";
 

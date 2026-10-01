@@ -5,18 +5,18 @@ import path from "node:path";
 import { client, hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle";
 import { clear, type Opened } from "../clear/core";
-import { clearModeB, clientBuyback, isBuyback } from "../clear/mode-b";
+import { clearModeB, clientPhase5, isBuyback } from "../clear/mode-b";
 import { settlementCommitment, verifyEnvelope } from "../envelope/index";
+import { checkCertificates, freezeStatement, validateWitnessSet, type WitnessCert, type WitnessSet } from "../witness";
 
-// Published settlement envelopes (gate W): ciphertexts and owner signatures only; plaintext destinations never.
-export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
-
-// Mode B manifests (clearing.mode "buyback") validate through clear/mode-b.ts; Mode A keeps the unchanged client().
+// Buyback manifests (clearing.mode "buyback" + `buyback` fields) validate through clear/mode-b.ts; Mode A keeps
+// the unchanged client(). The witness set rides in a separate signed packet, not in the manifest.
 function readClient(packet: Signed, signer: string): { manifest_hash: string; manifest: Manifest } {
   const peek = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8"));
   // The buyback extra fields ride along in the untyped manifest value; callers read them only through clear/mode-b.
-  return peek?.clearing?.mode === "buyback" ? (clientBuyback(packet, signer) as unknown as { manifest_hash: string; manifest: Manifest }) : client(packet, signer);
+  return peek?.clearing?.mode === "buyback" ? (clientPhase5(packet, signer) as unknown as { manifest_hash: string; manifest: Manifest }) : client(packet, signer);
 }
+export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
 export type SettlementReceipt = { auction_id: string; party: string; txid: string; pool: string; output_index: number; amount_zats: string };
 export type Beacon = { round: number; signature: string; chain_hash: string };
@@ -48,13 +48,15 @@ export type PublicAuction = {
   resultBytes: Buffer | null;
   receipts: Signed[];
   envelopes: EnvelopeRecord[];
+  witnessSet: Signed | null;
+  witnessCerts: WitnessCert[];
   settlement: SettlementSummary | null;
 };
 export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: PublicResult; resultBytes: Buffer };
 export type Check = { id: string; error?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -76,7 +78,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   const legacy = !existsSync(path.join(root, "auction.json"));
   let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string, state: string;
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
-  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], settlement: SettlementSummary | null;
+  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null;
   if (!legacy) {
     // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
     const doc = JSON.parse(text("auction.json"));
@@ -101,6 +103,10 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     receipts = doc.receipts as Signed[];
     requireThat(doc.envelopes === undefined || Array.isArray(doc.envelopes), "envelopes");
     envelopes = (doc.envelopes ?? []) as EnvelopeRecord[];
+    requireThat(doc.witness_set === undefined || (doc.witness_set && typeof doc.witness_set === "object"), "witness_set");
+    witnessSet = (doc.witness_set ?? null) as Signed | null;
+    requireThat(doc.witness_cert === undefined || Array.isArray(doc.witness_cert), "witness_cert");
+    witnessCerts = (doc.witness_cert ?? []) as WitnessCert[];
     settlement = (doc.settlement ?? null) as SettlementSummary | null;
   } else {
     // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the Phase 2/3 evidence dirs.
@@ -123,13 +129,19 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     envelopes = existsSync(path.join(root, "envelope.json"))
       ? (JSON.parse(text("envelope.json")) as EnvelopeRecord[])
       : [];
+    witnessSet = existsSync(path.join(root, "witness-set.json"))
+      ? (JSON.parse(text("witness-set.json")) as Signed)
+      : null;
+    witnessCerts = existsSync(path.join(root, "witness.json"))
+      ? (JSON.parse(text("witness.json")) as WitnessCert[])
+      : [];
     settlement = existsSync(path.join(root, "summary.json"))
       ? (JSON.parse(text("summary.json")) as SettlementSummary)
       : null;
     // Legacy evidence dirs carry no state field; derive it from the artifacts they do carry.
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, envelopes, settlement };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -205,6 +217,21 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     }
     if (pub.result) requireThat(frozen.root === pub.result.freeze_root, "result freeze root");
     projection("frozen.json", frozen);
+  });
+  // Gate X: the frozen root must carry a q_w-of-n_w witness certificate over the released statement, and one root
+  // per auction — two certificates for different roots are refused (threat #5, #6). The set is a signed side-packet
+  // from the manifest signer (the same --signer anchor).
+  run("witness", () => {
+    const frozen = pub.frozen;
+    if (!frozen) {
+      requireThat(pub.witnessCerts.length === 0 && pub.witnessSet === null, "witness material without frozen root");
+      return projection("witness.json", null);
+    }
+    requireThat(pub.witnessSet, "missing witness set");
+    const set = verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer);
+    checkCertificates(pub.witnessCerts, validateWitnessSet(set, pub.manifest.auction_id), freezeStatement(pub.manifest, frozen));
+    projection("witness-set.json", pub.witnessSet);
+    projection("witness.json", pub.witnessCerts);
   });
   run("receipts", () => {
     if (!pub.frozen) return;
