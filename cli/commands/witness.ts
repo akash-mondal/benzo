@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { requireThat, verifyRecord } from "../../manifest/schema";
 import { loadPublicAuction } from "../../api/public-auction";
-import { checkCertificates, freezeStatement, signStatement, validateWitnessSet, type WitnessCert, type WitnessSet } from "../../witness";
+import { checkCertificates, freezeStatement, signStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../../witness";
 
 export const noun = "witness";
 export const verb = "";
@@ -34,6 +34,9 @@ export async function run(argv: string[]): Promise<number> {
     const pub = loadPublicAuction(o.dir, { signer: o.signer });
     requireThat(pub.frozen, "missing frozen");
     requireThat(pub.witnessSet, "missing witness set");
+    // R4 item 2: a manifest that carries witness_set_hash binds this side-packet; refuse a mismatched one.
+    if (pub.manifest.witness_set_hash) requireThat(witnessSetHash(pub.witnessSet!) === pub.manifest.witness_set_hash, "witness set hash mismatch");
+    else process.stderr.write("WARN no witness set (pre-Phase-5 manifest)\n");
     const spec = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, o.signer), pub.manifest.auction_id);
     const statement = freezeStatement(pub.manifest, pub.frozen!);
     if (mode === "sign") {

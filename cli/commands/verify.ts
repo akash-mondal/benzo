@@ -93,6 +93,7 @@ export async function run(argv: string[]): Promise<number> {
     const checks = checkPublicAuction(pub);
     let failed = false;
     for (const c of checks) {
+      if (c.warn) process.stderr.write(`WARN ${c.warn}\n`);
       if (c.error) {
         failed = true;
         process.stderr.write(`ERROR ${c.id} ${c.error}\n`);

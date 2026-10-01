@@ -7,7 +7,7 @@ import { checkFrozen, member, receiptMember, type Frozen } from "../clear/merkle
 import { clear, type Opened } from "../clear/core";
 import { clearModeB, clientPhase5, isBuyback } from "../clear/mode-b";
 import { settlementCommitment, verifyEnvelope } from "../envelope/index";
-import { checkCertificates, freezeStatement, validateWitnessSet, type WitnessCert, type WitnessSet } from "../witness";
+import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Buyback manifests (clearing.mode "buyback" + `buyback` fields) validate through clear/mode-b.ts; Mode A keeps
 // the unchanged client(). The witness set rides in a separate signed packet, not in the manifest.
@@ -53,7 +53,7 @@ export type PublicAuction = {
   settlement: SettlementSummary | null;
 };
 export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: PublicResult; resultBytes: Buffer };
-export type Check = { id: string; error?: string };
+export type Check = { id: string; error?: string; warn?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
 const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert"]);
@@ -184,9 +184,13 @@ function obligations(result: PublicResult, buyback: boolean): Map<string, string
 
 export function checkPublicAuction(pub: PublicAuction): Check[] {
   const checks: Check[] = [];
-  const run = (id: string, fn: () => void) => {
-    try { fn(); checks.push({ id }); }
-    catch (e) { checks.push({ id, error: (e as Error).message }); }
+  const run = (id: string, fn: () => string | void) => {
+    try {
+      const warn = fn();
+      checks.push(warn ? { id, warn } : { id });
+    } catch (e) {
+      checks.push({ id, error: (e as Error).message });
+    }
   };
   // Canonical dirs carry byte-identical manifest.json, frozen.json and result.json projections (schema description).
   // A projection for a field the document does not carry is refused as loudly as a differing one.
@@ -225,15 +229,20 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   });
   // Gate X: the frozen root must carry a q_w-of-n_w witness certificate over the released statement, and one root
   // per auction — two certificates for different roots are refused (threat #5, #6). The set is a signed side-packet
-  // from the manifest signer (the same --signer anchor).
+  // from the manifest signer (the same --signer anchor). R4 item 2: when the signed manifest carries
+  // `witness_set_hash`, the side-packet must hash exactly to it (a removed or substituted set is refused) and a
+  // valid certificate is required; manifests without the field are pre-Phase-5 — warn and continue.
   run("witness", () => {
     const frozen = pub.frozen;
     if (!frozen) {
       requireThat(pub.witnessCerts.length === 0 && pub.witnessSet === null, "witness material without frozen root");
       return projection("witness.json", null);
     }
+    const bound = pub.manifest.witness_set_hash;
+    if (!bound) return "no witness set (pre-Phase-5 manifest)";
     requireThat(pub.witnessSet, "missing witness set");
     const set = verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer);
+    requireThat(witnessSetHash(pub.witnessSet!) === bound, "witness set hash mismatch");
     checkCertificates(pub.witnessCerts, validateWitnessSet(set, pub.manifest.auction_id), freezeStatement(pub.manifest, frozen));
     projection("witness-set.json", pub.witnessSet);
     projection("witness.json", pub.witnessCerts);

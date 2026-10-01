@@ -3,12 +3,17 @@
 // coordinator can equivocate on the accepted set (threat #5, #6, #22). Two certificates for different roots are
 // always refused; one root per auction.
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
-import { jsonBytes, requireThat } from "../manifest/schema";
+import { hash, jsonBytes, requireThat, type Signed } from "../manifest/schema";
 
 export type WitnessSpec = { q_w: number; keys: string[] }; // signed witness_set packet: n_w = keys.length
 export type WitnessSet = { version: 1; auction_id: string; q_w: number; keys: string[] };
 export type WitnessStatement = { version: 1; auction_id: string; frozen_root: string; leaf_count: number; T_freeze: number; chain_anchor: string };
 export type WitnessCert = { statement: WitnessStatement; signatures: { witness: string; signature: string }[] };
+
+// R4 item 2: the signed manifest optionally carries `witness_set_hash` = SHA-256 of the signed witness-set
+// side-packet (its canonical JSON bytes: bytes, sha256, signer, signature). Binding the whole packet makes a
+// removed or substituted witness set detectable by any reader holding the manifest alone.
+export const witnessSetHash = (packet: Signed): string => hash(jsonBytes(packet));
 
 const edPrivate = (h: string) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(h, "hex")]), type: "pkcs8", format: "der" });
 const edPublic = (h: string) => createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(h, "hex")]), type: "spki", format: "der" });

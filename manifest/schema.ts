@@ -14,6 +14,9 @@ export type Manifest = {
   clearing: { mode: "uniform" | "vickrey"; band: "floor_pro_rata_units"; dust: "ascending_leaf_index"; tie: "ascending_leaf_index"; minimum_fill: number };
   refund: { invalid: "full_C" | "C_minus_fee"; reorg: "C_minus_fee_remove_leaf"; cancel: "full_C" };
   freeze: "merkle_root_v1";
+  // Optional since Phase 5 (R4 item 2): SHA-256 of the signed witness-set side-packet, so the set is committed to
+  // by the signed manifest and cannot be removed from a public directory unnoticed. See witness/witnessSetHash.
+  witness_set_hash?: string;
 };
 export type Signed = { bytes: string; sha256: string; signer: string; signature: string };
 export const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
@@ -41,7 +44,10 @@ function keys(object: any, expected: string) {
   requireThat(Object.keys(object).sort().join(",") === expected.split(" ").sort().join(","), "unknown or missing manifest field");
 }
 export function validateManifest(m: Manifest): void {
-  keys(m, "version network auction_id escrow_ua frost_group_key lot supply reserve_zats tick_zats B_max_zats q_max C_zats fee_zats deposit_addresses drand T_submit T_freeze confirmations clearing refund freeze");
+  requireThat(m.witness_set_hash === undefined || (typeof m.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m.witness_set_hash)), "witness_set_hash");
+  const base: Record<string, unknown> = { ...m };
+  delete base.witness_set_hash;
+  keys(base, "version network auction_id escrow_ua frost_group_key lot supply reserve_zats tick_zats B_max_zats q_max C_zats fee_zats deposit_addresses drand T_submit T_freeze confirmations clearing refund freeze");
   requireThat(m.version === 1 && m.network === "test", "manifest version/network");
   requireThat(/^[0-9a-f]{64}$/.test(m.auction_id) && /^[0-9a-f]{64}$/.test(m.frost_group_key), "auction/group key");
   requireThat(typeof m.lot === "string" && m.lot.length > 0 && m.lot.length <= 256, "lot");
