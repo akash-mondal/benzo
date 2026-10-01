@@ -26,6 +26,8 @@ Evidence work: verifier shell/JS syntax checked, actual positive/corrupt runs pe
 
 N1 regression mutation ACTIVE at clean base3174c60: BNZ_LIVE=1 node node_modules/.bin/playwright test --project=auction-core; tmp/e2e/phase4-N1-regression.log. ERROR E1 observed, full live stages/cleanup and reversal pending; manifest/schema.ts is intentionally patched. Then P1 on settle-crash before final same-commit R8 regression. Source00425c1 pins cap13/normal312 and build/typecheck PASS. Mutation runs have no BNZ_EVIDENCE_DIR.
 
+2026-10-01T18:31:42Z: R7 creation guard tightened in SDK driver before create_pczt_from_proposal: exact proposal target+expiry is rejected if it reaches NU7 while target is pre-activation. Existing decoded-expiry broadcast guard retained. Pinned backend0.24.0 proposal.rs:506 and wallet.rs:377 APIs read; cargo check --release --locked PASS. No live activation refusal claimed. N1 remains active, intentionally patched manifest source unstaged.
+
 Needs user: none. Head: merge B follow-up per R20; Q14 lifecycle API finding below. Gates and final evidence/regression/mutation audits remain owed.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781

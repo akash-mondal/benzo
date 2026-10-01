@@ -30,7 +30,9 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32) -> anyhow::Result<()> 
     ensure!(accounts.len()==1,"wallet must have one account");
     let change=MultiOutputChangeStrategy::new(StandardFeeRule::Zip317,None,ShieldedPool::Orchard,DustOutputPolicy::default(),SplitPolicy::with_min_output_value(NonZeroUsize::new(1).unwrap(),Zatoshis::from_u64(10_000_000)?));
     let proposal=propose_transfer::<_,_,_,_,zcash_client_sqlite::wallet::commitment_tree::Error>(&mut db,&Network::TestNetwork,accounts[0],&GreedyInputSelector::new(),&change,TransactionRequest::new(payments)?,ConfirmationsPolicy::default(),&SpendPolicy::default(),None,None).map_err(|e|anyhow!("proposal: {e:?}"))?;
-    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Sender,&proposal,Some(proposal.min_target_height()+expiry_blocks),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
+    let expiry=proposal.min_target_height()+expiry_blocks;
+    ensure!(!(u32::from(proposal.min_target_height())<=4_465_026 && u32::from(expiry)>=4_465_026),"PCZT expiry reaches NU7 activation; refusing create");
+    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Sender,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
     std::fs::write(output,pczt.serialize().map_err(|e|anyhow!("serialization: {e:?}"))?)?;
     Ok(())
 }
