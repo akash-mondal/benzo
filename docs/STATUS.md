@@ -38,6 +38,8 @@ Current fresh run e0e0b9a: npm run e2e:live, tmp/e2e/phase4-cli-development-v4.l
 
 2026-10-01T17:07:19Z: v4 FAILED (2290 seconds), not gate evidence. O1/P1/T4 PASS; expired candidate reconciliation stopped on primary GetTransaction InternalServerError, before any broadcast. Complete direct GetBlockRange proofs from both endpoints cover all 33 blocks from first deposit through expiry, candidate absent (tmp/e2e/phase4-expiry-range.log; pinned service.proto:259, compact_formats.proto:54). Worker now uses that direct complete-range proof, with no error fallback; build/core/CLI/settle and typecheck PASS. Cleanup 271901de42b0e0d42cb1026e6ecd40869c707c8ac80510dde7bf2e914c8ed902 mined; positive unspent vault value 0, native bidder spendable 97633380. First candidate signed 13 randomizers / 611423 ms, worst 141227 ms including deliberate suspension; no settled sample claimed. Fresh v5 follows to validate the recovery fix; Track B R20 follow-up still pending.
 
+2026-10-01T17:11:26Z: v5 running at 6a3f9e7; funding 2d608f9bbd8071c7bcd8ef76f26ff0eaf4c5a77f9bde744998379ccac99b4d64, O1 PASS, log tmp/e2e/phase4-cli-development-v5.log. Independent carry-over regression patch apply checks N1/P1 PASS. Track B follow-up merge and all mutation/regression/final evidence still pending.
+
 Needs user: none currently. Questions Q10–Q13 below. No commands in the other checkout; no Track B file edits.
 
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
@@ -60,6 +62,8 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 - **Needs user:** none.
 
 ## Questions
+
+- Q14 (Track B source-only finding): api/public-auction.ts currently requires frozen.json, opened.json and result.json in loadPublicAuction, so the read API cannot expose an OPEN auction before freeze/open/clear. Please include lifecycle-safe auction status/operator/freeze reads in B’s follow-up; unavailable result/receipt may be an explicit not-ready response. No new test/assertion requested; A cannot edit api/**.
 
 - Q13 resolved/assigned to B by R20 at 48fa81f; follow-up merge pending. Original report: merged B currently reads legacy projections (signer/opened/summary) rather than auction.json, and positional verify/receipt arguments. A is publishing those safe projections and adapting flags/routes. B must finish R16/R18 and bind/check canonical auction.json plus stray obligations: current accounting skips all result obligations if any stray party is present. A cannot edit api/**. Please merge the follow-up before final evidence.
 
