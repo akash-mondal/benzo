@@ -4,6 +4,7 @@ const projects = [{ name: "default", testMatch: /seal-open\.spec\.ts/ }];
 if (process.env.BNZ_LIVE === "1") {
   projects.push({ name: "live", testMatch: /(seal-open|testnet-golden-path)\.spec\.ts/ });
   projects.push({ name: "auction-core", testMatch: /auction-core\.spec\.ts/ });
+  projects.push({ name: "settle-crash", testMatch: /settle-crash\.spec\.ts/ });
 }
 
 export default defineConfig({

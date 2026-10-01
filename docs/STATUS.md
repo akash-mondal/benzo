@@ -4,7 +4,7 @@
 
 Contract d0fbe61 / R1. Started only after Phase 2 READY FOR REVIEW at 28ddd09: live run b834747, artifacts aa4676b, positive verifier 0 and corrupted-copy exit 1 with ERROR E/F. Read Phase 3 in full and DESIGN §6/§14. `npm run e2e` regression PASS before new work (`tmp/e2e/phase3-baseline.log`).
 
-Gates J/K/L/M/N: IN PROGRESS. No Phase 3 live gate evidence yet. Implemented worker, durable SQLite obligations, separate signer checks with fresh Go tle, and pre-broadcast signed-PCZT staging; integration not verified. First step: pinned-SDK multi-output PCZT creation and an inspector for signer recipient/amount/fee checks. Existing devtool `pczt create --help` accepts one address/value; its pinned `src/commands/pczt/create.rs` uses a single Payment vector. SDK driver now compiles against exactly the versions/source identities in the pinned devtool Cargo.lock; inspector checks CV/nullifier/rk/note commitments, note-ciphertext recovery, actual recipients, owned change and ZIP-317 fee. `npm run build:settle` and strict TypeScript check pass; scratch inspection of an existing real PCZT passes, not gate evidence. No Phase 3 broadcasts or new spec yet.
+Gates J/K/L/M/N: IN PROGRESS. No Phase 3 live gate evidence yet. Implemented worker, durable SQLite obligations, separate signer checks with fresh Go tle, and pre-broadcast signed-PCZT staging; integration not verified. First step: pinned-SDK multi-output PCZT creation and an inspector for signer recipient/amount/fee checks. Existing devtool `pczt create --help` accepts one address/value; its pinned `src/commands/pczt/create.rs` uses a single Payment vector. SDK driver now compiles against exactly the versions/source identities in the pinned devtool Cargo.lock; inspector checks CV/nullifier/rk/note commitments, note-ciphertext recovery, actual recipients, owned change and ZIP-317 fee. `npm run build:settle` and strict TypeScript check pass; scratch inspection of an existing real PCZT passes, not gate evidence. One new spec, e2e/settle-crash.spec.ts (J1/J2/K1/L1/M1/N1), typechecks; first live development run pending. Phase 1 specs unchanged. Live selection moves to settle-crash only for this phase; wallet/frostd remain serialized.
 
 
 ## Phase 2 ([PHASE-2.md](PHASE-2.md)): READY FOR REVIEW
@@ -144,6 +144,8 @@ All tool pins unchanged; no environment changes. Scanner now applies the pinned 
 Phase 4 UI/hosting excluded from this overnight session. Full owner-key / settlement-envelope delivery remains unresolved under Q5; current routing fixture must be declared explicitly.
 
 ## Last session
+
+- 2026-10-01T05:55:00.310286+00:00: Added the single Phase 3 spec and live selection; build/typecheck PASS. Default regression PASS (`tmp/e2e/phase3-resume-regression.log`). Next is fresh real development run, output `tmp/e2e/phase3-development.log`, overall deadline 85 minutes and spec deadline 80 minutes. No evidence claim before its six IDs pass.
 
 - 2026-10-01T05:46:27.062970+00:00: Resumed after interruption; no active owned pidfile processes. Phase 3 SDK/worker compile and typecheck; no broadcasts. Next concrete step: one settle-crash live spec, strict signer amount fault at the real checker boundary, actual crash/resume, cancel and offline drills. Keep turn active through every wait.
 

@@ -42,13 +42,14 @@ function when(p: Proc, text: string): Promise<void> {
 
 const frostClient = (args: string[]) => start(bin("frost-client"), args, { SSL_CERT_FILE: path.join(TLS, "rootCA.pem") });
 
-export type Session = { signers: string[]; sighash: string; randomizer: string; signature: string; participantsSaw: string[] };
+export type Session = { signers: string[]; sighash: string; randomizer: string; signature: string; participantsSaw: string[]; coordinator_started_at:number };
 
 // One coordinator session (alice coordinates; alice and bob sign) for one sighash and one randomizer.
 async function signOnce(sighash: string, randomizer: string, check: (name:string, randomizer:string)=>void): Promise<Session> {
   for(const name of ["alice","bob"])check(name,randomizer);
   const signers = [pubkey("alice"), pubkey("bob")];
   const addr = env("BNZ_FROSTD_ADDR");
+  const coordinator_started_at=Date.now();
   const coordinator = frostClient(["coordinator", "-c", cfg("alice"), "-s", addr, "-g", groupKey(), "-S", signers.join(","), "-m", "-", "-r", "-", "-o", "-"]);
   coordinator.child.stdin!.end(`${sighash}\n${randomizer}\n`);
   await when(coordinator, "Waiting for participants to send their commitments");
@@ -59,7 +60,7 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
   const sigs = coordinator.out.match(/^[0-9a-f]{128}$/gm);
   if (!sigs) throw new Error("coordinator printed no signature");
   const participantsSaw = participants.map((p) => p.out.match(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/)?.[1] ?? "");
-  return { signers, sighash, randomizer, signature: sigs[sigs.length - 1], participantsSaw };
+  return { signers, sighash, randomizer, signature: sigs[sigs.length - 1], participantsSaw, coordinator_started_at };
 }
 
 // Runs `zcash-sign sign`, answering each `Randomizer #i` prompt with a fresh FROST session.
