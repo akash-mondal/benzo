@@ -151,6 +151,7 @@ export async function runCommand(command:string,args:string[]) {
   if(command==='claim-refund') {
     // Operator side (R7 item 4): record the owner-signed request — first claim per party wins — and settle
     // what it promotes (the signer plan verifies the owner signature against its own fresh opening).
+    // --defer records without settling, for operators who collect claims and settle in one batch.
     requireThat(id,'--id required');const request=input(o);
     requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.destination_ua==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
     requireShieldedDestination(request.destination_ua);
@@ -158,8 +159,9 @@ export async function runCommand(command:string,args:string[]) {
     const old=claims.find((c:any)=>c.party===request.party);
     requireThat(!old||jsonBytes(old).equals(jsonBytes(request)),'a different claim for this party is already recorded');
     if(!old){claims.push(request);save(file,claims)}
+    if(o.defer==='true')return {recorded:true,party:request.party};
   }
-  if(command==='settle'||command==='cancel'||command==='sign join'||command==='claim-refund') {
+  if(command==='settle'||command==='cancel'||command==='sign join'||(command==='claim-refund'&&o.defer!=='true')) {
     requireThat(id,'--id required');
     if(command==='sign join'&&o.name) {
       requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.randomizer),'signer/randomizer');
