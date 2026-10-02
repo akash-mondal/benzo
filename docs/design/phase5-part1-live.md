@@ -130,3 +130,21 @@ The assertions are exactly PHASE-5 §6: V1 V2 W1 W2 X1 Y1. Mutations 5M1–5M5 a
 - Nonce safety: an abandoned FROST session's nonces must never be reused. Each new session gets new commitments, and the ledger records abandoned sessions.
 - Per-auction vaults mean the bidder pays a different UA each auction. The manifest's `escrow_ua` is the only source.
 - NU7 is on testnet from about Oct 5–6. Re-check the activation height and the R7 expiry guard before every broadcast.
+
+## 10. Addendum (2026-10-02): R7 items 1–2, exact wiring (head-owned)
+
+**Item 1: gate W from signer-derived data only.**
+- `settle/plan.ts` already runs fresh `tle -d` per frozen leaf for the signer check. Make it return `fresh_opened: Opened[]` alongside the plan, and write it into the signer's own `settle/<id>/signer-<name>/fresh-opened.json`. The signer computes this; it is never copied from the coordinator.
+- `settle/envelopes.ts validEnvelope(...)` takes explicit inputs: `{manifestPacket, frozen, fresh_opened, published_envelopes}`. It must never receive `auction()`.
+  - `frozen` and `published_envelopes` come from the **published** `auction.json` (the path pinned in the product config at intake). Check `frozen.root` against the manifest-bound frozen root the signer already verified.
+  - The owner key, nonce and commitment come from `fresh_opened`.
+- `settle/cli.ts destinations()`:
+  - Remove `a=auction()` from the bid path.
+  - For each `leaf:N` row, resolve the destination with `validEnvelope` on those inputs, then `openDestination` with the signer's key.
+  - Before that, require that the coordinator's private ledger has the same `frozen.root`, the same `opened[N].plaintext_hex` as `fresh_opened[N]`, and the same envelope record bytes as published. Any difference → refuse the whole batch with `coordinator ledger differs from signer-derived data`.
+- **Test:** a fixture where the coordinator ledger's `opened[0]` owner key and envelope are swapped to the operator's (published untouched). Before the fix the redirect is signed; after, it's refused. Copy the reviewers' F-3/G1 probes into `tools/repro/` and show CONFIRMED → FIXED.
+
+**Item 2: signer-held envelope keys, pinned.**
+- `benzo sign keys --id ID --name SIGNER` creates `envelope-<name>.json` (X25519, via libsodium once Track B lands it) in **that signer's** state dir and prints only the public key. `auction create` takes `--envelope-keys hex,hex,hex` and writes `envelope_keys` into the signed manifest; `auction sign` refuses a manifest whose keys don't match the three signer public keys on file.
+- `bid seal` reads `envelope_keys` from the verified manifest only. It encrypts to all three once B's multi-recipient format is merged; until then, product mode refuses with `multi-recipient envelopes required (Track B)`.
+- Remove every operator-side creation or distribution of an envelope private key. `grep -n "private_hex" cli/ settle/` must show only signer-side reads of the signer's own file.
