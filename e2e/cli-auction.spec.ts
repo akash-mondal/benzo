@@ -130,7 +130,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const shown=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash]);
     // F3 (R28): pass the bidder's own signed admission receipt for leaf:0, and compare the settlement
     // receipt fields against result.json.
-    const bidderReceipt=included.find((x:any)=>JSON.parse(Buffer.from(x.receipt.bytes,'base64')).leaf_index===0)!.receipt;
+    const bidderReceipt=included.find((x:any)=>JSON.parse(Buffer.from(x.receipt.bytes,'base64').toString('utf8')).leaf_index===0)!.receipt;
     const receiptFile=path.join(privateDir,'receipt-leaf0.json');writeFileSync(receiptFile,jsonBytes(bidderReceipt));
     const signed=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash,'--receipt',receiptFile]);
     await run.check('P2','receipt show and verify agree on inclusion and settlement fields',()=>{
