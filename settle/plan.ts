@@ -50,7 +50,7 @@ try {
   const stray=depositNotes.filter(n=>!src.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
   const exceptions=stray.filter(n=>!confirmed(n)).map(n=>({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)}));
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[];
-  let result_hash:string|null=null;
+  let result_hash:string|null=null,opened:any[]|null=null;
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
     requireThat(!src.opened,"cancelled plan has opened bids");
     for(const n of depositNotes.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
@@ -60,7 +60,7 @@ try {
     checkFrozen(src.frozen,id,manifest_hash);
     requireThat(Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"settlement before release");
     const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
-    const opened=src.frozen.leaves.map((leaf:any)=> {
+    opened=src.frozen.leaves.map((leaf:any)=> {
       requireThat(depositNotes.some(n=>n.txid===leaf.deposit.txid&&n.address===leaf.deposit.address&&confirmed(n)&&String(n.value_zats)===m.C_zats),"frozen deposit missing or spent; resume needs mined-batch reconciliation");
       const ct=path.join(dir,`${leaf.leaf_index}.age`),pt=path.join(dir,`${leaf.leaf_index}.bin`);
       writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
@@ -74,7 +74,14 @@ try {
       }
       return {leaf_index:leaf.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
     });
-    if(published)requireThat(jsonBytes(opened).equals(jsonBytes(published.opened)),"published opening differs from fresh decryption");
+    if(published) {
+      requireThat(jsonBytes(opened).equals(jsonBytes(published.opened)),"published opening differs from fresh decryption");
+      // R7 (Reviewer R F-3 = Reviewer G G1): the coordinator's private ledger is never a source — it is only
+      // cross-checked against the signer's own fresh tle openings and the published envelope records, and any
+      // difference refuses settlement before any destination is resolved or signature is asked for.
+      requireThat(jsonBytes(auction.opened??null).equals(jsonBytes(opened)),"private ledger opening differs from signer-derived opening");
+      requireThat(jsonBytes(auction.envelopes??[]).equals(jsonBytes(published.envelopes??[])),"private ledger envelope records differ from published records");
+    }
     // R6 (F2): the sealed reserve is re-derived here with the pinned Go tle and must equal the
     // published opening; a forged opening is refused before any signature.
     const derivedReserve=src.manifest.sealed_reserve!==undefined?tleOpening(path.join(state,"bin","tle"),src.manifest.drand.chain_hash,src.manifest.sealed_reserve):null;
@@ -96,5 +103,5 @@ try {
   if(!["CANCELLED","REFUNDING"].includes(src.state))for(const n of stray.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,obligations,exceptions,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}
