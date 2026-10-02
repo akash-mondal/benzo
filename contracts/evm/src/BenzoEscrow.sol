@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
@@ -22,11 +23,15 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 ///
 /// Trust: the escrow never trusts the signers with custody safety — payments are capped by the
 /// locked amount and keyed by leaf hash, so no set of attestations can pay more or twice.
+/// Re-entrancy safety (P0): `release`/`refund` are `nonReentrant` (OpenZeppelin `ReentrancyGuard`)
+/// and each payout is checks-effects-interactions — the paid flag and the cap are written before
+/// the transfer and rolled back (PayoutFailed) if it fails — and the native transfer forwards a
+/// bounded gas stipend, so one recipient can never consume a batch's gas.
 ///
 /// What may appear on chain (design §0/§8): the escrow, the auction id, allocation leaves
 /// (asset, lot count, destination) and attested roots. Never a Zcash txid, address, amount paid
 /// or funding identifier.
-contract BenzoEscrow {
+contract BenzoEscrow is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ---- canonical cross-chain encodings (design §3; mirrored in crosschain/ TS and the Solana program) ----
@@ -48,6 +53,12 @@ contract BenzoEscrow {
     string private constant DOMAIN_VERSION = "1";
 
     uint8 internal constant DEST_EVM_ADDRESS = 1; // 20-byte EVM address (design §4)
+
+    /// @dev Bounded gas stipend for native payout transfers: one recipient can burn at most this
+    /// much of a release batch's gas (a plain EOA costs nothing; a contract wallet has room for a
+    /// modest `receive()`). `refund` pays the pinned return address without the bound: a single
+    /// payout with no batch to protect.
+    uint256 internal constant NATIVE_TRANSFER_GAS = 120_000;
 
     struct Auction {
         address payable returnTo; // pinned refund address
@@ -160,8 +171,11 @@ contract BenzoEscrow {
     /// @notice Release a batch of allocation payouts on 2-of-3 EIP-712 attestations of the root.
     /// @dev Batch-level validity reverts; per-payout failures (already paid, over cap, transfer
     /// refused) skip that payout only, so one failing recipient never reverts the batch and failed
-    /// items stay claimable by a later release (design §2.4).
-    function release(Release calldata att, bytes[] calldata sigs, Payout[] calldata payouts) external {
+    /// items stay claimable by a later release (design §2.4). `nonReentrant` plus the
+    /// checks-effects-interactions order inside the loop close the P0 double-payment: a recipient
+    /// callback re-entering `release` is refused, and even a callback that slips past would see
+    /// its leaf already paid.
+    function release(Release calldata att, bytes[] calldata sigs, Payout[] calldata payouts) external nonReentrant {
         Auction storage a = auctions[att.auctionId];
         if (!a.exists) revert UnknownAuction();
         if (a.refunded) revert AuctionRefunded();
@@ -193,11 +207,16 @@ contract BenzoEscrow {
                 continue;
             }
             address recipient = address(bytes20(p.destination));
-            if (_pay(a.asset, recipient, amount)) {
-                paidLeaf[att.auctionId][leaf] = true;
-                a.paid += amount;
+            // checks-effects-interactions (P0): mark paid before the transfer so a re-entrant
+            // callback reads the leaf as paid; roll back if the transfer fails (PayoutFailed,
+            // the item stays claimable by a later release).
+            paidLeaf[att.auctionId][leaf] = true;
+            a.paid += amount;
+            if (_pay(a.asset, recipient, amount, NATIVE_TRANSFER_GAS)) {
                 emit PayoutPaid(att.auctionId, leaf, recipient, amount);
             } else {
+                paidLeaf[att.auctionId][leaf] = false;
+                a.paid -= amount;
                 emit PayoutFailed(att.auctionId, leaf, recipient, amount);
             }
         }
@@ -205,14 +224,14 @@ contract BenzoEscrow {
     }
 
     /// @notice Anyone may refund the unspent remainder to the pinned return address after `deadline`.
-    function refund(bytes32 auctionId) external {
+    function refund(bytes32 auctionId) external nonReentrant {
         Auction storage a = auctions[auctionId];
         if (!a.exists) revert UnknownAuction();
         if (a.refunded) revert AlreadyRefunded();
         if (block.timestamp <= a.deadline) revert BeforeDeadline();
         a.refunded = true;
         uint256 remainder = a.locked - a.paid;
-        if (remainder > 0 && !_pay(a.asset, a.returnTo, remainder)) revert TransferFailed();
+        if (remainder > 0 && !_pay(a.asset, a.returnTo, remainder, 0)) revert TransferFailed();
         emit Refunded(auctionId, a.returnTo, remainder);
     }
 
@@ -298,11 +317,18 @@ contract BenzoEscrow {
         return false;
     }
 
-    /// @dev Native: plain call, failure reported. ERC-20: OZ SafeERC20 behind an external self-call
-    /// so a reverting transfer reports false instead of reverting the batch.
-    function _pay(address asset, address to, uint256 amount) internal returns (bool) {
+    /// @dev Native: call with the caller's gas stipend (`gasStipend == 0` = unbounded, refund
+    /// only), failure reported. ERC-20: OZ SafeERC20 behind an external self-call so a reverting
+    /// transfer reports false instead of reverting the batch. Integrity against re-entrancy comes
+    /// from the effects-before-transfer order in `release` plus `nonReentrant`, not from gas.
+    function _pay(address asset, address to, uint256 amount, uint256 gasStipend) internal returns (bool) {
         if (asset == address(0)) {
-            (bool ok,) = to.call{value: amount}("");
+            bool ok;
+            if (gasStipend == 0) {
+                (ok, ) = to.call{value: amount}("");
+            } else {
+                (ok, ) = to.call{value: amount, gas: gasStipend}("");
+            }
             return ok;
         }
         try this.payToken(asset, to, amount) {

@@ -25,7 +25,9 @@
 //! `lock` (the locker's client supplies `getGenesisHash`) and every attestation must carry it,
 //! together with this program's own ID: an attestation minted for another cluster or deployment
 //! is refused (`BadBinding`). Release is refused once per `(auction_id, batch_index)` (the batch
-//! PDA is the stored flag) and each allocation leaf is payable at most once (the paid PDA).
+//! PDA is the stored flag) and each allocation leaf is payable at most once (the paid PDA, written
+//! before any lamports move — P0 effects-before-interactions ordering; Solana has no transfer CPI
+//! to a recipient here, so no callback exists, but the ordering is kept explicit).
 //!
 //! Canonical leaf/root layout (design §3, identical to `contracts/evm/src/BenzoEscrow.sol` and
 //! `crosschain/`):
@@ -558,11 +560,13 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
             continue;
         }
 
-        // move lamports out of the escrow PDA (program-owned) to the destination
-        **auction_ai.try_borrow_mut_lamports()? -= amount;
-        **dest_ai.try_borrow_mut_lamports()? += amount;
-        state.paid += amount;
-
+        // effects before interactions (P0 ordering, mirrors the EVM contract): the paid flag is
+        // written before any lamports move. On Solana the payout is a direct lamport debit/credit
+        // of program-owned accounts — no CPI to the recipient, so no recipient code ever runs and
+        // there is no callback vector here; the only CPI is the system program's `create_account`,
+        // which cannot re-enter this program. The flag is written first anyway so the ordering
+        // survives future edits (`state.paid` is persisted by `store_state` at the end of this
+        // instruction; the transaction is atomic and no untrusted call sits in between).
         invoke_signed(
             &system_instruction::create_account(
                 crank.key,
@@ -574,6 +578,11 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
             &[crank.clone(), paid_ai.clone(), system_program_ai.clone()],
             &[&[b"paid", &state.auction_id, &leaf, &[paid_bump]]],
         )?;
+
+        // move lamports out of the escrow PDA (program-owned) to the destination
+        **auction_ai.try_borrow_mut_lamports()? -= amount;
+        **dest_ai.try_borrow_mut_lamports()? += amount;
+        state.paid += amount;
     }
 
     let mut data = auction_ai.try_borrow_mut_data()?;

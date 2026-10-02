@@ -28,6 +28,33 @@ contract ToggleReceiver {
     }
 }
 
+/// @dev P0 re-entrancy attacker: on receiving a payout it calls back into `release()` with a
+/// second validly signed batch containing its own leaf (the head's double-payment scenario).
+/// At most one re-entrant attempt per payment (the `busy` guard keeps the old-code run
+/// deterministic instead of recursing); the outcome is recorded for the test to assert.
+contract ReentrantRecipient {
+    BenzoEscrow private immutable escrow;
+    bytes private attackCalldata;
+    bool private busy;
+    bool public reentryLanded; // true iff the re-entrant release() call returned success
+
+    constructor(BenzoEscrow _escrow) {
+        escrow = _escrow;
+    }
+
+    function arm(bytes calldata calldata_) external {
+        attackCalldata = calldata_;
+    }
+
+    receive() external payable {
+        if (busy) return;
+        busy = true;
+        (bool ok, ) = address(escrow).call(attackCalldata);
+        reentryLanded = ok;
+        busy = false;
+    }
+}
+
 contract BenzoEscrowTest is Test {
     bytes32 internal constant TYPEHASH = keccak256(
         "BenzoRelease(bytes32 auctionId,bytes32 resultHash,bytes32 allocationRoot,uint64 batchIndex,uint64 nonce,uint64 expiry)"
@@ -426,5 +453,36 @@ contract BenzoEscrowTest is Test {
         assertEq(recipientA.balance, 0);
         (, , , , uint256 paid, , , , , , ) = escrow.auction(auctionId);
         assertEq(paid, 0);
+    }
+
+    // 6. P0: re-entrant callback must not pay a recipient twice. The attacker's receive()
+    //    submits a second validly signed batch (different batch index) carrying the same leaf;
+    //    the attacker must end up paid exactly once and the re-entrant release must be refused.
+    //    This test fails on the pre-fix code (contract/logs/p0-reentrancy-old-code.out).
+    function test_reentrant_recipient_paid_exactly_once() public {
+        doLock(2 * LOT, uint64(block.timestamp + 1 days), uint64(block.timestamp + 30 days));
+        ReentrantRecipient attacker = new ReentrantRecipient(escrow);
+
+        // one-leaf tree over the attacker's own leaf, in two valid batches (indices 0 and 1)
+        bytes32 lA = mkLeaf(0, address(0), 1, 1, abi.encodePacked(address(attacker)));
+        bytes32 root = keccak256(abi.encodePacked("benzo-root-v1", uint64(1), lA));
+        BenzoEscrow.Payout[] memory ps = new BenzoEscrow.Payout[](1);
+        ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(address(attacker)), 1, new bytes32[](0));
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = alicePk;
+        pks[1] = bobPk;
+
+        BenzoEscrow.Release memory att0 = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 0, 0, uint64(block.timestamp + 1 hours));
+        BenzoEscrow.Release memory att1 = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 1, 0, uint64(block.timestamp + 1 hours));
+        // the re-entrant batch: valid 2-of-3 signatures, its own leaf, next batch index
+        attacker.arm(abi.encodeCall(BenzoEscrow.release, (att1, signRelease(att1, pks), ps)));
+
+        escrow.release(att0, signRelease(att0, pks), ps);
+
+        assertEq(address(attacker).balance, LOT, "paid exactly once despite the re-entrant release");
+        assertFalse(attacker.reentryLanded(), "re-entrant release refused");
+        assertTrue(escrow.isPaid(auctionId, lA));
+        (, , , , uint256 paid, , , , , , ) = escrow.auction(auctionId);
+        assertEq(paid, LOT, "cap charged once");
     }
 }
