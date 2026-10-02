@@ -3,6 +3,32 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Track B testnet lane
+
+State: **WAITING FOR FUNDING** (poll below runs to 2026-10-02T11:32Z; result recorded in this section). Set up 2026-10-02T10:01Z at commit `b30e826`, clean tree. My lane only: `$BNZ_STATE_DIR=./.benzo`, frostd `localhost:2745`; nothing read or used from `benzo/.benzo`, its `.env`, or A's processes (A's frostd on 127.0.0.1:2744 was only observed via `lsof`, never contacted).
+
+**Public values (this lane):**
+
+- FROST group key (2-of-3 RedPallas, dealerless DKG; identical in alice/bob/carol per the setup's own `sort -u` check): `ba0272e65a40d44de12531785f8921d52038723ba218797a6f6bbd7f1f26d62f`
+- Vault UA (view-only wallet `.benzo/vault`, birthday = tip − 10): `[redacted address 819dd953f7]`
+- Bidder Default Address (`.benzo/bidder`) — **send the ~0.1 TAZ here**: `[redacted address 3b7be8280a]`
+
+No mnemonic or `.age` content is printed here or anywhere outside `$BNZ_STATE_DIR`; full transcripts live in `$BNZ_STATE_DIR/run/` (`setup.log`, `bootstrap-setup.log`, `bootstrap-force.log`, `frostd-dkg.log`, `funding-poll.log`).
+
+**Commands and trimmed real output:**
+
+| Command | Real output (trimmed) |
+|---|---|
+| `set -a; . ./.env; set +a && bash tools/setup-testnet.sh` (at `b30e826`) | `1. bootstrap` → `local CA and frostd certificate (SANs localhost, 127.0.0.1)` → `2. frostd and a dealerless 2-of-3 RedPallas DKG` → `3. vault UFVK from the group key (zcash-sign generate)` → `4. vault wallet (view-only, birthday = tip - 10)` → `5. bidder wallet` → `bidder address: utest1yev…43h8`, `group key: ba02…d62f`; rc=0 |
+| `.benzo/run/frostd-dkg.log` (frostd's log during the DKG) | `starting HTTPS server at 127.0.0.1:2745` — **:2745, not :2744** (the port fix in `b30e826`; A's frostd held 127.0.0.1:2744 throughout) |
+| `zcash-devtool wallet -w .benzo/vault list-addresses` | `Account AccountUuid(944434da-…)`, `Default Address: utest1743…f5fh` |
+| `zcash-devtool wallet -w .benzo/bidder list-addresses` | `Default Address: utest1yev…43h8` (same as the setup line) |
+| `npm run e2e` (default project, seal-open; first B baseline that can use `$BNZ_STATE_DIR/bin`) | `PASSED default seal in the browser, open with tle after R (40 s)`, rc=0 |
+
+DKG command lines (public, from `.benzo/frost/dkg-commands.txt`): three `frost-client dkg -c $BNZ_STATE_DIR/frost/{alice,bob,carol}.toml -d 'benzo phase 1 vault' -s localhost:2745 -C redpallas -t 2` invocations (alice carries `-S f769aa…f4d,205ca6…b17`), run concurrently through frostd. Setup re-run safety note: this was a first-time run (`frost/`, `vault`, `bidder` all created now).
+
+**Funding:** the head sends ~0.1 TAZ to the bidder address after Builder A's live test. Polling `zcash-devtool wallet -w .benzo/bidder sync` + `balance` every 5 min, deadline 2026-10-02T11:32Z (90 min from 10:02Z). Result: _pending — updated at end of poll._
+
 ## Phase 6, Track B: READY FOR MERGE
 
 Updated run 13: 2026-10-02T08:01:57Z, base `7e06e2a` (head: merge main into track-b, docs brief) + working tree; commits `8725750` (README.md), `1416988` (docs/why-timelock.md), `4d5f756` (docs/verify-it-yourself.md) and this STATUS commit. Scope: the three Phase 6 docs exactly as briefed in `docs/design/phase6-docs.md`, nothing else. No tests, no source changes, no pins, no other-checkout access, no `.benzo/`, funds, keys, merge/rebase/cherry-pick or push. Only network use: one read-only quicknet beacon fetch. SC batch-plan stays BLOCKED pending Track A's side-effect-free `settle/batching.ts` (unchanged since run 12).
@@ -313,14 +339,18 @@ Default verify re-derives every opening with `$BNZ_STATE_DIR/bin/tle -d` against
 - None open. (`benzo operator view --dir PUBLIC` was flagged last run; accepted, R21 item 6.)
 
 ## Environment changes
-- Carried from earlier runs: `npm ci`; pinned `tle` v1.2.0 in `$BNZ_STATE_DIR/bin/tle`; Playwright Chromium. This run added none. The Phase 3 beacon was fetched read-only from `BNZ_DRAND_URLS` (public drand API) for the proof corpus.
+- 2026-10-02 (testnet lane bring-up): the pinned binaries staged in `.benzo/bin` had no cargo install metadata (`.crates.toml`/`.crates2.json` empty), so `tools/bootstrap.sh` aborted at `cargo install zcash-devtool` with `error: binary `zcash-devtool` already exists in destination` (`.benzo/run/bootstrap-setup.log`, first setup attempt). I rebuilt all four pinned Rust tools from `tools/pins.env` with `cargo install --locked --force` into `$BNZ_STATE_DIR` (no code change; log `.benzo/run/bootstrap-force.log`, e.g. `Replacing …/.benzo/bin/zcash-sign` → `Replaced package `unknown` with zcash-sign v0.1.0 (…frost-tools?rev=06c0dbd…)`). `tools/setup-testnet.sh` then passed, and `docs/evidence/phase-1/versions.txt` reproduced byte-identical (`git status` clean after the setup run).
+
+- Carried from earlier runs: `npm ci`; pinned `tle` v1.2.0 in `$BNZ_STATE_DIR/bin/tle`; Playwright Chromium. Run 13 added none. The Phase 3 beacon was fetched read-only from `BNZ_DRAND_URLS` (public drand API) for the proof corpus.
 
 ## Deferred
 - Full JSON-Schema validation of `auction.json` (hand checks cover the schema's key set and every field the checks consume; no validator dependency in budget).
 
 ## Questions
 
-None open. The prior entries are closed by R21: **Q1** dropped (item 3 — only the user's own words are recorded as user instructions; the entry had quoted a head prompt), **Q2** budget ~626 lines accepted (item 4), **Q3** load shapes ruled (item 5: `verify` keeps requiring `frozen`/`result`; the read API is lifecycle-safe — done in cad928d), **Q4** `operator view --dir PUBLIC` accepted (item 6).
+- **Head task message (2026-10-02, this session): two instructions conflict; one-line resolution, please fold into a Ruling or tell me to revert.** Verbatim: “Run `tools/setup-testnet.sh` from the benzo-b root with your `.env` loaded … Make sure frostd listens on :2745, not :2744.” and “Add no tests. Do not change code in this run.” `tools/setup-testnet.sh` started frostd **without `-p`** (frostd's default is :2744, Builder A's port) while its DKG clients connect to `$BNZ_FROSTD_ADDR` (`localhost:2745` here), so the mandated run could not succeed as written and its bind would have targeted A's port. I made the minimal one-line change — `b30e826`, `-p "${BNZ_FROSTD_ADDR##*:}"` on the frostd line, `bash -n` clean — and nothing else. **Same bug in `e2e/lib/frost.ts`** (`startFrostd` passes no `-p`; clients use `BNZ_FROSTD_ADDR`): any project that calls it would bind :2744 in this lane. Left untouched (out of this run's scope); needs a ruling before I fix it. `npm run e2e`'s default project (`seal-open`) does not call `startFrostd`, so its baseline above is unaffected.
+
+None open otherwise. The prior entries are closed by R21: **Q1** dropped (item 3 — only the user's own words are recorded as user instructions; the entry had quoted a head prompt), **Q2** budget ~626 lines accepted (item 4), **Q3** load shapes ruled (item 5: `verify` keeps requiring `frozen`/`result`; the read API is lifecycle-safe — done in cad928d), **Q4** `operator view --dir PUBLIC` accepted (item 6).
 
 ## Test audit (R11: Track B adds none)
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
