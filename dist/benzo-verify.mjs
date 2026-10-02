@@ -16186,6 +16186,17 @@ function checkPublicAuction(pub) {
     if (!records.length) return projection("envelope.json", null);
     const frozen = pub.frozen;
     requireThat(frozen, "missing frozen");
+    const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    const settleable = (leaf, reason) => {
+      const party = `leaf:${leaf}`;
+      if (!pub.settlement) return `${reason} ${leaf}; refund goes to the exception queue`;
+      const row = rows.find((r2) => r2.party === party);
+      requireThat(row, `${reason} ${leaf}: missing row`);
+      const paid = receipts.some((r2) => r2.party === party);
+      if (row.state === "exception") requireThat(!paid, `${reason} ${leaf}: exception row with receipt`);
+      else requireThat(paid, `${reason} ${leaf}: neither an unpaid exception row nor a receipt-backed payment`);
+      return paid ? `${reason} ${leaf}; paid through an owner-signed claim` : `${reason} ${leaf}; in the exception queue`;
+    };
     const byLeaf = /* @__PURE__ */ new Map();
     for (const rec of records) {
       requireThat(rec && typeof rec === "object" && Object.keys(rec).sort().join(",") === "ciphertext_hash,envelope_ct,owner_sig", "envelope record shape");
@@ -16194,17 +16205,25 @@ function checkPublicAuction(pub) {
       requireThat(!byLeaf.has(leaf.leaf_index), `duplicate envelope ${leaf.leaf_index}`);
       byLeaf.set(leaf.leaf_index, rec);
     }
-    for (const l2 of frozen.leaves) requireThat(byLeaf.has(l2.leaf_index), `missing envelope ${l2.leaf_index}`);
-    if (pub.opened.length) {
-      for (const [i2, rec] of byLeaf) {
-        const opening = pub.opened.find((o2) => o2.leaf_index === i2);
-        requireThat(opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? ""), `opening ${i2} for envelope`);
+    const warnings = [];
+    for (const l2 of frozen.leaves) if (!byLeaf.has(l2.leaf_index)) warnings.push(settleable(l2.leaf_index, "missing envelope"));
+    if (pub.opened.length) for (const l2 of frozen.leaves) {
+      const rec = byLeaf.get(l2.leaf_index);
+      if (!rec) continue;
+      const opening = pub.opened.find((o2) => o2.leaf_index === l2.leaf_index);
+      let valid = !!opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "");
+      if (valid) {
         const pt2 = Buffer.from(opening.plaintext_hex, "hex");
-        requireThat(verifyEnvelope(pt2.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig), `envelope ${i2} signature`);
-        requireThat(pt2.subarray(93, 125).toString("hex") === settlementCommitment(pt2.subarray(45, 61).toString("hex"), rec.envelope_ct), `envelope ${i2} commitment`);
+        try {
+          valid = verifyEnvelope(pt2.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig) && pt2.subarray(93, 125).toString("hex") === settlementCommitment(pt2.subarray(45, 61).toString("hex"), rec.envelope_ct);
+        } catch {
+          valid = false;
+        }
       }
+      if (!valid) warnings.push(settleable(l2.leaf_index, "invalid envelope"));
     }
     projection("envelope.json", records);
+    return warnings.filter(Boolean).join("; ") || void 0;
   });
   run2("accounting", () => {
     const result = pub.result;
@@ -16224,14 +16243,21 @@ function checkPublicAuction(pub) {
     const expected = modeEntry(pub.manifestPacket).obligations(result, pub.settlement);
     for (const [party, amount] of expected) {
       const rs = receipts.filter((r2) => r2.party === party);
-      requireThat(rs.length > 0, `settlement missing obligation ${party}`);
+      const row = rows.find((r2) => r2.party === party);
+      if (rs.length === 0) {
+        requireThat(row && row.state === "exception" && row.amount_zats === amount, `settlement missing obligation ${party}`);
+        continue;
+      }
+      requireThat(!(row && row.state === "exception"), `exception row ${party} with receipt`);
       requireThat(rs.length === 1, `duplicate settlement ${party}`);
       requireThat(rs[0].amount_zats === amount, `settlement ${party} amount`);
     }
     for (const row of rows) {
       if (!expected.has(row.party)) continue;
       requireThat(row.amount_zats === expected.get(row.party), `row ${row.party} amount`);
-      requireThat(receipts.some((r2) => r2.party === row.party && r2.amount_zats === row.amount_zats), `row ${row.party} without receipt`);
+      const rs = receipts.filter((r2) => r2.party === row.party && r2.amount_zats === row.amount_zats);
+      if (row.state === "exception") requireThat(rs.length === 0, `exception row ${row.party} with receipt`);
+      else requireThat(rs.length > 0, `row ${row.party} without receipt`);
     }
   });
   run2("accounting-strays", () => {

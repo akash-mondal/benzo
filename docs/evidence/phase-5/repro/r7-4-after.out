@@ -1,0 +1,8 @@
+commit 062f74f (fix applied; same synthetic fixtures)
+utc 2026-10-02T19:32:37Z
+command node tools/repro/r7-4-claim-refund-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961
+C1 benzo claim-refund: available
+C2 correct exception state verifies: exit 0 WARN no witness set (pre-Phase-5 manifest)
+C3 exception row with a receipt: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR accounting refused: exception row leaf:0 with receipt
+C3 exception row flipped to paid, no receipt: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR accounting refused: settlement missing obligation leaf:0
+C3 corrupted exception amount: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR accounting refused: settlement missing obligation leaf:0

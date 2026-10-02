@@ -1,0 +1,19 @@
+commit 062f74f (live completion on dev auction a9f56d6c…, frostd PID recorded in $BNZ_STATE_DIR/run/frostd.pid)
+utc 2026-10-02T19:36:28Z
+command node tools/repro/r7-4-claim-refund-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961 --live
+note the first settle attempt exited 1 on a stale killed-batch allocation from the r7-1 probe (leaf:1 not yet claimed); the settle dir was development-reset (no batch had ever mined) and the recorded run completed both refunds in one batch.
+independent receipt check (bidder-wallet scan of the owner-named destinations, after the run):
+[redacted address 5f68d8a3fb] notes 1 total 498800
+[redacted address c0a06f31dc] notes 1 total 498800
+C1 benzo claim-refund: available
+C2 correct exception state verifies: exit 0 WARN no witness set (pre-Phase-5 manifest)
+C3 exception row with a receipt: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR accounting refused: exception row leaf:0 with receipt
+C3 exception row flipped to paid, no receipt: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR accounting refused: settlement missing obligation leaf:0
+C3 corrupted exception amount: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR accounting refused: settlement missing obligation leaf:0
+C4 build claim leaf:0 -> signed for [redacted address 5f68d8a3fb]
+C4 settle claim leaf:0: exit 1 ERROR refund leaf:1 to the exception queue: multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used | ERROR refund leaf:2 to the exception queue: no valid owner-sig
+C4 paid to owner-named [redacted address 5f68d8a3fb]: no
+C4 build claim leaf:1 -> signed for [redacted address c0a06f31dc]
+C4 settle claim leaf:1: exit 0 ERROR refund leaf:2 to the exception queue: no valid owner-signed settlement envelope
+C4 paid to owner-named [redacted address c0a06f31dc]: see receipts
+C4 verify on the cold settled copy: exit 0 WARN no witness set (pre-Phase-5 manifest)

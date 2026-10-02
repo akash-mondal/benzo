@@ -7,6 +7,8 @@ import http from 'node:http';
 import {chromium} from '@playwright/test';
 import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
+import {ownerPublic,signStatement} from '../envelope';
+import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
@@ -26,6 +28,10 @@ export function publish(id:string) {
   const a=read(ledger(id)),cfg=read(config(id)),dir=path.resolve(cfg.public_dir);
   const doc:any={version:1,auction_id:id,signer:a.signer,manifest:a.manifest,state:a.state,receipts:a.receipts};
   if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;
+  // R7 item 5 (Reviewer G G2): the reserve opening is published after R alongside the openings, so
+  // sealed-reserve product auctions can settle and verify — both re-derive it from manifest.sealed_reserve
+  // and refuse any mismatch (manifest/reserve.ts requireReserveOpening).
+  if(a.reserve_opening!==undefined)doc.reserve_opening={plaintext_hex:a.reserve_opening};
   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
   if(existsSync(summary)) {
     const s=read(summary);
@@ -132,7 +138,30 @@ export async function runCommand(command:string,args:string[]) {
     const admitted=ac('admit',id,bid);publish(id);return {...admitted,C_zats:m.C_zats};
   }
   if(['freeze','open','clear'].includes(command)) {requireThat(id,'--id required');const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result}
-  if(command==='settle'||command==='cancel'||command==='sign join') {
+  if(command==='claim-refund'&&o.party!==undefined) {
+    // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.
+    // The destination is chosen by the owner and never passes through operator input unsigned.
+    requireThat(id&&o.party&&o.destination&&o['owner-key-stdin'],'--id --party --destination --owner-key-stdin required');
+    requireThat(/^leaf:[0-9]+$/.test(o.party)||/^deposit:[0-9a-f]{64}:.+$/.test(o.party),'claim party');
+    requireShieldedDestination(o.destination);
+    const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
+    const body={kind:'claim-refund',auction_id:id,party:o.party,destination_ua:o.destination};
+    return {...body,owner_sig:signStatement(owner,body)};
+  }
+  if(command==='claim-refund') {
+    // Operator side (R7 item 4): record the owner-signed request — first claim per party wins — and settle
+    // what it promotes (the signer plan verifies the owner signature against its own fresh opening).
+    // --defer records without settling, for operators who collect claims and settle in one batch.
+    requireThat(id,'--id required');const request=input(o);
+    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.destination_ua==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
+    requireShieldedDestination(request.destination_ua);
+    const file=path.join(STATE,'settle',id,'claims.json'),claims=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):[];
+    const old=claims.find((c:any)=>c.party===request.party);
+    requireThat(!old||jsonBytes(old).equals(jsonBytes(request)),'a different claim for this party is already recorded');
+    if(!old){claims.push(request);save(file,claims)}
+    if(o.defer==='true')return {recorded:true,party:request.party};
+  }
+  if(command==='settle'||command==='cancel'||command==='sign join'||(command==='claim-refund'&&o.defer!=='true')) {
     requireThat(id,'--id required');
     if(command==='sign join'&&o.name) {
       requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.randomizer),'signer/randomizer');

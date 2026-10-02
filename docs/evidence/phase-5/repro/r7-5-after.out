@@ -1,0 +1,11 @@
+commit 98fbdf8 (fix applied; same live auction state, republished via the idempotent clear)
+utc 2026-10-02T20:17:40Z
+command node tools/repro/r7-5-reserve-opening-repro.mjs 90d3aeb89136a005d1bb343f964762eabc1a97fa2bcfdfd17022ea7cd2115d22
+note witness_set/witness_cert were placed in the public dir by the fixture (the operator-held signed side-packet + two shipped 'benzo witness sign' certificates); the product wiring that publishes them is R8 G10 and its proof follows there.
+note the R2 fail-before also exposed a latent R6-F2 wiring bug (signed packet passed where the decoded manifest belongs), fixed in 98fbdf8.
+R1 published reserve_opening: present
+R1 fresh tle derivation:      00000000000007d090d3aeb89136a005…
+R1 equal: true
+R2 signer plan exit 0 d leaf:0 to the exception queue: no valid owner-signed settlement envelope | ERROR refund leaf:1 to the exception queue: no valid owner-signed settlement envelope
+R3 verify exit 0 (no error lines)
+FIXED: publish() carries the reserve opening and both the signer plan and benzo verify accept the sealed-reserve product auction.
