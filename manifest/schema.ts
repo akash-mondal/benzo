@@ -8,12 +8,24 @@ export const QUICKNET = {
 };
 export type Manifest = {
   version: 1; network: "test"; auction_id: string; escrow_ua: string; frost_group_key: string;
-  lot: string; supply: number; reserve_zats: string; tick_zats: string; B_max_zats: string;
+  lot?: string; supply: number; reserve_zats: string; tick_zats: string; B_max_zats: string;
   q_max: number; C_zats: string; fee_zats: string; deposit_addresses: string[];
   drand: typeof QUICKNET & { R: number }; T_submit: number; T_freeze: number; confirmations: 10;
   clearing: { mode: "uniform" | "vickrey"; band: "floor_pro_rata_units"; dust: "ascending_leaf_index"; tie: "ascending_leaf_index"; minimum_fill: number };
   refund: { invalid: "full_C" | "C_minus_fee"; reorg: "C_minus_fee_remove_leaf"; cancel: "full_C" };
   freeze: "merkle_root_v1";
+  // Optional since Phase 5 (R4 item 2): SHA-256 of the signed witness-set side-packet, so the set is committed to
+  // by the signed manifest and cannot be removed from a public directory unnoticed. See witness/witnessSetHash.
+  witness_set_hash?: string;
+  // Optional since PHASE-5 §11 gate CF: bond-then-pay (C is a bond of bond_bps bps of the cap; the winner's
+  // balance is paid in a window of balance_window_blocks), a tlock-sealed price bound (reserve floor / max price)
+  // opened at R, multi-lot rounds (orders bind one lot id; each lot clears independently), and recurring-round
+  // linkage (series id, round index, previous round's result hash).
+  bond?: { bond_bps: number; balance_window_blocks: number };
+  sealed_reserve?: string;
+  lots?: string[];
+  serials?: { first: number; count: number; seed_round_offset: number };
+  series?: { series_id: string; round_index: number; previous_result_hash: string | null };
 };
 export type Signed = { bytes: string; sha256: string; signer: string; signature: string };
 export const hash = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
@@ -41,18 +53,48 @@ function keys(object: any, expected: string) {
   requireThat(Object.keys(object).sort().join(",") === expected.split(" ").sort().join(","), "unknown or missing manifest field");
 }
 export function validateManifest(m: Manifest): void {
-  keys(m, "version network auction_id escrow_ua frost_group_key lot supply reserve_zats tick_zats B_max_zats q_max C_zats fee_zats deposit_addresses drand T_submit T_freeze confirmations clearing refund freeze");
+  requireThat(m.witness_set_hash === undefined || (typeof m.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m.witness_set_hash)), "witness_set_hash");
+  requireThat(m.bond === undefined || (m.bond && typeof m.bond === "object" && !Array.isArray(m.bond) &&
+    Object.keys(m.bond).sort().join(",") === "balance_window_blocks,bond_bps" &&
+    Number.isSafeInteger(m.bond.bond_bps) && m.bond.bond_bps >= 1 && m.bond.bond_bps <= 10000 &&
+    Number.isSafeInteger(m.bond.balance_window_blocks) && m.bond.balance_window_blocks >= 1), "bond");
+  requireThat(m.sealed_reserve === undefined || (typeof m.sealed_reserve === "string" &&
+    /^[0-9a-f]+$/.test(m.sealed_reserve) && m.sealed_reserve.length % 2 === 0 &&
+    m.sealed_reserve.length >= 96 && m.sealed_reserve.length <= 4096), "sealed_reserve");
+  requireThat(m.lots === undefined || (Array.isArray(m.lots) && m.lots.length >= 2 &&
+    m.lots.every(l => /^[0-9a-f]{64}$/.test(l)) && new Set(m.lots).size === m.lots.length), "lots");
+  requireThat(m.series === undefined || (m.series && typeof m.series === "object" && !Array.isArray(m.series) &&
+    Object.keys(m.series).sort().join(",") === "previous_result_hash,round_index,series_id" &&
+    /^[0-9a-f]{64}$/.test(m.series.series_id) && Number.isSafeInteger(m.series.round_index) && m.series.round_index >= 1 &&
+    (m.series.previous_result_hash === null
+      ? m.series.round_index === 1
+      : m.series.round_index > 1 && /^[0-9a-f]{64}$/.test(m.series.previous_result_hash))), "series");
+  if (m.serials !== undefined) {
+    keys(m.serials, "first count seed_round_offset");
+    integer(m.serials.first, "serial first", 0); integer(m.serials.count, "serial count");
+    integer(m.serials.seed_round_offset, "serial seed offset");
+    requireThat(m.clearing.mode === "uniform" && m.lots !== undefined, "serials require multi-lot uniform auction");
+    requireThat(Number.isSafeInteger(m.serials.first + m.serials.count - 1) &&
+      Number.isSafeInteger(m.drand.R + m.serials.seed_round_offset), "serial range/round overflow");
+  }
+  const base: Record<string, unknown> = { ...m };
+  delete base.witness_set_hash; delete base.bond; delete base.sealed_reserve; delete base.lots; delete base.series; delete base.serials;
+  // Multi-lot rounds replace the single `lot` label with `lots` (field set recorded under Questions for Track A).
+  keys(base, ["version","network","auction_id","escrow_ua","frost_group_key","supply","reserve_zats","tick_zats","B_max_zats","q_max","C_zats","fee_zats","deposit_addresses","drand","T_submit","T_freeze","confirmations","clearing","refund","freeze"].concat(m.lots === undefined ? ["lot"] : []).join(" "));
   requireThat(m.version === 1 && m.network === "test", "manifest version/network");
   requireThat(/^[0-9a-f]{64}$/.test(m.auction_id) && /^[0-9a-f]{64}$/.test(m.frost_group_key), "auction/group key");
-  requireThat(typeof m.lot === "string" && m.lot.length > 0 && m.lot.length <= 256, "lot");
+  requireThat(m.lots !== undefined || (typeof m.lot === "string" && m.lot.length > 0 && m.lot.length <= 256), "lot");
   requireThat(/^utest1[a-z0-9]+$/.test(m.escrow_ua), "testnet escrow address");
   requireThat(Array.isArray(m.deposit_addresses) && m.deposit_addresses.length > 0 &&
     m.deposit_addresses.every(a => /^utest1[a-z0-9]+$/.test(a)) && new Set(m.deposit_addresses).size === m.deposit_addresses.length, "per-bid addresses");
   integer(m.supply, "supply"); integer(m.q_max, "q_max");
   const reserve = zats(m.reserve_zats, "reserve"), tick = zats(m.tick_zats, "tick"), cap = zats(m.B_max_zats, "B_max");
   const C = zats(m.C_zats, "C"), fee = zats(m.fee_zats, "fee");
-  requireThat(tick > 0n && reserve <= cap && reserve % tick === 0n && cap % tick === 0n &&
-    C >= BigInt(m.q_max) * cap + fee && fee < C, "collateral/caps/tick/fee");
+  requireThat(tick > 0n && reserve <= cap && reserve % tick === 0n && cap % tick === 0n && fee < C, "collateral/caps/tick/fee");
+  // Bond-then-pay (gate CF): C is the bond = bond_bps bps of the cap exactly (PHASE-5 §11 Decisions) and the
+  // winner pays the balance in the window, so C need not cover the order. Without bond C covers the largest order.
+  if (m.bond !== undefined) requireThat(C * 10000n === BigInt(m.bond.bond_bps) * cap, "bond C/cap");
+  else requireThat(C >= BigInt(m.q_max) * cap + fee, "collateral/caps/tick/fee");
   keys(m.drand, "chain_hash public_key scheme genesis period R");
   for (const k of Object.keys(QUICKNET) as (keyof typeof QUICKNET)[])
     requireThat(m.drand[k] === QUICKNET[k], `quicknet ${k}`);

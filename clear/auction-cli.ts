@@ -4,10 +4,11 @@ import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFi
 import path from "node:path";
 import {client, hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed} from "../manifest/schema";
 import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, type Receipt} from "./merkle";
-import {clear, type Opened} from "./core";
+import type {ClearResult, Opened} from "./core";
+import {clearForMode} from "./registry";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
-type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; frozen?:Frozen; opened?:Opened[]; beacon?:{round:number;signature:string;chain_hash:string}; result?:ReturnType<typeof clear>; trace:{operation:string; time:number}[]};
+type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
 const root=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
 for (const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/); if(m && process.env[m[1]]===undefined)process.env[m[1]]=m[2];
@@ -102,10 +103,20 @@ try {
           throw new Error(`tle opening failed: ${opening.stderr.trim().slice(-300)}`);
         }
         return {leaf_index:l.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
-      }); ledger.state="OPENED"; result={opened:ledger.opened,trace:ledger.trace};
+      });
+      if(m.sealed_reserve!==undefined) {
+        // Gate CF: the manifest's sealed price bound opens at R with the bids and feeds the clear below.
+        ledger.trace.push({operation:"tle -d reserve",time:now});
+        const reserveOpen=spawnSync(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash],{input:Buffer.from(m.sealed_reserve,"hex"),maxBuffer:1<<20});
+        appendFileSync(path.join(state,"run","auction-cli.log"),`\ntle -d reserve\n${reserveOpen.stderr??""}`);
+        if(reserveOpen.error)throw reserveOpen.error;
+        requireThat(reserveOpen.status===0,`tle reserve opening failed: ${(reserveOpen.stderr??Buffer.alloc(0)).toString().trim().slice(-300)}`);
+        ledger.reserve_opening=reserveOpen.stdout.toString("hex");
+      }
+      ledger.state="OPENED"; result={opened:ledger.opened,trace:ledger.trace};
     } else if(command==="clear") {
       requireThat(ledger.state==="OPENED" || ledger.state==="CLEARED","clearing state");
-      ledger.result=clear({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!}); ledger.state="CLEARED"; result=ledger.result;
+      ledger.result=clearForMode({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!,reserve_opening:ledger.reserve_opening??null}); ledger.state="CLEARED"; result=ledger.result;
     } else if(command==="cancel") {
       requireThat(["OPEN","SEALED-WAIT","CANCELLED"].includes(ledger.state) && !ledger.opened,"cancel after opening");
       ledger.state="CANCELLED";

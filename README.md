@@ -1,15 +1,156 @@
 # Benzo
 
-## Reproduce Phase 1
+> *“the price should be public and the participants should not.”*
+> — the Zecathon Private Markets track's own words
 
-Testnet only. Needs Rust, Go, Node 24, openssl, jq and sqlite3; see `docs/PHASE-1.md` for what each step proves.
+Benzo is a sealed-bid market engine on Zcash where nobody, including the operator, can read an order before the drand
+round R. Until the published opening time, no one — not the operator, not the escrow signers, not the chain — can read
+any bid's price or quantity, and no bid can be linked to a bidder. After opening, anyone can recompute the result, and
+every loser is refunded automatically in shielded ZEC (the claim, `docs/research/DESIGN.md` §1).
+
+## How it works
+
+1. **Bid.** Every bidder sends the same shielded deposit C, and its memo carries an order sealed with drand timelock to
+   the round R.
+2. **Freeze.** Before R, the accepted set of orders is frozen and its root is witness-certified, so nothing can be added
+   after anyone could decrypt.
+3. **Open.** At R the drand beacon releases, and anyone can open every order in the frozen set.
+4. **Clear.** A public, deterministic clearing through the mode registry computes fills, prices and refunds from the
+   opened orders.
+5. **Settle.** A 2-of-3 FROST vault pays out and refunds (`docs/research/DESIGN.md` §6), and every signer recomputes the
+   result and checks every output before signing.
+6. **Prove.** Bidders get private settlement receipts, and `benzo verify` recomputes the whole auction from the public
+   directory.
+
+## Markets
+
+All modes run on the same engine: the same deposit C, the same freeze, the same drand round, one registry
+(`clear/registry.ts`).
+
+| Market | One line | Proof |
+|---|---|---|
+| Uniform auction (Mode A) | Multi-unit; everyone pays the lowest winning price; the last band fills pro-rata | **testnet-proven live** |
+| Vickrey | Single lot; the winner pays the second price | offline-proven |
+| Collection drop | Multi-lot uniform auction; serials assigned by a drand-driven shuffle | offline-proven |
+| Launch | Holder and public tranches with a minimum raise; allocations in standard lots | offline-proven |
+| Buyback | A treasury buys the lowest sealed asks; recurring windows with a public report | offline-proven |
+| RFQ | Reverse auction: lowest ask wins, second-lowest sets the price; two quotes minimum | offline-proven |
+| Blind OTC | One buyer and one seller post sealed limits; they trade at the midpoint if the limits cross | offline-proven |
+
+**testnet-proven live** means the full path ran on Zcash testnet: real payments with memos, mining, scanning, clearing
+and 2-of-3 FROST settlement (`docs/evidence/phase-1/EVIDENCE.md` … `docs/evidence/phase-4/EVIDENCE.md`).
+**offline-proven** means the mode was sealed and opened with real tlock against the drand mainnet quicknet beacon and
+cleared and checked by the shipped code, but has not run on the testnet yet (the runs are recorded in
+`docs/STATUS-B.md`). One caveat: the Phase 2 live run computed a Vickrey comparison on live inputs, but the sample
+prices tied, so the distinct first/second-price path is offline-proven only (`docs/evidence/phase-2/EVIDENCE.md`).
+
+## What's private, what's public
+
+| Private | Public |
+|---|---|
+| Order price and quantity before R, sealed with drand timelock | The frozen set of ciphertexts and its Merkle root, witness-certified before R |
+| Who bids: no address links an order to a wallet, and deposits are shielded | The fixed deposit C (the same for every bidder) and each deposit's ciphertext |
+| Where refunds and payouts go: destinations travel only inside encrypted settlement envelopes | After R, every order opens: price and quantity per anonymized leaf, not linkable to any wallet |
+| | The clearing result: fills, prices, refunds, fees and the conservation check |
+| | The drand beacon for R and its BLS signature, so anyone can re-derive the openings |
+
+## Honest limits
+
+Copied from `docs/research/DESIGN.md` §14:
+
+- drand threshold collusion can open bids early.
+- A 2-of-3 signer collusion can steal or freeze the vault.
+- A compromised client can leak its own bid.
+- Post-close bid prices become public, anonymized.
+- Network metadata (IP, timing) needs Tor or a VPN for strict anonymity.
+- Seller delivery is off-chain.
+- Fixed collateral C ties up capital above the bid.
+- A single C per auction, no raises in the MVP. Old tlock ciphertexts stay openable, so bid revisions are unsafe.
+
+Stated again for this build:
+
+- All orders open at R. Losing bids are not secret forever.
+- Two of three signers acting together can misbehave; `benzo verify` shows it after the fact.
+- Each signer can read every refund destination, because they must check the outputs they sign.
+- Delivery of off-chain assets relies on the marketplace adapter.
+- Testnet only so far. No mainnet transaction has been made.
+
+## Quick start
+
+Node 24 and a checkout are enough. These are the exact commands and output of one run
+(log `tmp/proof-logs/run13-*.out`, `docs/STATUS-B.md`):
 
 ```sh
-cp .env.example .env
-tools/bootstrap.sh          # builds the pinned tools (tools/pins.env) into .benzo/bin
-tools/setup-testnet.sh      # local TLS, 2-of-3 RedPallas DKG through frostd, vault UFVK, vault and bidder wallets
-# fund the bidder address that setup prints with >= 0.1 TAZ and wait ~10 confirmations
-npm run e2e                 # test 1: seal in headless Chromium, Go tle fails before round R and opens after it
-npm run e2e:live            # tests 1 and 2: pay, mine, scan, FROST refund (~35 min, testnet fees)
-docs/evidence/phase-1/verify.sh docs/evidence/phase-1   # re-check the recorded evidence
+npm ci                 # install the locked dependencies
+npm run typecheck      # check the sources
+npm run build:verify   # build dist/benzo-verify.mjs; the sha256 is reproducible
+npm run build:cli      # build bin/benzo
 ```
+
+Each exited 0. The verification bundle rebuilds byte-for-byte:
+
+```text
+$ shasum -a 256 dist/benzo-verify.mjs
+89d90c5370b9c42fb5e29f8d99f9672303d8c0546b1d4970aaaac175690355c4  dist/benzo-verify.mjs
+$ cat docs/verify-bundle.sha256
+89d90c5370b9c42fb5e29f8d99f9672303d8c0546b1d4970aaaac175690355c4  dist/benzo-verify.mjs
+```
+
+Then verify the shipped public auction directory (the expected signer key is published in the directory's own
+`signer.json`):
+
+```text
+$ bin/benzo verify --dir docs/evidence/phase-4/cli --signer 302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891
+OK missing-deposits
+OK delivery
+OK report
+OK manifest
+OK freeze
+WARN no witness set (pre-Phase-5 manifest)
+OK witness
+OK receipts
+OK clear
+OK envelope
+OK accounting
+OK accounting-strays
+```
+
+Exit code 0. The same checks run from the standalone bundle outside any checkout; see
+[`docs/verify-it-yourself.md`](docs/verify-it-yourself.md) for a full walkthrough, what each check means, and a
+tampering demo. Why the release time is exact and the beacon is trustworthy: [`docs/why-timelock.md`](docs/why-timelock.md).
+
+## Evidence
+
+Testnet runs (each `EVIDENCE.md` links the artifacts and the recorded command):
+
+- [`docs/evidence/phase-1/EVIDENCE.md`](docs/evidence/phase-1/EVIDENCE.md) — pinned tools, 2-of-3 FROST spends, memos
+  through mining, browser seal and Go `tle` open.
+- [`docs/evidence/phase-2/EVIDENCE.md`](docs/evidence/phase-2/EVIDENCE.md) — one complete auction: receipts, freeze,
+  clearing, stray-value handling, cancel and refund.
+- [`docs/evidence/phase-3/EVIDENCE.md`](docs/evidence/phase-3/EVIDENCE.md) — batch settlement, crash and recovery
+  drills, the signed public directory.
+- [`docs/evidence/phase-4/EVIDENCE.md`](docs/evidence/phase-4/EVIDENCE.md) — the CLI auction on testnet: operator
+  commands, public API, multi-batch FROST settlement.
+
+Offline scale ([`docs/evidence/phase-6/bench.json`](docs/evidence/phase-6/bench.json)): 17,000 synthetic sealed bids
+(the organizer's 48-hour volume, `docs/PHASE-6.md`), sealed with real tlock to a past quicknet round, then admitted,
+frozen, opened, cleared and verified: **open 431.6 s, clear 0.9 s, verify 443.1 s**. Settlement batching is not
+measured in that file yet.
+
+## Repository layout
+
+- `seal/` — the browser bidder: seals the order into the deposit memo with drand timelock.
+- `manifest/` — signed manifest schema and CLI; pins the quicknet chain and the auction's rules.
+- `clear/` — the clearing engine: one registry entry per market mode.
+- `envelope/` — settlement envelopes: where refund and payout destinations travel, encrypted.
+- `witness/` — witness certificates over the frozen root.
+- `scan/` — the vault scanner (Rust): finds deposits on chain.
+- `settle/` — settlement planning and ledger: payouts, refunds, batches.
+- `api/` — the public read API over a public auction directory.
+- `cli/` — the `benzo` commands, including `benzo verify`.
+- `adapters/` — marketplace and buyback report adapters (read-only).
+- `tools/` — bootstrap, benchmark, leak audit and build scripts.
+- `e2e/` — the end-to-end tests against real dependencies.
+- `schemas/` — JSON schemas for the public files.
+- `docs/` — phase contracts, evidence, research and guides.
+- `bin/`, `dist/` — built entry points and the standalone verification bundle.
