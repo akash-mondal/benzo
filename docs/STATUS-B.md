@@ -3,6 +3,28 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Current run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments)
+
+State: **IN PROGRESS**. Started 2026-10-02 (UTC) clean at `305d565` (head: merge main into track-b, crosschain §9).
+Head message received this run; implement as written, one commit per item. No other-checkout access
+(`benzo-sol/trackb` read only for the reviewer's test file), no merges/rebase/cherry-pick/push, no mainnet.
+
+1. **P1, EVM fee-on-transfer drain (F5): DONE, commit `d566d0c`.** `contracts/evm/src/BenzoEscrow.sol`
+   `lock` now measures `balanceOf(this)` around `safeTransferFrom` and reverts `BadParameters` unless the
+   delta equals `amount`. Reviewer's `FeeTokenDrain.t.sol` copied byte-identical from
+   `/Users/akshmnd/Dev Projects/benzo-sol/trackb/contracts/evm/test/FeeTokenDrain.t.sol` (diff: identical)
+   into `contracts/evm/test/`. Both runs shown: **red on old code** — `forge test --match-contract
+   FeeTokenDrainTest` → `[FAIL: next call did not revert as expected] test_fee_on_transfer_token_drains_victim_auction`
+   (`contracts/logs/p1-feetoken-old-code.out`, exit 1); **green after the fix** — `forge test` → `22 tests passed,
+   0 failed` incl. the reviewer's test (`contracts/logs/p1-feetoken-fixed.out`, exit 0).
+   `docs/AUDITS.md` created (canonical per AGENTS.md): every dependency pin + audit status (carried over from
+   `contracts/AUDITS.md`, now a pointer), every custom security-relevant file with its reason, and the
+   `assets` allowlist note (plain ERC-20/721 only; no fee or rebasing tokens; lock's delta check enforces it).
+
+2. **Solana attest-once / release-many (`docs/design/crosschain.md` §9): IN PROGRESS.**
+
+3. **Deploy step 5 (Sepolia + devnet, lock→attest→release→refund on each): NOT STARTED.**
+
 ## Track B testnet lane
 
 State: **READY (funded)**. Set up 2026-10-02T10:01Z at commit `b30e826`, clean tree; funding landed 2026-10-02T10:07Z (first sync after setup) — no 90-minute wait needed. My lane only: `$BNZ_STATE_DIR=./.benzo`, frostd `localhost:2745`; nothing read or used from `benzo/.benzo`, its `.env`, or A's processes (A's frostd on 127.0.0.1:2744 was only observed via `lsof`, never contacted).
