@@ -76,9 +76,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const refused=cli(['bid','prepare','--manifest',corruptFile,'--signer',signer]);
     const prepared=good(['bid','prepare','--manifest',manifestFile,'--signer',signer]);
     // R7 items 2/6/7: bids 0–7 seal their own refund destination to a manifest-pinned signer envelope key;
-    // bids 8–9 carry no envelope (bid 8 is claimable via its owner key, bid 9 stays a correct exception row).
-    // The destinations travel owner-signed inside envelopes/claims, never operator routing.
-    const price=100+10*randomBytes(1)[0],bids=deposit.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile,'--signer',signer],i<8?{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address,refund_ua:refund[i],envelope_pubkey:envelopeKeys[0]}:i===8?{price_zats:String(price),quantity:1,address,refund_ua:refund[8]}:{price_zats:String(price),quantity:1,address}),address}));
+    // bids 8–9 carry no destination and no envelope (bid 8 is claimed later via its owner key, bid 9 stays a
+    // correct exception row). The destinations travel owner-signed inside envelopes/claims, never operator routing.
+    const price=100+10*randomBytes(1)[0],bids=deposit.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile,'--signer',signer],i<8?{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address,refund_ua:refund[i],envelope_pubkey:envelopeKeys[0]}:{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address}),address}));
     // A stray whose memo holds a valid sealed bid (claimable through its owner key) plus a memo-less stray.
     const strayMemoBid=good(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(price+5),quantity:1,address:deposit[0]});
     const paid=good(['bid','deposit','--id',id,'--pay'],{bids,reserve:{address:reserve,amount_zats:'70000'}});console.log(`CLI funding ${paid.txid}`);
