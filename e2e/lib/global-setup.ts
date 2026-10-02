@@ -5,6 +5,8 @@ import path from "node:path";
 import { E2E, ROOT } from "./env";
 
 export default function globalSetup() {
+  rmSync(path.join(E2E, "out"), { recursive: true, force: true });
+  rmSync(path.join(E2E, "results"), { recursive: true, force: true });
   if (process.env.BNZ_EVIDENCE_DIR) {
     const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: ROOT }).toString();
     if (dirty.trim()) {
@@ -12,8 +14,6 @@ export default function globalSetup() {
       throw new Error("NOT RUN dirty tree");
     }
   }
-  rmSync(path.join(E2E, "out"), { recursive: true, force: true });
-  rmSync(path.join(E2E, "results"), { recursive: true, force: true });
   mkdirSync(path.join(E2E, "out"), { recursive: true });
   writeFileSync(path.join(E2E, "start.txt"), new Date().toISOString());
   writeFileSync(path.join(E2E,"command.txt"),(process.env.BNZ_LIVE==="1"?"BNZ_LIVE=1 ":"")+"node node_modules/.bin/playwright "+process.argv.slice(2).join(" "));
