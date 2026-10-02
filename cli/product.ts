@@ -7,7 +7,6 @@ import http from 'node:http';
 import {chromium} from '@playwright/test';
 import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
-import {generateEnvelopeKey} from '../envelope';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
@@ -45,7 +44,11 @@ export async function runCommand(command:string,args:string[]) {
   const o=options(args),id=o.id;
   if(id)requireThat(/^[0-9a-f]{64}$/.test(id),'auction id');
   if(command==='auction create') {
-    const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");validateManifest(m);requireThat(!existsSync(draft(m.auction_id))&&!existsSync(ledger(m.auction_id)),'auction already exists');
+    const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");validateManifest(m);
+    // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
+    // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
+    requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
+    requireThat(!existsSync(draft(m.auction_id))&&!existsSync(ledger(m.auction_id)),'auction already exists');
     save(draft(m.auction_id),{manifest:m,state:'DRAFT'});return {auction_id:m.auction_id,state:'DRAFT',manifest:m};
   }
   if(command==='auction sign') {
@@ -61,10 +64,9 @@ export async function runCommand(command:string,args:string[]) {
     const cfg=read(privatePath(o.config));requireThat(cfg.settlement&&cfg.routing,'operator config needs settlement and private routing');
     requireThat(Number.isInteger(cfg.settlement.batch_cap)&&cfg.settlement.batch_cap>=1&&cfg.settlement.batch_cap<=13&&Number.isInteger(cfg.settlement.pczt_expiry_blocks)&&cfg.settlement.pczt_expiry_blocks>=1&&cfg.settlement.pczt_expiry_blocks<=10000,'batch cap/expiry config');
     save(config(id),{...cfg,public_dir:path.resolve(o.dir)});
-    // R6 (W): the per-auction settlement-envelope keypair is created once; the private half stays in private
-    // state (pinned to each signer at settle init), the public half goes to bidders with publish output.
-    const ek=path.join(STATE,'product',id+'.envelope.json');if(!existsSync(ek))save(ek,generateEnvelopeKey());
-    ac('init',id,{manifest:d.signed,signer:d.signed.signer});sc('init',id,[],cfg.routing);return {...publish(id),envelope_pubkey:read(ek).public_hex};
+    // R7 item 2: no envelope private key is ever created or held by the operator. The signed manifest pins the
+    // signers' public keys (envelope_keys); the signers keep their private halves in their own state dirs.
+    ac('init',id,{manifest:d.signed,signer:d.signed.signer});sc('init',id,[],cfg.routing);return publish(id);
   }
   if(command==='auction status') {
     requireThat(id,'--id required');if(!existsSync(ledger(id)))return {auction_id:id,state:read(draft(id)).state};
@@ -79,7 +81,9 @@ export async function runCommand(command:string,args:string[]) {
     const bid=input(o);requireThat(m.deposit_addresses.includes(bid.address),'unlisted per-bid address');
     requireThat(Date.now()/1000<m.T_submit,'submission deadline');
     // Real one-time owner key and salted settlement commitment for the 128-byte layout; the destination (if the
-    // bid carries refund_ua) is sealed to the per-auction envelope key and never leaves this process in plaintext.
+    // bid carries refund_ua) is sealed to a manifest-pinned signer envelope key and never leaves this process in
+    // plaintext. R7 item 2: only pinned keys are accepted — an out-of-band key substitution is refused (G4).
+    if(bid.refund_ua!==undefined)requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.includes(bid.envelope_pubkey),'envelope key is not pinned by the signed manifest');
     const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,envelope_public_hex:bid.envelope_pubkey});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();

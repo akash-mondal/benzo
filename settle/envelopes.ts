@@ -7,6 +7,13 @@
 // docs/design/phase5-part1-live.md §4.
 import { openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
 
+// R7 item 2 interim (R F-1/F-2 = G4): every envelope is still a single-recipient box, so at most one signer
+// could open a given bidder's envelope and gate W2 (every signer independently matches every output) cannot
+// hold. Until Track B delivers the multi-recipient envelope format (design phase5-part1-live §4 [B]), an
+// envelope destination is refused with this clear error — never paid from an operator-held key — and the
+// refund waits in the exception queue for an owner-signed `benzo claim-refund` request (R7 item 4).
+export const ENVELOPE_INTERIM_REFUSAL = "multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used";
+
 export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
 // The authenticated envelope record for one frozen leaf, or null when the bid has no valid matching
