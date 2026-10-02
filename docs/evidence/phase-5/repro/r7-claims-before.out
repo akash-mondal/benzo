@@ -1,0 +1,11 @@
+commit 8f8c598 (source at run time, pre-fix; dev auction 90d3aeb8… state for the claim sections)
+utc 2026-10-02T23:30:05Z
+command node tools/repro/r7-claims-repro.mjs 90d3aeb89136a005d1bb343f964762eabc1a97fa2bcfdfd17022ea7cd2115d22
+R10K create with an operator key at bob's index: refused ERROR benzo refused: submit/freeze/release ordering or confirmation buffer
+R10K auction sign: refused : no such file or directory, open '/Users/akshmnd/Dev Projects/benzo/.benzo/product/6ce5893c982b918b6bbd660e90e8bc8a05c2dd4046f4111c6337ac61de74a3d0.draft.json'
+R11 record junk claim (well-shaped, forged signature): accepted {"recorded":true,"party":"leaf:0"}
+R11 owner claim build: signed
+R11 record the owner's valid claim after the junk one: refused ERROR benzo refused: a different claim for this party is already recorded
+R11 plan exit 1
+R13 verify on the claim-paid copy: exit 0 (no error lines)
+R13 published claims: []
