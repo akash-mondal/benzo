@@ -3,6 +3,26 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Phase 5, Track B run 10: IN PROGRESS
+
+Updated: 2026-10-02T04:40:00Z. Start clean at f8ac208; head merge/corrections inspected, PHASE-5 R3/R4 author-checked. No owned services; protected state files not read. Default E2E running foreground/polled (`tmp/proof-logs/run10-baseline.out`). No new tests.
+
+1. Dependencies: exact direct noble curves1.9.7/hashes1.8.0 declarations; typecheck PASS (`run10-deps.out`); Node manual lock comparison PASS (`run10-deps-manual.out`), all lock data except root declarations byte-structure unchanged. Source base f8ac208.
+
+### Questions (run 10)
+
+User instruction (2026-10-02T04:40:00Z), verbatim:
+> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
+> 
+> The head reviewed your run-9 commits (collection drop e70d8d8..e33ba95, launch 14061a4, RFQ ff6b2ea, OTC d67b6f6, 20ce790) and found the money rules correct. Your Phase 5 work stays on track-b until Phase 4 is PASSED.
+> 
+> Remaining Track B items for Phase 5 (each proven in STATUS-B with logged manual runs, one commit each):
+> 1. **Dependencies:** `clear/serials.ts` and `envelope/destination.ts` import `@noble/curves` / `@noble/hashes`, which today arrive only transitively via tlock-js. Declare both in package.json `dependencies` at the exact locked versions (1.9.7 / 1.8.0, no ^ or ~); the lockfile must not change otherwise.
+> 2. **Recurring buyback report (PHASE-5 R3 item 4):** for a buyback series (CF recurring rounds over Mode B), a public per-window report derived only from public data: window index, units bought, clearing price, ZEC spent (payout + fees), serials taken in. `benzo report --dir PUBLIC [--previous …]` prints it; verify checks the report matches the result.
+> 3. **Marketplace adapter, gate Z (PHASE-5 part 1):** complete the Zilkroad adapter: manifest binds collection, serial range and metadata commitment; `benzo claim --dir PUBLIC --ciphertext-hash HEX` turns the winner's private settlement receipt + statement into a delivery claim signed by the owner key; an exception-queue file format for paid-but-not-delivered, checked by verify. Read-only adapters only — no network calls to Zilkroad.
+> 4. **Missing-bid exceptions (R3 item 6, pure part):** given a published list of mined deposits (height + ciphertext hash + note id, as the scanner reports them), verify flags any deposit mined before `T_submit` that is absent from the frozen root as an exception owed an exact-C refund, and `benzo receipt prove` explains "not included; refund owed" for it.
+> Then set READY FOR MERGE. Add no tests. Touch only Track B files (plus package.json for item 1). Never touch /Users/akshmnd/Dev Projects/benzo, funds or keys. Do not merge, rebase or cherry-pick.
+
 ## Phase 5, Track B run 8: READY FOR MERGE
 
 Updated: 2026-10-02T04:29:04Z. Takeover at d8ed113 on track-b; clean initial tree. PHASE-5 R3/R4 author-checked (b709abd/71ec6eb). No owned services from this session; protected state/service files not read (Track B has no wallet/key access). Default E2E PASS (38s), `tmp/proof-logs/run8-baseline.out`. No added tests.
