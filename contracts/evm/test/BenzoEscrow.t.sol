@@ -36,7 +36,7 @@ contract ReentrantRecipient {
     BenzoEscrow private immutable escrow;
     bytes private attackCalldata;
     bool private busy;
-    bool public reentryLanded; // true iff the re-entrant release() call returned success
+    bool public reentryLanded; // true iff the re-entrant releaseApproved() call returned success
 
     constructor(BenzoEscrow _escrow) {
         escrow = _escrow;
@@ -127,6 +127,13 @@ contract BenzoEscrowTest is Test {
         vm.deal(seller, amount);
         vm.prank(seller);
         escrow.lock{value: amount}(auctionId, address(0), amount, LOT, lockUntil, deadline, signers, returnTo);
+    }
+
+    // the R9 release path (Solana's model): attest once (2-of-3 over the root), then crank the
+    // payouts against the stored approval — crankable again for any remainder
+    function releaseVia(BenzoEscrow.Release memory att, bytes[] memory sigs, BenzoEscrow.Payout[] memory ps) internal {
+        escrow.submitAttestation(att, sigs);
+        escrow.releaseApproved(att.auctionId, att.batchIndex, ps);
     }
 
     function twoPayouts(uint64 leafCount, bytes32[] memory proof)
@@ -238,13 +245,13 @@ contract BenzoEscrowTest is Test {
         ps[1].proof = new bytes32[](1);
         ps[1].proof[0] = l0;
 
-        escrow.release(att, signRelease(att, pks), ps);
+        releaseVia(att, signRelease(att, pks), ps);
 
         assertEq(recipientA.balance, LOT);
         assertEq(recipientB.balance, LOT);
         assertTrue(escrow.isPaid(auctionId, l0));
         assertTrue(escrow.isPaid(auctionId, l1));
-        assertTrue(escrow.isBatchUsed(auctionId, 0));
+        assertTrue(escrow.isApproved(auctionId, 0));
         (, , , , uint256 paid, , , , , , ) = escrow.auction(auctionId);
         assertEq(paid, 2 * LOT);
     }
@@ -260,7 +267,7 @@ contract BenzoEscrowTest is Test {
         ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
         bytes[] memory sigs = signRelease(att, pks);
         vm.expectRevert(BenzoEscrow.Quorum.selector);
-        escrow.release(att, sigs, ps);
+        escrow.submitAttestation(att, sigs);
     }
 
     function test_release_outsider_signatures_refused() public {
@@ -275,7 +282,7 @@ contract BenzoEscrowTest is Test {
         ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
         bytes[] memory sigs = signRelease(att, pks);
         vm.expectRevert(BenzoEscrow.Quorum.selector);
-        escrow.release(att, sigs, ps);
+        escrow.submitAttestation(att, sigs);
     }
 
     function test_release_same_signer_twice_not_quorum() public {
@@ -290,7 +297,7 @@ contract BenzoEscrowTest is Test {
         ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
         bytes[] memory sigs = signRelease(att, pks);
         vm.expectRevert(BenzoEscrow.Quorum.selector);
-        escrow.release(att, sigs, ps);
+        escrow.submitAttestation(att, sigs);
     }
 
     function test_release_expired_refused() public {
@@ -306,7 +313,7 @@ contract BenzoEscrowTest is Test {
         ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
         bytes[] memory sigs = signRelease(att, pks);
         vm.expectRevert(BenzoEscrow.Expired.selector);
-        escrow.release(att, sigs, ps);
+        escrow.submitAttestation(att, sigs);
     }
 
     function test_release_leaf_not_in_root_refused() public {
@@ -324,8 +331,9 @@ contract BenzoEscrowTest is Test {
         badProof[0] = l0;
         ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 2, badProof);
         bytes[] memory sigs = signRelease(att, pks);
+        escrow.submitAttestation(att, sigs);
         vm.expectRevert(BenzoEscrow.NotInRoot.selector);
-        escrow.release(att, sigs, ps);
+        escrow.releaseApproved(att.auctionId, att.batchIndex, ps);
     }
 
     function test_release_leaf_index_bound_refused() public {
@@ -340,8 +348,9 @@ contract BenzoEscrowTest is Test {
         // leafCount=1 but index=1: out-of-bounds leaf index (Hyperbridge lesson)
         ps[0] = BenzoEscrow.Payout(1, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
         bytes[] memory sigs = signRelease(att, pks);
+        escrow.submitAttestation(att, sigs);
         vm.expectRevert(BenzoEscrow.LeafBound.selector);
-        escrow.release(att, sigs, ps);
+        escrow.releaseApproved(att.auctionId, att.batchIndex, ps);
     }
 
     // 3. replay refusal
@@ -355,12 +364,12 @@ contract BenzoEscrowTest is Test {
         pks[1] = bobPk;
         BenzoEscrow.Payout[] memory ps = new BenzoEscrow.Payout[](1);
         ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
-        escrow.release(att, signRelease(att, pks), ps);
+        releaseVia(att, signRelease(att, pks), ps);
         assertEq(recipientA.balance, LOT);
         // identical attestation submitted again: refused even though the recipient flag is set
         bytes[] memory sigs = signRelease(att, pks);
         vm.expectRevert(BenzoEscrow.BatchReplayed.selector);
-        escrow.release(att, sigs, ps);
+        escrow.submitAttestation(att, sigs);
     }
 
     // 4. refund after deadline
@@ -400,7 +409,7 @@ contract BenzoEscrowTest is Test {
         pks[1] = bobPk;
         bytes[] memory sigs = signRelease(att, pks);
         vm.expectRevert(BenzoEscrow.BadParameters.selector);
-        escrow.release(att, sigs, ps);
+        escrow.submitAttestation(att, sigs);
     }
 
     function test_refund_only_after_attested_window_closed() public {
@@ -426,7 +435,7 @@ contract BenzoEscrowTest is Test {
         vm.warp(dead + 1); // now > deadline >= expiry: the attestation has expired
         bytes[] memory sigs = signRelease(att, pks);
         vm.expectRevert(BenzoEscrow.Expired.selector);
-        escrow.release(att, sigs, ps);
+        escrow.submitAttestation(att, sigs);
 
         escrow.refund(auctionId);
         assertEq(returnTo.balance, 2 * LOT, "refund returns the unspent amount only after the attested window closed");
@@ -442,7 +451,7 @@ contract BenzoEscrowTest is Test {
         pks[1] = bobPk;
         BenzoEscrow.Payout[] memory ps = new BenzoEscrow.Payout[](1);
         ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
-        escrow.release(att, signRelease(att, pks), ps);
+        releaseVia(att, signRelease(att, pks), ps);
         vm.warp(block.timestamp + 31 days);
         escrow.refund(auctionId);
         assertEq(recipientA.balance, LOT);
@@ -473,7 +482,7 @@ contract BenzoEscrowTest is Test {
 
         // batch 0: toggling recipient reverts on receive; the batch must not revert
         BenzoEscrow.Release memory att0 = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 0, 0, uint64(block.timestamp + 1 hours));
-        escrow.release(att0, signRelease(att0, pks), ps);
+        releaseVia(att0, signRelease(att0, pks), ps);
         assertEq(address(toggling).balance, 0, "failing recipient unpaid");
         assertEq(recipientB.balance, LOT, "other recipient paid despite failure");
         assertFalse(escrow.isPaid(auctionId, l0), "failed payout stays claimable");
@@ -482,7 +491,7 @@ contract BenzoEscrowTest is Test {
         // batch 1 (new batch index): same leaves released again
         toggling.setBlocked(false);
         BenzoEscrow.Release memory att1 = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 1, 0, uint64(block.timestamp + 2 hours));
-        escrow.release(att1, signRelease(att1, pks), ps);
+        releaseVia(att1, signRelease(att1, pks), ps);
         assertEq(address(toggling).balance, LOT, "failed item claimable by a later release");
         assertEq(recipientB.balance, LOT, "already-paid recipient not paid again");
         assertTrue(escrow.isPaid(auctionId, l0));
@@ -501,15 +510,16 @@ contract BenzoEscrowTest is Test {
         pks[1] = bobPk;
         BenzoEscrow.Payout[] memory ps = new BenzoEscrow.Payout[](1);
         ps[0] = BenzoEscrow.Payout(0, 2, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
-        escrow.release(att, signRelease(att, pks), ps); // skipped, not paid
+        releaseVia(att, signRelease(att, pks), ps); // skipped, not paid
         assertEq(recipientA.balance, 0);
         (, , , , uint256 paid, , , , , , ) = escrow.auction(auctionId);
         assertEq(paid, 0);
     }
 
     // 6. P0: re-entrant callback must not pay a recipient twice. The attacker's receive()
-    //    submits a second validly signed batch (different batch index) carrying the same leaf;
-    //    the attacker must end up paid exactly once and the re-entrant release must be refused.
+    //    re-enters releaseApproved with a second validly approved batch (different batch index)
+    //    carrying the same leaf; the attacker must end up paid exactly once and the re-entrant
+    //    release must be refused.
     //    This test fails on the pre-fix code (contract/logs/p0-reentrancy-old-code.out).
     function test_reentrant_recipient_paid_exactly_once() public {
         doLock(2 * LOT, uint64(block.timestamp + 1 days), uint64(block.timestamp + 30 days));
@@ -526,10 +536,11 @@ contract BenzoEscrowTest is Test {
 
         BenzoEscrow.Release memory att0 = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 0, 0, uint64(block.timestamp + 1 hours));
         BenzoEscrow.Release memory att1 = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 1, 0, uint64(block.timestamp + 1 hours));
-        // the re-entrant batch: valid 2-of-3 signatures, its own leaf, next batch index
-        attacker.arm(abi.encodeCall(BenzoEscrow.release, (att1, signRelease(att1, pks), ps)));
+        // the re-entrant batch: approved (valid 2-of-3 signatures), its own leaf, next batch index
+        escrow.submitAttestation(att1, signRelease(att1, pks));
+        attacker.arm(abi.encodeCall(BenzoEscrow.releaseApproved, (auctionId, uint64(1), ps)));
 
-        escrow.release(att0, signRelease(att0, pks), ps);
+        releaseVia(att0, signRelease(att0, pks), ps);
 
         assertEq(address(attacker).balance, LOT, "paid exactly once despite the re-entrant release");
         assertFalse(attacker.reentryLanded(), "re-entrant release refused");

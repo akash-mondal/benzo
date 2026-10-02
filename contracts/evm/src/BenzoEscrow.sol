@@ -15,15 +15,18 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 ///  - `lock`: the seller deposits the asset once per `auctionId`, before `T_submit` (`lockUntil`);
 ///    the signed manifest pins {chain, escrow address, asset, amount, deadline} and the per-auction
 ///    signer set (alice/bob/carol secp256k1 keys, rotating per auction).
-///  - `release`: anyone (the crank) submits a release batch with 2-of-3 EIP-712 attestations over
-///    the allocation root. Each payout proves its leaf against that root and is paid at most once;
-///    a failing recipient is skipped and stays claimable by a later release (per-recipient paid
+///  - `submitAttestation` + `releaseApproved` (R9 item 3: Solana's model, design §9): the 2-of-3
+///    EIP-712 attestations over the allocation root are verified **once** per (auction, batch) and
+///    the approved root is stored; `releaseApproved(payouts[])` then pays against that approval and
+///    can be cranked any number of times, so a partial or failed release never consumes the
+///    approval. Each payout proves its leaf against the approved root and is paid at most once; a
+///    failing recipient is skipped and stays claimable by a later release (per-recipient paid
 ///    flags), so one failure never reverts the batch.
 ///  - `refund`: after `deadline` anyone returns the unspent remainder to the pinned return address.
 ///
 /// Trust: the escrow never trusts the signers with custody safety — payments are capped by the
 /// locked amount and keyed by leaf hash, so no set of attestations can pay more or twice.
-/// Re-entrancy safety (P0): `release`/`refund` are `nonReentrant` (OpenZeppelin `ReentrancyGuard`)
+/// Re-entrancy safety (P0): `releaseApproved`/`refund` are `nonReentrant` (OpenZeppelin `ReentrancyGuard`)
 /// and each payout is checks-effects-interactions — the paid flag and the cap are written before
 /// the transfer and rolled back (PayoutFailed) if it fails — and the native transfer forwards a
 /// bounded gas stipend, so one recipient can never consume a batch's gas.
@@ -85,6 +88,16 @@ contract BenzoEscrow is ReentrancyGuard {
         uint64 expiry;
     }
 
+    /// @dev R9 item 3 (Solana's model, design §9): what `submitAttestation` stores exactly once
+    /// per (auction_id, batch_index) — the approved root and its release window.
+    struct Approval {
+        bytes32 allocationRoot;
+        bytes32 resultHash;
+        uint64 nonce;
+        uint64 expiry;
+        bool exists;
+    }
+
     /// @dev One allocation leaf to pay: index/lotCount/destination re-derive the leaf, proven
     /// against the attested root with `leafCount` bound-checked (the Hyperbridge out-of-bounds lesson).
     struct Payout {
@@ -97,12 +110,15 @@ contract BenzoEscrow is ReentrancyGuard {
     }
 
     mapping(bytes32 => Auction) private auctions;
-    // replay refusal: each (auction_id, batch_index) is releasable once (design §1, lessons 1, 3)
-    mapping(bytes32 => mapping(uint64 => bool)) private batchUsed;
+    // attest once, release many (R9 item 3, design §9): each (auction_id, batch_index) is
+    // approved exactly once by `submitAttestation`; `releaseApproved` may run any number of times
+    // against that stored approval, so a partial or failed release never consumes it
+    mapping(bytes32 => mapping(uint64 => Approval)) private approvals;
     // per-recipient paid flags, keyed by leaf hash: a leaf is payable at most once (design §2.4)
     mapping(bytes32 => mapping(bytes32 => bool)) private paidLeaf;
 
     event Locked(bytes32 indexed auctionId, address indexed returnTo, address asset, uint256 amount, uint256 standardLot, uint64 lockUntil, uint64 deadline, address signer0, address signer1, address signer2);
+    event AttestationApproved(bytes32 indexed auctionId, uint64 indexed batchIndex, bytes32 allocationRoot, uint64 expiry);
     event BatchReleased(bytes32 indexed auctionId, uint64 indexed batchIndex, bytes32 allocationRoot, uint256 payouts);
     event PayoutPaid(bytes32 indexed auctionId, bytes32 indexed leafHash, address recipient, uint256 amount);
     event PayoutSkipped(bytes32 indexed auctionId, bytes32 indexed leafHash, uint8 reason); // 1=already paid 2=over cap
@@ -123,6 +139,7 @@ contract BenzoEscrow is ReentrancyGuard {
     error BeforeDeadline();
     error AlreadyRefunded();
     error TransferFailed();
+    error NoApproval();
 
     /// @notice Lock the asset for one auction. One lock per auction id; refused after `lockUntil` (T_submit).
     /// @dev Fee-on-transfer (and any token that delivers less than `amount`) is refused: the
@@ -175,14 +192,12 @@ contract BenzoEscrow is ReentrancyGuard {
         emit Locked(auctionId, returnTo, asset, amount, standardLot, lockUntil, deadline, signers[0], signers[1], signers[2]);
     }
 
-    /// @notice Release a batch of allocation payouts on 2-of-3 EIP-712 attestations of the root.
-    /// @dev Batch-level validity reverts; per-payout failures (already paid, over cap, transfer
-    /// refused) skip that payout only, so one failing recipient never reverts the batch and failed
-    /// items stay claimable by a later release (design §2.4). `nonReentrant` plus the
-    /// checks-effects-interactions order inside the loop close the P0 double-payment: a recipient
-    /// callback re-entering `release` is refused, and even a callback that slips past would see
-    /// its leaf already paid.
-    function release(Release calldata att, bytes[] calldata sigs, Payout[] calldata payouts) external nonReentrant {
+    /// @notice Verify 2-of-3 attestations and store the approved allocation root for one
+    /// (auction, batch) — exactly once (R9 item 3, Solana's model, design §9). No transfers here.
+    /// @dev Batch-level validity reverts: unknown auction, refunded auction, `expiry > deadline`
+    /// (the F-2 window rule), an expired attestation, a quorum failure, or a second submit for the
+    /// same batch (`BatchReplayed`). Everything else happens in `releaseApproved`.
+    function submitAttestation(Release calldata att, bytes[] calldata sigs) external {
         Auction storage a = auctions[att.auctionId];
         if (!a.exists) revert UnknownAuction();
         if (a.refunded) revert AuctionRefunded();
@@ -198,40 +213,63 @@ contract BenzoEscrow is ReentrancyGuard {
         bytes32 digest = MessageHashUtils.toTypedDataHash(domainSeparator(), structHash);
         if (!_hasQuorum(a, digest, sigs)) revert Quorum();
 
-        if (batchUsed[att.auctionId][att.batchIndex]) revert BatchReplayed();
-        batchUsed[att.auctionId][att.batchIndex] = true;
+        Approval storage ap = approvals[att.auctionId][att.batchIndex];
+        if (ap.exists) revert BatchReplayed();
+        ap.allocationRoot = att.allocationRoot;
+        ap.resultHash = att.resultHash;
+        ap.nonce = att.nonce;
+        ap.expiry = att.expiry;
+        ap.exists = true;
+        emit AttestationApproved(att.auctionId, att.batchIndex, att.allocationRoot, att.expiry);
+    }
+
+    /// @notice Pay payouts against a stored approval. Anyone (the crank) may call it repeatedly
+    /// until every leaf is paid (R9 item 3): a partial or failed release never consumes the
+    /// approval, so the remainder always stays payable.
+    /// @dev Per-payout failures (already paid, over cap, transfer refused) skip that payout only,
+    /// so one failing recipient never reverts the batch and failed items stay claimable by a later
+    /// release (design §2.4). `nonReentrant` plus the checks-effects-interactions order inside the
+    /// loop close the P0 double-payment: a recipient callback re-entering `releaseApproved` is
+    /// refused, and even a callback that slips past would see its leaf already paid.
+    function releaseApproved(bytes32 auctionId, uint64 batchIndex, Payout[] calldata payouts) external nonReentrant {
+        Auction storage a = auctions[auctionId];
+        if (!a.exists) revert UnknownAuction();
+        if (a.refunded) revert AuctionRefunded();
+        Approval storage ap = approvals[auctionId][batchIndex];
+        if (!ap.exists) revert NoApproval();
+        if (block.timestamp > ap.expiry) revert Expired();
 
         for (uint256 i = 0; i < payouts.length; i++) {
             Payout calldata p = payouts[i];
             if (p.destinationKind != DEST_EVM_ADDRESS || p.destination.length != 20) revert BadDestination();
             if (p.index >= p.leafCount) revert LeafBound();
-            bytes32 leaf = leafHash(att.auctionId, p.index, a.asset, p.lotCount, p.destinationKind, p.destination);
+            bytes32 leaf = leafHash(auctionId, p.index, a.asset, p.lotCount, p.destinationKind, p.destination);
             bytes32 treeRoot = MerkleProof.processProof(p.proof, leaf);
-            if (rootHash(p.leafCount, treeRoot) != att.allocationRoot) revert NotInRoot();
-            if (paidLeaf[att.auctionId][leaf]) {
-                emit PayoutSkipped(att.auctionId, leaf, 1);
+            if (rootHash(p.leafCount, treeRoot) != ap.allocationRoot) revert NotInRoot();
+            if (paidLeaf[auctionId][leaf]) {
+                emit PayoutSkipped(auctionId, leaf, 1);
                 continue;
             }
             uint256 amount = p.lotCount * a.standardLot;
             if (a.paid + amount > a.locked) {
-                emit PayoutSkipped(att.auctionId, leaf, 2);
+                emit PayoutSkipped(auctionId, leaf, 2);
                 continue;
             }
             address recipient = address(bytes20(p.destination));
             // checks-effects-interactions (P0): mark paid before the transfer so a re-entrant
             // callback reads the leaf as paid; roll back if the transfer fails (PayoutFailed,
             // the item stays claimable by a later release).
-            paidLeaf[att.auctionId][leaf] = true;
+            paidLeaf[auctionId][leaf] = true;
             a.paid += amount;
             if (_pay(a.asset, recipient, amount, NATIVE_TRANSFER_GAS)) {
-                emit PayoutPaid(att.auctionId, leaf, recipient, amount);
+                emit PayoutPaid(auctionId, leaf, recipient, amount);
             } else {
-                paidLeaf[att.auctionId][leaf] = false;
+                paidLeaf[auctionId][leaf] = false;
                 a.paid -= amount;
-                emit PayoutFailed(att.auctionId, leaf, recipient, amount);
+                emit PayoutFailed(auctionId, leaf, recipient, amount);
             }
         }
-        emit BatchReleased(att.auctionId, att.batchIndex, att.allocationRoot, payouts.length);
+        emit BatchReleased(auctionId, batchIndex, ap.allocationRoot, payouts.length);
     }
 
     /// @notice Anyone may refund the unspent remainder to the pinned return address after `deadline`.
@@ -303,8 +341,8 @@ contract BenzoEscrow is ReentrancyGuard {
         return paidLeaf[auctionId][leaf];
     }
 
-    function isBatchUsed(bytes32 auctionId, uint64 batchIndex) external view returns (bool) {
-        return batchUsed[auctionId][batchIndex];
+    function isApproved(bytes32 auctionId, uint64 batchIndex) external view returns (bool) {
+        return approvals[auctionId][batchIndex].exists;
     }
 
     // ---- internals ----

@@ -5,11 +5,12 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R10 item 1 + R9 items 1–4 + live cycles (the head's 6-item list)
 
-State: **IN PROGRESS** (items 1–3 landed; updated 2026-10-02T21:06Z). Base: clean tree at
+State: **IN PROGRESS** (items 1–4 landed; updated 2026-10-02T21:40Z). Base: clean tree at
 `dc5ea63` (head: merge main into track-b; R9/R10 in `docs/PHASE-5.md`). One commit per item,
 each with a red log on the pre-change code and a green log after: `79aed9e` (item 1, R10
 envelope key commitment + exact recipient set), `aff0c6b` (item 2, R9 Solana `layout_version` +
-new program ID), and this commit (item 3, R9 `xchain attest` asset from chain). Scope: the head's list in order — (1) R10 item 1 envelope
+new program ID), `88c1772` (item 3, R9 `xchain attest` asset from chain), and this commit
+(item 4, R9 EVM attest-once/release-many). Scope: the head's list in order — (1) R10 item 1 envelope
 key commitment; (2) R9 item 1 Solana layout version + fresh devnet program ID; (3) R9 item 2
 `benzo xchain attest` asset from chain; (4) R9 item 3 EVM attest-once/release-many + forge
 red/green; (5) R9 item 4 EVM `lock` nonReentrant + effects-before-transfer + forge proof;
@@ -119,6 +120,35 @@ merge/rebase/cherry-pick/push.
    wrong-root attestation bundles for both cases (exactly R9's finding). **Green after** —
    `contracts/logs/r9-2-asset-fixed.out` (exit 0): `RESULT PASS one cleared drop delivered end
    to end locally on both chains`, 15/15 demo assertions. `npm run typecheck` PASS.
+
+4. **R9 item 3 (P2), EVM gets Solana's model: DONE** (this commit). `BenzoEscrow.sol`: the
+   one-shot `release` is replaced by `submitAttestation(att, sigs)` — which verifies the 2-of-3
+   EIP-712 attestations **once** per (auction, batch) with `expiry <= deadline` and stores the
+   approved root (a second submit for the same batch is `BatchReplayed`) — and
+   `releaseApproved(auctionId, batchIndex, payouts[])`, which pays against the stored approval,
+   carries no signatures, and can be cranked any number of times: a partial or failed release
+   never consumes the approval (per-recipient paid flags unchanged). `isBatchUsed` → `isApproved`;
+   new `NoApproval` error and `AttestationApproved` event. Client + CLI mirror the Solana flow
+   (`submit-if-needed`, `--submit-only` on both chains); `--only` is **labelled** in the help as
+   the crank aid it now is ("the stored approval is never consumed and the rest stays payable") —
+   kept because the crank needs subset releases (the Solana path always had it).
+   Test (`contracts/evm/test/PartialRelease.t.sol`, the head's named forge test):
+   `test_partial_release_then_remainder` — partial release of leaf 0, then the remainder (leaf 1)
+   from the same batch: both recipients paid exactly once, both leaves flagged, escrow empty.
+   The file drives the release step through raw calls so the same test compiles and runs against
+   both contract generations.
+   **Red on the pre-R9 contract** — `contracts/logs/r9-3-partial-old-code.out` (exit 1):
+   `FAIL: remainder refused after a partial release (the batch must stay payable)` — the one-shot
+   release consumed the batch at the partial call and stranded the remainder (R9's finding).
+   **Green after** — `contracts/logs/r9-3-partial-fixed.out` (exit 0): 26/26 forge tests pass
+   (20 BenzoEscrow + 1 PartialRelease + 2 FeeTokenDrain + 3 ReentrancyRepro — the whole suite was
+   rewritten to the new API: quorum/expiry/replay refusals now assert on `submitAttestation`,
+   leaf/root refusals on `releaseApproved`, and the P0 re-entrancy attack arms
+   `releaseApproved` of an approved second batch). Integration: `crosschain/local-demo.sh` 15/15
+   PASS (`contracts/logs/r9-3-demo.out`) — the shipped CLI locks, attests, releases (partial
+   `--only 0` on EVM, `--only 1,2` on Solana), reports status, refuses a resubmitted batch on
+   both chains (`demo-replay-refused`, now via `--submit-only`) and refunds. `npm run typecheck`
+   PASS.
 
 ### Questions (this run)
 

@@ -136,7 +136,8 @@ contract FeeTokenDrainTest is Test {
             bytes32 leafA = _leaf(auctionA, 0, address(token), 10, attackerRecipient);
             bytes32 rootA = keccak256(abi.encodePacked("benzo-root-v1", uint64(1), leafA));
             BenzoEscrow.Release memory attA = BenzoEscrow.Release(auctionA, keccak256("attacker-result"), rootA, 0, 0, dead);
-            escrow.release(attA, _sign2(attA), _singlePayout(10, attackerRecipient));
+            escrow.submitAttestation(attA, _sign2(attA));
+            escrow.releaseApproved(auctionA, 0, _singlePayout(10, attackerRecipient));
         }
         vm.stopPrank();
 
@@ -146,7 +147,8 @@ contract FeeTokenDrainTest is Test {
         bytes32 leafB = _leaf(auctionB, 0, address(token), 10, victimRecipient);
         bytes32 rootB = keccak256(abi.encodePacked("benzo-root-v1", uint64(1), leafB));
         BenzoEscrow.Release memory attB = BenzoEscrow.Release(auctionB, keccak256("victim-result"), rootB, 0, 0, dead);
-        escrow.release(attB, _sign2(attB), _singlePayout(10, victimRecipient));
+        escrow.submitAttestation(attB, _sign2(attB));
+        escrow.releaseApproved(auctionB, 0, _singlePayout(10, victimRecipient));
 
         // THE GATE — the victim stays whole: their recipient is paid in full from the pooled
         // balance. Pre-fix, the attacker's nominal payout consumed the victim's funding (the

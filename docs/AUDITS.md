@@ -81,7 +81,7 @@ funding from the pooled balance — red/green runs in `contracts/logs/f5-*`).
 
 | File | What it does | Why no audited option fits |
 |---|---|---|
-| `contracts/evm/src/BenzoEscrow.sol` | Escrow custody: lock, 2-of-3 EIP-712 release, per-recipient paid flags, refund | No audited escrow releases on 2-of-3 attestations of an external clearing result with per-leaf Merkle payouts; all cryptography (ECDSA, EIP-712 digest, MerkleProof) and SafeERC20/ReentrancyGuard come from audited OpenZeppelin, unmodified |
+| `contracts/evm/src/BenzoEscrow.sol` | Escrow custody: lock, 2-of-3 EIP-712 attest-once (`submitAttestation` stores the approved root per (auction, batch)) + repeatable `releaseApproved` (R9 item 3: a partial or failed release never consumes the approval), per-recipient paid flags, refund | No audited escrow releases on 2-of-3 attestations of an external clearing result with per-leaf Merkle payouts; all cryptography (ECDSA, EIP-712 digest, MerkleProof) and SafeERC20/ReentrancyGuard come from audited OpenZeppelin, unmodified |
 | `contracts/solana/src/lib.rs` | Solana escrow program: lock, release (2-of-3 Ed25519 via the checked instructions sysvar), refund | No audited program verifies 2-of-3 signers over a fixed 200-byte attestation through the native Ed25519 program; the signature check itself is the audited native runtime program, not custom crypto |
 | `crosschain/leaf.ts` | Canonical leaf/root/tree encoding (design §3) | Protocol-specific encoding; no library defines it. Uses audited `@noble/hashes` keccak |
 | `crosschain/attestation.ts` | Domain-separated attestation bytes (EIP-712 fields; Solana 200-byte layout) | Protocol-specific message format (design §1); no library provides it |

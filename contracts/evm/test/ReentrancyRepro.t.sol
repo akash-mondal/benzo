@@ -4,25 +4,22 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {BenzoEscrow} from "../src/BenzoEscrow.sol";
 
-// R-review repro: can release() be re-entered from a malicious recipient so that one
+// R-review repro: can releaseApproved() be re-entered from a malicious recipient so that one
 // allocation leaf is paid twice (and other auctions' funds drained)?
 
 contract Reenterer {
     BenzoEscrow public immutable escrow;
     bool public armed;
-    bytes public att2;
-    bytes public sigs2;
-    bytes public payouts2;
+    bytes public payload;
+    bool public reentryLanded;
     uint256 public reentries;
 
     constructor(BenzoEscrow e) {
         escrow = e;
     }
 
-    function arm(bytes calldata a, bytes calldata s, bytes calldata p) external {
-        att2 = a;
-        sigs2 = s;
-        payouts2 = p;
+    function arm(bytes calldata p) external {
+        payload = p;
         armed = true;
     }
 
@@ -30,12 +27,8 @@ contract Reenterer {
         if (armed) {
             armed = false;
             reentries++;
-            (
-                BenzoEscrow.Release memory att,
-                bytes[] memory sigs,
-                BenzoEscrow.Payout[] memory payouts
-            ) = abi.decode(att2, (BenzoEscrow.Release, bytes[], BenzoEscrow.Payout[]));
-            escrow.release(att, sigs, payouts);
+            (bool ok, ) = address(escrow).call(payload);
+            reentryLanded = ok;
         }
     }
 }
@@ -131,14 +124,6 @@ contract ReentrancyReproTest is Test {
         });
     }
 
-    function encodeAtt(BenzoEscrow.Release memory att, bytes[] memory sigs, BenzoEscrow.Payout[] memory ps)
-        internal
-        pure
-        returns (bytes memory)
-    {
-        return abi.encode(att, sigs, ps);
-    }
-
     /// CONFIRMED-scenario 1: one leaf (worth 2 ETH) is paid TWICE — 4 ETH out for a 2 ETH allocation.
     function test_double_pay_same_leaf_via_reentrancy() public {
         doLock(auctionA, 4 ether);
@@ -167,10 +152,12 @@ contract ReentrancyReproTest is Test {
         bytes[] memory sigs2 = signRelease(auctionA, att2.resultHash, root, 1, 1, att2.expiry);
         BenzoEscrow.Payout[] memory ps = mkPayout(2, address(attacker));
 
-        attacker.arm(encodeAtt(att2, sigs2, ps), "", "");
+        escrow.submitAttestation(att2, sigs2); // the second batch is approved but unreleased
+        attacker.arm(abi.encodeCall(BenzoEscrow.releaseApproved, (auctionA, uint64(1), ps)));
 
         uint256 before = address(attacker).balance;
-        escrow.release(att1, sigs1, ps);
+        escrow.submitAttestation(att1, sigs1);
+        escrow.releaseApproved(auctionA, 0, ps);
         uint256 got = address(attacker).balance - before;
 
         emit log_named_uint("attacker received (wei)", got);
@@ -198,10 +185,12 @@ contract ReentrancyReproTest is Test {
         bytes[] memory sigs2 = signRelease(auctionA, att2.resultHash, root, 1, 1, att2.expiry);
         BenzoEscrow.Payout[] memory ps = mkPayout(2, address(attacker));
 
-        attacker.arm(encodeAtt(att2, sigs2, ps), "", "");
+        escrow.submitAttestation(att2, sigs2); // the second batch is approved but unreleased
+        attacker.arm(abi.encodeCall(BenzoEscrow.releaseApproved, (auctionA, uint64(1), ps)));
 
         uint256 before = address(attacker).balance;
-        escrow.release(att1, sigs1, ps);
+        escrow.submitAttestation(att1, sigs1);
+        escrow.releaseApproved(auctionA, 0, ps);
         uint256 got = address(attacker).balance - before;
         emit log_named_uint("attacker drained (wei)", got);
         assertLe(got, 2 ether, "REGRESSION: cannot touch victim auction B funds");
@@ -229,9 +218,11 @@ contract ReentrancyReproTest is Test {
         bytes[] memory sigs2 = signRelease(auctionA, att2.resultHash, root, 1, 1, att2.expiry);
         BenzoEscrow.Payout[] memory ps = mkPayout(2, address(eoa));
 
-        escrow.release(att1, sigs1, ps);
+        escrow.submitAttestation(att1, sigs1);
+        escrow.releaseApproved(auctionA, 0, ps);
         uint256 afterFirst = eoa.balance;
-        escrow.release(att2, sigs2, ps); // same leaf again → skipped
+        escrow.submitAttestation(att2, sigs2);
+        escrow.releaseApproved(auctionA, 1, ps); // same leaf again → skipped
         emit log_named_uint("EOA got total (wei)", eoa.balance);
         assertEq(eoa.balance, 2 ether, "flag blocks second pay");
         assertEq(eoa.balance, afterFirst);

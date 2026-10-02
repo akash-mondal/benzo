@@ -65,12 +65,12 @@ export async function evmLock(args: {
   return rec.hash;
 }
 
-export async function evmRelease(args: {
+export async function evmSubmitAttestation(args: {
   rpc: string; keyHex: string; escrow: string; chainId: bigint;
-  fields: AttestationFields; signatures: string[]; payouts: EvmPayout[];
+  fields: AttestationFields; signatures: string[];
 }): Promise<string> {
   const c = escrowContract(args.rpc, args.keyHex, args.escrow);
-  const tx = await c.release(
+  const tx = await c.submitAttestation(
     {
       auctionId: "0x" + Buffer.from(args.fields.auctionId).toString("hex"),
       resultHash: "0x" + Buffer.from(args.fields.resultHash).toString("hex"),
@@ -80,6 +80,20 @@ export async function evmRelease(args: {
       expiry: args.fields.expiry,
     },
     args.signatures,
+  );
+  const rec = await tx.wait();
+  return rec.hash;
+}
+
+// R9 item 3 (Solana's model): pay against the stored approval — crankable repeatedly; a partial
+// or failed release never consumes it
+export async function evmReleaseApproved(args: {
+  rpc: string; keyHex: string; escrow: string; auctionId: string; batchIndex: number; payouts: EvmPayout[];
+}): Promise<string> {
+  const c = escrowContract(args.rpc, args.keyHex, args.escrow);
+  const tx = await c.releaseApproved(
+    args.auctionId,
+    args.batchIndex,
     args.payouts.map((p) => ({
       index: p.index, lotCount: p.lotCount, destinationKind: p.destinationKind,
       destination: p.destination, leafCount: p.leafCount, proof: p.proof,
@@ -115,9 +129,9 @@ export async function evmStatus(rpc: string, escrow: string, auctionId: string, 
   };
 }
 
-export async function evmBatchUsed(rpc: string, escrow: string, auctionId: string, batchIndex: number): Promise<boolean> {
+export async function evmApproved(rpc: string, escrow: string, auctionId: string, batchIndex: number): Promise<boolean> {
   const c = escrowContract(rpc, null, escrow);
-  return await c.isBatchUsed(auctionId, batchIndex);
+  return await c.isApproved(auctionId, batchIndex);
 }
 
 export { evmTypedData };

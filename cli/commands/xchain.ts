@@ -11,7 +11,7 @@ import {
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
 import {
-  evmLock, evmProvider, evmRefund, evmRelease, evmStatus, EvmPayout,
+  evmApproved, evmLock, evmProvider, evmRefund, evmReleaseApproved, evmStatus, evmSubmitAttestation, EvmPayout,
 } from "../../crosschain/evm";
 import {
   approvalExists, approvalPda, auctionPda, ed25519Instruction, lockInstruction, paidPda, refundInstruction,
@@ -23,7 +23,7 @@ export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
   "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--asset is required: the escrow's asset is read from chain and must match; no default)",
-  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]",
+  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE]",
 ].join("\n");
@@ -204,46 +204,58 @@ export async function run(argv: string[]): Promise<number> {
       };
       const chosen = bundle.payouts.filter((p) => !only || only.has(p.index));
       if (!chosen.length) throw new Error("--only selected no payouts");
+      // R9 item 3 (Solana's model, design §9) on both chains: attest once (submitAttestation
+      // stores the approved root per (auction, batch)), then release many (releaseApproved is
+      // signature-free, repeatable and never consumes the approval — a partial or failed release
+      // leaves the remainder payable). --submit-only runs just the submit step unconditionally,
+      // so replaying a used batch is refused on chain with BatchReplayed.
+      const submitTx = async () => chain === "evm"
+        ? evmSubmitAttestation({
+            rpc, keyHex: readFileSync(keyFile, "utf8").trim(), escrow: bundle.escrow,
+            chainId: (await evmProvider(rpc).getNetwork()).chainId,
+            fields, signatures: bundle.signatures,
+          })
+        : (async () => {
+            const c2 = solConnection(rpc);
+            const p2 = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(keyFile, "utf8"))));
+            const pid = new PublicKey(bundle.escrow);
+            const g2 = new PublicKey(await c2.getGenesisHash()).toBytes();
+            const att2 = solanaAttestationBytes(fields, g2, pid.toBytes());
+            return sendTx(c2, p2, [
+              ed25519Instruction(bundle.signatures.map((s) => hexToBytes(s)), bundle.signers.map((s) => new PublicKey(s).toBytes())),
+              submitAttestationInstruction({ programId: pid, crank: p2.publicKey, auctionPda: auctionPda(pid, auctionId), approvalPda: approvalPda(pid, auctionId, bundle.batch_index), att: att2 }),
+            ]);
+          })();
+      if (a["submit-only"]) {
+        const tx = await submitTx();
+        console.log(JSON.stringify({ chain, tx, submitted: true, payouts: [] }));
+        return 0;
+      }
+      const submitted = chain === "evm"
+        ? !(await evmApproved(rpc, bundle.escrow, bytesToHex(auctionId), bundle.batch_index))
+        // §10 F-3: the Approval exists only if program-owned with the APPROVAL_V1 marker — a
+        // dusted PDA must not block the submit step
+        : !(await approvalExists(solConnection(rpc), new PublicKey(bundle.escrow), approvalPda(new PublicKey(bundle.escrow), auctionId, bundle.batch_index)));
+      const setupTxs: string[] = [];
+      if (submitted) setupTxs.push(await submitTx());
       if (chain === "evm") {
-        const keyHex = readFileSync(keyFile, "utf8").trim();
-        const tx = await evmRelease({
-          rpc, keyHex, escrow: bundle.escrow, chainId: (await evmProvider(rpc).getNetwork()).chainId,
-          fields, signatures: bundle.signatures,
+        const tx = await evmReleaseApproved({
+          rpc, keyHex: readFileSync(keyFile, "utf8").trim(), escrow: bundle.escrow,
+          auctionId: bytesToHex(auctionId), batchIndex: bundle.batch_index,
           payouts: chosen.map((p) => ({
             index: p.index, lotCount: p.lot_count, destinationKind: p.destination_kind,
             destination: p.destination.startsWith("0x") ? p.destination : bytesToHex(hexToBytes(p.destination)),
             leafCount: p.leaf_count, proof: p.proof,
           } as EvmPayout)),
         });
-        console.log(JSON.stringify({ chain, tx, payouts: chosen.map((p) => p.index) }));
+        console.log(JSON.stringify({ chain, submitted, tx, payouts: chosen.map((p) => p.index) }));
         return 0;
       }
       const conn = solConnection(rpc);
       const payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(keyFile, "utf8"))));
       const programId = new PublicKey(bundle.escrow);
-      const genesis = new PublicKey(await conn.getGenesisHash()).toBytes();
-      const att = solanaAttestationBytes(fields, genesis, programId.toBytes());
-      const sigBytes = bundle.signatures.map((s) => hexToBytes(s));
-      const pubBytes = bundle.signers.map((s) => new PublicKey(s).toBytes());
       const escrowPda = auctionPda(programId, auctionId);
       const approval = approvalPda(programId, auctionId, bundle.batch_index);
-      // §9: attest once (submit_attestation writes the Approval PDA), then release many
-      // (release_approved is signature-free and repeatable). --submit-only runs just the submit
-      // step unconditionally, so replaying a used batch is refused on chain with BatchReplayed.
-      const submitTx = () => sendTx(conn, payer, [
-        ed25519Instruction(sigBytes, pubBytes),
-        submitAttestationInstruction({ programId, crank: payer.publicKey, auctionPda: escrowPda, approvalPda: approval, att }),
-      ]);
-      if (a["submit-only"]) {
-        const tx = await submitTx();
-        console.log(JSON.stringify({ chain, tx, submitted: true, payouts: [] }));
-        return 0;
-      }
-      // §10 F-3: the Approval exists only if program-owned with the APPROVAL_V1 marker — a
-      // dusted PDA must not block the submit step
-      const submitted = !(await approvalExists(conn, programId, approval));
-      const setupTxs: string[] = [];
-      if (submitted) setupTxs.push(await submitTx());
       const payouts: SolPayout[] = chosen.map((p) => {
         const dest = new PublicKey(destinationBytes(2, p.destination, b58ToBytes));
         return {
