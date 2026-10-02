@@ -50,7 +50,7 @@ test("signed sealed auction on testnet",async({page})=> {
     if(!existsSync(path.join(STATE,f)))run.notRun(IDS,`missing ${f}`);
   z.sync("bidder"); if(z.spendable(z.balance("bidder"))<3*C+40_000)run.notRun(IDS,"bidder below 3C + 40000");
   z.sync("vault"); z.enhance("vault");
-  const oldNotes=z.scanVault().filter(n=>n.height&&!n.spent_in_txid);
+  const oldNotes=z.scanVault().filter(n=>n.height&&!n.spent_in_txid&&n.value_zats>0); // create-max spends positive notes only; scanner also reports zero-value dummy outputs that ZIP-317 never counts
   const reserve=5000*Math.max(2,oldNotes.length+6);
   if(z.spendable(z.balance("bidder"))-5*C-reserve-6*15_000<3*C+40_000)run.notRun(IDS,"five-note drill would cross bidder floor; ask before spending");
   const key=path.join(STATE,"auction/manifest-signing.pem");
