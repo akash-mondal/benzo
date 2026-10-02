@@ -1,5 +1,6 @@
 // Public auction directory model shared by `benzo verify`, operator view, receipt show and the read-only API.
 // Reads only public files; never loads BNZ_STATE_DIR secrets or bid-side keys.
+import { checkBuybackReport } from "../adapters/buyback-report";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
@@ -210,6 +211,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   };
   // Checks apply to the fields the current state carries (R21 item 5): manifest always, freeze/receipts
   // once frozen, clear/accounting once result. A pre-freeze dir is valid when its manifest is.
+  run("report", () => { if (pub.frozen && pub.result) checkBuybackReport(pub as CompletePublicAuction); });
   run("manifest", () => {
     const again = readClient(pub.manifestPacket, pub.signer);
     requireThat(again.manifest_hash === pub.manifest_hash, "manifest hash changed");

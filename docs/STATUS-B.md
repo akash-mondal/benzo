@@ -5,9 +5,13 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Phase 5, Track B run 10: IN PROGRESS
 
-Updated: 2026-10-02T04:40:00Z. Start clean at f8ac208; head merge/corrections inspected, PHASE-5 R3/R4 author-checked. No owned services; protected state files not read. Default E2E running foreground/polled (`tmp/proof-logs/run10-baseline.out`). No new tests.
+Updated: 2026-10-02T04:40:00Z. Start clean at f8ac208; head merge/corrections inspected, PHASE-5 R3/R4 author-checked. No owned services; protected state files not read. Default E2E PASS39s (`tmp/proof-logs/run10-baseline.out`). No new tests.
 
 1. Dependencies: exact direct noble curves1.9.7/hashes1.8.0 declarations; typecheck PASS (`run10-deps.out`); Node manual lock comparison PASS (`run10-deps-manual.out`), all lock data except root declarations byte-structure unchanged. Source base f8ac208.
+
+2. Recurring buyback report: `adapters/buyback-report.ts` derives window index, prices (per-lot prices for multi-lot), units, payout+fees in zats/exact 8-decimal ZEC, result hash and serial intake from public data. `serial-intake.json` array binds auction/ciphertext/serials with the opened seller's owner signature; each winner supplies exactly fill serials, no duplicates. `benzo report --dir PUBLIC [--previous PUBLIC]` prints canonical values; public/API verifier requires matching `report.json` for recurring buybacks. Old nonseries corpora need no report.
+
+Proof at base9abf320 + working tree: `node tmp/run10-report.mjs` fresh real tle/quicknet R32704232 creates two independently sealed, linked windows with one in-memory signer, fresh auction IDs/ciphertexts; 5 units, lot prices10000/20000, payout69800 + fees200 = spent70000zats /0.00070000ZEC, serials100/101/102/110/111. `python3 tmp/run10-report-check.py` PASS CLI report equals file, online/offline verify both windows, --previous link; wrong spend, swapped report serials, changed intake signature and reverse link refused specifically. Logs `tmp/proof-logs/run10-report-{corpus,check,build,harness-build}.out`; typecheck/build:cli PASS. Scratch extension initially omitted async on its window function; fixed before the two-window run (no product defect or stale run credited). No live chain settlement claim; deposit references are generated fixtures, owner/witness keys remain in memory, only pinned tle executable used under state.
 
 ### Questions (run 10)
 
