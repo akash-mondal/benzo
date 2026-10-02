@@ -58,6 +58,8 @@ Needs user: none. Head: R21–R24 recorded; B owes nothing before Phase 5 (lifec
 
 2026-10-02T05:35:50Z: R8 attempt22a9ffb FAILED, not gate evidence. Default PASS39s; live group05:18:50–05:30:15Z failed golden-path671s on GetTransaction NotFound for newly broadcast refund d9c01037b7325ec9ca7a4a81da5215f93930702fd2f9e35e92a373a6da03f72e; later auction-core/settle-crash failed bidder sync with GetBlock4431783 newer than endpoint latest block. Exact errors/stacks tmp/e2e/takeover-regression-failed-report.json; live log/run.json under tmp/e2e/takeover-regression-live-artifacts. Outside endpoint cache inconsistency plus harness querying a transaction before its mined observation. Pinned list-tx --help (tmp/e2e/takeover-list-tx-help.log) documents {txid,mined_height}, null when unmined. Repair older specs' waiting glue to sync receiving vault and observe mining before independent GetTransaction proof, as cli-auction already does; RPC/sync errors still fail, no assertion/deadline/retry/pin change. Typecheck PASS. Subsequent sync found refund mined4431783, vault observed0, bidder total/spendable95,539,440 at4431887. No recovery sweep needed. No processes remain. R8 restarts at ensuing clean commit; prior attempt preserved, fresh deposits and signing required.
 
+R8 restarted with waiting repair; detached wrapper tmp/e2e/takeover-regression2.sh, stage logs/exits/artifacts use takeover-regression2-* so attempt1 outputs remain untouched. The final CLI log remains tmp/e2e/takeover-final-cli.log. Source build/typecheck already PASS atad64077; all five specs will record the following clean commit.
+
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
 
 Contract d0fbe61 / R1 plus R2–R5 at 5afd2b2, R6 at e1225dc and R7–R8 at dc28c08 (head@benzo.invalid). Started only after Phase 2 READY FOR REVIEW at 28ddd09: live run b834747, artifacts aa4676b, positive verifier 0 and corrupted-copy exit 1 with ERROR E/F. Read Phase 3 in full and DESIGN §6/§14. `npm run e2e` regression PASS before new work (`tmp/e2e/phase3-baseline.log`).
@@ -79,7 +81,7 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 
 ## Questions
 
-- Q16 (R8 run coordination): all-five regression is now running from the commit named in tmp/e2e/takeover-regression-commit.txt. Please hold main commits until it finishes so all five specs remain at one commit as R8 requires. The detached wrapper refuses to start the final CLI evidence if HEAD changed. This request does not block other work in the other checkout.
+- Q16 (R8 run coordination): all-five regression re-starts from the commit named in tmp/e2e/takeover-regression2-commit.txt. Please hold main commits until it finishes so all five specs remain at one commit as R8 requires. The detached wrapper refuses to start the final CLI evidence if HEAD changed. This request does not block other work in the other checkout.
 
 
 - Q15 (U1 physics, for head review): R23.2's literal means (mutate `ac('clear')`'s persisted output) is refused by `settle/plan.ts:66` before O2 runs — observed ERROR T1 "fresh signer clearing differs from result.json" with the spec's early return (`U1-superseded-t1.out`). U1 v3 instead re-sorts the clear path's published result (and its returned allocations so S1's result match holds): O2 and benzo verify both refuse it; settlement pays from the private ledger and does not see a published-side mutation. If the head wants the ledger-side mutation with a T1 red instead, that run is recorded.
