@@ -1,8 +1,8 @@
 {
  "command": "BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction",
- "commit": "e8dc402f08b4368d49cb2c5bb1623ad610743633",
- "start_utc": "2026-10-02T02:10:58.071Z",
- "end_utc": "2026-10-02T02:58:11.695Z",
+ "commit": "78650f9ccd8d1a63fcc376698e79b8ce9600dc22",
+ "start_utc": "2026-10-02T09:16:30.452Z",
+ "end_utc": "2026-10-02T10:02:10.909Z",
  "results": {
   "O1": "PASS",
   "P1": "PASS",
@@ -18,18 +18,18 @@
   "T2": "PASS"
  },
  "sha256": {
-  "cli/api.json": "2409beaebdac30d02da5e73a1d8f608d30789ba57e5f01a1ceee55fb9d46208e",
-  "cli/auction.json": "b0ab7dc174820f21bf9e1d806824fe038f91acd77db1d50b3ae4f6f2598a5e4c",
-  "cli/beacon.json": "68c8029ed6115922aedc3135b942d17b1ebf4cc304652b6befed22581c43aff2",
-  "cli/clear-reference.json": "cdac40d9995bb44e5f531c2c5db31f4151cec68084cc6905351eb86c9acf30f1",
-  "cli/drill.json": "311ce4d746ad571bf0fa22cb3a01bcd0ebe6d5a3a96dc4c3d95bc9e35ec45214",
-  "cli/frozen.json": "ed3d507c8dcee7c4d861ddda9e0a39c1a278b423c7300d85a575c5a45b4738ef",
-  "cli/manifest.json": "5ff709fda24165efb6a6297f1bf952006f205c027efa49b301b8a7693fe6d134",
-  "cli/opened.json": "a56122393e7556b19506828992a55c26dbadb863235f38b176715357dea61f6d",
-  "cli/receipts.json": "fce5b55ce7d5fe479ff1c7c051f227b8ba68296ffe659f50b28f0d464be96596",
-  "cli/result.json": "cdac40d9995bb44e5f531c2c5db31f4151cec68084cc6905351eb86c9acf30f1",
+  "cli/api.json": "f654d60f64fbf463920c4e96494e4b1803905a3f7298a15ed7dc7b181a0d37e4",
+  "cli/auction.json": "9b756ab4cdb7ab705546c4915f35176f8c7f621bdd67f45ec09f7f67cdddd748",
+  "cli/beacon.json": "5d33fa02634e98b576dc3f49cffae59f5b53aaffe827775b8012e485906a2b1c",
+  "cli/clear-reference.json": "71749ca8194b98356a2c6b4564faaab4afe4a275f6456e45a16ff91085666a5c",
+  "cli/drill.json": "f53ce035ca2984e15c9a439f473c159751374b2dcd913366d2252c70a9b862ab",
+  "cli/frozen.json": "fc0048b7e815d2284de5f38da4169ba0e8ea900a750d55caad3f12ac76fa1080",
+  "cli/manifest.json": "bb874b87de7a15b2017334e4352020ed6dd8ad3ffd7e78b388bbe049ac7d8dd8",
+  "cli/opened.json": "bf6540f074aae65e47f4a434dabcc77690bab7a02fe71e93ab3f10aaff1337e8",
+  "cli/receipts.json": "8201c86c63e442aaca74f6e04759ca881af338feda336fbdca45b39905715e5b",
+  "cli/result.json": "71749ca8194b98356a2c6b4564faaab4afe4a275f6456e45a16ff91085666a5c",
   "cli/signer.json": "71fcf29a3082a0957d735a64457b55e8587c6dd0a2239b2b544b803999cfd372",
-  "cli/summary.json": "83232cfa05f08d54f0a85631da160f462d9eab105b10376b1f37191c7ddc8886",
+  "cli/summary.json": "77c695ecab51b122fa928946c684a7439fc8ed7521d9133d227d21e035a4b071",
   "cli/dist/benzo.mjs": "c5f8ab9be1b33e6a3a3da4740d9e19074dd58bbe7cff4a96c4e1121b63fc2d22",
   "cli/dist/commands/api.mjs": "45b501790178eebafb8953a5d46d4f9c89af722ca9f8356b764367a3fc45daaa",
   "cli/dist/commands/auction-create.mjs": "c89d50f741e87df773d7abdbbdf9a6427c0a67ee59dfb9774fdefbb8ee9a7d75",
@@ -56,9 +56,9 @@
   "manifest/dist/cli.mjs": "33da91abf04e5a381e04b33583c748b43a1efef764f379819c2338481d48ab6b",
   "clear/dist/cli.mjs": "b7a7e650b7c7a7fe0c40c3c28457d60f2de9529385e20cd092bd9a33bd0c09ac",
   "clear/dist/auction.mjs": "af8bec306c5f1755eadce4bc586f7638ccd34e576e349a12899126e9ae878653",
-  "settle/dist/cli.mjs": "82d40d30f772d78b94ba415c9e96b5012162d7252209eedab9d313b801bb8655",
+  "settle/dist/cli.mjs": "b848a542b711d6a40a968ca617fe6cb1f935dd345ea15f2a3993b1fc8c051053",
   "settle/dist/plan.mjs": "5c5ab2452090d171266ccf2e4c448ade6f27d671333accae503261a362de6a3c",
-  "settle/target/release/benzo-pczt": "7fec31f48b3f9de508be8454bc8b40d5b093d8ba36fcb197b9e616aea637a669"
+  "settle/target/release/benzo-pczt": "98c199cec0f7676e10a5dd5aa9a7989e39b5e6ec1199b82be70a7e630b417b98"
  },
  "tools": [
   "frost-client v0.1.0 (https://github.com/ZcashFoundation/frost-tools?rev=06c0dbdbb1bac9b99cd255e74ba2f387c295e660#06c0dbdb):",
