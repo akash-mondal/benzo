@@ -2,7 +2,7 @@
 
 Head-owned design (2026-10-02). User decisions:
 - Zcash stays the private core.
-- Target chains are **EVM (Ethereum Sepolia for Railgun; Base Sepolia; Base mainnet later)** and **Solana devnet**.
+- Target chains are **EVM = Ethereum only (Ethereum Sepolia now, Ethereum mainnet later; no Base — user, 2026-10-02)** and **Solana devnet**.
 - Delivery is **push**, and the target chain stays private too.
 - **Audited code wherever possible.**
 
@@ -61,11 +61,11 @@ What it unlocks:
 | **SOL** | a fresh address sealed in the bid, plus a small SOL stipend | same (Umbra only if it gets a published audit) | the escrow and fresh addresses, standard lots |
 | **SPL tokens** | **Token-2022 Confidential Transfers** to a fresh account that Benzo configures from the bidder's ElGamal pubkey (in the envelope); proofs pre-verified in setup transactions, then one release | same | the escrow, accounts and mint; **amounts hidden** |
 | **Solana NFTs** | a fresh owner address | same | the owner address |
-| **EVM ERC-20 / NFT** | **Railgun `shield()` on Ethereum Sepolia** to the bidder's 0zk address (escrow calls `shield`; the signers build the shield requests off-chain; 2 of 3 rebuild and compare each request byte for byte; a fresh shield key per settlement, destroyed after); **fallback on Base Sepolia: ERC-5564 stealth addresses** via the canonical Announcer and Registry | **Railgun on Base** | Railgun: the escrow and that a shield happened, with the recipient and later moves hidden. Stealth: the amount and a one-time address. |
+| **EVM ERC-20 / NFT** | **Railgun `shield()` on Ethereum Sepolia** to the bidder's 0zk address (escrow calls `shield`; the signers build the shield requests off-chain; 2 of 3 rebuild and compare each request byte for byte; a fresh shield key per settlement, destroyed after); **fallback: ERC-5564 stealth addresses on Ethereum Sepolia** (canonical Announcer and Registry) | **Railgun on Ethereum mainnet** | Railgun: the escrow and that a shield happened, with the recipient and later moves hidden. Stealth: the amount and a one-time address. |
 
 - **Gas stipend (lesson 6):** each release includes a tiny native-token stipend per fresh/stealth destination, so winners never fund it from a known wallet.
 - **Railgun PPOI:** the submitter address is screened, so use a clean, dedicated submitter. Refund policy: a shield stuck in the waiting window returns to Benzo's submitter, which forwards it back to that recipient's next envelope destination, or else the exception queue.
-- **Railgun's tiny anonymity set on Base:** use fixed lots and one batch time, and say so plainly in the README.
+- **Railgun anonymity set:** Ethereum's pool is the largest; still use fixed lots and one batch time.
 
 ## 5. Funding helper (inbound)
 
@@ -86,7 +86,7 @@ What it unlocks:
 2. **Solana escrow on `solana-test-validator`:** the same five behaviours, with Ed25519 instruction checks and spoofed-sysvar refusal. Prove with logged runs.
 3. Leaf/tree/attestation TS + `benzo xchain` CLI against both local chains: one cleared drop delivered end to end locally.
 4. **Private delivery adapters:** EVM stealth (local anvil, ScopeLift contracts deployed locally), then Railgun on **Ethereum Sepolia** (needs ETH); Token-2022 CT on **Solana devnet** (needs SOL).
-5. Deploy both escrows to **Ethereum Sepolia, Base Sepolia and Solana devnet** from Track B's deployer keys (`benzo-b/.benzo/evm/deployer.key`, `benzo-b/.benzo/solana/deployer.json`; never print the private key). Record addresses in STATUS-B.
+5. Deploy both escrows to **Ethereum Sepolia and Solana devnet** from Track B's deployer keys (`benzo-b/.benzo/evm/deployer.key`, `benzo-b/.benzo/solana/deployer.json`; never print the private key). Record addresses in STATUS-B.
 
 ## 8. Traps
 - Never put a Zcash txid, address, amount paid or funding identifier on a target chain.
