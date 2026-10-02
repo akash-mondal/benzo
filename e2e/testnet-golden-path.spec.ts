@@ -25,7 +25,7 @@ const C = Number(env("BNZ_COLLATERAL_ZATS"));
 const ALT = env("BNZ_LWD_URL_ALT");
 const MINE = 30 * 60_000; // each deposit and the refund is mined within 30 minutes of broadcast
 const sha256 = (hex: string) => createHash("sha256").update(Buffer.from(hex, "hex")).digest("hex");
-const minedHeight = (txid: string, endpoint?: string) => () => z.getTransaction(txid, endpoint).height;
+const minedHeight = (txid: string) => () => z.minedHeight(txid);
 
 function pinsMismatch(): string | undefined {
   const pins = Object.fromEntries(
