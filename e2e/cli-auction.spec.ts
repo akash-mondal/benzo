@@ -12,7 +12,7 @@ import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
-const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=312;
+const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const fresh=(name:string)=>z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['address',path.join(STATE,name)]).trim();

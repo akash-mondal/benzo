@@ -103,7 +103,7 @@ fn main() -> anyhow::Result<()> {
     let args: Vec<_>=std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("address") if args.len()==3=>address(&args[2]),
-        Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {312}),
+        Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {364}),
         Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
         _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file>"))
     }
