@@ -1,6 +1,16 @@
 # Status: build agent handoff
 
-## Phase 4 ([PHASE-4.md](PHASE-4.md)): Track A READY FOR REVIEW
+## Phase 5 ([PHASE-5.md](PHASE-5.md)): R28 carry-overs (Track A, in progress)
+
+Updated: 2026-10-02T12:35Z. Builder A on main @ 8e9557b. Phase 4 PASSED per head R28 (fed3a3a) with mandatory carry-overs F1–F4/F8/F9 owed as the first Phase 5 part 1 items, proven by a cli-auction rerun plus the affected mutations before any other Phase 5 live work.
+
+R28 code items committed: F8 718e70b (signers recompute from published auction.json through clear/registry.ts; U6.patch added there), F1 0d22ca0 (R1 corrupts leaf/seller/stray amounts separately with specific errors; U3 split into U3a/U3b patches), F2 4273e3c (R1 root corruption + S1 manifest flip keep canonical JSON, assert specific errors), F3 60617a0+5381f6f (P2 asserts included===true, passes bidder's signed receipt, compares settlement fields to result.json), F4 994a983 (matches_pinned_routing computed; T5 wording "Alice is not selected"), F9 8e9557b (Phase 3 EVIDENCE.md recipient_hash note). tsc/builds/patch apply-checks PASS (tmp/e2e/carry-f8-proof.log, carry-f1-proof.log).
+
+R28 proof rerun (development, not gate evidence): `BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction` at 8e9557b, 2026-10-02T11:39:02Z–12:28:40Z (2976s), exit 0, all 12 IDs PASS, zero ERROR lines. Log tmp/e2e/r28-pass.{sh,log,meta}, run.json tmp/e2e/out/run.json. Vault observed 0 after run cleanup; no owned processes.
+
+Mutation red runs owed (detached, one at a time, via tmp/e2e/r28-mut.sh): U6 expected ERROR T1 (published result differs from signer recomputation, refused in the first worker before any signature), U3a expected ERROR R1 (leaf/seller corruptions uncaught), U3b expected ERROR R1 (stray corruption uncaught). Vault recovery after each failed run; then commit mutations/*.out and record R28 carry-overs: DONE.
+
+## Phase 4 ([PHASE-4.md](PHASE-4.md)): head PASSED at fed3a3a (R28)
 
 Updated: 2026-10-02T10:15:00Z. Builder A on main. AGENTS.md and Phase 1–4 read; Phase 1–3 PASSED by committed head rulings. Phase 4 R1–R27 author-checked, latest 55ce484. Never touched the other checkout or Track B-owned files. Baseline `npm run e2e` PASS (41s), `tmp/e2e/phase4-baseline.log`.
 

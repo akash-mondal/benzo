@@ -38,8 +38,14 @@ const lastTxid = (out: string) => {
   return ids[ids.length - 1];
 };
 
-export const pay = (uri: string) =>
-  lastTxid(wallet("bidder", "pay", "-i", path.join(STATE, "bidder.age"), "--disable-confirmation", "-s", LWD, "--payment-uri", uri));
+// The pinned devtool builds the transaction expiry from the wallet's last scanned height and pay does not
+// sync first. On the fast testnet chain a stale tip (e.g. after waiting for a drand round) produced a
+// transaction already past its expiry at broadcast (consensus: "must not be mined ... greater than its
+// expiry"). Sync immediately before building, as cli/product.ts does for bid deposit --pay.
+export const pay = (uri: string) => {
+  sync("bidder");
+  return lastTxid(wallet("bidder", "pay", "-i", path.join(STATE, "bidder.age"), "--disable-confirmation", "-s", LWD, "--payment-uri", uri));
+};
 export const send = (file: string) => lastTxid(pczt("vault", "send", "-s", LWD, file));
 
 function grpc(endpoint: string, method: string, data?: object): any {
