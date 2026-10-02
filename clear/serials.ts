@@ -1,6 +1,7 @@
 // PHASE-5 R3.5: serials are assigned after clearing from the manifest's future quicknet beacon.
+import { bls12_381 } from "@noble/curves/bls12-381";
 import { createHash } from "node:crypto";
-import { requireThat } from "../manifest/schema";
+import { QUICKNET, requireThat } from "../manifest/schema";
 
 export function assignSerials(
   winners: { leaf_index: number; units: number }[],
@@ -36,6 +37,10 @@ export function attachSerials(result: import("./core").ClearResult, m: { drand: 
   if (!m.serials) { requireThat(!beacon, "serial beacon without manifest serials"); return result; }
   const round = m.drand.R + m.serials.seed_round_offset;
   requireThat(beacon && beacon.round === round, "serial beacon round");
+  const roundBytes = Buffer.alloc(8); roundBytes.writeBigUInt64BE(BigInt(round));
+  requireThat(/^[0-9a-f]{96}$/.test(beacon!.signature) && bls12_381.verifyShortSignature(
+    beacon!.signature, createHash("sha256").update(roundBytes).digest(), QUICKNET.public_key,
+    { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }), "serial beacon BLS signature");
   return { ...result, serial_beacon_round: round, serial_assignment: assignSerials(
     result.allocations.filter(a => a.fill > 0).map(a => ({ leaf_index: a.leaf_index, units: a.fill })),
     m.serials, beacon!.signature) };
