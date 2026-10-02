@@ -12,7 +12,7 @@
 // The header (magic || n || stanzas || key_commit) is the AEAD associated data, so any stanza splice breaks every
 // recipient's open — the same binding age applies to its header MAC. key_commit =
 // crypto_generichash(32, content_key, key = "benzo-envelope-v2-kc" zero-padded to libsodium's
-// crypto_generichash_KEYBYTES, 32) is recomputed by openEnvelope after unwrapping and refused on mismatch
+// crypto_generichash_KEYBYTES) is recomputed by openEnvelope after unwrapping and refused on mismatch
 // (`envelope key commitment`): ChaCha20-Poly1305 is not key-committing, so without this field a hostile sealer
 // could wrap different content keys for different signers and make them open different destinations (R10).
 // All cryptography comes from libsodium (crypto_box_seal per stanza, crypto_aead_chacha20poly1305_ietf for the
@@ -59,8 +59,13 @@ export const ENVELOPE_CT_BYTES_N3 = MAGIC.length + 1 + STANZA_BYTES * 3 + COMMIT
 // R12 item 1: the pre-v2 sealed box (32 || 12 || 512 || 16 = 572 bytes). It is accepted as a published record
 // only where the signed manifest pins no `envelope_keys` (the Phase 2–4 evidence); nowhere else.
 export const ENVELOPE_CT_BYTES_PRE_V2 = 32 + 12 + ENVELOPE_PT_BYTES + 16;
-// key_commit key: the ASCII label zero-padded to libsodium's crypto_generichash_KEYBYTES (32)
-const KC_KEY = Buffer.concat([Buffer.from("benzo-envelope-v2-kc"), Buffer.alloc(32 - 19)]);
+// key_commit key (R10 item 1): the 20-byte ASCII label zero-padded with `32 - label.length` to exactly
+// libsodium's crypto_generichash_KEYBYTES. The head review of 79aed9e found the padding computed as
+// `32 - 19`, which made KC_KEY 33 bytes; the key is exactly KEYBYTES, asserted here (fix before any live
+// envelope exists — none had been sealed under the wrong key).
+const KC_LABEL = Buffer.from("benzo-envelope-v2-kc");
+const KC_KEY = Buffer.concat([KC_LABEL, Buffer.alloc(sodium.crypto_generichash_KEYBYTES - KC_LABEL.length)]);
+requireThat(KC_KEY.length === sodium.crypto_generichash_KEYBYTES, "envelope kc key");
 function keyCommit(contentKey: Uint8Array): Buffer {
   return Buffer.from(sodium.crypto_generichash(32, contentKey, KC_KEY));
 }
