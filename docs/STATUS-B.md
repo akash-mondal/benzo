@@ -3,7 +3,62 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — R12 items 1–3 (shared envelope rule, committed red/green repros, KC_KEY fix)
+## Current run: head task — R14 items 1–5 (Reviewer R F1 CPI-forgery P0 + redeploys + P2s)
+
+State: **IN PROGRESS** (items 1–2 DONE with red/green proof; items 3–5 next; updated 2026-10-02T23:44Z).
+Base: clean tree at `a623139` (head: merge main into track-b; R14 in `docs/PHASE-5.md` R14, head commit
+`0da383e`). Reviewer R's report read-only at `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-r9-contracts.md`;
+lab PoC copied from `/Users/akshmnd/Dev Projects/benzo-sol/lab/pr-b-r9/lab-only/` (read-only). Baseline `npm run
+e2e` PASS 38 s at `a623139` (`tmp/proof-logs/r14-baseline-e2e.out`). R12 run 21 is complete (nothing open; its
+two Questions stand). No mainnet; no other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin
+changes. At run start `contracts/solana` was byte-identical to `4d9c0e6` (`git diff 4d9c0e6 -- contracts/solana`
+empty), so the red run below ran literally on the 4d9c0e6 program.
+
+1. **R14 item 1 (P0), submit_attestation refuses CPI and binds the message to its own attestation bytes: DONE**
+   (`bd48e7e`). `contracts/solana/src/lib.rs`: two independent refusals, one new error each — **`ViaCpi` (custom
+   0x15)**: `get_stack_height() != TRANSACTION_LEVEL_STACK_HEIGHT` refuses any CPI entry (the instruction runs only
+   as a top-level transaction instruction); **`MessageNotSelf` (custom 0x16)**: the instruction at `current` must be
+   this program's own submit instruction with `data.len() == 2 + ATT_LEN` and `data[2..2+ATT_LEN] == att` (the exact
+   bytes parsed), so the message the precompile verified and the attestation processed can never differ.
+   **Sysvar-trust audit of every other instruction (ruling item 1's sweep): none found.** The instructions sysvar is
+   read only in `submit_attestation` (account key checked against `sysvar::instructions::ID`, the spoofed-sysvar
+   refusal); `lock`/`refund`/`release_approved` take time/rent from `Clock::get()`/`Rent::get()` — the
+   `sol_get_sysvar` syscall, never a caller-supplied account — and their state reads are program-owned PDAs
+   (`grep -n 'Clock::get\|Rent::get\|load_.*_checked' contracts/solana/src/lib.rs`).
+
+2. **R14 item 2, CPI-forgery regression fixture: DONE** (`c7c417c`). Reviewer R's lab PoC is copied into
+   `contracts/solana/test/` as a permanent fixture — `test/proxy/` (the attacker program, verbatim) and
+   `test/cpi-forge.mjs` (source `benzo-sol lab/pr-b-r9/lab-only/{proxy,cpi-forge.mjs}`; assertions inverted to the
+   regression contract: the forged CPI submit must be **refused**). `test/run.sh` builds the proxy with the pinned
+   `cargo build-sbf`, loads both programs on `solana-test-validator` and runs the fixture after the full driver.
+   Checks: `cpi-distinct-messages`, `cpi-control-direct-forge-refused` (the same sigs used directly fail at the
+   Ed25519 precompile, ix 0, custom 0x2 — the program is never reached), `cpi-forged-submit-refused` (ViaCpi 0x15),
+   `cpi-forged-root-not-approved` (nothing written for the forged batch), `cpi-honest-submit-lands`,
+   `cpi-honest-root-approved`, `cpi-honest-release-pays` (honest direct submit + release pay exactly +2e9/+3e9
+   lamports, escrow −5e9).
+
+   | output | run at | result |
+   |---|---|---|
+   | `contracts/logs/r14-cpi-old-code.out` | `a623139` tree = the 4d9c0e6 program (2026-10-02T23:33Z) | exit 1 — `ERROR cpi-forged-submit-refused forged CPI submit LANDED (the R14 F1 bypass is back)` + `ERROR cpi-forged-root-not-approved approval PDA for the forged batch exists`; driver 43/43 PASS |
+   | `contracts/logs/r14-cpi-fixed.out` | `bd48e7e` + fixture (2026-10-02T23:38Z) | exit 0 — ALL PASS (driver 43/43 + fixture 8/8) |
+   | `docs/evidence/phase-5/mutations/R14-F1.out` | clean tree at `c7c417c` + `R14-F1.patch` (2026-10-02T23:44Z) | exit 1 — same two `ERROR` lines: `ERROR cpi-forged-submit-refused` (the expected assertion ID) |
+
+   `docs/evidence/phase-5/mutations/R14-F1.patch` removes both refusals (exactly the 4d9c0e6 code path);
+   `git apply` → run → `git apply -R` leaves `git status --porcelain` clean but for the two mutation files.
+   Honest note: `MessageNotSelf` cannot fail on its own once `ViaCpi` is in place — in any non-CPI execution the
+   instruction at `current` *is* the invocation's own — so no fixture can show it failing independently; the
+   mutation removes both checks together (the exact red the ruling asks for: landed on 4d9c0e6, refused after).
+   (b) is nevertheless enforced at runtime and would alone refuse the PoC path with 0x16 (`self_ix.program_id !=
+   *program_id` for the proxy instruction).
+
+Items 3–5 next: new devnet program ID + one live cycle (mark `AE1LQwTy…` SUPERSEDED), EVM `approval()` view +
+`xchain status` resultHash comparison + forge test, `local-demo.sh` `.env` guard.
+
+### Questions (this run)
+
+- None yet.
+
+## Previous run: head task — R12 items 1–3 (shared envelope rule, committed red/green repros, KC_KEY fix)
 
 State: **READY FOR MERGE** (items 1–4 all landed with red/green proof; updated 2026-10-02T23:02Z).
 Commits: `a82f865` (item 1), `c8c622e` (item 2), `0c1404a` + `2ea170e` (item 3 + its rerun), and the final
