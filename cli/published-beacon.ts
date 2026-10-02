@@ -6,8 +6,12 @@ import { QUICKNET, hash, requireThat } from "../manifest/schema";
 export function publishedClient(beacon: { round: number; signature: string }): ChainClient {
   requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
   const round = Buffer.alloc(8); round.writeBigUInt64BE(BigInt(beacon.round));
-  requireThat(bls12_381.verifyShortSignature(beacon.signature, Buffer.from(hash(round), "hex"), QUICKNET.public_key,
-    { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }), "beacon BLS signature");
+  let valid = false;
+  try {
+    valid = bls12_381.verifyShortSignature(beacon.signature, Buffer.from(hash(round), "hex"), QUICKNET.public_key,
+      { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" });
+  } catch { /* Malformed curve points are invalid signatures too. */ }
+  requireThat(valid, "beacon BLS signature invalid");
   const info = { public_key: QUICKNET.public_key, period: QUICKNET.period, genesis_time: QUICKNET.genesis,
     hash: QUICKNET.chain_hash, groupHash: "", schemeID: QUICKNET.scheme, metadata: { beaconID: "quicknet" } };
   const publicBeacon = { ...beacon, randomness: hash(Buffer.from(beacon.signature, "hex")) };

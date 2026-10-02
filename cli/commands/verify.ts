@@ -48,16 +48,20 @@ export async function run(argv: string[]): Promise<number> {
     // verify keeps requiring frozen and result (R21 item 5); the read API is the lifecycle-safe reader.
     const pub = loadCompletePublicAuction(dir, { signer: signerHex });
     if (pub.legacy) process.stderr.write("WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs\n");
-    requireThat(pub.beacon, "missing published beacon");
-    const fetchPublished = async (beacon: { round: number; signature: string }) => {
+    requireThat(pub.beacon || fetchBeacon, "no published beacon; rerun with --fetch-beacon");
+    const fetchPublished = async (round: number, beacon?: { round: number; signature: string } | null) => {
       const base = process.env.BNZ_DRAND_URLS?.split(",")[0] || "https://api.drand.sh";
-      const response = await fetch(`${base}/${pub.manifest.drand.chain_hash}/public/${beacon.round}`, { signal: AbortSignal.timeout(15000) });
+      const response = await fetch(`${base}/${pub.manifest.drand.chain_hash}/public/${round}`, { signal: AbortSignal.timeout(15000) });
       requireThat(response.ok, `drand HTTP ${response.status}`);
       const fetched = await response.json() as { round: number; signature: string };
-      requireThat(fetched.round === beacon.round && fetched.signature === beacon.signature, "published beacon differs from fetched beacon");
+      requireThat(fetched.round === round, "fetched beacon round");
+      if (beacon) requireThat(fetched.signature === beacon.signature, "published beacon differs from fetched beacon");
+      return { round: fetched.round, signature: fetched.signature, chain_hash: pub.manifest.drand.chain_hash };
     };
-    if (fetchBeacon) await fetchPublished(pub.beacon!);
+    const published = pub.beacon;
+    if (fetchBeacon) pub.beacon = await fetchPublished(pub.manifest.drand.R, published);
     const local = publishedClient(pub.beacon!);
+    if (!published) process.stderr.write("WARN beacon fetched (not published)\n");
     const derived: Opened[] = [];
     for (const leaf of pub.frozen.leaves) {
       const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
@@ -86,7 +90,7 @@ export async function run(argv: string[]): Promise<number> {
       requireThat(pub.result.serial_assignment && pub.result.serial_beacon_round === round, "serial result round/assignment");
       let beacon = pub.serialBeacon;
       requireThat(beacon, "missing published serial beacon");
-      if (fetchBeacon) await fetchPublished(beacon!);
+      if (fetchBeacon) await fetchPublished(round, beacon);
       const d = pub.manifest.drand;
       requireThat(await verifyBeacon({ public_key: d.public_key, period: d.period, genesis_time: d.genesis,
         hash: d.chain_hash, groupHash: "", schemeID: d.scheme, metadata: { beaconID: "quicknet" } },

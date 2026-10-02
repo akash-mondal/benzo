@@ -12856,12 +12856,17 @@ function publishedClient(beacon) {
   requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
   const round = Buffer.alloc(8);
   round.writeBigUInt64BE(BigInt(beacon.round));
-  requireThat(bls12_381.verifyShortSignature(
-    beacon.signature,
-    Buffer.from(hash(round), "hex"),
-    QUICKNET.public_key,
-    { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }
-  ), "beacon BLS signature");
+  let valid = false;
+  try {
+    valid = bls12_381.verifyShortSignature(
+      beacon.signature,
+      Buffer.from(hash(round), "hex"),
+      QUICKNET.public_key,
+      { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }
+    );
+  } catch {
+  }
+  requireThat(valid, "beacon BLS signature invalid");
   const info = {
     public_key: QUICKNET.public_key,
     period: QUICKNET.period,
@@ -12938,16 +12943,20 @@ async function run(argv) {
   try {
     const pub = loadCompletePublicAuction(dir, { signer: signerHex });
     if (pub.legacy) process.stderr.write("WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs\n");
-    requireThat(pub.beacon, "missing published beacon");
-    const fetchPublished = async (beacon) => {
+    requireThat(pub.beacon || fetchBeacon, "no published beacon; rerun with --fetch-beacon");
+    const fetchPublished = async (round, beacon) => {
       const base = process.env.BNZ_DRAND_URLS?.split(",")[0] || "https://api.drand.sh";
-      const response = await fetch(`${base}/${pub.manifest.drand.chain_hash}/public/${beacon.round}`, { signal: AbortSignal.timeout(15e3) });
+      const response = await fetch(`${base}/${pub.manifest.drand.chain_hash}/public/${round}`, { signal: AbortSignal.timeout(15e3) });
       requireThat(response.ok, `drand HTTP ${response.status}`);
       const fetched = await response.json();
-      requireThat(fetched.round === beacon.round && fetched.signature === beacon.signature, "published beacon differs from fetched beacon");
+      requireThat(fetched.round === round, "fetched beacon round");
+      if (beacon) requireThat(fetched.signature === beacon.signature, "published beacon differs from fetched beacon");
+      return { round: fetched.round, signature: fetched.signature, chain_hash: pub.manifest.drand.chain_hash };
     };
-    if (fetchBeacon) await fetchPublished(pub.beacon);
+    const published = pub.beacon;
+    if (fetchBeacon) pub.beacon = await fetchPublished(pub.manifest.drand.R, published);
     const local = publishedClient(pub.beacon);
+    if (!published) process.stderr.write("WARN beacon fetched (not published)\n");
     const derived = [];
     for (const leaf of pub.frozen.leaves) {
       const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
@@ -12956,9 +12965,9 @@ async function run(argv) {
     }
     if (pub.opened.length) {
       requireThat(pub.opened.length === derived.length, "published opening count");
-      const published = new Map(pub.opened.map((o) => [o.leaf_index, o]));
+      const published2 = new Map(pub.opened.map((o) => [o.leaf_index, o]));
       for (const d of derived) {
-        const p = published.get(d.leaf_index);
+        const p = published2.get(d.leaf_index);
         requireThat(
           p && p.plaintext_hex === d.plaintext_hex && (p.error ?? null) === (d.error ?? null),
           `opening ${d.leaf_index} published differs from re-derived`
@@ -12976,7 +12985,7 @@ async function run(argv) {
       requireThat(pub.result.serial_assignment && pub.result.serial_beacon_round === round, "serial result round/assignment");
       let beacon = pub.serialBeacon;
       requireThat(beacon, "missing published serial beacon");
-      if (fetchBeacon) await fetchPublished(beacon);
+      if (fetchBeacon) await fetchPublished(round, beacon);
       const d = pub.manifest.drand;
       requireThat(await (0, import_beacon_verification.verifyBeacon)(
         {
