@@ -128,7 +128,20 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const cold=path.join(ROOT,'tmp/e2e/cold',id);cpSync(publicDir,cold,{recursive:true});
     const verified=cli(['verify','--dir',cold,'--signer',signer]);
     const shown=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash]);
-    await run.check('P2','receipt show and verify agree on inclusion and settlement fields',()=>{expect.soft(shown.code).toBe(0);expect.soft(verified.code).toBe(0);expect.soft(JSON.stringify(shown.value)).toContain(settlement.receipts.find((r:any)=>r.party==='leaf:0')?.txid);expect.soft(JSON.stringify(shown.value)).toContain(frozen.leaves[0].ciphertext_hash)});
+    // F3 (R28): pass the bidder's own signed admission receipt for leaf:0, and compare the settlement
+    // receipt fields against result.json.
+    const bidderReceipt=included.find((x:any)=>JSON.parse(Buffer.from(x.receipt.bytes,'base64')).leaf_index===0)!.receipt;
+    const receiptFile=path.join(privateDir,'receipt-leaf0.json');writeFileSync(receiptFile,jsonBytes(bidderReceipt));
+    const signed=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash,'--receipt',receiptFile]);
+    await run.check('P2','receipt show and verify agree on inclusion and settlement fields',()=>{
+      expect.soft(shown.code).toBe(0);expect.soft(verified.code).toBe(0);
+      expect.soft(shown.value.inclusion.included).toBe(true);
+      expect.soft(signed.code).toBe(0);expect.soft(signed.value.inclusion.receipt_signed).toBe(true);
+      const allocation=result.allocations.find((a:any)=>a.leaf_index===0),receipt=shown.value.settlement;
+      expect.soft(receipt.auction_id).toBe(result.auction_id);
+      expect.soft(receipt.party).toBe(`leaf:${allocation.leaf_index}`);
+      expect.soft(receipt.amount_zats).toBe(allocation.refund_zats);
+      expect.soft(signed.value.settlement).toEqual(receipt)});
     const corruptDir=path.join(ROOT,'tmp/e2e/corrupt',id);cpSync(cold,corruptDir,{recursive:true});
     const corrupt=(mutate:(d:any)=>void)=>{const d=json(path.join(cold,'auction.json'));mutate(d);writeFileSync(path.join(corruptDir,'auction.json'),jsonBytes(d));return cli(['verify','--dir',corruptDir,'--signer',signer])};
     // F1 (R28): each amount class is corrupted on its own — a leaf row+receipt, the seller row+receipt, and a
