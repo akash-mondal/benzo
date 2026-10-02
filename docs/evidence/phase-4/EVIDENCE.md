@@ -1,20 +1,40 @@
-# Phase 4 evidence — IN PROGRESS
+# Phase 4 evidence
 
-No gate-evidence run yet. Track B’s R16/R18/R20 follow-up, mutation red runs, five-spec regression and positive/corrupt verifier checks remain pending.
+Final run: `BNZ_EVIDENCE_DIR=docs/evidence/phase-4 npm run e2e:live` at commit `78650f9ccd8d1a63fcc376698e79b8ce9600dc22`, window 2026-10-02T09:16:30.452Z–2026-10-02T10:02:10.909Z, exit 0, all 12 IDs PASS (`run.json`, `cli/`). The code equals R8 commit `2818af3c2816083c96531160e6ddba1ab3c532c5` (R26.5): `git diff 2818af3 HEAD -- . ':!docs'` was empty at run time (`tmp/e2e/takeover-regression4-samecode.txt`, 0 bytes). This run supersedes the e8dc402 evidence recorded in 3f60e54, which predates the R6 expiry-364 default and is preserved in git history. Artifact commit `091e927`.
 
-| Item | Current observation |
+## Gates
+
+| Gate | Evidence |
 |---|---|
-| O/P/Q/T | Development 6a3f9e7, 2026-10-01 17:07:19–17:52:08 UTC: O1/O2/P1/Q1/T1–T5 PASS; P2 FAIL because B commands reject R20 flags |
-| R | R1 FAIL, usage exit 2; B follow-up required |
-| S | S1 PASS in development; final merged evidence pending |
-| Verifier/mutations/regression | Pending |
+| O operator lifecycle | O1, O2 PASS (published `result` and `freeze_root` match the pure clear) |
+| P bidder | P1, P2 PASS (flipped manifest refused, 128-byte sealed bid at C, receipt/verify agreement) |
+| Q signers | Q1 PASS (2-of-3 with a third signer offline) |
+| R independent verify | R1 PASS; `verify.sh` positive exit 0, corrupted copy exit 1 |
+| S read API | S1 PASS (operator blobs + C only; result matches; flipped manifest refused) |
+| T R4 carry-overs | T1–T5 PASS (strays settled, no recipient data, expired batch recovery, signer-derived amounts, runtime pair) |
 
-Development command: `npm run e2e:live`; log `tmp/e2e/phase4-cli-development-v5.log`; generated artifacts `tmp/e2e/phase4-cli-development-v5-artifacts/`. These are development observations, not gate evidence.
+## R8 regression: all five specs at one commit (R26)
 
-R6 sample: ten admitted bids plus two strays and seller; 13 monetary outputs, 11 distinct destinations, 14 actions, 70,000-zat network fee. Bob+Carol signed; Alice did not join. Replacement 771b775acf7d5932ed77a6713f9b0d88c5c65f91bf60b181d76e93782c189996 mined at 4429234, checked on both endpoints. Normal signing: 13 randomizers, 484,697 ms total, 40,705 ms worst, seven blocks from proposal target to mining. Including deliberate expiry/suspension: 1,115,133 ms signing, 174,032 ms worst randomizer, 23 blocks. Per-randomizer values are in generated `cli/drill.json`. Carol paused at 4429211 before expiry 4429215 and resumed at 4429216; first batch became exception and all 13 obligations re-planned without duplicate receipts.
+| Spec | Result | Record |
+|---|---|---|
+| default seal-open | PASS 40 s | `tmp/e2e/takeover-regression3-default.log` @ 2818af3 |
+| testnet-golden-path | PASS 562 s (B1, D1–D3, A1–A5) | `tmp/e2e/takeover-regression3-live-artifacts/run.json` @ 2818af3 |
+| auction-core | PASS 2854 s (E1, E2, F1, F2, G1–G3, H1–H4, I1) | `tmp/e2e/takeover-regression4-live-artifacts/run.json` @ 78650f9 |
+| settle-crash | PASS 1726 s (J1, J2, K1, L1, M1, N1) | same run.json |
+| cli-auction | PASS 2739 s (12 IDs) | `run.json` here @ 78650f9 |
 
-Expiry decision (R6 update after the clean run): the e8dc402 normal batch signed 13 randomizers in 479,155 ms (worst 37,612 ms), with 14 actions and 70,000-zat fee, and took 171 blocks from proposal target 4431363 to mining 4431534. The expired candidate's worst randomizer was 294,015 ms including deliberate suspension; the complete two-candidate drill advanced 226 blocks. Retain the historical Phase 3 bound of 60 blocks for five outputs. Let `b = max(ceil(60/5), ceil(171/13)) = 14` observed blocks per recipient, and `expiry_blocks(n) = 2*n*b = 28*n`. At measured cap **13**, normal expiry is **364 blocks**, exceeding 2×171. Cap 13 remains the largest measured size. The prior 312-block default did not retain 2× margin for the final run and is superseded. Short expiry 4 remains an ordinary operator-config value for the recovery drill. This is a one-host observed bound, not a network latency guarantee. Actual PCZT expiry is checked against NU7 height 4465026 before SDK PCZT creation and broadcast. Final evidence and regression after this update remain pending.
+## Mutations (red runs under docs/evidence/phase-4/mutations/)
 
-Decisions: CLI `bin/benzo`; SQLite settlement ledger plus private auction/product JSON under BNZ_STATE_DIR; signed canonical public `auction.json` and projections; API local bind 127.0.0.1:8787. After R, public openings/beacon are permitted by R16. Public receipts contain only auction_id, party, txid, pool, output_index and amount_zats. Sign inspectors derive fresh Go-tle openings and clearing amounts using pinned private routing; joins bind their prior approval to candidate/digest/randomizer.
+U1 red at T1 (`U1-t1.out`, accepted by R24; `U1.out` records the O2 variant), U2 red at S1, U3 red at R1, U4 red at T4, U5 red at T1 (`U5-expiry.out` repeated after the expiry-364 default). Carry-overs: N1 red at E1 (`N1-regression.out`, I1 collateral was the R22/R25 harness issue), P1 red at L1 (`P1-expiry.out` repeated after expiry-364). Patches are the committed `*.patch` files; each run reversed its patch on a clean tree.
 
-Limits: testnet and CLI only; public endpoints and drand threshold trust; one operator holds all three dealerless FROST shares; per-signer check processes are started by the coordinator on one host and participants auto-confirm; one wallet plays all bidders and seller; private pre-pinned routing does not authenticate an encrypted settlement envelope; zero auction fees; finite expiry distinguishes transactions on chain; public verification checks accounting without revealing refund addresses, while this evidence verifier uses local viewing keys for chain-note amount recovery. No frontend or mainnet work.
+## verify.sh
+
+`docs/evidence/phase-4/verify.sh docs/evidence/phase-4` exit 0: OK O/P, T1/T4/accounting, Q/T3/T5, T2/S, R, run (`tmp/e2e/phase4-final-verify-positive.log`). Corrupted copy (`tmp/e2e/phase4-final-corrupt`, +1 zat on one settlement row) exit 1: `ERROR T1/T4/accounting ledger amount differs from independent clearing/chain`, `ERROR run file hash cli/auction.json`, and `benzo verify` independently refuses (`ERROR accounting-strays … amount`) (`tmp/e2e/phase4-final-verify-negative.log`). Original artifacts untouched.
+
+## Decisions
+
+CLI `bin/benzo` over a `cli/benzo.ts` router (R12/R17); SQLite settlement ledger plus private product JSON under `$BNZ_STATE_DIR`; signed canonical public `auction.json` with projections (`schemas/public-auction.schema.json`); API bound 127.0.0.1:8787 (R11/R18), started by `benzo api serve`. Post-R openings and the drand beacon are public by R16. Settlement receipts hold only `{auction_id, party, txid, pool, output_index, amount_zats}` (T2). Measured batch cap 13 with expiry formula `28*n` blocks (364 at cap; R6), short expiry 4 only for the recovery drill; PCZT expiry checked against NU7 height 4465026 before creation and broadcast (R7). Zero auction fees; network fees come from the fee reserve (R2). The fee-reserve guard refuses mismatches (R25: product guard stays; harness calibrates from the notes the refund actually spends).
+
+## Limitations
+
+Testnet and CLI only: no UI, no mainnet. One machine, public endpoints, drand threshold trust. One operator holds all three dealerless FROST shares; per-signer check processes are started by the coordinator on one host and participants auto-confirm. One wallet plays all bidders and the seller. Private pre-pinned routing does not authenticate an encrypted settlement envelope. Zero auction fees; a finite PCZT expiry makes settlement transactions distinguishable on chain. Public verification checks accounting without refund addresses, while `verify.sh` recovers note amounts with local viewing keys. Sample auction: the cli-auction drill (ten admitted bids plus two strays and the seller; 13 monetary outputs at the measured cap 13; one expired batch recovered live). Final balances after the head's 0.1 TAZ transfer to Track B (R27): bidder 84,932,820 zats spendable at tip 4432745, vault 0.
