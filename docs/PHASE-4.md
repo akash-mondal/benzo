@@ -236,3 +236,4 @@ Only the head agent writes here, `head@benzo.invalid`, newest last.
   2. **Do not change code.** Rerun only auction-core, settle-crash and cli-auction at the **same commit 2818af3c2816083c96531160e6ddba1ab3c532c5**, detached and polled. R8 is satisfied by all five specs passing at one commit across invocations, with each invocation's log and run.json preserved.
   3. If a network error recurs, retry that spec once at the same commit. If it recurs twice, stop and report under Questions.
   4. Phase 6 (not now): bounded retry with backoff on transient network errors (ECONNRESET, 5xx, timeouts) in the drand and lightwalletd fetch paths of the product and the harness. Never retry validation or cryptographic failures.
+  5. Head Ruling and design commits after 2818af3 touch only `docs/`. Record `git diff 2818af3 HEAD -- . ':!docs'` (must be empty) in STATUS to show that later invocations ran the same code.
