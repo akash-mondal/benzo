@@ -9,7 +9,7 @@ import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat} from "../manifest/schema";
 import {requireReserveOpening,tleOpening} from "../manifest/reserve";
-import {validEnvelope} from "./envelopes";
+import {validEnvelope,ENVELOPE_INTERIM_REFUSAL} from "./envelopes";
 import {checkFrozen} from "../clear/merkle";
 import {modeEntry} from "../clear/registry";
 import type {Obligation} from "./ledger";
@@ -48,9 +48,9 @@ try {
   const depositNotes=notes.filter(n=>m.deposit_addresses.includes(n.address)&&(!n.spent_in_txid||owned.has(n.spent_in_txid)));
   const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
   const stray=depositNotes.filter(n=>!src.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
-  const exceptions=stray.filter(n=>!confirmed(n)).map(n=>({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)}));
-  const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[];
-  let result_hash:string|null=null;
+  const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=stray.filter(n=>!confirmed(n)).map(n=>({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)}));
+  const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[];
+  let result_hash:string|null=null,opened:any[]|null=null;
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
     requireThat(!src.opened,"cancelled plan has opened bids");
     for(const n of depositNotes.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
@@ -60,7 +60,7 @@ try {
     checkFrozen(src.frozen,id,manifest_hash);
     requireThat(Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"settlement before release");
     const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
-    const opened=src.frozen.leaves.map((leaf:any)=> {
+    opened=src.frozen.leaves.map((leaf:any)=> {
       requireThat(depositNotes.some(n=>n.txid===leaf.deposit.txid&&n.address===leaf.deposit.address&&confirmed(n)&&String(n.value_zats)===m.C_zats),"frozen deposit missing or spent; resume needs mined-batch reconciliation");
       const ct=path.join(dir,`${leaf.leaf_index}.age`),pt=path.join(dir,`${leaf.leaf_index}.bin`);
       writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
@@ -74,7 +74,14 @@ try {
       }
       return {leaf_index:leaf.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
     });
-    if(published)requireThat(jsonBytes(opened).equals(jsonBytes(published.opened)),"published opening differs from fresh decryption");
+    if(published) {
+      requireThat(jsonBytes(opened).equals(jsonBytes(published.opened)),"published opening differs from fresh decryption");
+      // R7 (Reviewer R F-3 = Reviewer G G1): the coordinator's private ledger is never a source — it is only
+      // cross-checked against the signer's own fresh tle openings and the published envelope records, and any
+      // difference refuses settlement before any destination is resolved or signature is asked for.
+      requireThat(jsonBytes(auction.opened??null).equals(jsonBytes(opened)),"private ledger opening differs from signer-derived opening");
+      requireThat(jsonBytes(auction.envelopes??[]).equals(jsonBytes(published.envelopes??[])),"private ledger envelope records differ from published records");
+    }
     // R6 (F2): the sealed reserve is re-derived here with the pinned Go tle and must equal the
     // published opening; a forged opening is refused before any signature.
     const derivedReserve=src.manifest.sealed_reserve!==undefined?tleOpening(path.join(state,"bin","tle"),src.manifest.drand.chain_hash,src.manifest.sealed_reserve):null;
@@ -88,13 +95,19 @@ try {
     result_hash=hash(fresh);
     for(const [party,amount] of modeEntry(src.manifest).obligations(result)) {
       const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
-      // R6 (W): a bid with no valid owner-signed envelope is still cleared normally, but its refund goes to the
-      // exception queue; funds are never paid to an unauthenticated destination (design phase5-part1-live §4).
-      if(published&&party.startsWith("leaf:")&&!validEnvelope(src,Number(party.slice(5))))exceptions.push(row);else obligations.push(row);
+      // R6 (W) + R7 items 2/3: a product-mode bid's refund destination comes only from its owner-signed
+      // settlement envelope. With no valid record the row goes to the exception queue; while Track B's
+      // multi-recipient envelope format is unmerged, even a valid envelope destination is refused with a clear
+      // error — never paid from an operator-held key — and waits in the queue for an owner-signed claim.
+      if(published&&party.startsWith("leaf:")) {
+        const reason=validEnvelope(src,Number(party.slice(5)))?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+        refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
+        exceptions.push({...row,reason});
+      } else obligations.push(row);
     }
   }
   if(!["CANCELLED","REFUNDING"].includes(src.state))for(const n of stray.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,obligations,exceptions,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

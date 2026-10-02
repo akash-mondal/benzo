@@ -1,0 +1,22 @@
+commit 99a4ac8 (source at run time, pre-fix; live plan check on dev auction a9f56d6c…)
+utc 2026-10-02T19:02:07Z
+command node tools/repro/r7-2-envelope-keys-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961
+K5 signer alice keygen: refused ERROR usage unknown command; run benzo --help
+K5 signer bob keygen: refused ERROR usage unknown command; run benzo --help
+K5 signer carol keygen: refused ERROR usage unknown command; run benzo --help
+K5 signer alice private key file absent
+K5 signer bob private key file absent
+K5 signer carol private key file absent
+K1 product create with envelope_keys pinned: refused ERROR benzo refused: unknown or missing manifest field
+K2 product create without envelope_keys: accepted o_rata_units","dust":"ascending_leaf_index","tie":"ascending_leaf_index","minimum_fill":1},"refund":{"invalid":"full_C","reorg":"C_minus_fee_remove_leaf","cancel":"full_C"},"freeze":"merkle_root_v1"}}
+K3/K4 flow uses auction f5f83d3d9178d96c94f4d1863049ac04550b95b02aea224634592f7cebaf3076
+K3 publish: accepted 00506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891"},"state":"OPEN","receipts":[],"envelope_pubkey":"4992732a82b6cef0a6dd73df4e98928e2181709f1f35606380f867efe7431d0f"}
+K3 operator envelope private key file PRESENT (leak)
+K3 signer envelope key copies in settle dir 3 of 3
+K3 publish output carries envelope_pubkey PRESENT (unauthenticated distribution)
+K4 bid seal with a substituted (unpinned) key: accepted 31741d82cdbc8715d1876aceff844d0aa4ba5cd4c05afe0fb0d83563ab2ae0740a23a7d65497e6d3d26435b6cffd8368d74cf2c27b5970e91b1b2fd38b44f75edad94ddacdc33a2076c5e3157fafecb01d54e0a51fd05598352217f9ab200757b8e955"}
+K4 bid seal with a pinned key: accepted 52fc9574bca242b429433fae309396e51755beb7a00ae85269f05a19148480865e5b899fd1f69ca2a2f86e39c19a14894dc6a47e6508d1ded2d05478d4c180aabd6ec6cdc7f1b02de5ee731a842c7636f0070e040cb803bff2cd81c1ef4b86f789170d"}
+K6 plan exit 0
+
+K6 obligations: ["leaf:0","leaf:1","seller"]
+K6 exceptions: [{"party":"leaf:2","reason":null}]

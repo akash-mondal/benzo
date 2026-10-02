@@ -1,0 +1,9 @@
+commit 5296081cb630ae5e10a4241a28cd6ec03e5ae443
+start_utc 2026-10-02T17:23:24Z
+end_utc 2026-10-02T17:23:53Z
+command BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction
+expected ERROR T1
+run.json -> tmp/e2e/out
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (25 s)
+run failed; details in tmp/e2e/report.json
+exit 1

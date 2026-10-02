@@ -1,0 +1,10 @@
+commit 27ee4b3 (fix applied; same live auction state, both documents restored after each run)
+utc 2026-10-02T19:16:43Z
+command node tools/repro/r7-3-exception-queue-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961
+intake shape check (odd-length ct): refused
+intake shape check (572-byte box):  accepted
+plan exit 0
+obligations: ["seller"]
+exceptions: [{"party":"leaf:0","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:1","reason":"multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used"},{"party":"leaf:2","reason":"no valid owner-signed settlement envelope"}]
+FIXED: the plan completed with leaf:0 in the exception queue (no valid owner-signed settlement envelope) while every other party stayed payable.
+restored both documents; outcome FIXED

@@ -1,0 +1,7 @@
+commit be2cd8c (fix applied; same live auction state, ledger restored after the before-run)
+utc 2026-10-02T18:51:58Z
+command node tools/repro/r7-1-ledger-redirect-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961 bob
+F-1 CONFIRMED: operator state a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961.envelope.json holds the envelope private key; it decrypts leaf 0's destination [redacted address 831791cddf]
+FIXED: the settlement worker refused the tampered private ledger (ERROR settle node exited 1: ERROR settle refused: private ledger opening differs from signer-derived opening
+ERROR benzo settle exit 1).
+restored a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961.json; outcome FIXED

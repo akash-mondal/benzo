@@ -6,6 +6,7 @@ import {client, hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed}
 import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, type Receipt} from "./merkle";
 import type {ClearResult, Opened} from "./core";
 import {clearForMode} from "./registry";
+import {envelopeRecordShape} from "../settle/envelopes";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
@@ -71,8 +72,12 @@ try {
         ledger.leaves.push({...receipt,ciphertext_hex:ct}); const signed=signRecord(receipt,readFileSync(key,"utf8")); ledger.receipts.push(signed); result={replay:false,receipt:signed};
         // R6 (W): the owner-signed settlement envelope record is admitted with the bid and published; its
         // plaintext destination never leaves the bidder's client (design phase5-part1-live §4).
-        if(input.envelope_ct_hex!==undefined) {
-          requireThat(typeof input.envelope_ct_hex==="string"&&/^[0-9a-f]+$/.test(input.envelope_ct_hex)&&typeof input.owner_sig_hex==="string"&&/^[0-9a-f]{128}$/.test(input.owner_sig_hex),"envelope record shape");
+        // R7 item 3 (R F-4 = G3): the envelope record has one fixed shape (the 572-byte sealed box + owner
+        // signature), checked here at intake with the same shared rule settlement uses, so a malformed record
+        // can never enter a published directory. A bid carrying no envelope (empty/absent fields) is admitted
+        // without a record; its refund is handled by the exception queue.
+        if(input.envelope_ct_hex) {
+          requireThat(envelopeRecordShape(input.envelope_ct_hex,input.owner_sig_hex),"envelope record shape");
           (ledger.envelopes??=[]).push({ciphertext_hash,envelope_ct:input.envelope_ct_hex,owner_sig:input.owner_sig_hex});
         }
       }

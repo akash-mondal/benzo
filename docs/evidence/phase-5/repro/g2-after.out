@@ -1,0 +1,14 @@
+commit 27ee4b3 (fix applied; same caveat as g2-before.out)
+command node tools/repro/g2-envelope-crash-not-exception.mjs
+a1) intake-shape check (admit)      : returned true
+a2) validEnvelope (plan exception?): THROWS "refused: key/signature hex"
+a3) envelopeRecipient (signer/dest): THROWS "refused: key/signature hex"
+b1) validEnvelope (plan exception?): returned {"ciphertext_hash":"ebb5ff8e0a05c0e9837057d3384e305a362f2f19
+b2) envelopeRecipient (signer/dest): returned null
+c1) validEnvelope (plan exception?): returned {"ciphertext_hash":"ebb5ff8e0a05c0e9837057d3384e305a362f2f19
+c2) envelopeRecipient (signer/dest): returned null
+
+In all three cases the row is NOT exception-queued by settle/plan.ts (validEnvelope neither returns false
+nor is the decryptability ever probed there); the throw escapes to the process boundary, so ONE such bid
+halts the entire settlement (all refunds, the seller payout, stranded in the FROST vault) until someone
+edits state by hand.
