@@ -64,25 +64,64 @@ const operatorRouting = {
   fee_reserve_ua: "utest1" + hash("r-repro3-operator-reserve-ua").slice(0, 50),
 };
 
-// --- run the shipped intake path ------------------------------------------------------
+// --- run the shipped intake path in PRODUCT mode ---------------------------------------
+// Product mode (a product config exists) refuses operator-pinned bidder destinations: those are
+// envelope-authenticated (R6). The repro posts the pre-W routing carrying bidders[].refund_ua.
+const { generateEnvelopeKey, generateOwnerKey, sealEnvelope, signEnvelope, settlementCommitment } = await import(path.join(TRACKB, "envelope/dist/index.mjs"));
+const { envelopeRecipient } = await import(path.join(TRACKB, "settle/dist/envelopes.mjs"));
 mkdirSync(path.join(STATE, "auction"), { recursive: true });
+mkdirSync(path.join(STATE, "product"), { recursive: true });
 writeFileSync(path.join(STATE, "auction", auction_id + ".json"), jsonBytes({ manifest: packet, signer, state: "OPEN", receipts: [] }));
+writeFileSync(path.join(STATE, "product", auction_id + ".json"), jsonBytes({ settlement: { signers: ["alice", "bob", "carol"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: operatorRouting, public_dir: path.join(TRACKB, "tmp/e2e/public") }));
+const envelopeKey = generateEnvelopeKey();
+writeFileSync(path.join(STATE, "product", auction_id + ".envelope.json"), jsonBytes(envelopeKey));
 const r = spawnSync(process.execPath, [path.join(TRACKB, "settle/dist/cli.mjs"), "init", auction_id], { input: JSON.stringify(operatorRouting), encoding: "utf8", cwd: TRACKB });
 console.log("settle init exit:", r.status);
-console.log("settle init stdout:", (r.stdout || "").trim());
-if (r.status !== 0) { console.error("init refused:", (r.stderr || "").trim()); process.exit(1); }
+console.log("settle init stderr:", (r.stderr || "").trim().split("\n").slice(-1)[0]);
+const initRefused = r.status !== 0 && /bidder destinations are envelope-authenticated/.test(r.stderr || "");
+console.log("unauthenticated bidder routing refused by init:", initRefused);
 
-const pinned = JSON.parse(readFileSync(path.join(STATE, "settle", auction_id, "routing-alice.json"), "utf8"));
-const mismatch = pinned.bidders[0].refund_ua !== envelopeDestination;
-console.log("\npinned routing bidders[0].refund_ua:", pinned.bidders[0].refund_ua);
-console.log("bidder's owner-signed envelope destination:", envelopeDestination);
-console.log("mismatch accepted by init:", mismatch);
-console.log("routing files written for signers:", ["alice", "bob", "carol"].map((n) => existsSync(path.join(STATE, "settle", auction_id, `routing-${n}.json`))).join(","));
-
-// --- second half: no settlement artifact can even open an envelope --------------------
+// --- settlement bundles open envelopes --------------------------------------------------
 const bundles = ["settle/dist/cli.mjs", "settle/dist/plan.mjs", "cli/dist/benzo.mjs"].map((f) => path.join(TRACKB, f));
 const hits = bundles.filter((f) => existsSync(f) && /openEnvelope/.test(readFileSync(f, "utf8")));
-console.log("\nsettlement bundles containing any envelope-opening code:", hits.length === 0 ? "NONE" : hits.join(","));
-if (mismatch && hits.length === 0)
-  console.log("\nF3 CONFIRMED: init pinned operator routing that contradicts the owner-signed envelope, and no settlement code path can open/compare envelopes.");
-else { console.error("REGRESSION: expected mismatch with zero envelope-opening code"); process.exit(1); }
+console.log("\nsettlement bundles containing envelope-opening code:", hits.length ? hits.join(",") : "NONE");
+
+// --- signer boundary: the exact resolution the signer check applies ---------------------
+// Real shielded testnet UA (generated once with the pinned benzo-pczt); sealEnvelope enforces the
+// shielded-only validator, so the fixture is a genuine envelope, not a hand-rolled stand-in.
+const owner = generateOwnerKey();
+const nonce = hash("r-repro3-nonce").slice(0, 32);
+const envelopeUa = "utest1redacted";
+const envelopeCt = sealEnvelope(envelopeUa, envelopeKey.public_hex);
+const commitment = settlementCommitment(nonce, envelopeCt);
+const ciphertextHash = hash("r-repro3-ciphertext");
+const pt = Buffer.alloc(128); // docs/PHASE-1.md section 6 layout: nonce@45, owner@61, commitment@93
+Buffer.from(nonce, "hex").copy(pt, 45);
+Buffer.from(owner.public_hex, "hex").copy(pt, 61);
+Buffer.from(commitment, "hex").copy(pt, 93);
+const ownerSig = signEnvelope(owner, manifest.auction_id, ciphertextHash, envelopeCt);
+const doc = {
+  manifest: packet,
+  frozen: { leaves: [{ leaf_index: 0, ciphertext_hash: ciphertextHash, deposit: { txid: hash("r-repro3-txid"), pool: "ironwood", address: d1, diversifier_index: "0" } }] },
+  opened: [{ leaf_index: 0, plaintext_hex: pt.toString("hex") }],
+  envelopes: [{ ciphertext_hash: ciphertextHash, envelope_ct: envelopeCt, owner_sig: ownerSig }],
+};
+const substituted = "utest1" + hash("r-repro3-operator-theft-ua").slice(0, 50);
+
+const derived = envelopeRecipient(doc, 0, envelopeKey.private_hex, substituted);
+console.log("\nenvelope-derived destination:", derived);
+console.log("coordinator-pinned substitute:", substituted);
+const envelopeWins = derived === envelopeUa && derived !== substituted;
+const missing = envelopeRecipient({ ...doc, envelopes: [] }, 0, envelopeKey.private_hex, substituted);
+console.log("missing envelope resolves to:", missing);
+const refusedWhenMissing = missing === null;
+
+if (envelopeWins && refusedWhenMissing && initRefused && hits.length > 0) {
+  console.log("\nF3 FIXED: init refuses unauthenticated bidder routing, and signers derive destinations only from owner-signed envelopes, refusing any output when the envelope is missing.");
+} else {
+  if (missing !== null) console.log("ERROR 5M2 signer accepts a recipient when the envelope is missing");
+  if (!envelopeWins) console.log("ERROR W2 envelope destination did not win over the coordinator substitute");
+  if (!initRefused) console.log("ERROR F3 init accepted unauthenticated bidder routing");
+  if (!hits.length) console.log("ERROR F3 settlement bundles cannot open envelopes");
+  process.exit(1);
+}

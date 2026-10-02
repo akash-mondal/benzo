@@ -9,6 +9,7 @@ import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat} from "../manifest/schema";
 import {requireReserveOpening,tleOpening} from "../manifest/reserve";
+import {validEnvelope} from "./envelopes";
 import {checkFrozen} from "../clear/merkle";
 import {modeEntry} from "../clear/registry";
 import type {Obligation} from "./ledger";
@@ -85,7 +86,12 @@ try {
       requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     } else requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     result_hash=hash(fresh);
-    for(const [party,amount] of modeEntry(src.manifest).obligations(result))obligations.push({party,kind:party==="seller"?"payout":"refund",amount_zats:amount});
+    for(const [party,amount] of modeEntry(src.manifest).obligations(result)) {
+      const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
+      // R6 (W): a bid with no valid owner-signed envelope is still cleared normally, but its refund goes to the
+      // exception queue; funds are never paid to an unauthenticated destination (design phase5-part1-live §4).
+      if(published&&party.startsWith("leaf:")&&!validEnvelope(src,Number(party.slice(5))))exceptions.push(row);else obligations.push(row);
+    }
   }
   if(!["CANCELLED","REFUNDING"].includes(src.state))for(const n of stray.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   obligations.sort((a,b)=>a.party.localeCompare(b.party));

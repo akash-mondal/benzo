@@ -58,7 +58,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const id=randomBytes(32).toString('hex'),now=Math.ceil(Date.now()/1000),release=now+24*60,R=1+Math.ceil((release-Number(env('BNZ_DRAND_GENESIS')))/3);
     const deposit=Array.from({length:10},()=>fresh('vault')),refund=Array.from({length:11},()=>fresh('bidder')),reserve=fresh('vault');
     const privateDir=path.join(STATE,'run',`cli-${id}`),publicDir=path.join(ROOT,'tmp/e2e/public',id);mkdirSync(privateDir,{recursive:true});
-    const operator={settlement:{signers:['bob','carol'],batch_cap:13,pczt_expiry_blocks:4},routing:{bidders:deposit.map((deposit_ua,i)=>({deposit_ua,refund_ua:refund[i]})),seller_ua:refund[10],fee_reserve_ua:reserve}};
+    const operator={settlement:{signers:['bob','carol'],batch_cap:13,pczt_expiry_blocks:4},routing:{bidders:deposit.map((deposit_ua,i)=>({deposit_ua,stray_refund_ua:refund[i]})),seller_ua:refund[10],fee_reserve_ua:reserve}};
     const operatorFile=path.join(privateDir,'operator.json');writeFileSync(operatorFile,JSON.stringify(operator));
     const manifest={version:1,network:'test',auction_id:id,escrow_ua:deposit[0],frost_group_key:readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim(),lot:'CLI testnet auction',supply:3,reserve_zats:'10',tick_zats:'10',B_max_zats:'3000',q_max:1,C_zats:String(C),fee_zats:'0',deposit_addresses:deposit,drand:{chain_hash:env('BNZ_DRAND_CHAIN_HASH'),public_key:env('BNZ_DRAND_PUBLIC_KEY'),scheme:'bls-unchained-g1-rfc9380',genesis:Number(env('BNZ_DRAND_GENESIS')),period:3,R},T_submit:now+5*60,T_freeze:now+22*60,confirmations:10,clearing:{mode:'uniform',band:'floor_pro_rata_units',dust:'ascending_leaf_index',tie:'ascending_leaf_index',minimum_fill:1},refund:{invalid:'full_C',reorg:'C_minus_fee_remove_leaf',cancel:'full_C'},freeze:'merkle_root_v1'};
     const draft=good(['auction','create'],manifest),draftStatus=good(['auction','status','--id',id]),packet=good(['auction','sign','--id',id]);
@@ -68,14 +68,16 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const corrupted={...packet,bytes:Buffer.from(Buffer.from(packet.bytes,'base64').map((v:number,i:number)=>i===1?v^1:v)).toString('base64')};const corruptFile=path.join(privateDir,'flipped.json');writeFileSync(corruptFile,JSON.stringify(corrupted));
     const refused=cli(['bid','prepare','--manifest',corruptFile,'--signer',signer]);
     const prepared=good(['bid','prepare','--manifest',manifestFile,'--signer',signer]);
-    const price=100+10*randomBytes(1)[0],bids=deposit.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address}),address}));
+    // R6 (W): each bid seals its own refund destination to the per-auction settlement-envelope key (fixture
+    // values unchanged; destinations now travel owner-signed inside envelopes, never operator routing).
+    const price=100+10*randomBytes(1)[0],bids=deposit.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address,refund_ua:refund[i],envelope_pubkey:published.envelope_pubkey}),address}));
     const paid=good(['bid','deposit','--id',id,'--pay'],{bids,reserve:{address:reserve,amount_zats:'70000'}});console.log(`CLI funding ${paid.txid}`);
     await waitFor({round:1+Math.ceil((manifest.T_submit+1-Number(env('BNZ_DRAND_GENESIS')))/3)},(manifest.T_submit+60)*1000);
     // Real boundary fault: non-C and late unadmitted exact-C transfers to used escrow addresses.
     const strayUri='zcash:?'+new URLSearchParams({address:deposit[0],amount:((C+1)/1e8).toFixed(8),'address.1':deposit[1],'amount.1':(C/1e8).toFixed(8)});
     const strayTx=z.pay(strayUri);console.log(`CLI stray funding ${strayTx}`);
     await mature(paid.txid);await mature(strayTx);
-    const included=bids.map(b=>good(['bid','deposit','--id',id],{txid:paid.txid,address:b.address,envelope_hex:b.envelope_hex}));
+    const included=bids.map(b=>good(['bid','deposit','--id',id],{txid:paid.txid,address:b.address,envelope_hex:b.envelope_hex,envelope_ct_hex:b.envelope_ct_hex,owner_sig_hex:b.owner_sig_hex}));
     await run.check('P1','manifest flip refused, sealed bid framing and fixed collateral tracked',()=>{expect.soft(refused.code).not.toBe(0);expect.soft(refused.error).toContain('manifest byte hash');expect.soft(prepared.manifest_hash).toBe(packet.sha256);for(const b of bids){const memo=Buffer.from(b.envelope_hex,'hex');expect.soft(memo.length).toBe(512);expect.soft(memo.subarray(0,5).toString('hex')).toBe('ff424e5a01');expect.soft(b.round).toBe(R)}for(const r of included)expect.soft(r.C_zats).toBe(String(C));const notes=z.scanVault().filter(n=>n.txid===paid.txid&&deposit.includes(n.address!));expect.soft(notes.length).toBe(10);for(const n of notes)expect.soft(n.value_zats).toBe(C)});
 
     const frozen=good(['freeze','--id',id]);await waitFor({round:R},(release+60)*1000);
