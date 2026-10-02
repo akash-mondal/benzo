@@ -5,9 +5,11 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Phase 5, Track B run 8: IN PROGRESS
 
-Updated: 2026-10-02T03:55:33Z. Takeover at d8ed113 on track-b; clean initial tree. PHASE-5 R3/R4 author-checked (b709abd/71ec6eb). No owned services from this session; protected state/service files not read (Track B has no wallet/key access). Default E2E running in foreground/polled, `tmp/proof-logs/run8-baseline.out`. No added tests.
+Updated: 2026-10-02T03:55:33Z. Takeover at d8ed113 on track-b; clean initial tree. PHASE-5 R3/R4 author-checked (b709abd/71ec6eb). No owned services from this session; protected state/service files not read (Track B has no wallet/key access). Default E2E PASS (40s), `tmp/proof-logs/run8-baseline.out`. No added tests.
 
 1. Manifest serial block: `npm run typecheck` PASS, `tmp/proof-logs/drop-schema.out`; optional strict `{first,count,seed_round_offset}`, positive offset, multi-lot uniform only, safe range/round.
+
+2. `clear/serials.ts`: typecheck PASS; `node tmp/proof-serials.mjs` + independent Python hashlib/u64be reproduction PASS (3 winners, 10 serials, real quicknet round in `tmp/serial-input.json`), overflow refused specifically. Output `tmp/proof-logs/drop-shuffle.out`. Step 1 commit e70d8d8.
 
 ### Questions (run 8)
 
