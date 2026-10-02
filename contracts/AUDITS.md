@@ -20,9 +20,11 @@ EIP-712 digesting come from OpenZeppelin (`ECDSA` rejects high-`s` malleable sig
 
 | Dependency | Pin | Use | Audit status |
 |---|---|---|---|
-| `solana-program` | see `contracts/solana/Cargo.lock` | Program framework, instructions sysvar, Ed25519 program ID | Agave/Solana runtime crates carry audit history (Neodyme 2021, Halborn 2022 program-library reviews); the BPF loader and Ed25519 verify program are runtime built-ins. No audit found for the exact pinned revision — recorded honestly here |
-| `borsh` / serialization | none — hand-rolled fixed-length layout | Instruction + attestation encoding | n/a (design §1 "fixed byte layout") |
-| Ed25519 signature verification | native `Ed25519SigVerify1111111111111111111111111` program + instructions sysvar | 2-of-3 attestation checks | Native runtime program (not third-party code) |
+| `solana-program` | `=2.3.0` (`contracts/solana/Cargo.lock`) | Program framework, checked instructions sysvar, Ed25519 program ID, system-program CPI | Agave/Solana runtime crates carry audit history (Neodyme 2021, Halborn 2022 program-library reviews); the BPF loader and Ed25519 verify program are runtime built-ins. No public audit found for this exact crate revision — recorded honestly here |
+| `solana-keccak-hasher` | `=2.2.1` (`contracts/solana/Cargo.lock`) | keccak256 leaves/roots (same hash as the EVM side) | Same runtime-crate note as above |
+| serialization | none — hand-rolled fixed-length layout | Instruction + attestation encoding | n/a (design §1 "fixed byte layout"); offsets parsed with explicit bounds checks |
+| Ed25519 signature verification | native `Ed25519SigVerify1111111111111111111111111` program + instructions sysvar | 2-of-3 attestation checks | Native runtime program (not third-party code); offset semantics read from `anza-xyz/agave@v4.3.0:precompiles/src/ed25519.rs` |
+| solana-cli / `cargo-build-sbf` / `solana-test-validator` | `4.3.0` / `4.4.0` (platform-tools v1.57) | Build and local chain tooling | Tooling, not a runtime dependency |
 
 ## crosschain/ + cli (step 3)
 
