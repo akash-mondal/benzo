@@ -1,0 +1,14 @@
+commit 8a37993 + working tree with docs/evidence/phase-5/mutations/R7M1.patch applied (settle/cli.ts destinations() pays every refund to the operator routing sink)
+start_utc 2026-10-02T21:43:29.928Z
+end_utc 2026-10-02T22:31:37.121Z
+command BNZ_LIVE=1 npx playwright test --project=cli-auction
+expected ERROR T1
+--- last 30 lines ---
+npm notice run npx
+npm notice run 'playwright' test --project=cli-auction
+CLI funding 03ff30d80c4a8d5ef8b2c4216c8cbe9967b6d190446c243f7ad557fc965c0592
+CLI stray funding 67ebdbbf3e9d589878db2e7bafa1fb9b1b0738dbe84a4ae5b0f7cda5710755cf
+ERROR T1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 499790 | Received: 0
+run.json -> tmp/e2e/out
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (2886 s)
+run failed; details in tmp/e2e/report.json

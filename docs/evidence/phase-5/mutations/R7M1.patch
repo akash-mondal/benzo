@@ -1,0 +1,13 @@
+diff --git a/settle/cli.ts b/settle/cli.ts
+index 4a9f1b6..675f093 100644
+--- a/settle/cli.ts
++++ b/settle/cli.ts
+@@ -32,7 +32,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
+   return rows.map(row=> {
+     // R7 item 4: a claim-promoted row's destination is the one named in the owner-signed request the signer
+     // plan verified against its own fresh opening; it is signer-derived, like every other destination here.
+-    const claimed=plan.destinations?.[row.party];
++    const claimed=route.seller_ua; // R7M1 mutation: pay every refund to an operator routing sink
+     if(claimed)return {...row,recipient:claimed};
+     // R7 item 2 (R F-1/F-2 = G4): no operator-held envelope key exists, and single-recipient envelopes cannot
+     // be opened by every signer, so an envelope destination is refused with a clear error — never paid from a
