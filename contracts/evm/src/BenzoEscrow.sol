@@ -145,6 +145,10 @@ contract BenzoEscrow is ReentrancyGuard {
     /// @dev Fee-on-transfer (and any token that delivers less than `amount`) is refused: the
     /// received balance is measured around `safeTransferFrom` and the lock reverts unless the
     /// delta equals `amount`, so no auction can be underfunded and drain a pooled peer (F5).
+    /// `nonReentrant` and effects-before-interactions (R9 item 4): the auction state is written
+    /// before any external call (a token callback — `balanceOf` or `transferFrom` — already sees
+    /// `exists == true`), and the delta check still measures around the transfer and reverts —
+    /// rolling those writes back — unless the received balance grew by exactly `amount`.
     /// @param signers the per-auction attestation signer set (design §1: keys rotate per auction).
     function lock(
         bytes32 auctionId,
@@ -155,7 +159,7 @@ contract BenzoEscrow is ReentrancyGuard {
         uint64 deadline,
         address[3] calldata signers,
         address payable returnTo
-    ) external payable {
+    ) external payable nonReentrant {
         if (standardLot == 0 || amount == 0 || amount % standardLot != 0) revert BadParameters();
         if (deadline < lockUntil) revert BadParameters();
         if (returnTo == address(0)) revert BadParameters();
@@ -166,18 +170,9 @@ contract BenzoEscrow is ReentrancyGuard {
         Auction storage a = auctions[auctionId];
         if (a.exists) revert AlreadyLocked();
         if (block.timestamp > lockUntil) revert LockClosed();
+        if (asset == address(0) ? msg.value != amount : msg.value != 0) revert BadParameters();
 
-        if (asset == address(0)) {
-            if (msg.value != amount) revert BadParameters();
-        } else {
-            if (msg.value != 0) revert BadParameters();
-            uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
-            IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
-            uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
-            // F5: revert unless the escrow's balance grew by exactly `amount`
-            if (balanceAfter < balanceBefore || balanceAfter - balanceBefore != amount) revert BadParameters();
-        }
-
+        // effects before interactions (R9 item 4): written before the token calls below
         a.returnTo = returnTo;
         a.asset = asset;
         a.standardLot = standardLot;
@@ -189,6 +184,16 @@ contract BenzoEscrow is ReentrancyGuard {
         a.signer1 = signers[1];
         a.signer2 = signers[2];
         a.exists = true;
+
+        if (asset != address(0)) {
+            uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
+            IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+            uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
+            // F5: revert unless the escrow's balance grew by exactly `amount` (reverts roll back
+            // the state written above)
+            if (balanceAfter < balanceBefore || balanceAfter - balanceBefore != amount) revert BadParameters();
+        }
+
         emit Locked(auctionId, returnTo, asset, amount, standardLot, lockUntil, deadline, signers[0], signers[1], signers[2]);
     }
 

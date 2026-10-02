@@ -5,12 +5,13 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R10 item 1 + R9 items 1–4 + live cycles (the head's 6-item list)
 
-State: **IN PROGRESS** (items 1–4 landed; updated 2026-10-02T21:40Z). Base: clean tree at
+State: **IN PROGRESS** (items 1–5 landed; updated 2026-10-02T21:44Z). Base: clean tree at
 `dc5ea63` (head: merge main into track-b; R9/R10 in `docs/PHASE-5.md`). One commit per item,
 each with a red log on the pre-change code and a green log after: `79aed9e` (item 1, R10
 envelope key commitment + exact recipient set), `aff0c6b` (item 2, R9 Solana `layout_version` +
-new program ID), `88c1772` (item 3, R9 `xchain attest` asset from chain), and this commit
-(item 4, R9 EVM attest-once/release-many). Scope: the head's list in order — (1) R10 item 1 envelope
+new program ID), `88c1772` (item 3, R9 `xchain attest` asset from chain), `e26de7f` (item 4,
+R9 EVM attest-once/release-many), and this commit (item 5, R9 `lock` nonReentrant +
+effects-before-transfer). Scope: the head's list in order — (1) R10 item 1 envelope
 key commitment; (2) R9 item 1 Solana layout version + fresh devnet program ID; (3) R9 item 2
 `benzo xchain attest` asset from chain; (4) R9 item 3 EVM attest-once/release-many + forge
 red/green; (5) R9 item 4 EVM `lock` nonReentrant + effects-before-transfer + forge proof;
@@ -149,6 +150,24 @@ merge/rebase/cherry-pick/push.
    `--only 0` on EVM, `--only 1,2` on Solana), reports status, refuses a resubmitted batch on
    both chains (`demo-replay-refused`, now via `--submit-only`) and refunds. `npm run typecheck`
    PASS.
+
+5. **R9 item 4 (P2), `lock` is `nonReentrant` with effects before the external call: DONE**
+   (this commit). `BenzoEscrow.sol` `lock`: marked `nonReentrant` (OpenZeppelin `ReentrancyGuard`)
+   and the whole auction state (`returnTo` first) is written **before** the fee-token calls the
+   delta check requires; the delta check still measures around `safeTransferFrom` and reverts —
+   rolling the writes back — unless the received balance grew by exactly `amount`, so the F5
+   protection is unchanged (wherever the delta check allows, per the Ruling).
+   Tests (`contracts/evm/test/LockReentry.t.sol`, a token whose hooks are the probes):
+   `test_lock_effects_before_transfer` — the token's `balanceOf` (the escrow's first external
+   call in `lock`) refuses unless the auction state is already written, so the lock landing at
+   all proves effects-before-interactions; `test_lock_reentrancy_refused` — during `transferFrom`
+   the escrow is called to lock a second (native, self-funded) auction and the inner lock must
+   never land.
+   **Red on the pre-fix contract** — `contracts/logs/r9-4-lock-old-code.out` (exit 1):
+   `FAIL: StateNotWritten()` (a token callback observed an unwritten auction — the writes were
+   after the calls) and `FAIL: re-entrant lock must be refused` (the re-entrant lock landed).
+   **Green after** — `contracts/logs/r9-4-lock-fixed.out` (exit 0): 28/28 forge tests (26 prior
+   + the 2 new). `npm run typecheck` PASS.
 
 ### Questions (this run)
 
