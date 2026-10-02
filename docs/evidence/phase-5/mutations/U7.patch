@@ -1,0 +1,11 @@
+--- a/manifest/reserve.ts
++++ b/manifest/reserve.ts
+@@ -26,7 +26,7 @@ export function requireReserveOpening(
+     requireThat(publishedOpening === null || publishedOpening === undefined, "reserve opening without sealed reserve");
+     return null;
+   }
+-  requireThat(derived !== null && publishedOpening === derived, "reserve opening published differs from re-derived");
++  requireThat(derived !== null, "reserve opening published differs from re-derived"); // U7: accepts any published opening
+   if (tleDerived !== undefined) requireThat(tleDerived === derived, "reserve opening tle differs");
+   return derived!;
+ }
