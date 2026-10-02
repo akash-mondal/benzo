@@ -17,7 +17,7 @@ function destinations(rows:Row[],name:string) {
   // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
   // with the signer's own key; operator routing pins only the non-bid sinks (seller, stray refunds).
   const product=existsSync(path.join(STATE,"product",`${id}.json`));
-  const envelopeKey=product?read(file(`envelope-${name}.json`)).private_hex:null;
+  const envelopeKey=product?JSON.parse(readFileSync(file(`envelope-${name}.json`),"utf8")).private_hex:null;
   return rows.map(row=> {
     if(product&&row.party.startsWith("leaf:")) {
       const index=Number(row.party.slice(5)),address=a.frozen.leaves[index].deposit.address;
@@ -140,7 +140,7 @@ try {
     requireThat(new Set([...routing.bidders.map((b:any)=>b[field]),routing.seller_ua]).size===routing.bidders.length+1,"unique party destinations");
     requireThat(!existsSync(file("routing-commitment.json")),"routing already pinned");
     for(const n of ["alice","bob","carol"])writeFileSync(file(`routing-${n}.json`),jsonBytes(routing),{mode:0o600});
-    if(product) {const ek=read(path.join(STATE,"product",`${id}.envelope.json`));for(const n of ["alice","bob","carol"])writeFileSync(file(`envelope-${n}.json`),jsonBytes({private_hex:ek.private_hex}),{mode:0o600});}
+    if(product) {const ek=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.envelope.json`),"utf8"));for(const n of ["alice","bob","carol"])writeFileSync(file(`envelope-${n}.json`),jsonBytes({private_hex:ek.private_hex}),{mode:0o600});}
     writeFileSync(file("routing-commitment.json"),jsonBytes({sha256:hash(jsonBytes(routing)),pinned_at:Date.now()}),{mode:0o600});
     process.stdout.write(jsonBytes(read("routing-commitment.json")));
   } else {
