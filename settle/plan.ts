@@ -1,11 +1,15 @@
-// Signer-side monetary plan: fresh chain observations and Go tle, then the shipped pure clearing CLI.
-// Recipient authorization is a separate prerequisite; this entry point never signs or broadcasts.
+// Signer-side monetary plan: fresh chain observations and Go tle, then the shipped pure clearing CLI (which
+// dispatches through clear/registry.ts). F8 (R28): in the product flow the signer recomputes from the PUBLISHED
+// auction.json (manifest, frozen, opened, beacon) and refuses if the coordinator's private result or batch plan
+// differs from that recomputation. Recipient authorization is a separate prerequisite; this entry point never
+// signs or broadcasts.
 import {execFileSync,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat} from "../manifest/schema";
 import {checkFrozen} from "../clear/merkle";
+import {modeEntry} from "../clear/registry";
 import type {Obligation} from "./ledger";
 const root=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
 for(const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
@@ -21,7 +25,12 @@ function execute(cmd:string,args:string[],input?:string):string {
 try {
   const [id]=process.argv.slice(2);requireThat(/^[0-9a-f]{64}$/.test(id),"settlement auction id");
   const auction=JSON.parse(readFileSync(path.join(state,"auction",`${id}.json`),"utf8"));
-  const {manifest:m,manifest_hash}=client(auction.manifest,auction.signer);
+  // The published document is the signer's source of truth when a product config exists; the coordinator's
+  // private copy is then only cross-checked against the recomputation, never trusted on its own.
+  const config=path.join(state,"product",`${id}.json`);
+  const published=existsSync(config)?JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(config,"utf8")).public_dir),"auction.json"),"utf8")):null;
+  const src=published??auction;
+  const {manifest:m,manifest_hash}=client(src.manifest,src.signer);
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
   const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",path.join(state,"vault"),...args]);
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);
@@ -36,19 +45,20 @@ try {
   }
   const depositNotes=notes.filter(n=>m.deposit_addresses.includes(n.address)&&(!n.spent_in_txid||owned.has(n.spent_in_txid)));
   const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
-  const stray=depositNotes.filter(n=>!auction.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
+  const stray=depositNotes.filter(n=>!src.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
   const exceptions=stray.filter(n=>!confirmed(n)).map(n=>({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)}));
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[];
   let result_hash:string|null=null;
-  if(["CANCELLED","REFUNDING"].includes(auction.state)) {
-    requireThat(!auction.opened,"cancelled plan has opened bids");
+  if(["CANCELLED","REFUNDING"].includes(src.state)) {
+    requireThat(!src.opened,"cancelled plan has opened bids");
     for(const n of depositNotes.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   } else {
-    requireThat(["CLEARED","SETTLING","SETTLED"].includes(auction.state)&&auction.result&&auction.frozen,"settlement requires cleared result");
-    checkFrozen(auction.frozen,id,manifest_hash);
+    requireThat(["CLEARED","SETTLING","SETTLED"].includes(src.state)&&src.result&&src.frozen,"settlement requires cleared result");
+    if(published)requireThat(published.beacon&&published.beacon.round===m.drand.R&&published.beacon.chain_hash===m.drand.chain_hash,"published beacon missing or unbound");
+    checkFrozen(src.frozen,id,manifest_hash);
     requireThat(Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"settlement before release");
     const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
-    const opened=auction.frozen.leaves.map((leaf:any)=> {
+    const opened=src.frozen.leaves.map((leaf:any)=> {
       requireThat(depositNotes.some(n=>n.txid===leaf.deposit.txid&&n.address===leaf.deposit.address&&confirmed(n)&&String(n.value_zats)===m.C_zats),"frozen deposit missing or spent; resume needs mined-batch reconciliation");
       const ct=path.join(dir,`${leaf.leaf_index}.age`),pt=path.join(dir,`${leaf.leaf_index}.bin`);
       writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
@@ -62,13 +72,17 @@ try {
       }
       return {leaf_index:leaf.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
     });
-    const result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:auction.manifest,signer:auction.signer,frozen:auction.frozen,opened})));
-    requireThat(jsonBytes(result).equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
-    result_hash=hash(jsonBytes(result));
-    for(const a of result.allocations)if(BigInt(a.refund_zats)>0n)obligations.push({party:`leaf:${a.leaf_index}`,kind:"refund",amount_zats:a.refund_zats});
-    if(BigInt(result.conservation.payout_zats)>0n)obligations.push({party:"seller",kind:"payout",amount_zats:result.conservation.payout_zats});
+    if(published)requireThat(jsonBytes(opened).equals(jsonBytes(published.opened)),"published opening differs from fresh decryption");
+    const result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:src.manifest,signer:src.signer,frozen:src.frozen,opened,reserve_opening:published?(published.reserve_opening?.plaintext_hex??null):(auction.reserve_opening??null),serial_beacon:src.serial_beacon??null,launch:src.launch_input})));
+    const fresh=jsonBytes(result);
+    if(published) {
+      requireThat(fresh.equals(jsonBytes(published.result)),"published result differs from signer recomputation");
+      requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
+    } else requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
+    result_hash=hash(fresh);
+    for(const [party,amount] of modeEntry(src.manifest).obligations(result))obligations.push({party,kind:party==="seller"?"payout":"refund",amount_zats:amount});
   }
-  if(!["CANCELLED","REFUNDING"].includes(auction.state))for(const n of stray.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
+  if(!["CANCELLED","REFUNDING"].includes(src.state))for(const n of stray.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
   process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,obligations,exceptions,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
