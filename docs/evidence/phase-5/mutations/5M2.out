@@ -1,0 +1,16 @@
+commit ecc8368a85531ebfce9277658a8f6675f3e82293
+start_utc 2026-10-02T16:03:36Z
+end_utc 2026-10-02T16:03:37Z
+command node tools/repro/routing-vs-envelope-repro.mjs
+expected ERROR 5M2
+settle init exit: 1
+settle init stderr: ERROR settle refused: bidder destinations are envelope-authenticated
+unauthenticated bidder routing refused by init: true
+
+settlement bundles containing envelope-opening code: /Users/akshmnd/Dev Projects/benzo/settle/dist/cli.mjs
+
+envelope-derived destination: utest1redacted
+coordinator-pinned substitute: utest1bab8721e61b4e0bc15e8a6b7500471dcfa4ff40346e570442a
+missing envelope resolves to: utest1bab8721e61b4e0bc15e8a6b7500471dcfa4ff40346e570442a
+ERROR 5M2 signer accepts a recipient when the envelope is missing
+exit 1
