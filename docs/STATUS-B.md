@@ -3,9 +3,9 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Phase 5, Track B run 8: IN PROGRESS
+## Phase 5, Track B run 8: READY FOR MERGE
 
-Updated: 2026-10-02T03:55:33Z. Takeover at d8ed113 on track-b; clean initial tree. PHASE-5 R3/R4 author-checked (b709abd/71ec6eb). No owned services from this session; protected state/service files not read (Track B has no wallet/key access). Default E2E PASS (38s), `tmp/proof-logs/run8-baseline.out`. No added tests.
+Updated: 2026-10-02T04:29:04Z. Takeover at d8ed113 on track-b; clean initial tree. PHASE-5 R3/R4 author-checked (b709abd/71ec6eb). No owned services from this session; protected state/service files not read (Track B has no wallet/key access). Default E2E PASS (38s), `tmp/proof-logs/run8-baseline.out`. No added tests.
 
 1. Manifest serial block: `npm run typecheck` PASS, `tmp/proof-logs/drop-schema.out`; optional strict `{first,count,seed_round_offset}`, positive offset, multi-lot uniform only, safe range/round.
 
@@ -39,7 +39,17 @@ Source sweep: closed a projection boundary in buyback validation: its base mode 
 
 Receipt source audit found and fixed a launch holder statement reporting the main clearing price instead of the holder floor. Same scratch harness `node tmp/proof-holder-statement.mjs` failed before (`holder receipt price 20000; expected floor10000`) and passes after (`price10000, fill2, payment20000`); `tmp/proof-logs/holder-statement-before.out`, `holder-statement-after.out`. Typecheck/CLI build PASS (`holder-statement-build.out`). This changes the existing private statement price field only, preserving the signed leaf/output binding; no new test.
 
+Final verification: source commit **20ce790**, clean tree: `npm run e2e` PASS38s (`tmp/proof-logs/final-e2e.out`, `tmp/e2e/out/run.json`); typecheck/core/CLI builds PASS. `python3 tmp/final-verify.py` online verifies **21 corpora** (seven inherited compatibility corpora plus drop, four launch, four RFQ, five OTC), OK x8 each, linked follow-on OK series; four shipped stdin clears equal their public results (`final-verify.out`). Repeated drop/launch/RFQ/OTC corruption proofs pass at that source (`final-drop-neg.out`, `final-launch.out`, `final-rfq.out`, `final-otc.out`); API normal/default/cancel six corpora valid with exact result (`final-api.out`). Receipt-only fix **44ef3cb**: existing statement corpus and holder corpus online verify OK x8 (`final-statement-regression.out`, `final-holder-regression.out`). Fresh launch-holder corpus at quicknet **32703882** signs a statement with its generated in-memory owner and the shipped `benzo receipt statement ... --check tmp/holder-statement.json` returns `OK settlement statement`; main-price substitution refuses `statement differs from result/settlement` (`fresh-holder-statement.out`, `fresh-holder-statement-neg.out`). The old run-6 `stmt-statement.json` lacks CF's later `balance_due_zats` field and correctly refuses `statement field set` (`final-statement-check.out`); not treated as a current-format positive or altered. No failed run hidden.
+
+Scope complete: steps1–5 e70d8d8/facb65a/e06ed08/650b998/e33ba95; launch14061a4, RFQff6b2ea, OTCd67b6f6; boundary20ce790; holder receipt44ef3cb. No added tests, dependency/pin changes, upstream code copies, environment installations, wallet/key access, testnet spends, other-checkout commands, merges/rebases/cherry-picks or pushes. No owned foreground work remains. This is Track B pure/manual proof readiness, not Phase 5 live/PASSED evidence. Scratch scripts removed after completion; public corpora, inputs and full output logs retained in `tmp/` for head review.
+
+Test audit: R default seal-open owns the unchanged browser/tle assertions; sealer/test source untouched and default PASS at20ce790. Other inherited E2E specs unchanged; no new automated assertion or spec. Live mutation audit/runs remain Track A (B forbidden funds/keys). No claim that B ran those live specs. B's changed new mode/serial/statement logic has the manual negative proofs above.
+
 ### Questions (run 8)
+
+- Budget accounting for head review: net source additions across EN4776c3b (77), receipt516722f (125), CF31dde46 (254), this run (376), excluding docs/schema, total **832** versus Track B's ~750 part-2 estimate. The ~82 overage buys authenticated serial replay, signed holder/delivery records, standard-lot file binding and quorum/deadline default checks; no extra market or test. Please reconcile/approve the phase budget at merge review.
+- A integration request (outside B's lane): update JSON schemas/router manifest creation and live `clear/auction-cli.ts`/signer inputs to use the registry clients and pass the published serial/launch inputs, write `allocation.json`, use the versioned layouts and RFQ treasury/default attestation parameters described above; run the modes/spec/mutations live after merge. B did not edit those files.
+
 
 User instruction (2026-10-02T03:55:33Z), verbatim:
 > Task: PHASE-5 §11 collection drop with fair serial assignment (R3 item 5). Design (fixed):
