@@ -3,7 +3,104 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — crosschain §10 fixes for Reviewer R's BLOCK (F-1…F-5) + redeploy
+## Current run: head task — R8 item 1 (G9 Solana state-PDA dust) + multi-recipient settlement envelopes
+
+State: **IN PROGRESS** (item 1 of 2 landed; item 2 in progress). Base: clean tree at `a732669`
+(head: merge main into track-b, R7/R8). One commit per item with red/green proof here. Scope:
+(1) PHASE-5 R8 item 1 — `contracts/solana/src/lib.rs` `lock` must stop treating "non-empty ⇒
+locked" for the escrow state PDA (G9: 1 lamport to `["escrow", auction_id]` before lock blocked
+the auction forever); add a dust-before-lock test (red on old code, green after); redeploy to
+devnet and rerun the live cycle. (2) Multi-recipient settlement envelopes per
+`docs/design/phase5-part1-live.md` §4 [B] (libsodium), the proofs the head listed, then READY
+FOR MERGE. Read-only: the G probe
+`/Users/akshmnd/Dev Projects/benzo-sol-g/tests/g4-solana-residuals.mjs` (its on-chain probe A).
+No mainnet; no other-checkout writes; no merge/rebase/cherry-pick.
+
+1. **R8 item 1 (P1 G9), a dusted escrow state PDA blocking the auction: FIXED** (this commit).
+   `contracts/solana/src/lib.rs` `lock`: **locked means the program owns the account with
+   `STATE_LEN` data** (`owner == program_id && data_len == STATE_LEN`), never lamports/empty
+   data; the state PDA is now created **pre-funding-safe** exactly like `create_flag` —
+   `create_account` for a fresh PDA, otherwise top up to rent-exempt + amount then `allocate` +
+   `assign` via `invoke_signed` with the PDA seeds. A dusted PDA can neither block a lock nor
+   fake one (a second lock is still `AlreadyLocked` 0x3).
+   Test (`bash contracts/solana/test/run.sh`, driver): dust `auctionPda(dustId)` with 1,000,000
+   lamports from an unrelated key, then lock — `escrow-pda-dusted-lock-succeeds` (lock lands and
+   the PDA is program-owned 235 bytes recording the locked amount) and
+   `escrow-pda-dusted-lock-twice-refused` (custom error 0x3).
+   **Red on the unfixed program** — `contracts/logs/g9-escrow-dust-old-code.out` (exit 1):
+   `ERROR escrow-pda-dusted-lock-succeeds lock after 1,000,000-lamport dust refused (0x3); state
+   PDA owner 11111111111111111111111111111111 len 0 (want program-owned 235 recording the
+   locked amount)` — exactly reviewer G's live probe. **Green after the fix** —
+   `contracts/logs/g9-escrow-dust-fixed.out` (exit 0): `RESULT PASS all Solana escrow
+   assertions`, 38 PASS / 0 ERROR (the same harness in both runs: the red was re-recorded after
+   the test's amount was settled at 1 lot). `npm run typecheck` PASS (the typecheck scope does
+   not cover `contracts/`; the Rust build is `cargo build-sbf` in the run).
+   Harness note: `contracts/solana/test/run.sh` now pins `--gossip-port`/`--dynamic-port-range`
+   off the RPC port — the co-located reviewer-lab validator holds default gossip :8000
+   (`gossip_addr bind_to port 8000: Address already in use`), and the reviewer's process is not
+   mine to touch. No product code affected.
+
+   **Redeploy + live cycle on Solana devnet: DONE** (public values only; transcripts and keys in
+   `$BNZ_STATE_DIR/xchain-live/`, never printed). Fresh program id per the head's "record the new
+   program id": **`2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4`** (deploy tx
+   `5wDqVt3ru7hRrPCZqtUxkExTKYG8Gp96kasRkeGEiqf4nYXuFD4eiW2Jbz658u8y4qncak4icfEnjjhr1bAvaYr1`,
+   ProgramData `5ytcSLgwDQbH8BcPms2pRTEqx3fA2T2VUyVfrJ7Wu1Ld`, upgrade authority
+   `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu`, 100,888 bytes, sha256
+   `5caf323f…f86dc69a`). **The old deployment `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G`
+   and all its cycle txids (run of 1e55df5) are SUPERSEDED.** Window: lockUntil 1790966630 /
+   deadline 1790966990, attest `expiry == deadline` (F-2 rule).
+
+   **G9 live (the finding itself):** dust tx
+   `ijQr5qgQyc4vAxzHPxoUhgAzV45q252gPjUPGUHNxMzRPKGTjicGDTMQKHRK4bYpysacbyEzwp5afWgNQK8KPUS`
+   sent 1,000,000 lamports from unrelated key `8maExbMMg6BhQxytoPZN8FzktNptPftvEQQqEk4CkNxo` to
+   `GwyvHEhMF5U5ESwwkCbBPDWSxJzF3YkywXDY943U5HQn` (verified system-owned, 0.001 SOL before
+   lock); auction `aad3016edf6879d6aabfa188dfe050678d2ad49cf0ebd96933318830736ca277` then
+   **locked normally** — tx
+   `5jLLhnT7kgW87WnvsbgNujpCXP5vxzRaGZKNCjkVMK5kZA4Y1q1bzueh9jMCwxEmQdChqb7CrnSj1cqAnrY5j8mg`,
+   state recorded (`amount 300000000` in `xchain status`). On the pre-fix build the same probe
+   was refused `0x3` (live repro below).
+
+   **Live cycle (auction `5135574eef8e35a13c93ab52d642682ce2646ebca248c6bdd7d69767b9693747`,
+   escrow PDA `4SYrBbkQLG6jw72q2eU9mso3njD4uGX4TF1uPkz6UMWU`, payout dest
+   `GW3GB4dcCx66ZeVwGGX7WLtuVDsJxxQPT1bC4wFvg6BV`, return
+   `22XRrnnVqdn1tgsbDS87PRLQ4QviEjn8hVYj5HPB9hng`; 0.4 SOL locked, lot 0.2):**
+
+   | what | value |
+   |---|---|
+   | lock 400000000 (lot 200000000) | tx `rEkmqP1DURaAo1JkCkK1QHT3gZyjdwg9TMVnFFSdX6pDze7DvnakM62wW97NznAWWaUEmN4YKMH24EKB9XwrVwQ` |
+   | attest 2-of-3 (root `0xfb63b2e13fd6bd7efd7bf0842c840f0f164edb5172e7b875d2a234661fe9a4e6`) | signers `Fkb3RZRvFbtkpGPYUtfdRtKg2e6jJoRgN9S74yriiFTD` + `6QsPjH64dn63S9ha6D1pFbkjzhmYTUKh2ndo2avX1zLS`, expiry == deadline |
+   | `submit_attestation` | tx `5doH1yMxG3RRgQ9FTFEWSxaUhi21NuYWaoFzzh3z4TdJLGcRtYjG7ULsW8VPgEhYgi11YkQdxajHgVQQ7XSN5DwC` |
+   | `release_approved` (leaf 0: 0.2 to dest) | tx `5dW4BoATjKg9yetdDL2iBXrCqDYVpfjiE6L5ybpFnRWtSnCDAMGs1e5uj3kLBiN4C11yA8baP1hwUoNyN9XBsAci` (lookup table `62VMtL2drB6qPtWfhFvSSj9NxQxSyNxEkU3A2aZaFBhB`) |
+   | refund remainder (0.2 to return; chain time 1790967004 > deadline 1790966990 checked first) | tx `4abd9nTV63nE6iHUj4guk37jHWNsvQ3zS22PjQ11fJx67BGGrwf5k53DWXFYcuWVKj3QcpLvHPfxkEEwXAo8QGq7` |
+
+   Final balances read back from the chain: dest 0.2, return 0.2, escrow PDA rent only (0.4
+   principal = 0.2 paid + 0.2 refunded); `xchain status`: `refunded: true`, `paid: 200000000`,
+   leaf `0x56984dc3…` true.
+
+   **Honesty notes (this run):** (a) The first devnet deploy (tx `5wDqVt3r…`) carried a **stale
+   `.so`** — it was built during the red re-record with `lib.rs` stashed — and the live probe
+   caught it (dusted-PDA lock refused `0x3` at the new program id; log
+   `$BNZ_STATE_DIR/xchain-live/g9-live.out`), which doubles as a **live G9 repro on the pre-fix
+   build**. The fixed build was then redeployed in place (upgrade tx
+   `Q1nfZLc5u2kJgFCRNm6VooUVxJ7B61zVUXR6LC7VkkGs26wWm4vXsc3s8rVXPHc7PdgsqJZmPsgx6KD8YAhHi7G`,
+   same program id, sha256 `5caf323f…`) and the demo rerun on a fresh auction (above). (b) An
+   earlier dust attempt **silently did not land** (`solana transfer` without
+   `--allow-unfunded-recipient` skips an unfunded recipient; my grep swallowed it) — that
+   attempt's "lock succeeded" proves nothing and is void; every dust above was verified on chain
+   (`solana account`) before the lock. (c) A first attest used orphan key `sol-signer-0.key`
+   (not in the locked signer set) and was correctly refused `Quorum` 0xc; re-attested with set
+   members. (d) Amounts shrunk to 0.3/0.4 SOL (the fresh program's rent cost ~1.9 SOL of the
+   deployer's 2.45; the devnet faucet rate-limited all airdrop attempts across ~10 tries, 2 SOL
+   down to 0.25). (e) A dusted PDA's lamports are absorbed into the `rent + amount` top-up
+   target (the dust subsidises the lock; it can never block it or inflate `amount`). (f) The
+   fresh program id answers this run's open question (in-place at `58Ss…` last time).
+
+2. **Multi-recipient settlement envelopes (§4 [B]): NEXT** — libsodium (`crypto_box_seal` per
+   stanza, `crypto_aead_chacha20poly1305_ietf` body), recipient set from the manifest's
+   `envelope_keys`, proofs: 3 keys open / 4th refused / stanza swap refused / equal lengths /
+   `benzo verify` on the new format.
+
+## Previous run: head task — crosschain §10 fixes for Reviewer R's BLOCK (F-1…F-5) + redeploy
 
 State: **READY FOR MERGE** (updated 2026-10-02T18:20Z). Base: clean tree at `e1851c5` (head: merge
 main into track-b, crosschain §10). One commit per item: `d9a81c7` (item 1, F-1), `4a1e835`

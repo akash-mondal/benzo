@@ -11,7 +11,10 @@
 // Approval refused; expired approval refused; release after refund refused; leaf not in the root
 // refused; every leaf paid exactly once across several crank calls; spoofed sysvar on
 // submit_attestation refused. §10 item 1 (reviewer F-1): a dusted `paid` PDA must not read as
-// "already paid" — a paid flag counts only if program-owned with the PAID_V1 marker. The
+// "already paid" — a paid flag counts only if program-owned with the PAID_V1 marker. R8 item 1
+// (G9): a dusted escrow state PDA must not block the auction either — lock counts as done only
+// when the program owns the state PDA with STATE_LEN data, and a dusted PDA is topped up and
+// completed (allocate + assign), never read as "already locked". The
 // before/after payouts-per-transaction table at proof depths 0–6
 // is measured from real serialized transactions (1232-byte packet limit) and printed as
 // `SIZE depth=…` lines; it is recorded in docs/STATUS-B.md.
@@ -394,6 +397,28 @@ async function main() {
         auctionId: lateId, genesis, amount: AMOUNT, lot: LOT, lockUntil, deadline, signers,
         returnTo: returnTo.publicKey.toBytes(),
       })));
+  }
+
+  {
+    // ---- R8 item 1 (G9): a dusted escrow state PDA must not block the auction ----
+    // 1,000,000 lamports from an unrelated key to the predictable ["escrow", auction_id] PDA
+    // before lock (reviewer G's live griefing probe); the auction must still lock and record
+    // state, and only a real program-owned STATE_LEN state may read as "already locked".
+    const dustId = randomBytes(32), dustPda = auctionPdaFor(dustId), dustAmount = 1n * LOT;
+    await send(duster, SystemProgram.transfer({ fromPubkey: duster.publicKey, toPubkey: dustPda, lamports: 1_000_000 }));
+    const params = { auctionId: dustId, genesis, amount: dustAmount, lot: LOT, lockUntil: t0 + 3600, deadline: t0 + 7200, signers, returnTo: returnTo.publicKey.toBytes() };
+    let lockErr = null;
+    try { await send(seller, lockIx(seller, dustPda, params)); } catch (e) { lockErr = e; }
+    const info = await conn.getAccountInfo(dustPda);
+    const d = info?.data;
+    const ok = info && info.owner.equals(PROGRAM_ID) && d.length === 235 && d[0] === 1 &&
+      eq(d.slice(3, 35), dustId) && eq(d.slice(35, 67), genesis) && d.readBigUInt64LE(195) === dustAmount;
+    check("escrow-pda-dusted-lock-succeeds",
+      lockErr === null && ok,
+      `lock after 1,000,000-lamport dust ${lockErr ? `refused (0x${(customErrorCode(lockErr) ?? -1).toString(16)})` : "landed"}; ` +
+        `state PDA owner ${info?.owner.toBase58()} len ${d?.length} (want program-owned 235 recording the locked amount)`);
+    await expectCustomError("escrow-pda-dusted-lock-twice-refused", 3, () =>
+      send(seller, lockIx(seller, dustPda, params)));
   }
 
   // ---- 2. submit_attestation + release_approved (design §9) ----

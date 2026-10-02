@@ -22,6 +22,7 @@ echo "== boot solana-test-validator (ledger $LEDGER, rpc 127.0.0.1:$RPC_PORT)"
 rm -rf "$LEDGER"
 solana-test-validator --reset --quiet --ledger "$LEDGER" \
   --rpc-port "$RPC_PORT" --faucet-port $((RPC_PORT + 1000)) \
+  --gossip-port $((RPC_PORT + 2)) --dynamic-port-range "$((RPC_PORT + 1100))-$((RPC_PORT + 1200))" \
   --bpf-program "$PROGRAM_ID" target/deploy/benzo_escrow.so \
   > target/test-validator.log 2>&1 &
 VALIDATOR_PID=$!

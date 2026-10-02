@@ -466,7 +466,12 @@ fn lock(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Progra
     if pda != *auction_ai.key {
         return Err(EscrowError::BadAccount.into());
     }
-    if auction_ai.lamports() != 0 || !auction_ai.data_is_empty() {
+    // A locked auction counts only if this program owns the state PDA with STATE_LEN data (§10
+    // pattern, R8 G9): lamports or empty data prove nothing — anyone can dust the predictable PDA
+    // before lock. A dusted PDA is topped up to rent-exempt + amount and completed with
+    // `allocate` + `assign` via `invoke_signed` with the PDA seeds (exactly `create_flag`), so
+    // dust can neither block the auction nor fake a lock.
+    if auction_ai.owner == program_id && auction_ai.data_len() == STATE_LEN {
         return Err(EscrowError::AlreadyLocked.into());
     }
     let now = Clock::get()?.unix_timestamp;
@@ -479,17 +484,37 @@ fn lock(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Progra
         .minimum_balance(STATE_LEN)
         .checked_add(amount)
         .ok_or(EscrowError::BadParameters)?;
-    invoke_signed(
-        &system_instruction::create_account(
-            seller.key,
-            auction_ai.key,
-            lamports,
-            STATE_LEN as u64,
-            program_id,
-        ),
-        &[seller.clone(), auction_ai.clone(), system_program_ai.clone()],
-        &[&[b"escrow", &auction_id, &[bump]]],
-    )?;
+    if auction_ai.lamports() == 0 {
+        invoke_signed(
+            &system_instruction::create_account(
+                seller.key,
+                auction_ai.key,
+                lamports,
+                STATE_LEN as u64,
+                program_id,
+            ),
+            &[seller.clone(), auction_ai.clone(), system_program_ai.clone()],
+            &[&[b"escrow", &auction_id, &[bump]]],
+        )?;
+    } else {
+        // pre-funded (possibly dusted): top up to rent-exempt + amount, then allocate + assign
+        if auction_ai.lamports() < lamports {
+            invoke(
+                &system_instruction::transfer(seller.key, auction_ai.key, lamports - auction_ai.lamports()),
+                &[seller.clone(), auction_ai.clone(), system_program_ai.clone()],
+            )?;
+        }
+        invoke_signed(
+            &system_instruction::allocate(auction_ai.key, STATE_LEN as u64),
+            &[auction_ai.clone(), system_program_ai.clone()],
+            &[&[b"escrow", &auction_id, &[bump]]],
+        )?;
+        invoke_signed(
+            &system_instruction::assign(auction_ai.key, program_id),
+            &[auction_ai.clone(), system_program_ai.clone()],
+            &[&[b"escrow", &auction_id, &[bump]]],
+        )?;
+    }
 
     let state = Auction {
         bump,
