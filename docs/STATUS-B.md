@@ -5,8 +5,8 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R12 items 1–3 (shared envelope rule, committed red/green repros, KC_KEY fix)
 
-State: **IN PROGRESS** (item 1 DONE `a82f865`, item 2 DONE with this commit; item 3 (KC_KEY 33→32 bytes) next,
-then the `dist/benzo-verify.mjs` rebuild + typecheck/builds/`npm run e2e`, then READY FOR MERGE).
+State: **IN PROGRESS** (items 1–3 DONE — `a82f865`, `c8c622e`, `0c1404a`; item 4 next: rebuild
+`dist/benzo-verify.mjs` + `docs/verify-bundle.sha256`, typecheck, builds, `npm run e2e`, then READY FOR MERGE).
 Base: clean tree at `266c2e6` (head: merge main into track-b; R12 in `docs/PHASE-5.md`). Baseline `npm run e2e`
 PASS 37 s at `266c2e6` (`tmp/proof-logs/r12-baseline-e2e.out`). Reviewer R's report read-only at
 `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-envelopes-v2.md`. No mainnet; no other-checkout access or
@@ -48,7 +48,7 @@ are Track A's).
    | `mr-envelope-before.out` | `266c2e6` (clean) | exit 1 — 5 red: `mr-shared-rule-export`, `mr-verify-foreign-key`, `-foreign-set`, `-pre-v2-pinned`, `-2of3-pinned` |
    | `mr-envelope-after.out` | `a82f865` (clean) | exit 0 — 13/13 PASS |
    | `kc-key-commitment-before.out` | `266c2e6` (clean) | exit 1 — `kc-key-32-interop` + `kc-split-key-recipient1-opens` red (the KC_KEY bug, item 3) |
-   | `kc-key-commitment-after.out` | item-3 commit (clean) | exit 0 — 10/10 PASS (committed with item 3) |
+   | `kc-key-commitment-after.out` | `0c1404a` (clean; committed path) | exit 0 — 10/10 PASS |
 
    Provenance: the first three runs executed `node tmp/<name>.mjs` with content byte-identical to the committed
    scripts before the scripts were committed (sha256 `813c824592d88f37b2845586092db394bf028b9d0a326af271a2a5c29386bfc4`
@@ -65,6 +65,18 @@ are Track A's).
    see Questions). (c) The `kc-*` checks hand-build envelopes under the specified key-commitment derivation
    (the `"benzo-envelope-v2-kc"` label zero-padded to libsodium's `crypto_generichash_KEYBYTES`), which is
    exactly why they are red at `266c2e6` and stay red through this commit (item 3 is the fix).
+
+3. **Head finding on 79aed9e (P3), KC_KEY exactly `crypto_generichash_KEYBYTES`: DONE** (`0c1404a`).
+   `envelope/index.ts`: the label `"benzo-envelope-v2-kc"` is 20 bytes and the padding was computed as
+   `32 - 19`, so `KC_KEY` was 33 bytes. Now padded with `32 - label.length` (= 12 zero bytes),
+   `requireThat(KC_KEY.length === sodium.crypto_generichash_KEYBYTES, "envelope kc key")` at module load,
+   and the comment states the 20-byte label and the exact padding. No live envelope had been sealed under the
+   wrong key. **Red before / green after with the committed repro** (item 2's `kc-*` checks hand-build their
+   key_commit under the specified derivation, which is why they caught it): `kc-key-32-interop` and
+   `kc-split-key-recipient1-opens` refused `envelope key commitment` at `c8c622e` (the same red recorded at
+   `266c2e6` in `docs/evidence/phase-5/repro/kc-key-commitment-before.out`), and
+   `docs/evidence/phase-5/repro/kc-key-commitment-after.out` is 10/10 PASS at `0c1404a`, run as
+   `node tools/repro/kc-key-commitment-repro.mjs`. `npm run typecheck` + builds PASS.
 
 Test audit (this run, so far): project E2E suite untouched (5 of the 8-test ceiling; default seal-open
 **R retain**, covered `seal/` code unchanged here; `npm run e2e` PASS 37 s at `266c2e6`, final rerun with item 4).
