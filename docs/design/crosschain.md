@@ -119,3 +119,19 @@ Head-owned design; implement as written.
   - every leaf paid exactly once across several crank calls;
   - a spoofed sysvar on `submit_attestation` → refused;
   - record the before/after payouts-per-transaction table.
+
+## 10. Addendum (2026-10-02): fixes from Reviewer R's PR review `pr-b-f5-solana9` (verdict BLOCK; head-confirmed in code)
+
+Head-owned; implement as written. Each item needs a test that fails on the current code and passes on the fix.
+1. **P0 (F-1), a pre-funded `paid` PDA is read as "already paid" (Solana, `lib.rs` `release_approved`).**
+   - Never infer state from lamports or empty data. A paid flag counts only if the account is **owned by the escrow program** and its data carries a versioned marker `PAID_V1`.
+   - Create flag accounts with a pre-funding-safe pattern: if the PDA already holds lamports but isn't program-owned, top up to rent-exempt, then `allocate` + `assign` via `invoke_signed` with the PDA seeds; otherwise `create_account`.
+   - Test: dust `paidPda(leafA)` with 1 lamport from an unrelated key, then crank. rA must still be paid exactly once, and refund must not return rA's lot.
+2. **P0 (F-2), refund races attested payouts (Solana and EVM).**
+   - Require `att.expiry <= auction.deadline` when an attestation is accepted: Solana `submit_attestation`, EVM `release`.
+   - Signers must attest `expiry <= deadline`.
+   - Test: an attestation with `expiry > deadline` is refused on both chains.
+   - Test: an approved but unreleased batch cannot be refunded until its expiry has passed. Refund requires `now > deadline`, and every approval's expiry is ≤ deadline, so this holds by construction; assert it.
+3. **P1 (F-3), a pre-funded `Approval` PDA blocks a batch.** Same pre-funding-safe creation as item 1; `BatchReplayed` only when the account is program-owned and carries the `APPROVAL_V1` marker. Test: dust the approval PDA, then submit still succeeds once and a second submit is refused.
+4. **P1 (F-4), the TypeScript client and CLI on the new instructions.** Confirm `crosschain/solana.ts` and `benzo xchain release` build `submit_attestation` + `release_approved` with exactly the program's PDA seed encodings (`batch_index` little-endian, as in §9). Prove an end-to-end release on the local validator through the CLI.
+5. **P2 (F-5), real drain test.** Make `FeeTokenDrain.t.sol` exercise the pooled-drain scenario it names: two auctions share a fee token, and the test shows the victim stays whole after the fix. Correct `docs/AUDITS.md` so it doesn't overclaim: the delta check stops fee-on-transfer at lock; rebasing tokens are excluded by the manifest asset allowlist.

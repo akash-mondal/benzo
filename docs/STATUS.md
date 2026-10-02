@@ -1,14 +1,23 @@
 # Status: build agent handoff
 
-## Phase 5 ([PHASE-5.md](PHASE-5.md)): R28 carry-overs (Track A, in progress)
+## Phase 5 ([PHASE-5.md](PHASE-5.md)): R28 carry-overs: DONE (Track A)
 
-Updated: 2026-10-02T12:35Z. Builder A on main @ 8e9557b. Phase 4 PASSED per head R28 (fed3a3a) with mandatory carry-overs F1–F4/F8/F9 owed as the first Phase 5 part 1 items, proven by a cli-auction rerun plus the affected mutations before any other Phase 5 live work.
+Updated: 2026-10-02T15:05Z. Builder A on main. Phase 4 PASSED per head R28 (fed3a3a) with mandatory carry-overs F1–F4/F8/F9 owed as the first Phase 5 part 1 items, proven by a cli-auction rerun plus the affected mutations. **All done:** proof rerun PASS, U6/U3a/U3b red at their expected IDs. Next: Phase 5 part 1 gates V–Z per [PHASE-5.md](PHASE-5.md). Read its research sections first.
 
-R28 code items committed: F8 718e70b (signers recompute from published auction.json through clear/registry.ts; U6.patch added there), F1 0d22ca0 (R1 corrupts leaf/seller/stray amounts separately with specific errors; U3 split into U3a/U3b patches), F2 4273e3c (R1 root corruption + S1 manifest flip keep canonical JSON, assert specific errors), F3 60617a0+5381f6f (P2 asserts included===true, passes bidder's signed receipt, compares settlement fields to result.json), F4 994a983 (matches_pinned_routing computed; T5 wording "Alice is not selected"), F9 8e9557b (Phase 3 EVIDENCE.md recipient_hash note). tsc/builds/patch apply-checks PASS (tmp/e2e/carry-f8-proof.log, carry-f1-proof.log).
+R28 code items committed: F8 718e70b (signers recompute from published auction.json through clear/registry.ts; U6.patch added there), F1 0d22ca0 (R1 corrupts leaf/seller/stray amounts separately with specific errors; U3 split into U3a/U3b patches), F2 4273e3c (R1 root corruption + S1 manifest flip keep canonical JSON, assert specific errors), F3 60617a0+5381f6f (P2 asserts included===true, passes bidder's signed receipt, compares settlement fields to result.json), F4 994a983 (matches_pinned_routing computed; T5 wording "Alice is not selected"), F9 8e9557b (Phase 3 EVIDENCE.md recipient_hash note).
 
-R28 proof rerun (development, not gate evidence): `BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction` at 8e9557b, 2026-10-02T11:39:02Z–12:28:40Z (2976s), exit 0, all 12 IDs PASS, zero ERROR lines. Log tmp/e2e/r28-pass.{sh,log,meta}, run.json tmp/e2e/out/run.json. Vault observed 0 after run cleanup; no owned processes.
+Proof rerun (development, not gate evidence): `BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction` at 8e9557b, 2026-10-02T11:39:02Z–12:28:40Z (2976s), exit 0, all 12 IDs PASS, zero ERROR lines. Log tmp/e2e/r28-pass.{sh,log,meta}; run.json tmp/e2e/out/run.json.
 
-Mutation red runs owed (detached, one at a time, via tmp/e2e/r28-mut.sh): U6 expected ERROR T1 (published result differs from signer recomputation, refused in the first worker before any signature), U3a expected ERROR R1 (leaf/seller corruptions uncaught), U3b expected ERROR R1 (stray corruption uncaught). Vault recovery after each failed run; then commit mutations/*.out and record R28 carry-overs: DONE.
+Mutation red runs (each `BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction` via tmp/e2e/r28-mut.sh, patch applied then reversed, clean rebuild after; `git status --porcelain` after each reversal showed only the new mutation file):
+- **U6 red at ERROR T1** (b99b161→6c317d4 base bd6823f, 12:30:27–13:01:40Z, 1873s): the coordinator publishing a mutated result (+1 zat on a published allocation refund) is refused in the first worker before any signature — `ERROR settle refused: published result differs from signer recomputation`. `mutations/U6.out` (pair `U6.patch`), commit 6c317d4.
+- **U3a red at ERROR R1** (base b99b161, 13:37:04–14:22:59Z, 2755s): skipping the main result accounting leaves the leaf and seller corruptions uncaught (`badLeaf.code===0` at spec line 156). `mutations/U3a.out` (pair `U3a.patch`), commit 0840e81.
+- **U3b red at ERROR R1** (base 0840e81, 14:24–14:58Z): skipping the stray-deposit accounting leaves the stray amount corruption uncaught (`badStray.code===0` at spec line 158); leaf/seller checks stayed green. `mutations/U3b.out` (pair `U3b.patch`), commit 334fa90.
+
+Two infra failures during the U3a chain (neither caused by the mutation; no assertion, deadline, retry or pin changed):
+1. First U3a attempt (base 6c317d4, 13:03:35–13:10:53Z) failed before any assertion on the harness stray payment: the pinned devtool `pay` builds its expiry from the wallet's last scanned height and does not sync first; after the drand-round wait the fast testnet chain was ~100 blocks ahead, and consensus refused the fresh transaction (`79febd42…`, tip 4433450 vs expiry 4433392). Same signature as old zombie `916ce300…` (4431129/4431030). Fix b99b161: `e2e/lib/zcash.ts` `pay()` syncs the bidder wallet immediately before building (cli/product.ts:115 already did this for `bid deposit --pay`). Preserved as `mutations/U3a-superseded.out` (not U3a evidence).
+2. Second attempt (59s) died on a transient drand fetch failure (`TypeError: fetch failed / SocketError: other side closed`) right after funding — the unclassified-escape class already reported under Questions (a); R26.4 defers bounded retry to Phase 6, so no code change, one retry. The aborted funding 17c35654… (5,070,000) matured into the vault after its cleanup missed it (unmined at cleanup); documented development recovery a4bd9c61ab1751fb2bbc9c2b53512193aa6803e90df1f74f91a1e9b9b12602ba (create-max + 2-of-3, txid recorded; tmp/e2e/takeover-recovery3.log) swept it before the successful retry.
+
+Vault observed 0 after every run/recovery (scanner: 0 mined-unspent positive). Bidder spendable 73,097,059 / total 79,094,510 zats at the end; floor 1,540,000 far exceeded. No owned service or worker processes remain. No frontend or mainnet work.
 
 ## Phase 4 ([PHASE-4.md](PHASE-4.md)): head PASSED at fed3a3a (R28)
 
@@ -113,6 +122,8 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 - **Needs user:** none.
 
 ## Questions
+
+- Q17 (harness repair for head visibility): the pinned devtool `wallet pay` builds its transaction expiry from the wallet's last scanned height and does not sync first; during the R28 U3a chain this produced a consensus-expired transaction (tip 4433450 vs expiry 4433392) after a drand-round wait on the currently fast testnet chain (~16 blocks/min). Fix b99b161 makes harness `e2e/lib/zcash.ts pay()` sync the bidder wallet immediately before building (cli/product.ts:115 already did); no assertion, deadline, retry or pin changed. Also for awareness: the bidder wallet DB carries three expired-unmined zombie transactions (916ce300…, 3d4cc366…, 79febd42…) whose phantom change notes inflate `wallet balance` by ~9.9M zats; every observed input selection used real mined notes, the scanner's unexpired-spend logic frees their inputs, and no wallet DB surgery was done.
 
 - Q16 (R8 run coordination): all-five regression re-starts from the commit named in tmp/e2e/takeover-regression2-commit.txt. Please hold main commits until it finishes so all five specs remain at one commit as R8 requires. The detached wrapper refuses to start the final CLI evidence if HEAD changed. This request does not block other work in the other checkout.
 
@@ -276,6 +287,8 @@ All tool pins unchanged; no environment changes. Note reconstruction follows sou
 All frontend implementation, styling and hosting UI are user-owned per Phase 3 R6 at e1225dc; build-agent scope remains backend/CLI/verifier/settlement. Full owner-key / settlement-envelope delivery remains unresolved under Q5; current routing fixture must be declared explicitly.
 
 ## Last session
+
+- 2026-10-02T15:05Z: R28 carry-overs DONE. Proof rerun PASS (all 12 IDs, 8e9557b), mutation reds U6 (T1, publish≠settle refused pre-signature), U3a (R1, leaf/seller uncaught), U3b (R1, stray uncaught) recorded in docs/evidence/phase-4/mutations with their patches; two infra failures and the documented recovery a4bd9c61… recorded above. Next concrete step: Phase 5 part 1 (gates V–Z): read PHASE-5.md research sections (DESIGN §7 etc.) before code; start with the Mode B sealed buyback (gate V).
 
 - 2026-10-01T12:48:18Z: Phase 3 READY FOR REVIEW. Clean run 742feb997a0fa3ab7aecab959e9170afb1493907, generated artifacts 7951dd7d45f5dd4813f35df8c1f31fe482b76bc3, all six IDs PASS; positive verifier 0, corrupted-copy verifier 1 ERROR J/L. P1/P2/P3 red and restored, cheapest P1 rerun after finite-expiry repair. Gates J–N, three decisions, limits and four-spec audit recorded. Bidder all-note balance 98,025,000 zats, vault 0; no active owned processes. Next concrete step: head reviews PHASE-3 evidence at these commits and rules; remain in Phase 3, no frontend work.
 
