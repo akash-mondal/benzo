@@ -2,7 +2,7 @@
 
 ## Phase 4 ([PHASE-4.md](PHASE-4.md)): Track A IN PROGRESS
 
-Updated: 2026-10-01T19:04:15Z. Builder A on main. AGENTS.md and Phase 1–4 read; Phase 1–3 PASSED by committed head rulings. Phase 4 R1–R22 author-checked, latest fe2af18. Never touched the other checkout or Track B-owned files. Baseline `npm run e2e` PASS (41s), `tmp/e2e/phase4-baseline.log`.
+Updated: 2026-10-02T05:18:10Z. Builder A on main. AGENTS.md and Phase 1–4 read; Phase 1–3 PASSED by committed head rulings. Phase 4 R1–R22 author-checked, latest fe2af18. Never touched the other checkout or Track B-owned files. Baseline `npm run e2e` PASS (41s), `tmp/e2e/phase4-baseline.log`.
 
 Plan: shared schema first (ba18805, done); shipped CLI router/A commands (6f629e8, implemented); T1–T5/R6–R9 carry-overs; one cli-auction spec/U1–U5; B R16/R18/R20 follow-up merged (33fe7e4, R21). Remaining: P1 regression, U1–U5 red runs, clean evidence run, positive/corrupt verify, all five specs at one commit, then READY FOR REVIEW. O/P/Q/T development all IDs PASS except P2/R1 (usage exit 2 against pre-merge B; merged B now takes R20 flags). R/S covered by B merge c402f9e. No gate evidence or READY claim yet.
 
@@ -54,6 +54,8 @@ Needs user: none. Head: R21–R24 recorded; B owes nothing before Phase 5 (lifec
 
 2026-10-02T04:47:41Z: cheapest P1 re-run after expiry update complete at47b665f, 04:03:17–04:46:50Z (2611s), BNZ_LIVE=1 node node_modules/.bin/playwright test --project=settle-crash; ERROR L1 (0 receipts vs5), collateral J1/J2/K1/N1 from the same empty main settlement, M1 PASS. Mutation reversed; git status showed only P1-expiry.out. Pair docs/evidence/phase-4/mutations/P1-regression.patch + P1-expiry.out; full output tmp/e2e/takeover-P1.log/artifacts. Development cleanup d4a0b6b1d1b67594643e5bc665a8a2039f54104289ddfb0190e38144c1c30555; vault observed0, bidder spendable94,709,440/total95,709,440, no remaining frostd/signers. Next U5-expiry mutation, detached wrapper tmp/e2e/takeover-U5.sh, then clean five-spec regression/final CLI evidence at one commit.
 
+2026-10-02T05:18:10Z: cheapest U5 re-run after expiry update complete at6ec2c30, 04:47:41–05:15:21Z (1658s), BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction; ERROR T1 specifically settlement deposit amount/confirmation. Reversed patch; git status showed only U5-expiry.out. Pair docs/evidence/phase-4/mutations/U5.patch + U5-expiry.out (artifact commite1c959e); full output tmp/e2e/takeover-U5.log/artifacts. Development cleanup ca3130168bb8fd88abdf94f04046d4637493448c06814718c41418885cf68fef, vault observed0; bidder synced total95,569,440/current spendable89,564,439 at4431750. No owned FROST/worker processes remain. P1 and U5 cheapest mutations now repeated after default364, no assertion changes. Starting R8 clean regression: npm run e2e, then live golden-path + auction-core + settle-crash (one invocation), then cli-auction with BNZ_EVIDENCE_DIR=docs/evidence/phase-4; all at the ensuing commit. Detached wrapper tmp/e2e/takeover-regression.sh, pidfile .benzo/run/takeover-regression.pid; each stage .exit/log/artifacts retained, exact start commit in tmp/e2e/takeover-regression-commit.txt. Status remains IN PROGRESS until all five and positive/corrupt verify complete.
+
 ## Phase 3 ([PHASE-3.md](PHASE-3.md)): head approved at 0090781
 
 Contract d0fbe61 / R1 plus R2–R5 at 5afd2b2, R6 at e1225dc and R7–R8 at dc28c08 (head@benzo.invalid). Started only after Phase 2 READY FOR REVIEW at 28ddd09: live run b834747, artifacts aa4676b, positive verifier 0 and corrupted-copy exit 1 with ERROR E/F. Read Phase 3 in full and DESIGN §6/§14. `npm run e2e` regression PASS before new work (`tmp/e2e/phase3-baseline.log`).
@@ -74,6 +76,9 @@ Updated: 2026-10-01T05:02:58.031222+00:00 · Contract: 44931b4 + R1 at 0ec8c02 +
 - **Needs user:** none.
 
 ## Questions
+
+- Q16 (R8 run coordination): all-five regression is now running from the commit named in tmp/e2e/takeover-regression-commit.txt. Please hold main commits until it finishes so all five specs remain at one commit as R8 requires. The detached wrapper refuses to start the final CLI evidence if HEAD changed. This request does not block other work in the other checkout.
+
 
 - Q15 (U1 physics, for head review): R23.2's literal means (mutate `ac('clear')`'s persisted output) is refused by `settle/plan.ts:66` before O2 runs — observed ERROR T1 "fresh signer clearing differs from result.json" with the spec's early return (`U1-superseded-t1.out`). U1 v3 instead re-sorts the clear path's published result (and its returned allocations so S1's result match holds): O2 and benzo verify both refuse it; settlement pays from the private ledger and does not see a published-side mutation. If the head wants the ledger-side mutation with a T1 red instead, that run is recorded.
 
