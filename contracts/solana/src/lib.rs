@@ -61,7 +61,7 @@ use solana_program::{
     ed25519_program,
     entrypoint,
     entrypoint::ProgramResult,
-    program::invoke_signed,
+    program::{invoke, invoke_signed},
     program_error::ProgramError,
     pubkey::Pubkey,
     rent::Rent,
@@ -90,6 +90,10 @@ pub const ATT_LEN: usize = 16 + 32 * 5 + 8 * 3; // 200
 pub const DEST_SOLANA: u8 = 2;
 pub const ASSET_SOL: [u8; 32] = [0u8; 32];
 pub const STATE_LEN: usize = 235;
+/// §10 item 1 (F-1): a paid flag counts only if this program owns the account and its data
+/// carries this versioned marker — never infer state from lamports or empty data.
+pub const PAID_MARKER: &[u8] = b"PAID_V1";
+pub const PAID_LEN: usize = PAID_MARKER.len(); // 7
 pub const APPROVAL_LEN: usize = 153;
 pub const MAX_PAYOUTS: usize = 64;
 pub const MAX_PROOF: usize = 32;
@@ -252,6 +256,63 @@ fn leaf_hash(
 
 fn root_hash(leaf_count: u64, tree_root: &[u8; 32]) -> [u8; 32] {
     keccak(&[ROOT_PREFIX, &leaf_count.to_be_bytes(), tree_root])
+}
+
+/// A flag account counts as set only if **this program** owns it and its data is exactly the
+/// versioned marker (§10 items 1/3): lamports or empty data prove nothing — anyone can dust a
+/// predictable PDA with lamports.
+fn flag_is_set(ai: &AccountInfo, program_id: &Pubkey, marker: &[u8]) -> bool {
+    if ai.owner != program_id || ai.data_len() != marker.len() {
+        return false;
+    }
+    match ai.try_borrow_data() {
+        Ok(d) => &d[..] == marker,
+        Err(_) => false,
+    }
+}
+
+/// Create a flag account carrying `marker`, safely when the PDA already holds lamports (§10
+/// items 1/3): a dusted PDA (system-owned, empty) is topped up to rent-exempt and completed with
+/// `allocate` + `assign` via `invoke_signed` with the PDA seeds; a fresh PDA uses
+/// `create_account`. Dusting therefore cannot create the flag's semantics and cannot block it.
+fn create_flag<'a>(
+    program_id: &Pubkey,
+    payer: &AccountInfo<'a>,
+    flag_ai: &AccountInfo<'a>,
+    system_program_ai: &AccountInfo<'a>,
+    seeds: &[&[u8]],
+    marker: &[u8],
+) -> ProgramResult {
+    let space = marker.len() as u64;
+    let needed = Rent::get()?.minimum_balance(marker.len());
+    if flag_ai.lamports() == 0 {
+        invoke_signed(
+            &system_instruction::create_account(payer.key, flag_ai.key, needed, space, program_id),
+            &[payer.clone(), flag_ai.clone(), system_program_ai.clone()],
+            &[seeds],
+        )?;
+    } else {
+        // pre-funded (possibly dusted): top up to rent-exempt, then allocate + assign
+        if flag_ai.lamports() < needed {
+            invoke(
+                &system_instruction::transfer(payer.key, flag_ai.key, needed - flag_ai.lamports()),
+                &[payer.clone(), flag_ai.clone(), system_program_ai.clone()],
+            )?;
+        }
+        invoke_signed(
+            &system_instruction::allocate(flag_ai.key, space),
+            &[flag_ai.clone(), system_program_ai.clone()],
+            &[seeds],
+        )?;
+        invoke_signed(
+            &system_instruction::assign(flag_ai.key, program_id),
+            &[flag_ai.clone(), system_program_ai.clone()],
+            &[seeds],
+        )?;
+    }
+    let mut data = flag_ai.try_borrow_mut_data()?;
+    data[..marker.len()].copy_from_slice(marker);
+    Ok(())
 }
 
 fn load_state(data: &[u8]) -> Result<Auction, ProgramError> {
@@ -702,12 +763,12 @@ fn release_approved(
             return Err(EscrowError::BadAccount.into());
         }
 
-        // per-recipient paid flag: a failing or already-paid recipient is skipped, never a
-        // call revert; failed items stay claimable by a later release (design §2.4)
-        let mut skip = false;
-        if paid_ai.lamports() != 0 || !paid_ai.data_is_empty() {
-            skip = true; // already paid
-        }
+        // per-recipient paid flag (§10 item 1): a failing or already-paid recipient is skipped,
+        // never a call revert; failed items stay claimable by a later release (design §2.4).
+        // "Already paid" counts only if this program owns the flag account with the PAID_V1
+        // marker — never from lamports or empty data: anyone can dust the predictable PDA with
+        // lamports and fake "already paid" to permanently brick an attested payout.
+        let mut skip = flag_is_set(paid_ai, program_id, PAID_MARKER);
         let amount = match p.lot_count.checked_mul(state.standard_lot) {
             Some(a) => a,
             None => {
@@ -728,20 +789,17 @@ fn release_approved(
         // effects before interactions (P0 ordering, mirrors the EVM contract): the paid flag is
         // written before any lamports move. On Solana the payout is a direct lamport debit/credit
         // of program-owned accounts — no CPI to the recipient, so no recipient code ever runs and
-        // there is no callback vector here; the only CPI is the system program's `create_account`,
-        // which cannot re-enter this program. The flag is written first anyway so the ordering
-        // survives future edits (`state.paid` is persisted by `store_state` at the end of this
-        // instruction; the transaction is atomic and no untrusted call sits in between).
-        invoke_signed(
-            &system_instruction::create_account(
-                crank.key,
-                paid_ai.key,
-                Rent::get()?.minimum_balance(1),
-                1,
-                program_id,
-            ),
-            &[crank.clone(), paid_ai.clone(), system_program_ai.clone()],
-            &[&[b"paid", &state.auction_id, &leaf, &[paid_bump]]],
+        // there is no callback vector here; the only CPI is to the system program (create/allocate
+        // /assign/transfer), which cannot re-enter this program. The flag is written first anyway
+        // so the ordering survives future edits (`state.paid` is persisted by `store_state` at the
+        // end of this instruction; the transaction is atomic and no untrusted call sits in between).
+        create_flag(
+            program_id,
+            crank,
+            paid_ai,
+            system_program_ai,
+            &[b"paid", &state.auction_id, &leaf, &[paid_bump]],
+            PAID_MARKER,
         )?;
 
         // move lamports out of the escrow PDA (program-owned) to the destination

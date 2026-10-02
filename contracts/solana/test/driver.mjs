@@ -10,7 +10,9 @@
 // signatures, repeatedly until every leaf is paid). Tests: submit twice refused; release with no
 // Approval refused; expired approval refused; release after refund refused; leaf not in the root
 // refused; every leaf paid exactly once across several crank calls; spoofed sysvar on
-// submit_attestation refused. The before/after payouts-per-transaction table at proof depths 0–6
+// submit_attestation refused. §10 item 1 (reviewer F-1): a dusted `paid` PDA must not read as
+// "already paid" — a paid flag counts only if program-owned with the PAID_V1 marker. The
+// before/after payouts-per-transaction table at proof depths 0–6
 // is measured from real serialized transactions (1232-byte packet limit) and printed as
 // `SIZE depth=…` lines; it is recorded in docs/STATUS-B.md.
 //
@@ -332,8 +334,9 @@ async function main() {
   // local dev keys, generated fresh for this run (never persisted)
   const seller = Keypair.generate();
   const crank = Keypair.generate();
+  const duster = Keypair.generate(); // unrelated key for the §10 F-1/F-3 dusting scenarios
   const returnTo = Keypair.generate();
-  for (const kp of [seller, crank]) {
+  for (const kp of [seller, crank, duster]) {
     const sig = await conn.requestAirdrop(kp.publicKey, 20 * LAMPORTS_PER_SOL);
     await conn.confirmTransaction(sig);
   }
@@ -644,6 +647,68 @@ async function main() {
       ])));
     await expectCustomError("refund-twice-refused", 17, () =>
       send(crank, refundIx(crank, auctionPda, returnTo.publicKey, auctionId)));
+  }
+
+  {
+    // ---- §10 item 1 (F-1): a dusted paid PDA must not read as "already paid" ----
+    // dust paidPda(leafA) from an unrelated key, then crank: rA must still be paid
+    // exactly once (the flag counts only if program-owned with the PAID_V1 marker), and the refund
+    // must return only the unpaid remainder — never rA's or rB's paid lot
+    const auction3Id = randomBytes(32);
+    const auction3Pda = auctionPdaFor(auction3Id);
+    const rA = Keypair.generate(), rB = Keypair.generate();
+    const fLeaves = [
+      leafHash(auction3Id, 0, ASSET_SOL, 1, 2, dest(rA)),
+      leafHash(auction3Id, 1, ASSET_SOL, 1, 2, dest(rB)),
+    ];
+    const ftree = buildTree(fLeaves);
+    const froot = rootHash(2, ftree.treeRoot);
+    const t3 = await chainTime();
+    const fDeadline = t3 + 30;
+    await send(seller, lockIx(seller, auction3Pda, {
+      auctionId: auction3Id, genesis, amount: 3n * LOT, lot: LOT,
+      lockUntil: t3 + 5, deadline: fDeadline,
+      signers, returnTo: returnTo.publicKey.toBytes(),
+    }));
+    const fAtt = attestation(genesis, programIdBytes, auction3Id, resultHash, froot, 0, 0, fDeadline);
+    await send(crank,
+      ed25519Ix([sign(0, fAtt), sign(1, fAtt)], [signers[0], signers[1]], MSG_REF),
+      submitIx(crank, auction3Pda, approvalPdaFor(auction3Id, 0), fAtt));
+
+    // dust the paid PDA of leaf A from an unrelated key (the runtime refuses any dust below the
+    // 0-byte rent-exempt minimum of 890,880 lamports, so a real dust is at least that; 900,000 is
+    // also below the 7-byte flag's rent need, exercising the top-up-then-allocate path)
+    const dusted = paidPdaFor(auction3Id, fLeaves[0]);
+    await send(duster, SystemProgram.transfer({ fromPubkey: duster.publicKey, toPubkey: dusted, lamports: 900_000 }));
+
+    const fp = (i, kp) => ({
+      index: i, lotCount: 1, dest: dest(kp), destAi: kp.publicKey, destWritable: true,
+      leafCount: 2, proof: ftree.proofs[i], paidPda: paidPdaFor(auction3Id, fLeaves[i]), leaf: fLeaves[i],
+    });
+    const bA = await bal(rA), bB = await bal(rB);
+    await send(crank, releaseApprovedIx(crank, auction3Pda, approvalPdaFor(auction3Id, 0), [fp(0, rA), fp(1, rB)]));
+    const aA = await bal(rA), aB = await bal(rB);
+    const flagA = await conn.getAccountInfo(dusted);
+    check("paid-pda-dusted-payout-still-made-once",
+      BigInt(aA - bA) === LOT && BigInt(aB - bB) === LOT &&
+        flagA !== null && flagA.owner.equals(PROGRAM_ID) && eq(new Uint8Array(flagA.data), utf8("PAID_V1")),
+      `rA +${aA - bA} (want ${LOT} despite the dust), rB +${aB - bB} (want ${LOT}), ` +
+        `flag owner ${flagA?.owner.toBase58()} data ${hex(new Uint8Array(flagA?.data ?? []))} (want program-owned PAID_V1)`);
+
+    // exactly once: re-presenting both leaves pays nothing again
+    await send(crank, releaseApprovedIx(crank, auction3Pda, approvalPdaFor(auction3Id, 0), [fp(0, rA), fp(1, rB)]));
+    const zA = await bal(rA), zB = await bal(rB);
+    check("paid-pda-dusted-paid-exactly-once",
+      BigInt(zA - aA) === 0n && BigInt(zB - aB) === 0n,
+      `re-crank paid again: rA +${zA - aA}, rB +${zB - aB} (want 0 each)`);
+
+    // the refund returns only the 1 unpaid lot (3 locked, 2 paid) — the attested lots stay paid
+    await waitUntilChainTime(fDeadline, "F-1 refund deadline");
+    const rb = await bal(returnTo);
+    await send(crank, refundIx(crank, auction3Pda, returnTo.publicKey, auction3Id));
+    const ra = await bal(returnTo);
+    check("paid-pda-dusted-refund-omits-paid-lot", BigInt(ra - rb) === LOT,
+      `refund returned ${ra - rb}, want the 1 unpaid lot (the two attested lots must not return to the locker)`);
   }
 
   // ---- §9: before/after payouts-per-transaction table at proof depths 0–6 ----

@@ -3,7 +3,39 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE
+## Current run: head task — crosschain §10 fixes for Reviewer R's BLOCK (F-1…F-5) + redeploy
+
+State: **IN PROGRESS**. Base: clean tree at `e1851c5` (head: merge main into track-b, crosschain §10).
+Scope: `docs/design/crosschain.md` §10 items 1–5 in order, one commit per item with red/green proof
+here, then redeploy both escrows and rerun lock → attest → release → refund on each. Reviewer report
+(read-only): `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-f5-solana9.md`; its lab probes in
+`/Users/akshmnd/Dev Projects/benzo-sol/tests/`. No other-checkout access beyond those read-only
+files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PASS 37 s at `e1851c5`.
+
+1. **§10 item 1 (P0 F-1), a dusted `paid` PDA read as "already paid": FIXED** (this commit).
+   `contracts/solana/src/lib.rs`: a paid flag counts only if the account is **program-owned with
+   the `PAID_V1` marker** (`flag_is_set`); flag accounts are created **pre-funding-safe**
+   (`create_flag`): `create_account` for a fresh PDA, otherwise top up to rent-exempt then
+   `allocate` + `assign` via `invoke_signed` with the PDA seeds. `crosschain/solana.ts`
+   `solStatus` now applies the same rule (a dusted PDA is never "paid").
+   Test (`bash contracts/solana/test/run.sh`, driver): dust `paidPda(leafA)` with 900,000 lamports
+   from an unrelated key, then crank — `paid-pda-dusted-payout-still-made-once` (rA and rB each
+   paid exactly 1 lot despite the dust; flag program-owned `PAID_V1`),
+   `paid-pda-dusted-paid-exactly-once` (re-presenting both leaves pays nothing again), then after
+   the deadline `paid-pda-dusted-refund-omits-paid-lot` (3 lots locked, 2 paid: the refund returns
+   exactly the 1 unpaid lot, never the attested lots).
+   **Red on the unfixed program** — `contracts/logs/f1-paid-pda-dust-old-code.out` (exit 1):
+   `ERROR paid-pda-dusted-payout-still-made-once rA +0 (want 1000000000 despite the dust), rB
+   +1000000000 …, flag owner 11111111111111111111111111111111 data  (want program-owned
+   PAID_V1)` and `ERROR paid-pda-dusted-refund-omits-paid-lot refund returned 2000000000, want
+   the 1 unpaid lot …` — exactly reviewer F-1 (silent skip, then the refund pays rA's lot to the
+   locker). **Green after the fix** — `contracts/logs/f1-paid-pda-dust-fixed.out` (exit 0):
+   `RESULT PASS all Solana escrow assertions`, 28 PASS / 0 ERROR. `npm run typecheck` PASS.
+   Note: the runtime refuses any dust below the 0-byte rent-exempt minimum (890,880 lamports —
+   seen once as `insufficient funds for rent` before the amount was corrected), so a real dust is
+   ≥ that; 900,000 also sits below the 7-byte flag's rent need, exercising the top-up path.
+
+## Previous run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE (its testnet deployment addresses are superseded when this run's §10 redeploy lands)
 
 State: **READY FOR MERGE** (updated 2026-10-02T15:30Z). Started clean at `305d565` (head: merge main into
 track-b, crosschain §9). Head message received this run; implemented as written, one commit per item. Commits:

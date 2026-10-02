@@ -38,6 +38,9 @@ export function auctionPda(programId: PublicKey, auctionId: Uint8Array): PublicK
 export function approvalPda(programId: PublicKey, auctionId: Uint8Array, batch: number): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("approval"), Buffer.from(auctionId), Buffer.from(le64(batch))], programId)[0];
 }
+/** §10 item 1 (F-1): a paid flag counts only if program-owned with this marker — a dusted PDA
+ *  (system-owned lamports) is never "paid". */
+export const PAID_MARKER = Buffer.from("PAID_V1");
 export function paidPda(programId: PublicKey, auctionId: Uint8Array, leaf: Uint8Array): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("paid"), Buffer.from(auctionId), Buffer.from(leaf)], programId)[0];
 }
@@ -302,7 +305,10 @@ export async function solStatus(conn: Connection, programId: PublicKey, auctionI
   const paidLeaves: Record<string, boolean> = {};
   for (const leaf of leaves) {
     const flag = await conn.getAccountInfo(paidPda(programId, auctionId, leaf));
-    paidLeaves[bytesToHex(leaf)] = flag !== null && (flag.lamports > 0 || flag.data.length > 0);
+    // §10 F-1: the flag counts only if program-owned with the PAID_V1 marker (same rule as the
+    // program) — lamports or data alone prove nothing, anyone can dust the PDA
+    paidLeaves[bytesToHex(leaf)] =
+      flag !== null && flag.owner.equals(programId) && Buffer.from(flag.data).equals(PAID_MARKER);
   }
   return { ...base, paidLeaves };
 }
