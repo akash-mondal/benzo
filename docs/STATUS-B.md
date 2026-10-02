@@ -31,6 +31,10 @@ Proof at base14061a4 + working tree, fresh real quicknet **32703573** and fresh 
 
 A wiring follow-up: signed RFQ parameters and layoutv2; treasury funding leg; separate host Ed25519 delivery-attestation keys (manifest pins three public keys), quorum default packets and buyer destination. Live delivery observation/attestation and settlement remain Track A.
 
+8. OTC complete through registry (layoutv3; signed `otc {buyer_key,seller_key}` pins distinct one-time parties; single unit/lot). Latest valid max/min match iff max≥min; price is integer floor((max+min)/2) zats. Buyer refunds C−gross price, seller refunds C plus gross payment net of fee; a no-match/missing party refunds everyone exact C with zero fees. Extra parties refund exact C. No buyer-side bond, serial block or second reserve; both limits become public at R (no match-bit-only privacy claim).
+
+Proof at baseff6b2ea + working tree, fresh real quicknet **32703652** and fresh tle orders: `node tmp/proof-otc.mjs` → `tmp/proof-logs/otc-corpus.out`: max30000/min10000 →20000, buyer30100 refund, seller50100 refund+19900 payout, outsider50100 refund; conservation150300=19900+130300+100. Max9000/min10000 no match →both50100 exact C, zero fees; equal10000 matches at10000; odd30001/10000 rounds to20000; missing seller cancels. `python3 tmp/otc-verify.py`: online/offline OK x8 on five corpora; self-consistent wrong midpoint21000 → `canonical result differs` + `otc midpoint/limits`; charging cancelled buyer100 → `canonical result differs` + `otc fees` (exit1; `otc-verify.out`). Shipped stdin clear byte-matches. API `/auction` valid + `/result` exact on match/cancel/missing (`otc-api.out`); typecheck/core/CLI builds PASS (`otc-build.out`). A wiring: manifest block/layoutv3 and result per-leaf `side`; ledger obligations are to the two leaves, never a separate clearing/settlement pipeline. No live-chain evidence claim.
+
 ### Questions (run 8)
 
 User instruction (2026-10-02T03:55:33Z), verbatim:

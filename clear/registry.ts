@@ -4,6 +4,7 @@
 import { client, requireThat, type Manifest, type Signed } from "../manifest/schema";
 import { clear, checkResultModeA, obligationsModeA, type ClearInput, type ClearResult, type ClearBody, type SettlementExtras } from "./core";
 import { clearModeB, clientBuyback, checkResultBuyback, obligationsModeB, type BuybackManifest } from "./mode-b";
+import { OTC_LAYOUT, clientOTC, clearOTC, checkResultOTC, obligationsOTC, type OTCManifest } from "./otc";
 import { RFQ_LAYOUT, clientRFQ, clearRFQ, checkResultRFQ, obligationsRFQ, type RFQManifest } from "./rfq";
 import { LAUNCH_LAYOUT, clientLaunch, clearLaunch, checkResultLaunch, type LaunchManifest } from "./launch";
 import { attachSerials } from "./serials";
@@ -20,6 +21,7 @@ export type ModeEntry = {
 export const registry: Record<string, ModeEntry> = {
   uniform: { layout: LAYOUT_V0, client, clear: input => attachSerials(clear(input), client(input.manifest, input.signer).manifest, input.serial_beacon), checkResult: (m, r) => checkResultModeA(m as Manifest, r), obligations: obligationsModeA },
   vickrey: { layout: LAYOUT_V0, client, clear, checkResult: (m, r) => checkResultModeA(m as Manifest, r), obligations: obligationsModeA },
+  otc: { layout: OTC_LAYOUT, client: clientOTC, clear: clearOTC, checkResult: (m,r) => checkResultOTC(m as OTCManifest,r), obligations: obligationsOTC },
   rfq: { layout: RFQ_LAYOUT, client: clientRFQ, clear: clearRFQ, checkResult: (m,r) => checkResultRFQ(m as RFQManifest,r), obligations: obligationsRFQ },
   launch: { layout: LAUNCH_LAYOUT, client: clientLaunch, clear: clearLaunch, checkResult: (m,r) => checkResultLaunch(m as LaunchManifest,r), obligations: obligationsModeA },
   buyback: {

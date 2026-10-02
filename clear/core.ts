@@ -6,7 +6,7 @@ export type Opened = { leaf_index: number; plaintext_hex: string | null; error?:
 export type ClearInput = { manifest: Signed; signer: string; frozen: Frozen; opened: Opened[]; reserve_opening?: string | null; serial_beacon?: { round: number; signature: string } | null; launch?: import("./launch").LaunchInput };
 export type Allocation = {
   leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string;
-  lot?: string; balance_due_zats?: string; tranche?: string;
+  lot?: string; balance_due_zats?: string; tranche?: string; side?: string;
 };
 export type ClearBody = {
   auction_id: string; manifest_hash: string; freeze_root: string; mode: string; clearing_price_zats: string;
