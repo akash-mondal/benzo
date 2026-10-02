@@ -582,6 +582,12 @@ fn submit_attestation(
     if Clock::get()?.unix_timestamp > att_expiry {
         return Err(EscrowError::Expired.into());
     }
+    // §10 item 2 (F-2): the attested release window must fit inside the refund-free window —
+    // refund is allowed after `deadline`, so an expiry past it would let a refund race (and
+    // capture) attested payouts still releasable until `expiry`. Signers attest expiry <= deadline.
+    if att_expiry > state.deadline {
+        return Err(EscrowError::BadParameters.into());
+    }
 
     // replay refusal: the Approval PDA is created exactly once per (auction_id, batch_index)
     let (approval_pda, approval_bump) = Pubkey::find_program_address(

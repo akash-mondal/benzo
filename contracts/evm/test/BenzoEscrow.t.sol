@@ -380,6 +380,58 @@ contract BenzoEscrowTest is Test {
         escrow.refund(auctionId);
     }
 
+    // 5. §10 item 2 (F-2): expiry must fit inside the refund-free window
+    function test_release_expiry_after_deadline_refused() public {
+        uint64 until = uint64(block.timestamp + 1 days);
+        uint64 dead = uint64(block.timestamp + 2 days);
+        doLock(2 * LOT, until, dead);
+
+        bytes32 l0 = mkLeaf(0, address(0), 1, 1, abi.encodePacked(recipientA));
+        bytes32 root = keccak256(abi.encodePacked("benzo-root-v1", uint64(1), l0));
+        BenzoEscrow.Payout[] memory ps = new BenzoEscrow.Payout[](1);
+        ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
+
+        // an attestation whose expiry outlives the deadline would make the refund window
+        // (now > deadline) overlap the release window (now <= expiry): a refund racing the
+        // release could capture attested payouts. Refused.
+        BenzoEscrow.Release memory att = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 0, 0, dead + 1);
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = alicePk;
+        pks[1] = bobPk;
+        bytes[] memory sigs = signRelease(att, pks);
+        vm.expectRevert(BenzoEscrow.BadParameters.selector);
+        escrow.release(att, sigs, ps);
+    }
+
+    function test_refund_only_after_attested_window_closed() public {
+        uint64 until = uint64(block.timestamp + 1 days);
+        uint64 dead = uint64(block.timestamp + 2 days);
+        doLock(2 * LOT, until, dead);
+
+        bytes32 l0 = mkLeaf(0, address(0), 1, 1, abi.encodePacked(recipientA));
+        bytes32 root = keccak256(abi.encodePacked("benzo-root-v1", uint64(1), l0));
+        BenzoEscrow.Payout[] memory ps = new BenzoEscrow.Payout[](1);
+        ps[0] = BenzoEscrow.Payout(0, 1, 1, abi.encodePacked(recipientA), 1, new bytes32[](0));
+        BenzoEscrow.Release memory att = BenzoEscrow.Release(auctionId, keccak256("result-1"), root, 0, 0, dead);
+        uint256[] memory pks = new uint256[](2);
+        pks[0] = alicePk;
+        pks[1] = bobPk;
+
+        // an attested (approved) but unreleased batch cannot be refunded before its expiry:
+        // refund needs now > deadline >= expiry, so the release window is shut by construction
+        // before any refund can take the attested amount
+        vm.expectRevert(BenzoEscrow.BeforeDeadline.selector);
+        escrow.refund(auctionId);
+
+        vm.warp(dead + 1); // now > deadline >= expiry: the attestation has expired
+        bytes[] memory sigs = signRelease(att, pks);
+        vm.expectRevert(BenzoEscrow.Expired.selector);
+        escrow.release(att, sigs, ps);
+
+        escrow.refund(auctionId);
+        assertEq(returnTo.balance, 2 * LOT, "refund returns the unspent amount only after the attested window closed");
+    }
+
     function test_refund_after_release_returns_only_remainder() public {
         doLock(2 * LOT, uint64(block.timestamp + 1 days), uint64(block.timestamp + 30 days));
         bytes32 l0 = mkLeaf(0, address(0), 1, 1, abi.encodePacked(recipientA));

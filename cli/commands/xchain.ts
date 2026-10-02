@@ -121,6 +121,14 @@ export async function run(argv: string[]): Promise<number> {
       const auctionId = hexToBytes(need(a, "auction"));
       const resultHash = hexToBytes(need(a, "result-hash"));
       const batchIndex = num(a, "batch"), nonce = num(a, "nonce"), expiry = num(a, "expiry");
+      // §10 F-2: signers must attest expiry <= deadline (both chains refuse otherwise); the
+      // deadline comes from the locked auction on chain
+      const escrowDeadline = chain2 === "evm"
+        ? (await evmStatus(rpc, escrow, bytesToHex(auctionId), [])).deadline
+        : (await solStatus(solConnection(rpc), new PublicKey(escrow), auctionId, [])).deadline;
+      if (expiry > escrowDeadline) {
+        throw new Error(`--expiry ${expiry} must be <= the auction deadline ${escrowDeadline} (crosschain §10 F-2)`);
+      }
       const standardLot = BigInt(alloc.standard_lot);
       const leaves: AllocationLeaf[] = alloc.leaves;
       // design §3: every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)

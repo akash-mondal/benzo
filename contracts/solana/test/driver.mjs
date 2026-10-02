@@ -415,14 +415,14 @@ async function main() {
   const root0 = rootHash(2, tree0.treeRoot);
 
   {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline);
     await submit(0, att, [0, 2], [0, 2]); // alice + carol
     const ai = await conn.getAccountInfo(approvalPdaFor(auctionId, 0));
     const d = ai?.data;
     const ok = ai && ai.owner.equals(PROGRAM_ID) && d.length === 153 &&
       eq(d.slice(0, 32), auctionId) && d.readBigUInt64LE(32) === 0n &&
       eq(d.slice(40, 72), root0) && eq(d.slice(72, 104), resultHash) &&
-      d.readBigUInt64LE(104) === 0n && BigInt(d.readBigInt64LE(112)) === BigInt(deadline + 1000) &&
+      d.readBigUInt64LE(104) === 0n && BigInt(d.readBigInt64LE(112)) === BigInt(deadline) &&
       eq(d.slice(120, 152), genesis);
     check("submit-2of3-records-approval", ok, "Approval PDA state differs from the attested fields");
   }
@@ -443,7 +443,7 @@ async function main() {
 
   // §9: submit twice -> refused (the Approval PDA is created exactly once per batch)
   await expectCustomError("submit-twice-refused", 9, async () => {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline);
     await submit(0, att, [0, 2], [0, 2]);
   });
 
@@ -461,7 +461,7 @@ async function main() {
 
   {
     // batch 1: r3's account is readonly (cannot receive) -> skipped; r4 is paid regardless
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 1, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 1, 0, deadline);
     await submit(1, att, [1, 2], [1, 2]);
     const b3 = await bal(r3), b4 = await bal(r4);
     await send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 1), [
@@ -476,7 +476,7 @@ async function main() {
 
   {
     // batch 2, same leaves/root, new batch index: the failed item is claimable, the paid one is not
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 2, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 2, 0, deadline);
     await submit(2, att, [0, 1], [0, 1]);
     const b3 = await bal(r3), b4 = await bal(r4);
     await send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 2), [
@@ -492,12 +492,12 @@ async function main() {
   // ---- submit_attestation refusals (specific errors) ----
   {
     // one signature is not 2-of-3
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 3, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 3, 0, deadline);
     await expectCustomError("submit-1sig-refused", 11, () => submit(3, att, [0], [0]));
   }
   {
     // two signatures from outside the signer set
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 4, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 4, 0, deadline);
     const outPks = [randomBytes(32), randomBytes(32)];
     const sigs = [ed25519.sign(att, outPks[0]), ed25519.sign(att, outPks[1])];
     await expectCustomError("submit-outsider-signatures-refused", 12, () =>
@@ -506,12 +506,12 @@ async function main() {
   }
   {
     // the same signer twice is one signature, not two
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 5, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 5, 0, deadline);
     await expectCustomError("submit-one-signer-twice-refused", 12, () => submit(5, att, [0, 0], [0, 0]));
   }
   {
     // cross-cluster binding: a correctly signed attestation for another genesis hash is refused
-    const att = attestation(new Uint8Array(32), programIdBytes, auctionId, resultHash, root1, 6, 0, deadline + 1000);
+    const att = attestation(new Uint8Array(32), programIdBytes, auctionId, resultHash, root1, 6, 0, deadline);
     await expectCustomError("submit-wrong-genesis-refused", 18, () => submit(6, att, [0, 1], [0, 1]));
   }
   {
@@ -520,8 +520,15 @@ async function main() {
     await expectCustomError("submit-expired-refused", 8, () => submit(7, att, [0, 1], [0, 1]));
   }
   {
+    // §10 item 2 (F-2): an attestation whose expiry outlives the auction's deadline is refused
+    // at submit — otherwise the refund window (now > deadline) would overlap the release window
+    // (now <= expiry) and a refund racing the release could capture attested payouts
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 12, 0, deadline + 1000);
+    await expectCustomError("submit-expiry-after-deadline-refused", 5, () => submit(12, att, [0, 1], [0, 1]));
+  }
+  {
     // §9: a spoofed sysvar on submit_attestation -> refused (the 2022 Wormhole class)
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 8, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 8, 0, deadline);
     const fakeSysvar = Keypair.generate().publicKey;
     const ix = submitIx(crank, auctionPda, approvalPdaFor(auctionId, 8), att);
     ix.keys[2] = { pubkey: fakeSysvar, isSigner: false, isWritable: false }; // spoofed sysvar account
@@ -531,7 +538,7 @@ async function main() {
 
   // ---- release_approved leaf checks (against the approved root) ----
   {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 9, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 9, 0, deadline);
     await submit(9, att, [0, 1], [0, 1]);
   }
   {
@@ -628,7 +635,7 @@ async function main() {
 
   {
     // approval submitted before the refund, released after it -> refused
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 11, 0, deadline + 1000);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 11, 0, deadline);
     await submit(11, att, [0, 1], [0, 1]);
     await waitUntilChainTime(deadline, "deadline");
     const b = await bal(returnTo);
@@ -647,6 +654,48 @@ async function main() {
       ])));
     await expectCustomError("refund-twice-refused", 17, () =>
       send(crank, refundIx(crank, auctionPda, returnTo.publicKey, auctionId)));
+  }
+
+  {
+    // ---- §10 item 2 (F-2): an approved but unreleased batch cannot be refunded until its
+    // expiry has passed. Refund requires now > deadline and every approval's expiry is ≤
+    // deadline, so the windows are disjoint by construction — asserted from the chain state ----
+    const auction4Id = randomBytes(32);
+    const auction4Pda = auctionPdaFor(auction4Id);
+    const r5 = Keypair.generate();
+    const t4 = await chainTime();
+    const d4 = t4 + 15;
+    await send(seller, lockIx(seller, auction4Pda, {
+      auctionId: auction4Id, genesis, amount: 1n * LOT, lot: LOT,
+      lockUntil: t4 + 5, deadline: d4,
+      signers, returnTo: returnTo.publicKey.toBytes(),
+    }));
+    const f2Leaf = leafHash(auction4Id, 0, ASSET_SOL, 1, 2, dest(r5));
+    const f2Tree = buildTree([f2Leaf]);
+    const f2Root = rootHash(1, f2Tree.treeRoot);
+    const f2Att = attestation(genesis, programIdBytes, auction4Id, resultHash, f2Root, 0, 0, d4); // expiry == deadline
+    await send(crank,
+      ed25519Ix([sign(0, f2Att), sign(1, f2Att)], [signers[0], signers[1]], MSG_REF),
+      submitIx(crank, auction4Pda, approvalPdaFor(auction4Id, 0), f2Att));
+    const aai = await conn.getAccountInfo(approvalPdaFor(auction4Id, 0));
+    const sai = await conn.getAccountInfo(auction4Pda);
+    const aexp = aai.data.readBigInt64LE(112), dl = sai.data.readBigInt64LE(227);
+    check("approval-expiry-not-after-deadline", BigInt(aexp) <= BigInt(dl),
+      `approval expiry ${aexp} must be <= the auction deadline ${dl}`);
+    await expectCustomError("approved-unreleased-refund-premature-refused", 16, () =>
+      send(crank, refundIx(crank, auction4Pda, returnTo.publicKey, auction4Id)));
+    await waitUntilChainTime(d4, "F-2 deadline");
+    await expectCustomError("approved-unreleased-release-expired-when-refund-opens", 8, () =>
+      send(crank, releaseApprovedIx(crank, auction4Pda, approvalPdaFor(auction4Id, 0), [{
+        index: 0, lotCount: 1, dest: dest(r5), destAi: r5.publicKey, destWritable: true,
+        leafCount: 1, proof: f2Tree.proofs[0], paidPda: paidPdaFor(auction4Id, f2Leaf), leaf: f2Leaf,
+      }])));
+    const rb2 = await bal(returnTo);
+    await send(crank, refundIx(crank, auction4Pda, returnTo.publicKey, auction4Id));
+    const ra2 = await bal(returnTo);
+    const now2 = await chainTime();
+    check("refund-only-after-approval-expired", BigInt(ra2 - rb2) === LOT && now2 > aexp,
+      `refund returned ${ra2 - rb2} (want the whole unpaid ${LOT}) at chain time ${now2}, approval expiry was ${aexp}`);
   }
 
   {
@@ -725,7 +774,7 @@ async function main() {
       const mleaves = mdests.map((kp, i) => leafHash(aid, i, ASSET_SOL, 1, 2, dest(kp)));
       const mtree = buildTree(mleaves);
       const mroot = rootHash(nleaves, mtree.treeRoot);
-      const matt = attestation(genesis, programIdBytes, aid, resultHash, mroot, 0, 0, deadline + 1000);
+      const matt = attestation(genesis, programIdBytes, aid, resultHash, mroot, 0, 0, deadline);
       const mpayouts = mdests.map((kp, i) => ({
         index: i, lotCount: 1, dest: dest(kp), destAi: kp.publicKey, destWritable: true,
         leafCount: nleaves, proof: mtree.proofs[i], paidPda: paidPdaFor(aid, mleaves[i]),

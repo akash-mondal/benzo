@@ -164,6 +164,22 @@ async function main() {
       `evm rc=${r.code} sol rc=${rs.code} roots ${bE.allocation_root} / ${bS.allocation_root}`);
   }
 
+  // §10 F-2 at the signer tool: signers must attest expiry <= deadline — refused before signing
+  {
+    const re = benzoXchain(["attest", "--chain", "evm", "--auction", auction1, "--allocation", allocationFile,
+      "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-refused-evm.json")]);
+    const rs = benzoXchain(["attest", "--chain", "solana", "--auction", auction1, "--allocation", allocationFile,
+      "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
+      "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
+      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-refused-sol.json")]);
+    check("demo-attest-expiry-past-deadline-refused",
+      re.code !== 0 && rs.code !== 0 &&
+        /must be <= the auction deadline/.test(re.stderr) && /must be <= the auction deadline/.test(rs.stderr),
+      `evm rc=${re.code} sol rc=${rs.code}: ${(re.stderr || rs.stderr || "").slice(0, 160)}`);
+  }
+
   // ---- 3. release: each chain pays its leaves (one delivery of the cleared drop) ----
   {
     const r1BalBefore = await evmBalance(evm, r1);

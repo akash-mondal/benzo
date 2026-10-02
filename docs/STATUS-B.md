@@ -35,6 +35,35 @@ files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PAS
    seen once as `insufficient funds for rent` before the amount was corrected), so a real dust is
    ≥ that; 900,000 also sits below the 7-byte flag's rent need, exercising the top-up path.
 
+2. **§10 item 2 (P0 F-2), refund racing attested payouts: FIXED** (this commit). `att.expiry <=
+   auction.deadline` is now enforced where an attestation is accepted — Solana
+   `submit_attestation` (`BadParameters` 5) and EVM `release` (`BadParameters`) — and
+   `benzo xchain attest` refuses `--expiry` past the auction's deadline read from chain before any
+   signing ("signers must attest expiry <= deadline"). With `refund` requiring `now > deadline`,
+   the release and refund windows are disjoint by construction.
+   Tests. Solana (`contracts/logs/f2-expiry-solana-*.out`): `submit-expiry-after-deadline-refused`
+   (error 5), plus the by-construction assertions `approval-expiry-not-after-deadline` (the stored
+   approval's expiry ≤ the auction's deadline, read from chain),
+   `approved-unreleased-refund-premature-refused` (error 16 before the deadline),
+   `approved-unreleased-release-expired-when-refund-opens` (error 8 once `now > deadline >=
+   expiry`) and `refund-only-after-approval-expired` (the refund returns the whole unpaid lot only
+   after the expiry has passed). EVM (`contracts/logs/f2-expiry-evm-*.out`):
+   `test_release_expiry_after_deadline_refused` (BadParameters) and
+   `test_refund_only_after_attested_window_closed` (an attested but unreleased batch: refund
+   refused before the deadline, release Expired after it, then the refund returns the unspent
+   amount). Signer tool: `contracts/logs/f2-cli-attest-refusal.out` — the local demo's new
+   `demo-attest-expiry-past-deadline-refused` shows both chains' `attest` refusing
+   `--expiry deadline+10` with `must be <= the auction deadline` before signing (13/13 demo PASS).
+   **Red on the current code** — `f2-expiry-solana-old-code.out`:
+   `ERROR submit-expiry-after-deadline-refused expected custom error 0x5, transaction succeeded`
+   (1 failed / 32 passed) and `f2-expiry-evm-old-code.out`:
+   `[FAIL: next call did not revert as expected] test_release_expiry_after_deadline_refused()`
+   (23 passed / 1 failed). **Green after the fix** — `f2-expiry-solana-fixed.out` (exit 0, 33 PASS
+   / 0 ERROR) and `f2-expiry-evm-fixed.out` (24 passed / 0 failed). `npm run typecheck` PASS.
+   Note: a first draft of the EVM window test tripped Foundry's `expectRevert` (the test helper's
+   `signRelease` externally calls `domainSeparator()`, consuming the expectation) — a harness
+   defect in my test, fixed before the red was recorded; no product defect hidden.
+
 ## Previous run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE (its testnet deployment addresses are superseded when this run's §10 redeploy lands)
 
 State: **READY FOR MERGE** (updated 2026-10-02T15:30Z). Started clean at `305d565` (head: merge main into

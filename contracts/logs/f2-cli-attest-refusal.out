@@ -1,0 +1,155 @@
+== build (from the working tree)
+note[screaming-snake-case-immutable]: immutables should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:11:34
+   |
+11 |     BenzoEscrow public immutable escrow;
+   |                                  ^^^^^^ help: consider using: `ESCROW`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-immutable
+
+warning[unsafe-typecast]: typecasts that can truncate values should be checked
+  --> test/FeeTokenDrain.t.sol:64:31
+   |
+64 |         escrow.lock{value: 0}(bytes32("B"), address(token), 1000, 100, lockU, dead, signers, payable(victim));
+   |                               ^^^^^^^^^^^^
+   |
+   = note: consider disabling this lint if you're certain the cast is safe
+           
+           // casting to 'bytes32' is safe because [explain why]
+           // forge-lint: disable-next-line(unsafe-typecast)
+           
+           
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+
+warning[unsafe-typecast]: typecasts that can truncate values should be checked
+  --> test/FeeTokenDrain.t.sol:71:31
+   |
+71 |         escrow.lock{value: 0}(bytes32("A"), address(token), 1000, 100, lockU, dead, signers, payable(attacker));
+   |                               ^^^^^^^^^^^^
+   |
+   = note: consider disabling this lint if you're certain the cast is safe
+           
+           // casting to 'bytes32' is safe because [explain why]
+           // forge-lint: disable-next-line(unsafe-typecast)
+           
+           
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#unsafe-typecast
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:195:30
+    |
+195 |           bytes32 structHash = keccak256(
+    |  ______________________________^
+196 | |             abi.encode(RELEASE_TYPEHASH, att.auctionId, att.resultHash, att.allocationRoot, att.batchIndex, att.nonce, att.expiry)
+197 | |         );
+    | |_________^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:62:31
+   |
+62 |     bytes32 internal constant auctionA = keccak256("auction-A");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_A`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-immutable]: immutables should use SCREAMING_SNAKE_CASE
+  --> test/BenzoEscrow.t.sol:36:35
+   |
+36 |     BenzoEscrow private immutable escrow;
+   |                                   ^^^^^^ help: consider using: `ESCROW`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-immutable
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:63:31
+   |
+63 |     bytes32 internal constant auctionB = keccak256("auction-B");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_B`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:252:16
+    |
+252 |           return keccak256(
+    |  ________________^
+253 | |             abi.encode(
+254 | |                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+255 | |                 keccak256(bytes(DOMAIN_NAME)),
+...   |
+260 | |         );
+    | |_________^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:272:16
+    |
+272 |   ...   return keccak256(
+    |  ______________^
+273 | | ...       abi.encodePacked(LEAF_PREFIX, auctionId, index, bytes32(uint256(uint160(asset))), lotCount, destinationKind, destination)
+274 | | ...   );
+    | |_______^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:278:16
+    |
+278 |         return keccak256(abi.encodePacked(ROOT_PREFIX, leafCount, treeRoot));
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/BenzoEscrow.t.sol:80:31
+   |
+80 |     bytes32 internal constant auctionId = keccak256("auction-1");
+   |                               ^^^^^^^^^ help: consider using: `AUCTION_ID`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+    Finished `release` profile [optimized] target(s) in 0.14s
+npm notice run build:cli
+npm notice run node cli/build.mjs
+== solana program id: 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G
+== boot anvil (127.0.0.1:8546) and solana-test-validator (127.0.0.1:8901)
+== run demo
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+ERROR xchain --expiry 1790962095 must be <= the auction deadline 1790962085 (crosschain §10 F-2)
+ERROR xchain --expiry 1790962095 must be <= the auction deadline 1790962085 (crosschain §10 F-2)
+PASS demo-attest-expiry-past-deadline-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x3d6ff20c", reason=null, transaction={ "data": "0x2f939712944f5782225e082cae20b335f2690c19657ff7bfe27f722837dc2cefe7d644ad3c3463ade7af5b22cfbc6b054aba0ba7eb413e04812e888d813b84a1849cdfbdc00a9ee9f4cd96a2ee2c9db7c5c0d3082a292770ea249be7309397145e63da1d00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006abfe9a5000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002600000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000004159e0bb4da16bb45071a17d69d45f6b47bc7fd2ae3bb00b0e4e3003e323bbe0d901a7dfb2261e023da871ff34585b0b85e0a779ac493fe1fb4ecc07ab4c53fb7a1c0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000412c75a368249599e1a76074ad3136fed998854a4802ae62034acb882500b5511c060cdedc272804b1f6e8703ecaacc1d9799ec9175f89cc4064de97f5a697003c1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000000142ccad0019b59dd444c4ca992f6b15b30e4040fab0000000000000000000000000000000000000000000000000000000000000000000000000000000000000002cd74db8ad4e8033a43f312a2291f548f4d69fea75644257594a3b08e2034850dd1964288289512973c72ae6f952f16075e941f2edf26815553467229a4bbe881", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x9. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 3448 of 203000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x9"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x1bf55193", reason=null, transaction={ "data": "0x7249fbb64fb900ef8d5b736a36895faa9685669195a661ff4ea0f4e1a4c97b4f4e1d13fe", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 0: custom program error: 0x10. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 1300 of 200000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x10"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT PASS one cleared drop delivered end to end locally on both chains

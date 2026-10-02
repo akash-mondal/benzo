@@ -186,6 +186,10 @@ contract BenzoEscrow is ReentrancyGuard {
         Auction storage a = auctions[att.auctionId];
         if (!a.exists) revert UnknownAuction();
         if (a.refunded) revert AuctionRefunded();
+        // §10 item 2 (F-2): the attested release window must fit inside the refund-free window:
+        // refund is allowed after `deadline`, so an expiry past it would let a refund race (and
+        // capture) attested payouts still releasable until `expiry`. Signers attest expiry <= deadline.
+        if (att.expiry > a.deadline) revert BadParameters();
         if (block.timestamp > att.expiry) revert Expired();
 
         bytes32 structHash = keccak256(
