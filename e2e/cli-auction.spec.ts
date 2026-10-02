@@ -35,7 +35,7 @@ function worker(id:string,allocatedKill=false) {
   const done=new Promise<any>((resolve,reject)=>{p.on('error',reject);p.on('close',(code,signal)=>{clearTimeout(timer);rmSync(pidfile,{force:true});resolve({code,signal,allocated,out,err})})});return {p,done};
 }
 async function cleanup() {
-  z.sync('vault');if(!z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))return;
+  z.sync('vault');z.enhance('vault');if(!z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))return;
   const dir=path.join(STATE,'run',`cli-cleanup-${Date.now()}`);mkdirSync(dir,{recursive:true});
   z.pczt('vault','create-max','--address',fresh('bidder'),'--output',path.join(dir,'created.pczt'));
   z.pczt('vault','prove',path.join(dir,'created.pczt'),'--output',path.join(dir,'proven.pczt'));
