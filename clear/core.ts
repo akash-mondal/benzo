@@ -3,7 +3,7 @@ import { client, requireThat, zats, type Manifest, type Signed } from "../manife
 import { checkFrozen, type Frozen } from "./merkle";
 import { balanceDue, effectiveReserve, readOrders, refundAfter, sealedReserve } from "./features";
 export type Opened = { leaf_index: number; plaintext_hex: string | null; error?: string };
-export type ClearInput = { manifest: Signed; signer: string; frozen: Frozen; opened: Opened[]; reserve_opening?: string | null };
+export type ClearInput = { manifest: Signed; signer: string; frozen: Frozen; opened: Opened[]; reserve_opening?: string | null; serial_beacon?: { round: number; signature: string } | null };
 export type Allocation = {
   leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string;
   lot?: string; balance_due_zats?: string;
@@ -12,6 +12,8 @@ export type ClearBody = {
   auction_id: string; manifest_hash: string; freeze_root: string; mode: string; clearing_price_zats: string;
   allocations: Allocation[];
   conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string; treasury_zats?: string; balances_zats?: string };
+  serial_assignment?: { leaf_index: number; serials: number[] }[];
+  serial_beacon_round?: number;
   lots?: { lot_id: string; clearing_price_zats: string }[];
 };
 // Settlement-side extras the money rules may account for (gate CF: which winners defaulted on their balance).
