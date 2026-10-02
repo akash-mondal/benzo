@@ -1,0 +1,11 @@
+commit 27990cac4a71aaac401d8e2475e7d97b29cf62e5
+start_utc 2026-10-01T21:38:31Z
+end_utc 2026-10-01T22:08:34Z
+command BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction
+CLI funding 449d5f6c574d3b250eecd1e8ffa3e50915a5219d686c72b0bf2c05c4431da763
+CLI stray funding 0b825c5c8a177abeb098da71902c5287d5ac40008176fd331d0faf0255317115
+ERROR T1 Error: T1 threw | Expected: "" | Received: "ERROR settle node exited 1: ERROR settle refused: fresh signer clearing differs from result.json | ERROR benzo settle exit 1 | "
+development cleanup dea71ac4b2df47b47a848d4e0d186f732bfca3ebf33aed396418b1870aaedef2
+run.json -> tmp/e2e/out
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (1802 s)
+run failed; details in tmp/e2e/report.json

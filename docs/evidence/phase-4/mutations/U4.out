@@ -1,0 +1,10 @@
+commit 960f95fe3539060e5a0db92aa445f76ddcdf6f9d
+start_utc 2026-10-02T00:05:35Z
+end_utc 2026-10-02T00:54:17Z
+command BNZ_LIVE=1 node node_modules/.bin/playwright test --project=cli-auction
+CLI funding 4f15b38b84954d989b4a2c9c172b36e7b9dbeb509c46c0ff218ea57e62a53dcb
+CLI stray funding ac0b47988da2e0c2e88d8901f0ae4e59fdcba00514b08877d2025d97315b656a
+ERROR T4 Error: expect(received).not.toBe(expected) // Object.is equality | Expected: not 0
+run.json -> tmp/e2e/out
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (2921 s)
+run failed; details in tmp/e2e/report.json

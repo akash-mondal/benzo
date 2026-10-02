@@ -1,11 +1,13 @@
---- a/clear/auction-cli.ts
-+++ b/clear/auction-cli.ts
-@@ -105,7 +105,7 @@
-       }); ledger.state="OPENED"; result={opened:ledger.opened,trace:ledger.trace};
-     } else if(command==="clear") {
-       requireThat(ledger.state==="OPENED" || ledger.state==="CLEARED","clearing state");
--      ledger.result=clear({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!}); ledger.state="CLEARED"; result=ledger.result;
-+      ledger.result=clear({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!}); ledger.result.allocations.sort((a:any,b:any)=>b.leaf_index-a.leaf_index); ledger.state="CLEARED"; result=ledger.result;
-     } else if(command==="cancel") {
-       requireThat(["OPEN","SEALED-WAIT","CANCELLED"].includes(ledger.state) && !ledger.opened,"cancel after opening");
-       ledger.state="CANCELLED";
+--- a/cli/product.ts
++++ b/cli/product.ts
+@@ -26,3 +26,3 @@
+   const doc:any={version:1,auction_id:id,signer:a.signer,manifest:a.manifest,state:a.state,receipts:a.receipts};
+-  if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;
++  if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;if(doc.result)doc.result.allocations.sort((x:any,y:any)=>y.leaf_index-x.leaf_index);
+   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
+@@ -110,4 +110,4 @@
+     const admitted=ac('admit',id,bid);publish(id);return {...admitted,C_zats:m.C_zats};
+   }
+-  if(['freeze','open','clear'].includes(command)) {requireThat(id,'--id required');const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result}
++  if(['freeze','open','clear'].includes(command)) {requireThat(id,'--id required');const result=ac(command,id);if(command==='clear')result.allocations.sort((a:any,b:any)=>b.leaf_index-a.leaf_index);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result}
+   if(command==='settle'||command==='cancel'||command==='sign join') {
