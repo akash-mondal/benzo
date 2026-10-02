@@ -39,8 +39,10 @@ check('O/P',()=> {
 });
 check('T1/T4/accounting',()=> {
  need(result&&doc,'fresh clear unavailable');const drill=json('cli/drill.json'),funding=tx(process.env.BNZ_LWD_URL_ALT,drill.stray_txid);
- const stray=recovered(funding).filter(n=>m.deposit_addresses.includes(n.address)&&n.value_zats>0);
- need(stray.length===2&&stray.some(n=>n.value_zats===Number(m.C_zats))&&stray.some(n=>n.value_zats===Number(m.C_zats)+1),'stray notes not recovered at their actual values');
+ const onchain=recovered(funding).filter(n=>n.value_zats>0);
+ need(onchain.length===2&&onchain.some(n=>n.value_zats===Number(m.C_zats))&&onchain.some(n=>n.value_zats===Number(m.C_zats)+1),'stray notes not recovered at their actual values');
+ const stray=execute(path.join(root,'scan/target/release/benzo-scan'),['scan','test',path.join(state,'vault')]).toString().trim().split('\n').filter(Boolean).map(l=>JSON.parse(l)).filter(n=>n.txid===drill.stray_txid&&m.deposit_addresses.includes(n.address)&&n.value_zats>0);
+ need(stray.length===2&&stray.map(n=>n.value_zats).sort((a,b)=>a-b).join()===onchain.map(n=>n.value_zats).sort((a,b)=>a-b).join(),'local note recovery differs from chain recovery');
  expected=[...result.allocations.filter(a=>BigInt(a.refund_zats)>0n).map(a=>({party:`leaf:${a.leaf_index}`,amount_zats:a.refund_zats})),{party:'seller',amount_zats:result.conservation.payout_zats},...stray.map(n=>({party:`deposit:${drill.stray_txid}:${n.diversifier_index}`,amount_zats:String(n.value_zats)}))];
  const s=doc.settlement;need(s.rows.length===expected.length&&s.receipts.length===expected.length,'ledger/receipt count');
  for(const e of expected){need(s.rows.find(r=>r.party===e.party)?.amount_zats===e.amount_zats,'ledger amount differs from independent clearing/chain');need(s.receipts.find(r=>r.party===e.party)?.amount_zats===e.amount_zats,'receipt amount differs from independent clearing/chain')}
