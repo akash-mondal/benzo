@@ -43,7 +43,7 @@ if [ ! -d "$FROST" ] && [ ! -d "$STATE/vault" ]; then
   if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     say "   a frostd from \$BNZ_STATE_DIR/run/frostd.pid is already running; stop it first"; exit 1
   fi
-  RUST_LOG=info nohup "$BIN/frostd" -i 127.0.0.1 -c "$TLS/frostd.pem" -k "$TLS/frostd.key" >"$STATE/run/frostd-dkg.log" 2>&1 &
+  RUST_LOG=info nohup "$BIN/frostd" -i 127.0.0.1 -p "${BNZ_FROSTD_ADDR##*:}" -c "$TLS/frostd.pem" -k "$TLS/frostd.key" >"$STATE/run/frostd-dkg.log" 2>&1 &
   echo $! >"$PIDFILE"
   trap 'kill "$(cat "$PIDFILE")" 2>/dev/null; rm -f "$PIDFILE"' EXIT
   for _ in $(seq 1 50); do curl -s --cacert "$TLS/rootCA.pem" -o /dev/null "https://$BNZ_FROSTD_ADDR/" && break; sleep 0.2; done
