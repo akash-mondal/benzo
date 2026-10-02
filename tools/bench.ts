@@ -1,0 +1,151 @@
+// Offline scale run: synthetic public deposits, real tlock/owner/envelope/witness cryptography.
+// Each stage runs in a fresh process so maxRSS is that stage's process high-water mark.
+import { createPrivateKey, createPublicKey } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
+import { performance } from "node:perf_hooks";
+import { timelockEncrypt } from "tlock-js";
+import { decodeArmor } from "tlock-js/age/armor.js";
+import { QUICKNET, hash, jsonBytes, signRecord, requireThat, type Manifest } from "../manifest/schema";
+import { tree, type Leaf, type Frozen } from "../clear/merkle";
+import { clearForMode } from "../clear/registry";
+import { ownerPublic, generateEnvelopeKey, sealEnvelope, signEnvelope, verifyEnvelope, settlementCommitment } from "../envelope";
+import { freezeStatement, signStatement, witnessSetHash, checkCertificates } from "../witness";
+import { publishedClient, decryptPublished } from "../cli/published-beacon";
+import { run as verify } from "../cli/commands/verify";
+
+type Stage = { stage: string; seconds: number | null; peak_rss_mib: number | null; status: string; error?: string };
+const seed = "benzo-phase6-offline-v1";
+const bytes = (tag: string) => Buffer.from(hash(seed + ":" + tag), "hex");
+const ed = (tag: string) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), bytes(tag)]), type: "pkcs8", format: "der" });
+const pem = (tag: string) => ed(tag).export({ type: "pkcs8", format: "pem" }).toString();
+const publicHex = (tag: string) => createPublicKey(ed(tag)).export({ type: "spki", format: "der" }).toString("hex");
+const rawPublic = (tag: string) => publicHex(tag).slice(24);
+const read = (file: string) => JSON.parse(readFileSync(file, "utf8"));
+const write = (file: string, value: unknown) => writeFileSync(file, jsonBytes(value));
+// Valid testnet Sapling encoding for a synthetic 43-byte receiver. No wallet or funds.
+function destination(): string {
+  const hrp = "ztestsapling", alphabet = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+  const raw = Buffer.concat([bytes("receiver-a"), bytes("receiver-b")]).subarray(0, 43);
+  let accumulator = 0, bits = 0; const data: number[] = [];
+  for (const byte of raw) { accumulator = (accumulator << 8) | byte; bits += 8; while (bits >= 5) { bits -= 5; data.push((accumulator >>> bits) & 31); } }
+  if (bits) data.push((accumulator << (5 - bits)) & 31);
+  const expanded = [...hrp].map(c => c.charCodeAt(0) >>> 5).concat([0], [...hrp].map(c => c.charCodeAt(0) & 31));
+  let chk = 1; const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+  for (const v of expanded.concat(data, [0, 0, 0, 0, 0, 0])) { const top = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let j = 0; j < 5; j++) if ((top >>> j) & 1) chk ^= generators[j]; }
+  chk ^= 1;
+  return hrp + "1" + data.concat(Array.from({ length: 6 }, (_, i) => (chk >>> (5 * (5 - i))) & 31)).map(v => alphabet[v]).join("");
+}
+
+async function stage(name: string, dir: string, count: number) {
+  const input = name === "generate" ? null : read(resolve(dir, "input.json"));
+  const auction_id = bytes("auction:" + count).toString("hex"), signer = publicHex("manifest");
+  if (name === "generate") {
+    // Fixed past round; freshly fetched authentic beacon, never a recorded response.
+    const R = 32704232;
+    const response = await fetch(`https://api.drand.sh/${QUICKNET.chain_hash}/public/${R}`, { signal: AbortSignal.timeout(15000) });
+    requireThat(response.ok, `drand HTTP ${response.status}`);
+    const beacon = { ...await response.json() as { round: number; signature: string }, chain_hash: QUICKNET.chain_hash };
+    requireThat(beacon.round === R, "drand round");
+    const client = publishedClient(beacon), release = QUICKNET.genesis + (R - 1) * QUICKNET.period;
+    requireThat(release < Date.now() / 1000, "benchmark round must be past");
+    const witness_set = signRecord({ version: 1, auction_id, q_w: 2, keys: [0, 1, 2].map(i => rawPublic("witness:" + i)) }, pem("manifest"));
+    const address = "utest1" + bytes("public-deposit-address").toString("hex");
+    const manifest: Manifest = { version: 1, network: "test", auction_id, escrow_ua: address, frost_group_key: bytes("group").toString("hex"), lot: "offline scale",
+      supply: count, reserve_zats: "1000", tick_zats: "1000", B_max_zats: "100000", q_max: 10, C_zats: "1000100", fee_zats: "100",
+      deposit_addresses: [address], drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
+      clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
+      refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", witness_set_hash: witnessSetHash(witness_set) };
+    const packet = signRecord(manifest, pem("manifest")), envelopeKey = generateEnvelopeKey();
+    const bids: any[] = [];
+    for (let i = 0; i < count; i++) {
+      const owner = { private_hex: bytes("owner:" + i).toString("hex"), public_hex: ownerPublic(bytes("owner:" + i).toString("hex")) };
+      const envelope_ct = sealEnvelope(destination(), envelopeKey.public_hex);
+      const nonce = bytes("nonce:" + i).subarray(0, 16).toString("hex"), pt = Buffer.alloc(128);
+      Buffer.from(auction_id, "hex").copy(pt, 1); pt.writeBigUInt64BE(BigInt(1 + bytes("price:" + i).readUInt32BE(0) % 100) * 1000n, 33);
+      pt.writeUInt32BE(1 + bytes("quantity:" + i).readUInt32BE(0) % 10, 41); Buffer.from(nonce, "hex").copy(pt, 45);
+      Buffer.from(owner.public_hex, "hex").copy(pt, 61); Buffer.from(settlementCommitment(nonce, envelope_ct), "hex").copy(pt, 93);
+      const armored = await timelockEncrypt(R, pt, client), ct = Buffer.from(decodeArmor(armored), "binary");
+      requireThat(ct.length <= 505, "ciphertext memo cap");
+      const memo = Buffer.alloc(512); Buffer.from("ff424e5a01", "hex").copy(memo); memo.writeUInt16BE(ct.length, 5); ct.copy(memo, 7);
+      const ciphertext_hash = hash(ct);
+      bids.push({ memo_hex: memo.toString("hex"), owner: owner.public_hex, envelope_ct, owner_sig: signEnvelope(owner, auction_id, ciphertext_hash, envelope_ct),
+        deposit: { txid: bytes("txid:" + i).toString("hex"), pool: "ironwood", address, diversifier_index: String(i) } });
+      if ((i + 1) % 1000 === 0) process.stderr.write(`generate ${i + 1}/${count}\n`);
+    }
+    write(resolve(dir, "input.json"), { packet, signer, manifest, beacon: { round: R, signature: beacon.signature, chain_hash: QUICKNET.chain_hash }, witness_set, bids });
+  } else if (name === "admission") {
+    const leaves: Leaf[] = [], envelopes: any[] = [], receipts: any[] = [];
+    for (const [i, bid] of input.bids.entries()) {
+      requireThat(/^[0-9a-f]{1024}$/.test(bid.memo_hex), "memo length");
+      const memo = Buffer.from(bid.memo_hex, "hex"), length = memo.readUInt16BE(5), ct = memo.subarray(7, 7 + length);
+      requireThat(memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) && length > 0 && length <= 505 && memo.subarray(7 + length).equals(Buffer.alloc(505 - length)), "memo header/padding");
+      const header = ct.toString("binary").split("--- ")[0];
+      requireThat(header.startsWith("age-encryption.org/v1\n") && header.includes(`-> tlock ${input.manifest.drand.R} ${QUICKNET.chain_hash}\n`) && (header.match(/-> /g) ?? []).length === 1, "tlock stanza");
+      const ciphertext_hash = hash(ct);
+      requireThat(/^[0-9a-f]{1144}$/.test(bid.envelope_ct) && verifyEnvelope(bid.owner, auction_id, ciphertext_hash, bid.envelope_ct, bid.owner_sig), "envelope intake");
+      const receipt = { auction_id, manifest_hash: input.packet.sha256, ciphertext_hash, deposit: bid.deposit, leaf_index: i };
+      leaves.push({ ...receipt, ciphertext_hex: ct.toString("hex") }); receipts.push(signRecord(receipt, pem("manifest")));
+      envelopes.push({ ciphertext_hash, envelope_ct: bid.envelope_ct, owner_sig: bid.owner_sig });
+    }
+    write(resolve(dir, "admitted.json"), { leaves, envelopes, receipts });
+  } else if (name === "freeze") {
+    const admitted = read(resolve(dir, "admitted.json"));
+    const frozen: Frozen = { auction_id, manifest_hash: input.packet.sha256, ...tree(admitted.leaves), leaf_count: count,
+      cutoff: input.manifest.T_freeze, published_at: input.manifest.T_freeze - 100, leaves: admitted.leaves };
+    const statement = freezeStatement(input.manifest, frozen), witness_cert = [{ statement, signatures: [0, 1].map(i => signStatement(statement, bytes("witness:" + i).toString("hex"))) }];
+    checkCertificates(witness_cert, { q_w: 2, keys: [0, 1, 2].map(i => rawPublic("witness:" + i)) }, statement);
+    write(resolve(dir, "frozen.json"), frozen); write(resolve(dir, "witness-cert.json"), witness_cert);
+  } else if (name === "open") {
+    const local = publishedClient(input.beacon), frozen = read(resolve(dir, "frozen.json")), opened = [];
+    for (const leaf of frozen.leaves) { const pt = await decryptPublished(leaf.ciphertext_hex, local); requireThat(pt !== null, "benchmark decrypt"); opened.push({ leaf_index: leaf.leaf_index, plaintext_hex: pt }); }
+    write(resolve(dir, "opened.json"), opened);
+  } else if (name === "clear") {
+    const result = clearForMode({ manifest: input.packet, signer, frozen: read(resolve(dir, "frozen.json")), opened: read(resolve(dir, "opened.json")) });
+    write(resolve(dir, "result.json"), result);
+  } else if (name === "verify") {
+    const admitted = read(resolve(dir, "admitted.json")), frozen = read(resolve(dir, "frozen.json")), result = read(resolve(dir, "result.json"));
+    const doc = { version: 1, auction_id, signer, manifest: input.packet, state: "CLEARED", receipts: admitted.receipts, frozen, result,
+      opened: read(resolve(dir, "opened.json")), beacon: input.beacon, witness_set: input.witness_set, witness_cert: read(resolve(dir, "witness-cert.json")), envelopes: admitted.envelopes };
+    write(resolve(dir, "auction.json"), doc); write(resolve(dir, "manifest.json"), input.packet);
+    // Disable network at the JS boundary for the complete shipped verifier.
+    globalThis.fetch = async () => { throw Error("offline benchmark network disabled"); };
+    requireThat(await verify(["--dir", dir, "--signer", signer]) === 0, "benchmark verify verdict");
+  } else throw Error("unknown benchmark stage");
+}
+
+try {
+  const args = process.argv.slice(2);
+  if (args[0] === "--stage") {
+    const start = performance.now(); await stage(args[1], args[2], Number(args[3]));
+    write(resolve(args[2], args[1] + "-metrics.json"), { stage: args[1], seconds: (performance.now() - start) / 1000,
+      peak_rss_mib: process.resourceUsage().maxRSS / 1024, status: "PASS" });
+  } else {
+    requireThat(args.length === 2 && args[0] === "--bids" && /^[1-9][0-9]*$/.test(args[1]), "usage: bench --bids 17000");
+    const count = Number(args[1]); requireThat(Number.isSafeInteger(count) && count <= 17000, "bid count 1..17000");
+    const dir = resolve("tmp", "bench-" + count); mkdirSync(dir, { recursive: true });
+    const commit = execFileSync("git", ["rev-parse", "HEAD"]).toString().trim(), stages: Stage[] = [];
+    for (const name of ["generate", "admission", "freeze", "open", "clear", "batch-plan", "verify"]) {
+      if (name === "batch-plan") {
+        // plan.ts is Track A-owned, has no export, and reads live state on import. Never import it here.
+        stages.push({ stage: name, seconds: null, peak_rss_mib: null, status: "BLOCKED",
+          error: "settle/plan.ts needs a side-effect-free offline batching export; importing it currently reads .env and invokes wallet operations" });
+        continue;
+      }
+      process.stdout.write(`START ${name} bids=${count}\n`);
+      const child = spawnSync(process.execPath, [process.argv[1], "--stage", name, dir, String(count)], { stdio: "inherit" });
+      if (child.error) throw child.error; requireThat(child.status === 0, `benchmark stage ${name} exit ${child.status}`);
+      stages.push(read(resolve(dir, name + "-metrics.json")));
+    }
+    const evidence = "docs/evidence/phase-6"; mkdirSync(evidence, { recursive: true });
+    const file = resolve(evidence, "bench.json"), previous = (() => { try { return read(file).runs; } catch (e: any) { if (e.code === "ENOENT") return []; throw e; } })();
+    const run = { bids: count, seed, round: read(resolve(dir, "input.json")).beacon.round, commit,
+      source_sha256: hash(readFileSync("tools/bench.ts")), recorded_at: new Date().toISOString(), synthetic_deposits: true,
+      stages, batch_cap: 13, settlement_batches: null, estimated_fee_zats: null, status: "BLOCKED" };
+    write(file, { runs: [...previous.filter((r: any) => r.bids !== count), run].sort((a: any, b: any) => a.bids - b.bids) });
+    process.stdout.write("| Stage | Seconds | Peak RSS MiB | Status |\n|---|---:|---:|---|\n");
+    for (const s of stages) process.stdout.write(`| ${s.stage} | ${s.seconds?.toFixed(3) ?? "—"} | ${s.peak_rss_mib?.toFixed(1) ?? "—"} | ${s.status} |\n`);
+    process.stderr.write("ERROR bench batching protected by Track A ownership; partial results only\n"); process.exitCode = 1;
+  }
+} catch (e) { process.stderr.write(`ERROR bench ${(e as Error).message}\n`); process.exitCode = 1; }

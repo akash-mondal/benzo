@@ -91,7 +91,7 @@ function main() {
       for (const record of command(["ls-tree", "-rz", "--full-tree", commit]).toString().split("\0")) {
         if (!record) continue;
         const [meta, file] = record.split("\t"), [mode, kind, oid] = meta.split(" ");
-        if (kind !== "blob" || mode === "120000") continue;
+        if (kind !== "blob") continue;
         const key = oid + " " + file, old = blobs.get(key), time = Number(timestamp);
         if (!old || time < old.time) blobs.set(key, { oid, file, time, commit });
       }
