@@ -1,0 +1,15 @@
+commit 223a9e7-era (pre-item-3 modules; Reviewer G lab probe g2, root path only)
+note a2/a3 lines throw inside the probe's own doc() fixture (settlementCommitment over the malformed ct) and are not a shipped-behavior observation; the shipped flip is b2/c2 and r7-3-before/after.
+command node tools/repro/g2-envelope-crash-not-exception.mjs
+a1) intake-shape check (admit)      : returned true
+a2) validEnvelope (plan exception?): THROWS "refused: key/signature hex"
+a3) envelopeRecipient (signer/dest): THROWS "refused: key/signature hex"
+b1) validEnvelope (plan exception?): returned {"ciphertext_hash":"ebb5ff8e0a05c0e9837057d3384e305a362f2f19
+b2) envelopeRecipient (signer/dest): THROWS "Unsupported state or unable to authenticate data"
+c1) validEnvelope (plan exception?): returned {"ciphertext_hash":"ebb5ff8e0a05c0e9837057d3384e305a362f2f19
+c2) envelopeRecipient (signer/dest): THROWS "refused: not a shielded destination"
+
+In all three cases the row is NOT exception-queued by settle/plan.ts (validEnvelope neither returns false
+nor is the decryptability ever probed there); the throw escapes to the process boundary, so ONE such bid
+halts the entire settlement (all refunds, the seller payout, stranded in the FROST vault) until someone
+edits state by hand.
