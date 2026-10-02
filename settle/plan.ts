@@ -84,10 +84,11 @@ try {
       requireThat(jsonBytes(auction.opened??null).equals(jsonBytes(opened)),"private ledger opening differs from signer-derived opening");
       requireThat(jsonBytes(auction.envelopes??[]).equals(jsonBytes(published.envelopes??[])),"private ledger envelope records differ from published records");
     }
-    // R6 (F2): the sealed reserve is re-derived here with the pinned Go tle and must equal the
-    // published opening; a forged opening is refused before any signature.
-    const derivedReserve=src.manifest.sealed_reserve!==undefined?tleOpening(path.join(state,"bin","tle"),src.manifest.drand.chain_hash,src.manifest.sealed_reserve):null;
-    const reserve_opening=requireReserveOpening(src.manifest,published?(published.reserve_opening?.plaintext_hex??null):(auction.reserve_opening??null),derivedReserve);
+    // R6 (F2) + R7 item 5: the sealed reserve is re-derived here with the pinned Go tle and must equal the
+    // published opening; a forged opening is refused before any signature. (Live run correction: this call
+    // must take the DECODED manifest from client() — the signed packet has no manifest fields.)
+    const derivedReserve=m.sealed_reserve!==undefined?tleOpening(path.join(state,"bin","tle"),m.drand.chain_hash,m.sealed_reserve):null;
+    const reserve_opening=requireReserveOpening(m,published?(published.reserve_opening?.plaintext_hex??null):(auction.reserve_opening??null),derivedReserve);
     const result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:src.manifest,signer:src.signer,frozen:src.frozen,opened,reserve_opening,serial_beacon:src.serial_beacon??null,launch:src.launch_input})));
     const fresh=jsonBytes(result);
     if(published) {

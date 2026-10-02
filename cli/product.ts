@@ -28,6 +28,10 @@ export function publish(id:string) {
   const a=read(ledger(id)),cfg=read(config(id)),dir=path.resolve(cfg.public_dir);
   const doc:any={version:1,auction_id:id,signer:a.signer,manifest:a.manifest,state:a.state,receipts:a.receipts};
   if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;
+  // R7 item 5 (Reviewer G G2): the reserve opening is published after R alongside the openings, so
+  // sealed-reserve product auctions can settle and verify — both re-derive it from manifest.sealed_reserve
+  // and refuse any mismatch (manifest/reserve.ts requireReserveOpening).
+  if(a.reserve_opening!==undefined)doc.reserve_opening={plaintext_hex:a.reserve_opening};
   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
   if(existsSync(summary)) {
     const s=read(summary);
