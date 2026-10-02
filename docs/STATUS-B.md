@@ -3,11 +3,14 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments)
+## Current run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE
 
-State: **IN PROGRESS**. Started 2026-10-02 (UTC) clean at `305d565` (head: merge main into track-b, crosschain §9).
-Head message received this run; implement as written, one commit per item. No other-checkout access
-(`benzo-sol/trackb` read only for the reviewer's test file), no merges/rebase/cherry-pick/push, no mainnet.
+State: **READY FOR MERGE** (updated 2026-10-02T15:30Z). Started clean at `305d565` (head: merge main into
+track-b, crosschain §9). Head message received this run; implemented as written, one commit per item. Commits:
+`d566d0c` (P1), `3a23f15` (Solana §9 program + tests), `f72a792` (client/CLI §9 flow), `71bb069` (live-run fixes)
+and this STATUS commit. No other-checkout access (`benzo-sol/trackb` read only for the reviewer's test file),
+no merges/rebase/cherry-pick/push, no mainnet, no Base. Deployer keys read only by the deploy/cycle commands,
+never printed.
 
 1. **P1, EVM fee-on-transfer drain (F5): DONE, commit `d566d0c`.** `contracts/evm/src/BenzoEscrow.sol`
    `lock` now measures `balanceOf(this)` around `safeTransferFrom` and reverts `BadParameters` unless the
@@ -20,10 +23,132 @@ Head message received this run; implement as written, one commit per item. No ot
    `docs/AUDITS.md` created (canonical per AGENTS.md): every dependency pin + audit status (carried over from
    `contracts/AUDITS.md`, now a pointer), every custom security-relevant file with its reason, and the
    `assets` allowlist note (plain ERC-20/721 only; no fee or rebasing tokens; lock's delta check enforces it).
+   `TestToken.sol` (step-5 fixture) is listed there too.
 
-2. **Solana attest-once / release-many (`docs/design/crosschain.md` §9): IN PROGRESS.**
+2. **Solana attest-once / release-many (`docs/design/crosschain.md` §9): DONE, commits `3a23f15` + `f72a792`.**
+   Program: `Approval` PDA seeds `["approval", auction_id, batch_index u64 le]`, 153 bytes with exactly the
+   §9 fields (`auction_id, batch_index, allocation_root, result_hash, nonce, expiry, genesis_hash, bump`);
+   `submit_attestation` carries the old release path's checks (checked instructions sysvar, strict Ed25519
+   offsets, 2-of-3 distinct pinned signers, exact attestation bytes, genesis pinned at lock, `now<=expiry`,
+   not refunded) and creates the Approval exactly once (second submit → `BatchReplayed` 0x9); the
+   signature-carrying `release` is **removed** (single code path). `release_approved(payouts[])` takes the
+   Approval + auction with **no signatures**: `now<=approval.expiry`, not refunded, per payout leaf bound +
+   Merkle membership vs `approval.allocation_root`, paid-flag PDA unset, cap `paid+amount<=locked`, flag set
+   before the lamport move, per-recipient failures skip and stay claimable. `crosschain/solana.ts` /
+   `benzo xchain release`: submit-if-needed then repeatable release_approved, payouts chunked by real
+   serialized size, sent as versioned transactions with the destination + paid-flag accounts in an address
+   lookup table; `--submit-only` runs the submit step unconditionally (replay = on-chain `BatchReplayed`).
 
-3. **Deploy step 5 (Sepolia + devnet, lock→attest→release→refund on each): NOT STARTED.**
+   **Tests (local validator, `bash contracts/solana/test/run.sh`, `contracts/logs/solana-attest-once.out`):
+   25 PASS, 0 FAIL**, incl. every §9 item: `submit-twice-refused`, `release-no-approval-refused` (NoApproval
+   19), `approval-expired-release-refused`, `release-after-refund-refused`, `release-leaf-not-in-root-refused`,
+   `every-leaf-paid-exactly-once` (8 leaves paid 3+3+2 across crank calls as v0 txs over a real lookup table,
+   then two full re-crank rounds paid nothing twice; exact per-destination balances and `paid == 8 × lot`
+   asserted), `spoofed-sysvar-on-submit-refused`, plus lock/flag/binding/refusal behaviours and the
+   `size-table-measured` record. `crosschain/local-demo.sh` 12/12 PASS (`contracts/logs/step3-xchain-e2e.out`),
+   `npm run typecheck` and `npm run e2e` PASS (37 s).
+
+   **Before/after payouts per transaction at proof depths 0–6** (measured from real serialized transactions
+   against the 1232-byte packet limit; `SIZE depth=…` lines in the test log): before = the removed
+   signature-carrying release (Ed25519 verify ix + attestation in the same tx); after = release_approved.
+   `after_legacy` is a plain transaction; `after_alt` is the shipped v0 + lookup-table form. The ALT is
+   required by the design's rule: `after_legacy` at depth 4 is 3, below 4.
+
+   | proof depth | before | after_legacy | after_alt (shipped) |
+   |---:|---:|---:|---:|
+   | 0 | 1 | 1 | 1 |
+   | 1 | 2 | 2 | 2 |
+   | 2 | 2 | 4 | 4 |
+   | 3 | 2 | 4 | 6 |
+   | 4 | 1 | 3 | 4 |
+   | 5 | 1 | 3 | 4 |
+   | 6 | 1 | 3 | 3 |
+
+3. **Deploy step 5 (design §7 step 5): DONE.** Both escrows deployed and the full
+   **lock → attest → release → refund** cycle run once on each testnet. All values below are public
+   (addresses, txids); nothing from the key files is printed. Scratch deploy/approve scripts lived in `tmp/`
+   and were deleted at run end (the deploy is reproducible from the forge artifacts with an ethers
+   `ContractFactory` over the key file, or verified directly from the txids).
+
+   **Ethereum Sepolia** (auction `0x15341db9fc2f16174f7d025d118f8862f0861e2a1fc71047ff34bcab6f9e8aa8`,
+   allocation root `0xf5646bf44723b7420e77fab6cdb29961b25d2ed544a589812e0920bc9ece275f`, payout dest
+   `0xE985C5448e8FA32b30DDA7Bf28405255b891b981`, window lockUntil 1790953748 / deadline 1790954168):
+
+   | what | value |
+   |---|---|
+   | `BenzoEscrow` | `0x41f8424d1cF73E5d77805DC2E324a63c4710F50c` (deploy tx `0x319f896e9e1a16a6f1e8f0185811786815203bffb1f89b255d16436abbfb996a`, block 11829751) |
+   | `TestToken` BNT (minted 1000e18) | `0xA6F881Fc182E7b68d6bd44Fd69A2DD4AE717BC49` (deploy tx `0x69d563f1924d2f8d7656e25f2daa8e00ac1ccbed7e3bc5060c9802fdc9871913`) |
+   | approve escrow 2e18 | tx `0x3bbcb3754a839a68cf44dbad0d9c004ea9be39f712461c6145873dffc278c8e0` |
+   | lock 2e18 (lot 1e18) | tx `0x3a6e3dfa694f4223a68a1f4a8fed554589d1b88dba09bd9a82bad6425cfcf343` |
+   | attest 2-of-3 (bundle in `tmp/xchain-live/`) | root `0xf5646bf4…` |
+   | release (1e18 to the dest) | tx `0x5d93306d74bb0ca4c99259ac091715b01511923a52284c70ace56d3df88edc29` |
+   | refund remainder (1e18 to returnTo) | tx `0x4653d24b4b332c91146e20d5e2937894be42f45f578ec50c5c18644e647e5ddc` |
+
+   `xchain status` after release: `locked 2000000000000000000, paid 1000000000000000000`, paidLeaves 1/1.
+
+   **Solana devnet** (program `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G`, auction
+   `0x0cccf4820aadcb2480b42d38121ac5ff6768240e3c20cf9222476dbd2856a551`, escrow PDA
+   `2ChFfikeTY38AgdiecQV2Y18ACgGMWXTE2u6VoWE3MWx`, approval PDA `85Tf51qYYeY3kMtUm5UnPwSiSvwpt8K8MZKgaZPGuFLz`,
+   payout dest/return `DV9nJknUZjfVHJVz2Pj9eb5dV8j2AN5CceqTPDzgHxSc`, same window):
+
+   | what | value |
+   |---|---|
+   | program deploy | tx `4VBQ4aWvrsBgaDaSEtunGJWFRFEZoY6dbMGSN9vTK9dHHETk6KyigMY3CRj94a24CdQs69YUkKjfNYWc6cUKw1BE` |
+   | lock 2 SOL (lot 1 SOL) | tx `LV856ytFstyAHgjayzRaS9CN8axu1QxwgSWXyR6zCh8bCnHVikrsWp4KT56A5mrYx2S9uaaaL3kvvKwLjs5XkWt` |
+   | `submit_attestation` (Approval created) | tx `2Wbn5d9J4xFSmXVxTrjuRJV5T9pNfViKaGXZFWCNTnZLuWVn7Qxncv8UiHuPoGE1PmKJREzJW9ziuQuTBZ9wAHP4` |
+   | `release_approved` (1 SOL to the dest) | tx `5TWQxz2CBnAEQgcySbT1FEdDVV1P8Tn2rQnqKKmmyZg2U7d6XwyKurAt963TFxGRBa1V5ZYWQHHJDQs8shNcU5T6` (lookup table `8C5yNHggaT3QCovpsUr1VMC9cn6HRJeoMSfUtU7etnFb`, create `3N7Y8gNzupMJvqdawGK35FhY6rsuUYTqFsPbHyE9vqrafZwsXbVqLYLeYCP1RuiC2feNq7cmJzN9HywrYb39emrq`, extend `3o4CvCGMwNMWoBuzHQxxznAaxtRQHu8enDrH7pxXVqDYMmyxSNA3CQJkZqypxTZaVkuLr43R4wjqDTtpDfzSLbCM`) |
+   | refund remainder (1 SOL) | tx `28hi6rwUexyM2GBLdHEuYZJe2noTqw3vZLDjgNVLCzVRXsDLQ5a5on6C3dYicg2X8xQmKKYNodwq2dXJZ4efo87z` |
+
+   `xchain status` after release: `amount 2000000000, paid 1000000000`, paidLeaves 1/1.
+
+   **Honesty notes / deviations (this run):**
+   - (a) "a test token you mint" = a minted ERC-20 on Sepolia (done, see above). On Solana the §9 escrow
+     holds and pays **native SOL** (lamports; SPL/Token-2022 delivery is design §7 step 4, deferred), so the
+     devnet cycle ran with devnet SOL; see Questions.
+   - (b) Two product bugs were found **by the live run** and fixed in `71bb069`, each with its refused-before
+     output and passing-after txid: (1) EVM leaves did not bind the auction's asset (design §3) — the first
+     Sepolia release was refused `NotInRoot` (0x52e382c6) once the asset was a minted token (the local demo
+     uses native ETH = the zero asset id and could not see this); `attest --asset` now binds it and the
+     bundle records it. (2) `CreateLookupTable` requires a slot in `SlotHashes` — devnet refused both the
+     finalized and the tip slot ("is not a recent slot"); the client now walks back from the tip (bounded).
+   - (c) The first live Solana release attempt failed at lookup-table creation **after** `submit_attestation`
+     had landed (tx `2Wbn5d9J…`); the rerun skipped the submit (Approval existed) and cranked — exactly the
+     §9 attest-once/release-many semantics. No failed attempt is credited as evidence.
+   - (d) One local test run went red (`Attempt to load a program that does not exist`): a stale
+     `solana-test-validator` from the previously stopped session (old program id `5AAgFCpRUe…`) held :8901
+     so the driver ran against the wrong chain. Not credited; the stale process exited; the rerun is the
+     25-PASS log above.
+   - (e) The §9 "expect ≥ 6 at depth 4" is **not reachable** at the 1232-byte packet limit: one depth-4
+     payout is 59 + 4×32 = 187 bytes of instruction data, so 6 payouts alone are 1122 bytes before
+     signatures, blockhash and account indexes (the measured depth-4 v0+ALT tx for 4 payouts is 1042 bytes,
+     for 5 is 1233 — one byte over). Measured maximum is 4 at depth 4 and 6 at depth 3 (1232 exactly). The
+     design's ALT remedy is implemented and its trigger condition (below 4 without the table) holds. See
+     Questions.
+   - (f) The lookup table is created per `benzo xchain release` run (~0.002 SOL rent on devnet); a persistent
+     crank-owned table would save that, recorded under Deferred.
+
+**Test audit:** project E2E suite untouched — default seal-open R retain (browser/tle assertion IDs unchanged,
+PASS 37 s at `71bb069`); `contracts/`/`crosschain/` drivers are contract-level proofs, not E2E specs. No
+assertion added/loosened in the E2E suite; live specs remain Track A's. Env: no new env vars. Upstream code:
+none copied (pinned APIs inspected in installed sources; the lookup-table slot rules read from the pinned
+crate/agave source).
+
+### Questions (this run)
+
+- **§9 size target:** the measured table above; ≥6 at depth 4 is arithmetically impossible inside a 1232-byte
+  packet with the design's payout shape (see honesty note e). Recorded as measured; confirm or redirect
+  (e.g. hoisting `leaf_count`/`proof_len` per instruction would buy ~1 payout per depth, but deviates from
+  the §9 payout list).
+- **"test token you mint" on Solana:** ran the devnet cycle with native SOL because the §9 program moves
+  lamports; locking a minted SPL token needs the step-4 token delivery path. Say the word if the devnet leg
+  should instead mint SPL and extend the program.
+- **Asset binding in leaves** (fix b.1) changed `benzo xchain attest` (`--asset`) and the bundle shape
+  (`asset` field). Backward note: old bundles default to the zero asset id (native). Confirm.
+- `TestToken.sol` is a test-only fixture with an open mint (listed in `docs/AUDITS.md`); Reviewer R should
+  see it flagged as non-custody in the hard review.
+
+Deferred: persistent crank lookup table (note f); `benzo xchain status` could also print the approval state.
+
 
 ## Track B testnet lane
 
