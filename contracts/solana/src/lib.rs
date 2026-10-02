@@ -63,6 +63,7 @@ use solana_program::{
     ed25519_program,
     entrypoint,
     entrypoint::ProgramResult,
+    instruction::{get_stack_height, TRANSACTION_LEVEL_STACK_HEIGHT},
     program::{invoke, invoke_signed},
     program_error::ProgramError,
     pubkey::Pubkey,
@@ -193,6 +194,12 @@ pub enum EscrowError {
     /// R9 item 1: the state account records an account-layout version this program does not
     /// interpret (e.g. an old-layout account left by an in-place upgrade).
     BadLayout = 20,
+    /// R14 item 1 (F1): `submit_attestation` reached through a CPI — it runs only as a
+    /// top-level transaction instruction.
+    ViaCpi = 21,
+    /// R14 item 1 (F1): the instruction at `current` is not this program's own submit carrying
+    /// the exact attestation bytes this invocation parses.
+    MessageNotSelf = 22,
 }
 
 impl From<EscrowError> for ProgramError {
@@ -571,11 +578,23 @@ struct Payout {
 /// pinned set; the message is exactly the attestation bytes; the genesis hash matches the one
 /// pinned at lock; `now <= expiry`; the auction is not refunded. On success the `Approval` PDA is
 /// written. No transfers happen in this instruction.
+///
+/// R14 item 1 (Reviewer R F1, live CPI-forgery PoC): the signed message must be bound to the
+/// exact attestation bytes this invocation processes. Two independent refusals:
+/// (a) `ViaCpi` — this instruction runs only at transaction level (`get_stack_height()`), so a
+///     hostile program can never be the `current` top-level instruction;
+/// (b) `MessageNotSelf` — the instruction at `current` must be this program's own submit
+///     instruction carrying `data[2..2+ATT_LEN] == att`, the bytes `check_ed25519` binds the
+///     precompile message to. A signature over one attestation can never approve another.
 fn submit_attestation(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
     r: &mut Reader,
 ) -> ProgramResult {
+    // R14 item 1 (a): refuse every CPI entry — only the top-level submit instruction may attest
+    if get_stack_height() != TRANSACTION_LEVEL_STACK_HEIGHT {
+        return Err(EscrowError::ViaCpi.into());
+    }
     let iter = &mut accounts.iter();
     let crank = next_account_info(iter)?;
     let auction_ai = next_account_info(iter)?;
@@ -662,6 +681,18 @@ fn submit_attestation(
     let current = load_current_index_checked(instructions_ai)? as usize;
     if current == 0 {
         return Err(EscrowError::BadEd25519.into());
+    }
+    // R14 item 1 (b): bind the verified message to the exact attestation bytes parsed above.
+    // `check_ed25519` lets the precompile message live at ix[current].data[2..2+ATT_LEN]; that
+    // instruction must be this program's own submit carrying these very bytes, so the message
+    // the signers signed and the attestation processed can never differ (the CPI-forgery
+    // substitution Reviewer R proved at 4d9c0e6).
+    let self_ix = load_instruction_at_checked(current, instructions_ai)?;
+    if self_ix.program_id != *program_id
+        || self_ix.data.len() != 2 + ATT_LEN
+        || self_ix.data[2..2 + ATT_LEN] != *att
+    {
+        return Err(EscrowError::MessageNotSelf.into());
     }
     let verify_ix = load_instruction_at_checked(current - 1, instructions_ai)?;
     if verify_ix.program_id != ed25519_program::ID {
