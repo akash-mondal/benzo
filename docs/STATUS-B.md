@@ -5,7 +5,7 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Track B testnet lane
 
-State: **WAITING FOR FUNDING** (poll below runs to 2026-10-02T11:32Z; result recorded in this section). Set up 2026-10-02T10:01Z at commit `b30e826`, clean tree. My lane only: `$BNZ_STATE_DIR=./.benzo`, frostd `localhost:2745`; nothing read or used from `benzo/.benzo`, its `.env`, or A's processes (A's frostd on 127.0.0.1:2744 was only observed via `lsof`, never contacted).
+State: **READY (funded)**. Set up 2026-10-02T10:01Z at commit `b30e826`, clean tree; funding landed 2026-10-02T10:07Z (first sync after setup) — no 90-minute wait needed. My lane only: `$BNZ_STATE_DIR=./.benzo`, frostd `localhost:2745`; nothing read or used from `benzo/.benzo`, its `.env`, or A's processes (A's frostd on 127.0.0.1:2744 was only observed via `lsof`, never contacted).
 
 **Public values (this lane):**
 
@@ -27,7 +27,7 @@ No mnemonic or `.age` content is printed here or anywhere outside `$BNZ_STATE_DI
 
 DKG command lines (public, from `.benzo/frost/dkg-commands.txt`): three `frost-client dkg -c $BNZ_STATE_DIR/frost/{alice,bob,carol}.toml -d 'benzo phase 1 vault' -s localhost:2745 -C redpallas -t 2` invocations (alice carries `-S f769aa…f4d,205ca6…b17`), run concurrently through frostd. Setup re-run safety note: this was a first-time run (`frost/`, `vault`, `bidder` all created now).
 
-**Funding:** the head sends ~0.1 TAZ to the bidder address after Builder A's live test. Polling `zcash-devtool wallet -w .benzo/bidder sync` + `balance` every 5 min, deadline 2026-10-02T11:32Z (90 min from 10:02Z). Result: _pending — updated at end of poll._
+**Funding: ARRIVED, mined.** `zcash-devtool wallet -w .benzo/bidder sync` + `balance` at 2026-10-02T10:07Z: `Latest block height is 4432740`, `Scan complete … progress is 2/2`, then `Balance:   0.10000000 TAZ` — 10,000,000 zatoshis in the **Ironwood** pool (`ironwood_balance.value_pending_spendability: Zatoshis(10000000)`; every `Spendable` line still 0.00000000 TAZ at that height, i.e. mined and scanned but not yet past its spendability wait). The note was received at the bidder address above within 6 minutes of the wallet's creation; the 90-minute poll was not needed. Later runs should expect it in `Spendable` after confirmations.
 
 ## Phase 6, Track B: READY FOR MERGE
 
