@@ -5,12 +5,16 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — crosschain §10 fixes for Reviewer R's BLOCK (F-1…F-5) + redeploy
 
-State: **IN PROGRESS**. Base: clean tree at `e1851c5` (head: merge main into track-b, crosschain §10).
-Scope: `docs/design/crosschain.md` §10 items 1–5 in order, one commit per item with red/green proof
-here, then redeploy both escrows and rerun lock → attest → release → refund on each. Reviewer report
+State: **READY FOR MERGE** (updated 2026-10-02T18:20Z). Base: clean tree at `e1851c5` (head: merge
+main into track-b, crosschain §10). One commit per item: `d9a81c7` (item 1, F-1), `4a1e835`
+(item 2, F-2), `ef5922e` (item 3, F-3), `56f2cbc` (item 4, F-4), `158ea08` (item 5, F-5), and
+this STATUS commit (redeploy + live cycle). Every fix has a red log on the pre-fix code and a
+green log on the fix (below). Scope: `docs/design/crosschain.md` §10 items 1–5 in order, then
+redeploy both escrows and rerun lock → attest → release → refund on each. Reviewer report
 (read-only): `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-f5-solana9.md`; its lab probes in
 `/Users/akshmnd/Dev Projects/benzo-sol/tests/`. No other-checkout access beyond those read-only
-files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PASS 37 s at `e1851c5`.
+files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PASS 37 s at `e1851c5`;
+final rerun PASS 38 s at the READY-FOR-MERGE tree.
 
 1. **§10 item 1 (P0 F-1), a dusted `paid` PDA read as "already paid": FIXED** (this commit).
    `contracts/solana/src/lib.rs`: a paid flag counts only if the account is **program-owned with
@@ -145,7 +149,93 @@ files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PAS
    (rebase-down / fee-on-out) are excluded by the manifest asset allowlist, not by the check
    (the two mechanisms are now listed separately, with their blind spots named).
 
-## Previous run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE (its testnet deployment addresses are superseded when this run's §10 redeploy lands)
+6. **Redeploy + live cycle (head task): DONE.** Both escrows redeployed from the deployer keys
+   (`.benzo/evm/deployer.key` = `0xb6c51a0C7DF1fdcd64adf4eAEa37E1C51eb8Afc1`,
+   `.benzo/solana/deployer.json` = `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu`; keys used by
+   the deploy/cycle commands only, never printed) and **lock → attest → release → refund** rerun
+   once on each testnet at the fixed code. All values below are public; scratch deploy scripts
+   were deleted at run end (the deploy is reproducible from the forge artifacts with an ethers
+   `ContractFactory` over the key file, or verified from the txids). Window on both chains:
+   lockUntil 1790960797 / deadline 1790960977, attest `expiry == deadline` (the new F-2 rule).
+
+   **Ethereum Sepolia** (auction `0x1a74d880f23c44b2a31d26b0c0ce2358f22aeb975b0da841ee1f7847354f36ce`,
+   allocation root `0x3aef41b7001fc294e30b87ae93ae00592e16300e7f820a555fb572b7b0524617`,
+   payout dest `0x4C53f540ba635BA7211E073E9a08960Bc4f25953`, return
+   `0x3372A2C711f5aD17BB68b60188b4e68a12920184`):
+
+   | what | value |
+   |---|---|
+   | `TestToken` BNT (constructor mints 1000e18) | `0xC64d247Db515870B12b0d1D1EFeC7C153a0371e6` (deploy tx `0xa3d31a64daf324061f264d46d122ff07ed6267227714e0e3ed9120e6d0e81553`, block 11830344) |
+   | `BenzoEscrow` (fixed code) | `0x19887941cf9BbD967f3739034127924f937D48ad` (deploy tx `0xd0d8b3c285df848fb520726d79264c17f4ffd8022ec10b78d2d65fde0a106cd5`, block 11830345) |
+   | approve escrow 2e18 | tx `0xc62c60799597fb8c9dc129c317f38ad68bc540b29e84c2fdd8d64d5fb5932f24` |
+   | lock 2e18 (lot 1e18) | tx `0xade01dc8387db878f8823ee2e79a4ddf9e351412232a64dde58755337ef05302` |
+   | attest 2-of-3 (bundle `tmp/xchain-live/bundle-evm.json`) | root `0x3aef41b7…` |
+   | release (leaf 0: 1e18 to the dest) | tx `0xfec1464c5e7f6c6091454a2393cacec8dd015db210da3e755817773e175715bc` |
+   | refund remainder (1e18 to returnTo) | tx `0xab00357e69773d1c0899369334cc25c600f7847c9cb28e0b1e544451fd853d83` |
+
+   `xchain status` after release: `locked 2000000000000000000, paid 1000000000000000000`, paidLeaves
+   1/2. Final balances read back from the chain: dest 1e18, returnTo 1e18, escrow 0.
+
+   **Solana devnet** (program `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G`, auction
+   `0x059a9d681e584c902cc4973e1b44db072745dc052ae2fb419676385cba63bb16`, escrow PDA
+   `2Yv5ac9KxhA5N3mzGTQ9cktPCLu9s5Fg41spBTAui1zP`, approval PDA
+   `CvDwE4sT814VZSy19BXSoECrjHnS14xC7PhWktXmirjC`, payout dest `EN4dQuJjDZisc1Y2uxde9JwdMaFXsrDiYGkeQquSH4qh`,
+   return `7yApc8X4vEbR841Y7AMGodKdf9ybGoTFTkVXdqtaaTxo`):
+
+   | what | value |
+   |---|---|
+   | program redeploy (fixed code; see note a) | tx `5goExevMeEbJaV4kBdb4tBVJ3wQNbRf62UEycKVUBawdVNXn21Dsp8wwNpzfoL4oRCHTAEoscoJJmhB8TgCPVoYr` (`solana program show`: Authority `3EM3LMN…`, Last Deployed In Slot 506705023) |
+   | lock 2 SOL (lot 1 SOL) | tx `dW18NB2AZxTewoCkSrdNfdA3yFcLo9Quvg5eFEAgjKwW8GomqmyEbkaTiqFaBdwspFwyD2jL32LLRYHtKrukEot` |
+   | `submit_attestation` (Approval created) | tx `2eqzoYkPjbkei5e3scEcyyGHbGALzLSzav3tYCLHUq2jNR5jTTSGKEebYvBS48LiDGsgywPebbGCmX1psKYGQgvb` |
+   | `release_approved` (leaf 0: 1 SOL to the dest) | tx `1weyiLBNKd5w9WncC2CzpoMHHHjg3d8nxeYsFTdY6KR6w4iwJDjHRyV7K4pGX8BfPMa4M6TbAo9a1HqzYvYY4Zz` (lookup table `86M84CKbNf9Yh17dUrekwx5AsBEaBsqFBvbCbCJmiL61`, create `EnmwN9bAZgCn27hoLCzzF775aUCEqrFm1ZmeVdJp8AkG1ppE4EwhML477mjXncvejytTmqWRAeLNMawcWEbfeXH`, extend `2FnBocHU3g71W3oEiiVrbUJL7Kgz4mt897JnLqTkPB59JG62UVPfzwC87YV8Xb91RfNrG1a1uRkgtLdQvwU6ShKz`) |
+   | refund remainder (1 SOL to return) | tx `38uhMgjLPyLexLcisbeGHgRdGYyVKtcoHQgrZ99mHfNbMP7pkfn5K9Xio6CW6pWCneeaNdpXg8WJXvox6shqJn1G` |
+
+   `xchain status` after release: `amount 2000000000, paid 1000000000`, paidLeaves 1/2
+   (marker-aware). Final balances read back from the chain: dest 1 SOL, return 1 SOL, escrow PDA
+   rent only (the 2-SOL principal = 1 paid + 1 refunded).
+
+   **F-1 client rule checked live on devnet:** dust tx
+   `5LU7QyxpAXy6Yeiq1RBvnZHL5h6wyGzuxav1QCgXCvrKgxDHNDcoi5xVG8x3C35vgkTKZs2qb6WaNtXvcAgbJcKc`
+   sent 2,000,000 lamports to `Gj2KzjQtwgjcYGU8yyJSZpGjvjEq1snJvVzwfgw2ehPf` =
+   `paidPda(leaf 1)` (the unpaid leaf); the account is system-owned with empty data and
+   `benzo xchain status` still reports that leaf **false** — a dusted PDA is never `PAID_V1`
+   (the pre-fix client rule would have reported it paid).
+
+   **Honesty notes (this run):** (a) the Solana redeploy landed as an **in-place upgrade** of the
+   same program id `58Ss…` — `solana program deploy` without `--program-id` reuses the `.so`'s
+   sibling keypair, and the deployer `3EM3LMN…` is the upgrade authority (verified via
+   `solana program show`), so no old program build remains at that address; the **old run's
+   deployment state is superseded** (its auction/escrow PDA `2ChFfike…` / approval `85Tf51q…` vs
+   this run's `2Yv5ac9K…` / `CvDwE4sT…`). Say the word if a fresh program id was wanted instead.
+   (b) The bounded deadline poll hit its cap because of a scratch bug (it queried `getBlockTime`
+   for slot 0 — a 2020 timestamp); before the refunds were sent, both deadlines were explicitly
+   re-checked (EVM latest-block timestamp and Solana tip blockTime 1790961868 > 1790960977) and
+   only then did the refund transactions run. (c) The `--expiry` is `== deadline` on both chains,
+   exercising the new F-2 signer-tool rule. (d) The 2,000,000-lamport dust stays on devnet at
+   `Gj2KzjQ…` (public artifact of the F-1 check).
+
+**Test audit (READY FOR MERGE):** project E2E suite untouched — default seal-open **R retain**
+(browser/tle assertion IDs unchanged; PASS 37 s at base `e1851c5`, PASS 38 s at the final tree).
+The `contracts/` forge + Solana driver suites are the design §7 step-1/step-2 contract-level
+proofs (outside the 8-test E2E ceiling); each named red/green pair above is its mutation-style
+proof, all rerun in this run since the covered code changed. `npm run typecheck` PASS. Env: no
+new env vars. Upstream code: none copied (pinned APIs inspected in installed sources).
+
+### Questions (this run)
+
+- **F-4 needed no code fix** — it was already fixed in `f72a792`, which post-dates the reviewer's
+  range `7e3ac29..3a23f15` (item 4 confirms the encodings and proves the e2e release instead of
+  re-porting). If the re-review wants a from-scratch port commit for the trail, say so.
+- **Solana redeploy = in-place upgrade at `58Ss…`** (honesty note a), not a fresh program id
+  (the tool reused the `.so`'s sibling keypair and the deployer is the upgrade authority, so the
+  old vulnerable build no longer exists at that address). Redirect if Reviewer R expects a new
+  program address.
+- **§10 item 2 implemented exactly as written**: `expiry <= deadline` at acceptance (Solana
+  `submit_attestation`, EVM `release`); the reviewer's optional extra `now <= state.deadline` in
+  `release_approved` was not added because it is implied (`now <= approval.expiry <= deadline`).
+  Confirm or redirect.
+
+## Previous run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE — its testnet deployments are SUPERSEDED by this run's §10 redeploy (see Current run, item 6)
 
 State: **READY FOR MERGE** (updated 2026-10-02T15:30Z). Started clean at `305d565` (head: merge main into
 track-b, crosschain §9). Head message received this run; implemented as written, one commit per item. Commits:
