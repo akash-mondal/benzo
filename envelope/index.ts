@@ -5,14 +5,19 @@
 //
 // Multi-recipient sealed box (docs/design/phase5-part1-live.md §4): a random 32-byte content key encrypts the
 // fixed 512-byte padded plaintext (ChaCha20-Poly1305 IETF) and is wrapped (age-style stanza per recipient) to
-// each signer's X25519 public key with crypto_box_seal. Bytes:
+// each signer's X25519 public key with crypto_box_seal. Bytes (R10 item 1):
 //
-//   "benzo-envelope-v2" (17) || n (1..3) || n * (recipient_pk 32 || sealed_key 80) || nonce 12 || body (528)
+//   "benzo-envelope-v2" (17) || n (1..3) || n * (recipient_pk 32 || sealed_key 80) || key_commit (32) || nonce 12 || body (528)
 //
-// The header (magic || n || stanzas) is the AEAD associated data, so any stanza splice breaks every recipient's
-// open — the same binding age applies to its header MAC. All cryptography comes from libsodium
-// (crypto_box_seal per stanza, crypto_aead_chacha20poly1305_ietf for the body — see docs/AUDITS.md); no
-// hand-written key derivation. The recipient set is the signed manifest's `envelope_keys` (the three signers).
+// The header (magic || n || stanzas || key_commit) is the AEAD associated data, so any stanza splice breaks every
+// recipient's open — the same binding age applies to its header MAC. key_commit =
+// crypto_generichash(32, content_key, key = "benzo-envelope-v2-kc" zero-padded to libsodium's
+// crypto_generichash_KEYBYTES, 32) is recomputed by openEnvelope after unwrapping and refused on mismatch
+// (`envelope key commitment`): ChaCha20-Poly1305 is not key-committing, so without this field a hostile sealer
+// could wrap different content keys for different signers and make them open different destinations (R10).
+// All cryptography comes from libsodium (crypto_box_seal per stanza, crypto_aead_chacha20poly1305_ietf for the
+// body, crypto_generichash/BLAKE2b for the key commitment — see docs/AUDITS.md); no hand-written key derivation.
+// The recipient set is the signed manifest's `envelope_keys` (the three signers).
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
 import sodium from "libsodium-wrappers";
 import { jsonBytes, requireThat } from "../manifest/schema";
@@ -44,10 +49,18 @@ export function generateEnvelopeKey(): EnvelopeKey {
 
 const MAGIC = Buffer.from("benzo-envelope-v2"); // 17 bytes
 const STANZA_BYTES = 32 + 80; // recipient X25519 pk || crypto_box_seal(32-byte content key)
+const COMMIT_BYTES = 32; // key_commit (R10 item 1), inside the header / associated data
 const NONCE_BYTES = 12;
 // Fixed 512-byte plaintext (R4 item 3): u16be payload length || payload || zero pad, so every envelope ciphertext
 // has the same length and reveals nothing about the receiver type. openEnvelope strips and checks the padding.
 export const ENVELOPE_PT_BYTES = 512;
+// R10 item 1: the fixed envelope-ciphertext byte length for n = 3 (the production recipient set).
+export const ENVELOPE_CT_BYTES_N3 = MAGIC.length + 1 + STANZA_BYTES * 3 + COMMIT_BYTES + NONCE_BYTES + ENVELOPE_PT_BYTES + 16;
+// key_commit key: the ASCII label zero-padded to libsodium's crypto_generichash_KEYBYTES (32)
+const KC_KEY = Buffer.concat([Buffer.from("benzo-envelope-v2-kc"), Buffer.alloc(32 - 19)]);
+function keyCommit(contentKey: Uint8Array): Buffer {
+  return Buffer.from(sodium.crypto_generichash(32, contentKey, KC_KEY));
+}
 function padPlaintext(plaintext: string): Buffer {
   requireThat(typeof plaintext === "string" && plaintext.length > 0, "envelope plaintext");
   const payload = Buffer.from(plaintext, "utf8");
@@ -71,19 +84,34 @@ export function sealEnvelope(plaintext: string, recipientPublicHexes: string[]):
   const contentKey = sodium.randombytes_buf(32); // random per envelope, never derived from the recipients
   const nonce = sodium.randombytes_buf(NONCE_BYTES);
   const stanzas = Buffer.concat(recipients.map(pk => Buffer.concat([pk, sodium.crypto_box_seal(contentKey, pk)])));
-  const header = Buffer.concat([MAGIC, Buffer.from([recipients.length]), stanzas]); // AEAD associated data
+  const header = Buffer.concat([MAGIC, Buffer.from([recipients.length]), stanzas, keyCommit(contentKey)]); // AEAD associated data
   const body = Buffer.from(sodium.crypto_aead_chacha20poly1305_ietf_encrypt(padPlaintext(plaintext), header, null, nonce, contentKey));
   return hex(Buffer.concat([header, nonce, body]));
 }
-export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string): string {
+// The recipient X25519 public keys of an envelope, in stanza order (R10 item 1: product validation requires
+// them to be exactly the signed manifest's `envelope_keys`, in order). Throws on a malformed envelope.
+export function envelopeRecipients(envelopeCtHex: string): string[] {
   const b = raw(envelopeCtHex, 0);
-  requireThat(b.length > MAGIC.length + 1, "envelope length");
+  requireThat(b.length > MAGIC.length + 1 + COMMIT_BYTES, "envelope length");
   requireThat(b.subarray(0, MAGIC.length).equals(MAGIC), "envelope magic");
   const n = b[MAGIC.length];
   requireThat(n >= 1 && n <= 3, "envelope stanzas");
-  const headerLen = MAGIC.length + 1 + STANZA_BYTES * n;
+  const headerLen = MAGIC.length + 1 + STANZA_BYTES * n + COMMIT_BYTES;
   requireThat(b.length === headerLen + NONCE_BYTES + ENVELOPE_PT_BYTES + 16, "envelope length");
-  const header = b.subarray(0, headerLen), stanzas = b.subarray(MAGIC.length + 1, headerLen);
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) out.push(hex(b.subarray(MAGIC.length + 1 + i * STANZA_BYTES, MAGIC.length + 1 + i * STANZA_BYTES + 32)));
+  return out;
+}
+export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string): string {
+  const b = raw(envelopeCtHex, 0);
+  requireThat(b.length > MAGIC.length + 1 + COMMIT_BYTES, "envelope length");
+  requireThat(b.subarray(0, MAGIC.length).equals(MAGIC), "envelope magic");
+  const n = b[MAGIC.length];
+  requireThat(n >= 1 && n <= 3, "envelope stanzas");
+  const headerLen = MAGIC.length + 1 + STANZA_BYTES * n + COMMIT_BYTES;
+  requireThat(b.length === headerLen + NONCE_BYTES + ENVELOPE_PT_BYTES + 16, "envelope length");
+  const header = b.subarray(0, headerLen), stanzas = b.subarray(MAGIC.length + 1, headerLen - COMMIT_BYTES);
+  const commit = b.subarray(headerLen - COMMIT_BYTES, headerLen);
   const nonce = b.subarray(headerLen, headerLen + NONCE_BYTES), body = b.subarray(headerLen + NONCE_BYTES);
   const sk = raw(recipientPrivateHex, 32), myPk = Buffer.from(sodium.crypto_scalarmult_base(sk));
   let mine = -1, matches = 0;
@@ -96,6 +124,9 @@ export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string)
     contentKey = sodium.crypto_box_seal_open(stanzas.subarray(mine * STANZA_BYTES + 32, (mine + 1) * STANZA_BYTES), myPk, sk);
   } catch { requireThat(false, "envelope key wrap"); }
   requireThat(contentKey.length === 32, "envelope key wrap");
+  // R10 item 1: the unwrapped key must be the one the header commits to — a hostile sealer that wraps a
+  // different content key into this stanza is refused here, before the body is ever tried.
+  requireThat(sodium.memcmp(keyCommit(contentKey), commit), "envelope key commitment");
   let pt: Uint8Array = new Uint8Array(0);
   try {
     pt = sodium.crypto_aead_chacha20poly1305_ietf_decrypt(null, body, header, nonce, contentKey);

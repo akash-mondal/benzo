@@ -12282,6 +12282,11 @@ var raw = (h2, n2) => {
 };
 var MAGIC = Buffer.from("benzo-envelope-v2");
 var STANZA_BYTES = 32 + 80;
+var COMMIT_BYTES = 32;
+var NONCE_BYTES = 12;
+var ENVELOPE_PT_BYTES = 512;
+var ENVELOPE_CT_BYTES_N3 = MAGIC.length + 1 + STANZA_BYTES * 3 + COMMIT_BYTES + NONCE_BYTES + ENVELOPE_PT_BYTES + 16;
+var KC_KEY = Buffer.concat([Buffer.from("benzo-envelope-v2-kc"), Buffer.alloc(32 - 19)]);
 function ownerBinding(auctionIdHex, ciphertextHashHex, envelopeCtHex) {
   return Buffer.concat([Buffer.from("benzo-envelope-v1"), raw(auctionIdHex, 32), raw(ciphertextHashHex, 32), raw(envelopeCtHex, 0)]);
 }

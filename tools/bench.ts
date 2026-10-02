@@ -10,7 +10,7 @@ import { decodeArmor } from "tlock-js/age/armor.js";
 import { QUICKNET, hash, jsonBytes, signRecord, requireThat, type Manifest } from "../manifest/schema";
 import { tree, type Leaf, type Frozen } from "../clear/merkle";
 import { clearForMode } from "../clear/registry";
-import { ownerPublic, generateEnvelopeKey, sealEnvelope, signEnvelope, verifyEnvelope, settlementCommitment } from "../envelope";
+import { ownerPublic, generateEnvelopeKey, sealEnvelope, signEnvelope, verifyEnvelope, settlementCommitment, ENVELOPE_CT_BYTES_N3 } from "../envelope";
 import { freezeStatement, signStatement, witnessSetHash, checkCertificates } from "../witness";
 import { publishedClient, decryptPublished } from "../cli/published-beacon";
 import { run as verify } from "../cli/commands/verify";
@@ -84,7 +84,7 @@ async function stage(name: string, dir: string, count: number) {
       const header = ct.toString("binary").split("--- ")[0];
       requireThat(header.startsWith("age-encryption.org/v1\n") && header.includes(`-> tlock ${input.manifest.drand.R} ${QUICKNET.chain_hash}\n`) && (header.match(/-> /g) ?? []).length === 1, "tlock stanza");
       const ciphertext_hash = hash(ct);
-      requireThat(/^[0-9a-f]{1788}$/.test(bid.envelope_ct) && verifyEnvelope(bid.owner, auction_id, ciphertext_hash, bid.envelope_ct, bid.owner_sig), "envelope intake");
+      requireThat(/^[0-9a-f]+$/.test(bid.envelope_ct) && bid.envelope_ct.length === ENVELOPE_CT_BYTES_N3 * 2 && verifyEnvelope(bid.owner, auction_id, ciphertext_hash, bid.envelope_ct, bid.owner_sig), "envelope intake");
       const receipt = { auction_id, manifest_hash: input.packet.sha256, ciphertext_hash, deposit: bid.deposit, leaf_index: i };
       leaves.push({ ...receipt, ciphertext_hex: ct.toString("hex") }); receipts.push(signRecord(receipt, pem("manifest")));
       envelopes.push({ ciphertext_hash, envelope_ct: bid.envelope_ct, owner_sig: bid.owner_sig });
