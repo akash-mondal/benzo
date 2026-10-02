@@ -154,11 +154,11 @@ var require_utils = __commonJS({
       abytes2(bytes);
       if (hasHexBuiltin2)
         return bytes.toHex();
-      let hex = "";
+      let hex2 = "";
       for (let i2 = 0; i2 < bytes.length; i2++) {
-        hex += hexes2[bytes[i2]];
+        hex2 += hexes2[bytes[i2]];
       }
-      return hex;
+      return hex2;
     }
     var asciis2 = { _0: 48, _9: 57, A: 65, F: 70, a: 97, f: 102 };
     function asciiToBase162(ch) {
@@ -170,21 +170,21 @@ var require_utils = __commonJS({
         return ch - (asciis2.a - 10);
       return;
     }
-    function hexToBytes2(hex) {
-      if (typeof hex !== "string")
-        throw new Error("hex string expected, got " + typeof hex);
+    function hexToBytes2(hex2) {
+      if (typeof hex2 !== "string")
+        throw new Error("hex string expected, got " + typeof hex2);
       if (hasHexBuiltin2)
-        return Uint8Array.fromHex(hex);
-      const hl = hex.length;
+        return Uint8Array.fromHex(hex2);
+      const hl = hex2.length;
       const al = hl / 2;
       if (hl % 2)
         throw new Error("hex string expected, got unpadded hex of length " + hl);
       const array = new Uint8Array(al);
       for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
-        const n1 = asciiToBase162(hex.charCodeAt(hi));
-        const n2 = asciiToBase162(hex.charCodeAt(hi + 1));
+        const n1 = asciiToBase162(hex2.charCodeAt(hi));
+        const n2 = asciiToBase162(hex2.charCodeAt(hi + 1));
         if (n1 === void 0 || n2 === void 0) {
-          const char = hex[hi] + hex[hi + 1];
+          const char = hex2[hi] + hex2[hi + 1];
           throw new Error('hex string expected, got non-hex character "' + char + '" at index ' + hi);
         }
         array[ai] = n1 * 16 + n2;
@@ -1117,13 +1117,13 @@ var require_utils2 = __commonJS({
       return value;
     }
     function numberToHexUnpadded2(num) {
-      const hex = num.toString(16);
-      return hex.length & 1 ? "0" + hex : hex;
+      const hex2 = num.toString(16);
+      return hex2.length & 1 ? "0" + hex2 : hex2;
     }
-    function hexToNumber2(hex) {
-      if (typeof hex !== "string")
-        throw new Error("hex string expected, got " + typeof hex);
-      return hex === "" ? _0n8 : BigInt("0x" + hex);
+    function hexToNumber2(hex2) {
+      if (typeof hex2 !== "string")
+        throw new Error("hex string expected, got " + typeof hex2);
+      return hex2 === "" ? _0n8 : BigInt("0x" + hex2);
     }
     function bytesToNumberBE2(bytes) {
       return hexToNumber2((0, utils_js_1.bytesToHex)(bytes));
@@ -1141,16 +1141,16 @@ var require_utils2 = __commonJS({
     function numberToVarBytesBE(n2) {
       return (0, utils_js_1.hexToBytes)(numberToHexUnpadded2(n2));
     }
-    function ensureBytes2(title, hex, expectedLength) {
+    function ensureBytes2(title, hex2, expectedLength) {
       let res;
-      if (typeof hex === "string") {
+      if (typeof hex2 === "string") {
         try {
-          res = (0, utils_js_1.hexToBytes)(hex);
+          res = (0, utils_js_1.hexToBytes)(hex2);
         } catch (e) {
           throw new Error(title + " must be hex string or Uint8Array, cause: " + e);
         }
-      } else if ((0, utils_js_1.isBytes)(hex)) {
-        res = Uint8Array.from(hex);
+      } else if ((0, utils_js_1.isBytes)(hex2)) {
+        res = Uint8Array.from(hex2);
       } else {
         throw new Error(title + " must be hex string or Uint8Array");
       }
@@ -2448,12 +2448,12 @@ var require_weierstrass = __commonJS({
           const { Err: E2 } = exports.DER;
           if (num < _0n8)
             throw new E2("integer: negative integers are not allowed");
-          let hex = (0, utils_ts_1.numberToHexUnpadded)(num);
-          if (Number.parseInt(hex[0], 16) & 8)
-            hex = "00" + hex;
-          if (hex.length & 1)
+          let hex2 = (0, utils_ts_1.numberToHexUnpadded)(num);
+          if (Number.parseInt(hex2[0], 16) & 8)
+            hex2 = "00" + hex2;
+          if (hex2.length & 1)
             throw new E2("unexpected DER parsing assertion: unpadded hex");
-          return hex;
+          return hex2;
         },
         decode(data) {
           const { Err: E2 } = exports.DER;
@@ -2464,9 +2464,9 @@ var require_weierstrass = __commonJS({
           return (0, utils_ts_1.bytesToNumberBE)(data);
         }
       },
-      toSig(hex) {
+      toSig(hex2) {
         const { Err: E2, _int: int, _tlv: tlv } = exports.DER;
-        const data = (0, utils_ts_1.ensureBytes)("signature", hex);
+        const data = (0, utils_ts_1.ensureBytes)("signature", hex2);
         const { v: seqBytes, l: seqLeftBytes } = tlv.decode(48, data);
         if (seqLeftBytes.length)
           throw new E2("invalid signature: left bytes after parsing");
@@ -2674,8 +2674,8 @@ var require_weierstrass = __commonJS({
           P2.assertValidity();
           return P2;
         }
-        static fromHex(hex) {
-          return Point.fromBytes((0, utils_ts_1.ensureBytes)("pointHex", hex));
+        static fromHex(hex2) {
+          return Point.fromBytes((0, utils_ts_1.ensureBytes)("pointHex", hex2));
         }
         get x() {
           return this.toAffine().x;
@@ -3195,8 +3195,8 @@ var require_weierstrass = __commonJS({
           const s2 = bytes.subarray(L2, L2 * 2);
           return new Signature(Fn.fromBytes(r2), Fn.fromBytes(s2), recid);
         }
-        static fromHex(hex, format) {
-          return this.fromBytes((0, utils_ts_1.hexToBytes)(hex), format);
+        static fromHex(hex2, format) {
+          return this.fromBytes((0, utils_ts_1.hexToBytes)(hex2), format);
         }
         addRecoveryBit(recovery) {
           return new Signature(this.r, this.s, recovery);
@@ -3247,11 +3247,11 @@ var require_weierstrass = __commonJS({
         // TODO: remove
         assertValidity() {
         }
-        static fromCompact(hex) {
-          return Signature.fromBytes((0, utils_ts_1.ensureBytes)("sig", hex), "compact");
+        static fromCompact(hex2) {
+          return Signature.fromBytes((0, utils_ts_1.ensureBytes)("sig", hex2), "compact");
         }
-        static fromDER(hex) {
-          return Signature.fromBytes((0, utils_ts_1.ensureBytes)("sig", hex), "der");
+        static fromDER(hex2) {
+          return Signature.fromBytes((0, utils_ts_1.ensureBytes)("sig", hex2), "der");
         }
         normalizeS() {
           return this.hasHighS() ? new Signature(this.r, Fn.neg(this.s), this.recovery) : this;
@@ -4705,8 +4705,8 @@ var require_bls12_381 = __commonJS({
         throw new Error("invalid G1 point: expected 48/96 bytes");
       }
     }
-    function signatureG1FromBytes2(hex) {
-      const { infinity, sort, value } = parseMask2((0, utils_ts_1.ensureBytes)("signatureHex", hex, 48));
+    function signatureG1FromBytes2(hex2) {
+      const { infinity, sort, value } = parseMask2((0, utils_ts_1.ensureBytes)("signatureHex", hex2, 48));
       const P2 = Fp3.ORDER;
       const Point = exports.bls12_381.G1.Point;
       const compressedValue = (0, utils_ts_1.bytesToNumberBE)(value);
@@ -4794,9 +4794,9 @@ var require_bls12_381 = __commonJS({
         throw new Error("invalid G2 point: expected 96/192 bytes");
       }
     }
-    function signatureG2FromBytes2(hex) {
+    function signatureG2FromBytes2(hex2) {
       const { ORDER: P2 } = Fp3;
-      const { infinity, sort, value } = parseMask2((0, utils_ts_1.ensureBytes)("signatureHex", hex));
+      const { infinity, sort, value } = parseMask2((0, utils_ts_1.ensureBytes)("signatureHex", hex2));
       const Point = exports.bls12_381.G2.Point;
       const half = value.length / 2;
       if (half !== 48 && half !== 96)
@@ -4862,8 +4862,8 @@ var require_bls12_381 = __commonJS({
             (0, utils_ts_1.abytes)(bytes);
             return signatureG1FromBytes2(bytes);
           },
-          fromHex(hex) {
-            return signatureG1FromBytes2(hex);
+          fromHex(hex2) {
+            return signatureG1FromBytes2(hex2);
           },
           toBytes(point) {
             return signatureG1ToBytes2(point);
@@ -4919,8 +4919,8 @@ var require_bls12_381 = __commonJS({
             (0, utils_ts_1.abytes)(bytes);
             return signatureG2FromBytes2(bytes);
           },
-          fromHex(hex) {
-            return signatureG2FromBytes2(hex);
+          fromHex(hex2) {
+            return signatureG2FromBytes2(hex2);
           },
           toBytes(point) {
             return signatureG2ToBytes2(point);
@@ -5733,17 +5733,17 @@ var require_utils4 = __commonJS({
     exports.bytesToNumberBE = bytesToNumberBE2;
     var hexes2 = Array.from({ length: 256 }, (v2, i2) => i2.toString(16).padStart(2, "0"));
     function bytesToHex2(uint8a) {
-      let hex = "";
+      let hex2 = "";
       for (let i2 = 0; i2 < uint8a.length; i2++) {
-        hex += hexes2[uint8a[i2]];
+        hex2 += hexes2[uint8a[i2]];
       }
-      return hex;
+      return hex2;
     }
     exports.bytesToHex = bytesToHex2;
     function fpToBytes(fp) {
-      const hex = fp.toString(16).padStart(96, "0");
-      const buf = buffer_1.Buffer.alloc(hex.length / 2);
-      buf.write(hex, "hex");
+      const hex2 = fp.toString(16).padStart(96, "0");
+      const buf = buffer_1.Buffer.alloc(hex2.length / 2);
+      buf.write(hex2, "hex");
       return buf;
     }
     exports.fpToBytes = fpToBytes;
@@ -12071,11 +12071,11 @@ function bytesToHex(bytes) {
   abytes(bytes);
   if (hasHexBuiltin)
     return bytes.toHex();
-  let hex = "";
+  let hex2 = "";
   for (let i2 = 0; i2 < bytes.length; i2++) {
-    hex += hexes[bytes[i2]];
+    hex2 += hexes[bytes[i2]];
   }
-  return hex;
+  return hex2;
 }
 var asciis = { _0: 48, _9: 57, A: 65, F: 70, a: 97, f: 102 };
 function asciiToBase16(ch) {
@@ -12087,21 +12087,21 @@ function asciiToBase16(ch) {
     return ch - (asciis.a - 10);
   return;
 }
-function hexToBytes(hex) {
-  if (typeof hex !== "string")
-    throw new Error("hex string expected, got " + typeof hex);
+function hexToBytes(hex2) {
+  if (typeof hex2 !== "string")
+    throw new Error("hex string expected, got " + typeof hex2);
   if (hasHexBuiltin)
-    return Uint8Array.fromHex(hex);
-  const hl = hex.length;
+    return Uint8Array.fromHex(hex2);
+  const hl = hex2.length;
   const al = hl / 2;
   if (hl % 2)
     throw new Error("hex string expected, got unpadded hex of length " + hl);
   const array = new Uint8Array(al);
   for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
-    const n1 = asciiToBase16(hex.charCodeAt(hi));
-    const n2 = asciiToBase16(hex.charCodeAt(hi + 1));
+    const n1 = asciiToBase16(hex2.charCodeAt(hi));
+    const n2 = asciiToBase16(hex2.charCodeAt(hi + 1));
     if (n1 === void 0 || n2 === void 0) {
-      const char = hex[hi] + hex[hi + 1];
+      const char = hex2[hi] + hex2[hi + 1];
       throw new Error('hex string expected, got non-hex character "' + char + '" at index ' + hi);
     }
     array[ai] = n1 * 16 + n2;
@@ -12276,6 +12276,7 @@ var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
 
 // envelope/index.ts
 await libsodium_wrappers_default.ready;
+var hex = (b2) => Buffer.from(b2).toString("hex");
 var raw = (h2, n2) => {
   requireThat(typeof h2 === "string" && (n2 === 0 ? h2.length % 2 === 0 : h2.length === n2 * 2) && /^[0-9a-f]*$/.test(h2), "key/signature hex");
   return Buffer.from(h2, "hex");
@@ -12286,7 +12287,36 @@ var COMMIT_BYTES = 32;
 var NONCE_BYTES = 12;
 var ENVELOPE_PT_BYTES = 512;
 var ENVELOPE_CT_BYTES_N3 = MAGIC.length + 1 + STANZA_BYTES * 3 + COMMIT_BYTES + NONCE_BYTES + ENVELOPE_PT_BYTES + 16;
-var KC_KEY = Buffer.concat([Buffer.from("benzo-envelope-v2-kc"), Buffer.alloc(32 - 19)]);
+var ENVELOPE_CT_BYTES_PRE_V2 = 32 + 12 + ENVELOPE_PT_BYTES + 16;
+var KC_LABEL = Buffer.from("benzo-envelope-v2-kc");
+var KC_KEY = Buffer.concat([KC_LABEL, Buffer.alloc(libsodium_wrappers_default.crypto_generichash_KEYBYTES - KC_LABEL.length)]);
+requireThat(KC_KEY.length === libsodium_wrappers_default.crypto_generichash_KEYBYTES, "envelope kc key");
+function envelopeRecipients(envelopeCtHex) {
+  const b2 = raw(envelopeCtHex, 0);
+  requireThat(b2.length > MAGIC.length + 1 + COMMIT_BYTES, "envelope length");
+  requireThat(b2.subarray(0, MAGIC.length).equals(MAGIC), "envelope magic");
+  const n2 = b2[MAGIC.length];
+  requireThat(n2 >= 1 && n2 <= 3, "envelope stanzas");
+  const headerLen = MAGIC.length + 1 + STANZA_BYTES * n2 + COMMIT_BYTES;
+  requireThat(b2.length === headerLen + NONCE_BYTES + ENVELOPE_PT_BYTES + 16, "envelope length");
+  const out = [];
+  for (let i2 = 0; i2 < n2; i2++) out.push(hex(b2.subarray(MAGIC.length + 1 + i2 * STANZA_BYTES, MAGIC.length + 1 + i2 * STANZA_BYTES + 32)));
+  return out;
+}
+function envelopeRecordValid(record, envelope_keys) {
+  try {
+    const ct2 = record?.envelope_ct, sig = record?.owner_sig;
+    if (typeof ct2 !== "string" || !/^[0-9a-f]+$/.test(ct2) || ct2.length % 2 !== 0) return false;
+    if (typeof sig !== "string" || !/^[0-9a-f]{128}$/.test(sig)) return false;
+    const b2 = Buffer.from(ct2, "hex");
+    if (!Array.isArray(envelope_keys)) return b2.length === ENVELOPE_CT_BYTES_PRE_V2;
+    if (b2.length !== ENVELOPE_CT_BYTES_N3) return false;
+    const recipients = envelopeRecipients(ct2);
+    return recipients.length === envelope_keys.length && recipients.every((k2, i2) => k2 === envelope_keys[i2]);
+  } catch {
+    return false;
+  }
+}
 function ownerBinding(auctionIdHex, ciphertextHashHex, envelopeCtHex) {
   return Buffer.concat([Buffer.from("benzo-envelope-v1"), raw(auctionIdHex, 32), raw(ciphertextHashHex, 32), raw(envelopeCtHex, 0)]);
 }
@@ -12673,10 +12703,10 @@ function _abytes2(value, length, title = "") {
   }
   return value;
 }
-function hexToNumber(hex) {
-  if (typeof hex !== "string")
-    throw new Error("hex string expected, got " + typeof hex);
-  return hex === "" ? _0n : BigInt("0x" + hex);
+function hexToNumber(hex2) {
+  if (typeof hex2 !== "string")
+    throw new Error("hex string expected, got " + typeof hex2);
+  return hex2 === "" ? _0n : BigInt("0x" + hex2);
 }
 function bytesToNumberBE(bytes) {
   return hexToNumber(bytesToHex(bytes));
@@ -12691,16 +12721,16 @@ function numberToBytesBE(n2, len) {
 function numberToBytesLE(n2, len) {
   return numberToBytesBE(n2, len).reverse();
 }
-function ensureBytes(title, hex, expectedLength) {
+function ensureBytes(title, hex2, expectedLength) {
   let res;
-  if (typeof hex === "string") {
+  if (typeof hex2 === "string") {
     try {
-      res = hexToBytes(hex);
+      res = hexToBytes(hex2);
     } catch (e) {
       throw new Error(title + " must be hex string or Uint8Array, cause: " + e);
     }
-  } else if (isBytes(hex)) {
-    res = Uint8Array.from(hex);
+  } else if (isBytes(hex2)) {
+    res = Uint8Array.from(hex2);
   } else {
     throw new Error(title + " must be hex string or Uint8Array");
   }
@@ -13741,8 +13771,8 @@ function weierstrassN(params, extraOpts = {}) {
       P2.assertValidity();
       return P2;
     }
-    static fromHex(hex) {
-      return Point.fromBytes(ensureBytes("pointHex", hex));
+    static fromHex(hex2) {
+      return Point.fromBytes(ensureBytes("pointHex", hex2));
     }
     get x() {
       return this.toAffine().x;
@@ -15373,8 +15403,8 @@ function pointG1FromBytes(bytes) {
     throw new Error("invalid G1 point: expected 48/96 bytes");
   }
 }
-function signatureG1FromBytes(hex) {
-  const { infinity, sort, value } = parseMask(ensureBytes("signatureHex", hex, 48));
+function signatureG1FromBytes(hex2) {
+  const { infinity, sort, value } = parseMask(ensureBytes("signatureHex", hex2, 48));
   const P2 = Fp.ORDER;
   const Point = bls12_381.G1.Point;
   const compressedValue = bytesToNumberBE(value);
@@ -15462,9 +15492,9 @@ function pointG2FromBytes(bytes) {
     throw new Error("invalid G2 point: expected 96/192 bytes");
   }
 }
-function signatureG2FromBytes(hex) {
+function signatureG2FromBytes(hex2) {
   const { ORDER: P2 } = Fp;
-  const { infinity, sort, value } = parseMask(ensureBytes("signatureHex", hex));
+  const { infinity, sort, value } = parseMask(ensureBytes("signatureHex", hex2));
   const Point = bls12_381.G2.Point;
   const half = value.length / 2;
   if (half !== 48 && half !== 96)
@@ -15530,8 +15560,8 @@ var bls12_381 = bls({
         abytes(bytes);
         return signatureG1FromBytes(bytes);
       },
-      fromHex(hex) {
-        return signatureG1FromBytes(hex);
+      fromHex(hex2) {
+        return signatureG1FromBytes(hex2);
       },
       toBytes(point) {
         return signatureG1ToBytes(point);
@@ -15587,8 +15617,8 @@ var bls12_381 = bls({
         abytes(bytes);
         return signatureG2FromBytes(bytes);
       },
-      fromHex(hex) {
-        return signatureG2FromBytes(hex);
+      fromHex(hex2) {
+        return signatureG2FromBytes(hex2);
       },
       toBytes(point) {
         return signatureG2ToBytes(point);
@@ -16200,6 +16230,7 @@ function checkPublicAuction(pub) {
     const byLeaf = /* @__PURE__ */ new Map();
     for (const rec of records) {
       requireThat(rec && typeof rec === "object" && Object.keys(rec).sort().join(",") === "ciphertext_hash,envelope_ct,owner_sig", "envelope record shape");
+      requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen.leaves.find((l2) => l2.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
       requireThat(!byLeaf.has(leaf.leaf_index), `duplicate envelope ${leaf.leaf_index}`);

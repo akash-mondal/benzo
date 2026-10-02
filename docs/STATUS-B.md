@@ -5,8 +5,9 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R12 items 1–3 (shared envelope rule, committed red/green repros, KC_KEY fix)
 
-State: **IN PROGRESS** (items 1–3 DONE — `a82f865`, `c8c622e`, `0c1404a`; item 4 next: rebuild
-`dist/benzo-verify.mjs` + `docs/verify-bundle.sha256`, typecheck, builds, `npm run e2e`, then READY FOR MERGE).
+State: **READY FOR MERGE** (items 1–4 all landed with red/green proof; updated 2026-10-02T23:02Z).
+Commits: `a82f865` (item 1), `c8c622e` (item 2), `0c1404a` + `2ea170e` (item 3 + its rerun), and the final
+commit (item 4: rebuilt bundle + hash, doc hash refresh, this STATUS).
 Base: clean tree at `266c2e6` (head: merge main into track-b; R12 in `docs/PHASE-5.md`). Baseline `npm run e2e`
 PASS 37 s at `266c2e6` (`tmp/proof-logs/r12-baseline-e2e.out`). Reviewer R's report read-only at
 `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-envelopes-v2.md`. No mainnet; no other-checkout access or
@@ -78,12 +79,29 @@ are Track A's).
    `docs/evidence/phase-5/repro/kc-key-commitment-after.out` is 10/10 PASS at `0c1404a`, run as
    `node tools/repro/kc-key-commitment-repro.mjs`. `npm run typecheck` + builds PASS.
 
-Test audit (this run, so far): project E2E suite untouched (5 of the 8-test ceiling; default seal-open
-**R retain**, covered `seal/` code unchanged here; `npm run e2e` PASS 37 s at `266c2e6`, final rerun with item 4).
+4. **Rebuild + full checks (item 4): DONE.** `npm run build:verify` rebuilt `dist/benzo-verify.mjs` and
+   `docs/verify-bundle.sha256` (sha256 `37aa7dd68178f3545dc9f35d28e0a48ffdb44ca3dafcff0cefc8ffe82c593d0e`
+   in both; the old committed bundle was stale — the merge and items 1/3 changed its sources — and
+   `docs/verify-it-yourself.md`'s example hash was already stale at `f9ac5562…`, refreshed to the new one).
+   The shipped standalone bundle carries the new rule (`tmp/proof-logs/r12-bundle-smoke.out`, corpora from the
+   repro run): `node dist/benzo-verify.mjs` gives `ERROR envelope refused: envelope record format` exit 1 on
+   the foreign-key/pre-v2-pinned/2of3-pinned corpora and `OK envelope` exit 0 on the good and pre-v2-unpinned
+   ones. `npm run typecheck`, `build:core`, `build:settle`, `build:cli` and `npm run e2e` all PASS
+   (`PASSED default seal in the browser, open with tle after R (40 s)`, `tmp/proof-logs/r12-final-e2e.out`;
+   baseline PASS 37 s at `266c2e6`, `r12-baseline-e2e.out`).
+
+Test audit (READY FOR MERGE, this run): project E2E suite (the 8-test ceiling; 5 used), each **R retain** (no
+assertion added, removed or loosened; `e2e/` untouched this run):
+| test | audit | assertion IDs | covered code changed since its last mutation run? |
+|---|---|---|---|
+| `e2e/seal-open.spec.ts` (default project) | R | C1–C7 (browser seal → `tle` open after R) | no (`seal/` untouched) — PASS 40 s at `2ea170e` + the item-4 tree (bundle/doc/STATUS only) |
+| `e2e/cli-auction.spec.ts` (live project) | R | P1… (admit/freeze/open/clear/claim rows) | yes — `clear/auction-cli.ts` admit's record rule (item 1). The cheapest mutation of that line is the R12 red/green itself: the intake rule + verify rule flip proven before/after in `docs/evidence/phase-5/repro/mr-envelope-*.out` and by the bundle smoke; the live spec remains Track A's to run (`npm run e2e:live`) |
+| `e2e/testnet-golden-path.spec.ts` (live) | R | golden-path IDs | no |
+| `e2e/auction-core.spec.ts` | R | core IDs | no |
+| `e2e/settle-crash.spec.ts` | R | crash/fault IDs | no (its `settle/envelopes.ts` surface — `validEnvelope`/`envelopeRecipient`/`openDestination` — is total and signature-unchanged; item 1's rule change is covered by the `kc-1of3/2of3/reorder/wrongset-refused` checks) |
 The `tools/repro/*.mjs` checks are repro scripts of the `r7-*` class (outside the ceiling; not Playwright specs,
-no assertions added to `e2e/`); they run the shipped entry points (`bin/benzo verify`, pinned Go `tle`) against
-real drand quicknet. No covered code changed since any prior mutation run of the default suite; the envelope
-format work's red/green is the before/after pair above.
+no assertions added to `e2e/`); they run the shipped entry points (`bin/benzo verify`, `dist/benzo-verify.mjs`,
+pinned Go `tle`) against real drand quicknet, and their red/green is the before/after pair above.
 
 Deviations: none. Env: none new. Upstream code: none copied (the two scripts adapt my own earlier scratch
 proofs `tmp/proof-mr.ts`/`tmp/proof-kc.ts`, not upstream). Key material: none created or read beyond ephemeral
