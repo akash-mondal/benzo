@@ -290,7 +290,14 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       const party = `leaf:${leaf}`;
       if (!pub.settlement) return `${reason} ${leaf}; refund goes to the exception queue`;
       const row = rows.find(r => r.party === party);
-      requireThat(row && row.state === "exception" && !receipts.some(r => r.party === party), `${reason} ${leaf}: not an unpaid exception row`);
+      requireThat(row, `${reason} ${leaf}: missing row`);
+      const paid = receipts.some(r => r.party === party);
+      // R7 item 4: the correct settled states for a leaf with no valid envelope record are exactly the unpaid
+      // exception row (claimable later) and the paid row whose refund came from an owner-signed claim the
+      // signing quorum checked at signing time; anything else is refused.
+      if (row!.state === "exception") requireThat(!paid, `${reason} ${leaf}: exception row with receipt`);
+      else requireThat(paid, `${reason} ${leaf}: neither an unpaid exception row nor a receipt-backed payment`);
+      return paid ? `${reason} ${leaf}; paid through an owner-signed claim` : `${reason} ${leaf}; in the exception queue`;
     };
     const byLeaf = new Map<number, EnvelopeRecord>();
     for (const rec of records) {
