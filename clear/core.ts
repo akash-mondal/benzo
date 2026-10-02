@@ -15,10 +15,11 @@ export type ClearBody = {
   serial_assignment?: { leaf_index: number; serials: number[] }[];
   serial_beacon_round?: number;
   cancelled?: boolean; holder_price_zats?: string; allocation_file_hash?: string; launch_supply?: number;
+  rfq_delivery?: { deadline_height: number; signers: string[] };
   lots?: { lot_id: string; clearing_price_zats: string }[];
 };
 // Settlement-side extras the money rules may account for (gate CF: which winners defaulted on their balance).
-export type SettlementExtras = { defaults?: number[] };
+export type SettlementExtras = { defaults?: number[]; delivery_defaults?: Signed[] };
 export type ClearResult = ClearBody & { comparison: ClearBody | null };
 function calculate(input: ClearInput, mode: "uniform" | "vickrey") {
   const {manifest:m,manifest_hash} = client(input.manifest,input.signer);

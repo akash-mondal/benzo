@@ -24,6 +24,7 @@ export type SettlementSummary = {
   receipts?: SettlementReceipt[];
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
+  delivery_defaults?: Signed[];
 };
 export type PublicResult = ClearBody;
 // Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
