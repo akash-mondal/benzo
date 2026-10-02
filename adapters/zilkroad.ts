@@ -45,8 +45,8 @@ export function checkSerialRange(pub: PublicAuction, serials: number[]): void {
 export function claimBody(pub: PublicAuction, ciphertextHash: string, receipt: SettlementReceipt, statement: SettlementStatement) {
   const p = marketplace(pub); requireThat(p && pub.result && pub.frozen, "claim marketplace/result/frozen");
   checkSettlementStatement(pub,ciphertextHash,statement);
-  requireThat(statement.fill > 0 && !pub.settlement?.defaults?.includes(statement.leaf_index) &&
-    !["buyback","rfq"].includes(pub.result!.mode) && statement.balance_due_zats === "0", "claim paid auction winner");
+  requireThat(statement.fill > 0 && pub.state === "SETTLED" && !pub.settlement?.defaults?.includes(statement.leaf_index) &&
+    !["buyback","rfq"].includes(pub.result!.mode), "claim paid auction winner");
   const actual = pub.settlement?.receipts?.find(r => r.party === `leaf:${statement.leaf_index}`) ??
     (statement.refund_zats === "0" ? pub.settlement?.receipts?.find(r=>r.party === "seller") : undefined);
   requireThat(actual && jsonBytes(actual).equals(jsonBytes(receipt)) && /^[0-9a-f]{64}$/.test(receipt.txid) && receipt.auction_id === pub.manifest.auction_id, "claim private settlement receipt");
