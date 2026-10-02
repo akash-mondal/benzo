@@ -149,15 +149,16 @@ async function main() {
 
   // ---- 2. attest (2-of-3 per chain, same result hash + allocation root) ----
   const bundleEvm = path.join(WORK, "bundle-evm.json"), bundleSol = path.join(WORK, "bundle-solana.json");
+  const ZERO_ASSET = "0x0000000000000000000000000000000000000000"; // both demo auctions lock the native asset
   {
     const r = benzoXchain(["attest", "--chain", "evm", "--auction", auction1, "--allocation", allocationFile,
       "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
       "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
-      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", bundleEvm]);
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", bundleEvm, "--asset", ZERO_ASSET]);
     const rs = benzoXchain(["attest", "--chain", "solana", "--auction", auction1, "--allocation", allocationFile,
       "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
       "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
-      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", bundleSol]);
+      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", bundleSol, "--asset", ZERO_ASSET]);
     const bE = JSON.parse(readFileSync(bundleEvm, "utf8")), bS = JSON.parse(readFileSync(bundleSol, "utf8"));
     check("demo-attest-both-chains",
       r.code === 0 && rs.code === 0 && bE.allocation_root === bS.allocation_root && bE.signatures.length === 2 && bS.signatures.length === 2,
@@ -178,6 +179,28 @@ async function main() {
       re.code !== 0 && rs.code !== 0 &&
         /must be <= the auction deadline/.test(re.stderr) && /must be <= the auction deadline/.test(rs.stderr),
       `evm rc=${re.code} sol rc=${rs.code}: ${(re.stderr || rs.stderr || "").slice(0, 160)}`);
+  }
+
+  // R9 item 2: the asset is read from the escrow state on chain — a missing or mismatching
+  // --asset is refused before any signing; there is never a silent default
+  {
+    const wrongAsset = "0x1111111111111111111111111111111111111111";
+    const base = ["--auction", auction1, "--allocation", allocationFile, "--result-hash", resultHash,
+      "--batch", "8", "--nonce", "0", "--expiry", String(now + 3600)];
+    const missE = benzoXchain(["attest", "--chain", "evm", ...base, "--signer-key", evmSignerFiles[0],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-asset-missing.json")]);
+    const missS = benzoXchain(["attest", "--chain", "solana", ...base, "--signer-key", solSignerFiles[0],
+      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-asset-missing-sol.json")]);
+    const wrongE = benzoXchain(["attest", "--chain", "evm", ...base, "--asset", wrongAsset, "--signer-key", evmSignerFiles[0],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-asset-wrong.json")]);
+    const wrongS = benzoXchain(["attest", "--chain", "solana", ...base, "--asset", wrongAsset, "--signer-key", solSignerFiles[0],
+      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-asset-wrong-sol.json")]);
+    check("demo-attest-asset-missing-refused",
+      missE.code !== 0 && missS.code !== 0 && /--asset is required/.test(missE.stderr) && /--asset is required/.test(missS.stderr),
+      `evm rc=${missE.code} sol rc=${missS.code}: ${(missE.stderr || missS.stderr || "").slice(0, 160)}`);
+    check("demo-attest-asset-mismatch-refused",
+      wrongE.code !== 0 && wrongS.code !== 0 && /does not match the escrow's asset/.test(wrongE.stderr) && /does not match the escrow's asset/.test(wrongS.stderr),
+      `evm rc=${wrongE.code} sol rc=${wrongS.code}: ${(wrongE.stderr || wrongS.stderr || "").slice(0, 160)}`);
   }
 
   // ---- 3. release: each chain pays its leaves (one delivery of the cleared drop) ----

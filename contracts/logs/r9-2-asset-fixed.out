@@ -1,0 +1,149 @@
+== build (from the working tree)
+note[screaming-snake-case-immutable]: immutables should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:11:34
+   |
+11 |     BenzoEscrow public immutable escrow;
+   |                                  ^^^^^^ help: consider using: `ESCROW`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-immutable
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/FeeTokenDrain.t.sol:66:31
+   |
+66 |     bytes32 internal constant auctionA = keccak256("attacker-auction");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_A`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/FeeTokenDrain.t.sol:67:31
+   |
+67 |     bytes32 internal constant auctionB = keccak256("victim-auction");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_B`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:195:30
+    |
+195 |           bytes32 structHash = keccak256(
+    |  ______________________________^
+196 | |             abi.encode(RELEASE_TYPEHASH, att.auctionId, att.resultHash, att.allocationRoot, att.batchIndex, att.nonce, att.expiry)
+197 | |         );
+    | |_________^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-immutable]: immutables should use SCREAMING_SNAKE_CASE
+  --> test/BenzoEscrow.t.sol:36:35
+   |
+36 |     BenzoEscrow private immutable escrow;
+   |                                   ^^^^^^ help: consider using: `ESCROW`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-immutable
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:252:16
+    |
+252 |           return keccak256(
+    |  ________________^
+253 | |             abi.encode(
+254 | |                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+255 | |                 keccak256(bytes(DOMAIN_NAME)),
+...   |
+260 | |         );
+    | |_________^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:62:31
+   |
+62 |     bytes32 internal constant auctionA = keccak256("auction-A");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_A`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:63:31
+   |
+63 |     bytes32 internal constant auctionB = keccak256("auction-B");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_B`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:272:16
+    |
+272 |   ...   return keccak256(
+    |  ______________^
+273 | | ...       abi.encodePacked(LEAF_PREFIX, auctionId, index, bytes32(uint256(uint160(asset))), lotCount, destinationKind, destination)
+274 | | ...   );
+    | |_______^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:278:16
+    |
+278 |         return keccak256(abi.encodePacked(ROOT_PREFIX, leafCount, treeRoot));
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/BenzoEscrow.t.sol:80:31
+   |
+80 |     bytes32 internal constant auctionId = keccak256("auction-1");
+   |                               ^^^^^^^^^ help: consider using: `AUCTION_ID`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+    Finished `release` profile [optimized] target(s) in 0.06s
+npm notice run build:cli
+npm notice run node cli/build.mjs
+== solana program id: 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G
+== boot anvil (127.0.0.1:8546) and solana-test-validator (127.0.0.1:8901)
+== run demo
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+ERROR xchain --expiry 1790978708 must be <= the auction deadline 1790978698 (crosschain §10 F-2)
+ERROR xchain --expiry 1790978708 must be <= the auction deadline 1790978698 (crosschain §10 F-2)
+PASS demo-attest-expiry-past-deadline-refused
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x3d6ff20c", reason=null, transaction={ "data": "0x2f9397127f8d660f39535cb82f7696b3286b7ff8ca3fd251629ca622147914e436aabd30110b87b26231a3529766a22d95f088acc84464e5ea6802304cd6dfa84b76a0052c0174586c2623bb9fb290af45e9374b70e68c327376c9bca00441f514b885bd00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006ac02a8a000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000000000000000002600000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000041467f0b0534e8912f85f49e569da155e6c219213e8277e3d54c9ef4c7efaefe8334ee781b6d01f0a114e32f850be1c41582b9914d22ff73c263fbb65f721a80901b000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041e18b5ae8bd37cc9527c4dc33c94c28ec22d48037e5360074ba848ccade137fbe623066dd13c97e67210ebd2efa74348700c9197a97f3284af018de260b9503ee1c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000c0000000000000000000000000000000000000000000000000000000000000000300000000000000000000000000000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000000014143a070fdbbcbc03b88a0bff890409fa85cf25900000000000000000000000000000000000000000000000000000000000000000000000000000000000000002f36d84f373bb1a0269b4c0ed8b13782f74eb7c6ccbee0594fa80f81a72b11b8c52962e19b99c6e30bad0dfda7d90fc2cad686e5fa2fc635942ab0b657c7dd5b9", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x9. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 3507 of 203000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x9"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x1bf55193", reason=null, transaction={ "data": "0x7249fbb62b2672e6f810d1c78295c2b5b7b368c7667e1293a472629dc5c5aab2f670fc23", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 0: custom program error: 0x10. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 1297 of 200000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x10"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT PASS one cleared drop delivered end to end locally on both chains

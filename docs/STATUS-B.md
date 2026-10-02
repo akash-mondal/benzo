@@ -5,11 +5,11 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R10 item 1 + R9 items 1–4 + live cycles (the head's 6-item list)
 
-State: **IN PROGRESS** (items 1–2 landed; updated 2026-10-02T20:59Z). Base: clean tree at
+State: **IN PROGRESS** (items 1–3 landed; updated 2026-10-02T21:06Z). Base: clean tree at
 `dc5ea63` (head: merge main into track-b; R9/R10 in `docs/PHASE-5.md`). One commit per item,
 each with a red log on the pre-change code and a green log after: `79aed9e` (item 1, R10
-envelope key commitment + exact recipient set) and this commit (item 2, R9 Solana
-`layout_version` + new program ID). Scope: the head's list in order — (1) R10 item 1 envelope
+envelope key commitment + exact recipient set), `aff0c6b` (item 2, R9 Solana `layout_version` +
+new program ID), and this commit (item 3, R9 `xchain attest` asset from chain). Scope: the head's list in order — (1) R10 item 1 envelope
 key commitment; (2) R9 item 1 Solana layout version + fresh devnet program ID; (3) R9 item 2
 `benzo xchain attest` asset from chain; (4) R9 item 3 EVM attest-once/release-many + forge
 red/green; (5) R9 item 4 EVM `lock` nonReentrant + effects-before-transfer + forge proof;
@@ -99,6 +99,26 @@ merge/rebase/cherry-pick/push.
    rule the tests exercise) on the clock boundary; widened to `t0 + 120` so the auction window
    outlives the sequence that runs before the refund section. The debug runs that located the
    race were scratch and are deleted; the recorded green is the rerun after both fixes.
+
+3. **R9 item 2 (P2), `benzo xchain attest` takes the asset from the escrow state on chain:
+   DONE** (this commit). The attest flow now reads the locked auction once (`evmStatus` /
+   `solStatus`) for both the deadline (F-2) and the asset, binds every leaf to the **on-chain**
+   asset, and refuses `--asset` that is missing or does not match it — no silent default:
+   `--asset is required: the escrow's asset is <A> (read from chain); there is no default` and
+   `--asset <X> does not match the escrow's asset <A> on chain`. On Solana the chain asset is
+   the program's fixed native-SOL asset (ASSET_SOL = zero bytes). The help line marks `--asset`
+   required on attest (lock's optional `--asset` is untouched — that is a lock parameter).
+   Tests (`bash crosschain/local-demo.sh`, the shipped CLI on both local chains):
+   `demo-attest-asset-missing-refused` and `demo-attest-asset-mismatch-refused` (missing and
+   `0x1111…` mismatching `--asset` refused on both chains before any signing, specific messages
+   asserted), with the real attestations now passing `--asset 0x000…0` and the rest of the demo
+   unchanged (release delivers, status matches, replay refused, refund path).
+   **Red on the pre-change CLI** — `contracts/logs/r9-2-asset-old-code.out` (exit 1):
+   `ERROR demo-attest-asset-missing-refused evm rc=0 sol rc=0` and
+   `ERROR demo-attest-asset-mismatch-refused evm rc=0 sol rc=0` — the old CLI silently minted
+   wrong-root attestation bundles for both cases (exactly R9's finding). **Green after** —
+   `contracts/logs/r9-2-asset-fixed.out` (exit 0): `RESULT PASS one cleared drop delivered end
+   to end locally on both chains`, 15/15 demo assertions. `npm run typecheck` PASS.
 
 ### Questions (this run)
 

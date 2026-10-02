@@ -22,7 +22,7 @@ import {
 export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
-  "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE [--asset 0xADDR]",
+  "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--asset is required: the escrow's asset is read from chain and must match; no default)",
   "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE]",
@@ -122,18 +122,34 @@ export async function run(argv: string[]): Promise<number> {
       const resultHash = hexToBytes(need(a, "result-hash"));
       const batchIndex = num(a, "batch"), nonce = num(a, "nonce"), expiry = num(a, "expiry");
       // §10 F-2: signers must attest expiry <= deadline (both chains refuse otherwise); the
-      // deadline comes from the locked auction on chain
-      const escrowDeadline = chain2 === "evm"
-        ? (await evmStatus(rpc, escrow, bytesToHex(auctionId), [])).deadline
-        : (await solStatus(solConnection(rpc), new PublicKey(escrow), auctionId, [])).deadline;
+      // deadline comes from the locked auction on chain. R9 item 2: so does the asset — the
+      // leaves bind exactly what the escrow locked, and --asset must be present and match it
+      // (no silent default).
+      let chainAsset: string, escrowDeadline: number;
+      if (chain2 === "evm") {
+        const st = await evmStatus(rpc, escrow, bytesToHex(auctionId), []);
+        escrowDeadline = st.deadline;
+        chainAsset = getAddress(st.asset); // from the escrow state on chain
+      } else {
+        const st = await solStatus(solConnection(rpc), new PublicKey(escrow), auctionId, []);
+        escrowDeadline = st.deadline;
+        chainAsset = "0x0000000000000000000000000000000000000000"; // the program's fixed native-SOL asset (ASSET_SOL)
+      }
       if (expiry > escrowDeadline) {
         throw new Error(`--expiry ${expiry} must be <= the auction deadline ${escrowDeadline} (crosschain §10 F-2)`);
+      }
+      if (typeof a.asset !== "string" || !a.asset) {
+        throw new Error(`--asset is required: the escrow's asset is ${chainAsset} (read from chain); there is no default`);
+      }
+      let given: string;
+      try { given = getAddress(a.asset); } catch { throw new Error(`--asset ${a.asset} is not a valid 20-byte hex address`); }
+      if (given !== chainAsset) {
+        throw new Error(`--asset ${given} does not match the escrow's asset ${chainAsset} on chain`);
       }
       const standardLot = BigInt(alloc.standard_lot);
       const leaves: AllocationLeaf[] = alloc.leaves;
       // design §3: every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)
-      const asset = chain === "evm" && typeof a.asset === "string"
-        ? getAddress(a.asset) : "0x0000000000000000000000000000000000000000";
+      const asset = chainAsset;
       const asset32 = assetBytes32(asset);
       const derived = leaves.map((l) =>
         leafHash(auctionId, { index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind, destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes) }, asset32));
