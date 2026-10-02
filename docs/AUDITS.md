@@ -9,10 +9,18 @@ run logs in `contracts/logs/`.
 
 `BenzoEscrow.sol` and the Solana escrow accept **plain ERC-20/ERC-721 (and native ETH/SOL) only —
 no fee-on-transfer tokens, no rebasing tokens, no tokens with transfer hooks or callbacks beyond
-the ERC-20 interface.** `lock()` measures the escrow's `balanceOf` before and after
-`safeTransferFrom` and reverts (`BadParameters`) unless the delta equals `amount`
-(reviewer finding F5), so a token that delivers less than the nominal amount can never fund an
-auction. The signed manifest pins the exact asset; the deployer/crank must list only plain assets.
+the ERC-20 interface.** Two separate mechanisms enforce that, and neither covers the other's
+blind spot:
+
+1. `lock()` measures the escrow's `balanceOf` before and after `safeTransferFrom` and reverts
+   (`BadParameters`) unless the delta equals `amount` (reviewer finding F5). This stops
+   fee-on-transfer and deflationary-on-transfer tokens **at lock**: a token that delivers less
+   than the nominal amount can never fund an auction.
+2. What the delta check **cannot** stop is a token that delivers `amount` at lock and deflates or
+   takes fees later (rebase-down, fee-on-out, transfer hooks beyond the ERC-20 interface).
+   Excluding those is the job of the **manifest asset allowlist**: the signed manifest pins the
+   exact asset, and the deployer/crank must list only plain assets.
+
 Solana delivery uses native SOL, plain SPL (Token program) or Token-2022 accounts Benzo itself
 configures — no third-party fee semantics.
 
@@ -52,8 +60,10 @@ Each file below is hand-written because no audited option implements Benzo's pro
 audited building blocks it composes are named above. Hard review by Reviewer R is required before
 merge with no open confirmed P0/P1: P0 (re-entrant double payment) fixed at `7e3ac29` and
 head-verified (21/21 forge tests incl. the reviewer's repro); P1/F5 (fee-on-transfer drain) fixed
-with the lock balance-delta check and proven by the reviewer's own `FeeTokenDrain.t.sol`
-(fails on the old code, passes after).
+with the lock balance-delta check and proven by `contracts/evm/test/FeeTokenDrain.t.sol`'s
+two-auction pooled-drain test (the victim's recipient is paid in full after the fix; with the
+check removed the attacker's underfunded lock and self-signed release consume the victim's
+funding from the pooled balance — red/green runs in `contracts/logs/f5-*`).
 
 | File | What it does | Why no audited option fits |
 |---|---|---|

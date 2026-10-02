@@ -122,6 +122,29 @@ files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PAS
    in `benzo-sol/reports/pr-b-f5-solana9.md`); the post-port client was additionally proven live
    on devnet in the prior run (release tx `5TWQxz2C…`).
 
+5. **§10 item 5 (P2 F-5), the real two-auction drain test + AUDITS wording: DONE** (this commit).
+   `contracts/evm/test/FeeTokenDrain.t.sol` rewritten to exercise the pooled-drain scenario its
+   header names: two auctions share one holder-tax fee token (the STA class — 10% on transfers
+   from taxed holders); the victim's funding behaves plainly (1000 nominal = 1000 real), the
+   attacker is taxed (1000 nominal = 900 real — the r-02 scenario), and the attacker chooses
+   their own signer set at lock and self-signs a 1000-nominal leaf to themselves. The gate is the
+   victim staying whole: their recipient is paid in full from the pooled balance, with the
+   measured drain (attacker recipient / escrow pool) printed on failure. The lock-revert check is
+   kept as `test_lock_refuses_fee_on_transfer_token`.
+   **Red at the drain (the F5 check mutated out — pre-`d566d0c` behavior)** —
+   `contracts/logs/f5-drain-old-code.out`: `[FAIL: victim's recipient must be paid in full from
+   the pool (measured: attacker recipient 1000, escrow pool 900): 0 != 1000]
+   test_fee_on_transfer_token_drains_victim_auction()` — the attacker's nominal payout consumed
+   the victim's funding and the victim's payout could not complete (23 passed / 2 failed; the
+   second failure is the revert check, correctly red without the check). Mutation: the
+   `balanceBefore/balanceAfter` measurement in `BenzoEscrow.sol` `lock` was replaced by a bare
+   `safeTransferFrom` (exactly `d566d0c^` behavior), then restored byte-identical (`git diff` on
+   the file is empty). **Green on the fixed contract** — `contracts/logs/f5-drain-fixed.out`:
+   25 passed / 0 failed. `docs/AUDITS.md` no longer overclaims: the delta check stops
+   fee-on-transfer **at lock**; tokens that behave plainly at lock and deflate later
+   (rebase-down / fee-on-out) are excluded by the manifest asset allowlist, not by the check
+   (the two mechanisms are now listed separately, with their blind spots named).
+
 ## Previous run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE (its testnet deployment addresses are superseded when this run's §10 redeploy lands)
 
 State: **READY FOR MERGE** (updated 2026-10-02T15:30Z). Started clean at `305d565` (head: merge main into
