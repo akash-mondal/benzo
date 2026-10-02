@@ -57,11 +57,11 @@ async function stage(name: string, dir: string, count: number) {
       deposit_addresses: [address], drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
       clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
       refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", witness_set_hash: witnessSetHash(witness_set) };
-    const packet = signRecord(manifest, pem("manifest")), envelopeKey = generateEnvelopeKey();
+    const packet = signRecord(manifest, pem("manifest")), envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
     const bids: any[] = [];
     for (let i = 0; i < count; i++) {
       const owner = { private_hex: bytes("owner:" + i).toString("hex"), public_hex: ownerPublic(bytes("owner:" + i).toString("hex")) };
-      const envelope_ct = sealEnvelope(destination(), envelopeKey.public_hex);
+      const envelope_ct = sealEnvelope(destination(), envelopeKeys.map(k => k.public_hex));
       const nonce = bytes("nonce:" + i).subarray(0, 16).toString("hex"), pt = Buffer.alloc(128);
       Buffer.from(auction_id, "hex").copy(pt, 1); pt.writeBigUInt64BE(BigInt(1 + bytes("price:" + i).readUInt32BE(0) % 100) * 1000n, 33);
       pt.writeUInt32BE(1 + bytes("quantity:" + i).readUInt32BE(0) % 10, 41); Buffer.from(nonce, "hex").copy(pt, 45);
@@ -84,7 +84,7 @@ async function stage(name: string, dir: string, count: number) {
       const header = ct.toString("binary").split("--- ")[0];
       requireThat(header.startsWith("age-encryption.org/v1\n") && header.includes(`-> tlock ${input.manifest.drand.R} ${QUICKNET.chain_hash}\n`) && (header.match(/-> /g) ?? []).length === 1, "tlock stanza");
       const ciphertext_hash = hash(ct);
-      requireThat(/^[0-9a-f]{1144}$/.test(bid.envelope_ct) && verifyEnvelope(bid.owner, auction_id, ciphertext_hash, bid.envelope_ct, bid.owner_sig), "envelope intake");
+      requireThat(/^[0-9a-f]{1788}$/.test(bid.envelope_ct) && verifyEnvelope(bid.owner, auction_id, ciphertext_hash, bid.envelope_ct, bid.owner_sig), "envelope intake");
       const receipt = { auction_id, manifest_hash: input.packet.sha256, ciphertext_hash, deposit: bid.deposit, leaf_index: i };
       leaves.push({ ...receipt, ciphertext_hex: ct.toString("hex") }); receipts.push(signRecord(receipt, pem("manifest")));
       envelopes.push({ ciphertext_hash, envelope_ct: bid.envelope_ct, owner_sig: bid.owner_sig });

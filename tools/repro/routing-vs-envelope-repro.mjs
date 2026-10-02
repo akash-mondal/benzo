@@ -92,7 +92,7 @@ console.log("\nsettlement bundles containing envelope-opening code:", hits.lengt
 const owner = generateOwnerKey();
 const nonce = hash("r-repro3-nonce").slice(0, 32);
 const envelopeUa = "utest1redacted";
-const envelopeCt = sealEnvelope(envelopeUa, envelopeKey.public_hex);
+const envelopeCt = sealEnvelope(envelopeUa, [envelopeKey.public_hex]);
 const commitment = settlementCommitment(nonce, envelopeCt);
 const ciphertextHash = hash("r-repro3-ciphertext");
 const pt = Buffer.alloc(128); // docs/PHASE-1.md section 6 layout: nonce@45, owner@61, commitment@93

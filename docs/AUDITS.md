@@ -53,6 +53,7 @@ configures — no third-party fee semantics.
 | `@noble/curves` | `1.9.7` (root lock) | ed25519 attestation signing | Audited (as above) |
 | `ethers` | `6.17.0` (root `package.json`, exact) | EIP-712 typed-data signing, RPC | Unaudited client tooling (not deployed) |
 | `@solana/web3.js` | `1.99.0` (root `package.json`, exact) | RPC, tx building | Unaudited client tooling (not deployed) |
+| `libsodium-wrappers` | `0.8.4` (root `package.json`, exact, `package-lock.json`) | Settlement-envelope cryptography: X25519 keygen, `crypto_box_seal`/`crypto_box_seal_open` content-key wraps per stanza, `crypto_aead_chacha20poly1305_ietf` body | **Audited.** The wrapped code is the official libsodium C distribution compiled to JS/WASM; "Libsodium v1.0.12 and v1.0.13 Security Assessment" (Dr. Matthew Green, Cryptography Engineering LLC, 2017, funded by Private Internet Access) reviewed the library's cryptographic design incl. Curve25519 sealed boxes; the primitives used are libsodium's standard, unchanged defaults. The JS wrapper layer (input marshalling) is unaudited glue; it performs no cryptography |
 
 ## Custom security-relevant code
 
@@ -74,6 +75,8 @@ funding from the pooled balance — red/green runs in `contracts/logs/f5-*`).
 | `crosschain/evm.ts`, `crosschain/solana.ts` | Chain clients for `benzo xchain lock|attest|release|refund|status` | Thin drivers over ethers/@solana/web3.js and the contracts above; no custody logic beyond what the contracts enforce |
 | `cli/commands/xchain.ts` | CLI wiring for the above | As above |
 | `contracts/evm/test/TestToken.sol` | **Test-only fixture**: plain ERC-20 (OpenZeppelin audited `ERC20` base, open `mint`) deployed on Ethereum Sepolia for the design §7 step-5 testnet run | A mintable demo token is the run's asset; no audited option is needed because it holds no custody and obeys the assets allowlist (no fee, no rebase, no hooks) |
+| `envelope/index.ts` | Settlement-envelope framing: `benzo-envelope-v2` magic/count/stanza layout, fixed 512-byte length-prefixed padded plaintext, owner Ed25519 binding, salted settlement commitment | Protocol-specific framing (design §4); no audited library defines it. All cryptography inside it is audited libsodium (above) — the wrap/seal/AEAD/keygen calls are that library's standard functions, no hand-written key derivation |
+| `envelope/destination.ts` | Zcash address classification (bech32/bech32m, ZIP-316 UA container under F4Jumble, Base58Check) and the shielded-only destination rule | No audited option existed at the time (zcash_address 0.13.0 pinned behaviour could not be consumed from Node); **known mainnet blocker (R8): replace with `zcash_address` (head replace list) before any mainnet use** |
 
 ## Later steps (not yet landed)
 

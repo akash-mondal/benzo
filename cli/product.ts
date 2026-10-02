@@ -80,7 +80,9 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(Date.now()/1000<m.T_submit,'submission deadline');
     // Real one-time owner key and salted settlement commitment for the 128-byte layout; the destination (if the
     // bid carries refund_ua) is sealed to the per-auction envelope key and never leaves this process in plaintext.
-    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,envelope_public_hex:bid.envelope_pubkey});
+    // R7 item 2 wiring (Track A): replace [bid.envelope_pubkey] with the manifest's m.envelope_keys (three signer
+    // keys) — the multi-recipient envelope format already accepts that set (envelope/bid.ts).
+    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,envelope_public_hexs:[bid.envelope_pubkey]});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {

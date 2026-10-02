@@ -5,8 +5,10 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R8 item 1 (G9 Solana state-PDA dust) + multi-recipient settlement envelopes
 
-State: **IN PROGRESS** (item 1 of 2 landed; item 2 in progress). Base: clean tree at `a732669`
-(head: merge main into track-b, R7/R8). One commit per item with red/green proof here. Scope:
+State: **READY FOR MERGE** (both items landed with red/green proof; updated 2026-10-02T19:15Z).
+Base: clean tree at `a732669` (head: merge main into track-b, R7/R8). One commit per item:
+`e1b401b` (item 1, G9 + redeploy + live cycle) and this commit (item 2, multi-recipient
+envelopes). Scope:
 (1) PHASE-5 R8 item 1 — `contracts/solana/src/lib.rs` `lock` must stop treating "non-empty ⇒
 locked" for the escrow state PDA (G9: 1 lamport to `["escrow", auction_id]` before lock blocked
 the auction forever); add a dust-before-lock test (red on old code, green after); redeploy to
@@ -95,10 +97,89 @@ No mainnet; no other-checkout writes; no merge/rebase/cherry-pick.
    target (the dust subsidises the lock; it can never block it or inflate `amount`). (f) The
    fresh program id answers this run's open question (in-place at `58Ss…` last time).
 
-2. **Multi-recipient settlement envelopes (§4 [B]): NEXT** — libsodium (`crypto_box_seal` per
-   stanza, `crypto_aead_chacha20poly1305_ietf` body), recipient set from the manifest's
-   `envelope_keys`, proofs: 3 keys open / 4th refused / stanza swap refused / equal lengths /
-   `benzo verify` on the new format.
+2. **Multi-recipient settlement envelopes (§4 [B]): DONE** (this commit). `envelope/index.ts`
+   replaces the single-key sealed box with the §4 format: a random 32-byte **content key**
+   (`sodium.randombytes_buf`) encrypts the fixed 512-byte length-prefixed padded plaintext
+   (ChaCha20-Poly1305 IETF); the content key is wrapped to **each recipient's X25519 public key
+   in its own stanza** (`crypto_box_seal`, 32-byte pk ‖ 80-byte sealed key); `owner_sig` and the
+   salted `settlement_commitment` cover the whole envelope (unchanged binding code — it hashes
+   the entire `envelope_ct`); `openEnvelope(env, privateKey)` opens with any one recipient key.
+   Bytes: `"benzo-envelope-v2" (17) ‖ n (1..3) ‖ n × (pk 32 ‖ sealed 80) ‖ nonce 12 ‖ body 528` —
+   894 bytes (1788 hex) for the production 3-key set, every envelope the same length. The header
+   (magic ‖ n ‖ stanzas) is the AEAD **associated data**, so a stanza splice breaks every
+   recipient's open (the same binding age applies to its header MAC). The recipient set is the
+   signed manifest's `envelope_keys: [hex, hex, hex]` — accepted as an optional field by
+   `manifest/schema.ts` (exactly 3 distinct 64-hex keys, minimal change) and taken by
+   `prepareBid({envelope_public_hexs})`. **Audited-first (user rule):** all cryptography is
+   **libsodium** (`libsodium-wrappers` pinned `0.8.4`, `crypto_box_seal` per stanza,
+   `crypto_aead_chacha20poly1305_ietf` body, `crypto_box_keypair`/`crypto_scalarmult_base`
+   keygen — the wrapper's positional `(ct, pk, sk)` API inspected at the pin); no hand-written
+   key derivation. Recorded in `docs/AUDITS.md` (audit: "Libsodium v1.0.12 and v1.0.13 Security
+   Assessment", Dr. Matthew Green, Cryptography Engineering LLC, 2017, funded by PIA) together
+   with custom-code rows for `envelope/index.ts` (framing only) and `envelope/destination.ts`
+   (still the known mainnet blocker). Key files (`tools/bench.ts` intake shape, the R6
+   `tools/repro/routing-vs-envelope-repro.mjs` one-key call) updated to the new API.
+
+   **Red on the old single-key module** — `tmp/proof-logs/mr-old-code.out` (exit 1, same proof
+   harness as the green, rebuilt from the stashed old tree):
+   `ERROR mr-manifest-envelope-keys refused: unknown or missing manifest field`,
+   `ERROR mr-3keys-open refused: key/signature hex`,
+   `ERROR mr-4th-key-refused got "refused: envelope length", want "refused: envelope recipient"`,
+   `ERROR mr-equal-lengths refused: key/signature hex`,
+   `ERROR mr-stanza-swap-refused got "refused: envelope length", want "refused: envelope body"`,
+   `ERROR mr-verify refused: envelope public key` — the old format cannot produce or verify a
+   multi-recipient envelope at all. **Green after** — `tmp/proof-logs/mr-fixed.out` (exit 0):
+   `PASS mr-manifest-envelope-keys` (signed manifest accepts `envelope_keys`, refuses 4 keys and
+   duplicates), `PASS mr-3keys-open` (one envelope opens to the same destination with each of the
+   3 keys), `PASS mr-4th-key-refused` (a 4th key: `refused: envelope recipient`),
+   `PASS mr-equal-lengths` (Sapling 88-char vs UA 110-char destinations: all ciphertexts 1788
+   hex), `PASS mr-stanza-swap-refused` (recipient 0's whole stanza swapped from another envelope
+   to the same key set: `refused: envelope body` for **all three** keys), `PASS mr-verify`
+   (fresh `tmp/canon-mr` corpus — real tlock at quicknet round via the pinned `tle`, 3-recipient
+   envelopes from `prepareBid`, manifest with `envelope_keys` — `bin/benzo verify` exit 0 with
+   `envelope` OK; flipped `owner_sig` → exit 1 `envelope 0 signature`; `envelope_ct` swapped
+   between records → exit 1 `envelope 0 signature`). Signer-side open with each key recovers all
+   destinations and none appear in the public artifacts.
+   Cross-checks at the final tree: `npm run typecheck` PASS, `npm run build:core|cli|verify|settle`
+   clean (the shipped `dist/benzo-verify.mjs` + `docs/verify-bundle.sha256` rebuilt and committed
+   here), `npm run e2e` PASS (39 s), and the R6 repro `node tools/repro/routing-vs-envelope-repro.mjs`
+   still ends `F3 FIXED … signers derive destinations only from owner-signed envelopes` on the new
+   format. `npm run e2e:live` (cli-auction) was **not run in this run** — outside the head's proof
+   list; its `bid seal` call site is behavior-identical through the transition (below) and A's
+   R8-style regression covers it.
+   Honesty notes: (a) the first red attempt had a harness defect (`execFileSync` unimported —
+   `mr-verify` errored on the script, not on old code) and the second forgot to re-bundle the
+   proof inside the stash window (checks 1–4 ran against bundled new code); both were discarded
+   and the recorded red is the final-harness rerun. (b) The first green run's `mr-equal-lengths`
+   literal was my own arithmetic slip (798 vs the real 894 bytes — stanza is pk 32 + sealed 80),
+   and the first swap mutation swapped only 80 of 112 stanza bytes / swapped whole records
+   instead of `envelope_ct` fields; the checks were fixed before the recorded runs — the format
+   code never changed to make a check pass. (c) `sealEnvelope` accepts 1–3 distinct recipients
+   (the production set is exactly the manifest's 3; constant length holds per recipient set).
+
+**Test audit (READY FOR MERGE):** project E2E suite untouched — default seal-open **R retain**
+(`npm run e2e` PASS 39 s at the final tree). `contracts/` forge + Solana driver suites are the
+design §7 step-1/step-2 contract-level proofs (outside the 8-test E2E ceiling); item 1's two
+driver assertions (`escrow-pda-dusted-lock-succeeds`, `escrow-pda-dusted-lock-twice-refused`)
+own the G9 behaviour and were re-proven red/green in this run (the covered code changed since any
+prior mutation run — this IS its first). Item 2 adds no specs (R11 convention); its proofs are
+scratch `tmp/` scripts cited above. Env: no new env vars. Upstream code: none copied (pinned
+libsodium API inspected at the installed 0.8.4).
+
+### Questions (this run)
+
+- **`bid seal` call site (Track A's R7 item 2 wiring):** per design §8 step 4 A wires
+  `bid seal --refund` to the pinned keys. The shipped call site (`cli/product.ts` bid-seal
+  block) still passes `[bid.envelope_pubkey]` — behavior-preserving through the new format
+  (1-stanza envelopes open with the product key as before). Switching to `m.envelope_keys` is
+  one line there once the signers' key ceremony exists; `prepareBid`/`sealEnvelope` already take
+  that set and the manifest field is in. Redirect if you want that line moved in this run.
+- **Envelope format choice:** the stanza region is bound as AEAD associated data (age's header
+  binding), so ANY stanza splice is refused for every recipient (`refused: envelope body`), not
+  just for the spliced stanza's owner. Stricter than the sketch; confirm or redirect.
+- **AUDITS.md gap (pre-existing):** the custom-code table had no rows for `settle/`, `clear/`,
+  `api/`, `manifest/`, `witness/` (all custom, all touching settlement/encodings under the
+  audited-first rule). I added the `envelope/` rows my work touches; want the rest listed too?
 
 ## Previous run: head task — crosschain §10 fixes for Reviewer R's BLOCK (F-1…F-5) + redeploy
 
