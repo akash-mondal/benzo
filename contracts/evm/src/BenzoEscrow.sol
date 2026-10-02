@@ -125,6 +125,9 @@ contract BenzoEscrow is ReentrancyGuard {
     error TransferFailed();
 
     /// @notice Lock the asset for one auction. One lock per auction id; refused after `lockUntil` (T_submit).
+    /// @dev Fee-on-transfer (and any token that delivers less than `amount`) is refused: the
+    /// received balance is measured around `safeTransferFrom` and the lock reverts unless the
+    /// delta equals `amount`, so no auction can be underfunded and drain a pooled peer (F5).
     /// @param signers the per-auction attestation signer set (design §1: keys rotate per auction).
     function lock(
         bytes32 auctionId,
@@ -151,7 +154,11 @@ contract BenzoEscrow is ReentrancyGuard {
             if (msg.value != amount) revert BadParameters();
         } else {
             if (msg.value != 0) revert BadParameters();
+            uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
             IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+            uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
+            // F5: revert unless the escrow's balance grew by exactly `amount`
+            if (balanceAfter < balanceBefore || balanceAfter - balanceBefore != amount) revert BadParameters();
         }
 
         a.returnTo = returnTo;
