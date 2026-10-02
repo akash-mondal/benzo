@@ -1,0 +1,11 @@
+commit 1fc9361 (fix applied; same live auction state)
+utc 2026-10-02T20:24:01Z
+command node tools/repro/r7-6-stray-refunds-repro.mjs 90d3aeb89136a005d1bb343f964762eabc1a97fa2bcfdfd17022ea7cd2115d22
+S1 create: accepted 9a848b4c682f4aa0e2bb05","0cf339f2d3595a32a0cd76262f2a242f1f70705e0f21b5c889c21417479a2a70","c56978a961b35af6de9ae492bb244d637767bb08adfe176e598be68d92200633"]}}
+S1 publish with stray_refund_ua routing: refused ERROR benzo node exited 1: ERROR settle refused: stray_refund_ua is dropped; product routing pins only deposit addresses
+S1 create (second): accepted 9a848b4c682f4aa0e2bb05","0cf339f2d3595a32a0cd76262f2a242f1f70705e0f21b5c889c21417479a2a70","c56978a961b35af6de9ae492bb244d637767bb08adfe176e598be68d92200633"]}}
+S1 publish with plain deposit routing: accepted 25fa73d5fac681818e5c20237d06","signer":"302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891"},"state":"OPEN","receipts":[]}
+S2 plan exit 0
+S2 obligations: ["seller"]
+S2 exceptions: [{"party":"leaf:0","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:1","reason":"no valid owner-signed settlement envelope"},{"party":"deposit:ced9bcba3c449126aac9","reason":"no valid owner-signed settlement envelope"},{"party":"deposit:c24d373831dab028b867","reason":"deposit memo is not an openable sealed bid; no owner key claims it"},{"party":"deposit:a49b3a3be0a6c769c1ed","reason":"deposit memo is not an openable sealed bid; no owner key claims it"},{"party":"deposit:1f3c9def652f791995bb","reason":"no valid owner-signed settlement envelope"}]
+FIXED: no stray is payable to an operator destination; unclaimed strays sit in the exception queue with reasons.

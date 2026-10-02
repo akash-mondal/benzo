@@ -1,0 +1,8 @@
+commit 1fc9361 (live on dev auction 90d3aeb8…; frostd pid in $BNZ_STATE_DIR/run/frostd.pid)
+utc 2026-10-02T20:29:25Z
+run commands (2026-10-02T20:2xZ): bin/benzo claim-refund --id … --party deposit:1f3c9def…:4608296115 --destination <fresh bidder UA> --owner-key-stdin (owner key from the stray's own sealed memo fixture), then bin/benzo claim-refund --id … --file claim.json -> settle exit 0, settled 2 (claimed stray + seller).
+--- re-checked settled state below (this capture) ---
+rows: [{"p":"deposit:1f3c9def652f7919","state":"refunded","a":"10000"},{"p":"deposit:a49b3a3be0a6c769","state":"exception","a":"10000"},{"p":"deposit:c24d373831dab028","state":"exception","a":"10000"},{"p":"deposit:ced9bcba3c449126","state":"exception","a":"10000"},{"p":"leaf:0","state":"exception","a":"497700"},{"p":"leaf:1","state":"exception","a":"497700"},{"p":"seller","state":"paid","a":"4600"}]
+receipts: [{"amount_zats":"10000","auction_id":"90d3aeb89136a005d1bb343f964762eabc1a97fa2bcfdfd17022ea7cd2115d22","output_index":1,"party":"deposit:1f3c9def652f791995bb9c24642ad2e478c483f144cc211623508c4f40d5613e:4608296115","pool":"ironwood","txid":"b1265f66910d03c77b5becdde98e1ec0e6c13018ef32497fd4f76a4649bd393a"},{"amount_zats":"4600","auction_id":"90d3aeb89136a005d1bb343f964762eabc1a97fa2bcfdfd17022ea7cd2115d22","output_index":0,"party":"seller","pool":"ironwood","txid":"b1265f66910d03c77b5becdde98e1ec0e6c13018ef32497fd4f76a4649bd393a"}]
+stray claim destination [redacted address a57322e9b9] received 1 note totalling 10000 zats (bidder-wallet scan, transcribed from the run capture)
+verify on the cold settled copy (with fixture witness material): exit 0, no error lines (re-checked)
