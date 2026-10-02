@@ -1,4 +1,6 @@
 // Read-only JSON API over a public auction directory. Bind 127.0.0.1 by default; never returns bid plaintext.
+import { readFileSync } from "node:fs";
+import { hash, requireThat } from "../manifest/schema";
 import http from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -59,6 +61,12 @@ export function startServer(options: ServerOptions): http.Server {
       if (parts[0] === "result" && parts.length === 1) {
         if (!pub.result || !pub.resultBytes) return send(res, 409, { ready: false, state: pub.state });
         return send(res, 200, JSON.parse(pub.resultBytes.toString("utf8")));
+      }
+      if (parts[0] === "allocation" && parts.length === 1) {
+        if (!pub.result?.allocation_file_hash) return send(res, 409, { ready: false, state: pub.state });
+        const bytes = readFileSync(path.join(pub.dir, "allocation.json"));
+        requireThat(hash(bytes) === pub.result.allocation_file_hash, "launch allocation file hash");
+        return send(res, 200, JSON.parse(bytes.toString("utf8")));
       }
       if (parts[0] === "receipt" && parts[1]) {
         if (!pub.frozen) return send(res, 409, { ready: false, state: pub.state });

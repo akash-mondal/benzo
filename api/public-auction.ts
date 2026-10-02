@@ -25,18 +25,7 @@ export type SettlementSummary = {
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
 };
-export type PublicResult = {
-  auction_id: string; manifest_hash: string; freeze_root: string; mode: string;
-  clearing_price_zats: string;
-  allocations: {
-    leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string;
-    lot?: string; balance_due_zats?: string;
-  }[];
-  conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string; treasury_zats?: string; balances_zats?: string };
-  serial_assignment?: { leaf_index: number; serials: number[] }[];
-  serial_beacon_round?: number;
-  lots?: { lot_id: string; clearing_price_zats: string }[];
-};
+export type PublicResult = ClearBody;
 // Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
 // yet. Readers that must run past freeze (benzo verify) use loadCompletePublicAuction instead.
 export type PublicAuction = {
@@ -51,6 +40,7 @@ export type PublicAuction = {
   opened: Opened[];
   beacon: Beacon | null;
   serialBeacon: { round: number; signature: string } | null;
+  launchInput: import("../clear/launch").LaunchInput | undefined;
   result: PublicResult | null;
   resultBytes: Buffer | null;
   receipts: Signed[];
@@ -66,7 +56,7 @@ export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: Pu
 export type Check = { id: string; error?: string; warn?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -90,6 +80,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   const legacy = !existsSync(path.join(root, "auction.json"));
   let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string, state: string;
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
+  let launchInput: import("../clear/launch").LaunchInput | undefined;
   let serialBeacon: { round: number; signature: string } | null = null;
   let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null, reserveOpening: string | null;
   if (!legacy) {
@@ -115,6 +106,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     if (openedStates.has(doc.state)) requireThat(Array.isArray(doc.opened) && doc.beacon, "opened/beacon required from OPENED");
     opened = Array.isArray(doc.opened) ? (doc.opened as Opened[]) : [];
     beacon = readBeacon(doc.beacon ?? null, manifest);
+    launchInput = doc.launch_input;
     serialBeacon = doc.serial_beacon ?? null;
     if (serialBeacon) {
       requireThat(Object.keys(serialBeacon).sort().join(",") === "round,signature" &&
@@ -169,7 +161,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       ? String((JSON.parse(text("reserve.json")) as { plaintext_hex?: unknown }).plaintext_hex ?? "")
       : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -269,8 +261,12 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const result = pub.result, resultBytes = pub.resultBytes;
     if (!result || !resultBytes) return projection("result.json", null);
     requireThat(pub.frozen, "missing frozen");
-    const fresh = clearForMode({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened, reserve_opening: pub.reserveOpening, serial_beacon: pub.serialBeacon });
+    const fresh = clearForMode({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened, reserve_opening: pub.reserveOpening, serial_beacon: pub.serialBeacon, launch: pub.launchInput });
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
+    if (fresh.allocation_file_hash) {
+      const file = path.join(pub.dir, "allocation.json");
+      requireThat(existsSync(file) && hash(readFileSync(file)) === fresh.allocation_file_hash, "launch allocation file hash");
+    }
     projection("result.json", result);
   });
   // Gate W: published envelope records verify against the owner pubkey inside each opening, and the opening's
