@@ -8855,6 +8855,7 @@ var raw = (h, n) => {
   requireThat(typeof h === "string" && (n === 0 ? h.length % 2 === 0 : h.length === n * 2) && /^[0-9a-f]*$/.test(h), "key/signature hex");
   return Buffer.from(h, "hex");
 };
+var ENVELOPE_PT_BYTES = 512;
 function ownerBinding(auctionIdHex, ciphertextHashHex, envelopeCtHex) {
   return Buffer.concat([Buffer.from("benzo-envelope-v1"), raw(auctionIdHex, 32), raw(ciphertextHashHex, 32), raw(envelopeCtHex, 0)]);
 }
@@ -12569,7 +12570,7 @@ function checkCertificates(certs, spec, statement) {
 function readClient(packet, signer) {
   return clientForMode(packet, signer);
 }
-var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input"]);
+var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 var openedStates = /* @__PURE__ */ new Set(["OPENED", "CLEARED", "SETTLED"]);
 var frozenStates = /* @__PURE__ */ new Set(["SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED"]);
@@ -12592,7 +12593,7 @@ function loadPublicAuction(dir, opts = {}) {
   let frozen, opened, beacon;
   let launchInput;
   let serialBeacon = null;
-  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening;
+  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening, claims = [];
   if (!legacy) {
     const doc = JSON.parse(text("auction.json"));
     requireThat(doc && typeof doc === "object" && !Array.isArray(doc), "auction.json");
@@ -12628,6 +12629,8 @@ function loadPublicAuction(dir, opts = {}) {
     witnessSet = doc.witness_set ?? null;
     requireThat(doc.witness_cert === void 0 || Array.isArray(doc.witness_cert), "witness_cert");
     witnessCerts = doc.witness_cert ?? [];
+    requireThat(doc.claims === void 0 || Array.isArray(doc.claims), "claims");
+    claims = doc.claims ?? [];
     settlement = doc.settlement ?? null;
     requireThat(doc.reserve_opening === void 0 || doc.reserve_opening && typeof doc.reserve_opening === "object" && Object.keys(doc.reserve_opening).sort().join(",") === "plaintext_hex" && typeof doc.reserve_opening.plaintext_hex === "string", "reserve_opening");
     reserveOpening = doc.reserve_opening ? doc.reserve_opening.plaintext_hex : null;
@@ -12651,7 +12654,7 @@ function loadPublicAuction(dir, opts = {}) {
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
     reserveOpening = existsSync4(path4.join(root, "reserve.json")) ? String(JSON.parse(text("reserve.json")).plaintext_hex ?? "") : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, claims, settlement, reserveOpening };
 }
 function loadCompletePublicAuction(dir, opts = {}) {
   const pub = loadPublicAuction(dir, opts);
@@ -12792,6 +12795,40 @@ function checkPublicAuction(pub) {
     }
     projection("envelope.json", records);
     return warnings.filter(Boolean).join("; ") || void 0;
+  });
+  run2("claims", () => {
+    const records = pub.claims ?? [];
+    const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    for (const [i, c] of records.entries()) {
+      requireThat(c && typeof c === "object" && ["party", "destination_sha256", "owner_sig"].every((k) => typeof c[k] === "string") && Object.keys(c).every((k) => ["party", "destination_sha256", "owner_sig", "memo_hex", "opening"].includes(k)), `claim ${i} shape`);
+      requireThat(/^leaf:[0-9]+$/.test(c.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c.party), `claim ${i} party`);
+      requireThat(/^[0-9a-f]{64}$/.test(c.destination_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
+      let owner = null;
+      if (c.party.startsWith("leaf:")) {
+        const opening = pub.opened.find((o) => o.leaf_index === Number(c.party.slice(5)));
+        owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
+      } else owner = typeof c.opening === "string" && /^[0-9a-f]{256}$/.test(c.opening) ? Buffer.from(c.opening, "hex").subarray(61, 93).toString("hex") : null;
+      requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, destination_sha256: c.destination_sha256 }, c.owner_sig), `claim ${i} owner signature`);
+    }
+    for (const row of rows) {
+      if (!receipts.some((r) => r.party === row.party)) continue;
+      const stray = row.party.startsWith("deposit:");
+      const rec = stray ? void 0 : (pub.envelopes ?? []).find((e) => {
+        const leaf = pub.frozen?.leaves.find((l) => l.leaf_index === Number(row.party.slice(5)));
+        return leaf && e.ciphertext_hash === leaf.ciphertext_hash;
+      });
+      let valid = !!rec;
+      if (valid) {
+        const opening = pub.opened.find((o) => o.leaf_index === Number(row.party.slice(5)));
+        try {
+          const pt = Buffer.from(opening?.plaintext_hex ?? "", "hex");
+          valid = pt.length === 128 && verifyEnvelope(pt.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig) && pt.subarray(93, 125).toString("hex") === settlementCommitment(pt.subarray(45, 61).toString("hex"), rec.envelope_ct);
+        } catch {
+          valid = false;
+        }
+      }
+      if (!valid) requireThat(records.some((c) => c.party === row.party), `claim-paid row ${row.party} without a published claim`);
+    }
   });
   run2("accounting", () => {
     const result = pub.result;
@@ -12957,6 +12994,20 @@ async function decryptPublished(ciphertextHex, client2) {
   }
 }
 
+// settle/envelopes.ts
+function memoSealedBid(memoHex) {
+  try {
+    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
+    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
+    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
+    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+    return memo.subarray(7, 7 + length).toString("hex");
+  } catch {
+    return null;
+  }
+}
+var ENVELOPE_CT_BYTES = 32 + 12 + ENVELOPE_PT_BYTES + 16;
+
 // cli/commands/verify.ts
 var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] \u2014 re-derive openings offline and reproduce clear + accounting";
 var tleOpening2 = (ciphertext, chain) => tleOpening("tle", chain, ciphertext);
@@ -13019,6 +13070,10 @@ async function run(argv) {
       }
     }
     pub.opened = derived;
+    for (const c of pub.claims ?? []) if (c.memo_hex) {
+      const ct = memoSealedBid(c.memo_hex);
+      c.opening = ct ? await decryptPublished(ct, local) : null;
+    }
     if (pub.manifest.sealed_reserve !== void 0) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(

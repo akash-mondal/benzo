@@ -51,6 +51,9 @@ export type PublicAuction = {
   envelopes: EnvelopeRecord[];
   witnessSet: Signed | null;
   witnessCerts: WitnessCert[];
+  // R13: the owner-signed claims the signers used for paid rows (party, destination hash, owner signature;
+  // stray entries carry the memo ciphertext the owner key is derived from).
+  claims: { party: string; destination_sha256: string; owner_sig: string; memo_hex?: string; opening?: string | null }[];
   settlement: SettlementSummary | null;
   // Gate CF: the published opening of the manifest's tlock-sealed price bound (plaintext hex), present iff the
   // manifest carries `sealed_reserve`; benzo verify re-derives it with tle like the bid openings.
@@ -60,7 +63,7 @@ export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: Pu
 export type Check = { id: string; error?: string; warn?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -86,7 +89,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
   let launchInput: import("../clear/launch").LaunchInput | undefined;
   let serialBeacon: { round: number; signature: string } | null = null;
-  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null, reserveOpening: string | null;
+  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null, reserveOpening: string | null, claims: any[] = [];
   if (!legacy) {
     // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
     const doc = JSON.parse(text("auction.json"));
@@ -125,6 +128,8 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     witnessSet = (doc.witness_set ?? null) as Signed | null;
     requireThat(doc.witness_cert === undefined || Array.isArray(doc.witness_cert), "witness_cert");
     witnessCerts = (doc.witness_cert ?? []) as WitnessCert[];
+    requireThat(doc.claims === undefined || Array.isArray(doc.claims), "claims");
+    claims = (doc.claims ?? []) as any[];
     settlement = (doc.settlement ?? null) as SettlementSummary | null;
     requireThat(doc.reserve_opening === undefined || (doc.reserve_opening && typeof doc.reserve_opening === "object" &&
       Object.keys(doc.reserve_opening).sort().join(",") === "plaintext_hex" && typeof doc.reserve_opening.plaintext_hex === "string"), "reserve_opening");
@@ -165,7 +170,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       ? String((JSON.parse(text("reserve.json")) as { plaintext_hex?: unknown }).plaintext_hex ?? "")
       : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, claims, settlement, reserveOpening };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -325,6 +330,43 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     }
     projection("envelope.json", records);
     return warnings.filter(Boolean).join("; ") || undefined;
+  });
+  // R13: every claim the signers used is published with its owner signature, checkable against the owner key
+  // in the re-derived opening (a leaf's own opening; a stray's memo opening derived from the published memo
+  // ciphertext), and every claim-paid row carries one — so "paid through an owner-signed claim" is never
+  // taken on the quorum's word alone.
+  run("claims", () => {
+    const records = pub.claims ?? [];
+    const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    for (const [i, c] of records.entries()) {
+      requireThat(c && typeof c === "object" && ["party", "destination_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "destination_sha256", "owner_sig", "memo_hex", "opening"].includes(k)), `claim ${i} shape`);
+      requireThat(/^leaf:[0-9]+$/.test(c.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c.party), `claim ${i} party`);
+      requireThat(/^[0-9a-f]{64}$/.test(c.destination_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
+      let owner: string | null = null;
+      if (c.party.startsWith("leaf:")) {
+        const opening = pub.opened.find(o => o.leaf_index === Number(c.party.slice(5)));
+        owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
+      } else owner = typeof c.opening === "string" && /^[0-9a-f]{256}$/.test(c.opening) ? Buffer.from(c.opening, "hex").subarray(61, 93).toString("hex") : null;
+      requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, destination_sha256: c.destination_sha256 }, c.owner_sig), `claim ${i} owner signature`);
+    }
+    for (const row of rows) {
+      if (!receipts.some(r => r.party === row.party)) continue;
+      const stray = row.party.startsWith("deposit:");
+      const rec = stray ? undefined : (pub.envelopes ?? []).find(e => {
+        const leaf = pub.frozen?.leaves.find(l => l.leaf_index === Number(row.party.slice(5)));
+        return leaf && e.ciphertext_hash === leaf.ciphertext_hash;
+      });
+      let valid = !!rec;
+      if (valid) {
+        const opening = pub.opened.find(o => o.leaf_index === Number(row.party.slice(5)));
+        try {
+          const pt = Buffer.from(opening?.plaintext_hex ?? "", "hex");
+          valid = pt.length === 128 && verifyEnvelope(pt.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec!.ciphertext_hash, rec!.envelope_ct, rec!.owner_sig)
+            && pt.subarray(93, 125).toString("hex") === settlementCommitment(pt.subarray(45, 61).toString("hex"), rec!.envelope_ct);
+        } catch { valid = false; }
+      }
+      if (!valid) requireThat(records.some(c => c.party === row.party), `claim-paid row ${row.party} without a published claim`);
+    }
   });
   // R20c: result obligations and stray-deposit obligations (T1) are checked in separate passes, so one
   // class can never mask the other. Strays never gate the result checks and vice versa.
