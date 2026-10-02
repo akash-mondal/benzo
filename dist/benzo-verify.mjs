@@ -7871,7 +7871,6 @@ var require_tlock_js = __commonJS({
 
 // cli/commands/verify.ts
 var import_beacon_verification = __toESM(require_beacon_verification(), 1);
-import { spawnSync } from "node:child_process";
 
 // manifest/schema.ts
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
@@ -7975,6 +7974,30 @@ function client(packet, trustedSigner) {
   const manifest = verifyRecord(packet, trustedSigner);
   validateManifest(manifest);
   return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest };
+}
+
+// manifest/reserve.ts
+import { spawnSync } from "node:child_process";
+function tleOpening(tleBin, chainHash, ciphertextHex) {
+  const r = spawnSync(
+    tleBin,
+    ["-d", "-c", chainHash],
+    { input: Buffer.from(ciphertextHex, "hex"), maxBuffer: 1 << 20 }
+  );
+  if (r.error) throw r.error;
+  if (r.status === 0) return r.stdout.toString("hex");
+  const error = r.stderr.toString().trim();
+  if (/bad header MAC|failed to decrypt and authenticate payload chunk/.test(error)) return null;
+  throw new Error(`tle: ${error || `exit ${r.status}`}`);
+}
+function requireReserveOpening(m, publishedOpening, derived, tleDerived) {
+  if (m.sealed_reserve === void 0) {
+    requireThat(publishedOpening === null || publishedOpening === void 0, "reserve opening without sealed reserve");
+    return null;
+  }
+  requireThat(derived !== null && publishedOpening === derived, "reserve opening published differs from re-derived");
+  if (tleDerived !== void 0) requireThat(tleDerived === derived, "reserve opening tle differs");
+  return derived;
 }
 
 // api/missing-deposits.ts
@@ -12908,14 +12931,7 @@ async function decryptPublished(ciphertextHex, client2) {
 
 // cli/commands/verify.ts
 var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] \u2014 re-derive openings offline and reproduce clear + accounting";
-function tleOpening(ciphertext, chain) {
-  const r = spawnSync("tle", ["-d", "-c", chain], { input: Buffer.from(ciphertext, "hex"), maxBuffer: 1 << 20 });
-  if (r.error) throw new Error(`tle: ${r.error.message}`);
-  if (r.status === 0) return r.stdout.toString("hex");
-  const error = r.stderr.toString().trim();
-  if (/bad header MAC|failed to decrypt and authenticate payload chunk/.test(error)) return null;
-  throw new Error(`tle: ${error || `exit ${r.status}`}`);
-}
+var tleOpening2 = (ciphertext, chain) => tleOpening("tle", chain, ciphertext);
 async function run(argv) {
   if (argv.includes("--help")) {
     process.stdout.write(help + "\n");
@@ -12960,7 +12976,7 @@ async function run(argv) {
     const derived = [];
     for (const leaf of pub.frozen.leaves) {
       const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
-      if (crossCheck) requireThat(tleOpening(leaf.ciphertext_hex, pub.manifest.drand.chain_hash) === plaintext, `opening ${leaf.leaf_index} tle differs`);
+      if (crossCheck) requireThat(tleOpening2(leaf.ciphertext_hex, pub.manifest.drand.chain_hash) === plaintext, `opening ${leaf.leaf_index} tle differs`);
       derived.push(plaintext === null ? { leaf_index: leaf.leaf_index, plaintext_hex: null, error: "undecryptable" } : { leaf_index: leaf.leaf_index, plaintext_hex: plaintext });
     }
     if (pub.opened.length) {
@@ -12977,9 +12993,13 @@ async function run(argv) {
     pub.opened = derived;
     if (pub.manifest.sealed_reserve !== void 0) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
-      requireThat(reserve !== null && pub.reserveOpening === reserve, "reserve opening published differs from re-derived");
-      if (crossCheck) requireThat(tleOpening(pub.manifest.sealed_reserve, pub.manifest.drand.chain_hash) === reserve, "reserve opening tle differs");
-    } else requireThat(pub.reserveOpening === null, "reserve opening without sealed reserve");
+      requireReserveOpening(
+        pub.manifest,
+        pub.reserveOpening,
+        reserve,
+        crossCheck ? tleOpening2(pub.manifest.sealed_reserve, pub.manifest.drand.chain_hash) : void 0
+      );
+    } else requireReserveOpening(pub.manifest, pub.reserveOpening, null);
     if (pub.manifest.serials) {
       const round = pub.manifest.drand.R + pub.manifest.serials.seed_round_offset;
       requireThat(pub.result.serial_assignment && pub.result.serial_beacon_round === round, "serial result round/assignment");

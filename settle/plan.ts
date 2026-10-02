@@ -8,6 +8,7 @@ import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "no
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat} from "../manifest/schema";
+import {requireReserveOpening,tleOpening} from "../manifest/reserve";
 import {checkFrozen} from "../clear/merkle";
 import {modeEntry} from "../clear/registry";
 import type {Obligation} from "./ledger";
@@ -73,7 +74,11 @@ try {
       return {leaf_index:leaf.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
     });
     if(published)requireThat(jsonBytes(opened).equals(jsonBytes(published.opened)),"published opening differs from fresh decryption");
-    const result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:src.manifest,signer:src.signer,frozen:src.frozen,opened,reserve_opening:published?(published.reserve_opening?.plaintext_hex??null):(auction.reserve_opening??null),serial_beacon:src.serial_beacon??null,launch:src.launch_input})));
+    // R6 (F2): the sealed reserve is re-derived here with the pinned Go tle and must equal the
+    // published opening; a forged opening is refused before any signature.
+    const derivedReserve=src.manifest.sealed_reserve!==undefined?tleOpening(path.join(state,"bin","tle"),src.manifest.drand.chain_hash,src.manifest.sealed_reserve):null;
+    const reserve_opening=requireReserveOpening(src.manifest,published?(published.reserve_opening?.plaintext_hex??null):(auction.reserve_opening??null),derivedReserve);
+    const result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:src.manifest,signer:src.signer,frozen:src.frozen,opened,reserve_opening,serial_beacon:src.serial_beacon??null,launch:src.launch_input})));
     const fresh=jsonBytes(result);
     if(published) {
       requireThat(fresh.equals(jsonBytes(published.result)),"published result differs from signer recomputation");

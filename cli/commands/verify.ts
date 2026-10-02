@@ -1,8 +1,8 @@
 // benzo verify — independent gate R: public inputs only, cold copy, ERROR lines on corruption.
 // Re-derives every opening offline from its ciphertext and authenticated published quicknet beacon.
 import { verifyBeacon } from "drand-client/beacon-verification.js";
-import { spawnSync } from "node:child_process";
 import { hash, requireThat } from "../../manifest/schema";
+import { requireReserveOpening, tleOpening as tleDecrypt } from "../../manifest/reserve";
 import { checkPublicAuction, loadCompletePublicAuction, loadPublicAuction } from "../../api/public-auction";
 import { checkSeriesLink } from "../../clear/features";
 import type { Opened } from "../../clear/core";
@@ -12,15 +12,9 @@ export const noun = "verify";
 export const verb = "";
 export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] — re-derive openings offline and reproduce clear + accounting";
 
-// Go tle is an optional independent cross-check, resolved only through PATH.
-function tleOpening(ciphertext: string, chain: string): string | null {
-  const r = spawnSync("tle", ["-d", "-c", chain], { input: Buffer.from(ciphertext, "hex"), maxBuffer: 1 << 20 });
-  if (r.error) throw new Error(`tle: ${r.error.message}`);
-  if (r.status === 0) return r.stdout.toString("hex");
-  const error = r.stderr.toString().trim();
-  if (/bad header MAC|failed to decrypt and authenticate payload chunk/.test(error)) return null;
-  throw new Error(`tle: ${error || `exit ${r.status}`}`);
-}
+// Go tle is an optional independent cross-check, resolved only through PATH (shared with the signer
+// plan through manifest/reserve.ts so the sealed-reserve rules cannot drift).
+const tleOpening = (ciphertext: string, chain: string) => tleDecrypt("tle", chain, ciphertext);
 
 export async function run(argv: string[]): Promise<number> {
   if (argv.includes("--help")) {
@@ -81,9 +75,9 @@ export async function run(argv: string[]): Promise<number> {
     pub.opened = derived;
     if (pub.manifest.sealed_reserve !== undefined) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
-      requireThat(reserve !== null && pub.reserveOpening === reserve, "reserve opening published differs from re-derived");
-      if (crossCheck) requireThat(tleOpening(pub.manifest.sealed_reserve, pub.manifest.drand.chain_hash) === reserve, "reserve opening tle differs");
-    } else requireThat(pub.reserveOpening === null, "reserve opening without sealed reserve");
+      requireReserveOpening(pub.manifest, pub.reserveOpening, reserve,
+        crossCheck ? tleOpening(pub.manifest.sealed_reserve, pub.manifest.drand.chain_hash) : undefined);
+    } else requireReserveOpening(pub.manifest, pub.reserveOpening, null);
     // Serial assignment is replayed by the registry. Authenticate the future beacon before using it.
     if (pub.manifest.serials) {
       const round = pub.manifest.drand.R + pub.manifest.serials.seed_round_offset;
