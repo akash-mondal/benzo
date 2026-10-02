@@ -1,0 +1,29 @@
+# Benzo cross-chain step 1: EVM escrow, forge test
+# UTC: 2026-10-02T10:30:20Z
+# tree base: 8e114fa + working tree
+# command: cd contracts/evm && forge test   (foundry 1.5.1-stable, solc 0.8.30, via_ir)
+# deps: benzo-contracts-evm@ /Users/akshmnd/Dev Projects/benzo-b/contracts/evm └── @openzeppelin/contracts@5.6.0  
+
+No files changed, compilation skipped
+
+Ran 17 tests for test/BenzoEscrow.t.sol:BenzoEscrowTest
+[PASS] test_lock_native_records_state() (gas: 201642)
+[PASS] test_lock_refused_after_submit_time() (gas: 32711)
+[PASS] test_lock_token_pulls_erc20() (gas: 274127)
+[PASS] test_lock_twice_refused() (gas: 205230)
+[PASS] test_recipient_flags_skip_failures_and_block_double_pay() (gas: 451047)
+[PASS] test_refund_after_deadline_returns_remainder() (gas: 238216)
+[PASS] test_refund_after_release_returns_only_remainder() (gas: 368698)
+[PASS] test_refund_before_deadline_refused() (gas: 194755)
+[PASS] test_release_cap_never_exceeds_lock() (gas: 259034)
+[PASS] test_release_expired_refused() (gas: 210816)
+[PASS] test_release_leaf_index_bound_refused() (gas: 244011)
+[PASS] test_release_leaf_not_in_root_refused() (gas: 250051)
+[PASS] test_release_one_signature_refused() (gas: 212453)
+[PASS] test_release_outsider_signatures_refused() (gas: 216705)
+[PASS] test_release_same_signer_twice_not_quorum() (gas: 218122)
+[PASS] test_release_two_of_three_pays() (gas: 411785)
+[PASS] test_replay_batch_refused() (gas: 347869)
+Suite result: ok. 17 passed; 0 failed; 0 skipped; finished in 1.89ms (7.14ms CPU time)
+
+Ran 1 test suite in 83.31ms (1.89ms CPU time): 17 tests passed, 0 failed, 0 skipped (17 total tests)

@@ -1,0 +1,14 @@
+# Benzo EVM escrow. Dependencies pinned exactly in package.json / package-lock.json (npm ci to install);
+# audit status per dependency lives in ../AUDITS.md. Changing a pin needs a Ruling.
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+cache_path = "cache"
+libs = ["node_modules"]
+solc = "0.8.30"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+via_ir = true
+bytecode_hash = "none"
