@@ -9,6 +9,7 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync} from 'nod
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
+import {jsonBytes} from '../manifest/schema';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
@@ -128,9 +129,19 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const verified=cli(['verify','--dir',cold,'--signer',signer]);
     const shown=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash]);
     await run.check('P2','receipt show and verify agree on inclusion and settlement fields',()=>{expect.soft(shown.code).toBe(0);expect.soft(verified.code).toBe(0);expect.soft(JSON.stringify(shown.value)).toContain(settlement.receipts.find((r:any)=>r.party==='leaf:0')?.txid);expect.soft(JSON.stringify(shown.value)).toContain(frozen.leaves[0].ciphertext_hash)});
-    const corruptDir=path.join(ROOT,'tmp/e2e/corrupt',id);cpSync(cold,corruptDir,{recursive:true});const badDoc=json(path.join(corruptDir,'auction.json'));badDoc.settlement.rows[0].amount_zats=String(BigInt(badDoc.settlement.rows[0].amount_zats)+1n);writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badDoc));writeFileSync(path.join(corruptDir,'summary.json'),JSON.stringify(badDoc.settlement));const badTotals=cli(['verify','--dir',corruptDir,'--signer',signer]);
+    const corruptDir=path.join(ROOT,'tmp/e2e/corrupt',id);cpSync(cold,corruptDir,{recursive:true});
+    const corrupt=(mutate:(d:any)=>void)=>{const d=json(path.join(cold,'auction.json'));mutate(d);writeFileSync(path.join(corruptDir,'auction.json'),jsonBytes(d));return cli(['verify','--dir',corruptDir,'--signer',signer])};
+    // F1 (R28): each amount class is corrupted on its own — a leaf row+receipt, the seller row+receipt, and a
+    // stray row — and each asserts its specific accounting / accounting-strays refusal.
+    const badLeaf=corrupt(d=>{for(const r of [d.settlement.rows.find((x:any)=>x.party==='leaf:0'),d.settlement.receipts.find((x:any)=>x.party==='leaf:0')])r.amount_zats=String(BigInt(r.amount_zats)+1n)});
+    const badSeller=corrupt(d=>{for(const r of [d.settlement.rows.find((x:any)=>x.party==='seller'),d.settlement.receipts.find((x:any)=>x.party==='seller')])r.amount_zats=String(BigInt(r.amount_zats)+1n)});
+    const badStray=corrupt(d=>{const r=d.settlement.rows.find((x:any)=>x.party.startsWith('deposit:'));r.amount_zats=String(BigInt(r.amount_zats)+1n)});
     const badRoot={...doc,frozen:{...doc.frozen,root:'00'.repeat(32)}};writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badRoot));writeFileSync(path.join(corruptDir,'frozen.json'),JSON.stringify(badRoot.frozen));const rootRefusal=cli(['verify','--dir',corruptDir,'--signer',signer]);
-    await run.check('R1','cold public verification passes and corrupt amounts/root fail specifically',()=>{expect.soft(verified.code).toBe(0);expect.soft(badTotals.code).not.toBe(0);expect.soft(badTotals.error).toMatch(/ERROR.*(amount|total|ledger)/);expect.soft(rootRefusal.code).not.toBe(0);expect.soft(rootRefusal.error).toMatch(/ERROR.*(root|freeze)/)});
+    await run.check('R1','cold public verification passes and corrupt amounts/root fail specifically',()=>{expect.soft(verified.code).toBe(0);
+      expect.soft(badLeaf.code).not.toBe(0);expect.soft(badLeaf.error).toContain('ERROR accounting refused: settlement leaf:0 amount');
+      expect.soft(badSeller.code).not.toBe(0);expect.soft(badSeller.error).toContain('ERROR accounting refused: settlement seller amount');
+      expect.soft(badStray.code).not.toBe(0);expect.soft(badStray.error).toMatch(/ERROR accounting-strays refused: stray deposit:[0-9a-f]{64}:\S+ amount/);
+      expect.soft(rootRefusal.code).not.toBe(0);expect.soft(rootRefusal.error).toMatch(/ERROR.*(root|freeze)/)});
     await run.check('S1','read API returns opaque operator data, exact result and rejects manifest flip',async()=> {
       api=spawn(process.execPath,[path.join(ROOT,'api/dist/server.mjs'),'--dir',publicDir,'--port','8787'],{stdio:['ignore','pipe','pipe']});
       let ready=false;await new Promise<void>((resolve,reject)=>{api.on('error',reject);api.stdout.on('data',()=>{ready=true;resolve()});api.on('close',()=>{if(!ready)reject(Error('API exited before ready'))})});
