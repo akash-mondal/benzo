@@ -213,7 +213,9 @@ async function main() {
   {
     const batchReplayedSel = "0x" + Buffer.from(keccak_256(Buffer.from("BatchReplayed()"))).toString("hex").slice(0, 8);
     const r = benzoXchain(["release", "--chain", "evm", "--bundle", bundleEvm, "--key", evmSellerKeyFile, "--rpc", EVM_RPC, "--only", "0"]);
-    const rs = benzoXchain(["release", "--chain", "solana", "--bundle", bundleSol, "--key", solPayerFile, "--rpc", SOL_RPC, "--only", "1,2"]);
+    // Solana (§9): replay = resubmitting the attestation for a used (auction_id, batch_index),
+    // which is refused on chain because the Approval PDA is created exactly once
+    const rs = benzoXchain(["release", "--chain", "solana", "--bundle", bundleSol, "--key", solPayerFile, "--rpc", SOL_RPC, "--submit-only"]);
     const evmSays = (r.stderr + r.stdout).includes(batchReplayedSel);
     const solSays = (rs.stderr + rs.stdout).includes("custom program error: 0x9"); // BatchReplayed
     check("demo-replay-refused", evmSays && solSays,

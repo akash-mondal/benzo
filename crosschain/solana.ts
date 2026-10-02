@@ -1,9 +1,13 @@
-// Solana escrow client (@solana/web3.js): lock/release/refund/status against a local
-// solana-test-validator or devnet. Instruction and attestation layouts mirror
-// contracts/solana/src/lib.rs exactly (they are proven against the program by
-// contracts/solana/test/driver.mjs and by the cross-chain demo).
+// Solana escrow client (@solana/web3.js): lock/submit-attestation/release-approved/refund/status
+// against a local solana-test-validator or devnet. Instruction and attestation layouts mirror
+// contracts/solana/src/lib.rs exactly (design §9: attest once — `submit_attestation` writes the
+// Approval PDA — then release many — `release_approved` is signature-free and repeatable). They
+// are proven against the program by contracts/solana/test/driver.mjs and the cross-chain demo.
 import {
-  Connection, Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction,
+  AddressLookupTableAccount,
+  AddressLookupTableProgram,
+  Connection, Keypair, MessageV0, PublicKey, SystemProgram, Transaction, TransactionInstruction,
+  VersionedTransaction,
 } from "@solana/web3.js";
 import { AttestationFields, SOLANA_ATT_LEN, solanaAttestationBytes } from "./attestation";
 import { be16, be64, bytesToHex, concat } from "./leaf";
@@ -13,17 +17,26 @@ export { solanaAttestationBytes };
 export const IX_SYSVAR = new PublicKey("Sysvar1nstructions1111111111111111111111111");
 export const ED25519_PROGRAM = new PublicKey("Ed25519SigVerify111111111111111111111111111");
 
+/** Solana's transaction packet limit: everything the release path sends stays within it. */
+export const PACKET_LIMIT = 1232;
+
 export function solConnection(rpc: string): Connection {
   return new Connection(rpc, "confirmed");
 }
 
 const TAG = (tag: number) => Uint8Array.of(1, tag); // version 1
+const le64 = (n: number | bigint): Uint8Array => {
+  const b = new Uint8Array(8);
+  new DataView(b.buffer).setBigUint64(0, BigInt(n), true);
+  return b;
+};
 
 export function auctionPda(programId: PublicKey, auctionId: Uint8Array): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("escrow"), Buffer.from(auctionId)], programId)[0];
 }
-export function batchPda(programId: PublicKey, auctionId: Uint8Array, batch: number): PublicKey {
-  return PublicKey.findProgramAddressSync([Buffer.from("batch"), Buffer.from(auctionId), Buffer.from(be64(batch))], programId)[0];
+/** design §9: seeds ["approval", auction_id, batch_index u64 le] */
+export function approvalPda(programId: PublicKey, auctionId: Uint8Array, batch: number): PublicKey {
+  return PublicKey.findProgramAddressSync([Buffer.from("approval"), Buffer.from(auctionId), Buffer.from(le64(batch))], programId)[0];
 }
 export function paidPda(programId: PublicKey, auctionId: Uint8Array, leaf: Uint8Array): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("paid"), Buffer.from(auctionId), Buffer.from(leaf)], programId)[0];
@@ -50,8 +63,9 @@ export function lockInstruction(args: {
   });
 }
 
-/** Native Ed25519 verification instruction; the message is the release ix's attestation bytes
- *  (message index 1 in the [verify, release] transaction, offset 2, size 200) — strictly checked. */
+/** Native Ed25519 verification instruction; the message is the submit-attestation ix's
+ *  attestation bytes (message index 1 in the [verify, submit] transaction, offset 2, size 200) —
+ *  strictly checked by the program. */
 export function ed25519Instruction(signatures: Uint8Array[], pubkeys: Uint8Array[]): TransactionInstruction {
   const n = signatures.length;
   const header = 2 + 14 * n;
@@ -82,19 +96,36 @@ export interface SolPayout {
   paidPda: PublicKey;
 }
 
-export function releaseInstruction(args: {
-  programId: PublicKey; crank: PublicKey; auctionPda: PublicKey; batchPda: PublicKey;
-  att: Uint8Array; payouts: SolPayout[];
+/** `submit_attestation` (design §9): verify 2-of-3 and write the Approval PDA. No transfers. */
+export function submitAttestationInstruction(args: {
+  programId: PublicKey; crank: PublicKey; auctionPda: PublicKey; approvalPda: PublicKey; att: Uint8Array;
 }): TransactionInstruction {
-  const parts = [concat(TAG(2), args.att, be16(args.payouts.length))];
+  return new TransactionInstruction({
+    programId: args.programId,
+    keys: [
+      { pubkey: args.crank, isSigner: true, isWritable: true },
+      { pubkey: args.auctionPda, isSigner: false, isWritable: false },
+      { pubkey: IX_SYSVAR, isSigner: false, isWritable: false },
+      { pubkey: args.approvalPda, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(concat(TAG(2), args.att)),
+  });
+}
+
+/** `release_approved` (design §9): pay payouts against a verified Approval. No signatures;
+ *  anyone may call it repeatedly until every leaf is paid. */
+export function releaseApprovedInstruction(args: {
+  programId: PublicKey; crank: PublicKey; auctionPda: PublicKey; approvalPda: PublicKey; payouts: SolPayout[];
+}): TransactionInstruction {
+  const parts = [concat(TAG(4), be16(args.payouts.length))];
   for (const p of args.payouts) {
     parts.push(be64(p.index), be64(p.lotCount), Uint8Array.of(2), p.destination.toBytes(), be64(p.leafCount), be16(p.proof.length), ...p.proof);
   }
   const keys = [
     { pubkey: args.crank, isSigner: true, isWritable: true },
     { pubkey: args.auctionPda, isSigner: false, isWritable: true },
-    { pubkey: IX_SYSVAR, isSigner: false, isWritable: false },
-    { pubkey: args.batchPda, isSigner: false, isWritable: true },
+    { pubkey: args.approvalPda, isSigner: false, isWritable: false },
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
   ];
   for (const p of args.payouts) {
@@ -106,6 +137,102 @@ export function releaseInstruction(args: {
     keys,
     data: Buffer.from(concat(...parts)),
   });
+}
+
+/** Serialized byte length of a transaction; web3.js refuses to serialize oversize ones, so the
+ *  reported number from its error is used instead. */
+function txSize(tx: VersionedTransaction | Transaction): number {
+  try {
+    return tx.serialize().length;
+  } catch (e) {
+    const m = /Transaction too large: (\d+)/.exec((e as Error)?.message ?? "");
+    if (m) return Number(m[1]);
+    throw e;
+  }
+}
+
+/** Create + fill a lookup table holding `addresses` (in payout order) and wait (bounded poll)
+ *  until its entries are active for lookups (the runtime ignores entries extended in the slot
+ *  the transaction is processed in). */
+export async function createLookupTableOn(
+  conn: Connection, payer: Keypair, addresses: PublicKey[],
+): Promise<{ table: AddressLookupTableAccount; txs: string[] }> {
+  const slot = await conn.getSlot("finalized");
+  const [createIx, tableAddress] = AddressLookupTableProgram.createLookupTable({
+    authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot,
+  });
+  const txs: string[] = [];
+  txs.push(await sendTx(conn, payer, [createIx]));
+  for (let i = 0; i < addresses.length; i += 20) {
+    txs.push(await sendTx(conn, payer, [AddressLookupTableProgram.extendLookupTable({
+      payer: payer.publicKey, authority: payer.publicKey, lookupTable: tableAddress,
+      addresses: addresses.slice(i, i + 20),
+    })]));
+  }
+  const deadlineMs = Date.now() + 60_000;
+  let filled: AddressLookupTableAccount | null = null;
+  for (;;) {
+    const got = await conn.getAddressLookupTable(tableAddress);
+    if (got.value && got.value.state.addresses.length >= addresses.length) { filled = got.value; break; }
+    if (Date.now() > deadlineMs) throw new Error(`lookup table ${tableAddress.toBase58()} did not fill`);
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  // entries extended at slot F are usable only from slot F+1 (state.rs get_active_addresses_len)
+  const fillSlot = await conn.getSlot();
+  for (;;) {
+    if ((await conn.getSlot()) > fillSlot) return { table: filled!, txs };
+    if (Date.now() > deadlineMs) throw new Error("slot did not advance after lookup-table fill");
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+/** Send `release_approved` payouts, chunked to fit the packet limit, as versioned transactions
+ *  with the destination + paid-flag accounts in an address lookup table (design §9 size remedy:
+ *  the measured capacity without a table is below 4 payouts at proof depth 4). Returns the
+ *  payout indexes of each sent chunk and the transaction signatures. */
+export async function sendReleaseApproved(conn: Connection, payer: Keypair, args: {
+  programId: PublicKey; auctionPda: PublicKey; approvalPda: PublicKey; payouts: SolPayout[];
+}): Promise<{ chunks: number[][]; txs: string[]; lookupTable: string }> {
+  // lookup-table order follows usage order (dest_i, paid_i): compiled lookup indexes ascend
+  const addresses = args.payouts.flatMap((p) => [p.destination, p.paidPda]);
+  const { table, txs: setup } = await createLookupTableOn(conn, payer, addresses);
+  const chunks: SolPayout[][] = [];
+  let cur: SolPayout[] = [];
+  for (const p of args.payouts) {
+    const trial = [...cur, p];
+    const { blockhash } = await conn.getLatestBlockhash("confirmed");
+    const msg = MessageV0.compile({
+      payerKey: payer.publicKey,
+      instructions: [releaseApprovedInstruction({ ...args, crank: payer.publicKey, payouts: trial })],
+      recentBlockhash: blockhash,
+      addressLookupTableAccounts: [table],
+    });
+    if (txSize(new VersionedTransaction(msg)) <= PACKET_LIMIT) cur = trial;
+    else {
+      if (!cur.length) throw new Error(`payout ${p.index} alone exceeds the transaction packet limit`);
+      chunks.push(cur);
+      cur = [p];
+    }
+  }
+  if (cur.length) chunks.push(cur);
+  const txs = [...setup];
+  const sent: number[][] = [];
+  for (const chunk of chunks) {
+    const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+    const msg = MessageV0.compile({
+      payerKey: payer.publicKey,
+      instructions: [releaseApprovedInstruction({ ...args, crank: payer.publicKey, payouts: chunk })],
+      recentBlockhash: blockhash,
+      addressLookupTableAccounts: [table],
+    });
+    const tx = new VersionedTransaction(msg);
+    tx.sign([payer]);
+    const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+    await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+    txs.push(sig);
+    sent.push(chunk.map((p) => p.index));
+  }
+  return { chunks: sent, txs, lookupTable: table.key.toBase58() };
 }
 
 export function refundInstruction(args: {

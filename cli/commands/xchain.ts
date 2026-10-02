@@ -14,15 +14,16 @@ import {
   evmLock, evmProvider, evmRefund, evmRelease, evmStatus, EvmPayout,
 } from "../../crosschain/evm";
 import {
-  auctionPda, batchPda, ed25519Instruction, lockInstruction, paidPda, refundInstruction,
-  releaseInstruction, sendTx, solConnection, solStatus, SolPayout,
+  approvalPda, auctionPda, ed25519Instruction, lockInstruction, paidPda, refundInstruction,
+  sendReleaseApproved, sendTx, solConnection, solStatus, SolPayout,
+  submitAttestationInstruction,
 } from "../../crosschain/solana";
 
 export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
   "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE",
-  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2]",
+  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE]",
 ].join("\n");
@@ -194,6 +195,23 @@ export async function run(argv: string[]): Promise<number> {
       const att = solanaAttestationBytes(fields, genesis, programId.toBytes());
       const sigBytes = bundle.signatures.map((s) => hexToBytes(s));
       const pubBytes = bundle.signers.map((s) => new PublicKey(s).toBytes());
+      const escrowPda = auctionPda(programId, auctionId);
+      const approval = approvalPda(programId, auctionId, bundle.batch_index);
+      // §9: attest once (submit_attestation writes the Approval PDA), then release many
+      // (release_approved is signature-free and repeatable). --submit-only runs just the submit
+      // step unconditionally, so replaying a used batch is refused on chain with BatchReplayed.
+      const submitTx = () => sendTx(conn, payer, [
+        ed25519Instruction(sigBytes, pubBytes),
+        submitAttestationInstruction({ programId, crank: payer.publicKey, auctionPda: escrowPda, approvalPda: approval, att }),
+      ]);
+      if (a["submit-only"]) {
+        const tx = await submitTx();
+        console.log(JSON.stringify({ chain, tx, submitted: true, payouts: [] }));
+        return 0;
+      }
+      const submitted = (await conn.getAccountInfo(approval)) === null;
+      const setupTxs: string[] = [];
+      if (submitted) setupTxs.push(await submitTx());
       const payouts: SolPayout[] = chosen.map((p) => {
         const dest = new PublicKey(destinationBytes(2, p.destination, b58ToBytes));
         return {
@@ -202,14 +220,14 @@ export async function run(argv: string[]): Promise<number> {
           paidPda: paidPda(programId, auctionId, leafHash(auctionId, { index: p.index, lot_count: p.lot_count, destination_kind: 2, destination: dest.toBytes() })),
         };
       });
-      const tx = await sendTx(conn, payer, [
-        ed25519Instruction(sigBytes, pubBytes),
-        releaseInstruction({
-          programId, crank: payer.publicKey, auctionPda: auctionPda(programId, auctionId),
-          batchPda: batchPda(programId, auctionId, bundle.batch_index), att, payouts,
-        }),
-      ]);
-      console.log(JSON.stringify({ chain, tx, payouts: chosen.map((p) => p.index) }));
+      const rel = await sendReleaseApproved(conn, payer, {
+        programId, auctionPda: escrowPda, approvalPda: approval, payouts,
+      });
+      const txs = [...setupTxs, ...rel.txs];
+      console.log(JSON.stringify({
+        chain, submitted, chunks: rel.chunks, lookup_table: rel.lookupTable,
+        tx: txs[txs.length - 1], txs, payouts: chosen.map((p) => p.index),
+      }));
       return 0;
     }
 
