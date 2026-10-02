@@ -65,25 +65,12 @@ export async function latestRound(): Promise<number> {
 }
 
 // Polls until the drand round or chain height reaches `target`; throws at the deadline (ms since epoch).
-// A failed drand HTTP poll is a transient blip and keeps polling inside the same deadline; the last
-// error is reported if the deadline passes with drand unreachable. Chain tip/RPC errors still throw now.
 export async function waitFor(what: { round: number } | { height: number; tip: () => number | Promise<number> }, deadline: number) {
-  let lastError = "";
   for (;;) {
-    let now: number;
-    try {
-      now = "round" in what ? await latestRound() : await what.tip();
-      lastError = "";
-    } catch (e) {
-      if (!("round" in what)) throw e;
-      lastError = (e as Error).message;
-      if (Date.now() > deadline) throw new Error(`deadline passed waiting for ${JSON.stringify(what)}; drand unreachable: ${lastError}`);
-      await new Promise((r) => setTimeout(r, 1000));
-      continue;
-    }
+    const now = "round" in what ? await latestRound() : await what.tip();
     const target = "round" in what ? what.round : what.height;
     if (now >= target) return now;
-    if (Date.now() > deadline) throw new Error(`deadline passed waiting for ${JSON.stringify(what)}; at ${now}${lastError ? `; last error ${lastError}` : ""}`);
+    if (Date.now() > deadline) throw new Error(`deadline passed waiting for ${JSON.stringify(what)}; at ${now}`);
     await new Promise((r) => setTimeout(r, "round" in what ? 1000 : 15000));
   }
 }
