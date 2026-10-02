@@ -20,6 +20,9 @@ function destinations(rows:Row[],name:string) {
     requireThat(recipient,"missing independently pinned settlement recipient");return {...row,recipient};
   });
 }
+// F4 (R28): the per-output routing bit is computed from the pinned routing, never asserted as a constant.
+// Change outputs are not part of the pinned settlement routing and compute false.
+const routedInspect=(i:any,expected:{recipient:string;amount_zats:string}[])=>({...i,outputs:i.outputs.map((o:any)=>({...o,matches_pinned_routing:!o.is_change&&expected.some(e=>e.recipient===o.recipient&&e.amount_zats===o.amount_zats)}))});
 function check(ledger:Ledger,batch:number,candidate:string,name:string,randomizer?:string,sighash?:string) {
   requireThat(["alice","bob","carol"].includes(name),"unknown signer");
   const plan=monetary(id),rows=ledger.rows().filter(o=>o.batch===batch);
@@ -31,13 +34,15 @@ function check(ledger:Ledger,batch:number,candidate:string,name:string,randomize
   const expected=destinations(independentlyExpected,name),i=inspect(candidate);
   const outputs=i.outputs.filter((o:any)=>!o.is_change);
   requireThat(outputs.length===expected.length,"PCZT recipient count differs from result");
+  const routed:boolean[]=[];
   for(const e of expected) {
     const index=outputs.findIndex((o:any)=>o.recipient===e.recipient&&o.amount_zats===e.amount_zats);
+    routed.push(index>=0);
     requireThat(index>=0,"PCZT amount differs from result.json");outputs.splice(index,1);
   }
   requireThat(i.input_zats===i.output_zats+i.fee_zats,"PCZT fee conservation");
   requireThat(!randomizer || i.shielded_sighash===sighash,"coordinator digest differs from checked PCZT");
-  return {sighash:i.shielded_sighash,participant:name,pubkey:pubkey(name),randomizer:randomizer??null,checked_at:Date.now(),result_hash:plan.result_hash,manifest_hash:plan.manifest_hash,pczt_hash:hash(readFileSync(candidate)),matches_pinned_routing:true,fee_zats:i.fee_zats,checks:plan.checks};
+  return {sighash:i.shielded_sighash,participant:name,pubkey:pubkey(name),randomizer:randomizer??null,checked_at:Date.now(),result_hash:plan.result_hash,manifest_hash:plan.manifest_hash,pczt_hash:hash(readFileSync(candidate)),matches_pinned_routing:routed.length===expected.length&&routed.every(Boolean),fee_zats:i.fee_zats,checks:plan.checks};
 }
 function guard(metadata:any,tip:number) {
   requireThat(metadata.expiry_height>tip,"expired PCZT; refusing broadcast");
@@ -65,7 +70,7 @@ async function worker(ledger:Ledger) {
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
       const txid=run(bin("zcash-devtool"),["pczt","extract"],readFileSync(signed)).trim().split("\n").at(-1)!;
-      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(inspect(signed)),{mode:0o600});
+      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0]))),{mode:0o600});
     }
     staged=ledger.batch(batch.id)!;
     requireThat(staged.txid&&staged.pczt_path&&staged.pczt_hash===hash(readFileSync(staged.pczt_path)),"stored signed PCZT missing or changed");
@@ -105,7 +110,7 @@ async function worker(ledger:Ledger) {
     const available=i.outputs.filter((o:any)=>!o.is_change);
     const receipt=expected.map(e=>{const index=available.findIndex((o:any)=>o.recipient===e.recipient&&o.amount_zats===e.amount_zats);requireThat(index>=0,"mined amount differs from result.json");const [o]=available.splice(index,1);return {party:e.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
     ledger.confirm(batch.id,staged.txid!,height,receipt);
-    writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
+    writeFileSync(base+".inspect.json",jsonBytes(routedInspect(i,expected)),{mode:0o600});
   }
   writeFileSync(file("receipts.json"),jsonBytes(ledger.receipts()),{mode:0o600});
   writeFileSync(file("summary.json"),jsonBytes({auction_id:id,rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});

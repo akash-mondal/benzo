@@ -1,0 +1,7 @@
+--- a/cli/product.ts
++++ b/cli/product.ts
+@@ -27,3 +27,4 @@
+   const doc:any={version:1,auction_id:id,signer:a.signer,manifest:a.manifest,state:a.state,receipts:a.receipts};
+   if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;
++  if(doc.result)doc.result.allocations[0].refund_zats=String(BigInt(doc.result.allocations[0].refund_zats)+1n); // U6: publishes one result, settles another
+   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');

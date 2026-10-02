@@ -71,13 +71,14 @@ function capture(id:string,label:string) {
     const base=path.join(dir,`batch-${b.id}`),i=existsSync(base+".inspect.json")?JSON.parse(readFileSync(base+".inspect.json","utf8")):null;
     const signing=existsSync(base+".signatures.json")?JSON.parse(readFileSync(base+".signatures.json","utf8")):null;
     const proofs=b.height?[z.getTransaction(b.txid),z.getTransaction(b.txid,ALT)]:[];
-    return {...b,pczt_path:undefined,inspect:i?{...i,outputs:i.outputs.map((o:any)=>({...o,matches_pinned_routing:true,recipient:undefined}))}:null,signing,proofs:proofs.map(p=>({height:p.height,raw_hash:sha(p.raw)}))};
+    return {...b,pczt_path:undefined,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing,proofs:proofs.map(p=>({height:p.height,raw_hash:sha(p.raw)}))};
   });
-  const artifact={auction_id:id,rows:status.rows,receipts:status.receipts,batches,signoffs:summary?.signoffs??[],plan:summary?.plan??null,offline_signer:"carol"};
+  // F4 (R28): the member who never submitted a signoff is computed from the recorded signoffs, not a constant.
+  const artifact={auction_id:id,rows:status.rows,receipts:status.receipts,batches,signoffs:summary?.signoffs??[],plan:summary?.plan??null,offline_signer:["alice","bob","carol"].find(n=>!(summary?.signoffs??[]).some((c:any)=>c.participant===n))};
   write(`settle/${label}/summary.json`,bytes(artifact));return artifact;
 }
 
-test("settlement survives a worker crash and drand outage with one signer offline",async({page})=> {
+test("settlement survives a worker crash and drand outage with one signer not selected",async({page})=> {
   test.setTimeout(80*60_000);const run=new Run("settle-crash");
   for(const file of ["vault/data.sqlite","frost/alice.toml","frost/bob.toml","frost/carol.toml","ufvk.txt"])
     if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
@@ -137,7 +138,7 @@ test("settlement survives a worker crash and drand outage with one signer offlin
       expect.soft(new Set(sessions.map((s:any)=>s.randomizer)).size).toBe(sessions.length);
       for(const s of sessions){expect.soft(s.signature).toMatch(/^[0-9a-f]{128}$/);for(const name of ["alice","bob"]){const checks=main.signoffs.filter((c:any)=>c.randomizer===s.randomizer&&c.participant===name);expect.soft(checks.length).toBe(1);expect.soft(checks[0]?.pubkey).toBe(pubkey(name));expect.soft(checks[0]?.checked_at).toBeLessThanOrEqual(s.coordinator_started_at);expect.soft(checks[0]?.result_hash).toBe(sha(readFileSync(path.join(ROOT,"tmp/e2e/out/settle/main/result.json"))));expect.soft(checks[0]?.checks.length).toBe(4)}}
     });
-    await run.check("N1","Carol remains offline while Alice and Bob complete",()=> {expect.soft(main.batches.flatMap((b:any)=>b.signing?.sessions??[]).length).toBeGreaterThan(0);for(const b of main.batches)for(const s of b.signing?.sessions??[]){expect.soft(s.signers).toEqual([pubkey("alice"),pubkey("bob")]);expect.soft(s.signers).not.toContain(pubkey("carol"));expect.soft(s.participantsSaw).toEqual([s.sighash,s.sighash])}expect.soft(main.offline_signer).toBe("carol")});
+    await run.check("N1","Alice and Bob are the configured pair; Carol is not selected (not an offline drill)",()=> {expect.soft(main.batches.flatMap((b:any)=>b.signing?.sessions??[]).length).toBeGreaterThan(0);for(const b of main.batches)for(const s of b.signing?.sessions??[]){expect.soft(s.signers).toEqual([pubkey("alice"),pubkey("bob")]);expect.soft(s.signers).not.toContain(pubkey("carol"));expect.soft(s.participantsSaw).toEqual([s.sighash,s.sighash])}expect.soft(main.offline_signer).toBe("carol")});
     await recovery();
     z.sync("bidder");if(z.spendable(z.balance("bidder"))-2*C-100000<3*C+40000)throw Error("ask before cancel spend below bidder floor");
     const cancelTx=z.pay(batchUri(addresses.slice(4,6),sealed.slice(4,6).map(s=>s.envelope),addresses[7],15000));console.log(`cancel deposits broadcast ${cancelTx}`);await mature(cancelTx);

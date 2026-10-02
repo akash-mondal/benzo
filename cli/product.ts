@@ -31,7 +31,7 @@ export function publish(id:string) {
     const s=read(summary);
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
-      return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>({...o,matches_pinned_routing:true}))}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
+      return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
     })};
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');

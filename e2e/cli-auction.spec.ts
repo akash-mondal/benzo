@@ -9,6 +9,7 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync} from 'nod
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
+import {jsonBytes} from '../manifest/schema';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
@@ -62,7 +63,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const manifest={version:1,network:'test',auction_id:id,escrow_ua:deposit[0],frost_group_key:readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim(),lot:'CLI testnet auction',supply:3,reserve_zats:'10',tick_zats:'10',B_max_zats:'3000',q_max:1,C_zats:String(C),fee_zats:'0',deposit_addresses:deposit,drand:{chain_hash:env('BNZ_DRAND_CHAIN_HASH'),public_key:env('BNZ_DRAND_PUBLIC_KEY'),scheme:'bls-unchained-g1-rfc9380',genesis:Number(env('BNZ_DRAND_GENESIS')),period:3,R},T_submit:now+5*60,T_freeze:now+22*60,confirmations:10,clearing:{mode:'uniform',band:'floor_pro_rata_units',dust:'ascending_leaf_index',tie:'ascending_leaf_index',minimum_fill:1},refund:{invalid:'full_C',reorg:'C_minus_fee_remove_leaf',cancel:'full_C'},freeze:'merkle_root_v1'};
     const draft=good(['auction','create'],manifest),draftStatus=good(['auction','status','--id',id]),packet=good(['auction','sign','--id',id]);
     const published=good(['auction','publish','--id',id,'--dir',publicDir,'--config',operatorFile]),status=good(['auction','status','--id',id]);
-    const manifestFile=path.join(publicDir,'manifest.json'),signer=packet.signer,manifestBytes=readFileSync(path.join(publicDir,'manifest.json'));
+    const manifestFile=path.join(publicDir,'manifest.json'),signer=packet.signer;
     await run.check('O1','CLI persists signed DRAFT to OPEN',()=>{expect.soft(draft.state).toBe('DRAFT');expect.soft(draftStatus.state).toBe('DRAFT');expect.soft(status.state).toBe('OPEN');expect.soft(published.manifest.sha256).toBe(packet.sha256);expect.soft(sha(Buffer.from(packet.bytes,'base64'))).toBe(packet.sha256)});
     const corrupted={...packet,bytes:Buffer.from(Buffer.from(packet.bytes,'base64').map((v:number,i:number)=>i===1?v^1:v)).toString('base64')};const corruptFile=path.join(privateDir,'flipped.json');writeFileSync(corruptFile,JSON.stringify(corrupted));
     const refused=cli(['bid','prepare','--manifest',corruptFile,'--signer',signer]);
@@ -123,21 +124,52 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     await run.check('T3','expired staged batch becomes exception and replans without duplicate receipts',()=>{expect.soft(delay.resumed_height).toBeGreaterThan(delay.expiry_height);expect.soft(settlement.batches.filter((b:any)=>b.state==='exception').length).toBe(1);expect.soft(settlement.batches.filter((b:any)=>b.state==='mined').length).toBe(1);expect.soft(new Set(settlement.receipts.map((r:any)=>r.party)).size).toBe(expected.length);expect.soft(settlement.receipts.reduce((n:number,r:any)=>n+Number(r.amount_zats),0)).toBe(expected.reduce((n:number,r:any)=>n+Number(r.amount_zats),0));expect.soft(killed.signal).toBe('SIGKILL')});
     const sessions=settlement.batches.filter((b:any)=>b.state==='mined').flatMap((b:any)=>b.signing.sessions);
     await run.check('Q1','two inspected signers join through CLI and complete FROST',()=>{expect.soft(sessions.length).toBeGreaterThan(0);for(const s of sessions){expect.soft(s.signature).toMatch(/^[0-9a-f]{128}$/);expect.soft(s.participantsSaw).toEqual([s.sighash,s.sighash]);expect.soft(s.signers).toHaveLength(2)}});
-    await run.check('T5','Alice remains offline while Bob and Carol sign',()=>{expect.soft(settlement.offline_signer).toBe('alice');for(const s of sessions){expect.soft(s.signers).toEqual([pubkey('bob'),pubkey('carol')]);expect.soft(s.signers).not.toContain(pubkey('alice'))}});
+    await run.check('T5','Bob and Carol are the configured pair; Alice is not selected (not an offline drill)',()=>{expect.soft(settlement.offline_signer).toBe('alice');for(const s of sessions){expect.soft(s.signers).toEqual([pubkey('bob'),pubkey('carol')]);expect.soft(s.signers).not.toContain(pubkey('alice'))}});
     const cold=path.join(ROOT,'tmp/e2e/cold',id);cpSync(publicDir,cold,{recursive:true});
     const verified=cli(['verify','--dir',cold,'--signer',signer]);
     const shown=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash]);
-    await run.check('P2','receipt show and verify agree on inclusion and settlement fields',()=>{expect.soft(shown.code).toBe(0);expect.soft(verified.code).toBe(0);expect.soft(JSON.stringify(shown.value)).toContain(settlement.receipts.find((r:any)=>r.party==='leaf:0')?.txid);expect.soft(JSON.stringify(shown.value)).toContain(frozen.leaves[0].ciphertext_hash)});
-    const corruptDir=path.join(ROOT,'tmp/e2e/corrupt',id);cpSync(cold,corruptDir,{recursive:true});const badDoc=json(path.join(corruptDir,'auction.json'));badDoc.settlement.rows[0].amount_zats=String(BigInt(badDoc.settlement.rows[0].amount_zats)+1n);writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badDoc));writeFileSync(path.join(corruptDir,'summary.json'),JSON.stringify(badDoc.settlement));const badTotals=cli(['verify','--dir',corruptDir,'--signer',signer]);
-    const badRoot={...doc,frozen:{...doc.frozen,root:'00'.repeat(32)}};writeFileSync(path.join(corruptDir,'auction.json'),JSON.stringify(badRoot));writeFileSync(path.join(corruptDir,'frozen.json'),JSON.stringify(badRoot.frozen));const rootRefusal=cli(['verify','--dir',corruptDir,'--signer',signer]);
-    await run.check('R1','cold public verification passes and corrupt amounts/root fail specifically',()=>{expect.soft(verified.code).toBe(0);expect.soft(badTotals.code).not.toBe(0);expect.soft(badTotals.error).toMatch(/ERROR.*(amount|total|ledger)/);expect.soft(rootRefusal.code).not.toBe(0);expect.soft(rootRefusal.error).toMatch(/ERROR.*(root|freeze)/)});
+    // F3 (R28): pass the bidder's own signed admission receipt for leaf:0, and compare the settlement
+    // receipt fields against result.json.
+    const bidderReceipt=included.find((x:any)=>JSON.parse(Buffer.from(x.receipt.bytes,'base64').toString('utf8')).leaf_index===0)!.receipt;
+    const receiptFile=path.join(privateDir,'receipt-leaf0.json');writeFileSync(receiptFile,jsonBytes(bidderReceipt));
+    const signed=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash,'--receipt',receiptFile]);
+    await run.check('P2','receipt show and verify agree on inclusion and settlement fields',()=>{
+      expect.soft(shown.code).toBe(0);expect.soft(verified.code).toBe(0);
+      expect.soft(shown.value.inclusion.included).toBe(true);
+      expect.soft(signed.code).toBe(0);expect.soft(signed.value.inclusion.receipt_signed).toBe(true);
+      const allocation=result.allocations.find((a:any)=>a.leaf_index===0),receipt=shown.value.settlement;
+      expect.soft(receipt.auction_id).toBe(result.auction_id);
+      expect.soft(receipt.party).toBe(`leaf:${allocation.leaf_index}`);
+      expect.soft(receipt.amount_zats).toBe(allocation.refund_zats);
+      expect.soft(signed.value.settlement).toEqual(receipt)});
+    const corruptDir=path.join(ROOT,'tmp/e2e/corrupt',id);cpSync(cold,corruptDir,{recursive:true});
+    const corrupt=(mutate:(d:any)=>void)=>{const d=json(path.join(cold,'auction.json'));mutate(d);writeFileSync(path.join(corruptDir,'auction.json'),jsonBytes(d));return cli(['verify','--dir',corruptDir,'--signer',signer])};
+    // F1 (R28): each amount class is corrupted on its own — a leaf row+receipt, the seller row+receipt, and a
+    // stray row — and each asserts its specific accounting / accounting-strays refusal.
+    const badLeaf=corrupt(d=>{for(const r of [d.settlement.rows.find((x:any)=>x.party==='leaf:0'),d.settlement.receipts.find((x:any)=>x.party==='leaf:0')])r.amount_zats=String(BigInt(r.amount_zats)+1n)});
+    const badSeller=corrupt(d=>{for(const r of [d.settlement.rows.find((x:any)=>x.party==='seller'),d.settlement.receipts.find((x:any)=>x.party==='seller')])r.amount_zats=String(BigInt(r.amount_zats)+1n)});
+    const badStray=corrupt(d=>{const r=d.settlement.rows.find((x:any)=>x.party.startsWith('deposit:'));r.amount_zats=String(BigInt(r.amount_zats)+1n)});
+    // F2 (R28): flip one byte inside the frozen.root field, keeping canonical JSON in auction.json and the
+    // frozen.json projection, so the refusal is specifically the freeze root check.
+    const rootRefusal=corrupt(d=>{const b=Buffer.from(d.frozen.root,'hex');b[0]^=1;d.frozen.root=b.toString('hex');writeFileSync(path.join(corruptDir,'frozen.json'),jsonBytes(d.frozen))});
+    await run.check('R1','cold public verification passes and corrupt amounts/root fail specifically',()=>{expect.soft(verified.code).toBe(0);
+      expect.soft(badLeaf.code).not.toBe(0);expect.soft(badLeaf.error).toContain('ERROR accounting refused: settlement leaf:0 amount');
+      expect.soft(badSeller.code).not.toBe(0);expect.soft(badSeller.error).toContain('ERROR accounting refused: settlement seller amount');
+      expect.soft(badStray.code).not.toBe(0);expect.soft(badStray.error).toMatch(/ERROR accounting-strays refused: stray deposit:[0-9a-f]{64}:\S+ amount/);
+      expect.soft(rootRefusal.code).not.toBe(0);expect.soft(rootRefusal.error).toContain('ERROR freeze refused: freeze root')});
     await run.check('S1','read API returns opaque operator data, exact result and rejects manifest flip',async()=> {
       api=spawn(process.execPath,[path.join(ROOT,'api/dist/server.mjs'),'--dir',publicDir,'--port','8787'],{stdio:['ignore','pipe','pipe']});
       let ready=false;await new Promise<void>((resolve,reject)=>{api.on('error',reject);api.stdout.on('data',()=>{ready=true;resolve()});api.on('close',()=>{if(!ready)reject(Error('API exited before ready'))})});
       const root='http://127.0.0.1:8787',base=root+`/auction/${id}`;const operator=await fetch(root+'/operator').then(r=>r.json());const apiResult=await fetch(root+'/result').then(r=>r.json());
       apiData={operator,result:apiResult,auction:await fetch(base).then(r=>r.json()),freeze:await fetch(root+'/freeze').then(r=>r.json()),receipt:await fetch(root+'/receipt/'+frozen.leaves[0].ciphertext_hash).then(r=>r.json())};
       expect.soft(JSON.stringify(operator)).not.toMatch(/price_zats|quantity|plaintext_hex/);expect.soft(JSON.stringify(operator)).toContain(String(C));expect.soft(apiResult).toEqual(result);
-      writeFileSync(path.join(publicDir,'manifest.json'),JSON.stringify(corrupted));const response=await fetch(base);expect.soft(response.ok).toBe(false);writeFileSync(path.join(publicDir,'manifest.json'),manifestBytes);write('cli/api.json',JSON.stringify(apiData)+'\n');
+      // F2 (R28): flip one byte inside the manifest's lot field of the canonical auction.json — canonical JSON
+      // is kept, and the API must refuse with the same specific manifest byte hash error as the CLI.
+      const auctionFile=path.join(publicDir,'auction.json'),auctionBytes=readFileSync(auctionFile);
+      const flipped=Buffer.from(doc.manifest.bytes,'base64');const at=flipped.indexOf('CLI testnet auction');flipped[at]^=1;
+      writeFileSync(auctionFile,jsonBytes({...doc,manifest:{...doc.manifest,bytes:flipped.toString('base64')}}));
+      const response=await fetch(base),body=await response.json();expect.soft(response.status).toBe(400);expect.soft(body.error).toContain('manifest byte hash');
+      writeFileSync(auctionFile,auctionBytes);write('cli/api.json',JSON.stringify(apiData)+'\n');
     });
     await run.check('T2','public document, evidence and API expose no recipient-derived values',()=>{expect.soft(apiData).toBeDefined();const serialized=JSON.stringify({doc,api:apiData});expect.soft(serialized).not.toMatch(/recipient_hash|routing_hash|refund_ua|seller_ua/);for(const address of refund){expect.soft(serialized).not.toContain(address);expect.soft(serialized).not.toContain(sha(address))}for(const r of settlement.receipts)expect.soft(Object.keys(r).sort()).toEqual(['auction_id','party','txid','pool','output_index','amount_zats'].sort())});
     write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
