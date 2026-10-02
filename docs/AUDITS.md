@@ -24,6 +24,19 @@ blind spot:
 Solana delivery uses native SOL, plain SPL (Token program) or Token-2022 accounts Benzo itself
 configures — no third-party fee semantics.
 
+## Deployed escrow programs (testnet)
+
+A program version that changes an account layout or marker deploys under a **new program ID**,
+never as an in-place upgrade over live auctions (R9 item 1). The Solana state records its
+account-layout version and every instruction checks it; EVM escrows are redeployed per change.
+
+| chain | program | status |
+|---|---|---|
+| Solana devnet | `AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4` (ProgramData `HxCEzNaJmjDn3oA9pMjshoctkr32iywgNAKdVMC1tFQm`) | **current** — layout v2 (`layout_version` byte, R9 item 1), 102,256 bytes, sha256 `48870cc9…c2673`, upgrade authority `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` |
+| Solana devnet | `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` | **SUPERSEDED** (pre-layout-version build) |
+| Solana devnet | `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G` | **SUPERSEDED** (earliest deployment) |
+| Ethereum Sepolia | see `docs/STATUS-B.md` live-cycle records | superseded per redeploy |
+
 ## Dependencies
 
 ### contracts/evm

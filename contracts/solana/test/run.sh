@@ -18,12 +18,17 @@ test -f target/deploy/benzo_escrow.so
 PROGRAM_ID="$(solana-keygen pubkey "$KP")"
 echo "== program id: $PROGRAM_ID"
 
+echo "== prepare the pre-R9 layout-v1 state account (R9 item 1 probe)"
+OLD_LAYOUT_PDA="$(node test/old-layout-account.mjs "$PROGRAM_ID" target/old-layout-account.json)"
+echo "== old-layout probe account: $OLD_LAYOUT_PDA"
+
 echo "== boot solana-test-validator (ledger $LEDGER, rpc 127.0.0.1:$RPC_PORT)"
 rm -rf "$LEDGER"
 solana-test-validator --reset --quiet --ledger "$LEDGER" \
   --rpc-port "$RPC_PORT" --faucet-port $((RPC_PORT + 1000)) \
   --gossip-port $((RPC_PORT + 2)) --dynamic-port-range "$((RPC_PORT + 1100))-$((RPC_PORT + 1200))" \
   --bpf-program "$PROGRAM_ID" target/deploy/benzo_escrow.so \
+  --account "$OLD_LAYOUT_PDA" target/old-layout-account.json \
   > target/test-validator.log 2>&1 &
 VALIDATOR_PID=$!
 cleanup() { kill "$VALIDATOR_PID" 2>/dev/null || true; wait "$VALIDATOR_PID" 2>/dev/null || true; }

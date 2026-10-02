@@ -292,7 +292,9 @@ export interface SolStatus {
 }
 
 export function parseAuctionState(data: Buffer): Omit<SolStatus, "paidLeaves"> {
-  if (data.length !== 235 || data[0] !== 1) throw new Error("not a BenzoEscrow auction account");
+  if (data.length !== 236 || data[0] !== 1) throw new Error("not a BenzoEscrow auction account");
+  // R9 item 1: the state records its account-layout version (byte 235); refuse any other layout
+  if (data[235] !== 2) throw new Error(`unsupported BenzoEscrow account layout version ${data[235]}`);
   return {
     bump: data[1], refunded: data[2] !== 0,
     auctionId: bytesToHex(new Uint8Array(data.subarray(3, 35))),

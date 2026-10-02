@@ -3,7 +3,126 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — R8 item 1 (G9 Solana state-PDA dust) + multi-recipient settlement envelopes
+## Current run: head task — R10 item 1 + R9 items 1–4 + live cycles (the head's 6-item list)
+
+State: **IN PROGRESS** (items 1–2 landed; updated 2026-10-02T20:59Z). Base: clean tree at
+`dc5ea63` (head: merge main into track-b; R9/R10 in `docs/PHASE-5.md`). One commit per item,
+each with a red log on the pre-change code and a green log after: `79aed9e` (item 1, R10
+envelope key commitment + exact recipient set) and this commit (item 2, R9 Solana
+`layout_version` + new program ID). Scope: the head's list in order — (1) R10 item 1 envelope
+key commitment; (2) R9 item 1 Solana layout version + fresh devnet program ID; (3) R9 item 2
+`benzo xchain attest` asset from chain; (4) R9 item 3 EVM attest-once/release-many + forge
+red/green; (5) R9 item 4 EVM `lock` nonReentrant + effects-before-transfer + forge proof;
+(6) Sepolia redeploy + one live cycle per chain (lock → attest → release, plus one refund).
+Baseline `npm run e2e` PASS 38–41 s at `dc5ea63`. No mainnet; no other-checkout writes; no
+merge/rebase/cherry-pick/push.
+
+1. **R10 item 1 (P2), envelope key commitment + exact recipient set: DONE** (`79aed9e`).
+   `envelope/index.ts`: the `benzo-envelope-v2` header gains `key_commit = crypto_generichash(32,
+   content_key, key = "benzo-envelope-v2-kc" zero-padded to libsodium's crypto_generichash_KEYBYTES
+   (32))`, inside the AEAD associated data; `openEnvelope` recomputes it after unwrapping and
+   refuses a mismatch (`refused: envelope key commitment`) before the body is tried. Wire format:
+   `magic(17) ‖ n(1) ‖ n×(pk32‖sealed80) ‖ key_commit(32) ‖ nonce(12) ‖ body(528+16)` — 926 bytes
+   (1852 hex) for n = 3. Exports: `envelopeRecipients(ct)` (stanza keys in order) and
+   `ENVELOPE_CT_BYTES_N3 = 926`. `settle/envelopes.ts` (R10's sanctioned Track A one-liner):
+   `ENVELOPE_CT_BYTES` is the exported n = 3 length, and `validEnvelope` returns null unless the
+   stanza public keys are exactly the manifest's `envelope_keys` in order (a record that fails is
+   "no valid owner-signed settlement envelope" → exception queue). `docs/AUDITS.md` libsodium row
+   now says plainly the 2017 assessment covered **1.0.12/1.0.13 only** and the build bundled in
+   `libsodium-wrappers` 0.8.4 is **libsodium 1.0.22** (`sodium_version_string()` at the pin).
+   `tools/bench.ts` intake checks the exported length; `dist/benzo-verify.mjs` +
+   `docs/verify-bundle.sha256` rebuilt.
+   **Red on the pre-change module** — `tmp/proof-logs/kc-red.out` (exit 1) + `mr-red.out` (exit 1):
+   `ERROR kc-api-exports envelopeRecipients not exported`,
+   `ERROR kc-split-key-recipient2-commitment got "refused: envelope length", want "refused:
+   envelope key commitment"` (the hand-built split-key envelope — stanza 2 wraps a different key
+   under stanza 1's commitment), `ERROR kc-3of3-accepted validEnvelope returned null` (the
+   positive control, showing the old validEnvelope (572-byte shape) can accept no product
+   record). **Green after** — `tmp/proof-logs/kc-green.out` (9/9) + `mr-green.out` (6/6):
+   `kc-split-key-recipient1-opens` + `kc-split-key-recipient2-commitment` (opens for recipient 1,
+   refused `envelope key commitment` for recipient 2); `kc-1of3-refused`, `kc-2of3-refused`,
+   `kc-reorder-refused`, `kc-wrongset-refused` (validEnvelope) with the `kc-3of3-accepted` control;
+   all earlier envelope proofs pass (`mr-manifest-envelope-keys`, `mr-3keys-open`,
+   `mr-4th-key-refused`, `mr-equal-lengths`, `mr-stanza-swap-refused`, `mr-verify` on a fresh
+   tlock corpus with `bin/benzo verify` + two mutations). `npm run e2e` PASS (38–39 s),
+   `npm run typecheck` PASS, bench generate+admission smoke PASS on the new length.
+   Honesty notes: (a) two scratch-harness literals changed with the ruled format (mr-equal-lengths
+   1852 hex; the stanza-swap's swapped-stanza owner is now refused at the commitment check and
+   the other two at the body — each asserted with its specific error). (b) The R6 repro
+   `routing-vs-envelope-repro.mjs` fixture was modernized to the pinned 3-key product shape (its
+   1-key box is no longer a valid product record); its signer-boundary half passes (envelope
+   destination wins over the coordinator substitute; missing envelope → null; init refuses
+   unauthenticated routing) but its bundle-grep half ("settlement bundles containing
+   envelope-opening code") **fails — provably pre-existing**: at the pre-change tree the three
+   bundles contain 0 `openEnvelope` hits too (stash → rebuild → grep), because R7.2's interim
+   removed the opening from the shipped path; A's R10 item 2 re-wires it and the grep will hit
+   again. (c) `tools/repro/g1-tampered-ledger-redirect.mjs` and
+   `g2-envelope-crash-not-exception.mjs` crash at `sealEnvelope`'s array check — stale old-API
+   calls (`sealEnvelope(dest, pk)`) left behind by `b000cb1`, failing identically before my
+   change; Track A's R6/R7 artifacts, not touched (see Questions).
+
+2. **R9 item 1 (P1), no in-place upgrades across account-layout changes: DONE** (this commit).
+   `contracts/solana/src/lib.rs`: `STATE_LEN` 235 → 236 with a `layout_version` byte at offset
+   235 (`LAYOUT_VERSION = 2`; the pre-R9 235-byte layout is v1 and has no such byte), written by
+   `store_state` and **checked on every instruction** before any field is interpreted:
+   `load_state` (submit_attestation, release_approved, refund) refuses `BadLayout` (custom 0x14)
+   on a mismatch, and `lock` checks it before "already locked". `crosschain/solana.ts`
+   `parseAuctionState` refuses any other layout. Per the rule, the layout change ships under a
+   **new program ID** on devnet — **`AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4`** (deploy tx
+   `2op2hhMp8wDBtBzRRNoeEzS39uKzAgdCMPcn1VnDY8XJUx75yyASykdV7NH3JbHJ1jrYsRnFLmXC1c7cWzHEQqU7`,
+   ProgramData `HxCEzNaJmjDn3oA9pMjshoctkr32iywgNAKdVMC1tFQm`, upgrade authority
+   `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu`, Data Length 102,256, .so sha256
+   `48870cc916a14af74995a56a82ac3520a58108fc4a95dca84dc86b7ea60c2673`; a forced
+   `touch src/lib.rs && cargo build-sbf` rebuild reproduces that hash). **The old IDs
+   `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` and `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G`
+   are SUPERSEDED** — recorded here and in `docs/AUDITS.md` (new "Deployed escrow programs" table).
+   Tests (`bash contracts/solana/test/run.sh`, driver):
+   `layout-version-recorded-in-state` (the locked state is 236 bytes recording layout version 2)
+   and `layout-v1-state-{lock,submit,release,refund}-refused` — a pre-R9 layout-v1 state account
+   (written by the new `test/old-layout-account.mjs`, loaded at genesis with
+   `solana-test-validator --account`, the only way to hand the program an account layout it did
+   not write) is refused by **every** instruction with `BadLayout` 0x14.
+   **Red on the pre-change program** — `contracts/logs/layout-old-code.out` (exit 1, 7 ERROR):
+   `ERROR layout-version-recorded-in-state state len 235 layout byte undefined (want
+   program-owned 236 with layout version 2)`,
+   `ERROR layout-v1-state-lock-refused expected custom error 0x14, got 0x0`,
+   `ERROR layout-v1-state-submit-refused expected custom error 0x14, got 0x6` (likewise release
+   and refund): the old code reads a layout mismatch as "unknown auction" — or a raw allocate
+   failure on lock — and cannot tell the two apart. **Green after** —
+   `contracts/logs/layout-fixed.out` (exit 0): `RESULT PASS all Solana escrow assertions`,
+   43 PASS / 0 ERROR (38 prior + the 5 new). `npm run typecheck` PASS.
+   Harness defects found by these runs and fixed before the recorded green (both in the test
+   driver, no product defect): (a) `send`/`sendV0` swallowed landed transaction errors —
+   web3.js `confirmTransaction` resolves even when `value.err` is set — so a race lost
+   `submit(11)` silently in 2 of 3 runs; they now throw on any landed error (fail loudly).
+   (b) the fixture window `deadline = t0 + 40` put that submit's `expiry == deadline` (the F-2
+   rule the tests exercise) on the clock boundary; widened to `t0 + 120` so the auction window
+   outlives the sequence that runs before the refund section. The debug runs that located the
+   race were scratch and are deleted; the recorded green is the rerun after both fixes.
+
+### Questions (this run)
+
+- **R6 repro residual (item 1 honesty note b):** `tools/repro/routing-vs-envelope-repro.mjs`'s
+  bundle-grep half asserts that the shipped settlement bundles contain envelope-opening code;
+  R7.2's interim (ENVELOPE_INTERIM_REFUSAL) deliberately removed it, so the assertion can only
+  pass again after A's R10 item 2. I did not reshape it. Redirect if you want the assertion
+  scoped to the interim.
+- **Stale reviewer repros (item 1 honesty note c):** `g1-tampered-ledger-redirect.mjs` and
+  `g2-envelope-crash-not-exception.mjs` call the old one-key `sealEnvelope(dest, pk)` API and
+  crash since `b000cb1` (before my change; verified by their stack traces at the array check).
+  They are Track A/R6 artifacts — want me to modernize their fixtures (same 3-key shape as the
+  R6 repro), or is that A's?
+- **Devnet funds are tight:** the deployer `3EM3LMN…` had 0.5756 SOL (swept from my own spent
+  cycle keys) against ~0.568 SOL needed for the fresh ProgramData — the deploy landed, leaving
+  0.0539 SOL. The devnet faucet is rate-limited (4 attempts failed across this run; same as the
+  previous run). The item-6 live cycle will use a small auction that fits the remainder unless
+  the faucet unblocks; a user airdrop to `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` would
+  restore comfortable margin (faucets are user-only per AGENTS).
+- **Envelope key-commit padding:** R10's `key = "benzo-envelope-v2-kc" padded per libsodium` is
+  implemented as the 19-byte ASCII label zero-padded to libsodium's `crypto_generichash_KEYBYTES`
+  (32 bytes), documented in the code comment. Confirm or redirect.
+
+## Previous run: head task — R8 item 1 (G9 Solana state-PDA dust) + multi-recipient settlement envelopes (G9 accepted as `aaa0000`; envelopes `b000cb1` accepted in principle, its R10 item 1 follow-up is item 1 above)
 
 State: **READY FOR MERGE** (both items landed with red/green proof; updated 2026-10-02T19:15Z).
 Base: clean tree at `a732669` (head: merge main into track-b, R7/R8). One commit per item:

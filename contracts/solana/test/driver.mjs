@@ -14,7 +14,10 @@
 // "already paid" — a paid flag counts only if program-owned with the PAID_V1 marker. R8 item 1
 // (G9): a dusted escrow state PDA must not block the auction either — lock counts as done only
 // when the program owns the state PDA with STATE_LEN data, and a dusted PDA is topped up and
-// completed (allocate + assign), never read as "already locked". The
+// completed (allocate + assign), never read as "already locked". R9 item 1: the state account
+// records its account-layout version and every instruction checks it — a layout-v1 account
+// (loaded at genesis by test/old-layout-account.mjs) is refused with BadLayout, never read as
+// this layout's state. The
 // before/after payouts-per-transaction table at proof depths 0–6
 // is measured from real serialized transactions (1232-byte packet limit) and printed as
 // `SIZE depth=…` lines; it is recorded in docs/STATUS-B.md.
@@ -22,7 +25,7 @@
 // Output: one `PASS <id>` or `ERROR <id> <reason>` line per assertion; exit 0 only if all PASS.
 
 import { readFileSync } from "node:fs";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   AddressLookupTableAccount,
   AddressLookupTableProgram,
@@ -247,7 +250,10 @@ const send = async (payer, ...ixs) => {
   tx.feePayer = payer.publicKey;
   tx.sign(payer);
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  // fail loudly (AGENTS): web3.js confirmTransaction resolves even when the landed transaction
+  // carries an error — a landed failure must throw here, never be swallowed
+  const res = await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  if (res.value.err) throw new Error(`transaction ${sig} failed on chain: ${JSON.stringify(res.value.err)}`);
   return sig;
 };
 
@@ -325,7 +331,9 @@ function txSize(tx) {
 const sendV0 = async (payer, tx) => {
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  // fail loudly, like send()
+  const res = await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  if (res.value.err) throw new Error(`transaction ${sig} failed on chain: ${JSON.stringify(res.value.err)}`);
   return sig;
 };
 
@@ -355,7 +363,11 @@ async function main() {
   const sign = (i, att) => ed25519.sign(att, signerPks[i]); // signers sign the raw 200-byte attestation
 
   const t0 = await chainTime();
-  const lockUntil = t0 + 5, deadline = t0 + 40;
+  // The auction window must outlive the test sequence that runs before the refund section
+  // (~40 s of chain time): with the earlier deadline = t0 + 40, `submit(11)` — whose expiry is
+  // exactly `deadline`, per the F-2 rule the tests exercise — sat on the clock boundary and
+  // landed `Expired` in some runs (web3.js swallowed the landed error; `send` now throws on one).
+  const lockUntil = t0 + 5, deadline = t0 + 120;
   const LOT = BigInt(LAMPORTS_PER_SOL); // 1 SOL per lot
   const AMOUNT = 5n * LOT; // five lots locked; four get paid, one is refunded as remainder
 
@@ -371,7 +383,7 @@ async function main() {
   {
     const info = await conn.getAccountInfo(auctionPda);
     const d = info?.data;
-    const ok = info && info.owner.equals(PROGRAM_ID) && d.length === 235 && d[0] === 1 && d[2] === 0 &&
+    const ok = info && info.owner.equals(PROGRAM_ID) && d.length === 236 && d[0] === 1 && d[235] === 2 && d[2] === 0 &&
       eq(d.slice(3, 35), auctionId) && eq(d.slice(35, 67), genesis) &&
       eq(d.slice(67, 99), signers[0]) && eq(d.slice(99, 131), signers[1]) && eq(d.slice(131, 163), signers[2]) &&
       eq(d.slice(163, 195), returnTo.publicKey.toBytes()) &&
@@ -411,14 +423,48 @@ async function main() {
     try { await send(seller, lockIx(seller, dustPda, params)); } catch (e) { lockErr = e; }
     const info = await conn.getAccountInfo(dustPda);
     const d = info?.data;
-    const ok = info && info.owner.equals(PROGRAM_ID) && d.length === 235 && d[0] === 1 &&
+    const ok = info && info.owner.equals(PROGRAM_ID) && d.length === 236 && d[0] === 1 && d[235] === 2 &&
       eq(d.slice(3, 35), dustId) && eq(d.slice(35, 67), genesis) && d.readBigUInt64LE(195) === dustAmount;
     check("escrow-pda-dusted-lock-succeeds",
       lockErr === null && ok,
       `lock after 1,000,000-lamport dust ${lockErr ? `refused (0x${(customErrorCode(lockErr) ?? -1).toString(16)})` : "landed"}; ` +
-        `state PDA owner ${info?.owner.toBase58()} len ${d?.length} (want program-owned 235 recording the locked amount)`);
+        `state PDA owner ${info?.owner.toBase58()} len ${d?.length} (want program-owned 236 with layout version 2)`);
     await expectCustomError("escrow-pda-dusted-lock-twice-refused", 3, () =>
       send(seller, lockIx(seller, dustPda, params)));
+  }
+
+  {
+    // ---- R9 item 1: the state records its layout version and every instruction checks it ----
+    // A program that changes the account layout ships under a new program ID (never an in-place
+    // upgrade over live auctions). As the on-chain second line of defence, the state records
+    // LAYOUT_VERSION and every instruction refuses any other version before interpreting bytes.
+    // The probe account is a pre-R9 (layout v1) state loaded at genesis (run.sh --account, written
+    // by test/old-layout-account.mjs) — the only way to hand the program an account layout it did
+    // not write.
+    const info = await conn.getAccountInfo(auctionPda);
+    const d = info?.data;
+    check("layout-version-recorded-in-state",
+      Boolean(info && d.length === 236 && d[235] === 2),
+      `state len ${d?.length} layout byte ${d?.[235]} (want program-owned 236 with layout version 2)`);
+
+    const oldAuctionId = createHash("sha256").update("benzo-escrow-layout-v1-probe").digest();
+    const oldPda = auctionPdaFor(oldAuctionId);
+    await expectCustomError("layout-v1-state-lock-refused", 20, () =>
+      send(seller, lockIx(seller, oldPda, {
+        auctionId: oldAuctionId, genesis, amount: LOT, lot: LOT, lockUntil: t0 + 3600, deadline: t0 + 7200,
+        signers, returnTo: returnTo.publicKey.toBytes(),
+      })));
+    const oldAtt = attestation(genesis, programIdBytes, oldAuctionId, randomBytes(32), randomBytes(32), 0, 0, deadline);
+    await expectCustomError("layout-v1-state-submit-refused", 20, () =>
+      send(crank, ed25519Ix([sign(0, oldAtt), sign(2, oldAtt)], [signers[0], signers[2]], MSG_REF),
+        submitIx(crank, oldPda, approvalPdaFor(oldAuctionId, 0), oldAtt)));
+    await expectCustomError("layout-v1-state-release-refused", 20, () =>
+      send(crank, releaseApprovedIx(crank, oldPda, approvalPdaFor(oldAuctionId, 0), [{
+        index: 0, lotCount: 1, dest: dest(r1), destAi: r1.publicKey, destWritable: true,
+        leafCount: 1, proof: [], paidPda: paidPdaFor(oldAuctionId, new Uint8Array(32)),
+      }])));
+    await expectCustomError("layout-v1-state-refund-refused", 20, () =>
+      send(crank, refundIx(crank, oldPda, returnTo.publicKey, oldAuctionId)));
   }
 
   // ---- 2. submit_attestation + release_approved (design §9) ----

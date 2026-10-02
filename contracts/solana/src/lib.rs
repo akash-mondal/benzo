@@ -91,7 +91,14 @@ pub const RELEASE_PREFIX: &[u8] = b"benzo-release-v1"; // 16 bytes
 pub const ATT_LEN: usize = 16 + 32 * 5 + 8 * 3; // 200
 pub const DEST_SOLANA: u8 = 2;
 pub const ASSET_SOL: [u8; 32] = [0u8; 32];
-pub const STATE_LEN: usize = 235;
+/// R9 item 1 (F-2): the account layout changed (the `layout_version` byte below), so this build
+/// ships under a **new program ID** — a layout or marker change is never an in-place upgrade over
+/// live auctions. The state account records its account-layout version and every instruction
+/// checks it before interpreting the bytes (a second line of defence behind that deployment
+/// rule: an old-layout account is refused with `BadLayout`, never read as garbage). The pre-R9
+/// 235-byte layout is v1 and has no such byte.
+pub const LAYOUT_VERSION: u8 = 2;
+pub const STATE_LEN: usize = 236;
 /// §10 item 1 (F-1): a paid flag counts only if this program owns the account and its data
 /// carries this versioned marker — never infer state from lamports or empty data.
 pub const PAID_MARKER: &[u8] = b"PAID_V1";
@@ -118,6 +125,7 @@ const S_LOT: usize = 203;
 const S_PAID: usize = 211;
 const S_LOCK_UNTIL: usize = 219; // i64 le
 const S_DEADLINE: usize = 227;
+const S_LAYOUT_VERSION: usize = 235; // u8, LAYOUT_VERSION (R9 item 1)
 
 // approval layout: APPROVAL_V1 marker (11), then exactly the §9 fields: auction_id,
 // batch_index(u64 le), allocation_root, result_hash, nonce(u64 le), expiry(i64 le), genesis_hash, bump
@@ -182,6 +190,9 @@ pub enum EscrowError {
     AlreadyRefunded = 17,
     BadBinding = 18,
     NoApproval = 19,
+    /// R9 item 1: the state account records an account-layout version this program does not
+    /// interpret (e.g. an old-layout account left by an in-place upgrade).
+    BadLayout = 20,
 }
 
 impl From<EscrowError> for ProgramError {
@@ -325,6 +336,11 @@ fn load_state(data: &[u8]) -> Result<Auction, ProgramError> {
     if data.len() != STATE_LEN || data[S_VERSION] != VERSION {
         return Err(EscrowError::UnknownAuction.into());
     }
+    // R9 item 1: the recorded layout version is checked before any field is interpreted —
+    // every instruction that reads state goes through here
+    if data[S_LAYOUT_VERSION] != LAYOUT_VERSION {
+        return Err(EscrowError::BadLayout.into());
+    }
     Ok(Auction {
         bump: data[S_BUMP],
         refunded: data[S_REFUNDED] != 0,
@@ -362,6 +378,7 @@ fn store_state(data: &mut [u8], a: &Auction) -> Result<(), ProgramError> {
     data[S_PAID..S_PAID + 8].copy_from_slice(&a.paid.to_le_bytes());
     data[S_LOCK_UNTIL..S_LOCK_UNTIL + 8].copy_from_slice(&a.lock_until.to_le_bytes());
     data[S_DEADLINE..S_DEADLINE + 8].copy_from_slice(&a.deadline.to_le_bytes());
+    data[S_LAYOUT_VERSION] = LAYOUT_VERSION;
     Ok(())
 }
 
@@ -472,6 +489,11 @@ fn lock(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Progra
     // `allocate` + `assign` via `invoke_signed` with the PDA seeds (exactly `create_flag`), so
     // dust can neither block the auction nor fake a lock.
     if auction_ai.owner == program_id && auction_ai.data_len() == STATE_LEN {
+        // R9 item 1: check the recorded layout version before calling it "already locked" —
+        // an old-layout account is refused, never interpreted as this layout's state
+        if auction_ai.try_borrow_data()?[S_LAYOUT_VERSION] != LAYOUT_VERSION {
+            return Err(EscrowError::BadLayout.into());
+        }
         return Err(EscrowError::AlreadyLocked.into());
     }
     let now = Clock::get()?.unix_timestamp;
