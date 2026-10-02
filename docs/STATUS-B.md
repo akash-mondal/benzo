@@ -3,6 +3,24 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Phase 5, Track B run 8: IN PROGRESS
+
+Updated: 2026-10-02T03:55:33Z. Takeover at d8ed113 on track-b; clean initial tree. PHASE-5 R3/R4 author-checked (b709abd/71ec6eb). No owned services from this session; protected state/service files not read (Track B has no wallet/key access). Default E2E running in foreground/polled, `tmp/proof-logs/run8-baseline.out`. No added tests.
+
+1. Manifest serial block: `npm run typecheck` PASS, `tmp/proof-logs/drop-schema.out`; optional strict `{first,count,seed_round_offset}`, positive offset, multi-lot uniform only, safe range/round.
+
+### Questions (run 8)
+
+User instruction (2026-10-02T03:55:33Z), verbatim:
+> Task: PHASE-5 §11 collection drop with fair serial assignment (R3 item 5). Design (fixed):
+> 1. Manifest: a collection drop is a multi-lot uniform auction (your CF `lots[]`) plus an optional block `serials: { first: number, count: number, seed_round_offset: number }` (`seed_round_offset` ≥ 1). Accept it in `manifest/schema.ts` as an optional field (minimal change, allowed).
+> 2. New file `clear/serials.ts`, about 40 lines: `assignSerials(winners: {leaf_index:number, units:number}[], serials:{first,count}, beaconSignatureHex: string): {leaf_index:number, serials:number[]}[]`. Winners are sorted by leaf_index; build the array `[first .. first+count-1]`; Fisher–Yates from the last index down, with j = (u64 from SHA-256("benzo-serials-v1" ‖ signature ‖ i as u32be)) mod (i+1); then hand serials out in winner order, `units` each. Refuse if Σunits > count.
+> 3. Result: when the manifest has `serials`, the result gains `serial_assignment` (output of assignSerials) and `serial_beacon_round = R + seed_round_offset`. Clearing itself is unchanged.
+> 4. Verify: when `serial_assignment` is present, fetch or read the beacon for `R + seed_round_offset` (online: the same drand HTTP path your R16 code uses; `--offline`: a published `serial_beacon {round, signature}` in auction.json), recompute, and refuse on any difference. Register through the mode registry; no per-mode verify copy.
+> 5. Proof (logged in STATUS-B): a corpus with 3 winners and 10 serials using a real past quicknet round; verify OK online and `--offline`; refusals for (a) a swapped serial, (b) a wrong beacon round, (c) Σunits > count.
+> Then continue with the remaining §11 modes as amended by PHASE-5 R3, one commit per mode with its proof: launch (tranches + minimum raise + allocation file in standard lot sizes), RFQ (reverse-Vickrey, two-quote minimum, allowlisted dealer keys), blind OTC (midpoint if max ≥ min). Then set STATUS-B READY FOR MERGE.
+> Add no tests. Touch only Track B files plus the minimal schema change. Never touch /Users/akshmnd/Dev Projects/benzo, funds or keys. No merge/rebase/cherry-pick.
+
 ## Phase 5, Track B run 7: READY FOR MERGE
 
 Updated: 2026-10-02 · scope: the head's ordered work for this run — housekeeping (R21 item 3 relabel), (1) cross-check `envelope/destination.ts` against the official Zcash vectors, (2) PHASE-5 §11 gate CF core features a–e as amended by R3 (pure logic + verify/API, through the mode registry) — then READY FOR MERGE. Run 6's items (rows below) were reviewed by the head and stay on track-b until Phase 4 is PASSED (R4 item 5). No tests (R11). No testnet, funds or keys; scratch only in `tmp/` (gitignored).

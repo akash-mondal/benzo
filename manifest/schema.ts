@@ -24,6 +24,7 @@ export type Manifest = {
   bond?: { bond_bps: number; balance_window_blocks: number };
   sealed_reserve?: string;
   lots?: string[];
+  serials?: { first: number; count: number; seed_round_offset: number };
   series?: { series_id: string; round_index: number; previous_result_hash: string | null };
 };
 export type Signed = { bytes: string; sha256: string; signer: string; signature: string };
@@ -68,8 +69,16 @@ export function validateManifest(m: Manifest): void {
     (m.series.previous_result_hash === null
       ? m.series.round_index === 1
       : m.series.round_index > 1 && /^[0-9a-f]{64}$/.test(m.series.previous_result_hash))), "series");
+  if (m.serials !== undefined) {
+    keys(m.serials, "first count seed_round_offset");
+    integer(m.serials.first, "serial first", 0); integer(m.serials.count, "serial count");
+    integer(m.serials.seed_round_offset, "serial seed offset");
+    requireThat(m.clearing.mode === "uniform" && m.lots !== undefined, "serials require multi-lot uniform auction");
+    requireThat(Number.isSafeInteger(m.serials.first + m.serials.count - 1) &&
+      Number.isSafeInteger(m.drand.R + m.serials.seed_round_offset), "serial range/round overflow");
+  }
   const base: Record<string, unknown> = { ...m };
-  delete base.witness_set_hash; delete base.bond; delete base.sealed_reserve; delete base.lots; delete base.series;
+  delete base.witness_set_hash; delete base.bond; delete base.sealed_reserve; delete base.lots; delete base.series; delete base.serials;
   // Multi-lot rounds replace the single `lot` label with `lots` (field set recorded under Questions for Track A).
   keys(base, ["version","network","auction_id","escrow_ua","frost_group_key","supply","reserve_zats","tick_zats","B_max_zats","q_max","C_zats","fee_zats","deposit_addresses","drand","T_submit","T_freeze","confirmations","clearing","refund","freeze"].concat(m.lots === undefined ? ["lot"] : []).join(" "));
   requireThat(m.version === 1 && m.network === "test", "manifest version/network");
