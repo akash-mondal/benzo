@@ -1,4 +1,5 @@
 // Public recurring-window accounting; serial intake is signed by each opened one-time seller key.
+import { checkSerialRange } from "./zilkroad";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { hash, jsonBytes, requireThat } from "../manifest/schema";
@@ -28,6 +29,7 @@ export function buybackReport(pub: CompletePublicAuction) {
     requireThat(pt && /^[0-9a-f]{256}$/.test(pt), "serial intake opening");
     requireThat(verifyStatement(Buffer.from(pt!, "hex").subarray(61,93).toString("hex"), body, signature), "serial intake owner signature");
     requireThat(Array.isArray(body.serials) && body.serials.length === a!.fill, "serial intake fill count");
+    checkSerialRange(pub,body.serials);
     for (const s of body.serials) {
       requireThat(Number.isSafeInteger(s) && s >= 0 && !seen.has(s), "serial intake duplicate/range"); seen.add(s);
     }
