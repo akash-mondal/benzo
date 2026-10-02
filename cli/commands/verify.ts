@@ -1,6 +1,7 @@
 // benzo verify — independent gate R: public inputs only, cold copy, ERROR lines on corruption.
 // By default re-derives every opening from its ciphertext with pinned tle + the published beacon (R16),
 // then reproduces clear/. --offline trusts the published openings and prints WARN openings not re-derived.
+import { verifyBeacon } from "drand-client/beacon-verification.js";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -113,6 +114,28 @@ export async function run(argv: string[]): Promise<number> {
         requireThat(pub.reserveOpening === null, "reserve opening without sealed reserve");
       }
     }
+    // Serial assignment is replayed by the registry. Authenticate the future beacon before using it.
+    if (pub.manifest.serials) {
+      const round = pub.manifest.drand.R + pub.manifest.serials.seed_round_offset;
+      requireThat(pub.result.serial_assignment && pub.result.serial_beacon_round === round, "serial result round/assignment");
+      let beacon = pub.serialBeacon;
+      if (!offline) {
+        const base = process.env.BNZ_DRAND_URLS?.split(",")[0];
+        requireThat(base, "BNZ_DRAND_URLS required for serial beacon");
+        const response = await fetch(`${base}/${pub.manifest.drand.chain_hash}/public/${round}`, { signal: AbortSignal.timeout(15000) });
+        requireThat(response.ok, `serial drand HTTP ${response.status}`);
+        const fetched = await response.json() as { round: number; signature: string };
+        requireThat(fetched.round === round && /^[0-9a-f]{96}$/.test(fetched.signature), "serial beacon round/signature");
+        if (beacon) requireThat(beacon.round === fetched.round && beacon.signature === fetched.signature, "published serial beacon differs");
+        beacon = { round: fetched.round, signature: fetched.signature };
+      }
+      requireThat(beacon, "--offline needs published serial beacon");
+      const d = pub.manifest.drand;
+      requireThat(await verifyBeacon({ public_key: d.public_key, period: d.period, genesis_time: d.genesis,
+        hash: d.chain_hash, groupHash: "", schemeID: d.scheme, metadata: { beaconID: "quicknet" } },
+        { ...beacon!, randomness: hash(Buffer.from(beacon!.signature, "hex")) }, round), "serial beacon BLS signature");
+      pub.serialBeacon = beacon;
+    } else requireThat(!pub.result.serial_assignment && pub.result.serial_beacon_round === undefined && !pub.serialBeacon, "serial material without manifest serials");
     // Gate CF recurring rounds: with --previous, this round's link must chain to the previous round's result.
     if (pub.manifest.series !== undefined || previous) {
       if (!previous) process.stderr.write("WARN series linkage not checked (no --previous)\n");

@@ -13,6 +13,8 @@ Updated: 2026-10-02T03:55:33Z. Takeover at d8ed113 on track-b; clean initial tre
 
 3. Registry uniform entry decorates clearing with serial assignment from `ClearInput.serial_beacon`; `node tmp/proof-markets.mjs` fresh tlock corpus + shipped `node clear/dist/cli.mjs < tmp/drop-input.json` PASS (fills 2/3/5 unchanged; 10 unique serials; round R+1). Logs `tmp/proof-logs/drop-result.out`, `drop-result-build.out`, typecheck PASS. Step 2 facb65a.
 
+4. Shared verifier/API loader accepts published `serial_beacon {round,signature}` and replays through uniform registry entry. CLI online fetches the configured R16 quicknet path; online and offline both verify BLS with installed lockfile-pinned drand-client. `bin/benzo verify --dir tmp/canon-drop --signer HEX [--offline]` both exit 0, OK x8 (`tmp/proof-logs/drop-online.out`, `drop-offline.out`); typecheck/build:cli PASS (`drop-verify-build.out`). Step 3 e06ed08. No live-chain evidence claimed: these are fresh manual pure-mode corpora with real tle/drand, fixture deposit references.
+
 ### Questions (run 8)
 
 User instruction (2026-10-02T03:55:33Z), verbatim:
