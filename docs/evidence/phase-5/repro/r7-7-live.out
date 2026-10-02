@@ -1,4 +1,4 @@
-commit 0da383e68ea47b535632edfceff8583d05d6ac08 (R7 final commit; clean tree)
+commit a624293 (run.json record; tree clean. head commit 0da383e — docs/PHASE-5.md only — landed mid-run, code identical)
 start_utc 2026-10-02T22:35:05.444Z
 end_utc 2026-10-02T23:17:51.706Z
 command BNZ_LIVE=1 npx playwright test --project=cli-auction (npm run e2e:live)
