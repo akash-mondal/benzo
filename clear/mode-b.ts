@@ -25,6 +25,7 @@ export function clientPhase5(packet: Signed, trustedSigner: string): { manifest_
     requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,max_price_zats", "buyback field set");
     // Bond-then-pay is buyer-side (a defaulter's bond goes to the seller); a buyback winner is a seller.
     requireThat(m.bond === undefined, "bond-then-pay is auction-side");
+    requireThat(m.serials === undefined, "serials are uniform auction-side");
   }
   const base = { ...m, clearing: { ...m.clearing, mode: m.clearing.mode === "buyback" ? "uniform" : m.clearing.mode }, buyback: undefined };
   delete base.buyback;

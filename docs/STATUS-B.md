@@ -35,6 +35,8 @@ A wiring follow-up: signed RFQ parameters and layoutv2; treasury funding leg; se
 
 Proof at baseff6b2ea + working tree, fresh real quicknet **32703652** and fresh tle orders: `node tmp/proof-otc.mjs` → `tmp/proof-logs/otc-corpus.out`: max30000/min10000 →20000, buyer30100 refund, seller50100 refund+19900 payout, outsider50100 refund; conservation150300=19900+130300+100. Max9000/min10000 no match →both50100 exact C, zero fees; equal10000 matches at10000; odd30001/10000 rounds to20000; missing seller cancels. `python3 tmp/otc-verify.py`: online/offline OK x8 on five corpora; self-consistent wrong midpoint21000 → `canonical result differs` + `otc midpoint/limits`; charging cancelled buyer100 → `canonical result differs` + `otc fees` (exit1; `otc-verify.out`). Shipped stdin clear byte-matches. API `/auction` valid + `/result` exact on match/cancel/missing (`otc-api.out`); typecheck/core/CLI builds PASS (`otc-build.out`). A wiring: manifest block/layoutv3 and result per-leaf `side`; ledger obligations are to the two leaves, never a separate clearing/settlement pipeline. No live-chain evidence claim.
 
+Source sweep: closed a projection boundary in buyback validation: its base mode is temporarily projected to uniform for common-schema checks, which could otherwise accept drop-only serials. `node tmp/proof-buyback-serials.mjs` signs a fresh fixture buyback+serials packet → exact `refused: serials are uniform auction-side`; `tmp/proof-logs/buyback-serials.out`. Typecheck/core/CLI PASS (`final-build.out`). OTC d67b6f6; RFQ ff6b2ea; launch14061a4.
+
 ### Questions (run 8)
 
 User instruction (2026-10-02T03:55:33Z), verbatim:
