@@ -93,13 +93,13 @@ test("signed sealed auction on testnet",async({page})=> {
       z.sync("bidder");
       if(z.spendable(z.balance("bidder"))<C+15_000 && txids.length) {
         const previous=txids[txids.length-1];
-        const h=await waitFor({height:1,tip:()=>z.getTransaction(previous).height},Date.now()+MINE);
+        const h=await waitFor({height:1,tip:()=>z.minedHeight(previous)},Date.now()+MINE);
         await waitFor({height:h+2,tip:()=>{z.sync("bidder");return z.balance("bidder").chain_tip_height}},Date.now()+MINE);
       }
       if(z.balance("bidder").total-C-15_000<3*C+40_000)throw Error("ask before spend below bidder floor");
       const txid=z.pay(uri); txids.push(txid);console.log(`deposit ${txids.length}/6 broadcast ${txid}`);
     }
-    for(const txid of txids)heights.push(await waitFor({height:1,tip:()=>z.getTransaction(txid).height},Date.now()+MINE));
+    for(const txid of txids)heights.push(await waitFor({height:1,tip:()=>z.minedHeight(txid)},Date.now()+MINE));
     const last=Math.max(...heights);
     await waitFor({height:last+9,tip:()=>{z.sync("vault");return z.balance("vault").chain_tip_height}},Date.now()+16*150_000);
     z.enhance("vault"); const notes=z.scanVault().filter(n=>txids.includes(n.txid));

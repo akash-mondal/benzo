@@ -58,6 +58,13 @@ export function getTransaction(txid: string, endpoint = LWD): { height: number; 
   return { height: height > 0 && height < 2 ** 32 - 1 ? height : 0, raw: Buffer.from(r.data, "base64") };
 }
 
+// list-tx --json documents null for unmined transactions; RPC errors still fail the run.
+export const minedHeight = (txid: string) => {
+  sync("vault");
+  const mined = JSON.parse(wallet("vault", "list-tx", "--json")).find((t: {txid: string; mined_height: number | null}) => t.txid === txid)?.mined_height;
+  return mined ? getTransaction(txid).height : 0;
+};
+
 export type ScanLine = {
   txid: string;
   height: number | null;

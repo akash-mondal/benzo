@@ -51,7 +51,7 @@ function batchUri(addresses:string[],memos:string[],reserveAddress:string,reserv
   });return "zcash:?"+params;
 }
 async function mature(txid:string) {
-  const height=await waitFor({height:1,tip:()=>z.getTransaction(txid).height},Date.now()+MINE);
+  const height=await waitFor({height:1,tip:()=>z.minedHeight(txid)},Date.now()+MINE);
   await waitFor({height:height+9,tip:()=>{z.sync("vault");z.sync("bidder");return Math.min(z.balance("vault").chain_tip_height,z.balance("bidder").chain_tip_height)}},Date.now()+MINE);
   z.enhance("vault");return height;
 }
