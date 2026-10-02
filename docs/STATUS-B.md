@@ -3,7 +3,92 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — R10 item 1 + R9 items 1–4 + live cycles (the head's 6-item list)
+## Current run: head task — R12 items 1–3 (shared envelope rule, committed red/green repros, KC_KEY fix)
+
+State: **IN PROGRESS** (item 1 DONE `a82f865`, item 2 DONE with this commit; item 3 (KC_KEY 33→32 bytes) next,
+then the `dist/benzo-verify.mjs` rebuild + typecheck/builds/`npm run e2e`, then READY FOR MERGE).
+Base: clean tree at `266c2e6` (head: merge main into track-b; R12 in `docs/PHASE-5.md`). Baseline `npm run e2e`
+PASS 37 s at `266c2e6` (`tmp/proof-logs/r12-baseline-e2e.out`). Reviewer R's report read-only at
+`/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-envelopes-v2.md`. No mainnet; no other-checkout access or
+writes; no merge/rebase/cherry-pick/push; no pin changes; nothing outside the repo. R10/R9 open-item sweep:
+none open for Track B (R10 item 1 and R9 items 1–4 landed in the previous run; R10 items 2–5 and R12 item 3/R13
+are Track A's).
+
+1. **R12 item 1 (P1), one shared published-record rule: DONE** (`a82f865`).
+   `envelope/index.ts` exports `envelopeRecordValid(record, envelope_keys)` (total, never throws): when the
+   signed manifest pins `envelope_keys` a record is valid only as the exact v2 shape for n = 3 — 926 bytes
+   (`ENVELOPE_CT_BYTES_N3`), the `benzo-envelope-v2` magic, and stanza recipients equal to `envelope_keys` in
+   order (read by `envelopeRecipients`); when the manifest pins no keys only the pre-v2 572-byte box is accepted
+   (`ENVELOPE_CT_BYTES_PRE_V2`) — the only place pre-v2 records are accepted. Wired into all three consumers:
+   intake (`clear/auction-cli.ts admit`, the sanctioned one-line Track A change) refuses anything else when the
+   manifest pins keys; `settle/envelopes.ts validEnvelope` returns null for anything else (its divergent
+   `envelopeRecordShape`/`ENVELOPE_CT_BYTES` are removed); `benzo verify` (`api/public-auction.ts` envelope
+   check) reports `ERROR envelope envelope record format` for any published record that breaks it.
+   **Red at `266c2e6` / green after** — `docs/evidence/phase-5/repro/mr-envelope-before.out` (exit 1) and
+   `mr-envelope-after.out` (13/13 PASS, exit 0). The red lines are the R12 probe list exactly:
+   `ERROR mr-verify-foreign-key got exit 0 OK envelope, want ERROR envelope` (R's attacker-key probe — `OK
+   envelope` before, ERROR after), and the same flip for `mr-verify-foreign-set` (record sealed to
+   [attacker, key2, key3]), `mr-verify-pre-v2-pinned` (572-byte record under a pinned manifest) and
+   `mr-verify-2of3-pinned` (record sealed to 2 of the 3 keys); `mr-shared-rule-export` red before / green after.
+   Controls green before and after: `mr-verify-pre-v2-unpinned` (572-byte record under a manifest with no
+   `envelope_keys` → `OK envelope`) and `mr-verify-phase2-4` — `bin/benzo verify` on
+   `docs/evidence/phase-2/auction` (`--fetch-beacon`), a Phase 3 public dir rebuilt from
+   `docs/evidence/phase-3/settle/` (the R16 corpus shape), and `docs/evidence/phase-4/cli` — all exit 0 with
+   `OK envelope`. The corpora are built afresh per run: real tlock seal/open with pinned Go `tle` at a past
+   quicknet round, a real fetched beacon, owner-signed records, `bin/benzo verify` as the entry point.
+   `npm run typecheck` + `build:core`/`build:settle`/`build:cli` PASS at `a82f865`.
+
+2. **R12 item 2 (P2), the envelope red/green checks committed as `tools/repro/` scripts: DONE** (this commit).
+   `tools/repro/mr-envelope-repro.mjs` (the `mr-*` checks + the R12 rule probes above) and
+   `tools/repro/kc-key-commitment-repro.mjs` (the `kc-*` key-commitment checks), each run as
+   `node tools/repro/<name>.mjs`, outputs committed under `docs/evidence/phase-5/repro/`:
+
+   | output | commit at run time | result |
+   |---|---|---|
+   | `mr-envelope-before.out` | `266c2e6` (clean) | exit 1 — 5 red: `mr-shared-rule-export`, `mr-verify-foreign-key`, `-foreign-set`, `-pre-v2-pinned`, `-2of3-pinned` |
+   | `mr-envelope-after.out` | `a82f865` (clean) | exit 0 — 13/13 PASS |
+   | `kc-key-commitment-before.out` | `266c2e6` (clean) | exit 1 — `kc-key-32-interop` + `kc-split-key-recipient1-opens` red (the KC_KEY bug, item 3) |
+   | `kc-key-commitment-after.out` | item-3 commit (clean) | exit 0 — 10/10 PASS (committed with item 3) |
+
+   Provenance: the first three runs executed `node tmp/<name>.mjs` with content byte-identical to the committed
+   scripts before the scripts were committed (sha256 `813c824592d88f37b2845586092db394bf028b9d0a326af271a2a5c29386bfc4`
+   and `3f6f239c27b9a960e31875000b054419711ebbff6fa36dda4b2d89834f4f5715`, `cmp` clean against the copies);
+   each output's first lines record `commit`, `utc` and the `git status --porcelain` tree state from git at run
+   time and are unedited. The `kc-…-after.out` run executes the committed script itself.
+   Honest notes: (a) `mr-verify`'s owner-binding mutations (owner_sig flip, envelope_ct swap) assert R7.4's
+   current, post-merge semantics — the merged main changed a bad owner_sig/commitment from `ERROR envelope N
+   signature` (79aed9e's tree) to `WARN invalid envelope N; refund goes to the exception queue` + exit 0 — so
+   the committed check asserts that specific WARN text, not the pre-merge ERROR. The R12 rule probes are what
+   flip `OK envelope` → `ERROR envelope`. (b) `settle/envelopes.ts` no longer exports `envelopeRecordShape`, so
+   Track A's `tools/repro/r7-3-exception-queue-repro.mjs` informational block now prints its "shipped helper
+   absent" line on rerun (its try/catch covers it; no behavior change; the file is A's and was not touched —
+   see Questions). (c) The `kc-*` checks hand-build envelopes under the specified key-commitment derivation
+   (the `"benzo-envelope-v2-kc"` label zero-padded to libsodium's `crypto_generichash_KEYBYTES`), which is
+   exactly why they are red at `266c2e6` and stay red through this commit (item 3 is the fix).
+
+Test audit (this run, so far): project E2E suite untouched (5 of the 8-test ceiling; default seal-open
+**R retain**, covered `seal/` code unchanged here; `npm run e2e` PASS 37 s at `266c2e6`, final rerun with item 4).
+The `tools/repro/*.mjs` checks are repro scripts of the `r7-*` class (outside the ceiling; not Playwright specs,
+no assertions added to `e2e/`); they run the shipped entry points (`bin/benzo verify`, pinned Go `tle`) against
+real drand quicknet. No covered code changed since any prior mutation run of the default suite; the envelope
+format work's red/green is the before/after pair above.
+
+Deviations: none. Env: none new. Upstream code: none copied (the two scripts adapt my own earlier scratch
+proofs `tmp/proof-mr.ts`/`tmp/proof-kc.ts`, not upstream). Key material: none created or read beyond ephemeral
+proof keys generated inside the repro runs (never persisted, never printed).
+
+### Questions (this run)
+
+- **R12 rule, one interpretation to confirm:** the ruling makes pre-v2 acceptance conditional ("accepted only
+  in directories whose manifest has no `envelope_keys`") and pins the v2 case. I implemented the unpinned case
+  as *strictly* the pre-v2 572-byte shape: a v2 record under a manifest with no `envelope_keys` breaks the rule
+  and is refused at intake / `ERROR envelope` at verify. If you meant unpinned dirs to accept either shape,
+  redirect and I'll widen the unpinned branch (one line in `envelopeRecordValid`).
+- **Track A's `r7-3-exception-queue-repro.mjs`:** its informational "intake shape check" lines call
+  `envelopeRecordShape`, which item 1 removed; a rerun prints `intake shape check: shipped helper absent`. Want
+  me to retarget those two lines at `envelopeRecordValid` (A's file — I left it alone), or is that A's?
+
+## Previous run: head task — R10 item 1 + R9 items 1–4 + live cycles (the head's 6-item list)
 
 State: **READY FOR MERGE** (items 1–6 all landed with red/green proof; updated 2026-10-02T22:10Z).
 Base: clean tree at `dc5ea63` (head: merge main into track-b; R9/R10 in `docs/PHASE-5.md`).
@@ -259,6 +344,9 @@ scratch envelope proofs (tmp/, not committed — item 1, red/green cited above).
 - **Envelope key-commit padding:** R10's `key = "benzo-envelope-v2-kc" padded per libsodium` is
   implemented as the 19-byte ASCII label zero-padded to libsodium's `crypto_generichash_KEYBYTES`
   (32 bytes), documented in the code comment. Confirm or redirect.
+  **CLOSED by the head's finding on 79aed9e (this run's item 3):** the label is 20 bytes and the code
+  padded with `32 - 19`, so `KC_KEY` was 33 bytes; item 3 fixes it to `32 - label.length` with an
+  assertion that the key is exactly `crypto_generichash_KEYBYTES`.
 
 ## Previous run: head task — R8 item 1 (G9 Solana state-PDA dust) + multi-recipient settlement envelopes (G9 accepted as `aaa0000`; envelopes `b000cb1` accepted in principle, its R10 item 1 follow-up is item 1 above)
 
