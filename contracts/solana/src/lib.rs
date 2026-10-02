@@ -31,7 +31,9 @@
 //! together with this program's own ID: an attestation minted for another cluster or deployment
 //! is refused (`BadBinding`). Attestation replay is refused because the `Approval` PDA is created
 //! exactly once per `(auction_id, batch_index)` (`init` semantics: a second submit fails with
-//! `BatchReplayed`) and each allocation leaf is payable at most once (the paid PDA, written before
+//! `BatchReplayed` — counted only when the account is program-owned with the `APPROVAL_V1`
+//! marker, so a dusted PDA can neither fake nor block it) and each allocation leaf is payable at
+//! most once (the paid PDA — `PAID_V1` marker, written before
 //! any lamports move — P0 effects-before-interactions ordering; Solana has no transfer CPI to a
 //! recipient here, so no callback exists, but the ordering is kept explicit).
 //!
@@ -94,7 +96,10 @@ pub const STATE_LEN: usize = 235;
 /// carries this versioned marker — never infer state from lamports or empty data.
 pub const PAID_MARKER: &[u8] = b"PAID_V1";
 pub const PAID_LEN: usize = PAID_MARKER.len(); // 7
-pub const APPROVAL_LEN: usize = 153;
+/// §10 item 3 (F-3): the same rule for the `Approval` PDA — `BatchReplayed` only when the
+/// account is program-owned with this marker.
+pub const APPROVAL_MARKER: &[u8] = b"APPROVAL_V1";
+pub const APPROVAL_LEN: usize = 11 + 153; // marker + the §9 fields
 pub const MAX_PAYOUTS: usize = 64;
 pub const MAX_PROOF: usize = 32;
 
@@ -114,16 +119,17 @@ const S_PAID: usize = 211;
 const S_LOCK_UNTIL: usize = 219; // i64 le
 const S_DEADLINE: usize = 227;
 
-// approval offsets (design §9 fields, exactly): auction_id, batch_index(u64 le), allocation_root,
-// result_hash, nonce(u64 le), expiry(i64 le), genesis_hash, bump
-const A_AUCTION: usize = 0; // 32
-const A_BATCH: usize = 32; // u64 le
-const A_ROOT: usize = 40; // 32
-const A_RESULT: usize = 72; // 32
-const A_NONCE: usize = 104; // u64 le
-const A_EXPIRY: usize = 112; // i64 le
-const A_GENESIS: usize = 120; // 32
-const A_BUMP: usize = 152; // u8
+// approval layout: APPROVAL_V1 marker (11), then exactly the §9 fields: auction_id,
+// batch_index(u64 le), allocation_root, result_hash, nonce(u64 le), expiry(i64 le), genesis_hash, bump
+const A_MARKER: usize = 0; // 11
+const A_AUCTION: usize = 11; // 32
+const A_BATCH: usize = 43; // u64 le
+const A_ROOT: usize = 51; // 32
+const A_RESULT: usize = 83; // 32
+const A_NONCE: usize = 115; // u64 le
+const A_EXPIRY: usize = 123; // i64 le
+const A_GENESIS: usize = 131; // 32
+const A_BUMP: usize = 163; // u8
 
 #[derive(Clone, Copy)]
 struct Auction {
@@ -258,15 +264,15 @@ fn root_hash(leaf_count: u64, tree_root: &[u8; 32]) -> [u8; 32] {
     keccak(&[ROOT_PREFIX, &leaf_count.to_be_bytes(), tree_root])
 }
 
-/// A flag account counts as set only if **this program** owns it and its data is exactly the
+/// A flag account counts as set only if **this program** owns it and its data carries the
 /// versioned marker (§10 items 1/3): lamports or empty data prove nothing — anyone can dust a
 /// predictable PDA with lamports.
 fn flag_is_set(ai: &AccountInfo, program_id: &Pubkey, marker: &[u8]) -> bool {
-    if ai.owner != program_id || ai.data_len() != marker.len() {
+    if ai.owner != program_id || ai.data_len() < marker.len() {
         return false;
     }
     match ai.try_borrow_data() {
-        Ok(d) => &d[..] == marker,
+        Ok(d) => &d[..marker.len()] == marker,
         Err(_) => false,
     }
 }
@@ -282,12 +288,12 @@ fn create_flag<'a>(
     system_program_ai: &AccountInfo<'a>,
     seeds: &[&[u8]],
     marker: &[u8],
+    space: usize,
 ) -> ProgramResult {
-    let space = marker.len() as u64;
-    let needed = Rent::get()?.minimum_balance(marker.len());
+    let needed = Rent::get()?.minimum_balance(space);
     if flag_ai.lamports() == 0 {
         invoke_signed(
-            &system_instruction::create_account(payer.key, flag_ai.key, needed, space, program_id),
+            &system_instruction::create_account(payer.key, flag_ai.key, needed, space as u64, program_id),
             &[payer.clone(), flag_ai.clone(), system_program_ai.clone()],
             &[seeds],
         )?;
@@ -300,7 +306,7 @@ fn create_flag<'a>(
             )?;
         }
         invoke_signed(
-            &system_instruction::allocate(flag_ai.key, space),
+            &system_instruction::allocate(flag_ai.key, space as u64),
             &[flag_ai.clone(), system_program_ai.clone()],
             &[seeds],
         )?;
@@ -360,7 +366,7 @@ fn store_state(data: &mut [u8], a: &Auction) -> Result<(), ProgramError> {
 }
 
 fn load_approval(data: &[u8]) -> Result<Approval, ProgramError> {
-    if data.len() != APPROVAL_LEN {
+    if data.len() != APPROVAL_LEN || &data[A_MARKER..A_MARKER + 11] != APPROVAL_MARKER {
         return Err(EscrowError::NoApproval.into());
     }
     Ok(Approval {
@@ -379,6 +385,7 @@ fn store_approval(data: &mut [u8], a: &Approval) -> Result<(), ProgramError> {
     if data.len() != APPROVAL_LEN {
         return Err(EscrowError::BadAccount.into());
     }
+    data[A_MARKER..A_MARKER + 11].copy_from_slice(APPROVAL_MARKER);
     data[A_AUCTION..A_AUCTION + 32].copy_from_slice(&a.auction_id);
     data[A_BATCH..A_BATCH + 8].copy_from_slice(&a.batch_index.to_le_bytes());
     data[A_ROOT..A_ROOT + 32].copy_from_slice(&a.allocation_root);
@@ -589,7 +596,7 @@ fn submit_attestation(
         return Err(EscrowError::BadParameters.into());
     }
 
-    // replay refusal: the Approval PDA is created exactly once per (auction_id, batch_index)
+    // the Approval PDA must be the account its seeds derive
     let (approval_pda, approval_bump) = Pubkey::find_program_address(
         &[b"approval", &state.auction_id, &att_batch.to_le_bytes()],
         program_id,
@@ -597,7 +604,10 @@ fn submit_attestation(
     if approval_pda != *approval_ai.key {
         return Err(EscrowError::BadAccount.into());
     }
-    if approval_ai.lamports() != 0 || !approval_ai.data_is_empty() {
+    // replay refusal (§10 item 3): `BatchReplayed` only when this program owns the account
+    // with the APPROVAL_V1 marker — never from lamports or empty data: a dusted PDA must not
+    // block the batch (the seller could dust it to escape settlement and take the full refund)
+    if flag_is_set(approval_ai, program_id, APPROVAL_MARKER) {
         return Err(EscrowError::BatchReplayed.into());
     }
 
@@ -612,23 +622,17 @@ fn submit_attestation(
     }
     check_ed25519(&verify_ix.data, &state.signers, current)?;
 
-    // write the Approval (crank pays rent; no transfers in this instruction)
-    let rent = Rent::get()?;
-    invoke_signed(
-        &system_instruction::create_account(
-            crank.key,
-            approval_ai.key,
-            rent.minimum_balance(APPROVAL_LEN),
-            APPROVAL_LEN as u64,
-            program_id,
-        ),
-        &[crank.clone(), approval_ai.clone(), system_program_ai.clone()],
-        &[&[
-            b"approval",
-            &state.auction_id,
-            &att_batch.to_le_bytes(),
-            &[approval_bump],
-        ]],
+    // write the Approval (crank pays rent; no transfers to recipients in this instruction).
+    // Created pre-funding-safe (§10 item 3): a dusted PDA is topped up and completed with
+    // allocate + assign instead of create_account
+    create_flag(
+        program_id,
+        crank,
+        approval_ai,
+        system_program_ai,
+        &[b"approval", &state.auction_id, &att_batch.to_le_bytes(), &[approval_bump]],
+        APPROVAL_MARKER,
+        APPROVAL_LEN,
     )?;
     let approval = Approval {
         auction_id: state.auction_id,
@@ -806,6 +810,7 @@ fn release_approved(
             system_program_ai,
             &[b"paid", &state.auction_id, &leaf, &[paid_bump]],
             PAID_MARKER,
+            PAID_LEN,
         )?;
 
         // move lamports out of the escrow PDA (program-owned) to the destination

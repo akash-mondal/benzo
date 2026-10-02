@@ -41,6 +41,15 @@ export function approvalPda(programId: PublicKey, auctionId: Uint8Array, batch: 
 /** §10 item 1 (F-1): a paid flag counts only if program-owned with this marker — a dusted PDA
  *  (system-owned lamports) is never "paid". */
 export const PAID_MARKER = Buffer.from("PAID_V1");
+/** §10 item 3 (F-3): an Approval counts as used only if program-owned with this marker — a
+ *  dusted PDA must not block submit. */
+export const APPROVAL_MARKER = Buffer.from("APPROVAL_V1");
+
+/** True iff this batch's Approval already exists (program-owned with the APPROVAL_V1 marker). */
+export async function approvalExists(conn: Connection, programId: PublicKey, approval: PublicKey): Promise<boolean> {
+  const ai = await conn.getAccountInfo(approval);
+  return ai !== null && ai.owner.equals(programId) && Buffer.from(ai.data).subarray(0, APPROVAL_MARKER.length).equals(APPROVAL_MARKER);
+}
 export function paidPda(programId: PublicKey, auctionId: Uint8Array, leaf: Uint8Array): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("paid"), Buffer.from(auctionId), Buffer.from(leaf)], programId)[0];
 }

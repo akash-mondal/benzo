@@ -64,6 +64,33 @@ files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PAS
    `signRelease` externally calls `domainSeparator()`, consuming the expectation) — a harness
    defect in my test, fixed before the red was recorded; no product defect hidden.
 
+3. **§10 item 3 (P1 F-3), a dusted `Approval` PDA blocking a batch: FIXED** (this commit). The
+   `Approval` PDA now carries the `APPROVAL_V1` marker (11-byte prefix; `APPROVAL_LEN` 153 → 164,
+   §9 field offsets +11) and is created pre-funding-safe (`create_flag`: top up to rent-exempt +
+   `allocate` + `assign` via `invoke_signed` when the PDA is dusted, `create_account` otherwise).
+   `BatchReplayed` (9) is returned only when the account is program-owned with the marker
+   (`flag_is_set`); a dusted PDA neither blocks nor fakes a batch. Client: `crosschain/solana.ts`
+   exports `approvalExists` (same rule) and `benzo xchain release` uses it for submit-if-needed —
+   a dusted PDA no longer makes the CLI skip the submit step.
+   Test (driver): dust `approvalPda(batch 13)` with 1,000,000 lamports from an unrelated key,
+   then `approval-pda-dusted-submit-works-once` (submit lands; the PDA is program-owned 164 bytes
+   with `APPROVAL_V1` and the exact §9 fields) and
+   `approval-pda-dusted-second-submit-refused` (error 9); `submit-2of3-records-approval` now
+   asserts the marker + shifted offsets.
+   **Red on the current code** — `contracts/logs/f3-approval-dust-old-code.out` (exit 1):
+   `ERROR approval-pda-dusted-submit-works-once submit refused (0x9); dusted Approval PDA owner
+   11111111111111111111111111111111 len 0 …` — exactly reviewer F-3 — plus the three
+   layout-reading assertions (`submit-2of3-records-approval`, `approval-expiry-not-after-deadline`,
+   `refund-only-after-approval-expired`) failing against the old 153-byte layout, as expected.
+   **Green after the fix** — `contracts/logs/f3-approval-dust-fixed.out` (exit 0): 35 PASS /
+   0 ERROR; `contracts/logs/f3-xchain-client.out`: local demo 13/13 PASS with the marker-aware
+   client (release submit-if-needed, status, replay refused). `npm run typecheck` PASS.
+   Notes: two mid-fix defects in my own new code were caught by these runs and fixed before any
+   green was credited — `create_flag` first allocated `marker.len()` bytes (BadAccount 0x2 at
+   `store_approval` for the 164-byte Approval), then `flag_is_set` compared the whole data to the
+   marker (false for `marker + fields`, which made a second submit slip through to a system
+   `allocate` and fail 0x0 instead of `BatchReplayed` 9). The final green is the rerun after both.
+
 ## Previous run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE (its testnet deployment addresses are superseded when this run's §10 redeploy lands)
 
 State: **READY FOR MERGE** (updated 2026-10-02T15:30Z). Started clean at `305d565` (head: merge main into

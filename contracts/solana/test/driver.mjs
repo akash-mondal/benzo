@@ -419,11 +419,13 @@ async function main() {
     await submit(0, att, [0, 2], [0, 2]); // alice + carol
     const ai = await conn.getAccountInfo(approvalPdaFor(auctionId, 0));
     const d = ai?.data;
-    const ok = ai && ai.owner.equals(PROGRAM_ID) && d.length === 153 &&
-      eq(d.slice(0, 32), auctionId) && d.readBigUInt64LE(32) === 0n &&
-      eq(d.slice(40, 72), root0) && eq(d.slice(72, 104), resultHash) &&
-      d.readBigUInt64LE(104) === 0n && BigInt(d.readBigInt64LE(112)) === BigInt(deadline) &&
-      eq(d.slice(120, 152), genesis);
+    // §10 F-3 layout: APPROVAL_V1 marker (11 bytes) then the §9 fields
+    const ok = ai && ai.owner.equals(PROGRAM_ID) && d.length === 164 &&
+      eq(d.slice(0, 11), utf8("APPROVAL_V1")) &&
+      eq(d.slice(11, 43), auctionId) && d.readBigUInt64LE(43) === 0n &&
+      eq(d.slice(51, 83), root0) && eq(d.slice(83, 115), resultHash) &&
+      d.readBigUInt64LE(115) === 0n && BigInt(d.readBigInt64LE(123)) === BigInt(deadline) &&
+      eq(d.slice(131, 163), genesis);
     check("submit-2of3-records-approval", ok, "Approval PDA state differs from the attested fields");
   }
 
@@ -525,6 +527,30 @@ async function main() {
     // (now <= expiry) and a refund racing the release could capture attested payouts
     const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 12, 0, deadline + 1000);
     await expectCustomError("submit-expiry-after-deadline-refused", 5, () => submit(12, att, [0, 1], [0, 1]));
+  }
+  {
+    // ---- §10 item 3 (F-3): a dusted Approval PDA must not block the batch ----
+    const batch13 = 13;
+    const dusted = approvalPdaFor(auctionId, batch13);
+    await send(duster, SystemProgram.transfer({ fromPubkey: duster.publicKey, toPubkey: dusted, lamports: 1_000_000 }));
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, batch13, 0, deadline);
+    let submitErr = null;
+    try { await submit(batch13, att, [0, 1], [0, 1]); } catch (e) { submitErr = e; }
+    const ai = await conn.getAccountInfo(dusted);
+    const d = ai?.data;
+    const ok = ai && ai.owner.equals(PROGRAM_ID) && d.length === 164 &&
+      eq(d.slice(0, 11), utf8("APPROVAL_V1")) &&
+      eq(d.slice(11, 43), auctionId) && d.readBigUInt64LE(43) === BigInt(batch13) &&
+      eq(d.slice(51, 83), root1) && eq(d.slice(83, 115), resultHash) &&
+      d.readBigUInt64LE(115) === 0n && BigInt(d.readBigInt64LE(123)) === BigInt(deadline) &&
+      eq(d.slice(131, 163), genesis);
+    check("approval-pda-dusted-submit-works-once",
+      submitErr === null && ok,
+      `submit ${submitErr ? `refused (0x${(customErrorCode(submitErr) ?? -1).toString(16)})` : "landed"}; ` +
+        `dusted Approval PDA owner ${ai?.owner.toBase58()} len ${d?.length} ` +
+        `(want program-owned 164 with the APPROVAL_V1 marker)`);
+    await expectCustomError("approval-pda-dusted-second-submit-refused", 9, () =>
+      submit(batch13, att, [0, 1], [0, 1]));
   }
   {
     // §9: a spoofed sysvar on submit_attestation -> refused (the 2022 Wormhole class)
@@ -679,7 +705,7 @@ async function main() {
       submitIx(crank, auction4Pda, approvalPdaFor(auction4Id, 0), f2Att));
     const aai = await conn.getAccountInfo(approvalPdaFor(auction4Id, 0));
     const sai = await conn.getAccountInfo(auction4Pda);
-    const aexp = aai.data.readBigInt64LE(112), dl = sai.data.readBigInt64LE(227);
+    const aexp = aai.data.readBigInt64LE(123), dl = sai.data.readBigInt64LE(227);
     check("approval-expiry-not-after-deadline", BigInt(aexp) <= BigInt(dl),
       `approval expiry ${aexp} must be <= the auction deadline ${dl}`);
     await expectCustomError("approved-unreleased-refund-premature-refused", 16, () =>

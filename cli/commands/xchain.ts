@@ -14,7 +14,7 @@ import {
   evmLock, evmProvider, evmRefund, evmRelease, evmStatus, EvmPayout,
 } from "../../crosschain/evm";
 import {
-  approvalPda, auctionPda, ed25519Instruction, lockInstruction, paidPda, refundInstruction,
+  approvalExists, approvalPda, auctionPda, ed25519Instruction, lockInstruction, paidPda, refundInstruction,
   sendReleaseApproved, sendTx, solConnection, solStatus, SolPayout,
   submitAttestationInstruction,
 } from "../../crosschain/solana";
@@ -223,7 +223,9 @@ export async function run(argv: string[]): Promise<number> {
         console.log(JSON.stringify({ chain, tx, submitted: true, payouts: [] }));
         return 0;
       }
-      const submitted = (await conn.getAccountInfo(approval)) === null;
+      // §10 F-3: the Approval exists only if program-owned with the APPROVAL_V1 marker — a
+      // dusted PDA must not block the submit step
+      const submitted = !(await approvalExists(conn, programId, approval));
       const setupTxs: string[] = [];
       if (submitted) setupTxs.push(await submitTx());
       const payouts: SolPayout[] = chosen.map((p) => {
