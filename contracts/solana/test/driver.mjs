@@ -252,11 +252,22 @@ const PACKET_LIMIT = 1232;
 // create a real lookup table holding `addresses`, extend it in chunks, and wait (bounded poll on
 // slot advance) until its entries are live before returning it
 async function createLookupTable(payer, addresses) {
-  const slot = await conn.getSlot("finalized");
-  const [createIx, tableAddress] = AddressLookupTableProgram.createLookupTable({
-    authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot,
-  });
-  await send(payer, createIx);
+  // the lookup-table program requires recentSlot in SlotHashes — a completed slot, not the tip:
+  // walk back from the tip until the create is accepted (bounded)
+  let tableAddress = null;
+  const tip = await conn.getSlot("processed");
+  for (let back = 1; back <= 16 && tableAddress === null; back++) {
+    const [createIx, key] = AddressLookupTableProgram.createLookupTable({
+      authority: payer.publicKey, payer: payer.publicKey, recentSlot: tip - back,
+    });
+    try {
+      await send(payer, createIx);
+      tableAddress = key;
+    } catch (e) {
+      if (!/is not a recent slot/.test(String(e?.message))) throw e;
+    }
+  }
+  if (tableAddress === null) throw new Error(`no recent slot accepted for lookup-table creation (tip ${tip})`);
   for (let i = 0; i < addresses.length; i += 20) {
     await send(payer, AddressLookupTableProgram.extendLookupTable({
       payer: payer.publicKey, authority: payer.publicKey, lookupTable: tableAddress,

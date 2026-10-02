@@ -53,6 +53,16 @@ export function concat(...parts: Uint8Array[]): Uint8Array {
 
 export const keccak = (...parts: Uint8Array[]): Uint8Array => keccak_256(concat(...parts));
 
+/** Leaf asset id (design §3): a 20-byte EVM address left-padded to 32 bytes, or a 32-byte id;
+ *  native ETH/SOL is the zero id. Mirrors the contracts' bytes32(uint256(uint160(asset))). */
+export function assetBytes32(asset: string): Uint8Array {
+  const b = hexToBytes(asset);
+  if (b.length !== 20 && b.length !== 32) throw new Error(`asset must be 20 or 32 bytes: ${asset}`);
+  const out = new Uint8Array(32);
+  out.set(b, 32 - b.length);
+  return out;
+}
+
 /** Destination bytes for a leaf: kind 1 is a 20-byte EVM address, kind 2 a 32-byte Solana pubkey. */
 export function destinationBytes(kind: DestinationKind, destination: string, base58ToBytes: (s: string) => Uint8Array): Uint8Array {
   if (kind === 1) {

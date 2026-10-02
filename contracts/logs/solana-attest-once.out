@@ -1,5 +1,5 @@
 == build-sbf (pinned toolchain, see ../AUDITS.md)
-[2026-10-02T14:51:07.556151000Z WARN  cargo_build_sbf] Package 'benzo-escrow' has two crate types defined: cdylib and lib. This setting precludes link-time optimizations (LTO). Use cdylib for programs to be deployed and rlib for packages to be imported by other programs as libraries.
+[2026-10-02T15:23:07.068101000Z WARN  cargo_build_sbf] Package 'benzo-escrow' has two crate types defined: cdylib and lib. This setting precludes link-time optimizations (LTO). Use cdylib for programs to be deployed and rlib for packages to be imported by other programs as libraries.
 warning: unexpected `cfg` condition value: `custom-heap`
   --> src/lib.rs:77:1
    |

@@ -157,12 +157,24 @@ function txSize(tx: VersionedTransaction | Transaction): number {
 export async function createLookupTableOn(
   conn: Connection, payer: Keypair, addresses: PublicKey[],
 ): Promise<{ table: AddressLookupTableAccount; txs: string[] }> {
-  const slot = await conn.getSlot("finalized");
-  const [createIx, tableAddress] = AddressLookupTableProgram.createLookupTable({
-    authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot,
-  });
+  // The lookup-table program requires recentSlot to appear in SlotHashes — a completed slot,
+  // not the current tip and (on some clusters) not the finalized slot either — so walk back
+  // from the tip until the create is accepted (bounded; each retry is a refused simulation).
   const txs: string[] = [];
-  txs.push(await sendTx(conn, payer, [createIx]));
+  let tableAddress: PublicKey | null = null;
+  const tip = await conn.getSlot("processed");
+  for (let back = 1; back <= 16 && tableAddress === null; back++) {
+    const [createIx, key] = AddressLookupTableProgram.createLookupTable({
+      authority: payer.publicKey, payer: payer.publicKey, recentSlot: tip - back,
+    });
+    try {
+      txs.push(await sendTx(conn, payer, [createIx]));
+      tableAddress = key;
+    } catch (e) {
+      if (!/is not a recent slot/.test(String((e as Error).message))) throw e;
+    }
+  }
+  if (tableAddress === null) throw new Error(`no recent slot accepted for lookup-table creation (tip ${tip})`);
   for (let i = 0; i < addresses.length; i += 20) {
     txs.push(await sendTx(conn, payer, [AddressLookupTableProgram.extendLookupTable({
       payer: payer.publicKey, authority: payer.publicKey, lookupTable: tableAddress,

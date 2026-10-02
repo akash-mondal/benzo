@@ -7,7 +7,7 @@ import { ed25519 } from "@noble/curves/ed25519.js";
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { Wallet, getAddress } from "ethers";
 import {
-  AllocationLeaf, allocationRoot, buildTree, bytesToHex, destinationBytes, hexToBytes, leafHash,
+  AllocationLeaf, allocationRoot, assetBytes32, buildTree, bytesToHex, destinationBytes, hexToBytes, leafHash,
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
 import {
@@ -22,7 +22,7 @@ import {
 export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
-  "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE",
+  "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE [--asset 0xADDR]",
   "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE]",
@@ -69,6 +69,7 @@ interface Bundle {
   version: 1; chain: string; escrow: string;
   auction_id: string; result_hash: string; allocation_root: string;
   batch_index: number; nonce: number; expiry: number;
+  asset: string; // 0x address (EVM) or the zero address (native ETH/SOL); bound in every leaf
   standard_lot: string;
   leaves: AllocationLeaf[];
   payouts: { index: number; lot_count: number; destination_kind: number; destination: string; leaf_count: number; proof: string[] }[];
@@ -122,8 +123,12 @@ export async function run(argv: string[]): Promise<number> {
       const batchIndex = num(a, "batch"), nonce = num(a, "nonce"), expiry = num(a, "expiry");
       const standardLot = BigInt(alloc.standard_lot);
       const leaves: AllocationLeaf[] = alloc.leaves;
+      // design §3: every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)
+      const asset = chain === "evm" && typeof a.asset === "string"
+        ? getAddress(a.asset) : "0x0000000000000000000000000000000000000000";
+      const asset32 = assetBytes32(asset);
       const derived = leaves.map((l) =>
-        leafHash(auctionId, { index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind, destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes) }));
+        leafHash(auctionId, { index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind, destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes) }, asset32));
       const tree = buildTree(derived);
       const root = allocationRoot(tree, derived.length);
 
@@ -150,6 +155,7 @@ export async function run(argv: string[]): Promise<number> {
         version: 1, chain: chain2, escrow,
         auction_id: bytesToHex(auctionId), result_hash: bytesToHex(resultHash), allocation_root: bytesToHex(root),
         batch_index: batchIndex, nonce, expiry,
+        asset,
         standard_lot: standardLot.toString(),
         leaves,
         payouts: leaves.map((l, i) => ({
@@ -257,10 +263,11 @@ export async function run(argv: string[]): Promise<number> {
       const auctionId = hexToBytes(need(a, "auction"));
       const bundle: Bundle | null = typeof a.bundle === "string"
         ? JSON.parse(readFileSync(a.bundle, "utf8")) : null;
+      const asset32 = bundle ? assetBytes32(bundle.asset ?? "0x0000000000000000000000000000000000000000") : new Uint8Array(32);
       const leaves = bundle ? bundle.leaves.map((l) => leafHash(auctionId, {
         index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind,
         destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes),
-      })) : [];
+      }, asset32)) : [];
       if (chain === "evm") {
         const st = await evmStatus(rpc, escrow, bytesToHex(auctionId), leaves.map(bytesToHex));
         console.log(JSON.stringify({ chain, escrow, auction: st }, null, 2));

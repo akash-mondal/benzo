@@ -63,6 +63,7 @@ with the lock balance-delta check and proven by the reviewer's own `FeeTokenDrai
 | `crosschain/attestation.ts` | Domain-separated attestation bytes (EIP-712 fields; Solana 200-byte layout) | Protocol-specific message format (design §1); no library provides it |
 | `crosschain/evm.ts`, `crosschain/solana.ts` | Chain clients for `benzo xchain lock|attest|release|refund|status` | Thin drivers over ethers/@solana/web3.js and the contracts above; no custody logic beyond what the contracts enforce |
 | `cli/commands/xchain.ts` | CLI wiring for the above | As above |
+| `contracts/evm/test/TestToken.sol` | **Test-only fixture**: plain ERC-20 (OpenZeppelin audited `ERC20` base, open `mint`) deployed on Ethereum Sepolia for the design §7 step-5 testnet run | A mintable demo token is the run's asset; no audited option is needed because it holds no custody and obeys the assets allowlist (no fee, no rebase, no hooks) |
 
 ## Later steps (not yet landed)
 
