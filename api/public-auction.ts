@@ -488,7 +488,9 @@ export function settlementStatementBody(pub: PublicAuction, ciphertextHash: stri
   const owner_pubkey = Buffer.from(opening!.plaintext_hex!, "hex").subarray(61, 93).toString("hex");
   const owed = BigInt(modeEntry(pub.manifestPacket).obligations(result as ClearBody, pub.settlement).get(`leaf:${leaf!.leaf_index}`) ?? "0");
   const receipt = (pub.settlement?.receipts ?? []).find(r => r.party === `leaf:${leaf!.leaf_index}`);
-  const clearing_price_zats = a!.lot === undefined
+  const clearing_price_zats = a!.tranche === "holder" && result.holder_price_zats !== undefined
+    ? result.holder_price_zats
+    : a!.lot === undefined
     ? result.clearing_price_zats
     : (result.lots ?? []).find(l => l.lot_id === a!.lot)?.clearing_price_zats ?? result.clearing_price_zats;
   return {

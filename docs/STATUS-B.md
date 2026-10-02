@@ -37,6 +37,8 @@ Proof at baseff6b2ea + working tree, fresh real quicknet **32703652** and fresh 
 
 Source sweep: closed a projection boundary in buyback validation: its base mode is temporarily projected to uniform for common-schema checks, which could otherwise accept drop-only serials. `node tmp/proof-buyback-serials.mjs` signs a fresh fixture buyback+serials packet → exact `refused: serials are uniform auction-side`; `tmp/proof-logs/buyback-serials.out`. Typecheck/core/CLI PASS (`final-build.out`). OTC d67b6f6; RFQ ff6b2ea; launch14061a4.
 
+Receipt source audit found and fixed a launch holder statement reporting the main clearing price instead of the holder floor. Same scratch harness `node tmp/proof-holder-statement.mjs` failed before (`holder receipt price 20000; expected floor10000`) and passes after (`price10000, fill2, payment20000`); `tmp/proof-logs/holder-statement-before.out`, `holder-statement-after.out`. Typecheck/CLI build PASS (`holder-statement-build.out`). This changes the existing private statement price field only, preserving the signed leaf/output binding; no new test.
+
 ### Questions (run 8)
 
 User instruction (2026-10-02T03:55:33Z), verbatim:
