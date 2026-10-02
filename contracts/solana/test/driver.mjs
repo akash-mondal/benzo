@@ -1,24 +1,34 @@
 #!/usr/bin/env node
-// Benzo cross-chain escrow, Solana test driver (docs/design/crosschain.md §7 step 2).
+// Benzo cross-chain escrow, Solana test driver (docs/design/crosschain.md §7 step 2 + §9).
 // Runs against a local solana-test-validator with the freshly built benzo_escrow.so loaded.
 // Every expected failure asserts the specific custom-program error code, and all expectations
-// (leaf/root/attestation bytes, instruction layouts) are computed here from the design §1/§3
+// (leaf/root/attestation bytes, instruction layouts) are computed here from the design §1/§3/§9
 // byte layouts, independent of the Rust program source.
 //
-// Behaviours: lock / release 2-of-3 Ed25519 / replay refusal / refund after deadline /
-// per-recipient paid flags, plus the spoofed-sysvar refusal and the attestation binding.
+// §9 "attest once, release many": submit_attestation (2-of-3 Ed25519, once per
+// (auction_id, batch_index), writes the Approval PDA) then release_approved (anyone, no
+// signatures, repeatedly until every leaf is paid). Tests: submit twice refused; release with no
+// Approval refused; expired approval refused; release after refund refused; leaf not in the root
+// refused; every leaf paid exactly once across several crank calls; spoofed sysvar on
+// submit_attestation refused. The before/after payouts-per-transaction table at proof depths 0–6
+// is measured from real serialized transactions (1232-byte packet limit) and printed as
+// `SIZE depth=…` lines; it is recorded in docs/STATUS-B.md.
 //
 // Output: one `PASS <id>` or `ERROR <id> <reason>` line per assertion; exit 0 only if all PASS.
 
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import {
+  AddressLookupTableAccount,
+  AddressLookupTableProgram,
   Connection,
   Keypair,
+  MessageV0,
   PublicKey,
   SystemProgram,
   Transaction,
   TransactionInstruction,
+  VersionedTransaction,
   LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -31,6 +41,7 @@ const conn = new Connection(RPC, "confirmed");
 // ---------- canonical cross-chain encodings (design §1/§3; mirrored in contracts/evm + Rust) ----------
 const utf8 = (s) => new TextEncoder().encode(s);
 const be64 = (n) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n)); return b; };
+const le64 = (n) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n), true); return b; };
 const beI64 = (n) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigInt64(0, BigInt(n)); return b; };
 const be16 = (n) => { const b = new Uint8Array(2); new DataView(b.buffer).setUint16(0, n); return b; };
 const cat = (...parts) => { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; };
@@ -70,7 +81,7 @@ function buildTree(leaves) {
 const attestation = (genesis, programId, auctionId, resultHash, allocRoot, batch, nonce, expiry) =>
   cat(utf8("benzo-release-v1"), genesis, programId, auctionId, resultHash, allocRoot, be64(batch), be64(nonce), beI64(expiry));
 
-// ---------- Solana instruction builders ----------
+// ---------- Solana instruction builders (design §9 wire layouts) ----------
 const TAG = (tag) => Uint8Array.of(1, tag); // version 1
 
 function lockIx(seller, auctionPda, { auctionId, genesis, amount, lot, lockUntil, deadline, signers, returnTo }) {
@@ -87,8 +98,9 @@ function lockIx(seller, auctionPda, { auctionId, genesis, amount, lot, lockUntil
   });
 }
 
-// native Ed25519 verification instruction with 2-3 signatures; the message lives in the release
-// instruction and is referenced cross-instruction (strictly checked: index == release ix, offset 2)
+// native Ed25519 verification instruction with 2-3 signatures; the message lives in the
+// submit-attestation instruction and is referenced cross-instruction (strictly checked:
+// index == submit ix, offset 2)
 function ed25519Ix(signatures, pubkeys, msgRef) {
   const n = signatures.length;
   const header = 2 + 14 * n;
@@ -109,11 +121,45 @@ function ed25519Ix(signatures, pubkeys, msgRef) {
     data: Buffer.from(cat(head, ...signatures, ...pubkeys)),
   });
 }
-// the attestation message is at offset 2 of the release instruction, which sits at message index 1
+// the attestation message is at offset 2 of the submit instruction, which sits at message index 1
 const MSG_REF = { ixIndex: 1, offset: 2, size: 200 };
 
-function releaseIx(crank, auctionPda, batchPda, att, payouts) {
+function submitIx(crank, auctionPda, approvalPda, att) {
+  return new TransactionInstruction({
+    programId: PROGRAM_ID,
+    keys: [
+      { pubkey: crank.publicKey, isSigner: true, isWritable: true },
+      { pubkey: auctionPda, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey("Sysvar1nstructions1111111111111111111111111"), isSigner: false, isWritable: false },
+      { pubkey: approvalPda, isSigner: false, isWritable: true },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from(cat(TAG(2), att)),
+  });
+}
+
+function releaseApprovedIx(crank, auctionPda, approvalPda, payouts) {
   // payouts: [{index, lotCount, dest, leafCount, proof, paidPda, destAi, destWritable}]
+  const parts = [cat(TAG(4), be16(payouts.length))];
+  for (const p of payouts) {
+    parts.push(be64(p.index), be64(p.lotCount), Uint8Array.of(2), p.dest, be64(p.leafCount), be16(p.proof.length), ...p.proof);
+  }
+  const keys = [
+    { pubkey: crank.publicKey, isSigner: true, isWritable: true },
+    { pubkey: auctionPda, isSigner: false, isWritable: true },
+    { pubkey: approvalPda, isSigner: false, isWritable: false },
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+  ];
+  for (const p of payouts) {
+    keys.push({ pubkey: p.destAi, isSigner: false, isWritable: p.destWritable });
+    keys.push({ pubkey: p.paidPda, isSigner: false, isWritable: true });
+  }
+  return new TransactionInstruction({ programId: PROGRAM_ID, keys, data: Buffer.from(cat(...parts)) });
+}
+
+// The REMOVED signature-carrying release layout ([ver, tag 2, att, payouts...]). Built here only
+// to measure the "before" wire size for the §9 table; never sent — the program no longer accepts it.
+function legacyReleaseIx(crank, auctionPda, batchPda, att, payouts) {
   const parts = [cat(TAG(2), att, be16(payouts.length))];
   for (const p of payouts) {
     parts.push(be64(p.index), be64(p.lotCount), Uint8Array.of(2), p.dest, be64(p.leafCount), be16(p.proof.length), ...p.proof);
@@ -147,7 +193,8 @@ function refundIx(crank, auctionPda, returnTo, auctionId) {
 // ---------- PDA helpers ----------
 const pda = (seeds) => PublicKey.findProgramAddressSync(seeds, PROGRAM_ID)[0];
 const auctionPdaFor = (auctionId) => pda([Buffer.from("escrow"), Buffer.from(auctionId)]);
-const batchPdaFor = (auctionId, batch) => pda([Buffer.from("batch"), Buffer.from(auctionId), Buffer.from(be64(batch))]);
+// design §9: seeds ["approval", auction_id, batch_index u64 le]
+const approvalPdaFor = (auctionId, batch) => pda([Buffer.from("approval"), Buffer.from(auctionId), Buffer.from(le64(batch))]);
 const paidPdaFor = (auctionId, leaf) => pda([Buffer.from("paid"), Buffer.from(auctionId), Buffer.from(leaf)]);
 
 // ---------- assertion plumbing ----------
@@ -199,6 +246,73 @@ const send = async (payer, ...ixs) => {
   return sig;
 };
 
+// ---------- versioned tx + address lookup table (design §9 size remedy) ----------
+const PACKET_LIMIT = 1232;
+
+// create a real lookup table holding `addresses`, extend it in chunks, and wait (bounded poll on
+// slot advance) until its entries are live before returning it
+async function createLookupTable(payer, addresses) {
+  const slot = await conn.getSlot("finalized");
+  const [createIx, tableAddress] = AddressLookupTableProgram.createLookupTable({
+    authority: payer.publicKey, payer: payer.publicKey, recentSlot: slot,
+  });
+  await send(payer, createIx);
+  for (let i = 0; i < addresses.length; i += 20) {
+    await send(payer, AddressLookupTableProgram.extendLookupTable({
+      payer: payer.publicKey, authority: payer.publicKey, lookupTable: tableAddress,
+      addresses: addresses.slice(i, i + 20),
+    }));
+  }
+  const startSlot = await conn.getSlot();
+  const deadlineMs = Date.now() + 30_000;
+  let filled = null;
+  for (;;) {
+    const got = await conn.getAddressLookupTable(tableAddress);
+    if (got.value && got.value.state.addresses.length >= addresses.length) { filled = got.value; break; }
+    if (Date.now() > deadlineMs) throw new Error(`lookup table ${tableAddress.toBase58()} did not fill`);
+    await new Promise((r) => setTimeout(r, 200));
+    if ((await conn.getSlot()) < startSlot) throw new Error("slot went backwards");
+  }
+  // lookup-table entries land in the loader's cache at the next slot: wait (bounded) for the
+  // slot to advance past the extend before any transaction uses the table
+  const fillSlot = await conn.getSlot();
+  for (;;) {
+    if ((await conn.getSlot()) > fillSlot) return filled;
+    if (Date.now() > deadlineMs) throw new Error("slot did not advance after lookup-table fill");
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+// build (but do not send) a v0 release_approved tx over `table`; returns the signed bytes length
+function buildReleaseV0(payer, auctionPda, approvalPda, payouts, table, blockhash) {
+  const ix = releaseApprovedIx(payer, auctionPda, approvalPda, payouts);
+  const msg = MessageV0.compile({
+    payerKey: payer.publicKey, instructions: [ix], recentBlockhash: blockhash,
+    addressLookupTableAccounts: [table],
+  });
+  const tx = new VersionedTransaction(msg);
+  tx.sign([payer]);
+  return tx;
+}
+
+// web3.js refuses to serialize a transaction over the packet limit; report the real size anyway
+function txSize(tx) {
+  try {
+    return tx.serialize().length;
+  } catch (e) {
+    const m = /Transaction too large: (\d+)/.exec(e?.message ?? "");
+    if (m) return Number(m[1]);
+    throw e;
+  }
+}
+
+const sendV0 = async (payer, tx) => {
+  const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
+  const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
+  await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  return sig;
+};
+
 // ---------- scenarios ----------
 async function main() {
   if (!PROGRAM_ID.toBase58() || PROGRAM_ID.toBase58() === "11111111111111111111111111111111")
@@ -209,7 +323,7 @@ async function main() {
   const crank = Keypair.generate();
   const returnTo = Keypair.generate();
   for (const kp of [seller, crank]) {
-    const sig = await conn.requestAirdrop(kp.publicKey, 10 * LAMPORTS_PER_SOL);
+    const sig = await conn.requestAirdrop(kp.publicKey, 20 * LAMPORTS_PER_SOL);
     await conn.confirmTransaction(sig);
   }
 
@@ -268,14 +382,17 @@ async function main() {
       })));
   }
 
-  // ---- 2. release with 2-of-3 Ed25519 ----
-  const mkPayout = (kp, index, lotCount, leaves, proofs, batch, writable = true) => ({
+  // ---- 2. submit_attestation + release_approved (design §9) ----
+  const mkPayout = (kp, index, lotCount, leaves, proofs, writable = true) => ({
     index, lotCount, dest: dest(kp), destAi: kp.publicKey, destWritable: writable,
     leafCount: leaves.length, proof: proofs[index],
     paidPda: paidPdaFor(auctionId, leaves[index]),
-    leaf: leaves[index], batch,
+    leaf: leaves[index],
   });
   const bal = async (kp) => await conn.getBalance(kp.publicKey);
+  const submit = async (batch, att, sigIdx, pkIdx) =>
+    send(crank, ed25519Ix(sigIdx.map((i) => sign(i, att)), pkIdx.map((i) => signers[i]), MSG_REF),
+      submitIx(crank, auctionPda, approvalPdaFor(auctionId, batch), att));
 
   // batch 0 tree: [r1 lot1, r2 lot1]
   const leafA = leafHash(auctionId, 0, ASSET_SOL, 1, 2, dest(r1));
@@ -284,31 +401,45 @@ async function main() {
   const root0 = rootHash(2, tree0.treeRoot);
 
   {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline);
-    const sigs = [sign(0, att), sign(2, att)]; // alice + carol
-    const p0 = mkPayout(r1, 0, 1, [leafA, leafB], tree0.proofs, 0);
-    const p1 = mkPayout(r2, 1, 1, [leafA, leafB], tree0.proofs, 0);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline + 1000);
+    await submit(0, att, [0, 2], [0, 2]); // alice + carol
+    const ai = await conn.getAccountInfo(approvalPdaFor(auctionId, 0));
+    const d = ai?.data;
+    const ok = ai && ai.owner.equals(PROGRAM_ID) && d.length === 153 &&
+      eq(d.slice(0, 32), auctionId) && d.readBigUInt64LE(32) === 0n &&
+      eq(d.slice(40, 72), root0) && eq(d.slice(72, 104), resultHash) &&
+      d.readBigUInt64LE(104) === 0n && BigInt(d.readBigInt64LE(112)) === BigInt(deadline + 1000) &&
+      eq(d.slice(120, 152), genesis);
+    check("submit-2of3-records-approval", ok, "Approval PDA state differs from the attested fields");
+  }
+
+  {
     const b1 = await bal(r1), b2 = await bal(r2);
-    await send(crank, ed25519Ix(sigs, [signers[0], signers[2]], MSG_REF),
-      releaseIx(crank, auctionPda, batchPdaFor(auctionId, 0), att, [p0, p1]));
+    await send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 0), [
+      mkPayout(r1, 0, 1, [leafA, leafB], tree0.proofs),
+      mkPayout(r2, 1, 1, [leafA, leafB], tree0.proofs),
+    ]));
     const a1 = await bal(r1), a2 = await bal(r2);
     const f1 = await conn.getAccountInfo(paidPdaFor(auctionId, leafA));
     const f2 = await conn.getAccountInfo(paidPdaFor(auctionId, leafB));
-    check("release-2of3-pays",
+    check("release-approved-pays",
       BigInt(a1 - b1) === LOT && BigInt(a2 - b2) === LOT && f1 !== null && f2 !== null,
       `balances r1 +${a1 - b1} r2 +${a2 - b2} (want ${LOT}), paid flags ${f1 !== null}/${f2 !== null}`);
   }
 
-  await expectCustomError("replay-refused", 9, async () => {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline);
-    const sigs = [sign(0, att), sign(2, att)];
-    const p0 = mkPayout(r1, 0, 1, [leafA, leafB], tree0.proofs, 0);
-    const p1 = mkPayout(r2, 1, 1, [leafA, leafB], tree0.proofs, 0);
-    await send(crank, ed25519Ix(sigs, [signers[0], signers[2]], MSG_REF),
-      releaseIx(crank, auctionPda, batchPdaFor(auctionId, 0), att, [p0, p1]));
+  // §9: submit twice -> refused (the Approval PDA is created exactly once per batch)
+  await expectCustomError("submit-twice-refused", 9, async () => {
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline + 1000);
+    await submit(0, att, [0, 2], [0, 2]);
   });
 
-  // ---- per-recipient paid flags: one failing recipient never reverts the batch ----
+  // §9: release with no Approval -> refused
+  await expectCustomError("release-no-approval-refused", 19, () =>
+    send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 99), [
+      mkPayout(r1, 0, 1, [leafA, leafB], tree0.proofs),
+    ])));
+
+  // ---- per-recipient paid flags: one failing recipient never reverts the call ----
   const leafC = leafHash(auctionId, 0, ASSET_SOL, 1, 2, dest(r3));
   const leafD = leafHash(auctionId, 1, ASSET_SOL, 1, 2, dest(r4));
   const tree1 = buildTree([leafC, leafD]);
@@ -316,13 +447,13 @@ async function main() {
 
   {
     // batch 1: r3's account is readonly (cannot receive) -> skipped; r4 is paid regardless
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 1, 0, deadline);
-    const sigs = [sign(1, att), sign(2, att)];
-    const pC = mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 1, false); // readonly = failing recipient
-    const pD = mkPayout(r4, 1, 1, [leafC, leafD], tree1.proofs, 1, true);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 1, 0, deadline + 1000);
+    await submit(1, att, [1, 2], [1, 2]);
     const b3 = await bal(r3), b4 = await bal(r4);
-    await send(crank, ed25519Ix(sigs, [signers[1], signers[2]], MSG_REF),
-      releaseIx(crank, auctionPda, batchPdaFor(auctionId, 1), att, [pC, pD]));
+    await send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 1), [
+      mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, false), // readonly = failing recipient
+      mkPayout(r4, 1, 1, [leafC, leafD], tree1.proofs, true),
+    ]));
     const a3 = await bal(r3), a4 = await bal(r4);
     check("recipient-flag-failure-skipped-not-reverted",
       a3 - b3 === 0 && BigInt(a4 - b4) === LOT,
@@ -331,96 +462,160 @@ async function main() {
 
   {
     // batch 2, same leaves/root, new batch index: the failed item is claimable, the paid one is not
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 2, 0, deadline);
-    const sigs = [sign(0, att), sign(1, att)];
-    const pC = mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 2, true);
-    const pD = mkPayout(r4, 1, 1, [leafC, leafD], tree1.proofs, 2, true);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 2, 0, deadline + 1000);
+    await submit(2, att, [0, 1], [0, 1]);
     const b3 = await bal(r3), b4 = await bal(r4);
-    await send(crank, ed25519Ix(sigs, [signers[0], signers[1]], MSG_REF),
-      releaseIx(crank, auctionPda, batchPdaFor(auctionId, 2), att, [pC, pD]));
+    await send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 2), [
+      mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, true),
+      mkPayout(r4, 1, 1, [leafC, leafD], tree1.proofs, true),
+    ]));
     const a3 = await bal(r3), a4 = await bal(r4);
     check("recipient-flag-claimable-later-no-double-pay",
       BigInt(a3 - b3) === LOT && a4 - b4 === 0,
       `r3 +${a3 - b3} (want ${LOT}: claimable), r4 +${a4 - b4} (want 0: paid flag blocks double pay)`);
   }
 
-  // ---- attestation refusals (specific errors) ----
+  // ---- submit_attestation refusals (specific errors) ----
   {
     // one signature is not 2-of-3
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 3, 0, deadline);
-    const sigs = [sign(0, att)];
-    await expectCustomError("release-1sig-refused", 11, () =>
-      send(crank, ed25519Ix(sigs, [signers[0]], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 3), att, [mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 3)])));
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 3, 0, deadline + 1000);
+    await expectCustomError("submit-1sig-refused", 11, () => submit(3, att, [0], [0]));
   }
   {
     // two signatures from outside the signer set
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 4, 0, deadline);
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 4, 0, deadline + 1000);
     const outPks = [randomBytes(32), randomBytes(32)];
     const sigs = [ed25519.sign(att, outPks[0]), ed25519.sign(att, outPks[1])];
-    await expectCustomError("release-outsider-signatures-refused", 12, () =>
+    await expectCustomError("submit-outsider-signatures-refused", 12, () =>
       send(crank, ed25519Ix(sigs, [ed25519.getPublicKey(outPks[0]), ed25519.getPublicKey(outPks[1])], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 4), att, [mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 4)])));
+        submitIx(crank, auctionPda, approvalPdaFor(auctionId, 4), att)));
   }
   {
     // the same signer twice is one signature, not two
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 5, 0, deadline);
-    const sigs = [sign(0, att), sign(0, att)];
-    await expectCustomError("release-one-signer-twice-refused", 12, () =>
-      send(crank, ed25519Ix(sigs, [signers[0], signers[0]], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 5), att, [mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 5)])));
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 5, 0, deadline + 1000);
+    await expectCustomError("submit-one-signer-twice-refused", 12, () => submit(5, att, [0, 0], [0, 0]));
   }
   {
     // cross-cluster binding: a correctly signed attestation for another genesis hash is refused
-    const att = attestation(new Uint8Array(32), programIdBytes, auctionId, resultHash, root1, 6, 0, deadline);
-    const sigs = [sign(0, att), sign(1, att)];
-    await expectCustomError("release-wrong-genesis-refused", 18, () =>
-      send(crank, ed25519Ix(sigs, [signers[0], signers[1]], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 6), att, [mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 6)])));
+    const att = attestation(new Uint8Array(32), programIdBytes, auctionId, resultHash, root1, 6, 0, deadline + 1000);
+    await expectCustomError("submit-wrong-genesis-refused", 18, () => submit(6, att, [0, 1], [0, 1]));
   }
   {
-    // expired attestation is refused
+    // expired attestation is refused at submit (now <= expiry required)
     const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 7, 0, t0 - 10);
-    const sigs = [sign(0, att), sign(1, att)];
-    await expectCustomError("release-expired-refused", 8, () =>
-      send(crank, ed25519Ix(sigs, [signers[0], signers[1]], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 7), att, [mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 7)])));
+    await expectCustomError("submit-expired-refused", 8, () => submit(7, att, [0, 1], [0, 1]));
   }
-
-  // ---- spoofed-sysvar refusal (the 2022 Wormhole class) ----
   {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 8, 0, deadline);
-    const sigs = [sign(0, att), sign(1, att)];
+    // §9: a spoofed sysvar on submit_attestation -> refused (the 2022 Wormhole class)
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 8, 0, deadline + 1000);
     const fakeSysvar = Keypair.generate().publicKey;
-    const ix = releaseIx(crank, auctionPda, batchPdaFor(auctionId, 8), att, [mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 8)]);
+    const ix = submitIx(crank, auctionPda, approvalPdaFor(auctionId, 8), att);
     ix.keys[2] = { pubkey: fakeSysvar, isSigner: false, isWritable: false }; // spoofed sysvar account
-    await expectCustomError("spoofed-sysvar-refused", 10, () =>
-      send(crank, ed25519Ix(sigs, [signers[0], signers[1]], MSG_REF), ix));
+    await expectCustomError("spoofed-sysvar-on-submit-refused", 10, () =>
+      send(crank, ed25519Ix([sign(0, att), sign(1, att)], [signers[0], signers[1]], MSG_REF), ix));
   }
 
-  // ---- leaf bounds and root membership ----
+  // ---- release_approved leaf checks (against the approved root) ----
   {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 9, 0, deadline);
-    const sigs = [sign(0, att), sign(1, att)];
-    const bad = { ...mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 9), index: 2, leafCount: 2 };
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 9, 0, deadline + 1000);
+    await submit(9, att, [0, 1], [0, 1]);
+  }
+  {
+    const bad = { ...mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs), index: 2, leafCount: 2 };
     await expectCustomError("release-leaf-index-bound-refused", 14, () =>
-      send(crank, ed25519Ix(sigs, [signers[0], signers[1]], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 9), att, [bad])));
+      send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 9), [bad])));
   }
   {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 10, 0, deadline);
-    const sigs = [sign(0, att), sign(1, att)];
-    const bad = { ...mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 10), proof: [leafB] }; // wrong sibling
+    // §9: a leaf not in the root -> refused
+    const bad = { ...mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs), proof: [leafB] }; // wrong sibling
     await expectCustomError("release-leaf-not-in-root-refused", 15, () =>
-      send(crank, ed25519Ix(sigs, [signers[0], signers[1]], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 10), att, [bad])));
+      send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 9), [bad])));
   }
 
-  // ---- 4. refund after deadline ----
+  // ---- §9: an expired approval -> refused ----
   {
-    await expectCustomError("refund-before-deadline-refused", 16, () =>
-      send(crank, refundIx(crank, auctionPda, returnTo.publicKey, auctionId)));
+    const shortExpiry = (await chainTime()) + 3;
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 10, 0, shortExpiry);
+    await submit(10, att, [0, 1], [0, 1]);
+    await waitUntilChainTime(shortExpiry, "approval expiry");
+    await expectCustomError("approval-expired-release-refused", 8, () =>
+      send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 10), [
+        mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs),
+      ])));
+  }
 
+  // ---- §9: every leaf paid exactly once across several crank calls (v0 tx + lookup table) ----
+  {
+    const auction2Id = randomBytes(32);
+    const auction2Pda = auctionPdaFor(auction2Id);
+    const dests = Array.from({ length: 8 }, () => Keypair.generate());
+    const leaves = dests.map((kp, i) => leafHash(auction2Id, i, ASSET_SOL, 1, 2, dest(kp)));
+    const tree = buildTree(leaves);
+    const root = rootHash(8, tree.treeRoot);
+    const t2 = await chainTime();
+    await send(seller, lockIx(seller, auction2Pda, {
+      auctionId: auction2Id, genesis, amount: 8n * LOT, lot: LOT,
+      lockUntil: t2 + 600, deadline: t2 + 1200,
+      signers, returnTo: returnTo.publicKey.toBytes(),
+    }));
+    const att = attestation(genesis, programIdBytes, auction2Id, resultHash, root, 0, 0, t2 + 600);
+    await send(crank,
+      ed25519Ix([sign(0, att), sign(1, att)], [signers[0], signers[1]], MSG_REF),
+      submitIx(crank, auction2Pda, approvalPdaFor(auction2Id, 0), att));
+
+    const payoutAt = (i, writable = true) => ({
+      index: i, lotCount: 1, dest: dest(dests[i]), destAi: dests[i].publicKey, destWritable: writable,
+      leafCount: 8, proof: tree.proofs[i], paidPda: paidPdaFor(auction2Id, leaves[i]), leaf: leaves[i],
+    });
+    // lookup-table order is payout order (dest_i, paid_i): the compiled lookup indexes must
+    // come out ascending, which they do when the table follows usage order
+    const table = await createLookupTable(crank,
+      dests.flatMap((d, i) => [d.publicKey, paidPdaFor(auction2Id, leaves[i])]));
+    const { blockhash } = await conn.getLatestBlockhash("confirmed");
+    // chunk 8 payouts into several crank calls (3+3+2), each its own v0 transaction
+    const chunks = [[0, 1, 2], [3, 4, 5], [6, 7]];
+    for (const chunk of chunks) {
+      const tx = buildReleaseV0(crank, auction2Pda, approvalPdaFor(auction2Id, 0), chunk.map((i) => payoutAt(i)), table, blockhash);
+      if (txSize(tx) > PACKET_LIMIT) {
+        fail("every-leaf-paid-exactly-once", `release chunk tx ${txSize(tx)} bytes exceeds ${PACKET_LIMIT}`);
+      }
+      await sendV0(crank, tx);
+    }
+    // two further crank calls re-present every leaf: all skipped, nothing paid twice
+    for (let round = 0; round < 2; round++) {
+      // 8 payouts cannot fit one tx: split by the measured limit and send each
+      // (fresh blockhash per round: identical bytes would be refused as already processed)
+      const { blockhash } = await conn.getLatestBlockhash("confirmed");
+      const fits = [];
+      let cur = [];
+      for (const p of dests.map((_, i) => payoutAt(i))) {
+        const trial = buildReleaseV0(crank, auction2Pda, approvalPdaFor(auction2Id, 0), [...cur, p], table, blockhash);
+        if (txSize(trial) <= PACKET_LIMIT) cur.push(p);
+        else { fits.push(cur); cur = [p]; }
+      }
+      if (cur.length) fits.push(cur);
+      for (const f of fits) {
+        const t = buildReleaseV0(crank, auction2Pda, approvalPdaFor(auction2Id, 0), f, table, blockhash);
+        await sendV0(crank, t);
+      }
+    }
+    const got = await Promise.all(dests.map((kp) => bal(kp)));
+    const exactlyOnce = got.every((g) => BigInt(g) === LOT);
+    const info = await conn.getAccountInfo(auction2Pda);
+    const paidTotal = info.data.readBigUInt64LE(211);
+    check("every-leaf-paid-exactly-once",
+      exactlyOnce && paidTotal === 8n * LOT,
+      `balances [${got.join(",")}] (want each ${LOT}), escrow paid ${paidTotal} (want ${8n * LOT})`);
+  }
+
+  // ---- 4. refund after deadline + §9 release after refund ----
+  await expectCustomError("refund-before-deadline-refused", 16, () =>
+    send(crank, refundIx(crank, auctionPda, returnTo.publicKey, auctionId)));
+
+  {
+    // approval submitted before the refund, released after it -> refused
+    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 11, 0, deadline + 1000);
+    await submit(11, att, [0, 1], [0, 1]);
     await waitUntilChainTime(deadline, "deadline");
     const b = await bal(returnTo);
     await send(crank, refundIx(crank, auctionPda, returnTo.publicKey, auctionId));
@@ -431,16 +626,91 @@ async function main() {
 
     const info = await conn.getAccountInfo(auctionPda);
     check("refund-sets-closed-flag", info.data[2] === 1, `refunded flag is ${info.data[2]}, want 1`);
-  }
 
-  {
-    const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 11, 0, deadline);
-    const sigs = [sign(0, att), sign(1, att)];
     await expectCustomError("release-after-refund-refused", 7, () =>
-      send(crank, ed25519Ix(sigs, [signers[0], signers[1]], MSG_REF),
-        releaseIx(crank, auctionPda, batchPdaFor(auctionId, 11), att, [mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs, 11)])));
+      send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 11), [
+        mkPayout(r4, 1, 1, [leafC, leafD], tree1.proofs),
+      ])));
     await expectCustomError("refund-twice-refused", 17, () =>
       send(crank, refundIx(crank, auctionPda, returnTo.publicKey, auctionId)));
+  }
+
+  // ---- §9: before/after payouts-per-transaction table at proof depths 0–6 ----
+  // before = the removed signature-carrying release (ed25519 verify ix + attestation in the same
+  // transaction); after = release_approved. Sizes are real serialized transactions against the
+  // 1232-byte packet limit. after_legacy is a plain transaction; after_alt is a versioned
+  // transaction with the destination + paid-flag accounts in an address lookup table.
+  {
+    const measureAt = (depth, mode) => {
+      const fakeBh = PublicKey.default.toBase58();
+      const nleaves = 2 ** depth;
+      const aid = randomBytes(32);
+      const mdests = Array.from({ length: nleaves }, () => Keypair.generate());
+      const mleaves = mdests.map((kp, i) => leafHash(aid, i, ASSET_SOL, 1, 2, dest(kp)));
+      const mtree = buildTree(mleaves);
+      const mroot = rootHash(nleaves, mtree.treeRoot);
+      const matt = attestation(genesis, programIdBytes, aid, resultHash, mroot, 0, 0, deadline + 1000);
+      const mpayouts = mdests.map((kp, i) => ({
+        index: i, lotCount: 1, dest: dest(kp), destAi: kp.publicKey, destWritable: true,
+        leafCount: nleaves, proof: mtree.proofs[i], paidPda: paidPdaFor(aid, mleaves[i]),
+      }));
+      let max = 0;
+      for (let p = 1; p <= mpayouts.length; p++) {
+        const sel = mpayouts.slice(0, p);
+        let size = 0;
+        try {
+        if (mode === "before") {
+          const tx = new Transaction();
+          const fakeCrank = crank;
+          tx.add(ed25519Ix([new Uint8Array(64), new Uint8Array(64)], [signers[0], signers[1]], MSG_REF),
+            legacyReleaseIx(fakeCrank, auctionPda, auctionPda, matt, sel));
+          tx.recentBlockhash = fakeBh;
+          tx.feePayer = crank.publicKey;
+          tx.sign(crank);
+          size = txSize(tx);
+        } else {
+          const table = new AddressLookupTableAccount({
+            key: PublicKey.findProgramAddressSync([randomBytes(32)], PROGRAM_ID)[0],
+            state: {
+              deactivationSlot: BigInt("18446744073709551615"),
+              lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0,
+              addresses: [...mdests.map((d) => d.publicKey), ...mleaves.map((l) => paidPdaFor(aid, l))],
+            },
+          });
+          const ix = releaseApprovedIx(crank, auctionPda, auctionPda, sel);
+          if (mode === "after_alt") {
+            const msg = MessageV0.compile({
+              payerKey: crank.publicKey, instructions: [ix], recentBlockhash: fakeBh,
+              addressLookupTableAccounts: [table],
+            });
+            const tx = new VersionedTransaction(msg);
+            tx.sign([crank]);
+            size = txSize(tx);
+          } else {
+            const tx = new Transaction().add(ix);
+            tx.recentBlockhash = fakeBh;
+            tx.feePayer = crank.publicKey;
+            tx.sign(crank);
+            size = txSize(tx);
+          }
+        }
+        } catch {
+          size = 10_000_000; // serializer refused: the transaction cannot be sent at this size
+        }
+        if (size <= PACKET_LIMIT) max = p;
+        else break;
+      }
+      return max;
+    };
+    let tableLines = [];
+    for (let depth = 0; depth <= 6; depth++) {
+      const before = measureAt(depth, "before");
+      const afterLegacy = measureAt(depth, "after_legacy");
+      const afterAlt = measureAt(depth, "after_alt");
+      tableLines.push(`SIZE depth=${depth} before=${before} after_legacy=${afterLegacy} after_alt=${afterAlt}`);
+    }
+    console.log(tableLines.join("\n"));
+    check("size-table-measured", tableLines.length === 7, "size table incomplete");
   }
 
   console.log(failures === 0

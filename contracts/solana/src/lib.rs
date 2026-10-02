@@ -1,18 +1,23 @@
 //! BenzoEscrow — Solana cross-chain escrow released only by 2-of-3 attested Benzo clearing results.
 //!
-//! Design: docs/design/crosschain.md §1–§3 (Track B, Phase 5 part 3), same five behaviours as the
-//! EVM `BenzoEscrow.sol`: lock, release with 2-of-3 attestations, replay refusal, refund after
-//! deadline, per-recipient paid flags.
+//! Design: docs/design/crosschain.md §1–§3, §9 (Track B, Phase 5 part 3): lock; `submit_attestation`
+//! (2-of-3 attestations, once per (auction_id, batch_index), written to the `Approval` PDA);
+//! `release_approved` (anyone, no signatures, repeatedly until every leaf is paid); refund after
+//! deadline. §9's "attest once, release many": the attestations and their Ed25519 verification
+//! instructions live in one submit transaction, and every later release transaction carries only
+//! payouts — so many payouts fit per transaction (the before/after table is measured by
+//! `contracts/solana/test/driver.mjs` and recorded in `docs/STATUS-B.md`).
 //!
 //! Attestation checking (design §1): each signer holds its own Ed25519 key; the crank submits the
-//! release instruction immediately after a native Ed25519 verification instruction. This program
-//! reads that instruction through the **checked** instructions sysvar (`load_instruction_at_checked`
-//! + `load_current_index_checked`, and an explicit `sysvar::instructions::ID` comparison — the 2022
-//! Wormhole spoofed-sysvar class) and enforces strict offsets: signature and public-key slices must
-//! live inside the verification instruction itself (`*_instruction_index == u16::MAX`), and the
-//! verified message must be exactly this release instruction's own attestation bytes
-//! (`message_instruction_index == current`, `offset == 2`, `size == 200`) — the precompile's
-//! cross-instruction data referencing is only ever accepted at that one exact location.
+//! `submit_attestation` instruction immediately after a native Ed25519 verification instruction.
+//! This program reads that instruction through the **checked** instructions sysvar
+//! (`load_instruction_at_checked` + `load_current_index_checked`, and an explicit
+//! `sysvar::instructions::ID` comparison — the 2022 Wormhole spoofed-sysvar class) and enforces
+//! strict offsets: signature and public-key slices must live inside the verification instruction
+//! itself (`*_instruction_index == u16::MAX`), and the verified message must be exactly this
+//! submit instruction's own attestation bytes (`message_instruction_index == current`,
+//! `offset == 2`, `size == 200`) — the precompile's cross-instruction data referencing is only ever
+//! accepted at that one exact location.
 //!
 //! Attestation message (fixed layout, design §1, 200 bytes), what each signer signs:
 //!
@@ -24,10 +29,18 @@
 //! Solana has no genesis-hash sysvar, so the cluster genesis hash is pinned into the auction at
 //! `lock` (the locker's client supplies `getGenesisHash`) and every attestation must carry it,
 //! together with this program's own ID: an attestation minted for another cluster or deployment
-//! is refused (`BadBinding`). Release is refused once per `(auction_id, batch_index)` (the batch
-//! PDA is the stored flag) and each allocation leaf is payable at most once (the paid PDA, written
-//! before any lamports move — P0 effects-before-interactions ordering; Solana has no transfer CPI
-//! to a recipient here, so no callback exists, but the ordering is kept explicit).
+//! is refused (`BadBinding`). Attestation replay is refused because the `Approval` PDA is created
+//! exactly once per `(auction_id, batch_index)` (`init` semantics: a second submit fails with
+//! `BatchReplayed`) and each allocation leaf is payable at most once (the paid PDA, written before
+//! any lamports move — P0 effects-before-interactions ordering; Solana has no transfer CPI to a
+//! recipient here, so no callback exists, but the ordering is kept explicit).
+//!
+//! `release_approved` takes the `Approval` PDA and the auction account with **no signatures**:
+//! the approval was fully verified at submit time; the release transaction checks `now <= expiry`,
+//! the auction is not refunded, and per payout the leaf bound + Merkle membership against the
+//! approval's `allocation_root`, the paid-flag PDA unset, the cap (`paid + amount <= locked`), sets
+//! the paid flag, then moves the lamports. Anyone may call it repeatedly (the crank) until every
+//! leaf is paid; per-recipient failures skip and stay claimable.
 //!
 //! Canonical leaf/root layout (design §3, identical to `contracts/evm/src/BenzoEscrow.sol` and
 //! `crosschain/`):
@@ -65,8 +78,9 @@ entrypoint!(process_instruction);
 
 pub const VERSION: u8 = 1;
 pub const TAG_LOCK: u8 = 1;
-pub const TAG_RELEASE: u8 = 2;
+pub const TAG_SUBMIT_ATTESTATION: u8 = 2;
 pub const TAG_REFUND: u8 = 3;
+pub const TAG_RELEASE_APPROVED: u8 = 4;
 
 pub const LEAF_PREFIX: &[u8] = b"benzo-leaf-v1";
 pub const ROOT_PREFIX: &[u8] = b"benzo-root-v1";
@@ -76,6 +90,7 @@ pub const ATT_LEN: usize = 16 + 32 * 5 + 8 * 3; // 200
 pub const DEST_SOLANA: u8 = 2;
 pub const ASSET_SOL: [u8; 32] = [0u8; 32];
 pub const STATE_LEN: usize = 235;
+pub const APPROVAL_LEN: usize = 153;
 pub const MAX_PAYOUTS: usize = 64;
 pub const MAX_PROOF: usize = 32;
 
@@ -95,6 +110,17 @@ const S_PAID: usize = 211;
 const S_LOCK_UNTIL: usize = 219; // i64 le
 const S_DEADLINE: usize = 227;
 
+// approval offsets (design §9 fields, exactly): auction_id, batch_index(u64 le), allocation_root,
+// result_hash, nonce(u64 le), expiry(i64 le), genesis_hash, bump
+const A_AUCTION: usize = 0; // 32
+const A_BATCH: usize = 32; // u64 le
+const A_ROOT: usize = 40; // 32
+const A_RESULT: usize = 72; // 32
+const A_NONCE: usize = 104; // u64 le
+const A_EXPIRY: usize = 112; // i64 le
+const A_GENESIS: usize = 120; // 32
+const A_BUMP: usize = 152; // u8
+
 #[derive(Clone, Copy)]
 struct Auction {
     bump: u8,
@@ -108,6 +134,20 @@ struct Auction {
     paid: u64,
     lock_until: i64,
     deadline: i64,
+}
+
+/// The `Approval` PDA (design §9): created exactly once per (auction_id, batch_index) by
+/// `submit_attestation`, read (never written) by `release_approved`.
+#[derive(Clone, Copy)]
+struct Approval {
+    auction_id: [u8; 32],
+    batch_index: u64,
+    allocation_root: [u8; 32],
+    result_hash: [u8; 32],
+    nonce: u64,
+    expiry: i64,
+    genesis: [u8; 32],
+    bump: u8,
 }
 
 /// Error codes are asserted by name/number in `contracts/solana/test/driver.mjs`.
@@ -131,6 +171,7 @@ pub enum EscrowError {
     BeforeDeadline = 16,
     AlreadyRefunded = 17,
     BadBinding = 18,
+    NoApproval = 19,
 }
 
 impl From<EscrowError> for ProgramError {
@@ -257,6 +298,37 @@ fn store_state(data: &mut [u8], a: &Auction) -> Result<(), ProgramError> {
     Ok(())
 }
 
+fn load_approval(data: &[u8]) -> Result<Approval, ProgramError> {
+    if data.len() != APPROVAL_LEN {
+        return Err(EscrowError::NoApproval.into());
+    }
+    Ok(Approval {
+        auction_id: data[A_AUCTION..A_AUCTION + 32].try_into().unwrap(),
+        batch_index: u64::from_le_bytes(data[A_BATCH..A_BATCH + 8].try_into().unwrap()),
+        allocation_root: data[A_ROOT..A_ROOT + 32].try_into().unwrap(),
+        result_hash: data[A_RESULT..A_RESULT + 32].try_into().unwrap(),
+        nonce: u64::from_le_bytes(data[A_NONCE..A_NONCE + 8].try_into().unwrap()),
+        expiry: i64::from_le_bytes(data[A_EXPIRY..A_EXPIRY + 8].try_into().unwrap()),
+        genesis: data[A_GENESIS..A_GENESIS + 32].try_into().unwrap(),
+        bump: data[A_BUMP],
+    })
+}
+
+fn store_approval(data: &mut [u8], a: &Approval) -> Result<(), ProgramError> {
+    if data.len() != APPROVAL_LEN {
+        return Err(EscrowError::BadAccount.into());
+    }
+    data[A_AUCTION..A_AUCTION + 32].copy_from_slice(&a.auction_id);
+    data[A_BATCH..A_BATCH + 8].copy_from_slice(&a.batch_index.to_le_bytes());
+    data[A_ROOT..A_ROOT + 32].copy_from_slice(&a.allocation_root);
+    data[A_RESULT..A_RESULT + 32].copy_from_slice(&a.result_hash);
+    data[A_NONCE..A_NONCE + 8].copy_from_slice(&a.nonce.to_le_bytes());
+    data[A_EXPIRY..A_EXPIRY + 8].copy_from_slice(&a.expiry.to_le_bytes());
+    data[A_GENESIS..A_GENESIS + 32].copy_from_slice(&a.genesis);
+    data[A_BUMP] = a.bump;
+    Ok(())
+}
+
 pub fn process_instruction(
     program_id: &Pubkey,
     accounts: &[AccountInfo],
@@ -268,8 +340,9 @@ pub fn process_instruction(
     }
     match r.u8()? {
         TAG_LOCK => lock(program_id, accounts, &mut r),
-        TAG_RELEASE => release(program_id, accounts, &mut r),
+        TAG_SUBMIT_ATTESTATION => submit_attestation(program_id, accounts, &mut r),
         TAG_REFUND => refund(program_id, accounts, &mut r),
+        TAG_RELEASE_APPROVED => release_approved(program_id, accounts, &mut r),
         _ => Err(EscrowError::BadInstruction.into()),
     }
 }
@@ -376,17 +449,28 @@ struct Payout {
     proof: Vec<[u8; 32]>,
 }
 
-fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> ProgramResult {
+/// `submit_attestation` (design §9): verify 2-of-3 attestations and write the `Approval` PDA.
+/// Same checks as the old signature-carrying release: the preceding native Ed25519 instruction is
+/// read through the checked instructions sysvar (account key == `sysvar::instructions::ID`,
+/// `load_instruction_at_checked`, strict offsets); 2-of-3 distinct signers from the auction's
+/// pinned set; the message is exactly the attestation bytes; the genesis hash matches the one
+/// pinned at lock; `now <= expiry`; the auction is not refunded. On success the `Approval` PDA is
+/// written. No transfers happen in this instruction.
+fn submit_attestation(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    r: &mut Reader,
+) -> ProgramResult {
     let iter = &mut accounts.iter();
     let crank = next_account_info(iter)?;
     let auction_ai = next_account_info(iter)?;
     let instructions_ai = next_account_info(iter)?;
-    let batch_ai = next_account_info(iter)?;
+    let approval_ai = next_account_info(iter)?;
     let system_program_ai = next_account_info(iter)?;
     if !crank.is_signer || !crank.is_writable {
         return Err(EscrowError::BadAccount.into());
     }
-    if !auction_ai.is_writable || !batch_ai.is_writable {
+    if !approval_ai.is_writable {
         return Err(EscrowError::BadAccount.into());
     }
     if system_program_ai.key != &solana_program::system_program::ID {
@@ -399,12 +483,133 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
     }
 
     let att = r.take(ATT_LEN)?;
-    let npayout = r.u16()? as usize;
-    if npayout == 0 || npayout > MAX_PAYOUTS {
+    if !r.end() {
+        return Err(EscrowError::BadInstruction.into());
+    }
+
+    // attestation fields (fixed layout)
+    if &att[0..16] != RELEASE_PREFIX {
+        return Err(EscrowError::MessageMismatch.into());
+    }
+    let att_genesis = &att[16..48];
+    let att_program = &att[48..80];
+    let att_auction = &att[80..112];
+    let att_result: [u8; 32] = att[112..144].try_into().unwrap();
+    let att_root: [u8; 32] = att[144..176].try_into().unwrap();
+    let att_batch = u64::from_be_bytes(att[176..184].try_into().unwrap());
+    let att_nonce = u64::from_be_bytes(att[184..192].try_into().unwrap());
+    let att_expiry = i64::from_be_bytes(att[192..200].try_into().unwrap());
+
+    if auction_ai.owner != program_id || auction_ai.data_len() != STATE_LEN {
+        return Err(EscrowError::UnknownAuction.into());
+    }
+    let state = {
+        let data = auction_ai.try_borrow_data()?;
+        load_state(&data)?
+    };
+    if att_auction != state.auction_id {
+        return Err(EscrowError::BadBinding.into());
+    }
+    // cross-cluster / cross-deployment replay refusal: the signed message must carry this
+    // cluster's genesis hash (pinned at lock) and this program's ID
+    if att_genesis != state.genesis || att_program != program_id.as_ref() {
+        return Err(EscrowError::BadBinding.into());
+    }
+    if state.refunded {
+        return Err(EscrowError::Refunded.into());
+    }
+    if Clock::get()?.unix_timestamp > att_expiry {
+        return Err(EscrowError::Expired.into());
+    }
+
+    // replay refusal: the Approval PDA is created exactly once per (auction_id, batch_index)
+    let (approval_pda, approval_bump) = Pubkey::find_program_address(
+        &[b"approval", &state.auction_id, &att_batch.to_le_bytes()],
+        program_id,
+    );
+    if approval_pda != *approval_ai.key {
+        return Err(EscrowError::BadAccount.into());
+    }
+    if approval_ai.lamports() != 0 || !approval_ai.data_is_empty() {
+        return Err(EscrowError::BatchReplayed.into());
+    }
+
+    // 2-of-3 Ed25519 via the preceding native verification instruction
+    let current = load_current_index_checked(instructions_ai)? as usize;
+    if current == 0 {
+        return Err(EscrowError::BadEd25519.into());
+    }
+    let verify_ix = load_instruction_at_checked(current - 1, instructions_ai)?;
+    if verify_ix.program_id != ed25519_program::ID {
+        return Err(EscrowError::BadEd25519.into());
+    }
+    check_ed25519(&verify_ix.data, &state.signers, current)?;
+
+    // write the Approval (crank pays rent; no transfers in this instruction)
+    let rent = Rent::get()?;
+    invoke_signed(
+        &system_instruction::create_account(
+            crank.key,
+            approval_ai.key,
+            rent.minimum_balance(APPROVAL_LEN),
+            APPROVAL_LEN as u64,
+            program_id,
+        ),
+        &[crank.clone(), approval_ai.clone(), system_program_ai.clone()],
+        &[&[
+            b"approval",
+            &state.auction_id,
+            &att_batch.to_le_bytes(),
+            &[approval_bump],
+        ]],
+    )?;
+    let approval = Approval {
+        auction_id: state.auction_id,
+        batch_index: att_batch,
+        allocation_root: att_root,
+        result_hash: att_result,
+        nonce: att_nonce,
+        expiry: att_expiry,
+        genesis: state.genesis,
+        bump: approval_bump,
+    };
+    let mut data = approval_ai.try_borrow_mut_data()?;
+    store_approval(&mut data, &approval)
+}
+
+/// `release_approved` (design §9): pay payouts against a verified `Approval`, with **no
+/// signatures** — anyone (the crank) may call it repeatedly until every leaf is paid. Requires
+/// `now <= approval.expiry` and the auction not refunded. Per payout: leaf bound and Merkle
+/// membership against `approval.allocation_root` (the same leaf/root encoding), paid-flag PDA
+/// unset, paid flag set before the transfer, cap (`paid + amount <= locked`) checked, then the
+/// lamports move. Per-recipient failures skip and stay claimable (design §2.4): one failing
+/// recipient never reverts the call.
+fn release_approved(
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    r: &mut Reader,
+) -> ProgramResult {
+    let iter = &mut accounts.iter();
+    let crank = next_account_info(iter)?;
+    let auction_ai = next_account_info(iter)?;
+    let approval_ai = next_account_info(iter)?;
+    let system_program_ai = next_account_info(iter)?;
+    if !crank.is_signer || !crank.is_writable {
+        return Err(EscrowError::BadAccount.into());
+    }
+    if !auction_ai.is_writable {
+        return Err(EscrowError::BadAccount.into());
+    }
+    if system_program_ai.key != &solana_program::system_program::ID {
+        return Err(EscrowError::BadAccount.into());
+    }
+
+    let npayload = r.u16()? as usize;
+    if npayload == 0 || npayload > MAX_PAYOUTS {
         return Err(EscrowError::BadParameters.into());
     }
-    let mut payouts = Vec::with_capacity(npayout);
-    for _ in 0..npayout {
+    let mut payouts = Vec::with_capacity(npayload);
+    for _ in 0..npayload {
         let index = r.u64()?;
         let lot_count = r.u64()?;
         let destination_kind = r.u8()?;
@@ -431,19 +636,6 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
         return Err(EscrowError::BadInstruction.into());
     }
 
-    // attestation fields (fixed layout)
-    if &att[0..16] != RELEASE_PREFIX {
-        return Err(EscrowError::MessageMismatch.into());
-    }
-    let att_genesis = &att[16..48];
-    let att_program = &att[48..80];
-    let att_auction = &att[80..112];
-    let _att_result = &att[112..144]; // result hash: bound in the signed message, not read here
-    let att_root = &att[144..176];
-    let att_batch = u64::from_be_bytes(att[176..184].try_into().unwrap());
-    // nonce (184..192) is bound in the signed message only
-    let att_expiry = i64::from_be_bytes(att[192..200].try_into().unwrap());
-
     if auction_ai.owner != program_id || auction_ai.data_len() != STATE_LEN {
         return Err(EscrowError::UnknownAuction.into());
     }
@@ -451,60 +643,33 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
         let data = auction_ai.try_borrow_data()?;
         load_state(&data)?
     };
-    if att_auction != state.auction_id {
-        return Err(EscrowError::BadBinding.into());
+    // the Approval PDA (no signatures here: it was fully verified at submit_attestation)
+    if approval_ai.owner != program_id || approval_ai.data_len() != APPROVAL_LEN {
+        return Err(EscrowError::NoApproval.into());
     }
-    // cross-cluster / cross-deployment replay refusal: the signed message must carry this
-    // cluster's genesis hash (pinned at lock) and this program's ID
-    if att_genesis != state.genesis || att_program != program_id.as_ref() {
+    let approval = {
+        let data = approval_ai.try_borrow_data()?;
+        load_approval(&data)?
+    };
+    // the approval account must be the PDA its own fields derive (self-binding)
+    let (approval_pda, _) = Pubkey::find_program_address(
+        &[b"approval", &approval.auction_id, &approval.batch_index.to_le_bytes()],
+        program_id,
+    );
+    if approval_pda != *approval_ai.key {
+        return Err(EscrowError::BadAccount.into());
+    }
+    if approval.auction_id != state.auction_id || approval.genesis != state.genesis {
         return Err(EscrowError::BadBinding.into());
     }
     if state.refunded {
         return Err(EscrowError::Refunded.into());
     }
-    if Clock::get()?.unix_timestamp > att_expiry {
+    if Clock::get()?.unix_timestamp > approval.expiry {
         return Err(EscrowError::Expired.into());
     }
 
-    // replay refusal: the batch PDA is the stored (auction_id, batch_index) flag
-    let batch_index = att_batch;
-    let (batch_pda, batch_bump) = Pubkey::find_program_address(
-        &[b"batch", &state.auction_id, &batch_index.to_be_bytes()],
-        program_id,
-    );
-    if batch_pda != *batch_ai.key {
-        return Err(EscrowError::BadAccount.into());
-    }
-    if batch_ai.lamports() != 0 || !batch_ai.data_is_empty() {
-        return Err(EscrowError::BatchReplayed.into());
-    }
-
-    // 2-of-3 Ed25519 via the preceding native verification instruction
-    let current = load_current_index_checked(instructions_ai)? as usize;
-    if current == 0 {
-        return Err(EscrowError::BadEd25519.into());
-    }
-    let verify_ix = load_instruction_at_checked(current - 1, instructions_ai)?;
-    if verify_ix.program_id != ed25519_program::ID {
-        return Err(EscrowError::BadEd25519.into());
-    }
-    check_ed25519(&verify_ix.data, &state.signers, current)?;
-
-    // create the batch flag (crank pays rent)
-    let rent = Rent::get()?;
-    invoke_signed(
-        &system_instruction::create_account(
-            crank.key,
-            batch_ai.key,
-            rent.minimum_balance(1),
-            1,
-            program_id,
-        ),
-        &[crank.clone(), batch_ai.clone(), system_program_ai.clone()],
-        &[&[b"batch", &state.auction_id, &batch_index.to_be_bytes(), &[batch_bump]]],
-    )?;
-
-    // per-payout: verify the leaf against the attested root, pay at most once
+    // per-payout: verify the leaf against the approved root, pay at most once
     for p in payouts.iter() {
         let dest_ai = next_account_info(iter)?;
         let paid_ai = next_account_info(iter)?;
@@ -526,7 +691,7 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
         for node in &p.proof {
             tree_root = parent(&tree_root, node);
         }
-        if root_hash(p.leaf_count, &tree_root) != att_root {
+        if root_hash(p.leaf_count, &tree_root) != approval.allocation_root {
             return Err(EscrowError::NotInRoot.into());
         }
         let (paid_pda, paid_bump) = Pubkey::find_program_address(
@@ -538,7 +703,7 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
         }
 
         // per-recipient paid flag: a failing or already-paid recipient is skipped, never a
-        // batch revert; failed items stay claimable by a later release (design §2.4)
+        // call revert; failed items stay claimable by a later release (design §2.4)
         let mut skip = false;
         if paid_ai.lamports() != 0 || !paid_ai.data_is_empty() {
             skip = true; // already paid
@@ -571,7 +736,7 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
             &system_instruction::create_account(
                 crank.key,
                 paid_ai.key,
-                rent.minimum_balance(1),
+                Rent::get()?.minimum_balance(1),
                 1,
                 program_id,
             ),
@@ -591,7 +756,7 @@ fn release(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Pro
 
 /// Strict Ed25519 verification-instruction parse (design §1 traps). Signature and public-key
 /// slices must live inside the verification instruction itself (`*_instruction_index == u16::MAX`);
-/// the verified message must be exactly this release instruction's attestation bytes (the one
+/// the verified message must be exactly this submit-attestation instruction's attestation bytes (the one
 /// cross-instruction location we accept: instruction index `current`, offset 2, size `ATT_LEN`).
 /// Signature bytes were already verified by the native Ed25519 program (the whole transaction
 /// fails otherwise); we re-check every offset and bound. Quorum: ≥ 2 distinct signer-set members.
