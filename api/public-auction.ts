@@ -9,7 +9,7 @@ import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed 
 import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
-import { settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
+import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -278,6 +278,9 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   });
   // Gate W: published envelope records verify against the owner pubkey inside each opening, and the opening's
   // salted settlement commitment binds the same envelope ciphertext (threat #7, #32). Dirs without records are pre-W.
+  // R12 item 1: every published record must satisfy the one shared format/recipient rule
+  // (envelope/index.ts envelopeRecordValid) — the operator admitted it, so a record that breaks it is an ERROR,
+  // not a settleable state. Pre-v2 (572-byte) records pass only where the manifest pins no `envelope_keys`.
   // R7 item 4 (R F-5 = G5): a leaf with no valid record is a correct state only as an explicit exception-queued
   // row that was never paid to an unauthenticated destination — anything else refuses.
   run("envelope", () => {
@@ -302,6 +305,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const byLeaf = new Map<number, EnvelopeRecord>();
     for (const rec of records) {
       requireThat(rec && typeof rec === "object" && Object.keys(rec).sort().join(",") === "ciphertext_hash,envelope_ct,owner_sig", "envelope record shape");
+      requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen!.leaves.find(l => l.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
       requireThat(!byLeaf.has(leaf!.leaf_index), `duplicate envelope ${leaf!.leaf_index}`);

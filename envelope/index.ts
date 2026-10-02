@@ -56,6 +56,9 @@ const NONCE_BYTES = 12;
 export const ENVELOPE_PT_BYTES = 512;
 // R10 item 1: the fixed envelope-ciphertext byte length for n = 3 (the production recipient set).
 export const ENVELOPE_CT_BYTES_N3 = MAGIC.length + 1 + STANZA_BYTES * 3 + COMMIT_BYTES + NONCE_BYTES + ENVELOPE_PT_BYTES + 16;
+// R12 item 1: the pre-v2 sealed box (32 || 12 || 512 || 16 = 572 bytes). It is accepted as a published record
+// only where the signed manifest pins no `envelope_keys` (the Phase 2–4 evidence); nowhere else.
+export const ENVELOPE_CT_BYTES_PRE_V2 = 32 + 12 + ENVELOPE_PT_BYTES + 16;
 // key_commit key: the ASCII label zero-padded to libsodium's crypto_generichash_KEYBYTES (32)
 const KC_KEY = Buffer.concat([Buffer.from("benzo-envelope-v2-kc"), Buffer.alloc(32 - 19)]);
 function keyCommit(contentKey: Uint8Array): Buffer {
@@ -101,6 +104,27 @@ export function envelopeRecipients(envelopeCtHex: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < n; i++) out.push(hex(b.subarray(MAGIC.length + 1 + i * STANZA_BYTES, MAGIC.length + 1 + i * STANZA_BYTES + 32)));
   return out;
+}
+// R12 item 1 (Reviewer R F-2/F-4): the one shared published-record rule, used by intake
+// (clear/auction-cli.ts admit), settlement (settle/envelopes.ts validEnvelope) and `benzo verify`. When the
+// signed manifest pins `envelope_keys`, a record is valid only as the exact v2 shape for n = 3 — the fixed
+// length, the magic, and stanza recipients equal to `envelope_keys` in order — so a substituted or truncated
+// recipient set can never be admitted, published or certified. When the manifest pins no keys (the pre-v2
+// Phase 2–4 evidence), only the pre-v2 572-byte sealed box is accepted. Total: a malformed record is invalid,
+// never a throw.
+export function envelopeRecordValid(record: { envelope_ct?: unknown; owner_sig?: unknown }, envelope_keys: unknown): boolean {
+  try {
+    const ct = record?.envelope_ct, sig = record?.owner_sig;
+    if (typeof ct !== "string" || !/^[0-9a-f]+$/.test(ct) || ct.length % 2 !== 0) return false;
+    if (typeof sig !== "string" || !/^[0-9a-f]{128}$/.test(sig)) return false;
+    const b = Buffer.from(ct, "hex");
+    if (!Array.isArray(envelope_keys)) return b.length === ENVELOPE_CT_BYTES_PRE_V2;
+    if (b.length !== ENVELOPE_CT_BYTES_N3) return false;
+    const recipients = envelopeRecipients(ct);
+    return recipients.length === envelope_keys.length && recipients.every((k, i) => k === envelope_keys[i]);
+  } catch {
+    return false;
+  }
 }
 export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string): string {
   const b = raw(envelopeCtHex, 0);
