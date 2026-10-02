@@ -35,7 +35,7 @@ account-layout version and every instruction checks it; EVM escrows are redeploy
 | Solana devnet | `AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4` (ProgramData `HxCEzNaJmjDn3oA9pMjshoctkr32iywgNAKdVMC1tFQm`) | **current** — layout v2 (`layout_version` byte, R9 item 1), 102,256 bytes, sha256 `48870cc9…c2673`, upgrade authority `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` |
 | Solana devnet | `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` | **SUPERSEDED** (pre-layout-version build) |
 | Solana devnet | `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G` | **SUPERSEDED** (earliest deployment) |
-| Ethereum Sepolia | see `docs/STATUS-B.md` live-cycle records | superseded per redeploy |
+| Ethereum Sepolia | `0x8d085193Cf762dD4F946BE48f609AaA2405bbe65` (deploy tx `0xf48b8c79…5379b`) | **current** — attest-once/release-many + `lock` nonReentrant (R9 items 3–4); `0x19887941cf9BbD967f3739034127924f937D48ad` and earlier **SUPERSEDED** |
 
 ## Dependencies
 

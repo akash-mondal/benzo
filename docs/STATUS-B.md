@@ -5,13 +5,14 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R10 item 1 + R9 items 1–4 + live cycles (the head's 6-item list)
 
-State: **IN PROGRESS** (items 1–5 landed; updated 2026-10-02T21:44Z). Base: clean tree at
-`dc5ea63` (head: merge main into track-b; R9/R10 in `docs/PHASE-5.md`). One commit per item,
-each with a red log on the pre-change code and a green log after: `79aed9e` (item 1, R10
-envelope key commitment + exact recipient set), `aff0c6b` (item 2, R9 Solana `layout_version` +
-new program ID), `88c1772` (item 3, R9 `xchain attest` asset from chain), `e26de7f` (item 4,
-R9 EVM attest-once/release-many), and this commit (item 5, R9 `lock` nonReentrant +
-effects-before-transfer). Scope: the head's list in order — (1) R10 item 1 envelope
+State: **READY FOR MERGE** (items 1–6 all landed with red/green proof; updated 2026-10-02T22:10Z).
+Base: clean tree at `dc5ea63` (head: merge main into track-b; R9/R10 in `docs/PHASE-5.md`).
+One commit per item, each with a red log on the pre-change code and a green log after: `79aed9e`
+(item 1, R10 envelope key commitment + exact recipient set), `aff0c6b` (item 2, R9 Solana
+`layout_version` + new program ID), `88c1772` (item 3, R9 `xchain attest` asset from chain),
+`e26de7f` (item 4, R9 EVM attest-once/release-many), `4d9c0e6` (item 5, R9 `lock` nonReentrant +
+effects-before-transfer), and this commit (item 6, Sepolia redeploy + one live cycle per chain).
+Scope: the head's list in order — (1) R10 item 1 envelope
 key commitment; (2) R9 item 1 Solana layout version + fresh devnet program ID; (3) R9 item 2
 `benzo xchain attest` asset from chain; (4) R9 item 3 EVM attest-once/release-many + forge
 red/green; (5) R9 item 4 EVM `lock` nonReentrant + effects-before-transfer + forge proof;
@@ -168,6 +169,74 @@ merge/rebase/cherry-pick/push.
    after the calls) and `FAIL: re-entrant lock must be refused` (the re-entrant lock landed).
    **Green after** — `contracts/logs/r9-4-lock-fixed.out` (exit 0): 28/28 forge tests (26 prior
    + the 2 new). `npm run typecheck` PASS.
+
+6. **Redeploy + one live cycle per chain (lock → attest → release, plus one refund): DONE**
+   (this commit). Both cycles ran through the shipped `benzo xchain` CLI with my own keys
+   (`$BNZ_STATE_DIR/{evm,solana,xchain-live}/`, never printed). Full transcript (public values
+   only): `$BNZ_STATE_DIR/xchain-live/r9-cycle.out`.
+
+   **Ethereum Sepolia** — escrow **`0x8d085193Cf762dD4F946BE48f609AaA2405bbe65`** (deploy tx
+   `0xf48b8c7946a5a822cc94e2fab5b9fb5702e79ba5c4d644f9a7c2ef9e6d35379b`; the prior escrow
+   `0x19887941cf9BbD967f3739034127924f937D48ad` is **SUPERSEDED**, recorded here and in
+   `docs/AUDITS.md`). Auction `0x020b768d9156b4579133fae2c73577bb8d02463f74cb7309928db1e2861ea85a`
+   (TestToken BNT `0xC64d247Db515870B12b0d1D1EFeC7C153a0371e6`, 2e18 locked, lot 1e18; dest
+   `0xef450203B8D60AE5b87D51C3E5c98B99b3E43dff`, return `0x1A28Aa96dBE4610436206D5e4Be664B1CeDB8b31`):
+
+   | what | value |
+   |---|---|
+   | mint 2 BNT / approve escrow | tx `0x8de243f732fa03dfe544f08cb61b8e09529cfc854136ec0a29026b0db78c89de` / `0x2bcdaeef64df0c97be20720b0c7c5bcb38076551080c3c40c7b8740774cd7d6e` |
+   | lock 2e18 (lot 1e18) | tx `0x85c0c4958e60b7f3f4c0fabbaf1947c415eeca80455021308200531b31e19242` |
+   | attest 2-of-3 (submitAttestation in the release tx) | root `0x5edec6bd2fbfe7c3c312167a24c498b55b2a9c74192918f2be883e32a9924a9c`, signers `0x7dc2aC34…f0dd` + `0x4A40a5CA…ce40`, expiry == deadline |
+   | release (leaf 0: 1e18 to dest; submit-if-needed then `releaseApproved`) | tx `0x891af964cf160997c3366eb4423cf375819c4adfed9fb3f0ceefaca25293e749` |
+   | refund remainder (1e18 to return, after the deadline) | tx `0x9e31d9f9b01e88e821bfc5b6b7178b951373c00852c65c5b0ac4b7117bbcfc5a` |
+
+   Final read-back: `status` `paid 1000000000000000000, refunded true, locked 2000000000000000000`;
+   escrow BNT balance **0**.
+
+   **Solana devnet** — program **`AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4`** (the item-2
+   layout-v2 deployment). Auction
+   `0x20bb416be7bac351ac3c81f1de022457c6b133bbb6364297da90b460d51ee576` (escrow PDA
+   `37J8LGjBoZUzvuupZ8aeLozxNQLnSeyLyyoTKFBjJg2M`; 0.02 SOL locked, lot 0.01 — small because the
+   deployer holds 0.054 SOL, see Questions; dest `Gbp126vzNbCFdRCh3zgnEiHDGVkU9pamhg4kbvdwaZvJ`,
+   return `5LiXLJbRuT5Lhc7YkqYHjgfotEabi9BbbabjymyYTRcX`):
+
+   | what | value |
+   |---|---|
+   | lock 20000000 (lot 10000000) | tx `41943uAMojMdMuBxePNx4xNxxvL93f7rUN4QFzSxTWYARnHgiydknbk5xUFoKTimkewb36DwixJGcktoMJY3ViPa` |
+   | attest 2-of-3 | root `0xbc991776f8bcff429f5337c04998afb07b7a2769f45af78f680d45c5f6850b1f`, signers `HHW9bhUG…Pqt` + `6QsPjH64…iFTD` |
+   | submit_attestation | tx `4r3s1g1RgzuHFVmKUT3ThsDFEVQ7xDFkEpmpSSNpEC22PiirawKnHtaKHprUekHN8a5GFCqfHT87PRvTAU5GRySE` |
+   | release_approved (leaf 0: 0.01 SOL to dest) | tx `31TJ8rg6JVKmBUnxmfkUWWt8eKWUF4ZqX1nw6dqLcvbBFVh2JbLQy6rrKbeZAmj41Cbhqw7SJGzQhF1UEQd6GBYo` (LUT create `5LDoFDG9…7ijK` / extend `4mjH9FT5…xscN`) |
+   | refund remainder (0.01 SOL to return, after the deadline) | tx `31CwjJRecy3BZYbHHzwc7cT1v93y4AgeTnNYNpYhKiwkhxZrAJcXpJMPLs9r8G6WwTzMKqqQrDs7gL9JxqAupEa7` |
+
+   Final read-back: `status` `paid 10000000, refunded true`; dest 10000000 lamports, return
+   10000000 lamports.
+
+   **Honesty notes (this run):** (a) First live attempt: the shared window (`lockUntil = start+90`)
+   expired while the EVM half ran, and the Solana `lock` was correctly refused `LockClosed` 0x4
+   (the recorded EVM half is that attempt — its lock → attest → release all landed and its refund
+   is in the table). The window is now computed per chain. (b) Before that, the first EVM
+   `submitAttestation` was refused `Quorum()` 0xc251aaa2: `xchain-live/evm-signers.json` was from
+   an older run and did not match the key files (one attesting key was not in the locked set).
+   The signer sets are now derived from the key files before locking; that attempt's auction
+   `0xec6c723340e42385e583cba3b9ae80a91bacf43383bf5c62007afbd6f20e2a40` (2 BNT on the aborted
+   escrow `0x33fCaEF5Ed40fc4E5f3833fDd50F34FBcB8A362d`) never paid anything and was refunded in
+   full (tx `0x043a62f085e2fa0e7fcbf3f10ffc77432ed8f603d42920e32dc2360c853318fe`); that escrow
+   is empty and unused. (c) The devnet public RPC rate-limited once mid-run (429s, retried and
+   recovered). (d) Scratch drivers `tmp/live-cycle*.mjs` deleted at run end (key material stayed
+   in `$BNZ_STATE_DIR`).
+
+### Test audit (READY FOR MERGE)
+
+Project E2E suite (the 8-test ceiling; 5 used) — untouched in this run, **R retain**:
+`e2e/default` (seal in the browser, open with `tle` after R; assertion IDs unchanged; covered
+seal/ code unchanged here — PASS 38–41 s at base `dc5ea63` and after item 1). Contract-level
+proofs outside the ceiling, each red/green in this run where its covered code changed: the forge
+suites (28 tests — PartialRelease + LockReentry own items 4–5 and were re-proven red/green;
+BenzoEscrow/FeeTokenDrain/ReentrancyRepro **R retain**, rewritten to the new release API and
+re-run green), the Solana driver suite (43 assertions — the 5 `layout-*` ones own item 2 and were
+re-proven red/green; the rest **R retain** and green), the local two-chain demo (15 assertions —
+`demo-attest-asset-*` own item 3, re-proven red/green; the rest **R retain** and green), and the
+scratch envelope proofs (tmp/, not committed — item 1, red/green cited above).
 
 ### Questions (this run)
 
