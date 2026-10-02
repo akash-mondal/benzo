@@ -11,12 +11,21 @@ RPC_PORT="${BNZ_SOLANA_TEST_RPC_PORT:-8901}"
 LEDGER="target/test-ledger"
 KP="target/deploy/benzo_escrow-keypair.json"
 
+# R14 item 2: the CPI-forgery regression fixture needs its attacker proxy program (test/proxy,
+# Reviewer R's lab PoC program) loaded beside the escrow
+echo "== build-sbf the test/proxy attacker fixture"
+cargo build-sbf --manifest-path test/proxy/Cargo.toml
+PROXY_SO="test/proxy/target/deploy/proxy.so"
+test -f "$PROXY_SO"
+PROXY_KP="test/proxy/target/deploy/proxy-keypair.json"
+
 echo "== build-sbf (pinned toolchain, see ../AUDITS.md)"
 cargo build-sbf
 test -f target/deploy/benzo_escrow.so
 
 PROGRAM_ID="$(solana-keygen pubkey "$KP")"
-echo "== program id: $PROGRAM_ID"
+PROXY_ID="$(solana-keygen pubkey "$PROXY_KP")"
+echo "== program id: $PROGRAM_ID proxy id: $PROXY_ID"
 
 echo "== prepare the pre-R9 layout-v1 state account (R9 item 1 probe)"
 OLD_LAYOUT_PDA="$(node test/old-layout-account.mjs "$PROGRAM_ID" target/old-layout-account.json)"
@@ -28,6 +37,7 @@ solana-test-validator --reset --quiet --ledger "$LEDGER" \
   --rpc-port "$RPC_PORT" --faucet-port $((RPC_PORT + 1000)) \
   --gossip-port $((RPC_PORT + 2)) --dynamic-port-range "$((RPC_PORT + 1100))-$((RPC_PORT + 1200))" \
   --bpf-program "$PROGRAM_ID" target/deploy/benzo_escrow.so \
+  --bpf-program "$PROXY_ID" "$PROXY_SO" \
   --account "$OLD_LAYOUT_PDA" target/old-layout-account.json \
   > target/test-validator.log 2>&1 &
 VALIDATOR_PID=$!
@@ -48,3 +58,6 @@ done
 
 echo "== run driver"
 BNZ_SOLANA_RPC="http://127.0.0.1:$RPC_PORT" node test/driver.mjs "$PROGRAM_ID"
+
+echo "== run CPI-forgery regression fixture (R14 item 2)"
+BNZ_SOLANA_RPC="http://127.0.0.1:$RPC_PORT" node test/cpi-forge.mjs "$PROGRAM_ID" "$PROXY_ID"
