@@ -278,11 +278,20 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   });
   // Gate W: published envelope records verify against the owner pubkey inside each opening, and the opening's
   // salted settlement commitment binds the same envelope ciphertext (threat #7, #32). Dirs without records are pre-W.
+  // R7 item 4 (R F-5 = G5): a leaf with no valid record is a correct state only as an explicit exception-queued
+  // row that was never paid to an unauthenticated destination — anything else refuses.
   run("envelope", () => {
     const records = pub.envelopes;
     if (!records.length) return projection("envelope.json", null);
     const frozen = pub.frozen;
     requireThat(frozen, "missing frozen");
+    const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    const settleable = (leaf: number, reason: string): string | void => {
+      const party = `leaf:${leaf}`;
+      if (!pub.settlement) return `${reason} ${leaf}; refund goes to the exception queue`;
+      const row = rows.find(r => r.party === party);
+      requireThat(row && row.state === "exception" && !receipts.some(r => r.party === party), `${reason} ${leaf}: not an unpaid exception row`);
+    };
     const byLeaf = new Map<number, EnvelopeRecord>();
     for (const rec of records) {
       requireThat(rec && typeof rec === "object" && Object.keys(rec).sort().join(",") === "ciphertext_hash,envelope_ct,owner_sig", "envelope record shape");
@@ -291,17 +300,24 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       requireThat(!byLeaf.has(leaf!.leaf_index), `duplicate envelope ${leaf!.leaf_index}`);
       byLeaf.set(leaf!.leaf_index, rec);
     }
-    for (const l of frozen!.leaves) requireThat(byLeaf.has(l.leaf_index), `missing envelope ${l.leaf_index}`);
-    if (pub.opened.length) {
-      for (const [i, rec] of byLeaf) {
-        const opening = pub.opened.find(o => o.leaf_index === i);
-        requireThat(opening && /^[0-9a-f]{256}$/.test(opening!.plaintext_hex ?? ""), `opening ${i} for envelope`);
+    const warnings: (string | void)[] = [];
+    for (const l of frozen!.leaves) if (!byLeaf.has(l.leaf_index)) warnings.push(settleable(l.leaf_index, "missing envelope"));
+    if (pub.opened.length) for (const l of frozen!.leaves) {
+      const rec = byLeaf.get(l.leaf_index);
+      if (!rec) continue;
+      const opening = pub.opened.find(o => o.leaf_index === l.leaf_index);
+      let valid = !!opening && /^[0-9a-f]{256}$/.test(opening!.plaintext_hex ?? "");
+      if (valid) {
         const pt = Buffer.from(opening!.plaintext_hex!, "hex");
-        requireThat(verifyEnvelope(pt.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig), `envelope ${i} signature`);
-        requireThat(pt.subarray(93, 125).toString("hex") === settlementCommitment(pt.subarray(45, 61).toString("hex"), rec.envelope_ct), `envelope ${i} commitment`);
+        try {
+          valid = verifyEnvelope(pt.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig)
+            && pt.subarray(93, 125).toString("hex") === settlementCommitment(pt.subarray(45, 61).toString("hex"), rec.envelope_ct);
+        } catch { valid = false; }
       }
+      if (!valid) warnings.push(settleable(l.leaf_index, "invalid envelope"));
     }
     projection("envelope.json", records);
+    return warnings.filter(Boolean).join("; ") || undefined;
   });
   // R20c: result obligations and stray-deposit obligations (T1) are checked in separate passes, so one
   // class can never mask the other. Strays never gate the result checks and vice versa.
@@ -328,14 +344,23 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const expected = modeEntry(pub.manifestPacket).obligations(result as ClearBody, pub.settlement);
     for (const [party, amount] of expected) {
       const rs = receipts.filter(r => r.party === party);
-      requireThat(rs.length > 0, `settlement missing obligation ${party}`);
+      const row = rows.find(r => r.party === party);
+      if (rs.length === 0) {
+        // R7 item 4 (R F-5 = G5): the only accepted unpaid state is a correct exception row — the refund was
+        // never paid to an unauthenticated destination and awaits an owner-signed claim.
+        requireThat(row && row.state === "exception" && row.amount_zats === amount, `settlement missing obligation ${party}`);
+        continue;
+      }
+      requireThat(!(row && row.state === "exception"), `exception row ${party} with receipt`);
       requireThat(rs.length === 1, `duplicate settlement ${party}`);
       requireThat(rs[0].amount_zats === amount, `settlement ${party} amount`);
     }
     for (const row of rows) {
       if (!expected.has(row.party)) continue;
       requireThat(row.amount_zats === expected.get(row.party), `row ${row.party} amount`);
-      requireThat(receipts.some(r => r.party === row.party && r.amount_zats === row.amount_zats), `row ${row.party} without receipt`);
+      const rs = receipts.filter(r => r.party === row.party && r.amount_zats === row.amount_zats);
+      if (row.state === "exception") requireThat(rs.length === 0, `exception row ${row.party} with receipt`);
+      else requireThat(rs.length > 0, `row ${row.party} without receipt`);
     }
   });
   run("accounting-strays", () => {

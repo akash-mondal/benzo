@@ -16,6 +16,21 @@ export const ENVELOPE_INTERIM_REFUSAL = "multi-recipient envelope format (design
 
 export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
+// The 512-byte BNZ memo framing (docs/PHASE-1.md section 6): ff424e5a01 || u16be length || tlock
+// ciphertext || zero pad. Returns the sealed-bid ciphertext inside a deposit memo, or null when the memo
+// is not a sealed bid — such a stray has no owner key and is only ever an exception-queue row (R7 item 6).
+export function memoSealedBid(memoHex: string): string | null {
+  try {
+    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
+    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
+    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
+    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+    return memo.subarray(7, 7 + length).toString("hex");
+  } catch {
+    return null;
+  }
+}
+
 // The single-recipient sealed box is exactly eph_pk(32) || nacl_nonce(12) || ChaCha20-Poly1305(padded
 // ENVELOPE_PT_BYTES plaintext + 16-byte tag). R7 item 3 (R F-4 = G3): this fixed shape is enforced at intake
 // (clear/auction-cli.ts admit) so a malformed record can never enter a published directory.

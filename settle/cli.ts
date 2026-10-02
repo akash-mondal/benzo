@@ -11,7 +11,7 @@ const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
-function destinations(rows:Row[],name:string,plan:{opened:any[]|null}) {
+function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>}) {
   const route=read(`routing-${name}.json`),observed=notes();
   requireThat(hash(jsonBytes(route))===read("routing-commitment.json").sha256,"signer routing changed after intake");
   // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
@@ -30,6 +30,10 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null}) {
     a={manifest:doc.manifest,frozen:doc.frozen,opened:plan.opened,envelopes:doc.envelopes};
   } else a=auction();
   return rows.map(row=> {
+    // R7 item 4: a claim-promoted row's destination is the one named in the owner-signed request the signer
+    // plan verified against its own fresh opening; it is signer-derived, like every other destination here.
+    const claimed=plan.destinations?.[row.party];
+    if(claimed)return {...row,recipient:claimed};
     // R7 item 2 (R F-1/F-2 = G4): no operator-held envelope key exists, and single-recipient envelopes cannot
     // be opened by every signer, so an envelope destination is refused with a clear error — never paid from a
     // fallback key — and its refund waits in the exception queue (owner-signed claim, R7 item 4).
