@@ -40,7 +40,10 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
     if(product&&row.party.startsWith("leaf:"))throw Error(`envelope destination refused: ${ENVELOPE_INTERIM_REFUSAL} (party ${row.party}; refund waits in the exception queue)`);
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
       observed.find(n=>row.party===`deposit:${n.txid}:${n.diversifier_index}`)?.address;
-    const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.[product?"stray_refund_ua":"refund_ua"];
+    // R7 item 6 (Reviewer G G6): a product-mode stray has no operator-chosen destination — it resolves only
+    // through its own owner-signed claim (plan.destinations above) or stays in the exception queue.
+    if(product&&row.party!=="seller")throw Error(`stray refund refused: no operator-chosen destination (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`);
+    const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;
     requireThat(recipient,"missing independently pinned settlement recipient");return {...row,recipient};
   });
 }
@@ -148,11 +151,13 @@ try {
     requireThat(auction().state==="OPEN","routing intake must precede funding/clearing");
     const routing=JSON.parse(readFileSync(0,"utf8")),{manifest:m}=client(auction().manifest,auction().signer);
     // R6 (W): product mode refuses operator-pinned bidder destinations — those are envelope-authenticated.
-    const product=existsSync(path.join(STATE,"product",`${id}.json`)),field=product?"stray_refund_ua":"refund_ua";
+    const product=existsSync(path.join(STATE,"product",`${id}.json`));
     requireThat(routing.bidders.length===m.deposit_addresses.length&&routing.bidders.every((b:any)=>m.deposit_addresses.includes(b.deposit_ua))&&new Set(routing.bidders.map((b:any)=>b.deposit_ua)).size===m.deposit_addresses.length,"routing deposit set");
-    if(product)requireThat(routing.bidders.every((b:any)=>Object.keys(b).sort().join()===`deposit_ua,${field}`),"bidder destinations are envelope-authenticated");
+    // R7 item 6 (Reviewer G G6): product routing carries no bidder destinations at all — stray_refund_ua is
+    // dropped; a stray refund resolves through the stray's own owner-signed claim or sits in the exception queue.
+    if(product)requireThat(routing.bidders.every((b:any)=>Object.keys(b).sort().join()===`deposit_ua`),"stray_refund_ua is dropped; product routing pins only deposit addresses");
     else requireThat(routing.bidders.every((b:any)=>typeof b.refund_ua==="string"),"routing shape");
-    requireThat(new Set([...routing.bidders.map((b:any)=>b[field]),routing.seller_ua]).size===routing.bidders.length+1,"unique party destinations");
+    requireThat(typeof routing.seller_ua==="string"&&(product||new Set([...routing.bidders.map((b:any)=>b.refund_ua),routing.seller_ua]).size===routing.bidders.length+1),"unique party destinations");
     requireThat(!existsSync(file("routing-commitment.json")),"routing already pinned");
     for(const n of ["alice","bob","carol"])writeFileSync(file(`routing-${n}.json`),jsonBytes(routing),{mode:0o600});
     writeFileSync(file("routing-commitment.json"),jsonBytes({sha256:hash(jsonBytes(routing)),pinned_at:Date.now()}),{mode:0o600});

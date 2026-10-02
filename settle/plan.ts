@@ -100,10 +100,10 @@ try {
     // names a shielded destination and is checked here against the one-time owner key inside the signer's own
     // fresh tle opening (a leaf) or the stray deposit's memo opening (a stray) — never against the private
     // ledger or any operator input. The first recorded claim per party wins (cli/product.ts claim-refund).
-    const ownerKeyFor=(party:string):string|null=>{
+    const bidPlaintextFor=(party:string):Buffer|null=>{
       if(party.startsWith("leaf:")) {
         const o=opened!.find(x=>x.leaf_index===Number(party.slice(5)));
-        return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex").subarray(61,93).toString("hex"):null;
+        return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
       }
       const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
       const note=m?depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2]):undefined;
@@ -114,8 +114,20 @@ try {
       checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(ct,"hex"))});
       const r=spawnSync(path.join(state,"bin","tle"),["-d","-n",process.env.BNZ_DRAND_URLS!.split(",")[0],"-c",QUICKNET.chain_hash,"-o",memoPt,memoCt],{encoding:"utf8"});
       if(r.error)throw r.error;
+      // R7 item 6: a memo that does not open to this auction's 128-byte sealed-bid layout holds no owner key.
       if(r.status!==0)return null;
-      return readFileSync(memoPt).toString("hex").slice(122,186);
+      const pt=readFileSync(memoPt);
+      return pt.length===128&&pt[0]===0&&pt.subarray(1,33).toString("hex")===id?pt:null;
+    };
+    const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
+    // R7 item 6: a stray with a valid sealed-bid memo resolves through its own owner-signed settlement
+    // envelope exactly like a bid leaf (same shared validity rule), keyed by its memo's ciphertext hash.
+    const strayEnvelope=(party:string):boolean=>{
+      const pt=bidPlaintextFor(party);if(!pt)return false;
+      const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party)!;
+      const note=depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2])!;
+      const ctHash=hash(Buffer.from(memoSealedBid(note.memo_hex!)!,"hex"));
+      return validEnvelope({manifest:src.manifest,frozen:{leaves:[{leaf_index:0,ciphertext_hash:ctHash}]},opened:[{leaf_index:0,plaintext_hex:pt.toString("hex")}],envelopes:src.envelopes},0)!==null;
     };
     const claimFile=path.join(state,"settle",id,"claims.json");
     if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
@@ -141,8 +153,17 @@ try {
         exceptions.push({...row,reason});
       } else obligations.push(row);
     }
+    for(const n of stray.filter(confirmed)) {
+      const party=`deposit:${n.txid}:${n.diversifier_index}`,row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
+      // R7 item 6 (Reviewer G G6): a stray refund never goes to an operator-chosen destination. A stray whose
+      // memo holds a valid sealed bid is refunded through its own envelope like any bid; anything else goes to
+      // the exception queue, claimable only when its memo holds an owner key (benzo claim-refund).
+      if(!published||claimDestinations[party]) {obligations.push(row);continue}
+      const reason=!bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":strayEnvelope(party)?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+      refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
+      exceptions.push({...row,reason});
+    }
   }
-  if(!["CANCELLED","REFUNDING"].includes(src.state))for(const n of stray.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
   process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,destinations:claimDestinations,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
