@@ -2,7 +2,7 @@
 // pure clear + manifest rules + verify-side money rules + its versioned plaintext layout — never a copy of the
 // verify path. `benzo verify`, the read API and signer recomputation all come through here.
 import { client, requireThat, type Manifest, type Signed } from "../manifest/schema";
-import { clear, checkResultModeA, obligationsModeA, type ClearInput, type ClearResult, type ClearBody } from "./core";
+import { clear, checkResultModeA, obligationsModeA, type ClearInput, type ClearResult, type ClearBody, type SettlementExtras } from "./core";
 import { clearModeB, clientBuyback, checkResultBuyback, obligationsModeB, type BuybackManifest } from "./mode-b";
 import { LAYOUT_V0, type OrderLayout } from "./layout";
 
@@ -11,7 +11,7 @@ export type ModeEntry = {
   client: (packet: Signed, signer: string) => { manifest_hash: string; manifest: unknown };
   clear: (input: ClearInput) => ClearResult;
   checkResult: (manifest: unknown, result: ClearBody) => void;
-  obligations: (result: ClearBody) => Map<string, string>;
+  obligations: (result: ClearBody, settlement?: SettlementExtras | null) => Map<string, string>;
 };
 
 export const registry: Record<string, ModeEntry> = {

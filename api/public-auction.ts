@@ -22,12 +22,18 @@ export type SettlementSummary = {
   auction_id?: string;
   rows?: { party: string; amount_zats: string; state?: string }[];
   receipts?: SettlementReceipt[];
+  // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
+  defaults?: number[];
 };
 export type PublicResult = {
   auction_id: string; manifest_hash: string; freeze_root: string; mode: string;
   clearing_price_zats: string;
-  allocations: { leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string }[];
-  conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string; treasury_zats?: string };
+  allocations: {
+    leaf_index: number; price_zats: string | null; quantity: number; fill: number; payment_zats: string; refund_zats: string; outcome: string;
+    lot?: string; balance_due_zats?: string;
+  }[];
+  conservation: { input_zats: string; payout_zats: string; refund_zats: string; fees_zats: string; treasury_zats?: string; balances_zats?: string };
+  lots?: { lot_id: string; clearing_price_zats: string }[];
 };
 // Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
 // yet. Readers that must run past freeze (benzo verify) use loadCompletePublicAuction instead.
@@ -49,12 +55,15 @@ export type PublicAuction = {
   witnessSet: Signed | null;
   witnessCerts: WitnessCert[];
   settlement: SettlementSummary | null;
+  // Gate CF: the published opening of the manifest's tlock-sealed price bound (plaintext hex), present iff the
+  // manifest carries `sealed_reserve`; benzo verify re-derives it with tle like the bid openings.
+  reserveOpening: string | null;
 };
 export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: PublicResult; resultBytes: Buffer };
 export type Check = { id: string; error?: string; warn?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -78,7 +87,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   const legacy = !existsSync(path.join(root, "auction.json"));
   let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string, state: string;
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
-  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null;
+  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null, reserveOpening: string | null;
   if (!legacy) {
     // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
     const doc = JSON.parse(text("auction.json"));
@@ -111,6 +120,9 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     requireThat(doc.witness_cert === undefined || Array.isArray(doc.witness_cert), "witness_cert");
     witnessCerts = (doc.witness_cert ?? []) as WitnessCert[];
     settlement = (doc.settlement ?? null) as SettlementSummary | null;
+    requireThat(doc.reserve_opening === undefined || (doc.reserve_opening && typeof doc.reserve_opening === "object" &&
+      Object.keys(doc.reserve_opening).sort().join(",") === "plaintext_hex" && typeof doc.reserve_opening.plaintext_hex === "string"), "reserve_opening");
+    reserveOpening = doc.reserve_opening ? (doc.reserve_opening as { plaintext_hex: string }).plaintext_hex : null;
   } else {
     // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the Phase 2/3 evidence dirs.
     signer = anchor(String(JSON.parse(text("signer.json")).signer));
@@ -143,8 +155,11 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       : null;
     // Legacy evidence dirs carry no state field; derive it from the artifacts they do carry.
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
+    reserveOpening = existsSync(path.join(root, "reserve.json"))
+      ? String((JSON.parse(text("reserve.json")) as { plaintext_hex?: unknown }).plaintext_hex ?? "")
+      : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -244,7 +259,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const result = pub.result, resultBytes = pub.resultBytes;
     if (!result || !resultBytes) return projection("result.json", null);
     requireThat(pub.frozen, "missing frozen");
-    const fresh = clearForMode({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened });
+    const fresh = clearForMode({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened, reserve_opening: pub.reserveOpening });
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
     projection("result.json", result);
   });
@@ -281,8 +296,9 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const result = pub.result;
     if (!result) return;
     const c = result.conservation;
+    // Bond-then-pay adds incoming winner balances to the deposits; without bond balances_zats is absent (= 0).
     requireThat(
-      BigInt(c.input_zats) === BigInt(c.payout_zats) + BigInt(c.refund_zats) + BigInt(c.fees_zats),
+      BigInt(c.input_zats) + BigInt(c.balances_zats ?? "0") === BigInt(c.payout_zats) + BigInt(c.refund_zats) + BigInt(c.fees_zats),
       "conservation",
     );
     // Per-mode money rules live with the mode (checkResultModeA / checkResultBuyback) and are reached through the
@@ -294,8 +310,9 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     for (const [i, r] of receipts.entries()) {
       requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
     }
-    // Settlement obligations per mode live with the mode (obligationsModeA / obligationsModeB) via the registry.
-    const expected = modeEntry(pub.manifestPacket).obligations(result as ClearBody);
+    // Settlement obligations per mode live with the mode (obligationsModeA / obligationsModeB) via the registry;
+    // gate CF bond-then-pay accounts balances and forfeits from the settlement's `defaults` list.
+    const expected = modeEntry(pub.manifestPacket).obligations(result as ClearBody, pub.settlement);
     for (const [party, amount] of expected) {
       const rs = receipts.filter(r => r.party === party);
       requireThat(rs.length > 0, `settlement missing obligation ${party}`);
@@ -312,7 +329,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     if (!pub.settlement || !pub.result) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody);
+    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement);
     const stray = (party: string): void => {
       requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
@@ -446,10 +463,12 @@ export function checkInclusionProof(proof: InclusionProof): boolean {
 export type SettlementStatement = {
   version: 1; auction_id: string; ciphertext_hash: string; leaf_index: number; fill: number;
   price_zats: string | null; clearing_price_zats: string; payment_zats: string; refund_zats: string;
+  // Gate CF: the winner's unpaid balance is due within its window (bond-then-pay); "0" without bond.
+  balance_due_zats: string;
   payout_txid: string | null; refund_txid: string | null; owner_pubkey: string; signature: string;
 };
 export type StatementBody = Omit<SettlementStatement, "signature">;
-const statementFields = "auction_id,ciphertext_hash,clearing_price_zats,fill,leaf_index,owner_pubkey,payment_zats,payout_txid,price_zats,refund_txid,refund_zats,signature,version";
+const statementFields = "auction_id,balance_due_zats,ciphertext_hash,clearing_price_zats,fill,leaf_index,owner_pubkey,payment_zats,payout_txid,price_zats,refund_txid,refund_zats,signature,version";
 export function settlementStatementBody(pub: PublicAuction, ciphertextHash: string): StatementBody {
   requireThat(pub.frozen && pub.result, "missing frozen or result");
   const frozen = pub.frozen as Frozen, result = pub.result as PublicResult;
@@ -460,12 +479,17 @@ export function settlementStatementBody(pub: PublicAuction, ciphertextHash: stri
   const opening = pub.opened.find(o => o.leaf_index === leaf!.leaf_index);
   requireThat(opening && /^[0-9a-f]{256}$/.test(opening!.plaintext_hex ?? ""), "opening for statement");
   const owner_pubkey = Buffer.from(opening!.plaintext_hex!, "hex").subarray(61, 93).toString("hex");
-  const owed = BigInt(modeEntry(pub.manifestPacket).obligations(result as ClearBody).get(`leaf:${leaf!.leaf_index}`) ?? "0");
+  const owed = BigInt(modeEntry(pub.manifestPacket).obligations(result as ClearBody, pub.settlement).get(`leaf:${leaf!.leaf_index}`) ?? "0");
   const receipt = (pub.settlement?.receipts ?? []).find(r => r.party === `leaf:${leaf!.leaf_index}`);
+  const clearing_price_zats = a!.lot === undefined
+    ? result.clearing_price_zats
+    : (result.lots ?? []).find(l => l.lot_id === a!.lot)?.clearing_price_zats ?? result.clearing_price_zats;
   return {
     version: 1, auction_id: frozen.auction_id, ciphertext_hash: ciphertextHash, leaf_index: leaf!.leaf_index,
-    fill: a!.fill, price_zats: a!.price_zats, clearing_price_zats: result.clearing_price_zats,
+    fill: a!.fill, price_zats: a!.price_zats, clearing_price_zats,
     payment_zats: a!.payment_zats, refund_zats: a!.refund_zats,
+    // Gate CF: the winner's unpaid balance is due within its window (bond-then-pay); "0" without bond.
+    balance_due_zats: a!.balance_due_zats ?? "0",
     payout_txid: receipt && owed > BigInt(a!.refund_zats) ? receipt.txid : null,
     refund_txid: receipt ? receipt.txid : null,
     owner_pubkey,

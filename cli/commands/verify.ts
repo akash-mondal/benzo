@@ -4,13 +4,14 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { requireThat } from "../../manifest/schema";
-import { checkPublicAuction, loadCompletePublicAuction, type CompletePublicAuction } from "../../api/public-auction";
+import { hash, requireThat } from "../../manifest/schema";
+import { checkPublicAuction, loadCompletePublicAuction, loadPublicAuction, type CompletePublicAuction } from "../../api/public-auction";
+import { checkSeriesLink } from "../../clear/features";
 import type { Opened } from "../../clear/core";
 
 export const noun = "verify";
 export const verb = "";
-export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--offline] — reproduce clear + settlement accounting from public inputs (default re-derives openings with tle; --offline trusts published openings)";
+export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--offline] [--previous <prior-round-dir>] — reproduce clear + settlement accounting from public inputs (default re-derives openings with tle; --offline trusts published openings; --previous checks recurring-round linkage)";
 
 function tleBin(): string {
   const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
@@ -46,11 +47,12 @@ export async function run(argv: string[]): Promise<number> {
     process.stdout.write(help + "\n");
     return 0;
   }
-  let dir = "", signerHex = "", offline = false;
+  let dir = "", signerHex = "", offline = false, previous = "";
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--dir") dir = argv[++i] ?? "";
     else if (argv[i] === "--signer") signerHex = argv[++i] ?? "";
     else if (argv[i] === "--offline") offline = true;
+    else if (argv[i] === "--previous") previous = argv[++i] ?? "";
     else {
       process.stderr.write(`ERROR verify usage: ${help}\n`);
       return 2;
@@ -64,9 +66,24 @@ export async function run(argv: string[]): Promise<number> {
     // verify keeps requiring frozen and result (R21 item 5); the read API is the lifecycle-safe reader.
     const pub = loadCompletePublicAuction(dir, { signer: signerHex });
     if (pub.legacy) process.stderr.write("WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs\n");
+    // Gate CF: the sealed reserve/max price opens at R with the bids; re-derive it with tle and require the
+    // published opening to match exactly. --offline trusts the published opening like the bid openings.
+    const deriveReserve = (): string => {
+      const tle = tleBin();
+      const chain = pub.beacon ? pub.beacon.chain_hash : pub.manifest.drand.chain_hash;
+      const r = spawnSync(tle, ["-d", "-c", chain], {
+        input: Buffer.from(pub.manifest.sealed_reserve ?? "", "hex"),
+        maxBuffer: 1 << 20,
+      });
+      if (r.error) throw new Error(`derive reserve tle: ${r.error.message}`);
+      if (r.status !== 0) throw new Error(`derive reserve tle: ${(r.stderr ?? Buffer.alloc(0)).toString().trim() || `exit ${r.status}`}`);
+      return r.stdout.toString("hex");
+    };
     if (offline) {
       requireThat(pub.opened.length === pub.frozen.leaf_count, "--offline needs one published opening per leaf");
+      requireThat(pub.manifest.sealed_reserve === undefined || (pub.reserveOpening !== null && pub.reserveOpening.length > 0), "--offline needs the published reserve opening");
       process.stderr.write("WARN openings not re-derived\n");
+      if (pub.manifest.sealed_reserve !== undefined) process.stderr.write("WARN reserve opening not re-derived\n");
     } else {
       const derived = deriveOpenings(pub);
       let deriveFailed = false;
@@ -89,6 +106,27 @@ export async function run(argv: string[]): Promise<number> {
         }
       }
       pub.opened = derived;
+      if (pub.manifest.sealed_reserve !== undefined) {
+        requireThat(pub.reserveOpening !== null, "missing reserve opening");
+        requireThat(pub.reserveOpening === deriveReserve(), "reserve opening published differs from re-derived");
+      } else {
+        requireThat(pub.reserveOpening === null, "reserve opening without sealed reserve");
+      }
+    }
+    // Gate CF recurring rounds: with --previous, this round's link must chain to the previous round's result.
+    if (pub.manifest.series !== undefined || previous) {
+      if (!previous) process.stderr.write("WARN series linkage not checked (no --previous)\n");
+      else {
+        try {
+          const prev = loadPublicAuction(previous, { signer: signerHex });
+          requireThat(prev.resultBytes, "previous round has no result");
+          checkSeriesLink(pub.manifest.series, { link: prev.manifest.series, result_hash: hash(prev.resultBytes!) });
+          process.stdout.write("OK series\n");
+        } catch (e) {
+          process.stderr.write(`ERROR series ${(e as Error).message}\n`);
+          return 1;
+        }
+      }
     }
     const checks = checkPublicAuction(pub);
     let failed = false;

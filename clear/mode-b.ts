@@ -4,8 +4,8 @@
 // Every leaf gets exact C back; fees come only from winner payments (PHASE-3 R2). Integers only; no clock or network.
 import { hash, requireThat, validateManifest, verifyRecord, zats, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen } from "./merkle";
-import { LAYOUT_V0, readOrder } from "./layout";
-import type { ClearBody, ClearInput } from "./core";
+import { effectiveMaxPrice, readOrders, sealedReserve } from "./features";
+import type { ClearBody, ClearInput, SettlementExtras } from "./core";
 
 // R3 item 4: max_price_zats is the treasury's maximum accepted ask (was floor_zats).
 export type Buyback = { budget_zats: string; max_price_zats: string };
@@ -23,6 +23,8 @@ export function clientPhase5(packet: Signed, trustedSigner: string): { manifest_
   if (m.buyback !== undefined) {
     requireThat(m.buyback && typeof m.buyback === "object" && !Array.isArray(m.buyback), "buyback parameters");
     requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,max_price_zats", "buyback field set");
+    // Bond-then-pay is buyer-side (a defaulter's bond goes to the seller); a buyback winner is a seller.
+    requireThat(m.bond === undefined, "bond-then-pay is auction-side");
   }
   const base = { ...m, clearing: { ...m.clearing, mode: m.clearing.mode === "buyback" ? "uniform" : m.clearing.mode }, buyback: undefined };
   delete base.buyback;
@@ -43,61 +45,72 @@ function calculate(input: ClearInput) {
   const { manifest: m, manifest_hash } = clientBuyback(input.manifest, input.signer);
   checkFrozen(input.frozen, m.auction_id, manifest_hash);
   const C = zats(m.C_zats, "C"), fee = zats(m.fee_zats, "fee"), tick = zats(m.tick_zats, "tick"), cap = zats(m.B_max_zats, "B_max");
-  const budget = zats(m.buyback.budget_zats, "budget"), maxPrice = zats(m.buyback.max_price_zats, "max_price");
-  requireThat(input.opened.length === input.frozen.leaf_count && new Set(input.opened.map(o => o.leaf_index)).size === input.opened.length, "one opening per frozen leaf");
-  const asks = input.frozen.leaves.map(l => {
-    const o = input.opened.find(o => o.leaf_index === l.leaf_index)!;
-    let price = 0n, quantity = 0, reason = "";
-    if (o?.error === "reorg") reason = "reorg";
-    else if (!o || o.plaintext_hex === null) reason = "undecryptable";
-    else {
-      const order = readOrder(LAYOUT_V0, o.plaintext_hex, m.auction_id); price = order.price; quantity = order.quantity; reason = order.reason;
-      if (!reason) {
-        if (!price || !quantity || quantity > m.q_max || price > cap || price % tick !== 0n || price * BigInt(quantity) + fee > C) reason = "over_cap";
-        else if (price > maxPrice) reason = "above_max_price";
-      }
+  const budget = zats(m.buyback.budget_zats, "budget");
+  // Gate CF: the sealed max price (R3 item 4) tightens the treasury cap; readOrders marks superseded revisions
+  // and binds each ask to its lot. Bond-then-pay is buyer-side and refused for buyback manifests.
+  const maxPrice = effectiveMaxPrice(m, sealedReserve(m, input.reserve_opening, tick));
+  const orders = readOrders(input, m);
+  const asks = orders.map(o => {
+    let { price, quantity, reason } = o;
+    if (!reason) {
+      if (!price || !quantity || quantity > m.q_max || price > cap || price % tick !== 0n || price * BigInt(quantity) + fee > C) reason = "over_cap";
+      else if (price > maxPrice) reason = "above_max_price";
     }
-    return { leaf_index: l.leaf_index, price, quantity, reason, fill: 0 };
+    // lot is null (not undefined) for single-lot rounds so per-lot maps and filters treat it as one lot.
+    return { leaf_index: o.leaf_index, lot: o.lot ?? null, price, quantity, reason, fill: 0 };
   });
-  // Lowest asks first; equal asks tie by the committed leaf index, never by reveal order.
-  const ranked = asks.filter(a => !a.reason).sort((a, b) => a.price !== b.price ? (a.price < b.price ? -1 : 1) : a.leaf_index - b.leaf_index);
-  let clearingPrice = 0n, filled = 0;
-  for (let start = 0; start < ranked.length;) {
-    let end = start + 1; while (end < ranked.length && ranked[end].price === ranked[start].price) end++;
-    const band = ranked.slice(start, end), p = band[0].price, demand = band.reduce((n, b) => n + BigInt(b.quantity), 0n);
-    // At uniform price p the treasury pays p for every accepted unit, so the budget allows floor(budget/p) in total.
-    const room = budget / p - BigInt(filled);
-    if (room <= 0n) break;
-    if (demand <= room) for (const b of band) b.fill = b.quantity;
-    else {
-      for (const b of band) b.fill = Number(room * BigInt(b.quantity) / demand);
-      let dust = Number(room) - band.reduce((n, b) => n + b.fill, 0);
-      for (const b of band) { if (dust > 0 && b.fill < b.quantity) { b.fill++; dust--; } }
+  const lotPrice = new Map<string | null, bigint>();
+  for (const lot of m.lots ?? [null]) {
+    // Lowest asks first; equal asks tie by the committed leaf index, never by reveal order. Each lot is its own
+    // buyback leg with the manifest's budget (multi-lot rounds clear distinct lots in one round).
+    const ranked = asks.filter(a => !a.reason && a.lot === lot).sort((a, b) => a.price !== b.price ? (a.price < b.price ? -1 : 1) : a.leaf_index - b.leaf_index);
+    let clearingPrice = 0n, filled = 0;
+    for (let start = 0; start < ranked.length;) {
+      let end = start + 1; while (end < ranked.length && ranked[end].price === ranked[start].price) end++;
+      const band = ranked.slice(start, end), p = band[0].price, demand = band.reduce((n, b) => n + BigInt(b.quantity), 0n);
+      // At uniform price p the treasury pays p for every accepted unit, so the budget allows floor(budget/p) in total.
+      const room = budget / p - BigInt(filled);
+      if (room <= 0n) break;
+      if (demand <= room) for (const b of band) b.fill = b.quantity;
+      else {
+        for (const b of band) b.fill = Number(room * BigInt(b.quantity) / demand);
+        let dust = Number(room) - band.reduce((n, b) => n + b.fill, 0);
+        for (const b of band) { if (dust > 0 && b.fill < b.quantity) { b.fill++; dust--; } }
+      }
+      filled += band.reduce((n, b) => n + b.fill, 0);
+      clearingPrice = p; start = end;
+      if (demand > room) break;
     }
-    filled += band.reduce((n, b) => n + b.fill, 0);
-    clearingPrice = p; start = end;
-    if (demand > room) break;
+    if (asks.filter(a => a.lot === lot).reduce((n, a) => n + a.fill, 0) < m.clearing.minimum_fill) {
+      for (const a of asks) if (a.lot === lot) a.fill = 0;
+      clearingPrice = 0n;
+    }
+    lotPrice.set(lot, clearingPrice);
   }
-  if (asks.reduce((n, b) => n + b.fill, 0) < m.clearing.minimum_fill) { for (const b of asks) b.fill = 0; clearingPrice = 0n; }
   let payout = 0n, refunds = 0n, fees = 0n;
   const allocations = asks.map(a => {
+    const clearingPrice = lotPrice.get(a.lot) ?? 0n;
     const gross = clearingPrice * BigInt(a.fill), feeShare = a.fill ? (fee < gross ? fee : gross) : 0n;
     const payment = gross - feeShare, refund = C;
     payout += payment; refunds += refund; fees += feeShare;
-    return { leaf_index: a.leaf_index, price_zats: a.price.toString(), quantity: a.quantity, fill: a.fill,
+    return { leaf_index: a.leaf_index, ...(m.lots ? { lot: a.lot! } : {}), price_zats: a.price.toString(), quantity: a.quantity, fill: a.fill,
       payment_zats: payment.toString(), refund_zats: refund.toString(), outcome: a.reason || (a.fill ? "winner" : "unfilled") };
   });
   // Real invariants (R4 item 3) on the computed result: the uniform-price spend fits the budget, no fill exceeds
   // its ask's quantity, and no winner's ask exceeds the clearing price. Deposits fund refunds; the treasury leg
   // funds payouts and fees, and conservation names it explicitly as treasury_zats = payout + fees.
   const treasury = payout + fees, totalFill = asks.reduce((n, a) => n + a.fill, 0);
-  requireThat(clearingPrice * BigInt(totalFill) <= budget, "budget exceeded");
-  for (const a of asks) {
-    requireThat(a.fill <= a.quantity, `allocation ${a.leaf_index} fill exceeds quantity`);
-    if (a.fill) requireThat(a.price <= clearingPrice, `allocation ${a.leaf_index} ask above clearing price`);
+  for (const lot of m.lots ?? [null]) {
+    const lotFill = asks.filter(a => a.lot === lot).reduce((n, a) => n + a.fill, 0);
+    requireThat((lotPrice.get(lot) ?? 0n) * BigInt(lotFill) <= budget, "budget exceeded");
+    for (const a of asks.filter(x => x.lot === lot && x.fill))
+      requireThat(a.price <= (lotPrice.get(lot) ?? 0n), `allocation ${a.leaf_index} ask above clearing price`);
   }
+  for (const a of asks) requireThat(a.fill <= a.quantity, `allocation ${a.leaf_index} fill exceeds quantity`);
   return { auction_id: m.auction_id, manifest_hash, freeze_root: input.frozen.root, mode: "buyback" as const,
-    clearing_price_zats: clearingPrice.toString(), allocations,
+    clearing_price_zats: (lotPrice.get(null) ?? 0n).toString(),
+    ...(m.lots ? { lots: (m.lots as string[]).map(lot_id => ({ lot_id, clearing_price_zats: (lotPrice.get(lot_id) ?? 0n).toString() })) } : {}),
+    allocations,
     conservation: { input_zats: (C * BigInt(asks.length) + treasury).toString(), payout_zats: payout.toString(), refund_zats: refunds.toString(), fees_zats: fees.toString(), treasury_zats: treasury.toString() } };
 }
 
@@ -111,23 +124,33 @@ export function clearModeB(input: ClearInput) {
 // accounting check runs this on the published result, so a corrupted one is refused on its own numbers.
 export function checkResultBuyback(m: BuybackManifest, result: ClearBody): void {
   const C = zats(m.C_zats, "C"), fee = zats(m.fee_zats, "fee"), budget = zats(m.buyback.budget_zats, "budget");
-  const price = zats(result.clearing_price_zats, "clearing price");
   const c = result.conservation;
   requireThat(c.treasury_zats !== undefined && zats(c.treasury_zats, "treasury") === zats(c.payout_zats, "payout") + zats(c.fees_zats, "fees"), "treasury_zats is not payout + fees");
-  let totalFill = 0;
+  // Multi-lot buyback rounds clear each lot at its own price with the manifest's budget per lot.
+  const priceOf = (a: ClearBody["allocations"][number]): bigint => {
+    if (m.lots === undefined) { requireThat(a.lot === undefined && result.lots === undefined, "lots without manifest lots"); return zats(result.clearing_price_zats, "clearing price"); }
+    requireThat(Array.isArray(result.lots) && result.lots.map(l => l.lot_id).join(",") === m.lots.join(","), "lots");
+    const lot = result.lots!.find(l => l.lot_id === a.lot);
+    requireThat(lot, `allocation ${a.leaf_index} lot`);
+    return zats(lot!.clearing_price_zats, "lot clearing price");
+  };
+  const fillByLot = new Map<string | null, bigint>();
   for (const a of result.allocations) {
     requireThat(Number.isInteger(a.fill) && a.fill >= 0 && a.fill <= a.quantity, `allocation ${a.leaf_index} fill exceeds quantity`);
+    const price = priceOf(a);
     const gross = price * BigInt(a.fill), feeShare = a.fill ? (fee < gross ? fee : gross) : 0n;
     requireThat(BigInt(a.payment_zats) + feeShare === gross, `allocation ${a.leaf_index} payment`);
     requireThat(BigInt(a.refund_zats) === C, `allocation ${a.leaf_index} refund is not exact C`);
     if (a.fill) requireThat(a.price_zats !== null && BigInt(a.price_zats) <= price, `allocation ${a.leaf_index} ask above clearing price`);
-    totalFill += a.fill;
+    fillByLot.set(a.lot ?? null, (fillByLot.get(a.lot ?? null) ?? 0n) + BigInt(a.fill));
+    requireThat(price * (fillByLot.get(a.lot ?? null) ?? 0n) <= budget, "budget exceeded");
   }
-  requireThat(price * BigInt(totalFill) <= budget, "budget exceeded");
 }
 
 // Mode B settlement rows: one obligation per leaf for refund + payment (the treasury is the funding leg).
-export function obligationsModeB(result: ClearBody): Map<string, string> {
+// Bond-then-pay is auction-side: a buyback settlement carries no defaults.
+export function obligationsModeB(result: ClearBody, settlement?: SettlementExtras | null): Map<string, string> {
+  requireThat((settlement?.defaults ?? []).length === 0, "defaults are auction-side");
   const map = new Map<string, string>();
   for (const a of result.allocations) {
     const owed = BigInt(a.refund_zats) + BigInt(a.payment_zats);
