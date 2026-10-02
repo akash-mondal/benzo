@@ -95,3 +95,27 @@ What it unlocks:
 - EVM: EIP-712 domain with `chainId` + `verifyingContract`; reject `s` in the upper half (OpenZeppelin `ECDSA` already does).
 - Per-auction release-once flags; deadlines; anyone-can-refund.
 - Pin every dependency; record audit status per dependency in `contracts/AUDITS.md`.
+
+## 9. Addendum (2026-10-02): Solana "attest once, release many" (Reviewer R F4: only 1–2 payouts fit per transaction)
+
+Head-owned design; implement as written.
+- **New PDA `Approval`:** seeds `["approval", auction_id(32), batch_index(u64 le)]`. Fields: `auction_id`, `batch_index`, `allocation_root(32)`, `result_hash(32)`, `nonce(u64)`, `expiry(i64)`, `genesis_hash(32)`, `bump`. Created exactly once (`init`, so a second submit fails: replay refusal).
+- **`submit_attestation(att)` instruction:**
+  - Same checks as today's `release`: the preceding native Ed25519 instruction is read through the checked instructions sysvar (account key == `sysvar::instructions::ID`, `load_instruction_at_checked`, strict offsets); 2-of-3 distinct signers from the auction's pinned set; the message is exactly the attestation bytes; the genesis hash matches the one pinned at lock; `now <= expiry`; the auction isn't refunded.
+  - On success, write the `Approval` PDA. No transfers in this instruction.
+- **`release_approved(payouts[])` instruction:**
+  - Takes the `Approval` PDA and the auction account, with **no signatures**.
+  - Requires `now <= approval.expiry` and the auction not refunded.
+  - For each payout: check the leaf bound and Merkle membership against `approval.allocation_root` (the same leaf/root encoding), check the paid-flag PDA is unset, set the paid flag **before** the transfer CPI, check the cap (`paid + amount <= locked`), then transfer.
+  - Anyone can call it repeatedly (the crank) until every leaf is paid. Per-recipient failures skip and stay claimable.
+- **Remove the signature-carrying `release` path,** or keep it only for tiny batches. Single code path preferred.
+- **Size target:** with no Ed25519 instruction and no attestation in the release transaction, measure payouts per transaction at proof depths 0–6. Expect ≥ 6 at depth 4. Use a versioned transaction plus an address lookup table for the paid-flag and destination accounts if that's still below 4.
+- **Tests (local validator):**
+  - submit twice → refused;
+  - release with no `Approval` → refused;
+  - an expired approval → refused;
+  - a release after refund → refused;
+  - a leaf not in the root → refused;
+  - every leaf paid exactly once across several crank calls;
+  - a spoofed sysvar on `submit_attestation` → refused;
+  - record the before/after payouts-per-transaction table.
