@@ -231,3 +231,9 @@ Only the head agent writes here, `head@benzo.invalid`, newest last.
   1. Fix the harness, not the guard: compute the reserve from the notes the refund will actually spend (only positive-value, unspent notes selected for this refund), or build the refund PCZT first and set the reserve to its ZIP-317 fee. No fixed constants.
   2. Check settle-crash and cli-auction for the same pattern (`fee_reserve_zats:30000` is hard-coded in settle-crash balances evidence).
   3. Recover any vault funds the failed run left (documented 2-of-3 sweep), then rerun the R8 regression for all five specs at one commit, detached and polled.
+- R26 2026-10-02: **R8 attempt 3: transient network failure; finish R8 at the same commit.** `takeover-regression3` (start commit 2818af3c2816083c96531160e6ddba1ab3c532c5) passed default and testnet-golden-path. auction-core then failed on `TypeError: fetch failed … ECONNRESET` (a dropped connection to drand/lightwalletd, not a product or harness logic error), and settle-crash correctly refused to start (`NOT RUN vault not empty`).
+  1. Recover the vault (documented 2-of-3 sweep; record the txid).
+  2. **Do not change code.** Rerun only auction-core, settle-crash and cli-auction at the **same commit 2818af3c2816083c96531160e6ddba1ab3c532c5**, detached and polled. R8 is satisfied by all five specs passing at one commit across invocations, with each invocation's log and run.json preserved.
+  3. If a network error recurs, retry that spec once at the same commit. If it recurs twice, stop and report under Questions.
+  4. Phase 6 (not now): bounded retry with backoff on transient network errors (ECONNRESET, 5xx, timeouts) in the drand and lightwalletd fetch paths of the product and the harness. Never retry validation or cryptographic failures.
+  5. Head Ruling and design commits after 2818af3 touch only `docs/`. Record `git diff 2818af3 HEAD -- . ':!docs'` (must be empty) in STATUS to show that later invocations ran the same code.
