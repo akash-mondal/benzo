@@ -5,6 +5,7 @@ import {client,hash,jsonBytes,requireThat} from "../manifest/schema";
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx} from "./io";
 import {pubkey,zcashSign} from "./sign";
+import {envelopeRecipient} from "./envelopes";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
@@ -13,10 +14,20 @@ const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`
 function destinations(rows:Row[],name:string) {
   const route=read(`routing-${name}.json`),a=auction(),observed=notes();
   requireThat(hash(jsonBytes(route))===read("routing-commitment.json").sha256,"signer routing changed after intake");
+  // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
+  // with the signer's own key; operator routing pins only the non-bid sinks (seller, stray refunds).
+  const product=existsSync(path.join(STATE,"product",`${id}.json`));
+  const envelopeKey=product?JSON.parse(readFileSync(file(`envelope-${name}.json`),"utf8")).private_hex:null;
   return rows.map(row=> {
+    if(product&&row.party.startsWith("leaf:")) {
+      const index=Number(row.party.slice(5)),address=a.frozen.leaves[index].deposit.address;
+      const dest=envelopeRecipient(a,index,envelopeKey,route.bidders.find((b:any)=>b.deposit_ua===address)?.stray_refund_ua??null);
+      requireThat(dest!==null,"PCZT output has no authenticated envelope");
+      return {...row,recipient:dest!};
+    }
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
       observed.find(n=>row.party===`deposit:${n.txid}:${n.diversifier_index}`)?.address;
-    const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;
+    const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.[product?"stray_refund_ua":"refund_ua"];
     requireThat(recipient,"missing independently pinned settlement recipient");return {...row,recipient};
   });
 }
@@ -121,10 +132,15 @@ try {
   if(command==="init") {
     requireThat(auction().state==="OPEN","routing intake must precede funding/clearing");
     const routing=JSON.parse(readFileSync(0,"utf8")),{manifest:m}=client(auction().manifest,auction().signer);
+    // R6 (W): product mode refuses operator-pinned bidder destinations — those are envelope-authenticated.
+    const product=existsSync(path.join(STATE,"product",`${id}.json`)),field=product?"stray_refund_ua":"refund_ua";
     requireThat(routing.bidders.length===m.deposit_addresses.length&&routing.bidders.every((b:any)=>m.deposit_addresses.includes(b.deposit_ua))&&new Set(routing.bidders.map((b:any)=>b.deposit_ua)).size===m.deposit_addresses.length,"routing deposit set");
-    requireThat(new Set([...routing.bidders.map((b:any)=>b.refund_ua),routing.seller_ua]).size===routing.bidders.length+1,"unique party destinations");
+    if(product)requireThat(routing.bidders.every((b:any)=>Object.keys(b).sort().join()===`deposit_ua,${field}`),"bidder destinations are envelope-authenticated");
+    else requireThat(routing.bidders.every((b:any)=>typeof b.refund_ua==="string"),"routing shape");
+    requireThat(new Set([...routing.bidders.map((b:any)=>b[field]),routing.seller_ua]).size===routing.bidders.length+1,"unique party destinations");
     requireThat(!existsSync(file("routing-commitment.json")),"routing already pinned");
     for(const n of ["alice","bob","carol"])writeFileSync(file(`routing-${n}.json`),jsonBytes(routing),{mode:0o600});
+    if(product) {const ek=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.envelope.json`),"utf8"));for(const n of ["alice","bob","carol"])writeFileSync(file(`envelope-${n}.json`),jsonBytes({private_hex:ek.private_hex}),{mode:0o600});}
     writeFileSync(file("routing-commitment.json"),jsonBytes({sha256:hash(jsonBytes(routing)),pinned_at:Date.now()}),{mode:0o600});
     process.stdout.write(jsonBytes(read("routing-commitment.json")));
   } else {
