@@ -10,9 +10,12 @@ import { requireThat } from "../manifest/schema";
 
 const CHAR = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BECH32 = 1, BECH32M = 0x2bc830a3;
-const UA_HRPS = ["u", "utest", "uregtest"];
-const SAPLING_HRPS = ["zs", "ztestsapling", "zregtestsapling"];
-const TEX_HRPS = ["tex", "textest", "texregtest"];
+// HRP -> network (zcash_address 0.13.0 Network): the refund must land on this auction's network.
+const UA_NET: Record<string, string> = { u: "main", utest: "test", uregtest: "regtest" };
+const SAPLING_NET: Record<string, string> = { zs: "main", ztestsapling: "test", zregtestsapling: "regtest" };
+const TEX_NET: Record<string, string> = { tex: "main", textest: "test", texregtest: "regtest" };
+// Base58Check 2-byte version prefixes (ZIP 320 ADDRESS_CONSTANTS; test and regtest share them).
+const B58_NET: Record<string, string> = { "1cb8": "main", "1cbd": "main", "1d25": "test", "1cba": "test" };
 const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function polymod(values: number[]): number {
@@ -29,7 +32,8 @@ const hrpExpand = (hrp: string): number[] => [...hrp].map(c => c.charCodeAt(0) >
 
 // Split a bech32/bech32m string into hrp + 5-bit data and report which checksums hold (a UA/TEX is bech32m, Sapling is bech32).
 function bech32Split(s: string): { hrp: string; data: number[]; bech32: boolean; bech32m: boolean } | null {
-  if (s.length < 8 || s.length > 200 || s !== s.toLowerCase()) return null;
+  // Upper bound derived from the f4jumble container limit (4,194,368 bytes of body; ZIP 316 UAs are long).
+  if (s.length < 8 || s.length > 2 * 4194368 || s !== s.toLowerCase()) return null;
   const at = s.lastIndexOf("1");
   if (at < 1 || at + 7 > s.length) return null;
   const hrp = s.slice(0, at), data: number[] = [];
@@ -65,7 +69,7 @@ function hRound(left: Buffer, right: Buffer, i: number): void {
   const h = blake2b(right, { dkLen: left.length, personalization: hPers(i) });
   for (let k = 0; k < left.length; k++) left[k]! ^= h[k]!;
 }
-function f4jumbleInv(buf: Buffer): Buffer {
+export function f4jumbleInv(buf: Buffer): Buffer {
   requireThat(buf.length >= 48 && buf.length <= 4194368, "unified encoding length");
   const m = Buffer.from(buf), left = m.subarray(0, Math.min(64, m.length >> 1)), right = m.subarray(left.length);
   hRound(left, right, 1); gRound(left, right, 1); hRound(left, right, 0); gRound(left, right, 0);
@@ -86,7 +90,7 @@ type Item = { typecode: number; data: Buffer };
 const ITEM_LEN: Record<number, number> = { 0x00: 20, 0x01: 20, 0x02: 43, 0x03: 43 };
 function parseUnified(s: string): Item[] | null {
   const parts = bech32Split(s);
-  if (!parts || !parts.bech32m || !UA_HRPS.includes(parts.hrp)) return null;
+  if (!parts || !parts.bech32m || UA_NET[parts.hrp] === undefined) return null;
   const raw = toBytes(parts.data);
   if (!raw) return null;
   const body = f4jumbleInv(raw);
@@ -95,13 +99,18 @@ function parseUnified(s: string): Item[] | null {
   if (body.length < 16 || !body.subarray(body.length - 16).equals(padding)) return null;
   const encoded = body.subarray(0, body.length - 16);
   const items: Item[] = [];
-  let at = 0;
+  let at = 0, prevType = -1;
   while (at < encoded.length) {
     const tc = compactSize(encoded, at);
     const len = tc && compactSize(encoded, tc.next);
     if (!tc || !len || len.next + len.value > encoded.length) return null;
     // Known receivers must carry their canonical length (zcash_address 0.13.0 item parsing).
     if (ITEM_LEN[tc.value] !== undefined && ITEM_LEN[tc.value] !== len.value) return null;
+    // Canonical container (ZIP 316 / the reference decoder): typecodes strictly ascending — so no duplicates —
+    // and at most one transparent receiver (P2PKH xor P2SH).
+    if (tc.value <= prevType) return null;
+    prevType = tc.value;
+    if ((tc.value === 0x00 || tc.value === 0x01) && items.some(i => i.typecode === 0x00 || i.typecode === 0x01)) return null;
     items.push({ typecode: tc.value, data: encoded.subarray(len.next, len.next + len.value) });
     at = len.next + len.value;
   }
@@ -125,29 +134,44 @@ function base58Payload(s: string): Buffer | null {
 }
 
 export type DestinationKind = "sapling" | "unified" | "transparent" | "tex" | "other";
-export function classifyDestination(destination: string): { kind: DestinationKind; shielded: boolean } {
-  requireThat(typeof destination === "string" && destination.length > 0, "destination");
-  const parts = bech32Split(destination);
-  if (parts && parts.bech32m && UA_HRPS.includes(parts.hrp)) {
-    const items = parseUnified(destination);
-    requireThat(items !== null, "invalid unified address");
-    return { kind: "unified", shielded: items!.some(i => i.typecode === 0x02 || i.typecode === 0x03) };
-  }
-  if (parts && parts.bech32 && SAPLING_HRPS.includes(parts.hrp)) {
-    const data = toBytes(parts.data);
-    return { kind: "sapling", shielded: data !== null && data.length === 43 };
-  }
-  if (parts && parts.bech32m && TEX_HRPS.includes(parts.hrp)) return { kind: "tex", shielded: false };
-  const payload = base58Payload(destination);
-  if (payload && payload.length === 22) return { kind: "transparent", shielded: false };
-  return { kind: "other", shielded: false };
+export type DestinationNetwork = "main" | "test" | "regtest";
+export type Destination = { kind: DestinationKind; shielded: boolean; network: DestinationNetwork | null };
+
+// The UA container's receiver set (ZIP 316 items, in encoded order) — what the address actually names. The signer
+// side matches a PCZT output against these, and the reference-vector proof checks them item by item.
+export function unifiedReceivers(destination: string): { typecode: number; data_hex: string }[] {
+  const items = parseUnified(destination);
+  requireThat(items !== null, "invalid unified address");
+  return items!.map(i => ({ typecode: i.typecode, data_hex: i.data.toString("hex") }));
 }
 
-// The envelope validator: only a Sapling address or a unified address with a shielded receiver is admissible.
+export function classifyDestination(destination: string): Destination {
+  requireThat(typeof destination === "string" && destination.length > 0, "destination");
+  const parts = bech32Split(destination);
+  if (parts && parts.bech32m && UA_NET[parts.hrp] !== undefined) {
+    const items = parseUnified(destination);
+    requireThat(items !== null, "invalid unified address");
+    return { kind: "unified", shielded: items!.some(i => i.typecode === 0x02 || i.typecode === 0x03), network: UA_NET[parts.hrp]! as DestinationNetwork };
+  }
+  if (parts && parts.bech32 && SAPLING_NET[parts.hrp] !== undefined) {
+    const data = toBytes(parts.data);
+    return { kind: "sapling", shielded: data !== null && data.length === 43, network: SAPLING_NET[parts.hrp]! as DestinationNetwork };
+  }
+  if (parts && parts.bech32m && TEX_NET[parts.hrp] !== undefined) return { kind: "tex", shielded: false, network: TEX_NET[parts.hrp]! as DestinationNetwork };
+  const payload = base58Payload(destination);
+  if (payload && payload.length === 22)
+    return { kind: "transparent", shielded: false, network: (B58_NET[payload.subarray(0, 2).toString("hex")] ?? null) as DestinationNetwork | null };
+  return { kind: "other", shielded: false, network: null };
+}
+
+// The envelope validator: only a Sapling address or a unified address with a shielded receiver is admissible,
+// and only on this auction's network — a mainnet (or regtest) destination would burn the refund (threat #7).
+// Benzo is testnet-only until Phase 7; when mainnet starts this takes the manifest's network alongside.
 export function requireShieldedDestination(destination: string): void {
-  const { kind, shielded } = classifyDestination(destination);
+  const { kind, shielded, network } = classifyDestination(destination);
   if (kind === "transparent") requireThat(false, "transparent address (t-addr)");
   if (kind === "tex") requireThat(false, "TEX address");
   if (kind === "unified") requireThat(shielded, "UA without a shielded receiver");
   requireThat(shielded, "not a shielded destination");
+  requireThat(network === "test", "wrong-network address");
 }
