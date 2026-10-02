@@ -725,6 +725,24 @@ async function main() {
   }
 
   {
+    // ---- §10 item 4 (F-4): the pre-§9 client wire format can never release ----
+    // `crosschain/solana.ts` at 3a23f15 (the reviewed commit) serialized release as
+    // TAG(2) ‖ att ‖ be16(n) ‖ payouts… with the be64-seeded ["batch", …] PDA. That routes to
+    // submit_attestation, which requires the instruction to end right after the 200-byte
+    // attestation, so the shipped client of that commit could never release anything (reviewer
+    // probe D). Locked out permanently here; the shipped client speaks submit_attestation +
+    // release_approved with the le64 batch seed (crosschain/solana.ts:38-40).
+    const legacyAtt = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline);
+    const legacyBatchPda = pda([Buffer.from("batch"), Buffer.from(auctionId), Buffer.from(be64(0))]); // the old be64 seed
+    await expectCustomError("legacy-client-release-refused", 1, () =>
+      send(crank,
+        ed25519Ix([sign(0, legacyAtt), sign(1, legacyAtt)], [signers[0], signers[1]], MSG_REF),
+        legacyReleaseIx(crank, auctionPda, legacyBatchPda, legacyAtt, [
+          mkPayout(r1, 0, 1, [leafA, leafB], tree0.proofs),
+        ])));
+  }
+
+  {
     // ---- §10 item 1 (F-1): a dusted paid PDA must not read as "already paid" ----
     // dust paidPda(leafA) from an unrelated key, then crank: rA must still be paid
     // exactly once (the flag counts only if program-owned with the PAID_V1 marker), and the refund

@@ -91,6 +91,37 @@ files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PAS
    marker (false for `marker + fields`, which made a second submit slip through to a system
    `allocate` and fail 0x0 instead of `BatchReplayed` 9). The final green is the rerun after both.
 
+4. **§10 item 4 (P1 F-4), TS client + CLI seed/wire encodings: CONFIRMED matching + proved
+   end-to-end.** No fix was needed in this run: the client was already ported to the §9
+   instructions in `f72a792` (which post-dates the reviewer's range `7e3ac29..3a23f15`, so probe D
+   measured the pre-port client). Confirmation against the program source, byte for byte:
+
+   | encoding | client | program |
+   |---|---|---|
+   | auction PDA `["escrow", auction_id]` | `crosschain/solana.ts:34-36` | `lib.rs:464-465` |
+   | approval PDA `["approval", auction_id, batch_index u64 le]` | `solana.ts:38-40` (`le64(batch)`) | `lib.rs:600-601` (submit), `:726-727` (release self-binding) |
+   | paid PDA `["paid", auction_id, leaf]` | `solana.ts:53-55` | `lib.rs:768-769` |
+   | submit wire `TAG 2 ‖ att(200)` | `solana.ts:113-125` | `lib.rs:411`, `:553-554` (`r.take(ATT_LEN)` then `r.end()`) |
+   | release wire `TAG 4 ‖ be16(n) ‖ per payout: be64 index, be64 lots, u8 kind, dest32, be64 leafCount, be16 proofLen, proof×32` | `solana.ts:130-153` | `lib.rs:413`, `:678`, `:706` |
+   | account order submit: crank, auction, instructions-sysvar, approval, system | `solana.ts:116-122` | `lib.rs` `submit_attestation` |
+   | account order release: crank, auction, approval, system, then (dest, paid) per payout | `solana.ts:143-151` | `lib.rs` `release_approved` |
+   | attestation 200 bytes (prefix ‖ genesis ‖ program ‖ auction ‖ result ‖ root ‖ be64 batch ‖ be64 nonce ‖ i64be expiry) | `crosschain/attestation.ts` `solanaAttestationBytes` | `lib.rs:553-567` (batch parsed be at `:567`, then seeded le at `:601`) |
+   | ed25519 message ref (ix 1, offset 2, size 200) | `solana.ts:92` | `lib.rs:864` |
+
+   The reviewer's exact F-4 point — the old client seeded `batch_index` be in the PDA while the
+   program derives it le — is now `le64` on the client side, matching `to_le_bytes()`.
+   Proof. **Red (pre-fix wire format)** — `contracts/logs/f4-wire-layout-refused.out`:
+   `PASS legacy-client-release-refused` — the exact `3a23f15` client serialization
+   (`TAG(2) ‖ att ‖ be16(n) ‖ payouts…`, be64 `batch` PDA) is refused with custom error 0x1
+   (BadInstruction), reproducing probe D's `PASS D … (error 1)` on this program build (36 PASS /
+   0 ERROR overall). **Green (shipped client)** — `contracts/logs/f4-cli-e2e-release.out`:
+   `crosschain/local-demo.sh` 13/13 PASS — end-to-end through the shipped `benzo xchain` CLI on
+   the local validator (lock, attest, `release` with real payouts and exact balance deltas,
+   `status` matches the attested root, replay refused), incl. `demo-release-solana-delivers`.
+   The pre-fix failure of the shipped entry point is also recorded in the review itself (probe D
+   in `benzo-sol/reports/pr-b-f5-solana9.md`); the post-port client was additionally proven live
+   on devnet in the prior run (release tx `5TWQxz2C…`).
+
 ## Previous run: head task list (P1 F5, Solana §9 attest-once/release-many, step-5 deployments): READY FOR MERGE (its testnet deployment addresses are superseded when this run's §10 redeploy lands)
 
 State: **READY FOR MERGE** (updated 2026-10-02T15:30Z). Started clean at `305d565` (head: merge main into
