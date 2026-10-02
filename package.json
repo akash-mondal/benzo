@@ -9,7 +9,8 @@
     "e2e:live": "BNZ_LIVE=1 playwright test --project=cli-auction",
     "build:core": "esbuild manifest/cli.ts --bundle --platform=node --format=esm --outfile=manifest/dist/cli.mjs --log-level=warning && esbuild clear/cli.ts --bundle --platform=node --format=esm --outfile=clear/dist/cli.mjs --log-level=warning && esbuild clear/auction-cli.ts --bundle --platform=node --format=esm --outfile=clear/dist/auction.mjs --log-level=warning",
     "build:settle": "esbuild settle/plan.ts --bundle --platform=node --format=esm --outfile=settle/dist/plan.mjs --log-level=warning && esbuild settle/cli.ts --bundle --platform=node --format=esm --outfile=settle/dist/cli.mjs --log-level=warning && cargo build --release --locked --quiet --manifest-path settle/Cargo.toml",
-    "build:cli": "node cli/build.mjs"
+    "build:cli": "node cli/build.mjs",
+    "build:verify": "node tools/build-verify.mjs"
   },
   "dependencies": {
     "tlock-js": "0.9.0",

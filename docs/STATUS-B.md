@@ -3,6 +3,27 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Phase 6, Track B: IN PROGRESS
+
+Updated: 2026-10-02T05:14:00Z. Start clean at e3399c5; head-authored design 4adbb6b inspected. No owned services, protected state/key reads or other-checkout commands. Default E2E PASS38s (`tmp/proof-logs/phase6-baseline.out`). No tests added.
+
+1. PK complete at base e3399c5 + working tree: verify now re-derives bids and CF reserve offline with pinned tlock-js from the published, BLS-authenticated quicknet beacon; stanza chain/round bound before decrypt. Published openings are compared. Serial beacon defaults offline too. `--fetch-beacon` requires network beacon equality; `--tle` resolves the optional Go cross-check through PATH; `--offline` aliases the default. No git/state lookup in verify. `npm run build:verify` inlines dependencies into committed `dist/benzo-verify.mjs`; hash in `docs/verify-bundle.sha256`.
+
+Proof: `npm run typecheck`, `npm run build:verify`, `npm run build:cli` PASS (`phase6-pk-build.out`). `python3 tmp/pk-proof.py` PASS (`phase6-pk-proof.out`): bundle + cold public copies under `/tmp/benzo-phase6-b-offline` outside git, Node preload makes fetch throw; in-repo/standalone both exit0 with identical OK checks for Phase2, Phase3, ModeB, CF and CF bond corpora. Phase2's missing public beacon was fetched once to prepare the cold input; the verification itself made no fetch. Tampered zero signature exits1 at point validation. `node tmp/pk-options.mjs` PASS for deprecated alias and fetch-equality CF reserve path (`phase6-pk-options.out`). Two builds each starting with absent bundle yield SHA256 `450bc39920b96559378c5cf56d7aa1ed3f449bef9177cd45aa8fe0a3a695c2d8` (`phase6-pk-repro.out`). All logs under `tmp/proof-logs/`; no live-chain/custody evidence claim. Optional --tle not run: B does not access protected state binaries and no tle on PATH was required for PK.
+
+### Questions (Phase 6)
+
+None open.
+
+User instruction (2026-10-02T05:10:55Z recorded UTC), verbatim:
+> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
+>
+> The head reviewed your run-10 commits (9abf320, bee8e41, c1dcc3a, 95c50b7); Track B Phase 5 is complete and stays on track-b until Phase 4 is PASSED.
+>
+> Next: **Phase 6 Track B offline items, exactly as designed in `docs/design/phase6-b-offline.md`** (head-owned; implement as written, disagreements under Questions): (1) fully offline verify from the published beacon + standalone reproducible `dist/benzo-verify.mjs`; (2) `tools/leak-audit.ts`; (3) `tools/bench.ts` 17,000-bid offline benchmark. One commit per item with its logged proof in a new "Phase 6, Track B" section of STATUS-B, then READY FOR MERGE.
+>
+> Add no tests. Touch only Track B files, new `tools/` files and `package.json` scripts. Never touch /Users/akshmnd/Dev Projects/benzo, funds, keys or `.benzo/`. Do not merge, rebase or cherry-pick.
+
 ## Phase 5, Track B run 10: READY FOR MERGE
 
 Updated: 2026-10-02T05:03:59Z. Start clean at f8ac208; head merge/corrections inspected, PHASE-5 R3/R4 author-checked. No owned services; protected state files not read. Default E2E PASS39s (`tmp/proof-logs/run10-baseline.out`). No new tests.
