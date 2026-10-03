@@ -5,10 +5,15 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R14 item 3 finish (closes + redeploy + live cycle), R15 items 1–2, R16 item 2
 
-State: **IN PROGRESS, run 23** (head task, four items: (1) R15 item 1 **DONE** with red/green proof,
-(2) R15 item 2 **DONE** with red/green proof, (3) R16 item 2 in progress, (4) rebuild + typecheck + builds +
-`npm run e2e` pending). R14 item 3 was finished first per the head unblock (record under “R14 item 3”
-below). No mainnet; no other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
+State: **READY FOR MERGE for the landed work; R16 item 2 BLOCKED on a one-line Ruling correction** (run 23,
+updated 2026-10-03T02:1xZ). Head task items: (1) R15 item 1 **DONE** with red/green proof, (2) R15 item 2
+**DONE** with red/green proof, (3) R16 item 2 **BLOCKED (spec defect — Questions #1)**: the ruling's memo
+framing v2 cannot fit a tlock ciphertext of the fixed 128-byte bid into the 512-byte Zcash memo (14 bytes
+over; both pinned encoders measured) — the drafted implementation is saved as `tmp/r16-item2-wip.patch`
+and lands within one run of the correction, (4) rebuild + typecheck + builds + `npm run e2e` **DONE**.
+R14 item 3 was finished first per the head unblock (record under the run-22 record below). R14 items 1–5
+and R15 items 1–2 are ready for Reviewer R. No mainnet; no other-checkout access or writes; no
+merge/rebase/cherry-pick/push; no pin changes.
 
 ### Run 23 work (head task items)
 
@@ -53,6 +58,58 @@ below). No mainnet; no other-checkout access or writes; no merge/rebase/cherry-p
    missing row` (the expected assertion ID — exactly R's false-error probe). **Green** — the same check PASS
    in `docs/evidence/phase-5/repro/r15-verify-leaves.out` (with the exact expected warn `missing envelope 1;
    in the exception queue` asserted).
+
+3. **R16 item 2 (memo-bound envelope): BLOCKED on a Ruling correction (spec defect), not on code.** The
+   ruling's framing v2 `ff424e5a02 || u16be ct_len || tlock_ct || envelope_sha256 (32) || zero pad` leaves
+   `ct_len ≤ 473` (512 − 5 − 2 − 32), but the fixed 128-byte bid tlocks to **487 bytes** with both pinned
+   encoders — tlock-js 0.9.0 (the sealer's `decodeArmor` output; enforcing the v2 budget the page reports
+   `ciphertext too long: 487 bytes`; Phase 1 R8 recorded “487-byte ciphertext (494-byte envelope before
+   pad)”) and the pinned Go `tle` v1.2.0 (`head -c 128 | tle -e … | wc -c` → 487). 7 + 487 + 32 = 526 > 512:
+   the format as written is 14 bytes over the Zcash memo field, so `bid seal` can never produce it. Choosing
+   a binding width is a crypto-format decision and not mine (“do not design”); the request with options is
+   Questions #1. The whole item (writer, parser, intake, verify, cancel seam, proofs) is defined in terms of
+   this framing, so all of it waits on the correction. The implementation drafted against the written
+   framing — `memoSealedBid` returning ct + hash for v1/v2, the shared `memoBindsEnvelope` rule (one rule for
+   intake + verify + signer), the `memoBoundEnvelope` cancel seam (authenticate from the scanned memo hash,
+   no tlock opening), the intake and verify checks, the sealer v2 writer + `bid seal`'s `envelope_hash`, the
+   scanner-fixture updates — is saved as `tmp/r16-item2-wip.patch` (333 lines over 11 files; re-apply with
+   `git apply tmp/r16-item2-wip.patch` once the corrected framing is ruled, then adjust the two length
+   constants). **None of it is in the shipped tree** — tree clean, `npm run e2e` PASS — so no item-3 progress
+   is claimed beyond this record and the patch.
+
+4. **Item 4 (rebuild + checks): DONE** (`acd49a4`). `npm run build:verify` → `dist/benzo-verify.mjs` +
+   `docs/verify-bundle.sha256` (now carrying the R15 leaf state machine, the stranger-party rule and the
+   pre-W claims gate); `npm run typecheck` PASS; `build:seal`, `build:core`, `build:settle`, `build:cli`
+   clean; `npm run e2e` (default seal-open) **PASS 42 s** at `acd49a4` (`tmp/e2e/report.json`).
+
+### Test audit (run 23)
+
+Shipped tree: no test files changed (the R16 fixture edits live only in the WIP patch). Project E2E suite
+(8-test ceiling; 5 used) **R retain** — `e2e/seal-open.spec.ts` PASS 42 s at `acd49a4`; the four
+live-project specs untouched (covered live code untouched). `tools/repro/r15-verify-leaves-repro.mjs` is a
+check outside the ceiling (**R**; owns `r15-*`, mutation-proven this run). Contract suites untouched.
+
+### Questions (run 23; standing ones listed first)
+
+1. **R16 item 2 needs a one-line Ruling correction (blocks my next work).** Memo framing v2 as written is
+   14 bytes over the 512-byte Zcash memo: `5 + 2 + 487 + 32 = 526 > 512` (the fixed 128-byte bid tlocks to
+   487 bytes — measured with both pinned encoders, and recorded in Phase 1 R8). The binding tag must fit in
+   the 18 bytes that remain after the ct: e.g. **(a)** `envelope_sha256` truncated to **16 bytes**
+   (`ff424e5a02 || u16be ct_len || tlock_ct || tag16 || zero pad`, 5+2+487+16 = 510), **(b)** an exact-fit
+   **18-byte** tag (512 exactly, no pad), or **(c)** your own fix (a smaller tlock plaintext would break the
+   fixed 128-byte layout). One ruling line and I implement the full item — writer, parser, intake, verify,
+   cancel-before-R fixture and the mismatch refusals — from `tmp/r16-item2-wip.patch`.
+2. **Sepolia EVM redeploy (carried, run 22):** R14 item 4 changed `BenzoEscrow.sol` (storage-layout change).
+   Redeploy and mark `0x8d08…` SUPERSEDED, or leave for Phase 6? Sepolia gas is not mine to faucet.
+3. **R16 F2 split note (heads-up, no action needed unless you disagree):** the merged R13 claims check
+   misclassified pre-W rows as claim-paid (every correct pre-Phase-5 settlement failed verify); my `548b16d`
+   gates the claim requirement on the manifest's `envelope_keys` (the pre-W half). Track A's R16 item 3
+   (seller/fee rows) is still owed and composes with it.
+4. **Cancel-row parties (one line for A's R16.1 wiring):** verify's R15 stranger rule (as the head wrote it)
+   accepts `deposit:`-shaped rows for the CANCELLED path and ERRORs `leaf:N` rows in a result-less
+   settlement; the current plan cancel branch emits `deposit:`-shaped rows, which fits. If A's wiring emits
+   `leaf:N` rows for frozen deposits instead, rule it and I'll extend `settleable`/the stranger rule to
+   match the leaf's own deposit party.
 Run 23 base: clean tree at `92ac035` (head: Merge branch 'main' into track-b, bringing R15/R16 and A's
 R7 batch; R15/R16 in `docs/PHASE-5.md`, head commits `c1f7d2e` + `c4584c7`). No mainnet; no
 other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
