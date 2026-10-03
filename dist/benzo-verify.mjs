@@ -16215,12 +16215,14 @@ function checkPublicAuction(pub) {
   });
   run2("envelope", () => {
     const records = pub.envelopes;
-    if (!records.length) return projection("envelope.json", null);
     const frozen = pub.frozen;
+    if (!records.length && !(frozen && pub.manifest.envelope_keys)) return projection("envelope.json", null);
     requireThat(frozen, "missing frozen");
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : null;
     const settleable = (leaf, reason) => {
       const party = `leaf:${leaf}`;
+      if (!expected || !expected.has(party)) return void 0;
       if (!pub.settlement) return `${reason} ${leaf}; refund goes to the exception queue`;
       const row = rows.find((r2) => r2.party === party);
       requireThat(row, `${reason} ${leaf}: missing row`);
@@ -16274,6 +16276,7 @@ function checkPublicAuction(pub) {
     }
     for (const row of rows) {
       if (!receipts.some((r2) => r2.party === row.party)) continue;
+      if (!pub.manifest.envelope_keys) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? void 0 : (pub.envelopes ?? []).find((e) => {
         const leaf = pub.frozen?.leaves.find((l2) => l2.leaf_index === Number(row.party.slice(5)));
@@ -16328,10 +16331,10 @@ function checkPublicAuction(pub) {
     }
   });
   run2("accounting-strays", () => {
-    if (!pub.settlement || !pub.result) return;
+    if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    const expected = modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement);
+    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : /* @__PURE__ */ new Map();
     const stray = (party) => {
       requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
