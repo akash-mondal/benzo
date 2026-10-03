@@ -16004,6 +16004,10 @@ function isDepositParty(party) {
   const m2 = PARTY.exec(party);
   return !!m2 && Number(m2[3]) <= 65535;
 }
+var LEGACY_PARTY = /^deposit:([0-9a-f]{64}):(0|[1-9][0-9]*)$/;
+function isAnyDepositParty(party) {
+  return isDepositParty(party) || !!LEGACY_PARTY.exec(party);
+}
 
 // witness/index.ts
 var witnessSetHash = (packet) => hash(jsonBytes(packet));
@@ -16278,7 +16282,12 @@ function checkPublicAuction(pub, opts = {}) {
   run2("witness", () => {
     const frozen = pub.frozen;
     if (!frozen) {
-      requireThat(pub.witnessCerts.length === 0 && pub.witnessSet === null, "witness material without frozen root");
+      requireThat(pub.witnessCerts.length === 0, "witness certificates without frozen root");
+      if (pub.witnessSet) {
+        requireThat(pub.manifest.witness_set_hash, "witness set without a pinned hash");
+        requireThat(witnessSetHash(pub.witnessSet) === pub.manifest.witness_set_hash, "witness set hash mismatch");
+        projection("witness-set.json", pub.witnessSet);
+      }
       return projection("witness.json", null);
     }
     const bound = pub.manifest.witness_set_hash;
@@ -16371,7 +16380,7 @@ function checkPublicAuction(pub, opts = {}) {
     }
     for (const [i2, c2] of records.entries()) {
       requireThat(c2 && typeof c2 === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c2.party) || isDepositParty(c2.party), `claim ${i2} party`);
+      requireThat(/^leaf:[0-9]+$/.test(c2.party) || isAnyDepositParty(c2.party), `claim ${i2} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c2.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
       let owner = null;
       if (c2.party.startsWith("leaf:")) {
@@ -16449,7 +16458,7 @@ function checkPublicAuction(pub, opts = {}) {
     const rows = pub.settlement.rows ?? [];
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : /* @__PURE__ */ new Map();
     const stray = (party) => {
-      requireThat(isDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
+      requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     for (const r2 of receipts) {
       if (expected.has(r2.party)) continue;

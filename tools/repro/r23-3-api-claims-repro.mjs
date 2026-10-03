@@ -48,6 +48,7 @@ writeFileSync(path.join(WORK, "entry.mjs"), [
   'export * as bid from "../../envelope/bid";',
   'export * as tlock from "tlock-js";',
   'export * as armor from "tlock-js/age/armor";',
+  'export * as witness from "../../witness/index";',
   "",
 ].join("\n"));
 execFileSync(path.join(ROOT, "node_modules/.bin/esbuild"), [
@@ -60,7 +61,7 @@ execFileSync(path.join(ROOT, "node_modules/.bin/esbuild"), [
   "--banner:js=import { createRequire } from \"module\"; const require = createRequire(import.meta.url);",
   "--outfile=" + path.join(WORK, "server.mjs"), "--log-level=warning",
 ], { cwd: ROOT });
-const { schema, envelope, bid, tlock, armor } = await import(pathToFileURL(path.join(WORK, "lib.mjs")).href);
+const { schema, envelope, bid, tlock, armor, witness } = await import(pathToFileURL(path.join(WORK, "lib.mjs")).href);
 const { startServer } = await import(pathToFileURL(path.join(WORK, "server.mjs")).href);
 
 // ---- fixture: a REFUNDING auction, one stray deposit claim with a REAL tlock memo, no beacon ----
@@ -85,6 +86,11 @@ const manifest = {
   clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
   refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
 };
+// R23 item 1 (merged after this fixture was first written): a stray claim is verified against a q_w-certified
+// strays statement under the manifest-pinned witness set, so the fixture publishes the full witness flow.
+const w1 = witness.generateWitnessKey(), w2 = witness.generateWitnessKey(), w3 = witness.generateWitnessKey();
+const witnessSet = schema.signRecord({ version: 1, auction_id: auctionId, q_w: 2, keys: [w1.public_hex, w2.public_hex, w3.public_hex] }, signerPem);
+manifest.witness_set_hash = witness.witnessSetHash(witnessSet);
 const packet = schema.signRecord(manifest, signerPem);
 
 // a fresh 128-byte sealed bid, tlock-sealed to the past round R and framed as the v1 stray memo
@@ -104,9 +110,11 @@ const memo = Buffer.alloc(512);
 Buffer.from("ff424e5a01", "hex").copy(memo, 0);
 memo.writeUInt16BE(ct.length, 5);
 ct.copy(memo, 7);
-const party = `deposit:${randomBytes(32).toString("hex")}:0`;
+const party = `deposit:${randomBytes(32).toString("hex")}:ironwood:0`;
 const claimBody = { kind: "claim-refund", auction_id: auctionId, party, claim_envelope_sha256: randomBytes(32).toString("hex") };
 const claim = { party, claim_envelope_sha256: claimBody.claim_envelope_sha256, owner_sig: envelope.signStatement(owner, claimBody), memo_hex: memo.toString("hex") };
+const strays = { version: 1, auction_id: auctionId, strays: [{ party, memo_sha256: sha256(memo), value_zats: "500000" }] };
+const straysCert = { statement: strays, signatures: [witness.signStrays(strays, w1.private_hex), witness.signStrays(strays, w2.private_hex)] };
 
 const beaconRes = await fetch(`${drandBase}/${chainHash}/public/${R}`);
 if (!beaconRes.ok) throw new Error(`drand HTTP ${beaconRes.status} for round ${R}`);
@@ -115,7 +123,8 @@ const beaconJson = await beaconRes.json();
 const docFile = path.join(DIR, "auction.json");
 const writeDoc = (beacon) => writeFileSync(docFile, JSON.stringify({
   version: 1, auction_id: auctionId, signer: signerHex, manifest: packet, state: "REFUNDING", receipts: [],
-  claims: [claim], ...(beacon ? { beacon: { round: R, signature: beaconJson.signature, chain_hash: chainHash } } : {}),
+  claims: [claim], witness_set: witnessSet, strays_cert: [straysCert],
+  ...(beacon ? { beacon: { round: R, signature: beaconJson.signature, chain_hash: chainHash } } : {}),
 }, null, 2) + "\n");
 
 // ---- drive the shipped read API over real HTTP ----
