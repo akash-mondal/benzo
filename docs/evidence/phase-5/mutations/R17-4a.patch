@@ -1,0 +1,13 @@
+diff --git a/cli/commands/xchain.ts b/cli/commands/xchain.ts
+index 023e421..9aa08fe 100644
+--- a/cli/commands/xchain.ts
++++ b/cli/commands/xchain.ts
+@@ -128,7 +128,7 @@ export async function run(argv: string[]): Promise<number> {
+       const norm = (h: string) => h.replace(/^0x/, "").toLowerCase();
+       const resultBytes = readFileSync(need(a, "result"));
+       const resultHashHex = hash(resultBytes); // manifest/schema hash: sha256 over the raw bytes — the product's published result hash
+-      if (typeof a["result-hash"] === "string" && norm(a["result-hash"]) !== resultHashHex) {
++      if (false && typeof a["result-hash"] === "string" && norm(a["result-hash"]) !== resultHashHex) { // mutation R17-4a: the recomputed result hash is never compared
+         throw new Error(`mismatching --result-hash ${a["result-hash"]}: the validated result bytes hash to ${resultHashHex}`);
+       }
+       let resultDoc: any;
