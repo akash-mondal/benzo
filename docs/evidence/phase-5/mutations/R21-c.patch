@@ -1,0 +1,13 @@
+diff --git a/cli/commands/xchain.ts b/cli/commands/xchain.ts
+index 05d7720..45e46c6 100644
+--- a/cli/commands/xchain.ts
++++ b/cli/commands/xchain.ts
+@@ -220,7 +220,7 @@ export async function run(argv: string[]): Promise<number> {
+         const rec = pub.envelopes.find((e) => e.ciphertext_hash === fl.ciphertext_hash) as any;
+         if (!rec || typeof rec.envelope_ct !== "string" || typeof rec.owner_sig !== "string") { ex("no envelope record"); continue; }
+         // R21 check 3: the record's owner_sig and settlement commitment against THIS opening (shared rule)
+-        const auth = validEnvelope({ manifest: pub.manifestPacket, frozen: { leaves: [fl] }, opened: [{ leaf_index: 0, plaintext_hex: ptHex }], envelopes: [rec] } as any, 0);
++        const auth = rec; // mutation R21-c: the owner-signature + settlement-commitment authentication is disabled
+         if (!auth) { ex("no valid owner-signed settlement envelope"); continue; }
+         const openings: { sha: string; deliver: Deliver }[] = [];
+         let openedOk = 0, noDeliver = 0;
