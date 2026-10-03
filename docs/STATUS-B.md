@@ -5,9 +5,9 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R16 item 2 (per R18), R17 item 4, cross-chain private delivery (design §4, §7 step 4), fund quote (§5)
 
-State: **R16 item 2 DONE with red/green proof** (code `8f7b156`, evidence `b50c0d2`); in progress: R17 item 4,
-then cross-chain private delivery (a EVM ERC-5564, b Railgun, c Solana Token-2022), then the §5 funding
-helper. Updated 2026-10-03T02:5xZ. Head message this run: implement R16 item 2 as corrected by R18 (memo v2
+State: **R16 item 2 DONE with red/green proof** (code `8f7b156`, evidence `b50c0d2`); **R17 item 4 DONE with
+red/green proof** (code `e58e3f9`, evidence `95b1f58`); in progress: cross-chain private delivery (a EVM
+ERC-5564, b Railgun, c Solana Token-2022), then the §5 funding helper. Updated 2026-10-03T03:2xZ. Head message this run: implement R16 item 2 as corrected by R18 (memo v2
 tag = 18 bytes), R17 item 4, the three delivery paths with gas/SOL stipends + live txids + `docs/AUDITS.md`
 rows, and `benzo fund quote`; then READY FOR MERGE. No mainnet; no other-checkout access or writes; no
 merge/rebase/cherry-pick/push; no pin changes.
@@ -69,8 +69,39 @@ merge/rebase/cherry-pick/push; no pin changes.
    legal framing; bench mirrors intake inline and was not part of the ruling's update list) — say so if you
    want it on v2.
 
-2. **R17 item 4 (`xchain attest --result FILE`): NEXT.** Then cross-chain delivery (§4/§7 step 4), then
-   `benzo fund quote` (§5).
+2. **R17 item 4 (`xchain attest --result FILE`): DONE** (`e58e3f9`, evidence `95b1f58`). Reviewer R F7: attest
+   signed operator-supplied content with no signer recomputation. Now `benzo xchain attest` requires
+   `--result FILE`: the result hash is **recomputed from those exact bytes** (SHA-256 = the product's
+   published result hash), the allocation leaves are **derived from the result** (winner indexes + lot
+   counts come only from `result.allocations[].fill`, or `winners[].lot_count` in a cross-chain result),
+   `--allocation` supplies only destinations and is **refused unless it matches the derived leaf set
+   exactly**, and `--result-hash` is an optional cross-check **refused on mismatch** — both refusals fire
+   before any key is read or chain contacted. The signer procedure is documented in `docs/AUDITS.md`
+   (validate the result yourself with `benzo verify`, attest that file's bytes, cross-check the printed
+   `result_hash`, keys never printed).
+
+   **Red/green** — `crosschain/local-demo.sh` (local anvil + `solana-test-validator`, real Foundry/solana
+   tools, the shipped `benzo xchain` CLI): green `docs/evidence/phase-5/repro/r17-4-xchain-attest.out` at
+   clean `e58e3f9` (2026-10-03T03:07Z) — **19/19 PASS** incl. `demo-attest-both-chains` (now also asserting
+   the recomputed result hash in both bundles), `demo-attest-result-hash-mismatch-refused` and
+   `demo-attest-allocation-mismatch-refused`. Mutations:
+
+   | output | run at | result |
+   |---|---|---|
+   | `docs/evidence/phase-5/mutations/R17-4a.out` | clean `e58e3f9` + `R17-4a.patch` (hash comparison disabled) | exit 1 — `ERROR demo-attest-result-hash-mismatch-refused rc=0:` (the doctored `--result-hash` got **signed**), `RESULT FAIL 1` |
+   | `docs/evidence/phase-5/mutations/R17-4b.out` | clean `e58e3f9` + `R17-4b.patch` (allocation match disabled) | exit 1 — `ERROR demo-attest-allocation-mismatch-refused rc=0:` (the doctored allocation got **signed**), `RESULT FAIL 1` |
+
+   `git apply` → run → `git apply -R` leaves `git status --porcelain` showing only the mutation files.
+   `npm run typecheck` PASS. No E2E spec touched (xchain is contract-level, outside the ceiling).
+
+3. **Cross-chain private delivery (design §4, §7 step 4): NEXT** — (a) EVM ERC-5564 stealth (ScopeLift
+   Announcer + Registry + pinned SDK; local anvil, then Sepolia), (b) Railgun `shield()` on Sepolia per §4
+   (2-of-3 byte-for-byte shield-request rebuild, fresh shield key per settlement, dedicated clean
+   submitter), (c) Token-2022 Confidential Transfers on Solana devnet (fresh account from the ElGamal
+   pubkey in the envelope). Each: gas/SOL stipend per fresh destination, live txids, `docs/AUDITS.md` row.
+   If Railgun's Sepolia contracts/SDK can't be used, the blocker goes under Questions and stealth ships as
+   the EVM path. Then (4) the §5 funding helper (`benzo fund quote`, NEAR Intents 1Click quote API only,
+   dry run, always the bidder's own shielded UA).
 
 ### Test audit (run 24)
 
