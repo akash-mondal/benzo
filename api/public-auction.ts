@@ -290,8 +290,12 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   // row that was never paid to an unauthenticated destination — anything else refuses.
   run("envelope", () => {
     const records = pub.envelopes;
-    if (!records.length) return projection("envelope.json", null);
     const frozen = pub.frozen;
+    // R15 item 1 (R F4): when the manifest pins envelope_keys the leaf state machine runs for EVERY frozen
+    // leaf even when zero envelope records are published (recordless bids are admitted legally), so a row or
+    // receipt that misstates a leaf can never hide behind an omitted envelope.json. Dirs from before envelopes
+    // (no pinned keys, no records) keep the old reading and stay verifiable.
+    if (!records.length && !(frozen && pub.manifest.envelope_keys)) return projection("envelope.json", null);
     requireThat(frozen, "missing frozen");
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     const settleable = (leaf: number, reason: string): string | void => {
@@ -417,10 +421,13 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     }
   });
   run("accounting-strays", () => {
-    if (!pub.settlement || !pub.result) return;
+    if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement);
+    // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
+    // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
+    // result exists and every party must therefore be a deposit refund.
+    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
     const stray = (party: string): void => {
       requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
