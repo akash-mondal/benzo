@@ -3,7 +3,7 @@
 // independently salted commitment to the settlement envelope (threat #7, #32). The layout itself never changes.
 import { randomBytes } from "node:crypto";
 import { requireThat } from "../manifest/schema";
-import { generateOwnerKey, sealEnvelope, sealEnvelopePayload, settlementCommitment, signEnvelope, type Deliver, type OwnerKey } from "./index";
+import { generateOwnerKey, sealEnvelope, sealEnvelopePayload, settlementCommitment, signEnvelope, type DeliverInput, type OwnerKey } from "./index";
 
 export type BidFields = { auction_id: string; price_zats: bigint; quantity: number; nonce_hex: string; owner_public_hex: string; settlement_commitment_hex: string };
 export type SealedBid = {
@@ -30,7 +30,7 @@ export function buildBidPlaintext(f: BidFields): Buffer {
 // plaintext_hex to round R and then call bindSealedBid to attach the owner signature over the resulting ciphertext hash.
 // R19 item 1: `deliver` (the cross-chain destination) rides the same envelope as payload v2; `destination_ua`
 // stays the mandatory shielded refund (for the product's Zcash settlement).
-export function prepareBid(args: { auction_id: string; price_zats: bigint; quantity: number; destination_ua?: string; deliver?: Deliver; envelope_public_hexs?: string[] }): Omit<SealedBid, "ciphertext_hash_hex" | "owner_sig_hex"> {
+export function prepareBid(args: { auction_id: string; price_zats: bigint; quantity: number; destination_ua?: string; deliver?: DeliverInput; envelope_public_hexs?: string[] }): Omit<SealedBid, "ciphertext_hash_hex" | "owner_sig_hex"> {
   const owner = generateOwnerKey(), nonce_hex = randomBytes(16).toString("hex");
   let envelope_ct_hex = "";
   if (args.destination_ua !== undefined) {

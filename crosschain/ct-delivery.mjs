@@ -125,11 +125,12 @@ async function main() {
   check("ct-fresh-account-configured", /^[0-9a-f]{64}$/.test(configuredHex), `fresh account ${fresh} elgamal ${configuredHex.slice(0, 16)}…`);
 
   // ---- the sealed deliver (R19 payload v2) carries exactly that configuration ----
+  // (no salt here: the sealer generates the mandatory salt inside the sealed envelope, R25 item 1)
   const deliver = { chain: "solana", kind: "ct", to: fresh, elgamal: configuredHex };
-  del.requireDeliver(deliver);
   const keys = [envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey()];
   const envCt = envmod.sealEnvelopePayload({ refund: UA, deliver }, keys.map((k) => k.public_hex));
   const opened = keys.map((k) => envmod.openEnvelopePayload(envCt, k.private_hex));
+  opened.forEach((o) => del.requireDeliver(o.deliver)); // the sealed deliver carries the mandatory salt
   check("ct-envelope-deliver-roundtrip",
     opened.every((o) => o.refund === UA && o.deliver?.kind === "ct" && o.deliver?.to === fresh && o.deliver?.elgamal === configuredHex),
     `deliver ${JSON.stringify(deliver)}`);

@@ -94,8 +94,7 @@ async function main() {
 
   // ---- winner: one fresh stealth meta-address (its deliver is sealed in its envelope) ----
   const winnerKeys = stealth.generateStealthMetaAddress();
-  const deliver = { chain: "evm", kind: "stealth", to: winnerKeys.stealthMetaAddress };
-  del.requireDeliver(deliver);
+  const deliver = { chain: "evm", kind: "stealth", to: winnerKeys.stealthMetaAddress }; // no salt: the sealer generates it (R25 item 1)
 
   // ---- the published directory fixture: one bid, real tlock + BLS-verified drand beacon ----
   const envelopeKeys = [envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey()];
@@ -133,7 +132,9 @@ async function main() {
     public_key: schema.QUICKNET.public_key, period: schema.QUICKNET.period, genesis_time: schema.QUICKNET.genesis,
     hash: chainHash, groupHash: "", schemeID: schema.QUICKNET.scheme, metadata: { beaconID: "quicknet" },
   };
-  const prep = bid.prepareBid({ auction_id: auction1, price_zats: 1000000n, quantity: 1, destination_ua: UA, deliver, envelope_public_hexs: recipients });
+  const prep = bid.prepareBid({ auction_id: auction1, price_zats: 250000n, quantity: 1, destination_ua: UA, deliver, envelope_public_hexs: recipients });
+  // R25 item 1: the deliver's secret salt is generated inside the sealed envelope — open it to get it
+  const sealedDeliver = del.requireDeliver(envmod.openEnvelopePayload(prep.envelope_ct_hex, envelopeKeys[0].private_hex).deliver);
   const armored = await tlock.timelockEncrypt(R, Buffer.from(prep.plaintext_hex, "hex"), { chain: () => ({ info: async () => pinnedInfo }) });
   const ctHex = Buffer.from(armor.decodeArmor(armored), "binary").toString("hex");
   const bound = bid.bindSealedBid(prep, auction1, sha256(Buffer.from(ctHex, "hex")));
@@ -142,17 +143,24 @@ async function main() {
   const beacon = await beaconRes.json();
   const leaf = { auction_id: auction1, manifest_hash: checked.manifest_hash, ciphertext_hash: bound.ciphertext_hash_hex, deposit: { txid: rndHex(32), pool: "ironwood", address: manifest.deposit_addresses[0], diversifier_index: "0" }, leaf_index: 0, ciphertext_hex: ctHex };
   const frozenTree = merkle.tree([leaf]);
+  // published_at precedes T_freeze as a real freeze does (checkPublicAuction refuses a late freeze)
+  const frozen = { auction_id: auction1, manifest_hash: checked.manifest_hash, root: frozenTree.root, leaf_count: 1, cutoff: R, published_at: RT - 500, leaves: [leaf], paths: frozenTree.paths };
+  // the REAL product result (R22 + R24 item 2): the shipped clearing over the opening
+  const openedInput = [{ leaf_index: 0, plaintext_hex: prep.plaintext_hex }];
+  const clearResult = reg.clearForMode({ manifest: packet, signer: signerHex, frozen, opened: openedInput, reserve_opening: null });
   mkdirSync(PUBDIR, { recursive: true });
   writeFileSync(path.join(PUBDIR, "auction.json"), JSON.stringify({
     version: 1, auction_id: auction1, signer: signerHex, manifest: packet, state: "OPENED", receipts: [],
-    frozen: { auction_id: auction1, manifest_hash: checked.manifest_hash, root: frozenTree.root, leaf_count: 1, cutoff: R, published_at: Math.floor(Date.now() / 1000), leaves: [leaf], paths: frozenTree.paths },
-    opened: [{ leaf_index: 0, plaintext_hex: prep.plaintext_hex }],
+    frozen, opened: openedInput,
     beacon: { round: R, signature: beacon.signature, chain_hash: chainHash },
     envelopes: [{ ciphertext_hash: bound.ciphertext_hash_hex, envelope_ct: bound.envelope_ct_hex, owner_sig: bound.owner_sig_hex }],
+    result: clearResult,
   }, null, 2) + "\n");
-  const resultFile = path.join(WORK, "result.json");
-  writeFileSync(resultFile, JSON.stringify({ auction_id: auction1, winners: [{ leaf: 0, lot_count: 1 }] }, null, 2) + "\n");
-  const resultHash = "0x" + sha256(readFileSync(resultFile));
+  // the literal --dir/result.json (R22 byte-equality): the same canonical bytes the document embeds
+  const resultBytes = schema.jsonBytes(clearResult);
+  const resultFile = path.join(PUBDIR, "result.json");
+  writeFileSync(resultFile, resultBytes);
+  const resultHash = "0x" + sha256(resultBytes);
   pass("live-fixture-built", `auction 0x${auction1} drand round ${R}`);
 
   // ---- escrow: deploy fresh (R9 item 1: never in-place upgrade), lock the native lot ----
@@ -192,8 +200,8 @@ async function main() {
   }
   const bundle = JSON.parse(readFileSync(bundleFile, "utf8"));
   const dest = bundle.leaves[0].destination;
-  const independent = stealth.deriveSettlementStealthAddress(deliver, {
-    deliverSha256Hex: del.deliverSha256(deliver), auctionId: Buffer.from(auction1, "hex"), batchIndex: 0, leafIndex: 0, amountWei: LOT,
+  const independent = stealth.deriveSettlementStealthAddress(sealedDeliver, {
+    deliverSha256Hex: del.deliverSha256(sealedDeliver), auctionId: Buffer.from(auction1, "hex"), batchIndex: 0, leafIndex: 0, amountWei: LOT,
   });
   check("live-derive-reproducible", independent.stealthAddress.toLowerCase() === String(dest).toLowerCase(),
     `attested ${dest}, independently derived ${independent.stealthAddress}`);

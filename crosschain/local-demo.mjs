@@ -243,8 +243,8 @@ async function main() {
 
   // ---- the two hostile-sealer bids: real tlock around a tampered envelope ----
   for (const [idx, payloadText, wrap] of [
-    [4, JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: "0x1234" } }), "shared"],
-    [5, JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: r1 } }), "split"],
+    [4, JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: "0x1234", salt: rndHex(32) } }), "shared"],
+    [5, JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: r1, salt: rndHex(32) } }), "split"],
   ]) {
     const owner = envmod.generateOwnerKey(), nonce = rndHex(16);
     const sharedKey = sodium.randombytes_buf(32);
@@ -280,7 +280,7 @@ async function main() {
     const g = envmod.openEnvelopePayload(sealed.envelope_ct_hex, envelopeKeys[1].private_hex);
     check("demo-bid-seal-deliver",
       memo.length === 512 && memo.subarray(0, 5).toString("hex") === "ff424e5a02" &&
-        g.refund === UA && g.deliver?.to === delivers[0].to &&
+        g.refund === UA && g.deliver?.to === delivers[0].to && /^[0-9a-f]{64}$/.test(g.deliver?.salt) &&
         sha256(Buffer.from(memo.subarray(7, 7 + memo.readUInt16BE(5)), "hex")) === sealed.ciphertext_hash,
       `memo ${memo.length}B tag ${memo.subarray(7 + memo.readUInt16BE(5), 7 + memo.readUInt16BE(5) + 18).toString("hex")} opened ${JSON.stringify(g)}`);
   }
@@ -342,7 +342,7 @@ async function main() {
   const attackerOwner = envmod.generateOwnerKey();
   const attackerNonce = rndHex(16);
   const attackerKey = sodium.randombytes_buf(32); // honest wrap so every signer opens it: the fabrication is in the pairing
-  const attackerEnvCt = hostileEnvelope(JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: attacker } }), recipients,
+  const attackerEnvCt = hostileEnvelope(JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: attacker, salt: rndHex(32) } }), recipients,
     [attackerKey, attackerKey, attackerKey]);
   const attackerCommitment = envmod.settlementCommitment(attackerNonce, attackerEnvCt);
   const fabricatedPt = ptHexOf(attackerNonce, attackerOwner.public_hex, attackerCommitment);

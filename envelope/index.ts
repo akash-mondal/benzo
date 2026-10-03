@@ -18,19 +18,19 @@
 // All cryptography comes from libsodium (crypto_box_seal per stanza, crypto_aead_chacha20poly1305_ietf for the
 // body, crypto_generichash/BLAKE2b for the key commitment — see docs/AUDITS.md); no hand-written key derivation.
 // The recipient set is the signed manifest's `envelope_keys` (the three signers).
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
+import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
 import sodium from "libsodium-wrappers";
 import { canonical, jsonBytes, requireThat } from "../manifest/schema";
 import { requireShieldedDestination } from "./destination";
-import { type Deliver, requireDeliver } from "./deliver";
+import { type Deliver, type DeliverInput, requireDeliver } from "./deliver";
 await sodium.ready;
 
 // R19 item 1: the envelope payload is v2 canonical JSON `{"v":2,"refund":…,"deliver":{…}}` inside the
 // same fixed padded plaintext; a plain-UA plaintext (v1) is still read as `{refund}`. `refund` is
 // mandatory and shielded-only; `deliver` is the cross-chain destination (validated per chain at seal
 // and at every use — `envelope/deliver.ts`).
-export interface EnvelopePayload { refund: string; deliver?: Deliver }
-export type { Deliver } from "./deliver";
+export interface EnvelopePayload { refund: string; deliver?: DeliverInput }
+export type { Deliver, DeliverInput } from "./deliver";
 
 export type OwnerKey = { public_hex: string; private_hex: string };
 export type EnvelopeKey = { public_hex: string; private_hex: string };
@@ -109,12 +109,14 @@ export function sealEnvelope(plaintext: string, recipientPublicHexes: string[]):
   return sealPadded(plaintext, recipientPublicHexes);
 }
 // R19 item 1: seal the v2 payload. The plaintext is the canonical JSON of {v:2, refund, deliver?}
-// (manifest/schema `canonical`), inside the unchanged fixed padded plaintext.
+// (manifest/schema `canonical`), inside the unchanged fixed padded plaintext. R25 item 1: the
+// deliver's `salt` is generated HERE — 32 fresh random bytes inside the sealed envelope, never
+// caller-supplied — so only parties who open the envelope know it.
 export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHexes: string[]): string {
   requireThat(payload !== null && typeof payload === "object" && !Array.isArray(payload), "envelope payload");
   requireShieldedDestination(payload.refund);
   const doc: Record<string, unknown> = { v: 2, refund: payload.refund };
-  if (payload.deliver !== undefined) doc.deliver = requireDeliver(payload.deliver);
+  if (payload.deliver !== undefined) doc.deliver = requireDeliver({ ...payload.deliver, salt: randomBytes(32).toString("hex") });
   return sealPadded(canonical(doc), recipientPublicHexes);
 }
 // The recipient X25519 public keys of an envelope, in stanza order (R10 item 1: product validation requires
@@ -201,7 +203,7 @@ function parseEnvelopePayload(text: string): EnvelopePayload {
     "envelope payload v2",
   );
   requireShieldedDestination(doc.refund);
-  return doc.deliver === undefined ? { refund: doc.refund } : { refund: doc.refund, deliver: doc.deliver as Deliver };
+  return doc.deliver === undefined ? { refund: doc.refund } : { refund: doc.refund, deliver: doc.deliver as DeliverInput };
 }
 export function openEnvelopePayload(envelopeCtHex: string, recipientPrivateHex: string): EnvelopePayload {
   return parseEnvelopePayload(openPadded(envelopeCtHex, recipientPrivateHex));

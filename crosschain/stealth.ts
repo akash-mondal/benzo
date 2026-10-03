@@ -81,14 +81,18 @@ export function deliverMetaAddressURI(deliver: { chain: string; kind: string; to
 
 // R19 item 2: every signer derives the leaf's destination from its own opening of the winner's envelope,
 // so the one-time stealth address must be signer-reproducible. The ephemeral private key is a SHA-256
-// KDF over the agreed `SHA-256(deliver)` and the settlement coordinates (custom construction, documented
+// KDF over the winner's secret deliver `salt` (R25 item 1 — generated inside the sealed envelope), the
+// agreed `SHA-256(deliver)` and the settlement coordinates (custom construction, documented
 // in docs/AUDITS.md); all curve work and the ERC-5564 derivation itself stay in the pinned ScopeLift SDK.
 // One fresh address per (settlement, leaf): different auctions/batches/leaves never reuse an address.
+// Without the salt (R's F1 linking probe) anyone who could guess a winner's meta-address re-derived
+// the key from public coordinates and linked the payout; the secret salt makes that impossible.
 const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
-export function stealthEphemeralPrivateKey(deliverSha256Hex: string, auctionId: Uint8Array, batchIndex: number, leafIndex: number): Uint8Array {
+export function stealthEphemeralPrivateKey(saltHex: string, deliverSha256Hex: string, auctionId: Uint8Array, batchIndex: number, leafIndex: number): Uint8Array {
   const be64 = (n: number) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n)); return b; };
   const digest = createHash("sha256")
-    .update(Buffer.from("benzo-stealth-eph-v1"))
+    .update(Buffer.from("benzo-stealth-eph-v2"))
+    .update(Buffer.from(saltHex.replace(/^0x/, ""), "hex"))
     .update(Buffer.from(deliverSha256Hex.replace(/^0x/, ""), "hex"))
     .update(Buffer.from(auctionId)).update(be64(batchIndex)).update(be64(leafIndex))
     .digest();
@@ -98,13 +102,13 @@ export function stealthEphemeralPrivateKey(deliverSha256Hex: string, auctionId: 
 }
 
 export function deriveSettlementStealthAddress(
-  deliver: { chain: string; kind: string; to: string },
+  deliver: { chain: string; kind: string; to: string; salt: string },
   ctx: { deliverSha256Hex: string; auctionId: Uint8Array; batchIndex: number; leafIndex: number; amountWei: bigint },
 ): { stealthAddress: `0x${string}`; ephemeralPublicKey: `0x${string}`; viewTag: `0x${string}`; metadata: `0x${string}` } {
   const { stealthAddress, ephemeralPublicKey, viewTag } = generateStealthAddress({
     stealthMetaAddressURI: deliverMetaAddressURI(deliver),
     schemeId: SCHEME_ID,
-    ephemeralPrivateKey: stealthEphemeralPrivateKey(ctx.deliverSha256Hex, ctx.auctionId, ctx.batchIndex, ctx.leafIndex),
+    ephemeralPrivateKey: stealthEphemeralPrivateKey(deliver.salt, ctx.deliverSha256Hex, ctx.auctionId, ctx.batchIndex, ctx.leafIndex),
   });
   // the ERC-5564 announcement metadata the release crank publishes on the canonical Announcer:
   // view tag + the delivered amount (public on chain by design §4 — the recipient stays hidden)
