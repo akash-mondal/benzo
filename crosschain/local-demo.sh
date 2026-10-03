@@ -7,7 +7,9 @@ set -euo pipefail
 cd "$(dirname "$0")/.."   # repo root
 
 export PATH="$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:${PATH:-}"
-set -a; . ./.env 2>/dev/null || true; set +a
+# R14 item 5 (reviewer R F2): bash 3.2 exits the shell when sourcing a missing file — guard the
+# optional .env explicitly instead of `. ./.env 2>/dev/null || true` (which died silently)
+if [ -f .env ]; then set -a; . ./.env; set +a; fi
 export BNZ_STATE_DIR="${BNZ_STATE_DIR:-$(git rev-parse --show-toplevel)/.benzo}"
 export BNZ_SOLANA_TEST_RPC_PORT=8901
 
