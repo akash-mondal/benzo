@@ -11,8 +11,11 @@ before/after + red/green proof** (code `38bf7e1` + harness `9910f85`, evidence `
 `docs/evidence/phase-5/repro/stealth-{local,live}.out` + mutations `S2-a`/`S2-b`); **item 3 —
 Token-2022 CT delivery DONE** (code `8a52106`, evidence `docs/evidence/phase-5/repro/ct-live.out` +
 mutations `S3-a`/`S3-b`, live on Solana devnet).
-Next: item 4 — Railgun `shield()` on Ethereum Sepolia (may end BLOCKED per the head), item 5 —
-`benzo fund quote`, then READY FOR MERGE. Updated
+**item 5 — `benzo fund quote` DONE** (code `6606298`, evidence
+`docs/evidence/phase-5/repro/r5-fund-quote.out` + mutation `S5-a`); **item 4 — Railgun `shield()`
+BLOCKED** (contracts + SDK pin + signer procedure; evidence
+`docs/evidence/phase-5/repro/railgun-blocked.out`; stealth stays the EVM path per the head).
+**State: READY FOR MERGE.** Updated
 2026-10-03. Head messages this run: implement R19 (P1) first, then the three private-delivery paths
 and the fund quote; headless, one commit per item with red/green proof in this file. No mainnet; no
 other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes (three pins ADDED,
@@ -148,7 +151,36 @@ see below).
      `InvalidInstructionData` against it — recorded honestly); devnet's deployment matches the CLI
      and is what item 3 targets, so there is no local CT run.
 
-5. **Pins added** (exact, `package-lock.json`): `@scure/base` `1.2.6` (base58 + bech32m — the same
+5. **Item 5 — `benzo fund quote` (crosschain §5, NEAR Intents 1Click quote only): DONE** — code
+   `6606298`, evidence `docs/evidence/phase-5/repro/r5-fund-quote.out`, mutation `S5-a`.
+   `benzo fund quote --from <1click asset id> --zec <whole ZEC count> --to <shielded UA>
+   --refund-to <origin address>` calls `POST /v0/quote` with **`dry: true` always** (real quotes, no
+   deposit address, no swap — Benzo never deposits), targeting the bidder's own shielded UA in a
+   round amount the USER chose (never C plus a fee; a fractional/zero `--zec` is refused), prints
+   the verbatim quote and the guidance to wait for the funds before bidding. Credentials only via
+   `BNZ_ONECLICK_API_KEY`. Proof (live API, 3/3): `r5-quote-dry` (HTTP 201; 1 ZEC ≈ 282.75 wNEAR at
+   the run; no `depositAddress` in the response), `r5-round-amount-refused`, `r5-shielded-only-refused`.
+   Mutation `S5-a` (the round-amount rule disabled) → `ERROR r5-round-amount-refused`.
+
+6. **Item 4 — Railgun `shield()` on Ethereum Sepolia: BLOCKED (bounded investigation, 3 attempts;
+   evidence `docs/evidence/phase-5/repro/railgun-blocked.out`).** Per the head's instruction, stealth
+   (item 2, `deliver.kind = "stealth"`) remains the delivered EVM path. Exact blockers:
+   (a) **contracts:** crosschain §4 says the *escrow* calls `shield`; `contracts/evm/src/BenzoEscrow.sol`
+   has no shield adapter (`release` pays `DEST_EVM_ADDRESS`, 20 bytes, only — line 251) and the
+   adapter is custody-touching contract code which per AGENTS "audit hard when custom" merges only
+   after Reviewer R's hard review — that review cannot complete inside one run;
+   (b) **SDK pin conflict:** `@railgun-community/shared-models@8.2.1` hard-pins peer `ethers@6.14.3`
+   against our exact `ethers@6.17.0` (npm ERESOLVE recorded verbatim in the evidence; the only
+   workaround is `--legacy-peer-deps`, which npm itself calls "an incorrect (and potentially broken)
+   dependency resolution", or a pin change — a Ruling);
+   (c) **signer procedure:** the §4 "signers build the shield requests off-chain; 2 of 3 rebuild and
+   compare byte for byte; a fresh shield key per settlement" needs the signer-host integration
+   (Track A, part 1 §3). The SDK itself is feasible (`Ethereum_Sepolia` is in its `NETWORK_CONFIG`;
+   imports and engine start work — evidence) so the item is unblocked the moment (a) is reviewed.
+   Consequence already noted in Q2: `deliver.kind = "railgun"` leaves are attested (leaf kind 3) but
+   not releasable until the adapter lands — a README-honest-limit line is owed with the adapter.
+
+7. **Pins added** (exact, `package-lock.json`): `@scure/base` `1.2.6` (base58 + bech32m — the same
    bech32m the Railgun engine uses; audited), `@scopelift/stealth-address-sdk` `1.0.0-beta.5`
    (beta, **unaudited client tool** — stated plainly in `docs/AUDITS.md`, with the canonical
    Announcer/Registry addresses and bytecode it carries), `viem` `2.57.1` (SDK's client). `cli/build.mjs`

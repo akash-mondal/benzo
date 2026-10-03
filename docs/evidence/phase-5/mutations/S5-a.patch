@@ -1,0 +1,13 @@
+diff --git a/cli/commands/fund.ts b/cli/commands/fund.ts
+index 55fbad5..2f09c41 100644
+--- a/cli/commands/fund.ts
++++ b/cli/commands/fund.ts
+@@ -42,7 +42,7 @@ export async function run(argv: string[]): Promise<number> {
+     const zec = need(a, "zec");
+     // §5: a round amount the USER chooses — a positive whole number of ZEC. Benzo never sizes the
+     // funding (never C plus a fee); a fractional or zero amount is refused here.
+-    if (!/^[1-9][0-9]*$/.test(zec)) throw new Error(`--zec must be a positive whole number of ZEC (a round amount you chose), got ${zec}`);
++    if (!/^[1-9][0-9]*(\.[0-9]+)?$/.test(zec)) throw new Error(`--zec must be a positive whole number of ZEC (a round amount you chose), got ${zec}`); // mutation S5-a: the round-amount rule is disabled
+     const to = need(a, "to");
+     const cls = classifyDestination(to);
+     if (cls.kind === "transparent") throw new Error("refused: transparent address (t-addr)");
