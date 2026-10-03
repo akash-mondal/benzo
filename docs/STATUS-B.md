@@ -6,13 +6,15 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 ## Current run: head task — R19 (P1), R21 (P1), then EVM stealth delivery / Token-2022 CT / Railgun / `benzo fund quote`
 
 State: **R19 DONE with red/green proof** (code `9cfc159`, evidence `e86f35e`); **R21 DONE with
-before/after + red/green proof** (code `38bf7e1` + harness `9910f85`, evidence `9e871d0`).
-Next: item 2 — finish EVM stealth delivery (ERC-5564) on local anvil and one live Sepolia delivery
-with a gas stipend, then Token-2022 CT (item 3), Railgun (item 4, may end BLOCKED), `benzo fund
-quote` (item 5), then READY FOR MERGE. Updated 2026-10-03. Head messages this run: implement R19
-(P1) first, then the three private-delivery paths and the fund quote; headless, one commit per item
-with red/green proof in this file. No mainnet; no other-checkout access or writes; no
-merge/rebase/cherry-pick/push; no pin changes (three pins ADDED, see below).
+before/after + red/green proof** (code `38bf7e1` + harness `9910f85`, evidence `9e871d0`);
+**item 2 — EVM stealth delivery DONE** (local code `2fdeaf6`, live code `2132dd5`, evidence
+`docs/evidence/phase-5/repro/stealth-{local,live}.out` + mutations `S2-a`/`S2-b`).
+Next: item 3 — Token-2022 Confidential Transfers on Solana devnet (`deliver.kind = "ct"`), then
+Railgun (item 4, may end BLOCKED), `benzo fund quote` (item 5), then READY FOR MERGE. Updated
+2026-10-03. Head messages this run: implement R19 (P1) first, then the three private-delivery paths
+and the fund quote; headless, one commit per item with red/green proof in this file. No mainnet; no
+other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes (three pins ADDED,
+see below).
 
 ### This run's work
 
@@ -83,7 +85,42 @@ merge/rebase/cherry-pick/push; no pin changes (three pins ADDED, see below).
    the real post-R situation attest operates in — while `bid seal`'s future-round path is proven by
    `demo-bid-seal-deliver` and the default e2e (seal in the browser, open with Go `tle`).
 
-3. **Pins added** (exact, `package-lock.json`): `@scure/base` `1.2.6` (base58 + bech32m — the same
+3. **Item 2 — EVM stealth delivery (ERC-5564, deliver.kind = "stealth"): DONE** — local code
+   `2fdeaf6`, live code `2132dd5`, evidence `docs/evidence/phase-5/repro/stealth-local.out` (11/11
+   PASS on local anvil) + `stealth-live.out` (11/11 PASS, **live on Ethereum Sepolia**), mutations
+   `S2-a`/`S2-b`.
+   - `xchain release` gains `--stipend WAD` (the tiny native gas stipend sent with each fresh
+     stealth payout — design §4 lesson 6) and `--announcer ADDR` (publishes the ERC-5564
+     announcement whose bytes were fixed at attest time and carried in the bundle leaf) — the
+     release flow completes the delivery.
+   - **Local (anvil):** canonical Announcer + Registry from the pinned SDK's canonical bytecode,
+     winner meta-address + ERC-6538 registration, the deliver sealed in the envelope payload v2,
+     real published directory (real tlock + BLS-verified beacon), lock/attest/release through the
+     shipped CLI, stipend + announcement, then the winner's **viewing key alone** finds the
+     payment, `checkStealthAddress` verifies it, the recovered key spends the lot.
+   - **Live (Ethereum Sepolia)** at `2132dd5` (`stealth-live.out`): canonical Announcer
+     `0x55649E01B5Df198D18D95b5cc5051630cfD45564` + Registry `0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538`
+     used as-is; fresh escrow `0x1dc207D5B04C8CFB043d4420054a2219a544dD85` (deploy
+     `0x85129a3e92dcbc3761de431bb27b750a15783270a108a0187bba42022c65c2f8`); lock
+     `0xdfd04616411e4a888b84ca0368b85afccd9a0745ba81d711a51bbc4022e437bf`; derived one-time
+     address `0x47ffE1Fbaf9631216fe25c817BE518BAf08fD6b8` (reproducible across derivations);
+     release `0x90e872e1…9924`, **stipend** `0x82ff58c1…592c`, **announce** `0x3c0ad833…b578` — the
+     fresh address received exactly **0.0101 ETH** (lot 0.01 + stipend 0.0001); the winner's
+     viewing key found the announcement (tx `0x3c0ad833…b578`), recovered the key and spent the
+     lot back (`0xc7532ce1…1a17`). The deployer key never reaches a command line.
+   - **Red/green** (local anvil): `S2-a` (release sends no stipend → `ERROR
+     stealth-release-pays-with-stipend`, delta 1.0 not 1.001); `S2-b` (the ephemeral-key KDF is no
+     longer settlement-reproducible → `ERROR stealth-derive-reproducible`).
+   - **Beta-SDK defect recorded in `docs/AUDITS.md` + Questions:** the pinned
+     `@scopelift/stealth-address-sdk` 1.0.0-beta.5 `getAnnouncements` filters logs through viem's
+     positional-array `args`, which matches nothing on pinned viem 2.57.1 (the named-object form
+     matches the same events); `scanDeliveries` fetches the logs itself (named args + chunked
+     ranges — public Sepolia endpoints refuse >50k-block queries) and keeps every crypto step in
+     the SDK.
+   - **Q2 resolved as declared:** `BenzoEscrow` was redeployed fresh for the live run (R9 item 1 —
+     R14 item 4 changed the storage layout); `0x8d08…` is marked **SUPERSEDED** in `docs/AUDITS.md`.
+
+4. **Pins added** (exact, `package-lock.json`): `@scure/base` `1.2.6` (base58 + bech32m — the same
    bech32m the Railgun engine uses; audited), `@scopelift/stealth-address-sdk` `1.0.0-beta.5`
    (beta, **unaudited client tool** — stated plainly in `docs/AUDITS.md`, with the canonical
    Announcer/Registry addresses and bytecode it carries), `viem` `2.57.1` (SDK's client). `cli/build.mjs`
@@ -103,12 +140,10 @@ each of the R19/R21 rules has been seen failing under its mutation at the commit
 
 ### Questions (this run)
 
-1. **Sepolia EVM redeploy (carried from run 22/24, needed by item 2):** R14 item 4 changed
-   `BenzoEscrow.sol`'s storage layout; per R9 item 1 there is no in-place upgrade. Unless you say
-   otherwise I will redeploy `BenzoEscrow` under a **new address** with the same deployer key for the
-   live stealth delivery and mark `0x8d08…` SUPERSEDED in STATUS-B and `docs/AUDITS.md`. Sepolia gas
-   is not mine to faucet — the deployer key's balance decides how much live work fits; if it is empty
-   I will record BLOCKED and ask under Needs user.
+1. **Sepolia EVM redeploy (RESOLVED, done as declared):** R14 item 4 changed `BenzoEscrow.sol`'s
+   storage layout; per R9 item 1 there is no in-place upgrade. The live stealth delivery deployed a
+   fresh escrow (`0x1dc207D5…dD85`, the recorded run) and `0x8d08…` is marked SUPERSEDED in
+   `docs/AUDITS.md`. Say so if you wanted a different disposition.
 2. **R19 leaf mapping (implemented as ruled; two refinements noted):** (a) `deliver.kind:"ct"` maps
    to destination kind 2 (`to` = the account owner key) until item 3 defines the Token-2022 delivery —
    if the fresh confidential account must be committed in the leaf instead, item 3 changes the

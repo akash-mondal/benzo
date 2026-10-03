@@ -1,0 +1,16 @@
+commit 2132dd5f6c4998a5c22ba240353e9530bf6b1f30
+utc 2026-10-03T06:40:16Z
+command bash crosschain/stealth-live.sh (Ethereum Sepolia, live)
+live rpc https://ethereum-sepolia-rpc.publicnode.com
+live deployer 0xb6c51a0C7DF1fdcd64adf4eAEa37E1C51eb8Afc1
+PASS live-canonical-announcer announcer 0x55649E01B5Df198D18D95b5cc5051630cfD45564 registry 0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538 (canonical deployments on Sepolia)
+PASS live-fixture-built auction 0x407462cfba3ce8cdeb178d7a89e9fd3a2a920cb12c6ddb753589459e2740facc drand round 32735412
+PASS live-escrow-deployed escrow 0x1dc207D5B04C8CFB043d4420054a2219a544dD85 deploy tx 0x85129a3e92dcbc3761de431bb27b750a15783270a108a0187bba42022c65c2f8 block 11834134
+PASS live-escrow-lock lock tx 0xdfd04616411e4a888b84ca0368b85afccd9a0745ba81d711a51bbc4022e437bf
+PASS live-attest-from-envelope leaf destination 0x47ffE1Fbaf9631216fe25c817BE518BAf08fD6b8 
+PASS live-derive-reproducible attested 0x47ffE1Fbaf9631216fe25c817BE518BAf08fD6b8, independently derived 0x47ffE1Fbaf9631216fe25c817BE518BAf08fD6b8
+PASS live-release-pays-with-stipend release tx 0x90e872e1cadea49ceb68076cb95e111146ed70bec7c1faa682f19bdcc7119924 stipend tx 0x82ff58c168d55293face567aba020a0e5b8ec51c39cb1bdf987c6481ced7592c announce tx 0x3c0ad833bc6a83c9ee7a59cfd6c353262486c291fe2faf89b88d570c3b95b578 fresh address delta 0.0101 ETH (want 0.0101)
+PASS live-scan-finds-delivery 1 announcement(s), first 0x47ffE1Fbaf9631216fe25c817BE518BAf08fD6b8 in tx 0x3c0ad833bc6a83c9ee7a59cfd6c353262486c291fe2faf89b88d570c3b95b578
+PASS live-recover-spends recovered 0x47ffE1Fbaf9631216fe25c817BE518BAf08fD6b8
+PASS live-recovered-key-controls-funds spend tx 0xc7532ce13bb550a846118d4b85f158aa15c2aaf69b2e525217638eab53561a17 moved 0.01 ETH back
+RESULT PASS one live ERC-5564 stealth delivery (deliver.kind=stealth) on Ethereum Sepolia with a gas stipend
