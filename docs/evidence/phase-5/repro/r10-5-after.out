@@ -1,0 +1,8 @@
+commit working tree on 8547621 (R10 item 5 applied)
+utc 2026-10-03T05:03:34Z
+command node tools/repro/r10-5-signer-state-repro.mjs
+S1 --state outside a checkout: exit 0 {"name":"alice","public_hex":"ddd85d3824c5bfe821c9e10f2840f63ea8876daf8391b38124353e3926505a63"}
+FIXED: the key is created under --state and the command printed only the public half.
+S2 default ~/.benzo-signer (redirected HOME): exit 0 key created
+S3 dev BNZ_STATE_DIR inside the checkout: exit 1 ERROR sign envelope-key refused: signer envelope key already exists; refusing to replace it
+outcome FIXED
