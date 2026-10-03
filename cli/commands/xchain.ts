@@ -11,13 +11,14 @@ import {
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
 import {
-  evmApproved, evmLock, evmProvider, evmRefund, evmReleaseApproved, evmStatus, evmSubmitAttestation, EvmPayout,
+  evmApproved, evmApproval, evmLock, evmProvider, evmRefund, evmReleaseApproved, evmStatus, evmSubmitAttestation, EvmPayout,
 } from "../../crosschain/evm";
 import {
   approvalExists, approvalPda, auctionPda, ed25519Instruction, lockInstruction, paidPda, refundInstruction,
-  sendReleaseApproved, sendTx, solConnection, solStatus, SolPayout,
+  sendReleaseApproved, sendTx, solApproval, solConnection, solStatus, SolPayout,
   submitAttestationInstruction,
 } from "../../crosschain/solana";
+import { hash } from "../../manifest/schema";
 
 export const noun = "xchain";
 export const help = [
@@ -25,7 +26,7 @@ export const help = [
   "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--asset is required: the escrow's asset is read from chain and must match; no default)",
   "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
-  "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE]",
+  "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]   (--result is the published result.json: its sha256 is compared with the escrow's approved resultHash and the command exits 1 on mismatch)",
 ].join("\n");
 
 type Args = Record<string, string | boolean | string[]>;
@@ -301,20 +302,43 @@ export async function run(argv: string[]): Promise<number> {
       const auctionId = hexToBytes(need(a, "auction"));
       const bundle: Bundle | null = typeof a.bundle === "string"
         ? JSON.parse(readFileSync(a.bundle, "utf8")) : null;
+      // R14 item 4 (reviewer R F3): --result FILE is the published result.json. Its hash — the
+      // product's published result hash (manifest/schema `hash`, sha256 over the raw file bytes,
+      // the same value `benzo verify` and the API report as result_hash) — is printed beside the
+      // resultHash the escrow approved and compared with it, so "publish one result while
+      // settling another" is visible from this command and it exits 1 on mismatch.
+      const resultFile = typeof a.result === "string" ? a.result : null;
+      if (resultFile && !bundle) throw new Error("--result requires --bundle (it names the batch whose approval to compare)");
       const asset32 = bundle ? assetBytes32(bundle.asset ?? "0x0000000000000000000000000000000000000000") : new Uint8Array(32);
       const leaves = bundle ? bundle.leaves.map((l) => leafHash(auctionId, {
         index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind,
         destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes),
       }, asset32)) : [];
-      if (chain === "evm") {
-        const st = await evmStatus(rpc, escrow, bytesToHex(auctionId), leaves.map(bytesToHex));
-        console.log(JSON.stringify({ chain, escrow, auction: st }, null, 2));
-        return 0;
+      const st = chain === "evm"
+        ? await evmStatus(rpc, escrow, bytesToHex(auctionId), leaves.map(bytesToHex))
+        : await solStatus(solConnection(rpc), new PublicKey(escrow), auctionId, leaves);
+      const approval = bundle
+        ? (chain === "evm"
+            ? await evmApproval(rpc, escrow, bytesToHex(auctionId), bundle.batch_index)
+            : await solApproval(solConnection(rpc), new PublicKey(escrow), auctionId, bundle.batch_index))
+        : null;
+      let resultHashCheck: { published: string; chain: string; match: boolean } | null = null;
+      if (resultFile && approval && bundle) {
+        const published = hash(readFileSync(resultFile));
+        const norm = (h: string) => h.replace(/^0x/, "").toLowerCase();
+        resultHashCheck = {
+          published,
+          chain: approval.resultHash,
+          match: approval.exists && norm(approval.resultHash) === norm(published),
+        };
       }
-      const conn = solConnection(rpc);
-      const programId = new PublicKey(escrow);
-      const st = await solStatus(conn, programId, auctionId, leaves);
-      console.log(JSON.stringify({ chain, escrow, auction: st }, null, 2));
+      console.log(JSON.stringify({ chain, escrow, auction: st, approval, result_hash: resultHashCheck }, null, 2));
+      if (resultHashCheck && !resultHashCheck.match) {
+        process.stderr.write(approval!.exists
+          ? `ERROR xchain result hash mismatch: chain ${resultHashCheck.chain.replace(/^0x/, "")} published ${resultHashCheck.published}\n`
+          : `ERROR xchain result hash mismatch: batch ${bundle!.batch_index} has no approval on chain\n`);
+        return 1;
+      }
       return 0;
     }
 

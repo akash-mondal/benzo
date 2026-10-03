@@ -15,7 +15,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { JsonRpcProvider, Wallet, formatEther, parseEther, Interface } from "ethers";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
@@ -100,7 +100,10 @@ async function main() {
   const result = { auction_id: auction1, winners: [{ leaf: 0, lot_count: 1 }, { leaf: 1, lot_count: 1 }, { leaf: 2, lot_count: 1 }] };
   const resultFile = path.join(WORK, "result.json");
   writeFileSync(resultFile, JSON.stringify(result, null, 2) + "\n");
-  const resultHash = hex32(keccak_256(new Uint8Array(readFileSync(resultFile))));
+  // R14 item 4: the attested result_hash is the product's published result hash (manifest/schema
+  // `hash`: sha256 over the raw result.json bytes — the value `benzo verify`/the API report as
+  // result_hash), so `xchain status --result` can tie the escrow's approval to the published file
+  const resultHash = "0x" + createHash("sha256").update(readFileSync(resultFile)).digest("hex");
   const allocationFile = path.join(WORK, "allocation.json");
   writeFileSync(allocationFile, JSON.stringify({
     standard_lot: "1",
@@ -246,6 +249,24 @@ async function main() {
       re.code === 0 && rs.code === 0 && evmPaidCount === 1 && solPaidCount === 2 &&
       stE.paid === parseEther("1").toString() && stS.paid === String(2 * LAMPORTS_PER_SOL),
       `evm paid ${stE.paid} (${evmPaidCount}/3 leaves), sol paid ${stS.paid} (${solPaidCount}/3 leaves)`);
+  }
+
+  // ---- 4b. R14 item 4: status ties the approved resultHash to the published result.json hash ----
+  {
+    const re = benzoXchain(["status", "--chain", "evm", "--auction", auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm, "--result", resultFile]);
+    const rs = benzoXchain(["status", "--chain", "solana", "--auction", auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol, "--result", resultFile]);
+    const rhE = jsonOut(re).result_hash, rhS = jsonOut(rs).result_hash;
+    check("demo-status-result-hash-matches-published",
+      re.code === 0 && rs.code === 0 && rhE && rhE.match === true && rhS && rhS.match === true,
+      `evm rc=${re.code} ${JSON.stringify(rhE)}, sol rc=${rs.code} ${JSON.stringify(rhS)}`);
+    // a doctored published result must be refused loudly: exit 1 with the specific mismatch
+    const doctoredFile = path.join(WORK, "result-doctored.json");
+    writeFileSync(doctoredFile, JSON.stringify({ ...result, tampered: true }, null, 2) + "\n");
+    const re2 = benzoXchain(["status", "--chain", "evm", "--auction", auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm, "--result", doctoredFile]);
+    const rs2 = benzoXchain(["status", "--chain", "solana", "--auction", auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol, "--result", doctoredFile]);
+    check("demo-status-result-hash-mismatch-refused",
+      re2.code !== 0 && rs2.code !== 0 && /result hash mismatch/.test(re2.stderr) && /result hash mismatch/.test(rs2.stderr),
+      `evm rc=${re2.code} sol rc=${rs2.code}: ${(re2.stderr || rs2.stderr || "").slice(0, 160)}`);
   }
 
   // ---- replay of a used batch is refused on both chains (specific errors) ----

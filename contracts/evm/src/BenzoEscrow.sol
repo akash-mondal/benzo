@@ -78,7 +78,9 @@ contract BenzoEscrow is ReentrancyGuard {
         bool exists;
     }
 
-    /// @dev The attested release message, exactly the design §1 fields.
+    /// @dev The attested release message, exactly the design §1 fields. `nonce` is signed and
+    /// committed in the EIP-712 digest but is never stored (R14 item 4): on-chain replay is
+    /// refused by the one-shot Approval entry per (auctionId, batchIndex), not by the nonce.
     struct Release {
         bytes32 auctionId;
         bytes32 resultHash;
@@ -89,11 +91,12 @@ contract BenzoEscrow is ReentrancyGuard {
     }
 
     /// @dev R9 item 3 (Solana's model, design §9): what `submitAttestation` stores exactly once
-    /// per (auction_id, batch_index) — the approved root and its release window.
+    /// per (auction_id, batch_index) — the approved root and its release window. R14 item 4: the
+    /// `resultHash` is exposed by `approval()` so a verifier can tie the settled root to the
+    /// published `result.json` hash; the write-only `nonce` field is dropped.
     struct Approval {
         bytes32 allocationRoot;
         bytes32 resultHash;
-        uint64 nonce;
         uint64 expiry;
         bool exists;
     }
@@ -222,7 +225,6 @@ contract BenzoEscrow is ReentrancyGuard {
         if (ap.exists) revert BatchReplayed();
         ap.allocationRoot = att.allocationRoot;
         ap.resultHash = att.resultHash;
-        ap.nonce = att.nonce;
         ap.expiry = att.expiry;
         ap.exists = true;
         emit AttestationApproved(att.auctionId, att.batchIndex, att.allocationRoot, att.expiry);
@@ -348,6 +350,19 @@ contract BenzoEscrow is ReentrancyGuard {
 
     function isApproved(bytes32 auctionId, uint64 batchIndex) external view returns (bool) {
         return approvals[auctionId][batchIndex].exists;
+    }
+
+    /// @notice R14 item 4 (reviewer R F3): the stored approval, in full — the settled root, the
+    /// attested result hash (compare it with the published `result.json` hash), the release
+    /// window, and whether the batch was approved at all. Off-chain verifiers read settlement
+    /// state from here instead of scraping `AttestationApproved` events.
+    function approval(bytes32 auctionId, uint64 batchIndex)
+        external
+        view
+        returns (bytes32 allocationRoot, bytes32 resultHash, uint64 expiry, bool exists)
+    {
+        Approval storage ap = approvals[auctionId][batchIndex];
+        return (ap.allocationRoot, ap.resultHash, ap.expiry, ap.exists);
     }
 
     // ---- internals ----

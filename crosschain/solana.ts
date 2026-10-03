@@ -50,6 +50,26 @@ export async function approvalExists(conn: Connection, programId: PublicKey, app
   const ai = await conn.getAccountInfo(approval);
   return ai !== null && ai.owner.equals(programId) && Buffer.from(ai.data).subarray(0, APPROVAL_MARKER.length).equals(APPROVAL_MARKER);
 }
+
+/** R14 item 4 (reviewer R F3): the stored approval in full — the Solana twin of the EVM
+ *  `approval()` view. Approval PDA layout: marker (11) ‖ auction_id (32) ‖ batch_index u64le (8)
+ *  ‖ allocation_root (32) ‖ result_hash (32) ‖ nonce u64le (8) ‖ expiry i64le (8) ‖ genesis ‖ bump. */
+export interface SolApproval {
+  allocationRoot: string; resultHash: string; expiry: number; exists: boolean;
+}
+
+export async function solApproval(conn: Connection, programId: PublicKey, auctionId: Uint8Array, batch: number): Promise<SolApproval> {
+  const ai = await conn.getAccountInfo(approvalPda(programId, auctionId, batch));
+  const exists = ai !== null && ai.owner.equals(programId) && Buffer.from(ai.data).subarray(0, APPROVAL_MARKER.length).equals(APPROVAL_MARKER);
+  if (!exists || ai === null) return { allocationRoot: "0".repeat(64), resultHash: "0".repeat(64), expiry: 0, exists: false };
+  const d = Buffer.from(ai.data);
+  return {
+    allocationRoot: bytesToHex(new Uint8Array(d.subarray(51, 83))),
+    resultHash: bytesToHex(new Uint8Array(d.subarray(83, 115))),
+    expiry: Number(d.readBigInt64LE(123)),
+    exists: true,
+  };
+}
 export function paidPda(programId: PublicKey, auctionId: Uint8Array, leaf: Uint8Array): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("paid"), Buffer.from(auctionId), Buffer.from(leaf)], programId)[0];
 }
