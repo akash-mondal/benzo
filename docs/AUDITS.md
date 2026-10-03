@@ -32,9 +32,9 @@ account-layout version and every instruction checks it; EVM escrows are redeploy
 
 | chain | program | status |
 |---|---|---|
-| Solana devnet | `AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4` (ProgramData `HxCEzNaJmjDn3oA9pMjshoctkr32iywgNAKdVMC1tFQm`) | **current** — layout v2 (`layout_version` byte, R9 item 1), 102,256 bytes, sha256 `48870cc9…c2673`, upgrade authority `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` |
-| Solana devnet | `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` | **SUPERSEDED** (pre-layout-version build) |
-| Solana devnet | `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G` | **SUPERSEDED** (earliest deployment) |
+| Solana devnet | `AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4` (ProgramData `HxCEzNaJmjDn3oA9pMjshoctkr32iywgNAKdVMC1tFQm`) | **closed** (R14 head unblock; carried the R14 CPI-forgery P0) — close tx `5CiZmsXFgph3qG7FJUVFmye17tjFbtLyAPyLqLYeMtJWzdyPW7C1VMfjWjtqC4Giz7ySuFPhLCob6MFLDVoCXho`, 0.52033932 SOL reclaimed; was layout v2, 102,256 bytes, sha256 `48870cc9…c2673` |
+| Solana devnet | `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` | **closed** (R14 head unblock) — close tx `4uckQB5BcZraQ8UGiDMSMGK2LW9spt8oaC1arV3KDuCSnBpcPdyxnVKvmTnTwX1f5LY4edmHQYnUMQVn7XSz92Nu`, 0.56540908 SOL reclaimed; was SUPERSEDED (pre-layout-version build) |
+| Solana devnet | `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G` | **closed** (R14 head unblock) — close tx `5XUS9BkcprYAdL5FKSLs9iYNsM3u6DMi9iSEk7hgqxCpWsu3yPJoRJ2GkFh8KsPwyVSFYmYz2ArCuBfT5QkAyhBw`, 0.53265324 SOL reclaimed; was SUPERSEDED (earliest deployment) |
 | Ethereum Sepolia | `0x8d085193Cf762dD4F946BE48f609AaA2405bbe65` (deploy tx `0xf48b8c79…5379b`) | **current** — attest-once/release-many + `lock` nonReentrant (R9 items 3–4); `0x19887941cf9BbD967f3739034127924f937D48ad` and earlier **SUPERSEDED** |
 
 ## Dependencies

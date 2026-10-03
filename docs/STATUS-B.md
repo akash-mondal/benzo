@@ -3,12 +3,19 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — R14 items 1–5 (Reviewer R F1 CPI-forgery P0 + redeploys + P2s)
+## Current run: head task — R14 item 3 finish (closes + redeploy + live cycle), R15 items 1–2, R16 item 2
 
-State: **READY FOR MERGE** (items 1, 2, 4, 5 landed with red/green proof; item 3 **BLOCKED** on devnet
-faucet funds — Needs user; updated 2026-10-03T00:25Z). Commits: `bd48e7e` (item 1), `c7c417c` (item 2),
-`e678654` (items 1–2 evidence), `319a09c` (item 4), `517d4bf` (item 4 evidence), `c3ad712` (item 5), and this
-commit (STATUS + docs/AUDITS.md custom-code row).
+State: **IN PROGRESS, run 23** (head task: finish R14 item 3 per the head unblock, then R15 items 1–2,
+R16 item 2). Items 1, 2, 4, 5 of R14 landed with red/green proof in run 22; item 3's three SUPERSEDED
+programs are **closed** (txids below, `docs/AUDITS.md`) and the redeploy + live cycle is running.
+Run 22 record kept below the current work. Commits: `bd48e7e` (item 1), `c7c417c` (item 2),
+`e678654` (items 1–2 evidence), `319a09c` (item 4), `517d4bf` (item 4 evidence), `c3ad712` (item 5),
+`7a31c05` (run 22 STATUS + docs/AUDITS.md custom-code row).
+Run 23 base: clean tree at `92ac035` (head: Merge branch 'main' into track-b, bringing R15/R16 and A's
+R7 batch; R15/R16 in `docs/PHASE-5.md`, head commits `c1f7d2e` + `c4584c7`). No mainnet; no
+other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
+
+### Run 22 record (R14 items 1–5)
 Base: clean tree at `a623139` (head: merge main into track-b; R14 in `docs/PHASE-5.md` R14, head commit
 `0da383e`). Reviewer R's report read-only at `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-r9-contracts.md`;
 lab PoC copied from `/Users/akshmnd/Dev Projects/benzo-sol/lab/pr-b-r9/lab-only/` (read-only). Baseline `npm run
@@ -54,29 +61,25 @@ empty), so the red run below ran literally on the 4d9c0e6 program.
    (b) is nevertheless enforced at runtime and would alone refuse the PoC path with 0x16 (`self_ix.program_id !=
    *program_id` for the proxy instruction).
 
-3. **R14 item 3, new devnet program ID + one live cycle: BLOCKED (outside cause: devnet faucet funds).**
-   The deployer `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` holds **28,600,040 lamports** (0.0286 SOL);
-   a fresh ProgramData for the 102,256-byte R14 build costs ~0.57 SOL (the R9 deploy spent ~0.52 of 0.5756
-   — that run's item 6), and the live cycle needs ~0.05 more. Three distinct approaches failed:
-   1. *Sweep my own devnet keys* — `solana balance <pk> --url devnet` per key under
-      `$BNZ_STATE_DIR/{solana,xchain-live}/`: 0.0286 + 0.0008 SOL total, all others 0 (the R9 run already
-      swept its cycle keys; nothing to gather).
-   2. *Devnet faucet via the pinned CLI* — `solana airdrop 2|1 <deployer> --url devnet`, 4 attempts over two
-      rounds (2026-10-02T23:2xZ, 2026-10-03T00:05Z), every one `Error: airdrop request failed. This can
-      happen when the rate limit is reached.` (the previous run saw the same on 4 attempts).
-   3. *Alternative public devnet RPCs* — `solana airdrop … --url https://rpc.ankr.com/solana_devnet` →
-      `-32000 Unauthorized: You must authenticate your request with an API key`; `--url
-      https://solana-devnet.gateway.tatum.io` → `-16401 … available for paid plans only`.
-   The remaining faucets have human checks — user-only per AGENTS.md Safety.
-   **One-command repro once funded:** `bash tools/repro/r14-devnet-deploy-cycle.sh` — builds the working
-   tree, deploys under a NEW program ID (`$BNZ_STATE_DIR/solana/program-v3-keypair.json`), runs one live
-   devnet cycle through the shipped `benzo xchain` CLI (lock → attest 2-of-3 → release → `status --result`
-   → refund after the deadline; the R9 item-6 Solana shape with the item-4 result-hash tie) and writes the
-   public-values transcript to `$BNZ_STATE_DIR/xchain-live/r14-cycle.out`. Its balance gate is proven:
-   today it exits 1 `NOT RUN r14-deploy-cycle missing devnet funds — user airdrop to 3EM3LMN…`. The
-   deploy/cycle half is written against the exact CLI flags of the R9 cycle transcript
-   (`$BNZ_STATE_DIR/xchain-live/r9-cycle.out`) but is **unrun** — no claim it works. `AE1LQwTy…` therefore
-   stays **current**; SUPERSEDED moves to it (here + `docs/AUDITS.md`) only when the new deploy exists.
+3. **R14 item 3, new devnet program ID + one live cycle: closes DONE (head unblock), redeploy + live
+   cycle in progress in this run.** The head unblocked funding without a faucet: the deployer is the
+   upgrade authority of the three SUPERSEDED programs, closed 2026-10-03 (~1.62 SOL reclaimed;
+   deployer balance after: 1.64698668 SOL):
+
+   | closed program | close txid | reclaimed |
+   |---|---|---|
+   | `AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4` (carried the R14 CPI-forgery P0) | `5CiZmsXFgph3qG7FJUVFmye17tjFbtLyAPyLqLYeMtJWzdyPW7C1VMfjWjtqC4Giz7ySuFPhLCob6MFLDVoCXho` | 0.52033932 SOL |
+   | `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G` | `5XUS9BkcprYAdL5FKSLs9iYNsM3u6DMi9iSEk7hgqxCpWsu3yPJoRJ2GkFh8KsPwyVSFYmYz2ArCuBfT5QkAyhBw` | 0.53265324 SOL |
+   | `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` | `4uckQB5BcZraQ8UGiDMSMGK2LW9spt8oaC1arV3KDuCSnBpcPdyxnVKvmTnTwX1f5LY4edmHQYnUMQVn7XSz92Nu` | 0.56540908 SOL |
+
+   Each close verified `Status: Ok` with `Closed Program <id>` via `solana confirm -v <txid> -u devnet`;
+   `docs/AUDITS.md` marks all three **closed**. The R14 P0 program is no longer live on devnet.
+   Next: `bash tools/repro/r14-devnet-deploy-cycle.sh` (balance gate now passes at 1.647 SOL vs
+   the 0.7 SOL threshold) — new program ID + one live devnet cycle; record below.
+
+   History of this item (the BLOCKED record stands as the earlier outcome): three distinct approaches
+   had failed before the head unblock (own-key sweep; CLI faucet, 4 attempts; two alternative RPCs —
+   exact errors in run 22's record below), so the item was BLOCKED on faucet funds, not on code.
 
 4. **R14 item 4 (P2), EVM `approval()` view + `xchain status` result-hash tie: DONE** (`319a09c`, evidence
    `517d4bf`). `contracts/evm/src/BenzoEscrow.sol`: `approval(auctionId, batchIndex)` returns
@@ -142,10 +145,8 @@ test — outside the ceiling.
 
 ### Needs user
 
-- **Devnet airdrop (item 3):** any amount ≥ ~0.7 SOL to the deployer
-  `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` (faucets are user-only per AGENTS.md), then
-  `bash tools/repro/r14-devnet-deploy-cycle.sh` (or tell me and I run it and record the deploy + cycle +
-  the `AE1LQwTy…` SUPERSEDED move). Until then item 3 stays BLOCKED.
+- None. The devnet airdrop ask is withdrawn — the head unblocked item 3 by authorizing closing the three
+  SUPERSEDED programs (done, txids in item 3); the redeploy runs on the reclaimed SOL.
 
 ### Questions (this run)
 
