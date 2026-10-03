@@ -14,9 +14,12 @@ import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../c
 import { openEnvelopePayload } from "../../envelope";
 import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
 import { deriveSettlementStealthAddress, prepareAnnouncement } from "../../crosschain/stealth";
-import { loadPublicAuction } from "../../api/public-auction";
+import { checkPublicAuction, loadCompletePublicAuction } from "../../api/public-auction";
 import { validEnvelope } from "../../settle/envelopes";
-import { decryptPublished, publishedClient } from "../published-beacon";
+import { decryptPublished, deriveClaimOpenings, publishedClient } from "../published-beacon";
+import { requireReserveOpening } from "../../manifest/reserve";
+import { verifyBeacon } from "drand-client/beacon-verification.js";
+import type { Opened } from "../../clear/core";
 import {
   evmApproved, evmApproval, evmLock, evmProvider, evmRefund, evmReleaseApproved, evmStatus, evmSubmitAttestation, EvmPayout,
 } from "../../crosschain/evm";
@@ -25,12 +28,12 @@ import {
   sendReleaseApproved, sendTx, solApproval, solConnection, solStatus, SolPayout,
   submitAttestationInstruction,
 } from "../../crosschain/solana";
-import { hash } from "../../manifest/schema";
+import { hash, requireThat } from "../../manifest/schema";
 
 export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
-  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --dir PUBLIC --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is a result the signer has itself validated per docs/AUDITS.md: its bytes decide the result hash and the allocation leaves; --dir is the published auction directory: attest derives every winner's opening ITSELF from the frozen leaf's ciphertext and the published, BLS-verified beacon (R21 — no opening or record comes from operator files), checks SHA-256(ciphertext) against the root-committed ciphertext_hash and the published record's owner signature + settlement commitment, then derives the leaf's destination from each --envelope-key signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation and --envelopes are removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver), winners without a valid deliver go to the bundle's exception queue; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
+  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --dir PUBLIC --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is the PRODUCT result the signer has itself validated per docs/AUDITS.md: its bytes must equal the published --dir/result.json and its allocations[].fill is the only source of the allocation leaves (the cross-chain winners[] shape is removed — R24 item 2); --dir is the published auction directory: attest runs the same public checks as `benzo verify` on it (re-derived openings, witness certificates, clearing recomputed through the registry) and refuses on any ERROR (R22), then derives every winner's opening ITSELF from the frozen leaf's ciphertext and the published, BLS-verified beacon (R21 — no opening or record comes from operator files), checks SHA-256(ciphertext) against the root-committed ciphertext_hash and the published record's owner signature + settlement commitment, then derives the leaf's destination from each --envelope-key signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation and --envelopes are removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver), winners without a valid deliver go to the bundle's exception queue; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
   "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only] [--stipend WAD] [--announcer ADDR]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable; --stipend sends a tiny native gas stipend with each fresh stealth payout and --announcer publishes its ERC-5564 announcement on the canonical Announcer — design §4 lesson 6, the delivery flow for deliver.kind=stealth)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]   (--result is the published result.json: its sha256 is compared with the escrow's approved resultHash and the command exits 1 on mismatch)",
@@ -152,16 +155,63 @@ export async function run(argv: string[]): Promise<number> {
       if (resultAuction !== norm(bytesToHex(auctionId))) {
         throw new Error(`--result auction_id ${resultAuction} does not match --auction ${norm(bytesToHex(auctionId))}`);
       }
-      // the leaves derive from the result: winners with a positive fill (product ClearResult) or the
-      // cross-chain result's winners[].lot_count — index and lot_count come from the result only; the
-      // destinations come from the winners' envelopes (R19), never from an operator file
+      // R24 item 2 (Q6 (a)): the leaves derive from the PRODUCT result only — the allocations[].fill of the
+      // result the signer validated. The cross-chain winners[] branch is removed, so R22's full
+      // checkPublicAuction run on --dir covers the attested result exactly.
       const derived: { index: number; lot_count: number }[] = Array.isArray(resultDoc.allocations)
         ? resultDoc.allocations.filter((x: any) => x && Number(x.fill) > 0).map((x: any) => ({ index: Number(x.leaf_index), lot_count: Number(x.fill) }))
-        : Array.isArray(resultDoc.winners)
-          ? resultDoc.winners.map((w: any) => ({ index: Number(w.leaf), lot_count: Number(w.lot_count) }))
-          : [];
+        : [];
       if (!derived.length || derived.some((d) => !Number.isSafeInteger(d.index) || d.index < 0 || !Number.isSafeInteger(d.lot_count) || d.lot_count <= 0) || new Set(derived.map((d) => d.index)).size !== derived.length) {
-        throw new Error("--result does not derive a unique positive allocation leaf set (allocations[].fill or winners[].lot_count)");
+        throw new Error("--result does not derive a unique positive allocation leaf set (allocations[].fill)");
+      }
+      // R22: attest runs the same public checks as `benzo verify` on --dir and refuses on any ERROR, and
+      // --result must be the directory's own published result.json bytes — so what is attested is exactly
+      // the published, witness-certified result, never a parallel one.
+      const pub = loadCompletePublicAuction(need(a, "dir"));
+      if (!resultBytes.equals(pub.resultBytes)) {
+        throw new Error(`--result does not equal --dir/result.json bytes (R22): --result hashes to ${resultHashHex}, the published result.json to ${hash(pub.resultBytes)}`);
+      }
+      if (!pub.beacon) throw new Error("attest needs the published beacon in --dir");
+      const local = publishedClient(pub.beacon);
+      // the same checks `benzo verify` runs: openings re-derived from the ciphertexts, claims opened from
+      // their published memos, the sealed reserve and serial beacon authenticated, then checkPublicAuction
+      const derivedOpenings: Opened[] = [];
+      for (const leaf of pub.frozen.leaves) {
+        const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
+        derivedOpenings.push(plaintext === null ? { leaf_index: leaf.leaf_index, plaintext_hex: null, error: "undecryptable" }
+          : { leaf_index: leaf.leaf_index, plaintext_hex: plaintext });
+      }
+      if (pub.opened.length) {
+        requireThat(pub.opened.length === derivedOpenings.length, "published opening count");
+        const publishedOpenings = new Map(pub.opened.map(o => [o.leaf_index, o]));
+        for (const d of derivedOpenings) {
+          const p = publishedOpenings.get(d.leaf_index);
+          requireThat(p && p.plaintext_hex === d.plaintext_hex && (p.error ?? null) === (d.error ?? null),
+            `opening ${d.leaf_index} published differs from re-derived`);
+        }
+      }
+      pub.opened = derivedOpenings;
+      const claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
+      if (pub.manifest.sealed_reserve !== undefined) {
+        const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
+        requireReserveOpening(pub.manifest, pub.reserveOpening, reserve);
+      } else requireReserveOpening(pub.manifest, pub.reserveOpening, null);
+      if (pub.manifest.serials) {
+        const round = pub.manifest.drand.R + pub.manifest.serials.seed_round_offset;
+        requireThat(pub.result.serial_assignment && pub.result.serial_beacon_round === round, "serial result round/assignment");
+        const serialBeacon = pub.serialBeacon;
+        requireThat(serialBeacon, "missing published serial beacon");
+        const d = pub.manifest.drand;
+        requireThat(await verifyBeacon({ public_key: d.public_key, period: d.period, genesis_time: d.genesis,
+          hash: d.chain_hash, groupHash: "", schemeID: d.scheme, metadata: { beaconID: "quicknet" } },
+          { ...serialBeacon!, randomness: hash(Buffer.from(serialBeacon!.signature, "hex")) }, round), "serial beacon BLS signature");
+      }
+      const checks = checkPublicAuction(pub, { claimOpenings });
+      for (const c of checks) if (c.warn) process.stderr.write(`WARN ${c.id} ${c.warn}\n`);
+      const errors = checks.filter(c => c.error);
+      for (const c of errors) process.stderr.write(`ERROR ${c.id} ${c.error}\n`);
+      if (errors.length) {
+        throw new Error(`attest refuses: ${errors.length} public check(s) failed on --dir (${errors.map(c => c.id).join(", ")})`);
       }
       const resultHash = hexToBytes(resultHashHex);
       const batchIndex = num(a, "batch"), nonce = num(a, "nonce"), expiry = num(a, "expiry");
@@ -198,12 +248,9 @@ export async function run(argv: string[]): Promise<number> {
       // record for that hash must then pass the shared owner-signature + settlement-commitment rule
       // (settle/envelopes validEnvelope) against that opening. Only then is the winner's `deliver` opened
       // (R19: at least 2 --envelope-key signers agree on SHA-256(deliver), else the exception queue).
-      const pub = loadPublicAuction(need(a, "dir"));
-      if (!pub.frozen || !pub.beacon) throw new Error("attest needs the frozen leaves and the published beacon in --dir");
       if (pub.manifest.auction_id !== bytesToHex(auctionId).slice(2)) {
         throw new Error(`--dir auction ${pub.manifest.auction_id} does not match --auction ${bytesToHex(auctionId).slice(2)}`);
       }
-      const local = publishedClient(pub.beacon);
       const envKeyFiles: string[] = Array.isArray(a["envelope-key"]) ? a["envelope-key"] as string[] : [need(a, "envelope-key")];
       const envPrivates = envKeyFiles.map((f) => readFileSync(f, "utf8").trim());
       const standardLot = BigInt(chainLot); // pinned by the signed manifest and locked on chain; never operator input
