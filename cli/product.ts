@@ -5,12 +5,13 @@ import {createPublicKey,generateKeyPairSync} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,QUICKNET} from '../manifest/schema';
+import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 import {requireOwnEnvelopeKey} from '../settle/envelopes';
+import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
 const key=path.join(STATE,'auction/manifest-signing.pem');
@@ -33,6 +34,11 @@ export function publish(id:string) {
   // sealed-reserve product auctions can settle and verify — both re-derive it from manifest.sealed_reserve
   // and refuse any mismatch (manifest/reserve.ts requireReserveOpening).
   if(a.reserve_opening!==undefined)doc.reserve_opening={plaintext_hex:a.reserve_opening};
+  // R8 G10 (design §5): the signed witness set travels with every rebuilt document, and the witness-signed
+  // certificates placed in the public dir by `benzo witness sign` are carried over instead of clobbered.
+  if(a.witness_set)doc.witness_set=a.witness_set;
+  const previous=existsSync(path.join(dir,'auction.json'))?JSON.parse(readFileSync(path.join(dir,'auction.json'),'utf8')):{};
+  if(previous.witness_cert)doc.witness_cert=previous.witness_cert;
   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
   if(existsSync(summary)) {
     const s=read(summary);
@@ -60,8 +66,13 @@ export async function runCommand(command:string,args:string[]) {
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
+    // R8 G10 (design §5): a manifest carrying witness_set_hash must be created together with the signed
+    // witness-set side-packet it commits to.
+    const witness_set=o['witness-set']?read(privatePath(o['witness-set'])):undefined;
+    if(m.witness_set_hash!==undefined){requireThat(witness_set,'manifest carries witness_set_hash but no witness set supplied');requireThat(witnessSetHash(witness_set)===m.witness_set_hash,'witness set hash mismatch')}
+    else requireThat(witness_set===undefined,'witness set without witness_set_hash');
     requireThat(!existsSync(draft(m.auction_id))&&!existsSync(ledger(m.auction_id)),'auction already exists');
-    save(draft(m.auction_id),{manifest:m,state:'DRAFT'});return {auction_id:m.auction_id,state:'DRAFT',manifest:m};
+    save(draft(m.auction_id),{manifest:m,state:'DRAFT',...(witness_set?{witness_set}:{})});return {auction_id:m.auction_id,state:'DRAFT',manifest:m};
   }
   if(command==='auction sign') {
     requireThat(id,'--id required');const d=read(draft(id));
@@ -81,7 +92,7 @@ export async function runCommand(command:string,args:string[]) {
     save(config(id),{...cfg,public_dir:path.resolve(o.dir)});
     // R7 item 2: no envelope private key is ever created or held by the operator. The signed manifest pins the
     // signers' public keys (envelope_keys); the signers keep their private halves in their own state dirs.
-    ac('init',id,{manifest:d.signed,signer:d.signed.signer});sc('init',id,[],cfg.routing);return publish(id);
+    ac('init',id,{manifest:d.signed,signer:d.signed.signer,...(d.witness_set?{witness_set:d.witness_set}:{})});sc('init',id,[],cfg.routing);return publish(id);
   }
   if(command==='auction status') {
     requireThat(id,'--id required');if(!existsSync(ledger(id)))return {auction_id:id,state:read(draft(id)).state};
@@ -146,7 +157,22 @@ export async function runCommand(command:string,args:string[]) {
     }
     const admitted=ac('admit',id,bid);publish(id);return {...admitted,C_zats:m.C_zats};
   }
-  if(['freeze','open','clear'].includes(command)) {requireThat(id,'--id required');const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result}
+  if(['freeze','open','clear'].includes(command)) {
+    requireThat(id,'--id required');
+    // R8 G10 (design §5): `open` refuses without a valid q_w witness certificate when the manifest pins a
+    // witness set — a refusal, never a WARN.
+    if(command==='open') {
+      const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
+      if(m.witness_set_hash!==undefined) {
+        const docFile=path.join(path.resolve(read(config(id)).public_dir),'auction.json'),doc=existsSync(docFile)?JSON.parse(readFileSync(docFile,'utf8')):{};
+        requireThat(doc.witness_set,'missing witness set');
+        const spec=validateWitnessSet(verifyRecord<WitnessSet>(doc.witness_set,a.signer),id);
+        requireThat(witnessSetHash(doc.witness_set)===m.witness_set_hash,'witness set hash mismatch');
+        checkCertificates(doc.witness_cert??[],spec,freezeStatement(m,a.frozen));
+      }
+    }
+    const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result
+  }
   if(command==='claim-refund'&&o.party!==undefined) {
     // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.
     // The destination is chosen by the owner and never passes through operator input unsigned.

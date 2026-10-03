@@ -7,7 +7,8 @@ import {execFileSync,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
-import {client,hash,jsonBytes,QUICKNET,requireThat} from "../manifest/schema";
+import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
+import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening} from "../manifest/reserve";
 import {validEnvelope,ENVELOPE_INTERIM_REFUSAL,memoSealedBid,requireOwnEnvelopeKey} from "./envelopes";
 import {verifyStatement} from "../envelope";
@@ -37,6 +38,15 @@ try {
   const {manifest:m,manifest_hash}=client(src.manifest,src.signer);
   // R10 item 3: each signer requires the manifest to pin ITS OWN envelope key at its own index.
   for(const name of ["alice","bob","carol"])requireOwnEnvelopeKey(m,name,state);
+  // R8 G10 (design §5): a manifest carrying witness_set_hash refuses without a valid q_w certificate over the
+  // frozen statement — a refusal on the signer path, never a WARN.
+  if(published&&m.witness_set_hash!==undefined) {
+    requireThat(src.frozen,"missing frozen");
+    requireThat((published as any).witness_set,"missing witness set");
+    const spec=validateWitnessSet(verifyRecord<WitnessSet>((published as any).witness_set,src.signer),id);
+    requireThat(witnessSetHash((published as any).witness_set)===m.witness_set_hash,"witness set hash mismatch");
+    checkCertificates((published as any).witness_cert??[],spec,freezeStatement(m,src.frozen!));
+  }
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
   const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",path.join(state,"vault"),...args]);
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);

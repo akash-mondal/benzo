@@ -1,6 +1,6 @@
 // benzo witness sign|verify — gate X witness certificates: a witness key co-signs the frozen statement, and the
 // public dir's certificates are checked q_w-of-n_w against the signed manifest's witness set.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { requireThat, verifyRecord } from "../../manifest/schema";
@@ -45,6 +45,15 @@ export async function run(argv: string[]): Promise<number> {
       const resolved = path.resolve(o.key);
       requireThat(existsSync(resolved) && resolved.startsWith(state + path.sep), "witness key must live under BNZ_STATE_DIR");
       const cert: WitnessCert = { statement, signatures: [signStatement(statement, readFileSync(resolved, "utf8").trim())] };
+      // R8 G10 (design §5): on a canonical product dir the certificate is also recorded in the public
+      // document, where the signer path and the rebuilt publishes expect it.
+      const docFile = path.join(o.dir, "auction.json");
+      if (existsSync(docFile)) {
+        const canonical = (v: any): string => Array.isArray(v) ? `[${v.map(canonical).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}` : JSON.stringify(v);
+        const doc = JSON.parse(readFileSync(docFile, "utf8"));
+        doc.witness_cert = [...(doc.witness_cert ?? []).filter((c: any) => JSON.stringify(c) !== JSON.stringify(cert)), cert];
+        writeFileSync(docFile, canonical(doc) + "\n");
+      }
       process.stdout.write(JSON.stringify(cert) + "\n");
       return 0;
     }
