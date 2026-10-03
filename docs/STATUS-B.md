@@ -1668,8 +1668,8 @@ State: **READY (funded)**. Set up 2026-10-02T10:01Z at commit `b30e826`, clean t
 **Public values (this lane):**
 
 - FROST group key (2-of-3 RedPallas, dealerless DKG; identical in alice/bob/carol per the setup's own `sort -u` check): `ba0272e65a40d44de12531785f8921d52038723ba218797a6f6bbd7f1f26d62f`
-- Vault UA (view-only wallet `.benzo/vault`, birthday = tip − 10): `[redacted address 819dd953f7]`
-- Bidder Default Address (`.benzo/bidder`) — **send the ~0.1 TAZ here**: `[redacted address 3b7be8280a]`
+- Vault UA (view-only wallet `.benzo/vault`, birthday = tip − 10): `utest1743u…pev5fh` (abbreviated per gate LA — the full UA is in the wallet)
+- Bidder Default Address (`.benzo/bidder`) — **send the ~0.1 TAZ here**: `utest1yevm…rw43h8` (abbreviated per gate LA — read the full UA from the `.benzo/bidder` wallet)
 
 No mnemonic or `.age` content is printed here or anywhere outside `$BNZ_STATE_DIR`; full transcripts live in `$BNZ_STATE_DIR/run/` (`setup.log`, `bootstrap-setup.log`, `bootstrap-force.log`, `frostd-dkg.log`, `funding-poll.log`).
 

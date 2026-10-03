@@ -81,7 +81,7 @@ writeFileSync(path.join(STATE, "product", auction_id + ".envelope.json"), jsonBy
 const r = spawnSync(process.execPath, [path.join(TRACKB, "settle/dist/cli.mjs"), "init", auction_id], { input: JSON.stringify(operatorRouting), encoding: "utf8", cwd: TRACKB });
 console.log("settle init exit:", r.status);
 console.log("settle init stderr:", (r.stderr || "").trim().split("\n").slice(-1)[0]);
-const initRefused = r.status !== 0 && /bidder destinations are envelope-authenticated/.test(r.stderr || "");
+const initRefused = r.status !== 0 && /(bidder destinations are envelope-authenticated|stray_refund_ua is dropped)/.test(r.stderr || "");
 console.log("unauthenticated bidder routing refused by init:", initRefused);
 
 // --- settlement bundles open envelopes --------------------------------------------------
@@ -112,11 +112,14 @@ const doc = {
 const substituted = "utest1" + hash("r-repro3-operator-theft-ua").slice(0, 50);
 
 const derived = envelopeRecipient(doc, 0, envelopeKeys[0].private_hex, substituted);
-console.log("\nenvelope-derived destination:", derived);
-console.log("coordinator-pinned substitute:", substituted);
+// leak-audit (gate LA): printed outputs never carry a full destination UA (a real refund_ua was printed
+// here before); comparisons keep the full values, only the printed form is abbreviated.
+const ab = (a) => (typeof a === "string" && a.length > 20 ? a.slice(0, 8) + "…" + a.slice(-6) : a);
+console.log("\nenvelope-derived destination:", ab(derived));
+console.log("coordinator-pinned substitute:", ab(substituted));
 const envelopeWins = derived === envelopeUa && derived !== substituted;
 const missing = envelopeRecipient({ ...doc, envelopes: [] }, 0, envelopeKeys[0].private_hex, substituted);
-console.log("missing envelope resolves to:", missing);
+console.log("missing envelope resolves to:", ab(missing));
 const refusedWhenMissing = missing === null;
 
 if (envelopeWins && refusedWhenMissing && initRefused && hits.length > 0) {
