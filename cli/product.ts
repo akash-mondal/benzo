@@ -120,17 +120,27 @@ export async function runCommand(command:string,args:string[]) {
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {
       const page=await browser.newPage();await page.goto(`http://127.0.0.1:${(server.address() as any).port}`);
-      const fields={opening:new Date((QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period)*1000).toISOString(),auction:m.auction_id,price:bid.price_zats,quantity:String(bid.quantity),collateral:m.C_zats,address:bid.address,owner:prep.owner.public_hex,nonce:prep.nonce_hex,commitment:prep.settlement_commitment_hex};
+      const fields={opening:new Date((QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period)*1000).toISOString(),auction:m.auction_id,price:bid.price_zats,quantity:String(bid.quantity),collateral:m.C_zats,address:bid.address,owner:prep.owner.public_hex,nonce:prep.nonce_hex,commitment:prep.settlement_commitment_hex,
+        // R16 item 2 (memo framing v2, R18): the memo commits to the first 18 bytes of SHA-256(envelope_ct)
+        // of this bid's settlement envelope, or 18 zero bytes when the bid carries none — the sealer writes
+        // it into the memo.
+        envelope_tag:prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18)};
       await page.route('**/*',route=>route.abort());
       for(const [k,v] of Object.entries(fields)) {
         // the owner-material inputs are hidden; Playwright fill only types into visible fields
-        if(['owner','nonce','commitment'].includes(k))await page.locator('#'+k).evaluate((el,value)=>{(el as HTMLInputElement).value=String(value)},v);
+        if(['owner','nonce','commitment','envelope_tag'].includes(k))await page.locator('#'+k).evaluate((el,value)=>{(el as HTMLInputElement).value=String(value)},v);
         else await page.locator('#'+k).fill(v);
       }
       await page.locator('#seal').click();await page.waitForFunction(()=>document.getElementById('envelope')!.textContent||document.getElementById('error')!.textContent);
       const error=await page.locator('#error').innerText();requireThat(!error,error);
       const envelope_hex=await page.locator('#envelope').innerText();
-      const memo=Buffer.from(envelope_hex,'hex'),bound=bindSealedBid(prep,m.auction_id,hash(memo.subarray(7,7+memo.readUInt16BE(5))));
+      // R16 item 2 (R18): `bid seal` refuses a memo that is not framing v2 with ct_len <= 487 — the shared
+      // parser is the boundary check on the browser sealer's output, and the memo's envelope tag must be the
+      // one this bid committed to.
+      const sealed=memoSealedBid(envelope_hex);
+      requireThat(sealed&&sealed.envelope_tag!==null,'memo framing v2 refused: ct_len must be <= 487');
+      requireThat(sealed!.envelope_tag===(prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18)),'memo envelope tag mismatch');
+      const bound=bindSealedBid(prep,m.auction_id,hash(Buffer.from(sealed!.ciphertext_hex,"hex")));
       save(path.join(STATE,'bids',m.auction_id,bound.ciphertext_hash_hex+'.json'),{owner_private_hex:prep.owner.private_hex,auction_id:m.auction_id,ciphertext_hash:bound.ciphertext_hash_hex});
       return {auction_id:m.auction_id,envelope_hex,uri:await page.locator('#uri').innerText(),round:Number(await page.locator('#round').innerText()),
         ciphertext_hash:bound.ciphertext_hash_hex,owner_pubkey_hex:bound.owner.public_hex,owner_sig_hex:bound.owner_sig_hex,
@@ -209,9 +219,9 @@ export async function runCommand(command:string,args:string[]) {
       }
       const mm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
       const note=mm?notes().find((n:any)=>n.txid===mm[1]&&String(n.diversifier_index)===mm[2]):undefined;
-      const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
-      if(!ct)return null;
-      const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(ct,'hex'),maxBuffer:1<<20});
+      const memo=note?.memo_hex?memoSealedBid(note.memo_hex):null;
+      if(!memo)return null;
+      const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(memo.ciphertext_hex,'hex'),maxBuffer:1<<20});
       if(r.status!==0)return null;
       const pt=r.stdout;return Buffer.isBuffer(pt)&&pt.length===128?pt.subarray(61,93).toString('hex'):null;
     };

@@ -10,6 +10,7 @@ import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Pat
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
+import { memoBindsEnvelope } from "../settle/envelopes";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -324,6 +325,11 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen!.leaves.find(l => l.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
+      // R16 item 2: verify checks the same rule as intake — the record must be the envelope the depositor's
+      // memo committed to (the leaf carries the scanned memo's envelope tag, first 18 bytes of
+      // SHA-256(envelope_ct), set at intake from framing v2). A record whose tag differs from it is an ERROR;
+      // v1-era leaves carry no tag and stay readable.
+      if (leaf!.memo_envelope_tag !== undefined) requireThat(memoBindsEnvelope(leaf!.memo_envelope_tag, rec.envelope_ct), `envelope ${leaf!.leaf_index} not bound to the deposit memo`);
       requireThat(!byLeaf.has(leaf!.leaf_index), `duplicate envelope ${leaf!.leaf_index}`);
       byLeaf.set(leaf!.leaf_index, rec);
     }

@@ -57,10 +57,14 @@ test("seal in the browser, open with tle after R", async ({ page }) => {
   await run.check("C1", "envelope layout", () => {
     for (const e of envelopes) {
       expect.soft(e.length, "envelope length").toBe(512);
-      expect.soft(hex(e.subarray(0, 5)), "envelope header").toBe("ff424e5a01");
+      // memo framing v2 (R16 item 2, R18): ff424e5a02 || u16be ct_len || tlock_ct || envelope_tag (18) ||
+      // zero pad. The standalone sealer carries no settlement envelope, so its envelope_tag slot is
+      // 18 zero bytes.
+      expect.soft(hex(e.subarray(0, 5)), "envelope header").toBe("ff424e5a02");
       const len = e.readUInt16BE(5);
       expect.soft(e.subarray(7, 7 + 22).toString("latin1"), "binary age").toBe("age-encryption.org/v1\n");
-      expect.soft(e.subarray(7 + len).every((b) => b === 0), "zero pad after ct_len bytes").toBe(true);
+      expect.soft(hex(e.subarray(7 + len, 7 + len + 18)), "envelope_tag").toBe("00".repeat(18));
+      expect.soft(e.subarray(7 + len + 18).every((b) => b === 0), "zero pad after envelope_tag").toBe(true);
     }
   });
 

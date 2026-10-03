@@ -122,7 +122,7 @@ try {
       }
       const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
       const note=m?depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2]):undefined;
-      const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
+      const ct=note?.memo_hex?memoSealedBid(note.memo_hex)?.ciphertext_hex??null:null;
       if(!ct)return null;
       const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
       writeFileSync(memoCt,Buffer.from(ct,"hex"),{mode:0o600});
@@ -141,7 +141,7 @@ try {
       const pt=bidPlaintextFor(party);if(!pt)return false;
       const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party)!;
       const note=depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2])!;
-      const ctHash=hash(Buffer.from(memoSealedBid(note.memo_hex!)!,"hex"));
+      const ctHash=hash(Buffer.from(memoSealedBid(note.memo_hex!)!.ciphertext_hex,"hex"));
       return validEnvelope({manifest:src.manifest,frozen:{leaves:[{leaf_index:0,ciphertext_hash:ctHash}]},opened:[{leaf_index:0,plaintext_hex:pt.toString("hex")}],envelopes:src.envelopes},0)!==null;
     };
     const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};

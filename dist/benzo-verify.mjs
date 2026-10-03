@@ -15984,6 +15984,28 @@ function checkBuybackReport(pub) {
 import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
 import path4 from "node:path";
 
+// settle/envelopes.ts
+function memoSealedBid(memoHex) {
+  try {
+    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
+    const memo = Buffer.from(memoHex, "hex"), version = memo.subarray(0, 5), length = memo.readUInt16BE(5);
+    if (version.equals(Buffer.from("ff424e5a01", "hex"))) {
+      if (length <= 0 || length > 505 || !memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+      return { ciphertext_hex: memo.subarray(7, 7 + length).toString("hex"), envelope_tag: null };
+    }
+    if (version.equals(Buffer.from("ff424e5a02", "hex"))) {
+      if (length <= 0 || length > 487 || !memo.subarray(7 + length + 18).equals(Buffer.alloc(487 - length))) return null;
+      return { ciphertext_hex: memo.subarray(7, 7 + length).toString("hex"), envelope_tag: memo.subarray(7 + length, 7 + length + 18).toString("hex") };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function memoBindsEnvelope(memoEnvelopeTag, envelopeCtHex) {
+  return typeof memoEnvelopeTag === "string" && /^[0-9a-f]{36}$/.test(memoEnvelopeTag) && memoEnvelopeTag !== "00".repeat(18) && /^[0-9a-f]+$/.test(envelopeCtHex) && envelopeCtHex.length % 2 === 0 && hash(Buffer.from(envelopeCtHex, "hex")).slice(0, 36) === memoEnvelopeTag;
+}
+
 // witness/index.ts
 import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
 var witnessSetHash = (packet) => hash(jsonBytes(packet));
@@ -16237,6 +16259,7 @@ function checkPublicAuction(pub) {
       requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen.leaves.find((l2) => l2.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
+      if (leaf.memo_envelope_tag !== void 0) requireThat(memoBindsEnvelope(leaf.memo_envelope_tag, rec.envelope_ct), `envelope ${leaf.leaf_index} not bound to the deposit memo`);
       requireThat(!byLeaf.has(leaf.leaf_index), `duplicate envelope ${leaf.leaf_index}`);
       byLeaf.set(leaf.leaf_index, rec);
     }
@@ -16460,19 +16483,6 @@ async function decryptPublished(ciphertextHex, client2) {
   }
 }
 
-// settle/envelopes.ts
-function memoSealedBid(memoHex) {
-  try {
-    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
-    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
-    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
-    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
-    return memo.subarray(7, 7 + length).toString("hex");
-  } catch {
-    return null;
-  }
-}
-
 // cli/commands/verify.ts
 var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] \u2014 re-derive openings offline and reproduce clear + accounting";
 var tleOpening2 = (ciphertext, chain) => tleOpening("tle", chain, ciphertext);
@@ -16536,8 +16546,8 @@ async function run(argv) {
     }
     pub.opened = derived;
     for (const c2 of pub.claims ?? []) if (c2.memo_hex) {
-      const ct2 = memoSealedBid(c2.memo_hex);
-      c2.opening = ct2 ? await decryptPublished(ct2, local) : null;
+      const memo = memoSealedBid(c2.memo_hex);
+      c2.opening = memo ? await decryptPublished(memo.ciphertext_hex, local) : null;
     }
     if (pub.manifest.sealed_reserve !== void 0) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);

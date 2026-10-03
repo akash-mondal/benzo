@@ -78,8 +78,8 @@ export async function run(argv: string[]): Promise<number> {
     // beacon-anchored derivation as the leaf openings — so claim signatures rest on chain data, not on any
     // coordinator-supplied opening.
     for (const c of pub.claims ?? []) if (c.memo_hex) {
-      const ct = memoSealedBid(c.memo_hex);
-      c.opening = ct ? await decryptPublished(ct, local) : null;
+      const memo = memoSealedBid(c.memo_hex);
+      c.opening = memo ? await decryptPublished(memo.ciphertext_hex, local) : null;
     }
     if (pub.manifest.sealed_reserve !== undefined) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);

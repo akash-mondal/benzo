@@ -1,6 +1,9 @@
 // Benzo sealer: builds the 128-byte plaintext v0, tlock-encrypts it to drand quicknet round R and wraps the binary age
-// ciphertext in the 512-byte memo envelope (docs/PHASE-1.md section 6). No network request is made: the tlock client is
-// built from the pinned chain info, and the plaintext stays in memory.
+// ciphertext in the 512-byte memo envelope, framing v2 (R16 item 2, corrected by R18):
+// ff424e5a02 || u16be ct_len || tlock_ct || envelope_tag (18) || zero pad, where envelope_tag is the first
+// 18 bytes of SHA-256(envelope_ct), or 18 zero bytes for a bid without an envelope. Exact 512-byte fit at
+// ct_len = 487; any longer ciphertext is refused. No network request is made: the tlock client is built
+// from the pinned chain info, and the plaintext stays in memory.
 import { timelockEncrypt, Buffer } from "tlock-js";
 import { decodeArmor } from "tlock-js/age/armor";
 
@@ -17,7 +20,8 @@ const QUICKNET = {
 const pinnedClient = { chain: () => ({ info: async () => QUICKNET }) } as any;
 
 const MEMO_LEN = 512;
-const HEADER = [0xff, 0x42, 0x4e, 0x5a, 0x01]; // 0xFF "BNZ" v1
+const HEADER = [0xff, 0x42, 0x4e, 0x5a, 0x02]; // 0xFF "BNZ" v2 (memo framing v2, R16 item 2)
+const ENVELOPE_TAG_LEN = 18; // R18: first 18 bytes of SHA-256(envelope_ct); 5 + 2 + 487 + 18 = 512 exactly
 
 const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -43,6 +47,20 @@ function material(id: string, n: number): Uint8Array {
   if (!new RegExp(`^[0-9a-f]{${n * 2}}$`).test(v)) throw new Error(`${id} must be ${n * 2} hex characters`);
   const out = new Uint8Array(n);
   for (let i = 0; i < n; i++) out[i] = parseInt(v.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+// The memo's envelope binding (R16 item 2, R18): the deposit memo commits to the first 18 bytes of
+// SHA-256(envelope_ct) of the bid's settlement envelope, or 18 zero bytes when the bid carries no envelope.
+// 18 bytes stop a third party from substituting an envelope for someone else's deposit at 2^144 (second
+// preimage). The driver (benzo bid seal) fills the hidden field; the standalone form has no envelope and
+// commits to zeros.
+function envelopeTag(): Uint8Array {
+  const v = $("envelope_tag").value.trim();
+  if (!v) return new Uint8Array(ENVELOPE_TAG_LEN);
+  if (!new RegExp(`^[0-9a-f]{${ENVELOPE_TAG_LEN * 2}}$`).test(v)) throw new Error(`envelope_tag must be ${ENVELOPE_TAG_LEN * 2} hex characters`);
+  const out = new Uint8Array(ENVELOPE_TAG_LEN);
+  for (let i = 0; i < ENVELOPE_TAG_LEN; i++) out[i] = parseInt(v.slice(i * 2, i * 2 + 2), 16);
   return out;
 }
 
@@ -87,12 +105,14 @@ async function seal(): Promise<void> {
   const armored = await timelockEncrypt(round, Buffer.from(pt), pinnedClient);
   pt.fill(0);
   const ct = Buffer.from(decodeArmor(armored), "binary");
-  if (HEADER.length + 2 + ct.length > MEMO_LEN) throw new Error(`ciphertext too long: ${ct.length} bytes`);
+  const eh = envelopeTag();
+  if (HEADER.length + 2 + ct.length + ENVELOPE_TAG_LEN > MEMO_LEN) throw new Error(`ciphertext too long: ${ct.length} bytes (max 487)`);
 
   const envelope = new Uint8Array(MEMO_LEN); // zero-padded
   envelope.set(HEADER, 0);
   new DataView(envelope.buffer).setUint16(HEADER.length, ct.length, false);
   envelope.set(ct, HEADER.length + 2);
+  envelope.set(eh, HEADER.length + 2 + ct.length); // envelope_tag (R16 item 2, R18)
 
   $("round").textContent = String(round);
   $("envelope").textContent = hex(envelope);
