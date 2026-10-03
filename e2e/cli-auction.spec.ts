@@ -258,7 +258,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     await waitFor({round:R2},(release2+60)*1000);
     const notes2=z.scanVault().filter(n=>n.txid===paid2.txid),claimNote=notes2.find(n=>n.address===deposit2[0])!;
     const claimParty2=`deposit:${claimNote.txid}:${claimNote.diversifier_index}`;
-    const request2=good(['claim-refund','--id',id2,'--party',claimParty2,'--destination',claimDest2,'--owner-key-stdin'],ownerOf(bids2[0].ciphertext_hash));
+    const request2=good(['claim-refund','--id',id2,'--party',claimParty2,'--destination',claimDest2,'--owner-key-stdin'],JSON.parse(readFileSync(path.join(STATE,'bids',id2,bids2[0].ciphertext_hash+'.json'),'utf8')).owner_private_hex);
     const claimFile2=path.join(privateDir2,'claim-0.json');writeFileSync(claimFile2,JSON.stringify(request2));
     good(['claim-refund','--id',id2,'--file',claimFile2,'--defer']);
     for(const name of ['alice','bob','carol'])good(['sign','envelope-opens','--id',id2,'--name',name]);
