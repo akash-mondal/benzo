@@ -10,6 +10,8 @@ import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Pat
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
+import { memoSealedBid } from "../settle/envelopes";
+import { decryptPublished, publishedClient } from "../cli/published-beacon";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -51,9 +53,10 @@ export type PublicAuction = {
   envelopes: EnvelopeRecord[];
   witnessSet: Signed | null;
   witnessCerts: WitnessCert[];
-  // R13: the owner-signed claims the signers used for paid rows (party, destination hash, owner signature;
-  // stray entries carry the memo ciphertext the owner key is derived from).
-  claims: { party: string; destination_commit: string; owner_sig: string; memo_hex?: string; opening?: string | null }[];
+  // R13: the owner-signed claims the signers used for paid rows (party, destination commit, owner signature;
+  // a stray entry carries the scanned deposit's memo ciphertext — the claim publishes it and every verifier
+  // derives the owner key from it and the published beacon itself; there is no operator-supplied opening).
+  claims: { party: string; destination_commit: string; owner_sig: string; memo_hex?: string }[];
   settlement: SettlementSummary | null;
   // Gate CF: the published opening of the manifest's tlock-sealed price bound (plaintext hex), present iff the
   // manifest carries `sealed_reserve`; benzo verify re-derives it with tle like the bid openings.
@@ -195,7 +198,26 @@ function readBeacon(raw: unknown, manifest: Manifest): Beacon | null {
 
 const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
 
-export function checkPublicAuction(pub: PublicAuction): Check[] {
+// R16 item 4 (Reviewer R F3): every stray claim's owner key is derived by the verifier itself, from the
+// stray memo the claim publishes (`memo_hex` — the scanned deposit's memo, as the signer plan attaches it)
+// and the published beacon. `claims[].opening` is gone: nothing the operator supplies ever enters the
+// derivation. This is the one derivation; checkPublicAuction takes its result and fails closed for a stray
+// claim whose memo does not open.
+export async function deriveClaimOpenings(pub: PublicAuction): Promise<Map<number, string | null>> {
+  const openings = new Map<number, string | null>();
+  const claims = pub.claims ?? [];
+  if (!claims.length || !claims.some(c => c.party?.startsWith("deposit:"))) return openings;
+  requireThat(pub.beacon, "claims require the published beacon");
+  const local = publishedClient(pub.beacon!);
+  for (const [i, c] of claims.entries()) {
+    if (!c.party.startsWith("deposit:")) continue;
+    const ct = typeof c.memo_hex === "string" ? memoSealedBid(c.memo_hex) : null;
+    openings.set(i, ct ? await decryptPublished(ct, local) : null);
+  }
+  return openings;
+}
+
+export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: Map<number, string | null> } = {}): Check[] {
   const checks: Check[] = [];
   const run = (id: string, fn: () => string | void) => {
     try {
@@ -354,14 +376,22 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     for (const [i, c] of records.entries()) {
-      requireThat(c && typeof c === "object" && ["party", "destination_commit", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "destination_commit", "owner_sig", "memo_hex", "opening"].includes(k)), `claim ${i} shape`);
+      requireThat(c && typeof c === "object" && ["party", "destination_commit", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "destination_commit", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c.party), `claim ${i} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c.destination_commit) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
       let owner: string | null = null;
       if (c.party.startsWith("leaf:")) {
         const opening = pub.opened.find(o => o.leaf_index === Number(c.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
-      } else owner = typeof c.opening === "string" && /^[0-9a-f]{256}$/.test(c.opening) ? Buffer.from(c.opening, "hex").subarray(61, 93).toString("hex") : null;
+      } else {
+        // R16 item 4: the memo the claim publishes must be an openable sealed bid of THIS auction (the same
+        // 128-byte layout rule the signer plan enforces against the scanned deposit) and the owner key comes
+        // only from its beacon-anchored opening — never from a `claims[].opening` the operator supplies.
+        requireThat(typeof c.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c.memo_hex) && memoSealedBid(c.memo_hex) !== null, `claim ${i} memo_hex`);
+        const derived = opts.claimOpenings?.get(i), pt = derived ? Buffer.from(derived, "hex") : null;
+        requireThat(pt && pt.length === 128 && pt[0] === 0 && pt.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i} memo opening`);
+        owner = pt!.subarray(61, 93).toString("hex");
+      }
       requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, destination_commit: c.destination_commit }, c.owner_sig), `claim ${i} owner signature`);
     }
     for (const row of rows) {

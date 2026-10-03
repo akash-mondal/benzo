@@ -165,7 +165,10 @@ try {
         claimDestinations[request.party]=request.destination_ua;
         const cm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(request.party);
         const note=cm?depositNotes.find(n=>n.txid===cm[1]&&String(n.diversifier_index)===cm[2]):undefined;
-        claimsUsed.push({party:request.party,destination_commit:request.destination_commit,owner_sig:request.owner_sig,...(note?.memo_hex?{memo_hex:note.memo_hex}:{})});
+        // R16 item 4: a stray claim publishes the scanned deposit's memo (memo_hex must match the scanned
+        // deposit) so every verifier can derive the owner key itself from it and the published beacon.
+        requireThat(!cm||!!note?.memo_hex,"claim memo matches the scanned deposit");
+        claimsUsed.push({party:request.party,destination_commit:request.destination_commit,owner_sig:request.owner_sig,...(cm?{memo_hex:note!.memo_hex}:{})});
       }
     } catch(e) {claimFailures[request.party]=(e as Error).message}
   }

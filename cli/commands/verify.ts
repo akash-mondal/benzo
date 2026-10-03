@@ -3,11 +3,10 @@
 import { verifyBeacon } from "drand-client/beacon-verification.js";
 import { hash, requireThat } from "../../manifest/schema";
 import { requireReserveOpening, tleOpening as tleDecrypt } from "../../manifest/reserve";
-import { checkPublicAuction, loadCompletePublicAuction, loadPublicAuction } from "../../api/public-auction";
+import { checkPublicAuction, deriveClaimOpenings, loadCompletePublicAuction, loadPublicAuction } from "../../api/public-auction";
 import { checkSeriesLink } from "../../clear/features";
 import type { Opened } from "../../clear/core";
 import { publishedClient, decryptPublished } from "../published-beacon";
-import { memoSealedBid } from "../../settle/envelopes";
 
 export const noun = "verify";
 export const verb = "";
@@ -74,13 +73,9 @@ export async function run(argv: string[]): Promise<number> {
       }
     }
     pub.opened = derived;
-    // R13: a stray claim's owner key is derived from the stray's published memo ciphertext — the same
-    // beacon-anchored derivation as the leaf openings — so claim signatures rest on chain data, not on any
-    // coordinator-supplied opening.
-    for (const c of pub.claims ?? []) if (c.memo_hex) {
-      const ct = memoSealedBid(c.memo_hex);
-      c.opening = ct ? await decryptPublished(ct, local) : null;
-    }
+    // R16 item 4 (Reviewer R F3): every stray claim's owner key is derived here from the memo the claim
+    // publishes (the scanned deposit's memo) and this authenticated published beacon — no claims[].opening.
+    const claimOpenings = await deriveClaimOpenings(pub);
     if (pub.manifest.sealed_reserve !== undefined) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(pub.manifest, pub.reserveOpening, reserve,
@@ -114,7 +109,7 @@ export async function run(argv: string[]): Promise<number> {
         }
       }
     }
-    const checks = checkPublicAuction(pub);
+    const checks = checkPublicAuction(pub, { claimOpenings });
     let failed = false;
     for (const c of checks) {
       if (c.warn) process.stderr.write(`WARN ${c.warn}\n`);
