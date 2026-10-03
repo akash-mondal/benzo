@@ -5,14 +5,15 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { PublicKey, Keypair } from "@solana/web3.js";
-import { Wallet, getAddress } from "ethers";
+import { NonceManager, Wallet, getAddress } from "ethers";
+import { createPublicClient, http } from "viem";
 import {
   AllocationLeaf, allocationRoot, assetBytes32, buildTree, bytesToHex, destinationBytes, hexToBytes, leafHash,
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
 import { openEnvelopePayload } from "../../envelope";
 import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
-import { deriveSettlementStealthAddress } from "../../crosschain/stealth";
+import { deriveSettlementStealthAddress, prepareAnnouncement } from "../../crosschain/stealth";
 import { loadPublicAuction } from "../../api/public-auction";
 import { validEnvelope } from "../../settle/envelopes";
 import { decryptPublished, publishedClient } from "../published-beacon";
@@ -30,7 +31,7 @@ export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
   "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --dir PUBLIC --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is a result the signer has itself validated per docs/AUDITS.md: its bytes decide the result hash and the allocation leaves; --dir is the published auction directory: attest derives every winner's opening ITSELF from the frozen leaf's ciphertext and the published, BLS-verified beacon (R21 — no opening or record comes from operator files), checks SHA-256(ciphertext) against the root-committed ciphertext_hash and the published record's owner signature + settlement commitment, then derives the leaf's destination from each --envelope-key signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation and --envelopes are removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver), winners without a valid deliver go to the bundle's exception queue; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
-  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable)",
+  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only] [--stipend WAD] [--announcer ADDR]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable; --stipend sends a tiny native gas stipend with each fresh stealth payout and --announcer publishes its ERC-5564 announcement on the canonical Announcer — design §4 lesson 6, the delivery flow for deliver.kind=stealth)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]   (--result is the published result.json: its sha256 is compared with the escrow's approved resultHash and the command exits 1 on mismatch)",
 ].join("\n");
@@ -78,7 +79,7 @@ interface Bundle {
   batch_index: number; nonce: number; expiry: number;
   asset: string; // 0x address (EVM) or the zero address (native ETH/SOL); bound in every leaf
   standard_lot: string;
-  leaves: (AllocationLeaf & { deliver_kind?: string })[];
+  leaves: (AllocationLeaf & { deliver_kind?: string; announce?: { scheme_id: number; stealth_address: string; ephemeral_pubkey: string; metadata: string } })[];
   exceptions: { index: number; lot_count: number; reason: string }[]; // R19: winners without an attestable deliver
   payouts: { index: number; lot_count: number; destination_kind: number; destination: string; leaf_count: number; proof: string[] }[];
   signers: string[]; signatures: string[];
@@ -205,8 +206,9 @@ export async function run(argv: string[]): Promise<number> {
       const local = publishedClient(pub.beacon);
       const envKeyFiles: string[] = Array.isArray(a["envelope-key"]) ? a["envelope-key"] as string[] : [need(a, "envelope-key")];
       const envPrivates = envKeyFiles.map((f) => readFileSync(f, "utf8").trim());
+      const standardLot = BigInt(chainLot); // pinned by the signed manifest and locked on chain; never operator input
       const exceptions: { index: number; lot_count: number; reason: string }[] = [];
-      const leaves: (AllocationLeaf & { deliver_kind?: string })[] = [];
+      const leaves: (AllocationLeaf & { deliver_kind?: string; announce?: { scheme_id: number; stealth_address: string; ephemeral_pubkey: string; metadata: string } })[] = [];
       for (const d of derived) {
         const ex = (reason: string) => { exceptions.push({ index: d.index, lot_count: d.lot_count, reason }); };
         const fl: any = pub.frozen!.leaves[d.index];
@@ -246,10 +248,12 @@ export async function run(argv: string[]): Promise<number> {
         if (dd.chain === "solana") {
           leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 2, destination: dd.to, deliver_kind: dd.kind });
         } else if (dd.kind === "stealth") {
-          // one signer-reproducible fresh stealth address per (settlement, leaf) — the announcement
-          // carries the matching ephemeral key (crosschain/stealth.ts, docs/AUDITS.md)
-          const one = deriveSettlementStealthAddress(dd, { deliverSha256Hex: agreed.sha, auctionId, batchIndex: num(a, "batch"), leafIndex: d.index });
-          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: one.stealthAddress, deliver_kind: dd.kind });
+          // one signer-reproducible fresh stealth address per (settlement, leaf) — and the ERC-5564
+          // announcement the release crank publishes so the winner's viewing key finds the payment
+          // (crosschain/stealth.ts, docs/AUDITS.md)
+          const one = deriveSettlementStealthAddress(dd, { deliverSha256Hex: agreed.sha, auctionId, batchIndex: num(a, "batch"), leafIndex: d.index, amountWei: BigInt(d.lot_count) * standardLot });
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: one.stealthAddress, deliver_kind: dd.kind,
+            announce: { scheme_id: 1, stealth_address: one.stealthAddress, ephemeral_pubkey: one.ephemeralPublicKey, metadata: one.metadata } });
         } else if (dd.kind === "railgun") {
           leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 3, destination: dd.to, deliver_kind: dd.kind });
         } else {
@@ -259,7 +263,6 @@ export async function run(argv: string[]): Promise<number> {
       if (!leaves.length) {
         throw new Error(`attest derives no attested leaves (${exceptions.length} winner(s) in the exception queue)`);
       }
-      const standardLot = BigInt(chainLot); // pinned by the signed manifest and locked on chain; never operator input
       // design §3: every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)
       const asset = chainAsset;
       const asset32 = assetBytes32(asset);
@@ -361,7 +364,34 @@ export async function run(argv: string[]): Promise<number> {
             leafCount: p.leaf_count, proof: p.proof,
           } as EvmPayout)),
         });
-        console.log(JSON.stringify({ chain, submitted, tx, payouts: chosen.map((p) => p.index) }));
+        // design §4 lesson 6: the release flow delivers each fresh stealth destination too — the tiny
+        // native gas stipend (--stipend WAD) so the winner never funds the one-time address from a
+        // known wallet, and the ERC-5564 announcement (--announcer ADDR) whose bytes were fixed at
+        // attest time, so the winner finds the payment with its viewing key alone.
+        const stipend = typeof a.stipend === "string" ? BigInt(need(a, "stipend")) : 0n;
+        if (stipend < 0n) throw new Error("--stipend must be non-negative");
+        const wallet = new NonceManager(new Wallet(readFileSync(keyFile, "utf8").trim(), evmProvider(rpc)));
+        const stipendTxs: string[] = [], announceTxs: string[] = [];
+        for (const p of chosen) {
+          const leaf: any = bundle.leaves.find((l) => l.index === p.index);
+          if (leaf?.deliver_kind !== "stealth") continue;
+          if (stipend > 0n) {
+            const t = await wallet.sendTransaction({ to: p.destination, value: stipend });
+            await t.wait();
+            stipendTxs.push(t.hash);
+          }
+          if (typeof a.announcer === "string") {
+            if (!leaf.announce) throw new Error(`bundle leaf ${p.index} carries no announcement`);
+            const call = await prepareAnnouncement(
+              { publicClient: createPublicClient({ transport: http(rpc) }) },
+              (await wallet.getAddress()) as `0x${string}`, getAddress(a.announcer) as `0x${string}`,
+              { stealthAddress: leaf.announce.stealth_address as `0x${string}`, ephemeralPublicKey: leaf.announce.ephemeral_pubkey as `0x${string}`, metadata: leaf.announce.metadata as `0x${string}` });
+            const t = await wallet.sendTransaction({ to: call.to, data: call.data, value: call.value ?? 0n });
+            await t.wait();
+            announceTxs.push(t.hash);
+          }
+        }
+        console.log(JSON.stringify({ chain, submitted, tx, payouts: chosen.map((p) => p.index), stipend_txs: stipendTxs, announce_txs: announceTxs }));
         return 0;
       }
       const conn = solConnection(rpc);

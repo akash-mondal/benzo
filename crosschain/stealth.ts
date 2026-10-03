@@ -16,7 +16,6 @@ import {
   generateStealthAddress,
   computeStealthKey,
   checkStealthAddress,
-  getAnnouncements,
   getAnnouncementsForUser,
   prepareAnnounce,
   prepareRegisterKeys,
@@ -100,14 +99,17 @@ export function stealthEphemeralPrivateKey(deliverSha256Hex: string, auctionId: 
 
 export function deriveSettlementStealthAddress(
   deliver: { chain: string; kind: string; to: string },
-  ctx: { deliverSha256Hex: string; auctionId: Uint8Array; batchIndex: number; leafIndex: number },
-): { stealthAddress: `0x${string}`; ephemeralPublicKey: `0x${string}`; viewTag: `0x${string}` } {
+  ctx: { deliverSha256Hex: string; auctionId: Uint8Array; batchIndex: number; leafIndex: number; amountWei: bigint },
+): { stealthAddress: `0x${string}`; ephemeralPublicKey: `0x${string}`; viewTag: `0x${string}`; metadata: `0x${string}` } {
   const { stealthAddress, ephemeralPublicKey, viewTag } = generateStealthAddress({
     stealthMetaAddressURI: deliverMetaAddressURI(deliver),
     schemeId: SCHEME_ID,
     ephemeralPrivateKey: stealthEphemeralPrivateKey(ctx.deliverSha256Hex, ctx.auctionId, ctx.batchIndex, ctx.leafIndex),
   });
-  return { stealthAddress, ephemeralPublicKey, viewTag };
+  // the ERC-5564 announcement metadata the release crank publishes on the canonical Announcer:
+  // view tag + the delivered amount (public on chain by design §4 — the recipient stays hidden)
+  const metadata = buildMetadataForETH({ viewTag, amount: ctx.amountWei });
+  return { stealthAddress, ephemeralPublicKey, viewTag, metadata };
 }
 
 // Delivery side (the signer builds this from the opened envelope; one fresh address per settlement):
@@ -161,13 +163,21 @@ export async function scanDeliveries(
   keys: Pick<StealthKeys, "spendingPublicKey" | "viewingPrivateKey">,
   range: { fromBlock?: bigint | "earliest"; toBlock?: bigint | "latest" },
 ): Promise<{ announcement: AnnouncementLog; stealthAddress: `0x${string}` }[]> {
-  const announcements = await getAnnouncements({
-    clientParams: clientParams as never,
-    ERC5564Address: announcer,
+  // Beta-SDK defect (recorded in docs/AUDITS.md): the pinned 1.0.0-beta.5 `getAnnouncements` filters
+  // logs through viem's positional-array args form, which matches nothing on pinned viem 2.57.1
+  // (named-object args match fine — raw getLogs finds the very events it misses). Fetch the logs
+  // here with the named-args form; everything cryptographic — getAnnouncementsForUser's
+  // checkStealthAddress filter and computeStealthKey — stays in the pinned SDK.
+  const ev = ANNOUNCER_ABI.find((i: any) => i.type === "event" && i.name === "Announcement");
+  const logs = await (clientParams.publicClient as any).getLogs({
+    address: announcer, event: ev,
     args: { schemeId: BigInt(SCHEME_ID) },
-    fromBlock: range.fromBlock ?? "earliest",
-    toBlock: range.toBlock ?? "latest",
+    fromBlock: range.fromBlock ?? "earliest", toBlock: range.toBlock ?? "latest",
   });
+  const announcements = logs.map((log: any) => ({
+    schemeId: log.args.schemeId, stealthAddress: log.args.stealthAddress, caller: log.args.caller,
+    ephemeralPubKey: log.args.ephemeralPubKey, metadata: log.args.metadata, ...log,
+  })) as AnnouncementLog[];
   const mine = await getAnnouncementsForUser({
     announcements,
     spendingPublicKey: keys.spendingPublicKey,
