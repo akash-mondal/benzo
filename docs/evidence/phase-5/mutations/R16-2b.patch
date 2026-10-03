@@ -1,0 +1,13 @@
+diff --git a/seal/src/main.ts b/seal/src/main.ts
+index f05f97b..a6c3de7 100644
+--- a/seal/src/main.ts
++++ b/seal/src/main.ts
+@@ -110,7 +110,7 @@ async function seal(): Promise<void> {
+ 
+   const envelope = new Uint8Array(MEMO_LEN); // zero-padded
+   envelope.set(HEADER, 0);
+-  new DataView(envelope.buffer).setUint16(HEADER.length, ct.length, false);
++  new DataView(envelope.buffer).setUint16(HEADER.length, ct.length + 1, false); // mutation R16-2b: the writer lies about ct_len
+   envelope.set(ct, HEADER.length + 2);
+   envelope.set(eh, HEADER.length + 2 + ct.length); // envelope_tag (R16 item 2, R18)
+ 

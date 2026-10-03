@@ -1,0 +1,14 @@
+commit 8f7b156cd740e2da3bc06feb1459bc3ff2f79278 (mutation R16-2a.patch applied to settle/envelopes.ts)
+commit 8f7b156cd740e2da3bc06feb1459bc3ff2f79278 (working tree not clean at run time)
+utc 2026-10-03T02:40:05.121Z
+command node tools/repro/r16-memo-bound-repro.mjs
+tree M settle/envelopes.ts
+tree ?? docs/evidence/phase-5/mutations/R16-2a.patch
+tree ?? docs/evidence/phase-5/repro/r16-memo-bound.out
+PASS r16-bid-seal-v2
+PASS r16-ct-len-refused
+ERROR r16-v1-still-readable a v1 memo bound a record
+ERROR r16-cancel-before-r a substituted record was opened
+ERROR r16-verify-binding substituted record got exit 0: no ERROR line
+PASS r16-phase2-4
+RESULT FAIL 3
