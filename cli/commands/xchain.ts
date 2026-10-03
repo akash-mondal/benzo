@@ -11,7 +11,7 @@ import {
   AllocationLeaf, allocationRoot, assetBytes32, buildTree, bytesToHex, destinationBytes, hexToBytes, leafHash,
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
-import { openEnvelopePayload } from "../../envelope";
+import { envelopePublicKey, openEnvelopePayload } from "../../envelope";
 import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
 import { deriveSettlementStealthAddress, prepareAnnouncement } from "../../crosschain/stealth";
 import { checkPublicAuction, loadCompletePublicAuction } from "../../api/public-auction";
@@ -251,8 +251,22 @@ export async function run(argv: string[]): Promise<number> {
       if (pub.manifest.auction_id !== bytesToHex(auctionId).slice(2)) {
         throw new Error(`--dir auction ${pub.manifest.auction_id} does not match --auction ${bytesToHex(auctionId).slice(2)}`);
       }
+      // R25 item 2: --envelope-key values are deduplicated by public key and must be distinct members
+      // of the signed manifest's envelope_keys — one key passed twice counts once, never as a second
+      // signer (a duplicated key must not manufacture a 2-of-3 agreement).
       const envKeyFiles: string[] = Array.isArray(a["envelope-key"]) ? a["envelope-key"] as string[] : [need(a, "envelope-key")];
-      const envPrivates = envKeyFiles.map((f) => readFileSync(f, "utf8").trim());
+      const envPrivates: string[] = [];
+      const envSeen = new Set<string>();
+      for (const f of envKeyFiles) {
+        const priv = readFileSync(f, "utf8").trim();
+        let pubHex: string;
+        try { pubHex = envelopePublicKey(priv); } catch { throw new Error(`--envelope-key ${f}: not a valid X25519 key`); }
+        requireThat(Array.isArray(pub.manifest.envelope_keys) && pub.manifest.envelope_keys.includes(pubHex),
+          `--envelope-key ${f}: not a member of the manifest's envelope_keys`);
+        if (envSeen.has(pubHex)) continue; // one key passed twice counts once
+        envSeen.add(pubHex);
+        envPrivates.push(priv);
+      }
       const standardLot = BigInt(chainLot); // pinned by the signed manifest and locked on chain; never operator input
       const exceptions: { index: number; lot_count: number; reason: string }[] = [];
       const leaves: (AllocationLeaf & { deliver_kind?: string; announce?: { scheme_id: number; stealth_address: string; ephemeral_pubkey: string; metadata: string } })[] = [];

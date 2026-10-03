@@ -119,6 +119,12 @@ export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHex
   if (payload.deliver !== undefined) doc.deliver = requireDeliver({ ...payload.deliver, salt: randomBytes(32).toString("hex") });
   return sealPadded(canonical(doc), recipientPublicHexes);
 }
+// The X25519 public key of an envelope recipient key (the same derivation openPadded matches against) —
+// used by `xchain attest` to identify which manifest envelope_keys a --envelope-key file is (R25 item 2).
+export function envelopePublicKey(recipientPrivateHex: string): string {
+  return hex(Buffer.from(sodium.crypto_scalarmult_base(raw(recipientPrivateHex, 32))));
+}
+
 // The recipient X25519 public keys of an envelope, in stanza order (R10 item 1: product validation requires
 // them to be exactly the signed manifest's `envelope_keys`, in order). Throws on a malformed envelope.
 export function envelopeRecipients(envelopeCtHex: string): string[] {

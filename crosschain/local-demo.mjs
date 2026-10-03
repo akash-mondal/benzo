@@ -586,6 +586,26 @@ async function main() {
       `rc=${r.code} (attested a leaf set swapped after witness certification): ${(r.stderr || r.stdout).slice(0, 240)}`);
   }
 
+  // R25 item 2: one --envelope-key passed twice counts once (never a manufactured 2-of-3 agreement),
+  // and every --envelope-key must be a distinct member of the manifest's envelope_keys
+  {
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ envelopeKeys: [envelopeKeyFiles[0], envelopeKeyFiles[0]] }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-key-dup.json")]);
+    check("demo-attest-envelope-key-dedup",
+      r.code !== 0 && /attest derives no attested leaves/.test(r.stderr) && !existsSync(path.join(WORK, "bundle-key-dup.json")),
+      `rc=${r.code} (a duplicated envelope key manufactured a 2-of-3 agreement): ${(r.stderr || r.stdout).slice(0, 200)}`);
+    const nonmember = envmod.generateEnvelopeKey();
+    const nkFile = path.join(KEYDIR, "envelope-key-nonmember.key");
+    writeFileSync(nkFile, nonmember.private_hex, { mode: 0o600 });
+    const r2 = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ envelopeKeys: [nkFile, envelopeKeyFiles[0]] }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-key-nonmember.json")]);
+    check("demo-attest-envelope-key-nonmember",
+      r2.code !== 0 && /not a member of the manifest's envelope_keys/.test(r2.stderr) && !existsSync(path.join(WORK, "bundle-key-nonmember.json")),
+      `rc=${r2.code} (a non-member envelope key was accepted): ${(r2.stderr || r2.stdout).slice(0, 200)}`);
+  }
+
   // R17 item 4: the result hash is recomputed from the --result bytes and the leaves derive from that
   // result; a mismatching --result-hash is refused before any key is read or chain touched
   {
