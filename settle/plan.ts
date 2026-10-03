@@ -10,7 +10,7 @@ import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening} from "../manifest/reserve";
-import {validEnvelope,ENVELOPE_INTERIM_REFUSAL,memoSealedBid,requireOwnEnvelopeKey} from "./envelopes";
+import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey} from "./envelopes";
 import {verifyStatement} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -184,10 +184,10 @@ try {
     for(const n of depositNotes) {
       const party=`deposit:${n.txid}:${n.diversifier_index}`,row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
-      if(claimDestinations[party]) {obligations.push(row);continue}
+      if(claimDestinations[party]||strayEnvelope(party)) {obligations.push(row);continue}
       const reason=!released?"cancelled before release; refund is claimable after R":
         !bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":
-        strayEnvelope(party)?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+        "no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }
@@ -200,8 +200,11 @@ try {
       // multi-recipient envelope format is unmerged, even a valid envelope destination is refused with a clear
       // error — never paid from an operator-held key — and waits in the queue for an owner-signed claim.
       if(published&&party.startsWith("leaf:")) {
-        if(claimDestinations[party]) {obligations.push(row);continue}
-        const reason=validEnvelope(src,Number(party.slice(5)))?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+        // R10 item 2: a leaf with a validated v2 envelope record is payable through it — each signer opens
+        // the destination with its own key (R10 item 4's two-signer agreement gates the batch next). Only a
+        // leaf with neither a claim nor a valid envelope waits in the exception queue.
+        if(claimDestinations[party]||validEnvelope(src,Number(party.slice(5)))) {obligations.push(row);continue}
+        const reason="no valid owner-signed settlement envelope";
         refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
         exceptions.push({...row,reason});
       } else obligations.push(row);
@@ -211,8 +214,8 @@ try {
       // R7 item 6 (Reviewer G G6): a stray refund never goes to an operator-chosen destination. A stray whose
       // memo holds a valid sealed bid is refunded through its own envelope like any bid; anything else goes to
       // the exception queue, claimable only when its memo holds an owner key (benzo claim-refund).
-      if(!published||claimDestinations[party]) {obligations.push(row);continue}
-      const reason=!bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":strayEnvelope(party)?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+      if(!published||claimDestinations[party]||strayEnvelope(party)) {obligations.push(row);continue}
+      const reason=!bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":"no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }

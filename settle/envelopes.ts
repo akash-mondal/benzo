@@ -6,14 +6,13 @@
 // source: envelope record/public shapes from api/public-auction.ts (Track B), validation rules per
 // docs/design/phase5-part1-live.md §4.
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
-import { requireThat } from "../manifest/schema";
+import { hash, requireThat } from "../manifest/schema";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-// R7 item 2 interim (R F-1/F-2 = G4): until Track A wires `bid seal` to the manifest's pinned key set
-// (R10 item 2), an envelope destination is refused with this clear error — never paid from an operator-held
-// key — and the refund waits in the exception queue for an owner-signed `benzo claim-refund` request (R7 item 4).
-export const ENVELOPE_INTERIM_REFUSAL = "multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used";
+// R10 item 2: the multi-recipient v2 format is merged and `bid seal` seals to the manifest's pinned keys,
+// so a validated v2 envelope is paid through (each signer opens it with its own key; R10 item 4's
+// two-signer agreement gates it). The R7.2 interim refusal is gone.
 
 // R10 item 3 (design §10 item 2): every signer requires the signed manifest to pin ITS OWN envelope key at
 // its own index (alice 0, bob 1, carol 2), so an operator cannot pin keys it holds and still get signatures.
@@ -100,4 +99,36 @@ export function envelopeRecipient(
 ): string | null {
   const rec = validEnvelope(a, leafIndex);
   return rec ? openDestination(rec, envelopePrivateHex) : null;
+}
+
+// R10 item 2: the deposit-party twin of envelopeRecipient. A stray/cancelled deposit's envelope record is
+// the one keyed by the hash of its memo's sealed bid (the memo binds the record to the deposit — R16.2/R18),
+// opened with the signer's own key. Total like the rest of this module: anything unresolvable is null.
+export function memoEnvelopeRecipient(
+  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  party: string,
+  envelopes: EnvelopeRecord[] | undefined,
+  envelopePrivateHex: string,
+): string | null {
+  try {
+    const m = /^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
+    const note = m ? observed.find(n => n.txid === m[1] && String(n.diversifier_index) === m[2]) : undefined;
+    const ct = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
+    if (!ct) return null;
+    const rec = (envelopes ?? []).find(e => e.ciphertext_hash === hash(Buffer.from(ct, "hex")));
+    return rec ? openDestination(rec, envelopePrivateHex) : null;
+  } catch {
+    return null;
+  }
+}
+
+// R10 item 2/4: the acting signer's own envelope private half, read from its own state dir (the operator's
+// tooling never holds it — R7 item 2). Null when the signer has no key file.
+export function ownEnvelopePrivate(stateDir: string, name: string): string | null {
+  try {
+    const file = path.join(stateDir, "signers", name, "envelope-key.json");
+    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).private_hex ?? null : null;
+  } catch {
+    return null;
+  }
 }
