@@ -5,14 +5,14 @@ import {client,hash,jsonBytes,requireThat} from "../manifest/schema";
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx} from "./io";
 import {pubkey,zcashSign} from "./sign";
-import {ENVELOPE_INTERIM_REFUSAL} from "./envelopes";
+import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate} from "./envelopes";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
 type ResolvedRow=Row&{recipient?:string;reason?:string};
-function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>}):ResolvedRow[] {
+function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>;envelope_agreed?:Record<string,string>}):ResolvedRow[] {
   const route=read(`routing-${name}.json`),observed=notes();
   requireThat(hash(jsonBytes(route))===read("routing-commitment.json").sha256,"signer routing changed after intake");
   // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
@@ -39,15 +39,25 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
     // plan verified against its own fresh opening; it is signer-derived, like every other destination here.
     const claimed=plan.destinations?.[row.party];
     if(claimed)return {...row,recipient:claimed};
-    // R7 item 2 (R F-1/F-2 = G4): no operator-held envelope key exists, and single-recipient envelopes cannot
-    // be opened by every signer, so an envelope destination is refused with a clear error — never paid from a
-    // fallback key — and its refund waits in the exception queue (owner-signed claim, R7 item 4).
-    if(product&&row.party.startsWith("leaf:"))return {...row,reason:`envelope destination refused: ${ENVELOPE_INTERIM_REFUSAL} (party ${row.party}; refund waits in the exception queue)`};
+    // R10 item 2 (design §4): a product-mode refund whose bid carries a validated v2 envelope is paid to the
+    // envelope's destination, opened here with THIS signer's own key — never an operator-chosen or
+    // coordinator-pinned destination. A row whose envelope this signer cannot open is an exception row with
+    // its reason, never a throw (R12 item 3); the row is claimable through benzo claim-refund.
+    if(product&&row.party.startsWith("leaf:")) {
+      const recipient=envelopeRecipient(a,Number(row.party.slice(5)),ownEnvelopePrivate(STATE,name)??"");
+      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
+      return {...row,reason:`envelope destination refused: this signer's key does not open the envelope (party ${row.party}; refund waits in the exception queue)`};
+    }
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
       observed.find(n=>row.party===`deposit:${n.txid}:${n.diversifier_index}`)?.address;
-    // R7 item 6 (Reviewer G G6): a product-mode stray has no operator-chosen destination — it resolves only
-    // through its own owner-signed claim (plan.destinations above) or stays in the exception queue.
-    if(product&&row.party!=="seller")return {...row,reason:`stray refund refused: no operator-chosen destination (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
+    // R7 item 6 (Reviewer G G6) + R10 item 2: a product-mode stray or cancelled deposit resolves through its
+    // own memo-bound owner-signed envelope (opened with this signer's key) or its owner-signed claim; there
+    // is no operator-chosen destination.
+    if(product&&row.party!=="seller") {
+      const recipient=memoEnvelopeRecipient(observed,row.party,(a as any).manifest,(a as any).envelopes,path.join(STATE,"bin","tle"),ownEnvelopePrivate(STATE,name)??"");
+      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
+      return {...row,reason:`stray refund refused: no owner-signed settlement envelope or claim (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
+    }
     const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;
     requireThat(recipient,"missing independently pinned settlement recipient");return {...row,recipient};
     } catch(e) {return {...row,reason:(e as Error).message}}

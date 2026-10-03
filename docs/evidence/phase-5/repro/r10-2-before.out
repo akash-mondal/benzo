@@ -1,0 +1,12 @@
+commit db3a10f tree (R10 item 2 fix stashed; the R7.2 interim refusal still in place)
+utc 2026-10-03T04:06:07Z
+command node tools/repro/r10-2-envelope-pay-repro.mjs
+E1 plan exit 0
+E1 obligations: [{"amount_zats":"500000","kind":"payout","party":"seller"}]
+E1 exceptions: [{"party":"leaf:0","reason":"multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used"}]
+CONFIRMED: a leaf with a valid v2 envelope is refused with the interim envelope error — the refund waits in the exception queue and no batch can pay it.
+E2 zero-refund leaf:1 needs no row: true
+E1 scratch batch 3 with rows ["seller"]
+E1 candidate PCZT: created
+E1 signer check exit 0
+outcome CONFIRMED

@@ -10,7 +10,7 @@ import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening} from "../manifest/reserve";
-import {validEnvelope,ENVELOPE_INTERIM_REFUSAL,memoSealedBid,requireOwnEnvelopeKey} from "./envelopes";
+import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope} from "./envelopes";
 import {verifyStatement} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -140,15 +140,12 @@ try {
     return pt.length===128&&pt[0]===0&&pt.subarray(1,33).toString("hex")===id?pt:null;
   };
   const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
-  // R7 item 6: a stray with a valid sealed-bid memo resolves through its own owner-signed settlement
-  // envelope exactly like a bid leaf (same shared validity rule), keyed by its memo's ciphertext hash.
-  const strayEnvelope=(party:string):boolean=>{
-    const pt=bidPlaintextFor(party);if(!pt)return false;
-    const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party)!;
-    const note=depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2])!;
-    const ctHash=hash(Buffer.from(memoSealedBid(note.memo_hex!)!.ciphertext_hex,"hex"));
-    return validEnvelope({manifest:src.manifest,frozen:{leaves:[{leaf_index:0,ciphertext_hash:ctHash}]},opened:[{leaf_index:0,plaintext_hex:pt.toString("hex")}],envelopes:src.envelopes},0)!==null;
-  };
+  // R7 item 6 + R20: a stray/cancelled deposit with a valid sealed-bid memo resolves through its own
+  // owner-signed settlement envelope, keyed by its memo's ciphertext hash and AUTHENTICATED against the
+  // memo's own tlock opening (R20 (b): owner signature plus settlement commitment over the record); an
+  // operator-inserted record for a memo-less or v1 stray is never paid. Memo v2's tag binding (R20 (a))
+  // lands with Track B's memo v2 merge.
+  const strayEnvelope=(party:string):boolean=>authenticatedMemoEnvelope(depositNotes,party,src.manifest,src.envelopes,path.join(state,"bin","tle"))!==null;
   const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
   if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
     try {
@@ -175,6 +172,25 @@ try {
   for(const [party,message] of Object.entries(claimFailures))if(!claimDestinations[party]) {
     refusals.push({party,reason:`claim refused: ${message}`});process.stderr.write(`ERROR claim ${party} refused: ${message}\n`);
   }
+  // R10 item 4: an envelope-paid refund is payable only when at least 2 signers' envelope-opens reports
+  // (each signer's own opening report, written before any batch is planned and never carrying the
+  // destination) report ok with the same dest_sha256 for the row. Otherwise the row waits in the exception
+  // queue with the ruling's reason, claimable through benzo claim-refund.
+  const reports:any[]=["alice","bob","carol"].flatMap(n=>{try{return [JSON.parse(readFileSync(path.join(state,"settle",id,`envelope-opens-${n}.json`),"utf8"))]}catch{return []}});
+  const envelope_agreed:Record<string,string>={};
+  const agreedDestination=(party:string):string|null=>{
+    const counts:Record<string,number>={};
+    for(const r of reports)for(const e of r.opens??[])if(e.party===party&&e.ok&&typeof e.dest_sha256==="string"&&/^[0-9a-f]{64}$/.test(e.dest_sha256))counts[e.dest_sha256]=(counts[e.dest_sha256]??0)+1;
+    const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
+    return best&&best[1]>=2?best[0]:null;
+  };
+  const gateEnvelope=(row:{party:string;kind:"refund"|"payout";amount_zats:string}):void=>{
+    const agreed=agreedDestination(row.party);
+    if(agreed){envelope_agreed[row.party]=agreed;obligations.push(row);return}
+    const reason="signers could not agree on the envelope destination";
+    refusals.push({party:row.party,reason});process.stderr.write(`ERROR refund ${row.party} to the exception queue: ${reason}\n`);
+    exceptions.push({...row,reason});
+  };
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
     // R16 item 1 (Reviewer R F4): a cancelled product auction refunds exactly like the cleared path — through
     // the deposit's own owner-signed claim or its envelope. Anything else is an exception row, claimable after
@@ -185,9 +201,10 @@ try {
       const party=`deposit:${n.txid}:${n.diversifier_index}`,row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
       if(claimDestinations[party]) {obligations.push(row);continue}
+      if(strayEnvelope(party)) {gateEnvelope(row);continue}
       const reason=!released?"cancelled before release; refund is claimable after R":
         !bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":
-        strayEnvelope(party)?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+        "no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }
@@ -200,8 +217,12 @@ try {
       // multi-recipient envelope format is unmerged, even a valid envelope destination is refused with a clear
       // error — never paid from an operator-held key — and waits in the queue for an owner-signed claim.
       if(published&&party.startsWith("leaf:")) {
+        // R10 items 2/4: a leaf with a validated v2 envelope is payable through it when at least 2 signers'
+        // own opening reports agree on its destination hash. A claim pays on its own owner signature (its
+        // agreement rule comes with R15 item 3). Anything else waits in the exception queue.
         if(claimDestinations[party]) {obligations.push(row);continue}
-        const reason=validEnvelope(src,Number(party.slice(5)))?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+        if(validEnvelope(src,Number(party.slice(5)))) {gateEnvelope(row);continue}
+        const reason="no valid owner-signed settlement envelope";
         refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
         exceptions.push({...row,reason});
       } else obligations.push(row);
@@ -212,12 +233,13 @@ try {
       // memo holds a valid sealed bid is refunded through its own envelope like any bid; anything else goes to
       // the exception queue, claimable only when its memo holds an owner key (benzo claim-refund).
       if(!published||claimDestinations[party]) {obligations.push(row);continue}
-      const reason=!bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":strayEnvelope(party)?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+      if(strayEnvelope(party)) {gateEnvelope(row);continue}
+      const reason=!bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":"no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,destinations:claimDestinations,claims_used:claimsUsed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,destinations:claimDestinations,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

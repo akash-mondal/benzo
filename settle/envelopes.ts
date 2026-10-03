@@ -7,13 +7,13 @@
 // docs/design/phase5-part1-live.md §4.
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
 import { hash, requireThat } from "../manifest/schema";
+import { tleOpening } from "../manifest/reserve";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-// R7 item 2 interim (R F-1/F-2 = G4): until Track A wires `bid seal` to the manifest's pinned key set
-// (R10 item 2), an envelope destination is refused with this clear error — never paid from an operator-held
-// key — and the refund waits in the exception queue for an owner-signed `benzo claim-refund` request (R7 item 4).
-export const ENVELOPE_INTERIM_REFUSAL = "multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used";
+// R10 item 2: the multi-recipient v2 format is merged and `bid seal` seals to the manifest's pinned keys,
+// so a validated v2 envelope is paid through (each signer opens it with its own key; R10 item 4's
+// two-signer agreement gates it). The R7.2 interim refusal is gone.
 
 // R10 item 3 (design §10 item 2): every signer requires the signed manifest to pin ITS OWN envelope key at
 // its own index (alice 0, bob 1, carol 2), so an operator cannot pin keys it holds and still get signatures.
@@ -134,4 +134,72 @@ export function envelopeRecipient(
 ): string | null {
   const rec = validEnvelope(a, leafIndex);
   return rec ? openDestination(rec, envelopePrivateHex) : null;
+}
+
+// R20 (head review of c7f1029): a stray or cancelled deposit's envelope is AUTHENTICATED before it is ever
+// opened — an operator-inserted record for a memo-less or v1 stray is never paid. Exactly one of:
+//   (a) the deposit memo is framing v2 and its envelope_tag binds rec.envelope_ct (Track B's rule, arriving
+//       with the memo v2 merge — the hook below is a no-op until the parser yields the tag), or
+//   (b) after R, the record passes validEnvelope against the memo's own tlock opening — the bid's owner
+//       signature plus its salted settlement commitment, with the memo opening to this auction's 128-byte
+//       sealed-bid layout.
+// Otherwise null — the row is an exception row, claimable through benzo claim-refund.
+export function authenticatedMemoEnvelope(
+  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  party: string,
+  manifestPacket: any,
+  envelopes: EnvelopeRecord[] | undefined,
+  tleBin: string,
+): EnvelopeRecord | null {
+  try {
+    const m = /^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
+    const note = m ? observed.find(n => n.txid === m[1] && String(n.diversifier_index) === m[2]) : undefined;
+    const memo = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
+    if (!memo) return null;
+    const ctHex = memo.ciphertext_hex;
+    const ctHash = hash(Buffer.from(ctHex, "hex"));
+    const rec = (envelopes ?? []).find(e => e.ciphertext_hash === ctHash);
+    if (!rec) return null;
+    const manifest = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8"));
+    // (a) head merge (R20 + R16 item 2/R18): a framing-v2 memo whose envelope_tag binds this record (only the
+    // depositor sets the memo) authenticates it before R with no tlock opening; it must still satisfy the shared
+    // format/recipient rule.
+    if (memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) && envelopeRecordValid(rec, manifest.envelope_keys)) return rec;
+    const ptHex = tleOpening(tleBin, manifest.drand.chain_hash, ctHex);
+    if (!ptHex) return null;
+    const pt = Buffer.from(ptHex, "hex");
+    if (pt.length !== 128 || pt[0] !== 0 || pt.subarray(1, 33).toString("hex") !== manifest.auction_id) return null;
+    return validEnvelope({ manifest: manifestPacket, frozen: { leaves: [{ leaf_index: 0, ciphertext_hash: ctHash }] }, opened: [{ leaf_index: 0, plaintext_hex: ptHex }], envelopes }, 0);
+  } catch {
+    return null;
+  }
+}
+
+// R10 item 2 + R20: the deposit-party twin of envelopeRecipient — the AUTHENTICATED memo-bound record,
+// opened with the signer's own key. Total like the rest of this module: anything unresolvable is null.
+export function memoEnvelopeRecipient(
+  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  party: string,
+  manifestPacket: any,
+  envelopes: EnvelopeRecord[] | undefined,
+  tleBin: string,
+  envelopePrivateHex: string,
+): string | null {
+  try {
+    const rec = authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, tleBin);
+    return rec ? openDestination(rec, envelopePrivateHex) : null;
+  } catch {
+    return null;
+  }
+}
+
+// R10 item 2/4: the acting signer's own envelope private half, read from its own state dir (the operator's
+// tooling never holds it — R7 item 2). Null when the signer has no key file.
+export function ownEnvelopePrivate(stateDir: string, name: string): string | null {
+  try {
+    const file = path.join(stateDir, "signers", name, "envelope-key.json");
+    return existsSync(file) ? JSON.parse(readFileSync(file, "utf8")).private_hex ?? null : null;
+  } catch {
+    return null;
+  }
 }

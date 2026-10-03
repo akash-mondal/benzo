@@ -3,10 +3,10 @@
 import { verifyBeacon } from "drand-client/beacon-verification.js";
 import { hash, requireThat } from "../../manifest/schema";
 import { requireReserveOpening, tleOpening as tleDecrypt } from "../../manifest/reserve";
-import { checkPublicAuction, deriveClaimOpenings, loadCompletePublicAuction, loadPublicAuction } from "../../api/public-auction";
+import { checkPublicAuction, loadCompletePublicAuction, loadPublicAuction } from "../../api/public-auction";
 import { checkSeriesLink } from "../../clear/features";
 import type { Opened } from "../../clear/core";
-import { publishedClient, decryptPublished } from "../published-beacon";
+import { publishedClient, decryptPublished, deriveClaimOpenings } from "../published-beacon";
 
 export const noun = "verify";
 export const verb = "";
@@ -75,7 +75,7 @@ export async function run(argv: string[]): Promise<number> {
     pub.opened = derived;
     // R16 item 4 (Reviewer R F3): every stray claim's owner key is derived here from the memo the claim
     // publishes (the scanned deposit's memo) and this authenticated published beacon — no claims[].opening.
-    const claimOpenings = await deriveClaimOpenings(pub);
+    const claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
     if (pub.manifest.sealed_reserve !== undefined) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(pub.manifest, pub.reserveOpening, reserve,

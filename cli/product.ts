@@ -10,7 +10,7 @@ import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
-import {requireOwnEnvelopeKey,memoSealedBid} from '../settle/envelopes';
+import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
@@ -187,6 +187,32 @@ export async function runCommand(command:string,args:string[]) {
       }
     }
     const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result
+  }
+  if(command==='sign envelope-opens') {
+    // R10 item 4: each signer attests — before any batch is planned — per refund row it can resolve from an
+    // envelope, to the DESTINATION HASH its own key opens (never the destination). R12 item 3: an envelope
+    // this signer cannot open is reported ok:false; the report never throws and never aborts the others.
+    requireThat(id&&['alice','bob','carol'].includes(o.name),'--id --name required');
+    const cfg=read(config(id)),doc=JSON.parse(readFileSync(path.join(path.resolve(cfg.public_dir),'auction.json'),'utf8'));
+    const {manifest:m}=client(doc.manifest,doc.signer);
+    const key=ownEnvelopePrivate(STATE,o.name);requireThat(key,'signer envelope key missing');
+    const opens:{leaf:number|null;party:string;ok:boolean;dest_sha256:string|null}[]=[];
+    const open=(rec:any):string|null=>{try{return rec?openDestination(rec,key!):null}catch{return null}};
+    for(const l of doc.frozen?.leaves??[]) {
+      const dest=open((doc.envelopes??[]).find((e:any)=>e.ciphertext_hash===l.ciphertext_hash));
+      opens.push({leaf:l.leaf_index,party:`leaf:${l.leaf_index}`,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
+    }
+    for(const n of notes()) {
+      if(!m.deposit_addresses.includes(n.address))continue;
+      const party=`deposit:${n.txid}:${n.diversifier_index}`;
+      if((doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
+      // R20: only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
+      // for a memo-less or v1 stray is not something this signer reports ok for.
+      const dest=open(authenticatedMemoEnvelope(notes(),party,doc.manifest,doc.envelopes,bin('tle')));
+      opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
+    }
+    save(path.join(STATE,'settle',id,`envelope-opens-${o.name}.json`),{signer:o.name,opens});
+    return {signer:o.name,opens};
   }
   if(command==='claim-refund'&&o.party!==undefined) {
     // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.

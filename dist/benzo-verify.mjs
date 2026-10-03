@@ -16006,62 +16006,6 @@ function memoBindsEnvelope(memoEnvelopeTag, envelopeCtHex) {
   return typeof memoEnvelopeTag === "string" && /^[0-9a-f]{36}$/.test(memoEnvelopeTag) && memoEnvelopeTag !== "00".repeat(18) && /^[0-9a-f]+$/.test(envelopeCtHex) && envelopeCtHex.length % 2 === 0 && hash(Buffer.from(envelopeCtHex, "hex")).slice(0, 36) === memoEnvelopeTag;
 }
 
-// cli/published-beacon.ts
-var import_tlock_js = __toESM(require_tlock_js(), 1);
-function publishedClient(beacon) {
-  requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
-  const round = Buffer.alloc(8);
-  round.writeBigUInt64BE(BigInt(beacon.round));
-  let valid = false;
-  try {
-    valid = bls12_381.verifyShortSignature(
-      beacon.signature,
-      Buffer.from(hash(round), "hex"),
-      QUICKNET.public_key,
-      { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }
-    );
-  } catch {
-  }
-  requireThat(valid, "beacon BLS signature invalid");
-  const info = {
-    public_key: QUICKNET.public_key,
-    period: QUICKNET.period,
-    genesis_time: QUICKNET.genesis,
-    hash: QUICKNET.chain_hash,
-    groupHash: "",
-    schemeID: QUICKNET.scheme,
-    metadata: { beaconID: "quicknet" }
-  };
-  const publicBeacon = { ...beacon, randomness: hash(Buffer.from(beacon.signature, "hex")) };
-  return {
-    options: { disableBeaconVerification: false, noCache: true },
-    chain: () => ({ baseUrl: "", info: async () => info }),
-    latest: async () => publicBeacon,
-    get: async (requested) => {
-      requireThat(requested === beacon.round, "ciphertext beacon round");
-      return publicBeacon;
-    }
-  };
-}
-async function decryptPublished(ciphertextHex, client2) {
-  const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
-  const info = await client2.chain().info();
-  const stanza = ciphertext.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
-  requireThat(stanza && stanza[2] === info.hash, "ciphertext tlock stanza/chain");
-  await client2.get(Number(stanza[1]));
-  const log = console.log;
-  console.log = () => {
-  };
-  try {
-    return (await (0, import_tlock_js.timelockDecrypt)(ciphertext, client2)).toString("hex");
-  } catch (e) {
-    if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test(e.message)) return null;
-    throw e;
-  } finally {
-    console.log = log;
-  }
-}
-
 // witness/index.ts
 import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
 var witnessSetHash = (packet) => hash(jsonBytes(packet));
@@ -16212,19 +16156,6 @@ function readBeacon(raw2, manifest) {
   return b2;
 }
 var settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
-async function deriveClaimOpenings(pub) {
-  const openings = /* @__PURE__ */ new Map();
-  const claims = pub.claims ?? [];
-  if (!claims.length || !claims.some((c2) => c2.party?.startsWith("deposit:"))) return openings;
-  requireThat(pub.beacon, "claims require the published beacon");
-  const local = publishedClient(pub.beacon);
-  for (const [i2, c2] of claims.entries()) {
-    if (!c2.party.startsWith("deposit:")) continue;
-    const ct2 = typeof c2.memo_hex === "string" ? memoSealedBid(c2.memo_hex)?.ciphertext_hex ?? null : null;
-    openings.set(i2, ct2 ? await decryptPublished(ct2, local) : null);
-  }
-  return openings;
-}
 function checkPublicAuction(pub, opts = {}) {
   const checks = [];
   const run2 = (id, fn) => {
@@ -16501,6 +16432,74 @@ function checkSettlementStatement(pub, ciphertextHash, statement) {
   requireThat(verifyStatement(wanted.owner_pubkey, body, signature), "statement signature");
 }
 
+// cli/published-beacon.ts
+var import_tlock_js = __toESM(require_tlock_js(), 1);
+function publishedClient(beacon) {
+  requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
+  const round = Buffer.alloc(8);
+  round.writeBigUInt64BE(BigInt(beacon.round));
+  let valid = false;
+  try {
+    valid = bls12_381.verifyShortSignature(
+      beacon.signature,
+      Buffer.from(hash(round), "hex"),
+      QUICKNET.public_key,
+      { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }
+    );
+  } catch {
+  }
+  requireThat(valid, "beacon BLS signature invalid");
+  const info = {
+    public_key: QUICKNET.public_key,
+    period: QUICKNET.period,
+    genesis_time: QUICKNET.genesis,
+    hash: QUICKNET.chain_hash,
+    groupHash: "",
+    schemeID: QUICKNET.scheme,
+    metadata: { beaconID: "quicknet" }
+  };
+  const publicBeacon = { ...beacon, randomness: hash(Buffer.from(beacon.signature, "hex")) };
+  return {
+    options: { disableBeaconVerification: false, noCache: true },
+    chain: () => ({ baseUrl: "", info: async () => info }),
+    latest: async () => publicBeacon,
+    get: async (requested) => {
+      requireThat(requested === beacon.round, "ciphertext beacon round");
+      return publicBeacon;
+    }
+  };
+}
+async function decryptPublished(ciphertextHex, client2) {
+  const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
+  const info = await client2.chain().info();
+  const stanza = ciphertext.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
+  requireThat(stanza && stanza[2] === info.hash, "ciphertext tlock stanza/chain");
+  await client2.get(Number(stanza[1]));
+  const log = console.log;
+  console.log = () => {
+  };
+  try {
+    return (await (0, import_tlock_js.timelockDecrypt)(ciphertext, client2)).toString("hex");
+  } catch (e) {
+    if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test(e.message)) return null;
+    throw e;
+  } finally {
+    console.log = log;
+  }
+}
+async function deriveClaimOpenings(claims, beacon) {
+  const openings = /* @__PURE__ */ new Map();
+  if (!claims.length || !claims.some((c2) => c2.party?.startsWith("deposit:"))) return openings;
+  requireThat(beacon, "claims require the published beacon");
+  const local = publishedClient(beacon);
+  for (const [i2, c2] of claims.entries()) {
+    if (!c2.party.startsWith("deposit:")) continue;
+    const ct2 = typeof c2.memo_hex === "string" ? memoSealedBid(c2.memo_hex)?.ciphertext_hex ?? null : null;
+    openings.set(i2, ct2 ? await decryptPublished(ct2, local) : null);
+  }
+  return openings;
+}
+
 // cli/commands/verify.ts
 var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] \u2014 re-derive openings offline and reproduce clear + accounting";
 var tleOpening2 = (ciphertext, chain) => tleOpening("tle", chain, ciphertext);
@@ -16563,7 +16562,7 @@ async function run(argv) {
       }
     }
     pub.opened = derived;
-    const claimOpenings = await deriveClaimOpenings(pub);
+    const claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
     if (pub.manifest.sealed_reserve !== void 0) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(
