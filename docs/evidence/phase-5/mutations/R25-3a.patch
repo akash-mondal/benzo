@@ -1,0 +1,28 @@
+diff --git a/cli/commands/xchain.ts b/cli/commands/xchain.ts
+index 8ca0f58..e4a6903 100644
+--- a/cli/commands/xchain.ts
++++ b/cli/commands/xchain.ts
+@@ -309,18 +309,18 @@ export async function run(argv: string[]): Promise<number> {
+         // R25 item 3 (Reviewer R F4): a leaf is attested only if THIS chain's escrow can pay its
+         // deliver.kind — EVM takes address and stealth, Solana takes address. A chain mismatch or any
+         // other kind (ct, railgun) goes to this chain's exception queue, never into the tree.
+-        if (dd.chain !== chain2) { ex(`deliver chain ${dd.chain} does not match chain ${chain2}`); continue; }
+-        if (chain2 === "evm" && dd.kind === "stealth") {
++        if (false && dd.chain !== chain2) { ex(`deliver chain ${dd.chain} does not match chain ${chain2}`); continue; } // mutation R25-3a: the pre-R25 mapping (every chain attests every kind)
++        if (dd.chain === "solana") {
++          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 2, destination: dd.to, deliver_kind: dd.kind });
++        } else if (dd.kind === "stealth") {
+           // one signer-reproducible fresh stealth address per (settlement, leaf) — and the ERC-5564
+           // announcement the release crank publishes so the winner's viewing key finds the payment
+           // (crosschain/stealth.ts, docs/AUDITS.md)
+           const one = deriveSettlementStealthAddress(dd, { deliverSha256Hex: agreed.sha, auctionId, batchIndex: num(a, "batch"), leafIndex: d.index, amountWei: BigInt(d.lot_count) * standardLot });
+           leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: one.stealthAddress, deliver_kind: dd.kind,
+             announce: { scheme_id: 1, stealth_address: one.stealthAddress, ephemeral_pubkey: one.ephemeralPublicKey, metadata: one.metadata } });
+-        } else if (chain2 === "evm" && dd.kind === "address") {
++        } else if (dd.kind === "address") {
+           leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: dd.to, deliver_kind: dd.kind });
+-        } else if (chain2 === "solana" && dd.kind === "address") {
+-          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 2, destination: dd.to, deliver_kind: dd.kind });
+         } else {
+           ex(`deliver.kind ${dd.kind} is not payable by the ${chain2} escrow`);
+         }
