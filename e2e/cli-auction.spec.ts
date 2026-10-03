@@ -104,6 +104,10 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const claimDest:Record<string,string>={};
     const ownerOf=(ct:string)=>JSON.parse(readFileSync(path.join(STATE,'bids',id,ct+'.json'),'utf8')).owner_private_hex;
     const claims:[string,string,string][]=[...bids.slice(0,9).map((b,i)=>[`leaf:${i}`,b.ciphertext_hash,refund[i]] as [string,string,string]),[memoStrayParty,strayMemoBid.ciphertext_hash,refund[9]] as [string,string,string]];
+    // R11 drill: a well-shaped but forged claim is recorded first for leaf:0; the owner's valid claim must
+    // still be accepted and paid (the signer plan uses the first claim whose owner signature verifies).
+    writeFileSync(path.join(privateDir,'claim-junk.json'),JSON.stringify({kind:'claim-refund',auction_id:id,party:'leaf:0',destination_ua:refund[0],destination_sha256:sha(refund[0]),owner_sig:'22'.repeat(64)}));
+    good(['claim-refund','--id',id,'--file',path.join(privateDir,'claim-junk.json'),'--defer']);
     for(const [party,ct,dest] of claims) {
       const request=good(['claim-refund','--id',id,'--party',party,'--destination',dest,'--owner-key-stdin'],ownerOf(ct));
       const file=path.join(privateDir,`claim-${party.replace(/[^a-z0-9]/gi,'_')}.json`);writeFileSync(file,JSON.stringify(request));
