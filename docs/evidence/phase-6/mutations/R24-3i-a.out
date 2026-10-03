@@ -1,0 +1,9 @@
+commit 6b0d24c (mutation R24-3i-a.patch applied to settle/src/main.rs: the unified receiver typecodes are swapped)
+utc 2026-10-03T11:17:18Z
+command node tools/repro/r24-3i-classify-address-repro.mjs
+   Compiling benzo-pczt v0.1.0 (/Users/akshmnd/Dev Projects/benzo-b/settle)
+    Finished `release` profile [optimized] target(s) in 2.32s
+ERROR r24-3i-verdicts-identical 181/637 inputs differ, first: {"s":"u1l8xunezsvhq8fgzfl7404m450nwnd76zshscn6","old":{"classify":{"ok":{"kind":"unified","shielded":true,"network":"main"}},"require":{"err":"refused: wrong-network address"},"receivers":{"ok":[{"typecode":0,"data_hex":"7bb83570b8fae146e03c5331a020b1e0892f631d"},{"typecode":2,"data_hex":"d8ef8293d2
+ERROR r24-3i-vector-labels 180 rows differ from the official labels, first: {"s":"u1l8xunezsvhq8fgzfl7404m450nwnd76zshscn6","got":{"kind":"unified","shielded":true,"network":"main"},"want":{"kind":"unified","network":"main","shielded":true,"receivers":[{"typecode":0,"data_hex":"7bb83570b8fae146e03c5331a020b1e0892f631d"},{"typecode":2,"data_hex":"d8ef8293d26de832e7193f296ba1
+PASS r24-3i-fresh-addresses
+RESULT FAIL 2 assertion(s) failed

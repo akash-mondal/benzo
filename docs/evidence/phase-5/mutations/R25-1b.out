@@ -1,0 +1,33 @@
+commit be91c62 (mutation R25-1b.patch applied to envelope/deliver.ts + crosschain/stealth.ts)
+utc 2026-10-03T09:08:33Z
+command bash crosschain/stealth-demo.sh
+   |                               ^^^^^^^^ help: consider using: `AUCTION_A`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/LockReentry.t.sol:81:31
+   |
+81 |     bytes32 internal constant auctionB = keccak256("lock-reentry-B");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_B`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+npm notice run build:cli
+npm notice run node cli/build.mjs
+== boot anvil (127.0.0.1:8546)
+== run stealth delivery demo
+PASS stealth-canonical-deploy
+PASS stealth-meta-address-registered
+PASS stealth-escrow-deployed
+PASS stealth-escrow-lock
+WARN witness no witness set (pre-Phase-5 manifest)
+PASS stealth-attest-from-envelope
+PASS stealth-derive-reproducible
+ERROR stealth-link-probe-fails the guessed-meta-address probe reproduced the paid address 0x28D00DF1605202ddf7169118C4c2B50e9A5479b2 (ephemeral 0x0343c9c241412bb1d024a07776912db818380703b5de4745df0411c5c7988bf948) — the payout is linkable
+PASS stealth-release-pays-with-stipend
+PASS stealth-scan-finds-delivery
+PASS stealth-recover-spends
+PASS stealth-recovered-key-controls-funds
+PASS stealth-privacy
+RESULT FAIL 1 stealth assertion(s) failed

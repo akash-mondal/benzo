@@ -1,0 +1,60 @@
+commit 9cfc159da86ee2a7f129dc5f765488088b86d0d5
+utc 2026-10-03T05:08:03Z
+command bash crosschain/local-demo.sh
+tree ?? crosschain/stealth-demo.mjs
+tree ?? crosschain/stealth-demo.sh
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+ERROR xchain --allocation is removed (R19): destinations come from the bidder's sealed envelope (--envelopes + --envelope-key)
+PASS demo-attest-allocation-refused
+PASS demo-attest-destinations-from-envelope
+PASS demo-attest-malformed-deliver-exception
+PASS demo-attest-malformed-deliver-exception-both-chains
+PASS demo-attest-no-agreement-exception
+PASS demo-attest-substituted-envelope-exception
+ERROR xchain mismatching --result-hash 0x0000000000000000000000000000000000000000000000000000000000000000: the validated result bytes hash to 8092660891623917fede53044f3a7bcb3654a5ce358cf108ec4e512735fa3345
+PASS demo-attest-result-hash-mismatch-refused
+ERROR xchain --expiry 1791007695 must be <= the auction deadline 1791007685 (crosschain §10 F-2)
+ERROR xchain --expiry 1791007695 must be <= the auction deadline 1791007685 (crosschain §10 F-2)
+PASS demo-attest-expiry-past-deadline-refused
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+ERROR xchain result hash mismatch: chain 8092660891623917fede53044f3a7bcb3654a5ce358cf108ec4e512735fa3345 published 934e2f43745559fd950680251dd9eaf49431bfbbed31b2f7ecb1ece72131c091
+ERROR xchain result hash mismatch: chain 8092660891623917fede53044f3a7bcb3654a5ce358cf108ec4e512735fa3345 published 934e2f43745559fd950680251dd9eaf49431bfbbed31b2f7ecb1ece72131c091
+PASS demo-status-result-hash-mismatch-refused
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x3d6ff20c", reason=null, transaction={ "data": "0x61d0e97efb50817124750b2219582970060c29cbac5eed89eb9c8254a82e81623d367d2f8092660891623917fede53044f3a7bcb3654a5ce358cf108ec4e512735fa33459a4fc6d94691c4f8014f982396bea61b94e1012e24963f26e4be9c5568cc0bef00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006ac09bc500000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000413131706f5cdb53b8a66e2c6f6ba5adc27b89a6e0a3b2b69512791714de8671ca0e2192a48d60954404b90d6a25b4f81dce646f36fe26d38978fd602f816615971c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041f830cf906fc379a7e35244a03d6522e90b48fe09a32fb51cee8150be381d894c3087bc1a863809616a5d8301e80c50fda7456a503fe45d19b7c3cb58f2e9c7791c00000000000000000000000000000000000000000000000000000000000000", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x9. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 3616 of 203000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x9"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x1bf55193", reason=null, transaction={ "data": "0x7249fbb693965a5f52d2e439ad80c9a7442fd5c7041a0b40de39b34a26ae2401d6e0c475", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 0: custom program error: 0x10. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 1297 of 200000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x10"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT PASS one cleared drop delivered end to end locally on both chains

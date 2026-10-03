@@ -1,0 +1,17 @@
+diff --git a/api/server.ts b/api/server.ts
+index b837d2a..50d2455 100644
+--- a/api/server.ts
++++ b/api/server.ts
+@@ -35,11 +35,7 @@ export function startServer(options: ServerOptions): http.Server {
+         // with the verify ERROR — the claims check reports the memo it cannot open — never an exception
+         // or a 500. `errors` carries the same ERROR lines `benzo verify` prints.
+         let claimOpenings: Map<number, string | null>;
+-        try {
+-          claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
+-        } catch {
+-          claimOpenings = new Map();
+-        }
++        claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); // mutation R23-3a: the fail-closed guard is removed
+         const failed = checkPublicAuction(pub, { claimOpenings }).filter(c => c.error);
+         // A manifest failure means the document cannot be trusted at all (same verdict as `benzo verify`).
+         const manifestBroken = failed.find(c => c.id === "manifest");

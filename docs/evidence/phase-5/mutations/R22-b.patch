@@ -1,0 +1,13 @@
+diff --git a/cli/commands/xchain.ts b/cli/commands/xchain.ts
+index ed38a1e..59a10f0 100644
+--- a/cli/commands/xchain.ts
++++ b/cli/commands/xchain.ts
+@@ -168,7 +168,7 @@ export async function run(argv: string[]): Promise<number> {
+       // --result must be the directory's own published result.json bytes — so what is attested is exactly
+       // the published, witness-certified result, never a parallel one.
+       const pub = loadCompletePublicAuction(need(a, "dir"));
+-      if (!resultBytes.equals(pub.resultBytes)) {
++      if (false && !resultBytes.equals(pub.resultBytes)) { // mutation R22-b: the --result/result.json byte-equality is disabled
+         throw new Error(`--result does not equal --dir/result.json bytes (R22): --result hashes to ${resultHashHex}, the published result.json to ${hash(pub.resultBytes)}`);
+       }
+       if (!pub.beacon) throw new Error("attest needs the published beacon in --dir");

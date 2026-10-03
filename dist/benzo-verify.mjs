@@ -78,7 +78,7 @@ var require_utils = __commonJS({
     exports.createHasher = createHasher3;
     exports.createOptHasher = createOptHasher;
     exports.createXOFer = createXOFer;
-    exports.randomBytes = randomBytes2;
+    exports.randomBytes = randomBytes3;
     var crypto_1 = require_cryptoNode();
     function isBytes2(a2) {
       return a2 instanceof Uint8Array || ArrayBuffer.isView(a2) && a2.constructor.name === "Uint8Array";
@@ -276,7 +276,7 @@ var require_utils = __commonJS({
     exports.wrapConstructor = createHasher3;
     exports.wrapConstructorWithOpts = createOptHasher;
     exports.wrapXOFConstructorWithOpts = createXOFer;
-    function randomBytes2(bytesLength = 32) {
+    function randomBytes3(bytesLength = 32) {
       if (crypto_1.crypto && typeof crypto_1.crypto.getRandomValues === "function") {
         return crypto_1.crypto.getRandomValues(new Uint8Array(bytesLength));
       }
@@ -3142,7 +3142,7 @@ var require_weierstrass = __commonJS({
         bits2int: "function",
         bits2int_modN: "function"
       });
-      const randomBytes2 = ecdsaOpts.randomBytes || utils_ts_1.randomBytes;
+      const randomBytes3 = ecdsaOpts.randomBytes || utils_ts_1.randomBytes;
       const hmac = ecdsaOpts.hmac || ((key, ...msgs) => (0, hmac_js_1.hmac)(hash2, key, (0, utils_ts_1.concatBytes)(...msgs)));
       const { Fp: Fp3, Fn } = Point;
       const { ORDER: CURVE_ORDER, BITS: fnBits } = Fn;
@@ -3297,7 +3297,7 @@ var require_weierstrass = __commonJS({
         const d2 = _normFnElement2(Fn, privateKey);
         const seedArgs = [int2octets(d2), int2octets(h1int)];
         if (extraEntropy != null && extraEntropy !== false) {
-          const e = extraEntropy === true ? randomBytes2(lengths.secretKey) : extraEntropy;
+          const e = extraEntropy === true ? randomBytes3(lengths.secretKey) : extraEntropy;
           seedArgs.push((0, utils_ts_1.ensureBytes)("extraEntropy", e));
         }
         const seed = (0, utils_ts_1.concatBytes)(...seedArgs);
@@ -8603,7 +8603,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 // envelope/index.ts
-import { createHash as createHash2, createPrivateKey as createPrivateKey2, createPublicKey as createPublicKey2, generateKeyPairSync, sign as sign2, verify as verify2 } from "node:crypto";
+import { createHash as createHash2, createPrivateKey as createPrivateKey2, createPublicKey as createPublicKey2, generateKeyPairSync, randomBytes, sign as sign2, verify as verify2 } from "node:crypto";
 
 // node_modules/libsodium/dist/modules-esm/libsodium.mjs
 async function A(A3 = {}) {
@@ -12031,260 +12031,6 @@ B.prototype.to_Uint8Array = function() {
 }, t.add = o, t.base64_variants = m, t.compare = l, t.from_base64 = x, t.from_hex = b, t.from_string = v, t.increment = p, t.is_zero = h, t.memcmp = i, t.memzero = y, t.output_formats = T, t.pad = u, t.unpad = d, t.ready = s, t.symbols = c, t.to_base64 = E, t.to_hex = f, t.to_string = g;
 var libsodium_wrappers_default = t;
 
-// node_modules/@noble/hashes/esm/cryptoNode.js
-import * as nc from "node:crypto";
-var crypto = nc && typeof nc === "object" && "webcrypto" in nc ? nc.webcrypto : nc && typeof nc === "object" && "randomBytes" in nc ? nc : void 0;
-
-// node_modules/@noble/hashes/esm/utils.js
-function isBytes(a2) {
-  return a2 instanceof Uint8Array || ArrayBuffer.isView(a2) && a2.constructor.name === "Uint8Array";
-}
-function anumber(n2) {
-  if (!Number.isSafeInteger(n2) || n2 < 0)
-    throw new Error("positive integer expected, got " + n2);
-}
-function abytes(b2, ...lengths) {
-  if (!isBytes(b2))
-    throw new Error("Uint8Array expected");
-  if (lengths.length > 0 && !lengths.includes(b2.length))
-    throw new Error("Uint8Array expected of length " + lengths + ", got length=" + b2.length);
-}
-function aexists(instance, checkFinished = true) {
-  if (instance.destroyed)
-    throw new Error("Hash instance has been destroyed");
-  if (checkFinished && instance.finished)
-    throw new Error("Hash#digest() has already been called");
-}
-function aoutput(out, instance) {
-  abytes(out);
-  const min = instance.outputLen;
-  if (out.length < min) {
-    throw new Error("digestInto() expects output buffer of length at least " + min);
-  }
-}
-function clean(...arrays) {
-  for (let i2 = 0; i2 < arrays.length; i2++) {
-    arrays[i2].fill(0);
-  }
-}
-function createView(arr) {
-  return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
-}
-function rotr(word, shift) {
-  return word << 32 - shift | word >>> shift;
-}
-var hasHexBuiltin = /* @__PURE__ */ (() => (
-  // @ts-ignore
-  typeof Uint8Array.from([]).toHex === "function" && typeof Uint8Array.fromHex === "function"
-))();
-var hexes = /* @__PURE__ */ Array.from({ length: 256 }, (_2, i2) => i2.toString(16).padStart(2, "0"));
-function bytesToHex(bytes) {
-  abytes(bytes);
-  if (hasHexBuiltin)
-    return bytes.toHex();
-  let hex2 = "";
-  for (let i2 = 0; i2 < bytes.length; i2++) {
-    hex2 += hexes[bytes[i2]];
-  }
-  return hex2;
-}
-var asciis = { _0: 48, _9: 57, A: 65, F: 70, a: 97, f: 102 };
-function asciiToBase16(ch) {
-  if (ch >= asciis._0 && ch <= asciis._9)
-    return ch - asciis._0;
-  if (ch >= asciis.A && ch <= asciis.F)
-    return ch - (asciis.A - 10);
-  if (ch >= asciis.a && ch <= asciis.f)
-    return ch - (asciis.a - 10);
-  return;
-}
-function hexToBytes(hex2) {
-  if (typeof hex2 !== "string")
-    throw new Error("hex string expected, got " + typeof hex2);
-  if (hasHexBuiltin)
-    return Uint8Array.fromHex(hex2);
-  const hl = hex2.length;
-  const al = hl / 2;
-  if (hl % 2)
-    throw new Error("hex string expected, got unpadded hex of length " + hl);
-  const array = new Uint8Array(al);
-  for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
-    const n1 = asciiToBase16(hex2.charCodeAt(hi));
-    const n2 = asciiToBase16(hex2.charCodeAt(hi + 1));
-    if (n1 === void 0 || n2 === void 0) {
-      const char = hex2[hi] + hex2[hi + 1];
-      throw new Error('hex string expected, got non-hex character "' + char + '" at index ' + hi);
-    }
-    array[ai] = n1 * 16 + n2;
-  }
-  return array;
-}
-function utf8ToBytes(str) {
-  if (typeof str !== "string")
-    throw new Error("string expected");
-  return new Uint8Array(new TextEncoder().encode(str));
-}
-function toBytes(data) {
-  if (typeof data === "string")
-    data = utf8ToBytes(data);
-  abytes(data);
-  return data;
-}
-function concatBytes(...arrays) {
-  let sum = 0;
-  for (let i2 = 0; i2 < arrays.length; i2++) {
-    const a2 = arrays[i2];
-    abytes(a2);
-    sum += a2.length;
-  }
-  const res = new Uint8Array(sum);
-  for (let i2 = 0, pad = 0; i2 < arrays.length; i2++) {
-    const a2 = arrays[i2];
-    res.set(a2, pad);
-    pad += a2.length;
-  }
-  return res;
-}
-var Hash = class {
-};
-function createHasher(hashCons) {
-  const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
-  const tmp = hashCons();
-  hashC.outputLen = tmp.outputLen;
-  hashC.blockLen = tmp.blockLen;
-  hashC.create = () => hashCons();
-  return hashC;
-}
-function randomBytes(bytesLength = 32) {
-  if (crypto && typeof crypto.getRandomValues === "function") {
-    return crypto.getRandomValues(new Uint8Array(bytesLength));
-  }
-  if (crypto && typeof crypto.randomBytes === "function") {
-    return Uint8Array.from(crypto.randomBytes(bytesLength));
-  }
-  throw new Error("crypto.getRandomValues must be defined");
-}
-
-// node_modules/@noble/hashes/esm/_md.js
-function setBigUint64(view, byteOffset, value, isLE) {
-  if (typeof view.setBigUint64 === "function")
-    return view.setBigUint64(byteOffset, value, isLE);
-  const _32n = BigInt(32);
-  const _u32_max = BigInt(4294967295);
-  const wh = Number(value >> _32n & _u32_max);
-  const wl = Number(value & _u32_max);
-  const h2 = isLE ? 4 : 0;
-  const l2 = isLE ? 0 : 4;
-  view.setUint32(byteOffset + h2, wh, isLE);
-  view.setUint32(byteOffset + l2, wl, isLE);
-}
-function Chi(a2, b2, c2) {
-  return a2 & b2 ^ ~a2 & c2;
-}
-function Maj(a2, b2, c2) {
-  return a2 & b2 ^ a2 & c2 ^ b2 & c2;
-}
-var HashMD = class extends Hash {
-  constructor(blockLen, outputLen, padOffset, isLE) {
-    super();
-    this.finished = false;
-    this.length = 0;
-    this.pos = 0;
-    this.destroyed = false;
-    this.blockLen = blockLen;
-    this.outputLen = outputLen;
-    this.padOffset = padOffset;
-    this.isLE = isLE;
-    this.buffer = new Uint8Array(blockLen);
-    this.view = createView(this.buffer);
-  }
-  update(data) {
-    aexists(this);
-    data = toBytes(data);
-    abytes(data);
-    const { view, buffer, blockLen } = this;
-    const len = data.length;
-    for (let pos = 0; pos < len; ) {
-      const take = Math.min(blockLen - this.pos, len - pos);
-      if (take === blockLen) {
-        const dataView = createView(data);
-        for (; blockLen <= len - pos; pos += blockLen)
-          this.process(dataView, pos);
-        continue;
-      }
-      buffer.set(data.subarray(pos, pos + take), this.pos);
-      this.pos += take;
-      pos += take;
-      if (this.pos === blockLen) {
-        this.process(view, 0);
-        this.pos = 0;
-      }
-    }
-    this.length += data.length;
-    this.roundClean();
-    return this;
-  }
-  digestInto(out) {
-    aexists(this);
-    aoutput(out, this);
-    this.finished = true;
-    const { buffer, view, blockLen, isLE } = this;
-    let { pos } = this;
-    buffer[pos++] = 128;
-    clean(this.buffer.subarray(pos));
-    if (this.padOffset > blockLen - pos) {
-      this.process(view, 0);
-      pos = 0;
-    }
-    for (let i2 = pos; i2 < blockLen; i2++)
-      buffer[i2] = 0;
-    setBigUint64(view, blockLen - 8, BigInt(this.length * 8), isLE);
-    this.process(view, 0);
-    const oview = createView(out);
-    const len = this.outputLen;
-    if (len % 4)
-      throw new Error("_sha2: outputLen should be aligned to 32bit");
-    const outLen = len / 4;
-    const state = this.get();
-    if (outLen > state.length)
-      throw new Error("_sha2: outputLen bigger than state");
-    for (let i2 = 0; i2 < outLen; i2++)
-      oview.setUint32(4 * i2, state[i2], isLE);
-  }
-  digest() {
-    const { buffer, outputLen } = this;
-    this.digestInto(buffer);
-    const res = buffer.slice(0, outputLen);
-    this.destroy();
-    return res;
-  }
-  _cloneInto(to) {
-    to || (to = new this.constructor());
-    to.set(...this.get());
-    const { blockLen, buffer, length, finished, destroyed, pos } = this;
-    to.destroyed = destroyed;
-    to.finished = finished;
-    to.length = length;
-    to.pos = pos;
-    if (length % blockLen)
-      to.buffer.set(buffer);
-    return to;
-  }
-  clone() {
-    return this._cloneInto();
-  }
-};
-var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
-  1779033703,
-  3144134277,
-  1013904242,
-  2773480762,
-  1359893119,
-  2600822924,
-  528734635,
-  1541459225
-]);
-
 // envelope/index.ts
 await libsodium_wrappers_default.ready;
 var hex = (b2) => Buffer.from(b2).toString("hex");
@@ -12551,6 +12297,260 @@ function checkResultLaunch(m2, r2) {
   }
   requireThat(r2.cancelled ? r2.allocations.every((a2) => a2.fill === 0 && a2.refund_zats === m2.C_zats) : BigInt(r2.conservation.payout_zats) >= zats(m2.launch.minimum_raise_zats, "minimum raise"), "launch minimum raise");
 }
+
+// node_modules/@noble/hashes/esm/cryptoNode.js
+import * as nc from "node:crypto";
+var crypto = nc && typeof nc === "object" && "webcrypto" in nc ? nc.webcrypto : nc && typeof nc === "object" && "randomBytes" in nc ? nc : void 0;
+
+// node_modules/@noble/hashes/esm/utils.js
+function isBytes(a2) {
+  return a2 instanceof Uint8Array || ArrayBuffer.isView(a2) && a2.constructor.name === "Uint8Array";
+}
+function anumber(n2) {
+  if (!Number.isSafeInteger(n2) || n2 < 0)
+    throw new Error("positive integer expected, got " + n2);
+}
+function abytes(b2, ...lengths) {
+  if (!isBytes(b2))
+    throw new Error("Uint8Array expected");
+  if (lengths.length > 0 && !lengths.includes(b2.length))
+    throw new Error("Uint8Array expected of length " + lengths + ", got length=" + b2.length);
+}
+function aexists(instance, checkFinished = true) {
+  if (instance.destroyed)
+    throw new Error("Hash instance has been destroyed");
+  if (checkFinished && instance.finished)
+    throw new Error("Hash#digest() has already been called");
+}
+function aoutput(out, instance) {
+  abytes(out);
+  const min = instance.outputLen;
+  if (out.length < min) {
+    throw new Error("digestInto() expects output buffer of length at least " + min);
+  }
+}
+function clean(...arrays) {
+  for (let i2 = 0; i2 < arrays.length; i2++) {
+    arrays[i2].fill(0);
+  }
+}
+function createView(arr) {
+  return new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+}
+function rotr(word, shift) {
+  return word << 32 - shift | word >>> shift;
+}
+var hasHexBuiltin = /* @__PURE__ */ (() => (
+  // @ts-ignore
+  typeof Uint8Array.from([]).toHex === "function" && typeof Uint8Array.fromHex === "function"
+))();
+var hexes = /* @__PURE__ */ Array.from({ length: 256 }, (_2, i2) => i2.toString(16).padStart(2, "0"));
+function bytesToHex(bytes) {
+  abytes(bytes);
+  if (hasHexBuiltin)
+    return bytes.toHex();
+  let hex2 = "";
+  for (let i2 = 0; i2 < bytes.length; i2++) {
+    hex2 += hexes[bytes[i2]];
+  }
+  return hex2;
+}
+var asciis = { _0: 48, _9: 57, A: 65, F: 70, a: 97, f: 102 };
+function asciiToBase16(ch) {
+  if (ch >= asciis._0 && ch <= asciis._9)
+    return ch - asciis._0;
+  if (ch >= asciis.A && ch <= asciis.F)
+    return ch - (asciis.A - 10);
+  if (ch >= asciis.a && ch <= asciis.f)
+    return ch - (asciis.a - 10);
+  return;
+}
+function hexToBytes(hex2) {
+  if (typeof hex2 !== "string")
+    throw new Error("hex string expected, got " + typeof hex2);
+  if (hasHexBuiltin)
+    return Uint8Array.fromHex(hex2);
+  const hl = hex2.length;
+  const al = hl / 2;
+  if (hl % 2)
+    throw new Error("hex string expected, got unpadded hex of length " + hl);
+  const array = new Uint8Array(al);
+  for (let ai = 0, hi = 0; ai < al; ai++, hi += 2) {
+    const n1 = asciiToBase16(hex2.charCodeAt(hi));
+    const n2 = asciiToBase16(hex2.charCodeAt(hi + 1));
+    if (n1 === void 0 || n2 === void 0) {
+      const char = hex2[hi] + hex2[hi + 1];
+      throw new Error('hex string expected, got non-hex character "' + char + '" at index ' + hi);
+    }
+    array[ai] = n1 * 16 + n2;
+  }
+  return array;
+}
+function utf8ToBytes(str) {
+  if (typeof str !== "string")
+    throw new Error("string expected");
+  return new Uint8Array(new TextEncoder().encode(str));
+}
+function toBytes(data) {
+  if (typeof data === "string")
+    data = utf8ToBytes(data);
+  abytes(data);
+  return data;
+}
+function concatBytes(...arrays) {
+  let sum = 0;
+  for (let i2 = 0; i2 < arrays.length; i2++) {
+    const a2 = arrays[i2];
+    abytes(a2);
+    sum += a2.length;
+  }
+  const res = new Uint8Array(sum);
+  for (let i2 = 0, pad = 0; i2 < arrays.length; i2++) {
+    const a2 = arrays[i2];
+    res.set(a2, pad);
+    pad += a2.length;
+  }
+  return res;
+}
+var Hash = class {
+};
+function createHasher(hashCons) {
+  const hashC = (msg) => hashCons().update(toBytes(msg)).digest();
+  const tmp = hashCons();
+  hashC.outputLen = tmp.outputLen;
+  hashC.blockLen = tmp.blockLen;
+  hashC.create = () => hashCons();
+  return hashC;
+}
+function randomBytes2(bytesLength = 32) {
+  if (crypto && typeof crypto.getRandomValues === "function") {
+    return crypto.getRandomValues(new Uint8Array(bytesLength));
+  }
+  if (crypto && typeof crypto.randomBytes === "function") {
+    return Uint8Array.from(crypto.randomBytes(bytesLength));
+  }
+  throw new Error("crypto.getRandomValues must be defined");
+}
+
+// node_modules/@noble/hashes/esm/_md.js
+function setBigUint64(view, byteOffset, value, isLE) {
+  if (typeof view.setBigUint64 === "function")
+    return view.setBigUint64(byteOffset, value, isLE);
+  const _32n = BigInt(32);
+  const _u32_max = BigInt(4294967295);
+  const wh = Number(value >> _32n & _u32_max);
+  const wl = Number(value & _u32_max);
+  const h2 = isLE ? 4 : 0;
+  const l2 = isLE ? 0 : 4;
+  view.setUint32(byteOffset + h2, wh, isLE);
+  view.setUint32(byteOffset + l2, wl, isLE);
+}
+function Chi(a2, b2, c2) {
+  return a2 & b2 ^ ~a2 & c2;
+}
+function Maj(a2, b2, c2) {
+  return a2 & b2 ^ a2 & c2 ^ b2 & c2;
+}
+var HashMD = class extends Hash {
+  constructor(blockLen, outputLen, padOffset, isLE) {
+    super();
+    this.finished = false;
+    this.length = 0;
+    this.pos = 0;
+    this.destroyed = false;
+    this.blockLen = blockLen;
+    this.outputLen = outputLen;
+    this.padOffset = padOffset;
+    this.isLE = isLE;
+    this.buffer = new Uint8Array(blockLen);
+    this.view = createView(this.buffer);
+  }
+  update(data) {
+    aexists(this);
+    data = toBytes(data);
+    abytes(data);
+    const { view, buffer, blockLen } = this;
+    const len = data.length;
+    for (let pos = 0; pos < len; ) {
+      const take = Math.min(blockLen - this.pos, len - pos);
+      if (take === blockLen) {
+        const dataView = createView(data);
+        for (; blockLen <= len - pos; pos += blockLen)
+          this.process(dataView, pos);
+        continue;
+      }
+      buffer.set(data.subarray(pos, pos + take), this.pos);
+      this.pos += take;
+      pos += take;
+      if (this.pos === blockLen) {
+        this.process(view, 0);
+        this.pos = 0;
+      }
+    }
+    this.length += data.length;
+    this.roundClean();
+    return this;
+  }
+  digestInto(out) {
+    aexists(this);
+    aoutput(out, this);
+    this.finished = true;
+    const { buffer, view, blockLen, isLE } = this;
+    let { pos } = this;
+    buffer[pos++] = 128;
+    clean(this.buffer.subarray(pos));
+    if (this.padOffset > blockLen - pos) {
+      this.process(view, 0);
+      pos = 0;
+    }
+    for (let i2 = pos; i2 < blockLen; i2++)
+      buffer[i2] = 0;
+    setBigUint64(view, blockLen - 8, BigInt(this.length * 8), isLE);
+    this.process(view, 0);
+    const oview = createView(out);
+    const len = this.outputLen;
+    if (len % 4)
+      throw new Error("_sha2: outputLen should be aligned to 32bit");
+    const outLen = len / 4;
+    const state = this.get();
+    if (outLen > state.length)
+      throw new Error("_sha2: outputLen bigger than state");
+    for (let i2 = 0; i2 < outLen; i2++)
+      oview.setUint32(4 * i2, state[i2], isLE);
+  }
+  digest() {
+    const { buffer, outputLen } = this;
+    this.digestInto(buffer);
+    const res = buffer.slice(0, outputLen);
+    this.destroy();
+    return res;
+  }
+  _cloneInto(to) {
+    to || (to = new this.constructor());
+    to.set(...this.get());
+    const { blockLen, buffer, length, finished, destroyed, pos } = this;
+    to.destroyed = destroyed;
+    to.finished = finished;
+    to.length = length;
+    to.pos = pos;
+    if (length % blockLen)
+      to.buffer.set(buffer);
+    return to;
+  }
+  clone() {
+    return this._cloneInto();
+  }
+};
+var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
+  1779033703,
+  3144134277,
+  1013904242,
+  2773480762,
+  1359893119,
+  2600822924,
+  528734635,
+  1541459225
+]);
 
 // node_modules/@noble/hashes/esm/sha2.js
 var SHA256_K = /* @__PURE__ */ Uint32Array.from([
@@ -14479,7 +14479,7 @@ function bls(CURVE) {
   const { millerLoopBatch, pairing, pairingBatch, calcPairingPrecomputes } = pairingRes;
   const longSignatures = createBlsSig(pairingRes, G1, G2, CURVE.G2.Signature, false);
   const shortSignatures = createBlsSig(pairingRes, G2, G1, CURVE.G1.ShortSignature, true);
-  const rand = CURVE.randomBytes || randomBytes;
+  const rand = CURVE.randomBytes || randomBytes2;
   const randomSecretKey = () => {
     const length = getMinHashLength(Fr2.ORDER);
     return mapHashToField(rand(length), Fr2.ORDER);
@@ -16086,13 +16086,22 @@ function checkStraysCerts(certs, spec) {
 function memoSealedBid(memoHex) {
   try {
     if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
-    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
-    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
-    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
-    return memo.subarray(7, 7 + length).toString("hex");
+    const memo = Buffer.from(memoHex, "hex"), version = memo.subarray(0, 5), length = memo.readUInt16BE(5);
+    if (version.equals(Buffer.from("ff424e5a01", "hex"))) {
+      if (length <= 0 || length > 505 || !memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+      return { ciphertext_hex: memo.subarray(7, 7 + length).toString("hex"), envelope_tag: null };
+    }
+    if (version.equals(Buffer.from("ff424e5a02", "hex"))) {
+      if (length <= 0 || length > 487 || !memo.subarray(7 + length + 18).equals(Buffer.alloc(487 - length))) return null;
+      return { ciphertext_hex: memo.subarray(7, 7 + length).toString("hex"), envelope_tag: memo.subarray(7 + length, 7 + length + 18).toString("hex") };
+    }
+    return null;
   } catch {
     return null;
   }
+}
+function memoBindsEnvelope(memoEnvelopeTag, envelopeCtHex) {
+  return typeof memoEnvelopeTag === "string" && /^[0-9a-f]{36}$/.test(memoEnvelopeTag) && memoEnvelopeTag !== "00".repeat(18) && /^[0-9a-f]+$/.test(envelopeCtHex) && envelopeCtHex.length % 2 === 0 && hash(Buffer.from(envelopeCtHex, "hex")).slice(0, 36) === memoEnvelopeTag;
 }
 
 // api/public-auction.ts
@@ -16224,6 +16233,21 @@ function checkPublicAuction(pub, opts = {}) {
     }
     if (existsSync4(p2)) requireThat(jsonBytes(value).equals(readFileSync4(p2)), `${name} projection differs`);
   };
+  run2("projection", () => {
+    if (pub.legacy) return;
+    const doc = JSON.parse(readFileSync4(path4.join(pub.dir, "auction.json"), "utf8"));
+    const problems = [];
+    for (const [name, key] of [["opened.json", "opened"], ["beacon.json", "beacon"], ["receipts.json", "receipts"], ["summary.json", "settlement"]]) {
+      const p2 = path4.join(pub.dir, name), value = doc[key];
+      try {
+        if (value === null || value === void 0) requireThat(!existsSync4(p2), `${name} projection without document field`);
+        else if (existsSync4(p2)) requireThat(jsonBytes(value).equals(readFileSync4(p2)), `${name} projection differs`);
+      } catch (e) {
+        problems.push(e.message);
+      }
+    }
+    if (problems.length) throw new Error(problems.join("; "));
+  });
   run2("missing-deposits", () => checkMissingDeposits(pub));
   run2("delivery", () => checkDeliveryExceptions(pub));
   run2("report", () => {
@@ -16308,6 +16332,7 @@ function checkPublicAuction(pub, opts = {}) {
       requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen.leaves.find((l2) => l2.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
+      if (leaf.memo_envelope_tag !== void 0) requireThat(memoBindsEnvelope(leaf.memo_envelope_tag, rec.envelope_ct), `envelope ${leaf.leaf_index} not bound to the deposit memo`);
       requireThat(!byLeaf.has(leaf.leaf_index), `duplicate envelope ${leaf.leaf_index}`);
       byLeaf.set(leaf.leaf_index, rec);
     }
@@ -16568,7 +16593,7 @@ async function deriveClaimOpenings(claims, beacon) {
   const local = publishedClient(beacon);
   for (const [i2, c2] of claims.entries()) {
     if (!c2.party.startsWith("deposit:")) continue;
-    const ct2 = typeof c2.memo_hex === "string" ? memoSealedBid(c2.memo_hex) : null;
+    const ct2 = typeof c2.memo_hex === "string" ? memoSealedBid(c2.memo_hex)?.ciphertext_hex ?? null : null;
     openings.set(i2, ct2 ? await decryptPublished(ct2, local) : null);
   }
   return openings;

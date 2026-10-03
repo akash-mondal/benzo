@@ -1,0 +1,33 @@
+commit c8d82cd (mutation R25-2a.patch applied to cli/commands/xchain.ts)
+utc 2026-10-03T09:15:46Z
+command bash crosschain/local-demo.sh
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+ERROR xchain result hash mismatch: chain 453e4f75b78754c73923d89021a560506f81b0a6742d73af030b74e22d3884c3 published e5da2e99bfdbc3a85d2692751ac91f1185ffaddd6b504d19dd2fdbbc51e93198
+ERROR xchain result hash mismatch: chain 453e4f75b78754c73923d89021a560506f81b0a6742d73af030b74e22d3884c3 published e5da2e99bfdbc3a85d2692751ac91f1185ffaddd6b504d19dd2fdbbc51e93198
+PASS demo-status-result-hash-mismatch-refused
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x3d6ff20c", reason=null, transaction={ "data": "0x61d0e97ebe8342b5a4615a6b9a2a8356b901803f6cbc069488a99014081265aa4c0532c8453e4f75b78754c73923d89021a560506f81b0a6742d73af030b74e22d3884c36456b8d8dace1523118f6c34a0ab02fe406a8cffcdf8e93d72c2c26f2c42cd0c00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006ac0d59b00000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000041e7558d0a03450f397b7b6a29003eafd95f51e1c07553f9bb6b9615eb2dded66722b68b0281db62abd258abaa99ad5638be923d3e5af03165a7de32d8845ee9571c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041cad11ce5001699e67a7a514c7be7db5ca631b0f215966b3cd68b357251ec2ea749621a9f00c68c6460e38ebb11d348df8aada7483835b9c403108fdf9a6d2ed61c00000000000000000000000000000000000000000000000000000000000000", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x9. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 3616 of 203000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x9"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x1bf55193", reason=null, transaction={ "data": "0x7249fbb6dc7e03d676cdc2657c6474171a94899575f8b485eab74e913a3da84af3875bb0", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 0: custom program error: 0x10. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 1297 of 200000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x10"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT FAIL 1 demo assertion(s) failed

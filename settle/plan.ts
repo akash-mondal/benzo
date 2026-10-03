@@ -129,7 +129,7 @@ try {
       return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
     }
     const note=partyNote(depositNotes,party);
-    const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
+    const ct=note?.memo_hex?memoSealedBid(note.memo_hex)?.ciphertext_hex??null:null;
     if(!ct)return null;
     const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
     writeFileSync(memoCt,Buffer.from(ct,"hex"),{mode:0o600});

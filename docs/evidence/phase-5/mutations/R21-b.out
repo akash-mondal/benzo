@@ -1,0 +1,33 @@
+commit 9910f85bef7a3e65c19a30194606e3ed05ecb60a (mutation R21-b.patch applied to cli/commands/xchain.ts)
+utc 2026-10-03T06:01:26Z
+command bash crosschain/local-demo.sh
+PASS demo-envelope-opens-to-deliver
+PASS demo-drand-beacon
+PASS demo-bid-seal-deliver
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+PASS demo-attest-allocation-refused
+PASS demo-attest-envelopes-refused
+PASS demo-attest-destinations-from-envelope
+ERROR demo-attest-malformed-deliver-exception exceptions [{"index":5,"lot_count":1,"reason":"signers could not agree on the envelope deliver"}], leaves 0,1,2,3
+ERROR demo-attest-malformed-deliver-exception-both-chains solana exceptions [{"index":5,"lot_count":1,"reason":"signers could not agree on the envelope deliver"}]
+PASS demo-attest-no-agreement-exception
+PASS demo-attest-fabricated-opening-exception
+PASS demo-attest-substituted-envelope-exception
+PASS demo-attest-result-hash-mismatch-refused
+PASS demo-attest-expiry-past-deadline-refused
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+PASS demo-status-result-hash-mismatch-refused
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT FAIL 2 demo assertion(s) failed

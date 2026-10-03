@@ -31,13 +31,23 @@ export function startServer(options: ServerOptions): http.Server {
       }
       if (parts[0] === "auction" && parts[1]) {
         if (parts[1] !== pub.manifest.auction_id) return send(res, 404, { error: "unknown auction id" });
-        const failed = checkPublicAuction(pub, { claimOpenings: await deriveClaimOpenings(pub.claims ?? [], pub.beacon) }).filter(c => c.error);
+        // R23 item 3 (reviewer G4): a document with deposit claims and no published beacon fails CLOSED
+        // with the verify ERROR — the claims check reports the memo it cannot open — never an exception
+        // or a 500. `errors` carries the same ERROR lines `benzo verify` prints.
+        let claimOpenings: Map<number, string | null>;
+        try {
+          claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
+        } catch {
+          claimOpenings = new Map();
+        }
+        const failed = checkPublicAuction(pub, { claimOpenings }).filter(c => c.error);
         // A manifest failure means the document cannot be trusted at all (same verdict as `benzo verify`).
         const manifestBroken = failed.find(c => c.id === "manifest");
         if (manifestBroken) return send(res, 400, { valid: false, error: `manifest ${manifestBroken.error}` });
         // `valid` covers only the checks that apply to the current state (R21 item 5).
         return send(res, 200, {
           valid: failed.length === 0,
+          errors: failed,
           auction_id: pub.manifest.auction_id,
           manifest_hash: pub.manifest_hash,
           state: pub.state,

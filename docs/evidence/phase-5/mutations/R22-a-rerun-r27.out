@@ -1,0 +1,38 @@
+R22-a cheapest-mutation re-run after R26-3 changed api/public-auction.ts (run 27 test audit; full log tmp/e2e/r22-a-rerun27.log, 267 lines)
+commit ded359533c7c63653d56b41b6646c654ef9848d0 (clean tree + R22-a.patch applied, then git apply -R; git status --porcelain empty)
+utc 2026-10-03T14:33:37Z
+command git apply docs/evidence/phase-5/mutations/R22-a.patch && bash crosschain/local-demo.sh (then git apply -R)
+green baseline at the same tree: 39/39 PASS, RESULT PASS (tmp/e2e/local-demo-r27-green.log)
+expected assertion (line 220 of the full log):
+ERROR demo-attest-swapped-leaf-refused rc=0 (attested a leaf set swapped after witness certification): {"chain":"evm","allocation_root":"0xe18e17ee61c1a8c7ae68286a892356dba6bf2c23fe64f65e398e8f96dfe3d
+last 30 assertion lines (PASS/ERROR/RESULT) of the red run:
+PASS demo-attest-envelope-key-dedup
+ERROR xchain refused: --envelope-key .benzo/xchain-local/envelope-key-nonmember.key: not a member of the manifest's envelope_keys
+PASS demo-attest-envelope-key-nonmember
+ERROR xchain mismatching --result-hash 0x0000000000000000000000000000000000000000000000000000000000000000: the validated result bytes hash to ee299347e6ae4f7b01676e0decfc2c12d3c123324f902b51d1aa06566a
+PASS demo-attest-result-hash-mismatch-refused
+ERROR xchain --expiry 1791041472 must be <= the auction deadline 1791041462 (crosschain §10 F-2)
+ERROR xchain --expiry 1791041472 must be <= the auction deadline 1791041462 (crosschain §10 F-2)
+PASS demo-attest-expiry-past-deadline-refused
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+ERROR xchain result hash mismatch: chain ee299347e6ae4f7b01676e0decfc2c12d3c123324f902b51d1aa06566aab061f published 543592b937f01120f4655fcccf0657ff7b929a9cdce404fdc6f5e814ae5fc544
+ERROR xchain result hash mismatch: chain ee299347e6ae4f7b01676e0decfc2c12d3c123324f902b51d1aa06566aab061f published 543592b937f01120f4655fcccf0657ff7b929a9cdce404fdc6f5e814ae5fc544
+PASS demo-status-result-hash-mismatch-refused
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x3d6ff20c", reason=null, transaction={ "data": "0x61d0e97eb853906dce472404216db818a85b44244fe3e4a36035f3fc5821e0dbc
+ERROR xchain Simulation failed. 
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x1bf55193", reason=null, transaction={ "data": "0x7249fbb663e8acac01121f89187968b5c0c5c0784a1c7febc00849aa93f0cfbe7
+ERROR xchain Simulation failed. 
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT FAIL 1 demo assertion(s) failed

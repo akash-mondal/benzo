@@ -1,0 +1,13 @@
+diff --git a/envelope/index.ts b/envelope/index.ts
+index 555e7ef..7721b32 100644
+--- a/envelope/index.ts
++++ b/envelope/index.ts
+@@ -116,7 +116,7 @@ export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHex
+   requireThat(payload !== null && typeof payload === "object" && !Array.isArray(payload), "envelope payload");
+   requireShieldedDestination(payload.refund);
+   const doc: Record<string, unknown> = { v: 2, refund: payload.refund };
+-  if (payload.deliver !== undefined) doc.deliver = requireDeliver({ ...payload.deliver, salt: randomBytes(32).toString("hex") });
++  if (payload.deliver !== undefined) doc.deliver = requireDeliver({ ...payload.deliver, salt: Buffer.alloc(32).toString("hex") }); // mutation R25-1a: the seal salt is not random
+   return sealPadded(canonical(doc), recipientPublicHexes);
+ }
+ // The recipient X25519 public keys of an envelope, in stanza order (R10 item 1: product validation requires

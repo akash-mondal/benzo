@@ -7,6 +7,7 @@ import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, 
 import type {ClearResult, Opened} from "./core";
 import {clearForMode} from "./registry";
 import {envelopeRecordValid} from "../envelope";
+import {memoBindsEnvelope,memoSealedBid} from "../settle/envelopes";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
@@ -30,13 +31,14 @@ function observed():{notes:Note[]; tip:number} {
   const notes=execute(path.join(root,"scan","target","release","benzo-scan"),["scan","test",path.join(state,"vault")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};
 }
-function ciphertext(envelope:string,R:number):string {
+function ciphertext(envelope:string,R:number):{ct:string;memo_tag:string|null} {
   requireThat(typeof envelope==="string" && /^[0-9a-f]{1024}$/.test(envelope),"envelope length");
-  const memo=Buffer.from(envelope,"hex"), length=memo.readUInt16BE(5);
-  requireThat(memo.subarray(0,5).equals(Buffer.from("ff424e5a01","hex")) && length>0 && length<=505 && memo.subarray(7+length).equals(Buffer.alloc(505-length)),"envelope header/padding");
-  const ct=memo.subarray(7,7+length), header=ct.toString("latin1").split("--- ")[0];
+  // The one shared memo parser (settle/envelopes.ts): v2 (R16 item 2, R18: 18-byte envelope tag) and v1
+  // framings both read; v2 binds the record to the deposit memo, v1 binds nothing.
+  const parsed=memoSealedBid(envelope); requireThat(parsed,"envelope header/padding");
+  const ct=Buffer.from(parsed!.ciphertext_hex,"hex"), header=ct.toString("latin1").split("--- ")[0];
   requireThat(header.startsWith("age-encryption.org/v1\n") && header.includes(`-> tlock ${R} ${QUICKNET.chain_hash}\n`) && (header.match(/-> /g)||[]).length===1,"tlock round/chain stanza");
-  return ct.toString("hex");
+  return {ct:parsed!.ciphertext_hex,memo_tag:parsed!.envelope_tag};
 }
 try {
   const [command,id]=process.argv.slice(2), input=JSON.parse(readFileSync(0,"utf8")||"{}");
@@ -56,7 +58,7 @@ try {
     if(command==="admit") {
       requireThat(now<m.T_freeze && ledger.state==="OPEN","admission cutoff");
       requireThat(now<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"round already passed");
-      const ct=ciphertext(input.envelope_hex,m.drand.R);
+      const {ct,memo_tag}=ciphertext(input.envelope_hex,m.drand.R);
       requireThat(/^[0-9a-f]{64}$/.test(input.txid) && m.deposit_addresses.includes(input.address),"deposit reference/address");
       const {notes,tip}=observed(), matches=notes.filter(n=>n.txid===input.txid && n.address===input.address);
       requireThat(matches.length===1,"deposit not unique or absent"); const n=matches[0];
@@ -69,7 +71,7 @@ try {
       if(old) { requireThat(old.ciphertext_hash===ciphertext_hash && jsonBytes(old.deposit).equals(jsonBytes(deposit)),"ciphertext/deposit replay conflict"); result={replay:true,receipt:ledger.receipts[old.leaf_index]}; }
       else {
         const receipt:Receipt={auction_id:id,manifest_hash,ciphertext_hash,deposit,leaf_index:ledger.leaves.length};
-        ledger.leaves.push({...receipt,ciphertext_hex:ct}); const signed=signRecord(receipt,readFileSync(key,"utf8")); ledger.receipts.push(signed); result={replay:false,receipt:signed};
+        ledger.leaves.push({...receipt,ciphertext_hex:ct,...(memo_tag!==null?{memo_envelope_tag:memo_tag}:{})}); const signed=signRecord(receipt,readFileSync(key,"utf8")); ledger.receipts.push(signed); result={replay:false,receipt:signed};
         // R6 (W): the owner-signed settlement envelope record is admitted with the bid and published; its
         // plaintext destination never leaves the bidder's client (design phase5-part1-live §4).
         // R7 item 3 (R F-4 = G3), R12 item 1: the envelope record must satisfy the one shared rule
@@ -80,6 +82,11 @@ try {
         // handled by the exception queue.
         if(input.envelope_ct_hex) {
           requireThat(envelopeRecordValid({envelope_ct:input.envelope_ct_hex,owner_sig:input.owner_sig_hex},m.envelope_keys),"envelope record shape");
+          // R16 item 2: the record must be the envelope the deposit's memo committed to — the depositor's
+          // memo is the only pre-R authenticator, so a record whose envelope tag (first 18 bytes of
+          // SHA-256(envelope_ct), R18) differs from the memo's tag (or a v1 memo that binds nothing) is
+          // refused at intake.
+          requireThat(memoBindsEnvelope(memo_tag,input.envelope_ct_hex),"envelope record not bound to the deposit memo");
           (ledger.envelopes??=[]).push({ciphertext_hash,envelope_ct:input.envelope_ct_hex,owner_sig:input.owner_sig_hex});
         }
       }

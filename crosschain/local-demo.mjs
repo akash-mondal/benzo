@@ -3,34 +3,54 @@
 // end locally through the shipped `benzo xchain` CLI against both local chains — a Foundry/Anvil
 // EVM chain and a solana-test-validator running the built BenzoEscrow program.
 //
-// The "cleared drop" input is a small allocation file (winners and lot counts, as the Zcash
-// clearing pipeline produces; nothing from the Zcash funding path enters any leaf). The demo:
+// The fixture is a REAL published auction directory (R21/R22): six bids, each tlock-sealed to a live
+// drand quicknet round whose beacon the run waits for and publishes (BLS-verified at every use),
+// with a REAL product result (the shipped clearing recomputed over the openings — allocations[].fill
+// is the only source of the attested leaves, R24 item 2) and a gate-X witness set whose q_w=2 of 3
+// certificates cover the frozen root (`benzo witness sign`). The four honest winners are sealed
+// through the shipped `benzo bid seal` (real owner keys, real
+// browser tlock, deliver payload v2 in the envelope); the two hostile-sealer winners wrap a
+// tampered envelope around a real tlock. R19/R21: `benzo xchain attest` derives every winner's
+// opening itself from the frozen leaf's ciphertext + the published beacon, checks
+// SHA-256(ciphertext) and the record's owner signature + settlement commitment, then derives each
+// leaf's destination from the signers' own openings of the winner's v2 envelope (deliver.to) —
+// never from an operator allocation file or operator-supplied openings. R22: attest runs the same
+// public checks as `benzo verify` on --dir and refuses on any ERROR, and --result must be the
+// directory's own result.json bytes — so a frozen leaf set swapped after the witnesses certified it
+// (self-consistent root/paths/result, un-re-signable certificates) is refused. The demo:
 //   lock (both chains) -> attest (2-of-3, per chain) -> release (each chain pays its leaves)
-//   -> status (escrow state matches the attested root) -> replay refused -> refund after deadline
-//   on a cancelled second auction (both chains).
+//   -> status -> replay refused -> refund after deadline on a cancelled second auction.
 //
 // Keys: local dev keys only, generated under $BNZ_STATE_DIR/xchain-local/ (never printed).
 // Output: `PASS demo-<id>` / `ERROR demo-<id> <reason>` lines; exit 0 only if all PASS.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { createHash, randomBytes } from "node:crypto";
-import { JsonRpcProvider, Wallet, formatEther, parseEther, Interface } from "ethers";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
+import { Interface, JsonRpcProvider, SigningKey, Wallet, formatEther, parseEther } from "ethers";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { keccak_256 } from "@noble/hashes/sha3";
+import sodium from "libsodium-wrappers";
+import { pathToFileURL } from "node:url";
+await sodium.ready;
 
 const REPO = process.env.BNZ_REPO_ROOT ?? process.cwd();
 const STATE = process.env.BNZ_STATE_DIR ?? path.join(REPO, ".benzo");
 const KEYDIR = path.join(STATE, "xchain-local");
 const WORK = path.join(REPO, "tmp/xchain-demo");
+const PUBDIR = path.join(WORK, "public");
 const EVM_RPC = "http://127.0.0.1:8546";
 const SOL_RPC = "http://127.0.0.1:8901";
 const SOL_PROGRAM = process.env.BNZ_SOLANA_PROGRAM ?? "";
 const ANVIL_SK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // anvil dev account 0 (public)
+// a real shielded testnet UA (official zcash-test-vectors unified_address rows) — the mandatory
+// refund inside every winner's envelope payload
+const UA = "utest1redacted";
 
 mkdirSync(KEYDIR, { recursive: true });
+rmSync(WORK, { recursive: true, force: true }); // never read a stale artifact from an earlier run
 mkdirSync(WORK, { recursive: true });
 
 let failures = 0;
@@ -38,6 +58,8 @@ const pass = (id) => console.log(`PASS ${id}`);
 const fail = (id, reason) => { failures++; console.log(`ERROR ${id} ${reason}`); };
 const check = (id, cond, reason) => (cond ? pass(id) : fail(id, reason));
 const hex32 = (b) => "0x" + Buffer.from(b).toString("hex");
+const rndHex = (n) => randomBytes(n).toString("hex");
+const sha256 = (b) => createHash("sha256").update(b).digest("hex");
 
 function benzoXchain(args) {
   try {
@@ -65,11 +87,49 @@ function secretFile(name, bytes32) {
   return p;
 }
 
+// ---- hostile-sealer envelope fixture (same construction as tools/repro/kc-key-commitment-repro.mjs) ----
+// A real envelope around a payload the shipped sealer refuses to build (a malformed deliver, or a
+// split-key wrap): this is exactly the tampered-sealer path the attest layer must refuse or queue.
+const KC_LABEL = Buffer.from("benzo-envelope-v2-kc");
+const KC_KEY = Buffer.concat([KC_LABEL, Buffer.alloc(sodium.crypto_generichash_KEYBYTES - KC_LABEL.length)]);
+const MAGIC = Buffer.from("benzo-envelope-v2");
+function hostileEnvelope(payloadText, recipients, wrapKeys) {
+  const pks = recipients.map((h) => Buffer.from(h, "hex"));
+  const stanzas = Buffer.concat(pks.map((pk, i) => Buffer.concat([pk, sodium.crypto_box_seal(wrapKeys[i], pk)])));
+  const header = Buffer.concat([MAGIC, Buffer.from([pks.length]), stanzas, Buffer.from(sodium.crypto_generichash(32, wrapKeys[0], KC_KEY))]);
+  const nonce = sodium.randombytes_buf(12);
+  const payload = Buffer.from(payloadText, "utf8");
+  const pt = Buffer.alloc(512);
+  pt.writeUInt16BE(payload.length, 0);
+  payload.copy(pt, 2);
+  const body = sodium.crypto_aead_chacha20poly1305_ietf_encrypt(pt, header, null, nonce, wrapKeys[0]);
+  return Buffer.concat([header, nonce, body]).toString("hex");
+}
+
 async function main() {
   if (!SOL_PROGRAM) throw new Error("BNZ_SOLANA_PROGRAM must name the loaded Solana program id");
   const programId = new PublicKey(SOL_PROGRAM);
   const evm = new JsonRpcProvider(EVM_RPC, undefined, { staticNetwork: true });
   const sol = new Connection(SOL_RPC, "confirmed");
+
+  // the shipped modules under test, bundled from this working tree (never a stale build)
+  writeFileSync(path.join(WORK, "env-entry.mjs"), [
+    'export * as bid from "../../envelope/bid";',
+    'export * as envmod from "../../envelope/index";',
+    'export * as schema from "../../manifest/schema";',
+    'export * as merkle from "../../clear/merkle";',
+    'export * as reg from "../../clear/registry";',
+    'export * as wit from "../../witness";',
+    'export * as tlock from "tlock-js";',
+    'export * as armor from "tlock-js/age/armor";',
+    "",
+  ].join("\n"));
+  execFileSync(path.join(REPO, "node_modules/.bin/esbuild"), [
+    path.join(WORK, "env-entry.mjs"), "--bundle", "--platform=node", "--format=esm",
+    "--banner:js=import { createRequire } from \"module\"; const require = createRequire(import.meta.url);",
+    "--outfile=" + path.join(WORK, "env-lib.mjs"), "--log-level=warning",
+  ], { cwd: REPO });
+  const { bid, envmod, schema, merkle, reg, wit, tlock, armor } = await import(pathToFileURL(path.join(WORK, "env-lib.mjs")).href);
 
   // ---- local dev keys ----
   const evmSeller = new Wallet(ANVIL_SK, evm);
@@ -91,27 +151,250 @@ async function main() {
   writeFileSync(evmSignersFile, JSON.stringify(evmSignerAddrs, null, 2));
   writeFileSync(solSignersFile, JSON.stringify(solSignerPubs, null, 2));
 
+  // ---- the winners' settlement envelopes (R19): the ONLY source of destinations ----
+  const envelopeKeys = [envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey()];
+  const recipients = envelopeKeys.map((k) => k.public_hex);
+  const envelopeKeyFiles = envelopeKeys.map((k, i) => {
+    const p = path.join(KEYDIR, `envelope-key-${i}.key`);
+    writeFileSync(p, k.private_hex, { mode: 0o600 });
+    return p;
+  });
+  const spend = Wallet.createRandom().signingKey, view = Wallet.createRandom().signingKey;
+  const metaAddress = "0x" + SigningKey.computePublicKey(spend.privateKey, true).slice(2) + SigningKey.computePublicKey(view.privateKey, true).slice(2);
   const r1 = Wallet.createRandom().address;                    // fresh EVM winner address
   const s1 = Keypair.generate().publicKey.toBase58();          // fresh Solana winner addresses
   const s2 = Keypair.generate().publicKey.toBase58();
+  const attacker = Wallet.createRandom().address;              // the operator/attacker's own EVM address
 
-  // ---- the cleared drop: allocation from the clearing result (winners + lot counts) ----
-  const auction1 = hex32(randomBytes(32));
-  const result = { auction_id: auction1, winners: [{ leaf: 0, lot_count: 1 }, { leaf: 1, lot_count: 1 }, { leaf: 2, lot_count: 1 }] };
-  const resultFile = path.join(WORK, "result.json");
-  writeFileSync(resultFile, JSON.stringify(result, null, 2) + "\n");
+  // winner deliver plan (what each bidder sealed; only the signers' keys can read it):
+  //   0 evm/address, 1 solana/address, 2 solana/ct (+elgamal), 3 evm/stealth (meta-address),
+  //   4 malformed deliver (hostile sealer -> exception queue), 5 split-key envelope (hostile
+  //   sealer, only one signer can open it -> signers cannot agree -> exception queue)
+  const delivers = [
+    { chain: "evm", kind: "address", to: r1 },
+    { chain: "solana", kind: "address", to: s1 },
+    { chain: "solana", kind: "ct", to: s2, elgamal: rndHex(32) },
+    { chain: "evm", kind: "stealth", to: metaAddress },
+  ];
+
+  // ---- the signed manifest + one already-open drand quicknet round for all six bids ----
+  // (the fixture is the real post-R situation attest runs in: bids sealed before R, R passed; a past
+  // round's beacon is already published and BLS-verified at every use. `bid seal`'s own future-round
+  // path is proven separately below and by the default e2e.)
+  const drandBase = process.env.BNZ_DRAND_URLS.split(",")[0];
+  const chainHash = schema.QUICKNET.chain_hash;
+  const latest = await fetch(`${drandBase}/${chainHash}/public/latest`);
+  if (!latest.ok) throw new Error(`drand HTTP ${latest.status}`);
+  const R = (await latest.json()).round - 5;
+  const RT = schema.QUICKNET.genesis + (R - 1) * schema.QUICKNET.period;
+  const auction1 = rndHex(32);
+  const signerKey = generateKeyPairSync("ed25519");
+  const signerPem = signerKey.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const signerHex = signerKey.publicKey.export({ type: "spki", format: "der" }).toString("hex");
+  // gate X (R22 repro needs it): a real witness set, its hash pinned by the signed manifest (R4 item 2),
+  // certified q_w=2 of n_w=3 over the frozen root below through the shipped `benzo witness sign`
+  const witnessKeys = [wit.generateWitnessKey(), wit.generateWitnessKey(), wit.generateWitnessKey()];
+  const witnessSet = { version: 1, auction_id: auction1, q_w: 2, keys: witnessKeys.map((k) => k.public_hex) };
+  const witnessPacket = schema.signRecord(witnessSet, signerPem);
+  const manifest = {
+    version: 1, network: "test", auction_id: auction1,
+    escrow_ua: "utest1" + rndHex(35), frost_group_key: rndHex(32), lot: "demo cross-chain lot", supply: 6,
+    reserve_zats: "0", tick_zats: "1000", B_max_zats: "500000", q_max: 1,
+    C_zats: "500000", fee_zats: "0", deposit_addresses: ["utest1" + rndHex(35), "utest1" + rndHex(35)],
+    drand: { ...schema.QUICKNET, R },
+    T_submit: RT - 850, T_freeze: RT - 100, confirmations: 10,
+    clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
+    refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
+    envelope_keys: recipients,
+    witness_set_hash: wit.witnessSetHash(witnessPacket),
+  };
+  const packet = schema.signRecord(manifest, signerPem);
+  const manifestFile = path.join(WORK, "manifest.json");
+  writeFileSync(manifestFile, schema.jsonBytes(packet));
+  const checked = reg.clientForMode(packet, signerHex);
+  if (checked.manifest.auction_id !== auction1) throw new Error("signed manifest did not validate");
+
+  // ---- six real bids around real tlock ciphertexts to round R ----
+  const pinnedInfo = {
+    public_key: schema.QUICKNET.public_key, period: schema.QUICKNET.period, genesis_time: schema.QUICKNET.genesis,
+    hash: chainHash, groupHash: "", schemeID: schema.QUICKNET.scheme, metadata: { beaconID: "quicknet" },
+  };
+  const pinnedClient = { chain: () => ({ info: async () => pinnedInfo }) }; // encryption needs only the chain info
+  const records = [];        // published envelope records ({ciphertext_hash, envelope_ct, owner_sig}) + each bid's tlock ct
+  const openPlaintexts = []; // the demo's own plaintext copies (fixture `opened[]`; attest derives its own)
+  const ptHexOf = (nonceHex, ownerHex, commitmentHex) =>
+    bid.buildBidPlaintext({ auction_id: auction1, price_zats: 250000n, quantity: 1, nonce_hex: nonceHex, owner_public_hex: ownerHex, settlement_commitment_hex: commitmentHex }).toString("hex");
+  const tlockHex = async (ptHex) => Buffer.from(armor.decodeArmor(await tlock.timelockEncrypt(R, Buffer.from(ptHex, "hex"), pinnedClient)), "binary").toString("hex");
+
+  for (let i = 0; i < delivers.length; i++) {
+    // the shipped bidder-side library (exactly what `bid seal` drives): owner key, deliver payload v2
+    // sealed to the manifest's pinned envelope keys, salted commitment, real tlock, owner signature
+    const prep = bid.prepareBid({ auction_id: auction1, price_zats: 250000n, quantity: 1, destination_ua: UA, deliver: delivers[i], envelope_public_hexs: recipients });
+    const ctHex = await tlockHex(prep.plaintext_hex);
+    const bound = bid.bindSealedBid(prep, auction1, sha256(Buffer.from(ctHex, "hex")));
+    records.push({ index: i, ciphertext_hash: bound.ciphertext_hash_hex, envelope_ct: bound.envelope_ct_hex, owner_sig: bound.owner_sig_hex, ct_hex: ctHex });
+    openPlaintexts.push(prep.plaintext_hex);
+    if (i === 0) {
+      const g = envmod.openEnvelopePayload(bound.envelope_ct_hex, envelopeKeys[0].private_hex);
+      check("demo-envelope-opens-to-deliver", g.refund === UA && g.deliver?.to === delivers[0].to && sha256(Buffer.from(ctHex, "hex")) === bound.ciphertext_hash_hex,
+        `opened ${JSON.stringify(g)} ct_hash ${bound.ciphertext_hash_hex}`);
+    }
+  }
+
+  // ---- the two hostile-sealer bids: real tlock around a tampered envelope ----
+  for (const [idx, payloadText, wrap] of [
+    [4, JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: "0x1234", salt: rndHex(32) } }), "shared"],
+    [5, JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: r1, salt: rndHex(32) } }), "split"],
+  ]) {
+    const owner = envmod.generateOwnerKey(), nonce = rndHex(16);
+    const sharedKey = sodium.randombytes_buf(32);
+    const envCt = hostileEnvelope(payloadText, recipients, wrap === "shared" ? [sharedKey, sharedKey, sharedKey] : [sharedKey, sodium.randombytes_buf(32), sodium.randombytes_buf(32)]);
+    const commitment = envmod.settlementCommitment(nonce, envCt);
+    const ptHex = ptHexOf(nonce, owner.public_hex, commitment);
+    const ctHex = await tlockHex(ptHex);
+    const ctHash = sha256(Buffer.from(ctHex, "hex"));
+    records.push({ index: idx, ciphertext_hash: ctHash, envelope_ct: envCt, owner_sig: envmod.signEnvelope(owner, auction1, ctHash, envCt), ct_hex: ctHex });
+    openPlaintexts.push(ptHex);
+  }
+
+  // ---- the published, BLS-verified drand beacon that opens round R (R21: attest decrypts with it) ----
+  const beaconRes = await fetch(`${drandBase}/${chainHash}/public/${R}`);
+  if (!beaconRes.ok) throw new Error(`drand HTTP ${beaconRes.status} for round ${R}`);
+  const beacon = await beaconRes.json();
+  if (beacon.round !== R || !/^[0-9a-f]{96}$/.test(beacon.signature)) throw new Error(`drand round ${R} beacon malformed`);
+  check("demo-drand-beacon", true, `round ${R} signature ${beacon.signature.slice(0, 16)}…`);
+
+  // ---- the shipped `benzo bid seal` still seals deliver payload v2 through the real browser sealer ----
+  // (its own manifest: `bid seal` refuses to seal after T_submit, and the fixture auction is post-R)
+  {
+    const RF = R + 100005, RFT = schema.QUICKNET.genesis + (RF - 1) * schema.QUICKNET.period;
+    const sealManifest = { ...manifest, auction_id: rndHex(32), drand: { ...schema.QUICKNET, R: RF }, T_submit: RFT - 850, T_freeze: RFT - 100 };
+    const sealPacket = schema.signRecord(sealManifest, signerPem);
+    const sealManifestFile = path.join(WORK, "manifest-seal.json");
+    writeFileSync(sealManifestFile, schema.jsonBytes(sealPacket));
+    const input = { price_zats: "1000000", quantity: 1, address: manifest.deposit_addresses[0], refund_ua: UA, deliver: delivers[0] };
+    const p = execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "bid", "seal", "--manifest", sealManifestFile, "--signer", signerHex],
+      { input: JSON.stringify(input), encoding: "utf8", maxBuffer: 64 << 20 });
+    const sealed = JSON.parse(p.slice(p.indexOf("{")));
+    const memo = Buffer.from(sealed.envelope_hex, "hex");
+    const g = envmod.openEnvelopePayload(sealed.envelope_ct_hex, envelopeKeys[1].private_hex);
+    check("demo-bid-seal-deliver",
+      memo.length === 512 && memo.subarray(0, 5).toString("hex") === "ff424e5a02" &&
+        g.refund === UA && g.deliver?.to === delivers[0].to && /^[0-9a-f]{64}$/.test(g.deliver?.salt) &&
+        sha256(Buffer.from(memo.subarray(7, 7 + memo.readUInt16BE(5)), "hex")) === sealed.ciphertext_hash,
+      `memo ${memo.length}B tag ${memo.subarray(7 + memo.readUInt16BE(5), 7 + memo.readUInt16BE(5) + 18).toString("hex")} opened ${JSON.stringify(g)}`);
+    // R25 item 3: the railgun kind has no escrow adapter — refused at `bid seal` with "not supported"
+    let railgunErr = "";
+    try {
+      execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "bid", "seal", "--manifest", sealManifestFile, "--signer", signerHex],
+        { input: JSON.stringify({ ...input, deliver: { chain: "evm", kind: "railgun", to: "0zk" + "x".repeat(124) } }), encoding: "utf8", maxBuffer: 64 << 20 });
+    } catch (e) { railgunErr = `${e.stderr ?? ""}${e.stdout ?? ""}`; }
+    check("demo-bid-seal-railgun-refused", /not supported/.test(railgunErr), `no "not supported" refusal: ${railgunErr.slice(0, 160)}`);
+    // R25 item 4: EVM addresses are accepted in any case and normalised (getAddress) at `bid seal`;
+    // a mixed-case address must pass the EIP-55 checksum — refused for the bidder, never at settlement
+    let normOut = "", normErr = "";
+    try {
+      normOut = execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "bid", "seal", "--manifest", sealManifestFile, "--signer", signerHex],
+        { input: JSON.stringify({ ...input, deliver: { ...delivers[0], to: r1.toLowerCase() } }), encoding: "utf8", maxBuffer: 64 << 20 });
+    } catch (e) { normErr = `${e.stderr ?? ""}${e.stdout ?? ""}`; }
+    let normTo = "";
+    if (normOut) normTo = envmod.openEnvelopePayload(JSON.parse(normOut.slice(normOut.indexOf("{"))).envelope_ct_hex, envelopeKeys[1].private_hex).deliver?.to ?? "";
+    // the EIP-55 spec example with one letter's case flipped — deterministically a broken checksum
+    const mixedBad = "0x5AAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
+    let badErr = "";
+    try {
+      execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "bid", "seal", "--manifest", sealManifestFile, "--signer", signerHex],
+        { input: JSON.stringify({ ...input, deliver: { ...delivers[0], to: mixedBad } }), encoding: "utf8", maxBuffer: 64 << 20 });
+    } catch (e) { badErr = `${e.stderr ?? ""}${e.stdout ?? ""}`; }
+    check("demo-bid-seal-evm-case",
+      normTo === r1 && /checksum/i.test(badErr),
+      `lowercase sealed as ${normTo || normErr.slice(0, 120)}; mixed-case bad checksum: ${badErr ? `refused (${badErr.slice(0, 100)})` : "ACCEPTED"}`);
+  }
+
+  // ---- the published auction directory (R21: attest derives its own openings from this) ----
+  const publishedRecords = records.map((r) => ({ ciphertext_hash: r.ciphertext_hash, envelope_ct: r.envelope_ct, owner_sig: r.owner_sig }));
+  const leaves = records.map((r, i) => ({
+    auction_id: auction1, manifest_hash: checked.manifest_hash, ciphertext_hash: r.ciphertext_hash,
+    deposit: { txid: rndHex(32), pool: "ironwood", address: manifest.deposit_addresses[i % 2], diversifier_index: String(i) },
+    leaf_index: i, ciphertext_hex: r.ct_hex,
+  }));
+  const frozenTree = merkle.tree(leaves);
+  // published_at precedes T_freeze, as a real freeze does (checkPublicAuction refuses a late freeze)
+  const frozen = { auction_id: auction1, manifest_hash: checked.manifest_hash, root: frozenTree.root, leaf_count: 6, cutoff: R, published_at: RT - 500, leaves, paths: frozenTree.paths };
+  // R24 item 2 (Q6 (a)): a REAL product result — the shipped clearing recomputed over the six openings.
+  // allocations[].fill is the ONLY source of the attested allocation leaves (the cross-chain winners[]
+  // shape is removed), and R22 makes attest refuse anything but these exact published bytes.
+  const openedInput = openPlaintexts.map((p, i) => ({ leaf_index: i, plaintext_hex: p }));
+  const clearResult = reg.clearForMode({ manifest: packet, signer: signerHex, frozen, opened: openedInput, reserve_opening: null });
+  check("demo-product-result",
+    Array.isArray(clearResult.allocations) && clearResult.allocations.length === 6 &&
+      clearResult.allocations.every((x) => x.fill === 1) && clearResult.freeze_root === frozen.root &&
+      BigInt(clearResult.conservation.input_zats) === BigInt(clearResult.conservation.payout_zats) + BigInt(clearResult.conservation.refund_zats) + BigInt(clearResult.conservation.fees_zats),
+    JSON.stringify(clearResult.allocations?.map((x) => x.fill)));
+  const doc = {
+    version: 1, auction_id: auction1, signer: signerHex, manifest: packet, state: "OPENED", receipts: [],
+    frozen, opened: openedInput,
+    beacon: { round: R, signature: beacon.signature, chain_hash: chainHash },
+    envelopes: publishedRecords,
+    witness_set: witnessPacket,
+    result: clearResult,
+  };
+  mkdirSync(PUBDIR, { recursive: true });
+  writeFileSync(path.join(PUBDIR, "auction.json"), JSON.stringify(doc, null, 2) + "\n");
+  // the literal --dir/result.json (R22): the same canonical bytes the document embeds
+  const resultBytes = schema.jsonBytes(clearResult);
+  const resultFile = path.join(PUBDIR, "result.json");
+  writeFileSync(resultFile, resultBytes);
+  // gate X: the witness quorum certifies the frozen root with the shipped `benzo witness sign`
+  const witnessKeyFiles = witnessKeys.map((k, i) => {
+    const p = path.join(KEYDIR, `witness-key-${i}.key`);
+    writeFileSync(p, k.private_hex, { mode: 0o600 });
+    return p;
+  });
+  for (const f of witnessKeyFiles.slice(0, 2)) {
+    execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "witness", "sign", "--dir", PUBDIR, "--signer", signerHex, "--key", f],
+      { cwd: REPO, encoding: "utf8" });
+  }
   // R14 item 4: the attested result_hash is the product's published result hash (manifest/schema
-  // `hash`: sha256 over the raw result.json bytes — the value `benzo verify`/the API report as
-  // result_hash), so `xchain status --result` can tie the escrow's approval to the published file
-  const resultHash = "0x" + createHash("sha256").update(readFileSync(resultFile)).digest("hex");
-  const allocationFile = path.join(WORK, "allocation.json");
+  // `hash`: sha256 over the raw result.json bytes), so `xchain status --result` ties the escrow's
+  // approval to the published file
+  const resultHash = "0x" + sha256(resultBytes);
+
+  // R21 repro material: an operator-fabricated "opened bid" whose commitment matches its OWN attacker
+  // envelope (a valid deliver pointing at the attacker) — self-consistent, but it is not the bid the
+  // frozen leaf's ciphertext opens to. The attacked directory is what post-R21 attest sees; the
+  // records-*.json files are the pre-R21 `--envelopes` input shape (the harness runs both interfaces,
+  // so the same demo run is the before/after proof of the R21 fix).
+  const attackerOwner = envmod.generateOwnerKey();
+  const attackerNonce = rndHex(16);
+  const attackerKey = sodium.randombytes_buf(32); // honest wrap so every signer opens it: the fabrication is in the pairing
+  const attackerEnvCt = hostileEnvelope(JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: attacker, salt: rndHex(32) } }), recipients,
+    [attackerKey, attackerKey, attackerKey]);
+  const attackerCommitment = envmod.settlementCommitment(attackerNonce, attackerEnvCt);
+  const fabricatedPt = ptHexOf(attackerNonce, attackerOwner.public_hex, attackerCommitment);
+  const attackerRecord = { index: 0, ciphertext_hash: records[0].ciphertext_hash, envelope_ct: attackerEnvCt,
+    owner_sig: envmod.signEnvelope(attackerOwner, auction1, records[0].ciphertext_hash, attackerEnvCt), ct_hex: records[0].ct_hex };
+  writeFileSync(path.join(WORK, "attack.json"), JSON.stringify({
+    attacker, fabricated_plaintext_hex: fabricatedPt, attacker_record: attackerRecord,
+    envelope_keys: recipients,
+    records: records.map((r) => ({ index: r.index, opened_bid_hex: openPlaintexts[r.index], ciphertext_hash: r.ciphertext_hash, envelope_ct: r.envelope_ct, owner_sig: r.owner_sig })),
+  }, null, 2) + "\n");
+  const recordFile = (name, mutate) => {
+    const leaves = records.map((r, i) => ({ index: i, opened_bid_hex: openPlaintexts[i], owner_sig: r.owner_sig, envelope_ct: r.envelope_ct }));
+    writeFileSync(path.join(WORK, `records-${name}.json`), JSON.stringify({ envelope_keys: recipients, leaves: mutate ? mutate(leaves) : leaves }, null, 2) + "\n");
+  };
+  recordFile("pub");
+  recordFile("attacked", (leaves) => leaves.map((l) => (l.index === 0
+    ? { index: 0, opened_bid_hex: fabricatedPt, owner_sig: attackerRecord.owner_sig, envelope_ct: attackerRecord.envelope_ct } : l)));
+  recordFile("substituted", (leaves) => leaves.map((l) => (l.index === 0
+    ? { index: 0, opened_bid_hex: l.opened_bid_hex, owner_sig: records[4].owner_sig, envelope_ct: records[4].envelope_ct } : l)));
+
+  // the operator's OLD allocation file, naming the attacker address (R19 item 3 fixture): attest must
+  // ignore it entirely — and the flag it was passed with is removed and refused
+  const allocationFile = path.join(WORK, "allocation-attacker.json");
   writeFileSync(allocationFile, JSON.stringify({
     standard_lot: "1",
-    leaves: [
-      { index: 0, lot_count: 1, destination_kind: 1, destination: r1 },
-      { index: 1, lot_count: 1, destination_kind: 2, destination: s1 },
-      { index: 2, lot_count: 1, destination_kind: 2, destination: s2 },
-    ],
+    leaves: [0, 1, 2].map((index) => ({ index, lot_count: 1, destination_kind: 1, destination: attacker })),
   }, null, 2) + "\n");
 
   const now = Math.floor(Date.now() / 1000);
@@ -130,10 +413,10 @@ async function main() {
   check("demo-evm-escrow-deployed", /^0x[0-9a-fA-F]{40}$/.test(evmEscrowAddr), `forge create gave ${escrowEvm.slice(0, 120)}`);
   check("demo-evm-artifact-present", Array.isArray(artifact.abi), "artifact ABI missing");
 
-  // ---- 1. lock on both chains ----
+  // ---- 1. lock on both chains (the demo sells the native asset on both: 2 lots each) ----
   {
-    const r = benzoXchain(["lock", "--chain", "evm", "--auction", auction1,
-      "--amount", parseEther("1").toString(), "--lot", parseEther("1").toString(),
+    const r = benzoXchain(["lock", "--chain", "evm", "--auction", "0x" + auction1,
+      "--amount", (2n * parseEther("1")).toString(), "--lot", parseEther("1").toString(),
       "--lock-until", String(lockUntil), "--deadline", String(deadline),
       "--signers", evmSignersFile, "--return", evmSeller.address, "--key", evmSellerKeyFile,
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC]);
@@ -141,7 +424,7 @@ async function main() {
     else pass("demo-lock-evm");
   }
   {
-    const r = benzoXchain(["lock", "--chain", "solana", "--auction", auction1,
+    const r = benzoXchain(["lock", "--chain", "solana", "--auction", "0x" + auction1,
       "--amount", String(2 * LAMPORTS_PER_SOL), "--lot", String(1 * LAMPORTS_PER_SOL),
       "--lock-until", String(lockUntil), "--deadline", String(deadline),
       "--signers", solSignersFile, "--return", solPayer.publicKey.toBase58(), "--key", solPayerFile,
@@ -150,32 +433,237 @@ async function main() {
     else pass("demo-lock-solana");
   }
 
-  // ---- 2. attest (2-of-3 per chain, same result hash + allocation root) ----
+  // ---- 2. attest (2-of-3 per chain): openings derived from --dir, destinations from the envelopes ----
+  // R25 item 3: each chain's tree holds only the leaves ITS escrow can pay (EVM: address + stealth;
+  // Solana: address) — a chain mismatch or an unpayable kind (solana ct) is that chain's exception.
   const bundleEvm = path.join(WORK, "bundle-evm.json"), bundleSol = path.join(WORK, "bundle-solana.json");
   const ZERO_ASSET = "0x0000000000000000000000000000000000000000"; // both demo auctions lock the native asset
+  // one arg builder: the CLI parser collects repeated flags into arrays, so overrides REPLACE values.
+  // The harness runs the shipped CLI whichever interface it speaks (R21 changed it from `--envelopes`
+  // with operator-supplied openings to `--dir` with self-derived openings): the same demo is therefore
+  // the before/after proof of the R21 fix.
+  const xchainHelp = (() => { const r = benzoXchain(["--help"]); return r.stdout + r.stderr; })();
+  const oldInterface = xchainHelp.includes("--envelopes FILE");
+  const readBundle = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch (e) { return { __error: String(e.message) } }; };
+  const attestArgs = (over = {}) => [
+    "--auction", "0x" + auction1, "--result", over.result ?? resultFile, "--result-hash", over.resultHash ?? resultHash,
+    "--batch", "0", "--nonce", "0", "--expiry", String(over.expiry ?? now + 3600),
+    ...(over.asset === "omit" ? [] : ["--asset", over.asset ?? ZERO_ASSET]),
+    ...(oldInterface
+      ? ["--envelopes", path.join(WORK, `records-${over.records ?? "pub"}.json`)]
+      : ["--dir", over.dir ?? PUBDIR]),
+    ...(over.envelopeKeys ?? envelopeKeyFiles).flatMap((f) => ["--envelope-key", f]),
+  ];
   {
-    const r = benzoXchain(["attest", "--chain", "evm", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs(),
       "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
-      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", bundleEvm, "--asset", ZERO_ASSET]);
-    const rs = benzoXchain(["attest", "--chain", "solana", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", bundleEvm]);
+    const rs = benzoXchain(["attest", "--chain", "solana", ...attestArgs(),
       "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
-      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", bundleSol, "--asset", ZERO_ASSET]);
-    const bE = JSON.parse(readFileSync(bundleEvm, "utf8")), bS = JSON.parse(readFileSync(bundleSol, "utf8"));
+      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", bundleSol]);
+    const bE = readBundle(bundleEvm), bS = readBundle(bundleSol);
     check("demo-attest-both-chains",
-      r.code === 0 && rs.code === 0 && bE.allocation_root === bS.allocation_root && bE.signatures.length === 2 && bS.signatures.length === 2,
-      `evm rc=${r.code} sol rc=${rs.code} roots ${bE.allocation_root} / ${bS.allocation_root}`);
+      r.code === 0 && rs.code === 0 && !bE.__error && !bS.__error && bE.signatures.length === 2 && bS.signatures.length === 2 &&
+        bE.leaves.map((l) => l.index).join(",") === "0,3" && bS.leaves.map((l) => l.index).join(",") === "1" &&
+        bE.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, "") && bS.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, ""),
+      `evm rc=${r.code} sol rc=${rs.code} ${bE.__error ?? `evm leaves ${bE.leaves.map((l) => l.index)} solana leaves ${bS.leaves.map((l) => l.index)}`}`);
+    // R25 item 3: a chain mismatch or an unpayable kind is that chain's exception, never in its tree
+    const exE = (i) => bE.exceptions?.find((x) => x.index === i);
+    const exS = (i) => bS.exceptions?.find((x) => x.index === i);
+    check("demo-attest-chain-mismatch-exception",
+      /does not match chain evm/.test(exE(1)?.reason ?? "") && /does not match chain evm/.test(exE(2)?.reason ?? "") &&
+        /does not match chain solana/.test(exS(0)?.reason ?? "") && /does not match chain solana/.test(exS(3)?.reason ?? "") &&
+        bE.leaves.every((l) => l.index !== 1 && l.index !== 2) && bS.leaves.every((l) => l.index !== 0 && l.index !== 3),
+      `evm exceptions ${JSON.stringify(bE.exceptions)}, solana exceptions ${JSON.stringify(bS.exceptions)}`);
+    check("demo-attest-unpayable-kind-exception",
+      /not payable by the solana escrow/.test(exS(2)?.reason ?? "") && bS.leaves.every((l) => l.index !== 2) &&
+        bE.leaves.every((l) => l.index !== 2),
+      `solana exception 2 ${JSON.stringify(exS(2))}, evm leaves ${bE.leaves.map((l) => l.index)}`);
+  }
+
+  // R19 item 3: the operator's old allocation file names an attacker address — the attest output
+  // ignores it. The flags it was passed with are removed and refused loudly (R19 and R21).
+  {
+    const r = benzoXchain(["attest", "--chain", "evm", "--allocation", allocationFile, ...attestArgs(),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-alloc-refused.json")]);
+    check("demo-attest-allocation-refused",
+      r.code !== 0 && /--allocation is removed/.test(r.stderr), `rc=${r.code}: ${(r.stderr || "").slice(0, 160)}`);
+    const re = benzoXchain(["attest", "--chain", "evm", "--envelopes", path.join(WORK, "attack.json"), ...attestArgs(),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-envelopes-refused.json")]);
+    check("demo-attest-envelopes-refused",
+      re.code !== 0 && /--envelopes is removed/.test(re.stderr), `rc=${re.code}: ${(re.stderr || "").slice(0, 160)}`);
+    const bE = readBundle(bundleEvm);
+    const dests = bE.__error ? {} : Object.fromEntries(bE.leaves.map((l) => [l.index, l.destination]));
+    const bS = readBundle(bundleSol);
+    const destsS = bS.__error ? {} : Object.fromEntries(bS.leaves.map((l) => [l.index, l.destination]));
+    const all = (JSON.stringify(bE) + JSON.stringify(bS)).toLowerCase();
+    check("demo-attest-destinations-from-envelope",
+      !bE.__error && !bS.__error && dests[0] === r1 && destsS[1] === s1 &&
+        /^0x[0-9a-fA-F]{40}$/.test(dests[3]) && dests[3].toLowerCase() !== metaAddress.toLowerCase() &&
+        !all.includes(attacker.toLowerCase()),
+      `evm destinations ${JSON.stringify(dests)}, solana ${JSON.stringify(destsS)}, attacker ${attacker} in bundle: ${all.includes(attacker.toLowerCase())}`);
+  }
+
+  // R19 item 3: a winner whose envelope's deliver.to is malformed lands in the exception queue
+  {
+    const bE = readBundle(bundleEvm);
+    const ex = bE.exceptions?.find((x) => x.index === 4);
+    check("demo-attest-malformed-deliver-exception",
+      ex !== undefined && /malformed deliver/.test(ex.reason) && bE.leaves.every((l) => l.index !== 4),
+      `${bE.__error ?? `exceptions ${JSON.stringify(bE.exceptions)}, leaves ${bE.leaves.map((l) => l.index)}`}`);
+    const bS = readBundle(bundleSol);
+    check("demo-attest-malformed-deliver-exception-both-chains",
+      bS.exceptions?.some((x) => x.index === 4 && /malformed deliver/.test(x.reason)) && bS.leaves.every((l) => l.index !== 4),
+      `${bS.__error ?? `solana exceptions ${JSON.stringify(bS.exceptions)}`}`);
+  }
+
+  // R10 attack at the attest layer: a split-key hostile envelope only one signer can open is never
+  // attested — at least 2 signers must agree on SHA-256(deliver) (R19 item 2)
+  {
+    const bE = readBundle(bundleEvm);
+    const ex = bE.exceptions?.find((x) => x.index === 5);
+    check("demo-attest-no-agreement-exception",
+      ex !== undefined && /signers could not agree/.test(ex.reason) && bE.leaves.every((l) => l.index !== 5),
+      `${bE.__error ?? `exceptions ${JSON.stringify(bE.exceptions)}, leaves ${bE.leaves.map((l) => l.index)}`}`);
+  }
+
+  // R21: an operator-fabricated "opened bid" + attacker envelope (self-consistent: the fabricated
+  // plaintext's commitment matches the attacker envelope and its owner_sig verifies against the
+  // fabricated owner key) can never ride leaf 0 — attest opens the FROZEN LEAF'S OWN ciphertext and
+  // finds no owner-signed record for it.
+  {
+    const attacked = JSON.parse(readFileSync(path.join(PUBDIR, "auction.json"), "utf8"));
+    attacked.envelopes = attacked.envelopes.map((e) => (e.ciphertext_hash === records[0].ciphertext_hash
+      ? { ciphertext_hash: attackerRecord.ciphertext_hash, envelope_ct: attackerRecord.envelope_ct, owner_sig: attackerRecord.owner_sig }
+      : e));
+    const attackedDir = path.join(WORK, "public-attacked");
+    mkdirSync(attackedDir, { recursive: true });
+    writeFileSync(path.join(attackedDir, "auction.json"), JSON.stringify(attacked, null, 2) + "\n");
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ dir: attackedDir, records: "attacked" }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-fabricated.json")]);
+    const b = readBundle(path.join(WORK, "bundle-fabricated.json"));
+    const ex = b.exceptions?.find((x) => x.index === 0);
+    check("demo-attest-fabricated-opening-exception",
+      r.code === 0 && ex !== undefined && /no valid owner-signed settlement envelope/.test(ex.reason) &&
+        b.leaves.every((l) => l.index !== 0) && !JSON.stringify(b).toLowerCase().includes(attacker.toLowerCase()),
+      `rc=${r.code} ${b.__error ?? `exceptions ${JSON.stringify(b.exceptions)}`}`);
+  }
+
+  // an operator-substituted record (winner 0's leaf slot carrying winner 4's REAL owner-signed envelope)
+  // cannot ride the leaf either: the record must verify against this bid's own opening
+  {
+    const sub = JSON.parse(readFileSync(path.join(PUBDIR, "auction.json"), "utf8"));
+    sub.envelopes = sub.envelopes.map((e) => (e.ciphertext_hash === records[0].ciphertext_hash
+      ? { ciphertext_hash: records[0].ciphertext_hash, envelope_ct: records[4].envelope_ct, owner_sig: records[4].owner_sig }
+      : e));
+    const subDir = path.join(WORK, "public-substituted");
+    mkdirSync(subDir, { recursive: true });
+    writeFileSync(path.join(subDir, "auction.json"), JSON.stringify(sub, null, 2) + "\n");
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ dir: subDir, records: "substituted" }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-substituted.json")]);
+    const b = readBundle(path.join(WORK, "bundle-substituted.json"));
+    const ex = b.exceptions?.find((x) => x.index === 0);
+    check("demo-attest-substituted-envelope-exception",
+      r.code === 0 && ex !== undefined && /no valid owner-signed settlement envelope|envelope not bound to the opened bid/.test(ex.reason) && b.leaves.every((l) => l.index !== 0),
+      `rc=${r.code} ${b.__error ?? `exceptions ${JSON.stringify(b.exceptions)}`}`);
+  }
+
+  // R24 item 2 (Q6 (a)): the cross-chain winners[] result shape is gone — only the product result's
+  // allocations[].fill derives the attested leaf set, and a winners[] result is refused outright
+  {
+    const winnersFile = path.join(WORK, "result-winners.json");
+    writeFileSync(winnersFile, JSON.stringify({ auction_id: auction1, winners: records.map((_, i) => ({ leaf: i, lot_count: 1 })) }, null, 2) + "\n");
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ result: winnersFile, resultHash: "0x" + sha256(readFileSync(winnersFile)) }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-winners-result.json")]);
+    check("demo-attest-crosschain-result-refused",
+      r.code !== 0 && /does not derive a unique positive allocation leaf set/.test(r.stderr) && !existsSync(path.join(WORK, "bundle-winners-result.json")),
+      `rc=${r.code} (accepted a winners[] result): ${(r.stderr || r.stdout).slice(0, 200)}`);
+  }
+
+  // R22: --result must be the directory's result.json BYTES — the same JSON re-serialized differently
+  // is refused, so the attested result can only be the published one
+  {
+    const prettyFile = path.join(WORK, "result-pretty.json");
+    writeFileSync(prettyFile, JSON.stringify(clearResult, null, 2) + "\n");
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ result: prettyFile, resultHash: "0x" + sha256(readFileSync(prettyFile)) }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-bytes-mismatch.json")]);
+    check("demo-attest-result-bytes-mismatch-refused",
+      r.code !== 0 && /does not equal --dir\/result\.json bytes/.test(r.stderr) && !existsSync(path.join(WORK, "bundle-bytes-mismatch.json")),
+      `rc=${r.code} (attested non-identical result bytes): ${(r.stderr || r.stdout).slice(0, 200)}`);
+  }
+
+  // R22 repro: a directory whose frozen leaf set was swapped AFTER the witnesses certified it. The
+  // swap is self-consistent — root, paths and the product result recomputed exactly as an attacker
+  // could — only the q_w certificates cannot be re-signed, so the full public check refuses it
+  // (`ERROR witness`), where attest before R22 attested it.
+  {
+    const swapped = JSON.parse(readFileSync(path.join(PUBDIR, "auction.json"), "utf8"));
+    const sl = swapped.frozen.leaves, so = swapped.opened;
+    [sl[0], sl[5]] = [sl[5], sl[0]];
+    [so[0], so[5]] = [so[5], so[0]];
+    sl.forEach((l, i) => { l.leaf_index = i; });
+    so.forEach((o, i) => { o.leaf_index = i; });
+    const st2 = merkle.tree(sl);
+    swapped.frozen.root = st2.root;
+    swapped.frozen.paths = st2.paths;
+    swapped.result = reg.clearForMode({ manifest: packet, signer: signerHex, frozen: swapped.frozen, opened: so, reserve_opening: null });
+    const swappedDir = path.join(WORK, "public-swapped");
+    mkdirSync(swappedDir, { recursive: true });
+    writeFileSync(path.join(swappedDir, "auction.json"), JSON.stringify(swapped, null, 2) + "\n");
+    const swappedResultBytes = schema.jsonBytes(swapped.result);
+    const swappedResultFile = path.join(swappedDir, "result.json");
+    writeFileSync(swappedResultFile, swappedResultBytes);
+    const r = benzoXchain(["attest", "--chain", "evm",
+      ...attestArgs({ dir: swappedDir, result: swappedResultFile, resultHash: "0x" + sha256(swappedResultBytes) }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-swapped.json")]);
+    check("demo-attest-swapped-leaf-refused",
+      r.code !== 0 && /ERROR witness /.test(r.stderr) && !existsSync(path.join(WORK, "bundle-swapped.json")),
+      `rc=${r.code} (attested a leaf set swapped after witness certification): ${(r.stderr || r.stdout).slice(0, 240)}`);
+  }
+
+  // R25 item 2: one --envelope-key passed twice counts once (never a manufactured 2-of-3 agreement),
+  // and every --envelope-key must be a distinct member of the manifest's envelope_keys
+  {
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ envelopeKeys: [envelopeKeyFiles[0], envelopeKeyFiles[0]] }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-key-dup.json")]);
+    check("demo-attest-envelope-key-dedup",
+      r.code !== 0 && /attest derives no attested leaves/.test(r.stderr) && !existsSync(path.join(WORK, "bundle-key-dup.json")),
+      `rc=${r.code} (a duplicated envelope key manufactured a 2-of-3 agreement): ${(r.stderr || r.stdout).slice(0, 200)}`);
+    const nonmember = envmod.generateEnvelopeKey();
+    const nkFile = path.join(KEYDIR, "envelope-key-nonmember.key");
+    writeFileSync(nkFile, nonmember.private_hex, { mode: 0o600 });
+    const r2 = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ envelopeKeys: [nkFile, envelopeKeyFiles[0]] }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-key-nonmember.json")]);
+    check("demo-attest-envelope-key-nonmember",
+      r2.code !== 0 && /not a member of the manifest's envelope_keys/.test(r2.stderr) && !existsSync(path.join(WORK, "bundle-key-nonmember.json")),
+      `rc=${r2.code} (a non-member envelope key was accepted): ${(r2.stderr || r2.stdout).slice(0, 200)}`);
+  }
+
+  // R17 item 4: the result hash is recomputed from the --result bytes and the leaves derive from that
+  // result; a mismatching --result-hash is refused before any key is read or chain touched
+  {
+    const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ resultHash: "0x" + "00".repeat(32) }),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-rh-mismatch.json")]);
+    check("demo-attest-result-hash-mismatch-refused",
+      r.code !== 0 && /mismatching --result-hash/.test(r.stderr), `rc=${r.code}: ${(r.stderr || "").slice(0, 160)}`);
   }
 
   // §10 F-2 at the signer tool: signers must attest expiry <= deadline — refused before signing
   {
-    const re = benzoXchain(["attest", "--chain", "evm", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
+    const re = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ expiry: deadline + 10 }),
       "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-refused-evm.json")]);
-    const rs = benzoXchain(["attest", "--chain", "solana", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
+    const rs = benzoXchain(["attest", "--chain", "solana", ...attestArgs({ expiry: deadline + 10 }),
       "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
       "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-refused-sol.json")]);
     check("demo-attest-expiry-past-deadline-refused",
@@ -188,15 +676,14 @@ async function main() {
   // --asset is refused before any signing; there is never a silent default
   {
     const wrongAsset = "0x1111111111111111111111111111111111111111";
-    const base = ["--auction", auction1, "--allocation", allocationFile, "--result-hash", resultHash,
-      "--batch", "8", "--nonce", "0", "--expiry", String(now + 3600)];
-    const missE = benzoXchain(["attest", "--chain", "evm", ...base, "--signer-key", evmSignerFiles[0],
+    const noAsset = attestArgs({ asset: "omit" });
+    const missE = benzoXchain(["attest", "--chain", "evm", ...noAsset, "--signer-key", evmSignerFiles[0],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-asset-missing.json")]);
-    const missS = benzoXchain(["attest", "--chain", "solana", ...base, "--signer-key", solSignerFiles[0],
+    const missS = benzoXchain(["attest", "--chain", "solana", ...noAsset, "--signer-key", solSignerFiles[0],
       "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-asset-missing-sol.json")]);
-    const wrongE = benzoXchain(["attest", "--chain", "evm", ...base, "--asset", wrongAsset, "--signer-key", evmSignerFiles[0],
+    const wrongE = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ asset: wrongAsset }), "--signer-key", evmSignerFiles[0],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-asset-wrong.json")]);
-    const wrongS = benzoXchain(["attest", "--chain", "solana", ...base, "--asset", wrongAsset, "--signer-key", solSignerFiles[0],
+    const wrongS = benzoXchain(["attest", "--chain", "solana", ...attestArgs({ asset: wrongAsset }), "--signer-key", solSignerFiles[0],
       "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-asset-wrong-sol.json")]);
     check("demo-attest-asset-missing-refused",
       missE.code !== 0 && missS.code !== 0 && /--asset is required/.test(missE.stderr) && /--asset is required/.test(missS.stderr),
@@ -208,62 +695,70 @@ async function main() {
 
   // ---- 3. release: each chain pays its leaves (one delivery of the cleared drop) ----
   {
-    const r1BalBefore = await evmBalance(evm, r1);
+    const bE = readBundle(bundleEvm);
+    const stealthDest = bE.leaves?.find((l) => l.index === 3)?.destination;
+    if (!stealthDest) {
+      check("demo-release-evm-delivers", false, `no attested stealth leaf: ${bE.__error ?? JSON.stringify(bE.exceptions)}`);
+    } else {
+    const r1BalBefore = await evmBalance(evm, r1), stBalBefore = await evmBalance(evm, stealthDest);
     const escrowBefore = await evmBalance(evm, evmEscrowAddr);
     const r = benzoXchain(["release", "--chain", "evm", "--bundle", bundleEvm, "--key", evmSellerKeyFile,
-      "--rpc", EVM_RPC, "--only", "0"]);
-    const r1BalAfter = await evmBalance(evm, r1);
+      "--rpc", EVM_RPC, "--only", "0,3"]);
+    const r1BalAfter = await evmBalance(evm, r1), stBalAfter = await evmBalance(evm, stealthDest);
     const escrowAfter = await evmBalance(evm, evmEscrowAddr);
-    // the PayoutPaid event is the escrow's own record of delivery; assert it names r1 and 1 lot
-    let paid = null;
+    // the PayoutPaid events are the escrow's own record of delivery; assert they name the destinations
+    let paid = [];
     if (r.code === 0) {
       const receipt = await evm.getTransactionReceipt(jsonOut(r).tx);
       const iface = new Interface(artifact.abi);
       for (const log of receipt.logs) {
-        try { const p = iface.parseLog(log); if (p?.name === "PayoutPaid") paid = p.args; } catch { /* other logs */ }
+        try { const p = iface.parseLog(log); if (p?.name === "PayoutPaid") paid.push(p.args); } catch { /* other logs */ }
       }
     }
+    const evNames = paid.map((p) => p.recipient.toLowerCase()).sort();
     check("demo-release-evm-delivers",
-      r.code === 0 && paid && paid.recipient.toLowerCase() === r1.toLowerCase() && paid.amount === parseEther("1") &&
-      r1BalAfter - r1BalBefore === parseEther("1") && escrowBefore - escrowAfter === parseEther("1"),
-      `rc=${r.code}, event=${paid ? `${paid.recipient} ${paid.amount}` : "none"}, recipient ${r1} delta ${formatEther(r1BalAfter - r1BalBefore)} ETH, escrow delta ${formatEther(escrowAfter - escrowBefore)} ETH (want -1): ${r.stderr || r.stdout.slice(0, 120)}`);
+      r.code === 0 && r1BalAfter - r1BalBefore === parseEther("1") && stBalAfter - stBalBefore === parseEther("1") &&
+      escrowBefore - escrowAfter === 2n * parseEther("1") &&
+      JSON.stringify(evNames) === JSON.stringify([r1.toLowerCase(), stealthDest.toLowerCase()].sort()),
+      `rc=${r.code}, events=${JSON.stringify(evNames)}, r1 delta ${formatEther(r1BalAfter - r1BalBefore)} ETH, stealth ${stealthDest} delta ${formatEther(stBalAfter - stBalBefore)} ETH, escrow delta ${formatEther(escrowAfter - escrowBefore)} ETH (want -2): ${r.stderr || r.stdout.slice(0, 120)}`);
+    }
   }
   {
     const s1Before = await sol.getBalance(new PublicKey(s1)), s2Before = await sol.getBalance(new PublicKey(s2));
     const r = benzoXchain(["release", "--chain", "solana", "--bundle", bundleSol, "--key", solPayerFile,
-      "--rpc", SOL_RPC, "--only", "1,2"]);
+      "--rpc", SOL_RPC, "--only", "1"]);
     const s1After = await sol.getBalance(new PublicKey(s1)), s2After = await sol.getBalance(new PublicKey(s2));
     check("demo-release-solana-delivers",
-      r.code === 0 && s1After - s1Before === LAMPORTS_PER_SOL && s2After - s2Before === LAMPORTS_PER_SOL,
-      `rc=${r.code}, s1 +${s1After - s1Before} s2 +${s2After - s2Before} lamports (want ${LAMPORTS_PER_SOL}): ${r.stderr || r.stdout.slice(0, 160)}`);
+      r.code === 0 && s1After - s1Before === LAMPORTS_PER_SOL && s2After === s2Before,
+      `rc=${r.code}, s1 +${s1After - s1Before} lamports (want ${LAMPORTS_PER_SOL}), s2 (unpayable ct kind, exception-queued) +${s2After - s2Before} (want 0): ${r.stderr || r.stdout.slice(0, 160)}`);
   }
 
   // ---- 4. status: escrow state matches the attested root (each chain paid exactly its leaves) ----
   {
-    const re = benzoXchain(["status", "--chain", "evm", "--auction", auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm]);
-    const rs = benzoXchain(["status", "--chain", "solana", "--auction", auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol]);
+    const re = benzoXchain(["status", "--chain", "evm", "--auction", "0x" + auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm]);
+    const rs = benzoXchain(["status", "--chain", "solana", "--auction", "0x" + auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol]);
     const stE = jsonOut(re).auction, stS = jsonOut(rs).auction;
     const evmPaidCount = Object.values(stE.paidLeaves).filter(Boolean).length;
     const solPaidCount = Object.values(stS.paidLeaves).filter(Boolean).length;
     check("demo-status-matches-attested-root",
-      re.code === 0 && rs.code === 0 && evmPaidCount === 1 && solPaidCount === 2 &&
-      stE.paid === parseEther("1").toString() && stS.paid === String(2 * LAMPORTS_PER_SOL),
-      `evm paid ${stE.paid} (${evmPaidCount}/3 leaves), sol paid ${stS.paid} (${solPaidCount}/3 leaves)`);
+      re.code === 0 && rs.code === 0 && evmPaidCount === 2 && solPaidCount === 1 &&
+      stE.paid === (2n * parseEther("1")).toString() && stS.paid === String(1 * LAMPORTS_PER_SOL),
+      `evm paid ${stE.paid} (${evmPaidCount}/2 leaves), sol paid ${stS.paid} (${solPaidCount}/1 leaf)`);
   }
 
   // ---- 4b. R14 item 4: status ties the approved resultHash to the published result.json hash ----
   {
-    const re = benzoXchain(["status", "--chain", "evm", "--auction", auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm, "--result", resultFile]);
-    const rs = benzoXchain(["status", "--chain", "solana", "--auction", auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol, "--result", resultFile]);
+    const re = benzoXchain(["status", "--chain", "evm", "--auction", "0x" + auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm, "--result", resultFile]);
+    const rs = benzoXchain(["status", "--chain", "solana", "--auction", "0x" + auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol, "--result", resultFile]);
     const rhE = jsonOut(re).result_hash, rhS = jsonOut(rs).result_hash;
     check("demo-status-result-hash-matches-published",
       re.code === 0 && rs.code === 0 && rhE && rhE.match === true && rhS && rhS.match === true,
       `evm rc=${re.code} ${JSON.stringify(rhE)}, sol rc=${rs.code} ${JSON.stringify(rhS)}`);
     // a doctored published result must be refused loudly: exit 1 with the specific mismatch
     const doctoredFile = path.join(WORK, "result-doctored.json");
-    writeFileSync(doctoredFile, JSON.stringify({ ...result, tampered: true }, null, 2) + "\n");
-    const re2 = benzoXchain(["status", "--chain", "evm", "--auction", auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm, "--result", doctoredFile]);
-    const rs2 = benzoXchain(["status", "--chain", "solana", "--auction", auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol, "--result", doctoredFile]);
+    writeFileSync(doctoredFile, JSON.stringify({ ...clearResult, tampered: true }, null, 2) + "\n");
+    const re2 = benzoXchain(["status", "--chain", "evm", "--auction", "0x" + auction1, "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--bundle", bundleEvm, "--result", doctoredFile]);
+    const rs2 = benzoXchain(["status", "--chain", "solana", "--auction", "0x" + auction1, "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--bundle", bundleSol, "--result", doctoredFile]);
     check("demo-status-result-hash-mismatch-refused",
       re2.code !== 0 && rs2.code !== 0 && /result hash mismatch/.test(re2.stderr) && /result hash mismatch/.test(rs2.stderr),
       `evm rc=${re2.code} sol rc=${rs2.code}: ${(re2.stderr || rs2.stderr || "").slice(0, 160)}`);

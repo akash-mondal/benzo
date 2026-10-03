@@ -32,19 +32,53 @@ export function requireOwnEnvelopeKey(m: { envelope_keys?: string[] }, name: str
 
 export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
-// The 512-byte BNZ memo framing (docs/PHASE-1.md section 6): ff424e5a01 || u16be length || tlock
-// ciphertext || zero pad. Returns the sealed-bid ciphertext inside a deposit memo, or null when the memo
-// is not a sealed bid — such a stray has no owner key and is only ever an exception-queue row (R7 item 6).
-export function memoSealedBid(memoHex: string): string | null {
+// The 512-byte BNZ memo framing (docs/PHASE-1.md section 6). v2 (R16 item 2, corrected by R18):
+//   ff424e5a02 || u16be ct_len || tlock_ct || envelope_tag (18) || zero pad
+// where envelope_tag is the first 18 bytes of SHA-256(envelope_ct) for a bid that carries an envelope, or
+// 18 zero bytes when it does not (exact 512-byte fit at ct_len = 487; `bid seal` refuses any longer
+// ciphertext). 18 bytes stop a third party from substituting an envelope for someone else's deposit at
+// 2^144 (second preimage); a 2^72 collision would only let a depositor confuse its own refund, and the key
+// commitment plus 2-signer agreement still decide the destination (R18). v1 (pre-R16 evidence):
+//   ff424e5a01 || u16be length || tlock ciphertext || zero pad
+// v1 memos stay readable; they bind no envelope. Returns the sealed-bid ciphertext inside a deposit memo
+// and the memo's envelope tag (null for v1), or null when the memo is not a sealed bid — such a stray has
+// no owner key and is only ever an exception-queue row (R7 item 6).
+export function memoSealedBid(memoHex: string): { ciphertext_hex: string; envelope_tag: string | null } | null {
   try {
     if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
-    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
-    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
-    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
-    return memo.subarray(7, 7 + length).toString("hex");
+    const memo = Buffer.from(memoHex, "hex"), version = memo.subarray(0, 5), length = memo.readUInt16BE(5);
+    if (version.equals(Buffer.from("ff424e5a01", "hex"))) {
+      if (length <= 0 || length > 505 || !memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+      return { ciphertext_hex: memo.subarray(7, 7 + length).toString("hex"), envelope_tag: null };
+    }
+    if (version.equals(Buffer.from("ff424e5a02", "hex"))) {
+      if (length <= 0 || length > 487 || !memo.subarray(7 + length + 18).equals(Buffer.alloc(487 - length))) return null;
+      return { ciphertext_hex: memo.subarray(7, 7 + length).toString("hex"), envelope_tag: memo.subarray(7 + length, 7 + length + 18).toString("hex") };
+    }
+    return null;
   } catch {
     return null;
   }
+}
+
+// The memo-bound envelope rule (R16 item 2): only the depositor sets the memo, so the memo's envelope tag
+// is the pre-R authenticator of an envelope record — a record is bound exactly when the first 18 bytes of
+// SHA-256(envelope_ct) equal the memo's tag. A v1 memo (null) binds nothing and an all-zero tag says the bid
+// carries no envelope, so neither can bind a record. One shared rule for intake (clear/auction-cli admit),
+// verify (api/public-auction) and the signer's cancel path (memoBoundEnvelope), so they cannot drift (R12).
+export function memoBindsEnvelope(memoEnvelopeTag: string | null, envelopeCtHex: string): boolean {
+  return typeof memoEnvelopeTag === "string" && /^[0-9a-f]{36}$/.test(memoEnvelopeTag) &&
+    memoEnvelopeTag !== "00".repeat(18) && /^[0-9a-f]+$/.test(envelopeCtHex) && envelopeCtHex.length % 2 === 0 &&
+    hash(Buffer.from(envelopeCtHex, "hex")).slice(0, 36) === memoEnvelopeTag;
+}
+
+// R16 item 2: before R a signer authenticates an envelope from the chain alone — the deposit's scanned memo
+// commits to the envelope tag (framing v2) — with no tlock opening at all, then opens it with its own
+// key to the bidder's destination. A record the memo does not bind is never opened (null) and the cancel
+// path moves its deposit to the exception queue. Track A wires this into the CANCELLED/REFUNDING branch.
+export function memoBoundEnvelope(memoHex: string, rec: EnvelopeRecord, envelopePrivateHex: string): string | null {
+  const memo = memoSealedBid(memoHex);
+  return memo && memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) ? openDestination(rec, envelopePrivateHex) : null;
 }
 
 // The published-record format rule is the one shared `envelopeRecordValid(record, envelope_keys)` exported
@@ -121,13 +155,17 @@ export function authenticatedMemoEnvelope(
 ): EnvelopeRecord | null {
   try {
     const note = partyNote(observed, party);
-    const ctHex = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
-    if (!ctHex) return null;
+    const memo = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
+    if (!memo) return null;
+    const ctHex = memo.ciphertext_hex;
     const ctHash = hash(Buffer.from(ctHex, "hex"));
     const rec = (envelopes ?? []).find(e => e.ciphertext_hash === ctHash);
     if (!rec) return null;
-    // (a) memo v2's envelope_tag binding arrives with Track B's memo v2 merge; until then (b).
     const manifest = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8"));
+    // (a) head merge (R20 + R16 item 2/R18): a framing-v2 memo whose envelope_tag binds this record (only the
+    // depositor sets the memo) authenticates it before R with no tlock opening; it must still satisfy the shared
+    // format/recipient rule.
+    if (memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) && envelopeRecordValid(rec, manifest.envelope_keys)) return rec;
     const ptHex = tleOpening(tleBin, manifest.drand.chain_hash, ctHex);
     if (!ptHex) return null;
     const pt = Buffer.from(ptHex, "hex");

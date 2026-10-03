@@ -1,0 +1,33 @@
+commit be91c62 tree (R25 item 1 stashed: envelope/deliver.ts envelope/index.ts envelope/bid.ts crosschain/stealth.ts at f885a63, pre-fix — deliver has no salt, KDF benzo-stealth-eph-v1 over public coordinates only)
+utc 2026-10-03T09:06:57Z
+command bash crosschain/stealth-demo.sh
+    | |_______^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:323:16
+    |
+323 |         return keccak256(abi.encodePacked(ROOT_PREFIX, leafCount, treeRoot));
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+npm notice run build:cli
+npm notice run node cli/build.mjs
+== boot anvil (127.0.0.1:8546)
+== run stealth delivery demo
+PASS stealth-canonical-deploy
+PASS stealth-meta-address-registered
+PASS stealth-escrow-deployed
+PASS stealth-escrow-lock
+WARN witness no witness set (pre-Phase-5 manifest)
+PASS stealth-attest-from-envelope
+PASS stealth-derive-reproducible
+ERROR stealth-link-probe-fails the guessed-meta-address probe reproduced the paid address 0xB00356d8fD8774128D9a6a12248115017d6807E8 (ephemeral 0x02a67c65f25b27711073a21bf34987278bd085425f708dc5402f86ecdabd63a238) — the payout is linkable
+PASS stealth-release-pays-with-stipend
+PASS stealth-scan-finds-delivery
+PASS stealth-recover-spends
+PASS stealth-recovered-key-controls-funds
+PASS stealth-privacy
+RESULT FAIL 1 stealth assertion(s) failed

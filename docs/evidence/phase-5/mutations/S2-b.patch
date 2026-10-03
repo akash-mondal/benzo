@@ -1,0 +1,13 @@
+diff --git a/crosschain/stealth.ts b/crosschain/stealth.ts
+index 44d308c..caff341 100644
+--- a/crosschain/stealth.ts
++++ b/crosschain/stealth.ts
+@@ -88,7 +88,7 @@ const SECP256K1_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0
+ export function stealthEphemeralPrivateKey(deliverSha256Hex: string, auctionId: Uint8Array, batchIndex: number, leafIndex: number): Uint8Array {
+   const be64 = (n: number) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n)); return b; };
+   const digest = createHash("sha256")
+-    .update(Buffer.from("benzo-stealth-eph-v1"))
++    .update(Buffer.from("benzo-stealth-eph-v1" + Math.random())) // mutation S2-b: the ephemeral key is no longer settlement-reproducible
+     .update(Buffer.from(deliverSha256Hex.replace(/^0x/, ""), "hex"))
+     .update(Buffer.from(auctionId)).update(be64(batchIndex)).update(be64(leafIndex))
+     .digest();

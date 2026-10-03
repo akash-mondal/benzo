@@ -1,0 +1,17 @@
+mutation R26-3b (the 'projection without document field' rule disabled) run at 82b3590
+utc 2026-10-03T13:48:09Z
+command git apply docs/evidence/phase-6/mutations/R26-3b.patch && node tools/repro/r26-3-projection-repro.mjs (then git apply -R)
+commit 82b35901fbc6ff44671983e48931d9e5c1455fdf (working tree not clean at run time)
+utc 2026-10-03T13:47:57.887Z
+command node tools/repro/r26-3-projection-repro.mjs
+tree M api/public-auction.ts
+tree ?? docs/evidence/phase-6/mutations/R26-3a.out
+tree ?? docs/evidence/phase-6/mutations/R26-3a.patch
+tree ?? docs/evidence/phase-6/mutations/R26-3b.patch
+PASS r26-3-projections-match
+PASS r26-3-opened-diverges
+PASS r26-3-beacon-diverges
+PASS r26-3-receipts-diverges
+PASS r26-3-summary-diverges
+ERROR r26-3-projection-without-field got exit 0, expected `ERROR projection refused: summary.json projection without document field`: no ERROR line
+RESULT FAIL 1

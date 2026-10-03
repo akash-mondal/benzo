@@ -5,11 +5,21 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { ed25519 } from "@noble/curves/ed25519.js";
 import { PublicKey, Keypair } from "@solana/web3.js";
-import { Wallet, getAddress } from "ethers";
+import { NonceManager, Wallet, getAddress } from "ethers";
+import { createPublicClient, http } from "viem";
 import {
   AllocationLeaf, allocationRoot, assetBytes32, buildTree, bytesToHex, destinationBytes, hexToBytes, leafHash,
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
+import { envelopePublicKey, openEnvelopePayload } from "../../envelope";
+import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
+import { CANONICAL_ERC5564_ANNOUNCER, deriveSettlementStealthAddress, prepareAnnouncement } from "../../crosschain/stealth";
+import { checkPublicAuction, loadCompletePublicAuction } from "../../api/public-auction";
+import { validEnvelope } from "../../settle/envelopes";
+import { decryptPublished, deriveClaimOpenings, publishedClient } from "../published-beacon";
+import { requireReserveOpening } from "../../manifest/reserve";
+import { verifyBeacon } from "drand-client/beacon-verification.js";
+import type { Opened } from "../../clear/core";
 import {
   evmApproved, evmApproval, evmLock, evmProvider, evmRefund, evmReleaseApproved, evmStatus, evmSubmitAttestation, EvmPayout,
 } from "../../crosschain/evm";
@@ -18,13 +28,13 @@ import {
   sendReleaseApproved, sendTx, solApproval, solConnection, solStatus, SolPayout,
   submitAttestationInstruction,
 } from "../../crosschain/solana";
-import { hash } from "../../manifest/schema";
+import { hash, requireThat } from "../../manifest/schema";
 
 export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
-  "benzo xchain attest --chain evm|solana --auction HEX32 --allocation FILE --result-hash HEX32 --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--asset is required: the escrow's asset is read from chain and must match; no default)",
-  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable)",
+  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --dir PUBLIC --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is the PRODUCT result the signer has itself validated per docs/AUDITS.md: its bytes must equal the published --dir/result.json and its allocations[].fill is the only source of the allocation leaves (the cross-chain winners[] shape is removed — R24 item 2); --dir is the published auction directory: attest runs the same public checks as `benzo verify` on it (re-derived openings, witness certificates, clearing recomputed through the registry) and refuses on any ERROR (R22), then derives every winner's opening ITSELF from the frozen leaf's ciphertext and the published, BLS-verified beacon (R21 — no opening or record comes from operator files), checks SHA-256(ciphertext) against the root-committed ciphertext_hash and the published record's owner signature + settlement commitment, then derives the leaf's destination from each --envelope-key signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation and --envelopes are removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver), winners without a valid deliver go to the bundle's exception queue; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
+  "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only] [--stipend WAD] [--announcer ADDR]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable; --stipend sends a tiny native gas stipend with each fresh stealth payout and --announcer publishes its ERC-5564 announcement on the canonical Announcer — design §4 lesson 6, the delivery flow for deliver.kind=stealth)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]   (--result is the published result.json: its sha256 is compared with the escrow's approved resultHash and the command exits 1 on mismatch)",
 ].join("\n");
@@ -48,7 +58,19 @@ const need = (a: Args, k: string): string => {
   if (typeof v !== "string" || !v) throw new Error(`missing --${k}`);
   return v;
 };
-const num = (a: Args, k: string): number => Number(need(a, k));
+const num = (a: Args, k: string): number => {
+  const v = need(a, k);
+  // R25 item 6: numeric CLI arguments are validated — no silent NaN/float coercion past parsing
+  if (!/^\d+$/.test(v)) throw new Error(`--${k} must be a non-negative integer`);
+  const n = Number(v);
+  if (!Number.isSafeInteger(n)) throw new Error(`--${k} is out of range`);
+  return n;
+};
+const big = (a: Args, k: string): bigint => {
+  const v = need(a, k);
+  if (!/^\d+$/.test(v)) throw new Error(`--${k} must be a non-negative integer`);
+  return BigInt(v);
+};
 
 const b58ToBytes = (s: string): Uint8Array => new PublicKey(s).toBytes();
 
@@ -72,7 +94,8 @@ interface Bundle {
   batch_index: number; nonce: number; expiry: number;
   asset: string; // 0x address (EVM) or the zero address (native ETH/SOL); bound in every leaf
   standard_lot: string;
-  leaves: AllocationLeaf[];
+  leaves: (AllocationLeaf & { deliver_kind?: string; announce?: { scheme_id: number; stealth_address: string; ephemeral_pubkey: string; metadata: string } })[];
+  exceptions: { index: number; lot_count: number; reason: string }[]; // R19: winners without an attestable deliver
   payouts: { index: number; lot_count: number; destination_kind: number; destination: string; leaf_count: number; proof: string[] }[];
   signers: string[]; signatures: string[];
 }
@@ -87,7 +110,7 @@ export async function run(argv: string[]): Promise<number> {
     if (verb === "lock") {
       const rpc = need(a, "rpc"), keyFile = need(a, "key"), escrow = need(a, "escrow");
       const auctionId = hexToBytes(need(a, "auction"));
-      const amount = BigInt(need(a, "amount")), lot = BigInt(need(a, "lot"));
+      const amount = big(a, "amount"), lot = big(a, "lot");
       const lockUntil = num(a, "lock-until"), deadline = num(a, "deadline");
       const signers = readSigners(chain, need(a, "signers"));
       const returnTo = need(a, "return");
@@ -118,23 +141,107 @@ export async function run(argv: string[]): Promise<number> {
     if (verb === "attest") {
       const chain2 = chain;
       const rpc = need(a, "rpc"), escrow = need(a, "escrow"), out = need(a, "out");
-      const alloc = JSON.parse(readFileSync(need(a, "allocation"), "utf8"));
+      // R19 item 2: no operator destinations. R21: no operator openings/records either — --allocation and
+      // --envelopes are removed; attest derives every leaf's opening itself from the published directory.
+      if (typeof a.allocation === "string") {
+        throw new Error("--allocation is removed (R19): destinations come from the bidder's sealed envelope (--dir + --envelope-key)");
+      }
+      if (typeof a.envelopes === "string") {
+        throw new Error("--envelopes is removed (R21): attest derives winner openings itself from the published directory (--dir)");
+      }
       const auctionId = hexToBytes(need(a, "auction"));
-      const resultHash = hexToBytes(need(a, "result-hash"));
+      // R17 item 4 (Reviewer R F7): --result FILE is a result the signer has itself validated (the signer
+      // procedure is documented in docs/AUDITS.md). The result hash is recomputed from those exact bytes and
+      // the allocation leaves are derived from the result's winner set and lot counts, so no operator input
+      // can move either; --result-hash and --allocation are cross-checks and any mismatch is refused before
+      // any key is read or any chain is contacted.
+      const norm = (h: string) => h.replace(/^0x/, "").toLowerCase();
+      const resultBytes = readFileSync(need(a, "result"));
+      const resultHashHex = hash(resultBytes); // manifest/schema hash: sha256 over the raw bytes — the product's published result hash
+      if (typeof a["result-hash"] === "string" && norm(a["result-hash"]) !== resultHashHex) {
+        throw new Error(`mismatching --result-hash ${a["result-hash"]}: the validated result bytes hash to ${resultHashHex}`);
+      }
+      let resultDoc: any;
+      try { resultDoc = JSON.parse(resultBytes.toString("utf8")); } catch { throw new Error("--result is not a JSON result"); }
+      const resultAuction = resultDoc && typeof resultDoc.auction_id === "string" ? norm(resultDoc.auction_id) : "";
+      if (resultAuction !== norm(bytesToHex(auctionId))) {
+        throw new Error(`--result auction_id ${resultAuction} does not match --auction ${norm(bytesToHex(auctionId))}`);
+      }
+      // R24 item 2 (Q6 (a)): the leaves derive from the PRODUCT result only — the allocations[].fill of the
+      // result the signer validated. The cross-chain winners[] branch is removed, so R22's full
+      // checkPublicAuction run on --dir covers the attested result exactly.
+      const derived: { index: number; lot_count: number }[] = Array.isArray(resultDoc.allocations)
+        ? resultDoc.allocations.filter((x: any) => x && Number(x.fill) > 0).map((x: any) => ({ index: Number(x.leaf_index), lot_count: Number(x.fill) }))
+        : [];
+      if (!derived.length || derived.some((d) => !Number.isSafeInteger(d.index) || d.index < 0 || !Number.isSafeInteger(d.lot_count) || d.lot_count <= 0) || new Set(derived.map((d) => d.index)).size !== derived.length) {
+        throw new Error("--result does not derive a unique positive allocation leaf set (allocations[].fill)");
+      }
+      // R22: attest runs the same public checks as `benzo verify` on --dir and refuses on any ERROR, and
+      // --result must be the directory's own published result.json bytes — so what is attested is exactly
+      // the published, witness-certified result, never a parallel one.
+      const pub = loadCompletePublicAuction(need(a, "dir"));
+      if (!resultBytes.equals(pub.resultBytes)) {
+        throw new Error(`--result does not equal --dir/result.json bytes (R22): --result hashes to ${resultHashHex}, the published result.json to ${hash(pub.resultBytes)}`);
+      }
+      if (!pub.beacon) throw new Error("attest needs the published beacon in --dir");
+      const local = publishedClient(pub.beacon);
+      // the same checks `benzo verify` runs: openings re-derived from the ciphertexts, claims opened from
+      // their published memos, the sealed reserve and serial beacon authenticated, then checkPublicAuction
+      const derivedOpenings: Opened[] = [];
+      for (const leaf of pub.frozen.leaves) {
+        const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
+        derivedOpenings.push(plaintext === null ? { leaf_index: leaf.leaf_index, plaintext_hex: null, error: "undecryptable" }
+          : { leaf_index: leaf.leaf_index, plaintext_hex: plaintext });
+      }
+      if (pub.opened.length) {
+        requireThat(pub.opened.length === derivedOpenings.length, "published opening count");
+        const publishedOpenings = new Map(pub.opened.map(o => [o.leaf_index, o]));
+        for (const d of derivedOpenings) {
+          const p = publishedOpenings.get(d.leaf_index);
+          requireThat(p && p.plaintext_hex === d.plaintext_hex && (p.error ?? null) === (d.error ?? null),
+            `opening ${d.leaf_index} published differs from re-derived`);
+        }
+      }
+      pub.opened = derivedOpenings;
+      const claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
+      if (pub.manifest.sealed_reserve !== undefined) {
+        const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
+        requireReserveOpening(pub.manifest, pub.reserveOpening, reserve);
+      } else requireReserveOpening(pub.manifest, pub.reserveOpening, null);
+      if (pub.manifest.serials) {
+        const round = pub.manifest.drand.R + pub.manifest.serials.seed_round_offset;
+        requireThat(pub.result.serial_assignment && pub.result.serial_beacon_round === round, "serial result round/assignment");
+        const serialBeacon = pub.serialBeacon;
+        requireThat(serialBeacon, "missing published serial beacon");
+        const d = pub.manifest.drand;
+        requireThat(await verifyBeacon({ public_key: d.public_key, period: d.period, genesis_time: d.genesis,
+          hash: d.chain_hash, groupHash: "", schemeID: d.scheme, metadata: { beaconID: "quicknet" } },
+          { ...serialBeacon!, randomness: hash(Buffer.from(serialBeacon!.signature, "hex")) }, round), "serial beacon BLS signature");
+      }
+      const checks = checkPublicAuction(pub, { claimOpenings });
+      for (const c of checks) if (c.warn) process.stderr.write(`WARN ${c.id} ${c.warn}\n`);
+      const errors = checks.filter(c => c.error);
+      for (const c of errors) process.stderr.write(`ERROR ${c.id} ${c.error}\n`);
+      if (errors.length) {
+        throw new Error(`attest refuses: ${errors.length} public check(s) failed on --dir (${errors.map(c => c.id).join(", ")})`);
+      }
+      const resultHash = hexToBytes(resultHashHex);
       const batchIndex = num(a, "batch"), nonce = num(a, "nonce"), expiry = num(a, "expiry");
       // §10 F-2: signers must attest expiry <= deadline (both chains refuse otherwise); the
       // deadline comes from the locked auction on chain. R9 item 2: so does the asset — the
       // leaves bind exactly what the escrow locked, and --asset must be present and match it
       // (no silent default).
-      let chainAsset: string, escrowDeadline: number;
+      let chainAsset: string, escrowDeadline: number, chainLot: string;
       if (chain2 === "evm") {
         const st = await evmStatus(rpc, escrow, bytesToHex(auctionId), []);
         escrowDeadline = st.deadline;
         chainAsset = getAddress(st.asset); // from the escrow state on chain
+        chainLot = st.standardLot;
       } else {
         const st = await solStatus(solConnection(rpc), new PublicKey(escrow), auctionId, []);
         escrowDeadline = st.deadline;
         chainAsset = "0x0000000000000000000000000000000000000000"; // the program's fixed native-SOL asset (ASSET_SOL)
+        chainLot = st.standardLot;
       }
       if (expiry > escrowDeadline) {
         throw new Error(`--expiry ${expiry} must be <= the auction deadline ${escrowDeadline} (crosschain §10 F-2)`);
@@ -147,15 +254,104 @@ export async function run(argv: string[]): Promise<number> {
       if (given !== chainAsset) {
         throw new Error(`--asset ${given} does not match the escrow's asset ${chainAsset} on chain`);
       }
-      const standardLot = BigInt(alloc.standard_lot);
-      const leaves: AllocationLeaf[] = alloc.leaves;
+      // R21: every winner's opening is derived HERE — the frozen leaf's own ciphertext (SHA-256 of it is
+      // the root-committed ciphertext_hash) decrypted with the published, BLS-verified beacon through
+      // `cli/published-beacon` decryptPublished (the same derivation `benzo verify` uses). The published
+      // record for that hash must then pass the shared owner-signature + settlement-commitment rule
+      // (settle/envelopes validEnvelope) against that opening. Only then is the winner's `deliver` opened
+      // (R19: at least 2 --envelope-key signers agree on SHA-256(deliver), else the exception queue).
+      if (pub.manifest.auction_id !== bytesToHex(auctionId).slice(2)) {
+        throw new Error(`--dir auction ${pub.manifest.auction_id} does not match --auction ${bytesToHex(auctionId).slice(2)}`);
+      }
+      // R25 item 2: --envelope-key values are deduplicated by public key and must be distinct members
+      // of the signed manifest's envelope_keys — one key passed twice counts once, never as a second
+      // signer (a duplicated key must not manufacture a 2-of-3 agreement).
+      const envKeyFiles: string[] = Array.isArray(a["envelope-key"]) ? a["envelope-key"] as string[] : [need(a, "envelope-key")];
+      const envPrivates: string[] = [];
+      const envSeen = new Set<string>();
+      for (const f of envKeyFiles) {
+        const priv = readFileSync(f, "utf8").trim();
+        let pubHex: string;
+        try { pubHex = envelopePublicKey(priv); } catch { throw new Error(`--envelope-key ${f}: not a valid X25519 key`); }
+        requireThat(Array.isArray(pub.manifest.envelope_keys) && pub.manifest.envelope_keys.includes(pubHex),
+          `--envelope-key ${f}: not a member of the manifest's envelope_keys`);
+        if (envSeen.has(pubHex)) continue; // one key passed twice counts once
+        envSeen.add(pubHex);
+        envPrivates.push(priv);
+      }
+      const standardLot = BigInt(chainLot); // pinned by the signed manifest and locked on chain; never operator input
+      const exceptions: { index: number; lot_count: number; reason: string }[] = [];
+      const leaves: (AllocationLeaf & { deliver_kind?: string; announce?: { scheme_id: number; stealth_address: string; ephemeral_pubkey: string; metadata: string } })[] = [];
+      for (const d of derived) {
+        const ex = (reason: string) => { exceptions.push({ index: d.index, lot_count: d.lot_count, reason }); };
+        const fl: any = pub.frozen!.leaves[d.index];
+        if (!fl || typeof fl.ciphertext_hex !== "string" || typeof fl.ciphertext_hash !== "string") { ex("no frozen leaf"); continue; }
+        if (hash(Buffer.from(fl.ciphertext_hex, "hex")) !== fl.ciphertext_hash) { ex("ciphertext hash mismatch"); continue; }
+        let ptHex: string | null = null;
+        try { ptHex = await decryptPublished(fl.ciphertext_hex, local); } catch (e) { ex(`bid did not open: ${(e as Error).message}`); continue; }
+        if (!ptHex) { ex("bid did not open"); continue; }
+        const opened = Buffer.from(ptHex, "hex");
+        if (opened.length !== 128 || opened[0] !== 0 || opened.subarray(1, 33).toString("hex") !== pub.manifest.auction_id) { ex("opened bid layout"); continue; }
+        const rec = pub.envelopes.find((e) => e.ciphertext_hash === fl.ciphertext_hash) as any;
+        if (!rec || typeof rec.envelope_ct !== "string" || typeof rec.owner_sig !== "string") { ex("no envelope record"); continue; }
+        // R21 check 3: the record's owner_sig and settlement commitment against THIS opening (shared rule)
+        const auth = validEnvelope({ manifest: pub.manifestPacket, frozen: { leaves: [fl] }, opened: [{ leaf_index: 0, plaintext_hex: ptHex }], envelopes: [rec] } as any, 0);
+        if (!auth) { ex("no valid owner-signed settlement envelope"); continue; }
+        const openings: { sha: string; deliver: Deliver }[] = [];
+        let openedOk = 0, noDeliver = 0;
+        let malformed: string | null = null;
+        for (const priv of envPrivates) {
+          let payload;
+          try { payload = openEnvelopePayload(rec.envelope_ct, priv); } catch { continue; } // not this signer's envelope / bad wrap
+          openedOk++;
+          if (payload.deliver === undefined) { noDeliver++; continue; }
+          try {
+            const dd = requireDeliver(payload.deliver);
+            openings.push({ sha: deliverSha256(dd), deliver: dd });
+          } catch (e) { malformed = (e as Error).message.replace(/^refused: /, ""); }
+        }
+        const agreed = openings.find((o) => openings.filter((x) => x.sha === o.sha).length >= 2) ?? null;
+        if (agreed === null) {
+          if (openedOk >= 2 && noDeliver >= 2) ex("no deliver");
+          else if (openedOk >= 2 && malformed !== null) ex(`malformed deliver: ${malformed}`);
+          else ex("signers could not agree on the envelope deliver");
+          continue;
+        }
+        const dd = agreed.deliver;
+        // R25 item 3 (Reviewer R F4): a leaf is attested only if THIS chain's escrow can pay its
+        // deliver.kind — EVM takes address and stealth, Solana takes address. A chain mismatch or any
+        // other kind (ct, railgun) goes to this chain's exception queue, never into the tree.
+        if (dd.chain !== chain2) { ex(`deliver chain ${dd.chain} does not match chain ${chain2}`); continue; }
+        if (chain2 === "evm" && dd.kind === "stealth") {
+          // one signer-reproducible fresh stealth address per (settlement, leaf) — and the ERC-5564
+          // announcement the release crank publishes so the winner's viewing key finds the payment
+          // (crosschain/stealth.ts, docs/AUDITS.md)
+          const one = deriveSettlementStealthAddress(dd, { deliverSha256Hex: agreed.sha, auctionId, batchIndex: num(a, "batch"), leafIndex: d.index, amountWei: BigInt(d.lot_count) * standardLot });
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: one.stealthAddress, deliver_kind: dd.kind,
+            announce: { scheme_id: 1, stealth_address: one.stealthAddress, ephemeral_pubkey: one.ephemeralPublicKey, metadata: one.metadata } });
+        } else if (chain2 === "evm" && dd.kind === "address") {
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: dd.to, deliver_kind: dd.kind });
+        } else if (chain2 === "solana" && dd.kind === "address") {
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 2, destination: dd.to, deliver_kind: dd.kind });
+        } else {
+          ex(`deliver.kind ${dd.kind} is not payable by the ${chain2} escrow`);
+        }
+      }
+      if (!leaves.length) {
+        throw new Error(`attest derives no attested leaves (${exceptions.length} winner(s) in the exception queue)`);
+      }
       // design §3: every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)
       const asset = chainAsset;
       const asset32 = assetBytes32(asset);
-      const derived = leaves.map((l) =>
+      const leafHashes = leaves.map((l) =>
         leafHash(auctionId, { index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind, destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes) }, asset32));
-      const tree = buildTree(derived);
-      const root = allocationRoot(tree, derived.length);
+      const tree = buildTree(leafHashes);
+      // R25 item 3 (sparse per-chain trees): leaves keep their winner (frozen leaf) index, so the root
+      // commits the leaf INDEX BOUND — the highest attested index + 1 — for the escrows' strict
+      // `index < leaf_count` check (crosschain §3, the Hyperbridge out-of-bounds lesson). The same
+      // winner keeps the same leaf hash across batches, so the per-leaf paid flag blocks double payment.
+      const leafBound = Math.max(...leaves.map((l) => l.index)) + 1;
+      const root = allocationRoot(tree, leafBound);
 
       const fields: AttestationFields = { auctionId, resultHash, allocationRoot: root, batchIndex, nonce, expiry };
       const keyFiles: string[] = Array.isArray(a["signer-key"]) ? a["signer-key"] as string[] : [need(a, "signer-key")];
@@ -183,21 +379,32 @@ export async function run(argv: string[]): Promise<number> {
         asset,
         standard_lot: standardLot.toString(),
         leaves,
+        exceptions,
         payouts: leaves.map((l, i) => ({
           index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind,
-          destination: l.destination, leaf_count: derived.length, proof: tree.proofs[i].map(bytesToHex),
+          destination: l.destination, leaf_count: leafBound, proof: tree.proofs[i].map(bytesToHex),
         })),
         signers, signatures,
       };
       writeFileSync(out, JSON.stringify(bundle, null, 2) + "\n");
-      console.log(JSON.stringify({ chain: chain2, allocation_root: bytesToHex(root), leaves: derived.length, signers, out }));
+      console.log(JSON.stringify({ chain: chain2, allocation_root: bytesToHex(root), result_hash: resultHashHex, leaves: leaves.length, exceptions, signers, out }));
       return 0;
     }
 
     if (verb === "release") {
       const rpc = need(a, "rpc"), keyFile = need(a, "key");
       const bundle: Bundle = JSON.parse(readFileSync(need(a, "bundle"), "utf8"));
-      const only = typeof a.only === "string" ? new Set(a.only.split(",").map(Number)) : null;
+      const only = typeof a.only === "string" ? new Set((() => { if (!/^\d+(,\d+)*$/.test(a.only)) throw new Error("--only must be a comma-separated list of payout indexes"); return a.only.split(",").map(Number); })()) : null;
+      // R25 item 6: --announcer must be THE canonical ERC-5564 Announcer (the same address on every
+      // chain) — an announcement on any other contract is invisible to every ERC-5564 wallet, and a
+      // malicious one could fake or hide deliveries. Refused before anything is signed or sent.
+      if (typeof a.announcer === "string") {
+        let ann: string;
+        try { ann = getAddress(a.announcer); } catch { throw new Error(`--announcer ${a.announcer} is not a valid EVM address`); }
+        if (ann !== CANONICAL_ERC5564_ANNOUNCER) {
+          throw new Error(`--announcer must be the canonical ERC-5564 Announcer ${CANONICAL_ERC5564_ANNOUNCER}`);
+        }
+      }
       const auctionId = hexToBytes(bundle.auction_id);
       const fields: AttestationFields = {
         auctionId, resultHash: hexToBytes(bundle.result_hash), allocationRoot: hexToBytes(bundle.allocation_root),
@@ -249,7 +456,33 @@ export async function run(argv: string[]): Promise<number> {
             leafCount: p.leaf_count, proof: p.proof,
           } as EvmPayout)),
         });
-        console.log(JSON.stringify({ chain, submitted, tx, payouts: chosen.map((p) => p.index) }));
+        // design §4 lesson 6: the release flow delivers each fresh stealth destination too — the tiny
+        // native gas stipend (--stipend WAD) so the winner never funds the one-time address from a
+        // known wallet, and the ERC-5564 announcement (--announcer ADDR) whose bytes were fixed at
+        // attest time, so the winner finds the payment with its viewing key alone.
+        const stipend = typeof a.stipend === "string" ? big(a, "stipend") : 0n;
+        const wallet = new NonceManager(new Wallet(readFileSync(keyFile, "utf8").trim(), evmProvider(rpc)));
+        const stipendTxs: string[] = [], announceTxs: string[] = [];
+        for (const p of chosen) {
+          const leaf: any = bundle.leaves.find((l) => l.index === p.index);
+          if (leaf?.deliver_kind !== "stealth") continue;
+          if (stipend > 0n) {
+            const t = await wallet.sendTransaction({ to: p.destination, value: stipend });
+            await t.wait();
+            stipendTxs.push(t.hash);
+          }
+          if (typeof a.announcer === "string") {
+            if (!leaf.announce) throw new Error(`bundle leaf ${p.index} carries no announcement`);
+            const call = await prepareAnnouncement(
+              { publicClient: createPublicClient({ transport: http(rpc) }) },
+              (await wallet.getAddress()) as `0x${string}`, getAddress(a.announcer) as `0x${string}`,
+              { stealthAddress: leaf.announce.stealth_address as `0x${string}`, ephemeralPublicKey: leaf.announce.ephemeral_pubkey as `0x${string}`, metadata: leaf.announce.metadata as `0x${string}` });
+            const t = await wallet.sendTransaction({ to: call.to, data: call.data, value: call.value ?? 0n });
+            await t.wait();
+            announceTxs.push(t.hash);
+          }
+        }
+        console.log(JSON.stringify({ chain, submitted, tx, payouts: chosen.map((p) => p.index), stipend_txs: stipendTxs, announce_txs: announceTxs }));
         return 0;
       }
       const conn = solConnection(rpc);

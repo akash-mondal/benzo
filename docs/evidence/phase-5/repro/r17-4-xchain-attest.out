@@ -1,0 +1,37 @@
+commit e58e3f9ee68f323e6bba4251ace1791b16e8e501
+utc 2026-10-03T03:07:39Z
+command bash crosschain/local-demo.sh
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+ERROR xchain mismatching --result-hash 0x0000000000000000000000000000000000000000000000000000000000000000: the validated result bytes hash to 2e85bf54b4cf45901dc9a330effee47a58836faae3546368e71e4d16996aa0bd
+PASS demo-attest-result-hash-mismatch-refused
+ERROR xchain mismatching allocation: the result derives [{"index":0,"lot_count":1},{"index":1,"lot_count":1},{"index":2,"lot_count":1}] and --allocation does not match it
+PASS demo-attest-allocation-mismatch-refused
+ERROR xchain --expiry 1791000471 must be <= the auction deadline 1791000461 (crosschain §10 F-2)
+ERROR xchain --expiry 1791000471 must be <= the auction deadline 1791000461 (crosschain §10 F-2)
+PASS demo-attest-expiry-past-deadline-refused
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+ERROR xchain result hash mismatch: chain 2e85bf54b4cf45901dc9a330effee47a58836faae3546368e71e4d16996aa0bd published 69246abd97e41900cab4d29462f341987fb34783cf49b14e8016af2b23ec13af
+ERROR xchain result hash mismatch: chain 2e85bf54b4cf45901dc9a330effee47a58836faae3546368e71e4d16996aa0bd published 69246abd97e41900cab4d29462f341987fb34783cf49b14e8016af2b23ec13af
+PASS demo-status-result-hash-mismatch-refused
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x3d6ff20c", reason=null, transaction={ "data": "0x61d0e97e62dabbd43f3c8e8ac18ece919ad141fac9fe56b08c32317b4fe8b1d7175efa652e85bf54b4cf45901dc9a330effee47a58836faae3546368e71e4d16996aa0bdcc864a6d3ea3d23ad87c380f9674c00eeb4706db1bc24579ed21c83e9f40715e00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006ac07f8d00000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000041b76132f4c4908d8cd3b5b2389c157cc19ac06bbcde20f6410930244123d5e6bd100e321c4e50efe7f520602d71eae069121c7edf0935a918e182bd35b9616e641c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000041b09f929602d01b565eb47a468cd250b493a3eeb6c09b7be464ee147708acbff83e8cccc69a9509aa2ca6dedc119d93da7a8259817363efeeff1961fe2d3673101c00000000000000000000000000000000000000000000000000000000000000", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x1bf55193", reason=null, transaction={ "data": "0x7249fbb604aae5448cc990c9e34540d3b3c6977b7583aa5f76a498b6ff154de87126c6cd", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT PASS one cleared drop delivered end to end locally on both chains

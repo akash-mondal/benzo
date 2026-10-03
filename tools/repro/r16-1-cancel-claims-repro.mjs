@@ -104,7 +104,10 @@ let outcome = "INCONCLUSIVE", plan = null;
 if (planRun.code === 0) {
   plan = JSON.parse(planRun.stdout);
   console.log(`C1 obligations: ${JSON.stringify(plan.obligations.map((o) => o.party))}`);
-  console.log(`C1 destinations: ${JSON.stringify(plan.destinations)}`);
+  // leak-audit (gate LA): the destinations map is printed with abbreviated UAs only (it is a map of
+  // refund destinations — a full delivery address in evidence links a payout to a recipient).
+  const ab = (a) => (typeof a === "string" && a.length > 20 ? a.slice(0, 8) + "…" + a.slice(-6) : a);
+  console.log(`C1 destinations: ${JSON.stringify(Object.fromEntries(Object.entries(plan.destinations ?? {}).map(([k, v]) => [k, ab(v)])))}`);
   console.log(`C1 exceptions: ${JSON.stringify(plan.exceptions.map((o) => ({ party: o.party.slice(0, 34), reason: o.reason ?? null })))}`);
   const claimed = plan.claim_envelopes?.[party] ?? plan.destinations?.[party];
   if (claimed === undefined && plan.obligations.some((o) => o.party === party) && Object.keys(plan.destinations ?? plan.claim_envelopes ?? {}).length === 0) {

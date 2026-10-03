@@ -22,6 +22,8 @@ for (const l of readFileSync(path.join(ROOT, ".env"), "utf8").split("\n")) {
   if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
 }
 const STATE = path.resolve(ROOT, process.env.BNZ_STATE_DIR);
+// leak-audit (gate LA): printed outputs never carry a full destination UA; comparisons keep full values.
+const ab = (a) => (typeof a === "string" && a.length > 20 ? a.slice(0, 8) + "…" + a.slice(-6) : a);
 const { generateOwnerKey, generateEnvelopeKey, openEnvelope, sealEnvelope, signEnvelope, settlementCommitment } =
   await import(path.join(ROOT, "envelope/dist/index.mjs"));
 
@@ -41,7 +43,7 @@ try {
   const ek = JSON.parse(readFileSync(operatorKeyFile, "utf8"));
   sealToPub = ek.public_hex;
   const rec = (published.envelopes ?? [])[0];
-  if (rec && ek.private_hex) console.log(`F-1 CONFIRMED: operator state ${path.basename(operatorKeyFile)} holds the envelope private key; it decrypts leaf 0's destination ${openEnvelope(rec.envelope_ct, ek.private_hex)}`);
+  if (rec && ek.private_hex) console.log(`F-1 CONFIRMED: operator state ${path.basename(operatorKeyFile)} holds the envelope private key; it decrypts leaf 0's destination ${ab(openEnvelope(rec.envelope_ct, ek.private_hex))}`);
 } catch {
   console.log("F-1 FIXED: no operator-held envelope private key exists in product state");
   sealToPub = generateEnvelopeKey().public_hex; // any key; after the fix nothing opens it — the probe never needs to
@@ -96,7 +98,7 @@ try {
     const check = spawnSync(path.join(ROOT, "bin/benzo"), ["sign", "inspect", "--id", id, "--batch", "1", "--candidate", candidate, "--name", signerName], { encoding: "utf8", maxBuffer: 64 << 20 });
     console.log(`sign inspect exit ${check.status}`);
     console.log((check.stdout + check.stderr).trim().slice(-400));
-    if (check.status === 0) { outcome = "CONFIRMED"; console.log(`CONFIRMED: the signer approved a real PCZT paying ${attacker} — the coordinator rewrites STATE/auction/<id>.json and every check passes.`); }
+    if (check.status === 0) { outcome = "CONFIRMED"; console.log(`CONFIRMED: the signer approved a real PCZT paying ${ab(attacker)} — the coordinator rewrites STATE/auction/<id>.json and every check passes.`); }
     else if (/private ledger|differ|refused/.test(check.stderr)) { outcome = "FIXED"; console.log(`FIXED: the signer refused the redirected PCZT (${check.stderr.trim().slice(-160)}).`); }
     else console.log("INCONCLUSIVE: refusal for an unrelated reason; see output above");
   }

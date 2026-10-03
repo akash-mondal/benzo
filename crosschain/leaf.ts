@@ -9,8 +9,9 @@
 // Zcash or the funding path enters a leaf (lesson 5). The same layout is enforced on chain by
 // contracts/evm/src/BenzoEscrow.sol and contracts/solana/src/lib.rs.
 import { keccak_256 } from "@noble/hashes/sha3";
+import { bech32m } from "@scure/base";
 
-export type DestinationKind = 1 | 2; // 1 = EVM address (20 bytes), 2 = Solana pubkey (32 bytes)
+export type DestinationKind = 1 | 2 | 3; // 1 = EVM address (20 bytes), 2 = Solana pubkey (32 bytes), 3 = Railgun 0zk recipient (73 bytes, R19)
 
 export interface AllocationLeaf {
   index: number;
@@ -63,7 +64,9 @@ export function assetBytes32(asset: string): Uint8Array {
   return out;
 }
 
-/** Destination bytes for a leaf: kind 1 is a 20-byte EVM address, kind 2 a 32-byte Solana pubkey. */
+/** Destination bytes for a leaf: kind 1 is a 20-byte EVM address, kind 2 a 32-byte Solana pubkey,
+ *  kind 3 (R19) a Railgun 0zk recipient — its bech32m-decoded 73-byte payload (version ‖ master ‖
+ *  network ‖ viewing), the canonical byte form of the address the shield request will name. */
 export function destinationBytes(kind: DestinationKind, destination: string, base58ToBytes: (s: string) => Uint8Array): Uint8Array {
   if (kind === 1) {
     const b = hexToBytes(destination);
@@ -78,6 +81,13 @@ export function destinationBytes(kind: DestinationKind, destination: string, bas
     }
     const b = base58ToBytes(destination);
     if (b.length !== 32) throw new Error(`Solana destination must be 32 bytes: ${destination}`);
+    return b;
+  }
+  if (kind === 3) {
+    const dec = bech32m.decode(destination as `${string}1${string}`, 127);
+    if (dec.prefix !== "0zk") throw new Error(`Railgun destination must be a 0zk address: ${destination}`);
+    const b = bech32m.fromWords(dec.words);
+    if (b.length !== 73) throw new Error(`Railgun destination payload must be 73 bytes: ${destination}`);
     return b;
   }
   throw new Error(`unknown destination kind ${kind as number}`);

@@ -1,0 +1,16 @@
+mutation R26-3a (the projection byte-comparison disabled) run at 82b3590
+utc 2026-10-03T13:47:49Z
+command git apply docs/evidence/phase-6/mutations/R26-3a.patch && node tools/repro/r26-3-projection-repro.mjs (then git apply -R)
+commit 82b35901fbc6ff44671983e48931d9e5c1455fdf (working tree not clean at run time)
+utc 2026-10-03T13:47:33.771Z
+command node tools/repro/r26-3-projection-repro.mjs
+tree M api/public-auction.ts
+tree ?? docs/evidence/phase-6/mutations/R26-3a.patch
+tree ?? docs/evidence/phase-6/mutations/R26-3b.patch
+PASS r26-3-projections-match
+ERROR r26-3-opened-diverges got exit 0, expected `ERROR projection refused: opened.json projection differs`: no ERROR line
+ERROR r26-3-beacon-diverges got exit 0, expected `ERROR projection refused: beacon.json projection differs`: no ERROR line
+ERROR r26-3-receipts-diverges got exit 0, expected `ERROR projection refused: receipts.json projection differs`: no ERROR line
+ERROR r26-3-summary-diverges got exit 0, expected `ERROR projection refused: summary.json projection differs`: no ERROR line
+PASS r26-3-projection-without-field
+RESULT FAIL 4

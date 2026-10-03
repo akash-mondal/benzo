@@ -59,6 +59,9 @@ const withSettlement = (name, mutate) => {
   return cli(["verify", "--dir", dir, "--signer", signer]);
 };
 const show = (label, r) => console.log(`${label}: exit ${r.code} ${r.out.split("\n").filter((l) => l.startsWith("ERROR") || l.startsWith("WARN")).join(" | ").slice(0, 300) || "(no error lines)"}`);
+// leak-audit (gate LA): outputs never carry a full destination UA — a delivery address in evidence links a
+// payout to a recipient. Comparisons below keep the full values; only the printed form is abbreviated.
+const ab = (a) => (typeof a === "string" && a.length > 20 ? a.slice(0, 8) + "…" + a.slice(-6) : a);
 
 const correct = withSettlement("correct", null);
 show("C2 correct exception state verifies", correct);
@@ -75,12 +78,12 @@ if (live) {
     const ownerPrivate = JSON.parse(readFileSync(keyFile, "utf8")).owner_private_hex;
     const destination = spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")], { encoding: "utf8" }).stdout.trim();
     const request = cli(["claim-refund", "--id", id, "--party", `leaf:${a.leaf_index}`, "--destination", destination, "--owner-key-stdin"], undefined, ownerPrivate);
-    console.log(`C4 build claim leaf:${a.leaf_index} -> ${request.code === 0 ? "signed for " + destination : "refused " + request.out.trim().slice(-120)}`);
+    console.log(`C4 build claim leaf:${a.leaf_index} -> ${request.code === 0 ? "signed for " + ab(destination) : "refused " + request.out.trim().slice(-120)}`);
     const reqFile = path.join(base, `claim-${a.leaf_index}.json`);
     writeFileSync(reqFile, request.out.trim(), { mode: 0o600 });
     const recorded = cli(["claim-refund", "--id", id, "--file", reqFile]);
     console.log(`C4 settle claim leaf:${a.leaf_index}: exit ${recorded.code} ${recorded.out.split("\n").filter((l) => l.startsWith("ERROR")).join(" | ").slice(0, 200)}`);
-    console.log(`C4 paid to owner-named ${destination}: ${recorded.out.includes("settled") || recorded.code === 0 ? "see receipts" : "no"}`);
+    console.log(`C4 paid to owner-named ${ab(destination)}: ${recorded.out.includes("settled") || recorded.code === 0 ? "see receipts" : "no"}`);
   }
   const cold = path.join(base, "cold"); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
   show("C4 verify on the cold settled copy", cli(["verify", "--dir", cold, "--signer", signer]));

@@ -1,0 +1,23 @@
+commit 519da8a4c12c374483613be62dcb210334006489 (mutation R17-4b.patch applied to cli/commands/xchain.ts)
+utc 2026-10-03T03:10:49Z
+command bash crosschain/local-demo.sh
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+PASS demo-attest-result-hash-mismatch-refused
+ERROR demo-attest-allocation-mismatch-refused rc=0: 
+PASS demo-attest-expiry-past-deadline-refused
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+PASS demo-status-result-hash-mismatch-refused
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT FAIL 1 demo assertion(s) failed

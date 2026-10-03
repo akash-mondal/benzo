@@ -1,0 +1,13 @@
+diff --git a/cli/commands/xchain.ts b/cli/commands/xchain.ts
+index cb06f31..9c2d175 100644
+--- a/cli/commands/xchain.ts
++++ b/cli/commands/xchain.ts
+@@ -233,7 +233,7 @@ export async function run(argv: string[]): Promise<number> {
+         const agreed = openings.find((o) => openings.filter((x) => x.sha === o.sha).length >= 2) ?? null;
+         if (agreed === null) {
+           if (openedOk >= 2 && noDeliver >= 2) ex("no deliver");
+-          else if (openedOk >= 2 && malformed !== null) ex(`malformed deliver: ${malformed}`);
++          else if (openedOk >= 2 && malformed !== null) { /* mutation R19-b: the exception queue is disabled for a malformed deliver */ }
+           else ex("signers could not agree on the envelope deliver");
+           continue;
+         }

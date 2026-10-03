@@ -10,7 +10,7 @@ import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Pat
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
-import { memoSealedBid } from "../settle/envelopes";
+import { memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isDepositParty } from "../settle/deposits";
 import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
 
@@ -235,6 +235,23 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     if (existsSync(p)) requireThat(jsonBytes(value).equals(readFileSync(p)), `${name} projection differs`);
   };
+  // R26 item 3 (Reviewer R F5): the projection files a publisher writes beside the canonical
+  // auction.json must agree with the document — a divergence (including a projection for a field the
+  // document does not carry) is an ERROR, never a silent preference for one side. The four checked
+  // here (opened/beacon/receipts/summary) are the projections only a legacy dir treats as a source.
+  run("projection", () => {
+    if (pub.legacy) return;
+    const doc = JSON.parse(readFileSync(path.join(pub.dir, "auction.json"), "utf8")) as Record<string, unknown>;
+    const problems: string[] = [];
+    for (const [name, key] of [["opened.json", "opened"], ["beacon.json", "beacon"], ["receipts.json", "receipts"], ["summary.json", "settlement"]]) {
+      const p = path.join(pub.dir, name), value = doc[key];
+      try {
+        if (value === null || value === undefined) requireThat(!existsSync(p), `${name} projection without document field`);
+        else if (existsSync(p)) requireThat(jsonBytes(value).equals(readFileSync(p)), `${name} projection differs`);
+      } catch (e) { problems.push((e as Error).message); }
+    }
+    if (problems.length) throw new Error(problems.join("; "));
+  });
   // Checks apply to the fields the current state carries (R21 item 5): manifest always, freeze/receipts
   // once frozen, clear/accounting once result. A pre-freeze dir is valid when its manifest is.
   run("missing-deposits", () => checkMissingDeposits(pub));
@@ -343,6 +360,11 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen!.leaves.find(l => l.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
+      // R16 item 2: verify checks the same rule as intake — the record must be the envelope the depositor's
+      // memo committed to (the leaf carries the scanned memo's envelope tag, first 18 bytes of
+      // SHA-256(envelope_ct), set at intake from framing v2). A record whose tag differs from it is an ERROR;
+      // v1-era leaves carry no tag and stay readable.
+      if (leaf!.memo_envelope_tag !== undefined) requireThat(memoBindsEnvelope(leaf!.memo_envelope_tag, rec.envelope_ct), `envelope ${leaf!.leaf_index} not bound to the deposit memo`);
       requireThat(!byLeaf.has(leaf!.leaf_index), `duplicate envelope ${leaf!.leaf_index}`);
       byLeaf.set(leaf!.leaf_index, rec);
     }

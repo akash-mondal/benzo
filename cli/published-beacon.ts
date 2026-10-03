@@ -53,7 +53,7 @@ export async function deriveClaimOpenings(claims: { party: string; memo_hex?: st
   const local = publishedClient(beacon!);
   for (const [i, c] of claims.entries()) {
     if (!c.party.startsWith("deposit:")) continue;
-    const ct = typeof c.memo_hex === "string" ? memoSealedBid(c.memo_hex) : null;
+    const ct = typeof c.memo_hex === "string" ? memoSealedBid(c.memo_hex)?.ciphertext_hex ?? null : null;
     openings.set(i, ct ? await decryptPublished(ct, local) : null);
   }
   return openings;

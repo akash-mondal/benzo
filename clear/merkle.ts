@@ -3,7 +3,7 @@
 import { hash, jsonBytes, requireThat, verifyRecord, type Signed } from "../manifest/schema";
 export type Deposit = { txid: string; pool: "ironwood"; address: string; diversifier_index: string };
 export type Receipt = { auction_id: string; manifest_hash: string; ciphertext_hash: string; deposit: Deposit; leaf_index: number };
-export type Leaf = Receipt & { ciphertext_hex: string };
+export type Leaf = Receipt & { ciphertext_hex: string; memo_envelope_tag?: string }; // v2 memos (R16 item 2, R18) add the scanned memo's envelope tag (first 18 bytes of SHA-256(envelope_ct)); v1-era leaves omit it (the root covers only ciphertext_hash + deposit)
 export type Path = { side: "left" | "right"; hash: string }[];
 export type Frozen = { auction_id: string; manifest_hash: string; root: string; leaf_count: number; cutoff: number; published_at: number; leaves: Leaf[]; paths: Path[] };
 export const leafHash = (ciphertextHash: string, deposit: Deposit) => hash(Buffer.concat([Buffer.from([0]),Buffer.from(ciphertextHash,"hex"),jsonBytes(deposit)]));

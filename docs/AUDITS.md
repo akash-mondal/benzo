@@ -36,7 +36,9 @@ account-layout version and every instruction checks it; EVM escrows are redeploy
 | Solana devnet | `AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4` (ProgramData `HxCEzNaJmjDn3oA9pMjshoctkr32iywgNAKdVMC1tFQm`) | **closed** (R14 head unblock; carried the R14 CPI-forgery P0) — close tx `5CiZmsXFgph3qG7FJUVFmye17tjFbtLyAPyLqLYeMtJWzdyPW7C1VMfjWjtqC4Giz7ySuFPhLCob6MFLDVoCXho`, 0.52033932 SOL reclaimed; was layout v2, 102,256 bytes, sha256 `48870cc9…c2673` |
 | Solana devnet | `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` | **closed** (R14 head unblock) — close tx `4uckQB5BcZraQ8UGiDMSMGK2LW9spt8oaC1arV3KDuCSnBpcPdyxnVKvmTnTwX1f5LY4edmHQYnUMQVn7XSz92Nu`, 0.56540908 SOL reclaimed; was SUPERSEDED (pre-layout-version build) |
 | Solana devnet | `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G` | **closed** (R14 head unblock) — close tx `5XUS9BkcprYAdL5FKSLs9iYNsM3u6DMi9iSEk7hgqxCpWsu3yPJoRJ2GkFh8KsPwyVSFYmYz2ArCuBfT5QkAyhBw`, 0.53265324 SOL reclaimed; was SUPERSEDED (earliest deployment) |
-| Ethereum Sepolia | `0x8d085193Cf762dD4F946BE48f609AaA2405bbe65` (deploy tx `0xf48b8c79…5379b`) | **current** — attest-once/release-many + `lock` nonReentrant (R9 items 3–4); `0x19887941cf9BbD967f3739034127924f937D48ad` and earlier **SUPERSEDED** |
+| Ethereum Sepolia | `0x1dc207D5B04C8CFB043d4420054a2219a544dD85` (deploy tx `0x85129a3e92dcbc3761de431bb27b750a15783270a108a0187bba42022c65c2f8`, block 11834134) | **current** — the recorded live stealth-delivery run (`docs/evidence/phase-5/repro/stealth-live.out`); fresh deploy, never an in-place upgrade (R9 item 1) |
+| Ethereum Sepolia | `0x9BAaB3064C29927710AdaE5812F08D274C0f6431`, `0x42f122667d751fc72823D528758a602893870f3A` | **SUPERSEDED** — same-day earlier live attempts of the identical build (pre-log-chunking scan), left untouched on chain |
+| Ethereum Sepolia | `0x8d085193Cf762dD4F946BE48f609AaA2405bbe65` (deploy tx `0xf48b8c79…5379b`) | **SUPERSEDED** (2026-10-03, declared default carried in STATUS-B Questions: R14 item 4 changed `BenzoEscrow.sol`'s storage layout, so per R9 item 1 there is no in-place upgrade and live work redeploys fresh) — was attest-once/release-many + `lock` nonReentrant (R9 items 3–4); `0x19887941cf9BbD967f3739034127924f937D48ad` and earlier **SUPERSEDED** |
 
 ## Dependencies
 
@@ -68,6 +70,9 @@ account-layout version and every instruction checks it; EVM escrows are redeploy
 | `ethers` | `6.17.0` (root `package.json`, exact) | EIP-712 typed-data signing, RPC | Unaudited client tooling (not deployed) |
 | `@solana/web3.js` | `1.99.0` (root `package.json`, exact) | RPC, tx building | Unaudited client tooling (not deployed) |
 | `libsodium-wrappers` | `0.8.4` (root `package.json`, exact, `package-lock.json`) | Settlement-envelope cryptography: X25519 keygen, `crypto_box_seal`/`crypto_box_seal_open` content-key wraps per stanza, `crypto_aead_chacha20poly1305_ietf` body, `crypto_generichash` (BLAKE2b) envelope key commitment | **Audited, but not this exact revision — read the versions plainly.** The wrapped code is the official libsodium C distribution compiled to JS/WASM. The one public assessment, "Libsodium v1.0.12 and v1.0.13 Security Assessment" (Dr. Matthew Green, Cryptography Engineering LLC, 2017, funded by Private Internet Access), covered **libsodium 1.0.12 and 1.0.13 only** (it reviewed the library's cryptographic design incl. Curve25519 sealed boxes). The libsodium C build bundled inside `libsodium-wrappers` 0.8.4 reports **libsodium 1.0.22** (`sodium_version_string()` at the pin), so the audit does **not** cover the bundled release itself — the primitives used are libsodium's standard, unchanged defaults and no post-1.0.13 assessment is public. The JS wrapper layer (input marshalling) is unaudited glue; it performs no cryptography |
+| `@scure/base` | `1.2.6` (root `package.json`, exact) | `base58` (Solana deliver keys) and `bech32m` (Railgun `0zk` address checksum) in `envelope/deliver.ts`, `crosschain/leaf.ts` | Audited (paulmillr's scure series; the same `bech32m` implementation the Railgun engine itself uses for `0zk` addresses) |
+| `@scopelift/stealth-address-sdk` | `1.0.0-beta.5` (root `package.json`, exact) | ERC-5564 scheme-1 stealth delivery: meta-address parsing, one-time address derivation, announcements, `checkStealthAddress`/`computeStealthKey`, and the **canonical Announcer/Registry**: `ERC5564_CONTRACT_ADDRESS` / `ERC6538_CONTRACT_ADDRESS` (the same addresses on every chain) and their canonical creation bytecode (`ERC5564_BYTECODE`/`ERC6538_BYTECODE`, used to deploy on local chains; on Ethereum Sepolia the canonical deployments are used as-is) | **This SDK is a beta and an unaudited client tool — say it plainly: `1.0.0-beta.5` has no public audit, and a beta client is the tool's biggest open risk.** It is not deployed code (it builds and submits transactions; the on-chain behaviour is the canonical ERC-5564/ERC-6538 contracts — **canonical deployments used as-is on Ethereum Sepolia: Announcer `0x55649E01B5Df198D18D95b5cc5051630cfD45564`, Registry `0x6538E6bf4B0eBd30A8Ea093027Ac2422ce5d6538`**, and their canonical creation bytecode deployed on local chains), and every address it derives is checked by the winner-side `checkStealthAddress` before use. Escrow custody never depends on it. **Known client defect on this pin (found and recorded by the local delivery run):** its `getAnnouncements` filters logs through viem's positional-array `args` form, which matches nothing on pinned viem 2.57.1 (the named-object form matches the very same events) — `crosschain/stealth.ts` `scanDeliveries` therefore fetches the Announcement logs itself with viem's named-args form and keeps every cryptographic step (`getAnnouncementsForUser`'s `checkStealthAddress` filter, `computeStealthKey`) in the pinned SDK |
+| `viem` | `2.57.1` (root `package.json`, exact) | The public client the ScopeLift SDK's chain actions read through | Unaudited client tooling (not deployed) |
 
 ## Custom security-relevant code
 
@@ -90,10 +95,67 @@ funding from the pooled balance — red/green runs in `contracts/logs/f5-*`).
 | `cli/commands/xchain.ts` | CLI wiring for the above | As above |
 | `contracts/evm/test/TestToken.sol` | **Test-only fixture**: plain ERC-20 (OpenZeppelin audited `ERC20` base, open `mint`) deployed on Ethereum Sepolia for the design §7 step-5 testnet run | A mintable demo token is the run's asset; no audited option is needed because it holds no custody and obeys the assets allowlist (no fee, no rebase, no hooks) |
 | `envelope/index.ts` | Settlement-envelope framing: `benzo-envelope-v2` magic/count/stanza layout with the `crypto_generichash` key-commitment field, fixed 512-byte length-prefixed padded plaintext, owner Ed25519 binding, salted settlement commitment | Protocol-specific framing (design §4); no audited library defines it. All cryptography inside it is audited libsodium (above) — the wrap/seal/AEAD/keygen/hash calls are that library's standard functions, no hand-written key derivation |
-| `envelope/destination.ts` | Zcash address classification (bech32/bech32m, ZIP-316 UA container under F4Jumble, Base58Check) and the shielded-only destination rule | No audited option existed at the time (zcash_address 0.13.0 pinned behaviour could not be consumed from Node); **known mainnet blocker (R8): replace with `zcash_address` (head replace list) before any mainnet use** |
+| `envelope/destination.ts` | Zcash address classification and the shielded-only destination rule | **Row CLOSED 2026-10-03 (R24 item 3 (i), the known mainnet blocker is gone).** The hand-written bech32/bech32m, ZIP-316 UA container under F4Jumble and Base58Check parser is deleted; classification now comes from the pinned audited **`zcash_address` 0.13.0** (librustzcash, `settle/Cargo.toml` exact — the zcash-devtool lock; librustzcash carries Least Authority audit history) through the `benzo-pczt classify-address` subcommand (settle/src/main.rs), called from `envelope/destination.ts`, which keeps only the product's shielded-only rule and its verdict strings. Proven on the existing destination fixtures (official zcash-test-vectors rows, `tools/repro/fixtures/zcash-address-cases.json`) plus fresh real testnet UAs/Sapling/t-addr/TEX with verdicts identical to the pre-swap parser (`docs/evidence/phase-6/repro/r24-3i-classify-address.out`) |
+| `envelope/deliver.ts` | R19 deliver payload validation and canonicalization: per-chain `to` formats (Solana base58 32-byte key, EVM address — R25 item 4: any case accepted, normalised with ethers `getAddress`, mixed case must pass the EIP-55 checksum; Railgun `0zk` bech32m; ERC-5564 stealth meta-address), the mandatory secret `salt` (R25 item 1: 32 random bytes generated by the sealer inside the sealed envelope) and `SHA-256(deliver)` over canonical JSON | Protocol-specific envelope payload (PHASE-5 R19/R25); no library defines it. All encodings are decoded and checksum-verified by pinned libraries (`@scure/base`, ethers `getAddress`) — no hand-written checksum code |
+| `crosschain/stealth.ts` (`stealthEphemeralPrivateKey`) | **Custom construction:** the per-settlement stealth ephemeral private key is `SHA-256("benzo-stealth-eph-v2" ‖ salt ‖ SHA-256(deliver) ‖ auction_id ‖ batch_index ‖ leaf_index)`, fed to the pinned ScopeLift SDK's `generateStealthAddress` as its `ephemeralPrivateKey` | Every signer must derive the *same* one-time stealth address (the allocation root is signed by 2-of-3), while ERC-5564 addresses are normally derived from a random ephemeral key; no audited library provides a signer-reproducible derivation. Only the derivation of `r` is custom — all curve work and the ERC-5564 scheme-1 derivation itself stay in the pinned SDK. **R25 item 1 (Reviewer R F1):** `salt` is the deliver's mandatory secret 32 random bytes, generated by the sealer inside the sealed envelope and covered by `SHA-256(deliver)` — before it, anyone who could guess a winner's meta-address re-derived the key from public settlement coordinates and linked the payout (the exact linking probe, now `stealth-link-probe-fails` in `crosschain/stealth-demo.mjs`). With the salt, the derivation is known only to parties who open the envelope: a leaked *code* can never link a payout without the salt, and the salt alone links nothing else |
+
+## Signer procedure: `benzo xchain attest` (R17 item 4)
+
+The signers never take the result hash or the allocation from operator input. On each signer host, before
+signing any attestation:
+
+1. **Validate the result yourself.** Take the auction's public directory and run
+   `benzo verify --dir <dir> --signer <expected signer>`; it must report `OK envelope` and no ERROR. This
+   recomputes the clearing from the frozen tree and openings (the same fresh-clearing check
+   `settle/plan.ts` performs on the settlement path), so the `<dir>/result.json` it accepts is a result the
+   signer has itself validated. Never attest a result that did not come through this check.
+2. **Attest that result's bytes.** Run
+   `benzo xchain attest --chain … --auction … --result <dir>/result.json --dir <dir> --envelope-key <this signer's envelope key file> … --signer-key <this signer's key file>`.
+   The command requires `--result` to be the directory's own published `result.json` **bytes** (R22) and
+   recomputes `result_hash = SHA-256(result bytes)` from them; the allocation leaves come only from that
+   PRODUCT result's `result.allocations[].fill` (the cross-chain `winners[]` shape is removed — R24
+   item 2). It runs the same public checks as `benzo verify` on `--dir` (openings re-derived from the
+   frozen ciphertexts, claim openings from the published memos, the sealed reserve and serial beacon
+   authenticated, `checkPublicAuction` — frozen root, gate-X witness certificates, the clearing
+   recomputed through the registry) and **refuses on any ERROR** before any key is read or chain
+   contacted (R22).
+   **Destinations come from the winners' sealed envelopes (R19) and openings are derived by the command
+   itself (R21) — never from operator input:** `--allocation` and `--envelopes` are removed and refused. For
+   every winner leaf the command decrypts the frozen leaf's own ciphertext with the published, BLS-verified
+   beacon (`cli/published-beacon`, the same derivation `benzo verify` uses), checks `SHA-256(ciphertext)`
+   against the root-committed `ciphertext_hash`, verifies the published record's owner signature and
+   settlement commitment against that opening (`settle/envelopes` `validEnvelope`), and only then opens
+   `deliver` with the signers' `--envelope-key` opens — a leaf is attested only when at least 2 signers agree
+   on `SHA-256(deliver)`. Each `--envelope-key` must be a member of the manifest's `envelope_keys` and is
+   deduplicated by public key (one key passed twice counts once, R25 item 2). A leaf is attested only if
+   THIS chain's escrow can pay its `deliver.kind` — EVM takes `address` and `stealth`, Solana takes
+   `address`; a chain mismatch or any other kind (ct, railgun) goes to that chain's exception queue (R25
+   item 3). Winners without an attestable deliver go to the bundle's exception queue for that
+   chain. A `--result-hash` is optional and is refused unless it equals the recomputed hash. These refusals
+   happen before any key file is read.
+3. **Cross-check what was signed.** The printed `result_hash` must equal the result hash `benzo verify` /
+   the read API report for the directory. After release, `benzo xchain status --result <dir>/result.json`
+   compares the escrow's approved `resultHash` with the published file and exits 1 on mismatch.
+4. Key files are read from the signer's own state and never printed. Signer keys sign nothing but the
+   domain-separated attestation (design §1) over the values derived in step 2.
+
+## Token-2022 confidential transfer (R25 F6: a standalone capability demo, not an escrow delivery)
+
+`crosschain/ct.ts` + `crosschain/ct-delivery.mjs` (`deliver.kind = "ct"`) demonstrate Token-2022
+Confidential Transfers on Solana devnet — a fresh account configured from the bidder's sealed
+`deliver.elgamal`, a confidential transfer whose amount is hidden on chain, and the bidder applying
+and withdrawing (evidence `docs/evidence/phase-5/repro/ct-live.out`). **This is NOT an escrow
+delivery:** the Solana escrow pays native SOL only, so a `ct` leaf is exception-queued at attest
+(R25 item 3) and the recorded run stands as the capability demonstration. Confidential SPL delivery
+needs escrow token support — future work. The Token-2022 machinery is driven through the official
+`spl-token` CLI 5.6.1 (the token-2022 repo's own client); `crosschain/ct.ts` holds the checks no tool
+performs (the deliver ↔ account-configuration binding, the amount-hidden assertion over the raw
+submitted transaction).
 
 ## Later steps (not yet landed)
 
-Railgun (`@railgun-community/engine` for shield-request building) and Token-2022 confidential
-transfer come in design §7 steps 4 with their own pins and audit notes (Railgun: Zokyo 2022-12-21
-covers the deployed v2 `shield()`; see `zcash/research/benzo-ideas/UMBRA-RAILGUN-VERIFY.md` §B3).
+Railgun (`@railgun-community/engine` for shield-request building) is deferred to mainnet future
+work (R24 item 1): it needs a custody-touching shield adapter in `BenzoEscrow.sol` (custom contract
+code, so audit-hard) and conflicts with the exact `ethers` pin. ERC-5564 stealth is the EVM
+private-delivery path for the hackathon. (Railgun's own references: Zokyo 2022-12-21 covers the
+deployed v2 `shield()`; see `zcash/research/benzo-ideas/UMBRA-RAILGUN-VERIFY.md` §B3.)
