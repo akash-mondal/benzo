@@ -1,0 +1,33 @@
+diff --git a/crosschain/stealth.ts b/crosschain/stealth.ts
+index a019b07..481dd23 100644
+--- a/crosschain/stealth.ts
++++ b/crosschain/stealth.ts
+@@ -92,10 +92,9 @@ export function stealthEphemeralPrivateKey(saltHex: string, deliverSha256Hex: st
+   const be64 = (n: number) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n)); return b; };
+   const digest = createHash("sha256")
+     .update(Buffer.from("benzo-stealth-eph-v2"))
+-    .update(Buffer.from(saltHex.replace(/^0x/, ""), "hex"))
+     .update(Buffer.from(deliverSha256Hex.replace(/^0x/, ""), "hex"))
+     .update(Buffer.from(auctionId)).update(be64(batchIndex)).update(be64(leafIndex))
+-    .digest();
++    .digest(); // mutation R25-1b: the KDF does not mix the salt
+   const k = BigInt("0x" + digest.toString("hex"));
+   if (k === 0n || k >= SECP256K1_N) throw new Error("stealth ephemeral key out of range"); // ~2^-128
+   return new Uint8Array(digest);
+diff --git a/envelope/deliver.ts b/envelope/deliver.ts
+index b2cde3f..b726047 100644
+--- a/envelope/deliver.ts
++++ b/envelope/deliver.ts
+@@ -36,9 +36,9 @@ export type DeliverInput = Omit<Deliver, "salt"> & { salt?: string };
+ export function canonicalDeliverJson(d: Deliver): string {
+   return canonical(
+     d.elgamal === undefined
+-      ? { chain: d.chain, kind: d.kind, to: d.to, salt: d.salt }
+-      : { chain: d.chain, kind: d.kind, to: d.to, elgamal: d.elgamal, salt: d.salt },
+-  );
++      ? { chain: d.chain, kind: d.kind, to: d.to }
++      : { chain: d.chain, kind: d.kind, to: d.to, elgamal: d.elgamal },
++  ); // mutation R25-1b: the salt is not covered by deliverSha256
+ }
+ export function deliverSha256(d: Deliver): string {
+   return createHash("sha256").update(canonicalDeliverJson(d), "utf8").digest("hex");
