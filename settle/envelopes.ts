@@ -7,6 +7,7 @@
 // docs/design/phase5-part1-live.md §4.
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
 import { hash, requireThat } from "../manifest/schema";
+import { tleOpening } from "../manifest/reserve";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -101,21 +102,53 @@ export function envelopeRecipient(
   return rec ? openDestination(rec, envelopePrivateHex) : null;
 }
 
-// R10 item 2: the deposit-party twin of envelopeRecipient. A stray/cancelled deposit's envelope record is
-// the one keyed by the hash of its memo's sealed bid (the memo binds the record to the deposit — R16.2/R18),
+// R20 (head review of c7f1029): a stray or cancelled deposit's envelope is AUTHENTICATED before it is ever
+// opened — an operator-inserted record for a memo-less or v1 stray is never paid. Exactly one of:
+//   (a) the deposit memo is framing v2 and its envelope_tag binds rec.envelope_ct (Track B's rule, arriving
+//       with the memo v2 merge — the hook below is a no-op until the parser yields the tag), or
+//   (b) after R, the record passes validEnvelope against the memo's own tlock opening — the bid's owner
+//       signature plus its salted settlement commitment, with the memo opening to this auction's 128-byte
+//       sealed-bid layout.
+// Otherwise null — the row is an exception row, claimable through benzo claim-refund.
+export function authenticatedMemoEnvelope(
+  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  party: string,
+  manifestPacket: any,
+  envelopes: EnvelopeRecord[] | undefined,
+  tleBin: string,
+): EnvelopeRecord | null {
+  try {
+    const m = /^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
+    const note = m ? observed.find(n => n.txid === m[1] && String(n.diversifier_index) === m[2]) : undefined;
+    const ctHex = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
+    if (!ctHex) return null;
+    const ctHash = hash(Buffer.from(ctHex, "hex"));
+    const rec = (envelopes ?? []).find(e => e.ciphertext_hash === ctHash);
+    if (!rec) return null;
+    // (a) memo v2's envelope_tag binding arrives with Track B's memo v2 merge; until then (b).
+    const manifest = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8"));
+    const ptHex = tleOpening(tleBin, manifest.drand.chain_hash, ctHex);
+    if (!ptHex) return null;
+    const pt = Buffer.from(ptHex, "hex");
+    if (pt.length !== 128 || pt[0] !== 0 || pt.subarray(1, 33).toString("hex") !== manifest.auction_id) return null;
+    return validEnvelope({ manifest: manifestPacket, frozen: { leaves: [{ leaf_index: 0, ciphertext_hash: ctHash }] }, opened: [{ leaf_index: 0, plaintext_hex: ptHex }], envelopes }, 0);
+  } catch {
+    return null;
+  }
+}
+
+// R10 item 2 + R20: the deposit-party twin of envelopeRecipient — the AUTHENTICATED memo-bound record,
 // opened with the signer's own key. Total like the rest of this module: anything unresolvable is null.
 export function memoEnvelopeRecipient(
   observed: { txid: string; diversifier_index: string; memo_hex: string }[],
   party: string,
+  manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
+  tleBin: string,
   envelopePrivateHex: string,
 ): string | null {
   try {
-    const m = /^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
-    const note = m ? observed.find(n => n.txid === m[1] && String(n.diversifier_index) === m[2]) : undefined;
-    const ct = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
-    if (!ct) return null;
-    const rec = (envelopes ?? []).find(e => e.ciphertext_hash === hash(Buffer.from(ct, "hex")));
+    const rec = authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, tleBin);
     return rec ? openDestination(rec, envelopePrivateHex) : null;
   } catch {
     return null;

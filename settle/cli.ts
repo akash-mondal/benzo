@@ -12,7 +12,7 @@ const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
 type ResolvedRow=Row&{recipient?:string;reason?:string};
-function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>}):ResolvedRow[] {
+function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>;envelope_agreed?:Record<string,string>}):ResolvedRow[] {
   const route=read(`routing-${name}.json`),observed=notes();
   requireThat(hash(jsonBytes(route))===read("routing-commitment.json").sha256,"signer routing changed after intake");
   // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
@@ -45,7 +45,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
     // its reason, never a throw (R12 item 3); the row is claimable through benzo claim-refund.
     if(product&&row.party.startsWith("leaf:")) {
       const recipient=envelopeRecipient(a,Number(row.party.slice(5)),ownEnvelopePrivate(STATE,name)??"");
-      if(recipient)return {...row,recipient};
+      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
       return {...row,reason:`envelope destination refused: this signer's key does not open the envelope (party ${row.party}; refund waits in the exception queue)`};
     }
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
@@ -54,8 +54,8 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
     // own memo-bound owner-signed envelope (opened with this signer's key) or its owner-signed claim; there
     // is no operator-chosen destination.
     if(product&&row.party!=="seller") {
-      const recipient=memoEnvelopeRecipient(observed,row.party,(a as any).envelopes,ownEnvelopePrivate(STATE,name)??"");
-      if(recipient)return {...row,recipient};
+      const recipient=memoEnvelopeRecipient(observed,row.party,(a as any).manifest,(a as any).envelopes,path.join(STATE,"bin","tle"),ownEnvelopePrivate(STATE,name)??"");
+      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
       return {...row,reason:`stray refund refused: no owner-signed settlement envelope or claim (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
     }
     const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;
