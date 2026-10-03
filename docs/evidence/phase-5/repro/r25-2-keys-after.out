@@ -1,0 +1,265 @@
+commit c8d82cd tree (clean)
+utc 2026-10-03T09:13:25Z
+command bash crosschain/local-demo.sh
+== build (from the working tree)
+note[screaming-snake-case-immutable]: immutables should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:11:34
+   |
+11 |     BenzoEscrow public immutable escrow;
+   |                                  ^^^^^^ help: consider using: `ESCROW`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-immutable
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/PartialRelease.t.sol:20:31
+   |
+20 |     bytes32 internal constant auctionId = keccak256("partial-release-auction");
+   |                               ^^^^^^^^^ help: consider using: `AUCTION_ID`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ApprovalGetter.t.sol:36:31
+   |
+36 |     bytes32 internal constant auctionId = keccak256("approval-getter-auction");
+   |                               ^^^^^^^^^ help: consider using: `AUCTION_ID`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ApprovalGetter.t.sol:37:31
+   |
+37 |     bytes32 internal constant resultHash = keccak256("published result.json bytes"); // the published result hash
+   |                               ^^^^^^^^^^ help: consider using: `RESULT_HASH`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ApprovalGetter.t.sol:38:31
+   |
+38 |     bytes32 internal constant allocationRoot = keccak256("attested allocation root");
+   |                               ^^^^^^^^^^^^^^ help: consider using: `ALLOCATION_ROOT`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ApprovalGetter.t.sol:39:30
+   |
+39 |     uint64 internal constant batchIndex = 7;
+   |                              ^^^^^^^^^^ help: consider using: `BATCH_INDEX`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ApprovalGetter.t.sol:40:30
+   |
+40 |     uint64 internal constant nonce = 3;
+   |                              ^^^^^ help: consider using: `NONCE`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ApprovalGetter.t.sol:41:30
+   |
+41 |     uint64 internal constant expiry = 0;
+   |                              ^^^^^^ help: consider using: `EXPIRY`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:55:31
+   |
+55 |     bytes32 internal constant auctionA = keccak256("auction-A");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_A`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/ReentrancyRepro.t.sol:56:31
+   |
+56 |     bytes32 internal constant auctionB = keccak256("auction-B");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_B`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-immutable]: immutables should use SCREAMING_SNAKE_CASE
+  --> test/BenzoEscrow.t.sol:36:35
+   |
+36 |     BenzoEscrow private immutable escrow;
+   |                                   ^^^^^^ help: consider using: `ESCROW`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-immutable
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/FeeTokenDrain.t.sol:66:31
+   |
+66 |     bytes32 internal constant auctionA = keccak256("attacker-auction");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_A`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:218:30
+    |
+218 |           bytes32 structHash = keccak256(
+    |  ______________________________^
+219 | |             abi.encode(RELEASE_TYPEHASH, att.auctionId, att.resultHash, att.allocationRoot, att.batchIndex, att.nonce, att.expiry)
+220 | |         );
+    | |_________^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/BenzoEscrow.t.sol:80:31
+   |
+80 |     bytes32 internal constant auctionId = keccak256("auction-1");
+   |                               ^^^^^^^^^ help: consider using: `AUCTION_ID`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-immutable]: immutables should use SCREAMING_SNAKE_CASE
+  --> test/LockReentry.t.sol:12:34
+   |
+12 |     BenzoEscrow public immutable escrow;
+   |                                  ^^^^^^ help: consider using: `ESCROW`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-immutable
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:297:16
+    |
+297 |           return keccak256(
+    |  ________________^
+298 | |             abi.encode(
+299 | |                 keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+300 | |                 keccak256(bytes(DOMAIN_NAME)),
+...   |
+305 | |         );
+    | |_________^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/FeeTokenDrain.t.sol:67:31
+   |
+67 |     bytes32 internal constant auctionB = keccak256("victim-auction");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_B`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:317:16
+    |
+317 |   ...   return keccak256(
+    |  ______________^
+318 | | ...       abi.encodePacked(LEAF_PREFIX, auctionId, index, bytes32(uint256(uint160(asset))), lotCount, destinationKind, destination)
+319 | | ...   );
+    | |_______^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[asm-keccak256]: use of inefficient hashing mechanism; consider using inline assembly
+   --> src/BenzoEscrow.sol:323:16
+    |
+323 |         return keccak256(abi.encodePacked(ROOT_PREFIX, leafCount, treeRoot));
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/LockReentry.t.sol:80:31
+   |
+80 |     bytes32 internal constant auctionA = keccak256("lock-reentry-A");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_A`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+note[screaming-snake-case-const]: constants should use SCREAMING_SNAKE_CASE
+  --> test/LockReentry.t.sol:81:31
+   |
+81 |     bytes32 internal constant auctionB = keccak256("lock-reentry-B");
+   |                               ^^^^^^^^ help: consider using: `AUCTION_B`
+   |
+   = help: https://book.getfoundry.sh/reference/forge/forge-lint#screaming-snake-case-const
+
+    Finished `release` profile [optimized] target(s) in 0.15s
+npm notice run build:cli
+npm notice run node cli/build.mjs
+== solana program id: 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G
+== boot anvil (127.0.0.1:8546) and solana-test-validator (127.0.0.1:8901)
+== run demo
+PASS demo-envelope-opens-to-deliver
+PASS demo-drand-beacon
+PASS demo-bid-seal-deliver
+PASS demo-product-result
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+ERROR xchain --allocation is removed (R19): destinations come from the bidder's sealed envelope (--dir + --envelope-key)
+PASS demo-attest-allocation-refused
+ERROR xchain --envelopes is removed (R21): attest derives winner openings itself from the published directory (--dir)
+PASS demo-attest-envelopes-refused
+PASS demo-attest-destinations-from-envelope
+PASS demo-attest-malformed-deliver-exception
+PASS demo-attest-malformed-deliver-exception-both-chains
+PASS demo-attest-no-agreement-exception
+WARN envelope invalid envelope 0; refund goes to the exception queue
+PASS demo-attest-fabricated-opening-exception
+WARN envelope invalid envelope 0; refund goes to the exception queue
+PASS demo-attest-substituted-envelope-exception
+ERROR xchain --result does not derive a unique positive allocation leaf set (allocations[].fill)
+PASS demo-attest-crosschain-result-refused
+ERROR xchain --result does not equal --dir/result.json bytes (R22): --result hashes to 250f33e6a9718e4f1750528b085c1def50f1e7c8aee5acb5a115ce05901fe781, the published result.json to 4817b88f89ee26c305439f5cb54b9eb79879500c32ce472dee11877e7a1ac307
+PASS demo-attest-result-bytes-mismatch-refused
+ERROR witness refused: certificate statement differs
+ERROR xchain attest refuses: 1 public check(s) failed on --dir (witness)
+PASS demo-attest-swapped-leaf-refused
+ERROR xchain attest derives no attested leaves (6 winner(s) in the exception queue)
+PASS demo-attest-envelope-key-dedup
+ERROR xchain refused: --envelope-key .benzo/xchain-local/envelope-key-nonmember.key: not a member of the manifest's envelope_keys
+PASS demo-attest-envelope-key-nonmember
+ERROR xchain mismatching --result-hash 0x0000000000000000000000000000000000000000000000000000000000000000: the validated result bytes hash to 4817b88f89ee26c305439f5cb54b9eb79879500c32ce472dee11877e7a1ac307
+PASS demo-attest-result-hash-mismatch-refused
+ERROR xchain --expiry 1791022422 must be <= the auction deadline 1791022412 (crosschain §10 F-2)
+ERROR xchain --expiry 1791022422 must be <= the auction deadline 1791022412 (crosschain §10 F-2)
+PASS demo-attest-expiry-past-deadline-refused
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset is required: the escrow's asset is 0x0000000000000000000000000000000000000000 (read from chain); there is no default
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+ERROR xchain --asset 0x1111111111111111111111111111111111111111 does not match the escrow's asset 0x0000000000000000000000000000000000000000 on chain
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+ERROR xchain result hash mismatch: chain 4817b88f89ee26c305439f5cb54b9eb79879500c32ce472dee11877e7a1ac307 published 43ba3c697023c6a048dd2bb0ef9e88b5d4ffa8b7f1cf93700408c6978516aded
+ERROR xchain result hash mismatch: chain 4817b88f89ee26c305439f5cb54b9eb79879500c32ce472dee11877e7a1ac307 published 43ba3c697023c6a048dd2bb0ef9e88b5d4ffa8b7f1cf93700408c6978516aded
+PASS demo-status-result-hash-mismatch-refused
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x3d6ff20c", reason=null, transaction={ "data": "0x61d0e97e18ce1bebe97b2847e0f5918d264a56d32c0cd980db07ef0405edcc249a22726a4817b88f89ee26c305439f5cb54b9eb79879500c32ce472dee11877e7a1ac307cdf1a4b99879683d066eeed4f57f22c504a2c07a873f3ee1954f428cb272e5ff00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000006ac0d54c00000000000000000000000000000000000000000000000000000000000000e00000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000000c00000000000000000000000000000000000000000000000000000000000000041b7396d0fd10bf5cc0e08023d30832d6a44b7c52113e1121c1e474c4862af68ae6e0a30c4c2bf871add372daede1b2f581122808152da25cf2c87df41ff000b181b0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000418eb966838ba82475cc40b23b1c48fd751fdc84a3ac9f73df2904c36fa4c064457ada72db2fdad766dbd617ee20bd822a1f11d486fcfc00f25596e92efbfe71d31b00000000000000000000000000000000000000000000000000000000000000", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 1: custom program error: 0x9. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 5116 of 203000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x9"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+ERROR xchain execution reverted (unknown custom error) (action="estimateGas", data="0x1bf55193", reason=null, transaction={ "data": "0x7249fbb64cddd184a90b086aec7565e063184e4a8a39775cbc913d384272c53aaba7db6c", "from": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266", "to": "0x5FbDB2315678afecb367f032d93F642f64180aa3" }, invocation=null, revert=null, code=CALL_EXCEPTION, version=6.17.0)
+ERROR xchain Simulation failed. 
+Message: Transaction simulation failed: Error processing Instruction 0: custom program error: 0x10. 
+Logs: 
+[
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G invoke [1]",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G consumed 1297 of 200000 compute units",
+  "Program 58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G failed: custom program error: 0x10"
+]. 
+Catch the `SendTransactionError` and call `getLogs()` on it for full details.
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT PASS one cleared drop delivered end to end locally on both chains

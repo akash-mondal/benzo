@@ -1,0 +1,13 @@
+diff --git a/cli/commands/xchain.ts b/cli/commands/xchain.ts
+index 83d62c9..6e0c5c2 100644
+--- a/cli/commands/xchain.ts
++++ b/cli/commands/xchain.ts
+@@ -263,7 +263,7 @@ export async function run(argv: string[]): Promise<number> {
+         try { pubHex = envelopePublicKey(priv); } catch { throw new Error(`--envelope-key ${f}: not a valid X25519 key`); }
+         requireThat(Array.isArray(pub.manifest.envelope_keys) && pub.manifest.envelope_keys.includes(pubHex),
+           `--envelope-key ${f}: not a member of the manifest's envelope_keys`);
+-        if (envSeen.has(pubHex)) continue; // one key passed twice counts once
++        if (false && envSeen.has(pubHex)) continue; // mutation R25-2a: one key passed twice counts twice
+         envSeen.add(pubHex);
+         envPrivates.push(priv);
+       }
