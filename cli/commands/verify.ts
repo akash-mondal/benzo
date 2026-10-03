@@ -7,6 +7,7 @@ import { checkPublicAuction, loadCompletePublicAuction, loadPublicAuction } from
 import { checkSeriesLink } from "../../clear/features";
 import type { Opened } from "../../clear/core";
 import { publishedClient, decryptPublished } from "../published-beacon";
+import { memoSealedBid } from "../../settle/envelopes";
 
 export const noun = "verify";
 export const verb = "";
@@ -73,6 +74,13 @@ export async function run(argv: string[]): Promise<number> {
       }
     }
     pub.opened = derived;
+    // R13: a stray claim's owner key is derived from the stray's published memo ciphertext — the same
+    // beacon-anchored derivation as the leaf openings — so claim signatures rest on chain data, not on any
+    // coordinator-supplied opening.
+    for (const c of pub.claims ?? []) if (c.memo_hex) {
+      const ct = memoSealedBid(c.memo_hex);
+      c.opening = ct ? await decryptPublished(ct, local) : null;
+    }
     if (pub.manifest.sealed_reserve !== undefined) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(pub.manifest, pub.reserveOpening, reserve,

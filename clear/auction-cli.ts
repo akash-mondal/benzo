@@ -49,7 +49,7 @@ try {
     requireThat(m.auction_id===id && Date.now()/1000<m.T_submit,"auction init deadline");
     const ours=signRecord({},readFileSync(key,"utf8")).signer;
     requireThat(ours===input.signer,"local manifest signer");
-    ledger={manifest:input.manifest,signer:input.signer,state:"OPEN",leaves:[],receipts:[],trace:[]}; result={state:ledger.state};
+    ledger={manifest:input.manifest,signer:input.signer,state:"OPEN",leaves:[],receipts:[],trace:[],...(input.witness_set?{witness_set:input.witness_set}:{})}; result={state:ledger.state};
   } else {
     ledger=JSON.parse(readFileSync(file,"utf8"));
     const {manifest:m,manifest_hash}=client(ledger.manifest,ledger.signer), now=Math.floor(Date.now()/1000);

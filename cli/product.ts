@@ -5,11 +5,13 @@ import {createPublicKey,generateKeyPairSync} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,QUICKNET} from '../manifest/schema';
+import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
+import {requireOwnEnvelopeKey} from '../settle/envelopes';
+import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
 const key=path.join(STATE,'auction/manifest-signing.pem');
@@ -32,9 +34,19 @@ export function publish(id:string) {
   // sealed-reserve product auctions can settle and verify — both re-derive it from manifest.sealed_reserve
   // and refuse any mismatch (manifest/reserve.ts requireReserveOpening).
   if(a.reserve_opening!==undefined)doc.reserve_opening={plaintext_hex:a.reserve_opening};
+  // R8 G10 (design §5): the signed witness set travels with every rebuilt document, and the witness-signed
+  // certificates placed in the public dir by `benzo witness sign` are carried over instead of clobbered.
+  if(a.witness_set)doc.witness_set=a.witness_set;
+  const previous=existsSync(path.join(dir,'auction.json'))?JSON.parse(readFileSync(path.join(dir,'auction.json'),'utf8')):{};
+  if(previous.witness_cert)doc.witness_cert=previous.witness_cert;
   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
   if(existsSync(summary)) {
     const s=read(summary);
+    // R13: the claims the signers actually used for paid rows are published (party, destination hash, owner
+    // signature — never the destination) so anyone can check them against the openings.
+    const paid=new Set<any>(read(path.join(sd,'receipts.json')).map((r:any)=>r.party));
+    const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,destination_sha256:c.destination_sha256,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
+    if(used.length)doc.claims=used;
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
       return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
@@ -54,11 +66,19 @@ export async function runCommand(command:string,args:string[]) {
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
+    // R8 G10 (design §5): a manifest carrying witness_set_hash must be created together with the signed
+    // witness-set side-packet it commits to.
+    const witness_set=o['witness-set']?read(privatePath(o['witness-set'])):undefined;
+    if(m.witness_set_hash!==undefined){requireThat(witness_set,'manifest carries witness_set_hash but no witness set supplied');requireThat(witnessSetHash(witness_set)===m.witness_set_hash,'witness set hash mismatch')}
+    else requireThat(witness_set===undefined,'witness set without witness_set_hash');
     requireThat(!existsSync(draft(m.auction_id))&&!existsSync(ledger(m.auction_id)),'auction already exists');
-    save(draft(m.auction_id),{manifest:m,state:'DRAFT'});return {auction_id:m.auction_id,state:'DRAFT',manifest:m};
+    save(draft(m.auction_id),{manifest:m,state:'DRAFT',...(witness_set?{witness_set}:{})});return {auction_id:m.auction_id,state:'DRAFT',manifest:m};
   }
   if(command==='auction sign') {
     requireThat(id,'--id required');const d=read(draft(id));
+    // R10 item 3: every signer envelope-key file present locally must match the manifest's pin at its own
+    // index (alice 0, bob 1, carol 2), so an operator cannot sign a manifest pinning keys it holds.
+    for(const name of ['alice','bob','carol'])requireOwnEnvelopeKey(d.manifest,name,STATE);
     const k=o.key?privatePath(o.key):key;
     if(!existsSync(k)){mkdirSync(path.dirname(k),{recursive:true,mode:0o700});writeFileSync(k,generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'}),{flag:'wx',mode:0o600})}
     requireThat(path.resolve(k)===key,'auction receipt signer must match the local manifest key');
@@ -72,7 +92,7 @@ export async function runCommand(command:string,args:string[]) {
     save(config(id),{...cfg,public_dir:path.resolve(o.dir)});
     // R7 item 2: no envelope private key is ever created or held by the operator. The signed manifest pins the
     // signers' public keys (envelope_keys); the signers keep their private halves in their own state dirs.
-    ac('init',id,{manifest:d.signed,signer:d.signed.signer});sc('init',id,[],cfg.routing);return publish(id);
+    ac('init',id,{manifest:d.signed,signer:d.signed.signer,...(d.witness_set?{witness_set:d.witness_set}:{})});sc('init',id,[],cfg.routing);return publish(id);
   }
   if(command==='auction status') {
     requireThat(id,'--id required');if(!existsSync(ledger(id)))return {auction_id:id,state:read(draft(id)).state};
@@ -137,7 +157,22 @@ export async function runCommand(command:string,args:string[]) {
     }
     const admitted=ac('admit',id,bid);publish(id);return {...admitted,C_zats:m.C_zats};
   }
-  if(['freeze','open','clear'].includes(command)) {requireThat(id,'--id required');const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result}
+  if(['freeze','open','clear'].includes(command)) {
+    requireThat(id,'--id required');
+    // R8 G10 (design §5): `open` refuses without a valid q_w witness certificate when the manifest pins a
+    // witness set — a refusal, never a WARN.
+    if(command==='open') {
+      const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
+      if(m.witness_set_hash!==undefined) {
+        const docFile=path.join(path.resolve(read(config(id)).public_dir),'auction.json'),doc=existsSync(docFile)?JSON.parse(readFileSync(docFile,'utf8')):{};
+        requireThat(doc.witness_set,'missing witness set');
+        const spec=validateWitnessSet(verifyRecord<WitnessSet>(doc.witness_set,a.signer),id);
+        requireThat(witnessSetHash(doc.witness_set)===m.witness_set_hash,'witness set hash mismatch');
+        checkCertificates(doc.witness_cert??[],spec,freezeStatement(m,a.frozen));
+      }
+    }
+    const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result
+  }
   if(command==='claim-refund'&&o.party!==undefined) {
     // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.
     // The destination is chosen by the owner and never passes through operator input unsigned.
@@ -145,20 +180,24 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(/^leaf:[0-9]+$/.test(o.party)||/^deposit:[0-9a-f]{64}:.+$/.test(o.party),'claim party');
     requireShieldedDestination(o.destination);
     const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
-    const body={kind:'claim-refund',auction_id:id,party:o.party,destination_ua:o.destination};
-    return {...body,owner_sig:signStatement(owner,body)};
+    // R13: the signed body carries only the destination's SHA-256, so a published claim is checkable without
+    // revealing the destination; the signers match the full destination to its hash.
+    const body={kind:'claim-refund',auction_id:id,party:o.party,destination_sha256:hash(Buffer.from(o.destination,'utf8'))};
+    return {...body,destination_ua:o.destination,owner_sig:signStatement(owner,body)};
   }
   if(command==='claim-refund') {
-    // Operator side (R7 item 4): record the owner-signed request — first claim per party wins — and settle
-    // what it promotes (the signer plan verifies the owner signature against its own fresh opening).
-    // --defer records without settling, for operators who collect claims and settle in one batch.
+    // Operator side (R7 item 4 + R11): record the owner-signed request and settle what it promotes (the signer
+    // plan verifies the owner signature against its own fresh opening). --defer records without settling.
     requireThat(id,'--id required');const request=input(o);
-    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.destination_ua==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
+    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.destination_ua==='string'&&/^[0-9a-f]{64}$/.test(request.destination_sha256??'')&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
     requireShieldedDestination(request.destination_ua);
+    // R11: record every distinct well-shaped claim (exact repeats deduplicated, at most 8 per party) — an
+    // unsigned first claim must never block the owner's valid claim; the signer plan uses the first claim
+    // whose owner signature verifies against its own fresh opening.
     const file=path.join(STATE,'settle',id,'claims.json'),claims=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):[];
-    const old=claims.find((c:any)=>c.party===request.party);
-    requireThat(!old||jsonBytes(old).equals(jsonBytes(request)),'a different claim for this party is already recorded');
-    if(!old){claims.push(request);save(file,claims)}
+    const same=claims.filter((c:any)=>c.party===request.party);
+    requireThat(same.some((c:any)=>jsonBytes(c).equals(jsonBytes(request)))||same.length<8,'too many claims for this party');
+    if(!same.some((c:any)=>jsonBytes(c).equals(jsonBytes(request)))){claims.push(request);save(file,claims)}
     if(o.defer==='true')return {recorded:true,party:request.party};
   }
   if(command==='settle'||command==='cancel'||command==='sign join'||(command==='claim-refund'&&o.defer!=='true')) {

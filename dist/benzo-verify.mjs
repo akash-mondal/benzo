@@ -16031,7 +16031,7 @@ function checkCertificates(certs, spec, statement) {
 function readClient(packet, signer) {
   return clientForMode(packet, signer);
 }
-var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input"]);
+var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 var openedStates = /* @__PURE__ */ new Set(["OPENED", "CLEARED", "SETTLED"]);
 var frozenStates = /* @__PURE__ */ new Set(["SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED"]);
@@ -16054,7 +16054,7 @@ function loadPublicAuction(dir, opts = {}) {
   let frozen, opened, beacon;
   let launchInput;
   let serialBeacon = null;
-  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening;
+  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening, claims = [];
   if (!legacy) {
     const doc = JSON.parse(text("auction.json"));
     requireThat(doc && typeof doc === "object" && !Array.isArray(doc), "auction.json");
@@ -16090,6 +16090,8 @@ function loadPublicAuction(dir, opts = {}) {
     witnessSet = doc.witness_set ?? null;
     requireThat(doc.witness_cert === void 0 || Array.isArray(doc.witness_cert), "witness_cert");
     witnessCerts = doc.witness_cert ?? [];
+    requireThat(doc.claims === void 0 || Array.isArray(doc.claims), "claims");
+    claims = doc.claims ?? [];
     settlement = doc.settlement ?? null;
     requireThat(doc.reserve_opening === void 0 || doc.reserve_opening && typeof doc.reserve_opening === "object" && Object.keys(doc.reserve_opening).sort().join(",") === "plaintext_hex" && typeof doc.reserve_opening.plaintext_hex === "string", "reserve_opening");
     reserveOpening = doc.reserve_opening ? doc.reserve_opening.plaintext_hex : null;
@@ -16113,7 +16115,7 @@ function loadPublicAuction(dir, opts = {}) {
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
     reserveOpening = existsSync4(path4.join(root, "reserve.json")) ? String(JSON.parse(text("reserve.json")).plaintext_hex ?? "") : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, claims, settlement, reserveOpening };
 }
 function loadCompletePublicAuction(dir, opts = {}) {
   const pub = loadPublicAuction(dir, opts);
@@ -16255,6 +16257,40 @@ function checkPublicAuction(pub) {
     }
     projection("envelope.json", records);
     return warnings.filter(Boolean).join("; ") || void 0;
+  });
+  run2("claims", () => {
+    const records = pub.claims ?? [];
+    const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    for (const [i2, c2] of records.entries()) {
+      requireThat(c2 && typeof c2 === "object" && ["party", "destination_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "destination_sha256", "owner_sig", "memo_hex", "opening"].includes(k2)), `claim ${i2} shape`);
+      requireThat(/^leaf:[0-9]+$/.test(c2.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c2.party), `claim ${i2} party`);
+      requireThat(/^[0-9a-f]{64}$/.test(c2.destination_sha256) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
+      let owner = null;
+      if (c2.party.startsWith("leaf:")) {
+        const opening = pub.opened.find((o2) => o2.leaf_index === Number(c2.party.slice(5)));
+        owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
+      } else owner = typeof c2.opening === "string" && /^[0-9a-f]{256}$/.test(c2.opening) ? Buffer.from(c2.opening, "hex").subarray(61, 93).toString("hex") : null;
+      requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c2.party, destination_sha256: c2.destination_sha256 }, c2.owner_sig), `claim ${i2} owner signature`);
+    }
+    for (const row of rows) {
+      if (!receipts.some((r2) => r2.party === row.party)) continue;
+      const stray = row.party.startsWith("deposit:");
+      const rec = stray ? void 0 : (pub.envelopes ?? []).find((e) => {
+        const leaf = pub.frozen?.leaves.find((l2) => l2.leaf_index === Number(row.party.slice(5)));
+        return leaf && e.ciphertext_hash === leaf.ciphertext_hash;
+      });
+      let valid = !!rec;
+      if (valid) {
+        const opening = pub.opened.find((o2) => o2.leaf_index === Number(row.party.slice(5)));
+        try {
+          const pt2 = Buffer.from(opening?.plaintext_hex ?? "", "hex");
+          valid = pt2.length === 128 && verifyEnvelope(pt2.subarray(61, 93).toString("hex"), pub.manifest.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig) && pt2.subarray(93, 125).toString("hex") === settlementCommitment(pt2.subarray(45, 61).toString("hex"), rec.envelope_ct);
+        } catch {
+          valid = false;
+        }
+      }
+      if (!valid) requireThat(records.some((c2) => c2.party === row.party), `claim-paid row ${row.party} without a published claim`);
+    }
   });
   run2("accounting", () => {
     const result = pub.result;
@@ -16420,6 +16456,19 @@ async function decryptPublished(ciphertextHex, client2) {
   }
 }
 
+// settle/envelopes.ts
+function memoSealedBid(memoHex) {
+  try {
+    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
+    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
+    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
+    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+    return memo.subarray(7, 7 + length).toString("hex");
+  } catch {
+    return null;
+  }
+}
+
 // cli/commands/verify.ts
 var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] \u2014 re-derive openings offline and reproduce clear + accounting";
 var tleOpening2 = (ciphertext, chain) => tleOpening("tle", chain, ciphertext);
@@ -16482,6 +16531,10 @@ async function run(argv) {
       }
     }
     pub.opened = derived;
+    for (const c2 of pub.claims ?? []) if (c2.memo_hex) {
+      const ct2 = memoSealedBid(c2.memo_hex);
+      c2.opening = ct2 ? await decryptPublished(ct2, local) : null;
+    }
     if (pub.manifest.sealed_reserve !== void 0) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(

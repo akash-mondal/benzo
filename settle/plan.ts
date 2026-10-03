@@ -7,9 +7,10 @@ import {execFileSync,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
-import {client,hash,jsonBytes,QUICKNET,requireThat} from "../manifest/schema";
+import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
+import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening} from "../manifest/reserve";
-import {validEnvelope,ENVELOPE_INTERIM_REFUSAL,memoSealedBid} from "./envelopes";
+import {validEnvelope,ENVELOPE_INTERIM_REFUSAL,memoSealedBid,requireOwnEnvelopeKey} from "./envelopes";
 import {verifyStatement} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -35,6 +36,17 @@ try {
   const published=existsSync(config)?JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(config,"utf8")).public_dir),"auction.json"),"utf8")):null;
   const src=published??auction;
   const {manifest:m,manifest_hash}=client(src.manifest,src.signer);
+  // R10 item 3: each signer requires the manifest to pin ITS OWN envelope key at its own index.
+  for(const name of ["alice","bob","carol"])requireOwnEnvelopeKey(m,name,state);
+  // R8 G10 (design §5): a manifest carrying witness_set_hash refuses without a valid q_w certificate over the
+  // frozen statement — a refusal on the signer path, never a WARN.
+  if(published&&m.witness_set_hash!==undefined) {
+    requireThat(src.frozen,"missing frozen");
+    requireThat((published as any).witness_set,"missing witness set");
+    const spec=validateWitnessSet(verifyRecord<WitnessSet>((published as any).witness_set,src.signer),id);
+    requireThat(witnessSetHash((published as any).witness_set)===m.witness_set_hash,"witness set hash mismatch");
+    checkCertificates((published as any).witness_cert??[],spec,freezeStatement(m,src.frozen!));
+  }
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
   const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",path.join(state,"vault"),...args]);
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);
@@ -51,7 +63,7 @@ try {
   const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
   const stray=depositNotes.filter(n=>!src.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=stray.filter(n=>!confirmed(n)).map(n=>({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)}));
-  const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimDestinations:Record<string,string>={};
+  const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimDestinations:Record<string,string>={},claimsUsed:any[]=[];
   let result_hash:string|null=null,opened:any[]|null=null;
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
     requireThat(!src.opened,"cancelled plan has opened bids");
@@ -129,16 +141,27 @@ try {
       const ctHash=hash(Buffer.from(memoSealedBid(note.memo_hex!)!,"hex"));
       return validEnvelope({manifest:src.manifest,frozen:{leaves:[{leaf_index:0,ciphertext_hash:ctHash}]},opened:[{leaf_index:0,plaintext_hex:pt.toString("hex")}],envelopes:src.envelopes},0)!==null;
     };
-    const claimFile=path.join(state,"settle",id,"claims.json");
+    const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
     if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
       try {
-        requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.destination_ua==="string"&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
+        requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.destination_ua==="string"&&/^[0-9a-f]{64}$/.test(request.destination_sha256??"")&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
+        // R13: the signed body carries only the destination's SHA-256; the full destination must hash to it.
+        requireThat(request.destination_sha256===hash(Buffer.from(request.destination_ua,"utf8")),"claim destination hash");
         requireShieldedDestination(request.destination_ua);
-        const body={kind:"claim-refund",auction_id:id,party:request.party,destination_ua:request.destination_ua};
+        const body={kind:"claim-refund",auction_id:id,party:request.party,destination_sha256:request.destination_sha256};
         const owner=ownerKeyFor(request.party);
         requireThat(owner&&verifyStatement(owner!,body,request.owner_sig),"claim owner signature");
-        claimDestinations[request.party]=request.destination_ua;
-      } catch(e) {refusals.push({party:request.party,reason:`claim refused: ${(e as Error).message}`});process.stderr.write(`ERROR claim ${request.party} refused: ${(e as Error).message}\n`)}
+        // R11/R13: the first claim whose owner signature verifies is the one used — and later published.
+        if(!claimDestinations[request.party]) {
+          claimDestinations[request.party]=request.destination_ua;
+          const cm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(request.party);
+          const note=cm?depositNotes.find(n=>n.txid===cm[1]&&String(n.diversifier_index)===cm[2]):undefined;
+          claimsUsed.push({party:request.party,destination_sha256:request.destination_sha256,owner_sig:request.owner_sig,...(note?.memo_hex?{memo_hex:note.memo_hex}:{})});
+        }
+      } catch(e) {claimFailures[request.party]=(e as Error).message}
+    }
+    for(const [party,message] of Object.entries(claimFailures))if(!claimDestinations[party]) {
+      refusals.push({party,reason:`claim refused: ${message}`});process.stderr.write(`ERROR claim ${party} refused: ${message}\n`);
     }
     for(const [party,amount] of modeEntry(src.manifest).obligations(result)) {
       const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
@@ -166,5 +189,5 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,destinations:claimDestinations,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,destinations:claimDestinations,claims_used:claimsUsed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

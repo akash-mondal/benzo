@@ -1,0 +1,7 @@
+commit a624293 (run.json record; tree clean. head commit 0da383e — docs/PHASE-5.md only — landed mid-run, code identical)
+start_utc 2026-10-02T22:35:05.444Z
+end_utc 2026-10-02T23:17:51.706Z
+command BNZ_LIVE=1 npx playwright test --project=cli-auction (npm run e2e:live)
+fixture: routing (seller_ua/fee_reserve_ua only) differs from every envelope/claim destination; refunds complete through owner-signed benzo claim-refund requests; T1 asserts the paid destination per party via bidder-side receiving sums (R7 items 2-7, R F-6 = G G8).
+R7M1 mutation red at the same fixture: ERROR T1 (owner-named destination received 0) recorded in mutations/R7M1.out.
+results: {"O1":"PASS","P1":"PASS","T4":"PASS","O2":"PASS","T1":"PASS","T3":"PASS","Q1":"PASS","T5":"PASS","P2":"PASS","R1":"PASS","S1":"PASS","T2":"PASS"}

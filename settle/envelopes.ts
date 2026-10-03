@@ -6,11 +6,27 @@
 // source: envelope record/public shapes from api/public-auction.ts (Track B), validation rules per
 // docs/design/phase5-part1-live.md §4.
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
+import { requireThat } from "../manifest/schema";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 // R7 item 2 interim (R F-1/F-2 = G4): until Track A wires `bid seal` to the manifest's pinned key set
 // (R10 item 2), an envelope destination is refused with this clear error — never paid from an operator-held
 // key — and the refund waits in the exception queue for an owner-signed `benzo claim-refund` request (R7 item 4).
 export const ENVELOPE_INTERIM_REFUSAL = "multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used";
+
+// R10 item 3 (design §10 item 2): every signer requires the signed manifest to pin ITS OWN envelope key at
+// its own index (alice 0, bob 1, carol 2), so an operator cannot pin keys it holds and still get signatures.
+// Checked at auction sign and again in the signer's settlement plan.
+export const SIGNER_ENVELOPE_INDEX: Record<string, number> = { alice: 0, bob: 1, carol: 2 };
+export function requireOwnEnvelopeKey(m: { envelope_keys?: string[] }, name: string, stateDir: string): void {
+  const index = SIGNER_ENVELOPE_INDEX[name];
+  requireThat(index !== undefined, "unknown signer");
+  const file = path.join(stateDir, "signers", name, "envelope-key.json");
+  if (!existsSync(file)) return;
+  const own = JSON.parse(readFileSync(file, "utf8")).public_hex;
+  requireThat(Array.isArray(m.envelope_keys) && m.envelope_keys[index] === own, "manifest does not pin this signer's envelope key");
+}
 
 export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
