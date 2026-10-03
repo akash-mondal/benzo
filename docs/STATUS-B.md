@@ -3,14 +3,62 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (26): R22 + R24 Q6(a) DONE; queue after R25's landing: R25 items 1–6, then R23.3, R24 (i)–(iii), then READY FOR MERGE
+## Current run (27): R24 item 3 (iii), R26 item 3, R26 item 2 guard half, gate LA leak audit, then READY FOR MERGE
 
-State: **R22 + Q6(a) DONE with red/green proof** (code `97567fa`, evidence `4e19e5f`). Everything
-below is IN PROGRESS or not started. Updated 2026-10-03T08:5xZ. Head message this run: R22 with
-Q6 (a), R23 item 3, R24 item 3 (i)–(iii), then READY FOR MERGE; mid-run the head landed R25
-(`1279cc5`) + merge `9eeaf3f`, assigning Track B items 1–6 "after run 26's current item" (R22).
-Reading: R25's items follow R22 and precede the rest of the queue (Q1 below). No mainnet; no
-other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
+State: **IN PROGRESS.** Baseline at `890211c` (merge incl. head `2c57405`/`e465acb`/`22c206a`/
+`0deedeb`): `npm run typecheck` clean, `npm run e2e` (default seal-open) **PASS 38 s**
+(2026-10-03T13:2xZ, tmp/e2e/report.json). Updated 2026-10-03T13:26Z. Head message this run: record
+run 26's landed items first, then R24 item 3 (iii), R26 item 3 (projection divergence + fixture),
+R26 item 2's guard half (`npm run check:bundle` + AGENTS.md line), the Phase 6 gate LA leak audit,
+then READY FOR MERGE. No mainnet; no other-checkout access or writes; no merge/rebase/cherry-pick/
+push; no pin changes.
+
+### This run's queue
+
+1. **R24 item 3 (iii)**: `docs/evidence/phase-6/lp-0004.md` — the Logos LP-0004 checklist table
+   filled only from existing evidence paths (narrated video: pending).
+2. **R26 item 3 (P2, F5)**: verify reports ERROR when the `opened`/`beacon`/`receipts`/`summary`
+   projection files diverge from the canonical `auction.json`; add a fixture; red/green.
+3. **R26 item 2 guard half (B owns the verify bundle)**: `npm run check:bundle` — rebuild the verify
+   bundle into tmp, compare with the committed `dist/benzo-verify.mjs` and
+   `docs/verify-bundle.sha256`, exit 1 on mismatch; run before every commit touching `api/`,
+   `envelope/`, `settle/envelopes.ts`, `cli/commands/verify.ts`, `cli/published-beacon.ts`; record the
+   rule in AGENTS.md (User instruction verbatim under Questions).
+4. **Gate LA leak audit**: `npm run leak-audit` over `docs/evidence/**`, the readable public dirs
+   under `tmp/e2e/public`, and `--git` history of track-b; sensitive-values file built only from my
+   own `.benzo/` (deployer keys, envelope keys, test UAs); fix findings at source; clean run recorded
+   in `docs/evidence/phase-6/leak-audit.md`.
+
+## Previous run (26): R22 + Q6(a), then R25 items 1–6, R23 item 3, R24 item 3 (i)–(ii)
+
+State: all **DONE with red/green proof**. The record below was written mid-run; the items landed
+afterwards at these commits (all verified in `git log` this session, evidence files present):
+
+1. **R25 item 1 (P0, R F1: mandatory secret salt in deliver): DONE** — code `be91c62`, evidence
+   `13a7cfc` (`r25-1-link-before.out` links before, `r25-1-link-after.out` 12/12 PASS; mutations
+   R25-1a/1b red).
+2. **R25 item 2 (P1, R F3: `--envelope-key` dedup + manifest membership): DONE** — code `c8d82cd`,
+   evidence `36187b7` (before/after + mutations R25-2a/2b red).
+3. **R25 item 3 (P1, R F4: per-chain payable-kind gating; unpayable kinds to exception): DONE** —
+   code `45baa16`, evidence `f007dd6` (before/after + mutations R25-3a/3b/3c red).
+4. **R25 item 4 (P1, R F5: EVM address normalisation (ethers `getAddress`), checksum enforced at
+   bid seal): DONE** — code `493e84e`, evidence `264ff8b` (before/after + mutations R25-4a/4b red).
+5. **R25 item 5 (P1, R F6: CT relabelled — standalone Token-2022 capability demo, not an escrow
+   delivery): DONE** — `6154583` (labels + AUDITS; a relabel, no new assertions).
+6. **R25 item 6 (P2, R F7: `--announcer` must be the canonical ERC-5564 Announcer; numeric CLI args
+   validated; AUDITS KDF disclosure + signer procedure refreshed): DONE** — code `2659f3d`, evidence
+   `793a2a6` (before/after + mutations R25-6a/6b red).
+7. **R23 item 3 (P3, G4: read API fails closed with the verify ERROR, never a 500): DONE** — fixture
+   `0244150`, code `e0151bb`, evidence `0ab4819` (mutation R23-3a red; green = the fixture's 3/3 PASS
+   at `e0151bb`).
+8. **R24 item 3 (i) (`zcash_address` swap via `benzo-pczt classify-address`): DONE** — code
+   `9f50fcf`, harness `6b0d24c`, evidence `cb649b5` (`r24-3i-classify-address.out`: 637 inputs,
+   verdicts identical to the pre-swap parser + official labels + fresh real testnet addresses;
+   mutations R24-3i-a/b red).
+9. **R24 item 3 (ii) (README cross-chain section + honest limits refresh): DONE** — `01bb2d6`
+   (every claim cites an evidence file).
+
+### R22 + Q6(a) (record written when it landed)
 
 1. **R22 + Q6(a) (head P2 + result-shape ruling): DONE** — code `97567fa`, evidence `4e19e5f`.
    - `xchain attest` now runs the same public checks as `benzo verify` on `--dir` (openings
@@ -37,22 +85,8 @@ other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin change
      `demo-product-result`, `demo-attest-crosschain-result-refused`,
      `demo-attest-result-bytes-mismatch-refused`, `demo-attest-swapped-leaf-refused` (R retain).
 
-### This run's queue
-
-1. **R25 items 1–6** (R25: "after run 26's current item"; the current item R22 is done): P0 salt in
-   `deliver`, `--envelope-key` dedup + manifest membership, payable-kind gating per chain
-   (solana `ct` then relabelled per item 6), EVM address normalisation + `bid seal` validation,
-   CT evidence relabel, AUDITS KDF correction + `--announcer` validation + numeric CLI validation.
-   Item 3 changes the demo's solana `ct` leaf from delivered to exception — after it lands, re-run
-   the cheapest R22 mutation (R22-a) on the reworked demo and say so here.
-2. **R23 item 3 (P3)**: read API returns the verify ERROR, never a 500, for deposit claims without a
-   beacon; add a fixture.
-3. **R24 item 3 (i)**: `envelope/destination.ts` → `zcash_address` via a `benzo-pczt classify-address`
-   subcommand; identical verdicts on the existing fixtures + fresh real testnet UA/Sapling/t-addr/TEX;
-   `docs/AUDITS.md` closes the custom-code row.
-4. **R24 item 3 (ii)**: README honest limits + cross-chain section (stealth live, CT relabelled per
-   R25 F6, Railgun deferred + why, R16 F6, memo-bound cancel path), every claim citing evidence.
-5. **R24 item 3 (iii)**: `docs/evidence/phase-6/lp-0004.md` from existing evidence paths.
+The five items above landed as the nine commits recorded in the run-26 record; the R22-a mutation
+re-run owed to item 3's demo rework is folded into the run-27 test audit.
 
 ## Previous run (25): head task — R19 (P1), R21 (P1), then EVM stealth delivery / Token-2022 CT / Railgun / `benzo fund quote`
 
@@ -277,12 +311,21 @@ cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-ch
 needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
 full product result and the `winners[]` branch of the leaf derivation drops.
 
+### Questions (run 27)
+
+1. **User instruction (verbatim, received 2026-10-03T13:2xZ, this session):** “**R26 item 2, the
+   guard half (you own the verify bundle):** add `npm run check:bundle`. It rebuilds the verify bundle
+   into tmp and compares it with the committed `dist/benzo-verify.mjs` and
+   `docs/verify-bundle.sha256`, exiting 1 on mismatch. Run it before every commit that touches `api/`,
+   `envelope/`, `settle/envelopes.ts`, `cli/commands/verify.ts` or `cli/published-beacon.ts`. Record
+   the rule in AGENTS.md's "Track B" notes as a head-sanctioned line.” — AGENTS.md is otherwise
+   head-owned/read-only for me; the head should fold this line into a Ruling. With it, “you own the
+   verify bundle” also takes R26 item 2's rebuild half (F2's stale-bundle fix) as mine.
+
 ### Questions (run 26)
 
-1. **R25 ordering (my reading, not ruled):** R25 assigns Track B items 1–6 "after run 26's current
-   item" (R22, done). I take that as: R25's six items next, then the rest of the run's queue (R23
-   item 3, R24 item 3 (i)–(iii)), then READY FOR MERGE. If the head meant R25 only after the whole
-   run-26 queue, say so and I will reorder; nothing is dropped either way.
+1. **R25 ordering (RESOLVED):** this run's head message confirms the order used — R25 items 1–6,
+   then R23.3, then R24 (i)–(iii). Nothing was dropped.
 
 ### Questions (run 25)
 
