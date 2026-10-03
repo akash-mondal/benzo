@@ -99,12 +99,80 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
     println!("{}",json!({"shielded_sighash":hex::encode(sighash),"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"actions":pczt.orchard().actions().len()+pczt.ironwood().actions().len(),"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
     Ok(())
 }
+// R24 item 3 (i): classify a Zcash address with the pinned audited `zcash_address` (librustzcash) —
+// the single source of address classification, called from `envelope/destination.ts` (which keeps the
+// shielded-only rule). Returns `{kind, network, receivers[]}`: kind is unified|sapling|transparent|
+// tex|sprout, `invalid_unified` for a unified-encoding string whose container fails (the caller
+// refuses it as "invalid unified address"), or `other` when the string is not a Zcash address;
+// receivers are the unified container's items in encoded order (`items_as_parsed`, the order the
+// pre-swap parser reported).
+fn classify_address(addr: &str) -> anyhow::Result<()> {
+    use zcash_address::{ConversionError, ParseError, TryFromAddress, ZcashAddress, unified::{self, Container, Encoding, Receiver}};
+    use zcash_protocol::consensus::NetworkType;
+    fn net_str(net: NetworkType) -> &'static str {
+        match net { NetworkType::Main => "main", NetworkType::Test => "test", NetworkType::Regtest => "regtest" }
+    }
+    struct Classified { kind: &'static str, network: &'static str, receivers: Vec<(u32, Vec<u8>)> }
+    impl TryFromAddress for Classified {
+        type Error = core::convert::Infallible;
+        fn try_from_sprout(net: NetworkType, _data: [u8; 64]) -> Result<Self, ConversionError<Self::Error>> {
+            Ok(Classified { kind: "sprout", network: net_str(net), receivers: vec![] })
+        }
+        fn try_from_sapling(net: NetworkType, _data: [u8; 43]) -> Result<Self, ConversionError<Self::Error>> {
+            Ok(Classified { kind: "sapling", network: net_str(net), receivers: vec![] })
+        }
+        fn try_from_unified(net: NetworkType, addr: zcash_address::unified::Address) -> Result<Self, ConversionError<Self::Error>> {
+            let receivers = addr.items_as_parsed().iter().map(|r| match r {
+                Receiver::P2pkh(d) => (0u32, d.to_vec()),
+                Receiver::P2sh(d) => (1u32, d.to_vec()),
+                Receiver::Sapling(d) => (2u32, d.to_vec()),
+                Receiver::Orchard(d) => (3u32, d.to_vec()),
+                Receiver::Unknown { typecode, data } => (*typecode, data.clone()),
+            }).collect();
+            Ok(Classified { kind: "unified", network: net_str(net), receivers })
+        }
+        fn try_from_transparent_p2pkh(net: NetworkType, _data: [u8; 20]) -> Result<Self, ConversionError<Self::Error>> {
+            Ok(Classified { kind: "transparent", network: net_str(net), receivers: vec![] })
+        }
+        fn try_from_transparent_p2sh(net: NetworkType, _data: [u8; 20]) -> Result<Self, ConversionError<Self::Error>> {
+            Ok(Classified { kind: "transparent", network: net_str(net), receivers: vec![] })
+        }
+        fn try_from_tex(net: NetworkType, _data: [u8; 20]) -> Result<Self, ConversionError<Self::Error>> {
+            Ok(Classified { kind: "tex", network: net_str(net), receivers: vec![] })
+        }
+    }
+    let classified = match addr.parse::<ZcashAddress>() {
+        Ok(a) => a.convert::<Classified>().ok(),
+        Err(e) => {
+            // a unified-encoding string whose container fails (UA HRP + valid checksum, bad body) is
+            // its own class — the caller refuses it as "invalid unified address", never as junk
+            let invalid_unified = matches!(e, ParseError::InvalidEncoding)
+                && matches!(unified::Address::decode(addr), Err(unified::ParseError::InvalidEncoding(_)));
+            if invalid_unified {
+                println!("{}", json!({"kind": "invalid_unified", "network": Value::Null, "receivers": []}));
+                return Ok(());
+            }
+            None
+        }
+    };
+    let out = match classified {
+        Some(c) => json!({
+            "kind": c.kind,
+            "network": c.network,
+            "receivers": c.receivers.iter().map(|(t, d)| json!({"typecode": t, "data_hex": hex::encode(d)})).collect::<Vec<_>>(),
+        }),
+        None => json!({"kind": "other", "network": Value::Null, "receivers": []}),
+    };
+    println!("{}", out);
+    Ok(())
+}
 fn main() -> anyhow::Result<()> {
     let args: Vec<_>=std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("address") if args.len()==3=>address(&args[2]),
         Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {364}),
         Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
-        _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file>"))
+        Some("classify-address") if args.len()==3=>classify_address(&args[2]),
+        _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file> | classify-address <address>"))
     }
 }
