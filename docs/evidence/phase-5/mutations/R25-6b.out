@@ -1,0 +1,33 @@
+commit 2659f3d (mutation R25-6b.patch applied to cli/commands/xchain.ts: numeric args are coerced again)
+utc 2026-10-03T10:15:50Z
+command bash crosschain/stealth-demo.sh
+323 |         return keccak256(abi.encodePacked(ROOT_PREFIX, leafCount, treeRoot));
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: https://book.getfoundry.sh/reference/forge/forge-lint#asm-keccak256
+
+npm notice run build:cli
+npm notice run node cli/build.mjs
+== boot anvil (127.0.0.1:8546)
+== run stealth delivery demo
+PASS stealth-canonical-deploy
+PASS stealth-meta-address-registered
+PASS stealth-escrow-deployed
+PASS stealth-escrow-lock
+WARN witness no witness set (pre-Phase-5 manifest)
+PASS stealth-attest-from-envelope
+WARN witness no witness set (pre-Phase-5 manifest)
+ERROR xchain underflow (argument="value", value=1.5, code=INVALID_ARGUMENT, version=6.17.0)
+ERROR stealth-numeric-args-refused rc=1: WARN witness no witness set (pre-Phase-5 manifest)
+ERROR xchain underflow (argument="value", value=1.5, code=INVALID_ARGUMENT, version=6.17.0)
+
+PASS stealth-derive-reproducible
+PASS stealth-link-probe-fails
+ERROR xchain --announcer must be the canonical ERC-5564 Announcer 0x55649E01B5Df198D18D95b5cc5051630cfD45564
+PASS stealth-announcer-canonical-refused
+PASS stealth-release-pays-with-stipend
+PASS stealth-scan-finds-delivery
+PASS stealth-recover-spends
+PASS stealth-recovered-key-controls-funds
+PASS stealth-privacy
+RESULT FAIL 1 stealth assertion(s) failed
