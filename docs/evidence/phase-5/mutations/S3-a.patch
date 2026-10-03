@@ -1,0 +1,15 @@
+diff --git a/crosschain/ct.ts b/crosschain/ct.ts
+index 158ba05..b2fe1b1 100644
+--- a/crosschain/ct.ts
++++ b/crosschain/ct.ts
+@@ -34,9 +34,7 @@ export function deliverMatchesAccount(
+   deliver: { chain?: unknown; kind?: unknown; to?: unknown; elgamal?: unknown },
+   account: { address: string; elgamalHex: string },
+ ): boolean {
+-  return deliver?.chain === "solana" && deliver?.kind === "ct" &&
+-    typeof deliver.to === "string" && deliver.to === account.address &&
+-    typeof deliver.elgamal === "string" && deliver.elgamal.toLowerCase() === account.elgamalHex.toLowerCase();
++  return true; // mutation S3-a: the deliver <-> account-configuration binding is disabled
+ }
+ 
+ // Amount-hidden assertion: the delivered amount must not appear anywhere in the raw submitted

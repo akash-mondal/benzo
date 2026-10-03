@@ -8,9 +8,11 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 State: **R19 DONE with red/green proof** (code `9cfc159`, evidence `e86f35e`); **R21 DONE with
 before/after + red/green proof** (code `38bf7e1` + harness `9910f85`, evidence `9e871d0`);
 **item 2 — EVM stealth delivery DONE** (local code `2fdeaf6`, live code `2132dd5`, evidence
-`docs/evidence/phase-5/repro/stealth-{local,live}.out` + mutations `S2-a`/`S2-b`).
-Next: item 3 — Token-2022 Confidential Transfers on Solana devnet (`deliver.kind = "ct"`), then
-Railgun (item 4, may end BLOCKED), `benzo fund quote` (item 5), then READY FOR MERGE. Updated
+`docs/evidence/phase-5/repro/stealth-{local,live}.out` + mutations `S2-a`/`S2-b`); **item 3 —
+Token-2022 CT delivery DONE** (code `8a52106`, evidence `docs/evidence/phase-5/repro/ct-live.out` +
+mutations `S3-a`/`S3-b`, live on Solana devnet).
+Next: item 4 — Railgun `shield()` on Ethereum Sepolia (may end BLOCKED per the head), item 5 —
+`benzo fund quote`, then READY FOR MERGE. Updated
 2026-10-03. Head messages this run: implement R19 (P1) first, then the three private-delivery paths
 and the fund quote; headless, one commit per item with red/green proof in this file. No mainnet; no
 other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes (three pins ADDED,
@@ -120,7 +122,33 @@ see below).
    - **Q2 resolved as declared:** `BenzoEscrow` was redeployed fresh for the live run (R9 item 1 —
      R14 item 4 changed the storage layout); `0x8d08…` is marked **SUPERSEDED** in `docs/AUDITS.md`.
 
-4. **Pins added** (exact, `package-lock.json`): `@scure/base` `1.2.6` (base58 + bech32m — the same
+4. **Item 3 — Token-2022 Confidential Transfers (`deliver.kind = "ct"`): DONE** — code `8a52106`,
+   evidence `docs/evidence/phase-5/repro/ct-live.out` (**live on Solana devnet**, 12/12 PASS),
+   mutations `S3-a`/`S3-b` (live devnet runs).
+   - A **fresh token account configured from the bidder's `deliver.elgamal`** (`crosschain/ct.ts`
+     `deliverMatchesAccount`: the account must be configured with exactly `deliver.elgamal` at
+     `deliver.to`, else the delivery refuses), funded with a **confidential transfer whose amount is
+     hidden on chain**, then the bidder (account owner) applies the pending balance and withdraws —
+     full control proven (winner plaintext balance 100 after withdraw).
+   - The Token-2022 machinery is driven through the **official `spl-token` CLI 5.6.1** (the
+     token-2022 repo's own client — audited-first rule); `crosschain/ct.ts` holds the checks no tool
+     performs: the deliver ↔ account-configuration binding and the amount-hidden assertion over the
+     raw submitted transaction (`amountLeaks`: the delivered amount appears in neither encoding; a
+     public-mint probe proves the assertion works). The deliver rides the shipped envelope payload v2.
+   - Recorded run (`ct-live.out` at `8a52106`): fresh account
+     `DDpH4shfH6uwNQ9RvnEeGg99nBR81J43v7cwRZErx5Ww` configured from `deliver.elgamal 86ae9172…`;
+     confidential transfer tx `37EFvospxPSRB7rHfn9ZwhHANDhQyKwtRfdWnw8Vzqoz5zAyJzrsx8eygfzky58muaC1CoroU2vcVJMuVDcpoNzc`
+     (no amount anywhere in the raw tx; the destination's pending balance is a non-zero ciphertext);
+     winner withdraw tx `64dTLY54tYs14jtAFSzNSaADjdAAK6pgDYxDMkrqYaGtzqPRYFQrdxWSFrTdqT8BTW1gzyZsxwXW73kxFAWSpvi9`.
+   - **Red/green** (live devnet runs): `S3-a` (the deliver ↔ configuration binding disabled → `ERROR
+     ct-deliver-elgamal-matches`); `S3-b` (the amount-hidden assertion disabled → `ERROR
+     ct-amount-hidden-probe`).
+   - Note: the local `solana-test-validator`'s genesis token-2022 predates the current
+     confidential-balances encodings (`spl-token` 5.6.1 `Deposit`/`ApplyPendingBalance` get
+     `InvalidInstructionData` against it — recorded honestly); devnet's deployment matches the CLI
+     and is what item 3 targets, so there is no local CT run.
+
+5. **Pins added** (exact, `package-lock.json`): `@scure/base` `1.2.6` (base58 + bech32m — the same
    bech32m the Railgun engine uses; audited), `@scopelift/stealth-address-sdk` `1.0.0-beta.5`
    (beta, **unaudited client tool** — stated plainly in `docs/AUDITS.md`, with the canonical
    Announcer/Registry addresses and bytecode it carries), `viem` `2.57.1` (SDK's client). `cli/build.mjs`
