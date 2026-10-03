@@ -306,19 +306,23 @@ export async function run(argv: string[]): Promise<number> {
           continue;
         }
         const dd = agreed.deliver;
-        if (dd.chain === "solana") {
-          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 2, destination: dd.to, deliver_kind: dd.kind });
-        } else if (dd.kind === "stealth") {
+        // R25 item 3 (Reviewer R F4): a leaf is attested only if THIS chain's escrow can pay its
+        // deliver.kind — EVM takes address and stealth, Solana takes address. A chain mismatch or any
+        // other kind (ct, railgun) goes to this chain's exception queue, never into the tree.
+        if (dd.chain !== chain2) { ex(`deliver chain ${dd.chain} does not match chain ${chain2}`); continue; }
+        if (chain2 === "evm" && dd.kind === "stealth") {
           // one signer-reproducible fresh stealth address per (settlement, leaf) — and the ERC-5564
           // announcement the release crank publishes so the winner's viewing key finds the payment
           // (crosschain/stealth.ts, docs/AUDITS.md)
           const one = deriveSettlementStealthAddress(dd, { deliverSha256Hex: agreed.sha, auctionId, batchIndex: num(a, "batch"), leafIndex: d.index, amountWei: BigInt(d.lot_count) * standardLot });
           leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: one.stealthAddress, deliver_kind: dd.kind,
             announce: { scheme_id: 1, stealth_address: one.stealthAddress, ephemeral_pubkey: one.ephemeralPublicKey, metadata: one.metadata } });
-        } else if (dd.kind === "railgun") {
-          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 3, destination: dd.to, deliver_kind: dd.kind });
-        } else {
+        } else if (chain2 === "evm" && dd.kind === "address") {
           leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: dd.to, deliver_kind: dd.kind });
+        } else if (chain2 === "solana" && dd.kind === "address") {
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 2, destination: dd.to, deliver_kind: dd.kind });
+        } else {
+          ex(`deliver.kind ${dd.kind} is not payable by the ${chain2} escrow`);
         }
       }
       if (!leaves.length) {
@@ -330,7 +334,12 @@ export async function run(argv: string[]): Promise<number> {
       const leafHashes = leaves.map((l) =>
         leafHash(auctionId, { index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind, destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes) }, asset32));
       const tree = buildTree(leafHashes);
-      const root = allocationRoot(tree, leafHashes.length);
+      // R25 item 3 (sparse per-chain trees): leaves keep their winner (frozen leaf) index, so the root
+      // commits the leaf INDEX BOUND — the highest attested index + 1 — for the escrows' strict
+      // `index < leaf_count` check (crosschain §3, the Hyperbridge out-of-bounds lesson). The same
+      // winner keeps the same leaf hash across batches, so the per-leaf paid flag blocks double payment.
+      const leafBound = Math.max(...leaves.map((l) => l.index)) + 1;
+      const root = allocationRoot(tree, leafBound);
 
       const fields: AttestationFields = { auctionId, resultHash, allocationRoot: root, batchIndex, nonce, expiry };
       const keyFiles: string[] = Array.isArray(a["signer-key"]) ? a["signer-key"] as string[] : [need(a, "signer-key")];
@@ -361,7 +370,7 @@ export async function run(argv: string[]): Promise<number> {
         exceptions,
         payouts: leaves.map((l, i) => ({
           index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind,
-          destination: l.destination, leaf_count: leaves.length, proof: tree.proofs[i].map(bytesToHex),
+          destination: l.destination, leaf_count: leafBound, proof: tree.proofs[i].map(bytesToHex),
         })),
         signers, signatures,
       };

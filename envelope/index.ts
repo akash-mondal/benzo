@@ -116,6 +116,8 @@ export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHex
   requireThat(payload !== null && typeof payload === "object" && !Array.isArray(payload), "envelope payload");
   requireShieldedDestination(payload.refund);
   const doc: Record<string, unknown> = { v: 2, refund: payload.refund };
+  // R25 item 3: the railgun kind has no escrow adapter and is not shipped — refused at `bid seal` outright
+  if (payload.deliver !== undefined) requireThat(payload.deliver.kind !== "railgun", "deliver.kind railgun not supported");
   if (payload.deliver !== undefined) doc.deliver = requireDeliver({ ...payload.deliver, salt: randomBytes(32).toString("hex") });
   return sealPadded(canonical(doc), recipientPublicHexes);
 }

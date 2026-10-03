@@ -283,6 +283,13 @@ async function main() {
         g.refund === UA && g.deliver?.to === delivers[0].to && /^[0-9a-f]{64}$/.test(g.deliver?.salt) &&
         sha256(Buffer.from(memo.subarray(7, 7 + memo.readUInt16BE(5)), "hex")) === sealed.ciphertext_hash,
       `memo ${memo.length}B tag ${memo.subarray(7 + memo.readUInt16BE(5), 7 + memo.readUInt16BE(5) + 18).toString("hex")} opened ${JSON.stringify(g)}`);
+    // R25 item 3: the railgun kind has no escrow adapter — refused at `bid seal` with "not supported"
+    let railgunErr = "";
+    try {
+      execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "bid", "seal", "--manifest", sealManifestFile, "--signer", signerHex],
+        { input: JSON.stringify({ ...input, deliver: { chain: "evm", kind: "railgun", to: "0zk" + "x".repeat(124) } }), encoding: "utf8", maxBuffer: 64 << 20 });
+    } catch (e) { railgunErr = `${e.stderr ?? ""}${e.stdout ?? ""}`; }
+    check("demo-bid-seal-railgun-refused", /not supported/.test(railgunErr), `no "not supported" refusal: ${railgunErr.slice(0, 160)}`);
   }
 
   // ---- the published auction directory (R21: attest derives its own openings from this) ----
@@ -408,6 +415,8 @@ async function main() {
   }
 
   // ---- 2. attest (2-of-3 per chain): openings derived from --dir, destinations from the envelopes ----
+  // R25 item 3: each chain's tree holds only the leaves ITS escrow can pay (EVM: address + stealth;
+  // Solana: address) — a chain mismatch or an unpayable kind (solana ct) is that chain's exception.
   const bundleEvm = path.join(WORK, "bundle-evm.json"), bundleSol = path.join(WORK, "bundle-solana.json");
   const ZERO_ASSET = "0x0000000000000000000000000000000000000000"; // both demo auctions lock the native asset
   // one arg builder: the CLI parser collects repeated flags into arrays, so overrides REPLACE values.
@@ -435,10 +444,22 @@ async function main() {
       "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", bundleSol]);
     const bE = readBundle(bundleEvm), bS = readBundle(bundleSol);
     check("demo-attest-both-chains",
-      r.code === 0 && rs.code === 0 && !bE.__error && !bS.__error && bE.allocation_root === bS.allocation_root && bE.signatures.length === 2 && bS.signatures.length === 2 &&
-        bE.leaves.length === 4 && bS.leaves.length === 4 &&
+      r.code === 0 && rs.code === 0 && !bE.__error && !bS.__error && bE.signatures.length === 2 && bS.signatures.length === 2 &&
+        bE.leaves.map((l) => l.index).join(",") === "0,3" && bS.leaves.map((l) => l.index).join(",") === "1" &&
         bE.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, "") && bS.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, ""),
-      `evm rc=${r.code} sol rc=${rs.code} ${bE.__error ?? `roots ${bE.allocation_root} / ${bS.allocation_root} leaves ${bE.leaves.length}/${bS.leaves.length}`}`);
+      `evm rc=${r.code} sol rc=${rs.code} ${bE.__error ?? `evm leaves ${bE.leaves.map((l) => l.index)} solana leaves ${bS.leaves.map((l) => l.index)}`}`);
+    // R25 item 3: a chain mismatch or an unpayable kind is that chain's exception, never in its tree
+    const exE = (i) => bE.exceptions?.find((x) => x.index === i);
+    const exS = (i) => bS.exceptions?.find((x) => x.index === i);
+    check("demo-attest-chain-mismatch-exception",
+      /does not match chain evm/.test(exE(1)?.reason ?? "") && /does not match chain evm/.test(exE(2)?.reason ?? "") &&
+        /does not match chain solana/.test(exS(0)?.reason ?? "") && /does not match chain solana/.test(exS(3)?.reason ?? "") &&
+        bE.leaves.every((l) => l.index !== 1 && l.index !== 2) && bS.leaves.every((l) => l.index !== 0 && l.index !== 3),
+      `evm exceptions ${JSON.stringify(bE.exceptions)}, solana exceptions ${JSON.stringify(bS.exceptions)}`);
+    check("demo-attest-unpayable-kind-exception",
+      /not payable by the solana escrow/.test(exS(2)?.reason ?? "") && bS.leaves.every((l) => l.index !== 2) &&
+        bE.leaves.every((l) => l.index !== 2),
+      `solana exception 2 ${JSON.stringify(exS(2))}, evm leaves ${bE.leaves.map((l) => l.index)}`);
   }
 
   // R19 item 3: the operator's old allocation file names an attacker address — the attest output
@@ -456,12 +477,14 @@ async function main() {
       re.code !== 0 && /--envelopes is removed/.test(re.stderr), `rc=${re.code}: ${(re.stderr || "").slice(0, 160)}`);
     const bE = readBundle(bundleEvm);
     const dests = bE.__error ? {} : Object.fromEntries(bE.leaves.map((l) => [l.index, l.destination]));
-    const all = JSON.stringify(bE).toLowerCase();
+    const bS = readBundle(bundleSol);
+    const destsS = bS.__error ? {} : Object.fromEntries(bS.leaves.map((l) => [l.index, l.destination]));
+    const all = (JSON.stringify(bE) + JSON.stringify(bS)).toLowerCase();
     check("demo-attest-destinations-from-envelope",
-      !bE.__error && dests[0] === r1 && dests[1] === s1 && dests[2] === s2 &&
+      !bE.__error && !bS.__error && dests[0] === r1 && destsS[1] === s1 &&
         /^0x[0-9a-fA-F]{40}$/.test(dests[3]) && dests[3].toLowerCase() !== metaAddress.toLowerCase() &&
         !all.includes(attacker.toLowerCase()),
-      `destinations ${JSON.stringify(dests)}, attacker ${attacker} in bundle: ${all.includes(attacker.toLowerCase())}`);
+      `evm destinations ${JSON.stringify(dests)}, solana ${JSON.stringify(destsS)}, attacker ${attacker} in bundle: ${all.includes(attacker.toLowerCase())}`);
   }
 
   // R19 item 3: a winner whose envelope's deliver.to is malformed lands in the exception queue
@@ -684,11 +707,11 @@ async function main() {
   {
     const s1Before = await sol.getBalance(new PublicKey(s1)), s2Before = await sol.getBalance(new PublicKey(s2));
     const r = benzoXchain(["release", "--chain", "solana", "--bundle", bundleSol, "--key", solPayerFile,
-      "--rpc", SOL_RPC, "--only", "1,2"]);
+      "--rpc", SOL_RPC, "--only", "1"]);
     const s1After = await sol.getBalance(new PublicKey(s1)), s2After = await sol.getBalance(new PublicKey(s2));
     check("demo-release-solana-delivers",
-      r.code === 0 && s1After - s1Before === LAMPORTS_PER_SOL && s2After - s2Before === LAMPORTS_PER_SOL,
-      `rc=${r.code}, s1 +${s1After - s1Before} s2 +${s2After - s2Before} lamports (want ${LAMPORTS_PER_SOL}): ${r.stderr || r.stdout.slice(0, 160)}`);
+      r.code === 0 && s1After - s1Before === LAMPORTS_PER_SOL && s2After === s2Before,
+      `rc=${r.code}, s1 +${s1After - s1Before} lamports (want ${LAMPORTS_PER_SOL}), s2 (unpayable ct kind, exception-queued) +${s2After - s2Before} (want 0): ${r.stderr || r.stdout.slice(0, 160)}`);
   }
 
   // ---- 4. status: escrow state matches the attested root (each chain paid exactly its leaves) ----
@@ -699,9 +722,9 @@ async function main() {
     const evmPaidCount = Object.values(stE.paidLeaves).filter(Boolean).length;
     const solPaidCount = Object.values(stS.paidLeaves).filter(Boolean).length;
     check("demo-status-matches-attested-root",
-      re.code === 0 && rs.code === 0 && evmPaidCount === 2 && solPaidCount === 2 &&
-      stE.paid === (2n * parseEther("1")).toString() && stS.paid === String(2 * LAMPORTS_PER_SOL),
-      `evm paid ${stE.paid} (${evmPaidCount}/4 leaves), sol paid ${stS.paid} (${solPaidCount}/4 leaves)`);
+      re.code === 0 && rs.code === 0 && evmPaidCount === 2 && solPaidCount === 1 &&
+      stE.paid === (2n * parseEther("1")).toString() && stS.paid === String(1 * LAMPORTS_PER_SOL),
+      `evm paid ${stE.paid} (${evmPaidCount}/2 leaves), sol paid ${stS.paid} (${solPaidCount}/1 leaf)`);
   }
 
   // ---- 4b. R14 item 4: status ties the approved resultHash to the published result.json hash ----
