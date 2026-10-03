@@ -15,6 +15,7 @@ manifest/dist/
 clear/dist/
 settle/dist/
 cli/dist/
+dist/*.tgz
 api/dist/
 contracts/evm/out/
 contracts/evm/cache/
