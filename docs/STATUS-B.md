@@ -15,8 +15,9 @@ mutations `S3-a`/`S3-b`, live on Solana devnet).
 `docs/evidence/phase-5/repro/r5-fund-quote.out` + mutation `S5-a`); **item 4 — Railgun `shield()`
 BLOCKED** (contracts + SDK pin + signer procedure; evidence
 `docs/evidence/phase-5/repro/railgun-blocked.out`; stealth stays the EVM path per the head).
-**State: READY FOR MERGE.** Updated
-2026-10-03. Head messages this run: implement R19 (P1) first, then the three private-delivery paths
+**R22 (head P2, landed mid-run at `4254c7a`) OPEN — not started; plan + one question below.**
+**State: READY FOR MERGE for the head task's five items; R22 is the one open head item.** Updated
+2026-10-03T08:0xZ. Head messages this run: implement R19 (P1) first, then the three private-delivery paths
 and the fund quote; headless, one commit per item with red/green proof in this file. No mainnet; no
 other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes (three pins ADDED,
 see below).
@@ -208,6 +209,23 @@ outside the ceiling, each with its audit mark (R retain, F fix, C consolidate, D
 The 5 committed E2E specs (`e2e/seal-open.spec.ts`, `e2e/cli-auction.spec.ts`, …) are Track A's and
 untouched this run.
 
+### R22 (head P2 at `4254c7a`) — OPEN, next package for Track B
+
+`xchain attest` must run the same checks as `benzo verify` on `--dir` (`checkPublicAuction`: frozen
+root, gate-X witness certificates, the clearing recomputed through the registry) and refuse on any
+ERROR, and require `--result` bytes to equal `--dir/result.json`; repro = a directory whose frozen
+leaf set was swapped after the witnesses certified it (attested today, refused after).
+
+Plan (not started when this run ended): (1) `attest` loads `loadCompletePublicAuction` +
+`checkPublicAuction` (+ `deriveClaimOpenings`) and refuses on any check with `error`; (2) compare
+`--result` bytes with `pub.resultBytes` exactly; (3) rework the demo fixture into a verify-green
+directory and add the swapped-leaf-after-witness repro. **Fixture finding for the head (see Q6):**
+`checkPublicAuction` requires the result to carry `manifest_hash` and `freeze_root`, `published_at <
+T_freeze`, and the `clear` check recomputes the PRODUCT clearing through the registry — which the
+cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-chain result shape
+needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
+full product result and the `winners[]` branch of the leaf derivation drops.
+
 ### Questions (this run)
 
 1. **Sepolia EVM redeploy (RESOLVED, done as declared):** R14 item 4 changed `BenzoEscrow.sol`'s
@@ -226,7 +244,14 @@ untouched this run.
    root is 2-of-3 signed), which ERC-5564's random ephemeral key does not give; the KDF seeds the
    pinned SDK's own scheme-1 derivation. A leaked seed would link a winner's deliveries (disclosure
    owed in README honest limits), never spend them. Reviewer R should look at this one.
-4. **`xchain attest` boundary (documented, not a gap):** the winner-leaf ↔ envelope pairing is now
+4. **(Q6) Cross-chain result shape vs the `clear` check (blocks R22's fixture):** `checkPublicAuction`
+   recomputes the product clearing from the openings and binds `result.manifest_hash`/
+   `result.freeze_root`; the cross-chain result (`{auction_id, winners:[{leaf,lot_count}]}`) has
+   neither. Please rule one of: (a) the xchain leaf derivation reads the PRODUCT result only
+   (`allocations[].fill`) and the `winners[]` branch goes away; or (b) `checkPublicAuction` grows a
+   cross-chain result mode. I will implement R22 the moment this is ruled (my default is (a): the
+   signer validates the dir with `benzo verify`, so the product result IS the validated result).
+5. **`xchain attest` boundary (documented, not a gap):** the winner-leaf ↔ envelope pairing is now
    anchored where R21 put it — the frozen leaf's own ciphertext and the published beacon — so no
    operator file supplies an opening or a record. The `--result` file remains the signer's own
    validated result per the AUDITS.md procedure (R17 item 4).
@@ -496,6 +521,23 @@ test — outside the ceiling.
 - None. The devnet airdrop ask is withdrawn — the head unblocked item 3 by authorizing closing the three
   SUPERSEDED programs (done, txids in item 3); the redeploy runs on the reclaimed SOL.
 
+### R22 (head P2 at `4254c7a`) — OPEN, next package for Track B
+
+`xchain attest` must run the same checks as `benzo verify` on `--dir` (`checkPublicAuction`: frozen
+root, gate-X witness certificates, the clearing recomputed through the registry) and refuse on any
+ERROR, and require `--result` bytes to equal `--dir/result.json`; repro = a directory whose frozen
+leaf set was swapped after the witnesses certified it (attested today, refused after).
+
+Plan (not started when this run ended): (1) `attest` loads `loadCompletePublicAuction` +
+`checkPublicAuction` (+ `deriveClaimOpenings`) and refuses on any check with `error`; (2) compare
+`--result` bytes with `pub.resultBytes` exactly; (3) rework the demo fixture into a verify-green
+directory and add the swapped-leaf-after-witness repro. **Fixture finding for the head (see Q6):**
+`checkPublicAuction` requires the result to carry `manifest_hash` and `freeze_root`, `published_at <
+T_freeze`, and the `clear` check recomputes the PRODUCT clearing through the registry — which the
+cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-chain result shape
+needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
+full product result and the `winners[]` branch of the leaf derivation drops.
+
 ### Questions (this run)
 
 - **Sepolia EVM redeploy?** Item 4 changed `BenzoEscrow.sol` (getter + dropped write-only `nonce` from the
@@ -607,6 +649,23 @@ pinned Go `tle`) against real drand quicknet, and their red/green is the before/
 Deviations: none. Env: none new. Upstream code: none copied (the two scripts adapt my own earlier scratch
 proofs `tmp/proof-mr.ts`/`tmp/proof-kc.ts`, not upstream). Key material: none created or read beyond ephemeral
 proof keys generated inside the repro runs (never persisted, never printed).
+
+### R22 (head P2 at `4254c7a`) — OPEN, next package for Track B
+
+`xchain attest` must run the same checks as `benzo verify` on `--dir` (`checkPublicAuction`: frozen
+root, gate-X witness certificates, the clearing recomputed through the registry) and refuse on any
+ERROR, and require `--result` bytes to equal `--dir/result.json`; repro = a directory whose frozen
+leaf set was swapped after the witnesses certified it (attested today, refused after).
+
+Plan (not started when this run ended): (1) `attest` loads `loadCompletePublicAuction` +
+`checkPublicAuction` (+ `deriveClaimOpenings`) and refuses on any check with `error`; (2) compare
+`--result` bytes with `pub.resultBytes` exactly; (3) rework the demo fixture into a verify-green
+directory and add the swapped-leaf-after-witness repro. **Fixture finding for the head (see Q6):**
+`checkPublicAuction` requires the result to carry `manifest_hash` and `freeze_root`, `published_at <
+T_freeze`, and the `clear` check recomputes the PRODUCT clearing through the registry — which the
+cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-chain result shape
+needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
+full product result and the `winners[]` branch of the leaf derivation drops.
 
 ### Questions (this run)
 
@@ -854,6 +913,23 @@ re-proven red/green; the rest **R retain** and green), the local two-chain demo 
 `demo-attest-asset-*` own item 3, re-proven red/green; the rest **R retain** and green), and the
 scratch envelope proofs (tmp/, not committed — item 1, red/green cited above).
 
+### R22 (head P2 at `4254c7a`) — OPEN, next package for Track B
+
+`xchain attest` must run the same checks as `benzo verify` on `--dir` (`checkPublicAuction`: frozen
+root, gate-X witness certificates, the clearing recomputed through the registry) and refuse on any
+ERROR, and require `--result` bytes to equal `--dir/result.json`; repro = a directory whose frozen
+leaf set was swapped after the witnesses certified it (attested today, refused after).
+
+Plan (not started when this run ended): (1) `attest` loads `loadCompletePublicAuction` +
+`checkPublicAuction` (+ `deriveClaimOpenings`) and refuses on any check with `error`; (2) compare
+`--result` bytes with `pub.resultBytes` exactly; (3) rework the demo fixture into a verify-green
+directory and add the swapped-leaf-after-witness repro. **Fixture finding for the head (see Q6):**
+`checkPublicAuction` requires the result to carry `manifest_hash` and `freeze_root`, `published_at <
+T_freeze`, and the `clear` check recomputes the PRODUCT clearing through the registry — which the
+cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-chain result shape
+needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
+full product result and the `winners[]` branch of the leaf derivation drops.
+
 ### Questions (this run)
 
 - **R6 repro residual (item 1 honesty note b):** `tools/repro/routing-vs-envelope-repro.mjs`'s
@@ -1041,6 +1117,23 @@ own the G9 behaviour and were re-proven red/green in this run (the covered code 
 prior mutation run — this IS its first). Item 2 adds no specs (R11 convention); its proofs are
 scratch `tmp/` scripts cited above. Env: no new env vars. Upstream code: none copied (pinned
 libsodium API inspected at the installed 0.8.4).
+
+### R22 (head P2 at `4254c7a`) — OPEN, next package for Track B
+
+`xchain attest` must run the same checks as `benzo verify` on `--dir` (`checkPublicAuction`: frozen
+root, gate-X witness certificates, the clearing recomputed through the registry) and refuse on any
+ERROR, and require `--result` bytes to equal `--dir/result.json`; repro = a directory whose frozen
+leaf set was swapped after the witnesses certified it (attested today, refused after).
+
+Plan (not started when this run ended): (1) `attest` loads `loadCompletePublicAuction` +
+`checkPublicAuction` (+ `deriveClaimOpenings`) and refuses on any check with `error`; (2) compare
+`--result` bytes with `pub.resultBytes` exactly; (3) rework the demo fixture into a verify-green
+directory and add the swapped-leaf-after-witness repro. **Fixture finding for the head (see Q6):**
+`checkPublicAuction` requires the result to carry `manifest_hash` and `freeze_root`, `published_at <
+T_freeze`, and the `clear` check recomputes the PRODUCT clearing through the registry — which the
+cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-chain result shape
+needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
+full product result and the `winners[]` branch of the leaf derivation drops.
 
 ### Questions (this run)
 
@@ -1275,6 +1368,23 @@ proofs (outside the 8-test E2E ceiling); each named red/green pair above is its 
 proof, all rerun in this run since the covered code changed. `npm run typecheck` PASS. Env: no
 new env vars. Upstream code: none copied (pinned APIs inspected in installed sources).
 
+### R22 (head P2 at `4254c7a`) — OPEN, next package for Track B
+
+`xchain attest` must run the same checks as `benzo verify` on `--dir` (`checkPublicAuction`: frozen
+root, gate-X witness certificates, the clearing recomputed through the registry) and refuse on any
+ERROR, and require `--result` bytes to equal `--dir/result.json`; repro = a directory whose frozen
+leaf set was swapped after the witnesses certified it (attested today, refused after).
+
+Plan (not started when this run ended): (1) `attest` loads `loadCompletePublicAuction` +
+`checkPublicAuction` (+ `deriveClaimOpenings`) and refuses on any check with `error`; (2) compare
+`--result` bytes with `pub.resultBytes` exactly; (3) rework the demo fixture into a verify-green
+directory and add the swapped-leaf-after-witness repro. **Fixture finding for the head (see Q6):**
+`checkPublicAuction` requires the result to carry `manifest_hash` and `freeze_root`, `published_at <
+T_freeze`, and the `clear` check recomputes the PRODUCT clearing through the registry — which the
+cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-chain result shape
+needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
+full product result and the `winners[]` branch of the leaf derivation drops.
+
 ### Questions (this run)
 
 - **F-4 needed no code fix** — it was already fixed in `f72a792`, which post-dates the reviewer's
@@ -1418,6 +1528,23 @@ PASS 37 s at `71bb069`); `contracts/`/`crosschain/` drivers are contract-level p
 assertion added/loosened in the E2E suite; live specs remain Track A's. Env: no new env vars. Upstream code:
 none copied (pinned APIs inspected in installed sources; the lookup-table slot rules read from the pinned
 crate/agave source).
+
+### R22 (head P2 at `4254c7a`) — OPEN, next package for Track B
+
+`xchain attest` must run the same checks as `benzo verify` on `--dir` (`checkPublicAuction`: frozen
+root, gate-X witness certificates, the clearing recomputed through the registry) and refuse on any
+ERROR, and require `--result` bytes to equal `--dir/result.json`; repro = a directory whose frozen
+leaf set was swapped after the witnesses certified it (attested today, refused after).
+
+Plan (not started when this run ended): (1) `attest` loads `loadCompletePublicAuction` +
+`checkPublicAuction` (+ `deriveClaimOpenings`) and refuses on any check with `error`; (2) compare
+`--result` bytes with `pub.resultBytes` exactly; (3) rework the demo fixture into a verify-green
+directory and add the swapped-leaf-after-witness repro. **Fixture finding for the head (see Q6):**
+`checkPublicAuction` requires the result to carry `manifest_hash` and `freeze_root`, `published_at <
+T_freeze`, and the `clear` check recomputes the PRODUCT clearing through the registry — which the
+cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-chain result shape
+needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
+full product result and the `winners[]` branch of the leaf derivation drops.
 
 ### Questions (this run)
 
