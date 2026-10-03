@@ -298,8 +298,15 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     if (!records.length && !(frozen && pub.manifest.envelope_keys)) return projection("envelope.json", null);
     requireThat(frozen, "missing frozen");
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    // R15 item 2 (R F5): only a result-obligation-bearing leaf needs a row. The clear puts a leaf in the
+    // obligations map only when its refund is positive and the ledger refuses zero-amount rows, so a leaf with
+    // zero refund and no envelope record is a correct no-op state — "missing row" for it is a false error.
+    // Without a result there are no result obligations at all (the CANCELLED path refunds deposits, checked by
+    // the stray rules), so the machine has no row to demand there either.
+    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : null;
     const settleable = (leaf: number, reason: string): string | void => {
       const party = `leaf:${leaf}`;
+      if (!expected || !expected.has(party)) return undefined;
       if (!pub.settlement) return `${reason} ${leaf}; refund goes to the exception queue`;
       const row = rows.find(r => r.party === party);
       requireThat(row, `${reason} ${leaf}: missing row`);
