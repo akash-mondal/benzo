@@ -282,7 +282,9 @@ export async function runCommand(command:string,args:string[]) {
       await new Promise<void>((resolve,reject)=>{const p=spawn(bin('frost-client'),['participant','-c',path.join(STATE,'frost',o.name+'.toml'),'-s',process.env.BNZ_FROSTD_ADDR!,'-g',readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim()],{stdio:'inherit',env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});return;
     }
     if(command==='cancel'){ac('cancel',id);publish(id)}
-    const p=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:'inherit'});
+    // Head (2026-10-03): the worker's progress goes to stderr so every command prints exactly one JSON document on
+    // stdout (`benzo cancel` printed the worker's JSON plus its own, which broke JSON callers: run 8 FATAL).
+    const p=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:['inherit',2,'inherit']});
     await new Promise<void>((resolve,reject)=>{p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`settle exit ${c}`)))});
     const a=read(ledger(id)),status=JSON.parse(sc('status',id));
     // R16 item 1: a cancelled auction keeps its cancel states across repeated settles — exceptions stay

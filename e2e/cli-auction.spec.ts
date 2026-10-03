@@ -36,7 +36,8 @@ function worker(id:string,allocatedKill=false) {
   const pidfile=path.join(STATE,'run',`cli-worker-${id}.pid`);writeFileSync(pidfile,String(p.pid));
   const timer=setTimeout(()=>process.kill(-p.pid!,'SIGKILL'),MINE);
   p.stdout.on('data',d=>{out+=d;writeFileSync(path.join(E2E,'cli-worker.log'),out);for(const line of out.split('\n'))try{allocated=JSON.parse(line).allocated??allocated}catch{}if(allocatedKill&&allocated)process.kill(-p.pid!,'SIGKILL')});
-  p.stderr.on('data',d=>{err+=d;writeFileSync(path.join(E2E,'cli-worker.err'),err)});
+  // Head (22c206a): the settlement worker's progress JSON now arrives on benzo's stderr; read `allocated` from both.
+  p.stderr.on('data',d=>{err+=d;writeFileSync(path.join(E2E,'cli-worker.err'),err);for(const line of err.split('\n'))try{allocated=JSON.parse(line).allocated??allocated}catch{}if(allocatedKill&&allocated)process.kill(-p.pid!,'SIGKILL')});
   const done=new Promise<any>((resolve,reject)=>{p.on('error',reject);p.on('close',(code,signal)=>{clearTimeout(timer);rmSync(pidfile,{force:true});resolve({code,signal,allocated,out,err})})});return {p,done};
 }
 async function cleanup() {
@@ -242,8 +243,10 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const witnessSetFile2=path.join(privateDir2,'witness-set.json');writeFileSync(witnessSetFile2,JSON.stringify(witnessSet2));
     const operator2={settlement:{signers:['bob','carol'],batch_cap:13,pczt_expiry_blocks:NORMAL_EXPIRY},routing:{bidders:deposit2.map(deposit_ua=>({deposit_ua})),seller_ua:refund2[2],fee_reserve_ua:reserve}};
     const operatorFile2=path.join(privateDir2,'operator.json');writeFileSync(operatorFile2,JSON.stringify(operator2));
-    const now2=Math.ceil(Date.now()/1000),release2=now2+18*60,R2=1+Math.ceil((release2-Number(env('BNZ_DRAND_GENESIS')))/3);
-    const manifest2={...manifest,auction_id:id2,escrow_ua:deposit2[0],lot:'CLI cancelled testnet auction',supply:1,deposit_addresses:deposit2,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet2),drand:{...manifest.drand,R:R2},T_submit:now2+2*60,T_freeze:now2+15*60};
+    // Head (2026-10-03): the cancelled auction needs the same maturity margin as the main one (10 confirmations
+    // before T_freeze); the 13-minute window lost to slow testnet blocks ('admission cutoff', run 7).
+    const now2=Math.ceil(Date.now()/1000),release2=now2+33*60,R2=1+Math.ceil((release2-Number(env('BNZ_DRAND_GENESIS')))/3);
+    const manifest2={...manifest,auction_id:id2,escrow_ua:deposit2[0],lot:'CLI cancelled testnet auction',supply:1,deposit_addresses:deposit2,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet2),drand:{...manifest.drand,R:R2},T_submit:now2+3*60,T_freeze:now2+30*60};
     good(['auction','create','--witness-set',witnessSetFile2],manifest2);good(['auction','sign','--id',id2]);
     good(['auction','publish','--id',id2,'--dir',publicDir2,'--config',operatorFile2]);
     const manifestFile2=path.join(publicDir2,'manifest.json');
@@ -281,5 +284,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
     write('cli/cancelled.json',readFileSync(path.join(publicDir2,'auction.json')));
     write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,cancelled_txid:paid2.txid,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),batches:settlement.batches.map((b:any)=>({id:b.id,state:b.state,actions:b.inspect.actions,fee_zats:b.inspect.fee_zats,starting_height:b.inspect.expiry_height-(b.state==='exception'?4:NORMAL_EXPIRY),mined_height:b.height,signing_ms:b.signing.sessions.map((s:any)=>s.duration_ms)})),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');
+  } catch(e) {
+    // Head (2026-10-03): an uncaught error in a step's setup (outside run.check) used to end the run with only
+    // `FAILED`, and the next run overwrote the report. Print it so every failed live run is diagnosable.
+    console.log(`FATAL ${String((e as Error)?.stack??e).replace(/\x1b\[[0-9;]*m/g,'').slice(0,3000)}`);throw e;
   } finally {if(paused)process.kill(paused,'SIGCONT');if(active){process.kill(-active.p.pid!,'SIGKILL');await active.done}if(api)api.kill();try{await cleanup()}finally{stop()}}
 });
