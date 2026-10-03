@@ -305,8 +305,9 @@ async function main() {
   // so the same demo run is the before/after proof of the R21 fix).
   const attackerOwner = envmod.generateOwnerKey();
   const attackerNonce = rndHex(16);
+  const attackerKey = sodium.randombytes_buf(32); // honest wrap so every signer opens it: the fabrication is in the pairing
   const attackerEnvCt = hostileEnvelope(JSON.stringify({ v: 2, refund: UA, deliver: { chain: "evm", kind: "address", to: attacker } }), recipients,
-    [sodium.randombytes_buf(32), sodium.randombytes_buf(32), sodium.randombytes_buf(32)]);
+    [attackerKey, attackerKey, attackerKey]);
   const attackerCommitment = envmod.settlementCommitment(attackerNonce, attackerEnvCt);
   const fabricatedPt = ptHexOf(attackerNonce, attackerOwner.public_hex, attackerCommitment);
   const attackerRecord = { index: 0, ciphertext_hash: records[0].ciphertext_hash, envelope_ct: attackerEnvCt,
@@ -377,8 +378,9 @@ async function main() {
   // The harness runs the shipped CLI whichever interface it speaks (R21 changed it from `--envelopes`
   // with operator-supplied openings to `--dir` with self-derived openings): the same demo is therefore
   // the before/after proof of the R21 fix.
-  const xchainHelp = (() => { const r = benzoXchain([]); return r.stderr + r.stdout; })();
+  const xchainHelp = (() => { const r = benzoXchain(["--help"]); return r.stdout + r.stderr; })();
   const oldInterface = xchainHelp.includes("--envelopes FILE");
+  const readBundle = (p) => { try { return JSON.parse(readFileSync(p, "utf8")); } catch (e) { return { __error: String(e.message) } }; };
   const attestArgs = (over = {}) => [
     "--auction", "0x" + auction1, "--result", resultFile, "--result-hash", over.resultHash ?? resultHash,
     "--batch", "0", "--nonce", "0", "--expiry", String(over.expiry ?? now + 3600),
@@ -395,12 +397,12 @@ async function main() {
     const rs = benzoXchain(["attest", "--chain", "solana", ...attestArgs(),
       "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
       "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", bundleSol]);
-    const bE = JSON.parse(readFileSync(bundleEvm, "utf8")), bS = JSON.parse(readFileSync(bundleSol, "utf8"));
+    const bE = readBundle(bundleEvm), bS = readBundle(bundleSol);
     check("demo-attest-both-chains",
-      r.code === 0 && rs.code === 0 && bE.allocation_root === bS.allocation_root && bE.signatures.length === 2 && bS.signatures.length === 2 &&
+      r.code === 0 && rs.code === 0 && !bE.__error && !bS.__error && bE.allocation_root === bS.allocation_root && bE.signatures.length === 2 && bS.signatures.length === 2 &&
         bE.leaves.length === 4 && bS.leaves.length === 4 &&
         bE.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, "") && bS.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, ""),
-      `evm rc=${r.code} sol rc=${rs.code} roots ${bE.allocation_root} / ${bS.allocation_root} leaves ${bE.leaves.length}/${bS.leaves.length}`);
+      `evm rc=${r.code} sol rc=${rs.code} ${bE.__error ?? `roots ${bE.allocation_root} / ${bS.allocation_root} leaves ${bE.leaves.length}/${bS.leaves.length}`}`);
   }
 
   // R19 item 3: the operator's old allocation file names an attacker address — the attest output
@@ -416,11 +418,11 @@ async function main() {
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-envelopes-refused.json")]);
     check("demo-attest-envelopes-refused",
       re.code !== 0 && /--envelopes is removed/.test(re.stderr), `rc=${re.code}: ${(re.stderr || "").slice(0, 160)}`);
-    const bE = JSON.parse(readFileSync(bundleEvm, "utf8"));
-    const dests = Object.fromEntries(bE.leaves.map((l) => [l.index, l.destination]));
+    const bE = readBundle(bundleEvm);
+    const dests = bE.__error ? {} : Object.fromEntries(bE.leaves.map((l) => [l.index, l.destination]));
     const all = JSON.stringify(bE).toLowerCase();
     check("demo-attest-destinations-from-envelope",
-      dests[0] === r1 && dests[1] === s1 && dests[2] === s2 &&
+      !bE.__error && dests[0] === r1 && dests[1] === s1 && dests[2] === s2 &&
         /^0x[0-9a-fA-F]{40}$/.test(dests[3]) && dests[3].toLowerCase() !== metaAddress.toLowerCase() &&
         !all.includes(attacker.toLowerCase()),
       `destinations ${JSON.stringify(dests)}, attacker ${attacker} in bundle: ${all.includes(attacker.toLowerCase())}`);
@@ -428,25 +430,25 @@ async function main() {
 
   // R19 item 3: a winner whose envelope's deliver.to is malformed lands in the exception queue
   {
-    const bE = JSON.parse(readFileSync(bundleEvm, "utf8"));
-    const ex = bE.exceptions.find((x) => x.index === 4);
+    const bE = readBundle(bundleEvm);
+    const ex = bE.exceptions?.find((x) => x.index === 4);
     check("demo-attest-malformed-deliver-exception",
       ex !== undefined && /malformed deliver/.test(ex.reason) && bE.leaves.every((l) => l.index !== 4),
-      `exceptions ${JSON.stringify(bE.exceptions)}, leaves ${bE.leaves.map((l) => l.index)}`);
-    const bS = JSON.parse(readFileSync(bundleSol, "utf8"));
+      `${bE.__error ?? `exceptions ${JSON.stringify(bE.exceptions)}, leaves ${bE.leaves.map((l) => l.index)}`}`);
+    const bS = readBundle(bundleSol);
     check("demo-attest-malformed-deliver-exception-both-chains",
-      bS.exceptions.some((x) => x.index === 4 && /malformed deliver/.test(x.reason)) && bS.leaves.every((l) => l.index !== 4),
-      `solana exceptions ${JSON.stringify(bS.exceptions)}`);
+      bS.exceptions?.some((x) => x.index === 4 && /malformed deliver/.test(x.reason)) && bS.leaves.every((l) => l.index !== 4),
+      `${bS.__error ?? `solana exceptions ${JSON.stringify(bS.exceptions)}`}`);
   }
 
   // R10 attack at the attest layer: a split-key hostile envelope only one signer can open is never
   // attested — at least 2 signers must agree on SHA-256(deliver) (R19 item 2)
   {
-    const bE = JSON.parse(readFileSync(bundleEvm, "utf8"));
-    const ex = bE.exceptions.find((x) => x.index === 5);
+    const bE = readBundle(bundleEvm);
+    const ex = bE.exceptions?.find((x) => x.index === 5);
     check("demo-attest-no-agreement-exception",
       ex !== undefined && /signers could not agree/.test(ex.reason) && bE.leaves.every((l) => l.index !== 5),
-      `exceptions ${JSON.stringify(bE.exceptions)}, leaves ${bE.leaves.map((l) => l.index)}`);
+      `${bE.__error ?? `exceptions ${JSON.stringify(bE.exceptions)}, leaves ${bE.leaves.map((l) => l.index)}`}`);
   }
 
   // R21: an operator-fabricated "opened bid" + attacker envelope (self-consistent: the fabricated
@@ -464,12 +466,12 @@ async function main() {
     const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ dir: attackedDir, records: "attacked" }),
       "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-fabricated.json")]);
-    const b = JSON.parse(readFileSync(path.join(WORK, "bundle-fabricated.json"), "utf8"));
-    const ex = b.exceptions.find((x) => x.index === 0);
+    const b = readBundle(path.join(WORK, "bundle-fabricated.json"));
+    const ex = b.exceptions?.find((x) => x.index === 0);
     check("demo-attest-fabricated-opening-exception",
       r.code === 0 && ex !== undefined && /no valid owner-signed settlement envelope/.test(ex.reason) &&
         b.leaves.every((l) => l.index !== 0) && !JSON.stringify(b).toLowerCase().includes(attacker.toLowerCase()),
-      `rc=${r.code} exceptions ${JSON.stringify(b.exceptions)}`);
+      `rc=${r.code} ${b.__error ?? `exceptions ${JSON.stringify(b.exceptions)}`}`);
   }
 
   // an operator-substituted record (winner 0's leaf slot carrying winner 4's REAL owner-signed envelope)
@@ -485,11 +487,11 @@ async function main() {
     const r = benzoXchain(["attest", "--chain", "evm", ...attestArgs({ dir: subDir, records: "substituted" }),
       "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-substituted.json")]);
-    const b = JSON.parse(readFileSync(path.join(WORK, "bundle-substituted.json"), "utf8"));
-    const ex = b.exceptions.find((x) => x.index === 0);
+    const b = readBundle(path.join(WORK, "bundle-substituted.json"));
+    const ex = b.exceptions?.find((x) => x.index === 0);
     check("demo-attest-substituted-envelope-exception",
       r.code === 0 && ex !== undefined && /no valid owner-signed settlement envelope|envelope not bound to the opened bid/.test(ex.reason) && b.leaves.every((l) => l.index !== 0),
-      `rc=${r.code} exceptions ${JSON.stringify(b.exceptions)}`);
+      `rc=${r.code} ${b.__error ?? `exceptions ${JSON.stringify(b.exceptions)}`}`);
   }
 
   // R17 item 4: the result hash is recomputed from the --result bytes and the leaves derive from that
@@ -539,8 +541,11 @@ async function main() {
 
   // ---- 3. release: each chain pays its leaves (one delivery of the cleared drop) ----
   {
-    const bE = JSON.parse(readFileSync(bundleEvm, "utf8"));
-    const stealthDest = bE.leaves.find((l) => l.index === 3).destination;
+    const bE = readBundle(bundleEvm);
+    const stealthDest = bE.leaves?.find((l) => l.index === 3)?.destination;
+    if (!stealthDest) {
+      check("demo-release-evm-delivers", false, `no attested stealth leaf: ${bE.__error ?? JSON.stringify(bE.exceptions)}`);
+    } else {
     const r1BalBefore = await evmBalance(evm, r1), stBalBefore = await evmBalance(evm, stealthDest);
     const escrowBefore = await evmBalance(evm, evmEscrowAddr);
     const r = benzoXchain(["release", "--chain", "evm", "--bundle", bundleEvm, "--key", evmSellerKeyFile,
@@ -562,6 +567,7 @@ async function main() {
       escrowBefore - escrowAfter === 2n * parseEther("1") &&
       JSON.stringify(evNames) === JSON.stringify([r1.toLowerCase(), stealthDest.toLowerCase()].sort()),
       `rc=${r.code}, events=${JSON.stringify(evNames)}, r1 delta ${formatEther(r1BalAfter - r1BalBefore)} ETH, stealth ${stealthDest} delta ${formatEther(stBalAfter - stBalBefore)} ETH, escrow delta ${formatEther(escrowAfter - escrowBefore)} ETH (want -2): ${r.stderr || r.stdout.slice(0, 120)}`);
+    }
   }
   {
     const s1Before = await sol.getBalance(new PublicKey(s1)), s2Before = await sol.getBalance(new PublicKey(s2));
