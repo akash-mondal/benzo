@@ -115,7 +115,7 @@ export async function runCommand(command:string,args:string[]) {
     // Head merge (R17): the destination is sealed to ALL THREE signers' keys pinned by the verified manifest
     // (multi-recipient v2 envelope); a caller-supplied envelope_pubkey, if any, must still be one of them.
     if(bid.refund_ua!==undefined)requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3&&(bid.envelope_pubkey===undefined||m.envelope_keys.includes(bid.envelope_pubkey)),'envelope key is not pinned by the signed manifest');
-    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined});
+    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,deliver:bid.deliver,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {

@@ -10,9 +10,12 @@ import {
   AllocationLeaf, allocationRoot, assetBytes32, buildTree, bytesToHex, destinationBytes, hexToBytes, leafHash,
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
-import { envelopeRecordValid, openEnvelopePayload } from "../../envelope";
+import { openEnvelopePayload } from "../../envelope";
 import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
 import { deriveSettlementStealthAddress } from "../../crosschain/stealth";
+import { loadPublicAuction } from "../../api/public-auction";
+import { validEnvelope } from "../../settle/envelopes";
+import { decryptPublished, publishedClient } from "../published-beacon";
 import {
   evmApproved, evmApproval, evmLock, evmProvider, evmRefund, evmReleaseApproved, evmStatus, evmSubmitAttestation, EvmPayout,
 } from "../../crosschain/evm";
@@ -26,7 +29,7 @@ import { hash } from "../../manifest/schema";
 export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
-  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --envelopes FILE --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is a result the signer has itself validated per docs/AUDITS.md: its bytes decide the result hash and the allocation leaves; --envelopes is the signer's own record set {envelope_keys, leaves:[{index, opened_bid_hex, owner_sig, envelope_ct}]}: every leaf's destination is derived from each signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation is removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver), winners without a valid deliver go to the bundle's exception queue; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
+  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --dir PUBLIC --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is a result the signer has itself validated per docs/AUDITS.md: its bytes decide the result hash and the allocation leaves; --dir is the published auction directory: attest derives every winner's opening ITSELF from the frozen leaf's ciphertext and the published, BLS-verified beacon (R21 — no opening or record comes from operator files), checks SHA-256(ciphertext) against the root-committed ciphertext_hash and the published record's owner signature + settlement commitment, then derives the leaf's destination from each --envelope-key signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation and --envelopes are removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver), winners without a valid deliver go to the bundle's exception queue; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
   "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]   (--result is the published result.json: its sha256 is compared with the escrow's approved resultHash and the command exits 1 on mismatch)",
@@ -122,10 +125,13 @@ export async function run(argv: string[]): Promise<number> {
     if (verb === "attest") {
       const chain2 = chain;
       const rpc = need(a, "rpc"), escrow = need(a, "escrow"), out = need(a, "out");
-      // R19 item 2: no operator destinations. --allocation is removed — every leaf's destination is
-      // derived by each signer from its own opening of the winner's v2 envelope (`deliver.to`).
+      // R19 item 2: no operator destinations. R21: no operator openings/records either — --allocation and
+      // --envelopes are removed; attest derives every leaf's opening itself from the published directory.
       if (typeof a.allocation === "string") {
-        throw new Error("--allocation is removed (R19): destinations come from the bidder's sealed envelope (--envelopes + --envelope-key)");
+        throw new Error("--allocation is removed (R19): destinations come from the bidder's sealed envelope (--dir + --envelope-key)");
+      }
+      if (typeof a.envelopes === "string") {
+        throw new Error("--envelopes is removed (R21): attest derives winner openings itself from the published directory (--dir)");
       }
       const auctionId = hexToBytes(need(a, "auction"));
       // R17 item 4 (Reviewer R F7): --result FILE is a result the signer has itself validated (the signer
@@ -185,38 +191,37 @@ export async function run(argv: string[]): Promise<number> {
       if (given !== chainAsset) {
         throw new Error(`--asset ${given} does not match the escrow's asset ${chainAsset} on chain`);
       }
-      // R19 item 2: derive every leaf's destination from each signer's own opening of the winner's v2
-      // envelope. The envelope is bound to the winner's opened bid (the tlock plaintext's
-      // settlement_commitment = SHA-256(nonce ‖ envelope_ct), envelope/bid.ts layout), so a substituted
-      // record cannot ride a leaf. A leaf is attested only when at least 2 --envelope-key signers open the
-      // same deliver and agree on SHA-256(deliver); anything else goes to the exception queue for this chain.
-      const envDoc = JSON.parse(readFileSync(need(a, "envelopes"), "utf8"));
-      const envelopeKeys: unknown = envDoc.envelope_keys;
-      if (!Array.isArray(envelopeKeys) || envelopeKeys.length !== 3 || envelopeKeys.some((k: unknown) => typeof k !== "string" || !/^[0-9a-f]{64}$/.test(k))) {
-        throw new Error("--envelopes must pin envelope_keys (the manifest's 3 hex X25519 keys)");
+      // R21: every winner's opening is derived HERE — the frozen leaf's own ciphertext (SHA-256 of it is
+      // the root-committed ciphertext_hash) decrypted with the published, BLS-verified beacon through
+      // `cli/published-beacon` decryptPublished (the same derivation `benzo verify` uses). The published
+      // record for that hash must then pass the shared owner-signature + settlement-commitment rule
+      // (settle/envelopes validEnvelope) against that opening. Only then is the winner's `deliver` opened
+      // (R19: at least 2 --envelope-key signers agree on SHA-256(deliver), else the exception queue).
+      const pub = loadPublicAuction(need(a, "dir"));
+      if (!pub.frozen || !pub.beacon) throw new Error("attest needs the frozen leaves and the published beacon in --dir");
+      if (pub.manifest.auction_id !== bytesToHex(auctionId).slice(2)) {
+        throw new Error(`--dir auction ${pub.manifest.auction_id} does not match --auction ${bytesToHex(auctionId).slice(2)}`);
       }
-      const envByIndex = new Map<number, any>();
-      for (const rec of Array.isArray(envDoc.leaves) ? envDoc.leaves : []) {
-        if (rec && Number.isSafeInteger(Number(rec.index)) && !envByIndex.has(Number(rec.index))) envByIndex.set(Number(rec.index), rec);
-      }
+      const local = publishedClient(pub.beacon);
       const envKeyFiles: string[] = Array.isArray(a["envelope-key"]) ? a["envelope-key"] as string[] : [need(a, "envelope-key")];
       const envPrivates = envKeyFiles.map((f) => readFileSync(f, "utf8").trim());
       const exceptions: { index: number; lot_count: number; reason: string }[] = [];
       const leaves: (AllocationLeaf & { deliver_kind?: string })[] = [];
       for (const d of derived) {
         const ex = (reason: string) => { exceptions.push({ index: d.index, lot_count: d.lot_count, reason }); };
-        const rec = envByIndex.get(d.index);
-        if (!rec || typeof rec.envelope_ct !== "string" || typeof rec.owner_sig !== "string" || typeof rec.opened_bid_hex !== "string") {
-          ex("no envelope record"); continue;
-        }
-        if (!envelopeRecordValid({ envelope_ct: rec.envelope_ct, owner_sig: rec.owner_sig }, envelopeKeys)) {
-          ex("no valid owner-signed settlement envelope"); continue;
-        }
-        const opened = Buffer.from(rec.opened_bid_hex, "hex");
-        if (opened.length !== 128 || opened[0] !== 0) { ex("opened bid plaintext"); continue; }
-        if (opened.subarray(1, 33).toString("hex") !== bytesToHex(auctionId).slice(2)) { ex("opened bid auction_id"); continue; }
-        const commitment = hash(Buffer.concat([opened.subarray(45, 61), Buffer.from(rec.envelope_ct, "hex")]));
-        if (commitment !== opened.subarray(93, 125).toString("hex")) { ex("envelope not bound to the opened bid"); continue; }
+        const fl: any = pub.frozen!.leaves[d.index];
+        if (!fl || typeof fl.ciphertext_hex !== "string" || typeof fl.ciphertext_hash !== "string") { ex("no frozen leaf"); continue; }
+        if (hash(Buffer.from(fl.ciphertext_hex, "hex")) !== fl.ciphertext_hash) { ex("ciphertext hash mismatch"); continue; }
+        let ptHex: string | null = null;
+        try { ptHex = await decryptPublished(fl.ciphertext_hex, local); } catch (e) { ex(`bid did not open: ${(e as Error).message}`); continue; }
+        if (!ptHex) { ex("bid did not open"); continue; }
+        const opened = Buffer.from(ptHex, "hex");
+        if (opened.length !== 128 || opened[0] !== 0 || opened.subarray(1, 33).toString("hex") !== pub.manifest.auction_id) { ex("opened bid layout"); continue; }
+        const rec = pub.envelopes.find((e) => e.ciphertext_hash === fl.ciphertext_hash) as any;
+        if (!rec || typeof rec.envelope_ct !== "string" || typeof rec.owner_sig !== "string") { ex("no envelope record"); continue; }
+        // R21 check 3: the record's owner_sig and settlement commitment against THIS opening (shared rule)
+        const auth = validEnvelope({ manifest: pub.manifestPacket, frozen: { leaves: [fl] }, opened: [{ leaf_index: 0, plaintext_hex: ptHex }], envelopes: [rec] } as any, 0);
+        if (!auth) { ex("no valid owner-signed settlement envelope"); continue; }
         const openings: { sha: string; deliver: Deliver }[] = [];
         let openedOk = 0, noDeliver = 0;
         let malformed: string | null = null;

@@ -108,14 +108,20 @@ signing any attestation:
    `settle/plan.ts` performs on the settlement path), so the `<dir>/result.json` it accepts is a result the
    signer has itself validated. Never attest a result that did not come through this check.
 2. **Attest that result's bytes.** Run
-   `benzo xchain attest --chain … --auction … --result <dir>/result.json --allocation <file> … --signer-key <this signer's key file>`.
+   `benzo xchain attest --chain … --auction … --result <dir>/result.json --dir <dir> --envelope-key <this signer's envelope key file> … --signer-key <this signer's key file>`.
    The command recomputes `result_hash = SHA-256(result bytes)` from the exact bytes of `--result` (the
    product's published result hash) and derives the allocation leaves from that result — winner indexes and
    lot counts come only from `result.allocations[].fill` (or `winners[].lot_count` in a cross-chain result).
-   `--allocation` supplies only the destinations (the signer builds them from material it authenticated
-   itself — the winners' settlement-envelope `crosschain` fields or the launch delivery batch); the command
-   refuses it unless it matches the derived leaf set exactly. A `--result-hash` is optional and is refused
-   unless it equals the recomputed hash. Both refusals happen before any key file is read.
+   **Destinations come from the winners' sealed envelopes (R19) and openings are derived by the command
+   itself (R21) — never from operator input:** `--allocation` and `--envelopes` are removed and refused. For
+   every winner leaf the command decrypts the frozen leaf's own ciphertext with the published, BLS-verified
+   beacon (`cli/published-beacon`, the same derivation `benzo verify` uses), checks `SHA-256(ciphertext)`
+   against the root-committed `ciphertext_hash`, verifies the published record's owner signature and
+   settlement commitment against that opening (`settle/envelopes` `validEnvelope`), and only then opens
+   `deliver` with the signers' `--envelope-key` opens — a leaf is attested only when at least 2 signers agree
+   on `SHA-256(deliver)`; winners without an attestable deliver go to the bundle's exception queue for that
+   chain. A `--result-hash` is optional and is refused unless it equals the recomputed hash. These refusals
+   happen before any key file is read.
 3. **Cross-check what was signed.** The printed `result_hash` must equal the result hash `benzo verify` /
    the read API report for the directory. After release, `benzo xchain status --result <dir>/result.json`
    compares the escrow's approved `resultHash` with the published file and exits 1 on mismatch.
