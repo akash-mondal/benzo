@@ -1,0 +1,8 @@
+commit 04169f3 tree (R16 item 4 fix stashed; pre-fix verify/claims — claims[].opening operator-supplied)
+utc 2026-10-03T03:38:50Z
+command node tools/repro/r16-4-stray-claim-opening-repro.mjs ecbebf61f76425e41b4966db5afe3f5c554af513ad0ecf90238d5a6910b5cfd0
+L0 published claim memo_hex matches the scanned deposit: true
+L1 forged claim with operator-supplied opening: exit 1 OK claims (11 other check lines)
+CONFIRMED: verify derives the stray claim's owner key from claims[].opening — the operator supplies it, so any self-consistent forged claim verifies.
+outcome CONFIRMED
+L2 real memo with a corrupted owner_sig: exit 1 ERROR claims refused: claim 0 owner signature

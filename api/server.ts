@@ -4,7 +4,7 @@ import { hash, requireThat } from "../manifest/schema";
 import http from "node:http";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { checkPublicAuction, freezeBoard, loadPublicAuction, operatorView, receiptShow, resultHash } from "./public-auction";
+import { checkPublicAuction, deriveClaimOpenings, freezeBoard, loadPublicAuction, operatorView, receiptShow, resultHash } from "./public-auction";
 
 export type ServerOptions = { dir: string; host?: string; port?: number; signer?: string };
 
@@ -17,7 +17,7 @@ function send(res: http.ServerResponse, status: number, body: unknown): void {
 export function startServer(options: ServerOptions): http.Server {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 8787;
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? "/", `http://${host}:${port}`);
       if (req.method !== "GET") return send(res, 405, { error: "method not allowed" });
@@ -30,7 +30,7 @@ export function startServer(options: ServerOptions): http.Server {
       }
       if (parts[0] === "auction" && parts[1]) {
         if (parts[1] !== pub.manifest.auction_id) return send(res, 404, { error: "unknown auction id" });
-        const failed = checkPublicAuction(pub).filter(c => c.error);
+        const failed = checkPublicAuction(pub, { claimOpenings: await deriveClaimOpenings(pub) }).filter(c => c.error);
         // A manifest failure means the document cannot be trusted at all (same verdict as `benzo verify`).
         const manifestBroken = failed.find(c => c.id === "manifest");
         if (manifestBroken) return send(res, 400, { valid: false, error: `manifest ${manifestBroken.error}` });

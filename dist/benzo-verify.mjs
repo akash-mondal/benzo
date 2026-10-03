@@ -16006,6 +16006,62 @@ function memoBindsEnvelope(memoEnvelopeTag, envelopeCtHex) {
   return typeof memoEnvelopeTag === "string" && /^[0-9a-f]{36}$/.test(memoEnvelopeTag) && memoEnvelopeTag !== "00".repeat(18) && /^[0-9a-f]+$/.test(envelopeCtHex) && envelopeCtHex.length % 2 === 0 && hash(Buffer.from(envelopeCtHex, "hex")).slice(0, 36) === memoEnvelopeTag;
 }
 
+// cli/published-beacon.ts
+var import_tlock_js = __toESM(require_tlock_js(), 1);
+function publishedClient(beacon) {
+  requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
+  const round = Buffer.alloc(8);
+  round.writeBigUInt64BE(BigInt(beacon.round));
+  let valid = false;
+  try {
+    valid = bls12_381.verifyShortSignature(
+      beacon.signature,
+      Buffer.from(hash(round), "hex"),
+      QUICKNET.public_key,
+      { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }
+    );
+  } catch {
+  }
+  requireThat(valid, "beacon BLS signature invalid");
+  const info = {
+    public_key: QUICKNET.public_key,
+    period: QUICKNET.period,
+    genesis_time: QUICKNET.genesis,
+    hash: QUICKNET.chain_hash,
+    groupHash: "",
+    schemeID: QUICKNET.scheme,
+    metadata: { beaconID: "quicknet" }
+  };
+  const publicBeacon = { ...beacon, randomness: hash(Buffer.from(beacon.signature, "hex")) };
+  return {
+    options: { disableBeaconVerification: false, noCache: true },
+    chain: () => ({ baseUrl: "", info: async () => info }),
+    latest: async () => publicBeacon,
+    get: async (requested) => {
+      requireThat(requested === beacon.round, "ciphertext beacon round");
+      return publicBeacon;
+    }
+  };
+}
+async function decryptPublished(ciphertextHex, client2) {
+  const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
+  const info = await client2.chain().info();
+  const stanza = ciphertext.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
+  requireThat(stanza && stanza[2] === info.hash, "ciphertext tlock stanza/chain");
+  await client2.get(Number(stanza[1]));
+  const log = console.log;
+  console.log = () => {
+  };
+  try {
+    return (await (0, import_tlock_js.timelockDecrypt)(ciphertext, client2)).toString("hex");
+  } catch (e) {
+    if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test(e.message)) return null;
+    throw e;
+  } finally {
+    console.log = log;
+  }
+}
+
 // witness/index.ts
 import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
 var witnessSetHash = (packet) => hash(jsonBytes(packet));
@@ -16156,7 +16212,20 @@ function readBeacon(raw2, manifest) {
   return b2;
 }
 var settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
-function checkPublicAuction(pub) {
+async function deriveClaimOpenings(pub) {
+  const openings = /* @__PURE__ */ new Map();
+  const claims = pub.claims ?? [];
+  if (!claims.length || !claims.some((c2) => c2.party?.startsWith("deposit:"))) return openings;
+  requireThat(pub.beacon, "claims require the published beacon");
+  const local = publishedClient(pub.beacon);
+  for (const [i2, c2] of claims.entries()) {
+    if (!c2.party.startsWith("deposit:")) continue;
+    const ct2 = typeof c2.memo_hex === "string" ? memoSealedBid(c2.memo_hex)?.ciphertext_hex ?? null : null;
+    openings.set(i2, ct2 ? await decryptPublished(ct2, local) : null);
+  }
+  return openings;
+}
+function checkPublicAuction(pub, opts = {}) {
   const checks = [];
   const run2 = (id, fn) => {
     try {
@@ -16287,14 +16356,19 @@ function checkPublicAuction(pub) {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     for (const [i2, c2] of records.entries()) {
-      requireThat(c2 && typeof c2 === "object" && ["party", "destination_commit", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "destination_commit", "owner_sig", "memo_hex", "opening"].includes(k2)), `claim ${i2} shape`);
+      requireThat(c2 && typeof c2 === "object" && ["party", "destination_commit", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "destination_commit", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c2.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c2.party), `claim ${i2} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c2.destination_commit) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
       let owner = null;
       if (c2.party.startsWith("leaf:")) {
         const opening = pub.opened.find((o2) => o2.leaf_index === Number(c2.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
-      } else owner = typeof c2.opening === "string" && /^[0-9a-f]{256}$/.test(c2.opening) ? Buffer.from(c2.opening, "hex").subarray(61, 93).toString("hex") : null;
+      } else {
+        requireThat(typeof c2.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c2.memo_hex) && memoSealedBid(c2.memo_hex) !== null, `claim ${i2} memo_hex`);
+        const derived = opts.claimOpenings?.get(i2), pt2 = derived ? Buffer.from(derived, "hex") : null;
+        requireThat(pt2 && pt2.length === 128 && pt2[0] === 0 && pt2.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i2} memo opening`);
+        owner = pt2.subarray(61, 93).toString("hex");
+      }
       requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c2.party, destination_commit: c2.destination_commit }, c2.owner_sig), `claim ${i2} owner signature`);
     }
     for (const row of rows) {
@@ -16427,62 +16501,6 @@ function checkSettlementStatement(pub, ciphertextHash, statement) {
   requireThat(verifyStatement(wanted.owner_pubkey, body, signature), "statement signature");
 }
 
-// cli/published-beacon.ts
-var import_tlock_js = __toESM(require_tlock_js(), 1);
-function publishedClient(beacon) {
-  requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
-  const round = Buffer.alloc(8);
-  round.writeBigUInt64BE(BigInt(beacon.round));
-  let valid = false;
-  try {
-    valid = bls12_381.verifyShortSignature(
-      beacon.signature,
-      Buffer.from(hash(round), "hex"),
-      QUICKNET.public_key,
-      { DST: "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_NUL_" }
-    );
-  } catch {
-  }
-  requireThat(valid, "beacon BLS signature invalid");
-  const info = {
-    public_key: QUICKNET.public_key,
-    period: QUICKNET.period,
-    genesis_time: QUICKNET.genesis,
-    hash: QUICKNET.chain_hash,
-    groupHash: "",
-    schemeID: QUICKNET.scheme,
-    metadata: { beaconID: "quicknet" }
-  };
-  const publicBeacon = { ...beacon, randomness: hash(Buffer.from(beacon.signature, "hex")) };
-  return {
-    options: { disableBeaconVerification: false, noCache: true },
-    chain: () => ({ baseUrl: "", info: async () => info }),
-    latest: async () => publicBeacon,
-    get: async (requested) => {
-      requireThat(requested === beacon.round, "ciphertext beacon round");
-      return publicBeacon;
-    }
-  };
-}
-async function decryptPublished(ciphertextHex, client2) {
-  const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
-  const info = await client2.chain().info();
-  const stanza = ciphertext.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
-  requireThat(stanza && stanza[2] === info.hash, "ciphertext tlock stanza/chain");
-  await client2.get(Number(stanza[1]));
-  const log = console.log;
-  console.log = () => {
-  };
-  try {
-    return (await (0, import_tlock_js.timelockDecrypt)(ciphertext, client2)).toString("hex");
-  } catch (e) {
-    if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test(e.message)) return null;
-    throw e;
-  } finally {
-    console.log = log;
-  }
-}
-
 // cli/commands/verify.ts
 var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] \u2014 re-derive openings offline and reproduce clear + accounting";
 var tleOpening2 = (ciphertext, chain) => tleOpening("tle", chain, ciphertext);
@@ -16545,10 +16563,7 @@ async function run(argv) {
       }
     }
     pub.opened = derived;
-    for (const c2 of pub.claims ?? []) if (c2.memo_hex) {
-      const memo = memoSealedBid(c2.memo_hex);
-      c2.opening = memo ? await decryptPublished(memo.ciphertext_hex, local) : null;
-    }
+    const claimOpenings = await deriveClaimOpenings(pub);
     if (pub.manifest.sealed_reserve !== void 0) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(
@@ -16595,7 +16610,7 @@ async function run(argv) {
         }
       }
     }
-    const checks = checkPublicAuction(pub);
+    const checks = checkPublicAuction(pub, { claimOpenings });
     let failed = false;
     for (const c2 of checks) {
       if (c2.warn) process.stderr.write(`WARN ${c2.warn}
