@@ -481,11 +481,14 @@ if (cliRun.status !== 0) {
   // Independent check (node:crypto, the documented format): Ed25519 over
   // "benzo-envelope-opens-v1" || canonical JSON {signer, opens}, by the signer's witness key.
   const body = schema.jsonBytes({ signer: r.signer, opens: r.opens });
-  const keyDer = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(r.witness, "hex")]);
-  const bound = typeof r.signature === "string" && /^[0-9a-f]{128}$/.test(r.signature) &&
-    r.witness === W[0].public_hex && r.signer === "alice" &&
-    edVerify(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), body]), { key: keyDer, type: "spki", format: "der" }, Buffer.from(r.signature, "hex"));
-  check("r23-2-report-signed", !!bound, `report ${JSON.stringify({ signer: r.signer, witness: r.witness, signature: r.signature })}`);
+  let bound = false;
+  try {
+    const keyDer = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(r.witness, "hex")]);
+    bound = r.witness === W[0].public_hex && r.signer === "alice" &&
+      typeof r.signature === "string" && /^[0-9a-f]{128}$/.test(r.signature) &&
+      edVerify(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), body]), { key: keyDer, type: "spki", format: "der" }, Buffer.from(r.signature, "hex"));
+  } catch { bound = false; }
+  check("r23-2-report-signed", bound, `report ${JSON.stringify({ signer: r.signer, witness: r.witness, signature: r.signature })}`);
 }
 
 // ---- the shipped gate (settle/envelopes.ts agreedDestinations) -----------------------------------
