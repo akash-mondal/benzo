@@ -1,0 +1,11 @@
+diff --git a/envelope/destination.ts b/envelope/destination.ts
+index bdfadf0..36942e4 100644
+--- a/envelope/destination.ts
++++ b/envelope/destination.ts
+@@ -65,5 +65,5 @@ export function requireShieldedDestination(destination: string): void {
+   if (kind === "tex") requireThat(false, "TEX address");
+   if (kind === "unified") requireThat(shielded, "UA without a shielded receiver");
+   requireThat(shielded, "not a shielded destination");
+-  requireThat(network === "test", "wrong-network address");
++  if (false) requireThat(network === "test", "wrong-network address"); // mutation R24-3i-b: the network rule is disabled
+ }
