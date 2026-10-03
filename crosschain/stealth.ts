@@ -169,11 +169,22 @@ export async function scanDeliveries(
   // here with the named-args form; everything cryptographic — getAnnouncementsForUser's
   // checkStealthAddress filter and computeStealthKey — stays in the pinned SDK.
   const ev = ANNOUNCER_ABI.find((i: any) => i.type === "event" && i.name === "Announcement");
-  const logs = await (clientParams.publicClient as any).getLogs({
-    address: announcer, event: ev,
-    args: { schemeId: BigInt(SCHEME_ID) },
-    fromBlock: range.fromBlock ?? "earliest", toBlock: range.toBlock ?? "latest",
-  });
+  const publicClient = clientParams.publicClient as any;
+  const endBlock = range.toBlock === undefined || range.toBlock === "latest"
+    ? BigInt(await publicClient.getBlockNumber()) : BigInt(range.toBlock);
+  let startBlock = range.fromBlock === undefined || range.fromBlock === "earliest" ? 0n : BigInt(range.fromBlock);
+  // public Sepolia endpoints refuse wide log ranges ("exceed maximum block range: 50000") — fetch in
+  // bounded chunks, the same reason the SDK wraps its (broken-args) fetcher in fetchLogsInChunks.
+  const CHUNK = 20000n;
+  const logs: any[] = [];
+  for (let start = startBlock; start <= endBlock; start += CHUNK) {
+    const end = endBlock < start + CHUNK - 1n ? endBlock : start + CHUNK - 1n;
+    logs.push(...await publicClient.getLogs({
+      address: announcer, event: ev,
+      args: { schemeId: BigInt(SCHEME_ID) },
+      fromBlock: start, toBlock: end,
+    }));
+  }
   const announcements = logs.map((log: any) => ({
     schemeId: log.args.schemeId, stealthAddress: log.args.stealthAddress, caller: log.args.caller,
     ephemeralPubKey: log.args.ephemeralPubKey, metadata: log.args.metadata, ...log,
