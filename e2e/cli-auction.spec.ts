@@ -11,7 +11,8 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync} from 'nod
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
-import {jsonBytes} from '../manifest/schema';
+import {jsonBytes,signRecord} from '../manifest/schema';
+import {generateWitnessKey,witnessSetHash} from '../witness';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
@@ -67,8 +68,13 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const envelopeKeys=['alice','bob','carol'].map(name=>{const r=cli(['sign','envelope-key','--name',name]);return r.code===0?r.value.public_hex:JSON.parse(readFileSync(path.join(STATE,'signers',name,'envelope-key.json'),'utf8')).public_hex});
     const operator={settlement:{signers:['bob','carol'],batch_cap:13,pczt_expiry_blocks:4},routing:{bidders:deposit.map(deposit_ua=>({deposit_ua})),seller_ua:refund[10],fee_reserve_ua:reserve}};
     const operatorFile=path.join(privateDir,'operator.json');writeFileSync(operatorFile,JSON.stringify(operator));
-    const manifest={version:1,network:'test',auction_id:id,escrow_ua:deposit[0],frost_group_key:readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim(),lot:'CLI testnet auction',supply:3,reserve_zats:'10',tick_zats:'10',B_max_zats:'3000',q_max:1,C_zats:String(C),fee_zats:'0',deposit_addresses:deposit,envelope_keys:envelopeKeys,drand:{chain_hash:env('BNZ_DRAND_CHAIN_HASH'),public_key:env('BNZ_DRAND_PUBLIC_KEY'),scheme:'bls-unchained-g1-rfc9380',genesis:Number(env('BNZ_DRAND_GENESIS')),period:3,R},T_submit:now+5*60,T_freeze:now+22*60,confirmations:10,clearing:{mode:'uniform',band:'floor_pro_rata_units',dust:'ascending_leaf_index',tie:'ascending_leaf_index',minimum_fill:1},refund:{invalid:'full_C',reorg:'C_minus_fee_remove_leaf',cancel:'full_C'},freeze:'merkle_root_v1'};
-    const draft=good(['auction','create'],manifest),draftStatus=good(['auction','status','--id',id]),packet=good(['auction','sign','--id',id]);
+    // R8 G10 + R17 item 3: gate X cannot be opted out — the fixture creates the signed witness set, and two
+    // witness certificates are collected before open (design §5).
+    const witnessKeys=[0,1,2].map(i=>{const f=path.join(STATE,'witness',`w${i}.json`);if(!existsSync(f)){mkdirSync(path.dirname(f),{recursive:true,mode:0o700});writeFileSync(f,JSON.stringify(generateWitnessKey()),{mode:0o600})}for(const ext of ['key'])writeFileSync(path.join(STATE,'witness',`w${i}.${ext}`),JSON.parse(readFileSync(f,'utf8')).private_hex,{mode:0o600});return JSON.parse(readFileSync(f,'utf8'))});
+    const witnessSet=signRecord({version:1,auction_id:id,q_w:2,keys:witnessKeys.map(k=>k.public_hex)},readFileSync(path.join(STATE,'auction','manifest-signing.pem'),'utf8'));
+    const witnessSetFile=path.join(privateDir,'witness-set.json');writeFileSync(witnessSetFile,JSON.stringify(witnessSet));
+    const manifest={version:1,network:'test',auction_id:id,escrow_ua:deposit[0],frost_group_key:readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim(),lot:'CLI testnet auction',supply:3,reserve_zats:'10',tick_zats:'10',B_max_zats:'3000',q_max:1,C_zats:String(C),fee_zats:'0',deposit_addresses:deposit,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet),drand:{chain_hash:env('BNZ_DRAND_CHAIN_HASH'),public_key:env('BNZ_DRAND_PUBLIC_KEY'),scheme:'bls-unchained-g1-rfc9380',genesis:Number(env('BNZ_DRAND_GENESIS')),period:3,R},T_submit:now+5*60,T_freeze:now+22*60,confirmations:10,clearing:{mode:'uniform',band:'floor_pro_rata_units',dust:'ascending_leaf_index',tie:'ascending_leaf_index',minimum_fill:1},refund:{invalid:'full_C',reorg:'C_minus_fee_remove_leaf',cancel:'full_C'},freeze:'merkle_root_v1'};
+    const draft=good(['auction','create','--witness-set',witnessSetFile],manifest),draftStatus=good(['auction','status','--id',id]),packet=good(['auction','sign','--id',id]);
     const published=good(['auction','publish','--id',id,'--dir',publicDir,'--config',operatorFile]),status=good(['auction','status','--id',id]);
     const manifestFile=path.join(publicDir,'manifest.json'),signer=packet.signer;
     await run.check('O1','CLI persists signed DRAFT to OPEN',()=>{expect.soft(draft.state).toBe('DRAFT');expect.soft(draftStatus.state).toBe('DRAFT');expect.soft(status.state).toBe('OPEN');expect.soft(published.manifest.sha256).toBe(packet.sha256);expect.soft(sha(Buffer.from(packet.bytes,'base64'))).toBe(packet.sha256)});
@@ -90,7 +96,10 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const included=bids.map(b=>good(['bid','deposit','--id',id],{txid:paid.txid,address:b.address,envelope_hex:b.envelope_hex,envelope_ct_hex:b.envelope_ct_hex,owner_sig_hex:b.owner_sig_hex}));
     await run.check('P1','manifest flip refused, sealed bid framing and fixed collateral tracked',()=>{expect.soft(refused.code).not.toBe(0);expect.soft(refused.error).toContain('manifest byte hash');expect.soft(prepared.manifest_hash).toBe(packet.sha256);for(const b of bids){const memo=Buffer.from(b.envelope_hex,'hex');expect.soft(memo.length).toBe(512);expect.soft(memo.subarray(0,5).toString('hex')).toBe('ff424e5a01');expect.soft(b.round).toBe(R)}for(const r of included)expect.soft(r.C_zats).toBe(String(C));const notes=z.scanVault().filter(n=>n.txid===paid.txid&&deposit.includes(n.address!));expect.soft(notes.length).toBe(10);for(const n of notes)expect.soft(n.value_zats).toBe(C)});
 
-    const frozen=good(['freeze','--id',id]);await waitFor({round:R},(release+60)*1000);
+    const frozen=good(['freeze','--id',id]);
+    // R8 G10 (design §5): two witness certificates over the frozen statement before open.
+    for(const i of [0,1])good(['witness','sign','--dir',publicDir,'--signer',signer,'--key',path.join(STATE,'witness',`w${i}.key`)]);
+    await waitFor({round:R},(release+60)*1000);
     good(['open','--id',id]);const result=good(['clear','--id',id]);
     const referenceOpened=frozen.leaves.map((leaf:any)=>{const p=spawnSync(path.join(STATE,'bin/tle'),['-d','-c',env('BNZ_DRAND_CHAIN_HASH')],{input:Buffer.from(leaf.ciphertext_hex,'hex')});if(p.error)throw p.error;if(p.status!==0)throw Error(p.stderr.toString());return {leaf_index:leaf.leaf_index,plaintext_hex:p.stdout.toString('hex')}});
     const pure=z.run(process.execPath,[path.join(ROOT,'clear/dist/cli.mjs')],{input:JSON.stringify({manifest:packet,signer,frozen,opened:referenceOpened})});
@@ -104,10 +113,10 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const claimDest:Record<string,string>={};
     const ownerOf=(ct:string)=>JSON.parse(readFileSync(path.join(STATE,'bids',id,ct+'.json'),'utf8')).owner_private_hex;
     const claims:[string,string,string][]=[...bids.slice(0,9).map((b,i)=>[`leaf:${i}`,b.ciphertext_hash,refund[i]] as [string,string,string]),[memoStrayParty,strayMemoBid.ciphertext_hash,refund[9]] as [string,string,string]];
-    // R11 drill: a well-shaped but forged claim is recorded first for leaf:0; the owner's valid claim must
-    // still be accepted and paid (the signer plan uses the first claim whose owner signature verifies).
-    writeFileSync(path.join(privateDir,'claim-junk.json'),JSON.stringify({kind:'claim-refund',auction_id:id,party:'leaf:0',destination_ua:refund[0],destination_sha256:sha(refund[0]),owner_sig:'22'.repeat(64)}));
-    good(['claim-refund','--id',id,'--file',path.join(privateDir,'claim-junk.json'),'--defer']);
+    // R17 item 2 drill: a forged claim is refused at record time (the owner's valid claim for leaf:0 below
+    // must still be accepted and paid).
+    writeFileSync(path.join(privateDir,'claim-junk.json'),JSON.stringify({kind:'claim-refund',auction_id:id,party:'leaf:0',destination_ua:refund[0],destination_commit:sha(Buffer.concat([Buffer.alloc(32,0x11),Buffer.from(refund[0],'utf8')])),salt:'11'.repeat(32),owner_sig:'22'.repeat(64)}));
+    const junk=cli(['claim-refund','--id',id,'--file',path.join(privateDir,'claim-junk.json'),'--defer']);
     for(const [party,ct,dest] of claims) {
       const request=good(['claim-refund','--id',id,'--party',party,'--destination',dest,'--owner-key-stdin'],ownerOf(ct));
       const file=path.join(privateDir,`claim-${party.replace(/[^a-z0-9]/gi,'_')}.json`);writeFileSync(file,JSON.stringify(request));
@@ -154,6 +163,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const expected=result.allocations.map((a:any)=>({party:`leaf:${a.leaf_index}`,amount_zats:a.refund_zats})).filter((e:any)=>claimDest[e.party]);expected.push({party:'seller',amount_zats:result.conservation.payout_zats});expected.push({party:memoStrayParty,amount_zats:String(memoStray.value_zats)});
     await run.check('O2','CLI lifecycle clear produces the published result.json of the Phase 2 pure clear',()=>{expect.soft(sha(JSON.stringify(doc.result)+'\n')).toBe(sha(pure));expect.soft(sha(readFileSync(path.join(publicDir,'result.json')))).toBe(sha(pure));expect.soft(doc.state).toBe('SETTLING');expect.soft(doc.result.freeze_root).toBe(frozen.root)});
     await run.check('T1','claimed refunds land at owner-named destinations, never operator routing; unclaimable rows stay exceptions',()=>{
+      expect.soft(junk.code).not.toBe(0);expect.soft(junk.error).toContain('claim owner signature');
       expect.soft(completed.code).toBe(0);
       for(const e of expected)expect.soft(settlement.receipts.find((r:any)=>r.party===e.party)?.amount_zats).toBe(e.amount_zats);
       for(const e of expected){const total=expected.filter((x:any)=>destination(x)===destination(e)).reduce((n:number,x:any)=>n+Number(x.amount_zats),0);expect.soft(receiving.filter((n:any)=>n.address===destination(e)).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(total)}
@@ -213,7 +223,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
       const response=await fetch(base),body=await response.json();expect.soft(response.status).toBe(400);expect.soft(body.error).toContain('manifest byte hash');
       writeFileSync(auctionFile,auctionBytes);write('cli/api.json',JSON.stringify(apiData)+'\n');
     });
-    await run.check('T2','public document, evidence and API expose no recipient-derived values',()=>{expect.soft(apiData).toBeDefined();const serialized=JSON.stringify({doc,api:apiData}).replace(/"destination_sha256":"[0-9a-f]{64}"/g,'"destination_sha256":"<claim hash, published by R13 ruling>"');expect.soft(serialized).not.toMatch(/recipient_hash|routing_hash|refund_ua|seller_ua/);for(const address of refund){expect.soft(serialized).not.toContain(address);expect.soft(serialized).not.toContain(sha(address))}for(const r of settlement.receipts)expect.soft(Object.keys(r).sort()).toEqual(['auction_id','party','txid','pool','output_index','amount_zats'].sort())});
+    await run.check('T2','public document, evidence and API expose no recipient-derived values',()=>{expect.soft(apiData).toBeDefined();const serialized=JSON.stringify({doc,api:apiData});expect.soft(serialized).not.toMatch(/recipient_hash|routing_hash|refund_ua|seller_ua|destination_sha256|destination_ua/);for(const address of refund){expect.soft(serialized).not.toContain(address);expect.soft(serialized).not.toContain(sha(address))}for(const r of settlement.receipts)expect.soft(Object.keys(r).sort()).toEqual(['auction_id','party','txid','pool','output_index','amount_zats'].sort())});
     write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
     write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),batches:settlement.batches.map((b:any)=>({id:b.id,state:b.state,actions:b.inspect.actions,fee_zats:b.inspect.fee_zats,starting_height:b.inspect.expiry_height-(b.state==='exception'?4:NORMAL_EXPIRY),mined_height:b.height,signing_ms:b.signing.sessions.map((s:any)=>s.duration_ms)})),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');
   } finally {if(paused)process.kill(paused,'SIGCONT');if(active){process.kill(-active.p.pid!,'SIGKILL');await active.done}if(api)api.kill();try{await cleanup()}finally{stop()}}

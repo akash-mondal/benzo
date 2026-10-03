@@ -1,7 +1,7 @@
 // Track A product state and CLI boundaries. Auction and settlement algorithms stay in their existing entry points.
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync} from 'node:fs';
-import {createPublicKey,generateKeyPairSync} from 'node:crypto';
+import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
@@ -10,8 +10,9 @@ import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
-import {requireOwnEnvelopeKey} from '../settle/envelopes';
+import {requireOwnEnvelopeKey,memoSealedBid} from '../settle/envelopes';
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
+import {verifyStatement} from '../envelope';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
 const key=path.join(STATE,'auction/manifest-signing.pem');
@@ -45,7 +46,7 @@ export function publish(id:string) {
     // R13: the claims the signers actually used for paid rows are published (party, destination hash, owner
     // signature — never the destination) so anyone can check them against the openings.
     const paid=new Set<any>(read(path.join(sd,'receipts.json')).map((r:any)=>r.party));
-    const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,destination_sha256:c.destination_sha256,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
+    const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,destination_commit:c.destination_commit,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
     if(used.length)doc.claims=used;
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
@@ -66,6 +67,8 @@ export async function runCommand(command:string,args:string[]) {
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
+    // R17 item 3: gate X cannot be opted out of.
+    requireThat(m.witness_set_hash!==undefined,'manifest must carry witness_set_hash');
     // R8 G10 (design §5): a manifest carrying witness_set_hash must be created together with the signed
     // witness-set side-packet it commits to.
     const witness_set=o['witness-set']?read(privatePath(o['witness-set'])):undefined;
@@ -182,24 +185,42 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(/^leaf:[0-9]+$/.test(o.party)||/^deposit:[0-9a-f]{64}:.+$/.test(o.party),'claim party');
     requireShieldedDestination(o.destination);
     const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
-    // R13: the signed body carries only the destination's SHA-256, so a published claim is checkable without
-    // revealing the destination; the signers match the full destination to its hash.
-    const body={kind:'claim-refund',auction_id:id,party:o.party,destination_sha256:hash(Buffer.from(o.destination,'utf8'))};
-    return {...body,destination_ua:o.destination,owner_sig:signStatement(owner,body)};
+    // R15 item 3 / R17 item 1 (the R13 destination hash was a real T2 leak): the signed body commits to the
+    // destination with a fresh owner-chosen salt — unlinkable to any candidate address without the salt — and
+    // the full destination travels only in the private request to the signers.
+    const salt=randomBytes(32).toString('hex');
+    const body={kind:'claim-refund',auction_id:id,party:o.party,destination_commit:hash(Buffer.concat([Buffer.from(salt,'hex'),Buffer.from(o.destination,'utf8')]))};
+    return {...body,salt,destination_ua:o.destination,owner_sig:signStatement(owner,body)};
   }
   if(command==='claim-refund') {
     // Operator side (R7 item 4 + R11): record the owner-signed request and settle what it promotes (the signer
     // plan verifies the owner signature against its own fresh opening). --defer records without settling.
     requireThat(id,'--id required');const request=input(o);
-    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.destination_ua==='string'&&/^[0-9a-f]{64}$/.test(request.destination_sha256??'')&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
+    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.destination_ua==='string'&&/^[0-9a-f]{64}$/.test(request.destination_commit??'')&&/^[0-9a-f]{64}$/.test(request.salt??'')&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
     requireShieldedDestination(request.destination_ua);
-    // R11: record every distinct well-shaped claim (exact repeats deduplicated, at most 8 per party) — an
-    // unsigned first claim must never block the owner's valid claim; the signer plan uses the first claim
-    // whose owner signature verifies against its own fresh opening.
+    requireThat(request.destination_commit===hash(Buffer.concat([Buffer.from(request.salt,'hex'),Buffer.from(request.destination_ua,'utf8')])),'claim destination commit');
+    // R17 item 2: the owner signature is verified at record time with the same rule as the signer plan, and
+    // only valid claims are recorded (first valid per party) — an unsigned claim can neither block the owner's
+    // claim nor linger (the R11 cap is dropped).
+    const ownerKeyFor=(party:string):string|null=>{
+      if(party.startsWith('leaf:')) {
+        const o=read(ledger(id)).opened?.find((x:any)=>x.leaf_index===Number(party.slice(5)));
+        return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,'hex').subarray(61,93).toString('hex'):null;
+      }
+      const mm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
+      const note=mm?notes().find((n:any)=>n.txid===mm[1]&&String(n.diversifier_index)===mm[2]):undefined;
+      const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
+      if(!ct)return null;
+      const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(ct,'hex'),maxBuffer:1<<20});
+      if(r.status!==0)return null;
+      const pt=r.stdout;return Buffer.isBuffer(pt)&&pt.length===128?pt.subarray(61,93).toString('hex'):null;
+    };
+    const owner=ownerKeyFor(request.party);
+    requireThat(owner&&verifyStatement(owner!,{kind:'claim-refund',auction_id:id,party:request.party,destination_commit:request.destination_commit},request.owner_sig),'claim owner signature');
     const file=path.join(STATE,'settle',id,'claims.json'),claims=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):[];
-    const same=claims.filter((c:any)=>c.party===request.party);
-    requireThat(same.some((c:any)=>jsonBytes(c).equals(jsonBytes(request)))||same.length<8,'too many claims for this party');
-    if(!same.some((c:any)=>jsonBytes(c).equals(jsonBytes(request)))){claims.push(request);save(file,claims)}
+    const old=claims.find((c:any)=>c.party===request.party);
+    requireThat(!old||jsonBytes(old).equals(jsonBytes(request)),'a claim for this party is already recorded');
+    if(!old){claims.push(request);save(file,claims)}
     if(o.defer==='true')return {recorded:true,party:request.party};
   }
   if(command==='settle'||command==='cancel'||command==='sign join'||(command==='claim-refund'&&o.defer!=='true')) {

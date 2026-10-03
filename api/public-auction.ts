@@ -53,7 +53,7 @@ export type PublicAuction = {
   witnessCerts: WitnessCert[];
   // R13: the owner-signed claims the signers used for paid rows (party, destination hash, owner signature;
   // stray entries carry the memo ciphertext the owner key is derived from).
-  claims: { party: string; destination_sha256: string; owner_sig: string; memo_hex?: string; opening?: string | null }[];
+  claims: { party: string; destination_commit: string; owner_sig: string; memo_hex?: string; opening?: string | null }[];
   settlement: SettlementSummary | null;
   // Gate CF: the published opening of the manifest's tlock-sealed price bound (plaintext hex), present iff the
   // manifest carries `sealed_reserve`; benzo verify re-derives it with tle like the bid openings.
@@ -354,15 +354,15 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     for (const [i, c] of records.entries()) {
-      requireThat(c && typeof c === "object" && ["party", "destination_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "destination_sha256", "owner_sig", "memo_hex", "opening"].includes(k)), `claim ${i} shape`);
+      requireThat(c && typeof c === "object" && ["party", "destination_commit", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "destination_commit", "owner_sig", "memo_hex", "opening"].includes(k)), `claim ${i} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c.party), `claim ${i} party`);
-      requireThat(/^[0-9a-f]{64}$/.test(c.destination_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
+      requireThat(/^[0-9a-f]{64}$/.test(c.destination_commit) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
       let owner: string | null = null;
       if (c.party.startsWith("leaf:")) {
         const opening = pub.opened.find(o => o.leaf_index === Number(c.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
       } else owner = typeof c.opening === "string" && /^[0-9a-f]{256}$/.test(c.opening) ? Buffer.from(c.opening, "hex").subarray(61, 93).toString("hex") : null;
-      requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, destination_sha256: c.destination_sha256 }, c.owner_sig), `claim ${i} owner signature`);
+      requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, destination_commit: c.destination_commit }, c.owner_sig), `claim ${i} owner signature`);
     }
     for (const row of rows) {
       if (!receipts.some(r => r.party === row.party)) continue;
