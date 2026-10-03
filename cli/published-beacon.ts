@@ -2,6 +2,7 @@
 import { bls12_381 } from "@noble/curves/bls12-381";
 import { timelockDecrypt, type ChainClient } from "tlock-js";
 import { QUICKNET, hash, requireThat } from "../manifest/schema";
+import { memoSealedBid } from "../settle/envelopes";
 
 export function publishedClient(beacon: { round: number; signature: string }): ChainClient {
   requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
@@ -38,4 +39,22 @@ export async function decryptPublished(ciphertextHex: string, client: ChainClien
     if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test((e as Error).message)) return null;
     throw e;
   } finally { console.log = log; }
+}
+
+// R16 item 4 (Reviewer R F3): the one derivation of every stray claim's owner-key source — the plaintext of
+// the memo the claim publishes (the scanned deposit's memo), opened against the published beacon. Returns
+// the derived plaintext hex per claim index (null when the memo does not open); checkPublicAuction consumes
+// this map and fails closed without it. Kept here, not in api/public-auction.ts, because that module is
+// bundled into settle/plan.mjs and must not drag the tlock runtime in with it.
+export async function deriveClaimOpenings(claims: { party: string; memo_hex?: string }[], beacon: { round: number; signature: string } | null): Promise<Map<number, string | null>> {
+  const openings = new Map<number, string | null>();
+  if (!claims.length || !claims.some(c => c.party?.startsWith("deposit:"))) return openings;
+  requireThat(beacon, "claims require the published beacon");
+  const local = publishedClient(beacon!);
+  for (const [i, c] of claims.entries()) {
+    if (!c.party.startsWith("deposit:")) continue;
+    const ct = typeof c.memo_hex === "string" ? memoSealedBid(c.memo_hex) : null;
+    openings.set(i, ct ? await decryptPublished(ct, local) : null);
+  }
+  return openings;
 }

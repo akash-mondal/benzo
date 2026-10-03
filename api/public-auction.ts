@@ -11,7 +11,6 @@ import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { memoSealedBid } from "../settle/envelopes";
-import { decryptPublished, publishedClient } from "../cli/published-beacon";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -201,21 +200,9 @@ const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "
 // R16 item 4 (Reviewer R F3): every stray claim's owner key is derived by the verifier itself, from the
 // stray memo the claim publishes (`memo_hex` — the scanned deposit's memo, as the signer plan attaches it)
 // and the published beacon. `claims[].opening` is gone: nothing the operator supplies ever enters the
-// derivation. This is the one derivation; checkPublicAuction takes its result and fails closed for a stray
-// claim whose memo does not open.
-export async function deriveClaimOpenings(pub: PublicAuction): Promise<Map<number, string | null>> {
-  const openings = new Map<number, string | null>();
-  const claims = pub.claims ?? [];
-  if (!claims.length || !claims.some(c => c.party?.startsWith("deposit:"))) return openings;
-  requireThat(pub.beacon, "claims require the published beacon");
-  const local = publishedClient(pub.beacon!);
-  for (const [i, c] of claims.entries()) {
-    if (!c.party.startsWith("deposit:")) continue;
-    const ct = typeof c.memo_hex === "string" ? memoSealedBid(c.memo_hex) : null;
-    openings.set(i, ct ? await decryptPublished(ct, local) : null);
-  }
-  return openings;
-}
+// derivation. The one derivation lives in cli/published-beacon.ts (this module must stay free of the tlock
+// runtime — it is bundled into settle/plan.mjs through the adapters); checkPublicAuction takes its result
+// and fails closed for a stray claim whose memo does not open.
 
 export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: Map<number, string | null> } = {}): Check[] {
   const checks: Check[] = [];
