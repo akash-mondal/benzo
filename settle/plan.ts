@@ -10,7 +10,7 @@ import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
-import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope} from "./envelopes";
+import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
 import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
@@ -181,14 +181,16 @@ try {
   // (each signer's own opening report, written before any batch is planned and never carrying the
   // destination) report ok with the same dest_sha256 for the row. Otherwise the row waits in the exception
   // queue with the ruling's reason, claimable through benzo claim-refund.
-  const reports:any[]=["alice","bob","carol"].flatMap(n=>{try{return [JSON.parse(readFileSync(path.join(state,"settle",id,`envelope-opens-${n}.json`),"utf8"))]}catch{return []}});
+  // R23 item 2 (Reviewer G G3): each envelope-opens report is signed by that signer's witness key (the
+  // same pinned witness set) and the gate counts only reports whose signature verifies — one per witness
+  // key. An unsigned or forged report is ignored, so a fabricated pair can never satisfy the two-signer rule.
+  const reports:any[]=["alice","bob","carol"].flatMap(n=>{try{const r=JSON.parse(readFileSync(path.join(state,"settle",id,`envelope-opens-${n}.json`),"utf8"));return r&&r.signer===n?[r]:[]}catch{return []}});
+  const witnessKeys=published&&m.witness_set_hash!==undefined&&published.witness_set
+    ? validateWitnessSet(verifyRecord<WitnessSet>(published.witness_set,src.signer),id).keys
+    : null;
+  const agreed=agreedDestinations(reports,witnessKeys);
   const envelope_agreed:Record<string,string>={};
-  const agreedDestination=(party:string):string|null=>{
-    const counts:Record<string,number>={};
-    for(const r of reports)for(const e of r.opens??[])if(e.party===party&&e.ok&&typeof e.dest_sha256==="string"&&/^[0-9a-f]{64}$/.test(e.dest_sha256))counts[e.dest_sha256]=(counts[e.dest_sha256]??0)+1;
-    const best=Object.entries(counts).sort((a,b)=>b[1]-a[1])[0];
-    return best&&best[1]>=2?best[0]:null;
-  };
+  const agreedDestination=(party:string):string|null=>agreed.get(party)??null;
   const gateEnvelope=(row:{party:string;kind:"refund"|"payout";amount_zats:string}):void=>{
     const agreed=agreedDestination(row.party);
     if(agreed){envelope_agreed[row.party]=agreed;obligations.push(row);return}

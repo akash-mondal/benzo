@@ -12,7 +12,7 @@ import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
-import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
+import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
@@ -217,8 +217,12 @@ export async function runCommand(command:string,args:string[]) {
       const dest=open(authenticatedMemoEnvelope(notes(),party,doc.manifest,doc.envelopes,bin('tle')));
       opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
-    save(path.join(STATE,'settle',id,`envelope-opens-${o.name}.json`),{signer:o.name,opens});
-    return {signer:o.name,opens};
+    // R23 item 2 (Reviewer G G3): the report is signed by this signer's own witness key (a member of the
+    // same pinned witness set); the plan counts only reports whose signature verifies.
+    requireThat(o['witness-key'],'--witness-key required');
+    const signed={signer:o.name,opens,...signOpensReport({signer:o.name,opens},readFileSync(privatePath(o['witness-key']),'utf8').trim())};
+    save(path.join(STATE,'settle',id,`envelope-opens-${o.name}.json`),signed);
+    return signed;
   }
   if(command==='claim-refund'&&o.party!==undefined) {
     // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.

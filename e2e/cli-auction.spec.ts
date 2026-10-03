@@ -125,7 +125,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     good(['claim-refund','--id',id,'--file',claimFile,'--defer']);claimDest[memoStrayParty]=refund[9];
     // R10 item 4: each signer writes its own envelope-opening report (ok + destination hash, never the
     // destination) before any batch is planned; an envelope-paid refund needs two agreeing reports.
-    for(const name of ['alice','bob','carol'])good(['sign','envelope-opens','--id',id,'--name',name]);
+    for(const [wi,name] of ['alice','bob','carol'].entries())good(['sign','envelope-opens','--id',id,'--name',name,'--witness-key',path.join(STATE,'witness',`w${wi}.key`)]);
     // Allocate through the real worker then kill before PCZT creation, as the production resume boundary.
     active=worker(id,true);const killed=await active.done;active=undefined;
     if(killed.code!==null){await run.check('T1','admitted and stray notes do not block allocation',()=>{throw Error(killed.err)});return}
@@ -265,7 +265,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const request2=good(['claim-refund','--id',id2,'--party',claimParty2,'--destination',claimDest2,'--owner-key-stdin'],JSON.parse(readFileSync(path.join(STATE,'bids',id2,bids2[0].ciphertext_hash+'.json'),'utf8')).owner_private_hex);
     const claimFile2=path.join(privateDir2,'claim-0.json');writeFileSync(claimFile2,JSON.stringify(request2));
     good(['claim-refund','--id',id2,'--file',claimFile2,'--defer']);
-    for(const name of ['alice','bob','carol'])good(['sign','envelope-opens','--id',id2,'--name',name]);
+    for(const [wi,name] of ['alice','bob','carol'].entries())good(['sign','envelope-opens','--id',id2,'--name',name,'--witness-key',path.join(STATE,'witness',`w${wi}.key`)]);
     const cancelledSecond=cli(['settle','--id',id2]);
     const finalDoc=json(path.join(publicDir2,'auction.json')),finalSettlement=finalDoc.settlement??{rows:[],receipts:[]};
     z.sync('bidder');z.enhance('bidder');const receiving2=z.run(z.scanner,['scan','test',path.join(STATE,'bidder')]).trim().split('\n').filter(Boolean).map(l=>JSON.parse(l));

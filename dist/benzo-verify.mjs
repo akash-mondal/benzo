@@ -15995,6 +15995,9 @@ function checkBuybackReport(pub) {
 import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
 import path4 from "node:path";
 
+// witness/index.ts
+import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
+
 // settle/deposits.ts
 var PARTY = /^deposit:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
 function isDepositParty(party) {
@@ -16002,21 +16005,7 @@ function isDepositParty(party) {
   return !!m2 && Number(m2[3]) <= 65535;
 }
 
-// settle/envelopes.ts
-function memoSealedBid(memoHex) {
-  try {
-    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
-    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
-    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
-    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
-    return memo.subarray(7, 7 + length).toString("hex");
-  } catch {
-    return null;
-  }
-}
-
 // witness/index.ts
-import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
 var witnessSetHash = (packet) => hash(jsonBytes(packet));
 var edPublic = (h2) => createPublicKey3({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(h2, "hex")]), type: "spki", format: "der" });
 function validateWitnessSet(set, auctionId) {
@@ -16091,6 +16080,19 @@ function checkStraysCerts(certs, spec) {
   }
   requireThat(signed.size >= spec.q_w, `strays witness quorum ${signed.size}-of-${spec.keys.length}`);
   return certs[0].statement;
+}
+
+// settle/envelopes.ts
+function memoSealedBid(memoHex) {
+  try {
+    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
+    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
+    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
+    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+    return memo.subarray(7, 7 + length).toString("hex");
+  } catch {
+    return null;
+  }
 }
 
 // api/public-auction.ts

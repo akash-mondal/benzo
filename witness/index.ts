@@ -20,6 +20,12 @@ export type StraysEntry = { party: string; memo_sha256: string; value_zats: stri
 export type StraysStatement = { version: 1; auction_id: string; strays: StraysEntry[] };
 export type StraysCert = { statement: StraysStatement; signatures: { witness: string; signature: string }[] };
 
+// R23 item 2: envelope-opens reports are signed by the reporting signer's own witness key (a member of
+// the same pinned witness set), and the settlement plan counts only reports whose signature verifies —
+// one per witness key. The body carries no destination (only per-row ok flags and destination hashes).
+export type OpensBody = { signer: string; opens: { leaf: number | null; party: string; ok: boolean; dest_sha256: string | null }[] };
+export type OpensReport = OpensBody & { witness: string; signature: string };
+
 // R4 item 2: the signed manifest optionally carries `witness_set_hash` = SHA-256 of the signed witness-set
 // side-packet (its canonical JSON bytes: bytes, sha256, signer, signature). Binding the whole packet makes a
 // removed or substituted witness set detectable by any reader holding the manifest alone.
@@ -84,6 +90,25 @@ export function checkCertificates(certs: WitnessCert[], spec: WitnessSpec, state
     signed.add(s.witness);
   }
   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
+}
+
+export function signOpensReport(body: OpensBody, privateHex: string): { witness: string; signature: string } {
+  requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
+  requireThat(body && typeof body.signer === "string" && Array.isArray(body.opens), "opens report body");
+  const key = edPrivate(privateHex);
+  return { witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"),
+    signature: sign(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), jsonBytes({ signer: body.signer, opens: body.opens })]), key).toString("hex") };
+}
+
+// Total: a forged or unsigned report is "not verified", never a throw.
+export function verifyOpensReport(r: OpensReport, keys: string[] | null): boolean {
+  try {
+    return !!r && Array.isArray(keys) && typeof r.signer === "string" && typeof r.witness === "string" &&
+      keys.includes(r.witness) && /^[0-9a-f]{128}$/.test(String(r.signature)) &&
+      verify(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), jsonBytes({ signer: r.signer, opens: r.opens })]), edPublic(r.witness), Buffer.from(r.signature, "hex"));
+  } catch {
+    return false;
+  }
 }
 
 // R23 item 1 (Reviewer G G1): the strays statement binds a published stray claim to the chain through the

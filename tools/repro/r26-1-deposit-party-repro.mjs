@@ -476,6 +476,9 @@ execFileSync("git", ["init", "-q"], { cwd: REPO });
 writeFileSync(path.join(REPO, ".env"), "# fixture: the repro passes BNZ_STATE_DIR in the environment\n");
 symlinkSync(path.join(ROOT, "scan"), path.join(REPO, "scan"), "dir");
 writeFileSync(path.join(STATE, "signers", "alice", "envelope-key.json"), JSON.stringify({ public_hex: "11".repeat(32), private_hex: "22".repeat(32) }));
+// R23 item 2: the report is signed with the signer's own witness key (a fixture key here; the flag is
+// ignored by trees from before R23 item 2, so this harness runs against either).
+writeFileSync(path.join(STATE, "witness-alice.key"), "33".repeat(32), { mode: 0o600 });
 const signerKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" });
 const now = Math.floor(Date.now() / 1000);
 const R = 2 + Math.floor((now + 30 * 86400 - schema.QUICKNET.genesis) / schema.QUICKNET.period);
@@ -492,7 +495,7 @@ const publicDir = path.join(WORK, "public");
 mkdirSync(publicDir, { recursive: true });
 writeFileSync(path.join(publicDir, "auction.json"), JSON.stringify({ version: 1, auction_id: ID, signer: packet.signer, manifest: packet, state: "REFUNDING", receipts: [] }));
 writeFileSync(path.join(STATE, "product", `${ID}.json`), JSON.stringify({ public_dir: publicDir, settlement: { signers: ["alice", "bob"], pczt_expiry_blocks: 364, batch_cap: 13 }, routing: { bidders: [], seller_ua: "utest1seller" } }));
-const cli = spawnSync(process.execPath, [path.join(ROOT, "cli/dist/benzo.mjs"), "sign", "envelope-opens", "--id", ID, "--name", "alice"],
+const cli = spawnSync(process.execPath, [path.join(ROOT, "cli/dist/benzo.mjs"), "sign", "envelope-opens", "--id", ID, "--name", "alice", "--witness-key", path.join(STATE, "witness-alice.key")],
   { cwd: REPO, env: { ...process.env, BNZ_STATE_DIR: STATE }, encoding: "utf8", maxBuffer: 64 << 20 });
 if (cli.status !== 0) { console.log(`ERROR r26-1-report-parties benzo sign envelope-opens refused: ${(cli.stderr || cli.stdout).trim().slice(-300)}`); failed++; }
 const report = cli.status === 0 ? JSON.parse(readFileSync(path.join(STATE, "settle", ID, "envelope-opens-alice.json"), "utf8")) : { opens: [] };
