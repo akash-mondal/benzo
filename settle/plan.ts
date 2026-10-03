@@ -18,6 +18,7 @@ import {checkFrozen} from "../clear/merkle";
 import {modeEntry} from "../clear/registry";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
+import { vaultDir, scanBin } from "../manifest/paths";
 const root=repoRoot();
 for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2];
@@ -54,10 +55,10 @@ try {
     checkCertificates((published as any).witness_cert??[],spec,freezeStatement(m,src.frozen!));
   }
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
-  const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",path.join(state,"vault"),...args]);
+  const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state,id),...args]);
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);
   const tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
-  const notes=execute(path.join(root,"scan/target/release/benzo-scan"),["scan","test",path.join(state,"vault")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+  const notes=execute(scanBin(root,state),["scan","test",vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   const ledgerFile=path.join(state,"settle",id,"ledger.sqlite"),owned=new Set<string>();
   if(existsSync(ledgerFile)) {
     const db=new DatabaseSync(ledgerFile,{readOnly:true});

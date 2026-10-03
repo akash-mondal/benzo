@@ -7,7 +7,10 @@ import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,ch
 import {pubkey,zcashSign} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {partyNote} from "./deposits";
+import { vaultDir, pcztBin } from "../manifest/paths";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
+// §11 H1: every vault use for this auction resolves to its own per-auction vault when it ran its own DKG.
+if(id&&/^[0-9a-f]{64}$/.test(id))process.env.BNZ_AUCTION_ID=id;
 const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
@@ -117,7 +120,7 @@ async function worker(ledger:Ledger) {
     let staged=ledger.batch(batch.id)!;
     if(!staged.txid) {
       const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
-      run(path.join(ROOT,"settle/target/release/benzo-pczt"),["create",path.join(STATE,"vault"),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
+      run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
       const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
       await prove(created,proven);
       const signing=await zcashSign(proven,signed,(name,randomizer,sighash)=> {

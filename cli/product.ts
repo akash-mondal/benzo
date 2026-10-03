@@ -65,6 +65,7 @@ export function publish(id:string) {
 export async function runCommand(command:string,args:string[]) {
   const o=options(args),id=o.id;
   if(id)requireThat(/^[0-9a-f]{64}$/.test(id),'auction id');
+  if(id)process.env.BNZ_AUCTION_ID=id; // §11 H1: children use this auction's own vault when it ran its own DKG
   if(command==='auction create') {
     const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");validateManifest(m);
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by

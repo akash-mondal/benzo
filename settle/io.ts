@@ -2,6 +2,7 @@ import {execFileSync,spawn,spawnSync} from "node:child_process";
 import {appendFileSync,readFileSync,existsSync} from "node:fs";
 import path from "node:path";
 import { repoRoot } from "../manifest/root";
+import { vaultDir, scanBin, pcztBin, ufvkFile } from "../manifest/paths";
 export const ROOT=repoRoot();
 for(const l of (existsSync(path.join(ROOT,".env"))?readFileSync(path.join(ROOT,".env"),"utf8"):"").split("\n")) {const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2]}
 export const STATE=path.resolve(ROOT,process.env.BNZ_STATE_DIR!),bin=(n:string)=>path.join(STATE,"bin",n);
@@ -20,14 +21,14 @@ export function syncRetry(f:()=>string):string {
     try{return f()}catch(e){if(attempt>=4||!SYNC_TRANSIENT.test(String((e as Error)?.message??e)))throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5000*attempt)}
   }
 }
-export const wallet=(...args:string[])=>args[0]==="sync"?syncRetry(()=>run(bin("zcash-devtool"),["wallet","-w",path.join(STATE,"vault"),...args])):run(bin("zcash-devtool"),["wallet","-w",path.join(STATE,"vault"),...args]);
-export const pczt=(...args:string[])=>run(bin("zcash-devtool"),["pczt","-w",path.join(STATE,"vault"),...args]);
-export const inspect=(file:string)=>JSON.parse(run(path.join(ROOT,"settle/target/release/benzo-pczt"),["inspect",file,path.join(STATE,"ufvk.txt")]));
+export const wallet=(...args:string[])=>args[0]==="sync"?syncRetry(()=>run(bin("zcash-devtool"),["wallet","-w",vaultDir(STATE),...args])):run(bin("zcash-devtool"),["wallet","-w",vaultDir(STATE),...args]);
+export const pczt=(...args:string[])=>run(bin("zcash-devtool"),["pczt","-w",vaultDir(STATE),...args]);
+export const inspect=(file:string)=>JSON.parse(run(pcztBin(ROOT,STATE),["inspect",file,ufvkFile(STATE)]));
 export const monetary=(id:string)=>JSON.parse(run(process.execPath,[path.join(ROOT,"settle/dist/plan.mjs"),id]));
-export const notes=()=>run(path.join(ROOT,"scan/target/release/benzo-scan"),["scan","test",path.join(STATE,"vault")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+export const notes=()=>run(scanBin(ROOT,STATE),["scan","test",vaultDir(STATE)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
 export function prove(file:string,output:string):Promise<void> {
   return new Promise((resolve,reject)=> {
-    const p=spawn(bin("zcash-devtool"),["pczt","-w",path.join(STATE,"vault"),"prove",file,"--output",output]);
+    const p=spawn(bin("zcash-devtool"),["pczt","-w",vaultDir(STATE),"prove",file,"--output",output]);
     let log="";p.stdout.on("data",d=>log+=d);p.stderr.on("data",d=>log+=d);p.on("error",reject);
     p.on("close",code=>{appendFileSync(path.join(STATE,"run","settle-cli.log"),`\nprove\n${log}`);code===0?resolve():reject(Error(`prove exited ${code}: ${log.slice(-300)}`))});
   });

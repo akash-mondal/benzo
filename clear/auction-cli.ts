@@ -9,6 +9,7 @@ import {clearForMode} from "./registry";
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoSealedBid} from "../settle/envelopes";
 import { repoRoot } from "../manifest/root";
+import { vaultDir, scanBin } from "../manifest/paths";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
@@ -25,11 +26,11 @@ const execute=(cmd:string,args:string[])=> {
   if(r.error)throw r.error;
   requireThat(r.status===0,`${path.basename(cmd)} exited ${r.status}: ${(r.stderr||r.stdout).trim().slice(-300)}`); return r.stdout;
 };
-const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",path.join(state,"vault"),...args]);
+const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state),...args]);
 function observed():{notes:Note[]; tip:number} {
   wallet("sync","-s",process.env.BNZ_LWD_URL!); wallet("enhance","-s",process.env.BNZ_LWD_URL!);
   const balance=JSON.parse(wallet("balance","--json"));
-  const notes=execute(path.join(root,"scan","target","release","benzo-scan"),["scan","test",path.join(state,"vault")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+  const notes=execute(scanBin(root,state),["scan","test",vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};
 }
 function ciphertext(envelope:string,R:number):{ct:string;memo_tag:string|null} {
@@ -43,6 +44,7 @@ function ciphertext(envelope:string,R:number):{ct:string;memo_tag:string|null} {
 }
 try {
   const [command,id]=process.argv.slice(2), input=JSON.parse(readFileSync(0,"utf8")||"{}");
+  if(id&&/^[0-9a-f]{64}$/.test(id))process.env.BNZ_AUCTION_ID=id; // §11 H1
   requireThat(/^[0-9a-f]{64}$/.test(id),"auction id");
   const file=path.join(dir,`${id}.json`);
   let ledger:Ledger, result:unknown;
