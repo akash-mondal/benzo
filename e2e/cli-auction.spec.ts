@@ -12,11 +12,12 @@ import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
 import {jsonBytes,signRecord} from '../manifest/schema';
+import {sealEnvelope} from '../envelope';
 import {generateWitnessKey,witnessSetHash} from '../witness';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
-const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
+const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const fresh=(name:string)=>z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['address',path.join(STATE,name)]).trim();
@@ -104,24 +105,25 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const referenceOpened=frozen.leaves.map((leaf:any)=>{const p=spawnSync(path.join(STATE,'bin/tle'),['-d','-c',env('BNZ_DRAND_CHAIN_HASH')],{input:Buffer.from(leaf.ciphertext_hex,'hex')});if(p.error)throw p.error;if(p.status!==0)throw Error(p.stderr.toString());return {leaf_index:leaf.leaf_index,plaintext_hex:p.stdout.toString('hex')}});
     const pure=z.run(process.execPath,[path.join(ROOT,'clear/dist/cli.mjs')],{input:JSON.stringify({manifest:packet,signer,frozen,opened:referenceOpened})});
     write('cli/clear-reference.json',pure);
-    // R7 items 4/6/7: refunds complete through owner-signed claim requests naming shielded destinations — the
-    // same destinations sealed in the bids' envelopes — recorded before settlement (first claim per party).
-    // Leaf 9 and the memo-less stray have no owner-authenticated destination: they stay correct exception rows.
+    // R10.2/R15.3/R16.6: the eight envelope bids refund through their validated v2 envelopes with NO claims
+    // (their destinations were sealed at bid time); exactly one claim refund — the memo stray's owner-signed
+    // claim (its owner key derived from the scanned memo, R16.4) — is recorded before settlement. Bids 8–9
+    // (no envelope) and the memo-less stray stay correct exception rows, never paid.
     const strayNotes=z.scanVault().filter(n=>n.txid===strayTx);
     const memoStray=strayNotes.find(n=>n.address===deposit[0])!,garbageStray=strayNotes.find(n=>n.address===deposit[1])!;
     const memoStrayParty=`deposit:${memoStray.txid}:${memoStray.diversifier_index}`,garbageStrayParty=`deposit:${garbageStray.txid}:${garbageStray.diversifier_index}`;
     const claimDest:Record<string,string>={};
     const ownerOf=(ct:string)=>JSON.parse(readFileSync(path.join(STATE,'bids',id,ct+'.json'),'utf8')).owner_private_hex;
-    const claims:[string,string,string][]=[...bids.slice(0,9).map((b,i)=>[`leaf:${i}`,b.ciphertext_hash,refund[i]] as [string,string,string]),[memoStrayParty,strayMemoBid.ciphertext_hash,refund[9]] as [string,string,string]];
-    // R17 item 2 drill: a forged claim is refused at record time (the owner's valid claim for leaf:0 below
-    // must still be accepted and paid).
-    writeFileSync(path.join(privateDir,'claim-junk.json'),JSON.stringify({kind:'claim-refund',auction_id:id,party:'leaf:0',destination_ua:refund[0],destination_commit:sha(Buffer.concat([Buffer.alloc(32,0x11),Buffer.from(refund[0],'utf8')])),salt:'11'.repeat(32),owner_sig:'22'.repeat(64)}));
+    // R17 item 2 drill (R15.3 shape): a well-shaped forged claim — a real envelope sealed to the pinned keys
+    // but a garbage owner signature — is refused at record time; the owner's valid claim below is accepted.
+    writeFileSync(path.join(privateDir,'claim-junk.json'),JSON.stringify({auction_id:id,party:'leaf:0',claim_envelope_ct:sealEnvelope(refund[0],envelopeKeys),owner_sig:'22'.repeat(64)}));
     const junk=cli(['claim-refund','--id',id,'--file',path.join(privateDir,'claim-junk.json'),'--defer']);
-    for(const [party,ct,dest] of claims) {
-      const request=good(['claim-refund','--id',id,'--party',party,'--destination',dest,'--owner-key-stdin'],ownerOf(ct));
-      const file=path.join(privateDir,`claim-${party.replace(/[^a-z0-9]/gi,'_')}.json`);writeFileSync(file,JSON.stringify(request));
-      good(['claim-refund','--id',id,'--file',file,'--defer']);claimDest[party]=dest;
-    }
+    const request=good(['claim-refund','--id',id,'--party',memoStrayParty,'--destination',refund[9],'--owner-key-stdin'],ownerOf(strayMemoBid.ciphertext_hash));
+    const claimFile=path.join(privateDir,'claim-memo-stray.json');writeFileSync(claimFile,JSON.stringify(request));
+    good(['claim-refund','--id',id,'--file',claimFile,'--defer']);claimDest[memoStrayParty]=refund[9];
+    // R10 item 4: each signer writes its own envelope-opening report (ok + destination hash, never the
+    // destination) before any batch is planned; an envelope-paid refund needs two agreeing reports.
+    for(const name of ['alice','bob','carol'])good(['sign','envelope-opens','--id',id,'--name',name]);
     // Allocate through the real worker then kill before PCZT creation, as the production resume boundary.
     active=worker(id,true);const killed=await active.done;active=undefined;
     if(killed.code!==null){await run.check('T1','admitted and stray notes do not block allocation',()=>{throw Error(killed.err)});return}
@@ -130,7 +132,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const batchRows=rows.filter(r=>r.batch===1);
     const amounts=batchRows.map(r=>r.amount_zats),faulted=batchRows.map((r,i)=>({...r,amount_zats:String(BigInt(r.amount_zats)+(i===0?1n:i===1?-1n:0n))}));
     for(const r of faulted)db.prepare('UPDATE obligations SET amount_zats=? WHERE party=?').run(r.amount_zats,r.party);
-    const destination=(r:any)=>r.party==='seller'?refund[10]:claimDest[r.party]??refund[10];
+    const destination=(r:any)=>r.party==='seller'?refund[10]:claimDest[r.party]??(r.party.startsWith('leaf:')?refund[Number(r.party.slice(5))]:refund[10]);
     const wrong=path.join(privateDir,'wrong.pczt');z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['create',path.join(STATE,'vault'),wrong],{input:JSON.stringify(faulted.map(r=>({recipient:destination(r),amount_zats:r.amount_zats})))});
     const rejected=cli(['sign','inspect','--id',id,'--batch','1','--candidate',wrong,'--name','bob']);
     for(let i=0;i<batchRows.length;i++)db.prepare('UPDATE obligations SET amount_zats=? WHERE party=?').run(amounts[i],batchRows[i].party);db.close();
@@ -160,18 +162,22 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     // R7 items 4/6/7: every claim-named refund lands at its owner-named destination (the destination sealed in
     // that bid's envelope), none at an operator routing sink; leaf 9 and the memo-less stray are correct
     // exception rows, never paid.
-    const expected=result.allocations.map((a:any)=>({party:`leaf:${a.leaf_index}`,amount_zats:a.refund_zats})).filter((e:any)=>claimDest[e.party]);expected.push({party:'seller',amount_zats:result.conservation.payout_zats});expected.push({party:memoStrayParty,amount_zats:String(memoStray.value_zats)});
+    // R10.2/R16.6: every envelope bid (leaf:0–7) refunds to the destination sealed in its own envelope — no
+    // claims at all — the memo stray refunds to its claim-named destination; leaf:8/leaf:9 and the memo-less
+    // stray stay correct exception rows.
+    const expected=result.allocations.map((a:any)=>({party:`leaf:${a.leaf_index}`,amount_zats:a.refund_zats})).filter((e:any)=>BigInt(e.amount_zats)>0n&&Number(e.party.slice(5))<8);expected.push({party:'seller',amount_zats:result.conservation.payout_zats});expected.push({party:memoStrayParty,amount_zats:String(memoStray.value_zats)});
     await run.check('O2','CLI lifecycle clear produces the published result.json of the Phase 2 pure clear',()=>{expect.soft(sha(JSON.stringify(doc.result)+'\n')).toBe(sha(pure));expect.soft(sha(readFileSync(path.join(publicDir,'result.json')))).toBe(sha(pure));expect.soft(doc.state).toBe('SETTLING');expect.soft(doc.result.freeze_root).toBe(frozen.root)});
-    await run.check('T1','claimed refunds land at owner-named destinations, never operator routing; unclaimable rows stay exceptions',()=>{
+    await run.check('T1','envelope refunds land at the destinations sealed in the bids, one claim refund at its owner-named destination, never operator routing; unclaimable rows stay exceptions',()=>{
       expect.soft(junk.code).not.toBe(0);expect.soft(junk.error).toContain('claim owner signature');
       expect.soft(completed.code).toBe(0);
       for(const e of expected)expect.soft(settlement.receipts.find((r:any)=>r.party===e.party)?.amount_zats).toBe(e.amount_zats);
       for(const e of expected){const total=expected.filter((x:any)=>destination(x)===destination(e)).reduce((n:number,x:any)=>n+Number(x.amount_zats),0);expect.soft(receiving.filter((n:any)=>n.address===destination(e)).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(total)}
       for(const e of expected)if(e.party!=='seller'){expect.soft(destination(e)).not.toBe(refund[10]);expect.soft(destination(e)).not.toBe(reserve)}
       const rowsByParty=new Map<string,any>(settlement.rows.map((r:any)=>[r.party,r]));
+      expect.soft(rowsByParty.get('leaf:8')?.state).toBe('exception');
       expect.soft(rowsByParty.get('leaf:9')?.state).toBe('exception');
       expect.soft(rowsByParty.get(garbageStrayParty)?.state).toBe('exception');
-      expect.soft(settlement.receipts.some((r:any)=>r.party==='leaf:9'||r.party===garbageStrayParty)).toBe(false);
+      expect.soft(settlement.receipts.some((r:any)=>r.party==='leaf:8'||r.party==='leaf:9'||r.party===garbageStrayParty)).toBe(false);
     });
     await run.check('T3','expired staged batch becomes exception and replans without duplicate receipts',()=>{expect.soft(delay.resumed_height).toBeGreaterThan(delay.expiry_height);expect.soft(settlement.batches.filter((b:any)=>b.state==='exception').length).toBe(1);expect.soft(settlement.batches.filter((b:any)=>b.state==='mined').length).toBe(1);expect.soft(new Set(settlement.receipts.map((r:any)=>r.party)).size).toBe(expected.length);expect.soft(settlement.receipts.reduce((n:number,r:any)=>n+Number(r.amount_zats),0)).toBe(expected.reduce((n:number,r:any)=>n+Number(r.amount_zats),0));expect.soft(killed.signal).toBe('SIGKILL')});
     const sessions=settlement.batches.filter((b:any)=>b.state==='mined').flatMap((b:any)=>b.signing.sessions);
@@ -224,7 +230,56 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
       writeFileSync(auctionFile,auctionBytes);write('cli/api.json',JSON.stringify(apiData)+'\n');
     });
     await run.check('T2','public document, evidence and API expose no recipient-derived values',()=>{expect.soft(apiData).toBeDefined();const serialized=JSON.stringify({doc,api:apiData});expect.soft(serialized).not.toMatch(/recipient_hash|routing_hash|refund_ua|seller_ua|destination_sha256|destination_ua/);for(const address of refund){expect.soft(serialized).not.toContain(address);expect.soft(serialized).not.toContain(sha(address))}for(const r of settlement.receipts)expect.soft(Object.keys(r).sort()).toEqual(['auction_id','party','txid','pool','output_index','amount_zats'].sort())});
+    // R16 items 1/6 + R16.1: a cancelled product auction refunds exactly like the cleared path and never
+    // wedges. Cancelled before its own release round: every deposit waits in the exception queue and the run
+    // completes (the R16.1 rule). After its release round, one deposit refunds through the owner-signed
+    // claim (to a destination distinct from its envelope's) and the other through its memo-bound envelope.
+    const id2=randomBytes(32).toString('hex'),deposit2=Array.from({length:2},()=>fresh('vault'));
+    const refund2=Array.from({length:3},()=>fresh('bidder')); // [0] bid/claim, [1] bid envelope, [2] seller
+    const claimDest2=fresh('bidder');
+    const privateDir2=path.join(STATE,'run',`cli-${id2}`),publicDir2=path.join(ROOT,'tmp/e2e/public',id2);mkdirSync(privateDir2,{recursive:true});
+    const witnessSet2=signRecord({version:1,auction_id:id2,q_w:2,keys:witnessKeys.map(k=>k.public_hex)},readFileSync(path.join(STATE,'auction','manifest-signing.pem'),'utf8'));
+    const witnessSetFile2=path.join(privateDir2,'witness-set.json');writeFileSync(witnessSetFile2,JSON.stringify(witnessSet2));
+    const operator2={settlement:{signers:['bob','carol'],batch_cap:13,pczt_expiry_blocks:NORMAL_EXPIRY},routing:{bidders:deposit2.map(deposit_ua=>({deposit_ua})),seller_ua:refund2[2],fee_reserve_ua:reserve}};
+    const operatorFile2=path.join(privateDir2,'operator.json');writeFileSync(operatorFile2,JSON.stringify(operator2));
+    const now2=Math.ceil(Date.now()/1000),release2=now2+5*60,R2=1+Math.ceil((release2-Number(env('BNZ_DRAND_GENESIS')))/3);
+    const manifest2={...manifest,auction_id:id2,escrow_ua:deposit2[0],lot:'CLI cancelled testnet auction',supply:1,deposit_addresses:deposit2,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet2),drand:{...manifest.drand,R:R2},T_submit:now2+2*60,T_freeze:now2+30*60};
+    good(['auction','create','--witness-set',witnessSetFile2],manifest2);good(['auction','sign','--id',id2]);
+    good(['auction','publish','--id',id2,'--dir',publicDir2,'--config',operatorFile2]);
+    const manifestFile2=path.join(publicDir2,'manifest.json');
+    const bids2=deposit2.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile2,'--signer',signer],{price_zats:String(price+100+i),quantity:1,address,refund_ua:refund2[i],envelope_pubkey:envelopeKeys[0]}),address}));
+    const paid2=good(['bid','deposit','--id',id2,'--pay'],{bids:bids2});console.log(`CLI cancelled funding ${paid2.txid}`);
+    await mature(paid2.txid);
+    for(const b of bids2)good(['bid','deposit','--id',id2],{txid:paid2.txid,address:b.address,envelope_hex:b.envelope_hex,envelope_ct_hex:b.envelope_ct_hex,owner_sig_hex:b.owner_sig_hex});
+    // `benzo cancel` records the cancel and runs the settlement: pre-R every deposit waits in the exception
+    // queue and the run completes — the R16.1 "never a wedge" rule.
+    const cancelledFirst=cli(['cancel','--id',id2]);
+    const firstDoc=json(path.join(publicDir2,'auction.json')),firstSettlement=firstDoc.settlement??{rows:[],receipts:[]};
+    await waitFor({round:R2},(release2+60)*1000);
+    const notes2=z.scanVault().filter(n=>n.txid===paid2.txid),claimNote=notes2.find(n=>n.address===deposit2[0])!;
+    const claimParty2=`deposit:${claimNote.txid}:${claimNote.diversifier_index}`;
+    const request2=good(['claim-refund','--id',id2,'--party',claimParty2,'--destination',claimDest2,'--owner-key-stdin'],ownerOf(bids2[0].ciphertext_hash));
+    const claimFile2=path.join(privateDir2,'claim-0.json');writeFileSync(claimFile2,JSON.stringify(request2));
+    good(['claim-refund','--id',id2,'--file',claimFile2,'--defer']);
+    for(const name of ['alice','bob','carol'])good(['sign','envelope-opens','--id',id2,'--name',name]);
+    const cancelledSecond=cli(['settle','--id',id2]);
+    const finalDoc=json(path.join(publicDir2,'auction.json')),finalSettlement=finalDoc.settlement??{rows:[],receipts:[]};
+    z.sync('bidder');z.enhance('bidder');const receiving2=z.run(z.scanner,['scan','test',path.join(STATE,'bidder')]).trim().split('\n').filter(Boolean).map(l=>JSON.parse(l));
+    await run.check('T6','a cancelled product auction never wedges before R and refunds through its envelope and its claim after R',()=>{
+      expect.soft(cancelledFirst.code).toBe(0);
+      expect.soft(firstSettlement.receipts.length).toBe(0);
+      for(const r of firstSettlement.rows)expect.soft(r.state).toBe('exception');
+      expect.soft(cancelledSecond.code).toBe(0);
+      const rows2=new Map<string,any>(finalSettlement.rows.map((r:any)=>[r.party,r]));
+      const receipts2=new Map<string,any>(finalSettlement.receipts.map((r:any)=>[r.party,r]));
+      expect.soft(receipts2.get(claimParty2)?.amount_zats).toBe(String(C));
+      expect.soft(receipts2.get(`deposit:${paid2.txid}:${String(notes2.find(n=>n.address===deposit2[1])!.diversifier_index)}`)?.amount_zats).toBe(String(C));
+      expect.soft(receiving2.filter((n:any)=>n.address===claimDest2).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(C);
+      expect.soft(receiving2.filter((n:any)=>n.address===refund2[1]).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(C);
+      expect.soft(rows2.get(claimParty2)?.state).toBe('refunded');
+    });
     write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
-    write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),batches:settlement.batches.map((b:any)=>({id:b.id,state:b.state,actions:b.inspect.actions,fee_zats:b.inspect.fee_zats,starting_height:b.inspect.expiry_height-(b.state==='exception'?4:NORMAL_EXPIRY),mined_height:b.height,signing_ms:b.signing.sessions.map((s:any)=>s.duration_ms)})),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');
+    write('cli/cancelled.json',readFileSync(path.join(publicDir2,'auction.json')));
+    write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,cancelled_txid:paid2.txid,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),batches:settlement.batches.map((b:any)=>({id:b.id,state:b.state,actions:b.inspect.actions,fee_zats:b.inspect.fee_zats,starting_height:b.inspect.expiry_height-(b.state==='exception'?4:NORMAL_EXPIRY),mined_height:b.height,signing_ms:b.signing.sessions.map((s:any)=>s.duration_ms)})),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');
   } finally {if(paused)process.kill(paused,'SIGCONT');if(active){process.kill(-active.p.pid!,'SIGKILL');await active.done}if(api)api.kill();try{await cleanup()}finally{stop()}}
 });
