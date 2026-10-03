@@ -19,7 +19,16 @@ const LWD = env("BNZ_LWD_URL");
 export const wallet = (name: string, ...args: string[]) => run(bin("zcash-devtool"), ["wallet", "-w", path.join(STATE, name), ...args]);
 export const pczt = (name: string, ...args: string[]) => run(bin("zcash-devtool"), ["pczt", "-w", path.join(STATE, name), ...args]);
 
-export const sync = (name: string) => wallet(name, "sync", "-s", LWD);
+// Head (live run 14): load-balanced lightwalletd backends can be a few blocks apart; retry a sync 4x with backoff.
+const SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset/;
+export const sync = (name: string) => {
+  for (let attempt = 1; ; attempt++) {
+    try { return wallet(name, "sync", "-s", LWD); } catch (e) {
+      if (attempt >= 4 || !SYNC_TRANSIENT.test(String((e as Error)?.message ?? e))) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000 * attempt);
+    }
+  }
+};
 export const enhance = (name: string) => wallet(name, "enhance", "-s", LWD);
 export const balance = (name: string): Record<string, number> => JSON.parse(wallet(name, "balance", "--json"));
 export const spendable = (b: Record<string, number>) => b.sapling_spendable + b.orchard_spendable + b.ironwood_spendable;

@@ -164,6 +164,10 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const cfg=json(productConfig);cfg.settlement.pczt_expiry_blocks=NORMAL_EXPIRY;writeFileSync(productConfig,JSON.stringify(cfg));delay={signer:'carol',paused_height:pausedAt,expiry_height:metadata.expiry_height,resumed_height:z.tip()};process.kill(paused!,'SIGCONT');paused=undefined;
     const completed=await active.done;active=undefined;
     if(completed.code!==0)console.log(`ERROR T3 worker ${completed.err.slice(-500)}`);
+    // Head (live run 14): R23 item 1 live — two witnesses sign the strays statement from their own vault scan before
+    // the public document is read and cold-verified (one shared scan here; separate hosts in part 1 §1).
+    {z.sync('vault');z.enhance('vault');const witnessScan=path.join(privateDir,'witness-scan.jsonl');writeFileSync(witnessScan,z.scanVault().map(n=>JSON.stringify(n)).join('\n')+'\n');
+     for(const i of [0,1])good(['witness','strays','--dir',publicDir,'--signer',signer,'--key',path.join(STATE,'witness',`w${i}.key`),'--notes',witnessScan]);}
     const doc=json(path.join(publicDir,'auction.json')),settlement=doc.settlement??{rows:[],receipts:[],batches:[]};
     z.sync('bidder');z.enhance('bidder');const receiving=z.run(z.scanner,['scan','test',path.join(STATE,'bidder')]).trim().split('\n').filter(Boolean).map(l=>JSON.parse(l));
     // R7 items 4/6/7: every claim-named refund lands at its owner-named destination (the destination sealed in

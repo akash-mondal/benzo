@@ -9,7 +9,7 @@ import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,verifyReco
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
-import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
+import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry} from '../settle/io';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
@@ -165,7 +165,7 @@ export async function runCommand(command:string,args:string[]) {
         requireThat(reserve.address===read(config(id)).routing.fee_reserve_ua&&/^[1-9][0-9]*$/.test(reserve.amount_zats),'reserve must match operator config');
         const suffix='.'+bids.length;params.set('address'+suffix,reserve.address);params.set('amount'+suffix,(Number(reserve.amount_zats)/1e8).toFixed(8));
       }
-      execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]);
+      syncRetry(()=>execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]));
       const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'balance','--json']));
       const available=balance.sapling_spendable+balance.orchard_spendable+balance.ironwood_spendable,c=Number(m.C_zats);
       requireThat(available-c*bids.length-Number(reserve?.amount_zats??0)-5000*(bids.length+2)>=3*c+40000,'bidder floor; Needs user funds');

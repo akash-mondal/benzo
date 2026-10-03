@@ -10,7 +10,16 @@ export function run(cmd:string,args:string[],input?:string|Buffer):string {
   appendFileSync(path.join(STATE,"run","settle-cli.log"),`\n${path.basename(cmd)}\n${p.stdout??""}${p.stderr??""}`);
   if(p.error)throw p.error;if(p.status!==0)throw Error(`${path.basename(cmd)} exited ${p.status}: ${(p.stderr||p.stdout).trim().slice(-300)}`);return p.stdout;
 }
-export const wallet=(...args:string[])=>run(bin("zcash-devtool"),["wallet","-w",path.join(STATE,"vault"),...args]);
+// Head (2026-10-03, live run 14): the public lightwalletd sits behind a load balancer whose backends can be a few
+// blocks apart ("GetBlock: block N is newer than the latest block"); a wallet sync retries 4x with backoff on that
+// and on transient endpoint errors. Every other wallet command is unchanged.
+const SYNC_TRANSIENT=/newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset/;
+export function syncRetry(f:()=>string):string {
+  for(let attempt=1;;attempt++) {
+    try{return f()}catch(e){if(attempt>=4||!SYNC_TRANSIENT.test(String((e as Error)?.message??e)))throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5000*attempt)}
+  }
+}
+export const wallet=(...args:string[])=>args[0]==="sync"?syncRetry(()=>run(bin("zcash-devtool"),["wallet","-w",path.join(STATE,"vault"),...args])):run(bin("zcash-devtool"),["wallet","-w",path.join(STATE,"vault"),...args]);
 export const pczt=(...args:string[])=>run(bin("zcash-devtool"),["pczt","-w",path.join(STATE,"vault"),...args]);
 export const inspect=(file:string)=>JSON.parse(run(path.join(ROOT,"settle/target/release/benzo-pczt"),["inspect",file,path.join(STATE,"ufvk.txt")]));
 export const monetary=(id:string)=>JSON.parse(run(process.execPath,[path.join(ROOT,"settle/dist/plan.mjs"),id]));
