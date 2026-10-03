@@ -1,0 +1,18 @@
+commit working tree on 13c0560 (R10 item 4 + R12 item 3 + R20 applied; same corpus recipe; retry after a transient lightwalletd GetBlock race)
+utc 2026-10-03T04:56:46Z
+command node tools/repro/r10-4-envelope-agreement-repro.mjs
+G3 alice report: [{"leaf":0,"ok":false},{"leaf":1,"ok":true},{"leaf":2,"ok":true}]
+G3 bob report: [{"leaf":0,"ok":false},{"leaf":1,"ok":true},{"leaf":2,"ok":false}]
+G3 carol report: [{"leaf":0,"ok":false},{"leaf":1,"ok":false},{"leaf":2,"ok":false}]
+G1 plan exit 0
+G1 obligations: ["leaf:1","seller"]
+G1 exceptions: [{"party":"leaf:2","reason":"signers could not agree on the envelope destination"}]
+G1 envelope_agreed: {"leaf:1":"9f979e6a99f959e2874fac84f9513cd6bcb22a8b86b54d882898812a3921608b"}
+FIXED: leaf:2 waits in the exception queue (fewer than 2 signers open its envelope) while leaf:1 pays to the hash alice and bob agree on.
+G1 scratch batch 3 with rows ["leaf:1","seller"]
+G1 signer check (alice) exit 0
+G2 signer check (carol, sabotaged for leaf:1) exit 1 ERROR settle refused: PCZT recipient count differs from result
+R20 v1 stray: operator-inserted record resolves to null
+R20 memo-less stray: no such note in the scan; skipped
+FIXED (R20): the operator-inserted record is not authenticated by the stray's memo and resolves to null — the row is an exception row.
+outcome FIXED
