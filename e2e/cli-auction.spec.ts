@@ -281,5 +281,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
     write('cli/cancelled.json',readFileSync(path.join(publicDir2,'auction.json')));
     write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,cancelled_txid:paid2.txid,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),batches:settlement.batches.map((b:any)=>({id:b.id,state:b.state,actions:b.inspect.actions,fee_zats:b.inspect.fee_zats,starting_height:b.inspect.expiry_height-(b.state==='exception'?4:NORMAL_EXPIRY),mined_height:b.height,signing_ms:b.signing.sessions.map((s:any)=>s.duration_ms)})),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');
+  } catch(e) {
+    // Head (2026-10-03): an uncaught error in a step's setup (outside run.check) used to end the run with only
+    // `FAILED`, and the next run overwrote the report. Print it so every failed live run is diagnosable.
+    console.log(`FATAL ${String((e as Error)?.stack??e).replace(/\x1b\[[0-9;]*m/g,'').slice(0,3000)}`);throw e;
   } finally {if(paused)process.kill(paused,'SIGCONT');if(active){process.kill(-active.p.pid!,'SIGKILL');await active.done}if(api)api.kill();try{await cleanup()}finally{stop()}}
 });
