@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-// Token-2022 Confidential Transfer delivery — one live delivery on Solana devnet (crosschain.md §4,
-// PHASE-5 R19 deliver.kind = "ct"): a FRESH token account configured from the bidder's
+// Token-2022 Confidential Transfer — a STANDALONE capability demo on Solana devnet (R25 F6: NOT an
+// escrow delivery — the Solana escrow pays native SOL only, so `deliver.kind = "ct"` is exception-
+// queued at attest; confidential SPL delivery needs escrow token support, future work). One live
+// demonstration (PHASE-5 R19 deliver.kind = "ct"): a FRESH token account configured from the bidder's
 // `deliver.elgamal`, funded with a confidential transfer whose amount is hidden on chain, then the
 // bidder (account owner) applies the pending balance and withdraws — full control proven.
 //
