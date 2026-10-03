@@ -1,0 +1,13 @@
+diff --git a/contracts/evm/src/BenzoEscrow.sol b/contracts/evm/src/BenzoEscrow.sol
+index c913d50..8ffa71c 100644
+--- a/contracts/evm/src/BenzoEscrow.sol
++++ b/contracts/evm/src/BenzoEscrow.sol
+@@ -362,7 +362,7 @@ contract BenzoEscrow is ReentrancyGuard {
+         returns (bytes32 allocationRoot, bytes32 resultHash, uint64 expiry, bool exists)
+     {
+         Approval storage ap = approvals[auctionId][batchIndex];
+-        return (ap.allocationRoot, ap.resultHash, ap.expiry, ap.exists);
++        return (ap.allocationRoot, ap.allocationRoot, ap.expiry, ap.exists);
+     }
+ 
+     // ---- internals ----
