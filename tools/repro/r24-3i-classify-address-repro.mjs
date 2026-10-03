@@ -17,7 +17,7 @@
 //
 // Output: `PASS r24-3i-<id>` / `ERROR r24-3i-<id> <reason>`; exit 0 only if all PASS.
 import { execFileSync, spawnSync } from "node:child_process";
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -66,16 +66,23 @@ for (const row of cases.tex) matrix.push({ s: row.address, label: { kind: "tex",
 for (const row of cases.transparent) matrix.push({ s: row.address, label: { kind: "transparent", network: row.network, shielded: false, receivers: [] } });
 for (const s of [...cases.reject_checksum, ...cases.reject_hrp_mismatch, ...cases.r2_other]) matrix.push({ s });
 
-// fresh real testnet UA + its receivers and a fresh t-addr, straight from the pinned wallet stack
+// fresh real testnet UA + its receivers and a fresh t-addr, straight from the pinned wallet stack.
+// The throwaway fixture wallet lives under $BNZ_STATE_DIR like all key material; the setup is
+// fixture generation, not an assertion, and gets one retry when the wallet stack flakes
+// (its transparent gap-limit reservation has failed transiently on a first generate-address).
 const devtool = path.join(STATE, "bin", "zcash-devtool");
-const walletDir = path.join(WORK, "wallet");
-mkdirSync(walletDir, { recursive: true });
-execFileSync(devtool, ["wallet", "-w", walletDir, "init", "--name", "r24-3i", "--identity", path.join(walletDir, "id.age"), "--network", "test"], { stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
-execFileSync(devtool, ["wallet", "-w", walletDir, "get-info"], { stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
-execFileSync(devtool, ["wallet", "-w", walletDir, "sync"], { stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
-const gen = spawnSync(devtool, ["wallet", "-w", walletDir, "generate-address"], { encoding: "utf8", timeout: 120_000 });
-if (gen.status !== 0) throw new Error(`zcash-devtool generate-address failed: ${gen.stderr}`);
-const generated = `${gen.stdout}\n${gen.stderr}`; // the wallet stack prints the receiver list on stderr
+const walletDir = path.join(STATE, "r24-3i-wallet");
+const setupWallet = () => {
+  rmSync(walletDir, { recursive: true, force: true });
+  mkdirSync(walletDir, { recursive: true });
+  execFileSync(devtool, ["wallet", "-w", walletDir, "init", "--name", "r24-3i", "--identity", path.join(walletDir, "id.age"), "--network", "test"], { stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
+  execFileSync(devtool, ["wallet", "-w", walletDir, "get-info"], { stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
+  execFileSync(devtool, ["wallet", "-w", walletDir, "sync"], { stdio: ["ignore", "pipe", "pipe"], timeout: 120_000 });
+  const gen = spawnSync(devtool, ["wallet", "-w", walletDir, "generate-address"], { encoding: "utf8", timeout: 120_000 });
+  return gen.status === 0 ? `${gen.stdout}\n${gen.stderr}` : null; // the wallet stack prints the receiver list on stderr
+};
+let generated = setupWallet() ?? setupWallet();
+if (!generated) throw new Error("zcash-devtool generate-address failed twice");
 const freshUa = /^\s*Address: (\S+)$/m.exec(generated)?.[1] ?? "";
 const freshSapling = /- Sapling \((\S+)\)/.exec(generated)?.[1] ?? "";
 const freshT = /- Transparent P2PKH \((\S+)\)/.exec(generated)?.[1] ?? "";
