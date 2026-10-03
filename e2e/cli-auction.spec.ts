@@ -242,8 +242,10 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const witnessSetFile2=path.join(privateDir2,'witness-set.json');writeFileSync(witnessSetFile2,JSON.stringify(witnessSet2));
     const operator2={settlement:{signers:['bob','carol'],batch_cap:13,pczt_expiry_blocks:NORMAL_EXPIRY},routing:{bidders:deposit2.map(deposit_ua=>({deposit_ua})),seller_ua:refund2[2],fee_reserve_ua:reserve}};
     const operatorFile2=path.join(privateDir2,'operator.json');writeFileSync(operatorFile2,JSON.stringify(operator2));
-    const now2=Math.ceil(Date.now()/1000),release2=now2+18*60,R2=1+Math.ceil((release2-Number(env('BNZ_DRAND_GENESIS')))/3);
-    const manifest2={...manifest,auction_id:id2,escrow_ua:deposit2[0],lot:'CLI cancelled testnet auction',supply:1,deposit_addresses:deposit2,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet2),drand:{...manifest.drand,R:R2},T_submit:now2+2*60,T_freeze:now2+15*60};
+    // Head (2026-10-03): the cancelled auction needs the same maturity margin as the main one (10 confirmations
+    // before T_freeze); the 13-minute window lost to slow testnet blocks ('admission cutoff', run 7).
+    const now2=Math.ceil(Date.now()/1000),release2=now2+33*60,R2=1+Math.ceil((release2-Number(env('BNZ_DRAND_GENESIS')))/3);
+    const manifest2={...manifest,auction_id:id2,escrow_ua:deposit2[0],lot:'CLI cancelled testnet auction',supply:1,deposit_addresses:deposit2,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet2),drand:{...manifest.drand,R:R2},T_submit:now2+3*60,T_freeze:now2+30*60};
     good(['auction','create','--witness-set',witnessSetFile2],manifest2);good(['auction','sign','--id',id2]);
     good(['auction','publish','--id',id2,'--dir',publicDir2,'--config',operatorFile2]);
     const manifestFile2=path.join(publicDir2,'manifest.json');
