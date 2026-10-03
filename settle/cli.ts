@@ -6,6 +6,7 @@ import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx} from "./io";
 import {pubkey,zcashSign} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
+import {partyNote} from "./deposits";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
@@ -54,7 +55,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envel
       return {...row,reason:`envelope destination refused: this signer's key does not open the envelope (party ${row.party}; refund waits in the exception queue)`};
     }
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
-      observed.find(n=>row.party===`deposit:${n.txid}:${n.diversifier_index}`)?.address;
+      partyNote(observed,row.party)?.address;
     // R7 item 6 (Reviewer G G6) + R10 item 2: a product-mode stray or cancelled deposit resolves through its
     // own memo-bound owner-signed envelope (opened with this signer's key) or its owner-signed claim; there
     // is no operator-chosen destination.

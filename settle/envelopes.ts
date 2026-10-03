@@ -5,8 +5,10 @@
 // with its own key. A bid without a valid envelope is not paid here; the plan moves it to the exception queue.
 // source: envelope record/public shapes from api/public-auction.ts (Track B), validation rules per
 // docs/design/phase5-part1-live.md §4.
+import { verifyOpensReport, type OpensReport } from "../witness";
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
 import { hash, requireThat } from "../manifest/schema";
+import { partyNote, type DepositNote } from "./deposits";
 import { tleOpening } from "../manifest/reserve";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -111,15 +113,14 @@ export function envelopeRecipient(
 //       sealed-bid layout.
 // Otherwise null — the row is an exception row, claimable through benzo claim-refund.
 export function authenticatedMemoEnvelope(
-  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
   tleBin: string,
 ): EnvelopeRecord | null {
   try {
-    const m = /^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
-    const note = m ? observed.find(n => n.txid === m[1] && String(n.diversifier_index) === m[2]) : undefined;
+    const note = partyNote(observed, party);
     const ctHex = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
     if (!ctHex) return null;
     const ctHash = hash(Buffer.from(ctHex, "hex"));
@@ -140,7 +141,7 @@ export function authenticatedMemoEnvelope(
 // R10 item 2 + R20: the deposit-party twin of envelopeRecipient — the AUTHENTICATED memo-bound record,
 // opened with the signer's own key. Total like the rest of this module: anything unresolvable is null.
 export function memoEnvelopeRecipient(
-  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
@@ -164,4 +165,32 @@ export function ownEnvelopePrivate(stateDir: string, name: string): string | nul
   } catch {
     return null;
   }
+}
+
+// R23 item 2 (Reviewer G G3): the plan's two-signer envelope gate counts only reports whose signature
+// verifies against the pinned witness set (the report is signed by the reporting signer's own witness
+// key), one per distinct witness key — an unsigned or forged report is ignored, and one witness never
+// counts twice. Returns party -> the dest_sha256 at least two distinct witnesses reported ok for.
+export function agreedDestinations(
+  reports: { signer: string; opens: { leaf: number | null; party: string; ok: boolean; dest_sha256: string | null }[]; witness?: string; signature?: string }[],
+  witnessKeys: string[] | null,
+): Map<string, string> {
+  const perParty = new Map<string, Map<string, Set<string>>>();
+  for (const r of reports ?? []) {
+    if (!verifyOpensReport(r as OpensReport, witnessKeys)) continue;
+    for (const e of r.opens ?? []) {
+      if (!e || e.ok !== true || typeof e.dest_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(e.dest_sha256)) continue;
+      const byDest = perParty.get(e.party) ?? new Map<string, Set<string>>();
+      perParty.set(e.party, byDest);
+      const keys = byDest.get(e.dest_sha256) ?? new Set<string>();
+      byDest.set(e.dest_sha256, keys);
+      keys.add((r as OpensReport).witness!);
+    }
+  }
+  const agreed = new Map<string, string>();
+  for (const [party, byDest] of perParty) {
+    const best = [...byDest].sort((a, b) => b[1].size - a[1].size)[0];
+    if (best && best[1].size >= 2) agreed.set(party, best[0]);
+  }
+  return agreed;
 }

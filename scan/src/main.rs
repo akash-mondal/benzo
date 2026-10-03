@@ -77,6 +77,10 @@ fn scan(params: Network, wallet_dir: &str) -> anyhow::Result<()> {
                 "height": row.get::<_, Option<u32>>(1)?,
                 "pool": name,
                 "address": row.get::<_, Option<String>>(5)?,
+                // R26 item 1: the note's output position within its pool in this transaction. Deposit
+                // parties are `deposit:<txid>:<pool>:<action_index>` — never the diversifier index, which
+                // collides when one transaction carries two outputs to the same deposit address.
+                "action_index": output_index,
                 "diversifier_index": diversifier_index,
                 "value_zats": row.get::<_, i64>(4)?,
                 "memo_hex": hex::encode(MemoBytes::from(&memo).as_array()),

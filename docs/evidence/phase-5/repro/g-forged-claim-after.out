@@ -1,0 +1,23 @@
+commit 7ef554e97e02f90cbbd58bb42a413f0119632378 (working tree not clean at run time)
+utc 2026-10-03T15:16:18.104Z
+command node tools/repro/g-forged-claim.mjs
+tree M api/public-auction.ts
+tree  M cli/commands/witness.ts
+tree  M cli/product.ts
+tree  M docs/STATUS.md
+tree  M schemas/public-auction.schema.json
+tree  M witness/index.ts
+tree ?? docs/evidence/phase-5/repro/g-forged-claim-after.out
+tree ?? docs/evidence/phase-5/repro/g-forged-claim-before.out
+tree ?? tools/repro/g-forged-claim.mjs
+derived owner from forged memo: 00b10cdddf97cbc2...
+expected owner              : 48e8b43c5392dc86...
+errors with FORGED claim    : claims: refused: claim 0 memo not in a certified strays statement
+FAIL g-forged-claim-accepted
+PASS g-forged-claim-control (tampered sig refused)
+PASS r23-1-certified-claim-accepted (claim bound to the witnesses' scan)
+PASS r23-1-wrong-party-refused
+PASS r23-1-quorum-refused
+PASS r23-1-tampered-sig-certified
+PASS r23-1-witness-strays-sign (q_w witnesses sign their own scans; the certificate is what the verifier accepts)
+RESULT FORGED-CLAIM-REFUSED (G1 fixed)

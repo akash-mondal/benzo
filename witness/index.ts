@@ -3,12 +3,28 @@
 // coordinator can equivocate on the accepted set (threat #5, #6, #22). Two certificates for different roots are
 // always refused; one root per auction.
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
-import { hash, jsonBytes, requireThat, type Signed } from "../manifest/schema";
+import { hash, jsonBytes, requireThat, zats, type Signed } from "../manifest/schema";
+import { isDepositParty } from "../settle/deposits";
 
 export type WitnessSpec = { q_w: number; keys: string[] }; // signed witness_set packet: n_w = keys.length
 export type WitnessSet = { version: 1; auction_id: string; q_w: number; keys: string[] };
 export type WitnessStatement = { version: 1; auction_id: string; frozen_root: string; leaf_count: number; T_freeze: number; chain_anchor: string };
 export type WitnessCert = { statement: WitnessStatement; signatures: { witness: string; signature: string }[] };
+
+// R23 item 1: the strays statement. After settlement each witness signs what ITS OWN scan saw at the
+// auction's deposit addresses outside the frozen set — party (the output-position identity), the SHA-256
+// of the deposit's memo bytes and the received value — so a published stray claim can be bound to the
+// chain: verify requires every stray claim's SHA-256(memo_hex) in a q_w-certified strays statement with
+// the same party. One statement per auction (conflicting statements are refused, like one frozen root).
+export type StraysEntry = { party: string; memo_sha256: string; value_zats: string };
+export type StraysStatement = { version: 1; auction_id: string; strays: StraysEntry[] };
+export type StraysCert = { statement: StraysStatement; signatures: { witness: string; signature: string }[] };
+
+// R23 item 2: envelope-opens reports are signed by the reporting signer's own witness key (a member of
+// the same pinned witness set), and the settlement plan counts only reports whose signature verifies —
+// one per witness key. The body carries no destination (only per-row ok flags and destination hashes).
+export type OpensBody = { signer: string; opens: { leaf: number | null; party: string; ok: boolean; dest_sha256: string | null }[] };
+export type OpensReport = OpensBody & { witness: string; signature: string };
 
 // R4 item 2: the signed manifest optionally carries `witness_set_hash` = SHA-256 of the signed witness-set
 // side-packet (its canonical JSON bytes: bytes, sha256, signer, signature). Binding the whole packet makes a
@@ -74,4 +90,71 @@ export function checkCertificates(certs: WitnessCert[], spec: WitnessSpec, state
     signed.add(s.witness);
   }
   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
+}
+
+export function signOpensReport(body: OpensBody, privateHex: string): { witness: string; signature: string } {
+  requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
+  requireThat(body && typeof body.signer === "string" && Array.isArray(body.opens), "opens report body");
+  const key = edPrivate(privateHex);
+  return { witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"),
+    signature: sign(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), jsonBytes({ signer: body.signer, opens: body.opens })]), key).toString("hex") };
+}
+
+// Total: a forged or unsigned report is "not verified", never a throw.
+export function verifyOpensReport(r: OpensReport, keys: string[] | null): boolean {
+  try {
+    return !!r && Array.isArray(keys) && typeof r.signer === "string" && typeof r.witness === "string" &&
+      keys.includes(r.witness) && /^[0-9a-f]{128}$/.test(String(r.signature)) &&
+      verify(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), jsonBytes({ signer: r.signer, opens: r.opens })]), edPublic(r.witness), Buffer.from(r.signature, "hex"));
+  } catch {
+    return false;
+  }
+}
+
+// R23 item 1 (Reviewer G G1): the strays statement binds a published stray claim to the chain through the
+// witnesses' own scans. Domain-separated like the freeze statement ("benzo-strays-v1").
+export function straysStatementBytes(st: StraysStatement): Buffer {
+  requireThat(st && typeof st === "object" && Object.keys(st).sort().join(",") === "auction_id,strays,version", "strays statement fields");
+  requireThat(st.version === 1 && /^[0-9a-f]{64}$/.test(String(st.auction_id)), "strays statement binding");
+  requireThat(Array.isArray(st.strays), "strays statement entries");
+  const seen = new Set<string>();
+  for (const e of st.strays) {
+    requireThat(e && typeof e === "object" && Object.keys(e).sort().join(",") === "memo_sha256,party,value_zats", "strays entry fields");
+    requireThat(isDepositParty(e.party), "strays entry party");
+    requireThat(/^[0-9a-f]{64}$/.test(String(e.memo_sha256)), "strays entry memo hash");
+    zats(e.value_zats, "strays entry value");
+    requireThat(!seen.has(e.party), "duplicate strays entry party");
+    seen.add(e.party);
+  }
+  return jsonBytes(st);
+}
+
+export function signStrays(st: StraysStatement, privateHex: string): { witness: string; signature: string } {
+  requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
+  const key = edPrivate(privateHex);
+  return { witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"),
+    signature: sign(null, Buffer.concat([Buffer.from("benzo-strays-v1"), straysStatementBytes(st)]), key).toString("hex") };
+}
+
+// One strays statement per auction (conflicting statements refuse, like one frozen root), q_w-of-n_w over
+// distinct pinned witness keys. Returns the certified statement.
+export function checkStraysCerts(certs: StraysCert[], spec: WitnessSpec): StraysStatement {
+  requireThat(Array.isArray(certs) && certs.length > 0, "missing strays statement");
+  for (const c of certs) {
+    requireThat(c && typeof c === "object" && c.statement && Array.isArray(c.signatures), "strays certificate shape");
+    requireThat(c.signatures.length > 0, "strays certificate without signatures");
+    for (const s of c.signatures) requireThat(s && /^[0-9a-f]{64}$/.test(String(s.witness)) && /^[0-9a-f]{128}$/.test(String(s.signature)), "strays signature shape");
+    straysStatementBytes(c.statement);
+  }
+  const wanted = straysStatementBytes(certs[0].statement).toString("hex");
+  for (const c of certs) requireThat(straysStatementBytes(c.statement).toString("hex") === wanted, "two strays statements for one auction");
+  const signed = new Set<string>();
+  for (const c of certs) for (const s of c.signatures) {
+    if (signed.has(s.witness)) continue;
+    requireThat(spec.keys.includes(s.witness), "strays signature not from the witness set");
+    requireThat(verify(null, Buffer.concat([Buffer.from("benzo-strays-v1"), straysStatementBytes(c.statement)]), edPublic(s.witness), Buffer.from(s.signature, "hex")), `witness ${s.witness} strays signature`);
+    signed.add(s.witness);
+  }
+  requireThat(signed.size >= spec.q_w, `strays witness quorum ${signed.size}-of-${spec.keys.length}`);
+  return certs[0].statement;
 }

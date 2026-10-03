@@ -1,0 +1,51 @@
+diff --git a/cli/product.ts b/cli/product.ts
+index d2b0077..3be3b34 100644
+--- a/cli/product.ts
++++ b/cli/product.ts
+@@ -217,12 +217,8 @@ export async function runCommand(command:string,args:string[]) {
+       const dest=open(authenticatedMemoEnvelope(notes(),party,doc.manifest,doc.envelopes,bin('tle')));
+       opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
+     }
+-    // R23 item 2 (Reviewer G G3): the report is signed by this signer's own witness key (a member of the
+-    // same pinned witness set); the plan counts only reports whose signature verifies.
+-    requireThat(o['witness-key'],'--witness-key required');
+-    const signed={signer:o.name,opens,...signOpensReport({signer:o.name,opens},readFileSync(privatePath(o['witness-key']),'utf8').trim())};
+-    save(path.join(STATE,'settle',id,`envelope-opens-${o.name}.json`),signed);
+-    return signed;
++    save(path.join(STATE,'settle',id,`envelope-opens-${o.name}.json`),{signer:o.name,opens});
++    return {signer:o.name,opens};
+   }
+   if(command==='claim-refund'&&o.party!==undefined) {
+     // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.
+diff --git a/settle/envelopes.ts b/settle/envelopes.ts
+index 0dc6f7d..9d9c706 100644
+--- a/settle/envelopes.ts
++++ b/settle/envelopes.ts
+@@ -175,22 +175,19 @@ export function agreedDestinations(
+   reports: { signer: string; opens: { leaf: number | null; party: string; ok: boolean; dest_sha256: string | null }[]; witness?: string; signature?: string }[],
+   witnessKeys: string[] | null,
+ ): Map<string, string> {
+-  const perParty = new Map<string, Map<string, Set<string>>>();
++  const perParty = new Map<string, Map<string, number>>();
+   for (const r of reports ?? []) {
+-    if (!verifyOpensReport(r as OpensReport, witnessKeys)) continue;
+     for (const e of r.opens ?? []) {
+       if (!e || e.ok !== true || typeof e.dest_sha256 !== "string" || !/^[0-9a-f]{64}$/.test(e.dest_sha256)) continue;
+-      const byDest = perParty.get(e.party) ?? new Map<string, Set<string>>();
++      const byDest = perParty.get(e.party) ?? new Map<string, number>();
+       perParty.set(e.party, byDest);
+-      const keys = byDest.get(e.dest_sha256) ?? new Set<string>();
+-      byDest.set(e.dest_sha256, keys);
+-      keys.add((r as OpensReport).witness!);
++      byDest.set(e.dest_sha256, (byDest.get(e.dest_sha256) ?? 0) + 1);
+     }
+   }
+   const agreed = new Map<string, string>();
+   for (const [party, byDest] of perParty) {
+-    const best = [...byDest].sort((a, b) => b[1].size - a[1].size)[0];
+-    if (best && best[1].size >= 2) agreed.set(party, best[0]);
++    const best = [...byDest].sort((a, b) => b[1] - a[1])[0];
++    if (best && best[1] >= 2) agreed.set(party, best[0]);
+   }
+   return agreed;
+ }

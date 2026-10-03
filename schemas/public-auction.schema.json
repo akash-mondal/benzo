@@ -116,7 +116,8 @@
         ],
         "properties": {
           "party": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^(leaf:[0-9]+|deposit:[0-9a-f]{64}:(sapling|orchard|ironwood):(0|[1-9][0-9]*))$"
           },
           "claim_envelope_sha256": {
             "$ref": "#/$defs/hash"
@@ -128,6 +129,83 @@
           "memo_hex": {
             "type": "string",
             "pattern": "^[0-9a-f]{1024}$"
+          }
+        }
+      }
+    },
+    "strays_cert": {
+      "description": "R23 item 1: witness-certified strays statements (q_w signatures under the pinned witness set) binding every stray claim's memo to the witnesses' own scans.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "statement",
+          "signatures"
+        ],
+        "properties": {
+          "statement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "version",
+              "auction_id",
+              "strays"
+            ],
+            "properties": {
+              "version": {
+                "const": 1
+              },
+              "auction_id": {
+                "$ref": "#/$defs/hash"
+              },
+              "strays": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "party",
+                    "memo_sha256",
+                    "value_zats"
+                  ],
+                  "properties": {
+                    "party": {
+                      "type": "string",
+                      "pattern": "^deposit:[0-9a-f]{64}:(sapling|orchard|ironwood):(0|[1-9][0-9]*)$"
+                    },
+                    "memo_sha256": {
+                      "$ref": "#/$defs/hash"
+                    },
+                    "value_zats": {
+                      "type": "string",
+                      "pattern": "^(0|[1-9][0-9]*)$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "signatures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "witness",
+                "signature"
+              ],
+              "properties": {
+                "witness": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                },
+                "signature": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{128}$"
+                }
+              }
+            }
           }
         }
       }
@@ -842,6 +920,27 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/settlement_receipt"
+          }
+        },
+        "ignored": {
+          "description": "R26 item 1: zero-value deposit notes the plan never made obligations; verify's accounting counts each as ignored.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "party",
+              "amount_zats"
+            ],
+            "properties": {
+              "party": {
+                "type": "string",
+                "pattern": "^deposit:[0-9a-f]{64}:(sapling|orchard|ironwood):(0|[1-9][0-9]*)$"
+              },
+              "amount_zats": {
+                "const": "0"
+              }
+            }
           }
         },
         "batches": {

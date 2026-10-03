@@ -1,0 +1,13 @@
+commit 9a48cb3452bad981379489acc68f97c77cb55926 (working tree not clean at run time)
+utc 2026-10-03T15:30:18.784Z
+command node tools/repro/r23-2-signed-opens-repro.mjs
+tree M cli/product.ts
+tree  M settle/envelopes.ts
+tree  M tools/repro/r23-2-signed-opens-repro.mjs
+tree ?? docs/evidence/phase-5/mutations/R23-2-revert.patch
+ERROR r23-2-report-signed report {"signer":"alice"}
+ERROR r23-2-forged-report-ignored forged unsigned reports agreed deposit:f200000000000000000000000000000000000000000000000000000000000002:ironwood:0 -> 7cb4559127773fcbd66be0d186e3a232b2fedb893770e7ec86a6bb86693deaac (a fabricated pair satisfied the two-signer gate)
+PASS r23-2-two-signed-agree
+ERROR r23-2-one-key-twice one witness key counted twice (agreed 7cb4559127773fcbd66be0d186e3a232b2fedb893770e7ec86a6bb86693deaac)
+ERROR r23-2-foreign-key a report outside the pinned witness set counted (agreed 7cb4559127773fcbd66be0d186e3a232b2fedb893770e7ec86a6bb86693deaac)
+RESULT FAIL 4

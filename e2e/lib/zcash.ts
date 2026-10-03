@@ -88,6 +88,7 @@ export type ScanLine = {
   height: number | null;
   pool: string;
   address: string | null;
+  action_index: number;
   diversifier_index: string | null;
   value_zats: number;
   memo_hex: string;
