@@ -8,11 +8,12 @@ import type {ClearResult, Opened} from "./core";
 import {clearForMode} from "./registry";
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoSealedBid} from "../settle/envelopes";
+import { repoRoot } from "../manifest/root";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
-const root=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
-for (const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
+const root=repoRoot();
+for (const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/); if(m && process.env[m[1]]===undefined)process.env[m[1]]=m[2];
 }
 const state=path.resolve(root,process.env.BNZ_STATE_DIR!);

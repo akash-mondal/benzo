@@ -7,6 +7,7 @@ import { hash, requireThat, verifyRecord } from "../../manifest/schema";
 import { loadPublicAuction } from "../../api/public-auction";
 import { depositParty, strayNotes } from "../../settle/deposits";
 import { checkCertificates, freezeStatement, signStatement, signStrays, straysStatementBytes, validateWitnessSet, witnessSetHash, type StraysEntry, type WitnessCert, type WitnessSet } from "../../witness";
+import { repoRoot } from "../../manifest/root";
 
 export const noun = "witness";
 export const verb = "";
@@ -41,7 +42,7 @@ export async function run(argv: string[]): Promise<number> {
     if (pub.manifest.witness_set_hash) requireThat(witnessSetHash(pub.witnessSet!) === pub.manifest.witness_set_hash, "witness set hash mismatch");
     else { requireThat(mode !== "strays", "strays certification requires a pinned witness set"); process.stderr.write("WARN no witness set (pre-Phase-5 manifest)\n"); }
     const spec = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, o.signer), pub.manifest.auction_id);
-    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+    const root = repoRoot();
     const state = path.resolve(root, process.env.BNZ_STATE_DIR || ".benzo");
     const witnessKey = (file: string): string => {
       const resolved = path.resolve(file);

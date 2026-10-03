@@ -10,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { requireThat } from "../manifest/schema";
+import { repoRoot } from "../manifest/root";
 
 export type DestinationKind = "sapling" | "unified" | "transparent" | "tex" | "other";
 export type DestinationNetwork = "main" | "test" | "regtest";
@@ -24,7 +25,7 @@ type Classified = {
 // it for packaged installs. Failure is loud — never a default or a guess.
 function pcztBin(): string {
   if (process.env.BNZ_PCZT_BIN) return process.env.BNZ_PCZT_BIN;
-  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+  const root = repoRoot();
   return path.join(root, "settle", "target", "release", "benzo-pczt");
 }
 

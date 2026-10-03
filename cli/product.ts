@@ -85,6 +85,10 @@ export async function runCommand(command:string,args:string[]) {
     // R10 item 3: every signer envelope-key file present locally must match the manifest's pin at its own
     // index (alice 0, bob 1, carol 2), so an operator cannot sign a manifest pinning keys it holds.
     for(const name of ['alice','bob','carol'])requireOwnEnvelopeKey(d.manifest,name,STATE);
+    // Phase 5 part 1 §2 (gate Y): when this auction ran its own DKG (`benzo auction keys`), the manifest must pin
+    // exactly that group key and escrow UA; a manifest reusing another key is refused before signing.
+    const auctionKeys=path.join(STATE,'vaults',id,'keys.json');
+    if(existsSync(auctionKeys)){const k=read(auctionKeys);requireThat(d.manifest.frost_group_key===k.group_key,"manifest group key is not this auction's DKG key");requireThat(d.manifest.escrow_ua===k.escrow_ua,"manifest escrow UA is not this auction's DKG vault")}
     const k=o.key?privatePath(o.key):key;
     if(!existsSync(k)){mkdirSync(path.dirname(k),{recursive:true,mode:0o700});writeFileSync(k,generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'}),{flag:'wx',mode:0o600})}
     requireThat(path.resolve(k)===key,'auction receipt signer must match the local manifest key');

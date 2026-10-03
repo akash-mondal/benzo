@@ -1,8 +1,9 @@
 import {execFileSync,spawn,spawnSync} from "node:child_process";
-import {appendFileSync,readFileSync} from "node:fs";
+import {appendFileSync,readFileSync,existsSync} from "node:fs";
 import path from "node:path";
-export const ROOT=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
-for(const l of readFileSync(path.join(ROOT,".env"),"utf8").split("\n")) {const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2]}
+import { repoRoot } from "../manifest/root";
+export const ROOT=repoRoot();
+for(const l of (existsSync(path.join(ROOT,".env"))?readFileSync(path.join(ROOT,".env"),"utf8"):"").split("\n")) {const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2]}
 export const STATE=path.resolve(ROOT,process.env.BNZ_STATE_DIR!),bin=(n:string)=>path.join(STATE,"bin",n);
 export const env=(n:string)=>{const v=process.env[n];if(!v)throw Error(`missing ${n}`);return v};
 export function run(cmd:string,args:string[],input?:string|Buffer):string {

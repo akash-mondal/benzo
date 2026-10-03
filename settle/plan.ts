@@ -17,8 +17,9 @@ import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
 import {modeEntry} from "../clear/registry";
 import type {Obligation} from "./ledger";
-const root=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
-for(const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
+import { repoRoot } from "../manifest/root";
+const root=repoRoot();
+for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2];
 }
 const state=path.resolve(root,process.env.BNZ_STATE_DIR!);
