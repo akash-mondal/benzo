@@ -7,6 +7,7 @@
 // docs/design/phase5-part1-live.md §4.
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
 import { hash, requireThat } from "../manifest/schema";
+import { partyNote, type DepositNote } from "./deposits";
 import { tleOpening } from "../manifest/reserve";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -111,15 +112,14 @@ export function envelopeRecipient(
 //       sealed-bid layout.
 // Otherwise null — the row is an exception row, claimable through benzo claim-refund.
 export function authenticatedMemoEnvelope(
-  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
   tleBin: string,
 ): EnvelopeRecord | null {
   try {
-    const m = /^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
-    const note = m ? observed.find(n => n.txid === m[1] && String(n.diversifier_index) === m[2]) : undefined;
+    const note = partyNote(observed, party);
     const ctHex = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
     if (!ctHex) return null;
     const ctHash = hash(Buffer.from(ctHex, "hex"));
@@ -140,7 +140,7 @@ export function authenticatedMemoEnvelope(
 // R10 item 2 + R20: the deposit-party twin of envelopeRecipient — the AUTHENTICATED memo-bound record,
 // opened with the signer's own key. Total like the rest of this module: anything unresolvable is null.
 export function memoEnvelopeRecipient(
-  observed: { txid: string; diversifier_index: string; memo_hex: string }[],
+  observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,

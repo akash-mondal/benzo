@@ -14,6 +14,7 @@ import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
 import {jsonBytes,signRecord} from '../manifest/schema';
 import {sealEnvelope} from '../envelope';
 import {generateWitnessKey,witnessSetHash} from '../witness';
+import {depositParty} from '../settle/deposits';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
@@ -112,7 +113,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     // (no envelope) and the memo-less stray stay correct exception rows, never paid.
     const strayNotes=z.scanVault().filter(n=>n.txid===strayTx);
     const memoStray=strayNotes.find(n=>n.address===deposit[0])!,garbageStray=strayNotes.find(n=>n.address===deposit[1])!;
-    const memoStrayParty=`deposit:${memoStray.txid}:${memoStray.diversifier_index}`,garbageStrayParty=`deposit:${garbageStray.txid}:${garbageStray.diversifier_index}`;
+    const memoStrayParty=depositParty(memoStray),garbageStrayParty=depositParty(garbageStray);
     const claimDest:Record<string,string>={};
     const ownerOf=(ct:string)=>JSON.parse(readFileSync(path.join(STATE,'bids',id,ct+'.json'),'utf8')).owner_private_hex;
     // R17 item 2 drill (R15.3 shape): a well-shaped forged claim — a real envelope sealed to the pinned keys
@@ -260,7 +261,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const firstDoc=json(path.join(publicDir2,'auction.json')),firstSettlement=firstDoc.settlement??{rows:[],receipts:[]};
     await waitFor({round:R2},(release2+60)*1000);
     const notes2=z.scanVault().filter(n=>n.txid===paid2.txid),claimNote=notes2.find(n=>n.address===deposit2[0])!;
-    const claimParty2=`deposit:${claimNote.txid}:${claimNote.diversifier_index}`;
+    const claimParty2=depositParty(claimNote);
     const request2=good(['claim-refund','--id',id2,'--party',claimParty2,'--destination',claimDest2,'--owner-key-stdin'],JSON.parse(readFileSync(path.join(STATE,'bids',id2,bids2[0].ciphertext_hash+'.json'),'utf8')).owner_private_hex);
     const claimFile2=path.join(privateDir2,'claim-0.json');writeFileSync(claimFile2,JSON.stringify(request2));
     good(['claim-refund','--id',id2,'--file',claimFile2,'--defer']);
@@ -276,7 +277,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
       const rows2=new Map<string,any>(finalSettlement.rows.map((r:any)=>[r.party,r]));
       const receipts2=new Map<string,any>(finalSettlement.receipts.map((r:any)=>[r.party,r]));
       expect.soft(receipts2.get(claimParty2)?.amount_zats).toBe(String(C));
-      expect.soft(receipts2.get(`deposit:${paid2.txid}:${String(notes2.find(n=>n.address===deposit2[1])!.diversifier_index)}`)?.amount_zats).toBe(String(C));
+      expect.soft(receipts2.get(depositParty(notes2.find(n=>n.address===deposit2[1])!))?.amount_zats).toBe(String(C));
       expect.soft(receiving2.filter((n:any)=>n.address===claimDest2).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(C);
       expect.soft(receiving2.filter((n:any)=>n.address===refund2[1]).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(C);
       expect.soft(rows2.get(claimParty2)?.state).toBe('refunded');

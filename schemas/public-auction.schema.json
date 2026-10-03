@@ -844,6 +844,27 @@
             "$ref": "#/$defs/settlement_receipt"
           }
         },
+        "ignored": {
+          "description": "R26 item 1: zero-value deposit notes the plan never made obligations; verify's accounting counts each as ignored.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "party",
+              "amount_zats"
+            ],
+            "properties": {
+              "party": {
+                "type": "string",
+                "pattern": "^deposit:[0-9a-f]{64}:(sapling|orchard|ironwood):(0|[1-9][0-9]*)$"
+              },
+              "amount_zats": {
+                "const": "0"
+              }
+            }
+          }
+        },
         "batches": {
           "type": "array",
           "items": {

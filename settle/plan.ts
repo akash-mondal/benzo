@@ -11,6 +11,7 @@ import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manife
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
 import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope} from "./envelopes";
+import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -64,8 +65,11 @@ try {
     }} finally {db.close()}
   }
   const depositNotes=notes.filter(n=>m.deposit_addresses.includes(n.address)&&(!n.spent_in_txid||owned.has(n.spent_in_txid)));
+  // R26 item 1: each note is its own party (`deposit:<txid>:<pool>:<action_index>`) and a zero-value note
+  // is never an obligation — it is ignored and counted in verify's accounting.
+  const {payable:payNotes,ignored}=refundable(depositNotes);
   const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
-  const stray=depositNotes.filter(n=>!src.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
+  const stray=strayNotes(payNotes,m.deposit_addresses,src.frozen);
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimEnvelopes:Record<string,string>={},claimsUsed:any[]=[];
   let result_hash:string|null=null,opened:any[]|null=null,result:any=null;
@@ -124,8 +128,7 @@ try {
       const o=opened?.find(x=>x.leaf_index===Number(party.slice(5)));
       return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
     }
-    const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
-    const note=m?depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2]):undefined;
+    const note=partyNote(depositNotes,party);
     const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
     if(!ct)return null;
     const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
@@ -162,8 +165,8 @@ try {
       // only the envelope's hash is published.
       if(!claimEnvelopes[request.party]) {
         claimEnvelopes[request.party]=request.claim_envelope_ct;
-        const cm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(request.party);
-        const note=cm?depositNotes.find(n=>n.txid===cm[1]&&String(n.diversifier_index)===cm[2]):undefined;
+        const cm=isDepositParty(request.party);
+        const note=cm?partyNote(depositNotes,request.party):undefined;
         // R16 item 4: a stray claim publishes the scanned deposit's memo (memo_hex must match the scanned
         // deposit) so every verifier can derive the owner key itself from it and the published beacon.
         requireThat(!cm||!!note?.memo_hex,"claim memo matches the scanned deposit");
@@ -199,8 +202,8 @@ try {
     // R. Before R (and until Track B's memo-bound envelope tag, R16.2/R18, lands with memo v2) no owner key or
     // envelope authentication exists for a cancelled-before-R deposit, so it waits in the exception queue —
     // never a wedge for the other rows.
-    for(const n of depositNotes) {
-      const party=`deposit:${n.txid}:${n.diversifier_index}`,row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
+    for(const n of payNotes) {
+      const party=depositParty(n),row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
       if(claimEnvelopes[party]) {gateEnvelope(row);continue}
       if(strayEnvelope(party)) {gateEnvelope(row);continue}
@@ -211,7 +214,7 @@ try {
       exceptions.push({...row,reason});
     }
   } else {
-    for(const n of stray.filter(n=>!confirmed(n)))exceptions.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
+    for(const n of stray.filter(n=>!confirmed(n)))exceptions.push({party:depositParty(n),kind:"refund",amount_zats:String(n.value_zats)});
     for(const [party,amount] of modeEntry(src.manifest).obligations(result!)) {
       const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
       // R6 (W) + R7 items 2/3: a product-mode bid's refund destination comes only from its owner-signed
@@ -229,7 +232,7 @@ try {
       } else obligations.push(row);
     }
     for(const n of stray.filter(confirmed)) {
-      const party=`deposit:${n.txid}:${n.diversifier_index}`,row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
+      const party=depositParty(n),row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       // R7 item 6 (Reviewer G G6): a stray refund never goes to an operator-chosen destination. A stray whose
       // memo holds a valid sealed bid is refunded through its own envelope like any bid; anything else goes to
       // the exception queue, claimable only when its memo holds an owner key (benzo claim-refund).
@@ -243,5 +246,5 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

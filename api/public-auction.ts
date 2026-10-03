@@ -11,6 +11,7 @@ import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { memoSealedBid } from "../settle/envelopes";
+import { isDepositParty } from "../settle/deposits";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -26,6 +27,9 @@ export type SettlementSummary = {
   auction_id?: string;
   rows?: { party: string; amount_zats: string; state?: string }[];
   receipts?: SettlementReceipt[];
+  // R26 item 1: zero-value deposit notes are never obligations; the plan lists them here and verify's
+  // accounting counts each as ignored — never a row, never a receipt.
+  ignored?: { party: string; amount_zats: string }[];
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
   delivery_defaults?: Signed[];
@@ -364,7 +368,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     for (const [i, c] of records.entries()) {
       requireThat(c && typeof c === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c.party), `claim ${i} party`);
+      requireThat(/^leaf:[0-9]+$/.test(c.party) || isDepositParty(c.party), `claim ${i} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
       let owner: string | null = null;
       if (c.party.startsWith("leaf:")) {
@@ -461,12 +465,14 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // result exists and every party must therefore be a deposit refund.
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
     const stray = (party: string): void => {
-      requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
+      requireThat(isDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.
     for (const r of receipts) {
       if (expected.has(r.party)) continue;
       stray(r.party);
+      // R26 item 1: a zero-value note is never an obligation (it is counted as ignored below).
+      requireThat(/^[1-9][0-9]*$/.test(r.amount_zats), `stray ${r.party} amount`);
       const row = rows.find(x => x.party === r.party);
       requireThat(row, `stray receipt ${r.party} without row`);
       requireThat(row!.amount_zats === r.amount_zats, `stray ${r.party} amount`);
@@ -474,6 +480,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     for (const row of rows) {
       if (expected.has(row.party)) continue;
       stray(row.party);
+      requireThat(/^[1-9][0-9]*$/.test(row.amount_zats), `stray ${row.party} amount`);
       const rs = receipts.filter(r => r.party === row.party);
       if (row.state === "exception") requireThat(rs.length === 0, `stray ${row.party} exception row with receipt`);
       else {
@@ -481,6 +488,19 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         requireThat(rs.length === 1, `duplicate stray ${row.party}`);
         requireThat(rs[0].amount_zats === row.amount_zats, `stray ${row.party} amount`);
       }
+    }
+    // R26 item 1: the zero-value notes the plan ignored are counted here — each is a distinct deposit
+    // party at amount 0, with no row and no receipt ever paying it.
+    const ignored = pub.settlement.ignored ?? [];
+    for (const [i, ig] of ignored.entries()) {
+      requireThat(ig && typeof ig === "object" && Object.keys(ig).sort().join(",") === "amount_zats,party", `ignored ${i} shape`);
+      requireThat(isDepositParty(ig.party), `ignored ${i} party`);
+      requireThat(ig.amount_zats === "0", `ignored ${i} amount`);
+    }
+    requireThat(new Set(ignored.map(i => i.party)).size === ignored.length, "duplicate ignored zero-value note");
+    for (const ig of ignored) {
+      requireThat(!rows.some(r => r.party === ig.party) && !receipts.some(r => r.party === ig.party),
+        `ignored zero-value note ${ig.party} paid`);
     }
   });
   return checks;

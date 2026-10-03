@@ -11,6 +11,7 @@ import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid} from '../env
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
+import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
@@ -48,7 +49,7 @@ export function publish(id:string) {
     const paid=new Set<any>(read(path.join(sd,'receipts.json')).map((r:any)=>r.party));
     const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,claim_envelope_sha256:c.claim_envelope_sha256,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
     if(used.length)doc.claims=used;
-    doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,batches:s.batches.map((b:any)=>{
+    doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
       return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
     })};
@@ -203,9 +204,11 @@ export async function runCommand(command:string,args:string[]) {
       const dest=open((doc.envelopes??[]).find((e:any)=>e.ciphertext_hash===l.ciphertext_hash));
       opens.push({leaf:l.leaf_index,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
-    for(const n of notes()) {
-      if(!m.deposit_addresses.includes(n.address))continue;
-      const party=`deposit:${n.txid}:${n.diversifier_index}`;
+    // R26 item 1: one entry per REFUNDABLE scanned deposit note — the report covers exactly the plan's
+    // refund rows (`deposit:<txid>:<pool>:<action_index>`); a zero-value note is never an obligation and
+    // gets no entry.
+    for(const n of refundable(notes().filter((x:any)=>m.deposit_addresses.includes(x.address))).payable) {
+      const party=depositParty(n);
       if(claimed.has(party)||(doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
       // R20: only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
       // for a memo-less or v1 stray is not something this signer reports ok for.
@@ -219,7 +222,7 @@ export async function runCommand(command:string,args:string[]) {
     // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.
     // The destination is chosen by the owner and never passes through operator input unsigned.
     requireThat(id&&o.party&&o.destination&&o['owner-key-stdin'],'--id --party --destination --owner-key-stdin required');
-    requireThat(/^leaf:[0-9]+$/.test(o.party)||/^deposit:[0-9a-f]{64}:.+$/.test(o.party),'claim party');
+    requireThat(/^leaf:[0-9]+$/.test(o.party)||isDepositParty(o.party),'claim party');
     requireShieldedDestination(o.destination);
     const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
     // R15 item 3 (R F6 + head finding on R13): the destination is SEALED in a v2 envelope to the manifest's
@@ -235,7 +238,7 @@ export async function runCommand(command:string,args:string[]) {
     // Operator side (R7 item 4 + R11): record the owner-signed request and settle what it promotes (the signer
     // plan verifies the owner signature against its own fresh opening). --defer records without settling.
     requireThat(id,'--id required');const request=input(o);
-    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.claim_envelope_ct==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
+    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||isDepositParty(request.party))&&typeof request.claim_envelope_ct==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
     const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
     requireThat(envelopeRecordValid({envelope_ct:request.claim_envelope_ct,owner_sig:request.owner_sig},m.envelope_keys),'claim envelope format');
     // R17 item 2: the owner signature is verified at record time with the same rule as the signer plan, and
@@ -246,8 +249,7 @@ export async function runCommand(command:string,args:string[]) {
         const o=read(ledger(id)).opened?.find((x:any)=>x.leaf_index===Number(party.slice(5)));
         return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,'hex').subarray(61,93).toString('hex'):null;
       }
-      const mm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
-      const note=mm?notes().find((n:any)=>n.txid===mm[1]&&String(n.diversifier_index)===mm[2]):undefined;
+      const note=party.startsWith('deposit:')?partyNote(notes(),party):undefined;
       const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
       if(!ct)return null;
       const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(ct,'hex'),maxBuffer:1<<20});
