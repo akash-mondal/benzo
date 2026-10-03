@@ -1,0 +1,28 @@
+commit 2649f4bc20881ddf9cf94e1385e944d45840afa7 (mutation R19-c.patch applied to cli/commands/xchain.ts)
+utc 2026-10-03T05:14:41Z
+command bash crosschain/local-demo.sh
+PASS demo-evm-escrow-deployed
+PASS demo-evm-artifact-present
+PASS demo-lock-evm
+PASS demo-lock-solana
+PASS demo-attest-both-chains
+PASS demo-attest-allocation-refused
+PASS demo-attest-destinations-from-envelope
+PASS demo-attest-malformed-deliver-exception
+PASS demo-attest-malformed-deliver-exception-both-chains
+PASS demo-attest-no-agreement-exception
+ERROR demo-attest-substituted-envelope-exception rc=0 exceptions [{"index":0,"lot_count":1,"reason":"malformed deliver: deliver.to must be an EIP-55 checksummed EVM address"},{"index":4,"lot_count":1,"reason":"malformed deliver: deliver.to must be an EIP-55 checksummed EVM address"},{"index":5,"lot_count":1,"reason":"signers could not agree on the envelope deliver"}]
+PASS demo-attest-result-hash-mismatch-refused
+PASS demo-attest-expiry-past-deadline-refused
+PASS demo-attest-asset-missing-refused
+PASS demo-attest-asset-mismatch-refused
+PASS demo-release-evm-delivers
+PASS demo-release-solana-delivers
+PASS demo-status-matches-attested-root
+PASS demo-status-result-hash-matches-published
+PASS demo-status-result-hash-mismatch-refused
+PASS demo-replay-refused
+PASS demo-cancel-lock-both
+PASS demo-refund-before-deadline-refused
+PASS demo-refund-after-deadline-returns
+RESULT FAIL 1 demo assertion(s) failed
