@@ -54,6 +54,23 @@ prices tied, so the distinct first/second-price path is offline-proven only (`do
 | | The clearing result: fills, prices, refunds, fees and the conservation check |
 | | The drand beacon for R and its BLS signature, so anyone can re-derive the openings |
 
+## Cross-chain delivery
+
+A winner's cross-chain payout destination travels in the same sealed settlement envelope as its Zcash
+refund — signers attest only what they open themselves, never an operator file
+(`docs/evidence/phase-5/repro/r19-attest-deliver.out`), and each chain's escrow pays only the kinds it
+can (`docs/evidence/phase-5/repro/r25-3-kinds-after.out`). Where each private-delivery path stands:
+
+| Path | Status | Evidence |
+|---|---|---|
+| **ERC-5564 stealth addresses (EVM)** | **live on Ethereum Sepolia**: one delivery paid to a fresh one-time address, found and spent by the winner's viewing key alone, with the gas stipend and the announcement on the canonical Announcer | `docs/evidence/phase-5/repro/stealth-live.out` |
+| **Token-2022 Confidential Transfers (Solana)** | **live on Solana devnet as a standalone capability demo — not an escrow delivery**: the Solana escrow pays native SOL only, so a confidential SPL delivery needs escrow token support (future work) | `docs/evidence/phase-5/repro/ct-live.out` |
+| **Railgun `shield()` (EVM)** | **deferred to mainnet future work**: it needs a custody-touching shield adapter in `BenzoEscrow.sol` (custom contract code, so it merges only after Reviewer R's hard review) and it conflicts with the exact `ethers` pin; ERC-5564 stealth is the EVM private-delivery path for the hackathon | `docs/evidence/phase-5/repro/railgun-blocked.out`, `docs/AUDITS.md` |
+
+Every deliver carries a secret 32-byte salt generated inside the sealed envelope, so guessing a
+winner's meta-address never links its payouts
+(`docs/evidence/phase-5/repro/r25-1-link-after.out`).
+
 ## Honest limits
 
 Copied from `docs/research/DESIGN.md` §14:
@@ -71,7 +88,16 @@ Stated again for this build:
 
 - All orders open at R. Losing bids are not secret forever.
 - Two of three signers acting together can misbehave; `benzo verify` shows it after the fact.
+- **A colluding 2-of-3 quorum can misdirect a refund and the public cannot tell** (R16 F6): receipts
+cannot bind a shielded destination publicly without leaking it. The owner detects non-receipt and
+holds a signed settlement statement (`docs/evidence/phase-4/EVIDENCE.md`).
 - Each signer can read every refund destination, because they must check the outputs they sign.
+- The signer-reproducible stealth derivation is custom (2-of-3 signers must derive the same one-time
+address); its salt is known only to envelope openers, so a guessed meta-address links nothing
+(`docs/AUDITS.md`, `docs/evidence/phase-5/repro/r25-1-link-after.out`).
+- On the cancel path a signer authenticates a refund's envelope from the chain alone — the deposit
+memo commits to it (memo framing v2) — so cancellation never needs a decryption
+(`docs/evidence/phase-5/repro/r16-memo-bound.out`).
 - Delivery of off-chain assets relies on the marketplace adapter.
 - Testnet only so far. No mainnet transaction has been made.
 
@@ -143,6 +169,7 @@ measured in that file yet.
 - `manifest/` — signed manifest schema and CLI; pins the quicknet chain and the auction's rules.
 - `clear/` — the clearing engine: one registry entry per market mode.
 - `envelope/` — settlement envelopes: where refund and payout destinations travel, encrypted.
+- `crosschain/` — cross-chain escrows and private-delivery adapters (EVM, Solana, stealth, Token-2022).
 - `witness/` — witness certificates over the frozen root.
 - `scan/` — the vault scanner (Rust): finds deposits on chain.
 - `settle/` — settlement planning and ledger: payouts, refunds, batches.
