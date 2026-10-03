@@ -12,7 +12,7 @@ import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { memoSealedBid } from "../settle/envelopes";
 import { isDepositParty } from "../settle/deposits";
-import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
+import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
 // The witness set rides in a separate signed packet, not in the manifest.
@@ -60,6 +60,9 @@ export type PublicAuction = {
   // a stray entry carries the scanned deposit's memo ciphertext — the claim publishes it and every verifier
   // derives the owner key from it and the published beacon itself; there is no operator-supplied opening).
   claims: { party: string; claim_envelope_sha256: string; owner_sig: string; memo_hex?: string }[];
+  // R23 item 1: witness-certified strays statements (q_w-of-n_w under the pinned witness set), binding
+  // every published stray claim's memo to the witnesses' own scans.
+  straysCerts: StraysCert[];
   settlement: SettlementSummary | null;
   // Gate CF: the published opening of the manifest's tlock-sealed price bound (plaintext hex), present iff the
   // manifest carries `sealed_reserve`; benzo verify re-derives it with tle like the bid openings.
@@ -69,7 +72,7 @@ export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: Pu
 export type Check = { id: string; error?: string; warn?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -95,7 +98,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
   let launchInput: import("../clear/launch").LaunchInput | undefined;
   let serialBeacon: { round: number; signature: string } | null = null;
-  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null, reserveOpening: string | null, claims: any[] = [];
+  let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], straysCerts: StraysCert[], settlement: SettlementSummary | null, reserveOpening: string | null, claims: any[] = [];
   if (!legacy) {
     // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
     const doc = JSON.parse(text("auction.json"));
@@ -134,6 +137,8 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     witnessSet = (doc.witness_set ?? null) as Signed | null;
     requireThat(doc.witness_cert === undefined || Array.isArray(doc.witness_cert), "witness_cert");
     witnessCerts = (doc.witness_cert ?? []) as WitnessCert[];
+    requireThat(doc.strays_cert === undefined || Array.isArray(doc.strays_cert), "strays_cert");
+    straysCerts = (doc.strays_cert ?? []) as StraysCert[];
     requireThat(doc.claims === undefined || Array.isArray(doc.claims), "claims");
     claims = (doc.claims ?? []) as any[];
     settlement = (doc.settlement ?? null) as SettlementSummary | null;
@@ -167,6 +172,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     witnessCerts = existsSync(path.join(root, "witness.json"))
       ? (JSON.parse(text("witness.json")) as WitnessCert[])
       : [];
+    straysCerts = [];
     settlement = existsSync(path.join(root, "summary.json"))
       ? (JSON.parse(text("summary.json")) as SettlementSummary)
       : null;
@@ -176,7 +182,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       ? String((JSON.parse(text("reserve.json")) as { plaintext_hex?: unknown }).plaintext_hex ?? "")
       : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, claims, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -366,6 +372,18 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   run("claims", () => {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    // R23 item 1 (Reviewer G G1): the strays certificates are validated whenever present; every stray
+    // claim additionally requires its memo to be in the certified statement (below).
+    let certified: Map<string, string> | null = null;
+    if (pub.straysCerts?.length) {
+      requireThat(pub.manifest.witness_set_hash, "strays certification requires a pinned witness set");
+      requireThat(pub.witnessSet, "strays certification requires the witness set");
+      requireThat(witnessSetHash(pub.witnessSet!) === pub.manifest.witness_set_hash, "witness set hash mismatch");
+      const spec = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), pub.manifest.auction_id);
+      const statement = checkStraysCerts(pub.straysCerts, spec);
+      requireThat(statement.auction_id === pub.manifest.auction_id, "strays statement auction");
+      certified = new Map(statement.strays.map(e => [`${e.party}\u0000${e.memo_sha256}`, e.value_zats]));
+    }
     for (const [i, c] of records.entries()) {
       requireThat(c && typeof c === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c.party) || isDepositParty(c.party), `claim ${i} party`);
@@ -379,6 +397,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         // 128-byte layout rule the signer plan enforces against the scanned deposit) and the owner key comes
         // only from its beacon-anchored opening — never from a `claims[].opening` the operator supplies.
         requireThat(typeof c.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c.memo_hex) && memoSealedBid(c.memo_hex) !== null, `claim ${i} memo_hex`);
+        // R23 item 1 (Reviewer G G1): the public cannot see the encrypted memo on chain, so the published
+        // memo is only the operator's word — bind it to the chain through the witnesses' own scans: the
+        // claim's SHA-256(memo_hex) must appear with the same party in a q_w-certified strays statement.
+        requireThat(certified?.has(`${c.party}\u0000${hash(Buffer.from(c.memo_hex!, "hex"))}`), `claim ${i} memo not in a certified strays statement`);
         const derived = opts.claimOpenings?.get(i), pt = derived ? Buffer.from(derived, "hex") : null;
         requireThat(pt && pt.length === 128 && pt[0] === 0 && pt.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i} memo opening`);
         owner = pt!.subarray(61, 93).toString("hex");

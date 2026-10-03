@@ -16057,12 +16057,47 @@ function checkCertificates(certs, spec, statement) {
   }
   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
 }
+function straysStatementBytes(st2) {
+  requireThat(st2 && typeof st2 === "object" && Object.keys(st2).sort().join(",") === "auction_id,strays,version", "strays statement fields");
+  requireThat(st2.version === 1 && /^[0-9a-f]{64}$/.test(String(st2.auction_id)), "strays statement binding");
+  requireThat(Array.isArray(st2.strays), "strays statement entries");
+  const seen = /* @__PURE__ */ new Set();
+  for (const e of st2.strays) {
+    requireThat(e && typeof e === "object" && Object.keys(e).sort().join(",") === "memo_sha256,party,value_zats", "strays entry fields");
+    requireThat(isDepositParty(e.party), "strays entry party");
+    requireThat(/^[0-9a-f]{64}$/.test(String(e.memo_sha256)), "strays entry memo hash");
+    zats(e.value_zats, "strays entry value");
+    requireThat(!seen.has(e.party), "duplicate strays entry party");
+    seen.add(e.party);
+  }
+  return jsonBytes(st2);
+}
+function checkStraysCerts(certs, spec) {
+  requireThat(Array.isArray(certs) && certs.length > 0, "missing strays statement");
+  for (const c2 of certs) {
+    requireThat(c2 && typeof c2 === "object" && c2.statement && Array.isArray(c2.signatures), "strays certificate shape");
+    requireThat(c2.signatures.length > 0, "strays certificate without signatures");
+    for (const s2 of c2.signatures) requireThat(s2 && /^[0-9a-f]{64}$/.test(String(s2.witness)) && /^[0-9a-f]{128}$/.test(String(s2.signature)), "strays signature shape");
+    straysStatementBytes(c2.statement);
+  }
+  const wanted = straysStatementBytes(certs[0].statement).toString("hex");
+  for (const c2 of certs) requireThat(straysStatementBytes(c2.statement).toString("hex") === wanted, "two strays statements for one auction");
+  const signed = /* @__PURE__ */ new Set();
+  for (const c2 of certs) for (const s2 of c2.signatures) {
+    if (signed.has(s2.witness)) continue;
+    requireThat(spec.keys.includes(s2.witness), "strays signature not from the witness set");
+    requireThat(verify3(null, Buffer.concat([Buffer.from("benzo-strays-v1"), straysStatementBytes(c2.statement)]), edPublic(s2.witness), Buffer.from(s2.signature, "hex")), `witness ${s2.witness} strays signature`);
+    signed.add(s2.witness);
+  }
+  requireThat(signed.size >= spec.q_w, `strays witness quorum ${signed.size}-of-${spec.keys.length}`);
+  return certs[0].statement;
+}
 
 // api/public-auction.ts
 function readClient(packet, signer) {
   return clientForMode(packet, signer);
 }
-var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
+var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 var openedStates = /* @__PURE__ */ new Set(["OPENED", "CLEARED", "SETTLED"]);
 var frozenStates = /* @__PURE__ */ new Set(["SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED"]);
@@ -16085,7 +16120,7 @@ function loadPublicAuction(dir, opts = {}) {
   let frozen, opened, beacon;
   let launchInput;
   let serialBeacon = null;
-  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening, claims = [];
+  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, straysCerts, settlement, reserveOpening, claims = [];
   if (!legacy) {
     const doc = JSON.parse(text("auction.json"));
     requireThat(doc && typeof doc === "object" && !Array.isArray(doc), "auction.json");
@@ -16121,6 +16156,8 @@ function loadPublicAuction(dir, opts = {}) {
     witnessSet = doc.witness_set ?? null;
     requireThat(doc.witness_cert === void 0 || Array.isArray(doc.witness_cert), "witness_cert");
     witnessCerts = doc.witness_cert ?? [];
+    requireThat(doc.strays_cert === void 0 || Array.isArray(doc.strays_cert), "strays_cert");
+    straysCerts = doc.strays_cert ?? [];
     requireThat(doc.claims === void 0 || Array.isArray(doc.claims), "claims");
     claims = doc.claims ?? [];
     settlement = doc.settlement ?? null;
@@ -16142,11 +16179,12 @@ function loadPublicAuction(dir, opts = {}) {
     envelopes = existsSync4(path4.join(root, "envelope.json")) ? JSON.parse(text("envelope.json")) : [];
     witnessSet = existsSync4(path4.join(root, "witness-set.json")) ? JSON.parse(text("witness-set.json")) : null;
     witnessCerts = existsSync4(path4.join(root, "witness.json")) ? JSON.parse(text("witness.json")) : [];
+    straysCerts = [];
     settlement = existsSync4(path4.join(root, "summary.json")) ? JSON.parse(text("summary.json")) : null;
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
     reserveOpening = existsSync4(path4.join(root, "reserve.json")) ? String(JSON.parse(text("reserve.json")).plaintext_hex ?? "") : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, claims, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
 }
 function loadCompletePublicAuction(dir, opts = {}) {
   const pub = loadPublicAuction(dir, opts);
@@ -16294,6 +16332,16 @@ function checkPublicAuction(pub, opts = {}) {
   run2("claims", () => {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    let certified = null;
+    if (pub.straysCerts?.length) {
+      requireThat(pub.manifest.witness_set_hash, "strays certification requires a pinned witness set");
+      requireThat(pub.witnessSet, "strays certification requires the witness set");
+      requireThat(witnessSetHash(pub.witnessSet) === pub.manifest.witness_set_hash, "witness set hash mismatch");
+      const spec = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), pub.manifest.auction_id);
+      const statement = checkStraysCerts(pub.straysCerts, spec);
+      requireThat(statement.auction_id === pub.manifest.auction_id, "strays statement auction");
+      certified = new Map(statement.strays.map((e) => [`${e.party}\0${e.memo_sha256}`, e.value_zats]));
+    }
     for (const [i2, c2] of records.entries()) {
       requireThat(c2 && typeof c2 === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c2.party) || isDepositParty(c2.party), `claim ${i2} party`);
@@ -16304,6 +16352,7 @@ function checkPublicAuction(pub, opts = {}) {
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
       } else {
         requireThat(typeof c2.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c2.memo_hex) && memoSealedBid(c2.memo_hex) !== null, `claim ${i2} memo_hex`);
+        requireThat(certified?.has(`${c2.party}\0${hash(Buffer.from(c2.memo_hex, "hex"))}`), `claim ${i2} memo not in a certified strays statement`);
         const derived = opts.claimOpenings?.get(i2), pt2 = derived ? Buffer.from(derived, "hex") : null;
         requireThat(pt2 && pt2.length === 128 && pt2[0] === 0 && pt2.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i2} memo opening`);
         owner = pt2.subarray(61, 93).toString("hex");
