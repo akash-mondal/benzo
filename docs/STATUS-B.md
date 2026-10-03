@@ -3,7 +3,58 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — R19 (P1), R21 (P1), then EVM stealth delivery / Token-2022 CT / Railgun / `benzo fund quote`
+## Current run (26): R22 + R24 Q6(a) DONE; queue after R25's landing: R25 items 1–6, then R23.3, R24 (i)–(iii), then READY FOR MERGE
+
+State: **R22 + Q6(a) DONE with red/green proof** (code `97567fa`, evidence `4e19e5f`). Everything
+below is IN PROGRESS or not started. Updated 2026-10-03T08:5xZ. Head message this run: R22 with
+Q6 (a), R23 item 3, R24 item 3 (i)–(iii), then READY FOR MERGE; mid-run the head landed R25
+(`1279cc5`) + merge `9eeaf3f`, assigning Track B items 1–6 "after run 26's current item" (R22).
+Reading: R25's items follow R22 and precede the rest of the queue (Q1 below). No mainnet; no
+other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
+
+1. **R22 + Q6(a) (head P2 + result-shape ruling): DONE** — code `97567fa`, evidence `4e19e5f`.
+   - `xchain attest` now runs the same public checks as `benzo verify` on `--dir` (openings
+     re-derived from the frozen ciphertexts, claim openings from the published memos, sealed
+     reserve + serial beacon authenticated, then `checkPublicAuction`) and refuses on any ERROR
+     before any key is read or chain contacted; `--result` must equal the published `--dir/result.json`
+     bytes exactly; leaf derivation is `allocations[].fill` only — the `winners[]` branch is removed
+     (Q6 (a)).
+   - Demo fixture is now a **real product result**: the shipped clearing (`clearForMode`) recomputed
+     over the six real openings (all fill 1 at 250000 zats, C 500000), a gate-X witness set whose
+     hash the signed manifest pins (R4 item 2) and q_w=2-of-3 certificates written through the
+     shipped `benzo witness sign`; `PUBDIR/result.json` is the literal `--dir/result.json`.
+   - Named repro (frozen leaf set swapped after witness certification, self-consistent
+     root/paths/result as an attacker could rewrite, certificates unforgeable):
+     `docs/evidence/phase-5/repro/r22-before.out` (commit `97567fa` tree, `xchain.ts` at `882b51d`
+     pre-fix) shows it **ATTESTED** (`ERROR demo-attest-swapped-leaf-refused rc=0 …`) together with
+     the other two reds (a `winners[]` result accepted; non-identical result bytes attested);
+     `docs/evidence/phase-5/repro/r22-attest-dir.out` (clean `97567fa`) is **33/33 PASS** with the
+     swapped dir refused as `ERROR witness certificate statement differs`.
+   - Mutations at `97567fa`: **R22-a** (checkPublicAuction refusal disabled) → `ERROR
+     demo-attest-swapped-leaf-refused`; **R22-b** (byte-equality disabled) → `ERROR
+     demo-attest-result-bytes-mismatch-refused` (full logs tmp/e2e/r22-{a,b}.log).
+   - Demo assertion IDs (33) are listed in the run-25 test-audit table below plus the new
+     `demo-product-result`, `demo-attest-crosschain-result-refused`,
+     `demo-attest-result-bytes-mismatch-refused`, `demo-attest-swapped-leaf-refused` (R retain).
+
+### This run's queue
+
+1. **R25 items 1–6** (R25: "after run 26's current item"; the current item R22 is done): P0 salt in
+   `deliver`, `--envelope-key` dedup + manifest membership, payable-kind gating per chain
+   (solana `ct` then relabelled per item 6), EVM address normalisation + `bid seal` validation,
+   CT evidence relabel, AUDITS KDF correction + `--announcer` validation + numeric CLI validation.
+   Item 3 changes the demo's solana `ct` leaf from delivered to exception — after it lands, re-run
+   the cheapest R22 mutation (R22-a) on the reworked demo and say so here.
+2. **R23 item 3 (P3)**: read API returns the verify ERROR, never a 500, for deposit claims without a
+   beacon; add a fixture.
+3. **R24 item 3 (i)**: `envelope/destination.ts` → `zcash_address` via a `benzo-pczt classify-address`
+   subcommand; identical verdicts on the existing fixtures + fresh real testnet UA/Sapling/t-addr/TEX;
+   `docs/AUDITS.md` closes the custom-code row.
+4. **R24 item 3 (ii)**: README honest limits + cross-chain section (stealth live, CT relabelled per
+   R25 F6, Railgun deferred + why, R16 F6, memo-bound cancel path), every claim citing evidence.
+5. **R24 item 3 (iii)**: `docs/evidence/phase-6/lp-0004.md` from existing evidence paths.
+
+## Previous run (25): head task — R19 (P1), R21 (P1), then EVM stealth delivery / Token-2022 CT / Railgun / `benzo fund quote`
 
 State: **R19 DONE with red/green proof** (code `9cfc159`, evidence `e86f35e`); **R21 DONE with
 before/after + red/green proof** (code `38bf7e1` + harness `9910f85`, evidence `9e871d0`);
@@ -226,7 +277,14 @@ cross-chain `winners[].leaf` result shape cannot satisfy. So either the cross-ch
 needs a ruling (extend `checkPublicAuction` to accept it) or the xchain fixture/result must be a
 full product result and the `winners[]` branch of the leaf derivation drops.
 
-### Questions (this run)
+### Questions (run 26)
+
+1. **R25 ordering (my reading, not ruled):** R25 assigns Track B items 1–6 "after run 26's current
+   item" (R22, done). I take that as: R25's six items next, then the rest of the run's queue (R23
+   item 3, R24 item 3 (i)–(iii)), then READY FOR MERGE. If the head meant R25 only after the whole
+   run-26 queue, say so and I will reorder; nothing is dropped either way.
+
+### Questions (run 25)
 
 1. **Sepolia EVM redeploy (RESOLVED, done as declared):** R14 item 4 changed `BenzoEscrow.sol`'s
    storage layout; per R9 item 1 there is no in-place upgrade. The live stealth delivery deployed a
@@ -244,13 +302,10 @@ full product result and the `winners[]` branch of the leaf derivation drops.
    root is 2-of-3 signed), which ERC-5564's random ephemeral key does not give; the KDF seeds the
    pinned SDK's own scheme-1 derivation. A leaked seed would link a winner's deliveries (disclosure
    owed in README honest limits), never spend them. Reviewer R should look at this one.
-4. **(Q6) Cross-chain result shape vs the `clear` check (blocks R22's fixture):** `checkPublicAuction`
-   recomputes the product clearing from the openings and binds `result.manifest_hash`/
-   `result.freeze_root`; the cross-chain result (`{auction_id, winners:[{leaf,lot_count}]}`) has
-   neither. Please rule one of: (a) the xchain leaf derivation reads the PRODUCT result only
-   (`allocations[].fill`) and the `winners[]` branch goes away; or (b) `checkPublicAuction` grows a
-   cross-chain result mode. I will implement R22 the moment this is ruled (my default is (a): the
-   signer validates the dir with `benzo verify`, so the product result IS the validated result).
+4. **(Q6) Cross-chain result shape vs the `clear` check: RESOLVED by R24 item 2 (a)** — the xchain
+   leaf derivation reads the PRODUCT result only (`allocations[].fill`) and the `winners[]` branch is
+   gone; implemented with the R22 proof at `97567fa`/`4e19e5f` (the fixture is a verify-green
+   product-result directory).
 5. **`xchain attest` boundary (documented, not a gap):** the winner-leaf ↔ envelope pairing is now
    anchored where R21 put it — the frozen leaf's own ciphertext and the published beacon — so no
    operator file supplies an opening or a record. The `--result` file remains the signer's own
