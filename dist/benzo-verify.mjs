@@ -12812,6 +12812,7 @@ function checkPublicAuction(pub) {
     }
     for (const row of rows) {
       if (!receipts.some((r) => r.party === row.party)) continue;
+      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:")) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? void 0 : (pub.envelopes ?? []).find((e) => {
         const leaf = pub.frozen?.leaves.find((l) => l.leaf_index === Number(row.party.slice(5)));

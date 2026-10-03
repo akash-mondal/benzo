@@ -351,6 +351,9 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     }
     for (const row of rows) {
       if (!receipts.some(r => r.party === row.party)) continue;
+      // The seller payout is the documented operator-pinned sink (Q18); claim evidence is required only for
+      // bid leaves and stray deposits.
+      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:")) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? undefined : (pub.envelopes ?? []).find(e => {
         const leaf = pub.frozen?.leaves.find(l => l.leaf_index === Number(row.party.slice(5)));
