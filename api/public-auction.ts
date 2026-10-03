@@ -225,6 +225,23 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     if (existsSync(p)) requireThat(jsonBytes(value).equals(readFileSync(p)), `${name} projection differs`);
   };
+  // R26 item 3 (Reviewer R F5): the projection files a publisher writes beside the canonical
+  // auction.json must agree with the document — a divergence (including a projection for a field the
+  // document does not carry) is an ERROR, never a silent preference for one side. The four checked
+  // here (opened/beacon/receipts/summary) are the projections only a legacy dir treats as a source.
+  run("projection", () => {
+    if (pub.legacy) return;
+    const doc = JSON.parse(readFileSync(path.join(pub.dir, "auction.json"), "utf8")) as Record<string, unknown>;
+    const problems: string[] = [];
+    for (const [name, key] of [["opened.json", "opened"], ["beacon.json", "beacon"], ["receipts.json", "receipts"], ["summary.json", "settlement"]]) {
+      const p = path.join(pub.dir, name), value = doc[key];
+      try {
+        if (value === null || value === undefined) requireThat(!existsSync(p), `${name} projection without document field`);
+        else if (existsSync(p)) requireThat(jsonBytes(value).equals(readFileSync(p)), `${name} projection differs`);
+      } catch (e) { problems.push((e as Error).message); }
+    }
+    if (problems.length) throw new Error(problems.join("; "));
+  });
   // Checks apply to the fields the current state carries (R21 item 5): manifest always, freeze/receipts
   // once frozen, clear/accounting once result. A pre-freeze dir is valid when its manifest is.
   run("missing-deposits", () => checkMissingDeposits(pub));
