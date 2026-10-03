@@ -5,7 +5,10 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R14 items 1–5 (Reviewer R F1 CPI-forgery P0 + redeploys + P2s)
 
-State: **IN PROGRESS** (items 1–2 DONE with red/green proof; items 3–5 next; updated 2026-10-02T23:44Z).
+State: **READY FOR MERGE** (items 1, 2, 4, 5 landed with red/green proof; item 3 **BLOCKED** on devnet
+faucet funds — Needs user; updated 2026-10-03T00:25Z). Commits: `bd48e7e` (item 1), `c7c417c` (item 2),
+`e678654` (items 1–2 evidence), `319a09c` (item 4), `517d4bf` (item 4 evidence), `c3ad712` (item 5), and this
+commit (STATUS + docs/AUDITS.md custom-code row).
 Base: clean tree at `a623139` (head: merge main into track-b; R14 in `docs/PHASE-5.md` R14, head commit
 `0da383e`). Reviewer R's report read-only at `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-r9-contracts.md`;
 lab PoC copied from `/Users/akshmnd/Dev Projects/benzo-sol/lab/pr-b-r9/lab-only/` (read-only). Baseline `npm run
@@ -51,12 +54,106 @@ empty), so the red run below ran literally on the 4d9c0e6 program.
    (b) is nevertheless enforced at runtime and would alone refuse the PoC path with 0x16 (`self_ix.program_id !=
    *program_id` for the proxy instruction).
 
-Items 3–5 next: new devnet program ID + one live cycle (mark `AE1LQwTy…` SUPERSEDED), EVM `approval()` view +
-`xchain status` resultHash comparison + forge test, `local-demo.sh` `.env` guard.
+3. **R14 item 3, new devnet program ID + one live cycle: BLOCKED (outside cause: devnet faucet funds).**
+   The deployer `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` holds **28,600,040 lamports** (0.0286 SOL);
+   a fresh ProgramData for the 102,256-byte R14 build costs ~0.57 SOL (the R9 deploy spent ~0.52 of 0.5756
+   — that run's item 6), and the live cycle needs ~0.05 more. Three distinct approaches failed:
+   1. *Sweep my own devnet keys* — `solana balance <pk> --url devnet` per key under
+      `$BNZ_STATE_DIR/{solana,xchain-live}/`: 0.0286 + 0.0008 SOL total, all others 0 (the R9 run already
+      swept its cycle keys; nothing to gather).
+   2. *Devnet faucet via the pinned CLI* — `solana airdrop 2|1 <deployer> --url devnet`, 4 attempts over two
+      rounds (2026-10-02T23:2xZ, 2026-10-03T00:05Z), every one `Error: airdrop request failed. This can
+      happen when the rate limit is reached.` (the previous run saw the same on 4 attempts).
+   3. *Alternative public devnet RPCs* — `solana airdrop … --url https://rpc.ankr.com/solana_devnet` →
+      `-32000 Unauthorized: You must authenticate your request with an API key`; `--url
+      https://solana-devnet.gateway.tatum.io` → `-16401 … available for paid plans only`.
+   The remaining faucets have human checks — user-only per AGENTS.md Safety.
+   **One-command repro once funded:** `bash tools/repro/r14-devnet-deploy-cycle.sh` — builds the working
+   tree, deploys under a NEW program ID (`$BNZ_STATE_DIR/solana/program-v3-keypair.json`), runs one live
+   devnet cycle through the shipped `benzo xchain` CLI (lock → attest 2-of-3 → release → `status --result`
+   → refund after the deadline; the R9 item-6 Solana shape with the item-4 result-hash tie) and writes the
+   public-values transcript to `$BNZ_STATE_DIR/xchain-live/r14-cycle.out`. Its balance gate is proven:
+   today it exits 1 `NOT RUN r14-deploy-cycle missing devnet funds — user airdrop to 3EM3LMN…`. The
+   deploy/cycle half is written against the exact CLI flags of the R9 cycle transcript
+   (`$BNZ_STATE_DIR/xchain-live/r9-cycle.out`) but is **unrun** — no claim it works. `AE1LQwTy…` therefore
+   stays **current**; SUPERSEDED moves to it (here + `docs/AUDITS.md`) only when the new deploy exists.
+
+4. **R14 item 4 (P2), EVM `approval()` view + `xchain status` result-hash tie: DONE** (`319a09c`, evidence
+   `517d4bf`). `contracts/evm/src/BenzoEscrow.sol`: `approval(auctionId, batchIndex)` returns
+   `(allocationRoot, resultHash, expiry, exists)`; the write-only `nonce` is dropped from the `Approval`
+   struct and documented on `Release` (it stays signed and digest-committed; replay is the one-shot
+   approval). `benzo xchain status [--result FILE]` prints the escrow's approved resultHash (EVM via the
+   view; Solana from the Approval PDA layout) beside the **published result hash — the product's
+   `resultHash`: sha256 over the raw result.json bytes (`manifest/schema` `hash`, what `benzo verify` and
+   the API report)** — with `match`, and exits 1 `ERROR xchain result hash mismatch: …` on mismatch or a
+   missing approval. The demo attests that published hash (was a demo-local keccak choice — Deviations)
+   and adds `demo-status-result-hash-matches-published` + `demo-status-result-hash-mismatch-refused`.
+   **Red/green** — `docs/evidence/phase-5/mutations/R14-F3.patch` (the getter swaps root into the
+   resultHash slot) at clean `319a09c`: forge red `test_approval_exposes_stored_fields` FAIL with the exact
+   field mismatch (`mutations/R14-F3.out`, `contracts/logs/r14-3-getter-mutant.out`; forge prints `FAIL:`
+   lines, its format, not `ERROR <id>`), and `R14-F3b.patch` (comparison hard-coded `match: true`) → demo
+   red `ERROR demo-status-result-hash-mismatch-refused evm rc=0 sol rc=0` (`mutations/R14-F3b.out`, the
+   expected assertion ID in the last 30 lines). **Green after** — `contracts/logs/r14-3-getter-fixed.out`
+   (forge 30/30 = 28 prior + `test_approval_absent_batch_is_empty` + `test_approval_exposes_stored_fields`)
+   and `contracts/logs/r14-3-demo-fixed.out` (17/17, `RESULT PASS one cleared drop delivered end to end
+   locally on both chains`). `npm run typecheck` PASS.
+
+5. **R14 item 5 (P2), `local-demo.sh` `.env` guard: DONE** (`c3ad712`).
+   `if [ -f .env ]; then set -a; . ./.env; set +a; fi` replaces `set -a; . ./.env 2>/dev/null || true;
+   set +a` (bash 3.2 exits the shell when sourcing a missing file — the `|| true` never ran).
+   **Red on the old line** (2026-10-03T00:07Z, `.env` moved aside, `/bin/bash` = 3.2.57):
+   `contracts/logs/r14-5-demo-no-env-old-code.out` — `crosschain/local-demo.sh` exit 1, **0 bytes of
+   output** (R's F2 silent death). **Green after** (00:12Z, still no `.env`):
+   `contracts/logs/r14-5-demo-no-env-fixed.out` — exit 0, 17/17 demo checks, `RESULT PASS …` — the
+   documented §7 step 3 is reproducible on a clean checkout.
+
+R12 (run 21) sweep: **nothing open** — items 1–4 landed before this run; its two Questions stand for the
+head (the unpinned-manifest v2-record interpretation; Track A's `r7-3-exception-queue-repro.mjs` lines).
+Final tree checks: `npm run e2e` PASS 38 s and `npm run typecheck` PASS at the final tree;
+`bash contracts/solana/test/run.sh` green at `bd48e7e` (43/43 driver + 8/8 fixture).
+
+### Test audit (READY FOR MERGE)
+
+Project E2E suite (the 8-test ceiling; 5 used) — untouched this run, **R retain**: `e2e/seal-open.spec.ts`
+(default project) PASS 38 s at base `a623139` and at the final tree; the four live-project specs unchanged
+(covered `seal/`, `clear/`, `settle/` code untouched this run).
+
+Contract-level proofs outside the ceiling (contracts/ + the crosschain harness), with mutation status:
+
+| suite | audit | assertion IDs | covered code changed since its last mutation run? |
+|---|---|---|---|
+| `contracts/solana/test/run.sh` → `driver.mjs` (43 checks) | R | the driver's IDs (lock/release/refund/dust/layout/SIZE) | yes (`submit_attestation`, item 1) — behavior-neutral for the new lines: all 43 stay green with the fix removed (R14-F1 run); no assertion added, loosened or removed |
+| `contracts/solana/test/cpi-forge.mjs` (new, item 2) | R | `cpi-*` (8) | owns item 1's lines — mutation R14-F1 run and red (`ERROR cpi-forged-submit-refused`) |
+| `contracts/evm/test/ApprovalGetter.t.sol` (new, item 4) | R | `test_approval_absent_batch_is_empty`, `test_approval_exposes_stored_fields` | owns the getter — mutation R14-F3 red (`test_approval_exposes_stored_fields` FAIL) |
+| `contracts/evm/test/*` (28 prior) | R | unchanged IDs | yes (`BenzoEscrow.sol` Approval struct) — all 28 green at `319a09c`. Honest note: earlier runs proved those reds by old-code runs, no committed mutation patches exist to re-run cheaply; only the green re-run is claimed |
+| `crosschain/local-demo.sh` → `local-demo.mjs` (17 checks) | R | `demo-*` | yes (item 4) — mutation R14-F3b red (`ERROR demo-status-result-hash-mismatch-refused`); item 5's guard red/green above |
+
+`tools/repro/r14-devnet-deploy-cycle.sh` is an ops repro (balance-gated deploy+cycle, no assertions), not a
+test — outside the ceiling.
+
+### Deviations (this run)
+
+- **Demo result-hash derivation (item 4):** `crosschain/local-demo.mjs` attested a demo-local
+  `keccak256(result.json bytes)` as `result_hash`; it now attests the product's published result hash
+  (sha256 over the raw result.json bytes — `manifest/schema` `hash`, the value `resultHash(pub)` in
+  `api/public-auction.ts` and the series link). Forced by the item-4 tie: "compare `resultHash` with the
+  published `result.json` hash" is only meaningful against the product's published hash. The signed
+  message format, both escrows and every other caller are unchanged (the field was always caller-chosen).
+
+### Needs user
+
+- **Devnet airdrop (item 3):** any amount ≥ ~0.7 SOL to the deployer
+  `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu` (faucets are user-only per AGENTS.md), then
+  `bash tools/repro/r14-devnet-deploy-cycle.sh` (or tell me and I run it and record the deploy + cycle +
+  the `AE1LQwTy…` SUPERSEDED move). Until then item 3 stays BLOCKED.
 
 ### Questions (this run)
 
-- None yet.
+- **Sepolia EVM redeploy?** Item 4 changed `BenzoEscrow.sol` (getter + dropped write-only `nonce` from the
+  `Approval` struct — a storage-layout change). `docs/AUDITS.md` says EVM escrows are redeployed per
+  change, but R14's item 3 covers only the Solana devnet deploy and Sepolia gas is not mine to faucet. The
+  live Sepolia escrow `0x8d08…` therefore predates item 4 (its R9 cycle evidence stands). Redeploy and mark
+  `0x8d08…` SUPERSEDED as part of item 3's completion, or leave for Phase 6?
 
 ## Previous run: head task — R12 items 1–3 (shared envelope rule, committed red/green repros, KC_KEY fix)
 
