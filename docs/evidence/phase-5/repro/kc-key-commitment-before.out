@@ -1,0 +1,14 @@
+commit 266c2e634f79bae6ef962ec50580e95442eff138
+utc 2026-10-02T22:47:45.611Z
+command node tools/repro/kc-key-commitment-repro.mjs
+PASS kc-api-exports
+ERROR kc-key-32-interop refused: envelope key commitment
+PASS kc-recipients-order
+ERROR kc-split-key-recipient1-opens refused: envelope key commitment
+PASS kc-split-key-recipient2-commitment
+PASS kc-3of3-accepted
+PASS kc-1of3-refused
+PASS kc-2of3-refused
+PASS kc-reorder-refused
+PASS kc-wrongset-refused
+RESULT FAIL 2

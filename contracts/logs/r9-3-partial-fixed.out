@@ -1,0 +1,41 @@
+No files changed, compilation skipped
+
+Ran 2 tests for test/FeeTokenDrain.t.sol:FeeTokenDrainTest
+[PASS] test_fee_on_transfer_token_drains_victim_auction() (gas: 520980)
+[PASS] test_lock_refuses_fee_on_transfer_token() (gas: 116908)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 675.83µs (476.17µs CPU time)
+
+Ran 1 test for test/PartialRelease.t.sol:PartialReleaseTest
+[PASS] test_partial_release_then_remainder() (gas: 467394)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 841.58µs (469.50µs CPU time)
+
+Ran 3 tests for test/ReentrancyRepro.t.sol:ReentrancyReproTest
+[PASS] test_control_no_reentry_single_pay() (gas: 482346)
+[PASS] test_cross_auction_drain_and_refund_bricked() (gas: 998176)
+[PASS] test_double_pay_same_leaf_via_reentrancy() (gas: 819967)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 1.62ms (3.19ms CPU time)
+
+Ran 20 tests for test/BenzoEscrow.t.sol:BenzoEscrowTest
+[PASS] test_lock_native_records_state() (gas: 201893)
+[PASS] test_lock_refused_after_submit_time() (gas: 32777)
+[PASS] test_lock_token_pulls_erc20() (gas: 276368)
+[PASS] test_lock_twice_refused() (gas: 205503)
+[PASS] test_recipient_flags_skip_failures_and_block_double_pay() (gas: 553850)
+[PASS] test_reentrant_recipient_paid_exactly_once() (gas: 960210)
+[PASS] test_refund_after_deadline_returns_remainder() (gas: 241017)
+[PASS] test_refund_after_release_returns_only_remainder() (gas: 420934)
+[PASS] test_refund_before_deadline_refused() (gas: 200138)
+[PASS] test_refund_only_after_attested_window_closed() (gas: 259300)
+[PASS] test_release_cap_never_exceeds_lock() (gas: 310593)
+[PASS] test_release_expired_refused() (gas: 210481)
+[PASS] test_release_expiry_after_deadline_refused() (gas: 209744)
+[PASS] test_release_leaf_index_bound_refused() (gas: 298108)
+[PASS] test_release_leaf_not_in_root_refused() (gas: 304272)
+[PASS] test_release_one_signature_refused() (gas: 212131)
+[PASS] test_release_outsider_signatures_refused() (gas: 216432)
+[PASS] test_release_same_signer_twice_not_quorum() (gas: 217805)
+[PASS] test_release_two_of_three_pays() (gas: 464009)
+[PASS] test_replay_batch_refused() (gas: 399085)
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 1.78ms (4.62ms CPU time)
+
+Ran 4 test suites in 81.99ms (4.92ms CPU time): 26 tests passed, 0 failed, 0 skipped (26 total tests)

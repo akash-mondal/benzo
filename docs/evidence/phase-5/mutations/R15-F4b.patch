@@ -1,0 +1,20 @@
+diff --git a/api/public-auction.ts b/api/public-auction.ts
+index d70dca1..1f3490e 100644
+--- a/api/public-auction.ts
++++ b/api/public-auction.ts
+@@ -433,13 +433,10 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
+     }
+   });
+   run("accounting-strays", () => {
+-    if (!pub.settlement) return;
++    if (!pub.settlement || !pub.result) return;
+     const receipts = pub.settlement.receipts ?? [];
+     const rows = pub.settlement.rows ?? [];
+-    // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
+-    // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
+-    // result exists and every party must therefore be a deposit refund.
+-    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
++    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement);
+     const stray = (party: string): void => {
+       requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
+     };

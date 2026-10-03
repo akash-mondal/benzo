@@ -1,0 +1,46 @@
+Compiling 1 files with Solc 0.8.30
+Solc 0.8.30 finished in 1.81s
+Compiler run successful!
+
+Ran 1 test for test/FeeTokenDrain.t.sol:FeeTokenDrainTest
+[PASS] test_fee_on_transfer_token_drains_victim_auction() (gas: 1751798)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 560.96µs (410.42µs CPU time)
+
+Ran 3 tests for test/ReentrancyRepro.t.sol:ReentrancyReproTest
+[PASS] test_control_no_reentry_single_pay() (gas: 384536)
+[PASS] test_cross_auction_drain_and_refund_bricked() (gas: 1248018)
+[PASS] test_double_pay_same_leaf_via_reentrancy() (gas: 1035409)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 3.64ms (8.93ms CPU time)
+
+Ran 20 tests for test/BenzoEscrow.t.sol:BenzoEscrowTest
+[PASS] test_lock_native_records_state() (gas: 201642)
+[PASS] test_lock_refused_after_submit_time() (gas: 32777)
+[PASS] test_lock_token_pulls_erc20() (gas: 276117)
+[PASS] test_lock_twice_refused() (gas: 205252)
+[PASS] test_recipient_flags_skip_failures_and_block_double_pay() (gas: 455664)
+[PASS] test_reentrant_recipient_paid_exactly_once() (gas: 1127976)
+[PASS] test_refund_after_deadline_returns_remainder() (gas: 240766)
+[PASS] test_refund_after_release_returns_only_remainder() (gas: 371832)
+[PASS] test_refund_before_deadline_refused() (gas: 199887)
+[PASS] test_refund_only_after_attested_window_closed() (gas: 264767)
+[PASS] test_release_cap_never_exceeds_lock() (gas: 261491)
+[PASS] test_release_expired_refused() (gas: 215954)
+[FAIL: next call did not revert as expected] test_release_expiry_after_deadline_refused() (gas: 333886)
+[PASS] test_release_leaf_index_bound_refused() (gas: 249171)
+[PASS] test_release_leaf_not_in_root_refused() (gas: 255214)
+[PASS] test_release_one_signature_refused() (gas: 217569)
+[PASS] test_release_outsider_signatures_refused() (gas: 221865)
+[PASS] test_release_same_signer_twice_not_quorum() (gas: 223238)
+[PASS] test_release_two_of_three_pays() (gas: 414545)
+[PASS] test_replay_batch_refused() (gas: 353612)
+Suite result: FAILED. 19 passed; 1 failed; 0 skipped; finished in 3.79ms (21.76ms CPU time)
+
+Ran 3 test suites in 80.51ms (8.00ms CPU time): 23 tests passed, 1 failed, 0 skipped (24 total tests)
+
+Failing tests:
+Encountered 1 failing test in test/BenzoEscrow.t.sol:BenzoEscrowTest
+[FAIL: next call did not revert as expected] test_release_expiry_after_deadline_refused() (gas: 333886)
+
+Encountered a total of 1 failing tests, 23 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 1 failed test

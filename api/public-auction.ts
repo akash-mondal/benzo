@@ -9,7 +9,7 @@ import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed 
 import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
-import { settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
+import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { checkCertificates, freezeStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -283,16 +283,30 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
   });
   // Gate W: published envelope records verify against the owner pubkey inside each opening, and the opening's
   // salted settlement commitment binds the same envelope ciphertext (threat #7, #32). Dirs without records are pre-W.
+  // R12 item 1: every published record must satisfy the one shared format/recipient rule
+  // (envelope/index.ts envelopeRecordValid) — the operator admitted it, so a record that breaks it is an ERROR,
+  // not a settleable state. Pre-v2 (572-byte) records pass only where the manifest pins no `envelope_keys`.
   // R7 item 4 (R F-5 = G5): a leaf with no valid record is a correct state only as an explicit exception-queued
   // row that was never paid to an unauthenticated destination — anything else refuses.
   run("envelope", () => {
     const records = pub.envelopes;
-    if (!records.length) return projection("envelope.json", null);
     const frozen = pub.frozen;
+    // R15 item 1 (R F4): when the manifest pins envelope_keys the leaf state machine runs for EVERY frozen
+    // leaf even when zero envelope records are published (recordless bids are admitted legally), so a row or
+    // receipt that misstates a leaf can never hide behind an omitted envelope.json. Dirs from before envelopes
+    // (no pinned keys, no records) keep the old reading and stay verifiable.
+    if (!records.length && !(frozen && pub.manifest.envelope_keys)) return projection("envelope.json", null);
     requireThat(frozen, "missing frozen");
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+    // R15 item 2 (R F5): only a result-obligation-bearing leaf needs a row. The clear puts a leaf in the
+    // obligations map only when its refund is positive and the ledger refuses zero-amount rows, so a leaf with
+    // zero refund and no envelope record is a correct no-op state — "missing row" for it is a false error.
+    // Without a result there are no result obligations at all (the CANCELLED path refunds deposits, checked by
+    // the stray rules), so the machine has no row to demand there either.
+    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : null;
     const settleable = (leaf: number, reason: string): string | void => {
       const party = `leaf:${leaf}`;
+      if (!expected || !expected.has(party)) return undefined;
       if (!pub.settlement) return `${reason} ${leaf}; refund goes to the exception queue`;
       const row = rows.find(r => r.party === party);
       requireThat(row, `${reason} ${leaf}: missing row`);
@@ -307,6 +321,7 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     const byLeaf = new Map<number, EnvelopeRecord>();
     for (const rec of records) {
       requireThat(rec && typeof rec === "object" && Object.keys(rec).sort().join(",") === "ciphertext_hash,envelope_ct,owner_sig", "envelope record shape");
+      requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen!.leaves.find(l => l.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
       requireThat(!byLeaf.has(leaf!.leaf_index), `duplicate envelope ${leaf!.leaf_index}`);
@@ -354,6 +369,11 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
       // The seller payout is the documented operator-pinned sink (Q18); claim evidence is required only for
       // bid leaves and stray deposits.
       if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:")) continue;
+      // R13 proves claim-paid rows. Only Phase 5 product dirs (manifest pinning envelope_keys) have the
+      // claim path at all — a pre-Phase-5 row was paid by the pre-W route and is not a claim-paid row — so
+      // the requirement is skipped there (the R4.2 pre-Phase-5 reading; merge regression that broke the
+      // Phase 3 evidence, caught by the r15/r16 phase2-4 checks).
+      if (!pub.manifest.envelope_keys) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? undefined : (pub.envelopes ?? []).find(e => {
         const leaf = pub.frozen?.leaves.find(l => l.leaf_index === Number(row.party.slice(5)));
@@ -416,10 +436,13 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     }
   });
   run("accounting-strays", () => {
-    if (!pub.settlement || !pub.result) return;
+    if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement);
+    // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
+    // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
+    // result exists and every party must therefore be a deposit refund.
+    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
     const stray = (party: string): void => {
       requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };

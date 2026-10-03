@@ -1,0 +1,32 @@
+commit e1b55da329cb863a769c1ee0f832121256bc5d5a (mutation R16-F2a.patch applied to api/public-auction.ts)
+utc 2026-10-03T01:34:03Z
+command node tools/repro/r15-verify-leaves-repro.mjs
+commit e1b55da329cb863a769c1ee0f832121256bc5d5a (working tree not clean at run time)
+utc 2026-10-03T01:33:42.570Z
+command node tools/repro/r15-verify-leaves-repro.mjs
+tree M api/public-auction.ts
+tree ?? docs/evidence/phase-5/mutations/R15-F4a.out
+tree ?? docs/evidence/phase-5/mutations/R15-F4a.patch
+tree ?? docs/evidence/phase-5/mutations/R15-F4b.out
+tree ?? docs/evidence/phase-5/mutations/R15-F4b.patch
+tree ?? docs/evidence/phase-5/mutations/R15-F5.out
+tree ?? docs/evidence/phase-5/mutations/R15-F5.patch
+tree ?? docs/evidence/phase-5/mutations/R16-F2a.patch
+PASS r15-machine-runs-without-records
+PASS r15-zero-refund-needs-no-row
+PASS r15-strangers-refused
+ERROR r15-phase2-4 phase-3 exit 1: OK missing-deposits
+OK delivery
+OK report
+OK manifest
+OK freeze
+OK witness
+OK receipts
+OK clear
+OK envelope
+OK accounting
+OK accounting-strays
+WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs
+WARN beacon fetched (not published)
+WARN no witness set (pre-Phase-5 manifest
+RESULT FAIL 1

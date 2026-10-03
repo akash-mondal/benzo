@@ -1,0 +1,15 @@
+commit e1b55da329cb863a769c1ee0f832121256bc5d5a (mutation R15-F4b.patch applied to api/public-auction.ts)
+utc 2026-10-03T01:32:15Z
+command node tools/repro/r15-verify-leaves-repro.mjs
+commit e1b55da329cb863a769c1ee0f832121256bc5d5a (working tree not clean at run time)
+utc 2026-10-03T01:31:53.357Z
+command node tools/repro/r15-verify-leaves-repro.mjs
+tree M api/public-auction.ts
+tree ?? docs/evidence/phase-5/mutations/R15-F4a.out
+tree ?? docs/evidence/phase-5/mutations/R15-F4a.patch
+tree ?? docs/evidence/phase-5/mutations/R15-F4b.patch
+PASS r15-machine-runs-without-records
+PASS r15-zero-refund-needs-no-row
+ERROR r15-strangers-refused stranger parties accepted: []
+PASS r15-phase2-4
+RESULT FAIL 1

@@ -1,0 +1,48 @@
+Compiling 4 files with Solc 0.8.30
+Solc 0.8.30 finished in 3.26s
+Compiler run successful!
+
+Ran 3 tests for test/ReentrancyRepro.t.sol:ReentrancyReproTest
+[PASS] test_control_no_reentry_single_pay() (gas: 384998)
+[PASS] test_cross_auction_drain_and_refund_bricked() (gas: 1248249)
+[PASS] test_double_pay_same_leaf_via_reentrancy() (gas: 1035640)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 6.28ms (8.71ms CPU time)
+
+Ran 20 tests for test/BenzoEscrow.t.sol:BenzoEscrowTest
+[PASS] test_lock_native_records_state() (gas: 201642)
+[PASS] test_lock_refused_after_submit_time() (gas: 32777)
+[PASS] test_lock_token_pulls_erc20() (gas: 274149)
+[PASS] test_lock_twice_refused() (gas: 205252)
+[PASS] test_recipient_flags_skip_failures_and_block_double_pay() (gas: 456126)
+[PASS] test_reentrant_recipient_paid_exactly_once() (gas: 1128207)
+[PASS] test_refund_after_deadline_returns_remainder() (gas: 240766)
+[PASS] test_refund_after_release_returns_only_remainder() (gas: 372063)
+[PASS] test_refund_before_deadline_refused() (gas: 199887)
+[PASS] test_refund_only_after_attested_window_closed() (gas: 264998)
+[PASS] test_release_cap_never_exceeds_lock() (gas: 261722)
+[PASS] test_release_expired_refused() (gas: 216185)
+[PASS] test_release_expiry_after_deadline_refused() (gas: 215445)
+[PASS] test_release_leaf_index_bound_refused() (gas: 249402)
+[PASS] test_release_leaf_not_in_root_refused() (gas: 255445)
+[PASS] test_release_one_signature_refused() (gas: 217800)
+[PASS] test_release_outsider_signatures_refused() (gas: 222096)
+[PASS] test_release_same_signer_twice_not_quorum() (gas: 223469)
+[PASS] test_release_two_of_three_pays() (gas: 414776)
+[PASS] test_replay_batch_refused() (gas: 354074)
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 6.43ms (20.13ms CPU time)
+
+Ran 2 tests for test/FeeTokenDrain.t.sol:FeeTokenDrainTest
+[FAIL: victim's recipient must be paid in full from the pool (measured: attacker recipient 1000, escrow pool 900): 0 != 1000] test_fee_on_transfer_token_drains_victim_auction() (gas: 812366)
+[FAIL: next call did not revert as expected] test_lock_refuses_fee_on_transfer_token() (gas: 326340)
+Suite result: FAILED. 0 passed; 2 failed; 0 skipped; finished in 6.48ms (4.34ms CPU time)
+
+Ran 3 test suites in 93.17ms (19.20ms CPU time): 23 tests passed, 2 failed, 0 skipped (25 total tests)
+
+Failing tests:
+Encountered 2 failing tests in test/FeeTokenDrain.t.sol:FeeTokenDrainTest
+[FAIL: victim's recipient must be paid in full from the pool (measured: attacker recipient 1000, escrow pool 900): 0 != 1000] test_fee_on_transfer_token_drains_victim_auction() (gas: 812366)
+[FAIL: next call did not revert as expected] test_lock_refuses_fee_on_transfer_token() (gas: 326340)
+
+Encountered a total of 2 failing tests, 23 tests succeeded
+
+Tip: Run `forge test --rerun` to retry only the 2 failed tests

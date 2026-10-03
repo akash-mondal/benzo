@@ -16,4 +16,6 @@ clear/dist/
 settle/dist/
 cli/dist/
 api/dist/
+contracts/evm/out/
+contracts/evm/cache/
 envelope/dist/

@@ -5,16 +5,14 @@
 // with its own key. A bid without a valid envelope is not paid here; the plan moves it to the exception queue.
 // source: envelope record/public shapes from api/public-auction.ts (Track B), validation rules per
 // docs/design/phase5-part1-live.md §4.
-import { ENVELOPE_PT_BYTES, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
+import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
 import { requireThat } from "../manifest/schema";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-// R7 item 2 interim (R F-1/F-2 = G4): every envelope is still a single-recipient box, so at most one signer
-// could open a given bidder's envelope and gate W2 (every signer independently matches every output) cannot
-// hold. Until Track B delivers the multi-recipient envelope format (design phase5-part1-live §4 [B]), an
-// envelope destination is refused with this clear error — never paid from an operator-held key — and the
-// refund waits in the exception queue for an owner-signed `benzo claim-refund` request (R7 item 4).
+// R7 item 2 interim (R F-1/F-2 = G4): until Track A wires `bid seal` to the manifest's pinned key set
+// (R10 item 2), an envelope destination is refused with this clear error — never paid from an operator-held
+// key — and the refund waits in the exception queue for an owner-signed `benzo claim-refund` request (R7 item 4).
 export const ENVELOPE_INTERIM_REFUSAL = "multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used";
 
 // R10 item 3 (design §10 item 2): every signer requires the signed manifest to pin ITS OWN envelope key at
@@ -47,31 +45,32 @@ export function memoSealedBid(memoHex: string): string | null {
   }
 }
 
-// The single-recipient sealed box is exactly eph_pk(32) || nacl_nonce(12) || ChaCha20-Poly1305(padded
-// ENVELOPE_PT_BYTES plaintext + 16-byte tag). R7 item 3 (R F-4 = G3): this fixed shape is enforced at intake
-// (clear/auction-cli.ts admit) so a malformed record can never enter a published directory.
-export const ENVELOPE_CT_BYTES = 32 + 12 + ENVELOPE_PT_BYTES + 16;
-export function envelopeRecordShape(envelopeCtHex: unknown, ownerSigHex: unknown): boolean {
-  return typeof envelopeCtHex === "string" && /^[0-9a-f]+$/.test(envelopeCtHex) && envelopeCtHex.length === ENVELOPE_CT_BYTES * 2
-    && typeof ownerSigHex === "string" && /^[0-9a-f]{128}$/.test(ownerSigHex);
-}
+// The published-record format rule is the one shared `envelopeRecordValid(record, envelope_keys)` exported
+// from envelope/ (R12 item 1): the exact v2 shape for n = 3 with the magic and the signed manifest's
+// `envelope_keys` as stanza recipients in order, or the pre-v2 572-byte box where the manifest pins no keys.
+// R7 item 3 (R F-4 = G3): it is enforced at intake (clear/auction-cli.ts admit) so a malformed record can never
+// enter a published directory.
 
 // The authenticated envelope record for one frozen leaf, or null when the bid has no valid matching
-// envelope (missing record, unknown ciphertext, malformed record, bad owner signature or mismatched
-// settlement commitment). R7 item 3 (R F-4 = G3): this function is total — a malformed, undersized or
-// otherwise unverifiable record is "not valid", never a throw, so one bad bid can never abort the plan for
-// every other party; settle/plan.ts moves such a leaf to the exception queue.
+// envelope (missing record, unknown ciphertext, malformed record, bad owner signature, mismatched
+// settlement commitment, or a record that breaks the shared format/recipient rule — such a record is
+// "no valid owner-signed settlement envelope" and lands in the exception queue). R7 item 3 (R F-4 = G3):
+// this function is total — a malformed, undersized or otherwise unverifiable record is "not valid", never a
+// throw, so one bad bid can never abort the plan for every other party; settle/plan.ts moves such a leaf to
+// the exception queue.
 export function validEnvelope(a: { manifest: any; frozen: any; opened?: any[]; envelopes?: any[] }, leafIndex: number): EnvelopeRecord | null {
   try {
     const leaf = a.frozen?.leaves?.[leafIndex];
     const rec = (a.envelopes ?? []).find((e: any) => e.ciphertext_hash === leaf?.ciphertext_hash) as EnvelopeRecord | undefined;
     const opening = (a.opened ?? []).find((o: any) => o.leaf_index === leafIndex);
     if (!leaf || !rec || !opening || typeof opening.plaintext_hex !== "string" || !/^[0-9a-f]{256}$/.test(opening.plaintext_hex)) return null;
-    if (!envelopeRecordShape(rec.envelope_ct, rec.owner_sig)) return null;
+    const m = JSON.parse(Buffer.from(a.manifest.bytes, "base64").toString("utf8"));
+    // R12 item 1: the one shared rule (envelope/index.ts) — exact v2 n = 3 shape with the manifest's
+    // `envelope_keys` as stanza recipients in order, or the pre-v2 box where the manifest pins no keys.
+    if (!envelopeRecordValid(rec, m.envelope_keys)) return null;
     const pt = Buffer.from(opening.plaintext_hex, "hex");
     const owner = pt.subarray(61, 93).toString("hex"), nonce = pt.subarray(45, 61).toString("hex"), commitment = pt.subarray(93, 125).toString("hex");
-    const auctionId = JSON.parse(Buffer.from(a.manifest.bytes, "base64").toString("utf8")).auction_id;
-    if (!verifyEnvelope(owner, auctionId, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig)) return null;
+    if (!verifyEnvelope(owner, m.auction_id, rec.ciphertext_hash, rec.envelope_ct, rec.owner_sig)) return null;
     if (commitment !== settlementCommitment(nonce, rec.envelope_ct)) return null;
     return rec;
   } catch {

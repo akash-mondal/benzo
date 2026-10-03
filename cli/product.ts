@@ -109,8 +109,10 @@ export async function runCommand(command:string,args:string[]) {
     // Real one-time owner key and salted settlement commitment for the 128-byte layout; the destination (if the
     // bid carries refund_ua) is sealed to a manifest-pinned signer envelope key and never leaves this process in
     // plaintext. R7 item 2: only pinned keys are accepted — an out-of-band key substitution is refused (G4).
-    if(bid.refund_ua!==undefined)requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.includes(bid.envelope_pubkey),'envelope key is not pinned by the signed manifest');
-    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,envelope_public_hex:bid.envelope_pubkey});
+    // Head merge (R17): the destination is sealed to ALL THREE signers' keys pinned by the verified manifest
+    // (multi-recipient v2 envelope); a caller-supplied envelope_pubkey, if any, must still be one of them.
+    if(bid.refund_ua!==undefined)requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3&&(bid.envelope_pubkey===undefined||m.envelope_keys.includes(bid.envelope_pubkey)),'envelope key is not pinned by the signed manifest');
+    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {

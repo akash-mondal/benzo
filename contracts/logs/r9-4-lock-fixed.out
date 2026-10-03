@@ -1,0 +1,46 @@
+No files changed, compilation skipped
+
+Ran 2 tests for test/LockReentry.t.sol:LockReentryTest
+[PASS] test_lock_effects_before_transfer() (gas: 281768)
+[PASS] test_lock_reentrancy_refused() (gas: 596780)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 658.46µs (403.42µs CPU time)
+
+Ran 1 test for test/PartialRelease.t.sol:PartialReleaseTest
+[PASS] test_partial_release_then_remainder() (gas: 465686)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 698.50µs (479.71µs CPU time)
+
+Ran 2 tests for test/FeeTokenDrain.t.sol:FeeTokenDrainTest
+[PASS] test_fee_on_transfer_token_drains_victim_auction() (gas: 702097)
+[PASS] test_lock_refuses_fee_on_transfer_token() (gas: 294392)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 926.29µs (827.00µs CPU time)
+
+Ran 3 tests for test/ReentrancyRepro.t.sol:ReentrancyReproTest
+[PASS] test_control_no_reentry_single_pay() (gas: 482644)
+[PASS] test_cross_auction_drain_and_refund_bricked() (gas: 998760)
+[PASS] test_double_pay_same_leaf_via_reentrancy() (gas: 820265)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 2.02ms (1.34ms CPU time)
+
+Ran 20 tests for test/BenzoEscrow.t.sol:BenzoEscrowTest
+[PASS] test_lock_native_records_state() (gas: 204179)
+[PASS] test_lock_refused_after_submit_time() (gas: 37884)
+[PASS] test_lock_token_pulls_erc20() (gas: 278687)
+[PASS] test_lock_twice_refused() (gas: 210896)
+[PASS] test_recipient_flags_skip_failures_and_block_double_pay() (gas: 554148)
+[PASS] test_reentrant_recipient_paid_exactly_once() (gas: 960508)
+[PASS] test_refund_after_deadline_returns_remainder() (gas: 241303)
+[PASS] test_refund_after_release_returns_only_remainder() (gas: 421226)
+[PASS] test_refund_before_deadline_refused() (gas: 200424)
+[PASS] test_refund_only_after_attested_window_closed() (gas: 257586)
+[PASS] test_release_cap_never_exceeds_lock() (gas: 310885)
+[PASS] test_release_expired_refused() (gas: 212767)
+[PASS] test_release_expiry_after_deadline_refused() (gas: 212030)
+[PASS] test_release_leaf_index_bound_refused() (gas: 298400)
+[PASS] test_release_leaf_not_in_root_refused() (gas: 304564)
+[PASS] test_release_one_signature_refused() (gas: 214417)
+[PASS] test_release_outsider_signatures_refused() (gas: 218718)
+[PASS] test_release_same_signer_twice_not_quorum() (gas: 220091)
+[PASS] test_release_two_of_three_pays() (gas: 464301)
+[PASS] test_replay_batch_refused() (gas: 399377)
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 2.09ms (5.26ms CPU time)
+
+Ran 5 test suites in 80.75ms (6.39ms CPU time): 28 tests passed, 0 failed, 0 skipped (28 total tests)

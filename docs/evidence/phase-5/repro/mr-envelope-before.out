@@ -1,0 +1,17 @@
+commit 266c2e634f79bae6ef962ec50580e95442eff138
+utc 2026-10-02T22:49:20.957Z
+command node tools/repro/mr-envelope-repro.mjs
+PASS mr-manifest-envelope-keys
+PASS mr-3keys-open
+PASS mr-4th-key-refused
+PASS mr-equal-lengths
+PASS mr-stanza-swap-refused
+ERROR mr-shared-rule-export envelopeRecordValid not exported from envelope/
+PASS mr-verify
+ERROR mr-verify-foreign-key got exit 0 OK envelope, want ERROR envelope
+ERROR mr-verify-foreign-set got exit 0 OK envelope, want ERROR envelope
+ERROR mr-verify-pre-v2-pinned got exit 0 OK envelope, want ERROR envelope
+ERROR mr-verify-2of3-pinned got exit 0 OK envelope, want ERROR envelope
+PASS mr-verify-pre-v2-unpinned
+PASS mr-verify-phase2-4
+RESULT FAIL 5

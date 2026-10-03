@@ -40,6 +40,11 @@ const signRecord = (value) => {
 const R = 32704232, release = QUICKNET.genesis + (R - 1) * QUICKNET.period;
 const auction_id = hash("r-repro3-auction:" + Date.now()); // fresh per run: init pins routing once per auction
 const d1 = "utest1" + hash("r-repro3-deposit1").slice(0, 50), d2 = "utest1" + hash("r-repro3-deposit2").slice(0, 50);
+const { generateEnvelopeKey, generateOwnerKey, sealEnvelope, signEnvelope, settlementCommitment } = await import(path.join(TRACKB, "envelope/dist/index.mjs"));
+const { envelopeRecipient } = await import(path.join(TRACKB, "settle/dist/envelopes.mjs"));
+// R10 item 1 fixture: the signed manifest pins the three signer envelope keys and the envelope is sealed
+// to exactly that set (a 1-key box is no longer a valid product record).
+const envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
 const manifest = {
   version: 1, network: "test", auction_id, escrow_ua: "utest1" + hash("r-repro3-escrow").slice(0, 50), frost_group_key: hash("r-repro3-group"),
   lot: "routing repro", supply: 2, reserve_zats: "1000", tick_zats: "1000",
@@ -47,6 +52,7 @@ const manifest = {
   drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
   clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
   refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
+  envelope_keys: envelopeKeys.map((k) => k.public_hex),
 };
 const packet = signRecord(manifest);
 
@@ -67,14 +73,11 @@ const operatorRouting = {
 // --- run the shipped intake path in PRODUCT mode ---------------------------------------
 // Product mode (a product config exists) refuses operator-pinned bidder destinations: those are
 // envelope-authenticated (R6). The repro posts the pre-W routing carrying bidders[].refund_ua.
-const { generateEnvelopeKey, generateOwnerKey, sealEnvelope, signEnvelope, settlementCommitment } = await import(path.join(TRACKB, "envelope/dist/index.mjs"));
-const { envelopeRecipient } = await import(path.join(TRACKB, "settle/dist/envelopes.mjs"));
 mkdirSync(path.join(STATE, "auction"), { recursive: true });
 mkdirSync(path.join(STATE, "product"), { recursive: true });
 writeFileSync(path.join(STATE, "auction", auction_id + ".json"), jsonBytes({ manifest: packet, signer, state: "OPEN", receipts: [] }));
 writeFileSync(path.join(STATE, "product", auction_id + ".json"), jsonBytes({ settlement: { signers: ["alice", "bob", "carol"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: operatorRouting, public_dir: path.join(TRACKB, "tmp/e2e/public") }));
-const envelopeKey = generateEnvelopeKey();
-writeFileSync(path.join(STATE, "product", auction_id + ".envelope.json"), jsonBytes(envelopeKey));
+writeFileSync(path.join(STATE, "product", auction_id + ".envelope.json"), jsonBytes(envelopeKeys[0])); // the signer's own key
 const r = spawnSync(process.execPath, [path.join(TRACKB, "settle/dist/cli.mjs"), "init", auction_id], { input: JSON.stringify(operatorRouting), encoding: "utf8", cwd: TRACKB });
 console.log("settle init exit:", r.status);
 console.log("settle init stderr:", (r.stderr || "").trim().split("\n").slice(-1)[0]);
@@ -92,7 +95,7 @@ console.log("\nsettlement bundles containing envelope-opening code:", hits.lengt
 const owner = generateOwnerKey();
 const nonce = hash("r-repro3-nonce").slice(0, 32);
 const envelopeUa = "utest1redacted";
-const envelopeCt = sealEnvelope(envelopeUa, envelopeKey.public_hex);
+const envelopeCt = sealEnvelope(envelopeUa, envelopeKeys.map((k) => k.public_hex)); // sealed to the pinned set
 const commitment = settlementCommitment(nonce, envelopeCt);
 const ciphertextHash = hash("r-repro3-ciphertext");
 const pt = Buffer.alloc(128); // docs/PHASE-1.md section 6 layout: nonce@45, owner@61, commitment@93
@@ -108,11 +111,11 @@ const doc = {
 };
 const substituted = "utest1" + hash("r-repro3-operator-theft-ua").slice(0, 50);
 
-const derived = envelopeRecipient(doc, 0, envelopeKey.private_hex, substituted);
+const derived = envelopeRecipient(doc, 0, envelopeKeys[0].private_hex, substituted);
 console.log("\nenvelope-derived destination:", derived);
 console.log("coordinator-pinned substitute:", substituted);
 const envelopeWins = derived === envelopeUa && derived !== substituted;
-const missing = envelopeRecipient({ ...doc, envelopes: [] }, 0, envelopeKey.private_hex, substituted);
+const missing = envelopeRecipient({ ...doc, envelopes: [] }, 0, envelopeKeys[0].private_hex, substituted);
 console.log("missing envelope resolves to:", missing);
 const refusedWhenMissing = missing === null;
 

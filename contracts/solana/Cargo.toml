@@ -1,0 +1,16 @@
+# Benzo cross-chain escrow (Solana). Dependencies pinned exactly; audit status per dependency
+# lives in ../AUDITS.md. Changing a pin needs a Ruling.
+[package]
+name = "benzo-escrow"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+solana-program = "=2.3.0"
+solana-keccak-hasher = "=2.2.1"
+
+[profile.release]
+overflow-checks = true

@@ -25,14 +25,16 @@ export function buildBidPlaintext(f: BidFields): Buffer {
 }
 
 // Client-side bid preparation: real owner key, sealed settlement envelope (destination never leaves the client in
-// plaintext), salted commitment, then the plaintext for the sealer to tlock. Callers tlock plaintext_hex to round R
-// and then call bindSealedBid to attach the owner signature over the resulting ciphertext hash.
-export function prepareBid(args: { auction_id: string; price_zats: bigint; quantity: number; destination_ua?: string; envelope_public_hex?: string }): Omit<SealedBid, "ciphertext_hash_hex" | "owner_sig_hex"> {
+// plaintext), salted commitment, then the plaintext for the sealer to tlock. `envelope_public_hexs` is the signed
+// manifest's `envelope_keys` (§4: the content key is wrapped to each signer's key in its own stanza). Callers tlock
+// plaintext_hex to round R and then call bindSealedBid to attach the owner signature over the resulting ciphertext hash.
+export function prepareBid(args: { auction_id: string; price_zats: bigint; quantity: number; destination_ua?: string; envelope_public_hexs?: string[] }): Omit<SealedBid, "ciphertext_hash_hex" | "owner_sig_hex"> {
   const owner = generateOwnerKey(), nonce_hex = randomBytes(16).toString("hex");
   let envelope_ct_hex = "";
   if (args.destination_ua !== undefined) {
-    requireThat(typeof args.envelope_public_hex === "string" && /^[0-9a-f]{64}$/.test(args.envelope_public_hex), "envelope public key");
-    envelope_ct_hex = sealEnvelope(args.destination_ua, args.envelope_public_hex!);
+    requireThat(Array.isArray(args.envelope_public_hexs) && args.envelope_public_hexs.length > 0 &&
+      args.envelope_public_hexs.every(h => typeof h === "string" && /^[0-9a-f]{64}$/.test(h)), "envelope public key");
+    envelope_ct_hex = sealEnvelope(args.destination_ua, args.envelope_public_hexs!);
   }
   const settlement_commitment_hex = settlementCommitment(nonce_hex, envelope_ct_hex);
   const plaintext_hex = buildBidPlaintext({ auction_id: args.auction_id, price_zats: args.price_zats, quantity: args.quantity, nonce_hex, owner_public_hex: owner.public_hex, settlement_commitment_hex }).toString("hex");
