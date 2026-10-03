@@ -1,0 +1,8 @@
+commit 94d66bed35d0d263311f70ba2fcf2d6ba598ad2c
+utc 2026-10-03T14:54:44Z
+command npm run build:verify (R26 item 2: rebuild dist/benzo-verify.mjs + docs/verify-bundle.sha256)
+committed docs/verify-bundle.sha256 before rebuild: a852ae730bb99ced750fb730a60857346f1f06702a67b92e167e32b756f04115
+committed dist/benzo-verify.mjs before rebuild:    a852ae730bb99ced750fb730a60857346f1f06702a67b92e167e32b756f04115
+fresh build:verify on this tree:                   acb95518e37d9e9cc5d3b37cf8f67376e9e4020c7d4b765410e7274171d5b5fa
+RESULT before: MISMATCH — the shipped verifier was stale (a852ae730bb99ced750fb730a60857346f1f06702a67b92e167e32b756f04115 vs a fresh acb95518e37d9e9cc5d3b37cf8f67376e9e4020c7d4b765410e7274171d5b5fa)
+RESULT after: MATCH — docs/verify-bundle.sha256 == sha256(dist/benzo-verify.mjs) = acb95518e37d9e9cc5d3b37cf8f67376e9e4020c7d4b765410e7274171d5b5fa
