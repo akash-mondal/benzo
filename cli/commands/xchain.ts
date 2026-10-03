@@ -10,6 +10,9 @@ import {
   AllocationLeaf, allocationRoot, assetBytes32, buildTree, bytesToHex, destinationBytes, hexToBytes, leafHash,
 } from "../../crosschain/leaf";
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
+import { envelopeRecordValid, openEnvelopePayload } from "../../envelope";
+import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
+import { deriveSettlementStealthAddress } from "../../crosschain/stealth";
 import {
   evmApproved, evmApproval, evmLock, evmProvider, evmRefund, evmReleaseApproved, evmStatus, evmSubmitAttestation, EvmPayout,
 } from "../../crosschain/evm";
@@ -23,7 +26,7 @@ import { hash } from "../../manifest/schema";
 export const noun = "xchain";
 export const help = [
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
-  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --allocation FILE [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is a result the signer has itself validated per docs/AUDITS.md: its bytes decide the result hash and the allocation leaves; a mismatching --result-hash or allocation is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
+  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --envelopes FILE --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR (--result is a result the signer has itself validated per docs/AUDITS.md: its bytes decide the result hash and the allocation leaves; --envelopes is the signer's own record set {envelope_keys, leaves:[{index, opened_bid_hex, owner_sig, envelope_ct}]}: every leaf's destination is derived from each signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation is removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver), winners without a valid deliver go to the bundle's exception queue; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",
   "benzo xchain release --chain evm|solana --bundle FILE --key FILE --rpc URL [--only 0,2] [--submit-only]   (--only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]   (--result is the published result.json: its sha256 is compared with the escrow's approved resultHash and the command exits 1 on mismatch)",
@@ -72,7 +75,8 @@ interface Bundle {
   batch_index: number; nonce: number; expiry: number;
   asset: string; // 0x address (EVM) or the zero address (native ETH/SOL); bound in every leaf
   standard_lot: string;
-  leaves: AllocationLeaf[];
+  leaves: (AllocationLeaf & { deliver_kind?: string })[];
+  exceptions: { index: number; lot_count: number; reason: string }[]; // R19: winners without an attestable deliver
   payouts: { index: number; lot_count: number; destination_kind: number; destination: string; leaf_count: number; proof: string[] }[];
   signers: string[]; signatures: string[];
 }
@@ -118,7 +122,11 @@ export async function run(argv: string[]): Promise<number> {
     if (verb === "attest") {
       const chain2 = chain;
       const rpc = need(a, "rpc"), escrow = need(a, "escrow"), out = need(a, "out");
-      const alloc = JSON.parse(readFileSync(need(a, "allocation"), "utf8"));
+      // R19 item 2: no operator destinations. --allocation is removed — every leaf's destination is
+      // derived by each signer from its own opening of the winner's v2 envelope (`deliver.to`).
+      if (typeof a.allocation === "string") {
+        throw new Error("--allocation is removed (R19): destinations come from the bidder's sealed envelope (--envelopes + --envelope-key)");
+      }
       const auctionId = hexToBytes(need(a, "auction"));
       // R17 item 4 (Reviewer R F7): --result FILE is a result the signer has itself validated (the signer
       // procedure is documented in docs/AUDITS.md). The result hash is recomputed from those exact bytes and
@@ -138,7 +146,8 @@ export async function run(argv: string[]): Promise<number> {
         throw new Error(`--result auction_id ${resultAuction} does not match --auction ${norm(bytesToHex(auctionId))}`);
       }
       // the leaves derive from the result: winners with a positive fill (product ClearResult) or the
-      // cross-chain result's winners[].lot_count — index and lot_count come from the result only
+      // cross-chain result's winners[].lot_count — index and lot_count come from the result only; the
+      // destinations come from the winners' envelopes (R19), never from an operator file
       const derived: { index: number; lot_count: number }[] = Array.isArray(resultDoc.allocations)
         ? resultDoc.allocations.filter((x: any) => x && Number(x.fill) > 0).map((x: any) => ({ index: Number(x.leaf_index), lot_count: Number(x.fill) }))
         : Array.isArray(resultDoc.winners)
@@ -147,29 +156,23 @@ export async function run(argv: string[]): Promise<number> {
       if (!derived.length || derived.some((d) => !Number.isSafeInteger(d.index) || d.index < 0 || !Number.isSafeInteger(d.lot_count) || d.lot_count <= 0) || new Set(derived.map((d) => d.index)).size !== derived.length) {
         throw new Error("--result does not derive a unique positive allocation leaf set (allocations[].fill or winners[].lot_count)");
       }
-      const provided: AllocationLeaf[] = Array.isArray(alloc.leaves) ? alloc.leaves : [];
-      const byIndex = new Map(provided.map((l) => [Number(l.index), l]));
-      const mismatch = provided.length !== derived.length || byIndex.size !== provided.length ||
-        derived.some((d) => { const l = byIndex.get(d.index); return !l || Number(l.lot_count) !== d.lot_count; });
-      if (mismatch) {
-        throw new Error(`mismatching allocation: the result derives ${JSON.stringify(derived)} and --allocation does not match it`);
-      }
-      const leaves: AllocationLeaf[] = derived.map((d) => byIndex.get(d.index)!); // destinations come from the matched allocation; index and lot_count from the result
       const resultHash = hexToBytes(resultHashHex);
       const batchIndex = num(a, "batch"), nonce = num(a, "nonce"), expiry = num(a, "expiry");
       // §10 F-2: signers must attest expiry <= deadline (both chains refuse otherwise); the
       // deadline comes from the locked auction on chain. R9 item 2: so does the asset — the
       // leaves bind exactly what the escrow locked, and --asset must be present and match it
       // (no silent default).
-      let chainAsset: string, escrowDeadline: number;
+      let chainAsset: string, escrowDeadline: number, chainLot: string;
       if (chain2 === "evm") {
         const st = await evmStatus(rpc, escrow, bytesToHex(auctionId), []);
         escrowDeadline = st.deadline;
         chainAsset = getAddress(st.asset); // from the escrow state on chain
+        chainLot = st.standardLot;
       } else {
         const st = await solStatus(solConnection(rpc), new PublicKey(escrow), auctionId, []);
         escrowDeadline = st.deadline;
         chainAsset = "0x0000000000000000000000000000000000000000"; // the program's fixed native-SOL asset (ASSET_SOL)
+        chainLot = st.standardLot;
       }
       if (expiry > escrowDeadline) {
         throw new Error(`--expiry ${expiry} must be <= the auction deadline ${escrowDeadline} (crosschain §10 F-2)`);
@@ -182,7 +185,76 @@ export async function run(argv: string[]): Promise<number> {
       if (given !== chainAsset) {
         throw new Error(`--asset ${given} does not match the escrow's asset ${chainAsset} on chain`);
       }
-      const standardLot = BigInt(alloc.standard_lot);
+      // R19 item 2: derive every leaf's destination from each signer's own opening of the winner's v2
+      // envelope. The envelope is bound to the winner's opened bid (the tlock plaintext's
+      // settlement_commitment = SHA-256(nonce ‖ envelope_ct), envelope/bid.ts layout), so a substituted
+      // record cannot ride a leaf. A leaf is attested only when at least 2 --envelope-key signers open the
+      // same deliver and agree on SHA-256(deliver); anything else goes to the exception queue for this chain.
+      const envDoc = JSON.parse(readFileSync(need(a, "envelopes"), "utf8"));
+      const envelopeKeys: unknown = envDoc.envelope_keys;
+      if (!Array.isArray(envelopeKeys) || envelopeKeys.length !== 3 || envelopeKeys.some((k: unknown) => typeof k !== "string" || !/^[0-9a-f]{64}$/.test(k))) {
+        throw new Error("--envelopes must pin envelope_keys (the manifest's 3 hex X25519 keys)");
+      }
+      const envByIndex = new Map<number, any>();
+      for (const rec of Array.isArray(envDoc.leaves) ? envDoc.leaves : []) {
+        if (rec && Number.isSafeInteger(Number(rec.index)) && !envByIndex.has(Number(rec.index))) envByIndex.set(Number(rec.index), rec);
+      }
+      const envKeyFiles: string[] = Array.isArray(a["envelope-key"]) ? a["envelope-key"] as string[] : [need(a, "envelope-key")];
+      const envPrivates = envKeyFiles.map((f) => readFileSync(f, "utf8").trim());
+      const exceptions: { index: number; lot_count: number; reason: string }[] = [];
+      const leaves: (AllocationLeaf & { deliver_kind?: string })[] = [];
+      for (const d of derived) {
+        const ex = (reason: string) => { exceptions.push({ index: d.index, lot_count: d.lot_count, reason }); };
+        const rec = envByIndex.get(d.index);
+        if (!rec || typeof rec.envelope_ct !== "string" || typeof rec.owner_sig !== "string" || typeof rec.opened_bid_hex !== "string") {
+          ex("no envelope record"); continue;
+        }
+        if (!envelopeRecordValid({ envelope_ct: rec.envelope_ct, owner_sig: rec.owner_sig }, envelopeKeys)) {
+          ex("no valid owner-signed settlement envelope"); continue;
+        }
+        const opened = Buffer.from(rec.opened_bid_hex, "hex");
+        if (opened.length !== 128 || opened[0] !== 0) { ex("opened bid plaintext"); continue; }
+        if (opened.subarray(1, 33).toString("hex") !== bytesToHex(auctionId).slice(2)) { ex("opened bid auction_id"); continue; }
+        const commitment = hash(Buffer.concat([opened.subarray(45, 61), Buffer.from(rec.envelope_ct, "hex")]));
+        if (commitment !== opened.subarray(93, 125).toString("hex")) { ex("envelope not bound to the opened bid"); continue; }
+        const openings: { sha: string; deliver: Deliver }[] = [];
+        let openedOk = 0, noDeliver = 0;
+        let malformed: string | null = null;
+        for (const priv of envPrivates) {
+          let payload;
+          try { payload = openEnvelopePayload(rec.envelope_ct, priv); } catch { continue; } // not this signer's envelope / bad wrap
+          openedOk++;
+          if (payload.deliver === undefined) { noDeliver++; continue; }
+          try {
+            const dd = requireDeliver(payload.deliver);
+            openings.push({ sha: deliverSha256(dd), deliver: dd });
+          } catch (e) { malformed = (e as Error).message.replace(/^refused: /, ""); }
+        }
+        const agreed = openings.find((o) => openings.filter((x) => x.sha === o.sha).length >= 2) ?? null;
+        if (agreed === null) {
+          if (openedOk >= 2 && noDeliver >= 2) ex("no deliver");
+          else if (openedOk >= 2 && malformed !== null) ex(`malformed deliver: ${malformed}`);
+          else ex("signers could not agree on the envelope deliver");
+          continue;
+        }
+        const dd = agreed.deliver;
+        if (dd.chain === "solana") {
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 2, destination: dd.to, deliver_kind: dd.kind });
+        } else if (dd.kind === "stealth") {
+          // one signer-reproducible fresh stealth address per (settlement, leaf) — the announcement
+          // carries the matching ephemeral key (crosschain/stealth.ts, docs/AUDITS.md)
+          const one = deriveSettlementStealthAddress(dd, { deliverSha256Hex: agreed.sha, auctionId, batchIndex: num(a, "batch"), leafIndex: d.index });
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: one.stealthAddress, deliver_kind: dd.kind });
+        } else if (dd.kind === "railgun") {
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 3, destination: dd.to, deliver_kind: dd.kind });
+        } else {
+          leaves.push({ index: d.index, lot_count: d.lot_count, destination_kind: 1, destination: dd.to, deliver_kind: dd.kind });
+        }
+      }
+      if (!leaves.length) {
+        throw new Error(`attest derives no attested leaves (${exceptions.length} winner(s) in the exception queue)`);
+      }
+      const standardLot = BigInt(chainLot); // pinned by the signed manifest and locked on chain; never operator input
       // design §3: every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)
       const asset = chainAsset;
       const asset32 = assetBytes32(asset);
@@ -217,6 +289,7 @@ export async function run(argv: string[]): Promise<number> {
         asset,
         standard_lot: standardLot.toString(),
         leaves,
+        exceptions,
         payouts: leaves.map((l, i) => ({
           index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind,
           destination: l.destination, leaf_count: leaves.length, proof: tree.proofs[i].map(bytesToHex),
@@ -224,7 +297,7 @@ export async function run(argv: string[]): Promise<number> {
         signers, signatures,
       };
       writeFileSync(out, JSON.stringify(bundle, null, 2) + "\n");
-      console.log(JSON.stringify({ chain: chain2, allocation_root: bytesToHex(root), result_hash: resultHashHex, leaves: leaves.length, signers, out }));
+      console.log(JSON.stringify({ chain: chain2, allocation_root: bytesToHex(root), result_hash: resultHashHex, leaves: leaves.length, exceptions, signers, out }));
       return 0;
     }
 

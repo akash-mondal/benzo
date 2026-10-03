@@ -20,9 +20,17 @@
 // The recipient set is the signed manifest's `envelope_keys` (the three signers).
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
 import sodium from "libsodium-wrappers";
-import { jsonBytes, requireThat } from "../manifest/schema";
+import { canonical, jsonBytes, requireThat } from "../manifest/schema";
 import { requireShieldedDestination } from "./destination";
+import { type Deliver, requireDeliver } from "./deliver";
 await sodium.ready;
+
+// R19 item 1: the envelope payload is v2 canonical JSON `{"v":2,"refund":…,"deliver":{…}}` inside the
+// same fixed padded plaintext; a plain-UA plaintext (v1) is still read as `{refund}`. `refund` is
+// mandatory and shielded-only; `deliver` is the cross-chain destination (validated per chain at seal
+// and at every use — `envelope/deliver.ts`).
+export interface EnvelopePayload { refund: string; deliver?: Deliver }
+export type { Deliver } from "./deliver";
 
 export type OwnerKey = { public_hex: string; private_hex: string };
 export type EnvelopeKey = { public_hex: string; private_hex: string };
@@ -84,8 +92,7 @@ function unpadPlaintext(pt: Buffer): string {
   requireThat(n > 0 && n <= ENVELOPE_PT_BYTES - 2 && pt.subarray(2 + n).equals(Buffer.alloc(ENVELOPE_PT_BYTES - 2 - n)), "envelope padding");
   return pt.subarray(2, 2 + n).toString("utf8");
 }
-export function sealEnvelope(plaintext: string, recipientPublicHexes: string[]): string {
-  requireShieldedDestination(plaintext);
+function sealPadded(plaintext: string, recipientPublicHexes: string[]): string {
   requireThat(Array.isArray(recipientPublicHexes) && recipientPublicHexes.length >= 1 && recipientPublicHexes.length <= 3, "envelope recipients");
   requireThat(new Set(recipientPublicHexes).size === recipientPublicHexes.length, "duplicate envelope recipient");
   const recipients = recipientPublicHexes.map(h => raw(h, 32));
@@ -95,6 +102,20 @@ export function sealEnvelope(plaintext: string, recipientPublicHexes: string[]):
   const header = Buffer.concat([MAGIC, Buffer.from([recipients.length]), stanzas, keyCommit(contentKey)]); // AEAD associated data
   const body = Buffer.from(sodium.crypto_aead_chacha20poly1305_ietf_encrypt(padPlaintext(plaintext), header, null, nonce, contentKey));
   return hex(Buffer.concat([header, nonce, body]));
+}
+// v1: a plain shielded-UA plaintext (pre-R19 callers and evidence).
+export function sealEnvelope(plaintext: string, recipientPublicHexes: string[]): string {
+  requireShieldedDestination(plaintext);
+  return sealPadded(plaintext, recipientPublicHexes);
+}
+// R19 item 1: seal the v2 payload. The plaintext is the canonical JSON of {v:2, refund, deliver?}
+// (manifest/schema `canonical`), inside the unchanged fixed padded plaintext.
+export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHexes: string[]): string {
+  requireThat(payload !== null && typeof payload === "object" && !Array.isArray(payload), "envelope payload");
+  requireShieldedDestination(payload.refund);
+  const doc: Record<string, unknown> = { v: 2, refund: payload.refund };
+  if (payload.deliver !== undefined) doc.deliver = requireDeliver(payload.deliver);
+  return sealPadded(canonical(doc), recipientPublicHexes);
 }
 // The recipient X25519 public keys of an envelope, in stanza order (R10 item 1: product validation requires
 // them to be exactly the signed manifest's `envelope_keys`, in order). Throws on a malformed envelope.
@@ -131,7 +152,7 @@ export function envelopeRecordValid(record: { envelope_ct?: unknown; owner_sig?:
     return false;
   }
 }
-export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string): string {
+function openPadded(envelopeCtHex: string, recipientPrivateHex: string): string {
   const b = raw(envelopeCtHex, 0);
   requireThat(b.length > MAGIC.length + 1 + COMMIT_BYTES, "envelope length");
   requireThat(b.subarray(0, MAGIC.length).equals(MAGIC), "envelope magic");
@@ -160,10 +181,33 @@ export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string)
   try {
     pt = sodium.crypto_aead_chacha20poly1305_ietf_decrypt(null, body, header, nonce, contentKey);
   } catch { requireThat(false, "envelope body"); }
-  // Signer side: a destination that is not shielded is refused here too, so a tampered sealer cannot smuggle one in.
-  const destination = unpadPlaintext(Buffer.from(pt));
-  requireShieldedDestination(destination);
-  return destination;
+  const text = unpadPlaintext(Buffer.from(pt));
+  return text;
+}
+// R19 item 1: read the payload. A plain-UA plaintext (v1) is read as {refund}; a `{`-leading plaintext
+// must be exactly the v2 shape. `deliver` is returned unformat-validated — every use runs
+// `requireDeliver` (seal did already; a tampered sealer is refused at use, e.g. into the exception queue).
+function parseEnvelopePayload(text: string): EnvelopePayload {
+  if (!text.startsWith("{")) {
+    requireShieldedDestination(text);
+    return { refund: text };
+  }
+  let doc: any;
+  try { doc = JSON.parse(text); } catch { requireThat(false, "envelope payload"); doc = null; }
+  const keys = doc !== null && typeof doc === "object" && !Array.isArray(doc) ? Object.keys(doc).sort() : null;
+  requireThat(
+    keys !== null && doc.v === 2 && typeof doc.refund === "string" &&
+      (keys.join(",") === "refund,v" || (keys.join(",") === "deliver,refund,v" && doc.deliver !== null && typeof doc.deliver === "object" && !Array.isArray(doc.deliver))),
+    "envelope payload v2",
+  );
+  requireShieldedDestination(doc.refund);
+  return doc.deliver === undefined ? { refund: doc.refund } : { refund: doc.refund, deliver: doc.deliver as Deliver };
+}
+export function openEnvelopePayload(envelopeCtHex: string, recipientPrivateHex: string): EnvelopePayload {
+  return parseEnvelopePayload(openPadded(envelopeCtHex, recipientPrivateHex));
+}
+export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string): string {
+  return openEnvelopePayload(envelopeCtHex, recipientPrivateHex).refund;
 }
 
 // Owner binding over (auction_id, ciphertext_hash, envelope_ct) and the salted public commitment (threat #7/#32).
