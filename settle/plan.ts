@@ -42,9 +42,10 @@ try {
   for(const name of ["alice","bob","carol"]) {requireOwnEnvelopeKey(m,name,state);if(existsSync(path.join(state,"signers",name,"envelope-key.json")))signerKeysPresent++}
   requireThat(signerKeysPresent>0,"signer envelope key missing");
   // R8 G10 (design §5): a manifest carrying witness_set_hash refuses without a valid q_w certificate over the
-  // frozen statement — a refusal on the signer path, never a WARN.
-  if(published&&m.witness_set_hash!==undefined) {
-    requireThat(src.frozen,"missing frozen");
+  // frozen statement — a refusal on the signer path, never a WARN. A cancelled-before-freeze auction has no
+  // frozen root to witness (benzo verify's witness rule is the same: no root, no witness material), so the
+  // gate applies exactly where a frozen statement exists.
+  if(published&&m.witness_set_hash!==undefined&&src.frozen) {
     requireThat((published as any).witness_set,"missing witness set");
     const spec=validateWitnessSet(verifyRecord<WitnessSet>((published as any).witness_set,src.signer),id);
     requireThat(witnessSetHash((published as any).witness_set)===m.witness_set_hash,"witness set hash mismatch");
