@@ -1,0 +1,6 @@
+utc 2026-10-03T16:46:53Z
+commit e0ecb63 tree with the item-4 packaging changes
+command npm run package
+{"tarball":"dist/benzo-0.1.0.tgz","bytes":31700092,"sha256":"856fae26c44b7466db2690567c5e794f22551c93ffc6da86c7dc25b47f7098df","production_packages":112}
+command tar -tzf dist/benzo-0.1.0.tgz | wc -l
+   19656

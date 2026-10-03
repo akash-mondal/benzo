@@ -1,0 +1,23 @@
+utc 2026-10-03T16:47:32Z
+commit e0ecb63 tree with the item-4 packaging changes; tarball sha256 856fae26c44b7466db2690567c5e794f22551c93ffc6da86c7dc25b47f7098df (docs/evidence/phase-6/pk-package.sha256)
+clean extract in /tmp, offline (no --fetch-beacon), the shipped Phase 4 evidence copied in as the published auction directory:
+$ rm -rf /tmp/benzo-pk-run && mkdir -p /tmp/benzo-pk-run && tar -xzf dist/benzo-0.1.0.tgz -C /tmp/benzo-pk-run
+$ cp -R docs/evidence/phase-4/cli /tmp/benzo-pk-run/benzo-0.1.0/auction
+$ cd /tmp/benzo-pk-run/benzo-0.1.0 && shasum -a 256 dist/benzo-verify.mjs
+63d50137d24f9f0bfa7f56da4e447ec7944c4e4ee6878fb2cf9bdc98103162cc  dist/benzo-verify.mjs
+$ ./bin/benzo verify --dir auction --signer 302a…b7891
+OK projection
+OK missing-deposits
+OK delivery
+OK report
+OK manifest
+OK freeze
+WARN no witness set (pre-Phase-5 manifest)
+OK witness
+OK receipts
+OK clear
+OK envelope
+OK claims
+OK accounting
+OK accounting-strays
+exit=0
