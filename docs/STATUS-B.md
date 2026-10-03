@@ -3,142 +3,128 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — R16 item 2 (per R18), R17 item 4, cross-chain private delivery (design §4, §7 step 4), fund quote (§5)
+## Current run: head task — R19 (P1), R21 (P1), then EVM stealth delivery / Token-2022 CT / Railgun / `benzo fund quote`
 
-State: **R16 item 2 DONE with red/green proof** (code `8f7b156`, evidence `b50c0d2`); **R17 item 4 DONE with
-red/green proof** (code `e58e3f9`, evidence `95b1f58`); in progress: cross-chain private delivery (a EVM
-ERC-5564, b Railgun, c Solana Token-2022), then the §5 funding helper. Updated 2026-10-03T03:2xZ. Head message this run: implement R16 item 2 as corrected by R18 (memo v2
-tag = 18 bytes), R17 item 4, the three delivery paths with gas/SOL stipends + live txids + `docs/AUDITS.md`
-rows, and `benzo fund quote`; then READY FOR MERGE. No mainnet; no other-checkout access or writes; no
-merge/rebase/cherry-pick/push; no pin changes.
+State: **R19 DONE with red/green proof** (code `9cfc159`, evidence `e86f35e`); **R21 DONE with
+before/after + red/green proof** (code `38bf7e1` + harness `9910f85`, evidence `9e871d0`).
+Next: item 2 — finish EVM stealth delivery (ERC-5564) on local anvil and one live Sepolia delivery
+with a gas stipend, then Token-2022 CT (item 3), Railgun (item 4, may end BLOCKED), `benzo fund
+quote` (item 5), then READY FOR MERGE. Updated 2026-10-03. Head messages this run: implement R19
+(P1) first, then the three private-delivery paths and the fund quote; headless, one commit per item
+with red/green proof in this file. No mainnet; no other-checkout access or writes; no
+merge/rebase/cherry-pick/push; no pin changes (three pins ADDED, see below).
 
-### Run 24 work
+### This run's work
 
-1. **R16 item 2 (memo-bound envelope, memo framing v2 per R18): DONE** (`8f7b156`, evidence `b50c0d2`).
-   Framing v2 is exactly R18's: `ff424e5a02 || u16be ct_len || tlock_ct || envelope_tag (18) || zero pad`,
-   `envelope_tag` = first 18 bytes of SHA-256(envelope_ct) or 18 zero bytes; exact 512-byte fit at
-   `ct_len = 487`; `bid seal` refuses `ct_len > 487` (sealer writer guard + `bid seal` boundary validation of
-   the browser output through the shared parser). The WIP patch (`tmp/r16-item2-wip.patch`) was applied and
-   re-cut to the 18-byte tag throughout (`envelope_tag`/`memo_envelope_tag` naming): `seal/src/{main.ts,index.html}`
-   writer + hidden field, `settle/envelopes.ts` (`memoSealedBid` returns `{ciphertext_hex, envelope_tag}` for
-   v1/v2; `memoBindsEnvelope` is the one shared binding rule; `memoBoundEnvelope` is the cancel seam —
-   authenticate from the scanned memo tag alone, no tlock opening, then open with the signer's own key),
-   `clear/auction-cli.ts` admit (intake requires the record to equal the memo's binding, else refuse),
-   `clear/merkle.ts` (`Leaf.memo_envelope_tag`, v1-era leaves omit it), `api/public-auction.ts` verify
-   (same rule as intake), `cli/product.ts` (`bid seal` fills `#envelope_tag`, validates the produced memo),
-   `cli/commands/verify.ts` + `settle/plan.ts` (new parser shape), `e2e/seal-open.spec.ts` +
-   `e2e/cli-auction.spec.ts` (framing assertions). v1 memos stay readable for Phase 1–4 evidence.
+1. **R19 (P1): envelope payload v2 + destinations from the bidder's sealed envelope. DONE** —
+   code `9cfc159`, evidence `e86f35e`.
 
-   **Red/green** — `tools/repro/r16-memo-bound-repro.mjs` (fresh values every run: real 487-byte tlock
-   ciphertexts from the pinned Go `tle`, fresh keys/envelopes/owner keys, real authenticated quicknet
-   beacons; drives `bin/benzo bid seal` (real browser sealer) and `bin/benzo verify`, and the shipped
-   `memoSealedBid`/`memoBindsEnvelope`/`memoBoundEnvelope`):
+   - **Payload v2** (`envelope/index.ts`): canonical JSON `{"v":2,"refund","deliver"}` inside the
+     unchanged fixed 512-byte padded plaintext; a plain-UA plaintext (v1) still reads as `{refund}`
+     (`openEnvelopePayload`; `openEnvelope` keeps its string API so `settle/` and Track A are
+     untouched). `envelope/deliver.ts` checks `deliver` per chain: Solana base58 32-byte key
+     (`kind:"ct"` additionally requires `elgamal`, 32-byte hex), EIP-55 checksummed EVM address,
+     Railgun `0zk` (bech32m, 73-byte payload — the exact encoding the Railgun engine uses), ERC-5564
+     stealth meta-address (`0x` or `st:eth:0x`, two compressed keys). `SHA-256(deliver)` covers its
+     canonical JSON (manifest `canonical`, sorted keys). `prepareBid` carries `deliver`; `bid seal`
+     passes it through the shipped sealer (`cli/product.ts`, the R4-allowed block).
+   - **`xchain attest` takes no destinations from the operator** (R19 item 2): `--allocation` is
+     removed and refused; each `--envelope-key` signer opens the winner's v2 envelope itself and a
+     leaf is attested only when **at least 2 signers agree on `SHA-256(deliver)`**; winners without
+     an attestable deliver go to the bundle's `exceptions` (reasons: `no envelope record`, `no valid
+     owner-signed settlement envelope`, `no deliver`, `malformed deliver: …`, `signers could not
+     agree on the envelope deliver`). Leaf mapping: solana `address`/`ct` → destination kind 2
+     (the `to` key); evm `address` → kind 1; evm `stealth` → kind 1 = ONE signer-reproducible fresh
+     stealth address per (settlement, leaf) (see AUDITS.md: custom SHA-256 KDF seeds the ephemeral
+     key of the pinned ScopeLift SDK's scheme-1 derivation — all signers derive the same address, so
+     the root is signable); evm `railgun` → kind 3 (the 0zk's 73-byte payload; released through the
+     Railgun adapter when item 4 lands). `standard_lot` is read from the locked escrow on chain.
+   - **R19 item 3 proof** (`crosschain/local-demo.sh`, local anvil + solana-test-validator):
+     `docs/evidence/phase-5/repro/r19-attest-deliver.out` at `9cfc159` — 24 demo checks PASS,
+     including the operator's old allocation file naming an attacker address (flag removed and
+     refused, and the attest output ignores it entirely), a malformed `deliver.to` landing in the
+     exception queue on both chains, a split-key hostile envelope only one signer opens never being
+     attested, and a substituted envelope not riding a leaf. Payload-format matrix (36 checks,
+     tmp/proof-logs/r19-payload.out): all four `to` formats + ct accepted, and the exact refusals
+     (lowercase/bad-checksum EVM address, 31-byte key, missing/short elgamal, elgamal on non-ct,
+     bad `0zk` checksum/short/wrong version, uncompressed meta-address, wrong chain/kind pairs,
+     extra fields, v1 read as `{refund}`, extra-key v2 payload refused at open). Mutations at
+     `9cfc159`: **R19-a** quorum `>= 2` disabled → `ERROR demo-attest-no-agreement-exception`;
+     **R19-b** exception queue disabled → `ERROR demo-attest-malformed-deliver-exception`;
+     **R19-c** envelope-to-bid binding disabled → `ERROR demo-attest-substituted-envelope-exception`.
 
-   | output | run at | result |
-   |---|---|---|
-   | `docs/evidence/phase-5/repro/r16-memo-bound.out` | clean tree at `8f7b156` (2026-10-03T02:39Z) | exit 0 — PASS r16-bid-seal-v2, r16-ct-len-refused, r16-v1-still-readable, r16-cancel-before-r, r16-verify-binding, r16-phase2-4 |
-   | `docs/evidence/phase-5/mutations/R16-2a.out` | clean `8f7b156` + `R16-2a.patch` (`memoBindsEnvelope` → `return true`) | exit 1 — `ERROR r16-cancel-before-r a substituted record was opened`, `ERROR r16-verify-binding substituted record got exit 0`, `ERROR r16-v1-still-readable a v1 memo bound a record` (expected IDs) |
-   | `docs/evidence/phase-5/mutations/R16-2b.out` | clean `8f7b156` + `R16-2b.patch` (sealer writes `ct_len = 488`) | exit 1 — `ERROR r16-bid-seal-v2 bid seal exit 1: ... memo framing v2 refused: ct_len must be <= 487` (the expected assertion ID) |
+2. **R21 (P1): attest derives winner openings itself. DONE** — code `38bf7e1` (harness `9910f85`),
+   evidence `9e871d0`. `--envelopes` (operator-supplied `opened_bid_hex`) is removed and refused;
+   `attest --dir PUBLIC` loads the published directory (`api/public-auction` `loadPublicAuction`) and
+   for every winner leaf: decrypts the frozen leaf's **own ciphertext** with the published,
+   BLS-verified beacon (`cli/published-beacon` `decryptPublished`, the same derivation verify uses),
+   checks `SHA-256(ciphertext)` against the root-committed `ciphertext_hash`, verifies the published
+   record's owner signature + settlement commitment against **that** opening (`settle/envelopes`
+   `validEnvelope`), and only then opens `deliver` (R19 rules unchanged). `docs/AUDITS.md`'s signer
+   procedure matches. The demo fixture is now a **real published auction directory**: six bids with
+   real tlock ciphertexts to one live drand quicknet round + its published beacon (BLS-verified at
+   every use), a signed manifest, frozen leaves; the four honest winners seal `deliver` payload v2
+   through the shipped bidder library, the two hostile-sealer winners wrap tampered envelopes around
+   real tlock. `docs/evidence/phase-5/repro/r21-attest-dir.out` at `9910f85`: **29 demo checks PASS**,
+   including `demo-bid-seal-deliver` (the shipped `benzo bid seal` carries deliver through the real
+   browser sealer) and `demo-attest-fabricated-opening-exception`. **Before/after on the same
+   harness**: `r21-fabricated-before.out` (fix stashed — `cli/commands/xchain.ts` at `9cfc159`) shows
+   the operator's fabricated `opened_bid_hex` + attacker envelope **ATTESTED** (the exploit R21
+   closes); `r21-attest-dir.out` shows it in the exception queue with the attacker address nowhere
+   in the bundle. Mutations at `9910f85`: **R21-a** quorum disabled → `ERROR
+   demo-attest-no-agreement-exception`; **R21-b** exception queue disabled → `ERROR
+   demo-attest-malformed-deliver-exception`; **R21-c** owner-signature + settlement-commitment
+   authentication disabled → `ERROR demo-attest-fabricated-opening-exception`.
 
-   `git apply` → run → `git apply -R` leaves `git status --porcelain` showing only the mutation files.
-   The cancel fixture is the R16 proof: the tlock ct is sealed to a round ~83 h ahead and `tle -d` fails on
-   it (no beacon can exist), yet each signer's `memoBoundEnvelope(scanned memo, record, own key)` returns the
-   exact destination; a substituted record, a v1 memo and a zero tag are each never opened (null → exception
-   queue). The verify leg drives the lying record the pre-fix verifier accepted: owner-signed,
-   commitment-consistent, but not the envelope the deposit memo committed to → `ERROR envelope 0 not bound
-   to the deposit memo`. The intake leg is not reachable offline (it needs the live vault scanner and a mined
-   deposit — noted in the repro header); it enforces the same `memoBindsEnvelope`, which both reachable legs
-   mutation-prove.
+   Harness note (honest limit): the demo drives whichever attest interface the shipped CLI speaks
+   (probed via `benzo xchain --help`, `records-*.json` fixtures for the pre-R21 input shape), so one
+   demo run is the before/after proof. The demo's fixture uses the shipped tlock-js for sealing
+   (the same library the browser sealer runs) against a **past** round whose beacon already exists —
+   the real post-R situation attest operates in — while `bid seal`'s future-round path is proven by
+   `demo-bid-seal-deliver` and the default e2e (seal in the browser, open with Go `tle`).
 
-   **Phase 2–4 evidence still verifying:** `r16-phase2-4` PASS — `benzo verify` (incl. `--fetch-beacon`
-   against real drand) exits 0 `OK envelope` on `docs/evidence/phase-2/auction`, the phase-3 rebuilt public
-   dir and `docs/evidence/phase-4/cli` (their v1 memos read fine); `r16-v1-still-readable` reads the recorded
-   Phase-2 v1 memo (`docs/evidence/phase-2/auction/bid0.memo.hex`) with `envelope_tag: null`. The old phases'
-   own `verify.sh` deep checks were also run and recorded (`tmp/e2e/phase{2,3,4}-verify.log`): each fails its
-   `run` file-hash/git check and its live wallet checks **pre-existing at `9b159e7`**, before this change —
-   proven: `git diff --quiet <run.commit> 9b159e7 -- <their pinned paths>` is already non-zero for all three
-   (later phases legitimately evolved `seal/`, `clear/`, `cli/`…), and their H/I/J/K legs decrypt the
-   *producing builder's* wallet notes, which this checkout's `$BNZ_STATE_DIR` UFVK cannot see (`scan/`
-   unchanged since `78b7450`; `benzo-scan verify` exits 0 decrypting nothing). The durable cross-checkout
-   evidence check is `benzo verify` on the evidence dirs, which passes.
+3. **Pins added** (exact, `package-lock.json`): `@scure/base` `1.2.6` (base58 + bech32m — the same
+   bech32m the Railgun engine uses; audited), `@scopelift/stealth-address-sdk` `1.0.0-beta.5`
+   (beta, **unaudited client tool** — stated plainly in `docs/AUDITS.md`, with the canonical
+   Announcer/Registry addresses and bytecode it carries), `viem` `2.57.1` (SDK's client). `cli/build.mjs`
+   inlines `@scopelift` (its dist uses bundler-only directory imports Node ESM refuses); all other
+   pins stay external.
 
-   **Checks:** `npm run typecheck` PASS; `build:seal`, `build:core`, `build:settle`, `build:cli`,
-   `build:verify` clean (verify bundle rebuilt: `dist/benzo-verify.mjs` + `docs/verify-bundle.sha256`);
-   `npm run e2e` (default seal-open, now asserting framing v2 + the 18-byte zero tag) **PASS 37 s** at
-   `8f7b156` (`tmp/e2e/report.json`). `tools/bench.ts` keeps its self-consistent v1 bench corpus (v1 stays a
-   legal framing; bench mirrors intake inline and was not part of the ruling's update list) — say so if you
-   want it on v2.
+**Checks at `9910f85`:** `npm run typecheck` clean; `build:core`/`build:cli` clean; `npm run e2e`
+(seal-open) **PASS 38 s**; `crosschain/local-demo.sh` 29/29 PASS. Full logs under `tmp/e2e/`;
+mutation outputs under `docs/evidence/phase-5/mutations/`; green runs under `docs/evidence/phase-5/repro/`.
 
-2. **R17 item 4 (`xchain attest --result FILE`): DONE** (`e58e3f9`, evidence `95b1f58`). Reviewer R F7: attest
-   signed operator-supplied content with no signer recomputation. Now `benzo xchain attest` requires
-   `--result FILE`: the result hash is **recomputed from those exact bytes** (SHA-256 = the product's
-   published result hash), the allocation leaves are **derived from the result** (winner indexes + lot
-   counts come only from `result.allocations[].fill`, or `winners[].lot_count` in a cross-chain result),
-   `--allocation` supplies only destinations and is **refused unless it matches the derived leaf set
-   exactly**, and `--result-hash` is an optional cross-check **refused on mismatch** — both refusals fire
-   before any key is read or chain contacted. The signer procedure is documented in `docs/AUDITS.md`
-   (validate the result yourself with `benzo verify`, attest that file's bytes, cross-check the printed
-   `result_hash`, keys never printed).
+### Test audit (this run)
 
-   **Red/green** — `crosschain/local-demo.sh` (local anvil + `solana-test-validator`, real Foundry/solana
-   tools, the shipped `benzo xchain` CLI): green `docs/evidence/phase-5/repro/r17-4-xchain-attest.out` at
-   clean `e58e3f9` (2026-10-03T03:07Z) — **19/19 PASS** incl. `demo-attest-both-chains` (now also asserting
-   the recomputed result hash in both bundles), `demo-attest-result-hash-mismatch-refused` and
-   `demo-attest-allocation-mismatch-refused`. Mutations:
+No new specs; `e2e/` untouched (project ceiling 8, 5 used). The demo (`crosschain/local-demo.mjs`) and
+the payload matrix (`tmp/proof-r19-payload.mjs`, scratch) are manual-run checks outside the ceiling.
+The demo owns assertions `demo-attest-{both-chains,allocation-refused,envelopes-refused,destinations-from-envelope,malformed-deliver-exception,malformed-deliver-exception-both-chains,no-agreement-exception,fabricated-opening-exception,substituted-envelope-exception,…}`;
+each of the R19/R21 rules has been seen failing under its mutation at the commit above.
 
-   | output | run at | result |
-   |---|---|---|
-   | `docs/evidence/phase-5/mutations/R17-4a.out` | clean `e58e3f9` + `R17-4a.patch` (hash comparison disabled) | exit 1 — `ERROR demo-attest-result-hash-mismatch-refused rc=0:` (the doctored `--result-hash` got **signed**), `RESULT FAIL 1` |
-   | `docs/evidence/phase-5/mutations/R17-4b.out` | clean `e58e3f9` + `R17-4b.patch` (allocation match disabled) | exit 1 — `ERROR demo-attest-allocation-mismatch-refused rc=0:` (the doctored allocation got **signed**), `RESULT FAIL 1` |
+### Questions (this run)
 
-   `git apply` → run → `git apply -R` leaves `git status --porcelain` showing only the mutation files.
-   `npm run typecheck` PASS. No E2E spec touched (xchain is contract-level, outside the ceiling).
-
-3. **Cross-chain private delivery (design §4, §7 step 4): NEXT** — (a) EVM ERC-5564 stealth (ScopeLift
-   Announcer + Registry + pinned SDK; local anvil, then Sepolia), (b) Railgun `shield()` on Sepolia per §4
-   (2-of-3 byte-for-byte shield-request rebuild, fresh shield key per settlement, dedicated clean
-   submitter), (c) Token-2022 Confidential Transfers on Solana devnet (fresh account from the ElGamal
-   pubkey in the envelope). Each: gas/SOL stipend per fresh destination, live txids, `docs/AUDITS.md` row.
-   If Railgun's Sepolia contracts/SDK can't be used, the blocker goes under Questions and stealth ships as
-   the EVM path. Then (4) the §5 funding helper (`benzo fund quote`, NEAR Intents 1Click quote API only,
-   dry run, always the bidder's own shielded UA).
-
-### Test audit (run 24)
-
-Shipped tree: `e2e/seal-open.spec.ts` and `e2e/cli-auction.spec.ts` changed only in their framing
-assertions (v2 header/18-byte tag), which R16 item 2 mandates. Project E2E suite (ceiling 8; 5 used)
-**R retain** — `e2e/seal-open.spec.ts` PASS 37 s at `8f7b156`; the four live-project specs untouched as code
-(cli-auction's P1 now expects `ff424e5a02`, covered live next time it runs). `tools/repro/r16-memo-bound-repro.mjs`
-is a check outside the ceiling (**R**; owns `r16-*`, mutation-proven this run: R16-2a, R16-2b).
-
-### Questions (run 24; standing ones listed first)
-
-1. **(RESOLVED by R18)** R16 item 2's framing correction: R18 ruled the 18-byte exact-fit `envelope_tag`
-   (`5 + 2 + 487 + 18 = 512`) with `bid seal` refusing `ct_len > 487` — implemented and proven this run.
-2. **Sepolia EVM redeploy (carried, run 22):** R14 item 4 changed `BenzoEscrow.sol` (storage-layout change).
-   Redeploy and mark `0x8d08…` SUPERSEDED, or leave for Phase 6? Sepolia gas is not mine to faucet. — The
-   cross-chain delivery work this run touches Sepolia (ERC-5564 + Railgun stipends), so unless you say
-   otherwise I will redeploy `BenzoEscrow` under a **new program address** (R9 item 1: no in-place upgrade
-   across layout changes) with the same deployer key and mark `0x8d08…` SUPERSEDED in STATUS-B and
-   `docs/AUDITS.md`.
-3. **R16 F2 split note (heads-up, no action needed unless you disagree):** the merged R13 claims check
-   misclassified pre-W rows as claim-paid (every correct pre-Phase-5 settlement failed verify); my `548b16d`
-   gates the claim requirement on the manifest's `envelope_keys` (the pre-W half). Track A's R16 item 3
-   (seller/fee rows) is still owed and composes with it.
-4. **Cancel-row parties (one line for A's R16.1 wiring):** verify's R15 stranger rule (as the head wrote it)
-   accepts `deposit:`-shaped rows for the CANCELLED path and ERRORs `leaf:N` rows in a result-less
-   settlement; the current plan cancel branch emits `deposit:`-shaped rows, which fits. If A's wiring emits
-   `leaf:N` rows for frozen deposits instead, rule it and I'll extend `settleable`/the stranger rule to
-   match the leaf's own deposit party.
-5. **Old-phase `verify.sh` deep checks (recorded, not blocking):** `docs/evidence/phase-{2,3,4}/verify.sh`
-   can no longer pass from any evolved tree — their `run` check pins the run commit across `seal/ clear/
-   cli/ …` and hashes build outputs, and their live legs need the producing builder's vault UFVK. The r15/r16
-   `*-phase2-4` checks (`benzo verify` on the evidence dirs) are the durable regression. If you want a
-   durable `verify.sh` per old phase, rule it and I'll add one (it would live outside the recorded-evidence
-   rule as a new hand-written check).
-Run 24 base: clean tree at `9b159e7` (head: Merge branch 'main' into track-b; R18 at `601845d`). No mainnet;
-no other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
-
+1. **Sepolia EVM redeploy (carried from run 22/24, needed by item 2):** R14 item 4 changed
+   `BenzoEscrow.sol`'s storage layout; per R9 item 1 there is no in-place upgrade. Unless you say
+   otherwise I will redeploy `BenzoEscrow` under a **new address** with the same deployer key for the
+   live stealth delivery and mark `0x8d08…` SUPERSEDED in STATUS-B and `docs/AUDITS.md`. Sepolia gas
+   is not mine to faucet — the deployer key's balance decides how much live work fits; if it is empty
+   I will record BLOCKED and ask under Needs user.
+2. **R19 leaf mapping (implemented as ruled; two refinements noted):** (a) `deliver.kind:"ct"` maps
+   to destination kind 2 (`to` = the account owner key) until item 3 defines the Token-2022 delivery —
+   if the fresh confidential account must be committed in the leaf instead, item 3 changes the
+   mapping; (b) `deliver.kind:"railgun"` maps to new destination kind 3 (the 0zk's 73-byte payload)
+   which `BenzoEscrow.release` does not pay — released through the Railgun adapter in item 4 (if that
+   item ends BLOCKED, kind-3 leaves are attested but not releasable and I will say so in README
+   limits).
+3. **Stealth ephemeral KDF is custom** (`crosschain/stealth.ts` `stealthEphemeralPrivateKey`,
+   listed in `docs/AUDITS.md`): every signer must derive the *same* one-time stealth address (the
+   root is 2-of-3 signed), which ERC-5564's random ephemeral key does not give; the KDF seeds the
+   pinned SDK's own scheme-1 derivation. A leaked seed would link a winner's deliveries (disclosure
+   owed in README honest limits), never spend them. Reviewer R should look at this one.
+4. **`xchain attest` boundary (documented, not a gap):** the winner-leaf ↔ envelope pairing is now
+   anchored where R21 put it — the frozen leaf's own ciphertext and the published beacon — so no
+   operator file supplies an opening or a record. The `--result` file remains the signer's own
+   validated result per the AUDITS.md procedure (R17 item 4).
 ## Previous run (23): head task — R14 item 3 finish, R15 items 1–2, R16 item 2 (item 2 landed in run 24 per R18)
 
 State: **READY FOR MERGE for the landed work; R16 item 2 BLOCKED on a one-line Ruling correction** (run 23,
