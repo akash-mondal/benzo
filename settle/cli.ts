@@ -159,8 +159,18 @@ async function worker(ledger:Ledger) {
       requireThat(sent===staged.txid,"broadcast returned a different txid");console.log(`settlement broadcast ${sent}`);
     }
     const height=await mined(staged.txid!,Date.now()+30*60_000);
+    // Head (2026-10-03, live run 12): a lagging endpoint that has not seen the block yet is waited for (up to 15
+    // min); only a DIFFERENT non-zero height is a real disagreement and refuses.
+    const agreeBy=Date.now()+15*60_000;
     for(const endpoint of [env("BNZ_LWD_URL"),env("BNZ_LWD_URL_ALT")]) {
-      const observed=chainTx(staged.txid!,endpoint);requireThat(Number(observed.height)===height,"settlement height differs across endpoints");
+      for(;;) {
+        let seen=0;
+        try{seen=Number(chainTx(staged.txid!,endpoint).height)||0}catch(e){if(!/NotFound|not found/i.test(String((e as Error)?.message??e)))throw e}
+        if(seen===height)break;
+        requireThat(seen===0,"settlement height differs across endpoints");
+        requireThat(Date.now()<agreeBy,"endpoint did not observe the settlement within 15 minutes");
+        await new Promise(r=>setTimeout(r,15000));
+      }
     }
     const i=inspect(staged.pczt_path!),expected=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient);
     const available=i.outputs.filter((o:any)=>!o.is_change);

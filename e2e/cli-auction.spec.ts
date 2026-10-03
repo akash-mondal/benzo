@@ -28,7 +28,12 @@ function cli(args:string[],input?:any) {
 function good(args:string[],input?:any) {const r=cli(args,input);if(r.code)throw Error(r.error);return r.value}
 async function mature(txid:string) {
   const h=await waitFor({height:1,tip:()=>{z.sync('vault');return JSON.parse(z.wallet('vault','list-tx','--json')).find((t:any)=>t.txid===txid)?.mined_height??0}},Date.now()+MINE);
-  for(const endpoint of [env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')])if(z.getTransaction(txid,endpoint).height!==h)throw Error('deposit mined heights differ across endpoints');
+  // Head (2026-10-03): wait for a lagging endpoint; only a different non-zero height is a disagreement.
+  for(const endpoint of [env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')]) {
+    const by=Date.now()+15*60_000;
+    for(;;){let seen=0;try{seen=Number(z.getTransaction(txid,endpoint).height)||0}catch(e){if(!/NotFound|not found/i.test(String((e as Error)?.message??e)))throw e}
+      if(seen===h)break;if(seen!==0)throw Error('deposit mined heights differ across endpoints');if(Date.now()>by)throw Error(`endpoint ${endpoint} did not observe ${txid}`);await new Promise(r=>setTimeout(r,15000))}
+  }
   await waitFor({height:h+9,tip:()=>{z.sync('vault');z.sync('bidder');return Math.min(z.balance('vault').chain_tip_height,z.balance('bidder').chain_tip_height)}},Date.now()+MINE);z.enhance('vault');return h;
 }
 function worker(id:string,allocatedKill=false) {
