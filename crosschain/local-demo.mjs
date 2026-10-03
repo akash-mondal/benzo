@@ -155,27 +155,51 @@ async function main() {
   const ZERO_ASSET = "0x0000000000000000000000000000000000000000"; // both demo auctions lock the native asset
   {
     const r = benzoXchain(["attest", "--chain", "evm", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
+      "--result", resultFile, "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
       "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", bundleEvm, "--asset", ZERO_ASSET]);
     const rs = benzoXchain(["attest", "--chain", "solana", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
+      "--result", resultFile, "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
       "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
       "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", bundleSol, "--asset", ZERO_ASSET]);
     const bE = JSON.parse(readFileSync(bundleEvm, "utf8")), bS = JSON.parse(readFileSync(bundleSol, "utf8"));
     check("demo-attest-both-chains",
-      r.code === 0 && rs.code === 0 && bE.allocation_root === bS.allocation_root && bE.signatures.length === 2 && bS.signatures.length === 2,
-      `evm rc=${r.code} sol rc=${rs.code} roots ${bE.allocation_root} / ${bS.allocation_root}`);
+      r.code === 0 && rs.code === 0 && bE.allocation_root === bS.allocation_root && bE.signatures.length === 2 && bS.signatures.length === 2 &&
+        bE.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, "") && bS.result_hash.replace(/^0x/, "") === resultHash.replace(/^0x/, ""),
+      `evm rc=${r.code} sol rc=${rs.code} roots ${bE.allocation_root} / ${bS.allocation_root} result ${bE.result_hash} / ${bS.result_hash}`);
+  }
+
+  // R17 item 4: the result hash is recomputed from the --result bytes and the leaves derive from that
+  // result; a mismatching --result-hash or allocation is refused before any key is read or chain touched
+  {
+    const r = benzoXchain(["attest", "--chain", "evm", "--auction", auction1, "--allocation", allocationFile,
+      "--result", resultFile, "--result-hash", "0x" + "00".repeat(32), "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
+      "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
+      "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-rh-mismatch.json"), "--asset", ZERO_ASSET]);
+    check("demo-attest-result-hash-mismatch-refused",
+      r.code !== 0 && /mismatching --result-hash/.test(r.stderr), `rc=${r.code}: ${(r.stderr || "").slice(0, 160)}`);
+  }
+  {
+    const doctor = path.join(WORK, "allocation-doctored.json");
+    const alloc0 = JSON.parse(readFileSync(allocationFile, "utf8"));
+    alloc0.leaves[0].lot_count = 2; // the result derives lot_count 1 for leaf 0
+    writeFileSync(doctor, JSON.stringify(alloc0, null, 2) + "\n");
+    const r = benzoXchain(["attest", "--chain", "solana", "--auction", auction1, "--allocation", doctor,
+      "--result", resultFile, "--result-hash", resultHash, "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600),
+      "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
+      "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-alloc-mismatch.json"), "--asset", ZERO_ASSET]);
+    check("demo-attest-allocation-mismatch-refused",
+      r.code !== 0 && /mismatching allocation/.test(r.stderr), `rc=${r.code}: ${(r.stderr || "").slice(0, 160)}`);
   }
 
   // §10 F-2 at the signer tool: signers must attest expiry <= deadline — refused before signing
   {
     const re = benzoXchain(["attest", "--chain", "evm", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
+      "--result", resultFile, "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
       "--signer-key", evmSignerFiles[0], "--signer-key", evmSignerFiles[2],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-refused-evm.json")]);
     const rs = benzoXchain(["attest", "--chain", "solana", "--auction", auction1, "--allocation", allocationFile,
-      "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
+      "--result", resultFile, "--result-hash", resultHash, "--batch", "7", "--nonce", "0", "--expiry", String(deadline + 10),
       "--signer-key", solSignerFiles[0], "--signer-key", solSignerFiles[2],
       "--escrow", SOL_PROGRAM, "--rpc", SOL_RPC, "--out", path.join(WORK, "bundle-refused-sol.json")]);
     check("demo-attest-expiry-past-deadline-refused",
@@ -188,7 +212,7 @@ async function main() {
   // --asset is refused before any signing; there is never a silent default
   {
     const wrongAsset = "0x1111111111111111111111111111111111111111";
-    const base = ["--auction", auction1, "--allocation", allocationFile, "--result-hash", resultHash,
+    const base = ["--auction", auction1, "--allocation", allocationFile, "--result", resultFile, "--result-hash", resultHash,
       "--batch", "8", "--nonce", "0", "--expiry", String(now + 3600)];
     const missE = benzoXchain(["attest", "--chain", "evm", ...base, "--signer-key", evmSignerFiles[0],
       "--escrow", evmEscrowAddr, "--rpc", EVM_RPC, "--out", path.join(WORK, "bundle-asset-missing.json")]);

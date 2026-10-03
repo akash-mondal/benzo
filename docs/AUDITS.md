@@ -92,6 +92,31 @@ funding from the pooled balance — red/green runs in `contracts/logs/f5-*`).
 | `envelope/index.ts` | Settlement-envelope framing: `benzo-envelope-v2` magic/count/stanza layout with the `crypto_generichash` key-commitment field, fixed 512-byte length-prefixed padded plaintext, owner Ed25519 binding, salted settlement commitment | Protocol-specific framing (design §4); no audited library defines it. All cryptography inside it is audited libsodium (above) — the wrap/seal/AEAD/keygen/hash calls are that library's standard functions, no hand-written key derivation |
 | `envelope/destination.ts` | Zcash address classification (bech32/bech32m, ZIP-316 UA container under F4Jumble, Base58Check) and the shielded-only destination rule | No audited option existed at the time (zcash_address 0.13.0 pinned behaviour could not be consumed from Node); **known mainnet blocker (R8): replace with `zcash_address` (head replace list) before any mainnet use** |
 
+## Signer procedure: `benzo xchain attest` (R17 item 4)
+
+The signers never take the result hash or the allocation from operator input. On each signer host, before
+signing any attestation:
+
+1. **Validate the result yourself.** Take the auction's public directory and run
+   `benzo verify --dir <dir> --signer <expected signer>`; it must report `OK envelope` and no ERROR. This
+   recomputes the clearing from the frozen tree and openings (the same fresh-clearing check
+   `settle/plan.ts` performs on the settlement path), so the `<dir>/result.json` it accepts is a result the
+   signer has itself validated. Never attest a result that did not come through this check.
+2. **Attest that result's bytes.** Run
+   `benzo xchain attest --chain … --auction … --result <dir>/result.json --allocation <file> … --signer-key <this signer's key file>`.
+   The command recomputes `result_hash = SHA-256(result bytes)` from the exact bytes of `--result` (the
+   product's published result hash) and derives the allocation leaves from that result — winner indexes and
+   lot counts come only from `result.allocations[].fill` (or `winners[].lot_count` in a cross-chain result).
+   `--allocation` supplies only the destinations (the signer builds them from material it authenticated
+   itself — the winners' settlement-envelope `crosschain` fields or the launch delivery batch); the command
+   refuses it unless it matches the derived leaf set exactly. A `--result-hash` is optional and is refused
+   unless it equals the recomputed hash. Both refusals happen before any key file is read.
+3. **Cross-check what was signed.** The printed `result_hash` must equal the result hash `benzo verify` /
+   the read API report for the directory. After release, `benzo xchain status --result <dir>/result.json`
+   compares the escrow's approved `resultHash` with the published file and exits 1 on mismatch.
+4. Key files are read from the signer's own state and never printed. Signer keys sign nothing but the
+   domain-separated attestation (design §1) over the values derived in step 2.
+
 ## Later steps (not yet landed)
 
 Railgun (`@railgun-community/engine` for shield-request building) and Token-2022 confidential
