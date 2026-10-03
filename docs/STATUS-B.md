@@ -3,7 +3,112 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run: head task — R14 item 3 finish (closes + redeploy + live cycle), R15 items 1–2, R16 item 2
+## Current run: head task — R16 item 2 (per R18), R17 item 4, cross-chain private delivery (design §4, §7 step 4), fund quote (§5)
+
+State: **R16 item 2 DONE with red/green proof** (code `8f7b156`, evidence `b50c0d2`); in progress: R17 item 4,
+then cross-chain private delivery (a EVM ERC-5564, b Railgun, c Solana Token-2022), then the §5 funding
+helper. Updated 2026-10-03T02:5xZ. Head message this run: implement R16 item 2 as corrected by R18 (memo v2
+tag = 18 bytes), R17 item 4, the three delivery paths with gas/SOL stipends + live txids + `docs/AUDITS.md`
+rows, and `benzo fund quote`; then READY FOR MERGE. No mainnet; no other-checkout access or writes; no
+merge/rebase/cherry-pick/push; no pin changes.
+
+### Run 24 work
+
+1. **R16 item 2 (memo-bound envelope, memo framing v2 per R18): DONE** (`8f7b156`, evidence `b50c0d2`).
+   Framing v2 is exactly R18's: `ff424e5a02 || u16be ct_len || tlock_ct || envelope_tag (18) || zero pad`,
+   `envelope_tag` = first 18 bytes of SHA-256(envelope_ct) or 18 zero bytes; exact 512-byte fit at
+   `ct_len = 487`; `bid seal` refuses `ct_len > 487` (sealer writer guard + `bid seal` boundary validation of
+   the browser output through the shared parser). The WIP patch (`tmp/r16-item2-wip.patch`) was applied and
+   re-cut to the 18-byte tag throughout (`envelope_tag`/`memo_envelope_tag` naming): `seal/src/{main.ts,index.html}`
+   writer + hidden field, `settle/envelopes.ts` (`memoSealedBid` returns `{ciphertext_hex, envelope_tag}` for
+   v1/v2; `memoBindsEnvelope` is the one shared binding rule; `memoBoundEnvelope` is the cancel seam —
+   authenticate from the scanned memo tag alone, no tlock opening, then open with the signer's own key),
+   `clear/auction-cli.ts` admit (intake requires the record to equal the memo's binding, else refuse),
+   `clear/merkle.ts` (`Leaf.memo_envelope_tag`, v1-era leaves omit it), `api/public-auction.ts` verify
+   (same rule as intake), `cli/product.ts` (`bid seal` fills `#envelope_tag`, validates the produced memo),
+   `cli/commands/verify.ts` + `settle/plan.ts` (new parser shape), `e2e/seal-open.spec.ts` +
+   `e2e/cli-auction.spec.ts` (framing assertions). v1 memos stay readable for Phase 1–4 evidence.
+
+   **Red/green** — `tools/repro/r16-memo-bound-repro.mjs` (fresh values every run: real 487-byte tlock
+   ciphertexts from the pinned Go `tle`, fresh keys/envelopes/owner keys, real authenticated quicknet
+   beacons; drives `bin/benzo bid seal` (real browser sealer) and `bin/benzo verify`, and the shipped
+   `memoSealedBid`/`memoBindsEnvelope`/`memoBoundEnvelope`):
+
+   | output | run at | result |
+   |---|---|---|
+   | `docs/evidence/phase-5/repro/r16-memo-bound.out` | clean tree at `8f7b156` (2026-10-03T02:39Z) | exit 0 — PASS r16-bid-seal-v2, r16-ct-len-refused, r16-v1-still-readable, r16-cancel-before-r, r16-verify-binding, r16-phase2-4 |
+   | `docs/evidence/phase-5/mutations/R16-2a.out` | clean `8f7b156` + `R16-2a.patch` (`memoBindsEnvelope` → `return true`) | exit 1 — `ERROR r16-cancel-before-r a substituted record was opened`, `ERROR r16-verify-binding substituted record got exit 0`, `ERROR r16-v1-still-readable a v1 memo bound a record` (expected IDs) |
+   | `docs/evidence/phase-5/mutations/R16-2b.out` | clean `8f7b156` + `R16-2b.patch` (sealer writes `ct_len = 488`) | exit 1 — `ERROR r16-bid-seal-v2 bid seal exit 1: ... memo framing v2 refused: ct_len must be <= 487` (the expected assertion ID) |
+
+   `git apply` → run → `git apply -R` leaves `git status --porcelain` showing only the mutation files.
+   The cancel fixture is the R16 proof: the tlock ct is sealed to a round ~83 h ahead and `tle -d` fails on
+   it (no beacon can exist), yet each signer's `memoBoundEnvelope(scanned memo, record, own key)` returns the
+   exact destination; a substituted record, a v1 memo and a zero tag are each never opened (null → exception
+   queue). The verify leg drives the lying record the pre-fix verifier accepted: owner-signed,
+   commitment-consistent, but not the envelope the deposit memo committed to → `ERROR envelope 0 not bound
+   to the deposit memo`. The intake leg is not reachable offline (it needs the live vault scanner and a mined
+   deposit — noted in the repro header); it enforces the same `memoBindsEnvelope`, which both reachable legs
+   mutation-prove.
+
+   **Phase 2–4 evidence still verifying:** `r16-phase2-4` PASS — `benzo verify` (incl. `--fetch-beacon`
+   against real drand) exits 0 `OK envelope` on `docs/evidence/phase-2/auction`, the phase-3 rebuilt public
+   dir and `docs/evidence/phase-4/cli` (their v1 memos read fine); `r16-v1-still-readable` reads the recorded
+   Phase-2 v1 memo (`docs/evidence/phase-2/auction/bid0.memo.hex`) with `envelope_tag: null`. The old phases'
+   own `verify.sh` deep checks were also run and recorded (`tmp/e2e/phase{2,3,4}-verify.log`): each fails its
+   `run` file-hash/git check and its live wallet checks **pre-existing at `9b159e7`**, before this change —
+   proven: `git diff --quiet <run.commit> 9b159e7 -- <their pinned paths>` is already non-zero for all three
+   (later phases legitimately evolved `seal/`, `clear/`, `cli/`…), and their H/I/J/K legs decrypt the
+   *producing builder's* wallet notes, which this checkout's `$BNZ_STATE_DIR` UFVK cannot see (`scan/`
+   unchanged since `78b7450`; `benzo-scan verify` exits 0 decrypting nothing). The durable cross-checkout
+   evidence check is `benzo verify` on the evidence dirs, which passes.
+
+   **Checks:** `npm run typecheck` PASS; `build:seal`, `build:core`, `build:settle`, `build:cli`,
+   `build:verify` clean (verify bundle rebuilt: `dist/benzo-verify.mjs` + `docs/verify-bundle.sha256`);
+   `npm run e2e` (default seal-open, now asserting framing v2 + the 18-byte zero tag) **PASS 37 s** at
+   `8f7b156` (`tmp/e2e/report.json`). `tools/bench.ts` keeps its self-consistent v1 bench corpus (v1 stays a
+   legal framing; bench mirrors intake inline and was not part of the ruling's update list) — say so if you
+   want it on v2.
+
+2. **R17 item 4 (`xchain attest --result FILE`): NEXT.** Then cross-chain delivery (§4/§7 step 4), then
+   `benzo fund quote` (§5).
+
+### Test audit (run 24)
+
+Shipped tree: `e2e/seal-open.spec.ts` and `e2e/cli-auction.spec.ts` changed only in their framing
+assertions (v2 header/18-byte tag), which R16 item 2 mandates. Project E2E suite (ceiling 8; 5 used)
+**R retain** — `e2e/seal-open.spec.ts` PASS 37 s at `8f7b156`; the four live-project specs untouched as code
+(cli-auction's P1 now expects `ff424e5a02`, covered live next time it runs). `tools/repro/r16-memo-bound-repro.mjs`
+is a check outside the ceiling (**R**; owns `r16-*`, mutation-proven this run: R16-2a, R16-2b).
+
+### Questions (run 24; standing ones listed first)
+
+1. **(RESOLVED by R18)** R16 item 2's framing correction: R18 ruled the 18-byte exact-fit `envelope_tag`
+   (`5 + 2 + 487 + 18 = 512`) with `bid seal` refusing `ct_len > 487` — implemented and proven this run.
+2. **Sepolia EVM redeploy (carried, run 22):** R14 item 4 changed `BenzoEscrow.sol` (storage-layout change).
+   Redeploy and mark `0x8d08…` SUPERSEDED, or leave for Phase 6? Sepolia gas is not mine to faucet. — The
+   cross-chain delivery work this run touches Sepolia (ERC-5564 + Railgun stipends), so unless you say
+   otherwise I will redeploy `BenzoEscrow` under a **new program address** (R9 item 1: no in-place upgrade
+   across layout changes) with the same deployer key and mark `0x8d08…` SUPERSEDED in STATUS-B and
+   `docs/AUDITS.md`.
+3. **R16 F2 split note (heads-up, no action needed unless you disagree):** the merged R13 claims check
+   misclassified pre-W rows as claim-paid (every correct pre-Phase-5 settlement failed verify); my `548b16d`
+   gates the claim requirement on the manifest's `envelope_keys` (the pre-W half). Track A's R16 item 3
+   (seller/fee rows) is still owed and composes with it.
+4. **Cancel-row parties (one line for A's R16.1 wiring):** verify's R15 stranger rule (as the head wrote it)
+   accepts `deposit:`-shaped rows for the CANCELLED path and ERRORs `leaf:N` rows in a result-less
+   settlement; the current plan cancel branch emits `deposit:`-shaped rows, which fits. If A's wiring emits
+   `leaf:N` rows for frozen deposits instead, rule it and I'll extend `settleable`/the stranger rule to
+   match the leaf's own deposit party.
+5. **Old-phase `verify.sh` deep checks (recorded, not blocking):** `docs/evidence/phase-{2,3,4}/verify.sh`
+   can no longer pass from any evolved tree — their `run` check pins the run commit across `seal/ clear/
+   cli/ …` and hashes build outputs, and their live legs need the producing builder's vault UFVK. The r15/r16
+   `*-phase2-4` checks (`benzo verify` on the evidence dirs) are the durable regression. If you want a
+   durable `verify.sh` per old phase, rule it and I'll add one (it would live outside the recorded-evidence
+   rule as a new hand-written check).
+Run 24 base: clean tree at `9b159e7` (head: Merge branch 'main' into track-b; R18 at `601845d`). No mainnet;
+no other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
+
+## Previous run (23): head task — R14 item 3 finish, R15 items 1–2, R16 item 2 (item 2 landed in run 24 per R18)
 
 State: **READY FOR MERGE for the landed work; R16 item 2 BLOCKED on a one-line Ruling correction** (run 23,
 updated 2026-10-03T02:1xZ). Head task items: (1) R15 item 1 **DONE** with red/green proof, (2) R15 item 2
@@ -91,7 +196,7 @@ check outside the ceiling (**R**; owns `r15-*`, mutation-proven this run). Contr
 
 ### Questions (run 23; standing ones listed first)
 
-1. **R16 item 2 needs a one-line Ruling correction (blocks my next work).** Memo framing v2 as written is
+1. **(answered by R18 in `601845d`; landed in run 24 — see Current run) R16 item 2 needs a one-line Ruling correction (blocks my next work).** Memo framing v2 as written is
    14 bytes over the 512-byte Zcash memo: `5 + 2 + 487 + 32 = 526 > 512` (the fixed 128-byte bid tlocks to
    487 bytes — measured with both pinned encoders, and recorded in Phase 1 R8). The binding tag must fit in
    the 18 bytes that remain after the ct: e.g. **(a)** `envelope_sha256` truncated to **16 bytes**
