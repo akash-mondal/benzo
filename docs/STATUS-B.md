@@ -191,12 +191,22 @@ see below).
 (seal-open) **PASS 38 s**; `crosschain/local-demo.sh` 29/29 PASS. Full logs under `tmp/e2e/`;
 mutation outputs under `docs/evidence/phase-5/mutations/`; green runs under `docs/evidence/phase-5/repro/`.
 
-### Test audit (this run)
+### Test audit (READY FOR MERGE)
 
-No new specs; `e2e/` untouched (project ceiling 8, 5 used). The demo (`crosschain/local-demo.mjs`) and
-the payload matrix (`tmp/proof-r19-payload.mjs`, scratch) are manual-run checks outside the ceiling.
-The demo owns assertions `demo-attest-{both-chains,allocation-refused,envelopes-refused,destinations-from-envelope,malformed-deliver-exception,malformed-deliver-exception-both-chains,no-agreement-exception,fabricated-opening-exception,substituted-envelope-exception,…}`;
-each of the R19/R21 rules has been seen failing under its mutation at the commit above.
+No new specs; `e2e/` untouched (project ceiling 8, 5 used — the reserved slots are A's). Checks
+outside the ceiling, each with its audit mark (R retain, F fix, C consolidate, D delete):
+
+| Check | Mark | Owns (assertion IDs) | Code changed since its mutation run? |
+|---|---|---|---|
+| `crosschain/local-demo.mjs` | R | `demo-bid-seal-deliver`, `demo-envelope-opens-to-deliver`, `demo-drand-beacon`, `demo-attest-{both-chains,allocation-refused,envelopes-refused,destinations-from-envelope,malformed-deliver-exception,malformed-deliver-exception-both-chains,no-agreement-exception,fabricated-opening-exception,substituted-envelope-exception,result-hash-mismatch-refused,expiry-past-deadline-refused,asset-missing-refused,asset-mismatch-refused}`, `demo-release-{evm,solana}-delivers`, `demo-status-*`, `demo-replay-refused`, `demo-cancel-lock-both`, `demo-refund-*` | no — the R19 rules' mutations (`R19-a/b/c` at `9cfc159`) were re-cut as `R21-a/b/c` and re-run green/red at `9910f85` after the R21 rework |
+| `crosschain/stealth-demo.mjs` | R | `stealth-{canonical-deploy,meta-address-registered,escrow-deployed,escrow-lock,attest-from-envelope,derive-reproducible,release-pays-with-stipend,scan-finds-delivery,recover-spends,recovered-key-controls-funds,privacy}` | no — `S2-a`/`S2-b` reds run at `2132dd5` |
+| `crosschain/stealth-live.mjs` | R | `live-*` (the live Sepolia delivery) | no |
+| `crosschain/ct-delivery.mjs` | R | `ct-{winner-funded,mint-created,source-funded-confidential,fresh-account-configured,envelope-deliver-roundtrip,deliver-elgamal-matches,amount-hidden-probe,delivery-tx,amount-hidden,pending-encrypted,winner-withdraws,winner-balance}` | no — `S3-a`/`S3-b` reds run at `8a52106` |
+| `tools/repro/r5-fund-quote-repro.mjs` | R | `r5-{quote-dry,round-amount-refused,shielded-only-refused}` | no — `S5-a` red ran at `6606298` |
+| `tmp/proof-r19-payload.mjs` (scratch, not committed) | R (scratch) | the payload-format matrix (36 checks) | n/a — scratch, cited as manual-run proof only |
+
+The 5 committed E2E specs (`e2e/seal-open.spec.ts`, `e2e/cli-auction.spec.ts`, …) are Track A's and
+untouched this run.
 
 ### Questions (this run)
 

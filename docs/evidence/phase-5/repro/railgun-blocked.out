@@ -1,0 +1,33 @@
+commit 9f1bc085e561b62ed9a4e1e630beb7fce3919518
+utc 2026-10-03T07:39:01Z
+command Railgun shield() on Ethereum Sepolia — bounded blocker investigation (3 approaches, crosschain.md §4)
+
+== attempt 1 (contracts): the escrow must call shield (crosschain.md §4 'escrow calls shield')
+58:    uint8 internal constant DEST_EVM_ADDRESS = 1; // 20-byte EVM address (design §4)
+251:            if (p.destinationKind != DEST_EVM_ADDRESS || p.destination.length != 20) revert BadDestination();
+0
+0 Railgun/shield references in BenzoEscrow.sol — no shield adapter exists; release pays DEST_EVM_ADDRESS (20 bytes) only
+
+== attempt 2 (SDK): pinned install refused on our exact ethers pin
+npm install --save-exact @railgun-community/wallet@11.2.0 @railgun-community/engine@9.8.0 @railgun-community/shared-models@8.2.1
+-> npm error ERESOLVE: peer ethers@"6.14.3" from @railgun-community/shared-models@8.2.1 vs root ethers@6.17.0
+   "Fix the upstream dependency conflict, or retry this command with --force or --legacy-peer-deps to accept an incorrect (and potentially broken) dependency resolution."
+--legacy-peer-deps installs, but that is npm-s an incorrect/broken resolution or a pin change (needs a Ruling).
+
+== attempt 3 (SDK smoke, --legacy-peer-deps install, tmp/railgun/smoke*.mjs):
+{
+ "sharedModels": "ok",
+ "networks": [
+  "Ethereum",
+  "BNB_Chain",
+  "Polygon",
+  "Arbitrum",
+  "Base",
+  "Ethereum_Ropsten",
+  "Ethereum_Goerli",
+  "Ethereum_Sepolia",
+  "Polygon_Amoy",
+ "engineStarted": true,
+ "step": "FAIL Invalid fallback provider config for chain 11155111"
+
+== conclusion: BLOCKED on the contracts (no shield() adapter; custody-touching change needs Reviewer R hard review per AGENTS 'audit hard when custom') plus the SDK peer-pin conflict and the Track-A signer procedure (2-of-3 rebuild-and-compare, fresh shield key per settlement). Stealth (deliver.kind=stealth) remains the delivered EVM path.
