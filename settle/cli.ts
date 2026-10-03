@@ -11,7 +11,8 @@ const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
-function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>}) {
+type ResolvedRow=Row&{recipient?:string;reason?:string};
+function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>}):ResolvedRow[] {
   const route=read(`routing-${name}.json`),observed=notes();
   requireThat(hash(jsonBytes(route))===read("routing-commitment.json").sha256,"signer routing changed after intake");
   // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
@@ -29,7 +30,11 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
     requireThat(jsonBytes(ledgerDoc.envelopes??[]).equals(jsonBytes(doc.envelopes??[])),"private ledger envelope records differ from published records");
     a={manifest:doc.manifest,frozen:doc.frozen,opened:plan.opened,envelopes:doc.envelopes};
   } else a=auction();
-  return rows.map(row=> {
+  return rows.map((row):ResolvedRow=> {
+    // R16 item 1 (Reviewer R F4): destinations() never throws for a single row. An unresolvable row comes
+    // back with its reason and no recipient; the worker turns it into an exception row and the batch
+    // proceeds with the rows that resolve.
+    try {
     // R7 item 4: a claim-promoted row's destination is the one named in the owner-signed request the signer
     // plan verified against its own fresh opening; it is signer-derived, like every other destination here.
     const claimed=plan.destinations?.[row.party];
@@ -37,19 +42,20 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
     // R7 item 2 (R F-1/F-2 = G4): no operator-held envelope key exists, and single-recipient envelopes cannot
     // be opened by every signer, so an envelope destination is refused with a clear error — never paid from a
     // fallback key — and its refund waits in the exception queue (owner-signed claim, R7 item 4).
-    if(product&&row.party.startsWith("leaf:"))throw Error(`envelope destination refused: ${ENVELOPE_INTERIM_REFUSAL} (party ${row.party}; refund waits in the exception queue)`);
+    if(product&&row.party.startsWith("leaf:"))return {...row,reason:`envelope destination refused: ${ENVELOPE_INTERIM_REFUSAL} (party ${row.party}; refund waits in the exception queue)`};
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
       observed.find(n=>row.party===`deposit:${n.txid}:${n.diversifier_index}`)?.address;
     // R7 item 6 (Reviewer G G6): a product-mode stray has no operator-chosen destination — it resolves only
     // through its own owner-signed claim (plan.destinations above) or stays in the exception queue.
-    if(product&&row.party!=="seller")throw Error(`stray refund refused: no operator-chosen destination (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`);
+    if(product&&row.party!=="seller")return {...row,reason:`stray refund refused: no operator-chosen destination (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
     const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;
     requireThat(recipient,"missing independently pinned settlement recipient");return {...row,recipient};
+    } catch(e) {return {...row,reason:(e as Error).message}}
   });
 }
 // F4 (R28): the per-output routing bit is computed from the pinned routing, never asserted as a constant.
 // Change outputs are not part of the pinned settlement routing and compute false.
-const routedInspect=(i:any,expected:{recipient:string;amount_zats:string}[])=>({...i,outputs:i.outputs.map((o:any)=>({...o,matches_pinned_routing:!o.is_change&&expected.some(e=>e.recipient===o.recipient&&e.amount_zats===o.amount_zats)}))});
+const routedInspect=(i:any,expected:{recipient?:string;amount_zats:string}[])=>({...i,outputs:i.outputs.map((o:any)=>({...o,matches_pinned_routing:!o.is_change&&expected.some(e=>e.recipient===o.recipient&&e.amount_zats===o.amount_zats)}))});
 function check(ledger:Ledger,batch:number,candidate:string,name:string,randomizer?:string,sighash?:string) {
   requireThat(["alice","bob","carol"].includes(name),"unknown signer");
   const plan=monetary(id),rows=ledger.rows().filter(o=>o.batch===batch);
@@ -58,7 +64,7 @@ function check(ledger:Ledger,batch:number,candidate:string,name:string,randomize
     requireThat(obligation&&obligation.amount_zats===row.amount_zats&&obligation.kind===row.kind,"batch row differs from fresh signer clearing");
     return {...row,...obligation};
   });
-  const expected=destinations(independentlyExpected,name,plan),i=inspect(candidate);
+  const expected=destinations(independentlyExpected,name,plan).filter(o=>o.recipient),i=inspect(candidate);
   const outputs=i.outputs.filter((o:any)=>!o.is_change);
   requireThat(outputs.length===expected.length,"PCZT recipient count differs from result");
   const routed:boolean[]=[];
@@ -79,7 +85,13 @@ function guard(metadata:any,tip:number) {
 async function worker(ledger:Ledger) {
   const plan=monetary(id);
   for(const r of plan.refusals??[])console.error(`ERROR refund ${r.party} to the exception queue: ${r.reason}`);
-  ledger.pin(plan.obligations,plan.exceptions);ledger.eligible();
+  // R16 item 1 (Reviewer R F4): an unresolvable row becomes an exception row and the batch proceeds — the
+  // rows that resolve are pinned payable, the rest wait in the queue with their reason.
+  const pinned=destinations(plan.obligations,settings().signers[0],plan);
+  for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
+  ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>({party,kind,amount_zats})),
+    [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>({party,kind,amount_zats,reason}))]);
+  ledger.eligible();
   const signoffs:any[]=existsSync(file("signoffs.json"))?read("signoffs.json"):[];
   let batch;
   while((batch=ledger.allocate(settings().batch_cap))) {
@@ -88,7 +100,7 @@ async function worker(ledger:Ledger) {
     const base=file(`batch-${batch.id}`),created=base+".pczt",proven=base+".proven.pczt",signed=base+".signed.pczt";
     let staged=ledger.batch(batch.id)!;
     if(!staged.txid) {
-      const payment=destinations(batch.outputs,settings().signers[0],plan).map(o=>({recipient:o.recipient,amount_zats:o.amount_zats}));
+      const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
       run(path.join(ROOT,"settle/target/release/benzo-pczt"),["create",path.join(STATE,"vault"),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
       const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
       await prove(created,proven);
@@ -99,7 +111,7 @@ async function worker(ledger:Ledger) {
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
       const txid=run(bin("zcash-devtool"),["pczt","extract"],readFileSync(signed)).trim().split("\n").at(-1)!;
-      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0],plan))),{mode:0o600});
+      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient))),{mode:0o600});
     }
     staged=ledger.batch(batch.id)!;
     requireThat(staged.txid&&staged.pczt_path&&staged.pczt_hash===hash(readFileSync(staged.pczt_path)),"stored signed PCZT missing or changed");
@@ -135,7 +147,7 @@ async function worker(ledger:Ledger) {
     for(const endpoint of [env("BNZ_LWD_URL"),env("BNZ_LWD_URL_ALT")]) {
       const observed=chainTx(staged.txid!,endpoint);requireThat(Number(observed.height)===height,"settlement height differs across endpoints");
     }
-    const i=inspect(staged.pczt_path!),expected=destinations(batch.outputs,settings().signers[0],plan);
+    const i=inspect(staged.pczt_path!),expected=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient);
     const available=i.outputs.filter((o:any)=>!o.is_change);
     const receipt=expected.map(e=>{const index=available.findIndex((o:any)=>o.recipient===e.recipient&&o.amount_zats===e.amount_zats);requireThat(index>=0,"mined amount differs from result.json");const [o]=available.splice(index,1);return {party:e.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
     ledger.confirm(batch.id,staged.txid!,height,receipt);

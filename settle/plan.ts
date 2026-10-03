@@ -65,18 +65,18 @@ try {
   const depositNotes=notes.filter(n=>m.deposit_addresses.includes(n.address)&&(!n.spent_in_txid||owned.has(n.spent_in_txid)));
   const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
   const stray=depositNotes.filter(n=>!src.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
-  const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=stray.filter(n=>!confirmed(n)).map(n=>({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)}));
+  const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimDestinations:Record<string,string>={},claimsUsed:any[]=[];
-  let result_hash:string|null=null,opened:any[]|null=null;
+  let result_hash:string|null=null,opened:any[]|null=null,result:any=null;
+  const released=Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period;
+  const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
     requireThat(!src.opened,"cancelled plan has opened bids");
-    for(const n of depositNotes.filter(confirmed))obligations.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
   } else {
     requireThat(["CLEARED","SETTLING","SETTLED"].includes(src.state)&&src.result&&src.frozen,"settlement requires cleared result");
     if(published)requireThat(published.beacon&&published.beacon.round===m.drand.R&&published.beacon.chain_hash===m.drand.chain_hash,"published beacon missing or unbound");
     checkFrozen(src.frozen,id,manifest_hash);
-    requireThat(Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"settlement before release");
-    const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
+    requireThat(released,"settlement before release");
     opened=src.frozen.leaves.map((leaf:any)=> {
       requireThat(depositNotes.some(n=>n.txid===leaf.deposit.txid&&n.address===leaf.deposit.address&&confirmed(n)&&String(n.value_zats)===m.C_zats),"frozen deposit missing or spent; resume needs mined-batch reconciliation");
       const ct=path.join(dir,`${leaf.leaf_index}.age`),pt=path.join(dir,`${leaf.leaf_index}.bin`);
@@ -104,70 +104,93 @@ try {
     // must take the DECODED manifest from client() — the signed packet has no manifest fields.)
     const derivedReserve=m.sealed_reserve!==undefined?tleOpening(path.join(state,"bin","tle"),m.drand.chain_hash,m.sealed_reserve):null;
     const reserve_opening=requireReserveOpening(m,published?(published.reserve_opening?.plaintext_hex??null):(auction.reserve_opening??null),derivedReserve);
-    const result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:src.manifest,signer:src.signer,frozen:src.frozen,opened,reserve_opening,serial_beacon:src.serial_beacon??null,launch:src.launch_input})));
+    result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:src.manifest,signer:src.signer,frozen:src.frozen,opened,reserve_opening,serial_beacon:src.serial_beacon??null,launch:src.launch_input})));
     const fresh=jsonBytes(result);
     if(published) {
       requireThat(fresh.equals(jsonBytes(published.result)),"published result differs from signer recomputation");
       requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     } else requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     result_hash=hash(fresh);
-    // R7 item 4 (R F-5 = G5): owner-signed claim requests complete exception-queue refunds. Each request
-    // names a shielded destination and is checked here against the one-time owner key inside the signer's own
-    // fresh tle opening (a leaf) or the stray deposit's memo opening (a stray) — never against the private
-    // ledger or any operator input. The first recorded claim per party wins (cli/product.ts claim-refund).
-    const bidPlaintextFor=(party:string):Buffer|null=>{
-      if(party.startsWith("leaf:")) {
-        const o=opened!.find(x=>x.leaf_index===Number(party.slice(5)));
-        return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
+  }
+  // R16 item 1 (Reviewer R F4): the CANCELLED/REFUNDING branch resolves each deposit exactly like the cleared
+  // path, through its envelope or its claim, with no published opening needed. The memo- and claim-bound
+  // machinery below is shared by both branches; a leaf party opens from the signer's own fresh tle openings
+  // (cleared path), a deposit party from its on-chain memo ciphertext.
+  // R7 item 4 (R F-5 = G5): owner-signed claim requests complete exception-queue refunds. Each request
+  // names a shielded destination and is checked here against the one-time owner key inside the signer's own
+  // fresh tle opening (a leaf) or the stray deposit's memo opening (a stray) — never against the private
+  // ledger or any operator input. The first recorded claim per party wins (cli/product.ts claim-refund).
+  const bidPlaintextFor=(party:string):Buffer|null=>{
+    if(party.startsWith("leaf:")) {
+      const o=opened?.find(x=>x.leaf_index===Number(party.slice(5)));
+      return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
+    }
+    const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
+    const note=m?depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2]):undefined;
+    const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
+    if(!ct)return null;
+    const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
+    writeFileSync(memoCt,Buffer.from(ct,"hex"),{mode:0o600});
+    checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(ct,"hex"))});
+    const r=spawnSync(path.join(state,"bin","tle"),["-d","-n",process.env.BNZ_DRAND_URLS!.split(",")[0],"-c",QUICKNET.chain_hash,"-o",memoPt,memoCt],{encoding:"utf8"});
+    if(r.error)throw r.error;
+    // R7 item 6: a memo that does not open to this auction's 128-byte sealed-bid layout holds no owner key.
+    if(r.status!==0)return null;
+    const pt=readFileSync(memoPt);
+    return pt.length===128&&pt[0]===0&&pt.subarray(1,33).toString("hex")===id?pt:null;
+  };
+  const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
+  // R7 item 6: a stray with a valid sealed-bid memo resolves through its own owner-signed settlement
+  // envelope exactly like a bid leaf (same shared validity rule), keyed by its memo's ciphertext hash.
+  const strayEnvelope=(party:string):boolean=>{
+    const pt=bidPlaintextFor(party);if(!pt)return false;
+    const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party)!;
+    const note=depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2])!;
+    const ctHash=hash(Buffer.from(memoSealedBid(note.memo_hex!)!,"hex"));
+    return validEnvelope({manifest:src.manifest,frozen:{leaves:[{leaf_index:0,ciphertext_hash:ctHash}]},opened:[{leaf_index:0,plaintext_hex:pt.toString("hex")}],envelopes:src.envelopes},0)!==null;
+  };
+  const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
+  if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
+    try {
+      requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.destination_ua==="string"&&/^[0-9a-f]{64}$/.test(request.destination_commit??"")&&/^[0-9a-f]{64}$/.test(request.salt??"")&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
+      // R15 item 3 / R17 item 1: the signed body carries only the salted destination commitment; the full
+      // destination in the private request must hash to it.
+      requireThat(request.destination_commit===hash(Buffer.concat([Buffer.from(request.salt,"hex"),Buffer.from(request.destination_ua,"utf8")])),"claim destination commit");
+      requireShieldedDestination(request.destination_ua);
+      const body={kind:"claim-refund",auction_id:id,party:request.party,destination_commit:request.destination_commit};
+      const owner=ownerKeyFor(request.party);
+      requireThat(owner&&verifyStatement(owner!,body,request.owner_sig),"claim owner signature");
+      // R11/R13: the first claim whose owner signature verifies is the one used — and later published.
+      if(!claimDestinations[request.party]) {
+        claimDestinations[request.party]=request.destination_ua;
+        const cm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(request.party);
+        const note=cm?depositNotes.find(n=>n.txid===cm[1]&&String(n.diversifier_index)===cm[2]):undefined;
+        claimsUsed.push({party:request.party,destination_commit:request.destination_commit,owner_sig:request.owner_sig,...(note?.memo_hex?{memo_hex:note.memo_hex}:{})});
       }
-      const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
-      const note=m?depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2]):undefined;
-      const ct=note?.memo_hex?memoSealedBid(note.memo_hex):null;
-      if(!ct)return null;
-      const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
-      writeFileSync(memoCt,Buffer.from(ct,"hex"),{mode:0o600});
-      checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(ct,"hex"))});
-      const r=spawnSync(path.join(state,"bin","tle"),["-d","-n",process.env.BNZ_DRAND_URLS!.split(",")[0],"-c",QUICKNET.chain_hash,"-o",memoPt,memoCt],{encoding:"utf8"});
-      if(r.error)throw r.error;
-      // R7 item 6: a memo that does not open to this auction's 128-byte sealed-bid layout holds no owner key.
-      if(r.status!==0)return null;
-      const pt=readFileSync(memoPt);
-      return pt.length===128&&pt[0]===0&&pt.subarray(1,33).toString("hex")===id?pt:null;
-    };
-    const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
-    // R7 item 6: a stray with a valid sealed-bid memo resolves through its own owner-signed settlement
-    // envelope exactly like a bid leaf (same shared validity rule), keyed by its memo's ciphertext hash.
-    const strayEnvelope=(party:string):boolean=>{
-      const pt=bidPlaintextFor(party);if(!pt)return false;
-      const m=/^deposit:([0-9a-f]{64}):(.+)$/.exec(party)!;
-      const note=depositNotes.find(n=>n.txid===m[1]&&String(n.diversifier_index)===m[2])!;
-      const ctHash=hash(Buffer.from(memoSealedBid(note.memo_hex!)!,"hex"));
-      return validEnvelope({manifest:src.manifest,frozen:{leaves:[{leaf_index:0,ciphertext_hash:ctHash}]},opened:[{leaf_index:0,plaintext_hex:pt.toString("hex")}],envelopes:src.envelopes},0)!==null;
-    };
-    const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
-    if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
-      try {
-        requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.destination_ua==="string"&&/^[0-9a-f]{64}$/.test(request.destination_commit??"")&&/^[0-9a-f]{64}$/.test(request.salt??"")&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
-        // R15 item 3 / R17 item 1: the signed body carries only the salted destination commitment; the full
-        // destination in the private request must hash to it.
-        requireThat(request.destination_commit===hash(Buffer.concat([Buffer.from(request.salt,"hex"),Buffer.from(request.destination_ua,"utf8")])),"claim destination commit");
-        requireShieldedDestination(request.destination_ua);
-        const body={kind:"claim-refund",auction_id:id,party:request.party,destination_commit:request.destination_commit};
-        const owner=ownerKeyFor(request.party);
-        requireThat(owner&&verifyStatement(owner!,body,request.owner_sig),"claim owner signature");
-        // R11/R13: the first claim whose owner signature verifies is the one used — and later published.
-        if(!claimDestinations[request.party]) {
-          claimDestinations[request.party]=request.destination_ua;
-          const cm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(request.party);
-          const note=cm?depositNotes.find(n=>n.txid===cm[1]&&String(n.diversifier_index)===cm[2]):undefined;
-          claimsUsed.push({party:request.party,destination_commit:request.destination_commit,owner_sig:request.owner_sig,...(note?.memo_hex?{memo_hex:note.memo_hex}:{})});
-        }
-      } catch(e) {claimFailures[request.party]=(e as Error).message}
+    } catch(e) {claimFailures[request.party]=(e as Error).message}
+  }
+  for(const [party,message] of Object.entries(claimFailures))if(!claimDestinations[party]) {
+    refusals.push({party,reason:`claim refused: ${message}`});process.stderr.write(`ERROR claim ${party} refused: ${message}\n`);
+  }
+  if(["CANCELLED","REFUNDING"].includes(src.state)) {
+    // R16 item 1 (Reviewer R F4): a cancelled product auction refunds exactly like the cleared path — through
+    // the deposit's own owner-signed claim or its envelope. Anything else is an exception row, claimable after
+    // R. Before R (and until Track B's memo-bound envelope tag, R16.2/R18, lands with memo v2) no owner key or
+    // envelope authentication exists for a cancelled-before-R deposit, so it waits in the exception queue —
+    // never a wedge for the other rows.
+    for(const n of depositNotes) {
+      const party=`deposit:${n.txid}:${n.diversifier_index}`,row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
+      if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
+      if(claimDestinations[party]) {obligations.push(row);continue}
+      const reason=!released?"cancelled before release; refund is claimable after R":
+        !bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":
+        strayEnvelope(party)?ENVELOPE_INTERIM_REFUSAL:"no valid owner-signed settlement envelope";
+      refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
+      exceptions.push({...row,reason});
     }
-    for(const [party,message] of Object.entries(claimFailures))if(!claimDestinations[party]) {
-      refusals.push({party,reason:`claim refused: ${message}`});process.stderr.write(`ERROR claim ${party} refused: ${message}\n`);
-    }
-    for(const [party,amount] of modeEntry(src.manifest).obligations(result)) {
+  } else {
+    for(const n of stray.filter(n=>!confirmed(n)))exceptions.push({party:`deposit:${n.txid}:${n.diversifier_index}`,kind:"refund",amount_zats:String(n.value_zats)});
+    for(const [party,amount] of modeEntry(src.manifest).obligations(result!)) {
       const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
       // R6 (W) + R7 items 2/3: a product-mode bid's refund destination comes only from its owner-signed
       // settlement envelope. With no valid record the row goes to the exception queue; while Track B's
