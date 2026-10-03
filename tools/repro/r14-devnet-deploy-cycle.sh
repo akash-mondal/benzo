@@ -53,9 +53,20 @@ if [ ! -f "$PROGRAM_KP" ]; then
   solana-keygen new --no-bip39-passphrase --silent --outfile "$PROGRAM_KP" >/dev/null
 fi
 PROGRAM_ID="$(solana-keygen pubkey "$PROGRAM_KP")"
-solana program deploy --url "$RPC" --keypair "$DEPLOYER" --program-id "$PROGRAM_KP" "$SO" | tee -a "$TRANSCRIPT"
+if solana program show "$PROGRAM_ID" --url "$RPC" --keypair "$DEPLOYER" >/dev/null 2>&1; then
+  log "solana program $PROGRAM_ID already deployed — skipping deploy (never an in-place upgrade)"
+else
+  # full deploy output (incl. any CLI banner) to a private log; only public lines to the transcript
+  DEPLOY_LOG="$LIVE/r14-deploy.log"
+  if ! solana program deploy --url "$RPC" --keypair "$DEPLOYER" --program-id "$PROGRAM_KP" "$SO" > "$DEPLOY_LOG" 2>&1; then
+    echo "ERROR r14-deploy failed for $PROGRAM_ID; last lines:" | tee -a "$TRANSCRIPT"
+    tail -5 "$DEPLOY_LOG" | tee -a "$TRANSCRIPT"
+    exit 1
+  fi
+  grep -E '^(Signature|Program Id):' "$DEPLOY_LOG" | tee -a "$TRANSCRIPT"
+fi
 log "solana program $PROGRAM_ID (new; AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4 SUPERSEDED)"
-solana program show "$PROGRAM_ID" --url "$RPC" | tee -a "$TRANSCRIPT"
+solana program show "$PROGRAM_ID" --url "$RPC" --keypair "$DEPLOYER" | tee -a "$TRANSCRIPT"
 
 # ---- one live devnet cycle through the shipped CLI ----
 A="0x$(openssl rand -hex 32)"

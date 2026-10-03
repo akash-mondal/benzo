@@ -61,10 +61,9 @@ empty), so the red run below ran literally on the 4d9c0e6 program.
    (b) is nevertheless enforced at runtime and would alone refuse the PoC path with 0x16 (`self_ix.program_id !=
    *program_id` for the proxy instruction).
 
-3. **R14 item 3, new devnet program ID + one live cycle: closes DONE (head unblock), redeploy + live
-   cycle in progress in this run.** The head unblocked funding without a faucet: the deployer is the
-   upgrade authority of the three SUPERSEDED programs, closed 2026-10-03 (~1.62 SOL reclaimed;
-   deployer balance after: 1.64698668 SOL):
+3. **R14 item 3, new devnet program ID + one live cycle: DONE** (this run). The head unblocked funding
+   without a faucet: the deployer is the upgrade authority of the three SUPERSEDED programs, closed
+   2026-10-03T00:2xZ (~1.62 SOL reclaimed; deployer balance after closes: 1.64698668 SOL):
 
    | closed program | close txid | reclaimed |
    |---|---|---|
@@ -74,8 +73,31 @@ empty), so the red run below ran literally on the 4d9c0e6 program.
 
    Each close verified `Status: Ok` with `Closed Program <id>` via `solana confirm -v <txid> -u devnet`;
    `docs/AUDITS.md` marks all three **closed**. The R14 P0 program is no longer live on devnet.
-   Next: `bash tools/repro/r14-devnet-deploy-cycle.sh` (balance gate now passes at 1.647 SOL vs
-   the 0.7 SOL threshold) — new program ID + one live devnet cycle; record below.
+
+   **Redeploy + live cycle** — `bash tools/repro/r14-devnet-deploy-cycle.sh` (run 2026-10-03T00:31Z and
+   00:34Z; transcript `$BNZ_STATE_DIR/xchain-live/r14-cycle.out`): the R14-fixed build (so sha256
+   `84fd87b726baa0ea007774cb9588f81f9ec077c58809323ce70b3072094e8bc6`, 102,840 bytes) deployed under
+   the **new program ID** `2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu` (ProgramData
+   `EYPDHi1uJU8ksJEWzt1SbJyEjpzYdBAkpWyemeeRNbsV`, deploy tx
+   `5KPMPtffZPCmUAmg5eJYSDrH73yjpw3BPFjWj5sECDibLYGR7pdSEKvdTJeKM1avMSLNLP4Q4LCaRAEtopdbfBQV`,
+   upgrade authority the deployer; no in-place upgrade). One live devnet cycle through the shipped
+   `benzo xchain` CLI on auction `0x03829a0a344340eb0713eedd333840c35b5a205dbca0e949ff99d847ff896d2f`:
+   lock tx `gJYMM6xCoSJgBUnv8EEV2WnrXhcm7GBEYycuxTLA7c8ERM9Yg2EhUVsSdV76bSYHbaFYtCAQkGnTYES6VvTKTwF`
+   → attest 2-of-3 (allocation root `0xab0c4b45…bfeda1`) → release paying leaf 0 one lot
+   (txs `43Rby5Z2…`, `2dHynoCz…`, `zSWCVi39…`, `4vwnkszb…`, lookup table `4uHxak9m…`) →
+   `xchain status --result`: published `abf56844…8072` = chain `0xabf56844…8072`, **match: true** (the
+   item-4 tie) → refund after the deadline tx `5E3vqnTuDAkqxhuigoNXeDQnbeodZkeYLTqBRmgo5rgPir2aLCbRM4aqAj8yGCHLT1anx9Meargm4cNigUkqD3yB`
+   → final status `refunded: true`. Transcript ends `RESULT PASS r14 devnet deploy + one live cycle on
+   2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu`. `docs/AUDITS.md` records the new **current** row.
+
+   Script fixes forced by the first run (Deviations): `solana program show` needed `--keypair
+   "$DEPLOYER"` (the CLI otherwise wants a default signer and the script died at `set -e` after a
+   successful deploy); reruns now skip the deploy when the program exists (never an in-place upgrade);
+   deploy output goes to `$BNZ_STATE_DIR/xchain-live/r14-deploy.log` and only `Signature:`/`Program Id:`
+   lines reach the transcript — the pinned solana CLI printed an ephemeral deploy-buffer recovery seed
+   phrase banner on the first run (the buffer account `6GTQJtFz…` does **not** exist on chain — checked
+   `solana account`: AccountNotFound — no lamports leaked; no custody or wallet key was involved or
+   printed elsewhere).
 
    History of this item (the BLOCKED record stands as the earlier outcome): three distinct approaches
    had failed before the head unblock (own-key sweep; CLI faucet, 4 attempts; two alternative RPCs —

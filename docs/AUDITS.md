@@ -32,6 +32,7 @@ account-layout version and every instruction checks it; EVM escrows are redeploy
 
 | chain | program | status |
 |---|---|---|
+| Solana devnet | `2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu` (ProgramData `EYPDHi1uJU8ksJEWzt1SbJyEjpzYdBAkpWyemeeRNbsV`) | **current** — layout v2 + R14 item 1 fixes (`ViaCpi`, `MessageNotSelf`); 102,840 bytes, so sha256 `84fd87b726baa0ea007774cb9588f81f9ec077c58809323ce70b3072094e8bc6`; deploy tx `5KPMPtffZPCmUAmg5eJYSDrH73yjpw3BPFjWj5sECDibLYGR7pdSEKvdTJeKM1avMSLNLP4Q4LCaRAEtopdbfBQV`; upgrade authority `3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu`; one live devnet cycle 2026-10-03 (STATUS-B R14 item 3) |
 | Solana devnet | `AE1LQwTyvPmjoTNdX2b7krH2yBejUgjnBdmGYpB9yna4` (ProgramData `HxCEzNaJmjDn3oA9pMjshoctkr32iywgNAKdVMC1tFQm`) | **closed** (R14 head unblock; carried the R14 CPI-forgery P0) — close tx `5CiZmsXFgph3qG7FJUVFmye17tjFbtLyAPyLqLYeMtJWzdyPW7C1VMfjWjtqC4Giz7ySuFPhLCob6MFLDVoCXho`, 0.52033932 SOL reclaimed; was layout v2, 102,256 bytes, sha256 `48870cc9…c2673` |
 | Solana devnet | `2Wh8X6dfqwYu45GAxYHW95VJEKjDxbhbANxTy9F7Lrt4` | **closed** (R14 head unblock) — close tx `4uckQB5BcZraQ8UGiDMSMGK2LW9spt8oaC1arV3KDuCSnBpcPdyxnVKvmTnTwX1f5LY4edmHQYnUMQVn7XSz92Nu`, 0.56540908 SOL reclaimed; was SUPERSEDED (pre-layout-version build) |
 | Solana devnet | `58SsWZaW2eBq1z1bnH1xPNXXMGbnrXm9YMvGeRdJL14G` | **closed** (R14 head unblock) — close tx `5XUS9BkcprYAdL5FKSLs9iYNsM3u6DMi9iSEk7hgqxCpWsu3yPJoRJ2GkFh8KsPwyVSFYmYz2ArCuBfT5QkAyhBw`, 0.53265324 SOL reclaimed; was SUPERSEDED (earliest deployment) |
