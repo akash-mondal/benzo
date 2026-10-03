@@ -36,7 +36,8 @@ function worker(id:string,allocatedKill=false) {
   const pidfile=path.join(STATE,'run',`cli-worker-${id}.pid`);writeFileSync(pidfile,String(p.pid));
   const timer=setTimeout(()=>process.kill(-p.pid!,'SIGKILL'),MINE);
   p.stdout.on('data',d=>{out+=d;writeFileSync(path.join(E2E,'cli-worker.log'),out);for(const line of out.split('\n'))try{allocated=JSON.parse(line).allocated??allocated}catch{}if(allocatedKill&&allocated)process.kill(-p.pid!,'SIGKILL')});
-  p.stderr.on('data',d=>{err+=d;writeFileSync(path.join(E2E,'cli-worker.err'),err)});
+  // Head (22c206a): the settlement worker's progress JSON now arrives on benzo's stderr; read `allocated` from both.
+  p.stderr.on('data',d=>{err+=d;writeFileSync(path.join(E2E,'cli-worker.err'),err);for(const line of err.split('\n'))try{allocated=JSON.parse(line).allocated??allocated}catch{}if(allocatedKill&&allocated)process.kill(-p.pid!,'SIGKILL')});
   const done=new Promise<any>((resolve,reject)=>{p.on('error',reject);p.on('close',(code,signal)=>{clearTimeout(timer);rmSync(pidfile,{force:true});resolve({code,signal,allocated,out,err})})});return {p,done};
 }
 async function cleanup() {
