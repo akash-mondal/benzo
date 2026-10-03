@@ -13,7 +13,7 @@ import {
 import { AttestationFields, evmTypedData, solanaAttestationBytes } from "../../crosschain/attestation";
 import { envelopePublicKey, openEnvelopePayload } from "../../envelope";
 import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
-import { deriveSettlementStealthAddress, prepareAnnouncement } from "../../crosschain/stealth";
+import { CANONICAL_ERC5564_ANNOUNCER, deriveSettlementStealthAddress, prepareAnnouncement } from "../../crosschain/stealth";
 import { checkPublicAuction, loadCompletePublicAuction } from "../../api/public-auction";
 import { validEnvelope } from "../../settle/envelopes";
 import { decryptPublished, deriveClaimOpenings, publishedClient } from "../published-beacon";
@@ -58,7 +58,19 @@ const need = (a: Args, k: string): string => {
   if (typeof v !== "string" || !v) throw new Error(`missing --${k}`);
   return v;
 };
-const num = (a: Args, k: string): number => Number(need(a, k));
+const num = (a: Args, k: string): number => {
+  const v = need(a, k);
+  // R25 item 6: numeric CLI arguments are validated — no silent NaN/float coercion past parsing
+  if (!/^\d+$/.test(v)) throw new Error(`--${k} must be a non-negative integer`);
+  const n = Number(v);
+  if (!Number.isSafeInteger(n)) throw new Error(`--${k} is out of range`);
+  return n;
+};
+const big = (a: Args, k: string): bigint => {
+  const v = need(a, k);
+  if (!/^\d+$/.test(v)) throw new Error(`--${k} must be a non-negative integer`);
+  return BigInt(v);
+};
 
 const b58ToBytes = (s: string): Uint8Array => new PublicKey(s).toBytes();
 
@@ -98,7 +110,7 @@ export async function run(argv: string[]): Promise<number> {
     if (verb === "lock") {
       const rpc = need(a, "rpc"), keyFile = need(a, "key"), escrow = need(a, "escrow");
       const auctionId = hexToBytes(need(a, "auction"));
-      const amount = BigInt(need(a, "amount")), lot = BigInt(need(a, "lot"));
+      const amount = big(a, "amount"), lot = big(a, "lot");
       const lockUntil = num(a, "lock-until"), deadline = num(a, "deadline");
       const signers = readSigners(chain, need(a, "signers"));
       const returnTo = need(a, "return");
@@ -382,7 +394,17 @@ export async function run(argv: string[]): Promise<number> {
     if (verb === "release") {
       const rpc = need(a, "rpc"), keyFile = need(a, "key");
       const bundle: Bundle = JSON.parse(readFileSync(need(a, "bundle"), "utf8"));
-      const only = typeof a.only === "string" ? new Set(a.only.split(",").map(Number)) : null;
+      const only = typeof a.only === "string" ? new Set((() => { if (!/^\d+(,\d+)*$/.test(a.only)) throw new Error("--only must be a comma-separated list of payout indexes"); return a.only.split(",").map(Number); })()) : null;
+      // R25 item 6: --announcer must be THE canonical ERC-5564 Announcer (the same address on every
+      // chain) — an announcement on any other contract is invisible to every ERC-5564 wallet, and a
+      // malicious one could fake or hide deliveries. Refused before anything is signed or sent.
+      if (typeof a.announcer === "string") {
+        let ann: string;
+        try { ann = getAddress(a.announcer); } catch { throw new Error(`--announcer ${a.announcer} is not a valid EVM address`); }
+        if (ann !== CANONICAL_ERC5564_ANNOUNCER) {
+          throw new Error(`--announcer must be the canonical ERC-5564 Announcer ${CANONICAL_ERC5564_ANNOUNCER}`);
+        }
+      }
       const auctionId = hexToBytes(bundle.auction_id);
       const fields: AttestationFields = {
         auctionId, resultHash: hexToBytes(bundle.result_hash), allocationRoot: hexToBytes(bundle.allocation_root),
@@ -438,8 +460,7 @@ export async function run(argv: string[]): Promise<number> {
         // native gas stipend (--stipend WAD) so the winner never funds the one-time address from a
         // known wallet, and the ERC-5564 announcement (--announcer ADDR) whose bytes were fixed at
         // attest time, so the winner finds the payment with its viewing key alone.
-        const stipend = typeof a.stipend === "string" ? BigInt(need(a, "stipend")) : 0n;
-        if (stipend < 0n) throw new Error("--stipend must be non-negative");
+        const stipend = typeof a.stipend === "string" ? big(a, "stipend") : 0n;
         const wallet = new NonceManager(new Wallet(readFileSync(keyFile, "utf8").trim(), evmProvider(rpc)));
         const stipendTxs: string[] = [], announceTxs: string[] = [];
         for (const p of chosen) {

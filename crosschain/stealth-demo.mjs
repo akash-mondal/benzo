@@ -93,17 +93,22 @@ async function main() {
   const { stealth, del, bid, envmod, schema, merkle, reg, tlock, armor } = await import(pathToFileURL(path.join(WORK, "lib.mjs")).href);
 
   // ---- canonical Announcer + Registry from the pinned SDK's canonical bytecode ----
+  // R25 item 6: `--announcer` must be THE canonical ERC-5564 Announcer, so the local chain runs the
+  // canonical contract AT its canonical address (anvil_setCode copies the deployed canonical runtime
+  // code there — the Announcer is stateless; on Sepolia the canonical deployment is used as-is).
   let announcer = "", registry = "";
   try {
     const announcerC = await new ContractFactory(stealth.ANNOUNCER_ABI, stealth.CANONICAL_ERC5564_BYTECODE, seller).deploy();
     await announcerC.waitForDeployment();
     const registryC = await new ContractFactory(stealth.REGISTRY_ABI, stealth.CANONICAL_ERC6538_BYTECODE, seller).deploy();
     await registryC.waitForDeployment();
-    announcer = await announcerC.getAddress();
+    await evm.send("anvil_setCode", [stealth.CANONICAL_ERC5564_ANNOUNCER, await evm.getCode(await announcerC.getAddress())]);
+    announcer = stealth.CANONICAL_ERC5564_ANNOUNCER;
     registry = await registryC.getAddress();
     check("stealth-canonical-deploy",
-      /^0x[0-9a-fA-F]{40}$/.test(announcer) && /^0x[0-9a-fA-F]{40}$/.test(registry),
-      `announcer ${announcer} registry ${registry} (canonical bytecode from the pinned SDK; Sepolia uses the canonical deployments themselves)`);
+      announcer.toLowerCase() === stealth.CANONICAL_ERC5564_ANNOUNCER.toLowerCase() &&
+        /^0x[0-9a-fA-F]{40}$/.test(registry) && (await evm.getCode(announcer)).length > 2,
+      `announcer ${announcer} (the canonical ERC-5564 address, canonical bytecode from the pinned SDK) registry ${registry}`);
   } catch (e) {
     check("stealth-canonical-deploy", false, String(e).slice(0, 200));
     throw e;
@@ -221,13 +226,19 @@ async function main() {
   }
   const bundleFile = path.join(WORK, "bundle-evm.json");
   {
-    const r = benzoXchain(["attest", "--chain", "evm", "--auction", "0x" + auction1, "--result", resultFile, "--result-hash", resultHash,
+    const attestArgv = ["attest", "--chain", "evm", "--auction", "0x" + auction1, "--result", resultFile, "--result-hash", resultHash,
       "--dir", PUBDIR, ...envelopeKeyFiles.flatMap((f) => ["--envelope-key", f]),
       "--batch", "0", "--nonce", "0", "--expiry", String(now + 3600), "--asset", "0x0000000000000000000000000000000000000000",
-      "--signer-key", signerFiles[0], "--signer-key", signerFiles[2], "--escrow", escrowAddr, "--rpc", EVM_RPC, "--out", bundleFile]);
+      "--signer-key", signerFiles[0], "--signer-key", signerFiles[2], "--escrow", escrowAddr, "--rpc", EVM_RPC, "--out", bundleFile];
+    const r = benzoXchain(attestArgv);
     const b = r.code === 0 ? JSON.parse(readFileSync(bundleFile, "utf8")) : null;
     check("stealth-attest-from-envelope", r.code === 0 && b?.leaves?.length === 1 && b.leaves[0].deliver_kind === "stealth" && b.leaves[0].announce?.ephemeral_pubkey?.startsWith("0x"),
       `rc=${r.code} leaf ${JSON.stringify(b?.leaves?.[0] ?? {}).slice(0, 200)} ${(r.stderr || "").slice(0, 160)}`);
+    // R25 item 6: numeric CLI arguments are validated — a fractional --nonce is refused, never coerced
+    const bad = benzoXchain(attestArgv.map((x, i) => (attestArgv[i - 1] === "--nonce" ? "1.5" : x)));
+    check("stealth-numeric-args-refused",
+      bad.code !== 0 && /--nonce must be a non-negative integer/.test(bad.stderr),
+      `rc=${bad.code}: ${(bad.stderr || bad.stdout).slice(0, 160)}`);
   }
 
   // the derived one-time address is signer-reproducible: the opened deliver + settlement coordinates
@@ -260,6 +271,13 @@ async function main() {
   // ---- release: the lot + the gas stipend to the fresh address, and the ERC-5564 announcement ----
   {
     const before = await evmBalance(evm, leaf0.destination);
+    // R25 item 6: --announcer must be THE canonical ERC-5564 Announcer — any other address is refused
+    // before anything is signed or sent
+    const badAnn = benzoXchain(["release", "--chain", "evm", "--bundle", bundleFile, "--key", sellerKeyFile, "--rpc", EVM_RPC,
+      "--stipend", STIPEND.toString(), "--announcer", Wallet.createRandom().address]);
+    check("stealth-announcer-canonical-refused",
+      badAnn.code !== 0 && /canonical ERC-5564 Announcer/.test(badAnn.stderr) && /0x55649E01B5Df198D18D95b5cc5051630cfD45564/i.test(badAnn.stderr),
+      `rc=${badAnn.code}: ${(badAnn.stderr || badAnn.stdout).slice(0, 200)}`);
     const r = benzoXchain(["release", "--chain", "evm", "--bundle", bundleFile, "--key", sellerKeyFile, "--rpc", EVM_RPC,
       "--stipend", STIPEND.toString(), "--announcer", announcer]);
     const after = await evmBalance(evm, leaf0.destination);
