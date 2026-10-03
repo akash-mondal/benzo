@@ -9,7 +9,7 @@ import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
-import {requireReserveOpening,tleOpening} from "../manifest/reserve";
+import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
 import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope} from "./envelopes";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
@@ -84,12 +84,10 @@ try {
       writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
       checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(leaf.ciphertext_hex,"hex"))});
       appendFileSync(path.join(state,"run","settle-tle.jsonl"),JSON.stringify({auction_id:id,operation:"tle -d",time:Date.now()})+"\n");
-      const r=spawnSync(path.join(state,"bin","tle"),["-d","-n",process.env.BNZ_DRAND_URLS!.split(",")[0],"-c",QUICKNET.chain_hash,"-o",pt,ct],{encoding:"utf8"});
-      if(r.error)throw r.error;
-      if(r.status!==0) {
-        requireThat(/bad header MAC|failed to decrypt and authenticate payload chunk/.test(r.stderr),`fresh tle failed: ${r.stderr.trim().slice(-250)}`);
-        return {leaf_index:leaf.leaf_index,plaintext_hex:null,error:"undecryptable"};
-      }
+      // Head: failover across every drand endpoint (manifest/reserve tleDecryptFailover); MAC failure = undecryptable.
+      const decrypted=tleDecryptFailover(path.join(state,"bin","tle"),QUICKNET.chain_hash,Buffer.from(leaf.ciphertext_hex,"hex"));
+      if(decrypted===null)return {leaf_index:leaf.leaf_index,plaintext_hex:null,error:"undecryptable"};
+      writeFileSync(pt,decrypted,{mode:0o600});
       return {leaf_index:leaf.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
     });
     if(published) {
@@ -133,11 +131,13 @@ try {
     const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
     writeFileSync(memoCt,Buffer.from(ct,"hex"),{mode:0o600});
     checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(ct,"hex"))});
-    const r=spawnSync(path.join(state,"bin","tle"),["-d","-n",process.env.BNZ_DRAND_URLS!.split(",")[0],"-c",QUICKNET.chain_hash,"-o",memoPt,memoCt],{encoding:"utf8"});
-    if(r.error)throw r.error;
-    // R7 item 6: a memo that does not open to this auction's 128-byte sealed-bid layout holds no owner key.
-    if(r.status!==0)return null;
-    const pt=readFileSync(memoPt);
+    // Head: failover across drand endpoints; a network failure on every endpoint throws instead of silently
+    // classifying the stray as ownerless. R7 item 6: a memo that does not open to this auction's 128-byte
+    // sealed-bid layout holds no owner key.
+    const memoOpened=tleDecryptFailover(path.join(state,"bin","tle"),QUICKNET.chain_hash,readFileSync(memoCt));
+    if(memoOpened===null)return null;
+    writeFileSync(memoPt,memoOpened,{mode:0o600});
+    const pt=memoOpened;
     return pt.length===128&&pt[0]===0&&pt.subarray(1,33).toString("hex")===id?pt:null;
   };
   const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
