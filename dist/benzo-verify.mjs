@@ -7980,17 +7980,28 @@ function client(packet, trustedSigner) {
 
 // manifest/reserve.ts
 import { spawnSync } from "node:child_process";
+var MAC_FAILURE = /bad header MAC|failed to decrypt and authenticate payload chunk/;
+function drandUrls() {
+  return (process.env.BNZ_DRAND_URLS || "https://api.drand.sh").split(",").map((u2) => u2.trim()).filter(Boolean);
+}
+function tleDecryptFailover(tleBin, chainHash, ciphertext) {
+  const errors = [];
+  for (let round = 0; round < 3; round++) {
+    for (const url of drandUrls()) {
+      const r2 = spawnSync(tleBin, ["-d", "-n", url, "-c", chainHash], { input: ciphertext, maxBuffer: 1 << 20 });
+      if (r2.error) throw r2.error;
+      if (r2.status === 0) return r2.stdout;
+      const error = r2.stderr.toString();
+      if (MAC_FAILURE.test(error)) return null;
+      errors.push(`${url}: ${error.replace(/You've specified a non-default network endpoint[\s\S]*?--chain flag\.?/, "").trim().slice(-200) || `exit ${r2.status}`}`);
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 2e3 * (round + 1));
+  }
+  throw new Error(`tle failed on every drand endpoint: ${errors.slice(-drandUrls().length).join(" | ")}`);
+}
 function tleOpening(tleBin, chainHash, ciphertextHex) {
-  const r2 = spawnSync(
-    tleBin,
-    ["-d", "-c", chainHash],
-    { input: Buffer.from(ciphertextHex, "hex"), maxBuffer: 1 << 20 }
-  );
-  if (r2.error) throw r2.error;
-  if (r2.status === 0) return r2.stdout.toString("hex");
-  const error = r2.stderr.toString().trim();
-  if (/bad header MAC|failed to decrypt and authenticate payload chunk/.test(error)) return null;
-  throw new Error(`tle: ${error || `exit ${r2.status}`}`);
+  const out = tleDecryptFailover(tleBin, chainHash, Buffer.from(ciphertextHex, "hex"));
+  return out === null ? null : out.toString("hex");
 }
 function requireReserveOpening(m2, publishedOpening, derived, tleDerived) {
   if (m2.sealed_reserve === void 0) {
@@ -15984,6 +15995,26 @@ function checkBuybackReport(pub) {
 import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
 import path4 from "node:path";
 
+// settle/deposits.ts
+var PARTY = /^deposit:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
+function isDepositParty(party) {
+  const m2 = PARTY.exec(party);
+  return !!m2 && Number(m2[3]) <= 65535;
+}
+
+// settle/envelopes.ts
+function memoSealedBid(memoHex) {
+  try {
+    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
+    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
+    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
+    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
+    return memo.subarray(7, 7 + length).toString("hex");
+  } catch {
+    return null;
+  }
+}
+
 // witness/index.ts
 import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
 var witnessSetHash = (packet) => hash(jsonBytes(packet));
@@ -16134,7 +16165,7 @@ function readBeacon(raw2, manifest) {
   return b2;
 }
 var settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
-function checkPublicAuction(pub) {
+function checkPublicAuction(pub, opts = {}) {
   const checks = [];
   const run2 = (id, fn) => {
     try {
@@ -16264,15 +16295,20 @@ function checkPublicAuction(pub) {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     for (const [i2, c2] of records.entries()) {
-      requireThat(c2 && typeof c2 === "object" && ["party", "destination_commit", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "destination_commit", "owner_sig", "memo_hex", "opening"].includes(k2)), `claim ${i2} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c2.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c2.party), `claim ${i2} party`);
-      requireThat(/^[0-9a-f]{64}$/.test(c2.destination_commit) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
+      requireThat(c2 && typeof c2 === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
+      requireThat(/^leaf:[0-9]+$/.test(c2.party) || isDepositParty(c2.party), `claim ${i2} party`);
+      requireThat(/^[0-9a-f]{64}$/.test(c2.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
       let owner = null;
       if (c2.party.startsWith("leaf:")) {
         const opening = pub.opened.find((o2) => o2.leaf_index === Number(c2.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
-      } else owner = typeof c2.opening === "string" && /^[0-9a-f]{256}$/.test(c2.opening) ? Buffer.from(c2.opening, "hex").subarray(61, 93).toString("hex") : null;
-      requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c2.party, destination_commit: c2.destination_commit }, c2.owner_sig), `claim ${i2} owner signature`);
+      } else {
+        requireThat(typeof c2.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c2.memo_hex) && memoSealedBid(c2.memo_hex) !== null, `claim ${i2} memo_hex`);
+        const derived = opts.claimOpenings?.get(i2), pt2 = derived ? Buffer.from(derived, "hex") : null;
+        requireThat(pt2 && pt2.length === 128 && pt2[0] === 0 && pt2.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i2} memo opening`);
+        owner = pt2.subarray(61, 93).toString("hex");
+      }
+      requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c2.party, claim_envelope_sha256: c2.claim_envelope_sha256 }, c2.owner_sig), `claim ${i2} owner signature`);
     }
     for (const row of rows) {
       if (!receipts.some((r2) => r2.party === row.party)) continue;
@@ -16337,11 +16373,12 @@ function checkPublicAuction(pub) {
     const rows = pub.settlement.rows ?? [];
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : /* @__PURE__ */ new Map();
     const stray = (party) => {
-      requireThat(/^deposit:[0-9a-f]{64}:.+$/.test(party), `party ${party} is neither a result obligation nor a stray deposit`);
+      requireThat(isDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     for (const r2 of receipts) {
       if (expected.has(r2.party)) continue;
       stray(r2.party);
+      requireThat(/^[1-9][0-9]*$/.test(r2.amount_zats), `stray ${r2.party} amount`);
       const row = rows.find((x2) => x2.party === r2.party);
       requireThat(row, `stray receipt ${r2.party} without row`);
       requireThat(row.amount_zats === r2.amount_zats, `stray ${r2.party} amount`);
@@ -16349,6 +16386,7 @@ function checkPublicAuction(pub) {
     for (const row of rows) {
       if (expected.has(row.party)) continue;
       stray(row.party);
+      requireThat(/^[1-9][0-9]*$/.test(row.amount_zats), `stray ${row.party} amount`);
       const rs = receipts.filter((r2) => r2.party === row.party);
       if (row.state === "exception") requireThat(rs.length === 0, `stray ${row.party} exception row with receipt`);
       else {
@@ -16356,6 +16394,19 @@ function checkPublicAuction(pub) {
         requireThat(rs.length === 1, `duplicate stray ${row.party}`);
         requireThat(rs[0].amount_zats === row.amount_zats, `stray ${row.party} amount`);
       }
+    }
+    const ignored = pub.settlement.ignored ?? [];
+    for (const [i2, ig] of ignored.entries()) {
+      requireThat(ig && typeof ig === "object" && Object.keys(ig).sort().join(",") === "amount_zats,party", `ignored ${i2} shape`);
+      requireThat(isDepositParty(ig.party), `ignored ${i2} party`);
+      requireThat(ig.amount_zats === "0", `ignored ${i2} amount`);
+    }
+    requireThat(new Set(ignored.map((i2) => i2.party)).size === ignored.length, "duplicate ignored zero-value note");
+    for (const ig of ignored) {
+      requireThat(
+        !rows.some((r2) => r2.party === ig.party) && !receipts.some((r2) => r2.party === ig.party),
+        `ignored zero-value note ${ig.party} paid`
+      );
     }
   });
   return checks;
@@ -16459,18 +16510,17 @@ async function decryptPublished(ciphertextHex, client2) {
     console.log = log;
   }
 }
-
-// settle/envelopes.ts
-function memoSealedBid(memoHex) {
-  try {
-    if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
-    const memo = Buffer.from(memoHex, "hex"), length = memo.readUInt16BE(5);
-    if (!memo.subarray(0, 5).equals(Buffer.from("ff424e5a01", "hex")) || length <= 0 || length > 505) return null;
-    if (!memo.subarray(7 + length).equals(Buffer.alloc(505 - length))) return null;
-    return memo.subarray(7, 7 + length).toString("hex");
-  } catch {
-    return null;
+async function deriveClaimOpenings(claims, beacon) {
+  const openings = /* @__PURE__ */ new Map();
+  if (!claims.length || !claims.some((c2) => c2.party?.startsWith("deposit:"))) return openings;
+  requireThat(beacon, "claims require the published beacon");
+  const local = publishedClient(beacon);
+  for (const [i2, c2] of claims.entries()) {
+    if (!c2.party.startsWith("deposit:")) continue;
+    const ct2 = typeof c2.memo_hex === "string" ? memoSealedBid(c2.memo_hex) : null;
+    openings.set(i2, ct2 ? await decryptPublished(ct2, local) : null);
   }
+  return openings;
 }
 
 // cli/commands/verify.ts
@@ -16535,10 +16585,7 @@ async function run(argv) {
       }
     }
     pub.opened = derived;
-    for (const c2 of pub.claims ?? []) if (c2.memo_hex) {
-      const ct2 = memoSealedBid(c2.memo_hex);
-      c2.opening = ct2 ? await decryptPublished(ct2, local) : null;
-    }
+    const claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
     if (pub.manifest.sealed_reserve !== void 0) {
       const reserve = await decryptPublished(pub.manifest.sealed_reserve, local);
       requireReserveOpening(
@@ -16585,7 +16632,7 @@ async function run(argv) {
         }
       }
     }
-    const checks = checkPublicAuction(pub);
+    const checks = checkPublicAuction(pub, { claimOpenings });
     let failed = false;
     for (const c2 of checks) {
       if (c2.warn) process.stderr.write(`WARN ${c2.warn}
