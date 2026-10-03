@@ -1,0 +1,18 @@
+diff --git a/api/public-auction.ts b/api/public-auction.ts
+index d70dca1..7f32e9c 100644
+--- a/api/public-auction.ts
++++ b/api/public-auction.ts
+@@ -290,12 +290,8 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
+   // row that was never paid to an unauthenticated destination — anything else refuses.
+   run("envelope", () => {
+     const records = pub.envelopes;
++    if (!records.length) return projection("envelope.json", null);
+     const frozen = pub.frozen;
+-    // R15 item 1 (R F4): when the manifest pins envelope_keys the leaf state machine runs for EVERY frozen
+-    // leaf even when zero envelope records are published (recordless bids are admitted legally), so a row or
+-    // receipt that misstates a leaf can never hide behind an omitted envelope.json. Dirs from before envelopes
+-    // (no pinned keys, no records) keep the old reading and stay verifiable.
+-    if (!records.length && !(frozen && pub.manifest.envelope_keys)) return projection("envelope.json", null);
+     requireThat(frozen, "missing frozen");
+     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
+     // R15 item 2 (R F5): only a result-obligation-bearing leaf needs a row. The clear puts a leaf in the

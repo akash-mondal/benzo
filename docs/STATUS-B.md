@@ -5,12 +5,54 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Current run: head task — R14 item 3 finish (closes + redeploy + live cycle), R15 items 1–2, R16 item 2
 
-State: **IN PROGRESS, run 23** (head task: finish R14 item 3 per the head unblock, then R15 items 1–2,
-R16 item 2). Items 1, 2, 4, 5 of R14 landed with red/green proof in run 22; item 3's three SUPERSEDED
-programs are **closed** (txids below, `docs/AUDITS.md`) and the redeploy + live cycle is running.
-Run 22 record kept below the current work. Commits: `bd48e7e` (item 1), `c7c417c` (item 2),
-`e678654` (items 1–2 evidence), `319a09c` (item 4), `517d4bf` (item 4 evidence), `c3ad712` (item 5),
-`7a31c05` (run 22 STATUS + docs/AUDITS.md custom-code row).
+State: **IN PROGRESS, run 23** (head task, four items: (1) R15 item 1 **DONE** with red/green proof,
+(2) R15 item 2 **DONE** with red/green proof, (3) R16 item 2 in progress, (4) rebuild + typecheck + builds +
+`npm run e2e` pending). R14 item 3 was finished first per the head unblock (record under “R14 item 3”
+below). No mainnet; no other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.
+
+### Run 23 work (head task items)
+
+1. **R15 item 1 (P2), verify runs the leaf state machine with zero envelope records; stranger parties
+   ERROR: DONE** (`09777ef`, prerequisite fix `548b16d`). `api/public-auction.ts`: (a) the envelope run's
+   state machine covers every frozen leaf whenever the manifest pins `envelope_keys`, even with zero
+   published records — recordless bids are admitted legally, so a lying settlement could hide behind an
+   omitted `envelope.json` (R F4); pre-Phase-5 dirs (no pinned keys, no records) keep the old reading.
+   (b) `accounting-strays` checks every settlement row/receipt party against the recomputed obligations or
+   the stray-deposit rule whenever a settlement is published, not only when a result exists (the CANCELLED
+   path refunds deposits only). Prerequisite `548b16d`: the merged R13 claims check misclassified pre-W
+   rows as claim-paid and broke Phase 3 evidence (`ERROR claims refused: claim-paid row leaf:0 without a
+   published claim`); the claim requirement now applies only where the manifest pins `envelope_keys` — R13
+   proves *claim-paid* rows, and pre-W dirs have no claim path. **Note for the head:** this loop is R16 F2's
+   area (Track A item 3); my gate is the pre-W half, A's seller/fee half is still owed.
+
+   **Red/green** — `tools/repro/r15-verify-leaves-repro.mjs` (fresh two-leaf corpora over real tlock
+   ciphertexts from the pinned Go `tle`, fresh keys, a real authenticated quicknet beacon; the leaf-0-wins-
+   at-price-C clearing gives the exact F5 split: leaf 0 refund 0, leaf 1 refund C):
+
+   | output | run at | result |
+   |---|---|---|
+   | `docs/evidence/phase-5/repro/r15-verify-leaves.out` | clean tree at `e1b55da` (2026-10-03T01:34Z) | exit 0 — PASS r15-machine-runs-without-records, r15-zero-refund-needs-no-row, r15-strangers-refused, r15-phase2-4 |
+   | `docs/evidence/phase-5/mutations/R15-F4a.out` | clean `e1b55da` + `R15-F4a.patch` (restores `if (!records.length) return`) | exit 1 — `ERROR r15-machine-runs-without-records got exit 0: no ERROR line` (the expected assertion ID; the rowless receipt was accepted) |
+   | `docs/evidence/phase-5/mutations/R15-F4b.out` | clean `e1b55da` + `R15-F4b.patch` (restores the `!pub.result` skip) | exit 1 — `ERROR r15-strangers-refused stranger parties accepted` (the expected assertion ID) |
+   | `docs/evidence/phase-5/mutations/R16-F2a.out` | clean `e1b55da` + `R16-F2a.patch` (removes the pre-W claims gate) | exit 1 — `ERROR r15-phase2-4 phase-3 exit 1 … claim-paid row leaf:0 without a published claim` (the expected assertion ID) |
+
+   The machine's unique catch (why clause (a) is not redundant with `accounting`): a receipt-backed
+   obligation with **no row at all** passes accounting's obligation pass (it takes a receipt without a row)
+   and the claims pass (which walks rows only) — only the leaf state machine demands the row. The
+   `r15-machine-runs-without-records` corpus is exactly that lying record. `git apply` → run → `git apply -R`
+   leaves `git status --porcelain` showing only the mutation files.
+
+2. **R15 item 2 (P2), a zero-refund leaf with no envelope record needs no row: DONE** (`46cb705`).
+   `settleable()` no-ops for a leaf the recomputed result owes nothing — the clear omits zero-refund leaves
+   from the obligations map (`clear/core.ts` `owed > 0n`) and `settle/ledger.ts` refuses zero-amount rows,
+   so the row-free state is correct and "missing row" for it was a false error (R F5). Without a result
+   there are no result obligations at all, so the machine demands no row there either. Unsettled dirs keep
+   the exception-queue warning for obligated leaves.
+   **Red** — `docs/evidence/phase-5/mutations/R15-F5.out`: clean `e1b55da` + `R15-F5.patch` (removes the
+   no-op guard) → exit 1 `ERROR r15-zero-refund-needs-no-row … ERROR envelope refused: missing envelope 0:
+   missing row` (the expected assertion ID — exactly R's false-error probe). **Green** — the same check PASS
+   in `docs/evidence/phase-5/repro/r15-verify-leaves.out` (with the exact expected warn `missing envelope 1;
+   in the exception queue` asserted).
 Run 23 base: clean tree at `92ac035` (head: Merge branch 'main' into track-b, bringing R15/R16 and A's
 R7 batch; R15/R16 in `docs/PHASE-5.md`, head commits `c1f7d2e` + `c4584c7`). No mainnet; no
 other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin changes.

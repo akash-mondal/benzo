@@ -1,0 +1,12 @@
+diff --git a/api/public-auction.ts b/api/public-auction.ts
+index d70dca1..2907003 100644
+--- a/api/public-auction.ts
++++ b/api/public-auction.ts
+@@ -306,7 +306,6 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
+     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : null;
+     const settleable = (leaf: number, reason: string): string | void => {
+       const party = `leaf:${leaf}`;
+-      if (!expected || !expected.has(party)) return undefined;
+       if (!pub.settlement) return `${reason} ${leaf}; refund goes to the exception queue`;
+       const row = rows.find(r => r.party === party);
+       requireThat(row, `${reason} ${leaf}: missing row`);
