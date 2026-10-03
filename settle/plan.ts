@@ -37,7 +37,10 @@ try {
   const src=published??auction;
   const {manifest:m,manifest_hash}=client(src.manifest,src.signer);
   // R10 item 3: each signer requires the manifest to pin ITS OWN envelope key at its own index.
-  for(const name of ["alice","bob","carol"])requireOwnEnvelopeKey(m,name,state);
+  // R16 item 5: a signer whose key file is missing cannot act at all.
+  let signerKeysPresent=0;
+  for(const name of ["alice","bob","carol"]) {requireOwnEnvelopeKey(m,name,state);if(existsSync(path.join(state,"signers",name,"envelope-key.json")))signerKeysPresent++}
+  requireThat(signerKeysPresent>0,"signer envelope key missing");
   // R8 G10 (design §5): a manifest carrying witness_set_hash refuses without a valid q_w certificate over the
   // frozen statement — a refusal on the signer path, never a WARN.
   if(published&&m.witness_set_hash!==undefined) {
@@ -144,11 +147,12 @@ try {
     const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
     if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
       try {
-        requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.destination_ua==="string"&&/^[0-9a-f]{64}$/.test(request.destination_sha256??"")&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
-        // R13: the signed body carries only the destination's SHA-256; the full destination must hash to it.
-        requireThat(request.destination_sha256===hash(Buffer.from(request.destination_ua,"utf8")),"claim destination hash");
+        requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.destination_ua==="string"&&/^[0-9a-f]{64}$/.test(request.destination_commit??"")&&/^[0-9a-f]{64}$/.test(request.salt??"")&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
+        // R15 item 3 / R17 item 1: the signed body carries only the salted destination commitment; the full
+        // destination in the private request must hash to it.
+        requireThat(request.destination_commit===hash(Buffer.concat([Buffer.from(request.salt,"hex"),Buffer.from(request.destination_ua,"utf8")])),"claim destination commit");
         requireShieldedDestination(request.destination_ua);
-        const body={kind:"claim-refund",auction_id:id,party:request.party,destination_sha256:request.destination_sha256};
+        const body={kind:"claim-refund",auction_id:id,party:request.party,destination_commit:request.destination_commit};
         const owner=ownerKeyFor(request.party);
         requireThat(owner&&verifyStatement(owner!,body,request.owner_sig),"claim owner signature");
         // R11/R13: the first claim whose owner signature verifies is the one used — and later published.
@@ -156,7 +160,7 @@ try {
           claimDestinations[request.party]=request.destination_ua;
           const cm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(request.party);
           const note=cm?depositNotes.find(n=>n.txid===cm[1]&&String(n.diversifier_index)===cm[2]):undefined;
-          claimsUsed.push({party:request.party,destination_sha256:request.destination_sha256,owner_sig:request.owner_sig,...(note?.memo_hex?{memo_hex:note.memo_hex}:{})});
+          claimsUsed.push({party:request.party,destination_commit:request.destination_commit,owner_sig:request.owner_sig,...(note?.memo_hex?{memo_hex:note.memo_hex}:{})});
         }
       } catch(e) {claimFailures[request.party]=(e as Error).message}
     }
