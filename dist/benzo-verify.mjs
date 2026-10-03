@@ -16287,9 +16287,9 @@ function checkPublicAuction(pub, opts = {}) {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     for (const [i2, c2] of records.entries()) {
-      requireThat(c2 && typeof c2 === "object" && ["party", "destination_commit", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "destination_commit", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
+      requireThat(c2 && typeof c2 === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c2.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c2.party), `claim ${i2} party`);
-      requireThat(/^[0-9a-f]{64}$/.test(c2.destination_commit) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
+      requireThat(/^[0-9a-f]{64}$/.test(c2.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
       let owner = null;
       if (c2.party.startsWith("leaf:")) {
         const opening = pub.opened.find((o2) => o2.leaf_index === Number(c2.party.slice(5)));
@@ -16300,7 +16300,7 @@ function checkPublicAuction(pub, opts = {}) {
         requireThat(pt2 && pt2.length === 128 && pt2[0] === 0 && pt2.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i2} memo opening`);
         owner = pt2.subarray(61, 93).toString("hex");
       }
-      requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c2.party, destination_commit: c2.destination_commit }, c2.owner_sig), `claim ${i2} owner signature`);
+      requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c2.party, claim_envelope_sha256: c2.claim_envelope_sha256 }, c2.owner_sig), `claim ${i2} owner signature`);
     }
     for (const row of rows) {
       if (!receipts.some((r2) => r2.party === row.party)) continue;
