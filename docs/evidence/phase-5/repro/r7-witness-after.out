@@ -1,0 +1,14 @@
+commit 6109fa3 (fix applied; live dev auction 90… no — dev3 ed382fb437b0eb5770df769d66a492a0bd8c1d964761c06c157c97b76756438e, frozen root 2de8636155708adb4fecbf0d22bb89b106293f6c89128a5d8f25d886be0fb0b7)
+utc 2026-10-03T00:19:35Z
+command node tools/repro/r7-witness-repro.mjs <dev3 auction id>
+completion (same run, after the drand round): bin/benzo open ok, bin/benzo clear ok, bin/benzo verify on the published dir -> 12 OK checks, no ERROR/WARN lines.
+setup log records 'published; doc.witness_set present: yes' (the W3 flip at publish).
+published witness_set: present; witness_cert entries: 0
+W2 signer plan without certificates: exit 1 ERROR settle refused: missing certificate
+W3 benzo open without certificates: exit 1 ERROR benzo refused: missing certificate
+W1 witness 0 sign on the product dir: exit 0
+W1 witness 1 sign on the product dir: exit 0
+published witness_cert entries after sign: 2
+W2 signer plan with certificates: exit 1 ERROR settle refused: settlement requires cleared result
+W3 benzo open with certificates: exit 1 ERROR benzo refused: ERROR auction refused: opening state/release
+W4 benzo witness verify: exit 0 (no error lines)
