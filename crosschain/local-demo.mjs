@@ -290,6 +290,25 @@ async function main() {
         { input: JSON.stringify({ ...input, deliver: { chain: "evm", kind: "railgun", to: "0zk" + "x".repeat(124) } }), encoding: "utf8", maxBuffer: 64 << 20 });
     } catch (e) { railgunErr = `${e.stderr ?? ""}${e.stdout ?? ""}`; }
     check("demo-bid-seal-railgun-refused", /not supported/.test(railgunErr), `no "not supported" refusal: ${railgunErr.slice(0, 160)}`);
+    // R25 item 4: EVM addresses are accepted in any case and normalised (getAddress) at `bid seal`;
+    // a mixed-case address must pass the EIP-55 checksum — refused for the bidder, never at settlement
+    let normOut = "", normErr = "";
+    try {
+      normOut = execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "bid", "seal", "--manifest", sealManifestFile, "--signer", signerHex],
+        { input: JSON.stringify({ ...input, deliver: { ...delivers[0], to: r1.toLowerCase() } }), encoding: "utf8", maxBuffer: 64 << 20 });
+    } catch (e) { normErr = `${e.stderr ?? ""}${e.stdout ?? ""}`; }
+    let normTo = "";
+    if (normOut) normTo = envmod.openEnvelopePayload(JSON.parse(normOut.slice(normOut.indexOf("{"))).envelope_ct_hex, envelopeKeys[1].private_hex).deliver?.to ?? "";
+    // the EIP-55 spec example with one letter's case flipped — deterministically a broken checksum
+    const mixedBad = "0x5AAeb6053F3E94C9b9A09f33669435E7Ef1BeAed";
+    let badErr = "";
+    try {
+      execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "bid", "seal", "--manifest", sealManifestFile, "--signer", signerHex],
+        { input: JSON.stringify({ ...input, deliver: { ...delivers[0], to: mixedBad } }), encoding: "utf8", maxBuffer: 64 << 20 });
+    } catch (e) { badErr = `${e.stderr ?? ""}${e.stdout ?? ""}`; }
+    check("demo-bid-seal-evm-case",
+      normTo === r1 && /checksum/i.test(badErr),
+      `lowercase sealed as ${normTo || normErr.slice(0, 120)}; mixed-case bad checksum: ${badErr ? `refused (${badErr.slice(0, 100)})` : "ACCEPTED"}`);
   }
 
   // ---- the published auction directory (R21: attest derives its own openings from this) ----

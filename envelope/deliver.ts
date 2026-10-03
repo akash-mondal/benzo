@@ -14,9 +14,10 @@
 // SHA-256(deliver) and mixed into the stealth ephemeral-key KDF, so only parties who open the envelope
 // can derive a winner's one-time stealth address; guessing the meta-address never links a payout.
 // Encodings are decoded with pinned libraries (@scure/base: base58 + bech32m, the same bech32m the
-// Railgun engine uses; @noble/hashes keccak for EIP-55), never hand-rolled checksums.
-import { keccak_256 } from "@noble/hashes/sha3";
+// Railgun engine uses; ethers `getAddress` for EIP-55 — R25 item 4: accepted in any case, normalised
+// to the checksummed form, mixed case must pass the checksum), never hand-rolled checksums.
 import { bech32m, base58 } from "@scure/base";
+import { getAddress } from "ethers";
 import { createHash } from "node:crypto";
 import { canonical, requireThat } from "../manifest/schema";
 
@@ -45,12 +46,6 @@ export function deliverSha256(d: Deliver): string {
 }
 
 const HEX32 = /^[0-9a-f]{64}$/;
-function eip55(lowerHex40: string): string {
-  const h = Buffer.from(keccak_256(Buffer.from(lowerHex40, "ascii"))).toString("hex");
-  let out = "0x";
-  for (let i = 0; i < lowerHex40.length; i++) out += parseInt(h[i], 16) >= 8 ? lowerHex40[i].toUpperCase() : lowerHex40[i];
-  return out;
-}
 
 // Validate (and return unchanged) a deliver that crossed a trust boundary (opened envelope payload).
 // Throws `refused: …` on anything malformed — the attest layer classifies the throw into the chain's
@@ -90,8 +85,12 @@ export function requireDeliver(v: unknown): Deliver {
 
   requireThat(kind === "address" || kind === "railgun" || kind === "stealth", "evm deliver.kind must be address, railgun or stealth");
   if (kind === "address") {
-    requireThat(/^0x[0-9a-fA-F]{40}$/.test(to) && to === eip55(to.toLowerCase().slice(2)), "deliver.to must be an EIP-55 checksummed EVM address");
-    return { chain, kind, to, salt: d.salt as string };
+    // R25 item 4: accepted in any case and normalised with ethers getAddress; a mixed-case address
+    // must pass the EIP-55 checksum (getAddress refuses otherwise). `bid seal` runs this at sealing.
+    requireThat(/^0x[0-9a-fA-F]{40}$/.test(to), "deliver.to must be a 20-byte hex EVM address");
+    let norm: string;
+    try { norm = getAddress(to); } catch { requireThat(false, "deliver.to must pass the EIP-55 checksum when mixed case"); norm = ""; }
+    return { chain, kind, to: norm, salt: d.salt as string };
   }
   if (kind === "railgun") {
     // Railgun 0zk address: bech32m (HRP "0zk", 127 chars) over a 73-byte payload
