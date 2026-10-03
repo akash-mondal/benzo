@@ -42,8 +42,13 @@ try {
   // R10 item 3: each signer requires the manifest to pin ITS OWN envelope key at its own index.
   // R16 item 5: a signer whose key file is missing cannot act at all.
   let signerKeysPresent=0;
-  for(const name of ["alice","bob","carol"]) {requireOwnEnvelopeKey(m,name,state);if(existsSync(path.join(state,"signers",name,"envelope-key.json")))signerKeysPresent++}
-  requireThat(signerKeysPresent>0,"signer envelope key missing");
+  // §11: under host custody the signers' envelope keys live on their hosts and each host checks its own pin in
+  // `benzo sign approve`; this coordinator-side plan holds none.
+  const hostCustody=existsSync(path.join(state,"vaults",id,"keys.json"));
+  if(!hostCustody) {
+    for(const name of ["alice","bob","carol"]) {requireOwnEnvelopeKey(m,name,state);if(existsSync(path.join(state,"signers",name,"envelope-key.json")))signerKeysPresent++}
+    requireThat(signerKeysPresent>0,"signer envelope key missing");
+  }
   // R8 G10 (design §5): a manifest carrying witness_set_hash refuses without a valid q_w certificate over the
   // frozen statement — a refusal on the signer path, never a WARN. A cancelled-before-freeze auction has no
   // frozen root to witness (benzo verify's witness rule is the same: no root, no witness material), so the

@@ -1,5 +1,6 @@
 // CLI coordinator. Signer routing is private, pinned before funding; no recipient input is accepted at run/sign time.
-import {existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,writeFileSync} from "node:fs";
+import {copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,writeFileSync} from "node:fs";
+import {spawnSync} from "node:child_process";
 import path from "node:path";
 import {client,hash,jsonBytes,requireThat} from "../manifest/schema";
 import {Ledger,type Row} from "./ledger";
@@ -101,6 +102,49 @@ function guard(metadata:any,tip:number) {
   // Published testnet height in ZIP 214; expiry must not straddle the next consensus branch.
   requireThat(!(tip<4465026&&metadata.expiry_height>=4465026),"PCZT expiry reaches NU7 activation; refusing create/broadcast");
 }
+// §11 H3/H4 (host custody): build the batch packet, have each preferred signer host approve it from its own data,
+// sign with two approving hosts, and on a mid-session failure (the kill drill) record the abandoned session and
+// re-plan the SAME batch with the next host that approves. A host that failed is not asked again for this batch.
+async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {
+  const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
+  const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
+  const packet=file(`packet-${batchId}`);
+  run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
+  copyFileSync(proven,path.join(packet,"candidate.pczt"));
+  if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer}),{mode:0o600});
+  const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
+  const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
+  const failed=new Set<string>(),events:any[]=[];
+  const approve=(n:string):boolean=>{
+    const remote=`packet-${id.slice(0,16)}-${batchId}`;
+    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{encoding:"utf8"});
+    if(r.status!==0){events.push({signer:n,approve:"unreachable"});return false}
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`]);
+    const a=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8"});
+    events.push({signer:n,approve:a.status===0?"approved":"refused",detail:a.status===0?undefined:(a.stderr||"").trim().slice(-200)});
+    if(a.status!==0)console.error(`ERROR signer ${n} refused batch ${batchId}: ${(a.stderr||"").trim().slice(-200)}`);
+    return a.status===0;
+  };
+  for(let attempt=1;attempt<=3;attempt++) {
+    const pair:string[]=[];
+    for(const n of prefer){if(pair.length===2)break;if(failed.has(n))continue;if(approve(n))pair.push(n);else failed.add(n)}
+    requireThat(pair.length===2,`fewer than two signer hosts approve batch ${batchId}`);
+    try {
+      const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server});
+      writeFileSync(file(`batch-${batchId}.custody.json`),jsonBytes({pair,events,attempts:attempt}),{mode:0o600});
+      return signing;
+    } catch(e) {
+      const lost=(e as any).failedSigners??[];
+      events.push({abandoned_session:{pair,failed:lost,reason:String((e as Error).message).slice(0,200)}});
+      console.error(`ERROR signing session abandoned (batch ${batchId}, pair ${pair.join("+")}, failed ${lost.join(",")||"?"}); re-planning with the next approving host`);
+      for(const n of lost)failed.add(n);
+      if(!lost.length)throw e;
+    }
+  }
+  throw Error(`batch ${batchId} could not be signed by two hosts`);
+}
 async function worker(ledger:Ledger) {
   const plan=monetary(id);
   for(const r of plan.refusals??[])console.error(`ERROR refund ${r.party} to the exception queue: ${r.reason}`);
@@ -123,7 +167,8 @@ async function worker(ledger:Ledger) {
       run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
       const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
       await prove(created,proven);
-      const signing=await zcashSign(proven,signed,(name,randomizer,sighash)=> {
+      const custodyKeys=path.join(STATE,"vaults",id,"keys.json");
+      const signing=existsSync(custodyKeys)?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
         const approved=JSON.parse(run(process.execPath,existsSync(path.join(STATE,"product",`${id}.json`))?[path.join(ROOT,"cli/dist/benzo.mjs"),"sign","inspect","--id",id,"--batch",String(batch!.id),"--candidate",proven,"--name",name,"--randomizer",randomizer,"--sighash",sighash]:[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer,sighash]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
       },settings().signers,existsSync(path.join(STATE,"product",`${id}.json`))?id:undefined,batch.id);
       writeFileSync(base+".signatures.json",jsonBytes(signing),{mode:0o600});

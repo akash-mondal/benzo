@@ -1,25 +1,26 @@
 // benzo witness sign|verify — gate X witness certificates: a witness key co-signs the frozen statement, and the
 // public dir's certificates are checked q_w-of-n_w against the signed manifest's witness set.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { hash, requireThat, verifyRecord } from "../../manifest/schema";
 import { loadPublicAuction } from "../../api/public-auction";
 import { depositParty, strayNotes } from "../../settle/deposits";
-import { checkCertificates, freezeStatement, signStatement, signStrays, straysStatementBytes, validateWitnessSet, witnessSetHash, type StraysEntry, type WitnessCert, type WitnessSet } from "../../witness";
+import { checkCertificates, freezeStatement, generateWitnessKey, signStatement, signStrays, straysStatementBytes, validateWitnessSet, witnessSetHash, type StraysEntry, type WitnessCert, type WitnessSet } from "../../witness";
 import { repoRoot } from "../../manifest/root";
 
 export const noun = "witness";
 export const verb = "";
 export const help = "benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness strays --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> --notes <scanner-output.jsonl> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate, sign the strays statement from this witness's own scan, or check the certificates";
 
-function argsOf(argv: string[]): { dir: string; signer: string; key: string; notes: string } {
-  const out = { dir: "", signer: "", key: "", notes: "" };
+function argsOf(argv: string[]): { dir: string; signer: string; key: string; notes: string; name: string } {
+  const out = { dir: "", signer: "", key: "", notes: "", name: "" };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--dir") out.dir = argv[++i] ?? "";
     else if (argv[i] === "--signer") out.signer = argv[++i] ?? "";
     else if (argv[i] === "--key") out.key = argv[++i] ?? "";
     else if (argv[i] === "--notes") out.notes = argv[++i] ?? "";
+    else if (argv[i] === "--name") out.name = argv[++i] ?? "";
     else throw new Error("usage");
   }
   return out;
@@ -29,6 +30,21 @@ const canonical = (v: any): string => Array.isArray(v) ? `[${v.map(canonical).jo
 
 export async function run(argv: string[]): Promise<number> {
   const mode = argv[0];
+  if (mode === "keygen") {
+    // §11 H5: a signer host generates its own witness key here; only the public half is printed (it goes into the
+    // signed witness set). The private half never leaves this machine's state dir.
+    try {
+      const o = argsOf(argv.slice(1));
+      requireThat(/^[a-z]{1,16}$/.test(o.name ?? ""), "--name");
+      const st = path.resolve(repoRoot(), process.env.BNZ_STATE_DIR ?? ".benzo"), f = path.join(st, "witness", `${o.name}.key`);
+      requireThat(!existsSync(f), "witness key already exists; refusing to replace it");
+      mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
+      const k = generateWitnessKey();
+      writeFileSync(f, k.private_hex, { mode: 0o600, flag: "wx" });
+      process.stdout.write(JSON.stringify({ name: o.name, public_hex: k.public_hex, key_file: f }) + "\n");
+      return 0;
+    } catch (e) { process.stderr.write(`ERROR witness keygen ${(e as Error).message}\n`); return 1; }
+  }
   if (argv.includes("--help") || !["sign", "strays", "verify"].includes(mode)) {
     process.stdout.write(help + "\n");
     return argv.includes("--help") ? 0 : 2;

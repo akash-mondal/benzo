@@ -1,6 +1,6 @@
 // Track A product state and CLI boundaries. Auction and settlement algorithms stay in their existing entry points.
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
-import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync} from 'node:fs';
+import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync,readdirSync} from 'node:fs';
 import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
@@ -85,7 +85,8 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(id,'--id required');const d=read(draft(id));
     // R10 item 3: every signer envelope-key file present locally must match the manifest's pin at its own
     // index (alice 0, bob 1, carol 2), so an operator cannot sign a manifest pinning keys it holds.
-    for(const name of ['alice','bob','carol'])requireOwnEnvelopeKey(d.manifest,name,STATE);
+    // §11: under host custody each host checks its own envelope-key pin in `benzo sign approve` instead.
+    if(!existsSync(path.join(STATE,'vaults',id,'keys.json')))for(const name of ['alice','bob','carol'])requireOwnEnvelopeKey(d.manifest,name,STATE);
     // Phase 5 part 1 §2 (gate Y): when this auction ran its own DKG (`benzo auction keys`), the manifest must pin
     // exactly that group key and escrow UA; a manifest reusing another key is refused before signing.
     const auctionKeys=path.join(STATE,'vaults',id,'keys.json');
@@ -201,7 +202,8 @@ export async function runCommand(command:string,args:string[]) {
     // envelope, to the DESTINATION HASH its own key opens (never the destination). R12 item 3: an envelope
     // this signer cannot open is reported ok:false; the report never throws and never aborts the others.
     requireThat(id&&['alice','bob','carol'].includes(o.name),'--id --name required');
-    const cfg=read(config(id)),doc=JSON.parse(readFileSync(path.join(path.resolve(cfg.public_dir),'auction.json'),'utf8'));
+    // §11 H5: on a signer host the report is computed from the pushed public dir and claims (--public/--claims).
+    const doc=JSON.parse(readFileSync(path.join(o.public?path.resolve(o.public):path.resolve(read(config(id)).public_dir),'auction.json'),'utf8'));
     const {manifest:m}=client(doc.manifest,doc.signer);
     const key=ownEnvelopePrivate(STATE,o.name);requireThat(key,'signer envelope key missing');
     const opens:{leaf:number|null;party:string;ok:boolean;dest_sha256:string|null}[]=[];
@@ -209,7 +211,7 @@ export async function runCommand(command:string,args:string[]) {
     // R15 item 3: a claimed row pays through its claim envelope, so the claim's opening report supersedes any
     // bid-envelope entry for the same party (the plan's two-signer gate counts one entry class per row).
     const claimed=new Set<string>();
-    const claimFile=path.join(STATE,'settle',id,'claims.json');
+    const claimFile=o.claims?path.resolve(o.claims):path.join(STATE,'settle',id,'claims.json');
     if(existsSync(claimFile))for(const c of JSON.parse(readFileSync(claimFile,'utf8'))) {
       claimed.add(c.party);
       const dest=open({envelope_ct:c.claim_envelope_ct});
@@ -287,6 +289,24 @@ export async function runCommand(command:string,args:string[]) {
   }
   if(command==='settle'||command==='cancel'||command==='sign join'||(command==='claim-refund'&&o.defer!=='true')) {
     requireThat(id,'--id required');
+    if(command==='sign join'&&o.name&&existsSync(path.join(STATE,'auctions',id,'frost.toml'))) {
+      // §11 H3 (host custody): this host signs only a message equal to a sighash IT approved (`benzo sign approve`),
+      // with this auction's own DKG share; the answer to frost-client's prompt is decided here, never by the caller.
+      requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.sighash??''),'signer/sighash');
+      const adir=path.join(STATE,'approvals',id);
+      const approved=(existsSync(adir)?readdirSync(adir):[]).map(f=>read(path.join(adir,f))).some((a:any)=>a.sighash===o.sighash&&a.name===o.name);
+      requireThat(approved,'no approval of this sighash on this signer');
+      const server=o.server??process.env.BNZ_FROSTD_HOST??'host.orb.internal:2744';
+      const cfg=path.join(STATE,'auctions',id,'frost.toml'),group=readFileSync(path.join(STATE,'auctions',id,'group-key.txt'),'utf8').trim();
+      await new Promise<void>((resolve,reject)=>{
+        const p=spawn(bin('frost-client'),['participant','-c',cfg,'-s',server,'-g',group],{stdio:['pipe','pipe','pipe'],env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});
+        let out='',answered=false;
+        const watch=(d:Buffer)=>{out+=d;process.stdout.write(d);const m=out.match(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/);
+          if(!answered&&m&&/Do you want to sign it\? \(y\/n\)/.test(out)){answered=true;p.stdin!.end(m[1]===o.sighash?'y\n':'n\n');if(m[1]!==o.sighash)process.stderr.write(`ERROR sign join message ${m[1].slice(0,16)}… is not the approved sighash; refused\n`)}};
+        p.stdout!.on('data',watch);p.stderr!.on('data',(d:Buffer)=>{process.stderr.write(d);watch(d)});
+        p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
+      return;
+    }
     if(command==='sign join'&&o.name) {
       requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.randomizer),'signer/randomizer');
       requireThat(o.batch&&o.candidate&&o.randomizer&&o.sighash,'--batch --candidate --randomizer --sighash required');
