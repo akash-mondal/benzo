@@ -31,13 +31,20 @@ const ledgerBytes = readFileSync(ledgerFile), publicBytes = readFileSync(publicF
 const ledger = JSON.parse(ledgerBytes.toString("utf8")), published = JSON.parse(publicBytes.toString("utf8"));
 const leaf0 = published.frozen.leaves[0];
 
-// Intake-shape helper (R7 item 3): a malformed record must be refused at intake, not at settlement.
+// The one shared published-record rule (R12 item 1, probed here per R15 item 4): intake (clear/auction-cli.ts
+// admit), settlement (settle/envelopes.ts validEnvelope) and `benzo verify` all use envelopeRecordValid from
+// envelope/ — the exact v2 n = 3 shape with the signed manifest's pinned envelope_keys as stanza recipients
+// in order, or the pre-v2 572-byte box only where the manifest pins none (the Phase 2–4 evidence).
 try {
-  const { envelopeRecordShape } = await import(path.join(ROOT, "settle/dist/envelopes.mjs"));
-  console.log(`intake shape check (odd-length ct): ${envelopeRecordShape("ababababc", "ab".repeat(64)) ? "ACCEPTED (malformed record can enter)" : "refused"}`);
-  console.log(`intake shape check (572-byte box):  ${envelopeRecordShape("ab".repeat(572), "ab".repeat(64)) ? "accepted" : "refused"}`);
+  const env = await import(path.join(ROOT, "envelope/dist/index.mjs"));
+  const keys = JSON.parse(Buffer.from(ledger.manifest.bytes, "base64").toString("utf8")).envelope_keys;
+  const own = (ledger.envelopes ?? [])[0] ?? { envelope_ct: "ab".repeat(572), owner_sig: "ab".repeat(64) };
+  console.log(`shared rule, pinned keys, malformed ct: ${env.envelopeRecordValid({ envelope_ct: "ababababc", owner_sig: "ab".repeat(64) }, keys) ? "ACCEPTED (malformed record can enter)" : "refused"}`);
+  console.log(`shared rule, pinned keys, this dir's own record: ${env.envelopeRecordValid(own, keys) ? "accepted" : "refused (pre-v2 record with pinned keys)"}`);
+  console.log(`shared rule, no pinned keys, the same record: ${env.envelopeRecordValid(own, undefined) ? "accepted (Phase 2-4 evidence reading)" : "refused"}`);
+  console.log(`shared rule, short owner_sig: ${env.envelopeRecordValid({ ...own, owner_sig: "ab".repeat(32) }, keys) ? "ACCEPTED" : "refused"}`);
 } catch {
-  console.log("intake shape check: shipped helper absent (intake regex is inline in clear/auction-cli.ts)");
+  console.log("shared rule: envelope/dist bundle absent — run npm run build:core");
 }
 
 // Case A: malformed record for leaf 0, self-consistently in both documents.

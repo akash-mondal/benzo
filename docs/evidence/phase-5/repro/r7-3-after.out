@@ -1,10 +1,13 @@
-commit 27ee4b3 (fix applied; same live auction state, both documents restored after each run)
-utc 2026-10-02T19:16:43Z
-command node tools/repro/r7-3-exception-queue-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961
-intake shape check (odd-length ct): refused
-intake shape check (572-byte box):  accepted
+commit daedb51 tree (R15 item 4 rerun: the shared envelopeRecordValid rule probes + the exception-queue flip on the current code)
+utc 2026-10-03T05:21:56Z
+command node tools/repro/r7-3-exception-queue-repro.mjs 3bbfa50130665d5177c6fdcd19ebb610b47fcf2a8016c38a7a0b1a21b2a0801a
+note r7-3-before.out stands as the original fail-before record at commit 747252a; this rerun refreshes the after output (R15 item 4)
+shared rule, pinned keys, malformed ct: refused
+shared rule, pinned keys, this dir's own record: refused (pre-v2 record with pinned keys)
+shared rule, no pinned keys, the same record: accepted (Phase 2-4 evidence reading)
+shared rule, short owner_sig: refused
 plan exit 0
 obligations: ["seller"]
-exceptions: [{"party":"leaf:0","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:1","reason":"multi-recipient envelope format (design §4 [B]) not merged; operator-held keys are not used"},{"party":"leaf:2","reason":"no valid owner-signed settlement envelope"}]
+exceptions: [{"party":"leaf:0","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:1","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:2","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:3","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:4","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:5","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:6","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:7","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:8","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:9","reason":"no valid owner-signed settlement envelope"}]
 FIXED: the plan completed with leaf:0 in the exception queue (no valid owner-signed settlement envelope) while every other party stayed payable.
 restored both documents; outcome FIXED
