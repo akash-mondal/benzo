@@ -94,7 +94,7 @@ if (!dest.startsWith("utest1")) { console.error(`fresh bidder address unavailabl
 const request = JSON.parse(sh(path.join(ROOT, "bin/benzo"), ["claim-refund", "--id", id, "--party", party, "--destination", dest, "--owner-key-stdin"], ownerPrivate).out);
 const recorded = sh(path.join(ROOT, "bin/benzo"), ["claim-refund", "--id", id, "--defer"], JSON.stringify(request));
 console.log(`fresh claim for ${party} (deposit ${target.value_zats} zats): record-time check ${recorded.code === 0 ? "accepted" : `refused ${recorded.out.trim().slice(-120)}`}`);
-console.log(`owner-named destination recorded at record time: ${request.destination_commit === createHash("sha256").update(Buffer.concat([Buffer.from(request.salt, "hex"), Buffer.from(request.destination_ua, "utf8")])).digest("hex")}`);
+console.log(`claim request carries no plaintext destination (R15 item 3): ${!/utest1/.test(JSON.stringify(request)) && typeof request.claim_envelope_ct === "string"}`);
 
 // ---- C1: the shipped signer plan on the cancelled auction -----------------------------------------
 const planRun = sh(process.execPath, [path.join(ROOT, "settle/dist/plan.mjs"), id]);
@@ -106,11 +106,11 @@ if (planRun.code === 0) {
   console.log(`C1 obligations: ${JSON.stringify(plan.obligations.map((o) => o.party))}`);
   console.log(`C1 destinations: ${JSON.stringify(plan.destinations)}`);
   console.log(`C1 exceptions: ${JSON.stringify(plan.exceptions.map((o) => ({ party: o.party.slice(0, 34), reason: o.reason ?? null })))}`);
-  const claimed = plan.destinations?.[party];
-  if (claimed === undefined && plan.obligations.some((o) => o.party === party) && Object.keys(plan.destinations ?? {}).length === 0) {
+  const claimed = plan.claim_envelopes?.[party] ?? plan.destinations?.[party];
+  if (claimed === undefined && plan.obligations.some((o) => o.party === party) && Object.keys(plan.destinations ?? plan.claim_envelopes ?? {}).length === 0) {
     outcome = "CONFIRMED";
     console.log("CONFIRMED: the CANCELLED/REFUNDING branch ignores the owner-signed claim — every confirmed deposit lands in obligations with no destination, so a cancelled product auction can refund nothing.");
-  } else if (claimed === dest && plan.obligations.length === 1 && plan.exceptions.length > 0) {
+  } else if ((claimed === dest || claimed === request.claim_envelope_ct) && plan.obligations.length === 1 && plan.exceptions.length > 0) {
     outcome = "FIXED";
     console.log(`FIXED: the claimed deposit is payable to its owner-named destination and ${plan.exceptions.length} unresolvable deposits wait in the exception queue with their reasons — the batch proceeds.`);
   }

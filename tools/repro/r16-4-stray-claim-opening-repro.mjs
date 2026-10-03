@@ -69,15 +69,15 @@ rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
 cpSync(publicDir, dir, { recursive: true });
 const corpus = (claims) => { const d = { ...doc, claims }; delete d.settlement; return d; };
-const commit = /^[0-9a-f]{64}$/.test(stray.destination_commit ?? "") ? stray.destination_commit : randomBytes(32).toString("hex");
+const commit = /^[0-9a-f]{64}$/.test(stray.claim_envelope_sha256 ?? "") ? stray.claim_envelope_sha256 : randomBytes(32).toString("hex");
 {
   const owner = envelope.generateOwnerKey();
   const pt = Buffer.alloc(128, 0x42);
   pt[0] = 0;
   Buffer.from(auctionId, "hex").copy(pt, 1); // the layout the plan checks — the forgery mimics everything but the owner
   Buffer.from(owner.public_hex, "hex").copy(pt, 61);
-  const body = { kind: "claim-refund", auction_id: auctionId, party: stray.party, destination_commit: commit };
-  const forged = { party: stray.party, destination_commit: commit, owner_sig: envelope.signStatement(owner, body), opening: pt.toString("hex") };
+  const body = { kind: "claim-refund", auction_id: auctionId, party: stray.party, claim_envelope_sha256: commit };
+  const forged = { party: stray.party, claim_envelope_sha256: commit, owner_sig: envelope.signStatement(owner, body), opening: pt.toString("hex") };
   writeFileSync(path.join(dir, "auction.json"), JSON.stringify(corpus([forged])));
   const run = verify(dir);
   console.log(`L1 forged claim with operator-supplied opening: exit ${run.code} ${run.claimsLine} (${run.other} other check lines)`);
@@ -93,8 +93,8 @@ const commit = /^[0-9a-f]{64}$/.test(stray.destination_commit ?? "") ? stray.des
 // ---- L2: fail-closed on a corrupted signature ----------------------------------------------------
 {
   const owner = envelope.generateOwnerKey();
-  const body = { kind: "claim-refund", auction_id: auctionId, party: stray.party, destination_commit: commit };
-  const bad = { party: stray.party, destination_commit: commit, owner_sig: envelope.signStatement(owner, body), memo_hex: stray.memo_hex };
+  const body = { kind: "claim-refund", auction_id: auctionId, party: stray.party, claim_envelope_sha256: commit };
+  const bad = { party: stray.party, claim_envelope_sha256: commit, owner_sig: envelope.signStatement(owner, body), memo_hex: stray.memo_hex };
   bad.owner_sig = (bad.owner_sig[0] === "0" ? "1" : "0") + bad.owner_sig.slice(1);
   writeFileSync(path.join(dir, "auction.json"), JSON.stringify(corpus([bad])));
   const run = verify(dir);

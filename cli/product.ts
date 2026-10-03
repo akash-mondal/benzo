@@ -7,7 +7,7 @@ import http from 'node:http';
 import {chromium} from '@playwright/test';
 import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
-import {ownerPublic,signStatement} from '../envelope';
+import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes} from '../settle/io';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
@@ -46,7 +46,7 @@ export function publish(id:string) {
     // R13: the claims the signers actually used for paid rows are published (party, destination hash, owner
     // signature — never the destination) so anyone can check them against the openings.
     const paid=new Set<any>(read(path.join(sd,'receipts.json')).map((r:any)=>r.party));
-    const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,destination_commit:c.destination_commit,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
+    const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,claim_envelope_sha256:c.claim_envelope_sha256,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
     if(used.length)doc.claims=used;
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
@@ -198,14 +198,25 @@ export async function runCommand(command:string,args:string[]) {
     const key=ownEnvelopePrivate(STATE,o.name);requireThat(key,'signer envelope key missing');
     const opens:{leaf:number|null;party:string;ok:boolean;dest_sha256:string|null}[]=[];
     const open=(rec:any):string|null=>{try{return rec?openDestination(rec,key!):null}catch{return null}};
+    // R15 item 3: a claimed row pays through its claim envelope, so the claim's opening report supersedes any
+    // bid-envelope entry for the same party (the plan's two-signer gate counts one entry class per row).
+    const claimed=new Set<string>();
+    const claimFile=path.join(STATE,'settle',id,'claims.json');
+    if(existsSync(claimFile))for(const c of JSON.parse(readFileSync(claimFile,'utf8'))) {
+      claimed.add(c.party);
+      const dest=open({envelope_ct:c.claim_envelope_ct});
+      opens.push({leaf:null,party:c.party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
+    }
     for(const l of doc.frozen?.leaves??[]) {
+      const party=`leaf:${l.leaf_index}`;
+      if(claimed.has(party))continue;
       const dest=open((doc.envelopes??[]).find((e:any)=>e.ciphertext_hash===l.ciphertext_hash));
-      opens.push({leaf:l.leaf_index,party:`leaf:${l.leaf_index}`,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
+      opens.push({leaf:l.leaf_index,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
     for(const n of notes()) {
       if(!m.deposit_addresses.includes(n.address))continue;
       const party=`deposit:${n.txid}:${n.diversifier_index}`;
-      if((doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
+      if(claimed.has(party)||(doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
       // R20: only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
       // for a memo-less or v1 stray is not something this signer reports ok for.
       const dest=open(authenticatedMemoEnvelope(notes(),party,doc.manifest,doc.envelopes,bin('tle')));
@@ -221,20 +232,22 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(/^leaf:[0-9]+$/.test(o.party)||/^deposit:[0-9a-f]{64}:.+$/.test(o.party),'claim party');
     requireShieldedDestination(o.destination);
     const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
-    // R15 item 3 / R17 item 1 (the R13 destination hash was a real T2 leak): the signed body commits to the
-    // destination with a fresh owner-chosen salt — unlinkable to any candidate address without the salt — and
-    // the full destination travels only in the private request to the signers.
-    const salt=randomBytes(32).toString('hex');
-    const body={kind:'claim-refund',auction_id:id,party:o.party,destination_commit:hash(Buffer.concat([Buffer.from(salt,'hex'),Buffer.from(o.destination,'utf8')]))};
-    return {...body,salt,destination_ua:o.destination,owner_sig:signStatement(owner,body)};
+    // R15 item 3 (R F6 + head finding on R13): the destination is SEALED in a v2 envelope to the manifest's
+    // pinned signer keys — the plaintext destination and any destination hash never enter the request or the
+    // operator's view. The signed body carries only the claim envelope's hash.
+    const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
+    requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
+    const claim_envelope_ct=sealEnvelope(o.destination,m.envelope_keys!);
+    const body={kind:'claim-refund',auction_id:id,party:o.party,claim_envelope_sha256:hash(Buffer.from(claim_envelope_ct,'hex'))};
+    return {...body,claim_envelope_ct,owner_sig:signStatement(owner,body)};
   }
   if(command==='claim-refund') {
     // Operator side (R7 item 4 + R11): record the owner-signed request and settle what it promotes (the signer
     // plan verifies the owner signature against its own fresh opening). --defer records without settling.
     requireThat(id,'--id required');const request=input(o);
-    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.destination_ua==='string'&&/^[0-9a-f]{64}$/.test(request.destination_commit??'')&&/^[0-9a-f]{64}$/.test(request.salt??'')&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
-    requireShieldedDestination(request.destination_ua);
-    requireThat(request.destination_commit===hash(Buffer.concat([Buffer.from(request.salt,'hex'),Buffer.from(request.destination_ua,'utf8')])),'claim destination commit');
+    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||/^deposit:[0-9a-f]{64}:.+$/.test(request.party))&&typeof request.claim_envelope_ct==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
+    const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
+    requireThat(envelopeRecordValid({envelope_ct:request.claim_envelope_ct,owner_sig:request.owner_sig},m.envelope_keys),'claim envelope format');
     // R17 item 2: the owner signature is verified at record time with the same rule as the signer plan, and
     // only valid claims are recorded (first valid per party) — an unsigned claim can neither block the owner's
     // claim nor linger (the R11 cap is dropped).
@@ -252,7 +265,7 @@ export async function runCommand(command:string,args:string[]) {
       const pt=r.stdout;return Buffer.isBuffer(pt)&&pt.length===128?pt.subarray(61,93).toString('hex'):null;
     };
     const owner=ownerKeyFor(request.party);
-    requireThat(owner&&verifyStatement(owner!,{kind:'claim-refund',auction_id:id,party:request.party,destination_commit:request.destination_commit},request.owner_sig),'claim owner signature');
+    requireThat(owner&&verifyStatement(owner!,{kind:'claim-refund',auction_id:id,party:request.party,claim_envelope_sha256:hash(Buffer.from(request.claim_envelope_ct,'hex'))},request.owner_sig),'claim owner signature');
     const file=path.join(STATE,'settle',id,'claims.json'),claims=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):[];
     const old=claims.find((c:any)=>c.party===request.party);
     requireThat(!old||jsonBytes(old).equals(jsonBytes(request)),'a claim for this party is already recorded');
@@ -271,7 +284,12 @@ export async function runCommand(command:string,args:string[]) {
     if(command==='cancel'){ac('cancel',id);publish(id)}
     const p=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:'inherit'});
     await new Promise<void>((resolve,reject)=>{p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`settle exit ${c}`)))});
-    const a=read(ledger(id)),status=JSON.parse(sc('status',id));a.state=status.rows.some((r:any)=>r.state==='exception')?'SETTLING':command==='cancel'?'CANCELLED':'SETTLED';save(ledger(id),a);const pub=publish(id);return {auction_id:id,state:pub.state,settled:pub.settlement.receipts.length};
+    const a=read(ledger(id)),status=JSON.parse(sc('status',id));
+    // R16 item 1: a cancelled auction keeps its cancel states across repeated settles — exceptions stay
+    // REFUNDING (claimable after R) and a fully paid cancelled auction is CANCELLED — so the CANCELLED/
+    // REFUNDING branch keeps resolving it instead of falling into the cleared-path state machine.
+    const cancelled=['CANCELLED','REFUNDING'].includes(a.state)||command==='cancel';
+    a.state=cancelled?(status.rows.some((r:any)=>r.state==='exception')?'REFUNDING':'CANCELLED'):status.rows.some((r:any)=>r.state==='exception')?'SETTLING':'SETTLED';save(ledger(id),a);const pub=publish(id);return {auction_id:id,state:pub.state,settled:pub.settlement.receipts.length};
   }
   if(command==='sign inspect') {requireThat(['alice','bob','carol'].includes(o.name)&&(!o.randomizer||/^[0-9a-f]{64}$/.test(o.randomizer)),'signer/randomizer');requireThat(id&&o.batch&&o.candidate&&o.name,'--id --batch --candidate --name required');const approved=JSON.parse(sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']));if(o.randomizer)save(path.join(STATE,'settle',id,'approvals',o.name+'-'+o.randomizer+'.json'),approved);return approved}
   throw Error('unknown Track A command');

@@ -1,0 +1,6 @@
+commit 24bbba5 tree (R15 item 3 stashed; the salted-destination-commit request of R17)
+utc 2026-10-03T05:16:08Z
+command node tools/repro/r15-3-claim-envelope-repro.mjs
+L1 request fields: ["auction_id","destination_commit","destination_ua","kind","owner_sig","party","salt"]
+CONFIRMED: the claim request hands the operator the plaintext destination — the operator reads every destination and a candidate address's hash can be matched.
+outcome CONFIRMED

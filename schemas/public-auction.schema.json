@@ -103,6 +103,34 @@
           "$ref": "#/$defs/hash"
         }
       }
+    },
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "party",
+          "claim_envelope_sha256",
+          "owner_sig"
+        ],
+        "properties": {
+          "party": {
+            "type": "string"
+          },
+          "claim_envelope_sha256": {
+            "$ref": "#/$defs/hash"
+          },
+          "owner_sig": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{128}$"
+          },
+          "memo_hex": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{1024}$"
+          }
+        }
+      }
     }
   },
   "$defs": {
