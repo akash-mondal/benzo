@@ -48,10 +48,22 @@ export const pay = (uri: string) => {
 };
 export const send = (file: string) => lastTxid(pczt("vault", "send", "-s", LWD, file));
 
+// Head (2026-10-03, live run 10 died on one "error receiving data from backing node"): transient endpoint errors
+// (Internal, Unavailable, DeadlineExceeded, backend/connection failures) are retried 4 times with backoff;
+// NotFound and every other answer are returned or thrown unchanged.
+const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF/;
+function retryTransient<T>(f: () => T): T {
+  for (let attempt = 1; ; attempt++) {
+    try { return f(); } catch (e) {
+      if (attempt >= 4 || !TRANSIENT_GRPC.test(String((e as Error)?.message ?? e))) throw e;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000 * 2 ** (attempt - 1));
+    }
+  }
+}
 function grpc(endpoint: string, method: string, data?: object): any {
   const args = ["-import-path", path.join(STATE, "proto"), "-proto", "service.proto"];
   if (data) args.push("-d", JSON.stringify(data));
-  return JSON.parse(run(bin("grpcurl"), [...args, endpoint, `cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`]));
+  return JSON.parse(retryTransient(() => run(bin("grpcurl"), [...args, endpoint, `cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`])));
 }
 
 export const tip = (endpoint = LWD) => Number(grpc(endpoint, "GetLatestBlock").height);
