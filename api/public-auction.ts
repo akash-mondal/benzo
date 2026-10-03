@@ -55,7 +55,7 @@ export type PublicAuction = {
   // R13: the owner-signed claims the signers used for paid rows (party, destination commit, owner signature;
   // a stray entry carries the scanned deposit's memo ciphertext — the claim publishes it and every verifier
   // derives the owner key from it and the published beacon itself; there is no operator-supplied opening).
-  claims: { party: string; destination_commit: string; owner_sig: string; memo_hex?: string }[];
+  claims: { party: string; claim_envelope_sha256: string; owner_sig: string; memo_hex?: string }[];
   settlement: SettlementSummary | null;
   // Gate CF: the published opening of the manifest's tlock-sealed price bound (plaintext hex), present iff the
   // manifest carries `sealed_reserve`; benzo verify re-derives it with tle like the bid openings.
@@ -363,9 +363,9 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
     for (const [i, c] of records.entries()) {
-      requireThat(c && typeof c === "object" && ["party", "destination_commit", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "destination_commit", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
+      requireThat(c && typeof c === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c.party) || /^deposit:[0-9a-f]{64}:.+$/.test(c.party), `claim ${i} party`);
-      requireThat(/^[0-9a-f]{64}$/.test(c.destination_commit) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
+      requireThat(/^[0-9a-f]{64}$/.test(c.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
       let owner: string | null = null;
       if (c.party.startsWith("leaf:")) {
         const opening = pub.opened.find(o => o.leaf_index === Number(c.party.slice(5)));
@@ -379,7 +379,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         requireThat(pt && pt.length === 128 && pt[0] === 0 && pt.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i} memo opening`);
         owner = pt!.subarray(61, 93).toString("hex");
       }
-      requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, destination_commit: c.destination_commit }, c.owner_sig), `claim ${i} owner signature`);
+      requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, claim_envelope_sha256: c.claim_envelope_sha256 }, c.owner_sig), `claim ${i} owner signature`);
     }
     for (const row of rows) {
       if (!receipts.some(r => r.party === row.party)) continue;

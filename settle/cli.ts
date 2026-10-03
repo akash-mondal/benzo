@@ -5,14 +5,14 @@ import {client,hash,jsonBytes,requireThat} from "../manifest/schema";
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx} from "./io";
 import {pubkey,zcashSign} from "./sign";
-import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate} from "./envelopes";
+import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
 type ResolvedRow=Row&{recipient?:string;reason?:string};
-function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destinations?:Record<string,string>;envelope_agreed?:Record<string,string>}):ResolvedRow[] {
+function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envelopes?:Record<string,string>;envelope_agreed?:Record<string,string>}):ResolvedRow[] {
   const route=read(`routing-${name}.json`),observed=notes();
   requireThat(hash(jsonBytes(route))===read("routing-commitment.json").sha256,"signer routing changed after intake");
   // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
@@ -35,10 +35,15 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;destination
     // back with its reason and no recipient; the worker turns it into an exception row and the batch
     // proceeds with the rows that resolve.
     try {
-    // R7 item 4: a claim-promoted row's destination is the one named in the owner-signed request the signer
-    // plan verified against its own fresh opening; it is signer-derived, like every other destination here.
-    const claimed=plan.destinations?.[row.party];
-    if(claimed)return {...row,recipient:claimed};
+    // R7 item 4 + R15 item 3: a claim-promoted row's destination is sealed in its claim envelope and opened
+    // here with THIS signer's own key (with the R10 item 4 agreed-hash cross-check) — signer-derived like
+    // every other destination, never operator input.
+    const claimCt=plan.claim_envelopes?.[row.party];
+    if(claimCt) {
+      const recipient=openDestination({ciphertext_hash:hash(Buffer.from(claimCt,"hex")),envelope_ct:claimCt,owner_sig:""},ownEnvelopePrivate(STATE,name)??"");
+      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
+      return {...row,reason:`claim envelope refused: this signer's key does not open it (party ${row.party}; refund waits in the exception queue)`};
+    }
     // R10 item 2 (design §4): a product-mode refund whose bid carries a validated v2 envelope is paid to the
     // envelope's destination, opened here with THIS signer's own key — never an operator-chosen or
     // coordinator-pinned destination. A row whose envelope this signer cannot open is an exception row with

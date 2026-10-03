@@ -11,7 +11,7 @@ import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manife
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening} from "../manifest/reserve";
 import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope} from "./envelopes";
-import {verifyStatement} from "../envelope";
+import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
 import {modeEntry} from "../clear/registry";
@@ -66,7 +66,7 @@ try {
   const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
   const stray=depositNotes.filter(n=>!src.frozen?.leaves.some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address));
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
-  const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimDestinations:Record<string,string>={},claimsUsed:any[]=[];
+  const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimEnvelopes:Record<string,string>={},claimsUsed:any[]=[];
   let result_hash:string|null=null,opened:any[]|null=null,result:any=null;
   const released=Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period;
   const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
@@ -149,27 +149,28 @@ try {
   const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
   if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
     try {
-      requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.destination_ua==="string"&&/^[0-9a-f]{64}$/.test(request.destination_commit??"")&&/^[0-9a-f]{64}$/.test(request.salt??"")&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
-      // R15 item 3 / R17 item 1: the signed body carries only the salted destination commitment; the full
-      // destination in the private request must hash to it.
-      requireThat(request.destination_commit===hash(Buffer.concat([Buffer.from(request.salt,"hex"),Buffer.from(request.destination_ua,"utf8")])),"claim destination commit");
-      requireShieldedDestination(request.destination_ua);
-      const body={kind:"claim-refund",auction_id:id,party:request.party,destination_commit:request.destination_commit};
+      requireThat(request.auction_id===id&&typeof request.party==="string"&&typeof request.claim_envelope_ct==="string"&&/^[0-9a-f]{128}$/.test(request.owner_sig),"claim request shape");
+      requireThat(envelopeRecordValid({envelope_ct:request.claim_envelope_ct,owner_sig:request.owner_sig},JSON.parse(Buffer.from(src.manifest.bytes,"base64").toString("utf8")).envelope_keys),"claim envelope format");
+      // R15 item 3: the claim's destination is SEALED in its v2 envelope; the owner-signed body carries only
+      // the envelope's hash — no plaintext destination and no destination hash an address could be matched to.
+      const body={kind:"claim-refund",auction_id:id,party:request.party,claim_envelope_sha256:hash(Buffer.from(request.claim_envelope_ct,"hex"))};
       const owner=ownerKeyFor(request.party);
       requireThat(owner&&verifyStatement(owner!,body,request.owner_sig),"claim owner signature");
-      // R11/R13: the first claim whose owner signature verifies is the one used — and later published.
-      if(!claimDestinations[request.party]) {
-        claimDestinations[request.party]=request.destination_ua;
+      // R11/R13/R15.3: the first claim whose owner signature verifies is the one used — its sealed
+      // destination is opened per signer with R10 item 4's two-signer agreement (gateEnvelope below), and
+      // only the envelope's hash is published.
+      if(!claimEnvelopes[request.party]) {
+        claimEnvelopes[request.party]=request.claim_envelope_ct;
         const cm=/^deposit:([0-9a-f]{64}):(.+)$/.exec(request.party);
         const note=cm?depositNotes.find(n=>n.txid===cm[1]&&String(n.diversifier_index)===cm[2]):undefined;
         // R16 item 4: a stray claim publishes the scanned deposit's memo (memo_hex must match the scanned
         // deposit) so every verifier can derive the owner key itself from it and the published beacon.
         requireThat(!cm||!!note?.memo_hex,"claim memo matches the scanned deposit");
-        claimsUsed.push({party:request.party,destination_commit:request.destination_commit,owner_sig:request.owner_sig,...(cm?{memo_hex:note!.memo_hex}:{})});
+        claimsUsed.push({party:request.party,claim_envelope_sha256:body.claim_envelope_sha256,owner_sig:request.owner_sig,...(cm?{memo_hex:note!.memo_hex}:{})});
       }
     } catch(e) {claimFailures[request.party]=(e as Error).message}
   }
-  for(const [party,message] of Object.entries(claimFailures))if(!claimDestinations[party]) {
+  for(const [party,message] of Object.entries(claimFailures))if(!claimEnvelopes[party]) {
     refusals.push({party,reason:`claim refused: ${message}`});process.stderr.write(`ERROR claim ${party} refused: ${message}\n`);
   }
   // R10 item 4: an envelope-paid refund is payable only when at least 2 signers' envelope-opens reports
@@ -200,7 +201,7 @@ try {
     for(const n of depositNotes) {
       const party=`deposit:${n.txid}:${n.diversifier_index}`,row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
-      if(claimDestinations[party]) {obligations.push(row);continue}
+      if(claimEnvelopes[party]) {gateEnvelope(row);continue}
       if(strayEnvelope(party)) {gateEnvelope(row);continue}
       const reason=!released?"cancelled before release; refund is claimable after R":
         !bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":
@@ -217,10 +218,9 @@ try {
       // multi-recipient envelope format is unmerged, even a valid envelope destination is refused with a clear
       // error — never paid from an operator-held key — and waits in the queue for an owner-signed claim.
       if(published&&party.startsWith("leaf:")) {
-        // R10 items 2/4: a leaf with a validated v2 envelope is payable through it when at least 2 signers'
-        // own opening reports agree on its destination hash. A claim pays on its own owner signature (its
-        // agreement rule comes with R15 item 3). Anything else waits in the exception queue.
-        if(claimDestinations[party]) {obligations.push(row);continue}
+        // R15 item 3: a claim pays on its own owner signature over the sealed destination's hash — with the
+        // same two-signer opening agreement as an envelope refund (gateEnvelope).
+        if(claimEnvelopes[party]) {gateEnvelope(row);continue}
         if(validEnvelope(src,Number(party.slice(5)))) {gateEnvelope(row);continue}
         const reason="no valid owner-signed settlement envelope";
         refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
@@ -232,7 +232,8 @@ try {
       // R7 item 6 (Reviewer G G6): a stray refund never goes to an operator-chosen destination. A stray whose
       // memo holds a valid sealed bid is refunded through its own envelope like any bid; anything else goes to
       // the exception queue, claimable only when its memo holds an owner key (benzo claim-refund).
-      if(!published||claimDestinations[party]) {obligations.push(row);continue}
+      if(!published) {obligations.push(row);continue}
+      if(claimEnvelopes[party]) {gateEnvelope(row);continue}
       if(strayEnvelope(party)) {gateEnvelope(row);continue}
       const reason=!bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":"no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
@@ -241,5 +242,5 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,destinations:claimDestinations,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}
