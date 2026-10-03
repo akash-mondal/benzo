@@ -366,6 +366,11 @@ export function checkPublicAuction(pub: PublicAuction): Check[] {
     }
     for (const row of rows) {
       if (!receipts.some(r => r.party === row.party)) continue;
+      // R13 proves claim-paid rows. Only Phase 5 product dirs (manifest pinning envelope_keys) have the
+      // claim path at all — a pre-Phase-5 row was paid by the pre-W route and is not a claim-paid row — so
+      // the requirement is skipped there (the R4.2 pre-Phase-5 reading; merge regression that broke the
+      // Phase 3 evidence, caught by the r15/r16 phase2-4 checks).
+      if (!pub.manifest.envelope_keys) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? undefined : (pub.envelopes ?? []).find(e => {
         const leaf = pub.frozen?.leaves.find(l => l.leaf_index === Number(row.party.slice(5)));
