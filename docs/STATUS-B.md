@@ -3,31 +3,65 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (27): R24 item 3 (iii), R26 item 3, R26 item 2 guard half, gate LA leak audit, then READY FOR MERGE
+## Current run (27): R24 item 3 (iii), R26 item 3, R26 item 2 guard half, gate LA — **READY FOR MERGE**
 
-State: **IN PROGRESS.** Baseline at `890211c` (merge incl. head `2c57405`/`e465acb`/`22c206a`/
-`0deedeb`): `npm run typecheck` clean, `npm run e2e` (default seal-open) **PASS 38 s**
-(2026-10-03T13:2xZ, tmp/e2e/report.json). Updated 2026-10-03T13:26Z. Head message this run: record
-run 26's landed items first, then R24 item 3 (iii), R26 item 3 (projection divergence + fixture),
-R26 item 2's guard half (`npm run check:bundle` + AGENTS.md line), the Phase 6 gate LA leak audit,
-then READY FOR MERGE. No mainnet; no other-checkout access or writes; no merge/rebase/cherry-pick/
-push; no pin changes.
+State: **READY FOR MERGE** (updated 2026-10-03T14:2xZ). All four head-message items are DONE with
+red/green proof. Closing checks at `ba9753a`: `npm run typecheck` clean, `npm run check:bundle` OK
+(`1485092a…`), `npm run e2e` **PASS 39 s**, `crosschain/local-demo.sh` **39/39 PASS**. Baseline at
+session start (`890211c`): typecheck clean, e2e PASS 38 s. No mainnet; no other-checkout access or
+writes; no merge/rebase/cherry-pick/push; no pin changes.
 
-### This run's queue
+1. **R24 item 3 (iii), the Logos LP-0004 checklist: DONE** — `f64d398`.
+   `docs/evidence/phase-6/lp-0004.md`: every criterion cell filled only from existing committed
+   evidence paths (5 auction cycles tabulated from the artifacts: frozen roots, drand rounds, bid
+   counts, txids, verify verdicts, fees); statuses are honest (criterion 1 partial on “distinct
+   bidders” — one wallet plays all bidders —, criteria 2–5 partial, narrated video + Phase 7 mainnet
+   cycle pending).
+2. **R26 item 3 (P2, F5), projection divergence: DONE** — code+fixture `82b3590`, evidence
+   `cb92118`. `benzo verify` (and the read API) ERROR on any divergence of the
+   `opened`/`beacon`/`receipts`/`summary` projections from the canonical `auction.json`, and on a
+   projection without its document field (same byte-identity rule as the existing projections).
+   Fixture `tools/repro/r26-3-projection-repro.mjs` builds a fresh real corpus (pinned Go `tle`, real
+   drand beacon, shipped clear) and drives `bin/benzo verify`: **6/6 PASS**. Mutations at `82b3590`:
+   **R26-3a** (comparison disabled) → all four `r26-3-*-diverges` red; **R26-3b** (without-field rule
+   disabled) → `r26-3-projection-without-field` red. Regressions green: r15 4/4 (incl. the Phase
+   2/3/4 evidence dirs), r23-3 3/3. The verify bundle was rebuilt into `dist/` +
+   `docs/verify-bundle.sha256` with this commit — it was stale since the R24-3i/R23-3 changes (F2's
+   finding on track-b too); B owns the bundle.
+3. **R26 item 2 guard half (`npm run check:bundle`): DONE** — code `16fd609`, evidence `7c235d6`.
+   Rebuilds the bundle into tmp via the one `tools/build-verify.mjs` config and exits 1 when
+   `dist/benzo-verify.mjs` or `docs/verify-bundle.sha256` mismatches (`r26-2-check-bundle.out`: green
+   exit 0 twice, both mismatch modes exit 1 with `ERROR check:bundle`). The rule is recorded in
+   AGENTS.md as the head-sanctioned line (User instruction verbatim under Questions); I placed it
+   under “Two builders” + the Commands table because AGENTS.md has no “Track B notes” section — say
+   so if it belongs elsewhere.
+4. **Gate LA leak audit: DONE** — fixes `8e5631b`, record `ded3595`
+   (`docs/evidence/phase-6/leak-audit.md`, findings JSONs, `leak-allowlist.json`). Sensitive file:
+   52 values from my `.benzo/` only (4 deployer-key forms, 10 envelope private keys, 38 test UAs;
+   values never printed). Run 1: 878 findings. Fixed at source (never editing evidence): four repro
+   scripts that printed full refund/delivery UAs now abbreviate at the print sites (assertions keep
+   full values; `routing-vs-envelope-repro.mjs` re-run green), STATUS-B abbreviates its two wallet
+   UAs. Run 2: 268 findings, **every row classified** — 148 superseded `--git` blobs of the fixed
+   STATUS-B, 22 `age-armor` pattern self-matches (verified: no armored payload anywhere), **45
+   immutable historical evidence rows carrying real refund/delivery addresses (disclosed, never
+   edited)**, 3 in Track A's `docs/STATUS.md` (Questions), 2 in read-only research, 48 in `tmp/`
+   scratch. **No key material (deployer/envelope keys, mnemonics, UFVKs, PEM, real age armor) in any
+   scanned surface or git blob.** A literally-zero `--git` run needs a history rewrite (forbidden) or
+   evidence edits (forbidden) — the residue is the honest remainder.
 
-1. **R24 item 3 (iii)**: `docs/evidence/phase-6/lp-0004.md` — the Logos LP-0004 checklist table
-   filled only from existing evidence paths (narrated video: pending).
-2. **R26 item 3 (P2, F5)**: verify reports ERROR when the `opened`/`beacon`/`receipts`/`summary`
-   projection files diverge from the canonical `auction.json`; add a fixture; red/green.
-3. **R26 item 2 guard half (B owns the verify bundle)**: `npm run check:bundle` — rebuild the verify
-   bundle into tmp, compare with the committed `dist/benzo-verify.mjs` and
-   `docs/verify-bundle.sha256`, exit 1 on mismatch; run before every commit touching `api/`,
-   `envelope/`, `settle/envelopes.ts`, `cli/commands/verify.ts`, `cli/published-beacon.ts`; record the
-   rule in AGENTS.md (User instruction verbatim under Questions).
-4. **Gate LA leak audit**: `npm run leak-audit` over `docs/evidence/**`, the readable public dirs
-   under `tmp/e2e/public`, and `--git` history of track-b; sensitive-values file built only from my
-   own `.benzo/` (deployer keys, envelope keys, test UAs); fix findings at source; clean run recorded
-   in `docs/evidence/phase-6/leak-audit.md`.
+### Test audit (READY FOR MERGE)
+
+No `e2e/` spec changed (project ceiling 8, 5 used — reserved slots are A's). Checks outside the
+ceiling touched this run (R retain; the run-25 table's marks otherwise stand):
+
+| Check | Mark | Owns (assertion IDs) | Code changed since its last mutation run? |
+|---|---|---|---|
+| `tools/repro/r26-3-projection-repro.mjs` (new) | R | `r26-3-{projections-match,opened-diverges,beacon-diverges,receipts-diverges,summary-diverges,projection-without-field}` | no — mutations R26-3a/b ran at `82b3590`, the code commit |
+| `tools/check-bundle.mjs` (new; a check, not a test) | R | — | red/green at `cb92118` (`r26-2-check-bundle.out`) |
+| `crosschain/local-demo.mjs` | R | the 39 demo IDs (run-25 table) | yes — `api/public-auction.ts` (R26-3); cheapest mutation **R22-a re-run** red at `ERROR demo-attest-swapped-leaf-refused`, green 39/39 (`docs/evidence/phase-5/mutations/R22-a-rerun-r27.out`, `ba9753a`) |
+| `tools/repro/routing-vs-envelope-repro.mjs` | R | `F3`, `W2`, `5M2` | print-only leak fix + stale-wording assertion update (harness staleness, not a product regression); re-run green at `8e5631b` (exit 0, `F3 FIXED`) |
+| `tools/repro/r7-1-*`, `r7-4-*`, `r16-1-*` | R | their `F-1`/`C4`/`C1` IDs | print-only leak fix (`node --check` clean); historical red/green records unchanged |
+| `tools/repro/r15-verify-leaves-repro.mjs`, `r23-3-api-claims-repro.mjs` | R | `r15-*`, `r23-3-*` | re-run green this run as regressions over the R26-3 change |
 
 ## Previous run (26): R22 + Q6(a), then R25 items 1–6, R23 item 3, R24 item 3 (i)–(ii)
 
@@ -320,7 +354,20 @@ full product result and the `winners[]` branch of the leaf derivation drops.
    `envelope/`, `settle/envelopes.ts`, `cli/commands/verify.ts` or `cli/published-beacon.ts`. Record
    the rule in AGENTS.md's "Track B" notes as a head-sanctioned line.” — AGENTS.md is otherwise
    head-owned/read-only for me; the head should fold this line into a Ruling. With it, “you own the
-   verify bundle” also takes R26 item 2's rebuild half (F2's stale-bundle fix) as mine.
+   verify bundle” also takes R26 item 2's rebuild half (F2's stale-bundle fix) as mine — done: the
+   bundle is rebuilt and `check:bundle` is green at `7c235d6`.
+2. **Gate LA residuals needing head disposition (full record in
+   `docs/evidence/phase-6/leak-audit.md`):** (a) 45 rows of immutable historical evidence carry real
+   refund/delivery addresses (`phase-1/frost/pczt-inspect.txt`,
+   `phase-2/auction/{cancel.json,pczt-inspect.txt}`, `phase-5` repro/mutation `.out` files) — never
+   edited after the fact; consider a README honest-limits disclosure or leave as historical testnet
+   artifacts. (b) `docs/STATUS.md` (Track A's file) has 3 broad-rule address rows — A should fix at
+   source / decide allowlisting. (c) the sensitive file does not cover bid-plaintext-before-release
+   (the tool's `release_time` form) because the instruction named only deployer keys, envelope keys
+   and test UAs — order a follow-up run if wanted. (d) the leak-audit `--git` mode scans
+   `git log --all` (track-b **and** merged main), not track-b alone.
+3. **AGENTS.md placement:** the head-sanctioned `check:bundle` line is under “Two builders” + the
+   Commands table (there is no “Track B notes” section); relocate if the head prefers.
 
 ### Questions (run 26)
 
