@@ -1,0 +1,17 @@
+commit b6d4cad tree (fix stashed; pre-fix settle bundles — the CANCELLED/REFUNDING branch predates R16 item 1)
+utc 2026-10-03T03:18:04Z
+command node tools/repro/r16-1-cancel-claims-repro.mjs 3bbfa50130665d5177c6fdcd19ebb610b47fcf2a8016c38a7a0b1a21b2a0801a
+note live plan + signer check against fixture auction 3bbfa5013066… (10 real bid deposits, real tle memo openings, fresh owner-signed claim) flipped to REFUNDING in a scratch state; the live auction's own state is untouched
+fresh claim for deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306454 (deposit 500000 zats): record-time check accepted
+owner-named destination recorded at record time: true
+C1 plan exit 0
+C1 obligations: ["deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306448","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306449","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306450","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306451","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306452","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306453","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306454","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306455","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306456","deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306457"]
+C1 destinations: {}
+C1 exceptions: []
+CONFIRMED: the CANCELLED/REFUNDING branch ignores the owner-signed claim — every confirmed deposit lands in obligations with no destination, so a cancelled product auction can refund nothing.
+C2 candidate PCZT from the bidder wallet: created
+C2 scratch batch 3 with 10 rows: ["deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d","deposit:87054fe1bb2001808bddd05a9d"]
+C2 check exit 1
+C2 check stderr: settle stray refund refused: no operator-chosen destination (party deposit:87054fe1bb2001808bddd05a9dd8a7fede5cd6f70b3f81a766d78e0671a3a8b9:4608306448; claim it with benzo claim-refund or leave it in the exception queue)
+CONFIRMED: destinations() throws for a product non-seller row inside the signer check — no batch can proceed at all.
+outcome CONFIRMED
