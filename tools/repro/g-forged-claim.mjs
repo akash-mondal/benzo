@@ -80,7 +80,7 @@ Buffer.from("ff424e5a01", "hex").copy(memo, 0);
 memo.writeUInt16BE(ctHex.length / 2, 5);
 Buffer.from(ctHex, "hex").copy(memo, 7);
 const memo_hex = memo.toString("hex");
-if (seal.memoSealedBid(memo_hex) !== ctHex) throw new Error("memo framing mismatch");
+if (seal.memoSealedBid(memo_hex)?.ciphertext_hex !== ctHex) throw new Error("memo framing mismatch");
 
 // the forged claim: any 64-hex "txid", attacker envelope hash (never verified against anything here)
 const party = `deposit:${createHash("sha256").update("attacker-tx").digest("hex")}:ironwood:0`;

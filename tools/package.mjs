@@ -1,0 +1,55 @@
+// tools/package.mjs — gate PK: build the versioned tarball a stranger can run.
+// Output: dist/benzo-<version>.tgz with the CLI bundles, the shipped verify bundle,
+// docs/verify-it-yourself.md and the pinned production dependencies (so the extract
+// runs with no network install). The shipped verify bundle must match a fresh rebuild
+// of this tree (tools/check-bundle.mjs) or packaging stops.
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import path from "node:path";
+
+const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+process.chdir(root);
+const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+if (!pkg.version) throw new Error("package.json needs a version");
+const name = `benzo-${pkg.version}`;
+const stage = path.join("tmp", "package", name);
+
+execFileSync("npm", ["run", "--silent", "build:cli"], { stdio: "inherit" });
+execFileSync(process.execPath, ["tools/check-bundle.mjs"], { stdio: "inherit" });
+
+rmSync(path.join("tmp", "package"), { recursive: true, force: true });
+mkdirSync(path.join("dist"), { recursive: true });
+for (const dir of ["bin", "cli/dist", "seal/dist", "dist", "docs"]) mkdirSync(path.join(stage, dir), { recursive: true });
+const copy = (from, to) => cpSync(from, path.join(stage, to), { recursive: true, preserveTimestamps: true });
+copy("bin/benzo", "bin/benzo");
+copy("cli/dist", "cli/dist");
+copy("seal/dist", "seal/dist");
+copy("dist/benzo-verify.mjs", "dist/benzo-verify.mjs");
+copy("docs/verify-bundle.sha256", "docs/verify-bundle.sha256");
+copy("docs/verify-it-yourself.md", "docs/verify-it-yourself.md");
+copy("README.md", "README.md");
+copy("package.json", "package.json");
+
+// Pinned production dependencies, copied exactly (npm ls --omit=dev lists the closure).
+const ls = execFileSync("npm", ["ls", "--omit=dev", "--parseable", "--all"], { encoding: "utf8" });
+const prefix = root + path.sep;
+const deps = ls.split("\n").map(l => l.trim()).filter(l => l.startsWith(prefix + "node_modules"));
+if (!deps.length) throw new Error("npm ls returned no production dependencies");
+for (const abs of deps) {
+  const rel = abs.slice(prefix.length);
+  mkdirSync(path.dirname(path.join(stage, rel)), { recursive: true });
+  copy(rel, rel);
+}
+// The CLI bundles import @playwright/test at load (the `bid seal` browser sealer runs through it),
+// and the router loads every command module, so the test runner ships too. Its browser binaries do
+// not: `bid seal` needs a Playwright browser install; `benzo verify` and every read path do not.
+for (const rel of ["node_modules/@playwright/test", "node_modules/playwright", "node_modules/playwright-core"]) {
+  mkdirSync(path.dirname(path.join(stage, rel)), { recursive: true });
+  copy(rel, rel);
+}
+
+execFileSync("tar", ["czf", path.join(root, "dist", `${name}.tgz`), "-C", path.join(root, "tmp", "package"), name]);
+const bytes = readFileSync(path.join("dist", `${name}.tgz`));
+const sha256 = createHash("sha256").update(bytes).digest("hex");
+console.log(JSON.stringify({ tarball: `dist/${name}.tgz`, bytes: bytes.length, sha256, production_packages: deps.length }, null, 0));

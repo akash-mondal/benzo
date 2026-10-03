@@ -11,7 +11,7 @@ import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
-import { isDepositParty } from "../settle/deposits";
+import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
 import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -287,7 +287,15 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   run("witness", () => {
     const frozen = pub.frozen;
     if (!frozen) {
-      requireThat(pub.witnessCerts.length === 0 && pub.witnessSet === null, "witness material without frozen root");
+      // Root certificates need a root. The witness SET is auction-scoped material the signed manifest
+      // commits to, and a cancelled-before-freeze auction still certifies its strays statements with it
+      // (R23 item 1), so the set may be published without a frozen root — it must hash to the manifest's pin.
+      requireThat(pub.witnessCerts.length === 0, "witness certificates without frozen root");
+      if (pub.witnessSet) {
+        requireThat(pub.manifest.witness_set_hash, "witness set without a pinned hash");
+        requireThat(witnessSetHash(pub.witnessSet) === pub.manifest.witness_set_hash, "witness set hash mismatch");
+        projection("witness-set.json", pub.witnessSet);
+      }
       return projection("witness.json", null);
     }
     const bound = pub.manifest.witness_set_hash;
@@ -408,7 +416,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     for (const [i, c] of records.entries()) {
       requireThat(c && typeof c === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c.party) || isDepositParty(c.party), `claim ${i} party`);
+      requireThat(/^leaf:[0-9]+$/.test(c.party) || isAnyDepositParty(c.party), `claim ${i} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
       let owner: string | null = null;
       if (c.party.startsWith("leaf:")) {
@@ -509,7 +517,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // result exists and every party must therefore be a deposit refund.
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
     const stray = (party: string): void => {
-      requireThat(isDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
+      requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.
     for (const r of receipts) {

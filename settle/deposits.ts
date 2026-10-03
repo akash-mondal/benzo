@@ -24,6 +24,16 @@ export function isDepositParty(party: string): boolean {
   return !!m && Number(m[3]) <= 65535;
 }
 
+// Historical published rows (evidence from Phases 2–5 before R26 item 1) name a note by its
+// address's diversifier index, `deposit:<txid>:<diversifier_index>`. Those directories are immutable,
+// so every verifier-side ACCEPTANCE of a published party takes either identity. Writers never emit
+// this one; the strict identity above stays the only one the product writes.
+const LEGACY_PARTY = /^deposit:([0-9a-f]{64}):(0|[1-9][0-9]*)$/;
+
+export function isAnyDepositParty(party: string): boolean {
+  return isDepositParty(party) || !!LEGACY_PARTY.exec(party);
+}
+
 export function depositParty(note: { txid: string; pool: string; action_index: number }): string {
   const party = `deposit:${note.txid}:${note.pool}:${note.action_index}`;
   if (!isDepositParty(party)) throw new Error(`refused: scanned note is not a deposit identity (${party})`);

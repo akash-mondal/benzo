@@ -1,0 +1,18 @@
+commit e0ecb63 (clean tree: verifier-side historical deposit-party acceptance)
+utc 2026-10-03T16:42:27Z
+command bin/benzo verify --dir docs/evidence/phase-4/cli --signer 302a…b7891
+OK projection
+OK missing-deposits
+OK delivery
+OK report
+OK manifest
+OK freeze
+WARN no witness set (pre-Phase-5 manifest)
+OK witness
+OK receipts
+OK clear
+OK envelope
+OK claims
+OK accounting
+OK accounting-strays
+exit=0

@@ -1,5 +1,6 @@
 {
   "name": "benzo",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,6 +13,7 @@
     "build:cli": "node cli/build.mjs",
     "build:verify": "node tools/build-verify.mjs",
     "check:bundle": "node tools/check-bundle.mjs",
+    "package": "node tools/package.mjs",
     "leak-audit": "esbuild tools/leak-audit.ts --bundle --platform=node --format=esm --outfile=tmp/leak-audit.mjs --log-level=warning && node tmp/leak-audit.mjs",
     "bench": "esbuild tools/bench.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/bench.mjs --log-level=warning && node tmp/bench.mjs"
   },
