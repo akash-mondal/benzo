@@ -1,0 +1,7 @@
+{"auction_id":"129735c85c69ee26a468b0e617a8b042f4a76ed70ea6ae28c424f28867991f87","state":"SETTLED","settled":4}
+
+----
+{"auction_id":"129735c85c69ee26a468b0e617a8b042f4a76ed70ea6ae28c424f28867991f87","batch":1,"allocated":4}
+ERROR signing session abandoned (batch 1, pair alice+bob, failed bob); re-planning with the next approving host
+settlement broadcast f3bb80ab8ea1ba98f2025b8d5d09964b498b92b59c290cb8e78b793c7dcd4874
+{"auction_id":"129735c85c69ee26a468b0e617a8b042f4a76ed70ea6ae28c424f28867991f87","settled":4}

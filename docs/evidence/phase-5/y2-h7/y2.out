@@ -1,0 +1,12 @@
+resume 129735c85c69ee26a468b0e617a8b042f4a76ed70ea6ae28c424f28867991f87
+PASS y2-settled exit 0, receipts 4
+PASS y2-kill-drill-abandoned-bob
+PASS y2-completed-with-alice-carol pair alice+carol
+PASS y2-host-approvals alice:approved bob:approved abandoned alice:approved carol:approved
+PASS y2-no-duplicate-outputs
+PASS y2-no-share-on-mac
+PASS y2-h7-redacted-candidate
+PASS y2-h7-destinations-not-on-mac 0 of 3 refund destinations found in operator files
+PASS y2-envelope-refunds-landed 3 of 3 bid destinations received
+PASS y2-cold-verify
+RESULT PASS all Y2 assertions
