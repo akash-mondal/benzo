@@ -14,7 +14,7 @@ import path from 'node:path';
 import {ROOT,STATE,env,DRAND} from './lib/env';
 import {jsonBytes,signRecord} from '../manifest/schema';
 import {witnessSetHash} from '../witness';
-import {clearForMode} from '../clear/registry';
+import {clearForMode,clientForMode} from '../clear/registry';
 import {sealBlob} from '../envelope';
 import {redactCandidate} from '../cli/host-derive';
 import {Run} from './lib/run';
@@ -67,7 +67,8 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     await run.check('V1a','Mode B manifest signs and publishes with its treasury block',()=> {
       const m=JSON.parse(Buffer.from(json(manifestFile).bytes,'base64').toString('utf8'));
       expect(m.clearing.mode).toBe('buyback');expect(m.buyback).toEqual(manifest.buyback);
-      expect(cli(['verify','--dir',publicDir,'--signer',signer]).status).toBe(0);
+      // The signed packet passes the buyback rules under the signer anchor (verify itself needs a frozen dir).
+      expect(clientForMode(json(manifestFile),signer).manifest).toEqual(m);
     });
     // Three sealed asks, the fee reserve and the treasury leg (to the signed funding_ua) in one funding transaction.
     const asks=deposits.map((address,i)=>({...benzo(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(200+10*i),quantity:1,address,refund_ua:refunds[i]}),address}));
