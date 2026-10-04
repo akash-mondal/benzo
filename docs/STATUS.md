@@ -2,6 +2,15 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-04T23:55Z): Phase 5 part 1 is DONE live, with its milestone review by Reviewer G in progress.**
+- Testnet moved to NU7 (4,465,026) mid-session. Ruling R27 adds the `tools/nu7` backport; `BNZ_LWD_SINGLE=1` covers the time while one public NU7 endpoint serves.
+- On NU7:
+  - `e2e/buyback-mode.spec.ts` passes all 10 IDs in one run (`buyback-run4`);
+  - the live regression has all 13 cli-auction IDs PASS (cleanup fix 76a3930);
+  - mutations 5M1/5M3 turn red in replays, and 5M5 and 5M2-host+5M4 turn red live.
+- Parked funds are all recovered: ea0d via host-custody claims, 0397 via expiry re-plan.
+- Next: fix whatever G's `g-part1-milestone` report confirms, then part 2 (`docs/design/phase5-part2-live.md`). Builders resume when the Cline Pass resets (~Oct 5 evening).
+
 **Head line (2026-10-04T10:00Z, head building while builders are on the Cline limit):**
 - §11 host custody done and proven live:
   - H6, host-built candidate (Y2 on 7885a5af…, evidence `docs/evidence/phase-5/y2/`);
