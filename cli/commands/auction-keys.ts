@@ -9,12 +9,12 @@ import { requireThat } from "../../manifest/schema";
 import { ROOT, STATE, bin, env, run as execute } from "../../settle/io";
 
 export const noun = "auction", verb = "keys";
-export const help = "benzo auction keys --id AUCTION_ID --group-keys KEY,KEY,KEY — check the three signers' DKG group keys agree and are fresh, derive the escrow UFVK, create the view-only vault state/vaults/<id>/, print {group_key, escrow_ua}";
+export const help = "benzo auction keys --id AUCTION_ID --group-keys KEY,KEY,KEY [--ufvk FILE (signer hosts: the operator's UFVK)] — check the three signers' DKG group keys agree and are fresh, derive the escrow UFVK, create the view-only vault state/vaults/<id>/, print {group_key, escrow_ua}";
 
 export async function run(argv: string[]): Promise<number | object> {
   const o: Record<string, string> = {};
   for (let i = 0; i < argv.length; i += 2) {
-    if (!["--id", "--group-keys"].includes(argv[i]) || argv[i + 1] === undefined) { process.stderr.write(`ERROR auction keys usage: ${help}\n`); return 2; }
+    if (!["--id", "--group-keys", "--ufvk"].includes(argv[i]) || argv[i + 1] === undefined) { process.stderr.write(`ERROR auction keys usage: ${help}\n`); return 2; }
     o[argv[i].slice(2)] = argv[i + 1];
   }
   try {
@@ -37,8 +37,12 @@ export async function run(argv: string[]): Promise<number | object> {
       requireThat(k.group_key === groupKey, "this auction already has different keys; refusing");
       return { auction_id: o.id, group_key: k.group_key, escrow_ua: k.escrow_ua, reused: true };
     }
-    const generated = execute(bin("zcash-sign"), ["generate", "-n", env("BNZ_NETWORK"), "--ak", groupKey]);
-    const ufvk = generated.match(/^Unified Full Viewing Key: "(.*)"$/m)?.[1];
+    // zcash-sign takes ak from the FROST group key but draws the other viewing components at random, so the UFVK is
+    // generated ONCE by the operator and signer hosts import that same one (--ufvk FILE). A wrong UFVK cannot move
+    // funds (spends are authorised by the FROST shares); it only makes a host's own approvals fail.
+    const ufvk = o.ufvk ? readFileSync(path.resolve(o.ufvk), "utf8").trim()
+      : execute(bin("zcash-sign"), ["generate", "-n", env("BNZ_NETWORK"), "--ak", groupKey]).match(/^Unified Full Viewing Key: "(.*)"$/m)?.[1];
+    requireThat(typeof ufvk === "string" && /^uview(test)?1[0-9a-z]+$/.test(ufvk), "UFVK");
     requireThat(ufvk, "zcash-sign generate printed no UFVK");
     const tip = Number(JSON.parse(execute(bin("grpcurl"), ["-import-path", path.join(STATE, "proto"), "-proto", "service.proto", "-d", "{}", env("BNZ_LWD_URL"), "cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestBlock"])).height);
     requireThat(Number.isSafeInteger(tip) && tip > 10, "lightwalletd tip");
@@ -46,8 +50,11 @@ export async function run(argv: string[]): Promise<number | object> {
     const wallet = path.join(dir, "wallet");
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     execute(bin("zcash-devtool"), ["wallet", "-w", wallet, "init-fvk", "--name", `vault-${o.id.slice(0, 8)}`, "--fvk", ufvk!, "--birthday", String(tip - 10), "-s", env("BNZ_LWD_URL")]);
-    const escrowUa = execFileSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", wallet], { encoding: "utf8" }).trim().split("\n").at(-1)!;
+    // BNZ_PCZT_BIN (set by the signer-host launcher, no checkout there) overrides the working-tree build, as envelope/destination.ts.
+    const pcztBin = process.env.BNZ_PCZT_BIN || path.join(ROOT, "settle/target/release/benzo-pczt");
+    const escrowUa = execFileSync(pcztBin, ["address", wallet], { encoding: "utf8" }).trim().split("\n").at(-1)!;
     requireThat(/^utest1[0-9a-z]+$/.test(escrowUa), "benzo-pczt printed no escrow UA");
+    writeFileSync(path.join(dir, "ufvk.txt"), ufvk + "\n", { mode: 0o600 });
     writeFileSync(keys, JSON.stringify({ auction_id: o.id, group_key: groupKey, escrow_ua: escrowUa, birthday: tip - 10, created_at: Math.floor(Date.now() / 1000) }) + "\n", { mode: 0o600 });
     return { auction_id: o.id, group_key: groupKey, escrow_ua: escrowUa };
   } catch (e) {

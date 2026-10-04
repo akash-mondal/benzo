@@ -53,7 +53,13 @@ async function main() {
     const keys = await Promise.all(dkg);
     const groupKeys = keys.join(",");
     const k = benzo(["auction", "keys", "--id", id, "--group-keys", groupKeys]);
-    for (const n of NAMES) hostBenzo(n, ["auction", "keys", "--id", id, "--group-keys", groupKeys]);
+    // Hosts import the operator's UFVK (zcash-sign draws the non-ak components at random; one UFVK per auction).
+    for (const n of NAMES) {
+      sh("orbctl", ["push", "-m", `benzo-${n}`, path.join(STATE, "vaults", id, "ufvk.txt"), `ufvk-${id.slice(0, 12)}.txt`]);
+      sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "chown", "benzo:benzo", `/home/benzo/ufvk-${id.slice(0, 12)}.txt`]);
+      hostBenzo(n, ["auction", "keys", "--id", id, "--group-keys", groupKeys, "--ufvk", `/home/benzo/ufvk-${id.slice(0, 12)}.txt`]);
+      sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "rm", "-f", `/home/benzo/ufvk-${id.slice(0, 12)}.txt`]);
+    }
     check("y2-dkg-on-hosts", new Set(keys).size === 1 && k.group_key === keys[0], `group ${k.group_key.slice(0, 12)}… escrow ${k.escrow_ua.slice(0, 16)}…`);
     // 2. Host envelope keys + host witness keys (private halves never leave the hosts).
     const envelopeKeys = NAMES.map(n => {
