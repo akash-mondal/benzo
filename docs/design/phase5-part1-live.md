@@ -200,4 +200,16 @@ The assertions are exactly PHASE-5 §6: V1 V2 W1 W2 X1 Y1. Mutations 5M1–5M5 a
   - each approving host opens its copy, checks it strictly (note commitment, encryption, recipients against its own derived rows), and requires its own redaction to equal the coordinator's `plan_version`. A coordinator-forged sealed copy still fails the derived-row check;
   - the coordinator inspects with `benzo-pczt inspect --allow-redacted` (amounts and change only). Redaction leaves the sighash and the extracted txid unchanged (checked on Y2 batch 1: sighash `2a099314…`, txid `7e1ee059…`);
   - stated remainder: amounts stay visible to the coordinator (they are in the public result anyway), and the seller payout UA is operator routing.
-- **Funds parked:** auction 7885a5af… settled (above). Auction ea0d5761… was auto-cancelled before any host published envelope-open reports, so `benzo cancel` sent its three refunds to the exception queue (state REFUNDING). The bidders recover them through `claim-refund` after R; host-built cancel refunds (the cancel path under custody needs a host derivation without a cleared result) are remaining work.
+- **Funds parked: all recovered.**
+  - 7885a5af… settled (above).
+  - ea0d5761… (cancelled before freeze) was recovered live with `tools/repro/x-cancel-claims.ts`:
+    - the bidders claimed the 3 exception deposits with their bid owner keys and the hosts attested the claims;
+    - the batch was host-built and host-approved;
+    - each deposit refunded exactly C and landed (`docs/evidence/phase-5/cancel-claims/`).
+  - That needed two fixes:
+    - Host derivation for a cancelled auction (a8b2985): every deposit refunds through its owner-signed claim, with the owner key read from its own tlock-opened memo, or through its memo-bound envelope.
+    - A pre-freeze cancel is proven from signed data (319098a): no frozen root after the signed `T_freeze`. This replaces `benzo verify`, which needs a frozen root.
+  - The operator must fund the fee reserve even for a cancel: that vault held exactly 3C and the refunds need network fees.
+- **NU7 (Ruling R27):** testnet moved to NU7 at 4,465,026 on 2026-10-04. The stack runs the `tools/nu7` backport. While only `testnet.zec.rocks` serves NU7, live runs use `BNZ_LWD_SINGLE=1` (testnet only; recorded).
+  - `e2e/buyback-mode.spec.ts` passed all 10 IDs on NU7 (`docs/evidence/phase-5/buyback-run4/`).
+  - Auction 0397… (buyback run 2) has a batch signed under the old branch. It expires at 4,465,600, after which the worker re-plans it.
