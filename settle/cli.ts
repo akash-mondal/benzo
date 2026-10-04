@@ -105,6 +105,35 @@ function guard(metadata:any,tip:number) {
 // §11 H3/H4 (host custody): build the batch packet, have each preferred signer host approve it from its own data,
 // sign with two approving hosts, and on a mid-session failure (the kill drill) record the abandoned session and
 // re-plan the SAME batch with the next host that approves. A host that failed is not asked again for this batch.
+// §11 H6: the first preferred signer host that can derive every allocated row builds and proves the candidate on its
+// own vault; the coordinator receives only the proven PCZT and {party, output_index} (recipients stay on the host).
+async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_zats:string}[],proven:string) {
+  const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
+  const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
+  const packet=file(`build-${batchId}`);
+  run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
+  if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
+  writeFileSync(path.join(packet,"rows.json"),jsonBytes(rows),{mode:0o600});
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,signer:doc.signer,seller_ua:cfg.routing?.seller_ua,expiry_blocks:settings().pczt_expiry_blocks}),{mode:0o600});
+  const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
+  const remote=`build-${id.slice(0,16)}-${batchId}`;
+  for(const n of prefer) {
+    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`]).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote]).status!==0)continue;
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`]);
+    const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20});
+    if(b.status!==0){console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue}
+    const built=JSON.parse(b.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
+    const pulled=file(`batch-${batchId}.pulled.pczt`);
+    run("rm",["-f",pulled]);
+    requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/proven.pczt`,pulled]).status===0&&existsSync(pulled),`could not pull the candidate from ${n}`);
+    requireThat(hash(readFileSync(pulled))===built.plan_version,"pulled candidate differs from the builder's plan_version");
+    copyFileSync(pulled,proven);
+    writeFileSync(file(`batch-${batchId}.build.json`),jsonBytes(built),{mode:0o600});
+    return built;
+  }
+  throw Error(`no signer host could build batch ${batchId}`);
+}
 async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
@@ -153,7 +182,10 @@ async function worker(ledger:Ledger) {
   for(const r of plan.refusals??[])console.error(`ERROR refund ${r.party} to the exception queue: ${r.reason}`);
   // R16 item 1 (Reviewer R F4): an unresolvable row becomes an exception row and the batch proceeds — the
   // rows that resolve are pinned payable, the rest wait in the queue with their reason.
-  const pinned=destinations(plan.obligations,settings().signers[0],plan);
+  const custody=existsSync(path.join(STATE,"vaults",id,"keys.json"));
+  // §11 H6: under host custody the coordinator holds no envelope key; the plan already gated every envelope refund on
+  // host-signed agreement reports, and the recipients are derived on the hosts (sign build / sign approve).
+  const pinned:any[]=custody?plan.obligations.map((o:any)=>({...o,recipient:"host-derived"})):destinations(plan.obligations,settings().signers[0],plan);
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>({party,kind,amount_zats})),
     [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>({party,kind,amount_zats,reason}))]);
@@ -166,19 +198,25 @@ async function worker(ledger:Ledger) {
     const base=file(`batch-${batch.id}`),created=base+".pczt",proven=base+".proven.pczt",signed=base+".signed.pczt";
     let staged=ledger.batch(batch.id)!;
     if(!staged.txid) {
-      const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
-      run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
-      const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
-      await prove(created,proven);
       const custodyKeys=path.join(STATE,"vaults",id,"keys.json");
-      const signing=existsSync(custodyKeys)?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
+      if(custody) {
+        // §11 H6: a signer host builds and proves the candidate from its own derivations; only {party, output_index} returns.
+        await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);
+        guard(inspect(proven),JSON.parse(wallet("balance","--json")).chain_tip_height);
+      } else {
+        const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
+        run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
+        const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
+        await prove(created,proven);
+      }
+      const signing=custody?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
         const approved=JSON.parse(run(process.execPath,existsSync(path.join(STATE,"product",`${id}.json`))?[path.join(ROOT,"cli/dist/benzo.mjs"),"sign","inspect","--id",id,"--batch",String(batch!.id),"--candidate",proven,"--name",name,"--randomizer",randomizer,"--sighash",sighash]:[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer,sighash]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
       },settings().signers,existsSync(path.join(STATE,"product",`${id}.json`))?id:undefined,batch.id);
       writeFileSync(base+".signatures.json",jsonBytes(signing),{mode:0o600});
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
       const txid=run(bin("zcash-devtool"),["pczt","extract"],readFileSync(signed)).trim().split("\n").at(-1)!;
-      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient))),{mode:0o600});
+      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(custody?inspect(signed):routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient))),{mode:0o600});
     }
     staged=ledger.batch(batch.id)!;
     requireThat(staged.txid&&staged.pczt_path&&staged.pczt_hash===hash(readFileSync(staged.pczt_path)),"stored signed PCZT missing or changed");
@@ -224,11 +262,20 @@ async function worker(ledger:Ledger) {
         await new Promise(r=>setTimeout(r,15000));
       }
     }
-    const i=inspect(staged.pczt_path!),expected=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient);
+    const i=inspect(staged.pczt_path!);
+    if(custody) {
+      // §11 H6: receipts map outputs to parties by the builder's {party, output_index}, never by recipient.
+      const built=JSON.parse(readFileSync(base+".build.json","utf8"));
+      const receipt=batch.outputs.map((row:any)=>{const m=built.outputs.find((x:any)=>x.party===row.party);requireThat(m,`no built output for ${row.party}`);const o=i.outputs.find((x:any)=>x.index===m.output_index&&!x.is_change);requireThat(o&&o.amount_zats===row.amount_zats,"mined amount differs from result.json");return {party:row.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
+      ledger.confirm(batch.id,staged.txid!,height,receipt);
+      writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
+    } else {
+    const expected=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient);
     const available=i.outputs.filter((o:any)=>!o.is_change);
     const receipt=expected.map(e=>{const index=available.findIndex((o:any)=>o.recipient===e.recipient&&o.amount_zats===e.amount_zats);requireThat(index>=0,"mined amount differs from result.json");const [o]=available.splice(index,1);return {party:e.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
     ledger.confirm(batch.id,staged.txid!,height,receipt);
     writeFileSync(base+".inspect.json",jsonBytes(routedInspect(i,expected)),{mode:0o600});
+    }
   }
   writeFileSync(file("receipts.json"),jsonBytes(ledger.receipts()),{mode:0o600});
   writeFileSync(file("summary.json"),jsonBytes({auction_id:id,rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
