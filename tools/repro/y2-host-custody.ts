@@ -72,6 +72,14 @@ async function afterAdmission(id: string, manifest: any, signer: string, publicD
     const parties = (doc.settlement?.receipts ?? []).map((r: any) => r.party);
     check("y2-no-duplicate-outputs", new Set(parties).size === parties.length);
     check("y2-no-share-on-mac", !existsSync(path.join(STATE, "auctions", id)));
+    // §11 H7: the coordinator holds only the redacted candidate, and no bid refund destination appears in anything the
+    // operator keeps for this auction (refunds[3] is the seller routing UA, which the operator chose).
+    const insp = JSON.parse(readFileSync(path.join(STATE, "settle", id, "batch-1.inspect.json"), "utf8"));
+    check("y2-h7-redacted-candidate", insp.outputs.filter((o: any) => !o.is_change).every((o: any) => o.recipient === null && o.redacted === true));
+    if (refunds.length) {
+      const leaked = refunds.slice(0, 3).filter(a => [path.join(STATE, "settle", id), path.join(STATE, "product"), path.join(STATE, "run", `y2-${id}`), publicDir].some(d => existsSync(d) && spawnSync("grep", ["-rqa", a, d]).status === 0));
+      check("y2-h7-destinations-not-on-mac", leaked.length === 0, `${leaked.length} of 3 refund destinations found in operator files`);
+    }
     // 8. Envelope refunds landed at the bidders' own destinations; cold verify of the public dir.
     z.sync("bidder"); z.enhance("bidder");
     const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
