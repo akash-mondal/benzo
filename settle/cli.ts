@@ -245,7 +245,9 @@ async function worker(ledger:Ledger) {
         ledger.expire(batch.id);console.log(JSON.stringify({auction_id:id,batch:batch.id,state:"exception",expiry_height:metadata.expiry_height,tip}));ledger.pin(plan.obligations,plan.exceptions);ledger.eligible();continue;
       }
       guard(metadata,tip);
-      const sent=pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!).trim().split("\n").at(-1);
+      // Under host custody the candidate was built in a signer host's own vault, whose account id this operator vault
+      // does not know (store fails AccountUnknown, live Y2); broadcast without storing, the next sync records it.
+      const sent=(custody?run(bin("zcash-devtool"),["pczt","send-without-storing","-s",env("BNZ_LWD_URL"),staged.pczt_path!]):pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!)).trim().split("\n").at(-1);
       requireThat(sent===staged.txid,"broadcast returned a different txid");console.log(`settlement broadcast ${sent}`);
     }
     const height=await mined(staged.txid!,Date.now()+30*60_000);
