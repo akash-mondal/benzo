@@ -30,6 +30,7 @@ const hostBenzo = (n: string, args: string[]) => { const out = host(n, [`${H}/bi
 const push = (n: string, src: string, dest: string) => { sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "rm", "-rf", `/home/benzo/${dest}`]); sh("orbctl", ["push", "-m", `benzo-${n}`, src, dest]); sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "chown", "-R", "benzo:benzo", `/home/benzo/${dest}`]); };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const latestRound = async () => (await (await fetch(`${env("BNZ_DRAND_URLS").split(",")[0]}/${env("BNZ_DRAND_CHAIN_HASH")}/public/latest`)).json()).round as number;
+const requireBefore = (t: number) => { if (Date.now() / 1000 >= t) throw new Error(`deposits matured after T_freeze ${t}`); };
 let ok = true; const check = (id: string, pass: boolean, detail = "") => { say(`${pass ? "PASS" : "ERROR"} ${id}${detail ? " " + detail : ""}`); ok &&= pass; };
 
 async function main() {
@@ -101,8 +102,9 @@ async function main() {
       if (++h > 80) throw new Error("funding did not mature");
     }
     for (const b of bids) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: b.address, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex });
-    // 5. Freeze at T_freeze; witness certificates signed ON two hosts over the pushed public dir.
-    while (Date.now() / 1000 < manifest.T_freeze + 5) await sleep(20_000);
+    // 5. Freeze right after admission (it must happen BEFORE T_freeze; a missed cutoff cancels the auction);
+    // witness certificates signed ON two hosts over the pushed public dir.
+    requireBefore(manifest.T_freeze);
     benzo(["freeze", "--id", id]);
     for (const n of ["alice", "bob"]) {
       push(n, publicDir, `y2pub-${id.slice(0, 12)}`);
