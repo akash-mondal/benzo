@@ -99,6 +99,18 @@ Today all three key shares live in one `.benzo/frost/` directory and every aucti
 - Clearing goes through the registry, `mode: "buyback"`. Payouts go to the sellers' envelope destinations, and any unspent budget returns to the treasury destination pinned in the manifest.
 - **V1/V2** per PHASE-5 §6.
 
+### 6.1 Addendum (2026-10-04, head): Mode B live, as it will be built
+
+The pure Mode B clear (`clear/mode-b.ts`), its verify-side money rules and its registry entry exist. What is missing is the product path and the treasury leg. Decisions:
+
+1. **Product path accepts every registry mode.** `clear/auction-cli.ts`, `cli/product.ts`, `settle/plan.ts` and `settle/cli.ts` read the signed manifest through `clientForMode` (the registry) instead of the Mode A `client`, wherever they only need the common fields. `auction create --mode buyback --budget Z --max-price Z --treasury-ua UA` writes `clearing.mode = "buyback"` and the `buyback` block.
+2. **The buyback block pins the treasury return.** Field set becomes `budget_zats, max_price_zats, treasury_ua`. `treasury_ua` must pass the shielded-only destination rule (`envelope/destination.ts`). It is public and signed; a treasury is a known party, so this leaks nothing about sellers.
+3. **Treasury funding is a vault note at a pinned non-deposit address.** The manifest's `buyback` block gains no address. Instead the operator's routing names `treasury_funding_ua`, a fresh vault address that is not in `deposit_addresses`. That keeps it out of the bid set and the strays statement, the same way the fee reserve is kept out. The treasury sends exactly `budget_zats × lots` (lots = `m.lots.length` or 1) before `T_submit`. Network fees stay on the fee reserve, as in Mode A.
+4. **`open` refuses an unfunded buyback.** Before opening, the operator sums confirmed, unspent vault notes at `treasury_funding_ua` (10 confirmations, like deposits). If the sum is below `budget × lots`, `open` refuses and the auction cancels: every ask refunds exact C, and whatever the treasury did send returns to `treasury_ua`. Each signer host checks the same sum from its own vault scan in `sign approve` before approving any buyback batch.
+5. **Settlement rows.** `obligationsModeB` keeps one row per leaf (refund C + payment). The plan adds one `treasury` row of `funded − treasury_zats` to `treasury_ua` when it is positive. `funded` is the sum observed in (4), not the manifest number, so over-funding also returns. Hosts derive the same row from their own scan (`deriveRows`): the treasury row's recipient is the signed manifest's `treasury_ua`, never operator input.
+6. **Serial binding through the marketplace adapter is not in part 1.** Asks are sealed asks with exact-C deposits; buying back a specific serial moves to part 2 with the marketplace adapter. PHASE-5 §6 V1/V2 do not depend on it.
+7. **Order of work:** (1)+(2) with a unit check that a buyback manifest round-trips through create/sign/publish and the registry clear equals `clearModeB`, then (3)+(4)+(5) with the open-refusal mutation, then the live spec `e2e/buyback-mode.spec.ts` (V1, V2, W1, W2, X1, Y1 on host custody) and mutations 5M1–5M5.
+
 ## 7. Spec: `e2e/buyback-mode.spec.ts`
 
 One live run of about 60–75 minutes:
