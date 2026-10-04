@@ -131,3 +131,10 @@ only until the head says mainnet work has started.
   the old parser plus official labels and fresh real testnet addresses
   (`docs/evidence/phase-6/repro/r24-3i-classify-address.out`; mutations `R24-3i-a`, `R24-3i-b`).
   `docs/AUDITS.md` marks the row closed.
+
+## NU7 (head, 2026-10-04, Ruling R27)
+- NU7 activated on testnet at height 4,465,026 (branch `0x77190AD9`). Mainnet NU7 is targeted for Nov 5, 2026; its height is to be decided Oct 20.
+- The mainnet run (before Oct 27) uses the as-pinned Ironwood stack in `bin/ironwood/`, not the testnet NU7 backport.
+- Once the mainnet height is set:
+  - put it in `settle/cli.ts guard()`, so no mainnet PCZT's expiry straddles activation;
+  - check that no mainnet batch is staged across it.

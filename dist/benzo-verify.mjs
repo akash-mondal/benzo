@@ -8293,11 +8293,18 @@ function obligationsModeA(result, settlement) {
 // clear/mode-b.ts
 function clientPhase5(packet, trustedSigner) {
   const m2 = verifyRecord(packet, trustedSigner);
+  validatePhase5(m2);
+  return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest: m2 };
+}
+function validatePhase5(m2) {
   requireThat(m2.clearing && ["uniform", "vickrey", "buyback"].includes(m2.clearing.mode), "clearing mode");
   requireThat(m2.clearing.mode === "buyback" === (m2.buyback !== void 0), "buyback parameters/mode");
   if (m2.buyback !== void 0) {
     requireThat(m2.buyback && typeof m2.buyback === "object" && !Array.isArray(m2.buyback), "buyback parameters");
-    requireThat(Object.keys(m2.buyback).sort().join(",") === "budget_zats,max_price_zats", "buyback field set");
+    requireThat(Object.keys(m2.buyback).sort().join(",") === "budget_zats,funding_ua,max_price_zats,treasury_ua", "buyback field set");
+    const ua2 = m2.network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/;
+    requireThat(ua2.test(m2.buyback.treasury_ua) && ua2.test(m2.buyback.funding_ua), "buyback treasury_ua/funding_ua");
+    requireThat(m2.buyback.treasury_ua !== m2.buyback.funding_ua && !(m2.deposit_addresses ?? []).includes(m2.buyback.funding_ua) && !(m2.deposit_addresses ?? []).includes(m2.buyback.treasury_ua), "buyback funding_ua must be a non-deposit vault address distinct from treasury_ua");
     requireThat(m2.bond === void 0, "bond-then-pay is auction-side");
     requireThat(m2.serials === void 0, "serials are uniform auction-side");
   }
@@ -8308,7 +8315,6 @@ function clientPhase5(packet, trustedSigner) {
     const tick = zats(m2.tick_zats, "tick"), budget = zats(m2.buyback.budget_zats, "budget"), maxPrice = zats(m2.buyback.max_price_zats, "max_price");
     requireThat(budget > 0n && maxPrice >= tick && maxPrice % tick === 0n, "buyback budget/max_price");
   }
-  return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest: m2 };
 }
 function clientBuyback(packet, trustedSigner) {
   const r2 = clientPhase5(packet, trustedSigner);
@@ -16458,6 +16464,10 @@ function checkPublicAuction(pub, opts = {}) {
     const rows = pub.settlement.rows ?? [];
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : /* @__PURE__ */ new Map();
     const stray = (party) => {
+      if (party === "treasury") {
+        requireThat(pub.manifest.clearing?.mode === "buyback", "treasury row outside a buyback");
+        return;
+      }
       requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     for (const r2 of receipts) {
