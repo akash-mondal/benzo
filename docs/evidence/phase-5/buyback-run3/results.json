@@ -1,0 +1,12 @@
+{
+ "Y1a": "PASS",
+ "V1a": "PASS",
+ "X1a": "PASS",
+ "V1b": "PASS",
+ "W2": "PASS",
+ "Y1b": "FAIL",
+ "V2": "FAIL",
+ "W1": "PASS",
+ "X1b": "PASS",
+ "Y1c": "PASS"
+}
