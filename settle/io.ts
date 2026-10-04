@@ -47,6 +47,17 @@ export async function mined(txid:string,deadline:number) {
 // (Internal, Unavailable, DeadlineExceeded, backend/connection failures) are retried 4 times with backoff;
 // NotFound and every other answer are returned or thrown unchanged.
 const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF/;
+// Head (2026-10-04, NU7 on testnet): settlement normally requires two independent lightwalletd endpoints to agree.
+// While only one public testnet endpoint serves NU7, BNZ_LWD_SINGLE=1 runs on the primary alone: testnet only,
+// warned on stderr and recorded in the settlement summary (lwd_endpoints). Mainnet always needs both.
+export function lwdEndpoints(): string[] {
+  if (process.env.BNZ_LWD_SINGLE === "1") {
+    if ((process.env.BNZ_NETWORK ?? "test") !== "test") throw new Error("BNZ_LWD_SINGLE is testnet-only; mainnet settlement needs two endpoints");
+    process.stderr.write(`WARN single lightwalletd endpoint ${env("BNZ_LWD_URL")} (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement\n`);
+    return [env("BNZ_LWD_URL")];
+  }
+  return [env("BNZ_LWD_URL"), env("BNZ_LWD_URL_ALT")];
+}
 export const isTransientGrpc = (e: unknown) => TRANSIENT_GRPC.test(String((e as Error)?.message ?? e));
 function retryTransient<T>(f:()=>T):T {
   for (let attempt = 1; ; attempt++) {

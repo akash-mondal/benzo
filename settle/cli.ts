@@ -5,7 +5,7 @@ import path from "node:path";
 import {hash,jsonBytes,requireThat} from "../manifest/schema";
 import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {Ledger,type Row} from "./ledger";
-import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc} from "./io";
+import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints} from "./io";
 import {pubkey,zcashSign} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {partyNote} from "./deposits";
@@ -241,7 +241,7 @@ async function worker(ledger:Ledger) {
         let endHash:string|undefined;
         // Pinned service.proto:259 GetBlockRange and compact_formats.proto:54 CompactTx.txid.
         // A complete range through expiry proves absence; expired transactions cannot mine later.
-        for(const endpoint of [env("BNZ_LWD_URL"),env("BNZ_LWD_URL_ALT")]) {
+        for(const endpoint of lwdEndpoints()) {
           const raw=run(bin("grpcurl"),["-import-path",path.join(STATE,"proto"),"-proto","service.proto","-d",JSON.stringify({start:{height:start},end:{height:metadata.expiry_height}}),endpoint,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlockRange"]);
           const blocks=raw.trim().split(/\n(?=\{)/).map(l=>JSON.parse(l));
           requireThat(blocks.length===metadata.expiry_height-start+1&&blocks.every((b,i)=>Number(b.height)===start+i),"incomplete expired batch block range");
@@ -263,7 +263,7 @@ async function worker(ledger:Ledger) {
     // Head (2026-10-03, live run 12): a lagging endpoint that has not seen the block yet is waited for (up to 15
     // min); only a DIFFERENT non-zero height is a real disagreement and refuses.
     const agreeBy=Date.now()+15*60_000;
-    for(const endpoint of [env("BNZ_LWD_URL"),env("BNZ_LWD_URL_ALT")]) {
+    for(const endpoint of lwdEndpoints()) {
       for(;;) {
         let seen=0;
         // Head (live buyback run 3): an endpoint down (503) past chainTx's own retries counts as "not seen yet" until the deadline.
@@ -290,7 +290,7 @@ async function worker(ledger:Ledger) {
     }
   }
   writeFileSync(file("receipts.json"),jsonBytes(ledger.receipts()),{mode:0o600});
-  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
+  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(),rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));
 }
 try {
