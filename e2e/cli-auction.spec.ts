@@ -51,13 +51,18 @@ function worker(id:string,allocatedKill=false) {
 async function cleanup() {
   z.sync('vault');z.enhance('vault');if(!z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))return;
   const dir=path.join(STATE,'run',`cli-cleanup-${Date.now()}`);mkdirSync(dir,{recursive:true});
-  z.pczt('vault','create-max','--address',fresh('bidder'),'--output',path.join(dir,'created.pczt'));
+  // create-max refuses while any vault note is still too young to spend (the last settlement's change, live NU7
+  // regression): re-sync and retry until they mature, up to 15 minutes.
+  for(let by=Date.now()+15*60_000;;) {
+    try{z.pczt('vault','create-max','--address',fresh('bidder'),'--output',path.join(dir,'created.pczt'));break}
+    catch(e){if(!/ineligible/.test(String((e as Error)?.message??e))||Date.now()>by)throw e;await new Promise(r=>setTimeout(r,20_000));z.sync('vault')}
+  }
   z.pczt('vault','prove',path.join(dir,'created.pczt'),'--output',path.join(dir,'proven.pczt'));
   await zcashSign(path.join(dir,'proven.pczt'),path.join(dir,'signed.pczt'));const txid=z.send(path.join(dir,'signed.pczt'));
   await waitFor({height:1,tip:()=>{z.sync('vault');return JSON.parse(z.wallet('vault','list-tx','--json')).find((t:any)=>t.txid===txid)?.mined_height??0}},Date.now()+MINE);console.log(`development cleanup ${txid}`);
 }
 test('CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery',async()=> {
-  test.setTimeout(90*60_000);const run=new Run('cli-auction');
+  test.setTimeout(110*60_000);const run=new Run('cli-auction');
   const pins=Object.fromEntries(readFileSync(path.join(ROOT,'tools/pins.env'),'utf8').split('\n').map(l=>l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter(Boolean).map(m=>[m![1],m![2]]));
   const installed=execFileSync('cargo',['install','--list','--root',STATE],{encoding:'utf8'});
   for(const name of ['zcash-devtool','frostd','frost-client','zcash-sign'])if(!installed.split('\n').some(l=>l.startsWith(name+' v')&&(l.includes('?rev='+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']+'#')||l.includes('-'+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']))))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
