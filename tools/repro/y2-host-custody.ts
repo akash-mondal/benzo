@@ -33,12 +33,66 @@ const latestRound = async () => (await (await fetch(`${env("BNZ_DRAND_URLS").spl
 const requireBefore = (t: number) => { if (Date.now() / 1000 >= t) throw new Error(`deposits matured after T_freeze ${t}`); };
 let ok = true; const check = (id: string, pass: boolean, detail = "") => { say(`${pass ? "PASS" : "ERROR"} ${id}${detail ? " " + detail : ""}`); ok &&= pass; };
 
+async function afterAdmission(id: string, manifest: any, signer: string, publicDir: string, refunds: string[]) {
+    const R = manifest.drand.R;
+    while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000); // freeze needs now >= T_submit
+    // 5. Freeze right after admission (it must happen BEFORE T_freeze; a missed cutoff cancels the auction);
+    // witness certificates signed ON two hosts over the pushed public dir.
+    const stateOf = () => benzo(["auction", "status", "--id", id]).state as string;
+    if (stateOf() === "OPEN") { requireBefore(manifest.T_freeze); benzo(["freeze", "--id", id]); }
+    for (const n of (JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8")).witness_cert ?? []).length >= 2 ? [] : ["alice", "bob"]) {
+      push(n, publicDir, `y2pub-${id.slice(0, 12)}`);
+      host(n, [`${H}/bin/benzo`, "witness", "sign", "--dir", `/home/benzo/y2pub-${id.slice(0, 12)}`, "--signer", signer, "--key", `${H}/witness/${n}.key`]);
+      const hostDoc = JSON.parse(host(n, ["cat", `/home/benzo/y2pub-${id.slice(0, 12)}/auction.json`]));
+      const doc = JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8"));
+      for (const c of hostDoc.witness_cert ?? []) if (!(doc.witness_cert ?? []).some((x: any) => JSON.stringify(x) === JSON.stringify(c))) (doc.witness_cert ??= []).push(c);
+      writeFileSync(path.join(publicDir, "auction.json"), JSON.stringify(doc));
+    }
+    // 6. Open after R, clear; envelope-opens reports computed ON each host from its own key and vault.
+    while ((await latestRound()) < R) await sleep(10_000);
+    if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
+    if (stateOf() === "OPENED") benzo(["clear", "--id", id]);
+    for (const n of NAMES) {
+      for (const v of ["sync", "enhance"]) host(n, [`${H}/bin/zcash-devtool`, "wallet", "-w", `${H}/vaults/${id}/wallet`, v, "-s", env("BNZ_LWD_URL")]);
+      push(n, publicDir, `y2pub-${id.slice(0, 12)}`);
+      const report = hostBenzo(n, ["sign", "envelope-opens", "--id", id, "--name", n, "--public", `/home/benzo/y2pub-${id.slice(0, 12)}`, "--witness-key", `${H}/witness/${n}.key`]);
+      mkdirSync(path.join(STATE, "settle", id), { recursive: true });
+      writeFileSync(path.join(STATE, "settle", id, `envelope-opens-${n}.json`), JSON.stringify(report));
+    }
+    // 7. Settle with the kill drill: bob's host is stopped mid-session; the batch completes with alice + carol.
+    const settle = spawnSync(path.join(ROOT, "bin/benzo"), ["settle", "--id", id], { encoding: "utf8", env: { ...process.env, BNZ_DRILL_STOP: "bob" }, maxBuffer: 64 << 20 });
+    writeFileSync(path.join(OUT, "settle.log"), (settle.stdout || "") + "\n----\n" + (settle.stderr || ""));
+    sh("orb", ["start", "benzo-bob"]);
+    const custody = JSON.parse(readFileSync(path.join(STATE, "settle", id, "batch-1.custody.json"), "utf8"));
+    const doc = JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8"));
+    check("y2-settled", settle.status === 0 && (doc.settlement?.receipts ?? []).length > 0, `exit ${settle.status}, receipts ${(doc.settlement?.receipts ?? []).length}`);
+    check("y2-kill-drill-abandoned-bob", custody.events.some((e: any) => e.abandoned_session?.failed?.includes("bob")));
+    check("y2-completed-with-alice-carol", JSON.stringify(custody.pair) === JSON.stringify(["alice", "carol"]), `pair ${custody.pair.join("+")}`);
+    check("y2-host-approvals", custody.events.filter((e: any) => e.approve === "approved").length >= 3, custody.events.map((e: any) => e.signer ? `${e.signer}:${e.approve}` : "abandoned").join(" "));
+    const parties = (doc.settlement?.receipts ?? []).map((r: any) => r.party);
+    check("y2-no-duplicate-outputs", new Set(parties).size === parties.length);
+    check("y2-no-share-on-mac", !existsSync(path.join(STATE, "auctions", id)));
+    // 8. Envelope refunds landed at the bidders' own destinations; cold verify of the public dir.
+    z.sync("bidder"); z.enhance("bidder");
+    const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    const refunded = refunds.slice(0, 3).filter(a => got.some((n: any) => n.address === a && n.value_zats > 0)).length;
+    if (refunds.length) check("y2-envelope-refunds-landed", refunded >= 1, `${refunded} of 3 bid destinations received`); else say("SKIP y2-envelope-refunds-landed (resumed run: bid destinations are sealed and not stored)");
+    const cold = path.join(OUT, "cold"); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
+    const v = spawnSync(path.join(ROOT, "bin/benzo"), ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
+    check("y2-cold-verify", v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
+}
 async function main() {
   // frostd on the Mac (hosts reach it at host.orb.internal over TLS).
   const frostd = spawn(path.join(STATE, "bin/frostd"), ["-i", "127.0.0.1", "-p", env("BNZ_FROSTD_ADDR").split(":").at(-1)!, "-c", path.join(STATE, "tls/frostd.pem"), "-k", path.join(STATE, "tls/frostd.key")], { stdio: "ignore" });
   await sleep(2000);
   try {
     for (const n of NAMES) sh("orb", ["start", `benzo-${n}`]);
+    if (process.env.RESUME_ID) {
+      const rid = process.env.RESUME_ID, pdir = path.join(ROOT, "tmp/y2/public", rid), doc = JSON.parse(readFileSync(path.join(pdir, "auction.json"), "utf8"));
+      const m = JSON.parse(Buffer.from(doc.manifest.bytes, "base64").toString("utf8"));
+      say(`resume ${rid}`);
+      await afterAdmission(rid, m, doc.signer, pdir, []);
+    } else {
     const id = randomBytes(32).toString("hex");
     say(`auction ${id}`);
     // 1. Fresh DKG on the hosts.
@@ -91,7 +145,7 @@ async function main() {
     const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
     // 4. Three bids (two win, one refunds in full), sealed to the HOSTS' envelope keys; one funding transaction.
     const bids = deposits.map((address, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(200 + 10 * i), quantity: 1, address, refund_ua: refunds[i] }), address }));
-    const paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids });
+    const paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids, reserve: { address: operator.routing.fee_reserve_ua, amount_zats: "70000" } }); // fee reserve: payouts pay network fees from it
     say(`funding ${paid.txid}`);
     const vaultSync = () => { for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]); };
     for (let h = 0; ; await sleep(30_000)) {
@@ -102,49 +156,8 @@ async function main() {
       if (++h > 80) throw new Error("funding did not mature");
     }
     for (const b of bids) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: b.address, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex });
-    // 5. Freeze right after admission (it must happen BEFORE T_freeze; a missed cutoff cancels the auction);
-    // witness certificates signed ON two hosts over the pushed public dir.
-    requireBefore(manifest.T_freeze);
-    benzo(["freeze", "--id", id]);
-    for (const n of ["alice", "bob"]) {
-      push(n, publicDir, `y2pub-${id.slice(0, 12)}`);
-      host(n, [`${H}/bin/benzo`, "witness", "sign", "--dir", `/home/benzo/y2pub-${id.slice(0, 12)}`, "--signer", signer, "--key", `${H}/witness/${n}.key`]);
-      const hostDoc = JSON.parse(host(n, ["cat", `/home/benzo/y2pub-${id.slice(0, 12)}/auction.json`]));
-      const doc = JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8"));
-      for (const c of hostDoc.witness_cert ?? []) if (!(doc.witness_cert ?? []).some((x: any) => JSON.stringify(x) === JSON.stringify(c))) (doc.witness_cert ??= []).push(c);
-      writeFileSync(path.join(publicDir, "auction.json"), JSON.stringify(doc));
+    await afterAdmission(id, manifest, signer, publicDir, refunds);
     }
-    // 6. Open after R, clear; envelope-opens reports computed ON each host from its own key and vault.
-    while ((await latestRound()) < R) await sleep(10_000);
-    benzo(["open", "--id", id]); benzo(["clear", "--id", id]);
-    for (const n of NAMES) {
-      host(n, ["bash", "-lc", `${H}/bin/zcash-devtool wallet -w ${H}/vaults/${id}/wallet sync -s "$BNZ_LWD_URL" >/dev/null && ${H}/bin/zcash-devtool wallet -w ${H}/vaults/${id}/wallet enhance -s "$BNZ_LWD_URL" >/dev/null`]);
-      push(n, publicDir, `y2pub-${id.slice(0, 12)}`);
-      const report = hostBenzo(n, ["sign", "envelope-opens", "--id", id, "--name", n, "--public", `/home/benzo/y2pub-${id.slice(0, 12)}`, "--witness-key", `${H}/witness/${n}.key`]);
-      mkdirSync(path.join(STATE, "settle", id), { recursive: true });
-      writeFileSync(path.join(STATE, "settle", id, `envelope-opens-${n}.json`), JSON.stringify(report));
-    }
-    // 7. Settle with the kill drill: bob's host is stopped mid-session; the batch completes with alice + carol.
-    const settle = spawnSync(path.join(ROOT, "bin/benzo"), ["settle", "--id", id], { encoding: "utf8", env: { ...process.env, BNZ_DRILL_STOP: "bob" }, maxBuffer: 64 << 20 });
-    writeFileSync(path.join(OUT, "settle.log"), (settle.stdout || "") + "\n----\n" + (settle.stderr || ""));
-    sh("orb", ["start", "benzo-bob"]);
-    const custody = JSON.parse(readFileSync(path.join(STATE, "settle", id, "batch-1.custody.json"), "utf8"));
-    const doc = JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8"));
-    check("y2-settled", settle.status === 0 && (doc.settlement?.receipts ?? []).length > 0, `exit ${settle.status}, receipts ${(doc.settlement?.receipts ?? []).length}`);
-    check("y2-kill-drill-abandoned-bob", custody.events.some((e: any) => e.abandoned_session?.failed?.includes("bob")));
-    check("y2-completed-with-alice-carol", JSON.stringify(custody.pair) === JSON.stringify(["alice", "carol"]), `pair ${custody.pair.join("+")}`);
-    check("y2-host-approvals", custody.events.filter((e: any) => e.approve === "approved").length >= 3, custody.events.map((e: any) => e.signer ? `${e.signer}:${e.approve}` : "abandoned").join(" "));
-    const parties = (doc.settlement?.receipts ?? []).map((r: any) => r.party);
-    check("y2-no-duplicate-outputs", new Set(parties).size === parties.length);
-    check("y2-no-share-on-mac", !existsSync(path.join(STATE, "auctions", id)));
-    // 8. Envelope refunds landed at the bidders' own destinations; cold verify of the public dir.
-    z.sync("bidder"); z.enhance("bidder");
-    const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
-    const refunded = refunds.slice(0, 3).filter(a => got.some((n: any) => n.address === a && n.value_zats > 0)).length;
-    check("y2-envelope-refunds-landed", refunded >= 1, `${refunded} of 3 bid destinations received`);
-    const cold = path.join(OUT, "cold"); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
-    const v = spawnSync(path.join(ROOT, "bin/benzo"), ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
-    check("y2-cold-verify", v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
     say(ok ? "RESULT PASS all Y2 assertions" : "RESULT FAIL");
     process.exitCode = ok ? 0 : 1;
   } finally { frostd.kill(); for (const n of NAMES) spawnSync("orb", ["start", `benzo-${n}`]); }
