@@ -168,3 +168,17 @@ The assertions are exactly PHASE-5 §6: V1 V2 W1 W2 X1 Y1. Mutations 5M1–5M5 a
 - **H5. Signer-side reports from hosts.** Envelope keys (`benzo sign envelope-key` on each host, pinned in the manifest), `sign envelope-opens --public DIR --claims FILE` and the witness certificate and strays statement run **on the hosts** against the pushed public dir and each host's own vault scan. Their outputs return to the coordinator (stdout or `orbctl pull`).
 - **Limit to state:** the seller payout destination is operator routing, so hosts check its amount, not its address. Pinning the seller UA in the signed manifest closes this (future item).
 - **Proof:** one live product auction with host custody (fresh DKG, three bids, a refund paid through envelopes) settled entirely by host approvals and host-held shares, plus the kill drill completing with alice + carol.
+
+### 11.1 Live findings from Y2 (2026-10-04, head)
+- **Proven live:** per-auction DKG on the hosts (Y1, and again in Y2 for auction 7885a5af…), per-host vaults from the operator's UFVK, host witness certificates, **host approvals of batch 1 computed from each host's own data**, and the kill drill aborting the alice + bob session when bob's host is stopped.
+- **Fixed:**
+  - a failed participant ends the whole session, so survivors are stopped (27494b5);
+  - lingering frostd sessions are closed on surviving hosts before re-planning (`frost-client sessions --close-all`);
+  - `freeze` must run after `T_submit` and before `T_freeze`; missing the cutoff cancels the auction.
+- **Design gap: the candidate PCZT must be built on a signer host.** Under host custody the coordinator holds no envelope key, so it can't name the refund recipients; the Mac-built candidate sent every envelope refund to the exception queue. Remaining work (H6):
+  - a host command `benzo sign build --id --batch --packet DIR --name n` takes the packet plus `rows.json` (the ledger's allocated rows: party, kind, amount) and `seller_ua` (operator routing);
+  - it derives each row's recipient exactly as `sign approve` does (share one `deriveRows()`), creates the PCZT with `benzo-pczt create` on its own vault, proves it, and returns the proven candidate plus `{party, output_index}`;
+  - the coordinator pulls it (`orbctl pull`), and every approving host, including the builder, runs `sign approve` on it;
+  - receipts map outputs to parties by that index list, never by recipient.
+- **Privacy limit to state (all custody modes):** whoever holds the vault UFVK can read outgoing outputs if the PCZT carries an OVK, so the operator could see refund destinations after broadcast. Fix candidate: build outputs with no OVK (`ovk = None`) so the UFVK holder can't recover recipients. Verify against `benzo-pczt create` and record in AUDITS.
+- **Funds parked:** auction ea0d5761… was auto-cancelled with 3C in its vault, and 7885a5af… is CLEARED with batch 1 unsigned. Both settle once H6 lands; meanwhile the cancel/claim paths can recover them.

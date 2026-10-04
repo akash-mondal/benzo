@@ -141,6 +141,9 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
       console.error(`ERROR signing session abandoned (batch ${batchId}, pair ${pair.join("+")}, failed ${lost.join(",")||"?"}); re-planning with the next approving host`);
       for(const n of lost)failed.add(n);
       if(!lost.length)throw e;
+      // frostd keeps the abandoned session; a survivor would then be in two sessions and refuse to join. Close every
+      // lingering session of this auction on the surviving hosts before re-planning.
+      for(const n of prefer.filter(n=>!failed.has(n)))spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8"});
     }
   }
   throw Error(`batch ${batchId} could not be signed by two hosts`);
