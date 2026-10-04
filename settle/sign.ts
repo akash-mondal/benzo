@@ -85,7 +85,12 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
     // A participant that dies mid-session (host stopped) aborts the session at once: the coordinator would wait
     // for its share forever. The error names the failed signers so the worker can re-plan the batch without them.
     const failed: string[] = [];
-    participants.forEach((p, i) => p.done.then((c) => { if (c !== 0) { failed.push(pair[i]); coordinator.child.kill(); } }));
+    // The FIRST participant to fail is the lost signer; the session is then dead for everyone, so the coordinator and
+    // every other participant are stopped too (a survivor would otherwise wait forever for a session that is gone).
+    let aborted = false;
+    participants.forEach((p, i) => p.done.then((c) => {
+      if (c !== 0 && !aborted) { aborted = true; failed.push(pair[i]); coordinator.child.kill(); participants.forEach((q, j) => { if (j !== i) q.child.kill(); }); }
+    }));
     const timer = setTimeout(() => coordinator.child.kill(), 180_000);
     const codes = await Promise.all([coordinator.done, ...participants.map((p) => p.done)]);
     clearTimeout(timer);
