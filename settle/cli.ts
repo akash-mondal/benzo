@@ -106,7 +106,7 @@ function guard(metadata:any,tip:number) {
 // sign with two approving hosts, and on a mid-session failure (the kill drill) record the abandoned session and
 // re-plan the SAME batch with the next host that approves. A host that failed is not asked again for this batch.
 // §11 H6: the first preferred signer host that can derive every allocated row builds and proves the candidate on its
-// own vault; the coordinator receives only the proven PCZT and {party, output_index} (recipients stay on the host).
+// own vault; the coordinator receives only the REDACTED proven PCZT (H7) and {party, output_index} (recipients stay on the hosts).
 async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_zats:string}[],proven:string) {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
@@ -124,10 +124,15 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20});
     if(b.status!==0){console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue}
     const built=JSON.parse(b.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
+    // §11 H7: pull only the redacted candidate and the sealed full copies; the full candidate never reaches here.
     const pulled=file(`batch-${batchId}.pulled.pczt`);
     run("rm",["-f",pulled]);
-    requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/proven.pczt`,pulled]).status===0&&existsSync(pulled),`could not pull the candidate from ${n}`);
+    requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/proven.redacted.pczt`,pulled]).status===0&&existsSync(pulled),`could not pull the candidate from ${n}`);
     requireThat(hash(readFileSync(pulled))===built.plan_version,"pulled candidate differs from the builder's plan_version");
+    for(const s of ["alice","bob","carol"]) {
+      const f=file(`batch-${batchId}.sealed-${s}.bin`);run("rm",["-f",f]);
+      requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/sealed-${s}.bin`,f]).status===0&&existsSync(f),`could not pull the candidate sealed to ${s}`);
+    }
     copyFileSync(pulled,proven);
     writeFileSync(file(`batch-${batchId}.build.json`),jsonBytes(built),{mode:0o600});
     return built;
@@ -140,6 +145,7 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
   const packet=file(`packet-${batchId}`);
   run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
   copyFileSync(proven,path.join(packet,"candidate.pczt"));
+  for(const s of ["alice","bob","carol"])copyFileSync(file(`batch-${batchId}.sealed-${s}.bin`),path.join(packet,`sealed-${s}.bin`));
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
   writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer}),{mode:0o600});
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
@@ -202,7 +208,7 @@ async function worker(ledger:Ledger) {
       if(custody) {
         // §11 H6: a signer host builds and proves the candidate from its own derivations; only {party, output_index} returns.
         await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);
-        guard(inspect(proven),JSON.parse(wallet("balance","--json")).chain_tip_height);
+        guard(inspect(proven,true),JSON.parse(wallet("balance","--json")).chain_tip_height);
       } else {
         const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
         run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
@@ -216,14 +222,14 @@ async function worker(ledger:Ledger) {
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
       const txid=run(bin("zcash-devtool"),["pczt","extract"],readFileSync(signed)).trim().split("\n").at(-1)!;
-      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(custody?inspect(signed):routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient))),{mode:0o600});
+      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(custody?inspect(signed,true):routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient))),{mode:0o600});
     }
     staged=ledger.batch(batch.id)!;
     requireThat(staged.txid&&staged.pczt_path&&staged.pczt_hash===hash(readFileSync(staged.pczt_path)),"stored signed PCZT missing or changed");
     wallet("sync","-s",env("BNZ_LWD_URL"));
     const known=JSON.parse(wallet("list-tx","--json")).find((t:any)=>t.txid===staged.txid);
     if(!known?.mined_height) {
-      const metadata=inspect(staged.pczt_path!),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
+      const metadata=inspect(staged.pczt_path!,custody),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       if(metadata.expiry_height<=tip) {
         const m=client(auction().manifest,auction().signer).manifest;
         const funding=notes().filter(n=>m.deposit_addresses.includes(n.address)&&n.height>0&&n.height<=metadata.expiry_height&&n.value_zats>0);
@@ -264,7 +270,7 @@ async function worker(ledger:Ledger) {
         await new Promise(r=>setTimeout(r,15000));
       }
     }
-    const i=inspect(staged.pczt_path!);
+    const i=inspect(staged.pczt_path!,custody);
     if(custody) {
       // §11 H6: receipts map outputs to parties by the builder's {party, output_index}, never by recipient.
       const built=JSON.parse(readFileSync(base+".build.json","utf8"));

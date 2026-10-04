@@ -10,10 +10,12 @@ import path from "node:path";
 import { requireThat } from "../../manifest/schema";
 import { pcztBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
-import { deriveRows } from "../host-derive";
+import { deriveRows, redactCandidate } from "../host-derive";
+import { sealBlob } from "../../envelope/index";
+import { SIGNER_ENVELOPE_INDEX } from "../../settle/envelopes";
 
 export const noun = "sign", verb = "build";
-export const help = "benzo sign build --id AUCTION_ID --batch N --packet DIR --name SIGNER — on a signer host: derive each allocated row's recipient from this signer's own data, create and prove the candidate PCZT on its own vault, write DIR/proven.pczt and print {plan_version, outputs:[{party, output_index, amount_zats}]}";
+export const help = "benzo sign build --id AUCTION_ID --batch N --packet DIR --name SIGNER — on a signer host: derive each allocated row's recipient from this signer's own data, create and prove the candidate PCZT on its own vault, write DIR/proven.pczt, the redacted coordinator copy DIR/proven.redacted.pczt and DIR/sealed-<signer>.bin, and print {plan_version, outputs:[{party, output_index, amount_zats}]}";
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const state = () => process.env.BNZ_STATE_DIR ? path.resolve(process.env.BNZ_STATE_DIR) : path.join(os.homedir(), ".benzo");
 
@@ -32,7 +34,7 @@ export async function run(argv: string[]): Promise<number | object> {
     requireThat(Number.isInteger(meta.expiry_blocks) && meta.expiry_blocks >= 1 && meta.expiry_blocks <= 10000, "packet expiry_blocks");
     const rows: { party: string; kind: string; amount_zats: string }[] = JSON.parse(readFileSync(path.join(packet, "rows.json"), "utf8"));
     requireThat(Array.isArray(rows) && rows.length >= 1 && rows.length <= 13, "rows (1-13)");
-    const { expected, payout } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    const { expected, payout, envelopeKeys } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // Each allocated row gets the recipient THIS signer derived; the seller payout goes to the operator routing UA
     // (stated limit: hosts check its amount against the result, not its address).
     const pool = [...expected];
@@ -59,7 +61,13 @@ export async function run(argv: string[]): Promise<number | object> {
       const [x] = avail.splice(k, 1);
       return { party: p.party, output_index: x.index, pool: x.pool, amount_zats: p.amount_zats };
     });
-    const result = { auction_id: o.id, batch: Number(o.batch), builder: o.name, plan_version: sha(readFileSync(proven)), outputs };
+    // §11 H7: the coordinator gets only the redacted candidate; the full one goes to each signer sealed to the envelope
+    // key the verified manifest pins for it (the coordinator relays blobs it cannot open).
+    const redacted = path.join(packet, "proven.redacted.pczt");
+    redactCandidate(st, proven, redacted, info);
+    requireThat(Array.isArray(envelopeKeys) && envelopeKeys.length === 3, "manifest pins no three envelope keys");
+    for (const [n, i] of Object.entries(SIGNER_ENVELOPE_INDEX)) writeFileSync(path.join(packet, `sealed-${n}.bin`), sealBlob(readFileSync(proven), envelopeKeys[i]), { mode: 0o600 });
+    const result = { auction_id: o.id, batch: Number(o.batch), builder: o.name, plan_version: sha(readFileSync(redacted)), outputs };
     writeFileSync(path.join(packet, "build.json"), JSON.stringify(result) + "\n", { mode: 0o600 });
     return result;
   } catch (e) {

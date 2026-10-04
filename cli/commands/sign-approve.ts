@@ -20,7 +20,9 @@ import { pcztBin, scanBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
-import { deriveRows } from "../host-derive";
+import { deriveRows, redactCandidate } from "../host-derive";
+import { openBlob } from "../../envelope/index";
+import { ownEnvelopePrivate } from "../../settle/envelopes";
 
 export const noun = "sign", verb = "approve";
 export const help = "benzo sign approve --id AUCTION_ID --batch N --packet DIR --name SIGNER — on a signer host: verify the packet's public dir, derive every payable row from this signer's own openings, envelope key and vault scan, check the candidate PCZT against them, compute the sighash, record the approval";
@@ -53,14 +55,23 @@ export async function run(argv: string[]): Promise<number | object> {
     const st = state(), root = repoRoot(), packet = path.resolve(o.packet);
     const meta = JSON.parse(readFileSync(path.join(packet, "packet.json"), "utf8"));
     requireThat(meta.auction_id === o.id && String(meta.batch) === o.batch, "packet is for another auction or batch");
-    const candidate = path.join(packet, "candidate.pczt"), publicDir = path.join(packet, "public");
-    const planVersion = sha(readFileSync(candidate));
+    const redacted = path.join(packet, "candidate.pczt"), publicDir = path.join(packet, "public");
+    const planVersion = sha(readFileSync(redacted));
     requireThat(meta.plan_version === planVersion, "candidate PCZT differs from the packet's plan_version");
+    // §11 H7: the coordinator holds only the redacted candidate; the full one arrives sealed to this signer's envelope key.
+    const sealed = path.join(packet, `sealed-${o.name}.bin`), own = ownEnvelopePrivate(state(), o.name);
+    requireThat(existsSync(sealed) && own, "packet carries no candidate sealed to this signer");
+    const candidate = path.join(packet, "candidate.full.pczt");
+    writeFileSync(candidate, openBlob(readFileSync(sealed), own!), { mode: 0o600 });
 
     // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts).
     const { expected, payout } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id)], { encoding: "utf8" }));
+    // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
+    const recomputed = path.join(packet, "candidate.recomputed.pczt");
+    redactCandidate(st, candidate, recomputed, info);
+    requireThat(sha(readFileSync(recomputed)) === planVersion, "coordinator candidate is not the redaction of the sealed candidate");
     const pool = [...expected];
     let sellerSeen = false;
     const outputs = (info.outputs ?? []).filter((x: any) => !x.is_change);

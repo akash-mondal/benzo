@@ -32,7 +32,7 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32) -> anyhow::Result<()> 
     let proposal=propose_transfer::<_,_,_,_,zcash_client_sqlite::wallet::commitment_tree::Error>(&mut db,&Network::TestNetwork,accounts[0],&GreedyInputSelector::new(),&change,TransactionRequest::new(payments)?,ConfirmationsPolicy::default(),&SpendPolicy::default(),None,None).map_err(|e|anyhow!("proposal: {e:?}"))?;
     let expiry=proposal.min_target_height()+expiry_blocks;
     ensure!(!(u32::from(proposal.min_target_height())<=4_465_026 && u32::from(expiry)>=4_465_026),"PCZT expiry reaches NU7 activation; refusing create");
-    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Sender,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
+    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Discard,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
     std::fs::write(output,pczt.serialize().map_err(|e|anyhow!("serialization: {e:?}"))?)?;
     Ok(())
 }
@@ -44,7 +44,11 @@ fn address(wallet: &str) -> anyhow::Result<()> {
     let (ua,_)=db.get_next_available_address(accounts[0],UnifiedAddressRequest::ORCHARD)?.context("no shielded address")?;
     println!("{}",ua.encode(&Network::TestNetwork));Ok(())
 }
-fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
+// §11 H7: `allow_redacted` (the coordinator under host custody) accepts outputs whose recipient, rseed and ock were
+// redacted by the building host (`zcash-devtool pczt redact`): they are reported with recipient null and
+// redacted true and are not opened here — every approving host checks the full candidate, sealed to its own
+// envelope key, and that its redaction is byte-identical to this one. Hosts call the strict mode.
+fn inspect(file: &str, ufvk: &str, allow_redacted: bool) -> anyhow::Result<()> {
     let pczt=Pczt::parse(&std::fs::read(file)?).map_err(|e|anyhow!("PCZT parse: {e:?}"))?;
     ensure!(pczt.global().tx_version()==&6 && pczt.global().consensus_branch_id()==&0x37a5165b,"unsupported version/branch");
     ensure!(pczt.transparent().inputs().is_empty() && pczt.transparent().outputs().is_empty() && pczt.sapling().spends().is_empty() && pczt.sapling().outputs().is_empty(),"only shielded Orchard/Ironwood supported");
@@ -54,7 +58,17 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
     let mut collect=|b: &Bundle,pool: &str| -> Result<(),OrchardError<&'static str>> {
         b.verify_cross_address_restriction()?;
         for (index,a) in b.actions().iter().enumerate() {
-            a.verify_cv_net()?; a.spend().verify_nullifier(Some(fvk))?; a.spend().verify_rk(Some(fvk))?; a.output().verify_note_commitment(a.spend())?;
+            a.verify_cv_net()?; a.spend().verify_nullifier(Some(fvk))?; a.spend().verify_rk(Some(fvk))?;
+            let redacted=allow_redacted && a.output().recipient().is_none();
+            if redacted {
+                if a.output().rseed().is_some() || a.output().user_address().is_some() {return Err(OrchardError::Custom("partially redacted output"));}
+                let value=a.output().value().ok_or_else(||OrchardError::Custom("missing output value"))?.inner();
+                let spent=a.spend().value().ok_or_else(||OrchardError::Custom("missing spend value"))?.inner();
+                if spent>0 { inputs.push(json!({"pool":pool,"index":index,"value_zats":spent})); }
+                if value>0 { outputs.push(json!({"pool":pool,"index":index,"recipient":null,"is_change":false,"redacted":true,"amount_zats":value.to_string()})); }
+                continue;
+            }
+            a.output().verify_note_commitment(a.spend())?;
             let value=a.spend().value().ok_or_else(||OrchardError::Custom("missing spend value"))?.inner();
             if value>0 { inputs.push(json!({"pool":pool,"index":index,"value_zats":value})); }
             let value=a.output().value().ok_or_else(||OrchardError::Custom("missing output value"))?.inner();
@@ -171,8 +185,9 @@ fn main() -> anyhow::Result<()> {
     match args.get(1).map(String::as_str) {
         Some("address") if args.len()==3=>address(&args[2]),
         Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {364}),
-        Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
+        Some("inspect") if args.len()==4=>inspect(&args[2],&args[3],false),
+        Some("inspect") if args.len()==5 && args[4]=="--allow-redacted"=>inspect(&args[2],&args[3],true),
         Some("classify-address") if args.len()==3=>classify_address(&args[2]),
-        _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file> | classify-address <address>"))
+        _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file> [--allow-redacted] | classify-address <address>"))
     }
 }

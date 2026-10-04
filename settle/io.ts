@@ -23,7 +23,8 @@ export function syncRetry(f:()=>string):string {
 }
 export const wallet=(...args:string[])=>args[0]==="sync"?syncRetry(()=>run(bin("zcash-devtool"),["wallet","-w",vaultDir(STATE),...args])):run(bin("zcash-devtool"),["wallet","-w",vaultDir(STATE),...args]);
 export const pczt=(...args:string[])=>run(bin("zcash-devtool"),["pczt","-w",vaultDir(STATE),...args]);
-export const inspect=(file:string)=>JSON.parse(run(pcztBin(ROOT,STATE),["inspect",file,ufvkFile(STATE)]));
+// §11 H7: under host custody the coordinator only ever holds the redacted candidate (allowRedacted).
+export const inspect=(file:string,allowRedacted=false)=>JSON.parse(run(pcztBin(ROOT,STATE),["inspect",file,ufvkFile(STATE),...(allowRedacted?["--allow-redacted"]:[])]));
 export const monetary=(id:string)=>JSON.parse(run(process.execPath,[path.join(ROOT,"settle/dist/plan.mjs"),id]));
 export const notes=()=>run(scanBin(ROOT,STATE),["scan","test",vaultDir(STATE)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
 export function prove(file:string,output:string):Promise<void> {

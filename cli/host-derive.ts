@@ -16,7 +16,7 @@ import { depositParty, refundable, strayNotes } from "../settle/deposits";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 export type DerivedRow = { party: string; recipient: string; amount_zats: string };
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string }> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[] }> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`).
     const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer], { encoding: "utf8", env: process.env });
@@ -73,5 +73,14 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     }
     const payout = String((pub.result as any).conservation?.payout_zats ?? "0");
 
-    return { expected, payout };
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys };
+}
+
+// §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and
+// derivation redacted with zcash-devtool `pczt redact` (deterministic: each approving host recomputes it from the full
+// candidate sealed to it and requires the same bytes). Sighash and extraction need none of those fields.
+export function redactCandidate(st: string, full: string, out: string, info: { outputs: { index: number; pool: string; is_change: boolean }[] }): void {
+  const keys = info.outputs.filter(x => !x.is_change).flatMap(x => ["recipient", "rseed", "ock", "user_address", "zip32_derivation"].flatMap(f => ["-k", `${x.pool}.action.${x.index}.output.${f}`]));
+  requireThat(keys.length > 0, "candidate has no output to redact");
+  execFileSync(path.join(st, "bin", "zcash-devtool"), ["pczt", "redact", ...keys, full, "--output", out], { stdio: ["ignore", "ignore", "pipe"] });
 }
