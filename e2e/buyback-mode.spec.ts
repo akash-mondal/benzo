@@ -40,11 +40,13 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
   try {
     const id=randomBytes(32).toString('hex');console.log(`auction ${id}`);
     // Y1: a fresh 2-of-3 group key for this auction, from DKG run ON the three hosts.
-    const k=await dkgOnHosts(id,benzo);
-    await run.check('Y1a','fresh per-auction group key from three hosts',()=> {
+    let k!:Awaited<ReturnType<typeof dkgOnHosts>>;
+    await run.check('Y1a','fresh per-auction group key from three hosts',async()=> {
+      k=await dkgOnHosts(id,benzo); // `auction keys` refuses a key reused from an earlier auction (5M5)
       expect(new Set(k.keys).size).toBe(1);expect(k.group_key).toBe(k.keys[0]);
       expect(k.group_key).not.toBe(readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim());
     });
+    if(!k)throw Error('Y1a: no fresh group key; the run cannot continue');
     const envelopeKeys=hostEnvelopeKeys(),witnessPubs=hostWitnessKeys();
     const vault=path.join(STATE,'vaults',id,'wallet'),addr=()=>fresh(vault),bidderAddr=()=>fresh(path.join(STATE,'bidder'));
     const deposits=[k.escrow_ua,addr(),addr()],fundingUa=addr(),reserveUa=addr();
@@ -142,11 +144,14 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
       const insp=json(path.join(STATE,'settle',id,'batch-1.inspect.json'));
       expect(insp.outputs.filter((o:any)=>!o.is_change).every((o:any)=>o.recipient===null&&o.redacted===true)).toBe(true);
     });
-    await run.check('X1b','cold verify passes; a second certificate over a different root is refused',()=> {
+    await run.check('X1b','cold verify passes; a second root, or one witness counted twice, is refused',()=> {
       const cold=path.join(ROOT,'tmp/e2e/cold',id);rmSync(cold,{recursive:true,force:true});cpSync(publicDir,cold,{recursive:true});
       const v=cli(['verify','--dir',cold,'--signer',signer]);expect(v.status,(v.stdout+v.stderr).split('\n').filter(l=>/^ERROR/.test(l)).slice(0,2).join(' | ')).toBe(0);
       const d=json(path.join(cold,'auction.json')),c=d.witness_cert[0];
       d.witness_cert.push({...c,statement:{...c.statement,frozen_root:'00'.repeat(32)}});writeFileSync(path.join(cold,'auction.json'),JSON.stringify(d));
+      expect(cli(['verify','--dir',cold,'--signer',signer]).status).not.toBe(0);
+      // One witness's certificate twice is still one signature of the q_w = 2 quorum (5M3).
+      d.witness_cert=[c,{...c}];writeFileSync(path.join(cold,'auction.json'),JSON.stringify(d));
       expect(cli(['verify','--dir',cold,'--signer',signer]).status).not.toBe(0);
     });
     await run.check('Y1c','no FROST share for this auction on the Mac',()=>expect(existsSync(path.join(STATE,'auctions',id))).toBe(false));

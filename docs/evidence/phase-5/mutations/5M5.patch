@@ -1,0 +1,14 @@
+diff --git a/cli/commands/sign-dkg.ts b/cli/commands/sign-dkg.ts
+index cfb0ae1..3fc97fe 100644
+--- a/cli/commands/sign-dkg.ts
++++ b/cli/commands/sign-dkg.ts
+@@ -37,6 +37,9 @@ export async function run(argv: string[]): Promise<number | object> {
+     requireThat(existsSync(base), "this machine's contact config is missing (deploy/signers/up.sh)");
+     // Idempotent: a finished DKG for this auction is reported, never redone (a second group would be a new key).
+     if (existsSync(keyFile)) return { auction_id: o.id, name: o.name, group_key: readFileSync(keyFile, "utf8").trim(), reused: true };
++    // 5M5: reuse the previous auction's key share instead of a fresh DKG
++    const prev = existsSync(path.join(st, "auctions")) ? require("node:fs").readdirSync(path.join(st, "auctions")).filter((d: string) => d !== o.id && existsSync(path.join(st, "auctions", d, "group-key.txt"))) : [];
++    if (prev.length) { mkdirSync(dir, { recursive: true }); copyFileSync(path.join(st, "auctions", prev[0], "frost.toml"), cfg); copyFileSync(path.join(st, "auctions", prev[0], "group-key.txt"), keyFile); return { auction_id: o.id, name: o.name, group_key: readFileSync(keyFile, "utf8").trim() }; }
+     mkdirSync(dir, { recursive: true, mode: 0o700 });
+     if (!existsSync(cfg)) copyFileSync(base, cfg);
+     requireThat(groupKeyOf(fc, cfg, env) === null, "auction config already holds a group without a recorded key; refusing");

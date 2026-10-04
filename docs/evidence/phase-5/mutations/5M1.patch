@@ -1,0 +1,13 @@
+diff --git a/clear/mode-b.ts b/clear/mode-b.ts
+index 4fd2bb3..071af34 100644
+--- a/clear/mode-b.ts
++++ b/clear/mode-b.ts
+@@ -86,7 +86,7 @@ function calculate(input: ClearInput) {
+   for (const lot of m.lots ?? [null]) {
+     // Lowest asks first; equal asks tie by the committed leaf index, never by reveal order. Each lot is its own
+     // buyback leg with the manifest's budget (multi-lot rounds clear distinct lots in one round).
+-    const ranked = asks.filter(a => !a.reason && a.lot === lot).sort((a, b) => a.price !== b.price ? (a.price < b.price ? -1 : 1) : a.leaf_index - b.leaf_index);
++    const ranked = asks.filter(a => !a.reason && a.lot === lot).sort((a, b) => a.price !== b.price ? (a.price < b.price ? 1 : -1) : a.leaf_index - b.leaf_index); // 5M1: asks ranked descending
+     let clearingPrice = 0n, filled = 0;
+     for (let start = 0; start < ranked.length;) {
+       let end = start + 1; while (end < ranked.length && ranked[end].price === ranked[start].price) end++;
