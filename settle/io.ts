@@ -47,6 +47,7 @@ export async function mined(txid:string,deadline:number) {
 // (Internal, Unavailable, DeadlineExceeded, backend/connection failures) are retried 4 times with backoff;
 // NotFound and every other answer are returned or thrown unchanged.
 const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF/;
+export const isTransientGrpc = (e: unknown) => TRANSIENT_GRPC.test(String((e as Error)?.message ?? e));
 function retryTransient<T>(f:()=>T):T {
   for (let attempt = 1; ; attempt++) {
     try { return f(); } catch (e) {

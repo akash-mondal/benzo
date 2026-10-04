@@ -5,7 +5,7 @@ import path from "node:path";
 import {hash,jsonBytes,requireThat} from "../manifest/schema";
 import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {Ledger,type Row} from "./ledger";
-import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx} from "./io";
+import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc} from "./io";
 import {pubkey,zcashSign} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {partyNote} from "./deposits";
@@ -266,7 +266,8 @@ async function worker(ledger:Ledger) {
     for(const endpoint of [env("BNZ_LWD_URL"),env("BNZ_LWD_URL_ALT")]) {
       for(;;) {
         let seen=0;
-        try{seen=Number(chainTx(staged.txid!,endpoint).height)||0}catch(e){if(!/NotFound|not found/i.test(String((e as Error)?.message??e)))throw e}
+        // Head (live buyback run 3): an endpoint down (503) past chainTx's own retries counts as "not seen yet" until the deadline.
+        try{seen=Number(chainTx(staged.txid!,endpoint).height)||0}catch(e){if(!/NotFound|not found/i.test(String((e as Error)?.message??e))&&!isTransientGrpc(e))throw e}
         if(seen===height)break;
         requireThat(seen===0,"settlement height differs across endpoints");
         requireThat(Date.now()<agreeBy,"endpoint did not observe the settlement within 15 minutes");
