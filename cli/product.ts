@@ -10,8 +10,10 @@ import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
-import {validatePhase5,treasuryFunded,treasuryRequired} from '../clear/mode-b';
-import {clientCommon as client} from '../clear/registry';
+// Design §6.1: manifests are read through Mode B's client (uniform, vickrey and buyback). Not the registry: its
+// cycle through api/public-auction reaches envelope's top-level await and deadlocks this lazily loaded bundle.
+import {validatePhase5,treasuryFunded,treasuryRequired,clientPhase5} from '../clear/mode-b';
+const client=(packet:any,signer:string)=>clientPhase5(packet,signer) as unknown as {manifest_hash:string;manifest:import('../manifest/schema').Manifest};
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
