@@ -175,10 +175,16 @@ export async function runCommand(command:string,args:string[]) {
         requireThat(reserve.address===read(config(id)).routing.fee_reserve_ua&&/^[1-9][0-9]*$/.test(reserve.amount_zats),'reserve must match operator config');
         const suffix='.'+bids.length;params.set('address'+suffix,reserve.address);params.set('amount'+suffix,(Number(reserve.amount_zats)/1e8).toFixed(8));
       }
+      // Design §6.1 (test harness): the treasury leg of a buyback, paid to the SIGNED funding_ua in the same transaction.
+      const treasury=bid.treasury;
+      if(treasury) {
+        requireThat((m as any).clearing.mode==='buyback'&&/^[1-9][0-9]*$/.test(treasury.amount_zats),'treasury funding needs a buyback and an amount');
+        const suffix='.'+(bids.length+(reserve?1:0));params.set('address'+suffix,(m as any).buyback.funding_ua);params.set('amount'+suffix,(Number(treasury.amount_zats)/1e8).toFixed(8));
+      }
       syncRetry(()=>execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]));
       const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'balance','--json']));
       const available=balance.sapling_spendable+balance.orchard_spendable+balance.ironwood_spendable,c=Number(m.C_zats);
-      requireThat(available-c*bids.length-Number(reserve?.amount_zats??0)-5000*(bids.length+2)>=3*c+40000,'bidder floor; Needs user funds');
+      requireThat(available-c*bids.length-Number(reserve?.amount_zats??0)-Number(treasury?.amount_zats??0)-5000*(bids.length+3)>=3*c+40000,'bidder floor; Needs user funds');
       const output=execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'pay','-i',path.join(STATE,'bidder.age'),'--disable-confirmation','-s',process.env.BNZ_LWD_URL!,'--payment-uri','zcash:?'+params]);
       const txid=output.match(/^[0-9a-f]{64}$/gm)?.at(-1);requireThat(txid,'payment produced no txid');
       return {txid,C_zats:m.C_zats,deposits:bids.length,state:'broadcast'};
