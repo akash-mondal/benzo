@@ -11,7 +11,7 @@ import { tleDecryptFailover } from "../manifest/reserve";
 import { scanBin, vaultDir } from "../manifest/paths";
 import { loadPublicAuction } from "../api/public-auction";
 import { verifyStatement } from "../envelope/index";
-import { authenticatedMemoEnvelope, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
+import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, refundable, strayNotes } from "../settle/deposits";
 import { treasuryFunded, treasuryReturn } from "../clear/mode-b";
 
@@ -37,14 +37,16 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer], { encoding: "utf8", env: process.env });
     requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
     const pub = loadPublicAuction(publicDir, { signer: meta.signer });
-    requireThat(pub.manifest.auction_id === o.id && pub.result && pub.frozen, "packet holds no cleared result for this auction");
+    // A cancelled auction (CANCELLED/REFUNDING) has no result: every deposit refunds through its own claim or envelope.
+    const cancelled = ["CANCELLED", "REFUNDING"].includes(String((pub as any).state));
+    requireThat(pub.manifest.auction_id === o.id && ((pub.result && pub.frozen) || cancelled), "packet holds no cleared result for this auction");
 
     // 2. Every payable row, derived by this signer.
     const key = ownEnvelopePrivate(st, o.name);
     requireThat(key, "this signer's envelope key is missing");
     requireOwnEnvelopeKey(pub.manifest as any, o.name, st); // R10 item 3, checked here under host custody
     const tle = path.join(st, "bin", "tle");
-    const opened = pub.frozen!.leaves.map((l: any) => {
+    const opened = (pub.frozen?.leaves ?? []).map((l: any) => {
       const pt = tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(l.ciphertext_hex, "hex"));
       return { leaf_index: l.leaf_index, plaintext_hex: pt ? pt.toString("hex") : null };
     });
@@ -64,7 +66,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // Design §6.1: a buyback leaf is owed its exact-C refund plus its payment (obligationsModeB); Mode A leaves are
     // owed the refund and the payments go to the seller row.
     const buyback = (pub.manifest as any).clearing?.mode === "buyback";
-    for (const a of (pub.result as any).allocations ?? []) {
+    for (const a of (pub.result as any)?.allocations ?? []) {
       const owed = BigInt(a.refund_zats ?? "0") + (buyback ? BigInt(a.payment_zats ?? "0") : 0n);
       if (!(owed > 0n)) continue;
       const party = `leaf:${a.leaf_index}`;
@@ -75,17 +77,24 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // Strays from this signer's own scan of its own per-auction vault (synced and enhanced here, so memos are present).
     const notes = await ownScan(st, root, o.id);
     const deposits = notes.filter((n: any) => pub.manifest.deposit_addresses.includes(n.address));
-    for (const n of refundable(strayNotes(deposits, pub.manifest.deposit_addresses, pub.frozen) as any).payable as any[]) {
+    // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN
+    // memo's sealed bid, opened here with the published beacon (settle/plan.ts ownerKeyFor), never operator input.
+    const memoOwner = (n: any): string | null => {
+      const ct = n.memo_hex ? memoSealedBid(n.memo_hex)?.ciphertext_hex ?? null : null;
+      const pt = ct ? tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(ct, "hex")) : null;
+      return pt ? pt.subarray(61, 93).toString("hex") : null;
+    };
+    for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest.deposit_addresses, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
       const rec = authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, tle);
-      const dest = (rec ? openDestination(rec, key!) : null);
+      const dest = claimDest(party, memoOwner(n)) ?? (rec ? openDestination(rec, key!) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: String(n.value_zats) });
     }
     // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the
     // signed treasury_ua/funding_ua and this signer's own scan.
-    const payout = buyback ? "0" : String((pub.result as any).conservation?.payout_zats ?? "0");
+    const payout = buyback || cancelled ? "0" : String((pub.result as any).conservation?.payout_zats ?? "0");
     if (buyback) {
-      const back = treasuryReturn(pub.manifest as any, pub.result as any, treasuryFunded(pub.manifest as any, notes));
+      const back = treasuryReturn(pub.manifest as any, cancelled ? null : pub.result as any, treasuryFunded(pub.manifest as any, notes));
       if (back > 0n) expected.push({ party: "treasury", recipient: (pub.manifest as any).buyback.treasury_ua, amount_zats: back.toString() });
     }
 
