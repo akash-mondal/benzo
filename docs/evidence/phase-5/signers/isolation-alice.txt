@@ -1,0 +1,37 @@
+# host-isolation proof — signer alice on OrbStack machine benzo-alice (docs/design/phase5-part1-live.md §1)
+# 2026-10-03T16:53:37Z · commit fd0bc08cd6533dad403764259b508b4af2cf1955 · uncommitted files in tree: 0
+
+$ orbctl list (this machine)
+benzo-alice  running  ubuntu  noble  arm64  4.4 GB  192.168.139.172
+
+$ ls /Users   (must fail: no OrbStack home/share mount)
+ls: cannot access '/Users': No such file or directory  (exit 2)
+OK ls /Users fails
+
+$ mount | grep shared   (must be empty: no mount under /Users or /mnt/mac, no virtiofs or 9p host share)
+OK no shared mounts
+
+$ ls -A ~/.benzo/frost   (exactly one config: this signer's; the other two shares absent)
+alice.toml
+OK exactly alice.toml
+OK no other signer's files under ~/.benzo
+
+$ ss -tlnp   (only sshd may listen)
+State Recv-Q Send-Q Local Address:Port Peer Address:PortProcess
+OK nothing listens except sshd
+
+$ macctl run pwd   (must not reach the Mac)
+dial: no such file or directory  (exit 1)
+OK macctl cannot command the Mac
+
+$ getent hosts host.orb.internal   (the Mac is reachable for frostd at host.orb.internal:2744)
+fd07:b51a:cc66:f0::fe host.orb.internal
+OK host.orb.internal resolves
+
+$ ls -A ~/.benzo/tls && sha256sum ~/.benzo/tls/rootCA.pem   (trusts exactly the public root CA)
+rootCA.pem
+OK only rootCA.pem
+b29e5fe7da9af35c9e4a8e1787a558c68d3c7c890d23165572983df3c9fa34f8  /home/benzo/.benzo/tls/rootCA.pem
+OK rootCA.pem matches the Mac's public root CA
+
+PROOF OK benzo-alice
