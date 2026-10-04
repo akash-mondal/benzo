@@ -7,7 +7,7 @@
 // docs/design/phase5-part1-live.md §4.
 import { verifyOpensReport, type OpensReport } from "../witness";
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
-import { hash, requireThat } from "../manifest/schema";
+import { hash, QUICKNET, requireThat } from "../manifest/schema";
 import { partyNote, type DepositNote } from "./deposits";
 import { tleOpening } from "../manifest/reserve";
 import { existsSync, readFileSync } from "node:fs";
@@ -43,6 +43,16 @@ export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; own
 // v1 memos stay readable; they bind no envelope. Returns the sealed-bid ciphertext inside a deposit memo
 // and the memo's envelope tag (null for v1), or null when the memo is not a sealed bid — such a stray has
 // no owner key and is only ever an exception-queue row (R7 item 6).
+// The admission rule for a deposit memo (moved here from clear/auction-cli.ts so the operator's `admit` and every
+// witness's independent root recompute (design §5) apply the same check): a BNZ memo whose ciphertext is one age
+// tlock stanza for round R on quicknet. Returns the ciphertext and the v2 envelope tag (null for v1).
+export function memoTlockCiphertext(memoHex: string, R: number): { ct: string; memo_tag: string | null } {
+  requireThat(typeof memoHex === "string" && /^[0-9a-f]{1024}$/.test(memoHex), "envelope length");
+  const parsed = memoSealedBid(memoHex); requireThat(parsed, "envelope header/padding");
+  const ct = Buffer.from(parsed!.ciphertext_hex, "hex"), header = ct.toString("latin1").split("--- ")[0];
+  requireThat(header.startsWith("age-encryption.org/v1\n") && header.includes(`-> tlock ${R} ${QUICKNET.chain_hash}\n`) && (header.match(/-> /g) || []).length === 1, "tlock round/chain stanza");
+  return { ct: parsed!.ciphertext_hex, memo_tag: parsed!.envelope_tag };
+}
 export function memoSealedBid(memoHex: string): { ciphertext_hex: string; envelope_tag: string | null } | null {
   try {
     if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;

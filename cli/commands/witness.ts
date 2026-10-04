@@ -8,10 +8,12 @@ import { loadPublicAuction } from "../../api/public-auction";
 import { depositParty, strayNotes } from "../../settle/deposits";
 import { checkCertificates, freezeStatement, generateWitnessKey, signStatement, signStrays, straysStatementBytes, validateWitnessSet, witnessSetHash, type StraysEntry, type WitnessCert, type WitnessSet } from "../../witness";
 import { repoRoot } from "../../manifest/root";
+import { recomputeFrozen } from "../../witness/recompute";
+import { ownScan } from "../host-derive";
 
 export const noun = "witness";
 export const verb = "";
-export const help = "benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness strays --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> --notes <scanner-output.jsonl> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate, sign the strays statement from this witness's own scan, or check the certificates";
+export const help = "benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness strays --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> --notes <scanner-output.jsonl> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate after recomputing the root from this witness's own vault scan, sign the strays statement from this witness's own scan, or check the certificates";
 
 function argsOf(argv: string[]): { dir: string; signer: string; key: string; notes: string; name: string } {
   const out = { dir: "", signer: "", key: "", notes: "", name: "" };
@@ -96,6 +98,10 @@ export async function run(argv: string[]): Promise<number> {
     const statement = freezeStatement(pub.manifest, pub.frozen!);
     if (mode === "sign") {
       const resolved = witnessKey(o.key);
+      // Design §5: the root is recomputed from THIS witness's own scan of the auction vault before anything is
+      // signed; a leaf it cannot see, or a different root, is refused and never certified.
+      const own = recomputeFrozen(pub.manifest as any, pub.manifest_hash, pub.frozen!, await ownScan(state, root, pub.manifest.auction_id));
+      requireThat(own.root === pub.frozen!.root && own.leaf_count === pub.frozen!.leaf_count, `root mismatch: own scan ${own.root} (${own.leaf_count} leaves) vs frozen ${pub.frozen!.root} (${pub.frozen!.leaf_count})`);
       const cert: WitnessCert = { statement, signatures: [signStatement(statement, readFileSync(resolved, "utf8").trim())] };
       record("witness_cert", cert);
       process.stdout.write(JSON.stringify(cert) + "\n");

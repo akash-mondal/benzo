@@ -15,6 +15,20 @@ import { authenticatedMemoEnvelope, openDestination, ownEnvelopePrivate, require
 import { depositParty, refundable, strayNotes } from "../settle/deposits";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+// This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
+// retried), then scan it. Used by host approvals/builds and by witnesses recomputing the frozen root (design §5).
+export async function ownScan(st: string, root: string, id: string): Promise<any[]> {
+  const devtool = path.join(st, "bin", "zcash-devtool"), lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
+  for (const verb of ["sync", "enhance"]) {
+    for (let attempt = 1; ; attempt++) {
+      const r = spawnSync(devtool, ["wallet", "-w", vaultDir(st, id), verb, "-s", lwd], { encoding: "utf8" });
+      if (r.status === 0) break;
+      requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node/.test(r.stderr ?? ""), `vault ${verb} failed: ${(r.stderr ?? "").trim().slice(-160)}`);
+      await new Promise(res => setTimeout(res, 5000 * attempt));
+    }
+  }
+  return execFileSync(scanBin(root, st), ["scan", "test", vaultDir(st, id)], { encoding: "utf8", maxBuffer: 64 << 20 }).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+}
 export type DerivedRow = { party: string; recipient: string; amount_zats: string };
 export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[] }> {
     const publicDir = path.join(packet, "public");
@@ -54,16 +68,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (dest) expected.push({ party, recipient: dest, amount_zats: String(a.refund_zats) });
     }
     // Strays from this signer's own scan of its own per-auction vault (synced and enhanced here, so memos are present).
-    const devtool = path.join(st, "bin", "zcash-devtool"), lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
-    for (const verb of ["sync", "enhance"]) {
-      for (let attempt = 1; ; attempt++) {
-        const r = spawnSync(devtool, ["wallet", "-w", vaultDir(st, o.id), verb, "-s", lwd], { encoding: "utf8" });
-        if (r.status === 0) break;
-        requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node/.test(r.stderr ?? ""), `vault ${verb} failed: ${(r.stderr ?? "").trim().slice(-160)}`);
-        await new Promise(res => setTimeout(res, 5000 * attempt));
-      }
-    }
-    const notes = execFileSync(scanBin(root, st), ["scan", "test", vaultDir(st, o.id)], { encoding: "utf8" }).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+    const notes = await ownScan(st, root, o.id);
     const deposits = notes.filter((n: any) => pub.manifest.deposit_addresses.includes(n.address));
     for (const n of refundable(strayNotes(deposits, pub.manifest.deposit_addresses, pub.frozen) as any).payable as any[]) {
       const party = depositParty(n);

@@ -7,7 +7,7 @@ import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, 
 import type {ClearResult, Opened} from "./core";
 import {clearForMode} from "./registry";
 import {envelopeRecordValid} from "../envelope";
-import {memoBindsEnvelope,memoSealedBid} from "../settle/envelopes";
+import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
 
@@ -33,15 +33,9 @@ function observed():{notes:Note[]; tip:number} {
   const notes=execute(scanBin(root,state),["scan","test",vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};
 }
-function ciphertext(envelope:string,R:number):{ct:string;memo_tag:string|null} {
-  requireThat(typeof envelope==="string" && /^[0-9a-f]{1024}$/.test(envelope),"envelope length");
-  // The one shared memo parser (settle/envelopes.ts): v2 (R16 item 2, R18: 18-byte envelope tag) and v1
-  // framings both read; v2 binds the record to the deposit memo, v1 binds nothing.
-  const parsed=memoSealedBid(envelope); requireThat(parsed,"envelope header/padding");
-  const ct=Buffer.from(parsed!.ciphertext_hex,"hex"), header=ct.toString("latin1").split("--- ")[0];
-  requireThat(header.startsWith("age-encryption.org/v1\n") && header.includes(`-> tlock ${R} ${QUICKNET.chain_hash}\n`) && (header.match(/-> /g)||[]).length===1,"tlock round/chain stanza");
-  return {ct:parsed!.ciphertext_hex,memo_tag:parsed!.envelope_tag};
-}
+// The one shared memo rule (settle/envelopes.ts memoTlockCiphertext): v2 (R16 item 2, R18: 18-byte envelope tag)
+// and v1 framings both read; v2 binds the record to the deposit memo, v1 binds nothing. Witnesses apply the same rule.
+const ciphertext=memoTlockCiphertext;
 try {
   const [command,id]=process.argv.slice(2), input=JSON.parse(readFileSync(0,"utf8")||"{}");
   if(id&&/^[0-9a-f]{64}$/.test(id))process.env.BNZ_AUCTION_ID=id; // §11 H1
