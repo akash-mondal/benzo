@@ -33,12 +33,16 @@ export async function ownScan(st: string, root: string, id: string): Promise<any
 export type DerivedRow = { party: string; recipient: string; amount_zats: string };
 export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[] }> {
     const publicDir = path.join(packet, "public");
-    // 1. The full public check on the packet's directory (the same code as `benzo verify`).
-    const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer], { encoding: "utf8", env: process.env });
-    requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
-    const pub = loadPublicAuction(publicDir, { signer: meta.signer });
+    // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
+    // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
+    // so no frozen root after T_freeze means CANCELLED (checked here, not taken from the coordinator's state field).
+    const pub = loadPublicAuction(publicDir, { signer: meta.signer }); // verifies the manifest signature
+    if (pub.frozen) {
+      const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer], { encoding: "utf8", env: process.env });
+      requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
+    } else requireThat(Date.now() / 1000 > pub.manifest.T_freeze, "an unfrozen auction before T_freeze is not cancelled; refusing");
     // A cancelled auction (CANCELLED/REFUNDING) has no result: every deposit refunds through its own claim or envelope.
-    const cancelled = ["CANCELLED", "REFUNDING"].includes(String((pub as any).state));
+    const cancelled = !pub.frozen || ["CANCELLED", "REFUNDING"].includes(String((pub as any).state));
     requireThat(pub.manifest.auction_id === o.id && ((pub.result && pub.frozen) || cancelled), "packet holds no cleared result for this auction");
 
     // 2. Every payable row, derived by this signer.
