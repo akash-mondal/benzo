@@ -25,7 +25,8 @@ const sh = (cmd: string, args: string[], input?: string) => {
   return r.stdout.trim();
 };
 const benzo = (args: string[], input?: any) => { const out = sh(path.join(ROOT, "bin/benzo"), args, input === undefined ? undefined : JSON.stringify(input)); return out.startsWith("{") || out.startsWith("[") ? JSON.parse(out.split("\n").filter(l => l.startsWith("{") || l.startsWith("[")).at(-1)!) : out; };
-const host = (n: string, args: string[]) => sh("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args]);
+// `orb run` has returned an empty stdout once for a command that succeeded (live Y2, a host `cat`); retry empties.
+const host = (n: string, args: string[]) => { for (let i = 0; ; i++) { const out = sh("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args]); if (out || i >= 2) return out; } };
 const hostBenzo = (n: string, args: string[]) => { const out = host(n, [`${H}/bin/benzo`, ...args]); return JSON.parse(out.split("\n").filter(l => l.startsWith("{")).at(-1)!); };
 const push = (n: string, src: string, dest: string) => { sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "rm", "-rf", `/home/benzo/${dest}`]); sh("orbctl", ["push", "-m", `benzo-${n}`, src, dest]); sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "chown", "-R", "benzo:benzo", `/home/benzo/${dest}`]); };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -73,11 +74,12 @@ async function afterAdmission(id: string, manifest: any, signer: string, publicD
     check("y2-no-duplicate-outputs", new Set(parties).size === parties.length);
     check("y2-no-share-on-mac", !existsSync(path.join(STATE, "auctions", id)));
     // §11 H7: the coordinator holds only the redacted candidate, and no bid refund destination appears in anything the
-    // operator keeps for this auction (refunds[3] is the seller routing UA, which the operator chose).
+    // operator keeps for this auction: settle state, product ledger, auction ledger, public dir (refunds[3] is the seller
+    // routing UA, which the operator chose; run/y2-<id>/refunds.json is the test harness's bidder state).
     const insp = JSON.parse(readFileSync(path.join(STATE, "settle", id, "batch-1.inspect.json"), "utf8"));
     check("y2-h7-redacted-candidate", insp.outputs.filter((o: any) => !o.is_change).every((o: any) => o.recipient === null && o.redacted === true));
     if (refunds.length) {
-      const leaked = refunds.slice(0, 3).filter(a => [path.join(STATE, "settle", id), path.join(STATE, "product"), path.join(STATE, "run", `y2-${id}`), publicDir].some(d => existsSync(d) && spawnSync("grep", ["-rqa", a, d]).status === 0));
+      const leaked = refunds.slice(0, 3).filter(a => [path.join(STATE, "settle", id), path.join(STATE, "product"), path.join(STATE, "auction"), publicDir].some(d => existsSync(d) && spawnSync("grep", ["-rqa", a, d]).status === 0));
       check("y2-h7-destinations-not-on-mac", leaked.length === 0, `${leaked.length} of 3 refund destinations found in operator files`);
     }
     // 8. Envelope refunds landed at the bidders' own destinations; cold verify of the public dir.
@@ -99,7 +101,9 @@ async function main() {
       const rid = process.env.RESUME_ID, pdir = path.join(ROOT, "tmp/y2/public", rid), doc = JSON.parse(readFileSync(path.join(pdir, "auction.json"), "utf8"));
       const m = JSON.parse(Buffer.from(doc.manifest.bytes, "base64").toString("utf8"));
       say(`resume ${rid}`);
-      await afterAdmission(rid, m, doc.signer, pdir, []);
+      // The bidders' refund addresses, saved by the fresh run (they live nowhere else on the operator side).
+      const saved = path.join(STATE, "run", `y2-${rid}`, "refunds.json");
+      await afterAdmission(rid, m, doc.signer, pdir, existsSync(saved) ? JSON.parse(readFileSync(saved, "utf8")) : []);
     } else {
     const id = randomBytes(32).toString("hex");
     say(`auction ${id}`);
@@ -141,6 +145,7 @@ async function main() {
     const deposits = [k.escrow_ua, addr(), addr()];
     const refunds = Array.from({ length: 4 }, () => sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).split("\n").at(-1)!);
     const privateDir = path.join(STATE, "run", `y2-${id}`), publicDir = path.join(ROOT, "tmp/y2/public", id); mkdirSync(privateDir, { recursive: true });
+    writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state, for RESUME_ID
     const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
     writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
     const operator = { settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: refunds[3], fee_reserve_ua: addr() } };
