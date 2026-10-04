@@ -2,6 +2,19 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-04T10:00Z, head building while builders are on the Cline limit):**
+- §11 host custody done and proven live:
+  - H6, host-built candidate (Y2 on 7885a5af…, evidence `docs/evidence/phase-5/y2/`);
+  - H7, the coordinator holds only the redacted candidate and the full one goes sealed per signer, with `OvkPolicy::Discard` (de6d167);
+  - fresh-auction Y2 run PASS with no refund destination on the Mac and 3 of 3 refunds landed (`docs/evidence/phase-5/y2-h7/`).
+- §5 witnesses recompute the frozen root from their own scan before certifying (91d9182, repro `docs/evidence/phase-5/x-witness/`, live in the Y2-H7 run).
+- §6.1 Mode B product path written (ed9698b): registry-mode manifests, signed `treasury_ua`/`funding_ua`, `open` refuses an unfunded buyback, treasury return row derived by hosts.
+- `e2e/buyback-mode.spec.ts` written (d1e67b7, c024238) and its first live run is in progress. Mutation patches 5M1/5M2-host/5M3/5M4/5M5 are in `docs/evidence/phase-5/mutations/`; red runs are pending.
+- Open:
+  - auction ea0d5761… is REFUNDING (3 rows in the exception queue, claimable after R);
+  - the cancel path under host custody needs a host derivation without a cleared result;
+  - OTC/RFQ/launch live runs are part 2.
+
 **Head line (2026-10-03T18:22Z): regression 4876156 done — live full suite GREEN on merged main, all 13 cli-auction IDs PASS incl. T6 and the live R26.1 (output-position deposit parties) and R23.1 (witness strays statement) paths; evidence docs/evidence/phase-5/live-regression-4876156/. Builder A may build and run live again.**
 
 Updated: 2026-10-03T16:30Z. **Builder A in the main tree (`benzo`, branch `main` at f436126).** Head merged `a-code` (R26.1/R26.2/R23.1/R23.2) and all of Track B at e48254e; the live full suite went GREEN at 7b4b0f9 with all 13 cli-auction IDs incl. T6 (`docs/evidence/phase-5/live-regression-7b4b0f9/`). Job now: [docs/design/phase5-part1-live.md](design/phase5-part1-live.md) §1–§3 exactly as written. Until STATUS shows the head line “regression e48254e done” (the head is running one more live regression on e48254e to prove R26/R23 live), §1 only: `deploy/signers/up.sh` + the three OrbStack signer hosts; no edits to `cli/`, `settle/`, `clear/`, `api/`, `envelope/`, no `npm run build:*`, no wallet or frostd commands on the Mac.
