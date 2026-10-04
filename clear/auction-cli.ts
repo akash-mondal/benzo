@@ -2,10 +2,10 @@
 import {execFileSync, spawnSync} from "node:child_process";
 import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from "node:fs";
 import path from "node:path";
-import {client, hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed} from "../manifest/schema";
+import {hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed} from "../manifest/schema";
 import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, type Receipt} from "./merkle";
 import type {ClearResult, Opened} from "./core";
-import {clearForMode} from "./registry";
+import {clearForMode, clientCommon as client} from "./registry"; // design §6.1: every registry mode
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
 import { repoRoot } from "../manifest/root";

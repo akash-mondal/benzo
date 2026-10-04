@@ -2,7 +2,8 @@
 import {copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,writeFileSync} from "node:fs";
 import {spawnSync} from "node:child_process";
 import path from "node:path";
-import {client,hash,jsonBytes,requireThat} from "../manifest/schema";
+import {hash,jsonBytes,requireThat} from "../manifest/schema";
+import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx} from "./io";
 import {pubkey,zcashSign} from "./sign";
@@ -58,6 +59,8 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envel
       if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
       return {...row,reason:`envelope destination refused: this signer's key does not open the envelope (party ${row.party}; refund waits in the exception queue)`};
     }
+    // Design §6.1: the buyback treasury return goes to the signed manifest's treasury_ua, never to routing.
+    if(row.party==="treasury") return {...row,recipient:(client(auction().manifest,auction().signer).manifest as any).buyback.treasury_ua};
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
       partyNote(observed,row.party)?.address;
     // R7 item 6 (Reviewer G G6) + R10 item 2: a product-mode stray or cancelled deposit resolves through its

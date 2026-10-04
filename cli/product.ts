@@ -5,11 +5,13 @@ import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
+import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
-import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry} from '../settle/io';
+import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
+import {validatePhase5,treasuryFunded,treasuryRequired} from '../clear/mode-b';
+import {clientCommon as client} from '../clear/registry';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
@@ -67,7 +69,9 @@ export async function runCommand(command:string,args:string[]) {
   if(id)requireThat(/^[0-9a-f]{64}$/.test(id),'auction id');
   if(id)process.env.BNZ_AUCTION_ID=id; // §11 H1: children use this auction's own vault when it ran its own DKG
   if(command==='auction create') {
-    const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");validateManifest(m);
+    const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");
+    // Design §6.1: a buyback draft is held to the Mode B rules, and its treasury return must be a shielded destination.
+    if(m.clearing?.mode==='buyback'){validatePhase5(m);requireShieldedDestination(m.buyback.treasury_ua)} else validateManifest(m);
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
@@ -193,6 +197,12 @@ export async function runCommand(command:string,args:string[]) {
         const spec=validateWitnessSet(verifyRecord<WitnessSet>(doc.witness_set,a.signer),id);
         requireThat(witnessSetHash(doc.witness_set)===m.witness_set_hash,'witness set hash mismatch');
         checkCertificates(doc.witness_cert??[],spec,freezeStatement(m,a.frozen));
+      }
+      // Design §6.1: a buyback opens only when the treasury has funded budget × lots, confirmed, into funding_ua.
+      if((m as any).clearing.mode==='buyback') {
+        syncRetry(()=>wallet('sync','-s',process.env.BNZ_LWD_URL!));wallet('enhance','-s',process.env.BNZ_LWD_URL!);
+        const tip=JSON.parse(wallet('balance','--json')).chain_tip_height,funded=treasuryFunded(m as any,notes(),tip),need=treasuryRequired(m as any);
+        requireThat(funded>=need,`treasury funded ${funded} of ${need} zats (confirmed at funding_ua); refusing to open`);
       }
     }
     const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result

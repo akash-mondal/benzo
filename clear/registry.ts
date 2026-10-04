@@ -43,3 +43,6 @@ export function modeEntry(packet: Signed): ModeEntry {
 }
 export const clientForMode = (packet: Signed, signer: string) => modeEntry(packet).client(packet, signer);
 export const clearForMode = (input: ClearInput): ClearResult => modeEntry(input.manifest).clear(input);
+// Design §6.1: the product path (admission, freeze, open, settlement) reads only the fields every mode shares, through
+// the mode's own verifying client; the mode-specific fields stay behind the registry entry.
+export const clientCommon = (packet: Signed, signer: string) => clientForMode(packet, signer) as { manifest_hash: string; manifest: Manifest };

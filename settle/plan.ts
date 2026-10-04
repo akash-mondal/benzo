@@ -7,7 +7,7 @@ import {execFileSync,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
-import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
+import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
 import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
@@ -15,7 +15,8 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./dep
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {modeEntry} from "../clear/registry";
+import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
+import {treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
@@ -252,6 +253,12 @@ try {
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }
+  }
+  // Design §6.1: a buyback returns what the treasury funded minus the cleared spend (everything when cancelled) to the
+  // signed treasury_ua. funded = every mined note at the signed funding_ua (spent ones too, so later batches agree).
+  if((m as any).clearing?.mode==="buyback") {
+    const back=treasuryReturn(m as any,["CANCELLED","REFUNDING"].includes(src.state)?null:result,treasuryFunded(m as any,notes));
+    if(back>0n)obligations.push({party:"treasury",kind:"payout",amount_zats:back.toString()} as any);
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");

@@ -13,6 +13,7 @@ import { loadPublicAuction } from "../api/public-auction";
 import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, refundable, strayNotes } from "../settle/deposits";
+import { treasuryFunded, treasuryReturn } from "../clear/mode-b";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 // This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
@@ -60,12 +61,16 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       return null;
     };
     const expected: { party: string; recipient: string; amount_zats: string }[] = [];
+    // Design §6.1: a buyback leaf is owed its exact-C refund plus its payment (obligationsModeB); Mode A leaves are
+    // owed the refund and the payments go to the seller row.
+    const buyback = (pub.manifest as any).clearing?.mode === "buyback";
     for (const a of (pub.result as any).allocations ?? []) {
-      if (!(BigInt(a.refund_zats ?? "0") > 0n)) continue;
+      const owed = BigInt(a.refund_zats ?? "0") + (buyback ? BigInt(a.payment_zats ?? "0") : 0n);
+      if (!(owed > 0n)) continue;
       const party = `leaf:${a.leaf_index}`;
       const rec = validEnvelope(view, a.leaf_index);
       const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!) : null);
-      if (dest) expected.push({ party, recipient: dest, amount_zats: String(a.refund_zats) });
+      if (dest) expected.push({ party, recipient: dest, amount_zats: owed.toString() });
     }
     // Strays from this signer's own scan of its own per-auction vault (synced and enhanced here, so memos are present).
     const notes = await ownScan(st, root, o.id);
@@ -76,7 +81,13 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const dest = (rec ? openDestination(rec, key!) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: String(n.value_zats) });
     }
-    const payout = String((pub.result as any).conservation?.payout_zats ?? "0");
+    // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the
+    // signed treasury_ua/funding_ua and this signer's own scan.
+    const payout = buyback ? "0" : String((pub.result as any).conservation?.payout_zats ?? "0");
+    if (buyback) {
+      const back = treasuryReturn(pub.manifest as any, pub.result as any, treasuryFunded(pub.manifest as any, notes));
+      if (back > 0n) expected.push({ party: "treasury", recipient: (pub.manifest as any).buyback.treasury_ua, amount_zats: back.toString() });
+    }
 
     return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys };
 }
