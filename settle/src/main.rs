@@ -50,7 +50,8 @@ fn address(wallet: &str) -> anyhow::Result<()> {
 // envelope key, and that its redaction is byte-identical to this one. Hosts call the strict mode.
 fn inspect(file: &str, ufvk: &str, allow_redacted: bool) -> anyhow::Result<()> {
     let pczt=Pczt::parse(&std::fs::read(file)?).map_err(|e|anyhow!("PCZT parse: {e:?}"))?;
-    ensure!(pczt.global().tx_version()==&6 && pczt.global().consensus_branch_id()==&0x37a5165b,"unsupported version/branch");
+    // Ruling R27: v6 under Ironwood (NU6.3, 0x37a5165b) or NU7 (0x77190ad9; testnet from height 4,465,026).
+    ensure!(pczt.global().tx_version()==&6 && [0x37a5165b,0x77190ad9].contains(pczt.global().consensus_branch_id()),"unsupported version/branch");
     ensure!(pczt.transparent().inputs().is_empty() && pczt.transparent().outputs().is_empty() && pczt.sapling().spends().is_empty() && pczt.sapling().outputs().is_empty(),"only shielded Orchard/Ironwood supported");
     let key=UnifiedFullViewingKey::decode(&Network::TestNetwork,std::fs::read_to_string(ufvk)?.trim()).map_err(|e|anyhow!("UFVK decode: {e}"))?;
     let fvk=key.orchard().context("Orchard FVK missing")?;

@@ -1229,8 +1229,6 @@ dependencies = [
 [[package]]
 name = "pczt"
 version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5592f4f3eba7f9344cc423f45b6e65911e0630c9b89968d5a20792aadd5a0eb"
 dependencies = [
  "blake2b_simd",
  "bls12_381",
@@ -2409,8 +2407,6 @@ dependencies = [
 [[package]]
 name = "zcash_primitives"
 version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "403d5be1e96339534be098e3377fb8a78d68ca7585b1780133d884b810277418"
 dependencies = [
  "blake2b_simd",
  "block-buffer 0.11.0-rc.3",
@@ -2439,8 +2435,6 @@ dependencies = [
 [[package]]
 name = "zcash_protocol"
 version = "0.10.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "314329b91ec4bbb517441840e47d0b2029bf0b946f086980c96c889c2d92dc5d"
 dependencies = [
  "corez",
  "document-features",

@@ -1,0 +1,54 @@
+diff --git a/src/transaction/builder.rs b/src/transaction/builder.rs
+index 8147507..a57858b 100644
+--- a/src/transaction/builder.rs
++++ b/src/transaction/builder.rs
+@@ -902,7 +902,6 @@ impl<P, U> Builder<P, U> {
+             // (V6) and the consensus branch is one in which Ironwood is active.
+             let ironwood_branch = match self.consensus_branch_id {
+                 BranchId::Nu6_3 => true,
+-                #[cfg(zcash_unstable = "nu7")]
+                 BranchId::Nu7 => true,
+                 _ => false,
+             };
+diff --git a/src/transaction/mod.rs b/src/transaction/mod.rs
+index 43c70d7..5c1837b 100644
+--- a/src/transaction/mod.rs
++++ b/src/transaction/mod.rs
+@@ -202,7 +202,6 @@ impl TxVersion {
+             BranchId::Nu6_1 => TxVersion::V5,
+             BranchId::Nu6_2 => TxVersion::V5,
+             BranchId::Nu6_3 => TxVersion::V6,
+-            #[cfg(zcash_unstable = "nu7")]
+             BranchId::Nu7 => TxVersion::V6,
+         }
+     }
+@@ -219,21 +218,18 @@ impl TxVersion {
+                 Sprout | Overwinter => false,
+                 Sapling | Blossom | Heartwood | Canopy | Nu5 | Nu6 | Nu6_1 | Nu6_2 => true,
+                 Nu6_3 => true,
+-                #[cfg(zcash_unstable = "nu7")]
+                 Nu7 => false, // ZIP 2003
+             },
+             TxVersion::V5 => match consensus_branch_id {
+                 Sprout | Overwinter | Sapling | Blossom | Heartwood | Canopy => false,
+                 Nu5 | Nu6 | Nu6_1 | Nu6_2 => true,
+                 Nu6_3 => true,
+-                #[cfg(zcash_unstable = "nu7")]
+                 Nu7 => true,
+             },
+             TxVersion::V6 => match consensus_branch_id {
+                 Sprout | Overwinter | Sapling | Blossom | Heartwood | Canopy | Nu5 | Nu6
+                 | Nu6_1 | Nu6_2 => false,
+                 Nu6_3 => true, // Ironwood / NU6.3
+-                #[cfg(zcash_unstable = "nu7")]
+                 Nu7 => true, // ZIP 230 or ZIP 248, whichever is chosen for activation
+             },
+         }
+@@ -1204,7 +1200,6 @@ pub mod testing {
+             BranchId::Nu6_1 => Just(TxVersion::V5).boxed(),
+             BranchId::Nu6_2 => Just(TxVersion::V5).boxed(),
+             BranchId::Nu6_3 => Just(TxVersion::V6).boxed(),
+-            #[cfg(zcash_unstable = "nu7")]
+             BranchId::Nu7 => Just(TxVersion::V6).boxed(),
+         }
+     }

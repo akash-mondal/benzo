@@ -20,3 +20,4 @@ api/dist/
 contracts/evm/out/
 contracts/evm/cache/
 envelope/dist/
+vendor/nu7/

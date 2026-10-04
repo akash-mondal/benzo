@@ -12,10 +12,14 @@ TARGET="$STATE/cargo-target"
 cargo_install() { # <git> <rev> <package> [--bin name]
   cargo install --locked --git "$1" --rev "$2" --root "$STATE" --target-dir "$TARGET" "${@:3}"
 }
-cargo_install "$DEVTOOL_GIT" "$DEVTOOL_REV" zcash-devtool
+# Ruling R27: zcash-devtool and zcash-sign carry the NU7 backport (tools/nu7: testnet NU7 height and branch id on
+# the pinned librustzcash crates, nothing else); the as-pinned Ironwood builds stay in bin/ironwood for mainnet.
+NU7="$ROOT/tools/nu7/build.sh"
+bash "$NU7" tool "$DEVTOOL_GIT" "$DEVTOOL_REV" "$STATE" "$TARGET" "$STATE/nu7-crates" zcash_protocol-0.10.5 zcash_primitives-0.30.1 pczt-0.9.3 -- .
 cargo_install "$FROST_TOOLS_GIT" "$FROST_TOOLS_REV" frostd
 cargo_install "$FROST_TOOLS_GIT" "$FROST_TOOLS_REV" frost-client --bin frost-client
-cargo_install "$FROST_TOOLS_GIT" "$FROST_TOOLS_REV" zcash-sign
+bash "$NU7" tool "$FROST_TOOLS_GIT" "$FROST_TOOLS_REV" "$STATE" "$TARGET" "$STATE/nu7-crates" zcash_protocol-0.10.0 zcash_primitives-0.29.0 pczt-0.8.0-rc.1 -- zcash-sign
+bash "$NU7" crates "$ROOT/vendor/nu7" zcash_protocol-0.10.5 zcash_primitives-0.30.1 pczt-0.9.3 # settle/ and scan/ [patch.crates-io]
 
 GOBIN="$STATE/bin" go install "$TLE_PKG@$TLE_TAG"
 GOBIN="$STATE/bin" go install "$GRPCURL_PKG@$GRPCURL_TAG"
