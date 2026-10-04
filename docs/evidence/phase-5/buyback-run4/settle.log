@@ -1,0 +1,9 @@
+{"auction_id":"749f2534b77caf173b46eced8842ce15c0ab4bc6b43ea512857755e4baa913ce","state":"SETTLED","settled":4}
+
+----
+{"auction_id":"749f2534b77caf173b46eced8842ce15c0ab4bc6b43ea512857755e4baa913ce","batch":1,"allocated":4}
+ERROR signing session abandoned (batch 1, pair alice+bob, failed bob); re-planning with the next approving host
+settlement broadcast 7b616b3b5c15b39a1081d68eefd24b0ecb6164fd84431a0368f06d8bf2886c04
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+{"auction_id":"749f2534b77caf173b46eced8842ce15c0ab4bc6b43ea512857755e4baa913ce","settled":4}
