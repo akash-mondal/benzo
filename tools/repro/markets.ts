@@ -35,6 +35,11 @@ const sealReserve = (price: number, id: string, R: number): string => {
   if (r.status !== 0) throw new Error(`tle seal failed: ${(r.stderr ?? Buffer.alloc(0)).toString().trim().slice(-200)}`);
   return r.stdout.toString("hex").trim();
 };
+// Recurring buyback: the marketplace.json collection (adapters/zilkroad.ts) whose hash commits the manifest's lot
+// label; every round of the series names it.
+const MARKETPLACE = { version: 1, adapter: "zilkroad", collection: "benzo-buyback-collection", serial_range: { first: 1000, count: 24 }, metadata_commitment: hash(Buffer.from("benzo-buyback-collection metadata")) };
+const ZILKROAD_LOT = "zilkroad:" + hash(jsonBytes(MARKETPLACE));
+const buybackBlock = (c: Ctx) => ({ budget_zats: "500000", max_price_zats: "200000", treasury_ua: c.treasuryUa, funding_ua: c.fundingUa });
 
 // Cross-process locks (lock dirs). A lock this process holds is released if its scenario throws.
 const held = new Set<string>();
@@ -136,6 +141,19 @@ const SCENARIOS: Record<string, Scenario> = {
       serials: { first: 0, count: 8, seed_round_offset: 2 }, sealed_reserve: sealReserve(300_000, c.id, c.R) }),
     bids: () => [{ price: 500_000, lot: LOTS[0] }, { price: 400_000, lot: LOTS[0] }, { price: 450_000, lot: LOTS[1] }, { price: 100_000, lot: LOTS[2] }],
     expect: () => ({ "leaf:1": C, "leaf:3": C, seller: 700_000 }), post: dropPost },
+  // Recurring buyback (part 2 §1 row 5), round 1 of a linked 2-round series: three asks against the zilkroad
+  // collection, a sealed 180,000 max price and a 500,000 treasury budget funded before T_submit. The 190,000
+  // ask exceeds the sealed max and is refused; the rest clear at the highest accepted ask (150,000). Every leaf
+  // gets exact C plus its payment; 200,000 of the budget returns to the signed treasury_ua.
+  "buyback-r1": { mode: "buyback", treasury: 500_000, marketplace: MARKETPLACE, intakeSerials: [1000, 1001],
+    extra: c => ({ B_max_zats: "200000", lot: ZILKROAD_LOT, series: c.series, buyback: buybackBlock(c), sealed_reserve: sealReserve(180_000, c.id, c.R) }),
+    bids: () => [{ price: 190_000 }, { price: 150_000 }, { price: 120_000 }],
+    expect: () => ({ "leaf:0": C, "leaf:1": C + 150_000, "leaf:2": C + 150_000, treasury: 200_000 }) },
+  // Round 2 of the same series (previous_result_hash = round 1's result hash): two asks clearing at 160,000.
+  "buyback-r2": { mode: "buyback", treasury: 500_000, marketplace: MARKETPLACE, intakeSerials: [1010, 1011],
+    extra: c => ({ B_max_zats: "200000", lot: ZILKROAD_LOT, series: c.series, buyback: buybackBlock(c), sealed_reserve: sealReserve(180_000, c.id, c.R) }),
+    bids: () => [{ price: 160_000 }, { price: 130_000 }],
+    expect: () => ({ "leaf:0": C + 160_000, "leaf:1": C + 160_000, treasury: 180_000 }) },
 };
 
 // RFQ block: the allowlisted dealers, a budget and cap, three throwaway delivery-attestation signers (not exercised
@@ -182,6 +200,7 @@ async function run(name: string, link?: SeriesLink) {
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
   // The buyback's marketplace.json collection is published with the round; the signed manifest's lot label
   // commits to its exact bytes (adapters/zilkroad.ts re-checks the binding).
+  if (sc.marketplace) writeFileSync(path.join(publicDir, "marketplace.json"), jsonBytes(sc.marketplace));
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}), ...(b.deliver ? { deliver: b.deliver } : {}) }), address: deposits[i] }));
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
@@ -223,8 +242,9 @@ async function run(name: string, link?: SeriesLink) {
   const doc = () => json(path.join(publicDir, "auction.json"));
   const d = doc(), pure: any = clearForMode({ manifest: d.manifest, signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening?.plaintext_hex ?? null, serial_beacon: d.serial_beacon ?? null, launch: d.launch_input });
   check(`${name}-cli-equals-pure-clear`, jsonBytes(d.result.allocations).equals(jsonBytes(pure.allocations)) && jsonBytes(d.result.conservation).equals(jsonBytes(pure.conservation)) && jsonBytes(d.result.serial_assignment ?? null).equals(jsonBytes(pure.serial_assignment ?? null)), `outcomes ${d.result.allocations.map((a: any) => a.outcome).join(",")} price ${d.result.clearing_price_zats}`);
-  // Part 2: the drop's bond-then-pay flow runs after the clear, before settlement.
+  // Part 2: the drop's bond-then-pay flow and the buyback's serial intake run after the clear, before settlement.
   if (sc.balancePays) await bondFlow(id, sc, d, (manifest as any).bond.balance_window_blocks, vault, say);
+  if (sc.intakeSerials) intakeFlow(name, id, d, sc.intakeSerials, say);
   hostEnvelopeOpens(id, publicDir);
   const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
   writeFileSync(path.join(OUT, `${name}-settle.log`), ((settle.stdout || "") + "\n----\n" + (settle.stderr || "")).replace(/\x1b\[[0-9;]*m/g, ""));
@@ -270,6 +290,22 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays">, d: any, w
   }
   say(`balance window closed at height ${z.tip()} (clear ${d.clear_height} + ${window})`);
 }
+// Part 2 §1 row 5: each round's winners sign the serial intake (the adapters/buyback-report.ts record shape) with
+// the one-time owner key inside their own opened bid; `benzo buyback intake` validates every record against the
+// round and publishes serial-intake.json and the per-window report.json with it.
+function intakeFlow(name: string, id: string, d: any, serials: number[], say: (s: string) => void) {
+  const winners = d.result.allocations.filter((a: any) => a.fill > 0).sort((a: any, b: any) => a.leaf_index - b.leaf_index);
+  if (winners.length !== serials.length) throw new Error(`intake serials cover ${serials.length} of ${winners.length} winners`);
+  const records = winners.map((w: any, i: number) => {
+    const ch = d.frozen.leaves[w.leaf_index].ciphertext_hash;
+    const private_hex = json(path.join(STATE, "bids", id, `${ch}.json`)).owner_private_hex;
+    const body = { auction_id: id, ciphertext_hash: ch, serials: [serials[i]] };
+    return { ...body, signature: signStatement({ private_hex, public_hex: ownerPublic(private_hex) }, body) };
+  });
+  const file = path.join(OUT, `${name}-intake.json`); writeFileSync(file, JSON.stringify(records), { mode: 0o600 });
+  benzo(["buyback", "intake", "--id", id, "--file", file]);
+  say(`serial intake published ${records.map((r: any) => r.serials[0]).join(",")}`);
+}
 // `resume:<id>`: finish an existing frozen product auction whose run stopped (certificates, open, clear, envelope-opens,
 // settle — whichever is still missing), then check receipts against the registry's obligations and cold-verify.
 async function resume(id: string) {
@@ -293,6 +329,7 @@ async function resume(id: string) {
   // The dropped run's own scenario steps (balance addresses + payments) when still missing.
   const d0 = doc();
   if (scen?.balancePays && !d0.balance_addresses) await bondFlow(id, scen, d0, (m as any).bond.balance_window_blocks, path.join(STATE, "vaults", id, "wallet"), say);
+  if (scen?.intakeSerials && !existsSync(path.join(publicDir, "serial-intake.json"))) intakeFlow(`resume-${id.slice(0, 8)}`, id, doc(), scen.intakeSerials, say);
   hostEnvelopeOpens(id, publicDir);
   const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
@@ -303,11 +340,38 @@ async function resume(id: string) {
   say(`${ok && v.status === 0 ? "RESULT PASS" : "RESULT FAIL"} (verify exit ${v.status})`);
   return ok && v.status === 0;
 }
+// Recurring buyback (part 2 §1 row 5): a harness loop of two buyback rounds linked by `series` (round 2's
+// previous_result_hash is round 1's result hash), each publishing its winners' signed serial intake. `benzo market
+// run` is not implemented; this loop drives the same shipped commands, then `benzo report --dir <round2> --previous
+// <round1>` prints the per-window report (units, clearing price, ZEC spent, serials).
+async function series(): Promise<boolean> {
+  const say = (s: string) => console.log(`[buyback-series] ${s}`);
+  const series_id = randomBytes(32).toString("hex");
+  const ok1 = await run("buyback-r1", { series_id, round_index: 1, previous_result_hash: null });
+  const r1 = ran["buyback-r1"];
+  const ok2 = r1 ? await run("buyback-r2", { series_id, round_index: 2, previous_result_hash: r1.resultHash }) : false;
+  const r2 = ran["buyback-r2"];
+  let ok = ok1 && ok2;
+  const check = (id: string, pass: boolean, d = "") => { say(`${pass ? "PASS" : "ERROR"} ${id}${d ? " " + d : ""}`); ok &&= pass; };
+  try {
+    if (!r1 || !r2) throw new Error("a round produced no result");
+    const report = (which: "buyback-r1" | "buyback-r2") => JSON.parse(sh(benzoBin, ["report", "--dir", ran[which].publicDir, ...(which === "buyback-r2" ? ["--previous", ran["buyback-r1"].publicDir] : [])]));
+    const w2 = report("buyback-r2");
+    check("buyback-series-report", w2.series_id === series_id && w2.window_index === 2 && w2.units_bought === 2 && w2.clearing_price_zats === "160000" && w2.spent_zec === "0.00320000" && JSON.stringify(w2.serials_taken_in.map((x: any) => x.serials)) === "[[1010],[1011]]", JSON.stringify(w2).slice(0, 240));
+    const w1 = report("buyback-r1");
+    check("buyback-series-round1-report", w1.window_index === 1 && w1.units_bought === 2 && w1.clearing_price_zats === "150000" && w1.spent_zec === "0.00300000" && JSON.stringify(w1.serials_taken_in.map((x: any) => x.serials)) === "[[1000],[1001]]", JSON.stringify(w1).slice(0, 240));
+    // The chained round verifies with --previous: its series link resolves to round 1's result hash.
+    const v = spawnSync(benzoBin, ["verify", "--dir", path.join(OUT, "cold", r2.id), "--signer", r2.signer, "--previous", ran["buyback-r1"].publicDir], { encoding: "utf8" });
+    check("buyback-series-linked-verify", v.status === 0 && /OK series/.test(v.stdout), (v.stdout + v.stderr).split("\n").filter(l => /ERROR|series/.test(l)).slice(0, 2).join(" | "));
+  } catch (e) { check("buyback-series-report", false, String((e as Error).message).slice(-200)); }
+  say(ok ? "RESULT PASS buyback-series" : "RESULT FAIL buyback-series");
+  return ok;
+}
 // Parallel harness processes share one frostd on the fixed port: start one only if none is listening.
 const port = env("BNZ_FROSTD_ADDR").split(":").at(-1)!, listening = spawnSync("nc", ["-z", "127.0.0.1", port]).status === 0;
 const frostd = listening ? null : spawn(path.join(STATE, "bin/frostd"), ["-i", "127.0.0.1", "-p", env("BNZ_FROSTD_ADDR").split(":").at(-1)!, "-c", path.join(STATE, "tls/frostd.pem"), "-k", path.join(STATE, "tls/frostd.key")], { stdio: "ignore" });
 await sleep(2000);
 let all = true;
-try { for (const n of process.argv.slice(2)) { try { all = (n.startsWith("resume:") ? await resume(n.slice(7)) : await run(n)) && all; } catch (e) { for (const l of [...held]) dropLock(l); console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
+try { for (const n of process.argv.slice(2)) { try { all = (n === "buyback-series" ? await series() : n.startsWith("resume:") ? await resume(n.slice(7)) : await run(n)) && all; } catch (e) { for (const l of [...held]) dropLock(l); console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
 finally { frostd?.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `benzo-${n}`]); }
 process.exitCode = all ? 0 : 1;
