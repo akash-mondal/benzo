@@ -19,7 +19,7 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32) -> anyhow::Result<()> 
     ensure!(expiry_blocks>0&&expiry_blocks<=10000,"expiry blocks must be 1–10000");
     let mut text=String::new(); io::stdin().read_to_string(&mut text)?;
     let outputs: Vec<Value>=serde_json::from_str(&text)?;
-    ensure!(!outputs.is_empty() && outputs.len()<=13,"batch must have 1–13 recipients");
+    ensure!(!outputs.is_empty() && outputs.len()<=28,"batch must have 1–28 recipients"); // R30: 28 outputs stay under 100 KB
     let payments=outputs.iter().enumerate().map(|(i,o)| {
         let addr=o["recipient"].as_str().context("recipient missing")?;
         let amount=o["amount_zats"].as_str().context("amount must be decimal string")?.parse::<u64>()?;
