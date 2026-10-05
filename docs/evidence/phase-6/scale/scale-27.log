@@ -1,0 +1,13 @@
+[scale-27] auction 5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2 mode uniform
+[scale-27] funding 5cc6be682eff60ba99f166633d97d81297ee62d1573ee82b70d3f0977ed99eb7
+[scale-27] PASS scale-27-cli-equals-pure-clear outcomes winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,winner,over_cap,unfilled price 280
+[scale-27] ERROR scale-27-settled exit 1
+[scale-27] ERROR scale-27-receipts {}
+[scale-27] ERROR scale-27-landed [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+[scale-27] PASS scale-27-cold-verify
+[scale-27] RESULT FAIL scale-27
+exit=1
+[resume 5e2091c9] state CLEARED
+[resume 5e2091c9] settle exit 0; receipts {"leaf:0":199720,"leaf:1":200000,"leaf:10":199720,"leaf:11":200000,"leaf:12":199720,"leaf:13":200000,"leaf:14":199720,"leaf:15":200000,"leaf:16":199720,"leaf:17":200000,"leaf:18":199720,"leaf:19":200000,"leaf:2":199720,"leaf:20":199720,"leaf:21":200000,"leaf:22":199720,"leaf:23":200000,"leaf:24":199720,"leaf:25":200000,"leaf:26":200000,"leaf:3":200000,"leaf:4":199720,"leaf:5":200000,"leaf:6":199720,"leaf:7":200000,"leaf:8":199720,"leaf:9":200000,"seller":3640}; obligations {"leaf:0":199720,"leaf:1":200000,"leaf:2":199720,"leaf:3":200000,"leaf:4":199720,"leaf:5":200000,"leaf:6":199720,"leaf:7":200000,"leaf:8":199720,"leaf:9":200000,"leaf:10":199720,"leaf:11":200000,"leaf:12":199720,"leaf:13":200000,"leaf:14":199720,"leaf:15":200000,"leaf:16":199720,"leaf:17":200000,"leaf:18":199720,"leaf:19":200000,"leaf:20":199720,"leaf:21":200000,"leaf:22":199720,"leaf:23":200000,"leaf:24":199720,"leaf:25":200000,"leaf:26":200000,"seller":3640}
+[resume 5e2091c9] RESULT PASS (verify exit 0)
+exit=0

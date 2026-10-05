@@ -36,3 +36,21 @@ Run: `tools/repro/markets.ts scale-8`, auction 95cdfb41…, the same shape (8 bi
 **Parallel host approvals + review fixes (663837d), auction 6efcd40f…** (finished by `resume:` after a local DNS outage broke `benzo open`; `RESULT PASS`, verify exit 0; raw `scale/scale-8-r29b-timing.jsonl`, `scale/scale-8-r29b.log`): host build 23.0 s, approvals 17.1 s ‖ 20.0 s in parallel, FROST 9 spends **8.1 s**, whole signing step **28.4 s** (110.2 s before R29), mining 33.7 s.
 
 Signing no longer grows with spends. The per-batch cost is now build + approvals (~70 s). Next: run the two host approvals in parallel (~20 s per batch), then raise `batch_cap` (option B) so there are fewer batches.
+
+## R30: one 28-output batch (head, 2026-10-05)
+
+Run: `markets.ts scale-27`, auction 5e2091c9…: 27 bids + the seller in ONE batch, with 28 spends (27 deposits + the fee reserve), 28 outputs and fee 140,000.
+- The first settle refused: `benzo-pczt create` still had a third 13-recipient bound (`scale/scale-27-first-settle.err`). Fixed in 41ef5a4, then finished with `resume:`, giving `RESULT PASS` (verify exit 0).
+- Mined txid 09a0f834…32e8 at height 4,467,722. **Raw transaction 94,380 bytes**, under the 100 KB bound.
+- Raw data: `scale/scale-27-timing.jsonl`, `scale/scale-27.log`.
+
+| Phase | scale-8 (9 spends) | scale-27 (28 spends) |
+|---|---|---|
+| Host build | 23.0 s | 65.1 s |
+| Host approvals (parallel) | ~20 s | ~50 s |
+| FROST, all spends in parallel | 8.1 s | **8.2 s** |
+| Whole signing step | 28.4 s | 58.9 s |
+| Mining wait | 33.7 s | 82.2 s |
+
+**Projection for 17,000 bids:** ~630 batches of 27 bids × ~124 s (build + signing) ≈ **21.7 h** with mining overlapped with the next batch. That is inside the 24 h target, but only just. The cost now is host build and approval, which grow with rows (~2.3 s and ~1.8 s per row), not signing. Next lever: build batch n+1 while batch n is being approved and signed, which needs disjoint notes (rows already are).
+

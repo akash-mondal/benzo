@@ -1,0 +1,6 @@
+{"at":"2026-10-05T14:39:56.948Z","auction":"5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2","batch":1,"phase":"host-build","ms":65144}
+{"at":"2026-10-05T14:40:47.874Z","auction":"5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2","batch":1,"phase":"host-approve","signer":"bob","ms":50012,"ok":true}
+{"at":"2026-10-05T14:40:48.030Z","auction":"5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2","batch":1,"phase":"host-approve","signer":"alice","ms":50243,"ok":true}
+{"at":"2026-10-05T14:40:56.543Z","auction":"5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2","batch":1,"phase":"frost-parallel","ms":8201,"spends":28,"custody":true}
+{"at":"2026-10-05T14:40:56.555Z","auction":"5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2","batch":1,"phase":"sign","ms":58899,"spends":28,"custody":true}
+{"at":"2026-10-05T14:42:22.912Z","auction":"5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2","batch":1,"phase":"mined-wait","ms":82160,"height":4467722}
