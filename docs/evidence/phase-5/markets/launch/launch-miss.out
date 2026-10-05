@@ -1,0 +1,12 @@
+[resume 269ad3b0] state CLEARED
+[resume 269ad3b0] settle exit 0; receipts {"leaf:0":200000,"leaf:1":200000,"leaf:2":200000}; obligations {"leaf:0":200000,"leaf:1":200000,"leaf:2":200000}
+[resume 269ad3b0] RESULT PASS (verify exit 0)
+[launch-miss] auction 269ad3b08c3a4469b3b5723a47638c64f19775776951b13c17cc922a3dcf6415 mode launch
+[launch-miss] funding f4e538ae72abf99209c32b3aad350356b541dc9995462911d5e92e76ce431dff
+[launch-miss] PASS launch-miss-cli-equals-pure-clear outcomes cancelled,cancelled,cancelled price 0
+[launch-miss] PASS launch-miss-expected-equals-obligations {"leaf:0":200000,"leaf:1":200000,"leaf:2":200000}
+[launch-miss] ERROR launch-miss-settled exit 1
+[launch-miss] ERROR launch-miss-receipts {}
+[launch-miss] ERROR launch-miss-landed [0,0,0,0]
+[launch-miss] ERROR launch-miss-cold-verify ERROR clear refused: launch allocation file hash
+[launch-miss] RESULT FAIL launch-miss

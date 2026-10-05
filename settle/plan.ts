@@ -10,13 +10,13 @@ import {DatabaseSync} from "node:sqlite";
 import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
-import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
+import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
 import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
-import {treasuryFunded,treasuryReturn} from "../clear/mode-b";
+import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
@@ -149,7 +149,7 @@ try {
     if(memoOpened===null)return null;
     writeFileSync(memoPt,memoOpened,{mode:0o600});
     const pt=memoOpened;
-    return pt.length===128&&pt[0]===0&&pt.subarray(1,33).toString("hex")===id?pt:null;
+    return sealedBidPlaintext(pt,src.manifest)?pt:null;
   };
   const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
   // R7 item 6 + R20: a stray/cancelled deposit with a valid sealed-bid memo resolves through its own
@@ -256,7 +256,7 @@ try {
   }
   // Design §6.1: a buyback returns what the treasury funded minus the cleared spend (everything when cancelled) to the
   // signed treasury_ua. funded = every mined note at the signed funding_ua (spent ones too, so later batches agree).
-  if((m as any).clearing?.mode==="buyback") {
+  if(treasuryBlock(m)) {
     const back=treasuryReturn(m as any,["CANCELLED","REFUNDING"].includes(src.state)?null:result,treasuryFunded(m as any,notes,tip)); // R28 item 7 (G-8): confirmed funding only
     if(back>0n)obligations.push({party:"treasury",kind:"payout",amount_zats:back.toString()} as any);
   }

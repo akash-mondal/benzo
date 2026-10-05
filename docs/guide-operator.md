@@ -23,7 +23,7 @@ only. Private key material stays under `$BNZ_STATE_DIR`; never print it.
    $ benzo auction sign --id ID [--key private.pem]
    ```
 
-3. **Publish.** The private operator config supplies `settlement` (`batch_cap` 1–13,
+3. **Publish.** The private operator config supplies `settlement` (`batch_cap` 1–28,
    `pczt_expiry_blocks` 1–10000) and `routing` (`seller_ua`, `fee_reserve_ua`; there is no
    `stray_refund_ua` — stray refunds are never operator-chosen).
 

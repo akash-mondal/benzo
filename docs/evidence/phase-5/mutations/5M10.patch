@@ -1,0 +1,13 @@
+diff --git a/clear/rfq.ts b/clear/rfq.ts
+index ac777cf..7af55e9 100644
+--- a/clear/rfq.ts
++++ b/clear/rfq.ts
+@@ -34,7 +34,7 @@ export function clearRFQ(input: ClearInput) {
+     else if(o.price>max)o.reason="above_max_price";
+   }
+   const quotes=orders.filter(o=>!o.reason).sort((a,b)=>a.price===b.price?a.leaf_index-b.leaf_index:a.price<b.price?-1:1);
+-  const cancelled=quotes.length<2,price=cancelled?0n:quotes[1].price;
++  const cancelled=quotes.length<2,price=cancelled?0n:quotes[0].price; // 5M10: pays the lowest ask
+   if(!cancelled)quotes[0].fill=1;
+   const C=zats(m.C_zats,"C"),fee=zats(m.fee_zats,"fee"),feeShare=cancelled?0n:(fee<price?fee:price);
+   const allocations=orders.map(o=>({leaf_index:o.leaf_index,price_zats:o.price.toString(),quantity:o.quantity,fill:o.fill,

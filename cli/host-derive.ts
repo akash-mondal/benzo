@@ -13,9 +13,10 @@ import { loadPublicAuction } from "../api/public-auction";
 import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, refundable, strayNotes } from "../settle/deposits";
-import { treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
+import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
+import { modeEntry } from "../clear/registry";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 // This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
@@ -49,7 +50,7 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   const group = readFileSync(gk, "utf8").trim(), m = pub.manifest;
   requireThat(m.frost_group_key === group, "manifest frost_group_key is not this host's DKG group key");
   requireThat(execFileSync(pcztBin(root, st), ["ufvk-ak", ufvkFile(st, id)], { encoding: "utf8" }).trim() === group, "vault UFVK is not this auction's group key");
-  for (const a of [m.escrow_ua, ...m.deposit_addresses, ...(m.buyback ? [m.buyback.funding_ua] : [])])
+  for (const a of [m.escrow_ua, ...m.deposit_addresses, ...(treasuryBlock(m) ? [treasuryBlock(m)!.funding_ua] : [])])
     requireThat(execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, id), a], { encoding: "utf8" }).trim() === "external", `manifest address ${String(a).slice(0, 16)}… is not this vault's`);
   if (existsSync(mh)) requireThat(readFileSync(mh, "utf8").trim() === pub.manifest_hash, "a different manifest is pinned for this auction on this host");
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
@@ -93,7 +94,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
         try {
           const body = { kind: "claim-refund", auction_id: o.id, party, claim_envelope_sha256: sha(Buffer.from(c.claim_envelope_ct, "hex")) };
           if (owner && verifyStatement(owner, body, c.owner_sig)) { const d = openDestination({ envelope_ct: c.claim_envelope_ct } as any, key!); if (d) return d; }
-        } catch { /* an invalid claim is skipped, never fatal */ }
+        } catch (e) { process.stderr.write(`WARN claim for ${party} skipped: ${(e as Error).message}\n`); } // never fatal; G-5: say why
       }
       return null;
     };
@@ -107,13 +108,16 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const d = pub.frozen!.leaves[i].deposit, n = deposits.find((x: any) => x.txid === d.txid && x.address === d.address && x.diversifier_index === d.diversifier_index);
       return n ? depositParty(n) : `leaf-deposit:${d.txid}:${d.address}`;
     };
-    // Design §6.1: a buyback leaf is owed its exact-C refund plus its payment (obligationsModeB); Mode A leaves are
-    // owed the refund and the payments go to the seller row.
+    // Every registry mode (A13 item 3): each party's amount is the mode's own obligations over the published result —
+    // the same function verify and the coordinator's plan use — so a new mode can't drift from them. Destinations come
+    // only from envelopes/claims (leaves), the routed seller output (`seller`, bound in sign approve) and the signed
+    // buyback treasury; any other party has no host-derivable destination and is never paid by a host.
     const buyback = (pub.manifest as any).clearing?.mode === "buyback";
+    const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, null) : new Map<string, string>();
+    for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party), `obligation ${party} has no host-derivable destination`);
     for (const a of (pub.result as any)?.allocations ?? []) {
-      const owed = BigInt(a.refund_zats ?? "0") + (buyback ? BigInt(a.payment_zats ?? "0") : 0n);
+      const party = `leaf:${a.leaf_index}`, owed = BigInt(owedBy.get(party) ?? "0");
       if (!(owed > 0n)) continue;
-      const party = `leaf:${a.leaf_index}`;
       const rec = validEnvelope(view, a.leaf_index);
       const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: owed.toString(), source: leafSource(a.leaf_index) });
@@ -134,13 +138,13 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     }
     // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the
     // signed treasury_ua/funding_ua and this signer's own scan.
-    const payout = buyback || cancelled ? "0" : String((pub.result as any).conservation?.payout_zats ?? "0");
-    if (buyback) {
+    const payout = cancelled ? "0" : owedBy.get("seller") ?? "0";
+    if (treasuryBlock(pub.manifest)) {
       // Ruling R28 item 7 (F6): a cleared buyback settles only if the treasury funded budget × lots, confirmed — the same
       // rule as `open`, checked here from this host's own scan.
-      if (!cancelled) requireThat(treasuryFunded(pub.manifest as any, notes, chainTip(st)) >= treasuryRequired(pub.manifest as any), "buyback treasury is not funded (budget × lots, confirmed) on this host's scan; refusing");
+      if (!cancelled) requireThat(treasuryFunded(pub.manifest as any, notes, chainTip(st)) >= treasuryRequired(pub.manifest as any), "treasury is not funded (budget × lots, confirmed) on this host's scan; refusing");
       const back = treasuryReturn(pub.manifest as any, cancelled ? null : pub.result as any, treasuryFunded(pub.manifest as any, notes, chainTip(st)));
-      if (back > 0n) expected.push({ party: "treasury", recipient: (pub.manifest as any).buyback.treasury_ua, amount_zats: back.toString(), source: "treasury" });
+      if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
     return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys };

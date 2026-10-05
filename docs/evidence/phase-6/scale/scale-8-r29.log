@@ -1,0 +1,9 @@
+[scale-8] auction 95cdfb4148015d6eacc21ecdada462dff6806a62d41e53c8dcd08a2ed4d3b40e mode uniform
+[scale-8] funding d49c9cb53c34cd4cdd991882cae180d1e22ad0d6227b40b7df1d752d76e7ed45
+[scale-8] PASS scale-8-cli-equals-pure-clear outcomes winner,winner,winner,winner,unfilled,unfilled,unfilled,unfilled price 270
+[scale-8] PASS scale-8-settled exit 0
+[scale-8] PASS scale-8-receipts {"leaf:0":199730,"leaf:1":199730,"leaf:2":199730,"leaf:3":199730,"leaf:4":200000,"leaf:5":200000,"leaf:6":200000,"leaf:7":200000,"seller":1080}
+[scale-8] PASS scale-8-landed [199730,199730,199730,199730,200000,200000,200000,200000,0]
+[scale-8] PASS scale-8-cold-verify
+[scale-8] RESULT PASS scale-8
+exit=0

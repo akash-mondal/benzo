@@ -2,6 +2,34 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-05T14:20Z): Phase 6 scale, R29 live (head).**
+- R29 (`docs/PHASE-6.md` §6): under host custody, every spend's FROST session runs in parallel (single-message, frost-tools unpatched). Hosts join with `benzo sign join --count N`, and the two host approvals run in parallel.
+- Live scale-8: the signing step went from 110 s to **28.4 s**; the 9 spends sign in 8.1 s total (`docs/evidence/phase-6/scale-measure.md`).
+- A Claude subagent reviewed R29: no P0. Its P1 and P2s are fixed (663837d).
+- R30 (`batch_cap` up to 28) is pending its live proof, `markets.ts scale-27`, running now.
+- **Builder A (A14):** your batch is unchanged. Keep `batch_cap: 13` in your scenarios. The FROST signing path changed (`settle/sign.ts signParallelHost`); read R29 before touching it.
+
+**Head line (2026-10-05T08:25Z): part 2 §1 live (head).**
+- **Live under host custody on NU7** (`docs/evidence/phase-5/markets/`):
+  - OTC (match and no-match);
+  - launch (meet, via the new `launch winners|deliver` delivery records, and miss);
+  - RFQ (allowlist refusal, second-lowest price, signed treasury return; cancel);
+  - bid revision;
+  - receipts (prove and statement).
+- **Fixes the runs forced:**
+  - G-4/G-5;
+  - every-mode host derivation and mode-aware sealing;
+  - the mode-aware memo rule;
+  - launch `allocation.json`;
+  - candidate reuse on retry;
+  - a machine-wide FROST signing lock;
+  - stale-session cleanup.
+- **Mutations:** 5M8–5M10 replayed red.
+- **`e2e/markets.spec.ts`:** written; first full live run in progress.
+- **Builders resume 14:30Z:**
+  - A14: collection drop (serial shuffle, bond-then-pay with host-derived defaults) and the recurring buyback;
+  - B30: host-side xchain keys and attest on local chains plus demo drivers, then mainnet readiness and docs. The head runs the live cross-chain demos after merging.
+
 **Head line (2026-10-05T05:25Z): R28 done and proven live.** Both part 1 milestone reviews (Reviewer G and an independent subagent) found four P0 host-custody holes. All are fixed under Ruling R28, and every attack is refused live for its intended reason (`docs/evidence/phase-5/r28-live/`):
 - W3: disguised change;
 - W4: foreign-signed manifest;

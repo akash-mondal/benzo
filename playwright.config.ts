@@ -8,6 +8,7 @@ if (process.env.BNZ_LIVE === "1") {
   projects.push({ name: "settle-crash", testMatch: /settle-crash\.spec\.ts/ });
   projects.push({ name: "cli-auction", testMatch: /cli-auction\.spec\.ts/ });
   projects.push({ name: "buyback-mode", testMatch: /buyback-mode\.spec\.ts/ });
+  projects.push({ name: "markets", testMatch: /markets\.spec\.ts/ });
 }
 
 export default defineConfig({

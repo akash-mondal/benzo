@@ -7,7 +7,8 @@
 // docs/design/phase5-part1-live.md §4.
 import { verifyOpensReport, type OpensReport } from "../witness";
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
-import { hash, QUICKNET, requireThat } from "../manifest/schema";
+import { hash, QUICKNET, requireThat, type Signed } from "../manifest/schema";
+import { modeEntry } from "../clear/registry";
 import { partyNote, type DepositNote } from "./deposits";
 import { tleOpening } from "../manifest/reserve";
 import { existsSync, readFileSync } from "node:fs";
@@ -46,6 +47,12 @@ export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; own
 // The admission rule for a deposit memo (moved here from clear/auction-cli.ts so the operator's `admit` and every
 // witness's independent root recompute (design §5) apply the same check): a BNZ memo whose ciphertext is one age
 // tlock stanza for round R on quicknet. Returns the ciphertext and the v2 envelope tag (null for v1).
+// A tlock opening is a sealed bid of THIS auction under its mode's own layout (part 2: OTC/RFQ/launch orders use their
+// layout's version byte, and a multi-lot order binds its lot id) — the one rule for deposit memos and claims.
+export function sealedBidPlaintext(pt: Buffer, manifestPacket: Signed): boolean {
+  const m = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8")), l = modeEntry(manifestPacket).layout;
+  return pt.length === l.bytes && pt[0] === l.version && [m.auction_id, ...(m.lots ?? [])].includes(pt.subarray(l.auction_at, l.auction_at + l.auction_len).toString("hex"));
+}
 export function memoTlockCiphertext(memoHex: string, R: number): { ct: string; memo_tag: string | null } {
   requireThat(typeof memoHex === "string" && /^[0-9a-f]{1024}$/.test(memoHex), "envelope length");
   const parsed = memoSealedBid(memoHex); requireThat(parsed, "envelope header/padding");
@@ -179,7 +186,7 @@ export function authenticatedMemoEnvelope(
     const ptHex = tleOpening(tleBin, manifest.drand.chain_hash, ctHex);
     if (!ptHex) return null;
     const pt = Buffer.from(ptHex, "hex");
-    if (pt.length !== 128 || pt[0] !== 0 || pt.subarray(1, 33).toString("hex") !== manifest.auction_id) return null;
+    if (!sealedBidPlaintext(pt, manifestPacket)) return null;
     return validEnvelope({ manifest: manifestPacket, frozen: { leaves: [{ leaf_index: 0, ciphertext_hash: ctHash }] }, opened: [{ leaf_index: 0, plaintext_hex: ptHex }], envelopes }, 0);
   } catch {
     return null;

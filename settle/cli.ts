@@ -1,12 +1,14 @@
 // CLI coordinator. Signer routing is private, pinned before funding; no recipient input is accepted at run/sign time.
 import {copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,writeFileSync} from "node:fs";
-import {spawnSync} from "node:child_process";
+import {spawn,spawnSync} from "node:child_process";
 import path from "node:path";
-import {hash,jsonBytes,requireThat} from "../manifest/schema";
+import {hash,jsonBytes,requireThat,verifyRecord} from "../manifest/schema";
 import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
+import {verifyApprovalMap} from "../witness";
+import {treasuryBlock} from "../clear/mode-b";
 import {Ledger,type Row} from "./ledger";
-import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints} from "./io";
-import {pubkey,zcashSign} from "./sign";
+import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints,timing} from "./io";
+import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {partyNote} from "./deposits";
 import { vaultDir, pcztBin } from "../manifest/paths";
@@ -60,7 +62,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envel
       return {...row,reason:`envelope destination refused: this signer's key does not open the envelope (party ${row.party}; refund waits in the exception queue)`};
     }
     // Design §6.1: the buyback treasury return goes to the signed manifest's treasury_ua, never to routing.
-    if(row.party==="treasury") return {...row,recipient:(client(auction().manifest,auction().signer).manifest as any).buyback.treasury_ua};
+    if(row.party==="treasury") return {...row,recipient:treasuryBlock(client(auction().manifest,auction().signer).manifest)!.treasury_ua};
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
       partyNote(observed,row.party)?.address;
     // R7 item 6 (Reviewer G G6) + R10 item 2: a product-mode stray or cancelled deposit resolves through its
@@ -110,7 +112,36 @@ function guard(metadata:any,tip:number) {
 // re-plan the SAME batch with the next host that approves. A host that failed is not asked again for this batch.
 // §11 H6: the first preferred signer host that can derive every allocated row builds and proves the candidate on its
 // own vault; the coordinator receives only the REDACTED proven PCZT (H7) and {party, output_index} (recipients stay on the hosts).
+// Reviewer G's G-5: before allocation, the first preferred host that answers lists the {party, amount} rows it derives
+// from its own data (`sign derivable`, no recipients). A row no host derives is pinned to the exception queue with its
+// reason instead of being allocated into a batch no host could build.
+function hostDerivable():Set<string>|null {
+  const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
+  const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
+  const packet=file("derivable");run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
+  if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600});
+  const remote=`derivable-${id.slice(0,16)}`;
+  for(const n of [...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))]) {
+    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000}).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000}).status!==0)continue;
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
+    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000});
+    if(r.status!==0){console.error(`ERROR signer ${n} could not list derivable rows: ${(r.stderr||"").trim().slice(-200)}`);continue}
+    const out=JSON.parse(r.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
+    return new Set(out.rows.map((x:any)=>`${x.party}:${x.amount_zats}`));
+  }
+  return null;
+}
 async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_zats:string}[],proven:string) {
+  // R28 liveness: hosts approve each deposit in at most one live candidate, so a retry after a failed signing reuses
+  // the candidate already built for this batch (same txid, which the hosts' ledgers accept again) while it is valid,
+  // instead of building a new one the hosts must refuse until the first expires.
+  const prior=file(`batch-${batchId}.build.json`);
+  if(existsSync(prior)&&existsSync(proven)&&["alice","bob","carol"].every(s=>existsSync(file(`batch-${batchId}.sealed-${s}.bin`)))) {
+    const b=JSON.parse(readFileSync(prior,"utf8")),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
+    if(hash(readFileSync(proven))===b.plan_version&&inspect(proven,true).expiry_height>tip+20&&jsonBytes(b.outputs.map((o:any)=>o.party).sort()).equals(jsonBytes(rows.map(r=>r.party).sort())))return b;
+  }
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file(`build-${batchId}`);
@@ -142,7 +173,8 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   }
   throw Error(`no signer host could build batch ${batchId}`);
 }
-async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {
+async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey))}
+async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string) {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file(`packet-${batchId}`);
@@ -153,25 +185,53 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
   writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600}); // R28 item 8 (G-2): the seller output must pay this
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
-  const failed=new Set<string>(),events:any[]=[];
-  const approve=(n:string):boolean=>{
+  const failed=new Set<string>(),events:any[]=[],maps:Record<string,any>={};
+  // Phase 6: the hosts approve in parallel (each derives and checks on its own machine; ~20 s each, serial before).
+  const orbAsync=(args:string[],timeout=0)=>new Promise<{status:number|null;stdout:string;stderr:string}>(resolve=>{
+    const c=spawn("orb",args);let stdout="",stderr="";c.stdout.on("data",d=>stdout+=d);c.stderr.on("data",d=>stderr+=d);
+    const t=timeout?setTimeout(()=>c.kill(),timeout):undefined;
+    c.on("error",e=>{stderr+=String(e);});c.on("close",code=>{if(t)clearTimeout(t);resolve({status:code,stdout,stderr})});
+  });
+  // frostd lets only a session's coordinator close it, and `sessions --close-all` stops at the first session the host
+  // may not close; so every host (the failed one too, best effort) runs it, in rounds, until none lists a session
+  // (R29 review P1). Hosts share one contact key across auctions, so this also clears other auctions' leftovers.
+  const closeStale=()=>{
+    for(let round=0;round<4;round++){
+      let open=0;
+      for(const n of ["alice","bob","carol"]){
+        const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000});
+        if(r.status!==0)open++; // exit 0: every session it listed was closed
+      }
+      if(!open)return;
+    }
+  };
+  const approve=async(n:string):Promise<boolean>=>{
     const remote=`packet-${id.slice(0,16)}-${batchId}`;
-    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{encoding:"utf8",timeout:120_000});
+    const r=await orbAsync(["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],120_000);
     if(r.status!==0){events.push({signer:n,approve:"unreachable"});return false}
     if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
-    const a=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20}); // host sync logs can pass the 1 MiB default
+    await orbAsync(["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],120_000);
+    const tA=Date.now();
+    const a=await orbAsync(["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n]);
+    timing({auction:id,batch:batchId,phase:"host-approve",signer:n,ms:Date.now()-tA,ok:a.status===0});
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
+    if(a.status===0){try{maps[n]=JSON.parse(a.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!).map??null}catch{maps[n]=null}}
     if(a.status!==0)console.error(`ERROR signer ${n} refused batch ${batchId}: ${(a.stderr||"").trim().slice(-200)}`);
     return a.status===0;
   };
   for(let attempt=1;attempt<=3;attempt++) {
     const pair:string[]=[];
-    for(const n of prefer){if(pair.length===2)break;if(failed.has(n))continue;if(approve(n))pair.push(n);else failed.add(n)}
+    const pool=prefer.filter(n=>!failed.has(n));
+    while(pair.length<2&&pool.length){const take=pool.splice(0,2-pair.length),ok=await Promise.all(take.map(approve));take.forEach((n,i)=>ok[i]?pair.push(n):failed.add(n))}
+    pair.sort((a,b)=>prefer.indexOf(a)-prefer.indexOf(b)); // the first preferred approving host coordinates
     requireThat(pair.length===2,`fewer than two signer hosts approve batch ${batchId}`);
+    // Under the signing lock no other round is live, so any session a host still has is stale (an abandoned round of
+    // this or another auction) and would make a join see the wrong session count: close them all first.
+    closeStale();
     try {
       const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server});
       writeFileSync(file(`batch-${batchId}.custody.json`),jsonBytes({pair,events,attempts:attempt}),{mode:0o600});
+        writeFileSync(file(`batch-${batchId}.maps.json`),jsonBytes(pair.map(n=>maps[n]??null)),{mode:0o600}); // G-4: the signing pair's signed maps
       return signing;
     } catch(e) {
       const lost=(e as any).failedSigners??[];
@@ -179,9 +239,9 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
       console.error(`ERROR signing session abandoned (batch ${batchId}, pair ${pair.join("+")}, failed ${lost.join(",")||"?"}); re-planning with the next approving host`);
       for(const n of lost)failed.add(n);
       if(!lost.length)throw e;
-      // frostd keeps the abandoned session; a survivor would then be in two sessions and refuse to join. Close every
-      // lingering session of this auction on the surviving hosts before re-planning.
-      for(const n of prefer.filter(n=>!failed.has(n)))spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8"});
+      // frostd keeps the abandoned sessions (24 h); a survivor would then list too many and refuse to join. Close them
+      // on every reachable host — including a failed coordinator, the only one frostd lets close its sessions.
+      closeStale();
     }
   }
   throw Error(`batch ${batchId} could not be signed by two hosts`);
@@ -194,7 +254,10 @@ async function worker(ledger:Ledger) {
   const custody=existsSync(path.join(STATE,"vaults",id,"keys.json"));
   // §11 H6: under host custody the coordinator holds no envelope key; the plan already gated every envelope refund on
   // host-signed agreement reports, and the recipients are derived on the hosts (sign build / sign approve).
-  const pinned:any[]=custody?plan.obligations.map((o:any)=>({...o,recipient:"host-derived"})):destinations(plan.obligations,settings().signers[0],plan);
+  // Nothing payable (every row already an exception, e.g. a cancel before R) needs no host derivation.
+  const derivable=custody&&plan.obligations.length?hostDerivable():new Set<string>();
+  if(custody&&plan.obligations.length)requireThat(derivable,"no signer host could list its derivable rows");
+  const pinned:any[]=custody?plan.obligations.map((o:any)=>derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):destinations(plan.obligations,settings().signers[0],plan);
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>({party,kind,amount_zats})),
     [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>({party,kind,amount_zats,reason}))]);
@@ -210,7 +273,9 @@ async function worker(ledger:Ledger) {
       const custodyKeys=path.join(STATE,"vaults",id,"keys.json");
       if(custody) {
         // §11 H6: a signer host builds and proves the candidate from its own derivations; only {party, output_index} returns.
+        {const t0=Date.now();
         await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);
+        timing({auction:id,batch:batch.id,phase:"host-build",ms:Date.now()-t0});}
         guard(inspect(proven,true),JSON.parse(wallet("balance","--json")).chain_tip_height);
       } else {
         const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
@@ -218,9 +283,11 @@ async function worker(ledger:Ledger) {
         const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
         await prove(created,proven);
       }
+      const tSign=Date.now();
       const signing=custody?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
         const approved=JSON.parse(run(process.execPath,existsSync(path.join(STATE,"product",`${id}.json`))?[path.join(ROOT,"cli/dist/benzo.mjs"),"sign","inspect","--id",id,"--batch",String(batch!.id),"--candidate",proven,"--name",name,"--randomizer",randomizer,"--sighash",sighash]:[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer,sighash]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
       },settings().signers,existsSync(path.join(STATE,"product",`${id}.json`))?id:undefined,batch.id);
+      timing({auction:id,batch:batch.id,phase:"sign",ms:Date.now()-tSign,spends:(signing as any).sessions?.length??null,custody});
       writeFileSync(base+".signatures.json",jsonBytes(signing),{mode:0o600});
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
@@ -259,7 +326,9 @@ async function worker(ledger:Ledger) {
       const sent=(custody?pczt("send-without-storing","-s",env("BNZ_LWD_URL"),staged.pczt_path!):pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!)).trim().split("\n").at(-1);
       requireThat(sent===staged.txid,"broadcast returned a different txid");console.log(`settlement broadcast ${sent}`);
     }
+    const tMine=Date.now();
     const height=await mined(staged.txid!,Date.now()+30*60_000);
+    timing({auction:id,batch:batch.id,phase:"mined-wait",ms:Date.now()-tMine,height});
     // Head (2026-10-03, live run 12): a lagging endpoint that has not seen the block yet is waited for (up to 15
     // min); only a DIFFERENT non-zero height is a real disagreement and refuses.
     const agreeBy=Date.now()+15*60_000;
@@ -276,8 +345,14 @@ async function worker(ledger:Ledger) {
     }
     const i=inspect(staged.pczt_path!,custody);
     if(custody) {
-      // §11 H6: receipts map outputs to parties by the builder's {party, output_index}, never by recipient.
-      const built=JSON.parse(readFileSync(base+".build.json","utf8"));
+      // G-4: receipts map outputs to parties by the two signing hosts' signed {party, output_index} maps, which must
+      // verify against the pinned witness set and agree (same txid, same outputs); the builder's build.json is only a
+      // cross-check, logged if it differs. Never by recipient.
+      const doc=JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).public_dir),"auction.json"),"utf8"));
+      const wkeys=verifyRecord<any>(doc.witness_set,doc.signer).keys as string[],maps=JSON.parse(readFileSync(base+".maps.json","utf8"));
+      requireThat(Array.isArray(maps)&&maps.length===2&&maps.every((m:any)=>m&&verifyApprovalMap(m,wkeys)&&m.txid===staged.txid)&&maps[0].witness!==maps[1].witness&&jsonBytes(maps[0].outputs).equals(jsonBytes(maps[1].outputs)),"the signing hosts' output maps are missing, unsigned or disagree");
+      const built={outputs:maps[0].outputs},relayed=JSON.parse(readFileSync(base+".build.json","utf8"));
+      for(const x of built.outputs)if(!relayed.outputs.some((y:any)=>y.party===x.party&&y.output_index===x.output_index))console.error(`ERROR build.json differs from the hosts' signed map for ${x.party}; using the hosts' map`);
       const receipt=batch.outputs.map((row:any)=>{const m=built.outputs.find((x:any)=>x.party===row.party);requireThat(m,`no built output for ${row.party}`);const o=i.outputs.find((x:any)=>x.index===m.output_index&&!x.is_change);requireThat(o&&o.amount_zats===row.amount_zats,"mined amount differs from result.json");return {party:row.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
       ledger.confirm(batch.id,staged.txid!,height,receipt);
       writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});

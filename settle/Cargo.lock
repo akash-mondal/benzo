@@ -109,6 +109,7 @@ name = "benzo-pczt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ff",
  "hex",
  "orchard",
  "pczt",

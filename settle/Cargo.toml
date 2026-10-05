@@ -6,6 +6,7 @@ publish = false
 
 # Exact versions from zcash-devtool@5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8 Cargo.lock.
 [dependencies]
+ff = "=0.13.1" # R29: PrimeField::to_repr for the spend randomizers (already in the lock via orchard)
 anyhow = "=1.0.104"
 hex = "=0.4.3"
 orchard = { version = "=0.15.3", default-features = false }

@@ -23,6 +23,7 @@ import { verifyStatement } from "../../envelope/index";
 import { deriveRows, redactCandidate } from "../host-derive";
 import { chainTip, minedHeight } from "../host-chain";
 import { openBlob } from "../../envelope/index";
+import { signApprovalMap } from "../../witness";
 import { ownEnvelopePrivate } from "../../settle/envelopes";
 
 export const noun = "sign", verb = "approve";
@@ -79,12 +80,12 @@ export async function run(argv: string[]): Promise<number | object> {
     let sellerSeen = false;
     const outputs = (info.outputs ?? []).filter((x: any) => !x.is_change);
     requireThat(outputs.length > 0, "candidate pays nobody");
-    const sources: string[] = [];
+    const sources: string[] = [], mapped: { party: string; output_index: number }[] = [];
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
-      if (i >= 0) { sources.push(pool.splice(i, 1)[0].source); continue; }
+      if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(e.source); mapped.push({ party: e.party, output_index: out.index }); continue; }
       // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing; paid at most once by the ledger).
-      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller"); continue; }
+      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller"); mapped.push({ party: "seller", output_index: out.index }); continue; }
       throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
     }
     // Ruling R28 item 3 (F2): this host's own approval ledger. A source (deposit note, seller, treasury) already in
@@ -105,7 +106,10 @@ export async function run(argv: string[]): Promise<number | object> {
     const sighash = await sighashOf(path.join(st, "bin", "zcash-sign"), process.env.BNZ_NETWORK ?? "test", candidate);
     // Ruling R28 item 6 (F5): the full (unredacted) candidate never stays on this machine's disk after the check.
     rmSync(candidate, { force: true }); rmSync(recomputed, { force: true });
-    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, outputs: outputs.length, approved_at: Math.floor(Date.now() / 1000) };
+    // Reviewer G's G-4: this host's signed {party, output_index} map (party names only), for receipt attribution.
+    const wkey = path.join(st, "witness", `${o.name}.key`);
+    const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index) }, readFileSync(wkey, "utf8").trim()) : null;
+    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });
     writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });

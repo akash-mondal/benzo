@@ -3,6 +3,7 @@
 import { checkMissingDeposits } from "./missing-deposits";
 import { checkDeliveryExceptions } from "../adapters/zilkroad";
 import { checkBuybackReport } from "../adapters/buyback-report";
+import { treasuryBlock } from "../clear/mode-b";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
@@ -10,7 +11,7 @@ import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Pat
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
-import { memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
+import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
 import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
 
@@ -432,7 +433,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         // claim's SHA-256(memo_hex) must appear with the same party in a q_w-certified strays statement.
         requireThat(certified?.has(`${c.party}\u0000${hash(Buffer.from(c.memo_hex!, "hex"))}`), `claim ${i} memo not in a certified strays statement`);
         const derived = opts.claimOpenings?.get(i), pt = derived ? Buffer.from(derived, "hex") : null;
-        requireThat(pt && pt.length === 128 && pt[0] === 0 && pt.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i} memo opening`);
+        requireThat(pt && sealedBidPlaintext(pt, pub.manifestPacket), `claim ${i} memo opening`);
         owner = pt!.subarray(61, 93).toString("hex");
       }
       requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, claim_envelope_sha256: c.claim_envelope_sha256 }, c.owner_sig), `claim ${i} owner signature`);
@@ -520,7 +521,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       // Design §6.1: a buyback's one `treasury` row returns unspent budget to the signed treasury_ua. Its amount
       // (funded − treasury_zats) rests on shielded funding notes only the signers see; they derive it from their
       // own scans before approving. Publicly it is held to the stray rules: positive, one receipt, matching amount.
-      if (party === "treasury") { requireThat((pub.manifest as any).clearing?.mode === "buyback", "treasury row outside a buyback"); return; }
+      if (party === "treasury") { requireThat(treasuryBlock(pub.manifest) !== null, "treasury row outside a mode with a treasury block"); return; }
       requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.

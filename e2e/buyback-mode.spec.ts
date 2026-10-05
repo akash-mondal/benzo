@@ -28,7 +28,8 @@ const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 const benzo=(args:string[],input?:any)=>{const out=sh(benzoBin,args,input===undefined?undefined:JSON.stringify(input));return out.startsWith('{')||out.startsWith('[')?JSON.parse(out.split('\n').filter(l=>l.startsWith('{')||l.startsWith('[')).at(-1)!):out};
 const cli=(args:string[])=>spawnSync(benzoBin,args,{encoding:'utf8',maxBuffer:64<<20});
-const latestRound=async()=>(await (await fetch(`${DRAND}/public/latest`)).json()).round as number;
+// A failed drand fetch (one killed a live run) reads as round 0, so the wait simply polls again.
+const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/latest`)).json()).round as number}catch{return 0}};
 const pcztBin=path.join(ROOT,'settle/target/release/benzo-pczt');
 const fresh=(wallet:string)=>sh(pcztBin,['address',wallet]).split('\n').at(-1)!;
 

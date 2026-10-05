@@ -64,11 +64,17 @@ function envelopeTag(): Uint8Array {
   return out;
 }
 
+// Part 2 (every registry mode): the driver may set the mode's layout version byte, a binding (a multi-lot round's lot id
+// instead of the auction id) and the launch holder flag (byte 125). Unset, this is the unchanged v0 layout.
 function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint8Array {
   const pt = new Uint8Array(128);
   const view = new DataView(pt.buffer);
-  pt[0] = 0x00;
-  pt.set(auctionId, 1);
+  const version = $("layout_version").value.trim(), binding = $("binding").value.trim().toLowerCase(), holder = $("holder").value.trim();
+  if (version && !/^[0-9]{1,3}$/.test(version)) throw new Error("layout version must be 0-255");
+  if (binding && !/^[0-9a-f]{64}$/.test(binding)) throw new Error("binding must be 64 hex characters");
+  pt[0] = version ? Number(version) & 0xff : 0x00;
+  pt.set(binding ? Buffer.from(binding, "hex") : auctionId, 1);
+  if (holder === "1") pt[125] = 1;
   view.setBigUint64(33, price, false);
   view.setUint32(41, quantity, false);
   pt.set(material("nonce", 16), 45);

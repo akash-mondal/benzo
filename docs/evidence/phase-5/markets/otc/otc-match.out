@@ -1,0 +1,9 @@
+auction 299e1010865f8827c515479f2e41be158ad06be0a1ddbd7e97baebce1c1538a0 mode otc
+funding dd8133b1f1f8b24c19f9d080360b99be40588d7b99b76389d7ad83e500fb71bd
+PASS otc-match-cli-equals-pure-clear outcomes winner,winner price 800
+PASS otc-match-expected-equals-obligations {"leaf:0":199200,"leaf:1":200800}
+PASS otc-match-settled exit 0
+PASS otc-match-receipts {"leaf:0":199200,"leaf:1":200800}
+PASS otc-match-landed [199200,200800,0]
+PASS otc-match-cold-verify
+RESULT PASS otc-match

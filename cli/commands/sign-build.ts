@@ -33,7 +33,7 @@ export async function run(argv: string[]): Promise<number | object> {
     requireThat(meta.auction_id === o.id && String(meta.batch) === o.batch, "packet is for another auction or batch");
     requireThat(Number.isInteger(meta.expiry_blocks) && meta.expiry_blocks >= 1 && meta.expiry_blocks <= 10000, "packet expiry_blocks");
     const rows: { party: string; kind: string; amount_zats: string }[] = JSON.parse(readFileSync(path.join(packet, "rows.json"), "utf8"));
-    requireThat(Array.isArray(rows) && rows.length >= 1 && rows.length <= 13, "rows (1-13)");
+    requireThat(Array.isArray(rows) && rows.length >= 1 && rows.length <= 28, "rows (1-28)"); // R30: a 28-output batch stays under 100 KB
     const { expected, payout, envelopeKeys } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // Each allocated row gets the recipient THIS signer derived; the seller payout goes to the operator routing UA
     // (stated limit: hosts check its amount against the result, not its address).

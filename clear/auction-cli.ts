@@ -8,6 +8,7 @@ import type {ClearResult, Opened} from "./core";
 import {clearForMode, clientCommon as client} from "./registry"; // design §6.1: every registry mode
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
+import {verifyStatement} from "../envelope";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
 
@@ -133,7 +134,16 @@ try {
       ledger.state="OPENED"; result={opened:ledger.opened,trace:ledger.trace};
     } else if(command==="clear") {
       requireThat(ledger.state==="OPENED" || ledger.state==="CLEARED","clearing state");
-      ledger.result=clearForMode({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!,reserve_opening:ledger.reserve_opening??null}); ledger.state="CLEARED"; result=ledger.result;
+      ledger.result=clearForMode({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!,reserve_opening:ledger.reserve_opening??null,launch:(ledger as any).launch_input}); ledger.state="CLEARED"; result=ledger.result;
+    } else if(command==="deliver") {
+      // Part 2 launch: a winner's owner-signed token-chain destinations, recorded before the clear (clearLaunch checks
+      // the signature against the opened owner key and the count against the fill; checked here early too).
+      requireThat(ledger.state==="OPENED","launch delivery records are taken after opening, before the clear");
+      requireThat(input && Number.isInteger(input.leaf_index) && Array.isArray(input.destinations) && /^[0-9a-f]{128}$/.test(input.signature),"launch delivery record");
+      const pt=ledger.opened!.find((o:any)=>o.leaf_index===input.leaf_index)?.plaintext_hex;requireThat(pt,"launch delivery for an unopened leaf");
+      requireThat(verifyStatement(Buffer.from(pt!,"hex").subarray(61,93).toString("hex"),{auction_id:id,leaf_index:input.leaf_index,destinations:input.destinations},input.signature),"launch delivery owner signature");
+      const li=(ledger as any).launch_input??{};li.delivery=[...(li.delivery??[]).filter((r:any)=>r.leaf_index!==input.leaf_index),{leaf_index:input.leaf_index,destinations:input.destinations,signature:input.signature}].sort((a:any,b:any)=>a.leaf_index-b.leaf_index);
+      (ledger as any).launch_input=li;result={recorded:input.leaf_index,delivery:li.delivery.length};
     } else if(command==="cancel") {
       requireThat(["OPEN","SEALED-WAIT","CANCELLED"].includes(ledger.state) && !ledger.opened,"cancel after opening");
       ledger.state="CANCELLED";

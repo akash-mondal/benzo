@@ -21,6 +21,19 @@ Record each number in `docs/evidence/phase-6/scale-measure.md` with its command 
 4. **Parallel sessions:** throughput with 1, 4 and 8 concurrent signing sessions on the three signer hosts (after part 1 §1).
 5. **Bigger batches:** time and fee for 1 spend → 50 outputs, and for 50 spends → 50 outputs, under the ZIP-317 fee and the block size.
 
+## 2.1 Findings so far (head, 2026-10-05)
+
+- **§2.1:** settlement now records its phases (`state/run/settle-timing.jsonl`, cedcdd4):
+  - host build;
+  - each host approval;
+  - each FROST session, by pool;
+  - the whole signing step;
+  - mining.
+  Every live run from now on produces the numbers.
+- **§2.3, multi-message sessions:** `frost-client coordinator` accepts several `-m`/`-r` pairs in one session. zcash-sign computes every spend's randomizer up front and only prompts for them one at a time (`prompt_for_signatures`). So one session per batch is possible without changing zcash-sign: read the randomizers, run one session, then answer zcash-sign's prompts.
+- **Security catch (blocks option A as-is):** the pinned frost-client participant shows and confirms only `signing_package[0].message()` (`frost-client/src/participant/comms.rs`), and `generate_signature` (`participant/round2.rs`) signs only `signing_package.first()` with `randomizer[0]`. A multi-message session therefore needs a patch to the signing tool.
+- **§2.4, parallel sessions (corrected 2026-10-05):** a host's identity *can* be in several sessions at once. `frost-client participant -S <session>` joins a named one; only a join *without* `-S` refuses when more than one is open. The part 2 collisions came from joining without `-S`. **Chosen: R29 (`docs/PHASE-6.md` §6).** All of a transaction's single-message sessions run in parallel, with no tool patch.
+
 ## 3. Options the head will choose from (after §2)
 
 - **A. Multi-message signing:** one FROST session per PCZT signs every spend action, removing round trips per action. Expected to be the biggest win if §2.3 holds.

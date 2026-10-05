@@ -1,0 +1,8 @@
+{"auction_id":"dc7bd8aeb26c3cb1afa7484f0ef89915637881fb34edb088487e7d3d20812a77","state":"SETTLED","settled":4}
+
+----
+{"auction_id":"dc7bd8aeb26c3cb1afa7484f0ef89915637881fb34edb088487e7d3d20812a77","batch":1,"allocated":4}
+settlement broadcast 8fa2d963d1c00a8c26849f4a074713eca8912d05ea17fa221d9c6096ba8503c3
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+{"auction_id":"dc7bd8aeb26c3cb1afa7484f0ef89915637881fb34edb088487e7d3d20812a77","settled":4}

@@ -12,8 +12,9 @@ import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
 // Design §6.1: manifests are read through the mode registry (its launch -> zilkroad -> public-auction cycle, which
 // deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
-import {validatePhase5,treasuryFunded,treasuryRequired} from '../clear/mode-b';
-import {clientCommon as client} from '../clear/registry';
+import {treasuryBlock,treasuryFunded,treasuryRequired} from '../clear/mode-b';
+import {clientCommon as client,modeEntry} from '../clear/registry';
+import {launchAllocationFile,launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
@@ -43,6 +44,7 @@ export function publish(id:string) {
   // R8 G10 (design §5): the signed witness set travels with every rebuilt document, and the witness-signed
   // certificates placed in the public dir by `benzo witness sign` are carried over instead of clobbered.
   if(a.witness_set)doc.witness_set=a.witness_set;
+  if(a.launch_input)doc.launch_input=a.launch_input; // part 2: launch delivery records, so verify re-derives the clear
   const previous=existsSync(path.join(dir,'auction.json'))?JSON.parse(readFileSync(path.join(dir,'auction.json'),'utf8')):{};
   if(previous.witness_cert)doc.witness_cert=previous.witness_cert;
   // R23 item 1: witness-certified strays statements survive every rebuild of the document.
@@ -62,6 +64,8 @@ export function publish(id:string) {
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');
   save(path.join(dir,'manifest.json'),doc.manifest);if(doc.frozen)save(path.join(dir,'frozen.json'),doc.frozen);if(doc.result)save(path.join(dir,'result.json'),doc.result);
+  // A launch result commits to its allocation file; publish it (same clear inputs, hash re-checked).
+  if(doc.result?.allocation_file_hash){const f=launchAllocationFile({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input});requireThat(hash(f)===doc.result.allocation_file_hash,'launch allocation file differs from the result');writeFileSync(path.join(dir,'allocation.json'),f)}
   save(path.join(dir,'signer.json'),{signer:doc.signer});save(path.join(dir,'receipts.json'),doc.receipts);if(doc.opened)save(path.join(dir,'opened.json'),doc.opened);if(doc.beacon)save(path.join(dir,'beacon.json'),doc.beacon);if(doc.settlement)save(path.join(dir,'summary.json'),doc.settlement);
   if(a.envelopes){doc.envelopes=a.envelopes;save(path.join(dir,'envelope.json'),a.envelopes)}
   save(path.join(dir,'auction.json'),doc);return doc;
@@ -73,10 +77,15 @@ export async function runCommand(command:string,args:string[]) {
   if(command==='auction create') {
     const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");
     // Design §6.1: a buyback draft is held to the Mode B rules, and its treasury return must be a shielded destination.
-    if(m.clearing?.mode==='buyback'){validatePhase5(m);requireShieldedDestination(m.buyback.treasury_ua);
+    // Every registry mode (A13 item 3): the draft is held to its OWN mode's rules — its registry client run on a copy signed
+    // with a throwaway key (the clients verify a signature first); nothing about the real signing key changes.
+    {const k=generateKeyPairSync('ed25519'),probe=signRecord(m,k.privateKey.export({type:'pkcs8',format:'pem'}).toString());modeEntry(probe).client(probe,probe.signer)}
+    // Part 2: an RFQ under the product carries its buyer's signed treasury block (host custody derives the return from it).
+    if(m.clearing?.mode==='rfq')requireThat(m.rfq?.treasury_ua&&m.rfq?.funding_ua,'rfq needs the buyer treasury_ua and funding_ua');
+    if(treasuryBlock(m)){const tb=treasuryBlock(m)!;requireShieldedDestination(tb.treasury_ua);
       // R28 item 7 (G-8): a funding address belongs to one auction only (its funded sum counts every note ever received).
-      for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(mm?.buyback?.funding_ua!==m.buyback.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
-    } else validateManifest(m);
+      for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(treasuryBlock(mm)?.funding_ua!==tb.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
+    }
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
@@ -109,7 +118,7 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(id&&o.dir&&o.config,'--id --dir --config required');
     const d=read(draft(id));requireThat(d.signed,'sign the manifest first');
     const cfg=read(privatePath(o.config));requireThat(cfg.settlement&&cfg.routing,'operator config needs settlement and private routing');
-    requireThat(Number.isInteger(cfg.settlement.batch_cap)&&cfg.settlement.batch_cap>=1&&cfg.settlement.batch_cap<=13&&Number.isInteger(cfg.settlement.pczt_expiry_blocks)&&cfg.settlement.pczt_expiry_blocks>=1&&cfg.settlement.pczt_expiry_blocks<=10000,'batch cap/expiry config');
+    requireThat(Number.isInteger(cfg.settlement.batch_cap)&&cfg.settlement.batch_cap>=1&&cfg.settlement.batch_cap<=28&&Number.isInteger(cfg.settlement.pczt_expiry_blocks)&&cfg.settlement.pczt_expiry_blocks>=1&&cfg.settlement.pczt_expiry_blocks<=10000,'batch cap/expiry config');
     save(config(id),{...cfg,public_dir:path.resolve(o.dir)});
     // R7 item 2: no envelope private key is ever created or held by the operator. The signed manifest pins the
     // signers' public keys (envelope_keys); the signers keep their private halves in their own state dirs.
@@ -122,6 +131,9 @@ export async function runCommand(command:string,args:string[]) {
     const response=await fetch(process.env.BNZ_DRAND_URLS!.split(',')[0]+'/'+m.drand.chain_hash+'/public/latest');requireThat(response.ok,'drand status unavailable');const round=(await response.json()).round;
     requireThat(Number.isSafeInteger(chainTip)&&chainTip>0&&Number.isSafeInteger(round)&&round>0,'status tip/round');return {auction_id:id,state:a.state,accepted:a.leaves.length,manifest_hash:a.manifest.sha256,chain_tip:chainTip,drand_round:round};
   }
+  // Part 2 launch flow: winners after opening (no records yet), then each winner's owner-signed delivery record.
+  if(command==='launch winners'){requireThat(id,'--id required');const a=read(ledger(id));requireThat(a.state==='OPENED','launch winners after opening, before the clear');return {auction_id:id,winners:launchWinners({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input})}}
+  if(command==='launch deliver'){requireThat(id,'--id required');const r=ac('deliver',id,input(o));publish(id);return r}
   if(command==='bid prepare'||command==='bid seal') {
     requireThat(o.manifest&&o.signer,'--manifest --signer required');const packet=read(o.manifest),prepared=client(packet,o.signer),m=prepared.manifest;
     if(command==='bid prepare')return prepared;
@@ -133,7 +145,13 @@ export async function runCommand(command:string,args:string[]) {
     // Head merge (R17): the destination is sealed to ALL THREE signers' keys pinned by the verified manifest
     // (multi-recipient v2 envelope); a caller-supplied envelope_pubkey, if any, must still be one of them.
     if(bid.refund_ua!==undefined)requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3&&(bid.envelope_pubkey===undefined||m.envelope_keys.includes(bid.envelope_pubkey)),'envelope key is not pinned by the signed manifest');
-    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,deliver:bid.deliver,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined});
+    // Part 2 (every registry mode): the order uses its mode's layout version; a multi-lot round binds the lot id; a launch
+    // holder-tranche order sets the holder flag; a pinned identity (OTC party, RFQ dealer) supplies its own owner key.
+    const layout=modeEntry(packet).layout,lots:string[]|undefined=(m as any).lots;
+    if(lots)requireThat(typeof bid.lot==='string'&&lots.includes(bid.lot),'multi-lot order needs a manifest lot id');else requireThat(bid.lot===undefined,'lot id on a single-lot round');
+    requireThat(bid.holder===undefined||((m as any).clearing.mode==='launch'&&bid.holder===true),'holder flag is launch-only');
+    const owner=bid.owner_private_hex!==undefined?(requireThat(/^[0-9a-f]{64}$/.test(bid.owner_private_hex),'owner_private_hex'),{private_hex:bid.owner_private_hex,public_hex:ownerPublic(bid.owner_private_hex)}):undefined;
+    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,deliver:bid.deliver,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined,owner});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {
@@ -142,11 +160,12 @@ export async function runCommand(command:string,args:string[]) {
         // R16 item 2 (memo framing v2, R18): the memo commits to the first 18 bytes of SHA-256(envelope_ct)
         // of this bid's settlement envelope, or 18 zero bytes when the bid carries none — the sealer writes
         // it into the memo.
-        envelope_tag:prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18)};
+        envelope_tag:prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18),
+        layout_version:String(layout.version),binding:lots?bid.lot:m.auction_id,holder:bid.holder?'1':''};
       await page.route('**/*',route=>route.abort());
       for(const [k,v] of Object.entries(fields)) {
         // the owner-material inputs are hidden; Playwright fill only types into visible fields
-        if(['owner','nonce','commitment','envelope_tag'].includes(k))await page.locator('#'+k).evaluate((el,value)=>{(el as HTMLInputElement).value=String(value)},v);
+        if(['owner','nonce','commitment','envelope_tag','layout_version','binding','holder'].includes(k))await page.locator('#'+k).evaluate((el,value)=>{(el as HTMLInputElement).value=String(value)},v);
         else await page.locator('#'+k).fill(v);
       }
       await page.locator('#seal').click();await page.waitForFunction(()=>document.getElementById('envelope')!.textContent||document.getElementById('error')!.textContent);
@@ -183,8 +202,8 @@ export async function runCommand(command:string,args:string[]) {
       // Design §6.1 (test harness): the treasury leg of a buyback, paid to the SIGNED funding_ua in the same transaction.
       const treasury=bid.treasury;
       if(treasury) {
-        requireThat((m as any).clearing.mode==='buyback'&&/^[1-9][0-9]*$/.test(treasury.amount_zats),'treasury funding needs a buyback and an amount');
-        const suffix='.'+(bids.length+(reserve?1:0));params.set('address'+suffix,(m as any).buyback.funding_ua);params.set('amount'+suffix,(Number(treasury.amount_zats)/1e8).toFixed(8));
+        requireThat(treasuryBlock(m)&&/^[1-9][0-9]*$/.test(treasury.amount_zats),'treasury funding needs a treasury block and an amount');
+        const suffix='.'+(bids.length+(reserve?1:0));params.set('address'+suffix,treasuryBlock(m)!.funding_ua);params.set('amount'+suffix,(Number(treasury.amount_zats)/1e8).toFixed(8));
       }
       syncRetry(()=>execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]));
       const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'balance','--json']));
@@ -210,7 +229,7 @@ export async function runCommand(command:string,args:string[]) {
         checkCertificates(doc.witness_cert??[],spec,freezeStatement(m,a.frozen));
       }
       // Design §6.1: a buyback opens only when the treasury has funded budget × lots, confirmed, into funding_ua.
-      if((m as any).clearing.mode==='buyback') {
+      if(treasuryBlock(m)) {
         syncRetry(()=>wallet('sync','-s',process.env.BNZ_LWD_URL!));wallet('enhance','-s',process.env.BNZ_LWD_URL!);
         const tip=JSON.parse(wallet('balance','--json')).chain_tip_height,funded=treasuryFunded(m as any,notes(),tip),need=treasuryRequired(m as any);
         requireThat(funded>=need,`treasury funded ${funded} of ${need} zats (confirmed at funding_ua); refusing to open`);
@@ -315,17 +334,29 @@ export async function runCommand(command:string,args:string[]) {
       // with this auction's own DKG share; the answer to frost-client's prompt is decided here, never by the caller.
       requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.sighash??''),'signer/sighash');
       const adir=path.join(STATE,'approvals',id);
-      const approved=(existsSync(adir)?readdirSync(adir):[]).map(f=>read(path.join(adir,f))).some((a:any)=>a.sighash===o.sighash&&a.name===o.name);
-      requireThat(approved,'no approval of this sighash on this signer');
+      const approved=(existsSync(adir)?readdirSync(adir):[]).filter(f=>f.startsWith('batch-')).map(f=>read(path.join(adir,f))).filter((a:any)=>a.sighash===o.sighash&&a.name===o.name);
+      requireThat(approved.length>0,'no approval of this sighash on this signer');
       const server=o.server??process.env.BNZ_FROSTD_HOST??'host.orb.internal:2744';
       const cfg=path.join(STATE,'auctions',id,'frost.toml'),group=readFileSync(path.join(STATE,'auctions',id,'group-key.txt'),'utf8').trim();
-      await new Promise<void>((resolve,reject)=>{
-        const p=spawn(bin('frost-client'),['participant','-c',cfg,'-s',server,'-g',group],{stdio:['pipe','pipe','pipe'],env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});
+      const env={...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')};
+      const procs:ReturnType<typeof spawn>[]=[];
+      const join=(session?:string)=>new Promise<void>((resolve,reject)=>{
+        const p=spawn(bin('frost-client'),['participant','-c',cfg,'-s',server,'-g',group,...(session?['-S',session]:[])],{stdio:['pipe','pipe','pipe'],env});
         let out='',answered=false;
         const watch=(d:Buffer)=>{out+=d;process.stdout.write(d);const m=out.match(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/);
           if(!answered&&m&&/Do you want to sign it\? \(y\/n\)/.test(out)){answered=true;p.stdin!.end(m[1]===o.sighash?'y\n':'n\n');if(m[1]!==o.sighash)process.stderr.write(`ERROR sign join message ${m[1].slice(0,16)}… is not the approved sighash; refused\n`)}};
         p.stdout!.on('data',watch);p.stderr!.on('data',(d:Buffer)=>{process.stderr.write(d);watch(d)});
-        p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
+        procs.push(p);p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
+      if(o.count===undefined){await join();return}
+      // Phase 6 (R29): one single-message session per spend, all open at once (frost-client signs only the first
+      // message of a session, so a multi-message session is never used). This host joins exactly the spend count
+      // of the transaction it approved — every session asks for the approved sighash, checked per session above.
+      requireThat(/^[1-9][0-9]?$/.test(o.count)&&approved.some((a:any)=>a.spends===Number(o.count)),'--count is not the spend count of the approved transaction');
+      const listed=spawnSync(bin('frost-client'),['sessions','-c',cfg,'-s',server],{encoding:'utf8',env,timeout:120_000});
+      const ids=[...String(listed.stderr).matchAll(/^Session with ID ([0-9a-f-]{36})$/gm)].map(m=>m[1]);
+      requireThat(listed.status===0&&ids.length===Number(o.count),`${ids.length} open sessions, expected ${o.count}`);
+      // One refused or failed session ends this host's part in the round: stop the other joins too.
+      try{await Promise.all(ids.map(join))}catch(e){procs.forEach(p=>p.kill());throw e}
       return;
     }
     if(command==='sign join'&&o.name) {

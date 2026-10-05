@@ -1,0 +1,14 @@
+{"at":"2026-10-05T11:29:25.957Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"host-build","ms":22958}
+{"at":"2026-10-05T11:29:43.842Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"host-approve","signer":"alice","ms":17715,"ok":true}
+{"at":"2026-10-05T11:30:01.320Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"host-approve","signer":"bob","ms":17362,"ok":true}
+{"at":"2026-10-05T11:30:11.581Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":10101,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:30:19.692Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8108,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:30:27.768Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8076,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:30:35.844Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8076,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:30:43.946Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8099,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:30:52.030Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8083,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:31:00.114Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8082,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:31:08.186Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8070,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:31:16.261Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"frost-session","ms":8074,"pool":"ironwood","custody":true}
+{"at":"2026-10-05T11:31:16.274Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"sign","ms":110222,"spends":9,"custody":true}
+{"at":"2026-10-05T11:32:58.744Z","auction":"094e68c942413642ba38c4472d2e901e68a585f8b244c0129019b74e0304c38c","batch":1,"phase":"mined-wait","ms":98376,"height":4467339}

@@ -6,12 +6,16 @@ import { marketClient, marketOrders, marketResult, type MarketManifest } from ".
 import { checkResultBuyback, obligationsModeB } from "./mode-b";
 import type { ClearBody, ClearInput, SettlementExtras } from "./core";
 export const RFQ_LAYOUT = { ...LAYOUT_V0, version: 2 };
-export type RFQ = { dealer_keys: string[]; max_price_zats: string; budget_zats: string; delivery_deadline_height: number; delivery_signers: string[] };
+export type RFQ = { dealer_keys: string[]; max_price_zats: string; budget_zats: string; delivery_deadline_height: number; delivery_signers: string[]; treasury_ua?: string; funding_ua?: string };
 export type RFQManifest = MarketManifest<{ rfq: RFQ }>;
 export function clientRFQ(packet: Signed, signer: string) {
   return marketClient<{ rfq: RFQ }>(packet, signer, "rfq", m => {
     const r=m.rfq;
-    requireThat(r && Object.keys(r).sort().join(",")==="budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,max_price_zats", "rfq fields");
+    const keys=Object.keys(r??{}).sort().join(","),base="budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,max_price_zats";
+    // Part 2: the buyer's signed treasury return and funding addresses (both or neither; host custody needs both).
+    requireThat(r && (keys===base || keys==="budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,funding_ua,max_price_zats,treasury_ua"), "rfq fields");
+    if(r.treasury_ua!==undefined){const ua=(m.network as string)==="main"?/^u1[0-9a-z]+$/:/^utest1[0-9a-z]+$/,f=r.funding_ua as string,t=r.treasury_ua as string;
+      requireThat(ua.test(t)&&ua.test(f)&&t!==f&&!m.deposit_addresses.includes(f)&&!m.deposit_addresses.includes(t),"rfq treasury_ua/funding_ua")}
     requireThat(!m.bond && !m.lots && !m.serials && m.supply===1 && m.q_max===1, "rfq single quote/lot");
     requireThat(Array.isArray(r.dealer_keys) && r.dealer_keys.length>=2 && r.dealer_keys.every(k=>/^[0-9a-f]{64}$/.test(k)) && new Set(r.dealer_keys).size===r.dealer_keys.length,"rfq dealer keys");
     requireThat(Array.isArray(r.delivery_signers) && r.delivery_signers.length===3 && r.delivery_signers.every(k=>/^[0-9a-f]{88}$/.test(k)) && new Set(r.delivery_signers).size===3,"rfq delivery signers");
