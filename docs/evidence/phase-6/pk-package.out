@@ -1,6 +1,6 @@
-utc 2026-10-03T16:46:53Z
-commit e0ecb63 tree with the item-4 packaging changes
+utc 2026-10-05T20:51:03Z
+commit 9aee17e (run 32 item 3: deterministic packager + packaged-CLI startup fix; supersedes the run-28 856fae26 tarball)
 command npm run package
-{"tarball":"dist/benzo-0.1.0.tgz","bytes":31700092,"sha256":"856fae26c44b7466db2690567c5e794f22551c93ffc6da86c7dc25b47f7098df","production_packages":112}
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"7f3e08aef6a6e2f8f1c47eefe6b54d1c1a2a0a50fd591c27ec5ae3948b4d38e6","bytes":29706538,"files":18322,"production_packages":112}
 command tar -tzf dist/benzo-0.1.0.tgz | wc -l
-   19656
+   18322
