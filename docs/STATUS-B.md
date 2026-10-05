@@ -97,6 +97,70 @@ product prerequisite `bafbd7e`, drivers `ec5cb8a`, evidence `2a1303c` + `docs/ev
 
 Next: item 3 (mainnet readiness — `settle --network`, classify-address, fixtures), then item 4 (guides).
 
+**Item 3 — mainnet readiness (Reviewer G's G-7): DONE with proof** — code `37ac903`, evidence `e051a70`.
+
+1. **`settle/src/main.rs` takes `--network test|main`** (required, **no default** — a mainnet caller can
+   never silently get testnet behaviour) on every network-dependent command (`create`, `address`,
+   `inspect`, `ufvk-ak`, `owns`), threading `Network::MainNetwork/TestNetwork` through the wallet,
+   UFVK and address decodes. The NU7-expiry straddle guard is testnet-only until the mainnet height is
+   set (R27 item 2). `classify-address` is unchanged (it reports networks itself).
+2. **Every caller passes the network from the signed manifest**: settle worker (`plan` output carries
+   `network`; `settle/cli.ts`/`io.ts`/`sign.ts` thread it), host derive/build/approve (`pub.manifest.network`),
+   witness/ownScan (`benzo-scan` gets the manifest network — the `scan test` literal is gone). Pre-manifest
+   commands (`auction keys`, zcash-sign sessions) use the established `BNZ_NETWORK` source; harness/repro
+   callers pass `test` explicitly (they are testnet fixtures — mechanical arg additions only in A's
+   `e2e/buyback-mode.spec.ts`, see Questions).
+3. **TS `utest1` regexes are network-aware checks**: pure `manifest/schema.ts` `uaShape` (per network:
+   `utest1…`/`u1…`) for escrow/deposit/treasury/funding UAs (also used by `clear/rfq.ts`/`clear/mode-b.ts`),
+   and the Node boundaries check through the audited `benzo-pczt classify-address`
+   (`envelope/destination.ts` `isUnifiedOn` — sign-build's seller routing, auction-keys' derived escrow
+   UA). The pure matcher keeps the offline verify bundle binary-free.
+4. **The manifest schema's `network: "test"` lock stays** — proven still refusing a `network:"main"` manifest.
+5. **Fixtures for mainnet-format addresses**: `tools/repro/g7-network-repro.mjs` **11/11 PASS**
+   (`repro/g7-network.out`) over the official zcash-test-vectors rows — 117 mainnet `u1…` UAs accepted on
+   `main` exactly per the vectors' own `shielded` labels and refused on `test` (and the testnet mirror),
+   the classifier's own network labels, real `uview1…`/`uviewtest1…` UFVKs (pinned zcash-sign) decoded
+   only under their own network (`UFVK is for network Main but we expected Test`), and the
+   missing-`--network` refusals. **Mutation:** `X3-a` (network-blind matcher → `ERROR
+   g7-mainnet-ua-refused-on-test` + the mirror).
+6. **`dist/benzo-verify.mjs` + `docs/verify-bundle.sha256` rebuilt** (`check:bundle` OK `a1a6ea57…` —
+   `envelope/destination.ts` is in the bundle closure). Regressions at `37ac903`: `npm run e2e` PASS 40 s,
+   local-demo **39/39**, xchain-demos **35/35** (the first xchain-demos attempt failed only on chain-boot
+   contention — I had booted two local-chain harnesses in parallel; re-run alone green).
+
+Next: item 4 (guides).
+
+**Item 4 — guides: DONE** — `docs/guide-signer.md` + `docs/guide-operator.md` updated for host
+ custody (per-auction DKG (`benzo sign dkg`), `benzo auction keys --id --group-keys [--ufvk]`, the
+ operator-signer pin (`state/operator-signer.txt`) + first-manifest pin, the approval ledger
+ (txid-keyed, no double pay across batches) and `sign build`/`sign approve`/`sign join`, claims via
+ `sign envelope-opens … --claims` + `benzo claim-refund`), NU7 + `BNZ_LWD_SINGLE` (R27), and the
+ cross-chain host keys (`benzo xchain keygen` per host, `xchain attest --host-record`, coordinator
+ `xchain release --attestation`/`lock`/`refund`/`status`). Every command is shipped with real flags:
+ 34 invocations checked against the router/command `--help` at `37ac903` (`tmp/guide-help.txt`,
+ scratch), 0 missing.
+
+**Batch state: all four items DONE with proof.** Closing checks: `npm run typecheck` clean,
+ `npm run check:bundle` OK (`a1a6ea57…` after the item-3 bundle rebuild), `npm run e2e` PASS 40 s,
+ `crosschain/local-demo.sh` 39/39, `crosschain/host-attest-demo.sh` 34/34,
+ `tools/repro/xchain-demos.sh demo1 demo2 demo3` 35/35, `node tools/repro/g7-network-repro.mjs` 11/11.
+ No mainnet; no VM/orb/frostd-2744/testnet-spend/live-spec activity; no pin changes; no merge/rebase/
+ cherry-pick/push beyond the head-ordered `git merge main` at session start (`970ce70`).
+
+### Test audit (run 30)
+
+No `e2e/` spec added (ceiling 8, 5 used). Checks outside the ceiling (R retain):
+
+| Check | Owns (assertion IDs) | Mutation red |
+|---|---|---|
+| `crosschain/host-attest-demo.mjs` | the 34 `host-*` IDs (keygen/records/release/refusals) | `X1-a` (`host-release-third-party-refused`), `X1-b` (`host-release-swapped-destination-refused`) |
+| `tools/repro/xchain-demos.ts --local` | `demo1-*`/`demo2-*`/`demo3-*` (35 IDs) | `X2-a` (`demo1-payouts-match-result`), `X2-b` (`demo2-no-zcash-on-chain`) |
+| `tools/repro/g7-network-repro.mjs` | the 11 `g7-*` IDs | `X3-a` (`g7-mainnet-ua-refused-on-test` + mirror) |
+| `crosschain/local-demo.mjs` (unchanged assertions) | the 39 `demo-*` IDs | re-green 39/39 after the gate-X cert fix + the item-3 schema change; cheapest mutation `R22-a` covered earlier (`mutations/R22-a-rerun-r28.out`), code touched since = `xchain.ts` attest (mutations X1/X2 exercise that path) |
+
+`e2e/buyback-mode.spec.ts` (head's) got mechanical `--network test` additions at its three
+ benzo-pczt call sites (no assertion changed) — see Questions.
+
 ### Questions (this run)
 
 1. **`--host-record` design note (item 1 (b)):** a host attests with its own single envelope key, so
@@ -112,6 +176,14 @@ Next: item 3 (mainnet readiness — `settle --network`, classify-address, fixtur
    The dry run proves the target-chain half; the Zcash scenarios reuse markets.ts unchanged.
 4. **`xchain attest` order layout**: it now honours the mode's layout (OTC v3) — the old hardcoded
    version-0 check made demo3 impossible. Confirm under a Ruling if you want the check narrowed again.
+5. **I touched two files outside the Track-B lane, mechanically, because item 3 says “passed by every
+   caller”:** `e2e/buyback-mode.spec.ts` (three benzo-pczt call sites got `--network test`; no
+   assertion changed) and `e2e/lib/zcash.ts` (`generateAddress`). Say the word if you want them
+   handled differently.
+6. **`settle/sign.ts`'s in-flight `inspect`** takes the network from `BNZ_NETWORK` — the same source
+   its own zcash-sign call two lines above uses; every manifest-driven product call site passes the
+   manifest's network. `benzo-pczt` has NO default network (it refuses without `--network`), so a
+   forgotten caller fails loudly.
 
 ## Previous run (28): Phase 6 Track B documentation and closure — **READY FOR MERGE**
 
