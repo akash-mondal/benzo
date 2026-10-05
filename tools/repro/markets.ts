@@ -1,0 +1,105 @@
+// Phase 5 part 2 §1 (docs/design/phase5-part2-live.md): one live auction per market mode on the OrbStack signer hosts
+// (host custody, R28), driven only by shipped commands. Each scenario checks: the CLI result equals the registry's pure
+// clear on the same opened set, the receipts equal the scenario's expected obligations, every refund/payment landed at
+// the bidder's own destination, and `benzo verify` passes on a cold copy.
+// Build+run: npx esbuild tools/repro/markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/markets.mjs && BNZ_LWD_SINGLE=1 node tmp/markets.mjs <scenario>...
+import { randomBytes } from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { ROOT, STATE, env, DRAND } from "../../e2e/lib/env";
+import { jsonBytes, signRecord } from "../../manifest/schema";
+import { witnessSetHash } from "../../witness";
+import { clearForMode } from "../../clear/registry";
+import { generateOwnerKey } from "../../envelope";
+import { benzoBin, dkgOnHosts, hostEnvelopeKeys, hostEnvelopeOpens, hostWitnessCerts, hostWitnessKeys, sh } from "../../e2e/lib/hosts";
+import * as z from "../../e2e/lib/zcash";
+
+const C = 200_000; // part 2: small collateral
+const OUT = path.join(ROOT, "tmp/markets"); mkdirSync(OUT, { recursive: true });
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+const json = (p: string) => JSON.parse(readFileSync(p, "utf8"));
+const pczt = path.join(ROOT, "settle/target/release/benzo-pczt"), fresh = (w: string) => sh(pczt, ["address", w]).split("\n").at(-1)!;
+const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, input === undefined ? undefined : JSON.stringify(input)); return out.startsWith("{") || out.startsWith("[") ? JSON.parse(out.split("\n").filter(l => l.startsWith("{") || l.startsWith("[")).at(-1)!) : out; };
+const latestRound = async () => (await (await fetch(`${DRAND}/public/latest`)).json()).round as number;
+
+type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
+type Scenario = { mode: string; extra: (ctx: { owners: Record<string, { private_hex: string; public_hex: string }> }) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[]; expect: (refunds: string[]) => Record<string, number> };
+// Expected receipts are per party in zats (C = 200,000).
+const SCENARIOS: Record<string, Scenario> = {
+  // Blind OTC, match: buyer bids 1,000, seller asks 600 -> midpoint 800; buyer gets C - 800 back, seller C + 800.
+  "otc-match": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
+    bids: o => [{ price: 1000, owner: o.buyer }, { price: 600, owner: o.seller }], expect: () => ({ "leaf:0": C - 800, "leaf:1": C + 800 }) },
+  // Blind OTC, no match: bid 500 < ask 700 -> cancelled; both get exact C back.
+  "otc-nomatch": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
+    bids: o => [{ price: 500, owner: o.buyer }, { price: 700, owner: o.seller }], expect: () => ({ "leaf:0": C, "leaf:1": C }) },
+};
+
+async function run(name: string) {
+  const sc = SCENARIOS[name]; if (!sc) throw new Error(`unknown scenario ${name}`);
+  const log = path.join(OUT, `${name}.out`); writeFileSync(log, "");
+  const say = (s: string) => { console.log(`[${name}] ${s}`); writeFileSync(log, readFileSync(log, "utf8") + s + "\n"); };
+  let ok = true; const check = (id: string, pass: boolean, d = "") => { say(`${pass ? "PASS" : "ERROR"} ${id}${d ? " " + d : ""}`); ok &&= pass; };
+  const id = randomBytes(32).toString("hex"); say(`auction ${id} mode ${sc.mode}`);
+  const k = await dkgOnHosts(id, benzo);
+  const envelopeKeys = hostEnvelopeKeys(), witnessPubs = hostWitnessKeys();
+  const owners = Object.fromEntries((sc.owners ?? []).map(n => [n, generateOwnerKey()]));
+  const bids = sc.bids(owners);
+  const vault = path.join(STATE, "vaults", id, "wallet"), addr = () => fresh(vault), bidder = () => fresh(path.join(STATE, "bidder"));
+  const deposits = [k.escrow_ua, ...bids.slice(1).map(() => addr())], reserveUa = addr();
+  const refunds = bids.map(() => bidder()), sellerUa = bidder();
+  const privateDir = path.join(STATE, "run", `markets-${id}`), publicDir = path.join(ROOT, "tmp/markets/public", id); mkdirSync(privateDir, { recursive: true });
+  writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
+  const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
+  writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
+  writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
+  const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
+  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners }) };
+  benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
+  const packet = benzo(["auction", "sign", "--id", id]);
+  benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
+  const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
+  const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
+  const paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" } });
+  say(`funding ${paid.txid}`);
+  for (let h = 0; ; await sleep(30_000)) {
+    for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]);
+    const t = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "list-tx", "--json"])).find((t: any) => t.txid === paid.txid);
+    const tip = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "balance", "--json"])).chain_tip_height;
+    if (t?.mined_height && tip >= t.mined_height + 9) break;
+    if (++h > 80) throw new Error("funding did not mature");
+  }
+  for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
+  while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000);
+  if (Date.now() / 1000 >= manifest.T_freeze) throw new Error("deposits matured after T_freeze");
+  benzo(["freeze", "--id", id]);
+  hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
+  while ((await latestRound()) < R) await sleep(10_000);
+  benzo(["open", "--id", id]); benzo(["clear", "--id", id]);
+  const doc = () => json(path.join(publicDir, "auction.json"));
+  const d = doc(), pure: any = clearForMode({ manifest: d.manifest, signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening ?? null });
+  check(`${name}-cli-equals-pure-clear`, jsonBytes(d.result.allocations).equals(jsonBytes(pure.allocations)) && jsonBytes(d.result.conservation).equals(jsonBytes(pure.conservation)), `outcomes ${d.result.allocations.map((a: any) => a.outcome).join(",")} price ${d.result.clearing_price_zats}`);
+  hostEnvelopeOpens(id, publicDir);
+  const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
+  writeFileSync(path.join(OUT, `${name}-settle.log`), ((settle.stdout || "") + "\n----\n" + (settle.stderr || "")).replace(/\x1b\[[0-9;]*m/g, ""));
+  const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
+  const want = sc.expect(refunds);
+  check(`${name}-settled`, settle.status === 0, `exit ${settle.status}`);
+  check(`${name}-receipts`, JSON.stringify(Object.entries(receipts).sort()) === JSON.stringify(Object.entries(want).sort()), JSON.stringify(receipts));
+  z.sync("bidder"); z.enhance("bidder");
+  const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+  const at = (a: string) => got.filter((n: any) => n.address === a).reduce((s: number, n: any) => s + n.value_zats, 0);
+  check(`${name}-landed`, Object.entries(want).every(([p, v]) => !p.startsWith("leaf:") || at(refunds[Number(p.slice(5))]) === v), JSON.stringify(refunds.map(at)));
+  const cold = path.join(OUT, "cold", id); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
+  const v = spawnSync(benzoBin, ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
+  check(`${name}-cold-verify`, v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
+  say(ok ? `RESULT PASS ${name}` : `RESULT FAIL ${name}`);
+  return ok;
+}
+
+const frostd = spawn(path.join(STATE, "bin/frostd"), ["-i", "127.0.0.1", "-p", env("BNZ_FROSTD_ADDR").split(":").at(-1)!, "-c", path.join(STATE, "tls/frostd.pem"), "-k", path.join(STATE, "tls/frostd.key")], { stdio: "ignore" });
+await sleep(2000);
+let all = true;
+try { for (const n of process.argv.slice(2)) { try { all = (await run(n)) && all; } catch (e) { console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
+finally { frostd.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `benzo-${n}`]); }
+process.exitCode = all ? 0 : 1;
