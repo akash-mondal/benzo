@@ -358,20 +358,21 @@ bid-side keys"). The fields are listed in §2. In summary:
   anonymised per leaf) and the memo **ciphertexts** of `GET /operator`
   (`api/public-auction.ts:603-620`). Before R every result-bearing route answers 409
   (`api/server.ts:73,77,83`), and the clear cannot exist before the beacon opens the bids.
-- **No route returns a refund or payout destination.** Settlement receipts carry exactly
+- **No route returns a Zcash refund or payout destination.** Settlement receipts carry exactly
   `auction_id, party, txid, pool, output_index, amount_zats` — no address field exists in the type or
   the checked key set (`api/public-auction.ts:26`, enforced at `api/public-auction.ts:225,502`).
   The refund destinations live only inside each bid's envelope ciphertext, sealed to the escrow
   signers' envelope keys; the envelope records (`envelopes[].envelope_ct`) and the owner-signed claims
   have no route (`api/server.ts:32-86`). `receipt.inclusion.deposit.address` is the **escrow deposit
   address the bid paid to** (manifest `deposit_addresses`, public), not anyone's refund target.
-- **One documented exception, by design:** `GET /allocation` (launch mode only) returns the delivery
-  batch's **token-chain** destinations (`clear/launch.ts:13,36-53`). These are the winners' fresh
-  per-round delivery claims for the launched asset (DESIGN §9; the batch is what the result's
-  `allocation_file_hash` commits to), not Zcash addresses; the batch rows carry no `leaf_index`.
-  Note that `rows` are emitted in winner leaf order (`clear/launch.ts:40-51`), so a careful observer
-  can correlate row position with a winning leaf from `GET /result` — recorded under Questions in
-  `docs/STATUS-B.md`.
+- **One documented exception, by design (R34 item 1):** `GET /allocation` (launch mode only) returns
+  the delivery batch's **token-chain** destinations (`clear/launch.ts:13,36-53`). These are the
+  winners' fresh per-round delivery claims for the launched asset (DESIGN §9; the batch is what the
+  result's `allocation_file_hash` commits to), not Zcash addresses; the batch rows carry no
+  `leaf_index`. Today `rows` are emitted in winner leaf order (`clear/launch.ts:40-51`), so row
+  position can be correlated with a winning leaf from `GET /result` — R34 item 2 rules this fixed on
+  Track A (after A15): rows sorted canonically by destination bytes, allocation root over that order,
+  `benzo verify` replaying the sort. This section documents the sorted order once it lands.
 
 A UI should state the DESIGN §1 claim and its limits verbatim (all bids open, anonymised, at R) and
 must not display or export anything a route does not return.

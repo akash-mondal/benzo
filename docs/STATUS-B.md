@@ -23,7 +23,7 @@ untouched: `settle/{ledger,plan,cli,sign}.ts`, `cli/{product,host-derive}.ts`, `
   `api/server.ts:32-86`); no route returns any Zcash refund/payout destination (settlement receipts are
   exactly the six T2 fields, `api/public-auction.ts:26,225,502`; `receipt.inclusion.deposit.address` is
   the public escrow deposit address); the launch `/allocation` token-chain delivery rows are documented
-  as the one destination-bearing output by design (see Questions). Each response's key set is a
+  as the one destination-bearing output by design (R34 item 1). Each response's key set is a
   `<!-- shape: … -->` block — the machine-checked contract.
 - `tools/repro/api-reference-check.ts` (`f5a022a`): builds `api/dist/server.mjs` from the working tree
   (`node cli/build.mjs`), serves the committed published auction dir
@@ -128,18 +128,13 @@ commits touch only `docs/`. Commit map (run 32): `f5a022a` doc+check · `7d06f55
 
 ### Questions (run 32)
 
-- **API-reference privacy wording — one confirmation, not blocking.** The batch asks the doc to
-  "confirm that no route returns … any refund/delivery destination". As written that is not literally
-  true of `GET /allocation` (launch): it serves the delivery batch's **token-chain** destinations
-  (`clear/launch.ts:13,36-53`, served `api/server.ts:76-80`). I documented these as the one
-  destination-bearing output by design (DESIGN §9 asset delivery; the rows carry no `leaf_index`) and
-  confirmed the narrow claims exactly: no route returns bid plaintext, and no route returns any Zcash
-  refund/payout destination. Tell me if the doc should instead assert the stronger wording (and I'll
-  file `/allocation` as a leak) or the narrower one ("no Zcash refund/delivery destination").
-- **Launch delivery row order (noted, not fixed).** `deliveryBatch` emits `rows` in winner leaf order
-  (`clear/launch.ts:40-51`), so `/allocation`'s row positions correlate with the winning leaves visible
-  in `/result`. Changing it is product behaviour outside this offline packaging batch (and
-  `clear/launch.ts` sits in Track A's launch lane) — worth a later-phase item, or ruled acceptable?
+- **Q1–Q2 CLOSED by R34 (head, `c4caa11`, in PHASE-6.md).** (1) The API-reference privacy wording
+  keeps the narrower claim — no route returns bid plaintext before R, no route returns any **Zcash**
+  refund or payout destination — and names `GET /allocation`'s token-chain rows as the one
+  destination-bearing output by design; `docs/api-reference.md` §4 updated accordingly. (2) The
+  launch delivery row order is fixed on Track A after A15 (rows sorted canonically by destination
+  bytes, allocation root over that order, `benzo verify` replaying the sort); my reference then
+  documents the sorted order (noted in §4 meanwhile).
 - **`cli/commands/auction-keys.ts` edit (item 3) — please confirm.** The clean-extract proof showed
   its eager `settle/io` import (which resolves `BNZ_STATE_DIR` at import time) killed the whole
   packaged CLI outside a checkout. I deferred the import into `run()` (the `bid-seal.ts` pattern) —
