@@ -11,6 +11,12 @@ playwright-report/
 *.sqlite
 *.sqlite-*
 .DS_Store
+# Keys and wallet files must never land anywhere in the tree.
+*.pem
+*.key
+*.agekey
+*.mnemonic
+ufvk.txt
 manifest/dist/
 clear/dist/
 settle/dist/

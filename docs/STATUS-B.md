@@ -1051,8 +1051,8 @@ other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin change
 
 ### Run 22 record (R14 items 1–5)
 Base: clean tree at `a623139` (head: merge main into track-b; R14 in `docs/PHASE-5.md` R14, head commit
-`0da383e`). Reviewer R's report read-only at `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-r9-contracts.md`;
-lab PoC copied from `/Users/akshmnd/Dev Projects/benzo-sol/lab/pr-b-r9/lab-only/` (read-only). Baseline `npm run
+`0da383e`). Reviewer R's report read-only at `~/Dev Projects/benzo-sol/reports/pr-b-r9-contracts.md`;
+lab PoC copied from `~/Dev Projects/benzo-sol/lab/pr-b-r9/lab-only/` (read-only). Baseline `npm run
 e2e` PASS 38 s at `a623139` (`tmp/proof-logs/r14-baseline-e2e.out`). R12 run 21 is complete (nothing open; its
 two Questions stand). No mainnet; no other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin
 changes. At run start `contracts/solana` was byte-identical to `4d9c0e6` (`git diff 4d9c0e6 -- contracts/solana`
@@ -1236,7 +1236,7 @@ Commits: `a82f865` (item 1), `c8c622e` (item 2), `0c1404a` + `2ea170e` (item 3 +
 commit (item 4: rebuilt bundle + hash, doc hash refresh, this STATUS).
 Base: clean tree at `266c2e6` (head: merge main into track-b; R12 in `docs/PHASE-5.md`). Baseline `npm run e2e`
 PASS 37 s at `266c2e6` (`tmp/proof-logs/r12-baseline-e2e.out`). Reviewer R's report read-only at
-`/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-envelopes-v2.md`. No mainnet; no other-checkout access or
+`~/Dev Projects/benzo-sol/reports/pr-b-envelopes-v2.md`. No mainnet; no other-checkout access or
 writes; no merge/rebase/cherry-pick/push; no pin changes; nothing outside the repo. R10/R9 open-item sweep:
 none open for Track B (R10 item 1 and R9 items 1–4 landed in the previous run; R10 items 2–5 and R12 item 3/R13
 are Track A's).
@@ -1650,7 +1650,7 @@ the auction forever); add a dust-before-lock test (red on old code, green after)
 devnet and rerun the live cycle. (2) Multi-recipient settlement envelopes per
 `docs/design/phase5-part1-live.md` §4 [B] (libsodium), the proofs the head listed, then READY
 FOR MERGE. Read-only: the G probe
-`/Users/akshmnd/Dev Projects/benzo-sol-g/tests/g4-solana-residuals.mjs` (its on-chain probe A).
+`~/Dev Projects/benzo-sol-g/tests/g4-solana-residuals.mjs` (its on-chain probe A).
 No mainnet; no other-checkout writes; no merge/rebase/cherry-pick.
 
 1. **R8 item 1 (P1 G9), a dusted escrow state PDA blocking the auction: FIXED** (this commit).
@@ -1841,8 +1841,8 @@ main into track-b, crosschain §10). One commit per item: `d9a81c7` (item 1, F-1
 this STATUS commit (redeploy + live cycle). Every fix has a red log on the pre-fix code and a
 green log on the fix (below). Scope: `docs/design/crosschain.md` §10 items 1–5 in order, then
 redeploy both escrows and rerun lock → attest → release → refund on each. Reviewer report
-(read-only): `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-f5-solana9.md`; its lab probes in
-`/Users/akshmnd/Dev Projects/benzo-sol/tests/`. No other-checkout access beyond those read-only
+(read-only): `~/Dev Projects/benzo-sol/reports/pr-b-f5-solana9.md`; its lab probes in
+`~/Dev Projects/benzo-sol/tests/`. No other-checkout access beyond those read-only
 files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PASS 37 s at `e1851c5`;
 final rerun PASS 38 s at the READY-FOR-MERGE tree.
 
@@ -2094,7 +2094,7 @@ never printed.
 1. **P1, EVM fee-on-transfer drain (F5): DONE, commit `d566d0c`.** `contracts/evm/src/BenzoEscrow.sol`
    `lock` now measures `balanceOf(this)` around `safeTransferFrom` and reverts `BadParameters` unless the
    delta equals `amount`. Reviewer's `FeeTokenDrain.t.sol` copied byte-identical from
-   `/Users/akshmnd/Dev Projects/benzo-sol/trackb/contracts/evm/test/FeeTokenDrain.t.sol` (diff: identical)
+   `~/Dev Projects/benzo-sol/trackb/contracts/evm/test/FeeTokenDrain.t.sol` (diff: identical)
    into `contracts/evm/test/`. Both runs shown: **red on old code** — `forge test --match-contract
    FeeTokenDrainTest` → `[FAIL: next call did not revert as expected] test_fee_on_transfer_token_drains_victim_auction`
    (`contracts/logs/p1-feetoken-old-code.out`, exit 1); **green after the fix** — `forge test` → `22 tests passed,
@@ -2381,7 +2381,7 @@ Test audit: R retain default seal-open; unchanged source/assertion IDs and basel
 - Run 13 doc lengths: `docs/verify-it-yourself.md` is 102 lines against the brief's ~60 — the eleven check lines and the real command outputs make ~60 impossible without cutting evidence. Compress on request.
 
 User instruction (2026-10-02T06:03:30Z recorded UTC), verbatim:
-> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -15`.
+> You are Builder B (Codex) on ~/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -15`.
 >
 > The head reviewed run 11 (5d83153, 22d812f, 0a6b6cc) and tested `dist/benzo-verify.mjs` from /tmp with network denied: the Phase 3 corpus verifies offline and the bundle hash matches. Your batch-plan BLOCKED item is accepted: Track A will extract a side-effect-free `settle/batching.ts` after its live regression; you rerun bench stage 5 then. Small fixes now (one commit, proof in STATUS-B):
 >
@@ -2389,18 +2389,18 @@ User instruction (2026-10-02T06:03:30Z recorded UTC), verbatim:
 > 2. **Tampered beacon signature** currently fails with "Cannot find square root" (point decode). Catch it: `ERROR verify refused: beacon BLS signature invalid`.
 > Prove from /tmp with the standalone bundle: Phase 2 cold copy OK with `--fetch-beacon`; the default gives the new message; a tampered beacon gives the clear error; Phase 3 / Mode B / CF corpora unchanged. Rebuild the bundle and update `docs/verify-bundle.sha256`. Then set READY FOR MERGE.
 >
-> Add no tests. Track B files only. Never touch /Users/akshmnd/Dev Projects/benzo, funds, keys or `.benzo/`. No merge/rebase/cherry-pick.
+> Add no tests. Track B files only. Never touch ~/Dev Projects/benzo, funds, keys or `.benzo/`. No merge/rebase/cherry-pick.
 
 - SC stage5 protected-file BLOCKER: `settle/plan.ts:10–14` performs git/.env/state initialization at import; lines21–29 run live wallet/scan work, and the file exports no offline batch planner (`rg -n export settle/plan.ts` finds none). Design §3 requires a read-only import from this Track A-owned file, while user/AGENTS forbid B from live state/wallet access or changing A files. Need A/head to expose a side-effect-free offline batch planner at cap13 with a documented ZIP-317 fee estimator, or authorize a specific pure planner import. B finished all independent stages at1000/5000/17000, but batch counts/fees stay null and stage5/run exit1; no substitute pass. No import attempted.
 
 User instruction (2026-10-02T05:10:55Z recorded UTC), verbatim:
-> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
+> You are Builder B (Codex) on ~/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
 >
 > The head reviewed your run-10 commits (9abf320, bee8e41, c1dcc3a, 95c50b7); Track B Phase 5 is complete and stays on track-b until Phase 4 is PASSED.
 >
 > Next: **Phase 6 Track B offline items, exactly as designed in `docs/design/phase6-b-offline.md`** (head-owned; implement as written, disagreements under Questions): (1) fully offline verify from the published beacon + standalone reproducible `dist/benzo-verify.mjs`; (2) `tools/leak-audit.ts`; (3) `tools/bench.ts` 17,000-bid offline benchmark. One commit per item with its logged proof in a new "Phase 6, Track B" section of STATUS-B, then READY FOR MERGE.
 >
-> Add no tests. Touch only Track B files, new `tools/` files and `package.json` scripts. Never touch /Users/akshmnd/Dev Projects/benzo, funds, keys or `.benzo/`. Do not merge, rebase or cherry-pick.
+> Add no tests. Touch only Track B files, new `tools/` files and `package.json` scripts. Never touch ~/Dev Projects/benzo, funds, keys or `.benzo/`. Do not merge, rebase or cherry-pick.
 
 ## Phase 5, Track B run 10: READY FOR MERGE
 
@@ -2437,7 +2437,7 @@ Test audit: R retain default seal-open (browser/tle assertion IDs unchanged, def
 - A integration: publisher must write the marketplace packet using the lot commitment encoding above, preserve serial-range binding, persist bidder receipt/statement siblings for bare claim, and publish signed delivery complaints. JSON schema changes, actual token delivery/observations and live settlement remain A's lane.
 
 User instruction (2026-10-02T04:40:00Z), verbatim:
-> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
+> You are Builder B (Codex) on ~/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
 > 
 > The head reviewed your run-9 commits (collection drop e70d8d8..e33ba95, launch 14061a4, RFQ ff6b2ea, OTC d67b6f6, 20ce790) and found the money rules correct. Your Phase 5 work stays on track-b until Phase 4 is PASSED.
 > 
@@ -2446,7 +2446,7 @@ User instruction (2026-10-02T04:40:00Z), verbatim:
 > 2. **Recurring buyback report (PHASE-5 R3 item 4):** for a buyback series (CF recurring rounds over Mode B), a public per-window report derived only from public data: window index, units bought, clearing price, ZEC spent (payout + fees), serials taken in. `benzo report --dir PUBLIC [--previous …]` prints it; verify checks the report matches the result.
 > 3. **Marketplace adapter, gate Z (PHASE-5 part 1):** complete the Zilkroad adapter: manifest binds collection, serial range and metadata commitment; `benzo claim --dir PUBLIC --ciphertext-hash HEX` turns the winner's private settlement receipt + statement into a delivery claim signed by the owner key; an exception-queue file format for paid-but-not-delivered, checked by verify. Read-only adapters only — no network calls to Zilkroad.
 > 4. **Missing-bid exceptions (R3 item 6, pure part):** given a published list of mined deposits (height + ciphertext hash + note id, as the scanner reports them), verify flags any deposit mined before `T_submit` that is absent from the frozen root as an exception owed an exact-C refund, and `benzo receipt prove` explains "not included; refund owed" for it.
-> Then set READY FOR MERGE. Add no tests. Touch only Track B files (plus package.json for item 1). Never touch /Users/akshmnd/Dev Projects/benzo, funds or keys. Do not merge, rebase or cherry-pick.
+> Then set READY FOR MERGE. Add no tests. Touch only Track B files (plus package.json for item 1). Never touch ~/Dev Projects/benzo, funds or keys. Do not merge, rebase or cherry-pick.
 
 ## Phase 5, Track B run 8: READY FOR MERGE
 
@@ -2504,7 +2504,7 @@ User instruction (2026-10-02T03:55:33Z), verbatim:
 > 4. Verify: when `serial_assignment` is present, fetch or read the beacon for `R + seed_round_offset` (online: the same drand HTTP path your R16 code uses; `--offline`: a published `serial_beacon {round, signature}` in auction.json), recompute, and refuse on any difference. Register through the mode registry; no per-mode verify copy.
 > 5. Proof (logged in STATUS-B): a corpus with 3 winners and 10 serials using a real past quicknet round; verify OK online and `--offline`; refusals for (a) a swapped serial, (b) a wrong beacon round, (c) Σunits > count.
 > Then continue with the remaining §11 modes as amended by PHASE-5 R3, one commit per mode with its proof: launch (tranches + minimum raise + allocation file in standard lot sizes), RFQ (reverse-Vickrey, two-quote minimum, allowlisted dealer keys), blind OTC (midpoint if max ≥ min). Then set STATUS-B READY FOR MERGE.
-> Add no tests. Touch only Track B files plus the minimal schema change. Never touch /Users/akshmnd/Dev Projects/benzo, funds or keys. No merge/rebase/cherry-pick.
+> Add no tests. Touch only Track B files plus the minimal schema change. Never touch ~/Dev Projects/benzo, funds or keys. No merge/rebase/cherry-pick.
 
 ## Phase 5, Track B run 7: READY FOR MERGE
 
