@@ -60,4 +60,10 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
 
 ## 6. Rulings
 
-(none yet; contract not final)
+- R29 2026-10-05 (head): **Parallel single-message signing replaces option A.** Settling one spend at a time cost ~8.1 s per spend (`docs/evidence/phase-6/scale-measure.md`). Reading the pinned frost-tools again showed that its participant both confirms and signs only the first message of a session, so a multi-message session (option A) would need a patch to the signing tool. It also showed that the participant can join a named session (`-S`). Only the earlier one-session limit came from joining without a session ID. Ruling:
+  1. Under host custody, settlement opens **one single-message coordinator session per spend, all at once**, on the pair's first host (`settle/sign.ts signParallelHost`). The frost-tools pin is unchanged and no tool is patched.
+  2. The randomizers come from the Mac's own `benzo-pczt inspect` of the same PCZT (new `randomizers` field: pool, action index, alpha, in zcash-sign's order). Each zcash-sign prompt must name the same pool, index and alpha in order, or the round stops before any signature is handed over. zcash-sign must also take every signature.
+  3. A host joins with `benzo sign join --count N`. It requires an approval of that sighash on this host whose `spends` equals N (`sign approve` now records `spends` from its own inspect). It lists its open sessions and requires exactly N, joins each one with `-S`, and answers each session's prompt against the approved sighash, as before. A signature with any other randomizer verifies under a different rk and so cannot authorize a spend of this transaction.
+  4. Signing stays under the machine-wide signing lock, with the per-attempt close-all. That makes every session a host lists during the round part of the round.
+  5. `BNZ_SERIAL_SIGN=1` keeps the old one-session-at-a-time path, for comparison.
+

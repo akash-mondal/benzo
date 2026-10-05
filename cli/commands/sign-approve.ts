@@ -109,7 +109,7 @@ export async function run(argv: string[]): Promise<number | object> {
     // Reviewer G's G-4: this host's signed {party, output_index} map (party names only), for receipt attribution.
     const wkey = path.join(st, "witness", `${o.name}.key`);
     const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index) }, readFileSync(wkey, "utf8").trim()) : null;
-    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, approved_at: Math.floor(Date.now() / 1000) };
+    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });
     writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });

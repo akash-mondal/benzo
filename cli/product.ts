@@ -334,17 +334,27 @@ export async function runCommand(command:string,args:string[]) {
       // with this auction's own DKG share; the answer to frost-client's prompt is decided here, never by the caller.
       requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.sighash??''),'signer/sighash');
       const adir=path.join(STATE,'approvals',id);
-      const approved=(existsSync(adir)?readdirSync(adir):[]).map(f=>read(path.join(adir,f))).some((a:any)=>a.sighash===o.sighash&&a.name===o.name);
-      requireThat(approved,'no approval of this sighash on this signer');
+      const approved=(existsSync(adir)?readdirSync(adir):[]).filter(f=>f.startsWith('batch-')).map(f=>read(path.join(adir,f))).filter((a:any)=>a.sighash===o.sighash&&a.name===o.name);
+      requireThat(approved.length>0,'no approval of this sighash on this signer');
       const server=o.server??process.env.BNZ_FROSTD_HOST??'host.orb.internal:2744';
       const cfg=path.join(STATE,'auctions',id,'frost.toml'),group=readFileSync(path.join(STATE,'auctions',id,'group-key.txt'),'utf8').trim();
-      await new Promise<void>((resolve,reject)=>{
-        const p=spawn(bin('frost-client'),['participant','-c',cfg,'-s',server,'-g',group],{stdio:['pipe','pipe','pipe'],env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});
+      const env={...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')};
+      const join=(session?:string)=>new Promise<void>((resolve,reject)=>{
+        const p=spawn(bin('frost-client'),['participant','-c',cfg,'-s',server,'-g',group,...(session?['-S',session]:[])],{stdio:['pipe','pipe','pipe'],env});
         let out='',answered=false;
         const watch=(d:Buffer)=>{out+=d;process.stdout.write(d);const m=out.match(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/);
           if(!answered&&m&&/Do you want to sign it\? \(y\/n\)/.test(out)){answered=true;p.stdin!.end(m[1]===o.sighash?'y\n':'n\n');if(m[1]!==o.sighash)process.stderr.write(`ERROR sign join message ${m[1].slice(0,16)}… is not the approved sighash; refused\n`)}};
         p.stdout!.on('data',watch);p.stderr!.on('data',(d:Buffer)=>{process.stderr.write(d);watch(d)});
         p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
+      if(o.count===undefined){await join();return}
+      // Phase 6 (R29): one single-message session per spend, all open at once (frost-client signs only the first
+      // message of a session, so a multi-message session is never used). This host joins exactly the spend count
+      // of the transaction it approved — every session asks for the approved sighash, checked per session above.
+      requireThat(/^[1-9][0-9]?$/.test(o.count)&&approved.some((a:any)=>a.spends===Number(o.count)),'--count is not the spend count of the approved transaction');
+      const listed=spawnSync(bin('frost-client'),['sessions','-c',cfg,'-s',server],{encoding:'utf8',env,timeout:120_000});
+      const ids=[...String(listed.stderr).matchAll(/^Session with ID ([0-9a-f-]{36})$/gm)].map(m=>m[1]);
+      requireThat(listed.status===0&&ids.length===Number(o.count),`${ids.length} open sessions, expected ${o.count}`);
+      await Promise.all(ids.map(join));
       return;
     }
     if(command==='sign join'&&o.name) {

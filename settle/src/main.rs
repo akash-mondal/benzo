@@ -2,6 +2,7 @@
 // source: zcash/zcash-devtool@5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8:src/commands/pczt/create.rs
 use std::{io::{self, Read}, num::NonZeroUsize, path::Path, str::FromStr};
 use anyhow::{anyhow, ensure, Context};
+use ff::PrimeField;
 use orchard::pczt::Bundle;
 use pczt::{Pczt, roles::verifier::{Verifier, OrchardError}};
 use rand::rngs::OsRng;
@@ -56,9 +57,16 @@ fn inspect(file: &str, ufvk: &str, allow_redacted: bool) -> anyhow::Result<()> {
     let key=UnifiedFullViewingKey::decode(&Network::TestNetwork,std::fs::read_to_string(ufvk)?.trim()).map_err(|e|anyhow!("UFVK decode: {e}"))?;
     let fvk=key.orchard().context("Orchard FVK missing")?;
     let mut inputs=vec![]; let mut outputs=vec![];
+    // Ruling R29 (Phase 6 option A): the spend randomizers zcash-sign will prompt for, in its order — every action whose
+    // spend carries an alpha and no spend-auth signature yet, Orchard pool first, then Ironwood (the Verifier's order) —
+    // so the coordinator can sign them all in ONE multi-message FROST session and answer zcash-sign from the result.
+    let mut randomizers: Vec<serde_json::Value> = vec![];
     let mut collect=|b: &Bundle,pool: &str| -> Result<(),OrchardError<&'static str>> {
         b.verify_cross_address_restriction()?;
         for (index,a) in b.actions().iter().enumerate() {
+            if a.spend().spend_auth_sig().is_none() {
+                if let Some(alpha)=a.spend().alpha() { randomizers.push(json!({"pool":pool,"index":index,"alpha":hex::encode(alpha.to_repr())})); }
+            }
             a.verify_cv_net()?; a.spend().verify_nullifier(Some(fvk))?; a.spend().verify_rk(Some(fvk))?;
             let redacted=allow_redacted && a.output().recipient().is_none();
             if redacted {
@@ -120,7 +128,7 @@ fn inspect(file: &str, ufvk: &str, allow_redacted: bool) -> anyhow::Result<()> {
     let fee=input.checked_sub(output).context("outputs exceed inputs")?;
     let standard_fee=5000*std::cmp::max(2,pczt.orchard().actions().len()+pczt.ironwood().actions().len()) as u64;
     ensure!(fee==standard_fee,"fee {fee} differs from ZIP-317 fee {standard_fee}");
-    println!("{}",json!({"shielded_sighash":hex::encode(sighash),"txid":txid,"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"actions":pczt.orchard().actions().len()+pczt.ironwood().actions().len(),"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
+    println!("{}",json!({"shielded_sighash":hex::encode(sighash),"txid":txid,"randomizers":randomizers,"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"actions":pczt.orchard().actions().len()+pczt.ironwood().actions().len(),"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
     Ok(())
 }
 // R24 item 3 (i): classify a Zcash address with the pinned audited `zcash_address` (librustzcash) —

@@ -18,6 +18,19 @@ Run: `tools/repro/markets.ts scale-8`, auction 094e68c9…: one uniform auction 
 | Option A: one multi-message FROST session per batch (~8–10 s per batch, any number of spends) | — | — | ~4 h of signing at 1,300 batches |
 | Option A + B: 50-output batches (~340 batches), mining overlapped with the next batch (disjoint notes) | ~1 h | ~340 × (~40 s build + ~40 s approvals) ≈ 7.5 h | **~9–10 h** (target: 24 h of R) |
 
-**Constraints found (phase6-scale.md §2.1):**
-- Option A needs a frost-client participant change: today the participant confirms only message[0] of a multi-message session.
-- A host serves one session per identity, so parallel sessions need separate signer sets.
+**Constraints found (phase6-scale.md §2.1, corrected):**
+- Option A needs a frost-client patch: the pinned participant confirms and signs only message[0] of a session.
+- A host identity *can* be in several sessions at once; joining with `-S <session>` works. The one-session refusal applies only to a join without `-S`.
+
+## R29 re-measure: parallel single-message sessions (head, 2026-10-05)
+
+Run: `tools/repro/markets.ts scale-8`, auction 95cdfb41…, the same shape (8 bids, one batch, 9 spends). Result: `RESULT PASS scale-8` (CLI = pure clear, receipts = obligations, landed, cold verify). Raw: `scale/scale-8-r29-timing.jsonl`, `scale/scale-8-r29.log`.
+
+| Phase (per batch) | Before (094e68c9) | R29 (95cdfb41) |
+|---|---|---|
+| Host build | 23.0 s | 32.2 s |
+| Host approvals (serial, 2 hosts) | 35.1 s | 41.2 s |
+| FROST signing, all 9 spends | 74.8 s (9 × 8.1 s, serial) | **8.2 s** (9 sessions in parallel) |
+| Whole signing step | 110.2 s | **50.0 s** |
+
+Signing no longer grows with spends. The per-batch cost is now build + approvals (~70 s). Next: run the two host approvals in parallel (~20 s per batch), then raise `batch_cap` (option B) so there are fewer batches.

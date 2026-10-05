@@ -4,7 +4,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { bin, env, STATE, ROOT, timing } from "./io";
+import { bin, env, inspect, STATE, ROOT, timing } from "./io";
 const E2E=path.join(STATE,"run");
 
 const TLS = path.join(STATE, "tls");
@@ -126,6 +126,45 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
   return { signers, sighash, randomizer, signature: sigs[sigs.length - 1], participantsSaw, coordinator_started_at,duration_ms:Date.now()-started };
 }
 
+// Phase 6 (R29): host custody signs every spend of a transaction at once — one single-message coordinator session per
+// randomizer on the pair's first host, all open together, and one `benzo sign join --count N` per signer host that joins
+// each of them (frost-client's participant signs only the first message of a session, so no multi-message session).
+// Measured live: one ~8 s session per spend, serially, was the settlement bottleneck (docs/design/phase6-scale.md §2.1).
+async function signParallelHost(sighash: string, randomizers: string[], pair: string[], custody: HostCustody): Promise<Session[]> {
+  const started = Date.now(), coordinator_started_at = started, signers = pair.map(hostPubkey);
+  const coordinators = randomizers.map(r => {
+    const c = orb(pair[0], ["env", `SSL_CERT_FILE=${H}/tls/rootCA.pem`, `${H}/bin/frost-client`, "coordinator", "-c", `${H}/auctions/${custody.id}/frost.toml`, "-s", custody.server, "-g", custody.groupKey, "-S", signers.join(","), "-m", "-", "-r", "-", "-o", "-"]);
+    c.child.stdin!.end(`${sighash}\n${r}\n`); return c;
+  });
+  const all: Proc[] = [...coordinators];
+  const failed: string[] = [];
+  let aborted = false;
+  const abort = () => { if (!aborted) { aborted = true; all.forEach(p => p.child.kill()); } };
+  coordinators.forEach(c => c.done.then(code => { if (code !== 0) abort(); }));
+  const timer = setTimeout(abort, 300_000);
+  try {
+    // Every session exists before a host lists them.
+    await Promise.all(coordinators.map(c => when(c, "Waiting for participants to send their commitments")));
+    const participants = pair.map(n => orb(n, [`${H}/bin/benzo`, "sign", "join", "--id", custody.id, "--name", n, "--sighash", sighash, "--count", String(randomizers.length), "--server", custody.server]));
+    all.push(...participants);
+    participants.forEach((p, i) => p.done.then(code => { if (code !== 0 && !aborted) { failed.push(pair[i]); abort(); } }));
+    const codes = await Promise.all(all.map(p => p.done));
+    if (codes.some(c => c !== 0)) {
+      const lostErr = failed.length ? participants[pair.indexOf(failed[0])].err.trim().slice(-200) : "";
+      const bad = coordinators.find(c => c.child.exitCode !== 0);
+      const e = new Error(`host signing sessions exit codes ${codes.join(",")} (failed: ${failed.join(",") || "coordinator"}${lostErr ? `: ${lostErr}` : ""}): ${bad ? (bad.err || bad.out).trim().slice(-200) : ""}`) as Error & { failedSigners?: string[] };
+      e.failedSigners = failed.length ? failed : [pair[0]];
+      throw e;
+    }
+    const saw = participants.map(p => [...p.out.matchAll(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/g)].map(m => m[1]));
+    return coordinators.map((c, k) => {
+      const sigs = c.out.match(/^[0-9a-f]{128}$/gm);
+      if (!sigs) throw new Error(`host coordinator ${k} printed no signature`);
+      return { signers, sighash, randomizer: randomizers[k], signature: sigs[sigs.length - 1], participantsSaw: saw.map(s => s[k] ?? s[0] ?? ""), coordinator_started_at, duration_ms: Date.now() - started };
+    });
+  } catch (e) { abort(); throw e; } finally { clearTimeout(timer); }
+}
+
 // Runs `zcash-sign sign`, answering each `Randomizer #i` prompt with a fresh FROST session.
 // One FROST signing round at a time on this machine (live part 2: two auctions settling at once collided — a host's
 // frost-client serves one session per identity, and a failover's --close-all ended the other auction's session).
@@ -150,14 +189,29 @@ async function zcashSignRound(input: string, output: string, check:(name:string,
   const p = start(bin("zcash-sign"), ["sign", "-n", env("BNZ_NETWORK"), "-i", input, "-o", output]);
   let sighash = "";
   const sessions: Session[] = [];
+  let parallel: { expected: { pool: string; index: number; alpha: string }[]; sessions: Session[] } | undefined;
   try {for await (const line of readline.createInterface({ input: p.child.stdout! })) {
     const s = line.match(/^SIGHASH: ([0-9a-f]{64})$/);
     if (s) sighash = s[1];
-    const r = line.match(/^Randomizer #\d+ \((\w+)\): ([0-9a-f]{64})$/);
-    if (r) {
+    const r = line.match(/^Randomizer #(\d+) \((\w+)\): ([0-9a-f]{64})$/);
+    if (r && custody && process.env.BNZ_SERIAL_SIGN !== "1") {
+      // R29: every spend's randomizer comes from this machine's own inspect of the same PCZT; zcash-sign then asks for
+      // them in the same order, and any mismatch stops the round before a signature is handed over.
+      if (!parallel) {
+        const expected = (inspect(input, true).randomizers ?? []) as { pool: string; index: number; alpha: string }[];
+        if (!expected.length) throw new Error("inspect found no spends awaiting signature");
+        const t0 = Date.now();
+        parallel = { expected, sessions: await signParallelHost(sighash, expected.map(x => x.alpha), pair, custody) };
+        timing({ auction: auction ?? null, batch: batch ?? null, phase: "frost-parallel", ms: Date.now() - t0, spends: expected.length, custody: true });
+      }
+      const k = sessions.length, want = parallel.expected[k];
+      if (!want || want.alpha !== r[3] || want.pool !== r[2] || String(want.index) !== r[1]) throw new Error(`zcash-sign randomizer #${r[1]} (${r[2]}) is not inspect's spend ${k}`);
+      sessions.push(parallel.sessions[k]);
+      p.child.stdin!.write(parallel.sessions[k].signature + "\n");
+    } else if (r) {
       const t0 = Date.now();
-      const session = await signOnce(sighash, r[2], check,pair,auction,batch,input,custody);
-      timing({ auction: auction ?? null, batch: batch ?? null, phase: "frost-session", ms: Date.now() - t0, pool: r[1], custody: !!custody });
+      const session = await signOnce(sighash, r[3], check,pair,auction,batch,input,custody);
+      timing({ auction: auction ?? null, batch: batch ?? null, phase: "frost-session", ms: Date.now() - t0, pool: r[2], custody: !!custody });
       sessions.push(session);
       p.child.stdin!.write(session.signature + "\n");
     }
@@ -166,5 +220,6 @@ async function zcashSignRound(input: string, output: string, check:(name:string,
   const code = await p.done;
   if (code !== 0) throw new Error(`zcash-sign exited ${code}: ${p.err.trim().slice(-300)}`);
   if (!sighash) throw new Error("zcash-sign printed no SIGHASH");
+  if (parallel && sessions.length !== parallel.expected.length) throw new Error(`zcash-sign asked for ${sessions.length} of ${parallel.expected.length} signatures`);
   return { sighash, sessions };
 }
