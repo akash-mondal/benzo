@@ -257,7 +257,7 @@ try {
   // Design §6.1: a buyback returns what the treasury funded minus the cleared spend (everything when cancelled) to the
   // signed treasury_ua. funded = every mined note at the signed funding_ua (spent ones too, so later batches agree).
   if((m as any).clearing?.mode==="buyback") {
-    const back=treasuryReturn(m as any,["CANCELLED","REFUNDING"].includes(src.state)?null:result,treasuryFunded(m as any,notes));
+    const back=treasuryReturn(m as any,["CANCELLED","REFUNDING"].includes(src.state)?null:result,treasuryFunded(m as any,notes,tip)); // R28 item 7 (G-8): confirmed funding only
     if(back>0n)obligations.push({party:"treasury",kind:"payout",amount_zats:back.toString()} as any);
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));

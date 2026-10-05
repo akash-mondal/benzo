@@ -50,9 +50,10 @@ const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|ba
 // Head (2026-10-04, NU7 on testnet): settlement normally requires two independent lightwalletd endpoints to agree.
 // While only one public testnet endpoint serves NU7, BNZ_LWD_SINGLE=1 runs on the primary alone: testnet only,
 // warned on stderr and recorded in the settlement summary (lwd_endpoints). Mainnet always needs both.
-export function lwdEndpoints(): string[] {
+export function lwdEndpoints(network: string): string[] {
   if (process.env.BNZ_LWD_SINGLE === "1") {
-    if ((process.env.BNZ_NETWORK ?? "test") !== "test") throw new Error("BNZ_LWD_SINGLE is testnet-only; mainnet settlement needs two endpoints");
+    // R28 item 10 (F7/G-7): keyed on the SIGNED manifest's network, never an env default.
+    if (network !== "test") throw new Error("BNZ_LWD_SINGLE is testnet-only; mainnet settlement needs two endpoints");
     process.stderr.write(`WARN single lightwalletd endpoint ${env("BNZ_LWD_URL")} (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement\n`);
     return [env("BNZ_LWD_URL")];
   }

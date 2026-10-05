@@ -10,6 +10,7 @@ import { checkCertificates, freezeStatement, generateWitnessKey, signStatement, 
 import { repoRoot } from "../../manifest/root";
 import { recomputeFrozen } from "../../witness/recompute";
 import { ownScan } from "../host-derive";
+import { chainTip } from "../host-chain";
 
 export const noun = "witness";
 export const verb = "";
@@ -100,9 +101,12 @@ export async function run(argv: string[]): Promise<number> {
       const resolved = witnessKey(o.key);
       // Design §5: the root is recomputed from THIS witness's own scan of the auction vault before anything is
       // signed; a leaf it cannot see, or a different root, is refused and never certified.
-      const own = recomputeFrozen(pub.manifest as any, pub.manifest_hash, pub.frozen!, await ownScan(state, root, pub.manifest.auction_id));
+      const own = recomputeFrozen(pub.manifest as any, pub.manifest_hash, pub.frozen!, await ownScan(state, root, pub.manifest.auction_id), { confirmedAt: chainTip(state) });
       requireThat(own.root === pub.frozen!.root && own.leaf_count === pub.frozen!.leaf_count, `root mismatch: own scan ${own.root} (${own.leaf_count} leaves) vs frozen ${pub.frozen!.root} (${pub.frozen!.leaf_count})`);
       const cert: WitnessCert = { statement, signatures: [signStatement(statement, readFileSync(resolved, "utf8").trim())] };
+      // Ruling R28 item 2: the root this witness certified is pinned for its own later settlement approvals.
+      const pinDir = path.join(state, "auctions", pub.manifest.auction_id);
+      if (existsSync(pinDir)) { const f = path.join(pinDir, "frozen-root.txt"); if (!existsSync(f)) writeFileSync(f, pub.frozen!.root + "\n", { mode: 0o600 }); else requireThat(readFileSync(f, "utf8").trim() === pub.frozen!.root, "this witness already pinned a different root for the auction"); }
       record("witness_cert", cert);
       process.stdout.write(JSON.stringify(cert) + "\n");
       return 0;

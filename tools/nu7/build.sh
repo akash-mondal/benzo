@@ -23,7 +23,6 @@ sum() { case "$1" in
 crates() { # <dir> <crate-ver>...
   local dir=$1; shift; mkdir -p "$dir"
   for cv in "$@"; do
-    [ -f "$dir/$cv/.nu7-applied" ] && continue
     local name=${cv%-*} ver=${cv##*-}; [[ $cv == pczt-0.8.0-rc.1 ]] && { name=pczt; ver=0.8.0-rc.1; }
     local f="$dir/$cv.crate"
     curl -fsSL -A benzo-nu7 "https://static.crates.io/crates/$name/$name-$ver.crate" -o "$f"
@@ -62,7 +61,8 @@ case "${1:-}" in
     patch_toml "$src/Cargo.toml" "$dir" "${cvs[@]}"
     (cd "$src" && cargo update -q --offline -w 2>/dev/null || cargo update -q -w)
     # The lock may differ from the pin ONLY in the patched packages' source/checksum lines.
-    extra=$(diff <(grep -vE '^(source|checksum) = ' "$src/Cargo.lock.pinned") <(grep -vE '^(source|checksum) = ' "$src/Cargo.lock") || true)
+    # R28 item 11 (F8): every package except the patched ones keeps its exact lock entry (name, version, source, checksum).
+    extra=$(python3 "$HERE/lockdiff.py" "$src/Cargo.lock.pinned" "$src/Cargo.lock" "${cvs[@]}")
     [ -z "$extra" ] || { echo "ERROR $src: lock changed beyond the patched packages:" >&2; echo "$extra" | head -20 >&2; exit 1; }
     cargo install --locked --path "$src/$1" --root "$state" --target-dir "$target" --force "${@:2}"
     ;;

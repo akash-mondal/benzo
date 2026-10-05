@@ -4,7 +4,7 @@
 // recipients never leave this machine. The coordinator then has every approving host (this one too) `sign approve` it.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { requireThat } from "../../manifest/schema";
@@ -67,6 +67,8 @@ export async function run(argv: string[]): Promise<number | object> {
     redactCandidate(st, proven, redacted, info);
     requireThat(Array.isArray(envelopeKeys) && envelopeKeys.length === 3, "manifest pins no three envelope keys");
     for (const [n, i] of Object.entries(SIGNER_ENVELOPE_INDEX)) writeFileSync(path.join(packet, `sealed-${n}.bin`), sealBlob(readFileSync(proven), envelopeKeys[i]), { mode: 0o600 });
+    // Ruling R28 item 6 (F5): only the redacted copy and the sealed copies stay on disk.
+    rmSync(created, { force: true }); rmSync(proven, { force: true });
     const result = { auction_id: o.id, batch: Number(o.batch), builder: o.name, plan_version: sha(readFileSync(redacted)), outputs };
     writeFileSync(path.join(packet, "build.json"), JSON.stringify(result) + "\n", { mode: 0o600 });
     return result;

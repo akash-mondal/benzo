@@ -11,7 +11,7 @@
 // Only then it records approvals/<id>/batch-<n>.json {plan_version, sighash}; `benzo sign join` signs nothing else.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { QUICKNET, requireThat } from "../../manifest/schema";
@@ -21,6 +21,7 @@ import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
 import { deriveRows, redactCandidate } from "../host-derive";
+import { chainTip, minedHeight } from "../host-chain";
 import { openBlob } from "../../envelope/index";
 import { ownEnvelopePrivate } from "../../settle/envelopes";
 
@@ -31,14 +32,16 @@ const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const state = () => process.env.BNZ_STATE_DIR ? path.resolve(process.env.BNZ_STATE_DIR) : path.join(os.homedir(), ".benzo");
 
 async function sighashOf(zcashSign: string, network: string, candidate: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const p = spawn(zcashSign, ["sign", "-n", network, "-i", candidate, "-o", path.join(os.tmpdir(), `benzo-approve-${process.pid}.pczt`)], { stdio: ["pipe", "pipe", "pipe"] });
+  // R28 item 6 (G-6): zcash-sign's output path lives next to the candidate and is removed, never a shared /tmp name.
+  const probe = candidate + ".sign-probe";
+  return new Promise<string>((resolve, reject) => {
+    const p = spawn(zcashSign, ["sign", "-n", network, "-i", candidate, "-o", probe], { stdio: ["pipe", "pipe", "pipe"] });
     let out = "";
     const done = (v: string | null, e?: Error) => { p.kill(); v ? resolve(v) : reject(e ?? new Error("zcash-sign printed no SIGHASH")); };
     p.stdout!.on("data", d => { out += d; const m = out.match(/^SIGHASH: ([0-9a-f]{64})$/m); if (m) done(m[1]); });
     p.on("error", e => done(null, e));
     p.on("close", () => { const m = out.match(/^SIGHASH: ([0-9a-f]{64})$/m); m ? resolve(m[1]) : reject(new Error("zcash-sign printed no SIGHASH")); });
-  });
+  }).finally(() => rmSync(probe, { force: true }));
 }
 
 export async function run(argv: string[]): Promise<number | object> {
@@ -76,21 +79,39 @@ export async function run(argv: string[]): Promise<number | object> {
     let sellerSeen = false;
     const outputs = (info.outputs ?? []).filter((x: any) => !x.is_change);
     requireThat(outputs.length > 0, "candidate pays nobody");
+    const sources: string[] = [];
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
-      if (i >= 0) { pool.splice(i, 1); continue; }
-      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout) { sellerSeen = true; continue; }
+      if (i >= 0) { sources.push(pool.splice(i, 1)[0].source); continue; }
+      // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing; paid at most once by the ledger).
+      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller"); continue; }
       throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
+    }
+    // Ruling R28 item 3 (F2): this host's own approval ledger. A source (deposit note, seller, treasury) already in
+    // another approved candidate is approved again only when this host sees from the chain that the earlier
+    // transaction never mined and can no longer mine (past its expiry) — the legitimate expired-batch re-plan.
+    // R28 item 9 (F9): the candidate must expire after the tip and within 10,000 blocks.
+    const tip = chainTip(st);
+    requireThat(info.expiry_height > tip && info.expiry_height <= tip + 10000, `candidate expiry ${info.expiry_height} outside (tip, tip + 10000]`);
+    const dir = path.join(st, "approvals", o.id), ledgerFile = path.join(dir, "ledger.json");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const ledger: { batch: number; txid: string; expiry_height: number; sources: string[] }[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
+    for (const prior of ledger.filter(e => e.txid !== info.txid && e.sources.some(x => sources.includes(x)))) {
+      requireThat(minedHeight(st, prior.txid) === 0, `${prior.sources.find(x => sources.includes(x))} already paid by mined batch ${prior.batch}`);
+      requireThat(tip > prior.expiry_height, `${prior.sources.find(x => sources.includes(x))} is in batch ${prior.batch}, which can still mine until ${prior.expiry_height}`);
     }
 
     // 4. The sighash, computed here.
     const sighash = await sighashOf(path.join(st, "bin", "zcash-sign"), process.env.BNZ_NETWORK ?? "test", candidate);
-    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, outputs: outputs.length, approved_at: Math.floor(Date.now() / 1000) };
-    const dir = path.join(st, "approvals", o.id);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Ruling R28 item 6 (F5): the full (unredacted) candidate never stays on this machine's disk after the check.
+    rmSync(candidate, { force: true }); rmSync(recomputed, { force: true });
+    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, outputs: outputs.length, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
+    if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });
+    writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });
     return approval;
   } catch (e) {
+    if (o.packet) for (const f of ["candidate.full.pczt", "candidate.recomputed.pczt"]) rmSync(path.join(path.resolve(o.packet), f), { force: true });
     process.stderr.write(`ERROR sign approve ${(e as Error).message}\n`);
     return 1;
   }

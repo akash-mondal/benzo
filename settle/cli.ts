@@ -150,7 +150,7 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
   copyFileSync(proven,path.join(packet,"candidate.pczt"));
   for(const s of ["alice","bob","carol"])copyFileSync(file(`batch-${batchId}.sealed-${s}.bin`),path.join(packet,`sealed-${s}.bin`));
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
-  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer}),{mode:0o600});
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600}); // R28 item 8 (G-2): the seller output must pay this
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const failed=new Set<string>(),events:any[]=[];
@@ -241,7 +241,7 @@ async function worker(ledger:Ledger) {
         let endHash:string|undefined;
         // Pinned service.proto:259 GetBlockRange and compact_formats.proto:54 CompactTx.txid.
         // A complete range through expiry proves absence; expired transactions cannot mine later.
-        for(const endpoint of lwdEndpoints()) {
+        for(const endpoint of lwdEndpoints(client(auction().manifest,auction().signer).manifest.network)) {
           const raw=run(bin("grpcurl"),["-import-path",path.join(STATE,"proto"),"-proto","service.proto","-d",JSON.stringify({start:{height:start},end:{height:metadata.expiry_height}}),endpoint,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlockRange"]);
           const blocks=raw.trim().split(/\n(?=\{)/).map(l=>JSON.parse(l));
           requireThat(blocks.length===metadata.expiry_height-start+1&&blocks.every((b,i)=>Number(b.height)===start+i),"incomplete expired batch block range");
@@ -263,7 +263,7 @@ async function worker(ledger:Ledger) {
     // Head (2026-10-03, live run 12): a lagging endpoint that has not seen the block yet is waited for (up to 15
     // min); only a DIFFERENT non-zero height is a real disagreement and refuses.
     const agreeBy=Date.now()+15*60_000;
-    for(const endpoint of lwdEndpoints()) {
+    for(const endpoint of lwdEndpoints(client(auction().manifest,auction().signer).manifest.network)) {
       for(;;) {
         let seen=0;
         // Head (live buyback run 3): an endpoint down (503) past chainTx's own retries counts as "not seen yet" until the deadline.
@@ -290,7 +290,7 @@ async function worker(ledger:Ledger) {
     }
   }
   writeFileSync(file("receipts.json"),jsonBytes(ledger.receipts()),{mode:0o600});
-  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(),rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
+  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));
 }
 try {
