@@ -1,0 +1,13 @@
+diff --git a/manifest/schema.ts b/manifest/schema.ts
+index 7acab56..98cebe2 100644
+--- a/manifest/schema.ts
++++ b/manifest/schema.ts
+@@ -62,7 +62,7 @@ function keys(object: any, expected: string) {
+ // the audited `benzo-pczt classify-address` check (envelope/destination.ts isUnifiedOn). The `network: "test"`
+ // lock below stays until the head lifts it.
+ export const uaShape = (addr: unknown, network: string): boolean =>
+-  typeof addr === "string" && (network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[a-z0-9]+$/).test(addr);
++  typeof addr === "string" && /^(u1|utest1)[0-9a-z]+$/.test(addr); /* MUTATION X3-a: network ignored */
+ 
+ export function validateManifest(m: Manifest): void {
+   requireThat(m.witness_set_hash === undefined || (typeof m.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m.witness_set_hash)), "witness_set_hash");
