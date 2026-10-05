@@ -1,0 +1,14 @@
+# G-7 mainnet readiness — node tools/repro/g7-network-repro.mjs at commit 37ac903, run 2026-10-05T16:53:43Z
+# mainnet-format fixtures: tools/repro/fixtures/zcash-address-cases.json (official zcash-test-vectors rows)
+PASS g7-classifier-network-labels
+PASS g7-mainnet-ua-on-main
+PASS g7-mainnet-ua-refused-on-test
+PASS g7-testnet-ua-on-test
+PASS g7-testnet-ua-refused-on-main
+PASS g7-ufvk-fixture-shape
+PASS g7-ufvk-network-main
+PASS g7-ufvk-network-test
+PASS g7-missing-network-refused
+PASS g7-manifest-lock-stays
+PASS g7-main-address-checks-ready
+RESULT PASS all g7 assertions

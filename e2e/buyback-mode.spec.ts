@@ -31,7 +31,7 @@ const cli=(args:string[])=>spawnSync(benzoBin,args,{encoding:'utf8',maxBuffer:64
 // A failed drand fetch (one killed a live run) reads as round 0, so the wait simply polls again.
 const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/latest`)).json()).round as number}catch{return 0}};
 const pcztBin=path.join(ROOT,'settle/target/release/benzo-pczt');
-const fresh=(wallet:string)=>sh(pcztBin,['address',wallet]).split('\n').at(-1)!;
+const fresh=(wallet:string)=>sh(pcztBin,['address',wallet,'--network','test']).split('\n').at(-1)!;
 
 test('Mode B buyback settles under host custody with the treasury leg',async()=> {
   test.setTimeout(110*60_000);const run=new Run('buyback-mode');
@@ -109,9 +109,9 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     await run.check('W2','a coordinator-substituted recipient is refused by both signers before FROST',()=> {
       const w=path.join(STATE,'settle',id,'w2');rmSync(w,{recursive:true,force:true});mkdirSync(w,{recursive:true});
       const owed=String(C+210),created=path.join(w,'created.pczt'),proven=path.join(w,'proven.pczt'),redacted=path.join(w,'candidate.pczt');
-      sh(pcztBin,['create',vault,created,'364'],JSON.stringify([{recipient:attacker,amount_zats:owed}]));
+      sh(pcztBin,['create',vault,created,'364','--network','test'],JSON.stringify([{recipient:attacker,amount_zats:owed}]));
       sh(path.join(STATE,'bin/zcash-devtool'),['pczt','-w',vault,'prove',created,'--output',proven]);
-      redactCandidate(STATE,proven,redacted,JSON.parse(sh(pcztBin,['inspect',proven,path.join(STATE,'vaults',id,'ufvk.txt')])));
+      redactCandidate(STATE,proven,redacted,JSON.parse(sh(pcztBin,['inspect',proven,path.join(STATE,'vaults',id,'ufvk.txt'),'--network','test'])));
       envelopeKeys.forEach((pub,i)=>writeFileSync(path.join(w,`sealed-${NAMES[i]}.bin`),sealBlob(readFileSync(proven),pub)));
       rmSync(proven);rmSync(created);cpSync(publicDir,path.join(w,'public'),{recursive:true});
       writeFileSync(path.join(w,'packet.json'),JSON.stringify({auction_id:id,batch:99,plan_version:sha(readFileSync(redacted)),signer}));

@@ -57,6 +57,17 @@ export function classifyDestination(destination: string): Destination {
   };
 }
 
+// G-7 (mainnet readiness): a network-aware UA check through the same audited classifier — the address must be
+// a unified address on the MANIFEST's network. Used at the Node boundaries (sign build's seller routing,
+// auction keys' derived escrow UA); the pure manifest checks keep a network-aware shape matcher (schema.uaShape)
+// so the offline verifier never needs the binary.
+export function isUnifiedOn(destination: string, network: string): boolean {
+  try {
+    const c = classifyAddress(destination);
+    return c.kind === "unified" && c.network === network && c.receivers.some((r) => r.typecode === 0x02 || r.typecode === 0x03);
+  } catch { return false; }
+}
+
 // The envelope validator: only a Sapling address or a unified address with a shielded receiver is admissible,
 // and only on this auction's network — a mainnet (or regtest) destination would burn the refund (threat #7).
 // Benzo is testnet-only until Phase 7; when mainnet starts this takes the manifest's network alongside.

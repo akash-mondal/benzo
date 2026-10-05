@@ -30,7 +30,7 @@ const cli = (args, input, stdinText) => {
   return { code: p.status, out: (p.stdout ?? "") + (p.stderr ?? "") };
 };
 const randomId = () => execFileSync("node", ["-e", "console.log(require('crypto').randomBytes(32).toString('hex'))"], { encoding: "utf8" }).trim();
-const fresh = () => spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "vault")], { encoding: "utf8" }).stdout.trim();
+const fresh = () => spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "vault"), "--network", "test"], { encoding: "utf8" }).stdout.trim();
 const signerKeys = ["alice", "bob", "carol"].map((n) => JSON.parse(readFileSync(path.join(STATE, "signers", n, "envelope-key.json"), "utf8")).public_hex);
 const show = (label, r) => console.log(`${label}: ${r.code === 0 ? "accepted" : "refused"} ${r.out.trim().slice(-160).replace(/\n/g, " ")}`);
 
@@ -56,7 +56,7 @@ const doc = JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8"
 const result = JSON.parse(readFileSync(path.join(publicDir, "result.json"), "utf8"));
 const leaf0 = doc.frozen.leaves[0];
 const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", id, leaf0.ciphertext_hash + ".json"), "utf8")).owner_private_hex;
-const dest = spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")], { encoding: "utf8" }).stdout.trim();
+const dest = spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"], { encoding: "utf8" }).stdout.trim();
 const junk = { kind: "claim-refund", auction_id: id, party: "leaf:0", destination_ua: dest, destination_sha256: "0".repeat(64), owner_sig: "11".repeat(64) };
 const claimsFile = path.join(STATE, "run", "r7-claims-repro");
 rmSync(claimsFile, { recursive: true, force: true }); mkdirSync(claimsFile, { recursive: true });

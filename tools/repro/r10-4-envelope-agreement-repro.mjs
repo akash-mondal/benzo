@@ -94,7 +94,7 @@ const manifest = {
   envelope_keys: signerKeys,
 };
 const packet = schema.signRecord(manifest, signerPem);
-const freshUa = () => sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).out.trim();
+const freshUa = () => sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim();
 const dest1 = freshUa(), dest2 = freshUa(); // leaf1 (carol cannot open) and leaf2 (bob+carol cannot open)
 // A real owner-signed v2 box whose content key is wrapped to the real signer keys except for chosen signers,
 // who receive a valid wrap of the WRONG key (exactly the malicious owner of R12 item 3: the box is
@@ -212,7 +212,7 @@ if (plan) {
     const recipient = (party) => party === "seller" ? sellerUa : party === "leaf:1" ? dest1 : party === "leaf:2" ? dest2 : null;
     const payment = batch.outputs.map((o) => ({ recipient: recipient(o.party), amount_zats: o.amount_zats }));
     const candidate = scratch("candidate.pczt");
-    const created = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "bidder"), candidate, "364"], JSON.stringify(payment));
+    const created = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "bidder"), candidate, "364", "--network", "test"], JSON.stringify(payment));
     if (created.code === 0) {
       const check = sh(process.execPath, [path.join(ROOT, "settle/dist/cli.mjs"), "check", auction_id, String(batch.id), candidate, "alice"]);
       console.log(`G1 signer check (alice) exit ${check.code}`);

@@ -14,7 +14,7 @@ if (live.length) {
   const stop = await startFrostd();
   try {
     const dir = path.join(STATE, "run", `sweep-${Date.now()}`); mkdirSync(dir, { recursive: true });
-    const to = z.run(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).trim().split("\n").at(-1)!;
+    const to = z.run(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).trim().split("\n").at(-1)!;
     z.pczt("vault", "create-max", "--address", to, "--output", path.join(dir, "created.pczt"));
     z.pczt("vault", "prove", path.join(dir, "created.pczt"), "--output", path.join(dir, "proven.pczt"));
     await zcashSign(path.join(dir, "proven.pczt"), path.join(dir, "signed.pczt"));

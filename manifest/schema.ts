@@ -57,6 +57,13 @@ function keys(object: any, expected: string) {
   requireThat(object && typeof object === "object" && !Array.isArray(object), "expected object");
   requireThat(Object.keys(object).sort().join(",") === expected.split(" ").sort().join(","), "unknown or missing manifest field");
 }
+// G-7 (mainnet readiness): the manifest's own network decides the address shape (testnet `utest1…`, mainnet
+// `u1…`). This pure matcher keeps the offline verifier free of the classifier binary; the Node boundaries add
+// the audited `benzo-pczt classify-address` check (envelope/destination.ts isUnifiedOn). The `network: "test"`
+// lock below stays until the head lifts it.
+export const uaShape = (addr: unknown, network: string): boolean =>
+  typeof addr === "string" && (network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[a-z0-9]+$/).test(addr);
+
 export function validateManifest(m: Manifest): void {
   requireThat(m.witness_set_hash === undefined || (typeof m.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m.witness_set_hash)), "witness_set_hash");
   requireThat(m.envelope_keys === undefined || (Array.isArray(m.envelope_keys) && m.envelope_keys.length === 3 &&
@@ -91,9 +98,9 @@ export function validateManifest(m: Manifest): void {
   requireThat(m.version === 1 && m.network === "test", "manifest version/network");
   requireThat(/^[0-9a-f]{64}$/.test(m.auction_id) && /^[0-9a-f]{64}$/.test(m.frost_group_key), "auction/group key");
   requireThat(m.lots !== undefined || (typeof m.lot === "string" && m.lot.length > 0 && m.lot.length <= 256), "lot");
-  requireThat(/^utest1[a-z0-9]+$/.test(m.escrow_ua), "testnet escrow address");
+  requireThat(uaShape(m.escrow_ua, m.network), "testnet escrow address");
   requireThat(Array.isArray(m.deposit_addresses) && m.deposit_addresses.length > 0 &&
-    m.deposit_addresses.every(a => /^utest1[a-z0-9]+$/.test(a)) && new Set(m.deposit_addresses).size === m.deposit_addresses.length, "per-bid addresses");
+    m.deposit_addresses.every(a => uaShape(a, m.network)) && new Set(m.deposit_addresses).size === m.deposit_addresses.length, "per-bid addresses");
   integer(m.supply, "supply"); integer(m.q_max, "q_max");
   const reserve = zats(m.reserve_zats, "reserve"), tick = zats(m.tick_zats, "tick"), cap = zats(m.B_max_zats, "B_max");
   const C = zats(m.C_zats, "C"), fee = zats(m.fee_zats, "fee");

@@ -201,7 +201,7 @@ async function zcashSignRound(input: string, output: string, check:(name:string,
       // R29: every spend's randomizer comes from this machine's own inspect of the same PCZT; zcash-sign then asks for
       // them in the same order, and any mismatch stops the round before a signature is handed over.
       if (!parallel) {
-        const expected = (inspect(input, true).randomizers ?? []) as { pool: string; index: number; alpha: string }[];
+        const expected = (inspect(input, env("BNZ_NETWORK"), true).randomizers ?? []) as { pool: string; index: number; alpha: string }[];
         if (!expected.length) throw new Error("inspect found no spends awaiting signature");
         const t0 = Date.now();
         parallel = { expected, sessions: await signParallelHost(sighash, expected.map(x => x.alpha), pair, custody) };

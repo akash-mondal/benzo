@@ -89,7 +89,7 @@ const target = notes.find((n) => manifest.deposit_addresses.includes(n.address) 
 if (!target) { console.error("no claimable bid deposit with an owner key"); process.exit(2); }
 const party = `deposit:${target.txid}:${target.diversifier_index}`;
 const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", id, createHash("sha256").update(Buffer.from(memoSealedBid(target.memo_hex), "hex")).digest("hex") + ".json"), "utf8")).owner_private_hex;
-const dest = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).out.trim();
+const dest = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim();
 if (!dest.startsWith("utest1")) { console.error(`fresh bidder address unavailable: ${dest}`); process.exit(2); }
 const request = JSON.parse(sh(path.join(ROOT, "bin/benzo"), ["claim-refund", "--id", id, "--party", party, "--destination", dest, "--owner-key-stdin"], ownerPrivate).out);
 const recorded = sh(path.join(ROOT, "bin/benzo"), ["claim-refund", "--id", id, "--defer"], JSON.stringify(request));
@@ -121,7 +121,7 @@ if (planRun.code === 0) {
 
 // ---- C2: the shipped signer check over a real batch ------------------------------------------------
 const candidate = scratch("candidate.pczt");
-const created = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "bidder"), candidate, "364"],
+const created = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "bidder"), candidate, "364", "--network", "test"],
   JSON.stringify([{ recipient: dest, amount_zats: String(target.value_zats) }]));
 console.log(`C2 candidate PCZT from the bidder wallet: ${created.code === 0 ? "created" : `create failed ${created.out.trim().slice(-120)}`}`);
 if (created.code === 0) {

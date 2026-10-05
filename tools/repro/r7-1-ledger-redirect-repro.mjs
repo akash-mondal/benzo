@@ -94,7 +94,7 @@ try {
     const dir = path.join(STATE, "run", `r7-1-${id}`); mkdirSync(dir, { recursive: true, mode: 0o700 });
     const candidate = path.join(dir, "redirect.pczt");
     const payments = rows.map((r) => ({ recipient: r.party === "seller" ? seller_ua : attacker, amount_zats: r.amount_zats }));
-    spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "vault"), candidate], { input: JSON.stringify(payments), encoding: "utf8", maxBuffer: 64 << 20 });
+    spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "vault"), candidate, "--network", "test"], { input: JSON.stringify(payments), encoding: "utf8", maxBuffer: 64 << 20 });
     const check = spawnSync(path.join(ROOT, "bin/benzo"), ["sign", "inspect", "--id", id, "--batch", "1", "--candidate", candidate, "--name", signerName], { encoding: "utf8", maxBuffer: 64 << 20 });
     console.log(`sign inspect exit ${check.status}`);
     console.log((check.stdout + check.stderr).trim().slice(-400));

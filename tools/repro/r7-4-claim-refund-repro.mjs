@@ -76,7 +76,7 @@ if (live) {
     const leaf = frozen.leaves.find((l) => l.leaf_index === a.leaf_index);
     const keyFile = path.join(STATE, "bids", id, leaf.ciphertext_hash + ".json");
     const ownerPrivate = JSON.parse(readFileSync(keyFile, "utf8")).owner_private_hex;
-    const destination = spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")], { encoding: "utf8" }).stdout.trim();
+    const destination = spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"], { encoding: "utf8" }).stdout.trim();
     const request = cli(["claim-refund", "--id", id, "--party", `leaf:${a.leaf_index}`, "--destination", destination, "--owner-key-stdin"], undefined, ownerPrivate);
     console.log(`C4 build claim leaf:${a.leaf_index} -> ${request.code === 0 ? "signed for " + ab(destination) : "refused " + request.out.trim().slice(-120)}`);
     const reqFile = path.join(base, `claim-${a.leaf_index}.json`);

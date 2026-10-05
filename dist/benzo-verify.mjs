@@ -7906,6 +7906,7 @@ function keys(object, expected) {
   requireThat(object && typeof object === "object" && !Array.isArray(object), "expected object");
   requireThat(Object.keys(object).sort().join(",") === expected.split(" ").sort().join(","), "unknown or missing manifest field");
 }
+var uaShape = (addr, network) => typeof addr === "string" && (network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[a-z0-9]+$/).test(addr);
 function validateManifest(m2) {
   requireThat(m2.witness_set_hash === void 0 || typeof m2.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m2.witness_set_hash), "witness_set_hash");
   requireThat(m2.envelope_keys === void 0 || Array.isArray(m2.envelope_keys) && m2.envelope_keys.length === 3 && m2.envelope_keys.every((k2) => typeof k2 === "string" && /^[0-9a-f]{64}$/.test(k2)) && new Set(m2.envelope_keys).size === 3, "envelope_keys");
@@ -7933,8 +7934,8 @@ function validateManifest(m2) {
   requireThat(m2.version === 1 && m2.network === "test", "manifest version/network");
   requireThat(/^[0-9a-f]{64}$/.test(m2.auction_id) && /^[0-9a-f]{64}$/.test(m2.frost_group_key), "auction/group key");
   requireThat(m2.lots !== void 0 || typeof m2.lot === "string" && m2.lot.length > 0 && m2.lot.length <= 256, "lot");
-  requireThat(/^utest1[a-z0-9]+$/.test(m2.escrow_ua), "testnet escrow address");
-  requireThat(Array.isArray(m2.deposit_addresses) && m2.deposit_addresses.length > 0 && m2.deposit_addresses.every((a2) => /^utest1[a-z0-9]+$/.test(a2)) && new Set(m2.deposit_addresses).size === m2.deposit_addresses.length, "per-bid addresses");
+  requireThat(uaShape(m2.escrow_ua, m2.network), "testnet escrow address");
+  requireThat(Array.isArray(m2.deposit_addresses) && m2.deposit_addresses.length > 0 && m2.deposit_addresses.every((a2) => uaShape(a2, m2.network)) && new Set(m2.deposit_addresses).size === m2.deposit_addresses.length, "per-bid addresses");
   integer(m2.supply, "supply");
   integer(m2.q_max, "q_max");
   const reserve = zats(m2.reserve_zats, "reserve"), tick = zats(m2.tick_zats, "tick"), cap = zats(m2.B_max_zats, "B_max");
@@ -8302,8 +8303,8 @@ function validatePhase5(m2) {
   if (m2.buyback !== void 0) {
     requireThat(m2.buyback && typeof m2.buyback === "object" && !Array.isArray(m2.buyback), "buyback parameters");
     requireThat(Object.keys(m2.buyback).sort().join(",") === "budget_zats,funding_ua,max_price_zats,treasury_ua", "buyback field set");
-    const ua2 = m2.network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/;
-    requireThat(ua2.test(m2.buyback.treasury_ua) && ua2.test(m2.buyback.funding_ua), "buyback treasury_ua/funding_ua");
+    const ua2 = (a2) => uaShape(a2, m2.network);
+    requireThat(ua2(m2.buyback.treasury_ua) && ua2(m2.buyback.funding_ua), "buyback treasury_ua/funding_ua");
     requireThat(m2.buyback.treasury_ua !== m2.buyback.funding_ua && !(m2.deposit_addresses ?? []).includes(m2.buyback.funding_ua) && !(m2.deposit_addresses ?? []).includes(m2.buyback.treasury_ua), "buyback funding_ua must be a non-deposit vault address distinct from treasury_ua");
     requireThat(m2.bond === void 0, "bond-then-pay is auction-side");
     requireThat(m2.serials === void 0, "serials are uniform auction-side");
@@ -8547,8 +8548,8 @@ function clientRFQ(packet, signer) {
     const keys2 = Object.keys(r2 ?? {}).sort().join(","), base = "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,max_price_zats";
     requireThat(r2 && (keys2 === base || keys2 === "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,funding_ua,max_price_zats,treasury_ua"), "rfq fields");
     if (r2.treasury_ua !== void 0) {
-      const ua2 = m2.network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/, f2 = r2.funding_ua, t2 = r2.treasury_ua;
-      requireThat(ua2.test(t2) && ua2.test(f2) && t2 !== f2 && !m2.deposit_addresses.includes(f2) && !m2.deposit_addresses.includes(t2), "rfq treasury_ua/funding_ua");
+      const f2 = r2.funding_ua, t2 = r2.treasury_ua;
+      requireThat(uaShape(t2, m2.network) && uaShape(f2, m2.network) && t2 !== f2 && !m2.deposit_addresses.includes(f2) && !m2.deposit_addresses.includes(t2), "rfq treasury_ua/funding_ua");
     }
     requireThat(!m2.bond && !m2.lots && !m2.serials && m2.supply === 1 && m2.q_max === 1, "rfq single quote/lot");
     requireThat(Array.isArray(r2.dealer_keys) && r2.dealer_keys.length >= 2 && r2.dealer_keys.every((k2) => /^[0-9a-f]{64}$/.test(k2)) && new Set(r2.dealer_keys).size === r2.dealer_keys.length, "rfq dealer keys");

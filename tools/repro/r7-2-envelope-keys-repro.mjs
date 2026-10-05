@@ -26,7 +26,7 @@ const cli = (args, input) => {
   const p = spawnSync(path.join(ROOT, "bin/benzo"), args, { input: input === undefined ? undefined : JSON.stringify(input), encoding: "utf8", maxBuffer: 64 << 20 });
   return { code: p.status, out: (p.stdout ?? "") + (p.stderr ?? "") };
 };
-const fresh = () => spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "vault")], { encoding: "utf8" }).stdout.trim();
+const fresh = () => spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "vault"), "--network", "test"], { encoding: "utf8" }).stdout.trim();
 const randomId = () => execFileSync("node", ["-e", "console.log(require('crypto').randomBytes(32).toString('hex'))"], { encoding: "utf8" }).trim();
 const show = (name, r) => console.log(`${name}: ${r.code === 0 ? "accepted" : "refused"} ${r.out.trim().slice(-200).replace(/\n/g, " ")}`);
 

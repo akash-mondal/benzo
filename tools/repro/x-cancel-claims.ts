@@ -44,7 +44,7 @@ for (const row of exceptions) {
   const ct = n?.memo_hex ? memoSealedBid(n.memo_hex)?.ciphertext_hex : null;
   const keyFile = ct ? path.join(STATE, "bids", id, sha(Buffer.from(ct, "hex")) + ".json") : "";
   if (!ct || !existsSync(keyFile)) { say(`SKIP ${row.party}: no owner key kept for its bid`); continue; }
-  const destination = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).split("\n").at(-1)!;
+  const destination = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).split("\n").at(-1)!;
   const request = benzo(["claim-refund", "--id", id, "--party", row.party, "--destination", destination, "--owner-key-stdin"], JSON.parse(readFileSync(keyFile, "utf8")).owner_private_hex);
   const file = path.join(OUT, `claim-${row.party.replace(/:/g, "_")}.json`); writeFileSync(file, JSON.stringify(request));
   benzo(["claim-refund", "--id", id, "--file", file, "--defer"]);

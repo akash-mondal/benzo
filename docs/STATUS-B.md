@@ -3,7 +3,280 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (27): R24 item 3 (iii), R26 item 3, R26 item 2 guard half, gate LA — **READY FOR MERGE**
+## Current run (30): head batch — cross-chain on the signer hosts, xchain demo drivers, mainnet readiness, guides
+
+Task (this session's head message): merge main, then four items in order, one commit per item with proof.
+Tree after `git merge main` (`970ce70`; main's R28/R29/R30 + part-2 work): `npm ci`, all `npm run build:*`
+green (`vendor/nu7` materialized via `tools/nu7/build.sh crates`), `npm run typecheck` clean, `npm run
+e2e` **PASS 36 s** before new work. Rules in force: no VM/orb/frostd-2744/testnet-spend/live-spec
+activity, no mainnet, no frontend, no pin changes, never weaken R28.
+
+**Item 1 — cross-chain on the signer hosts (part 2 §2 (a)–(d)): DONE with proof** — code
+`b74a28a`, evidence `d969dc0`.
+
+1. **(a)** `benzo xchain keygen --chain evm|solana --name SIGNER` (runs ON a host like `witness
+   keygen`): writes `state/xchain/<chain>-<name>.key` mode 0600, refuses to replace it, prints only
+   the public part (EVM address / Solana pubkey).
+2. **(b)** `benzo xchain attest --host-record`: one signer host's own single envelope key + xchain key
+   over the pushed public dir; every leaf's opening and destination still derived by the host itself
+   (R21/R22/R19 unchanged); output is the host's SIGNATURE record (attestation bytes — EIP-712 digest
+   / Solana 200-byte message —, its own signature, its own derived payouts) and the only thing printed.
+   `--envelope-key` also accepts the shipped `sign envelope-key` JSON. **Without `--host-record` the R25
+   item 2 ≥2-agreement rule stands unchanged** (a single/duplicated key can never attest a leaf); the
+   2-of-3 rule in host mode is enforced at release (below).
+3. **(c)** `benzo xchain release --attestation FILE --attestation FILE ...`: the coordinator collects
+   host records over the **identical attestation bytes and payout sets**, re-derives the bytes from the
+   record fields + chain inputs, verifies every signature against **the escrow's own pinned signer set
+   read from chain**, requires ≥ 2 distinct pinned signers, and never holds a signer key
+   (`--signer-key` refused outright; `--key` is the crank/payer key only). R28 holds: every
+   destination comes from the host-derived records; the coordinator supplies none.
+4. **(d) Proof on local anvil + solana-test-validator with three local signer state dirs standing in
+   for the hosts** (`BNZ_STATE_DIR` per signer, `$BNZ_STATE_DIR/xchain-hosts/{alice,bob,carol}` + eve as
+   third party): `bash crosschain/host-attest-demo.sh` → **34/34 PASS**
+   (`docs/evidence/phase-5/repro/host-attest-demo.out`). Real fixture (tlock-sealed bids, real drand
+   quicknet beacon, shipped clearing result, gate-X certificates). Lock signer set = the three hosts'
+   keys. Includes the named refusal (a third party's attestation) and four more: forged signer,
+   coordinator-swapped destination, single record, `--signer-key` on release. Payment asserted as
+   balances at the fresh sealed destinations (both chains).
+   **Mutation reds:** `mutations/X1-a.out` (pinned-set check disabled → `ERROR
+   host-release-third-party-refused`), `mutations/X1-b.out` (payout-identity check disabled → `ERROR
+   host-release-swapped-destination-refused`; the swapped pair then released rc=0). Tree clean after
+   `git apply -R` but the mutation files.
+
+**Merge regression found and fixed first (`f2e24e2`, evidence `1245f77`):** main's 91d9182 made
+`benzo witness sign` recompute the frozen root from the witness's own vault scan, so
+`crosschain/local-demo.sh` aborted at `ERROR witness refused: leaf 0: deposit not in this witness's
+own scan` (`repro/local-demo-cert-before.out`) — its synthetic fixture has no chain to scan, and faking
+the scan would mock a pinned tool. The fixture now signs the same statement with the shipped witness
+primitive (`witness/index.ts`, what the command itself signs); every signature is still verified by the
+attest/checkPublicAuction code under test. Fail-before/pass-after at the same harness: **39/39 PASS**
+(`repro/local-demo-cert-after.out`). The shipped `witness sign` runs on the hosts over their own vault
+scans in live runs (`e2e/lib/hosts.ts` hostWitnessCerts) — unchanged. **Main carries the same
+breakage** (head: fold `f2e24e2` in at the merge).
+
+Commits so far: `f2e24e2` (local-demo cert fix) + `1245f77` (its evidence), `b74a28a` (item 1 code +
+`crosschain/host-attest-demo.{sh,mjs}`), `d969dc0` (item 1 evidence + mutations).
+
+**Item 2 — demo drivers for the three demos (part 2 §2): BUILT + target-chain half DRY-RUN PROVEN** —
+product prerequisite `bafbd7e`, drivers `ec5cb8a`, evidence `2a1303c` + `docs/evidence/phase-5/repro/xchain-escrows-deployed.out`.
+
+1. **`tools/repro/xchain-demos.ts`** (`demo1|demo2|demo3`, `--local` for the dry run):
+   - **demo1 sol-drop**: uniform multi-lot Zcash auction, lots locked in the Solana escrow, winners paid at
+     fresh addresses (fill × lot). SPL-asset variant: Token-2022 CT is the standalone capability
+     (`crosschain/ct-live.sh`, R25 item 5/F6 — the escrow pays native SOL only, escrow-held SPL is future
+     work); the driver's escrow leg is the native-asset escrow.
+   - **demo2 buyback-stealth**: Mode B buyback window, sellers paid on Sepolia through stealth delivery
+     (stipend + canonical ERC-5564 announcement; Railgun stays deferred, R24).
+   - **demo3 otc-sol**: ZEC↔SOL blind OTC whose SOL leg settles through the Solana escrow.
+   Zcash side = the markets.ts scenario engine (child process, its DKG/funding locks) with the auction id
+   pre-bound (`BNZ_MARKETS_ID`) so the escrow **locks before bidding** (crosschain §2). Target-chain side =
+   the shipped `xchain lock/attest/release`; the host attest runs through `e2e/lib/hosts.ts`
+   (`orb run … benzo xchain attest --host-record`, `hostXchainKeys`/`hostXchainAttest`) in live mode.
+2. **Dry run of the target-chain half (local anvil + solana-test-validator, three local signer state dirs
+   standing in for the hosts): 35/35 PASS** — `bash tools/repro/xchain-demos.sh demo1 demo2 demo3`
+   (`repro/xchain-demos-local.out`): demo1 13/13 (incl. `demo1-multilot-shape`, the fill-2 winner paid 2 lots),
+   demo2 11/11 (stealth payouts + stipend + announcement), demo3 11/11. Each demo asserts host records over
+   identical attestation bytes, payouts equal to the result's own `allocations[].fill`, `xchain status
+   --result` tying the escrow's approved result hash to the published `result.json`, and **no Zcash material
+   on the target chain** (every submitted tx fetched and scanned for the run's deposit txids + shielded
+   addresses). **Mutations:** `X2-a` (inflated lot_count → `ERROR demo1-payouts-match-result`), `X2-b` (a
+   deposit txid in the stealth announcement → `ERROR demo2-no-zcash-on-chain`).
+3. **Escrows: already deployed, byte-matching the current builds — no redeploy**
+   (`repro/xchain-escrows-deployed.out`): Sepolia `0x1dc207D5B04C8CFB043d4420054a2219a544dD85`
+   (runtime code == the build, sha efe492f3…); devnet program **`2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu`**
+   (ELF == the build, sha 84fd87b7…). Record correction: run 23 wrote `EYPDHi…` as the devnet program id —
+   that is the **ProgramData address**; the Program Id is `2h6tgr5A…` (the r14 cycle's program-v3-keypair).
+4. **Product fixes the dry run forced** (in `bafbd7e`/item-1 lineage): `xchain attest` now parses the opened
+   order under the **manifest mode's own layout** (gate EN; OTC orders are version 3) instead of a hardcoded
+   version-0 shape — without it demo3's SOL leg could not attest. Regressions at `ec5cb8a`: local-demo
+   **39/39**, host-attest **34/34**, `npm run e2e` **PASS**, typecheck clean.
+5. **markets.ts additive changes only** (Track A's live scenario engine — visible to A at the merge): bids
+   may seal a cross-chain deliver, `BNZ_MARKETS_ID` pre-binds the id, the run keeps `xchain-delivers.json`
+   (harness bidder state beside `refunds.json`), and three `xchain-*` scenarios. No existing scenario
+   changed.
+
+Next: item 3 (mainnet readiness — `settle --network`, classify-address, fixtures), then item 4 (guides).
+
+**Item 3 — mainnet readiness (Reviewer G's G-7): DONE with proof** — code `37ac903`, evidence `e051a70`.
+
+1. **`settle/src/main.rs` takes `--network test|main`** (required, **no default** — a mainnet caller can
+   never silently get testnet behaviour) on every network-dependent command (`create`, `address`,
+   `inspect`, `ufvk-ak`, `owns`), threading `Network::MainNetwork/TestNetwork` through the wallet,
+   UFVK and address decodes. The NU7-expiry straddle guard is testnet-only until the mainnet height is
+   set (R27 item 2). `classify-address` is unchanged (it reports networks itself).
+2. **Every caller passes the network from the signed manifest**: settle worker (`plan` output carries
+   `network`; `settle/cli.ts`/`io.ts`/`sign.ts` thread it), host derive/build/approve (`pub.manifest.network`),
+   witness/ownScan (`benzo-scan` gets the manifest network — the `scan test` literal is gone). Pre-manifest
+   commands (`auction keys`, zcash-sign sessions) use the established `BNZ_NETWORK` source; harness/repro
+   callers pass `test` explicitly (they are testnet fixtures — mechanical arg additions only in A's
+   `e2e/buyback-mode.spec.ts`, see Questions).
+3. **TS `utest1` regexes are network-aware checks**: pure `manifest/schema.ts` `uaShape` (per network:
+   `utest1…`/`u1…`) for escrow/deposit/treasury/funding UAs (also used by `clear/rfq.ts`/`clear/mode-b.ts`),
+   and the Node boundaries check through the audited `benzo-pczt classify-address`
+   (`envelope/destination.ts` `isUnifiedOn` — sign-build's seller routing, auction-keys' derived escrow
+   UA). The pure matcher keeps the offline verify bundle binary-free.
+4. **The manifest schema's `network: "test"` lock stays** — proven still refusing a `network:"main"` manifest.
+5. **Fixtures for mainnet-format addresses**: `tools/repro/g7-network-repro.mjs` **11/11 PASS**
+   (`repro/g7-network.out`) over the official zcash-test-vectors rows — 117 mainnet `u1…` UAs accepted on
+   `main` exactly per the vectors' own `shielded` labels and refused on `test` (and the testnet mirror),
+   the classifier's own network labels, real `uview1…`/`uviewtest1…` UFVKs (pinned zcash-sign) decoded
+   only under their own network (`UFVK is for network Main but we expected Test`), and the
+   missing-`--network` refusals. **Mutation:** `X3-a` (network-blind matcher → `ERROR
+   g7-mainnet-ua-refused-on-test` + the mirror).
+6. **`dist/benzo-verify.mjs` + `docs/verify-bundle.sha256` rebuilt** (`check:bundle` OK `a1a6ea57…` —
+   `envelope/destination.ts` is in the bundle closure). Regressions at `37ac903`: `npm run e2e` PASS 40 s,
+   local-demo **39/39**, xchain-demos **35/35** (the first xchain-demos attempt failed only on chain-boot
+   contention — I had booted two local-chain harnesses in parallel; re-run alone green).
+
+Next: item 4 (guides).
+
+**Item 4 — guides: DONE** — `docs/guide-signer.md` + `docs/guide-operator.md` updated for host
+ custody (per-auction DKG (`benzo sign dkg`), `benzo auction keys --id --group-keys [--ufvk]`, the
+ operator-signer pin (`state/operator-signer.txt`) + first-manifest pin, the approval ledger
+ (txid-keyed, no double pay across batches) and `sign build`/`sign approve`/`sign join`, claims via
+ `sign envelope-opens … --claims` + `benzo claim-refund`), NU7 + `BNZ_LWD_SINGLE` (R27), and the
+ cross-chain host keys (`benzo xchain keygen` per host, `xchain attest --host-record`, coordinator
+ `xchain release --attestation`/`lock`/`refund`/`status`). Every command is shipped with real flags:
+ 34 invocations checked against the router/command `--help` at `37ac903` (`tmp/guide-help.txt`,
+ scratch), 0 missing.
+
+**Batch state: all four items DONE with proof.** Closing checks: `npm run typecheck` clean,
+ `npm run check:bundle` OK (`a1a6ea57…` after the item-3 bundle rebuild), `npm run e2e` PASS 40 s,
+ `crosschain/local-demo.sh` 39/39, `crosschain/host-attest-demo.sh` 34/34,
+ `tools/repro/xchain-demos.sh demo1 demo2 demo3` 35/35, `node tools/repro/g7-network-repro.mjs` 11/11.
+ No mainnet; no VM/orb/frostd-2744/testnet-spend/live-spec activity; no pin changes; no merge/rebase/
+ cherry-pick/push beyond the head-ordered `git merge main` at session start (`970ce70`).
+
+### Test audit (run 30)
+
+No `e2e/` spec added (ceiling 8, 5 used). Checks outside the ceiling (R retain):
+
+| Check | Owns (assertion IDs) | Mutation red |
+|---|---|---|
+| `crosschain/host-attest-demo.mjs` | the 34 `host-*` IDs (keygen/records/release/refusals) | `X1-a` (`host-release-third-party-refused`), `X1-b` (`host-release-swapped-destination-refused`) |
+| `tools/repro/xchain-demos.ts --local` | `demo1-*`/`demo2-*`/`demo3-*` (35 IDs) | `X2-a` (`demo1-payouts-match-result`), `X2-b` (`demo2-no-zcash-on-chain`) |
+| `tools/repro/g7-network-repro.mjs` | the 11 `g7-*` IDs | `X3-a` (`g7-mainnet-ua-refused-on-test` + mirror) |
+| `crosschain/local-demo.mjs` (unchanged assertions) | the 39 `demo-*` IDs | re-green 39/39 after the gate-X cert fix + the item-3 schema change; cheapest mutation `R22-a` covered earlier (`mutations/R22-a-rerun-r28.out`), code touched since = `xchain.ts` attest (mutations X1/X2 exercise that path) |
+
+`e2e/buyback-mode.spec.ts` (head's) got mechanical `--network test` additions at its three
+ benzo-pczt call sites (no assertion changed) — see Questions.
+
+### Questions (this run)
+
+1. **`--host-record` design note (item 1 (b)):** a host attests with its own single envelope key, so
+   the per-leaf ≥2-agreement moves to the coordinator's release (two host records over the identical
+   attestation bytes from 2 distinct pinned signers — two hosts that opened a different deliver cannot
+   agree on the allocation root). The old rule stands unchanged without the flag. If you want a
+   different shape (e.g. records always carry 2 keys), say so under a Ruling and I will change it.
+2. **local-demo fixture certs are signed in-process now** (see above) because `witness sign` requires
+   an own vault scan post-91d9182. If you prefer the fixture drive the command against a real scanned
+   vault, that needs the live testnet lane (not mine per this run's rules).
+3. **item 2 live flow is written but deliberately not run here** (no orb/VM/testnet-spend per this run's
+   rules): `node tmp/xchain-demos.mjs demo1|demo2|demo3` on main drives the real hosts via hosts.ts.
+   The dry run proves the target-chain half; the Zcash scenarios reuse markets.ts unchanged.
+4. **`xchain attest` order layout**: it now honours the mode's layout (OTC v3) — the old hardcoded
+   version-0 check made demo3 impossible. Confirm under a Ruling if you want the check narrowed again.
+5. **I touched two files outside the Track-B lane, mechanically, because item 3 says “passed by every
+   caller”:** `e2e/buyback-mode.spec.ts` (three benzo-pczt call sites got `--network test`; no
+   assertion changed) and `e2e/lib/zcash.ts` (`generateAddress`). Say the word if you want them
+   handled differently.
+6. **`settle/sign.ts`'s in-flight `inspect`** takes the network from `BNZ_NETWORK` — the same source
+   its own zcash-sign call two lines above uses; every manifest-driven product call site passes the
+   manifest's network. `benzo-pczt` has NO default network (it refuses without `--network`), so a
+   forgotten caller fails loudly.
+
+## Previous run (28): Phase 6 Track B documentation and closure — **READY FOR MERGE**
+
+State: **READY FOR MERGE** (updated 2026-10-03T16:5xZ). All four head-message items are DONE with
+proof, plus one merge-regression fix the packaging proof exposed. Closing checks at the fix commit
+`e0ecb63`: `npm run typecheck` clean, `npm run check:bundle` OK (`63d50137…`), `npm run e2e` **PASS
+38 s**, mutation re-runs all red at their expected IDs and green after (table below). No mainnet;
+no other-checkout writes; no merge/rebase/cherry-pick/push; no pin changes.
+
+1. **P0/P1 closure table (item 1): DONE** — `eb02e52`, `docs/evidence/phase-6/closure.md`.
+   Every P0 and P1 named in PHASE-5 Rulings R6–R26 and in the reviewer reports those rulings cite
+   (34 rows in three sections: settlement core, envelopes/claims, cross-chain), each with its
+   ruling, fixing commit(s), the repro or evidence path that proves the fix, and its state.
+   R16 F6 is the accepted limit. Two open items name their owners (cross-chain re-review: head
+   agent; Solana mainnet program form: head agent at Phase 7).
+2. **Mainnet risks list (item 2): DONE** — `e28669b`, `docs/mainnet-risks.md`. The nine required
+   risks, each with why it matters, mitigation and status: cross-chain escrows unreviewed since the
+   reviewer freeze (open, head), Railgun deferred (accepted deferral), Solana upgrade authority
+   (open at mainnet, head), stealth SDK beta (accepted, mitigated), drand/lightwalletd (failover
+   across every `BNZ_DRAND_URLS` endpoint 3 rounds — `7071c42`; lightwalletd retries 4x with
+   backoff — `bb5414e`), signer collusion 2-of-3 (accepted limit, disclosed), settlement scale
+   (`docs/design/phase6-scale.md`, open, gate SC), envelope-key handling on signer hosts (mitigated,
+   disclosed), `zcash_address` swap (closed 2026-10-03).
+3. **Operator, signer and bidder guides (item 3): DONE** — `8d83d67`, `docs/guide-operator.md`,
+   `docs/guide-signer.md`, `docs/guide-bidder.md`. Numbered runbooks; every command line is a
+   shipped `benzo` command with its real flags, checked against `bin/benzo --help` and each
+   command's `--help` at `e28669b` (34 checked invocations; the transcript run is `tmp/guide-help.txt`,
+   scratch). The signer guide covers envelope keys, witness keys and approval; the bidder guide
+   covers sealing, the deposit, `receipt prove`/`receipt statement` and `claim-refund`.
+4. **Packaging, gate PK (item 4): DONE** — code `280edef`, evidence `9d7d185`.
+   `npm run package` → `dist/benzo-0.1.0.tgz` (31,700,092 bytes, 19,656 entries, 112 pinned
+   production packages) with `bin/benzo`, the CLI bundles (`cli/dist`), the browser sealer
+   (`seal/dist`), the verify bundle `dist/benzo-verify.mjs`, `docs/verify-it-yourself.md`,
+   `docs/verify-bundle.sha256`, `README.md` and `package.json`. **sha256
+   `856fae26c44b7466db2690567c5e794f22551c93ffc6da86c7dc25b47f7098df`**
+   (`docs/evidence/phase-6/pk-package.sha256`, `pk-package.out`). A clean extract in /tmp runs
+   `bin/benzo verify --dir auction --signer 302a…` on the shipped Phase 4 evidence **offline**:
+   all 13 checks OK + the expected pre-Phase-5 WARN, `exit=0`
+   (`docs/evidence/phase-6/pk-package-verify.out`). `docs/verify-it-yourself.md`'s hash transcript
+   is refreshed to the shipped bundle (the `pr-a-r10-r20` F7 class-5 finding: the old transcript
+   never matched any shipped bytes).
+
+**Merge regression found and fixed by the PK proof (`e0ecb63`).** At the merged tree (`8d83d67`)
+`benzo verify` on the shipped Phase 4 evidence failed `ERROR accounting-strays refused: party
+deposit:<txid>:<di> is neither a result obligation nor a stray deposit` — A's R26.1 strict
+deposit-party shape rejects the historical identity the immutable Phase 2–5 evidence rows carry
+(`docs/evidence/phase-6/repro/pk-historical-parties-before.out`; after:
+`pk-historical-parties-after.out`, exit 0). Fix: verifier-side acceptance of the historical
+`deposit:<txid>:<di>` identity (`isAnyDepositParty` in `settle/deposits.ts`; writers stay strict at
+`isDepositParty`), so evidence that can never be regenerated keeps verifying. The same rerun
+exposed a second product contradiction: a cancelled-before-freeze auction could never verify a
+stray claim, because R23.1's strays certification requires the witness set while the witness check
+forbade any witness material without a frozen root. Fixed in the same commit: root certificates
+still require a root; the manifest-pinned witness SET may be published without one (it must hash to
+the pin). With those two fixes the `r23-3` fixture (stale after the merge: it predates R23.1's
+strays-statement rule) carries the full witness flow and its three assertions pass **unchanged**;
+`g-forged-claim.mjs`'s memo round-trip line was updated for the v1+v2 parser's object return (one
+line, harness only). Fail-before/pass-after pair at the same harness (`bin/benzo verify` on
+`docs/evidence/phase-4/cli`): `docs/evidence/phase-6/repro/pk-historical-parties-{before,after}.out`.
+
+### Test audit (READY FOR MERGE)
+
+No `e2e/` spec changed (ceiling 8, 5 used; run-25 marks stand). Checks outside the ceiling whose
+covered code changed in `e0ecb63` got their cheapest mutation re-run (rule: a code change re-runs
+the cheapest mutation; run-27 precedent):
+
+| Check | Mark | Owns (assertion IDs) | Code changed since its last mutation run? |
+|---|---|---|---|
+| `tools/repro/r23-3-api-claims-repro.mjs` | R | `r23-3-api-claims-no-beacon`, `r23-3-api-claims-with-beacon`, `r23-3-api-never-500` | yes (`api/public-auction.ts`; fixture repaired, assertions unchanged) — **R23-3a** re-run red at `ERROR r23-3-api-claims-no-beacon` (`docs/evidence/phase-6/mutations/R23-3a-rerun-r28.out`), green 3/3 at the same tree |
+| `tools/repro/r26-3-projection-repro.mjs` | R | the six `r26-3-*` IDs | yes — **R26-3a** re-run red (all four `r26-3-*-diverges`), green 6/6 (`mutations/R26-3a-rerun-r28.out`) |
+| `tools/repro/r15-verify-leaves-repro.mjs` | R | `r15-machine-runs-without-records`, `r15-zero-refund-needs-no-row`, `r15-strangers-refused`, `r15-phase2-4` | yes — **R15-F5** re-run red at `ERROR r15-zero-refund-needs-no-row`, green 4/4 (`mutations/R15-F5-rerun-r28.out`) |
+| `crosschain/local-demo.mjs` | R | the 39 demo IDs (run-25 table) | yes — **R22-a** re-run red at `ERROR demo-attest-swapped-leaf-refused` (38 PASS + the 1 expected failure), green 39/39 (`mutations/R22-a-rerun-r28.out`, `R22-a-rerun-r28-green.out`) |
+| `tools/repro/r26-1-deposit-party-repro.mjs` | R | `r26-1-*` (5 IDs) | yes (`settle/deposits.ts` gained an additive export) — no committed mutation patch (its fail-before is the stashed-fix pair `repro/r26-1-{before,after}.out`); green re-run at the final tree; the asserted writer rules are untouched |
+| `tools/repro/g-forged-claim.mjs` | R | `r23-1-*`, `RESULT FORGED-CLAIM-REFUSED` | yes (claims acceptance widened) — no committed mutation patch (its fail-before is `repro/g-forged-claim-before.out`); green re-run at the final tree after the one-line harness repair |
+| live-state repros `r15-3`, `r16-1`, `r16-4`, `r7-4`, `r7-claims` | R (marks stand) | their `r15-3-*`/`C4`/`F-1`/`C1` IDs | **not re-run**: they need a live dev-auction ledger under `$BNZ_STATE_DIR` (the `3bbfa501…` fixture is gone after the dev-recovery sweeps); their recorded red/green stands at their commits; re-greening needs a fresh live dev auction (Track A's live lane) |
+| `npm run e2e` (default, 5 specs) | run-25 marks stand | — | no spec changed; PASS 38 s at `e0ecb63` |
+
+### Deviations (run 28)
+
+1. `package.json` gained `"version": "0.1.0"` (no Ruling names a version; the tarball name needs
+   one). Say the word and I rename.
+2. The tarball is a build artifact and is **not** committed (31.7 MB): its sha256 is recorded in
+   `docs/evidence/phase-6/pk-package.sha256`, `dist/*.tgz` is gitignored, and `npm run package`
+   rebuilds it from the tree.
+3. The tarball ships the `@playwright/test`/`playwright`/`playwright-core` packages beside the
+   production closure: the CLI bundles import `@playwright/test` at load (the `bid seal` browser
+   sealer) and the router loads every command module. Playwright's browser binaries are **not**
+   shipped: `bid seal` from the extract needs a Playwright browser install; `benzo verify` and
+   every read path run offline as proven.
+4. `tools/repro/g-forged-claim.mjs` (A's file, merged): one harness line repaired for the v1+v2
+   parser's object return (`memoSealedBid(…)?.ciphertext_hex`). No assertion changed.
+
+## Previous run (27): R24 item 3 (iii), R26 item 3, R26 item 2 guard half, gate LA — READY FOR MERGE
 
 State: **READY FOR MERGE** (updated 2026-10-03T14:2xZ). All four head-message items are DONE with
 red/green proof. Closing checks at `ba9753a`: `npm run typecheck` clean, `npm run check:bundle` OK
