@@ -141,9 +141,9 @@ async function main() {
     });
     // 3. Per-auction vault deposit addresses, manifest, sign, publish.
     const vault = path.join(STATE, "vaults", id, "wallet");
-    const addr = () => sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", vault]).split("\n").at(-1)!;
+    const addr = () => sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", vault, "--network", "test"]).split("\n").at(-1)!;
     const deposits = [k.escrow_ua, addr(), addr()];
-    const refunds = Array.from({ length: 4 }, () => sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).split("\n").at(-1)!);
+    const refunds = Array.from({ length: 4 }, () => sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).split("\n").at(-1)!);
     const privateDir = path.join(STATE, "run", `y2-${id}`), publicDir = path.join(ROOT, "tmp/y2/public", id); mkdirSync(privateDir, { recursive: true });
     writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state, for RESUME_ID
     const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));

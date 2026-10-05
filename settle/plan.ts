@@ -262,5 +262,5 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

@@ -69,9 +69,9 @@ export async function run(argv: string[]): Promise<number | object> {
     writeFileSync(candidate, openBlob(readFileSync(sealed), own!), { mode: 0o600 });
 
     // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts).
-    const { expected, payout } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    const { expected, payout, network } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
-    const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id)], { encoding: "utf8" }));
+    const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
     // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
     const recomputed = path.join(packet, "candidate.recomputed.pczt");
     redactCandidate(st, candidate, recomputed, info);

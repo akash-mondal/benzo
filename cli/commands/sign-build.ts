@@ -8,6 +8,7 @@ import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { requireThat } from "../../manifest/schema";
+import { isUnifiedOn } from "../../envelope/destination";
 import { pcztBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
 import { deriveRows, redactCandidate } from "../host-derive";
@@ -34,13 +35,15 @@ export async function run(argv: string[]): Promise<number | object> {
     requireThat(Number.isInteger(meta.expiry_blocks) && meta.expiry_blocks >= 1 && meta.expiry_blocks <= 10000, "packet expiry_blocks");
     const rows: { party: string; kind: string; amount_zats: string }[] = JSON.parse(readFileSync(path.join(packet, "rows.json"), "utf8"));
     requireThat(Array.isArray(rows) && rows.length >= 1 && rows.length <= 28, "rows (1-28)"); // R30: a 28-output batch stays under 100 KB
-    const { expected, payout, envelopeKeys } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    const { expected, payout, envelopeKeys, network } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // Each allocated row gets the recipient THIS signer derived; the seller payout goes to the operator routing UA
     // (stated limit: hosts check its amount against the result, not its address).
     const pool = [...expected];
     const payment = rows.map(r => {
       if (r.party === "seller") {
-        requireThat(r.amount_zats === payout && /^utest1[0-9a-z]+$/.test(meta.seller_ua ?? ""), "seller row differs from the result payout or has no routing UA");
+        // G-7: the routing UA is checked through the audited classifier on the manifest's OWN network (never a
+        // hardcoded testnet shape)
+        requireThat(r.amount_zats === payout && isUnifiedOn(meta.seller_ua ?? "", network), "seller row differs from the result payout or has no routing UA");
         return { party: r.party, recipient: meta.seller_ua as string, amount_zats: r.amount_zats };
       }
       const i = pool.findIndex(e => e.party === r.party && e.amount_zats === r.amount_zats);
@@ -49,11 +52,11 @@ export async function run(argv: string[]): Promise<number | object> {
       return { party: r.party, recipient: e.recipient, amount_zats: r.amount_zats };
     });
     const created = path.join(packet, "created.pczt"), proven = path.join(packet, "proven.pczt");
-    execFileSync(pcztBin(root, st), ["create", vaultDir(st, o.id), created, String(meta.expiry_blocks)], { input: JSON.stringify(payment.map(p => ({ recipient: p.recipient, amount_zats: p.amount_zats }))), encoding: "utf8" });
+    execFileSync(pcztBin(root, st), ["create", vaultDir(st, o.id), created, String(meta.expiry_blocks), "--network", network], { input: JSON.stringify(payment.map(p => ({ recipient: p.recipient, amount_zats: p.amount_zats }))), encoding: "utf8" });
     const prove = spawnSync(path.join(st, "bin", "zcash-devtool"), ["pczt", "-w", vaultDir(st, o.id), "prove", created, "--output", proven], { encoding: "utf8", maxBuffer: 64 << 20 });
     requireThat(prove.status === 0, `prove failed: ${(prove.stderr ?? "").trim().slice(-200)}`);
     // Map each row to its output index by inspecting the proven candidate here (the builder may shuffle actions).
-    const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", proven, ufvkFile(st, o.id)], { encoding: "utf8" }));
+    const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", proven, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
     const avail = (info.outputs ?? []).filter((x: any) => !x.is_change);
     const outputs = payment.map(p => {
       const k = avail.findIndex((x: any) => x.recipient === p.recipient && String(x.amount_zats) === p.amount_zats);

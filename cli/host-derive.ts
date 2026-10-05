@@ -21,7 +21,7 @@ import { modeEntry } from "../clear/registry";
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 // This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
 // retried), then scan it. Used by host approvals/builds and by witnesses recomputing the frozen root (design §5).
-export async function ownScan(st: string, root: string, id: string): Promise<any[]> {
+export async function ownScan(st: string, root: string, id: string, net: string): Promise<any[]> {
   const devtool = path.join(st, "bin", "zcash-devtool"), lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
   for (const verb of ["sync", "enhance"]) {
     for (let attempt = 1; ; attempt++) {
@@ -31,7 +31,7 @@ export async function ownScan(st: string, root: string, id: string): Promise<any
       await new Promise(res => setTimeout(res, 5000 * attempt));
     }
   }
-  return execFileSync(scanBin(root, st), ["scan", "test", vaultDir(st, id)], { encoding: "utf8", maxBuffer: 64 << 20 }).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+  return execFileSync(scanBin(root, st), ["scan", net, vaultDir(st, id)], { encoding: "utf8", maxBuffer: 64 << 20 }).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
 }
 // `source` is the vault note (or sink) a row pays from (Ruling R28 item 3): a leaf is keyed by its frozen deposit's note,
 // a deposit by itself, so one deposit can never be approved twice under two party names.
@@ -49,14 +49,14 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   requireThat(existsSync(gk), "this host holds no DKG share for this auction");
   const group = readFileSync(gk, "utf8").trim(), m = pub.manifest;
   requireThat(m.frost_group_key === group, "manifest frost_group_key is not this host's DKG group key");
-  requireThat(execFileSync(pcztBin(root, st), ["ufvk-ak", ufvkFile(st, id)], { encoding: "utf8" }).trim() === group, "vault UFVK is not this auction's group key");
+  requireThat(execFileSync(pcztBin(root, st), ["ufvk-ak", ufvkFile(st, id), "--network", m.network], { encoding: "utf8" }).trim() === group, "vault UFVK is not this auction's group key");
   for (const a of [m.escrow_ua, ...m.deposit_addresses, ...(treasuryBlock(m) ? [treasuryBlock(m)!.funding_ua] : [])])
-    requireThat(execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, id), a], { encoding: "utf8" }).trim() === "external", `manifest address ${String(a).slice(0, 16)}… is not this vault's`);
+    requireThat(execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, id), a, "--network", m.network], { encoding: "utf8" }).trim() === "external", `manifest address ${String(a).slice(0, 16)}… is not this vault's`);
   if (existsSync(mh)) requireThat(readFileSync(mh, "utf8").trim() === pub.manifest_hash, "a different manifest is pinned for this auction on this host");
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[] }> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string }> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -99,7 +99,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       return null;
     };
     const expected: DerivedRow[] = [];
-    const notes = await ownScan(st, root, o.id);
+    const notes = await ownScan(st, root, o.id, (pub.manifest as any).network);
     const deposits = notes.filter((n: any) => pub.manifest.deposit_addresses.includes(n.address));
     // Ruling R28 item 2 (G-1): every frozen leaf must be a deposit THIS host sees on chain whose memo is that leaf's
     // ciphertext (the witness rule, spent-by-settlement allowed) — a signed but fabricated frozen set pays nobody.
@@ -147,7 +147,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
-    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys };
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network };
 }
 
 // §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and

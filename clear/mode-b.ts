@@ -2,7 +2,7 @@
 // budget and maximum price in the signed manifest. Mirrors clear/core.ts rules, inverted: asks rank ascending (tie by
 // committed leaf index), the uniform price is the highest accepted ask, and the budget caps spend at that price.
 // Every leaf gets exact C back; fees come only from winner payments (PHASE-3 R2). Integers only; no clock or network.
-import { hash, requireThat, validateManifest, verifyRecord, zats, type Manifest, type Signed } from "../manifest/schema";
+import { hash, requireThat, uaShape, validateManifest, verifyRecord, zats, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen } from "./merkle";
 import { effectiveMaxPrice, readOrders, sealedReserve } from "./features";
 import type { ClearBody, ClearInput, SettlementExtras } from "./core";
@@ -30,8 +30,8 @@ export function validatePhase5(m: any): void {
   if (m.buyback !== undefined) {
     requireThat(m.buyback && typeof m.buyback === "object" && !Array.isArray(m.buyback), "buyback parameters");
     requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,funding_ua,max_price_zats,treasury_ua", "buyback field set");
-    const ua = m.network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/;
-    requireThat(ua.test(m.buyback.treasury_ua) && ua.test(m.buyback.funding_ua), "buyback treasury_ua/funding_ua");
+    const ua = (a: unknown) => uaShape(a, m.network);
+    requireThat(ua(m.buyback.treasury_ua) && ua(m.buyback.funding_ua), "buyback treasury_ua/funding_ua");
     requireThat(m.buyback.treasury_ua !== m.buyback.funding_ua && !(m.deposit_addresses ?? []).includes(m.buyback.funding_ua) && !(m.deposit_addresses ?? []).includes(m.buyback.treasury_ua), "buyback funding_ua must be a non-deposit vault address distinct from treasury_ua");
     // Bond-then-pay is buyer-side (a defaulter's bond goes to the seller); a buyback winner is a seller.
     requireThat(m.bond === undefined, "bond-then-pay is auction-side");

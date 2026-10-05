@@ -19,11 +19,11 @@ const vault = path.join(STATE, "vaults", id, "wallet"), pczt = path.join(STATE, 
 const w = path.join(STATE, "settle", id, "r28-replay"); rmSync(w, { recursive: true, force: true }); mkdirSync(w, { recursive: true });
 const created = path.join(w, "created.pczt"), proven = path.join(w, "proven.pczt"), redacted = path.join(w, "candidate.pczt");
 for (let by = Date.now() + 15 * 60_000; ;) {
-  try { sh(pczt, ["create", vault, created, "364"], JSON.stringify([{ recipient, amount_zats: amount }])); break; }
+  try { sh(pczt, ["create", vault, created, "364", "--network", "test"], JSON.stringify([{ recipient, amount_zats: amount }])); break; }
   catch (e) { if (!/InsufficientFunds/.test(String((e as Error)?.message ?? e)) || Date.now() > by) throw e; await new Promise(r => setTimeout(r, 20_000)); for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]); }
 }
 sh(path.join(STATE, "bin/zcash-devtool"), ["pczt", "-w", vault, "prove", created, "--output", proven]);
-redactCandidate(STATE, proven, redacted, JSON.parse(sh(pczt, ["inspect", proven, path.join(STATE, "vaults", id, "ufvk.txt")])));
+redactCandidate(STATE, proven, redacted, JSON.parse(sh(pczt, ["inspect", proven, path.join(STATE, "vaults", id, "ufvk.txt"), "--network", "test"])));
 (m.envelope_keys as string[]).forEach((pub, i) => writeFileSync(path.join(w, `sealed-${NAMES[i]}.bin`), sealBlob(readFileSync(proven), pub)));
 rmSync(proven); rmSync(created); cpSync(publicDir, path.join(w, "public"), { recursive: true });
 writeFileSync(path.join(w, "packet.json"), JSON.stringify({ auction_id: id, batch: 95, plan_version: sha(readFileSync(redacted)), signer: doc.signer }));

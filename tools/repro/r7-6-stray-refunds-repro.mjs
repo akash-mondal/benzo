@@ -28,7 +28,7 @@ const show = (label, r) => console.log(`${label}: ${r.code === 0 ? "accepted" : 
 
 // S1: product routing shape, on a throwaway draft+publish (no chain).
 const randomId = () => execFileSync("node", ["-e", "console.log(require('crypto').randomBytes(32).toString('hex'))"], { encoding: "utf8" }).trim();
-const fresh = () => spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "vault")], { encoding: "utf8" }).stdout.trim();
+const fresh = () => spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "vault"), "--network", "test"], { encoding: "utf8" }).stdout.trim();
 const signerKeys = ["alice", "bob", "carol"].map((n) => JSON.parse(readFileSync(path.join(STATE, "signers", n, "envelope-key.json"), "utf8")).public_hex);
 const deposit = [fresh(), fresh()];
 const id = randomId();

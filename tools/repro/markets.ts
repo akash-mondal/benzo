@@ -21,7 +21,7 @@ const C = 200_000; // part 2: small collateral
 const OUT = path.join(ROOT, "tmp/markets"); mkdirSync(OUT, { recursive: true });
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const json = (p: string) => JSON.parse(readFileSync(p, "utf8"));
-const pczt = path.join(ROOT, "settle/target/release/benzo-pczt"), fresh = (w: string) => sh(pczt, ["address", w]).split("\n").at(-1)!;
+const pczt = path.join(ROOT, "settle/target/release/benzo-pczt"), fresh = (w: string) => sh(pczt, ["address", w, "--network", env("BNZ_NETWORK")]).split("\n").at(-1)!;
 const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, input === undefined ? undefined : JSON.stringify(input)); return out.startsWith("{") || out.startsWith("[") ? JSON.parse(out.split("\n").filter(l => l.startsWith("{") || l.startsWith("[")).at(-1)!) : out; };
 // A failed drand fetch (one killed a live run) reads as round 0, so the wait simply polls again.
 const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/latest`)).json()).round as number}catch{return 0}};

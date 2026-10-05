@@ -36,8 +36,9 @@ export const spendable = (b: Record<string, number>) => b.sapling_spendable + b.
 // Shielded-only fresh address via benzo-pczt (as settle-crash does). The pinned devtool's generate-address
 // requests all receivers and stops once 20 reserved transparent receivers are unused (bidder hit index 40).
 export function generateAddress(name: string): string {
-  const ua = run(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, name)]).trim();
-  if (!/^utest1[0-9a-z]+$/.test(ua)) throw new Error(`benzo-pczt address on ${name} printed no address`);
+  const net = env("BNZ_NETWORK");
+  const ua = run(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, name), "--network", net]).trim();
+  if (!(net === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/).test(ua)) throw new Error(`benzo-pczt address on ${name} printed no address`);
   return ua;
 }
 

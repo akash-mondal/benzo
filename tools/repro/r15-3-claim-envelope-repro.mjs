@@ -73,7 +73,7 @@ const target = notes.find((n) => manifest.deposit_addresses.includes(n.address) 
 if (!target) { console.error("no claimable bid deposit with an owner key"); process.exit(2); }
 const party = `deposit:${target.txid}:${target.diversifier_index}`;
 const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", sourceAuction, sha256(Buffer.from(memoSealedBid(target.memo_hex), "hex")) + ".json"), "utf8")).owner_private_hex;
-const dest = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).out.trim();
+const dest = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim();
 if (!dest.startsWith("utest1")) { console.error(`fresh bidder address unavailable: ${dest}`); process.exit(2); }
 
 // ---- L1: the shipped bidder-side claim request ------------------------------------------------------

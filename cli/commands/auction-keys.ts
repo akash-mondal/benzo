@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requireThat } from "../../manifest/schema";
+import { isUnifiedOn } from "../../envelope/destination";
 import { ROOT, STATE, bin, env, run as execute } from "../../settle/io";
 
 export const noun = "auction", verb = "keys";
@@ -52,7 +53,7 @@ export async function run(argv: string[]): Promise<number | object> {
     const pcztBinPath = process.env.BNZ_PCZT_BIN || path.join(ROOT, "settle/target/release/benzo-pczt");
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const probe = path.join(dir, ".ufvk-check.txt"); writeFileSync(probe, ufvk + "\n", { mode: 0o600 });
-    const ak = execFileSync(pcztBinPath, ["ufvk-ak", probe], { encoding: "utf8" }).trim(); rmSync(probe, { force: true });
+    const ak = execFileSync(pcztBinPath, ["ufvk-ak", probe, "--network", env("BNZ_NETWORK")], { encoding: "utf8" }).trim(); rmSync(probe, { force: true });
     requireThat(ak === groupKey, "UFVK is not spendable by this auction's group key (its ak differs); refusing");
     const tip = Number(JSON.parse(execute(bin("grpcurl"), ["-import-path", path.join(STATE, "proto"), "-proto", "service.proto", "-d", "{}", env("BNZ_LWD_URL"), "cash.z.wallet.sdk.rpc.CompactTxStreamer/GetLatestBlock"])).height);
     requireThat(Number.isSafeInteger(tip) && tip > 10, "lightwalletd tip");
@@ -62,8 +63,9 @@ export async function run(argv: string[]): Promise<number | object> {
     execute(bin("zcash-devtool"), ["wallet", "-w", wallet, "init-fvk", "--name", `vault-${o.id.slice(0, 8)}`, "--fvk", ufvk!, "--birthday", String(tip - 10), "-s", env("BNZ_LWD_URL")]);
     // BNZ_PCZT_BIN (set by the signer-host launcher, no checkout there) overrides the working-tree build, as envelope/destination.ts.
     const pcztBin = process.env.BNZ_PCZT_BIN || path.join(ROOT, "settle/target/release/benzo-pczt");
-    const escrowUa = execFileSync(pcztBin, ["address", wallet], { encoding: "utf8" }).trim().split("\n").at(-1)!;
-    requireThat(/^utest1[0-9a-z]+$/.test(escrowUa), "benzo-pczt printed no escrow UA");
+    const escrowUa = execFileSync(pcztBin, ["address", wallet, "--network", env("BNZ_NETWORK")], { encoding: "utf8" }).trim().split("\n").at(-1)!;
+    // G-7: the derived escrow UA is checked through the audited classifier on this deployment's network
+    requireThat(isUnifiedOn(escrowUa, env("BNZ_NETWORK")), "benzo-pczt printed no escrow UA");
     writeFileSync(path.join(dir, "ufvk.txt"), ufvk + "\n", { mode: 0o600 });
     writeFileSync(keys, JSON.stringify({ auction_id: o.id, group_key: groupKey, escrow_ua: escrowUa, birthday: tip - 10, created_at: Math.floor(Date.now() / 1000) }) + "\n", { mode: 0o600 });
     return { auction_id: o.id, group_key: groupKey, escrow_ua: escrowUa };

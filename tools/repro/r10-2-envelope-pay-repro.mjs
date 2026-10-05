@@ -97,7 +97,7 @@ const manifest = {
   envelope_keys: signerKeys,
 };
 const packet = schema.signRecord(manifest, signerPem);
-const sealedDestination = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).out.trim();
+const sealedDestination = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim();
 if (!sealedDestination.startsWith("utest1")) { console.error(`fresh bidder address unavailable: ${sealedDestination}`); process.exit(2); }
 const sealBid = (i, price, destination) => {
   const prep = bid.prepareBid({ auction_id, price_zats: price, quantity: 1, destination_ua: destination, envelope_public_hexs: destination ? signerKeys : undefined });
@@ -139,8 +139,8 @@ mkdirSync(scratch(`settle/${auction_id}`), { recursive: true });
   const db = new DatabaseSync(scratch(`settle/${auction_id}/ledger.sqlite`));
   db.exec("DELETE FROM obligations"); db.close();
 }
-const sellerUa = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).out.trim();
-const routing = { bidders: deposits.map((n) => ({ deposit_ua: n.address })), seller_ua: sellerUa, fee_reserve_ua: sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder")]).out.trim() };
+const sellerUa = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim();
+const routing = { bidders: deposits.map((n) => ({ deposit_ua: n.address })), seller_ua: sellerUa, fee_reserve_ua: sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim() };
 for (const name of ["alice", "bob", "carol"]) writeFileSync(scratch(`settle/${auction_id}/routing-${name}.json`), JSON.stringify(routing), { mode: 0o600 });
 writeFileSync(scratch(`settle/${auction_id}/routing-commitment.json`), JSON.stringify({ sha256: schema.hash(schema.jsonBytes(routing)), pinned_at: Date.now() }), { mode: 0o600 });
 
@@ -178,7 +178,7 @@ if (plan) {
     const recipient = (party) => party === "seller" ? sellerUa : party === "leaf:0" ? sealedDestination : null;
     const payment = batch.outputs.map((o) => ({ recipient: recipient(o.party), amount_zats: o.amount_zats }));
     const candidate = scratch("candidate.pczt");
-    const created = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "bidder"), candidate, "364"], JSON.stringify(payment));
+    const created = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["create", path.join(STATE, "bidder"), candidate, "364", "--network", "test"], JSON.stringify(payment));
     console.log(`E1 candidate PCZT: ${created.code === 0 ? "created" : `create failed ${created.out.trim().slice(-120)}`}`);
     if (created.code === 0) {
       const check = sh(process.execPath, [path.join(ROOT, "settle/dist/cli.mjs"), "check", auction_id, String(batch.id), candidate, "alice"]);

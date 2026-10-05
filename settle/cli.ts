@@ -19,6 +19,8 @@ const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
+// G-7: every benzo-pczt call takes the network from the signed manifest — never a hardcoded default
+const manifestNet=()=>client(auction().manifest,auction().signer).manifest.network as string;
 type ResolvedRow=Row&{recipient?:string;reason?:string};
 function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envelopes?:Record<string,string>;envelope_agreed?:Record<string,string>}):ResolvedRow[] {
   const route=read(`routing-${name}.json`),observed=notes();
@@ -89,7 +91,7 @@ function check(ledger:Ledger,batch:number,candidate:string,name:string,randomize
     requireThat(obligation&&obligation.amount_zats===row.amount_zats&&obligation.kind===row.kind,"batch row differs from fresh signer clearing");
     return {...row,...obligation};
   });
-  const expected=destinations(independentlyExpected,name,plan).filter(o=>o.recipient),i=inspect(candidate);
+  const expected=destinations(independentlyExpected,name,plan).filter(o=>o.recipient),i=inspect(candidate,manifestNet());
   const outputs=i.outputs.filter((o:any)=>!o.is_change);
   requireThat(outputs.length===expected.length,"PCZT recipient count differs from result");
   const routed:boolean[]=[];
@@ -140,7 +142,7 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   const prior=file(`batch-${batchId}.build.json`);
   if(existsSync(prior)&&existsSync(proven)&&["alice","bob","carol"].every(s=>existsSync(file(`batch-${batchId}.sealed-${s}.bin`)))) {
     const b=JSON.parse(readFileSync(prior,"utf8")),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
-    if(hash(readFileSync(proven))===b.plan_version&&inspect(proven,true).expiry_height>tip+20&&jsonBytes(b.outputs.map((o:any)=>o.party).sort()).equals(jsonBytes(rows.map(r=>r.party).sort())))return b;
+    if(hash(readFileSync(proven))===b.plan_version&&inspect(proven,manifestNet(),true).expiry_height>tip+20&&jsonBytes(b.outputs.map((o:any)=>o.party).sort()).equals(jsonBytes(rows.map(r=>r.party).sort())))return b;
   }
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
@@ -276,11 +278,11 @@ async function worker(ledger:Ledger) {
         {const t0=Date.now();
         await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);
         timing({auction:id,batch:batch.id,phase:"host-build",ms:Date.now()-t0});}
-        guard(inspect(proven,true),JSON.parse(wallet("balance","--json")).chain_tip_height);
+        guard(inspect(proven,manifestNet(),true),JSON.parse(wallet("balance","--json")).chain_tip_height);
       } else {
         const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
-        run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks)],JSON.stringify(payment));
-        const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
+        run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks),"--network",manifestNet()],JSON.stringify(payment));
+        const createdInfo=inspect(created,manifestNet());guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
         await prove(created,proven);
       }
       const tSign=Date.now();
@@ -292,14 +294,14 @@ async function worker(ledger:Ledger) {
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
       const txid=run(bin("zcash-devtool"),["pczt","extract"],readFileSync(signed)).trim().split("\n").at(-1)!;
-      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(custody?inspect(signed,true):routedInspect(inspect(signed),destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient))),{mode:0o600});
+      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(custody?inspect(signed,manifestNet(),true):routedInspect(inspect(signed,manifestNet()),destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient))),{mode:0o600});
     }
     staged=ledger.batch(batch.id)!;
     requireThat(staged.txid&&staged.pczt_path&&staged.pczt_hash===hash(readFileSync(staged.pczt_path)),"stored signed PCZT missing or changed");
     wallet("sync","-s",env("BNZ_LWD_URL"));
     const known=JSON.parse(wallet("list-tx","--json")).find((t:any)=>t.txid===staged.txid);
     if(!known?.mined_height) {
-      const metadata=inspect(staged.pczt_path!,custody),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
+      const metadata=inspect(staged.pczt_path!,manifestNet(),custody),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       if(metadata.expiry_height<=tip) {
         const m=client(auction().manifest,auction().signer).manifest;
         const funding=notes().filter(n=>m.deposit_addresses.includes(n.address)&&n.height>0&&n.height<=metadata.expiry_height&&n.value_zats>0);
@@ -343,7 +345,7 @@ async function worker(ledger:Ledger) {
         await new Promise(r=>setTimeout(r,15000));
       }
     }
-    const i=inspect(staged.pczt_path!,custody);
+    const i=inspect(staged.pczt_path!,manifestNet(),custody);
     if(custody) {
       // G-4: receipts map outputs to parties by the two signing hosts' signed {party, output_index} maps, which must
       // verify against the pinned witness set and agree (same txid, same outputs); the builder's build.json is only a
