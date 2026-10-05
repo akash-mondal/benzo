@@ -16,6 +16,7 @@ import { depositParty, refundable, strayNotes } from "../settle/deposits";
 import { treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
+import { modeEntry } from "../clear/registry";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 // This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
@@ -107,13 +108,16 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const d = pub.frozen!.leaves[i].deposit, n = deposits.find((x: any) => x.txid === d.txid && x.address === d.address && x.diversifier_index === d.diversifier_index);
       return n ? depositParty(n) : `leaf-deposit:${d.txid}:${d.address}`;
     };
-    // Design §6.1: a buyback leaf is owed its exact-C refund plus its payment (obligationsModeB); Mode A leaves are
-    // owed the refund and the payments go to the seller row.
+    // Every registry mode (A13 item 3): each party's amount is the mode's own obligations over the published result —
+    // the same function verify and the coordinator's plan use — so a new mode can't drift from them. Destinations come
+    // only from envelopes/claims (leaves), the routed seller output (`seller`, bound in sign approve) and the signed
+    // buyback treasury; any other party has no host-derivable destination and is never paid by a host.
     const buyback = (pub.manifest as any).clearing?.mode === "buyback";
+    const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, null) : new Map<string, string>();
+    for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party), `obligation ${party} has no host-derivable destination`);
     for (const a of (pub.result as any)?.allocations ?? []) {
-      const owed = BigInt(a.refund_zats ?? "0") + (buyback ? BigInt(a.payment_zats ?? "0") : 0n);
+      const party = `leaf:${a.leaf_index}`, owed = BigInt(owedBy.get(party) ?? "0");
       if (!(owed > 0n)) continue;
-      const party = `leaf:${a.leaf_index}`;
       const rec = validEnvelope(view, a.leaf_index);
       const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: owed.toString(), source: leafSource(a.leaf_index) });
@@ -134,7 +138,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     }
     // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the
     // signed treasury_ua/funding_ua and this signer's own scan.
-    const payout = buyback || cancelled ? "0" : String((pub.result as any).conservation?.payout_zats ?? "0");
+    const payout = cancelled ? "0" : owedBy.get("seller") ?? "0";
     if (buyback) {
       // Ruling R28 item 7 (F6): a cleared buyback settles only if the treasury funded budget × lots, confirmed — the same
       // rule as `open`, checked here from this host's own scan.
