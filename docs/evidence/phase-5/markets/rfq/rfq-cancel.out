@@ -1,0 +1,12 @@
+[resume 2c4ff3a3] state CLEARED
+[resume 2c4ff3a3] settle exit 0; receipts {"leaf:0":200000,"leaf:1":200000,"treasury":500}; obligations {"leaf:0":200000,"leaf:1":200000}
+[resume 2c4ff3a3] RESULT PASS (verify exit 0)
+[rfq-cancel] auction 2c4ff3a3644884af1b6fa9157aff3d52f74540649fde843bc1ce81cf229422d8 mode rfq
+[rfq-cancel] funding 39a022500120a4c8ac38373b279ebcef3905a1b3269e9c54e24bada988c023c8
+[rfq-cancel] PASS rfq-cancel-cli-equals-pure-clear outcomes cancelled,not_allowlisted price 0
+[rfq-cancel] PASS rfq-cancel-expected-equals-obligations {"leaf:0":200000,"leaf:1":200000}
+[rfq-cancel] ERROR rfq-cancel-settled exit 1
+[rfq-cancel] ERROR rfq-cancel-receipts {}
+[rfq-cancel] ERROR rfq-cancel-landed [0,0,0]
+[rfq-cancel] PASS rfq-cancel-cold-verify
+[rfq-cancel] RESULT FAIL rfq-cancel
