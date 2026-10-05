@@ -16,6 +16,7 @@ clear/dist/
 settle/dist/
 cli/dist/
 dist/*.tgz
+dist/*.sha256
 api/dist/
 contracts/evm/out/
 contracts/evm/cache/
