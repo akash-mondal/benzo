@@ -9,7 +9,7 @@
 // attacker-minted tlock ciphertext to that round carrying an attacker owner key, then runs the shipped
 // checkPublicAuction. PASS-forged = zero errors with the forged claim; control = tampered owner_sig errors.
 //
-// Copied read-only from /Users/akshmnd/Dev Projects/benzo-sol-g/tests/g-forged-claim.mjs (Reviewer G's lab).
+// Copied read-only from ~/Dev Projects/benzo-sol-g/tests/g-forged-claim.mjs (Reviewer G's lab).
 // Adaptations (nothing else changed): ROOT is this repo (git toplevel), and the forged claim's party uses
 // the R26 item 1 output-position identity (deposit:<txid>:<pool>:<action_index>) so the corpus matches the
 // current code's party shape — G's diversifier-index party is now refused at `claim N party` in every tree.
