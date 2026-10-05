@@ -1,0 +1,15 @@
+auction 39c995e586a2b95973650a9bc7379c38236ed10be48d21bdc29b09fbe8d7b2d7 mode uniform
+funding dc5179953d2af7c3b4eb5459a0ac86487bc978c08d164e8502e46429fc29fec4
+PASS drop-cli-equals-pure-clear outcomes winner,unfilled,winner,below_reserve price 0
+balance addresses 0:utest1933pl2jv6j… 2:utest1ax6rcdpznj…
+balance paid 300000 for leaf 0 (2648d6a8e0d3b8a30087ec7d69f81b9155cf001aa9322bb14c68a32fccdeceb6)
+balance window closed at height 4468193 (clear 4468181 + 10)
+PASS drop-expected-equals-obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+PASS drop-settled exit 0
+PASS drop-receipts {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+PASS drop-landed [0,200000,0,200000,0]
+PASS drop-cold-verify
+PASS drop-defaults [2]
+PASS drop-seller-landed 700000
+PASS drop-serial-replay-enforced exit 1
+RESULT PASS drop
