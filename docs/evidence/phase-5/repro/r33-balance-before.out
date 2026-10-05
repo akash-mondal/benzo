@@ -1,0 +1,9 @@
+commit cf476b79dec5551c4dc8e13cf664538ca08db9f9 (working tree not clean at run time)
+utc 2026-10-05T20:47:40.598Z
+command node tmp/r33-balance.mjs (tools/repro/r33-balance.ts)
+tree ?? docs/evidence/phase-5/repro/r33-balance-before.out
+tree ?? tools/repro/r33-balance.ts
+api operator clear_height (pre-R33)
+FAIL case1 expected [0] got []
+FAIL case2 expected [] got [0,1]
+RESULT FAIL r33-balance
