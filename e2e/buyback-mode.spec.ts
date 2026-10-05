@@ -128,7 +128,12 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     const attack=(tag:string,batch:number,payments:{recipient:string;amount_zats:string}[],o:{full?:(file:string)=>string;pub?:(dir:string)=>void;signer?:string}={})=> {
       const w=path.join(STATE,'settle',id,tag);rmSync(w,{recursive:true,force:true});mkdirSync(w,{recursive:true});
       const created=path.join(w,'created.pczt'),proven=path.join(w,'proven.pczt'),redacted=path.join(w,'candidate.pczt');
-      sh(pcztBin,['create',vault,created,'364'],JSON.stringify(payments));
+      // After a settlement the vault's leftover reserve is fresh change; wait (re-syncing) until it can fund the candidate.
+      for(let by=Date.now()+15*60_000;;) {
+        try{sh(pcztBin,['create',vault,created,'364'],JSON.stringify(payments));break}
+        catch(e){if(!/InsufficientFunds/.test(String((e as Error)?.message??e))||Date.now()>by)throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,20_000);
+          for(const v of ['sync','enhance'])z.run(path.join(STATE,'bin/zcash-devtool'),['wallet','-w',vault,v,'-s',env('BNZ_LWD_URL')])}
+      }
       sh(path.join(STATE,'bin/zcash-devtool'),['pczt','-w',vault,'prove',created,'--output',proven]);
       const info=JSON.parse(sh(pcztBin,['inspect',proven,path.join(STATE,'vaults',id,'ufvk.txt')])),full=o.full?o.full(proven):proven;
       redactCandidate(STATE,proven,redacted,info);
