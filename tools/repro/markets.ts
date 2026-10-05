@@ -137,9 +137,30 @@ async function run(name: string) {
   return ok;
 }
 
+// `resume:<id>`: finish an existing frozen product auction whose run stopped (certificates, open, clear, envelope-opens,
+// settle — whichever is still missing), then check receipts against the registry's obligations and cold-verify.
+async function resume(id: string) {
+  const say = (s: string) => console.log(`[resume ${id.slice(0, 8)}] ${s}`);
+  const cfg = json(path.join(STATE, "product", `${id}.json`)), publicDir = path.resolve(cfg.public_dir), doc = () => json(path.join(publicDir, "auction.json"));
+  const signer = doc().signer, m = JSON.parse(Buffer.from(doc().manifest.bytes, "base64").toString("utf8")), stateOf = () => benzo(["auction", "status", "--id", id]).state as string;
+  say(`state ${stateOf()}`);
+  if ((doc().witness_cert ?? []).length < 2) hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
+  while ((await latestRound()) < m.drand.R) await sleep(10_000);
+  if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
+  if (stateOf() === "OPENED") benzo(["clear", "--id", id]);
+  hostEnvelopeOpens(id, publicDir);
+  const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
+  const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
+  const owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(doc().manifest).obligations(doc().result, null)].map(([p, v]) => [p, Number(v)]));
+  const ok = settle.status === 0 && Object.entries(owed).every(([p, v]) => receipts[p] === v);
+  say(`settle exit ${settle.status}; receipts ${JSON.stringify(receipts)}; obligations ${JSON.stringify(owed)}`);
+  const v = spawnSync(benzoBin, ["verify", "--dir", publicDir, "--signer", signer], { encoding: "utf8" });
+  say(`${ok && v.status === 0 ? "RESULT PASS" : "RESULT FAIL"} (verify exit ${v.status})`);
+  return ok && v.status === 0;
+}
 const frostd = spawn(path.join(STATE, "bin/frostd"), ["-i", "127.0.0.1", "-p", env("BNZ_FROSTD_ADDR").split(":").at(-1)!, "-c", path.join(STATE, "tls/frostd.pem"), "-k", path.join(STATE, "tls/frostd.key")], { stdio: "ignore" });
 await sleep(2000);
 let all = true;
-try { for (const n of process.argv.slice(2)) { try { all = (await run(n)) && all; } catch (e) { console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
+try { for (const n of process.argv.slice(2)) { try { all = (n.startsWith("resume:") ? await resume(n.slice(7)) : await run(n)) && all; } catch (e) { console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
 finally { frostd.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `benzo-${n}`]); }
 process.exitCode = all ? 0 : 1;
