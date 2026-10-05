@@ -15806,7 +15806,9 @@ var registry = {
   }
 };
 function modeEntry(packet) {
-  const m2 = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8"));
+  const raw2 = typeof packet?.bytes === "string" ? Buffer.from(packet.bytes, "base64") : Buffer.alloc(0);
+  requireThat(typeof packet?.bytes === "string" && raw2.toString("base64") === packet.bytes && hash(raw2) === packet.sha256, "manifest byte hash");
+  const m2 = JSON.parse(raw2.toString("utf8"));
   const mode = m2?.clearing?.mode;
   requireThat(typeof mode === "string" && registry[mode] !== void 0, `unknown clearing mode ${String(mode)}`);
   return registry[mode];

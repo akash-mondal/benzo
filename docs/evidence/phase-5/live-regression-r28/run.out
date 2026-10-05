@@ -1,0 +1,5 @@
+vault live notes: 0
+ERROR P1 Error: expect(received).toContain(expected) // indexOf | Expected substring: "manifest byte hash" | Received string:    "ERROR benzo Expected property name or '}' in JSON at position 1 (line 1 column 2) | "
+development cleanup 72940638f4ec920586dd7f1cd27c697ed0d4381a2ab869e7afeb0c950ce73740
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (4829 s)
+exit=1
