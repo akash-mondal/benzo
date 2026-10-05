@@ -144,7 +144,8 @@ async function signParallelHost(sighash: string, randomizers: string[], pair: st
   const timer = setTimeout(abort, 300_000);
   try {
     // Every session exists before a host lists them.
-    await Promise.all(coordinators.map(c => when(c, "Waiting for participants to send their commitments")));
+    try { await Promise.all(coordinators.map(c => when(c, "Waiting for participants to send their commitments"))); }
+    catch (e) { const f = new Error(`host coordinator setup on ${pair[0]}: ${(e as Error).message}`) as Error & { failedSigners?: string[] }; f.failedSigners = [pair[0]]; throw f; }
     const participants = pair.map(n => orb(n, [`${H}/bin/benzo`, "sign", "join", "--id", custody.id, "--name", n, "--sighash", sighash, "--count", String(randomizers.length), "--server", custody.server]));
     all.push(...participants);
     participants.forEach((p, i) => p.done.then(code => { if (code !== 0 && !aborted) { failed.push(pair[i]); abort(); } }));
@@ -156,11 +157,13 @@ async function signParallelHost(sighash: string, randomizers: string[], pair: st
       e.failedSigners = failed.length ? failed : [pair[0]];
       throw e;
     }
-    const saw = participants.map(p => [...p.out.matchAll(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/g)].map(m => m[1]));
+    // The N joins on a host share one stdout, so a message cannot be tied to session k: a participant is recorded as
+    // having seen the sighash only if it printed it for every session and nothing else (R29 review P2).
+    const saw = participants.map(p => { const m = [...p.out.matchAll(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/g)].map(x => x[1]); return m.length === randomizers.length && m.every(x => x === sighash) ? sighash : ""; });
     return coordinators.map((c, k) => {
       const sigs = c.out.match(/^[0-9a-f]{128}$/gm);
       if (!sigs) throw new Error(`host coordinator ${k} printed no signature`);
-      return { signers, sighash, randomizer: randomizers[k], signature: sigs[sigs.length - 1], participantsSaw: saw.map(s => s[k] ?? s[0] ?? ""), coordinator_started_at, duration_ms: Date.now() - started };
+      return { signers, sighash, randomizer: randomizers[k], signature: sigs[sigs.length - 1], participantsSaw: saw, coordinator_started_at, duration_ms: Date.now() - started };
     });
   } catch (e) { abort(); throw e; } finally { clearTimeout(timer); }
 }

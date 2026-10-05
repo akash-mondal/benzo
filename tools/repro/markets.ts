@@ -32,7 +32,7 @@ async function takeLock(lock: string, staleMs: number) {
 function dropLock(lock: string) { rmSync(lock, { recursive: true, force: true }); held.delete(lock); }
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
 type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number };
-type Scenario = { mode: string; supply?: number; treasury?: number; extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
+type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
   // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
   // an outcome assertion (`outcomes`) on that result.
   expect?: (refunds: string[]) => Record<string, number>; outcomes?: (o: string[]) => boolean };
@@ -62,6 +62,9 @@ const SCENARIOS: Record<string, Scenario> = {
     bids: o => [{ price: 400, owner: o.A }, { price: 200, owner: o.X }], expect: () => ({ "leaf:0": C, "leaf:1": C, treasury: 500 }) },
   // Phase 6 measure-first: one uniform auction with 8 bids (8 deposit spends in the batch), for per-session timing.
   "scale-8": { mode: "uniform", supply: 4, extra: () => ({ q_max: 1 }), bids: () => [300, 290, 280, 270, 260, 250, 240, 230].map(price => ({ price })) },
+  // Phase 6 option B (R30): 27 bids + the seller = 28 outputs and 28 spends (27 deposits + the fee reserve) in ONE batch at
+  // batch_cap 28, the largest batch under 100 KB; the reserve covers the 28-action fee (140,000 zats).
+  "scale-27": { mode: "uniform", supply: 13, batch_cap: 28, reserve: 200_000, extra: () => ({ q_max: 1 }), bids: () => Array.from({ length: 27 }, (_, i) => ({ price: 400 - 5 * i })) },
   "revision": { mode: "uniform", owners: ["reviser"], extra: () => ({}),
     bids: o => [{ price: 200, owner: o.reviser }, { price: 250 }, { price: 300, owner: o.reviser }],
     outcomes: o => o[0] === "superseded" && o[2] === "winner" && o[1] !== "winner" },
@@ -93,7 +96,7 @@ async function run(name: string) {
   writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
-  writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
+  writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: sc.batch_cap ?? 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
   // One bidder wallet funds every scenario: parallel harness processes take turns (a lock dir, stale after 40 min),
   // taken BEFORE the manifest's deadlines are set and held until the funding matured.
   const lock = path.join(STATE, "run", "markets-fund.lock");
@@ -107,7 +110,7 @@ async function run(name: string) {
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
   writeFileSync(path.join(privateDir, "sealed.json"), JSON.stringify(sealed));
-  let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
+  let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: String(sc.reserve ?? 60000) }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
     say(`funding ${paid.txid}`);
   for (let h = 0; ; await sleep(30_000)) {
     // A transient endpoint error (live: "tls handshake eof") is retried on the next poll, never fatal.

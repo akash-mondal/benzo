@@ -118,7 +118,7 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(id&&o.dir&&o.config,'--id --dir --config required');
     const d=read(draft(id));requireThat(d.signed,'sign the manifest first');
     const cfg=read(privatePath(o.config));requireThat(cfg.settlement&&cfg.routing,'operator config needs settlement and private routing');
-    requireThat(Number.isInteger(cfg.settlement.batch_cap)&&cfg.settlement.batch_cap>=1&&cfg.settlement.batch_cap<=13&&Number.isInteger(cfg.settlement.pczt_expiry_blocks)&&cfg.settlement.pczt_expiry_blocks>=1&&cfg.settlement.pczt_expiry_blocks<=10000,'batch cap/expiry config');
+    requireThat(Number.isInteger(cfg.settlement.batch_cap)&&cfg.settlement.batch_cap>=1&&cfg.settlement.batch_cap<=28&&Number.isInteger(cfg.settlement.pczt_expiry_blocks)&&cfg.settlement.pczt_expiry_blocks>=1&&cfg.settlement.pczt_expiry_blocks<=10000,'batch cap/expiry config');
     save(config(id),{...cfg,public_dir:path.resolve(o.dir)});
     // R7 item 2: no envelope private key is ever created or held by the operator. The signed manifest pins the
     // signers' public keys (envelope_keys); the signers keep their private halves in their own state dirs.
@@ -339,13 +339,14 @@ export async function runCommand(command:string,args:string[]) {
       const server=o.server??process.env.BNZ_FROSTD_HOST??'host.orb.internal:2744';
       const cfg=path.join(STATE,'auctions',id,'frost.toml'),group=readFileSync(path.join(STATE,'auctions',id,'group-key.txt'),'utf8').trim();
       const env={...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')};
+      const procs:ReturnType<typeof spawn>[]=[];
       const join=(session?:string)=>new Promise<void>((resolve,reject)=>{
         const p=spawn(bin('frost-client'),['participant','-c',cfg,'-s',server,'-g',group,...(session?['-S',session]:[])],{stdio:['pipe','pipe','pipe'],env});
         let out='',answered=false;
         const watch=(d:Buffer)=>{out+=d;process.stdout.write(d);const m=out.match(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/);
           if(!answered&&m&&/Do you want to sign it\? \(y\/n\)/.test(out)){answered=true;p.stdin!.end(m[1]===o.sighash?'y\n':'n\n');if(m[1]!==o.sighash)process.stderr.write(`ERROR sign join message ${m[1].slice(0,16)}… is not the approved sighash; refused\n`)}};
         p.stdout!.on('data',watch);p.stderr!.on('data',(d:Buffer)=>{process.stderr.write(d);watch(d)});
-        p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
+        procs.push(p);p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
       if(o.count===undefined){await join();return}
       // Phase 6 (R29): one single-message session per spend, all open at once (frost-client signs only the first
       // message of a session, so a multi-message session is never used). This host joins exactly the spend count
@@ -354,7 +355,8 @@ export async function runCommand(command:string,args:string[]) {
       const listed=spawnSync(bin('frost-client'),['sessions','-c',cfg,'-s',server],{encoding:'utf8',env,timeout:120_000});
       const ids=[...String(listed.stderr).matchAll(/^Session with ID ([0-9a-f-]{36})$/gm)].map(m=>m[1]);
       requireThat(listed.status===0&&ids.length===Number(o.count),`${ids.length} open sessions, expected ${o.count}`);
-      await Promise.all(ids.map(join));
+      // One refused or failed session ends this host's part in the round: stop the other joins too.
+      try{await Promise.all(ids.map(join))}catch(e){procs.forEach(p=>p.kill());throw e}
       return;
     }
     if(command==='sign join'&&o.name) {

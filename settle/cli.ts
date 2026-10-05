@@ -1,6 +1,6 @@
 // CLI coordinator. Signer routing is private, pinned before funding; no recipient input is accepted at run/sign time.
 import {copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,writeFileSync} from "node:fs";
-import {spawnSync} from "node:child_process";
+import {spawn,spawnSync} from "node:child_process";
 import path from "node:path";
 import {hash,jsonBytes,requireThat,verifyRecord} from "../manifest/schema";
 import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
@@ -186,14 +186,33 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const failed=new Set<string>(),events:any[]=[],maps:Record<string,any>={};
-  const approve=(n:string):boolean=>{
+  // Phase 6: the hosts approve in parallel (each derives and checks on its own machine; ~20 s each, serial before).
+  const orbAsync=(args:string[],timeout=0)=>new Promise<{status:number|null;stdout:string;stderr:string}>(resolve=>{
+    const c=spawn("orb",args);let stdout="",stderr="";c.stdout.on("data",d=>stdout+=d);c.stderr.on("data",d=>stderr+=d);
+    const t=timeout?setTimeout(()=>c.kill(),timeout):undefined;
+    c.on("error",e=>{stderr+=String(e);});c.on("close",code=>{if(t)clearTimeout(t);resolve({status:code,stdout,stderr})});
+  });
+  // frostd lets only a session's coordinator close it, and `sessions --close-all` stops at the first session the host
+  // may not close; so every host (the failed one too, best effort) runs it, in rounds, until none lists a session
+  // (R29 review P1). Hosts share one contact key across auctions, so this also clears other auctions' leftovers.
+  const closeStale=()=>{
+    for(let round=0;round<4;round++){
+      let open=0;
+      for(const n of ["alice","bob","carol"]){
+        const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000});
+        if(r.status!==0)open++; // exit 0: every session it listed was closed
+      }
+      if(!open)return;
+    }
+  };
+  const approve=async(n:string):Promise<boolean>=>{
     const remote=`packet-${id.slice(0,16)}-${batchId}`;
-    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{encoding:"utf8",timeout:120_000});
+    const r=await orbAsync(["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],120_000);
     if(r.status!==0){events.push({signer:n,approve:"unreachable"});return false}
     if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
+    await orbAsync(["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],120_000);
     const tA=Date.now();
-    const a=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20}); // host sync logs can pass the 1 MiB default
+    const a=await orbAsync(["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n]);
     timing({auction:id,batch:batchId,phase:"host-approve",signer:n,ms:Date.now()-tA,ok:a.status===0});
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
     if(a.status===0){try{maps[n]=JSON.parse(a.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!).map??null}catch{maps[n]=null}}
@@ -202,11 +221,13 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   };
   for(let attempt=1;attempt<=3;attempt++) {
     const pair:string[]=[];
-    for(const n of prefer){if(pair.length===2)break;if(failed.has(n))continue;if(approve(n))pair.push(n);else failed.add(n)}
+    const pool=prefer.filter(n=>!failed.has(n));
+    while(pair.length<2&&pool.length){const take=pool.splice(0,2-pair.length),ok=await Promise.all(take.map(approve));take.forEach((n,i)=>ok[i]?pair.push(n):failed.add(n))}
+    pair.sort((a,b)=>prefer.indexOf(a)-prefer.indexOf(b)); // the first preferred approving host coordinates
     requireThat(pair.length===2,`fewer than two signer hosts approve batch ${batchId}`);
     // Under the signing lock no other round is live, so any session a host still has is stale (an abandoned round of
-    // this or another auction) and would make frost-client refuse to join: close them all on the pair first.
-    for(const n of pair)spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000});
+    // this or another auction) and would make a join see the wrong session count: close them all first.
+    closeStale();
     try {
       const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server});
       writeFileSync(file(`batch-${batchId}.custody.json`),jsonBytes({pair,events,attempts:attempt}),{mode:0o600});
@@ -218,9 +239,9 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
       console.error(`ERROR signing session abandoned (batch ${batchId}, pair ${pair.join("+")}, failed ${lost.join(",")||"?"}); re-planning with the next approving host`);
       for(const n of lost)failed.add(n);
       if(!lost.length)throw e;
-      // frostd keeps the abandoned session; a survivor would then be in two sessions and refuse to join. Close every
-      // lingering session of this auction on the surviving hosts before re-planning.
-      for(const n of prefer.filter(n=>!failed.has(n)))spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8"});
+      // frostd keeps the abandoned sessions (24 h); a survivor would then list too many and refuse to join. Close them
+      // on every reachable host — including a failed coordinator, the only one frostd lets close its sessions.
+      closeStale();
     }
   }
   throw Error(`batch ${batchId} could not be signed by two hosts`);
