@@ -3,7 +3,98 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (27): R24 item 3 (iii), R26 item 3, R26 item 2 guard half, gate LA — **READY FOR MERGE**
+## Current run (28): Phase 6 Track B documentation and closure — **READY FOR MERGE**
+
+State: **READY FOR MERGE** (updated 2026-10-03T16:5xZ). All four head-message items are DONE with
+proof, plus one merge-regression fix the packaging proof exposed. Closing checks at the fix commit
+`e0ecb63`: `npm run typecheck` clean, `npm run check:bundle` OK (`63d50137…`), `npm run e2e` **PASS
+38 s**, mutation re-runs all red at their expected IDs and green after (table below). No mainnet;
+no other-checkout writes; no merge/rebase/cherry-pick/push; no pin changes.
+
+1. **P0/P1 closure table (item 1): DONE** — `eb02e52`, `docs/evidence/phase-6/closure.md`.
+   Every P0 and P1 named in PHASE-5 Rulings R6–R26 and in the reviewer reports those rulings cite
+   (34 rows in three sections: settlement core, envelopes/claims, cross-chain), each with its
+   ruling, fixing commit(s), the repro or evidence path that proves the fix, and its state.
+   R16 F6 is the accepted limit. Two open items name their owners (cross-chain re-review: head
+   agent; Solana mainnet program form: head agent at Phase 7).
+2. **Mainnet risks list (item 2): DONE** — `e28669b`, `docs/mainnet-risks.md`. The nine required
+   risks, each with why it matters, mitigation and status: cross-chain escrows unreviewed since the
+   reviewer freeze (open, head), Railgun deferred (accepted deferral), Solana upgrade authority
+   (open at mainnet, head), stealth SDK beta (accepted, mitigated), drand/lightwalletd (failover
+   across every `BNZ_DRAND_URLS` endpoint 3 rounds — `7071c42`; lightwalletd retries 4x with
+   backoff — `bb5414e`), signer collusion 2-of-3 (accepted limit, disclosed), settlement scale
+   (`docs/design/phase6-scale.md`, open, gate SC), envelope-key handling on signer hosts (mitigated,
+   disclosed), `zcash_address` swap (closed 2026-10-03).
+3. **Operator, signer and bidder guides (item 3): DONE** — `8d83d67`, `docs/guide-operator.md`,
+   `docs/guide-signer.md`, `docs/guide-bidder.md`. Numbered runbooks; every command line is a
+   shipped `benzo` command with its real flags, checked against `bin/benzo --help` and each
+   command's `--help` at `e28669b` (34 checked invocations; the transcript run is `tmp/guide-help.txt`,
+   scratch). The signer guide covers envelope keys, witness keys and approval; the bidder guide
+   covers sealing, the deposit, `receipt prove`/`receipt statement` and `claim-refund`.
+4. **Packaging, gate PK (item 4): DONE** — code `280edef`, evidence `9d7d185`.
+   `npm run package` → `dist/benzo-0.1.0.tgz` (31,700,092 bytes, 19,656 entries, 112 pinned
+   production packages) with `bin/benzo`, the CLI bundles (`cli/dist`), the browser sealer
+   (`seal/dist`), the verify bundle `dist/benzo-verify.mjs`, `docs/verify-it-yourself.md`,
+   `docs/verify-bundle.sha256`, `README.md` and `package.json`. **sha256
+   `856fae26c44b7466db2690567c5e794f22551c93ffc6da86c7dc25b47f7098df`**
+   (`docs/evidence/phase-6/pk-package.sha256`, `pk-package.out`). A clean extract in /tmp runs
+   `bin/benzo verify --dir auction --signer 302a…` on the shipped Phase 4 evidence **offline**:
+   all 13 checks OK + the expected pre-Phase-5 WARN, `exit=0`
+   (`docs/evidence/phase-6/pk-package-verify.out`). `docs/verify-it-yourself.md`'s hash transcript
+   is refreshed to the shipped bundle (the `pr-a-r10-r20` F7 class-5 finding: the old transcript
+   never matched any shipped bytes).
+
+**Merge regression found and fixed by the PK proof (`e0ecb63`).** At the merged tree (`8d83d67`)
+`benzo verify` on the shipped Phase 4 evidence failed `ERROR accounting-strays refused: party
+deposit:<txid>:<di> is neither a result obligation nor a stray deposit` — A's R26.1 strict
+deposit-party shape rejects the historical identity the immutable Phase 2–5 evidence rows carry
+(`docs/evidence/phase-6/repro/pk-historical-parties-before.out`; after:
+`pk-historical-parties-after.out`, exit 0). Fix: verifier-side acceptance of the historical
+`deposit:<txid>:<di>` identity (`isAnyDepositParty` in `settle/deposits.ts`; writers stay strict at
+`isDepositParty`), so evidence that can never be regenerated keeps verifying. The same rerun
+exposed a second product contradiction: a cancelled-before-freeze auction could never verify a
+stray claim, because R23.1's strays certification requires the witness set while the witness check
+forbade any witness material without a frozen root. Fixed in the same commit: root certificates
+still require a root; the manifest-pinned witness SET may be published without one (it must hash to
+the pin). With those two fixes the `r23-3` fixture (stale after the merge: it predates R23.1's
+strays-statement rule) carries the full witness flow and its three assertions pass **unchanged**;
+`g-forged-claim.mjs`'s memo round-trip line was updated for the v1+v2 parser's object return (one
+line, harness only). Fail-before/pass-after pair at the same harness (`bin/benzo verify` on
+`docs/evidence/phase-4/cli`): `docs/evidence/phase-6/repro/pk-historical-parties-{before,after}.out`.
+
+### Test audit (READY FOR MERGE)
+
+No `e2e/` spec changed (ceiling 8, 5 used; run-25 marks stand). Checks outside the ceiling whose
+covered code changed in `e0ecb63` got their cheapest mutation re-run (rule: a code change re-runs
+the cheapest mutation; run-27 precedent):
+
+| Check | Mark | Owns (assertion IDs) | Code changed since its last mutation run? |
+|---|---|---|---|
+| `tools/repro/r23-3-api-claims-repro.mjs` | R | `r23-3-api-claims-no-beacon`, `r23-3-api-claims-with-beacon`, `r23-3-api-never-500` | yes (`api/public-auction.ts`; fixture repaired, assertions unchanged) — **R23-3a** re-run red at `ERROR r23-3-api-claims-no-beacon` (`docs/evidence/phase-6/mutations/R23-3a-rerun-r28.out`), green 3/3 at the same tree |
+| `tools/repro/r26-3-projection-repro.mjs` | R | the six `r26-3-*` IDs | yes — **R26-3a** re-run red (all four `r26-3-*-diverges`), green 6/6 (`mutations/R26-3a-rerun-r28.out`) |
+| `tools/repro/r15-verify-leaves-repro.mjs` | R | `r15-machine-runs-without-records`, `r15-zero-refund-needs-no-row`, `r15-strangers-refused`, `r15-phase2-4` | yes — **R15-F5** re-run red at `ERROR r15-zero-refund-needs-no-row`, green 4/4 (`mutations/R15-F5-rerun-r28.out`) |
+| `crosschain/local-demo.mjs` | R | the 39 demo IDs (run-25 table) | yes — **R22-a** re-run red at `ERROR demo-attest-swapped-leaf-refused` (38 PASS + the 1 expected failure), green 39/39 (`mutations/R22-a-rerun-r28.out`, `R22-a-rerun-r28-green.out`) |
+| `tools/repro/r26-1-deposit-party-repro.mjs` | R | `r26-1-*` (5 IDs) | yes (`settle/deposits.ts` gained an additive export) — no committed mutation patch (its fail-before is the stashed-fix pair `repro/r26-1-{before,after}.out`); green re-run at the final tree; the asserted writer rules are untouched |
+| `tools/repro/g-forged-claim.mjs` | R | `r23-1-*`, `RESULT FORGED-CLAIM-REFUSED` | yes (claims acceptance widened) — no committed mutation patch (its fail-before is `repro/g-forged-claim-before.out`); green re-run at the final tree after the one-line harness repair |
+| live-state repros `r15-3`, `r16-1`, `r16-4`, `r7-4`, `r7-claims` | R (marks stand) | their `r15-3-*`/`C4`/`F-1`/`C1` IDs | **not re-run**: they need a live dev-auction ledger under `$BNZ_STATE_DIR` (the `3bbfa501…` fixture is gone after the dev-recovery sweeps); their recorded red/green stands at their commits; re-greening needs a fresh live dev auction (Track A's live lane) |
+| `npm run e2e` (default, 5 specs) | run-25 marks stand | — | no spec changed; PASS 38 s at `e0ecb63` |
+
+### Deviations (run 28)
+
+1. `package.json` gained `"version": "0.1.0"` (no Ruling names a version; the tarball name needs
+   one). Say the word and I rename.
+2. The tarball is a build artifact and is **not** committed (31.7 MB): its sha256 is recorded in
+   `docs/evidence/phase-6/pk-package.sha256`, `dist/*.tgz` is gitignored, and `npm run package`
+   rebuilds it from the tree.
+3. The tarball ships the `@playwright/test`/`playwright`/`playwright-core` packages beside the
+   production closure: the CLI bundles import `@playwright/test` at load (the `bid seal` browser
+   sealer) and the router loads every command module. Playwright's browser binaries are **not**
+   shipped: `bid seal` from the extract needs a Playwright browser install; `benzo verify` and
+   every read path run offline as proven.
+4. `tools/repro/g-forged-claim.mjs` (A's file, merged): one harness line repaired for the v1+v2
+   parser's object return (`memoSealedBid(…)?.ciphertext_hex`). No assertion changed.
+
+## Previous run (27): R24 item 3 (iii), R26 item 3, R26 item 2 guard half, gate LA — READY FOR MERGE
 
 State: **READY FOR MERGE** (updated 2026-10-03T14:2xZ). All four head-message items are DONE with
 red/green proof. Closing checks at `ba9753a`: `npm run typecheck` clean, `npm run check:bundle` OK
