@@ -82,6 +82,10 @@ async function run(name: string) {
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
+  // One bidder wallet funds every scenario: parallel harness processes take turns (a lock dir, stale after 40 min),
+  // taken BEFORE the manifest's deadlines are set and held until the funding matured.
+  const lock = path.join(STATE, "run", "markets-fund.lock");
+  for (;;) { try { mkdirSync(lock); break; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > 2_400_000) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
   const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
   const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip() }) };
   benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
@@ -89,10 +93,6 @@ async function run(name: string) {
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
-  // One bidder wallet funds every scenario: parallel harness processes take turns (a lock dir, stale after 40 min),
-  // holding it until the funding matured.
-  const lock = path.join(STATE, "run", "markets-fund.lock");
-  for (;;) { try { mkdirSync(lock); break; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > 2_400_000) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
   let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
     say(`funding ${paid.txid}`);
   for (let h = 0; ; await sleep(30_000)) {
