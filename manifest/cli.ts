@@ -1,14 +1,15 @@
 // CLI: keygen <state key path>; sign <state key path> (manifest stdin); client <trusted signer hex> (packet stdin).
 import { createPublicKey, generateKeyPairSync } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { client, jsonBytes, requireThat, signRecord, validateManifest, type Manifest } from "./schema";
+import { repoRoot } from "./root";
 
 try {
   const [command, argument] = process.argv.slice(2);
-  const root = execFileSync("git", ["rev-parse","--show-toplevel"]).toString().trim();
-  const setting = process.env.BNZ_STATE_DIR ?? readFileSync(path.join(root,".env"),"utf8").match(/^BNZ_STATE_DIR=(.+)$/m)?.[1];
+  const root = repoRoot();
+  const setting = process.env.BNZ_STATE_DIR ?? (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").match(/^BNZ_STATE_DIR=(.+)$/m)?.[1];
   requireThat(setting, "BNZ_STATE_DIR missing");
   const state = path.resolve(root, setting!);
   const keyPath = () => { const p = path.resolve(argument); requireThat(p.startsWith(state + path.sep), "key path must be under BNZ_STATE_DIR"); return p; };

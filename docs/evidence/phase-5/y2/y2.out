@@ -1,0 +1,10 @@
+resume 7885a5af9963aa3bf61bdccccc69bd01b8b771cc3ee742909beda8edb4582de5
+PASS y2-settled exit 0, receipts 4
+PASS y2-kill-drill-abandoned-bob
+PASS y2-completed-with-alice-carol pair alice+carol
+PASS y2-host-approvals alice:approved bob:approved abandoned alice:approved carol:approved
+PASS y2-no-duplicate-outputs
+PASS y2-no-share-on-mac
+SKIP y2-envelope-refunds-landed (resumed run: bid destinations are sealed and not stored)
+PASS y2-cold-verify
+RESULT PASS all Y2 assertions

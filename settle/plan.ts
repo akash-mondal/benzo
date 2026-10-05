@@ -7,7 +7,7 @@ import {execFileSync,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
-import {client,hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
+import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
 import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
@@ -15,10 +15,13 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./dep
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {modeEntry} from "../clear/registry";
+import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
+import {treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
-const root=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
-for(const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
+import { repoRoot } from "../manifest/root";
+import { vaultDir, scanBin } from "../manifest/paths";
+const root=repoRoot();
+for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2];
 }
 const state=path.resolve(root,process.env.BNZ_STATE_DIR!);
@@ -40,8 +43,13 @@ try {
   // R10 item 3: each signer requires the manifest to pin ITS OWN envelope key at its own index.
   // R16 item 5: a signer whose key file is missing cannot act at all.
   let signerKeysPresent=0;
-  for(const name of ["alice","bob","carol"]) {requireOwnEnvelopeKey(m,name,state);if(existsSync(path.join(state,"signers",name,"envelope-key.json")))signerKeysPresent++}
-  requireThat(signerKeysPresent>0,"signer envelope key missing");
+  // §11: under host custody the signers' envelope keys live on their hosts and each host checks its own pin in
+  // `benzo sign approve`; this coordinator-side plan holds none.
+  const hostCustody=existsSync(path.join(state,"vaults",id,"keys.json"));
+  if(!hostCustody) {
+    for(const name of ["alice","bob","carol"]) {requireOwnEnvelopeKey(m,name,state);if(existsSync(path.join(state,"signers",name,"envelope-key.json")))signerKeysPresent++}
+    requireThat(signerKeysPresent>0,"signer envelope key missing");
+  }
   // R8 G10 (design §5): a manifest carrying witness_set_hash refuses without a valid q_w certificate over the
   // frozen statement — a refusal on the signer path, never a WARN. A cancelled-before-freeze auction has no
   // frozen root to witness (benzo verify's witness rule is the same: no root, no witness material), so the
@@ -53,10 +61,10 @@ try {
     checkCertificates((published as any).witness_cert??[],spec,freezeStatement(m,src.frozen!));
   }
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
-  const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",path.join(state,"vault"),...args]);
+  const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state,id),...args]);
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);
   const tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
-  const notes=execute(path.join(root,"scan/target/release/benzo-scan"),["scan","test",path.join(state,"vault")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+  const notes=execute(scanBin(root,state),["scan","test",vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   const ledgerFile=path.join(state,"settle",id,"ledger.sqlite"),owned=new Set<string>();
   if(existsSync(ledgerFile)) {
     const db=new DatabaseSync(ledgerFile,{readOnly:true});
@@ -245,6 +253,12 @@ try {
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }
+  }
+  // Design §6.1: a buyback returns what the treasury funded minus the cleared spend (everything when cancelled) to the
+  // signed treasury_ua. funded = every mined note at the signed funding_ua (spent ones too, so later batches agree).
+  if((m as any).clearing?.mode==="buyback") {
+    const back=treasuryReturn(m as any,["CANCELLED","REFUNDING"].includes(src.state)?null:result,treasuryFunded(m as any,notes,tip)); // R28 item 7 (G-8): confirmed funding only
+    if(back>0n)obligations.push({party:"treasury",kind:"payout",amount_zats:back.toString()} as any);
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");

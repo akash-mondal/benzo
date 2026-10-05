@@ -127,6 +127,17 @@ export function envelopePublicKey(recipientPrivateHex: string): string {
   return hex(Buffer.from(sodium.crypto_scalarmult_base(raw(recipientPrivateHex, 32))));
 }
 
+// §11 H7 (host custody): a whole candidate PCZT sealed by the building host to ONE signer's pinned envelope key, so
+// the coordinator relays it without reading the refund recipients in it. crypto_box_seal (libsodium) takes any
+// length; the open refuses any tampered or foreign blob.
+export function sealBlob(bytes: Buffer, recipientPublicHex: string): Buffer {
+  return Buffer.from(sodium.crypto_box_seal(bytes, raw(recipientPublicHex, 32)));
+}
+export function openBlob(sealed: Buffer, recipientPrivateHex: string): Buffer {
+  const sk = raw(recipientPrivateHex, 32);
+  return Buffer.from(sodium.crypto_box_seal_open(sealed, sodium.crypto_scalarmult_base(sk), sk));
+}
+
 // The recipient X25519 public keys of an envelope, in stanza order (R10 item 1: product validation requires
 // them to be exactly the signed manifest's `envelope_keys`, in order). Throws on a malformed envelope.
 export function envelopeRecipients(envelopeCtHex: string): string[] {

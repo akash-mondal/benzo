@@ -1,15 +1,19 @@
 // Track A product state and CLI boundaries. Auction and settlement algorithms stay in their existing entry points.
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
-import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync} from 'node:fs';
+import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync,readdirSync} from 'node:fs';
 import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {client,hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
+import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
-import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry} from '../settle/io';
+import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
+// Design §6.1: manifests are read through the mode registry (its launch -> zilkroad -> public-auction cycle, which
+// deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
+import {validatePhase5,treasuryFunded,treasuryRequired} from '../clear/mode-b';
+import {clientCommon as client} from '../clear/registry';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
@@ -65,8 +69,14 @@ export function publish(id:string) {
 export async function runCommand(command:string,args:string[]) {
   const o=options(args),id=o.id;
   if(id)requireThat(/^[0-9a-f]{64}$/.test(id),'auction id');
+  if(id)process.env.BNZ_AUCTION_ID=id; // §11 H1: children use this auction's own vault when it ran its own DKG
   if(command==='auction create') {
-    const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");validateManifest(m);
+    const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");
+    // Design §6.1: a buyback draft is held to the Mode B rules, and its treasury return must be a shielded destination.
+    if(m.clearing?.mode==='buyback'){validatePhase5(m);requireShieldedDestination(m.buyback.treasury_ua);
+      // R28 item 7 (G-8): a funding address belongs to one auction only (its funded sum counts every note ever received).
+      for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(mm?.buyback?.funding_ua!==m.buyback.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
+    } else validateManifest(m);
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
@@ -84,7 +94,12 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(id,'--id required');const d=read(draft(id));
     // R10 item 3: every signer envelope-key file present locally must match the manifest's pin at its own
     // index (alice 0, bob 1, carol 2), so an operator cannot sign a manifest pinning keys it holds.
-    for(const name of ['alice','bob','carol'])requireOwnEnvelopeKey(d.manifest,name,STATE);
+    // §11: under host custody each host checks its own envelope-key pin in `benzo sign approve` instead.
+    if(!existsSync(path.join(STATE,'vaults',id,'keys.json')))for(const name of ['alice','bob','carol'])requireOwnEnvelopeKey(d.manifest,name,STATE);
+    // Phase 5 part 1 §2 (gate Y): when this auction ran its own DKG (`benzo auction keys`), the manifest must pin
+    // exactly that group key and escrow UA; a manifest reusing another key is refused before signing.
+    const auctionKeys=path.join(STATE,'vaults',id,'keys.json');
+    if(existsSync(auctionKeys)){const k=read(auctionKeys);requireThat(d.manifest.frost_group_key===k.group_key,"manifest group key is not this auction's DKG key");requireThat(d.manifest.escrow_ua===k.escrow_ua,"manifest escrow UA is not this auction's DKG vault")}
     const k=o.key?privatePath(o.key):key;
     if(!existsSync(k)){mkdirSync(path.dirname(k),{recursive:true,mode:0o700});writeFileSync(k,generateKeyPairSync('ed25519').privateKey.export({type:'pkcs8',format:'pem'}),{flag:'wx',mode:0o600})}
     requireThat(path.resolve(k)===key,'auction receipt signer must match the local manifest key');
@@ -165,10 +180,16 @@ export async function runCommand(command:string,args:string[]) {
         requireThat(reserve.address===read(config(id)).routing.fee_reserve_ua&&/^[1-9][0-9]*$/.test(reserve.amount_zats),'reserve must match operator config');
         const suffix='.'+bids.length;params.set('address'+suffix,reserve.address);params.set('amount'+suffix,(Number(reserve.amount_zats)/1e8).toFixed(8));
       }
+      // Design §6.1 (test harness): the treasury leg of a buyback, paid to the SIGNED funding_ua in the same transaction.
+      const treasury=bid.treasury;
+      if(treasury) {
+        requireThat((m as any).clearing.mode==='buyback'&&/^[1-9][0-9]*$/.test(treasury.amount_zats),'treasury funding needs a buyback and an amount');
+        const suffix='.'+(bids.length+(reserve?1:0));params.set('address'+suffix,(m as any).buyback.funding_ua);params.set('amount'+suffix,(Number(treasury.amount_zats)/1e8).toFixed(8));
+      }
       syncRetry(()=>execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]));
       const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'balance','--json']));
       const available=balance.sapling_spendable+balance.orchard_spendable+balance.ironwood_spendable,c=Number(m.C_zats);
-      requireThat(available-c*bids.length-Number(reserve?.amount_zats??0)-5000*(bids.length+2)>=3*c+40000,'bidder floor; Needs user funds');
+      requireThat(available-c*bids.length-Number(reserve?.amount_zats??0)-Number(treasury?.amount_zats??0)-5000*(bids.length+3)>=3*c+40000,'bidder floor; Needs user funds');
       const output=execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'pay','-i',path.join(STATE,'bidder.age'),'--disable-confirmation','-s',process.env.BNZ_LWD_URL!,'--payment-uri','zcash:?'+params]);
       const txid=output.match(/^[0-9a-f]{64}$/gm)?.at(-1);requireThat(txid,'payment produced no txid');
       return {txid,C_zats:m.C_zats,deposits:bids.length,state:'broadcast'};
@@ -188,6 +209,12 @@ export async function runCommand(command:string,args:string[]) {
         requireThat(witnessSetHash(doc.witness_set)===m.witness_set_hash,'witness set hash mismatch');
         checkCertificates(doc.witness_cert??[],spec,freezeStatement(m,a.frozen));
       }
+      // Design §6.1: a buyback opens only when the treasury has funded budget × lots, confirmed, into funding_ua.
+      if((m as any).clearing.mode==='buyback') {
+        syncRetry(()=>wallet('sync','-s',process.env.BNZ_LWD_URL!));wallet('enhance','-s',process.env.BNZ_LWD_URL!);
+        const tip=JSON.parse(wallet('balance','--json')).chain_tip_height,funded=treasuryFunded(m as any,notes(),tip),need=treasuryRequired(m as any);
+        requireThat(funded>=need,`treasury funded ${funded} of ${need} zats (confirmed at funding_ua); refusing to open`);
+      }
     }
     const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result
   }
@@ -196,7 +223,8 @@ export async function runCommand(command:string,args:string[]) {
     // envelope, to the DESTINATION HASH its own key opens (never the destination). R12 item 3: an envelope
     // this signer cannot open is reported ok:false; the report never throws and never aborts the others.
     requireThat(id&&['alice','bob','carol'].includes(o.name),'--id --name required');
-    const cfg=read(config(id)),doc=JSON.parse(readFileSync(path.join(path.resolve(cfg.public_dir),'auction.json'),'utf8'));
+    // §11 H5: on a signer host the report is computed from the pushed public dir and claims (--public/--claims).
+    const doc=JSON.parse(readFileSync(path.join(o.public?path.resolve(o.public):path.resolve(read(config(id)).public_dir),'auction.json'),'utf8'));
     const {manifest:m}=client(doc.manifest,doc.signer);
     const key=ownEnvelopePrivate(STATE,o.name);requireThat(key,'signer envelope key missing');
     const opens:{leaf:number|null;party:string;ok:boolean;dest_sha256:string|null}[]=[];
@@ -204,7 +232,7 @@ export async function runCommand(command:string,args:string[]) {
     // R15 item 3: a claimed row pays through its claim envelope, so the claim's opening report supersedes any
     // bid-envelope entry for the same party (the plan's two-signer gate counts one entry class per row).
     const claimed=new Set<string>();
-    const claimFile=path.join(STATE,'settle',id,'claims.json');
+    const claimFile=o.claims?path.resolve(o.claims):path.join(STATE,'settle',id,'claims.json');
     if(existsSync(claimFile))for(const c of JSON.parse(readFileSync(claimFile,'utf8'))) {
       claimed.add(c.party);
       const dest=open({envelope_ct:c.claim_envelope_ct});
@@ -282,6 +310,24 @@ export async function runCommand(command:string,args:string[]) {
   }
   if(command==='settle'||command==='cancel'||command==='sign join'||(command==='claim-refund'&&o.defer!=='true')) {
     requireThat(id,'--id required');
+    if(command==='sign join'&&o.name&&existsSync(path.join(STATE,'auctions',id,'frost.toml'))) {
+      // §11 H3 (host custody): this host signs only a message equal to a sighash IT approved (`benzo sign approve`),
+      // with this auction's own DKG share; the answer to frost-client's prompt is decided here, never by the caller.
+      requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.sighash??''),'signer/sighash');
+      const adir=path.join(STATE,'approvals',id);
+      const approved=(existsSync(adir)?readdirSync(adir):[]).map(f=>read(path.join(adir,f))).some((a:any)=>a.sighash===o.sighash&&a.name===o.name);
+      requireThat(approved,'no approval of this sighash on this signer');
+      const server=o.server??process.env.BNZ_FROSTD_HOST??'host.orb.internal:2744';
+      const cfg=path.join(STATE,'auctions',id,'frost.toml'),group=readFileSync(path.join(STATE,'auctions',id,'group-key.txt'),'utf8').trim();
+      await new Promise<void>((resolve,reject)=>{
+        const p=spawn(bin('frost-client'),['participant','-c',cfg,'-s',server,'-g',group],{stdio:['pipe','pipe','pipe'],env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});
+        let out='',answered=false;
+        const watch=(d:Buffer)=>{out+=d;process.stdout.write(d);const m=out.match(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/);
+          if(!answered&&m&&/Do you want to sign it\? \(y\/n\)/.test(out)){answered=true;p.stdin!.end(m[1]===o.sighash?'y\n':'n\n');if(m[1]!==o.sighash)process.stderr.write(`ERROR sign join message ${m[1].slice(0,16)}… is not the approved sighash; refused\n`)}};
+        p.stdout!.on('data',watch);p.stderr!.on('data',(d:Buffer)=>{process.stderr.write(d);watch(d)});
+        p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
+      return;
+    }
     if(command==='sign join'&&o.name) {
       requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.randomizer),'signer/randomizer');
       requireThat(o.batch&&o.candidate&&o.randomizer&&o.sighash,'--batch --candidate --randomizer --sighash required');

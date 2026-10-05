@@ -32,7 +32,7 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32) -> anyhow::Result<()> 
     let proposal=propose_transfer::<_,_,_,_,zcash_client_sqlite::wallet::commitment_tree::Error>(&mut db,&Network::TestNetwork,accounts[0],&GreedyInputSelector::new(),&change,TransactionRequest::new(payments)?,ConfirmationsPolicy::default(),&SpendPolicy::default(),None,None).map_err(|e|anyhow!("proposal: {e:?}"))?;
     let expiry=proposal.min_target_height()+expiry_blocks;
     ensure!(!(u32::from(proposal.min_target_height())<=4_465_026 && u32::from(expiry)>=4_465_026),"PCZT expiry reaches NU7 activation; refusing create");
-    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Sender,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
+    let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&Network::TestNetwork,accounts[0],OvkPolicy::Discard,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
     std::fs::write(output,pczt.serialize().map_err(|e|anyhow!("serialization: {e:?}"))?)?;
     Ok(())
 }
@@ -44,9 +44,14 @@ fn address(wallet: &str) -> anyhow::Result<()> {
     let (ua,_)=db.get_next_available_address(accounts[0],UnifiedAddressRequest::ORCHARD)?.context("no shielded address")?;
     println!("{}",ua.encode(&Network::TestNetwork));Ok(())
 }
-fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
+// §11 H7: `allow_redacted` (the coordinator under host custody) accepts outputs whose recipient, rseed and ock were
+// redacted by the building host (`zcash-devtool pczt redact`): they are reported with recipient null and
+// redacted true and are not opened here — every approving host checks the full candidate, sealed to its own
+// envelope key, and that its redaction is byte-identical to this one. Hosts call the strict mode.
+fn inspect(file: &str, ufvk: &str, allow_redacted: bool) -> anyhow::Result<()> {
     let pczt=Pczt::parse(&std::fs::read(file)?).map_err(|e|anyhow!("PCZT parse: {e:?}"))?;
-    ensure!(pczt.global().tx_version()==&6 && pczt.global().consensus_branch_id()==&0x37a5165b,"unsupported version/branch");
+    // Ruling R27: v6 under Ironwood (NU6.3, 0x37a5165b) or NU7 (0x77190ad9; testnet from height 4,465,026).
+    ensure!(pczt.global().tx_version()==&6 && [0x37a5165b,0x77190ad9].contains(pczt.global().consensus_branch_id()),"unsupported version/branch");
     ensure!(pczt.transparent().inputs().is_empty() && pczt.transparent().outputs().is_empty() && pczt.sapling().spends().is_empty() && pczt.sapling().outputs().is_empty(),"only shielded Orchard/Ironwood supported");
     let key=UnifiedFullViewingKey::decode(&Network::TestNetwork,std::fs::read_to_string(ufvk)?.trim()).map_err(|e|anyhow!("UFVK decode: {e}"))?;
     let fvk=key.orchard().context("Orchard FVK missing")?;
@@ -54,7 +59,17 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
     let mut collect=|b: &Bundle,pool: &str| -> Result<(),OrchardError<&'static str>> {
         b.verify_cross_address_restriction()?;
         for (index,a) in b.actions().iter().enumerate() {
-            a.verify_cv_net()?; a.spend().verify_nullifier(Some(fvk))?; a.spend().verify_rk(Some(fvk))?; a.output().verify_note_commitment(a.spend())?;
+            a.verify_cv_net()?; a.spend().verify_nullifier(Some(fvk))?; a.spend().verify_rk(Some(fvk))?;
+            let redacted=allow_redacted && a.output().recipient().is_none();
+            if redacted {
+                if a.output().rseed().is_some() || a.output().user_address().is_some() {return Err(OrchardError::Custom("partially redacted output"));}
+                let value=a.output().value().ok_or_else(||OrchardError::Custom("missing output value"))?.inner();
+                let spent=a.spend().value().ok_or_else(||OrchardError::Custom("missing spend value"))?.inner();
+                if spent>0 { inputs.push(json!({"pool":pool,"index":index,"value_zats":spent})); }
+                if value>0 { outputs.push(json!({"pool":pool,"index":index,"recipient":null,"is_change":false,"redacted":true,"amount_zats":value.to_string()})); }
+                continue;
+            }
+            a.output().verify_note_commitment(a.spend())?;
             let value=a.spend().value().ok_or_else(||OrchardError::Custom("missing spend value"))?.inner();
             if value>0 { inputs.push(json!({"pool":pool,"index":index,"value_zats":value})); }
             let value=a.output().value().ok_or_else(||OrchardError::Custom("missing output value"))?.inner();
@@ -79,7 +94,9 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
                 }
                 if recovered.0.value().inner()!=value || &recovered.1!=receiver {return Err(OrchardError::Custom("encrypted recipient or amount mismatch"));}
                 let address=a.output().user_address().as_ref();
-                let is_change=address.is_none() && fvk.scope_for_address(receiver).is_some();
+                // Ruling R28 item 4 (F3): change is ONLY an internal-scope (change) address of the vault; an external vault
+                // address (a deposit or funding address) is never change, so it must match a derived row like any payment.
+                let is_change=address.is_none() && fvk.scope_for_address(receiver)==Some(orchard::keys::Scope::Internal);
                 if let Some(address)=address {
                     let decoded=match Address::decode(&Network::TestNetwork,address) {Some(Address::Unified(ua))=>ua.orchard().copied(),_=>None}.ok_or_else(||OrchardError::Custom("user address is not a shielded UA"))?;
                     if receiver!=&decoded {return Err(OrchardError::Custom("user address receiver mismatch"));}
@@ -91,12 +108,19 @@ fn inspect(file: &str, ufvk: &str) -> anyhow::Result<()> {
     };
     let pczt=Verifier::new(pczt).with_orchard(|b|collect(b,"orchard")).map_err(|e|anyhow!("Orchard validation: {e:?}"))?.with_ironwood(|b|collect(b,"ironwood")).map_err(|e|anyhow!("Ironwood validation: {e:?}"))?.finish();
     let sighash=pczt::roles::signer::Signer::new(pczt.clone()).map_err(|e|anyhow!("PCZT sighash: {e:?}"))?.shielded_sighash();
+    // Ruling R28 item 3 (F2): the txid is fixed before signing (v5/v6 txids commit to effects, not authorization), so a
+    // host can record what it approved and later see from the chain whether that transaction mined.
+    let txid={
+        let tx=pczt.clone().into_effects().map_err(|e|anyhow!("PCZT effects: {e:?}"))?;
+        let digests=tx.digest(zcash_primitives::transaction::txid::TxIdDigester);
+        zcash_primitives::transaction::txid::to_txid(tx.version(),tx.consensus_branch_id(),&digests).to_string()
+    };
     let input: u64=inputs.iter().map(|v|v["value_zats"].as_u64().unwrap()).sum();
     let output: u64=outputs.iter().map(|v|v["amount_zats"].as_str().unwrap().parse::<u64>().unwrap()).sum();
     let fee=input.checked_sub(output).context("outputs exceed inputs")?;
     let standard_fee=5000*std::cmp::max(2,pczt.orchard().actions().len()+pczt.ironwood().actions().len()) as u64;
     ensure!(fee==standard_fee,"fee {fee} differs from ZIP-317 fee {standard_fee}");
-    println!("{}",json!({"shielded_sighash":hex::encode(sighash),"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"actions":pczt.orchard().actions().len()+pczt.ironwood().actions().len(),"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
+    println!("{}",json!({"shielded_sighash":hex::encode(sighash),"txid":txid,"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"actions":pczt.orchard().actions().len()+pczt.ironwood().actions().len(),"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
     Ok(())
 }
 // R24 item 3 (i): classify a Zcash address with the pinned audited `zcash_address` (librustzcash) —
@@ -166,13 +190,28 @@ fn classify_address(addr: &str) -> anyhow::Result<()> {
     println!("{}", out);
     Ok(())
 }
+// Ruling R28 item 5 (F4): the vault's Orchard spend-validating key ak (the first 32 bytes of the Orchard FVK), so a
+// host can require it to equal its own FROST group key; and the scope in which a UA's Orchard receiver belongs to the
+// UFVK (external | internal | none), so a host can require every manifest address to be its vault's own.
+fn ufvk_ak(ufvk: &str) -> anyhow::Result<()> {
+    let key=UnifiedFullViewingKey::decode(&Network::TestNetwork,std::fs::read_to_string(ufvk)?.trim()).map_err(|e|anyhow!("UFVK decode: {e}"))?;
+    println!("{}",hex::encode(&key.orchard().context("Orchard FVK missing")?.to_bytes()[..32])); Ok(())
+}
+fn owns(ufvk: &str, addr: &str) -> anyhow::Result<()> {
+    let key=UnifiedFullViewingKey::decode(&Network::TestNetwork,std::fs::read_to_string(ufvk)?.trim()).map_err(|e|anyhow!("UFVK decode: {e}"))?;
+    let receiver=match Address::decode(&Network::TestNetwork,addr) {Some(Address::Unified(ua))=>ua.orchard().copied(),_=>None}.context("not a UA with an Orchard receiver")?;
+    println!("{}",match key.orchard().context("Orchard FVK missing")?.scope_for_address(&receiver) {Some(orchard::keys::Scope::External)=>"external",Some(orchard::keys::Scope::Internal)=>"internal",None=>"none"}); Ok(())
+}
 fn main() -> anyhow::Result<()> {
     let args: Vec<_>=std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("address") if args.len()==3=>address(&args[2]),
         Some("create") if args.len()==4||args.len()==5=>create(&args[2],&args[3],if args.len()==5 {args[4].parse()?} else {364}),
-        Some("inspect") if args.len()==4=>inspect(&args[2],&args[3]),
+        Some("inspect") if args.len()==4=>inspect(&args[2],&args[3],false),
+        Some("inspect") if args.len()==5 && args[4]=="--allow-redacted"=>inspect(&args[2],&args[3],true),
         Some("classify-address") if args.len()==3=>classify_address(&args[2]),
-        _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file> | classify-address <address>"))
+        Some("ufvk-ak") if args.len()==3=>ufvk_ak(&args[2]),
+        Some("owns") if args.len()==4=>owns(&args[2],&args[3]),
+        _=>Err(anyhow!("usage: benzo-pczt address <testnet wallet> | create <testnet wallet> <output.pczt> | inspect <pczt> <ufvk file> [--allow-redacted] | classify-address <address> | ufvk-ak <ufvk file> | owns <ufvk file> <address>"))
     }
 }

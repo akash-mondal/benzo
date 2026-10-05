@@ -174,7 +174,7 @@ test("signed sealed auction on testnet",async({page})=> {
     const sum=(re:RegExp)=>[...inspect.matchAll(re)].reduce((n,m)=>n+Number(m[1]),0), inputs=sum(/^ {2}- Spend: (\d+) zatoshis$/gm), outputs=sum(/^ {2}- Output: (\d+) zatoshis/gm),fee=inputs-outputs;
     if(fee!==reserve)throw Error(`fee reserve ${reserve} differs from inspected fee ${fee}; refusing refund broadcast`);
     const metadata=JSON.parse(z.run(z.scanner,["pczt",signedPczt])),broadcastTip=Math.max(z.tip(),z.tip(ALT));
-    if(metadata.tx_version!==6 || metadata.consensus_branch_id!=="37a5165b" || metadata.expiry_height<=broadcastTip)throw Error(`PCZT preflight: version/branch/expiry ${JSON.stringify(metadata)} at tip ${broadcastTip}; no broadcast`);
+    if(metadata.tx_version!==6 || !["37a5165b","77190ad9"].includes(metadata.consensus_branch_id) || metadata.expiry_height<=broadcastTip)throw Error(`PCZT preflight: version/branch/expiry ${JSON.stringify(metadata)} at tip ${broadcastTip}; no broadcast`);
     const refundTxid=z.send(signedPczt), sent=Date.now();console.log(`refund broadcast ${refundTxid}`);
     const walletHeight=await waitFor({height:1,tip:()=> {
       z.sync("vault");const txs=JSON.parse(z.wallet("vault","list-tx","--json"));

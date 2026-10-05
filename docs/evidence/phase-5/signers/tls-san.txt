@@ -1,0 +1,11 @@
+# frostd TLS certificate SANs (§1 reachability) — 2026-10-03T16:53:38Z · commit fd0bc08cd6533dad403764259b508b4af2cf1955
+$ openssl x509 -in .benzo/tls/frostd.pem -noout -ext subjectAltName
+X509v3 Subject Alternative Name: 
+    DNS:localhost, IP Address:127.0.0.1, DNS:host.orb.internal
+
+frostd.key sha256 (unchanged by the SAN re-issue; the swap is one atomic cert rename):
+feed7990decae4c618ee1016067d02bedf5047b18fa47b0582bced5d16d638d0  /Users/akshmnd/Dev Projects/benzo/.benzo/tls/frostd.key
+frostd.pem sha256:
+3b7152129fa8ef876bc471586d6a2cf463c834dc0164e0e7ccc5f1597ad7572c  /Users/akshmnd/Dev Projects/benzo/.benzo/tls/frostd.pem
+rootCA.pem sha256 (the only trust anchor pushed to the machines):
+b29e5fe7da9af35c9e4a8e1787a558c68d3c7c890d23165572983df3c9fa34f8  /Users/akshmnd/Dev Projects/benzo/.benzo/tls/rootCA.pem

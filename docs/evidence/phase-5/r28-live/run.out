@@ -1,0 +1,4 @@
+auction 29fb6483c2dcb2ca6e14c3d4ea062bd7c9e26f6381a14bf494bc5e671197dde1
+funding e1dfd8825c3bb77adc73f75484f05f730eb3a9c68261338d9bfaf9ffe6eb1bd3
+ERROR W6 Error: W6 threw | Expected: "" | Received: "benzo-pczt create /Users/akshmnd/Dev Projects/benzo/.benzo/vaults/29fb6483c2dcb2ca6e14c3d4ea062bd7c9e26f6381a14bf494bc5e671197dde1/wallet /Users/akshmnd/Dev Projects/benzo/.benzo/settle/29fb6483c2dcb2ca6e14c3d4ea062bd7c9e26f6381a14bf494bc5e671197dde1/w6/created.pczt 364 exited 1: Error: proposal: InsufficientFunds { available: Zatoshis(500000), required:
+exit=1

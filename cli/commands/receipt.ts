@@ -13,6 +13,7 @@ import {
   checkInclusionProof, checkSettlementStatement, inclusionProof, loadPublicAuction, receiptShow,
   settlementStatementBody, type InclusionProof, type SettlementStatement,
 } from "../../api/public-auction";
+import { repoRoot } from "../../manifest/root";
 
 export const noun = "receipt";
 export const verb = "";
@@ -75,7 +76,7 @@ export async function run(argv: string[]): Promise<number> {
     }
     // Emit: sign the recomputed body with the bid's one-time owner key, which must be the one in the opening.
     const body = settlementStatementBody(pub, ciphertextHash);
-    const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+    const root = repoRoot();
     const state = path.resolve(root, process.env.BNZ_STATE_DIR || ".benzo");
     const keyFile = path.join(state, "bids", body.auction_id, `${ciphertextHash}.json`);
     requireThat(existsSync(keyFile), "owner key not under BNZ_STATE_DIR/bids");

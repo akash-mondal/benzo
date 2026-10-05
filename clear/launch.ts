@@ -4,7 +4,7 @@ import { hash, jsonBytes, requireThat, verifyRecord, zats, type Signed } from ".
 import { balanceDue, effectiveReserve, refundAfter, sealedReserve } from "./features";
 import { LAYOUT_V0 } from "./layout";
 import { marketClient, marketOrders, marketResult, type MarketManifest } from "./market";
-import { holderOwners } from "../adapters/zilkroad";
+import { holderOwners } from "../adapters/holders";
 import { verifyStatement } from "../envelope/index";
 import { type ClearBody, type ClearInput, type ClearResult } from "./core";
 export const LAUNCH_LAYOUT = { ...LAYOUT_V0, version: 1, pad_at: 126 }; // byte 125: 0 main, 1 holder

@@ -1,0 +1,13 @@
+diff --git a/cli/commands/sign-build.ts b/cli/commands/sign-build.ts
+index 1016ef6..56873d6 100644
+--- a/cli/commands/sign-build.ts
++++ b/cli/commands/sign-build.ts
+@@ -59,7 +59,7 @@ export async function run(argv: string[]): Promise<number | object> {
+       const k = avail.findIndex((x: any) => x.recipient === p.recipient && String(x.amount_zats) === p.amount_zats);
+       requireThat(k >= 0, `built candidate lacks the output for ${p.party}`);
+       const [x] = avail.splice(k, 1);
+-      return { party: p.party, output_index: x.index, pool: x.pool, amount_zats: p.amount_zats };
++      return { party: p.party, output_index: x.index, pool: x.pool, amount_zats: p.amount_zats, recipient: p.recipient }; // 5M4: payload carries the opened envelope
+     });
+     // §11 H7: the coordinator gets only the redacted candidate; the full one goes to each signer sealed to the envelope
+     // key the verified manifest pins for it (the coordinator relays blobs it cannot open).

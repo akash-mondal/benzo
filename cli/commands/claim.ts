@@ -6,6 +6,7 @@ import { ownerPublic } from "../../envelope/index";
 import { checkPublicAuction, loadCompletePublicAuction } from "../../api/public-auction";
 import { deriveClaimOpenings } from "../published-beacon";
 import { checkDeliveryClaim, deliveryClaim } from "../../adapters/zilkroad";
+import { repoRoot } from "../../manifest/root";
 export const noun="claim", verb="";
 export const help="benzo claim --dir PUBLIC --ciphertext-hash HEX [--receipt FILE --statement FILE] [--owner-key-stdin | --check CLAIM] — owner-signed offline delivery claim";
 export async function run(argv:string[]):Promise<number> {
@@ -22,7 +23,7 @@ export async function run(argv:string[]):Promise<number> {
   try {
     requireThat(dir && /^[0-9a-f]{64}$/.test(ct) && !(check && stdin),"claim arguments");
     const pub=loadCompletePublicAuction(dir);
-    const root=execFileSync("git",["rev-parse","--show-toplevel"],{encoding:"utf8"}).trim();
+    const root=repoRoot();
     const bid=path.join(path.resolve(root,process.env.BNZ_STATE_DIR||".benzo"),"bids",pub.manifest.auction_id,ct);
     const receipt=JSON.parse(readFileSync(receiptFile||bid+".receipt.json","utf8")),statement=JSON.parse(readFileSync(statementFile||bid+".statement.json","utf8"));
     const failures=checkPublicAuction(pub,{claimOpenings:await deriveClaimOpenings(pub.claims??[],pub.beacon)}).filter(c=>c.error); requireThat(!failures.length,`claim public verification: ${failures.map(c=>c.id+" "+c.error).join("; ")}`);

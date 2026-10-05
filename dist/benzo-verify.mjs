@@ -8014,8 +8014,8 @@ function requireReserveOpening(m2, publishedOpening, derived, tleDerived) {
 }
 
 // api/missing-deposits.ts
-import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
-import path2 from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 // clear/merkle.ts
 var leafHash = (ciphertextHash, deposit) => hash(Buffer.concat([Buffer.from([0]), Buffer.from(ciphertextHash, "hex"), jsonBytes(deposit)]));
@@ -8293,11 +8293,18 @@ function obligationsModeA(result, settlement) {
 // clear/mode-b.ts
 function clientPhase5(packet, trustedSigner) {
   const m2 = verifyRecord(packet, trustedSigner);
+  validatePhase5(m2);
+  return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest: m2 };
+}
+function validatePhase5(m2) {
   requireThat(m2.clearing && ["uniform", "vickrey", "buyback"].includes(m2.clearing.mode), "clearing mode");
   requireThat(m2.clearing.mode === "buyback" === (m2.buyback !== void 0), "buyback parameters/mode");
   if (m2.buyback !== void 0) {
     requireThat(m2.buyback && typeof m2.buyback === "object" && !Array.isArray(m2.buyback), "buyback parameters");
-    requireThat(Object.keys(m2.buyback).sort().join(",") === "budget_zats,max_price_zats", "buyback field set");
+    requireThat(Object.keys(m2.buyback).sort().join(",") === "budget_zats,funding_ua,max_price_zats,treasury_ua", "buyback field set");
+    const ua2 = m2.network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/;
+    requireThat(ua2.test(m2.buyback.treasury_ua) && ua2.test(m2.buyback.funding_ua), "buyback treasury_ua/funding_ua");
+    requireThat(m2.buyback.treasury_ua !== m2.buyback.funding_ua && !(m2.deposit_addresses ?? []).includes(m2.buyback.funding_ua) && !(m2.deposit_addresses ?? []).includes(m2.buyback.treasury_ua), "buyback funding_ua must be a non-deposit vault address distinct from treasury_ua");
     requireThat(m2.bond === void 0, "bond-then-pay is auction-side");
     requireThat(m2.serials === void 0, "serials are uniform auction-side");
   }
@@ -8308,7 +8315,6 @@ function clientPhase5(packet, trustedSigner) {
     const tick = zats(m2.tick_zats, "tick"), budget = zats(m2.buyback.budget_zats, "budget"), maxPrice = zats(m2.buyback.max_price_zats, "max_price");
     requireThat(budget > 0n && maxPrice >= tick && maxPrice % tick === 0n, "buyback budget/max_price");
   }
-  return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest: m2 };
 }
 function clientBuyback(packet, trustedSigner) {
   const r2 = clientPhase5(packet, trustedSigner);
@@ -8598,9 +8604,18 @@ function obligationsRFQ(result, settlement) {
   return map;
 }
 
-// adapters/zilkroad.ts
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+// adapters/holders.ts
+function holderOwners(receipts, auctionId, collection, signer) {
+  const serials = /* @__PURE__ */ new Set(), owners = /* @__PURE__ */ new Set();
+  for (const packet of receipts) {
+    const r2 = verifyRecord(packet, signer);
+    requireThat(Object.keys(r2).sort().join(",") === "auction_id,collection,owner_pubkey,serial" && r2.auction_id === auctionId && r2.collection === collection && /^[0-9a-f]{64}$/.test(r2.owner_pubkey) && Number.isSafeInteger(r2.serial) && r2.serial >= 0, "holder receipt binding");
+    requireThat(!serials.has(r2.serial), "duplicate holder serial");
+    serials.add(r2.serial);
+    owners.add(r2.owner_pubkey);
+  }
+  return owners;
+}
 
 // envelope/index.ts
 import { createHash as createHash2, createPrivateKey as createPrivateKey2, createPublicKey as createPublicKey2, generateKeyPairSync, randomBytes, sign as sign2, verify as verify2 } from "node:crypto";
@@ -12090,92 +12105,6 @@ function statementBinding(body) {
 function verifyStatement(ownerPublicHex, body, signatureHex) {
   const key = createPublicKey2({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw(ownerPublicHex, 32)]), type: "spki", format: "der" });
   return verify2(null, statementBinding(body), key, raw(signatureHex, 64));
-}
-
-// adapters/zilkroad.ts
-function holderOwners(receipts, auctionId, collection, signer) {
-  const serials = /* @__PURE__ */ new Set(), owners = /* @__PURE__ */ new Set();
-  for (const packet of receipts) {
-    const r2 = verifyRecord(packet, signer);
-    requireThat(Object.keys(r2).sort().join(",") === "auction_id,collection,owner_pubkey,serial" && r2.auction_id === auctionId && r2.collection === collection && /^[0-9a-f]{64}$/.test(r2.owner_pubkey) && Number.isSafeInteger(r2.serial) && r2.serial >= 0, "holder receipt binding");
-    requireThat(!serials.has(r2.serial), "duplicate holder serial");
-    serials.add(r2.serial);
-    owners.add(r2.owner_pubkey);
-  }
-  return owners;
-}
-function marketplace(pub) {
-  const file = path.join(pub.dir, "marketplace.json"), m2 = pub.manifest;
-  const pinned = m2.lot?.startsWith("zilkroad:") || m2.lots?.some((l2) => l2.startsWith("5a494c4b")) || existsSync(file);
-  if (!pinned) return null;
-  requireThat(existsSync(file), "missing marketplace.json");
-  const p2 = JSON.parse(readFileSync(file, "utf8"));
-  requireThat(p2 && Object.keys(p2).sort().join(",") === "adapter,collection,metadata_commitment,serial_range,version" && p2.version === 1 && p2.adapter === "zilkroad" && typeof p2.collection === "string" && p2.collection.length > 0 && p2.collection.length <= 256 && /^[0-9a-f]{64}$/.test(p2.metadata_commitment), "marketplace fields");
-  const s2 = p2.serial_range;
-  requireThat(s2 && Object.keys(s2).sort().join(",") === "count,first" && Number.isSafeInteger(s2.first) && s2.first >= 0 && Number.isSafeInteger(s2.count) && s2.count > 0 && Number.isSafeInteger(s2.first + s2.count - 1), "marketplace serial range");
-  const h2 = hash(jsonBytes(p2));
-  requireThat(m2.lots ? m2.lots.every((lot, index) => lot === "5a494c4b" + hash(jsonBytes({ marketplace_hash: h2, lot_index: index })).slice(0, 56)) : m2.lot === `zilkroad:${h2}`, "marketplace manifest commitment");
-  if (m2.serials) requireThat(m2.serials.first === s2.first && m2.serials.count === s2.count, "marketplace drop range");
-  return p2;
-}
-function checkSerialRange(pub, serials) {
-  const p2 = marketplace(pub);
-  if (p2) for (const s2 of serials) requireThat(s2 >= p2.serial_range.first && s2 < p2.serial_range.first + p2.serial_range.count, "marketplace serial outside range");
-}
-function claimBody(pub, ciphertextHash, receipt, statement) {
-  const p2 = marketplace(pub);
-  requireThat(p2 && pub.result && pub.frozen, "claim marketplace/result/frozen");
-  checkSettlementStatement(pub, ciphertextHash, statement);
-  requireThat(statement.fill > 0 && pub.state === "SETTLED" && !pub.settlement?.defaults?.includes(statement.leaf_index) && !["buyback", "rfq"].includes(pub.result.mode), "claim paid auction winner");
-  const actual = pub.settlement?.receipts?.find((r2) => r2.party === `leaf:${statement.leaf_index}`) ?? (statement.refund_zats === "0" ? pub.settlement?.receipts?.find((r2) => r2.party === "seller") : void 0);
-  requireThat(actual && jsonBytes(actual).equals(jsonBytes(receipt)) && /^[0-9a-f]{64}$/.test(receipt.txid) && receipt.auction_id === pub.manifest.auction_id, "claim private settlement receipt");
-  const winners = pub.result.allocations.filter((a2) => a2.fill > 0).sort((a2, b2) => a2.leaf_index - b2.leaf_index);
-  requireThat(winners.reduce((n2, a2) => n2 + BigInt(a2.fill), 0n) <= BigInt(p2.serial_range.count), "claim inventory capacity");
-  const offset = winners.filter((a2) => a2.leaf_index < statement.leaf_index).reduce((n2, a2) => n2 + a2.fill, 0);
-  const serials = pub.result.serial_assignment?.find((a2) => a2.leaf_index === statement.leaf_index)?.serials ?? Array.from({ length: statement.fill }, (_2, i2) => p2.serial_range.first + offset + i2);
-  requireThat(serials && serials.length === statement.fill, "claim assigned serials");
-  checkSerialRange(pub, serials);
-  return {
-    version: 1,
-    kind: "zilkroad_delivery_claim",
-    auction_id: pub.manifest.auction_id,
-    manifest_hash: pub.manifest_hash,
-    result_hash: hash(pub.resultBytes),
-    ciphertext_hash: ciphertextHash,
-    leaf_index: statement.leaf_index,
-    owner_pubkey: statement.owner_pubkey,
-    collection: p2.collection,
-    metadata_commitment: p2.metadata_commitment,
-    serials,
-    settlement_txid: receipt.txid,
-    receipt_hash: hash(jsonBytes(receipt)),
-    statement_hash: hash(jsonBytes(statement))
-  };
-}
-function checkDeliveryClaim(pub, ct2, receipt, statement, claim) {
-  const { signature, ...body } = claim;
-  requireThat(jsonBytes(body).equals(jsonBytes(claimBody(pub, ct2, receipt, statement))), "delivery claim binding");
-  requireThat(verifyStatement(body.owner_pubkey, body, signature), "delivery claim owner signature");
-}
-function checkDeliveryExceptions(pub) {
-  marketplace(pub);
-  const file = path.join(pub.dir, "delivery-exceptions.json");
-  if (!existsSync(file)) return;
-  const queue = JSON.parse(readFileSync(file, "utf8"));
-  requireThat(Array.isArray(queue), "delivery exception queue");
-  const seen = /* @__PURE__ */ new Set();
-  for (const row of queue) {
-    requireThat(row && Object.keys(row).sort().join(",") === "claim,receipt,signature,statement,status" && row.status === "paid_not_delivered", "delivery exception fields/status");
-    const ct2 = row.claim.ciphertext_hash;
-    requireThat(!seen.has(ct2), "duplicate delivery exception");
-    seen.add(ct2);
-    checkDeliveryClaim(pub, ct2, row.receipt, row.statement, row.claim);
-    requireThat(verifyStatement(row.claim.owner_pubkey, {
-      auction_id: pub.manifest.auction_id,
-      claim_hash: hash(jsonBytes(row.claim)),
-      status: row.status
-    }, row.signature), "delivery exception owner signature");
-  }
 }
 
 // clear/launch.ts
@@ -15877,7 +15806,9 @@ var registry = {
   }
 };
 function modeEntry(packet) {
-  const m2 = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8"));
+  const raw2 = typeof packet?.bytes === "string" ? Buffer.from(packet.bytes, "base64") : Buffer.alloc(0);
+  requireThat(typeof packet?.bytes === "string" && raw2.toString("base64") === packet.bytes && hash(raw2) === packet.sha256, "manifest byte hash");
+  const m2 = JSON.parse(raw2.toString("utf8"));
   const mode = m2?.clearing?.mode;
   requireThat(typeof mode === "string" && registry[mode] !== void 0, `unknown clearing mode ${String(mode)}`);
   return registry[mode];
@@ -15912,20 +15843,97 @@ function omissions(frozen, auctionId, submitTime, C2, list) {
   return absent.sort((a2, b2) => a2.note_id.localeCompare(b2.note_id)).map((d2) => ({ auction_id: auctionId, ...d2, status: "refund_owed", refund_zats: C2 }));
 }
 function missingDepositExceptions(pub) {
-  const file = path2.join(pub.dir, "mined-deposits.json");
-  if (!existsSync2(file)) return [];
+  const file = path.join(pub.dir, "mined-deposits.json");
+  if (!existsSync(file)) return [];
   requireThat(pub.frozen, "mined deposits require frozen root");
   checkFrozen(pub.frozen, pub.manifest.auction_id, pub.manifest_hash);
-  return omissions(pub.frozen, pub.manifest.auction_id, pub.manifest.T_submit, pub.manifest.C_zats, JSON.parse(readFileSync2(file, "utf8")));
+  return omissions(pub.frozen, pub.manifest.auction_id, pub.manifest.T_submit, pub.manifest.C_zats, JSON.parse(readFileSync(file, "utf8")));
 }
 function checkMissingDeposits(pub) {
-  const expected = missingDepositExceptions(pub), file = path2.join(pub.dir, "refund-exceptions.json");
-  if (expected.length || existsSync2(file)) {
-    requireThat(existsSync2(file), `missing refund exception queue: ${expected.map((d2) => d2.note_id + " exact-C " + d2.refund_zats).join(", ")}`);
-    const queue = JSON.parse(readFileSync2(file, "utf8"));
+  const expected = missingDepositExceptions(pub), file = path.join(pub.dir, "refund-exceptions.json");
+  if (expected.length || existsSync(file)) {
+    requireThat(existsSync(file), `missing refund exception queue: ${expected.map((d2) => d2.note_id + " exact-C " + d2.refund_zats).join(", ")}`);
+    const queue = JSON.parse(readFileSync(file, "utf8"));
     requireThat(jsonBytes(queue).equals(jsonBytes(expected)), "missing-bid refund exception queue differs (exact-C required)");
   }
   if (expected.length) return `${expected.length} not included; refund owed (exact C); chain observations supplied by publisher`;
+}
+
+// adapters/zilkroad.ts
+import { existsSync as existsSync2, readFileSync as readFileSync2 } from "node:fs";
+import path2 from "node:path";
+function marketplace(pub) {
+  const file = path2.join(pub.dir, "marketplace.json"), m2 = pub.manifest;
+  const pinned = m2.lot?.startsWith("zilkroad:") || m2.lots?.some((l2) => l2.startsWith("5a494c4b")) || existsSync2(file);
+  if (!pinned) return null;
+  requireThat(existsSync2(file), "missing marketplace.json");
+  const p2 = JSON.parse(readFileSync2(file, "utf8"));
+  requireThat(p2 && Object.keys(p2).sort().join(",") === "adapter,collection,metadata_commitment,serial_range,version" && p2.version === 1 && p2.adapter === "zilkroad" && typeof p2.collection === "string" && p2.collection.length > 0 && p2.collection.length <= 256 && /^[0-9a-f]{64}$/.test(p2.metadata_commitment), "marketplace fields");
+  const s2 = p2.serial_range;
+  requireThat(s2 && Object.keys(s2).sort().join(",") === "count,first" && Number.isSafeInteger(s2.first) && s2.first >= 0 && Number.isSafeInteger(s2.count) && s2.count > 0 && Number.isSafeInteger(s2.first + s2.count - 1), "marketplace serial range");
+  const h2 = hash(jsonBytes(p2));
+  requireThat(m2.lots ? m2.lots.every((lot, index) => lot === "5a494c4b" + hash(jsonBytes({ marketplace_hash: h2, lot_index: index })).slice(0, 56)) : m2.lot === `zilkroad:${h2}`, "marketplace manifest commitment");
+  if (m2.serials) requireThat(m2.serials.first === s2.first && m2.serials.count === s2.count, "marketplace drop range");
+  return p2;
+}
+function checkSerialRange(pub, serials) {
+  const p2 = marketplace(pub);
+  if (p2) for (const s2 of serials) requireThat(s2 >= p2.serial_range.first && s2 < p2.serial_range.first + p2.serial_range.count, "marketplace serial outside range");
+}
+function claimBody(pub, ciphertextHash, receipt, statement) {
+  const p2 = marketplace(pub);
+  requireThat(p2 && pub.result && pub.frozen, "claim marketplace/result/frozen");
+  checkSettlementStatement(pub, ciphertextHash, statement);
+  requireThat(statement.fill > 0 && pub.state === "SETTLED" && !pub.settlement?.defaults?.includes(statement.leaf_index) && !["buyback", "rfq"].includes(pub.result.mode), "claim paid auction winner");
+  const actual = pub.settlement?.receipts?.find((r2) => r2.party === `leaf:${statement.leaf_index}`) ?? (statement.refund_zats === "0" ? pub.settlement?.receipts?.find((r2) => r2.party === "seller") : void 0);
+  requireThat(actual && jsonBytes(actual).equals(jsonBytes(receipt)) && /^[0-9a-f]{64}$/.test(receipt.txid) && receipt.auction_id === pub.manifest.auction_id, "claim private settlement receipt");
+  const winners = pub.result.allocations.filter((a2) => a2.fill > 0).sort((a2, b2) => a2.leaf_index - b2.leaf_index);
+  requireThat(winners.reduce((n2, a2) => n2 + BigInt(a2.fill), 0n) <= BigInt(p2.serial_range.count), "claim inventory capacity");
+  const offset = winners.filter((a2) => a2.leaf_index < statement.leaf_index).reduce((n2, a2) => n2 + a2.fill, 0);
+  const serials = pub.result.serial_assignment?.find((a2) => a2.leaf_index === statement.leaf_index)?.serials ?? Array.from({ length: statement.fill }, (_2, i2) => p2.serial_range.first + offset + i2);
+  requireThat(serials && serials.length === statement.fill, "claim assigned serials");
+  checkSerialRange(pub, serials);
+  return {
+    version: 1,
+    kind: "zilkroad_delivery_claim",
+    auction_id: pub.manifest.auction_id,
+    manifest_hash: pub.manifest_hash,
+    result_hash: hash(pub.resultBytes),
+    ciphertext_hash: ciphertextHash,
+    leaf_index: statement.leaf_index,
+    owner_pubkey: statement.owner_pubkey,
+    collection: p2.collection,
+    metadata_commitment: p2.metadata_commitment,
+    serials,
+    settlement_txid: receipt.txid,
+    receipt_hash: hash(jsonBytes(receipt)),
+    statement_hash: hash(jsonBytes(statement))
+  };
+}
+function checkDeliveryClaim(pub, ct2, receipt, statement, claim) {
+  const { signature, ...body } = claim;
+  requireThat(jsonBytes(body).equals(jsonBytes(claimBody(pub, ct2, receipt, statement))), "delivery claim binding");
+  requireThat(verifyStatement(body.owner_pubkey, body, signature), "delivery claim owner signature");
+}
+function checkDeliveryExceptions(pub) {
+  marketplace(pub);
+  const file = path2.join(pub.dir, "delivery-exceptions.json");
+  if (!existsSync2(file)) return;
+  const queue = JSON.parse(readFileSync2(file, "utf8"));
+  requireThat(Array.isArray(queue), "delivery exception queue");
+  const seen = /* @__PURE__ */ new Set();
+  for (const row of queue) {
+    requireThat(row && Object.keys(row).sort().join(",") === "claim,receipt,signature,statement,status" && row.status === "paid_not_delivered", "delivery exception fields/status");
+    const ct2 = row.claim.ciphertext_hash;
+    requireThat(!seen.has(ct2), "duplicate delivery exception");
+    seen.add(ct2);
+    checkDeliveryClaim(pub, ct2, row.receipt, row.statement, row.claim);
+    requireThat(verifyStatement(row.claim.owner_pubkey, {
+      auction_id: pub.manifest.auction_id,
+      claim_hash: hash(jsonBytes(row.claim)),
+      status: row.status
+    }, row.signature), "delivery exception owner signature");
+  }
 }
 
 // adapters/buyback-report.ts
@@ -16458,6 +16466,10 @@ function checkPublicAuction(pub, opts = {}) {
     const rows = pub.settlement.rows ?? [];
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : /* @__PURE__ */ new Map();
     const stray = (party) => {
+      if (party === "treasury") {
+        requireThat(pub.manifest.clearing?.mode === "buyback", "treasury row outside a buyback");
+        return;
+      }
       requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     for (const r2 of receipts) {

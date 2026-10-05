@@ -2,17 +2,19 @@
 import {execFileSync, spawnSync} from "node:child_process";
 import {appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from "node:fs";
 import path from "node:path";
-import {client, hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed} from "../manifest/schema";
+import {hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed} from "../manifest/schema";
 import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, type Receipt} from "./merkle";
 import type {ClearResult, Opened} from "./core";
-import {clearForMode} from "./registry";
+import {clearForMode, clientCommon as client} from "./registry"; // design §6.1: every registry mode
 import {envelopeRecordValid} from "../envelope";
-import {memoBindsEnvelope,memoSealedBid} from "../settle/envelopes";
+import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
+import { repoRoot } from "../manifest/root";
+import { vaultDir, scanBin } from "../manifest/paths";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
-const root=execFileSync("git",["rev-parse","--show-toplevel"]).toString().trim();
-for (const line of readFileSync(path.join(root,".env"),"utf8").split("\n")) {
+const root=repoRoot();
+for (const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/); if(m && process.env[m[1]]===undefined)process.env[m[1]]=m[2];
 }
 const state=path.resolve(root,process.env.BNZ_STATE_DIR!);
@@ -24,24 +26,19 @@ const execute=(cmd:string,args:string[])=> {
   if(r.error)throw r.error;
   requireThat(r.status===0,`${path.basename(cmd)} exited ${r.status}: ${(r.stderr||r.stdout).trim().slice(-300)}`); return r.stdout;
 };
-const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",path.join(state,"vault"),...args]);
+const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state),...args]);
 function observed():{notes:Note[]; tip:number} {
   wallet("sync","-s",process.env.BNZ_LWD_URL!); wallet("enhance","-s",process.env.BNZ_LWD_URL!);
   const balance=JSON.parse(wallet("balance","--json"));
-  const notes=execute(path.join(root,"scan","target","release","benzo-scan"),["scan","test",path.join(state,"vault")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+  const notes=execute(scanBin(root,state),["scan","test",vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};
 }
-function ciphertext(envelope:string,R:number):{ct:string;memo_tag:string|null} {
-  requireThat(typeof envelope==="string" && /^[0-9a-f]{1024}$/.test(envelope),"envelope length");
-  // The one shared memo parser (settle/envelopes.ts): v2 (R16 item 2, R18: 18-byte envelope tag) and v1
-  // framings both read; v2 binds the record to the deposit memo, v1 binds nothing.
-  const parsed=memoSealedBid(envelope); requireThat(parsed,"envelope header/padding");
-  const ct=Buffer.from(parsed!.ciphertext_hex,"hex"), header=ct.toString("latin1").split("--- ")[0];
-  requireThat(header.startsWith("age-encryption.org/v1\n") && header.includes(`-> tlock ${R} ${QUICKNET.chain_hash}\n`) && (header.match(/-> /g)||[]).length===1,"tlock round/chain stanza");
-  return {ct:parsed!.ciphertext_hex,memo_tag:parsed!.envelope_tag};
-}
+// The one shared memo rule (settle/envelopes.ts memoTlockCiphertext): v2 (R16 item 2, R18: 18-byte envelope tag)
+// and v1 framings both read; v2 binds the record to the deposit memo, v1 binds nothing. Witnesses apply the same rule.
+const ciphertext=memoTlockCiphertext;
 try {
   const [command,id]=process.argv.slice(2), input=JSON.parse(readFileSync(0,"utf8")||"{}");
+  if(id&&/^[0-9a-f]{64}$/.test(id))process.env.BNZ_AUCTION_ID=id; // §11 H1
   requireThat(/^[0-9a-f]{64}$/.test(id),"auction id");
   const file=path.join(dir,`${id}.json`);
   let ledger:Ledger, result:unknown;

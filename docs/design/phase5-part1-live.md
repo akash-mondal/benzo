@@ -99,6 +99,18 @@ Today all three key shares live in one `.benzo/frost/` directory and every aucti
 - Clearing goes through the registry, `mode: "buyback"`. Payouts go to the sellers' envelope destinations, and any unspent budget returns to the treasury destination pinned in the manifest.
 - **V1/V2** per PHASE-5 §6.
 
+### 6.1 Addendum (2026-10-04, head): Mode B live, as it will be built
+
+The pure Mode B clear (`clear/mode-b.ts`), its verify-side money rules and its registry entry exist. What is missing is the product path and the treasury leg. Decisions:
+
+1. **Product path accepts every registry mode.** `clear/auction-cli.ts`, `cli/product.ts`, `settle/plan.ts` and `settle/cli.ts` read the signed manifest through `clientForMode` (the registry) instead of the Mode A `client`, wherever they only need the common fields. `auction create --mode buyback --budget Z --max-price Z --treasury-ua UA` writes `clearing.mode = "buyback"` and the `buyback` block.
+2. **The buyback block pins the treasury return and the funding address.** Field set becomes `budget_zats, max_price_zats, treasury_ua, funding_ua`. `treasury_ua` must pass the shielded-only destination rule at `auction create` (`envelope/destination.ts`). Both are public and signed; a treasury is a known party, so this leaks nothing about sellers.
+3. **Treasury funding is a vault note at the signed `funding_ua`.** It is a fresh vault address that is not in `deposit_addresses` (checked by the manifest rules), so it is never a bid or a stray. Signing it (rather than putting it in operator routing, as first drafted) lets every signer host compute the treasury return from signed data plus its own scan, with nothing taken from the operator. The treasury sends at least `budget_zats × lots` (lots = `m.lots.length` or 1) before `T_submit`. Network fees stay on the fee reserve, as in Mode A.
+4. **`open` refuses an unfunded buyback.** Before opening, the operator sums confirmed vault notes at `funding_ua` (10 confirmations, like deposits). If the sum is below `budget × lots`, `open` refuses and the auction cancels: every ask refunds exact C, and whatever the treasury did send returns to `treasury_ua`. Each signer host checks the same sum from its own vault scan in `sign approve` before approving any buyback batch.
+5. **Settlement rows.** `obligationsModeB` keeps one row per leaf (refund C + payment). The plan adds one `treasury` row of `funded − treasury_zats` to `treasury_ua` when it is positive. `funded` is every mined note ever received at `funding_ua` (spent ones too, so a later batch computes the same number), not the manifest number, so over-funding also returns. `benzo verify` accepts one positive `treasury` row on a buyback (its amount rests on shielded notes only the signers see). Hosts derive the same row from their own scan (`deriveRows`): the treasury row's recipient is the signed manifest's `treasury_ua`, never operator input.
+6. **Serial binding through the marketplace adapter is not in part 1.** Asks are sealed asks with exact-C deposits; buying back a specific serial moves to part 2 with the marketplace adapter. PHASE-5 §6 V1/V2 do not depend on it.
+7. **Order of work:** (1)+(2) with a unit check that a buyback manifest round-trips through create/sign/publish and the registry clear equals `clearModeB`, then (3)+(4)+(5) with the open-refusal mutation, then the live spec `e2e/buyback-mode.spec.ts` (V1, V2, W1, W2, X1, Y1 on host custody) and mutations 5M1–5M5.
+
 ## 7. Spec: `e2e/buyback-mode.spec.ts`
 
 One live run of about 60–75 minutes:
@@ -148,3 +160,56 @@ The assertions are exactly PHASE-5 §6: V1 V2 W1 W2 X1 Y1. Mutations 5M1–5M5 a
 - `benzo sign keys --id ID --name SIGNER` creates `envelope-<name>.json` (X25519, via libsodium once Track B lands it) in **that signer's** state dir and prints only the public key. `auction create` takes `--envelope-keys hex,hex,hex` and writes `envelope_keys` into the signed manifest; `auction sign` refuses a manifest whose keys don't match the three signer public keys on file.
 - `bid seal` reads `envelope_keys` from the verified manifest only. It encrypts to all three once B's multi-recipient format is merged; until then, product mode refuses with `multi-recipient envelopes required (Track B)`.
 - Remove every operator-side creation or distribution of an envelope private key. `grep -n "private_hex" cli/ settle/` must show only signer-side reads of the signer's own file.
+
+## 11. Addendum (2026-10-04, head): host custody, as built and as remaining
+
+**Built (8ad081f, Y1 PASS):** `benzo sign dkg` runs on each OrbStack host. It copies the host's own contact config to `~/.benzo/auctions/<id>/frost.toml` and the share stays there. `benzo auction keys --group-keys k,k,k` refuses disagreeing keys, the global key and any earlier auction's key, derives the UFVK and creates the view-only `state/vaults/<id>/wallet`. `auction sign` refuses a manifest not pinning that key and UA. Host CLI fixes: `repoRoot()`, optional `.env`, `BNZ_PCZT_BIN`, `up.sh` clearing the stage before `orbctl push`.
+
+**Host custody mode** is on for an auction iff `state/vaults/<id>/keys.json` exists. Remaining, in order:
+- **H1. Per-auction vault everywhere.** `settle/io` exposes `vaultDir()`: `state/vaults/<BNZ_AUCTION_ID>/wallet` when that exists, else `state/vault`. Every vault use goes through it (wallet, pczt, notes/scan, create, prove, extract, sweep). Each `benzo` command scoped to `--id` sets `process.env.BNZ_AUCTION_ID` before spawning children. The e2e harness keeps the global vault.
+- **H2. Hosts as independent verifiers** (`up.sh`): zcash-devtool, zcash-sign, grpcurl and the protos built on each host at the Mac's pins. The launcher exports the non-secret network config. Each host runs `benzo auction keys` itself and so keeps its **own** view-only vault and chain view.
+- **H3. Batch packet and host approval.** Per batch attempt the coordinator writes a packet: the published public dir (a copy), `claims.json`, the proven candidate PCZT, and `plan_version = SHA-256(candidate)`. It delivers the packet to the chosen hosts (transport: `orbctl push`; an HTTPS route later). Each host runs `benzo sign approve --id --batch --packet DIR --name n`, which:
+  1. runs the full public check on the packet's dir and refuses on any ERROR;
+  2. derives the expected payable rows itself: leaves from the recomputed result and its own fresh openings (published beacon), destinations from **its own** envelope key (bid envelopes, then claim envelopes), strays from **its own** vault scan, the seller payout amount from the result;
+  3. inspects the candidate (`benzo-pczt inspect`), so every non-change output matches one expected (recipient, amount) and change returns to the vault;
+  4. computes the sighash itself (`zcash-sign` reads it from the candidate);
+  5. writes `approvals/<id>/<batch>.json {plan_version, sighash}` on the host.
+
+  `benzo sign join` (host mode) signs only when its approval holds this exact sighash: it compares frost-client's printed message with the approved sighash before answering `y`.
+- **H4. Coordinator on a host and the kill drill.** In host mode the FROST coordinator runs on `pair[0]`'s host (its auction config holds the group), driven over `orb run` with the sighash and randomizer on stdin. If a session fails mid-batch (the drill: `orb stop benzo-bob` after bob joined), the worker records the abandoned session (no nonce reuse; it's a new session), swaps in the next signer that approves, and re-signs **the same batch**. The ledger shows no duplicate outputs.
+- **H5. Signer-side reports from hosts.** Envelope keys (`benzo sign envelope-key` on each host, pinned in the manifest), `sign envelope-opens --public DIR --claims FILE` and the witness certificate and strays statement run **on the hosts** against the pushed public dir and each host's own vault scan. Their outputs return to the coordinator (stdout or `orbctl pull`).
+- **Limit to state:** the seller payout destination is operator routing, so hosts check its amount, not its address. Pinning the seller UA in the signed manifest closes this (future item).
+- **Proof:** one live product auction with host custody (fresh DKG, three bids, a refund paid through envelopes) settled entirely by host approvals and host-held shares, plus the kill drill completing with alice + carol.
+
+### 11.1 Live findings from Y2 (2026-10-04, head)
+- **Proven live:** per-auction DKG on the hosts (Y1, and again in Y2 for auction 7885a5af…), per-host vaults from the operator's UFVK, host witness certificates, **host approvals of batch 1 computed from each host's own data**, and the kill drill aborting the alice + bob session when bob's host is stopped.
+- **Fixed:**
+  - a failed participant ends the whole session, so survivors are stopped (27494b5);
+  - lingering frostd sessions are closed on surviving hosts before re-planning (`frost-client sessions --close-all`);
+  - `freeze` must run after `T_submit` and before `T_freeze`; missing the cutoff cancels the auction.
+- **Design gap: the candidate PCZT must be built on a signer host.** Under host custody the coordinator holds no envelope key, so it can't name the refund recipients; the Mac-built candidate sent every envelope refund to the exception queue. Remaining work (H6):
+  - a host command `benzo sign build --id --batch --packet DIR --name n` takes the packet plus `rows.json` (the ledger's allocated rows: party, kind, amount) and `seller_ua` (operator routing);
+  - it derives each row's recipient exactly as `sign approve` does (share one `deriveRows()`), creates the PCZT with `benzo-pczt create` on its own vault, proves it, and returns the proven candidate plus `{party, output_index}`;
+  - the coordinator pulls it (`orbctl pull`), and every approving host, including the builder, runs `sign approve` on it;
+  - receipts map outputs to parties by that index list, never by recipient.
+- **H6 done and proven live (e593a23…cb4b3eb):** host-built candidate, host approvals, kill drill, re-plan with alice + carol, settlement `7e1ee059…` mined with 4 receipts, cold verify (evidence `docs/evidence/phase-5/y2/`). Broadcast under custody uses `pczt send-without-storing` (the operator vault does not know the building host's account id).
+- **H7: the operator never sees refund destinations (de6d167).** The H6 build still handed the coordinator the full proven PCZT, whose output fields (`recipient`, `rseed`, `user_address`) name every refund destination in plain text, and the outputs carried an OVK the vault UFVK could open on-chain. Now:
+  - `benzo-pczt create` uses `OvkPolicy::Discard`, so no holder of the vault UFVK can recover outgoing recipients;
+  - the building host redacts every non-change output's `recipient`, `rseed`, `ock`, `user_address` and `zip32_derivation` (`zcash-devtool pczt redact`, deterministic) and the coordinator receives only that copy. Its `plan_version` is the SHA-256 of the redacted bytes;
+  - the full candidate goes to each signer sealed (`crypto_box_seal`, libsodium) to the envelope key the verified manifest pins for it. The coordinator relays blobs it cannot open;
+  - each approving host opens its copy, checks it strictly (note commitment, encryption, recipients against its own derived rows), and requires its own redaction to equal the coordinator's `plan_version`. A coordinator-forged sealed copy still fails the derived-row check;
+  - the coordinator inspects with `benzo-pczt inspect --allow-redacted` (amounts and change only). Redaction leaves the sighash and the extracted txid unchanged (checked on Y2 batch 1: sighash `2a099314…`, txid `7e1ee059…`);
+  - stated remainder: amounts stay visible to the coordinator (they are in the public result anyway), and the seller payout UA is operator routing.
+- **Funds parked: all recovered.**
+  - 7885a5af… settled (above).
+  - ea0d5761… (cancelled before freeze) was recovered live with `tools/repro/x-cancel-claims.ts`:
+    - the bidders claimed the 3 exception deposits with their bid owner keys and the hosts attested the claims;
+    - the batch was host-built and host-approved;
+    - each deposit refunded exactly C and landed (`docs/evidence/phase-5/cancel-claims/`).
+  - That needed two fixes:
+    - Host derivation for a cancelled auction (a8b2985): every deposit refunds through its owner-signed claim, with the owner key read from its own tlock-opened memo, or through its memo-bound envelope.
+    - A pre-freeze cancel is proven from signed data (319098a): no frozen root after the signed `T_freeze`. This replaces `benzo verify`, which needs a frozen root.
+  - The operator must fund the fee reserve even for a cancel: that vault held exactly 3C and the refunds need network fees.
+- **NU7 (Ruling R27):** testnet moved to NU7 at 4,465,026 on 2026-10-04. The stack runs the `tools/nu7` backport. While only `testnet.zec.rocks` serves NU7, live runs use `BNZ_LWD_SINGLE=1` (testnet only; recorded).
+  - `e2e/buyback-mode.spec.ts` passed all 10 IDs on NU7 (`docs/evidence/phase-5/buyback-run4/`).
+  - Auction 0397… (buyback run 2) has a batch signed under the old branch. It expires at 4,465,600, after which the worker re-plans it.

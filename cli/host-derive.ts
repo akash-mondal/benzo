@@ -1,0 +1,156 @@
+// Shared by `benzo sign approve` and `benzo sign build` (§11 H3/H6, signer hosts): the full public check on a packet's
+// public dir, then every payable row derived from THIS signer's own data — fresh tlock openings from the published
+// beacon, its own envelope key (claim envelopes first), its own per-auction vault scan for strays — plus the seller
+// payout amount from the result. No recipient ever comes from the coordinator.
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { QUICKNET, requireThat } from "../manifest/schema";
+import { tleDecryptFailover } from "../manifest/reserve";
+import { pcztBin, scanBin, ufvkFile, vaultDir } from "../manifest/paths";
+import { loadPublicAuction } from "../api/public-auction";
+import { verifyStatement } from "../envelope/index";
+import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
+import { depositParty, refundable, strayNotes } from "../settle/deposits";
+import { treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
+import { chainTip } from "./host-chain";
+import { recomputeFrozen } from "../witness/recompute";
+
+const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+// This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
+// retried), then scan it. Used by host approvals/builds and by witnesses recomputing the frozen root (design §5).
+export async function ownScan(st: string, root: string, id: string): Promise<any[]> {
+  const devtool = path.join(st, "bin", "zcash-devtool"), lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
+  for (const verb of ["sync", "enhance"]) {
+    for (let attempt = 1; ; attempt++) {
+      const r = spawnSync(devtool, ["wallet", "-w", vaultDir(st, id), verb, "-s", lwd], { encoding: "utf8" });
+      if (r.status === 0) break;
+      requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node/.test(r.stderr ?? ""), `vault ${verb} failed: ${(r.stderr ?? "").trim().slice(-160)}`);
+      await new Promise(res => setTimeout(res, 5000 * attempt));
+    }
+  }
+  return execFileSync(scanBin(root, st), ["scan", "test", vaultDir(st, id)], { encoding: "utf8", maxBuffer: 64 << 20 }).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+}
+// `source` is the vault note (or sink) a row pays from (Ruling R28 item 3): a leaf is keyed by its frozen deposit's note,
+// a deposit by itself, so one deposit can never be approved twice under two party names.
+export type DerivedRow = { party: string; recipient: string; amount_zats: string; source: string };
+
+// Ruling R28 item 1/5 (F1, F4): before deriving anything, bind the packet to THIS host's custody of THIS auction:
+//   - the manifest is signed by the operator key pinned on this host at provisioning (state/operator-signer.txt);
+//   - the first manifest this host sees for the auction is pinned (state/auctions/<id>/manifest.sha256), any other refused;
+//   - its frost_group_key is this host's own DKG key, the vault UFVK's ak equals it, and every manifest address
+//     (escrow, deposits, buyback funding) is an external address of that vault.
+export function custodyBinding(id: string, st: string, root: string, pub: any, signer: string): void {
+  const pin = path.join(st, "operator-signer.txt");
+  if (existsSync(pin)) requireThat(signer === readFileSync(pin, "utf8").trim(), "manifest is not signed by this host's pinned operator key");
+  const adir = path.join(st, "auctions", id), gk = path.join(adir, "group-key.txt"), mh = path.join(adir, "manifest.sha256");
+  requireThat(existsSync(gk), "this host holds no DKG share for this auction");
+  const group = readFileSync(gk, "utf8").trim(), m = pub.manifest;
+  requireThat(m.frost_group_key === group, "manifest frost_group_key is not this host's DKG group key");
+  requireThat(execFileSync(pcztBin(root, st), ["ufvk-ak", ufvkFile(st, id)], { encoding: "utf8" }).trim() === group, "vault UFVK is not this auction's group key");
+  for (const a of [m.escrow_ua, ...m.deposit_addresses, ...(m.buyback ? [m.buyback.funding_ua] : [])])
+    requireThat(execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, id), a], { encoding: "utf8" }).trim() === "external", `manifest address ${String(a).slice(0, 16)}… is not this vault's`);
+  if (existsSync(mh)) requireThat(readFileSync(mh, "utf8").trim() === pub.manifest_hash, "a different manifest is pinned for this auction on this host");
+  else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
+}
+
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[] }> {
+    const publicDir = path.join(packet, "public");
+    // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
+    // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
+    // so no frozen root after T_freeze means CANCELLED.
+    const pub = loadPublicAuction(publicDir, { signer: meta.signer }); // verifies the manifest signature
+    requireThat(pub.manifest.auction_id === o.id, "packet is for another auction");
+    custodyBinding(o.id, st, root, pub, meta.signer);
+    if (pub.frozen) {
+      const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer], { encoding: "utf8", env: process.env });
+      requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
+    } else requireThat(Date.now() / 1000 > pub.manifest.T_freeze, "an unfrozen auction before T_freeze is not cancelled; refusing");
+    // Ruling R28 item 2 (G-3): a frozen root this host has seen (as a witness, or in an earlier packet) is pinned; a packet
+    // without it, or with another root, is refused — a frozen auction can't be turned into a "cancelled" one.
+    const rootPin = path.join(st, "auctions", o.id, "frozen-root.txt");
+    if (existsSync(rootPin)) requireThat(pub.frozen?.root === readFileSync(rootPin, "utf8").trim(), "packet lacks the frozen root this host pinned for the auction");
+    else if (pub.frozen) writeFileSync(rootPin, pub.frozen.root + "\n", { mode: 0o600 });
+    // Ruling R28 item 1 (F1): cancelled means NO RESULT — never the coordinator's state field. With a result, leaves are
+    // paid as leaves and only strays as deposits; without one, every deposit refunds through its own claim or envelope.
+    const cancelled = !pub.result;
+
+    // 2. Every payable row, derived by this signer.
+    const key = ownEnvelopePrivate(st, o.name);
+    requireThat(key, "this signer's envelope key is missing");
+    requireOwnEnvelopeKey(pub.manifest as any, o.name, st); // R10 item 3, checked here under host custody
+    const tle = path.join(st, "bin", "tle");
+    const opened = (pub.frozen?.leaves ?? []).map((l: any) => {
+      const pt = tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(l.ciphertext_hex, "hex"));
+      return { leaf_index: l.leaf_index, plaintext_hex: pt ? pt.toString("hex") : null };
+    });
+    const ownerOf = (i: number) => { const p = opened.find(x => x.leaf_index === i)?.plaintext_hex; return p ? Buffer.from(p, "hex").subarray(61, 93).toString("hex") : null; };
+    const view = { manifest: pub.manifestPacket, frozen: pub.frozen, opened, envelopes: pub.envelopes };
+    const claims: any[] = existsSync(path.join(packet, "claims.json")) ? JSON.parse(readFileSync(path.join(packet, "claims.json"), "utf8")) : [];
+    const claimDest = (party: string, owner: string | null): string | null => {
+      for (const c of claims.filter(c => c.party === party)) {
+        try {
+          const body = { kind: "claim-refund", auction_id: o.id, party, claim_envelope_sha256: sha(Buffer.from(c.claim_envelope_ct, "hex")) };
+          if (owner && verifyStatement(owner, body, c.owner_sig)) { const d = openDestination({ envelope_ct: c.claim_envelope_ct } as any, key!); if (d) return d; }
+        } catch { /* an invalid claim is skipped, never fatal */ }
+      }
+      return null;
+    };
+    const expected: DerivedRow[] = [];
+    const notes = await ownScan(st, root, o.id);
+    const deposits = notes.filter((n: any) => pub.manifest.deposit_addresses.includes(n.address));
+    // Ruling R28 item 2 (G-1): every frozen leaf must be a deposit THIS host sees on chain whose memo is that leaf's
+    // ciphertext (the witness rule, spent-by-settlement allowed) — a signed but fabricated frozen set pays nobody.
+    if (pub.frozen) { const own = recomputeFrozen(pub.manifest as any, pub.manifest_hash, pub.frozen, notes, { settled: true }); requireThat(own.root === pub.frozen.root, "frozen root differs from this host's own scan"); }
+    const leafSource = (i: number): string => {
+      const d = pub.frozen!.leaves[i].deposit, n = deposits.find((x: any) => x.txid === d.txid && x.address === d.address && x.diversifier_index === d.diversifier_index);
+      return n ? depositParty(n) : `leaf-deposit:${d.txid}:${d.address}`;
+    };
+    // Design §6.1: a buyback leaf is owed its exact-C refund plus its payment (obligationsModeB); Mode A leaves are
+    // owed the refund and the payments go to the seller row.
+    const buyback = (pub.manifest as any).clearing?.mode === "buyback";
+    for (const a of (pub.result as any)?.allocations ?? []) {
+      const owed = BigInt(a.refund_zats ?? "0") + (buyback ? BigInt(a.payment_zats ?? "0") : 0n);
+      if (!(owed > 0n)) continue;
+      const party = `leaf:${a.leaf_index}`;
+      const rec = validEnvelope(view, a.leaf_index);
+      const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!) : null);
+      if (dest) expected.push({ party, recipient: dest, amount_zats: owed.toString(), source: leafSource(a.leaf_index) });
+    }
+    // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
+    // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN
+    // memo's sealed bid, opened here with the published beacon (settle/plan.ts ownerKeyFor), never operator input.
+    const memoOwner = (n: any): string | null => {
+      const ct = n.memo_hex ? memoSealedBid(n.memo_hex)?.ciphertext_hex ?? null : null;
+      const pt = ct ? tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(ct, "hex")) : null;
+      return pt ? pt.subarray(61, 93).toString("hex") : null;
+    };
+    for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest.deposit_addresses, pub.frozen)) as any).payable as any[]) {
+      const party = depositParty(n);
+      const rec = authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, tle);
+      const dest = claimDest(party, memoOwner(n)) ?? (rec ? openDestination(rec, key!) : null);
+      if (dest) expected.push({ party, recipient: dest, amount_zats: String(n.value_zats), source: party });
+    }
+    // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the
+    // signed treasury_ua/funding_ua and this signer's own scan.
+    const payout = buyback || cancelled ? "0" : String((pub.result as any).conservation?.payout_zats ?? "0");
+    if (buyback) {
+      // Ruling R28 item 7 (F6): a cleared buyback settles only if the treasury funded budget × lots, confirmed — the same
+      // rule as `open`, checked here from this host's own scan.
+      if (!cancelled) requireThat(treasuryFunded(pub.manifest as any, notes, chainTip(st)) >= treasuryRequired(pub.manifest as any), "buyback treasury is not funded (budget × lots, confirmed) on this host's scan; refusing");
+      const back = treasuryReturn(pub.manifest as any, cancelled ? null : pub.result as any, treasuryFunded(pub.manifest as any, notes, chainTip(st)));
+      if (back > 0n) expected.push({ party: "treasury", recipient: (pub.manifest as any).buyback.treasury_ua, amount_zats: back.toString(), source: "treasury" });
+    }
+
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys };
+}
+
+// §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and
+// derivation redacted with zcash-devtool `pczt redact` (deterministic: each approving host recomputes it from the full
+// candidate sealed to it and requires the same bytes). Sighash and extraction need none of those fields.
+export function redactCandidate(st: string, full: string, out: string, info: { outputs: { index: number; pool: string; is_change: boolean }[] }): void {
+  const keys = info.outputs.filter(x => !x.is_change).flatMap(x => ["recipient", "rseed", "ock", "user_address", "zip32_derivation"].flatMap(f => ["-k", `${x.pool}.action.${x.index}.output.${f}`]));
+  requireThat(keys.length > 0, "candidate has no output to redact");
+  execFileSync(path.join(st, "bin", "zcash-devtool"), ["pczt", "redact", ...keys, full, "--output", out], { stdio: ["ignore", "ignore", "pipe"] });
+}

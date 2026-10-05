@@ -1,0 +1,3 @@
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (4779 s)
+run failed; details in tmp/e2e/report.json
+exit=1

@@ -517,6 +517,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // result exists and every party must therefore be a deposit refund.
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
     const stray = (party: string): void => {
+      // Design §6.1: a buyback's one `treasury` row returns unspent budget to the signed treasury_ua. Its amount
+      // (funded − treasury_zats) rests on shielded funding notes only the signers see; they derive it from their
+      // own scans before approving. Publicly it is held to the stray rules: positive, one receipt, matching amount.
+      if (party === "treasury") { requireThat((pub.manifest as any).clearing?.mode === "buyback", "treasury row outside a buyback"); return; }
       requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.

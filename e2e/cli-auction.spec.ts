@@ -19,6 +19,8 @@ import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
+// BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
+const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const fresh=(name:string)=>z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['address',path.join(STATE,name)]).trim();
@@ -30,7 +32,7 @@ function good(args:string[],input?:any) {const r=cli(args,input);if(r.code)throw
 async function mature(txid:string) {
   const h=await waitFor({height:1,tip:()=>{z.sync('vault');return JSON.parse(z.wallet('vault','list-tx','--json')).find((t:any)=>t.txid===txid)?.mined_height??0}},Date.now()+MINE);
   // Head (2026-10-03): wait for a lagging endpoint; only a different non-zero height is a disagreement.
-  for(const endpoint of [env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')]) {
+  for(const endpoint of ENDPOINTS) {
     const by=Date.now()+15*60_000;
     for(;;){let seen=0;try{seen=Number(z.getTransaction(txid,endpoint).height)||0}catch(e){if(!/NotFound|not found/i.test(String((e as Error)?.message??e)))throw e}
       if(seen===h)break;if(seen!==0)throw Error('deposit mined heights differ across endpoints');if(Date.now()>by)throw Error(`endpoint ${endpoint} did not observe ${txid}`);await new Promise(r=>setTimeout(r,15000))}
@@ -49,19 +51,24 @@ function worker(id:string,allocatedKill=false) {
 async function cleanup() {
   z.sync('vault');z.enhance('vault');if(!z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))return;
   const dir=path.join(STATE,'run',`cli-cleanup-${Date.now()}`);mkdirSync(dir,{recursive:true});
-  z.pczt('vault','create-max','--address',fresh('bidder'),'--output',path.join(dir,'created.pczt'));
+  // create-max refuses while any vault note is still too young to spend (the last settlement's change, live NU7
+  // regression): re-sync and retry until they mature, up to 15 minutes.
+  for(let by=Date.now()+15*60_000;;) {
+    try{z.pczt('vault','create-max','--address',fresh('bidder'),'--output',path.join(dir,'created.pczt'));break}
+    catch(e){if(!/ineligible/.test(String((e as Error)?.message??e))||Date.now()>by)throw e;await new Promise(r=>setTimeout(r,20_000));z.sync('vault')}
+  }
   z.pczt('vault','prove',path.join(dir,'created.pczt'),'--output',path.join(dir,'proven.pczt'));
   await zcashSign(path.join(dir,'proven.pczt'),path.join(dir,'signed.pczt'));const txid=z.send(path.join(dir,'signed.pczt'));
   await waitFor({height:1,tip:()=>{z.sync('vault');return JSON.parse(z.wallet('vault','list-tx','--json')).find((t:any)=>t.txid===txid)?.mined_height??0}},Date.now()+MINE);console.log(`development cleanup ${txid}`);
 }
 test('CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery',async()=> {
-  test.setTimeout(90*60_000);const run=new Run('cli-auction');
+  test.setTimeout(110*60_000);const run=new Run('cli-auction');
   const pins=Object.fromEntries(readFileSync(path.join(ROOT,'tools/pins.env'),'utf8').split('\n').map(l=>l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter(Boolean).map(m=>[m![1],m![2]]));
   const installed=execFileSync('cargo',['install','--list','--root',STATE],{encoding:'utf8'});
-  for(const name of ['zcash-devtool','frostd','frost-client','zcash-sign'])if(!installed.split('\n').some(l=>l.startsWith(name+' v')&&l.includes('?rev='+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']+'#')))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
+  for(const name of ['zcash-devtool','frostd','frost-client','zcash-sign'])if(!installed.split('\n').some(l=>l.startsWith(name+' v')&&(l.includes('?rev='+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']+'#')||l.includes('-'+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']))))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
   for(const [name,module,tag] of [['tle','github.com/drand/tlock',pins.TLE_TAG],['grpcurl','github.com/fullstorydev/grpcurl',pins.GRPCURL_TAG]])if(!execFileSync('go',['version','-m',path.join(STATE,'bin',name)],{encoding:'utf8'}).includes('\tmod\t'+module+'\t'+tag+'\t'))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
   for(const file of ['vault/data.sqlite','frost/alice.toml','frost/bob.toml','frost/carol.toml','ufvk.txt'])if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
-  try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of [env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')])z.tip(e)}catch(e){run.notRun(IDS,String(e))}
+  try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of ENDPOINTS)z.tip(e)}catch(e){run.notRun(IDS,String(e))}
   z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');
   if(z.spendable(z.balance('bidder'))-12*C-200000<3*C+40000)run.notRun(IDS,'drill would cross bidder floor; Needs user funds');
   const stop=await startFrostd();let active:ReturnType<typeof worker>|undefined,paused:number|undefined,api:any,apiData:any;

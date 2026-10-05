@@ -1,0 +1,24 @@
+diff --git a/src/roles/creator/mod.rs b/src/roles/creator/mod.rs
+index 8ba7790..0035b06 100644
+--- a/src/roles/creator/mod.rs
++++ b/src/roles/creator/mod.rs
+@@ -112,7 +112,6 @@ impl Creator {
+             | BranchId::Nu6_1
+             | BranchId::Nu6_2 => (V5_TX_VERSION, V5_VERSION_GROUP_ID),
+             BranchId::Nu6_3 => (V6_TX_VERSION, V6_VERSION_GROUP_ID),
+-            #[cfg(zcash_unstable = "nu7")]
+             BranchId::Nu7 => (V6_TX_VERSION, V6_VERSION_GROUP_ID),
+         };
+ 
+diff --git a/src/roles/updater/mod.rs b/src/roles/updater/mod.rs
+index fc00a7b..cddd775 100644
+--- a/src/roles/updater/mod.rs
++++ b/src/roles/updater/mod.rs
+@@ -238,7 +238,6 @@ fn ensure_anchor_update_supported(global: &Global) -> Result<(), AnchorUpdateErr
+ 
+     match BranchId::try_from(global.consensus_branch_id) {
+         Ok(BranchId::Nu6_3) => Ok(()),
+-        #[cfg(zcash_unstable = "nu7")]
+         Ok(BranchId::Nu7) => Ok(()),
+         Ok(_) => Err(AnchorUpdateError::UnsupportedConsensusBranchId),
+         Err(_) => Err(AnchorUpdateError::UnknownConsensusBranchId),

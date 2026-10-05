@@ -7,8 +7,10 @@ import { checkFrozen } from "./merkle";
 import { effectiveMaxPrice, readOrders, sealedReserve } from "./features";
 import type { ClearBody, ClearInput, SettlementExtras } from "./core";
 
-// R3 item 4: max_price_zats is the treasury's maximum accepted ask (was floor_zats).
-export type Buyback = { budget_zats: string; max_price_zats: string };
+// R3 item 4: max_price_zats is the treasury's maximum accepted ask (was floor_zats). Design §6.1: treasury_ua is where
+// unspent budget returns; funding_ua is the vault address the treasury funds (not a deposit address, so it is never a
+// bid or a stray). Both are signed, so every signer derives the treasury row from signed data and its own scan.
+export type Buyback = { budget_zats: string; max_price_zats: string; treasury_ua: string; funding_ua: string };
 export type BuybackManifest = Omit<Manifest, "clearing"> & {
   clearing: Omit<Manifest["clearing"], "mode"> & { mode: "buyback" };
   buyback: Buyback;
@@ -18,11 +20,19 @@ export type BuybackManifest = Omit<Manifest, "clearing"> & {
 // field is held to the unchanged Mode A rules. The signature covers the buyback fields like every manifest byte.
 export function clientPhase5(packet: Signed, trustedSigner: string): { manifest_hash: string; manifest: BuybackManifest } {
   const m = verifyRecord<any>(packet, trustedSigner);
+  validatePhase5(m);
+  return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest: m as BuybackManifest };
+}
+// The unsigned-manifest rules (also `benzo auction create` for a buyback draft).
+export function validatePhase5(m: any): void {
   requireThat(m.clearing && ["uniform", "vickrey", "buyback"].includes(m.clearing.mode), "clearing mode");
   requireThat((m.clearing.mode === "buyback") === (m.buyback !== undefined), "buyback parameters/mode");
   if (m.buyback !== undefined) {
     requireThat(m.buyback && typeof m.buyback === "object" && !Array.isArray(m.buyback), "buyback parameters");
-    requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,max_price_zats", "buyback field set");
+    requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,funding_ua,max_price_zats,treasury_ua", "buyback field set");
+    const ua = m.network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/;
+    requireThat(ua.test(m.buyback.treasury_ua) && ua.test(m.buyback.funding_ua), "buyback treasury_ua/funding_ua");
+    requireThat(m.buyback.treasury_ua !== m.buyback.funding_ua && !(m.deposit_addresses ?? []).includes(m.buyback.funding_ua) && !(m.deposit_addresses ?? []).includes(m.buyback.treasury_ua), "buyback funding_ua must be a non-deposit vault address distinct from treasury_ua");
     // Bond-then-pay is buyer-side (a defaulter's bond goes to the seller); a buyback winner is a seller.
     requireThat(m.bond === undefined, "bond-then-pay is auction-side");
     requireThat(m.serials === undefined, "serials are uniform auction-side");
@@ -34,7 +44,19 @@ export function clientPhase5(packet: Signed, trustedSigner: string): { manifest_
     const tick = zats(m.tick_zats, "tick"), budget = zats(m.buyback.budget_zats, "budget"), maxPrice = zats(m.buyback.max_price_zats, "max_price");
     requireThat(budget > 0n && maxPrice >= tick && maxPrice % tick === 0n, "buyback budget/max_price");
   }
-  return { manifest_hash: hash(Buffer.from(packet.bytes, "base64")), manifest: m as BuybackManifest };
+}
+// Design §6.1: what the treasury must fund (budget per lot) and what returns to it. `funded` counts every mined note
+// ever received at funding_ua (spent or not: a later batch must see the same number). A cancelled round (no result)
+// returns everything funded.
+export const treasuryRequired = (m: BuybackManifest): bigint => zats(m.buyback.budget_zats, "budget") * BigInt(m.lots?.length ?? 1);
+export function treasuryFunded(m: BuybackManifest, notes: { address: string; height: number | null; value_zats: number | string }[], confirmedAt?: number): bigint {
+  return notes.filter(n => n.address === m.buyback.funding_ua && n.height && (confirmedAt === undefined || confirmedAt - n.height + 1 >= m.confirmations))
+    .reduce((s, n) => s + BigInt(n.value_zats), 0n);
+}
+export function treasuryReturn(m: BuybackManifest, result: ClearBody | null, funded: bigint): bigint {
+  const spent = result ? zats(result.conservation.treasury_zats ?? "0", "treasury") : 0n;
+  requireThat(funded >= spent, "treasury funding below the cleared spend");
+  return funded - spent;
 }
 export function clientBuyback(packet: Signed, trustedSigner: string): { manifest_hash: string; manifest: BuybackManifest } {
   const r = clientPhase5(packet, trustedSigner);

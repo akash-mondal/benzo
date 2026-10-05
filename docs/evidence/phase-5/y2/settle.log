@@ -1,0 +1,6 @@
+{"auction_id":"7885a5af9963aa3bf61bdccccc69bd01b8b771cc3ee742909beda8edb4582de5","state":"SETTLED","settled":4}
+
+----
+{"auction_id":"7885a5af9963aa3bf61bdccccc69bd01b8b771cc3ee742909beda8edb4582de5","batch":1,"allocated":4}
+settlement broadcast 7e1ee0597badb1f7b366c46887d789fb2cef29a877af6e745a9ed8ae1493092a
+{"auction_id":"7885a5af9963aa3bf61bdccccc69bd01b8b771cc3ee742909beda8edb4582de5","settled":4}

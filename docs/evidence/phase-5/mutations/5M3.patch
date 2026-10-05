@@ -1,0 +1,13 @@
+diff --git a/witness/index.ts b/witness/index.ts
+index 880804e..3f32c30 100644
+--- a/witness/index.ts
++++ b/witness/index.ts
+@@ -87,7 +87,7 @@ export function checkCertificates(certs: WitnessCert[], spec: WitnessSpec, state
+     if (signed.has(s.witness)) continue;
+     requireThat(spec.keys.includes(s.witness), "signature not from the witness set");
+     requireThat(verify(null, Buffer.concat([Buffer.from("benzo-witness-v1"), statementBytes(c.statement)]), edPublic(s.witness), Buffer.from(s.signature, "hex")), `witness ${s.witness} signature`);
+-    signed.add(s.witness);
++    signed.add(s.witness + ":" + signed.size); // 5M3: one witness counted again per certificate
+   }
+   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
+ }

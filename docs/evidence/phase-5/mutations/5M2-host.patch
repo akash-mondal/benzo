@@ -1,0 +1,13 @@
+diff --git a/cli/commands/sign-approve.ts b/cli/commands/sign-approve.ts
+index 4821702..8de6dae 100644
+--- a/cli/commands/sign-approve.ts
++++ b/cli/commands/sign-approve.ts
+@@ -80,7 +80,7 @@ export async function run(argv: string[]): Promise<number | object> {
+       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
+       if (i >= 0) { pool.splice(i, 1); continue; }
+       if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout) { sellerSeen = true; continue; }
+-      throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
++      continue; // 5M2: accept any recipient
+     }
+ 
+     // 4. The sighash, computed here.
