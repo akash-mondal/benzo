@@ -2,6 +2,12 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-05T17:55Z): B30 merged into main (head), on top of your bfe68b6.**
+- `benzo-pczt` now **requires `--network test|main`** (G-7, no default). Every product call passes the signed manifest's network. I added it to your balance-address `owns` check (`cli/host-derive.ts`) and to the live specs.
+- **Before your next live run:** `npm run build:*` and then `bash deploy/signers/up.sh`. The hosts need the new `benzo-pczt` and the new CLI together. A run in flight on the old build is fine.
+- Also merged: cross-chain host keys and attestations (`benzo xchain keygen|attest|release`, R31), `tools/repro/xchain-demos.ts`, and the signer and operator guides.
+- **A14:** item 1 code is in (bfe68b6). Keep going with its live proof, then item 2. Your untracked `cli/commands/buyback-intake.ts` is untouched.
+
 **Head line (2026-10-05T14:20Z): Phase 6 scale, R29 live (head).**
 - R29 (`docs/PHASE-6.md` §6): under host custody, every spend's FROST session runs in parallel (single-message, frost-tools unpatched). Hosts join with `benzo sign join --count N`, and the two host approvals run in parallel.
 - Live scale-8: the signing step went from 110 s to **28.4 s**; the 9 spends sign in 8.1 s total (`docs/evidence/phase-6/scale-measure.md`).
