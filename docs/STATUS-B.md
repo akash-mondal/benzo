@@ -57,7 +57,45 @@ breakage** (head: fold `f2e24e2` in at the merge).
 Commits so far: `f2e24e2` (local-demo cert fix) + `1245f77` (its evidence), `b74a28a` (item 1 code +
 `crosschain/host-attest-demo.{sh,mjs}`), `d969dc0` (item 1 evidence + mutations).
 
-Next: item 2 (`tools/repro/xchain-demos.ts`), then item 3 (mainnet readiness), then item 4 (guides).
+**Item 2 — demo drivers for the three demos (part 2 §2): BUILT + target-chain half DRY-RUN PROVEN** —
+product prerequisite `bafbd7e`, drivers `ec5cb8a`, evidence `2a1303c` + `docs/evidence/phase-5/repro/xchain-escrows-deployed.out`.
+
+1. **`tools/repro/xchain-demos.ts`** (`demo1|demo2|demo3`, `--local` for the dry run):
+   - **demo1 sol-drop**: uniform multi-lot Zcash auction, lots locked in the Solana escrow, winners paid at
+     fresh addresses (fill × lot). SPL-asset variant: Token-2022 CT is the standalone capability
+     (`crosschain/ct-live.sh`, R25 item 5/F6 — the escrow pays native SOL only, escrow-held SPL is future
+     work); the driver's escrow leg is the native-asset escrow.
+   - **demo2 buyback-stealth**: Mode B buyback window, sellers paid on Sepolia through stealth delivery
+     (stipend + canonical ERC-5564 announcement; Railgun stays deferred, R24).
+   - **demo3 otc-sol**: ZEC↔SOL blind OTC whose SOL leg settles through the Solana escrow.
+   Zcash side = the markets.ts scenario engine (child process, its DKG/funding locks) with the auction id
+   pre-bound (`BNZ_MARKETS_ID`) so the escrow **locks before bidding** (crosschain §2). Target-chain side =
+   the shipped `xchain lock/attest/release`; the host attest runs through `e2e/lib/hosts.ts`
+   (`orb run … benzo xchain attest --host-record`, `hostXchainKeys`/`hostXchainAttest`) in live mode.
+2. **Dry run of the target-chain half (local anvil + solana-test-validator, three local signer state dirs
+   standing in for the hosts): 35/35 PASS** — `bash tools/repro/xchain-demos.sh demo1 demo2 demo3`
+   (`repro/xchain-demos-local.out`): demo1 13/13 (incl. `demo1-multilot-shape`, the fill-2 winner paid 2 lots),
+   demo2 11/11 (stealth payouts + stipend + announcement), demo3 11/11. Each demo asserts host records over
+   identical attestation bytes, payouts equal to the result's own `allocations[].fill`, `xchain status
+   --result` tying the escrow's approved result hash to the published `result.json`, and **no Zcash material
+   on the target chain** (every submitted tx fetched and scanned for the run's deposit txids + shielded
+   addresses). **Mutations:** `X2-a` (inflated lot_count → `ERROR demo1-payouts-match-result`), `X2-b` (a
+   deposit txid in the stealth announcement → `ERROR demo2-no-zcash-on-chain`).
+3. **Escrows: already deployed, byte-matching the current builds — no redeploy**
+   (`repro/xchain-escrows-deployed.out`): Sepolia `0x1dc207D5B04C8CFB043d4420054a2219a544dD85`
+   (runtime code == the build, sha efe492f3…); devnet program **`2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu`**
+   (ELF == the build, sha 84fd87b7…). Record correction: run 23 wrote `EYPDHi…` as the devnet program id —
+   that is the **ProgramData address**; the Program Id is `2h6tgr5A…` (the r14 cycle's program-v3-keypair).
+4. **Product fixes the dry run forced** (in `bafbd7e`/item-1 lineage): `xchain attest` now parses the opened
+   order under the **manifest mode's own layout** (gate EN; OTC orders are version 3) instead of a hardcoded
+   version-0 shape — without it demo3's SOL leg could not attest. Regressions at `ec5cb8a`: local-demo
+   **39/39**, host-attest **34/34**, `npm run e2e` **PASS**, typecheck clean.
+5. **markets.ts additive changes only** (Track A's live scenario engine — visible to A at the merge): bids
+   may seal a cross-chain deliver, `BNZ_MARKETS_ID` pre-binds the id, the run keeps `xchain-delivers.json`
+   (harness bidder state beside `refunds.json`), and three `xchain-*` scenarios. No existing scenario
+   changed.
+
+Next: item 3 (mainnet readiness — `settle --network`, classify-address, fixtures), then item 4 (guides).
 
 ### Questions (this run)
 
@@ -69,6 +107,11 @@ Next: item 2 (`tools/repro/xchain-demos.ts`), then item 3 (mainnet readiness), t
 2. **local-demo fixture certs are signed in-process now** (see above) because `witness sign` requires
    an own vault scan post-91d9182. If you prefer the fixture drive the command against a real scanned
    vault, that needs the live testnet lane (not mine per this run's rules).
+3. **item 2 live flow is written but deliberately not run here** (no orb/VM/testnet-spend per this run's
+   rules): `node tmp/xchain-demos.mjs demo1|demo2|demo3` on main drives the real hosts via hosts.ts.
+   The dry run proves the target-chain half; the Zcash scenarios reuse markets.ts unchanged.
+4. **`xchain attest` order layout**: it now honours the mode's layout (OTC v3) — the old hardcoded
+   version-0 check made demo3 impossible. Confirm under a Ruling if you want the check narrowed again.
 
 ## Previous run (28): Phase 6 Track B documentation and closure — **READY FOR MERGE**
 
