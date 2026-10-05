@@ -40,8 +40,38 @@ untouched: `settle/{ledger,plan,cli,sign}.ts`, `cli/{product,host-derive}.ts`, `
   --outfile=tmp/api-reference-check.mjs && node tmp/api-reference-check.mjs`.
 - Commits: `f5a022a` (doc + check tool), `7d06f55` (evidence). `npm run typecheck` green at `f5a022a`.
 
-Items 2–4 **IN PROGRESS**: bidder bundle + clean-machine proof (PK), reproducible-build notes (PK),
-then the PK/DOC rows of `docs/evidence/phase-6/EVIDENCE.md`.
+**Item 2 — bidder bundle (gate PK): DONE with proof.**
+
+- `npm run package:bidder` (`tools/package-bidder.mjs`, `979ca65`): builds `seal/dist` from the tree and
+  writes `dist/benzo-bidder-0.1.0.tgz` + its sha256 sidecar — **packaging only**, `seal/src` and
+  `seal/index.html` untouched. Byte-for-byte reproducible via `tools/deterministic-tar.mjs` (ustar,
+  sorted file list, fixed mtime 2026-01-01, modes normalized 644/755, uid/gid 0, `gzip -n`; pax was
+  rejected after a test showed its atime records break determinism). Contents: `index.html` +
+  `main.js`, 80,859 bytes.
+- **Two builds identical:** sha256 `fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6`
+  from both builds, recorded in `docs/evidence/phase-6/pk-bidder.out` (`OK build-1`, `OK build-2`,
+  `OK build-identical`; sidecar re-checked against the tarball bytes).
+- **Clean-machine proof** (`tools/repro/bidder-bundle-proof.ts` + `bidder-bundle-driver.mjs`, run at
+  `979ca65`, 2026-10-05T20:26Z, exit 0): in `/tmp/benzo-bidder-proof` with `HOME` pointed at an empty
+  dir and the driver environment cut to `PATH` + `BR_*` (no `NODE_PATH`, no checkout `node_modules` —
+  the driver is node builtins only), it (1) extracted the tarball (2 entries), (2) served it with the
+  e2e's own `node:http` static-server pattern (see Questions for the "pinned static server" wording),
+  (3) drove the page headless with the same Playwright Chromium the e2e uses (pinned
+  `@playwright/test 1.63.0` → `chromium_headless_shell-1243`, resolved via `playwright-core`'s
+  `launchServer().process().spawnfile`) over the DevTools protocol — filling the form with values from
+  the committed signed manifest `docs/evidence/phase-5/markets/launch/cold-f1170469/manifest.json`
+  (auction id, C, escrow deposit address) plus chosen price/quantity/nonce/owner/commitment — and
+  (4) after quicknet round 32809545 (5 rounds ahead, waited by polling `…/public/<R>`), opened the
+  ciphertext with pinned `$BNZ_STATE_DIR/bin/tle` and asserted the 128-byte plaintext equals the
+  inputs chosen, byte for byte. Also asserted: page sealed to exactly round R; the tlock stanza is
+  `-> tlock 32809545 <quicknet chain>`; only 2 requests, both to the static origin (no network while
+  sealing); `tle` refuses before R (`too early to decrypt`).
+- Command: `npx esbuild tools/repro/bidder-bundle-proof.ts --bundle --packages=external --platform=node
+  --format=esm --outfile=tmp/bidder-bundle-proof.mjs && node tmp/bidder-bundle-proof.mjs`.
+- Commits: `979ca65` (packaging + proof drivers), `ee5022b` (evidence `pk-bidder.out`).
+
+Items 3–4 **IN PROGRESS**: reproducible-build notes (PK), then the PK/DOC rows of
+`docs/evidence/phase-6/EVIDENCE.md`.
 
 ### Questions (run 32)
 
@@ -57,6 +87,11 @@ then the PK/DOC rows of `docs/evidence/phase-6/EVIDENCE.md`.
   (`clear/launch.ts:40-51`), so `/allocation`'s row positions correlate with the winning leaves visible
   in `/result`. Changing it is product behaviour outside this offline packaging batch (and
   `clear/launch.ts` sits in Track A's launch lane) — worth a later-phase item, or ruled acceptable?
+- **"A static file server you already have pinned" (item 2) — what I used.** No static file server is
+  pinned in `tools/pins.env` or the lockfile (esbuild's `--servedir` would be one, but its binary lives
+  in `node_modules`, which the proof environment is denied). I served the extracted bundle with the
+  project's own static-server pattern (`e2e/lib/sealer.ts`, `node:http`, zero dependencies) inside the
+  driver. Say the word if you meant a specific tool and I'll switch the proof to it.
 
 ## Previous run (31): Phase 6 Track B offline batch — bench batch-plan + projection (SC offline), leak re-run (LA), evidence index (DOC/RG prep)
 
@@ -2508,8 +2543,9 @@ No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, nev
 
 ## Last session
 - **Window:** 2026-10-05T19:40Z– (run 32, batch B32, in progress).
-- **Outcome so far:** item 1 DONE (API reference + drift check PASS 11 shapes at `f5a022a`, mutation
-  B32-a red at `7d06f55`); items 2–4 in progress.
+- **Outcome so far:** items 1–2 DONE (API reference + drift check PASS 11 shapes at `f5a022a`, mutation
+  B32-a red at `7d06f55`; bidder bundle `fa54df28…` two identical builds + clean-machine seal-open
+  proof PASS at `979ca65`/`ee5022b`); items 3–4 in progress.
 
 ## Previous session (run 31)
 - **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
