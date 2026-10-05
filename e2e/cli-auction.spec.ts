@@ -63,6 +63,29 @@
 //    here and the emit leg is flagged under Questions for the head to place.)
 // IDs (tranche 3 group A): r7-3-exception-queue, g2-envelope-crash-not-exception, g2-wrong-key-exception,
 // g2-taddr-exception, U7, r7-5-reserve-opening.
+//
+// R35 folds (run 33), tranche 3 group B — same four answers; the bodies are verbatim ports of the named
+// tools/repro scripts (they stay until gate RG deletes them), run after this spec's own settlement and
+// cancel flow so their state drills cannot affect the assertions above:
+// 1. Behaviour: the gate W tampered-ledger refusal (R7 item 1 + the g1 row), pinned per-signer envelope
+//    keys with no operator-held key (R7 item 2), claim-refund completing exception refunds (R7 item 4),
+//    strays never routed through operator destinations (R7 item 6), signer-side key pin + claim-griefing
+//    fix + publicly verifiable claims (R10 item 3/R11/R13), payment through validated v2 envelopes
+//    (R10 item 2), the two-signer opens-report agreement gate + memo-authenticated strays (R10 item 4/R20),
+//    destinations sealed in claim envelopes (R15 item 3), cancelled-auction claim refunds (R16 item 1),
+//    and memo-anchored stray-claim openings (R16 item 4). DESIGN §§5-6; Reviewer R F-1/F-5/F-6, G G4/G5.
+// 2. Regression: the coordinator rewriting STATE/auction/<id>.json to redirect destinations, an operator
+//    envelope private key reappearing, a stray paid from operator routing, an unsigned or forged claim
+//    being paid or published, or claims[].opening returning.
+// 3. No earlier spec runs these drills (they mutate and restore the live private ledger, run the shipped
+//    worker/plan/sign-check against it, and build claim requests through the shipped CLI).
+// 4. Seam: none — every leg drives the shipped bin/benzo / settle plan / claim-refund over the spec's own
+//    auction or a scratch state copy; the ports assert the scripts' own verdict booleans and outcome
+//    values (their exact assertion semantics), flagged under Questions for the RG pass to re-shape.
+// IDs (tranche 3 group B): r7-1-ledger-redirect, g1-tampered-ledger-redirect, r7-2-envelope-keys,
+// r7-4-claim-refund, r7-6-stray-refunds, r7-claims-envelopes, r10-2-envelope-pays,
+// r10-4-envelope-agreement, r10-4-authenticated-strays, r15-3-claim-envelope, r16-1-cancel-claims,
+// r16-4-stray-claim-opening.
 import {expect,test} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
@@ -80,7 +103,7 @@ import * as z from './lib/zcash';
 import {foldR15,foldR263,foldR233,foldGForged,foldKC,foldMR} from './lib/readpath';
 import {foldR261} from './lib/readpath-r261';
 import {foldR232} from './lib/readpath-r232';
-import {foldReserve,foldR73} from './lib/readpath-live';
+import {foldReserve,foldR73,foldR71,foldR72,foldR74,foldR76,foldR7Claims,foldR102,foldR104,foldR153,foldR161,foldR164} from './lib/readpath-live';
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 // BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
@@ -372,6 +395,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
       expect.soft(receiving2.filter((n:any)=>n.address===refund2[1]).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(C);
       expect.soft(rows2.get(claimParty2)?.state).toBe('refunded');
     });
+    // ---- R35 folds (tranche 3 group B): post-flow state drills (see the header; each restores what it mutates) ----
+    for(const [fold,liveIds] of [[foldR71,['r7-1-ledger-redirect','g1-tampered-ledger-redirect']],[foldR72,['r7-2-envelope-keys']],[foldR74,['r7-4-claim-refund']],[foldR76,['r7-6-stray-refunds']],[foldR7Claims,['r7-claims-envelopes']],[foldR102,['r10-2-envelope-pays']],[foldR104,['r10-4-envelope-agreement','r10-4-authenticated-strays']],[foldR153,['r15-3-claim-envelope']],[foldR161,['r16-1-cancel-claims']],[foldR164,['r16-4-stray-claim-opening']]] as [any,string[]][])
+      try{await fold(run,id)}catch(e){run.notRun(liveIds,`fold setup: ${(e as Error).message}`)}
     write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
     write('cli/cancelled.json',readFileSync(path.join(publicDir2,'auction.json')));
     write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,cancelled_txid:paid2.txid,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),batches:settlement.batches.map((b:any)=>({id:b.id,state:b.state,actions:b.inspect.actions,fee_zats:b.inspect.fee_zats,starting_height:b.inspect.expiry_height-(b.state==='exception'?4:NORMAL_EXPIRY),mined_height:b.height,signing_ms:b.signing.sessions.map((s:any)=>s.duration_ms)})),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');
