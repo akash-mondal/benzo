@@ -4,7 +4,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
-import { bin, env, STATE, ROOT } from "./io";
+import { bin, env, STATE, ROOT, timing } from "./io";
 const E2E=path.join(STATE,"run");
 
 const TLS = path.join(STATE, "tls");
@@ -155,7 +155,9 @@ async function zcashSignRound(input: string, output: string, check:(name:string,
     if (s) sighash = s[1];
     const r = line.match(/^Randomizer #\d+ \((\w+)\): ([0-9a-f]{64})$/);
     if (r) {
+      const t0 = Date.now();
       const session = await signOnce(sighash, r[2], check,pair,auction,batch,input,custody);
+      timing({ auction: auction ?? null, batch: batch ?? null, phase: "frost-session", ms: Date.now() - t0, pool: r[1], custody: !!custody });
       sessions.push(session);
       p.child.stdin!.write(session.signature + "\n");
     }

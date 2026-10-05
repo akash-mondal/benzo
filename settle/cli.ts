@@ -7,7 +7,7 @@ import {clientCommon as client} from "../clear/registry"; // design §6.1: every
 import {verifyApprovalMap} from "../witness";
 import {treasuryBlock} from "../clear/mode-b";
 import {Ledger,type Row} from "./ledger";
-import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints} from "./io";
+import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints,timing} from "./io";
 import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {partyNote} from "./deposits";
@@ -192,7 +192,9 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     if(r.status!==0){events.push({signer:n,approve:"unreachable"});return false}
     if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
     spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
+    const tA=Date.now();
     const a=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20}); // host sync logs can pass the 1 MiB default
+    timing({auction:id,batch:batchId,phase:"host-approve",signer:n,ms:Date.now()-tA,ok:a.status===0});
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
     if(a.status===0){try{maps[n]=JSON.parse(a.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!).map??null}catch{maps[n]=null}}
     if(a.status!==0)console.error(`ERROR signer ${n} refused batch ${batchId}: ${(a.stderr||"").trim().slice(-200)}`);
@@ -250,7 +252,9 @@ async function worker(ledger:Ledger) {
       const custodyKeys=path.join(STATE,"vaults",id,"keys.json");
       if(custody) {
         // §11 H6: a signer host builds and proves the candidate from its own derivations; only {party, output_index} returns.
+        {const t0=Date.now();
         await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);
+        timing({auction:id,batch:batch.id,phase:"host-build",ms:Date.now()-t0});}
         guard(inspect(proven,true),JSON.parse(wallet("balance","--json")).chain_tip_height);
       } else {
         const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
@@ -258,9 +262,11 @@ async function worker(ledger:Ledger) {
         const createdInfo=inspect(created);guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
         await prove(created,proven);
       }
+      const tSign=Date.now();
       const signing=custody?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
         const approved=JSON.parse(run(process.execPath,existsSync(path.join(STATE,"product",`${id}.json`))?[path.join(ROOT,"cli/dist/benzo.mjs"),"sign","inspect","--id",id,"--batch",String(batch!.id),"--candidate",proven,"--name",name,"--randomizer",randomizer,"--sighash",sighash]:[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer,sighash]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
       },settings().signers,existsSync(path.join(STATE,"product",`${id}.json`))?id:undefined,batch.id);
+      timing({auction:id,batch:batch.id,phase:"sign",ms:Date.now()-tSign,spends:(signing as any).sessions?.length??null,custody});
       writeFileSync(base+".signatures.json",jsonBytes(signing),{mode:0o600});
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
@@ -299,7 +305,9 @@ async function worker(ledger:Ledger) {
       const sent=(custody?pczt("send-without-storing","-s",env("BNZ_LWD_URL"),staged.pczt_path!):pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!)).trim().split("\n").at(-1);
       requireThat(sent===staged.txid,"broadcast returned a different txid");console.log(`settlement broadcast ${sent}`);
     }
+    const tMine=Date.now();
     const height=await mined(staged.txid!,Date.now()+30*60_000);
+    timing({auction:id,batch:batch.id,phase:"mined-wait",ms:Date.now()-tMine,height});
     // Head (2026-10-03, live run 12): a lagging endpoint that has not seen the block yet is waited for (up to 15
     // min); only a DIFFERENT non-zero height is a real disagreement and refuses.
     const agreeBy=Date.now()+15*60_000;

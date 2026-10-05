@@ -59,6 +59,11 @@ export function lwdEndpoints(network: string): string[] {
   }
   return [env("BNZ_LWD_URL"), env("BNZ_LWD_URL_ALT")];
 }
+// Phase 6 scale, measure first (docs/design/phase6-scale.md §2): settlement phase timings, one JSON line each in
+// state/run/settle-timing.jsonl ({at, auction, batch, phase, ms, ...}). Never contains a destination or a key.
+export function timing(rec: Record<string, unknown>): void {
+  try { appendFileSync(path.join(STATE, "run", "settle-timing.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...rec }) + "\n"); } catch { /* timing is best-effort */ }
+}
 export const isTransientGrpc = (e: unknown) => TRANSIENT_GRPC.test(String((e as Error)?.message ?? e));
 function retryTransient<T>(f:()=>T):T {
   for (let attempt = 1; ; attempt++) {
