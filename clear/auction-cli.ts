@@ -29,10 +29,11 @@ const execute=(cmd:string,args:string[])=> {
   requireThat(r.status===0,`${path.basename(cmd)} exited ${r.status}: ${(r.stderr||r.stdout).trim().slice(-300)}`); return r.stdout;
 };
 const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state),...args]);
-function observed():{notes:Note[]; tip:number} {
+// R33 P2-1 (G-7): the vault scan runs on the signed manifest's network — never a hardcoded one.
+function observed(net:string):{notes:Note[]; tip:number} {
   wallet("sync","-s",process.env.BNZ_LWD_URL!); wallet("enhance","-s",process.env.BNZ_LWD_URL!);
   const balance=JSON.parse(wallet("balance","--json"));
-  const notes=execute(scanBin(root,state),["scan","test",vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+  const notes=execute(scanBin(root,state),["scan",net,vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};
 }
 // The one shared memo rule (settle/envelopes.ts memoTlockCiphertext): v2 (R16 item 2, R18: 18-byte envelope tag)
@@ -59,7 +60,7 @@ try {
       requireThat(now<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"round already passed");
       const {ct,memo_tag}=ciphertext(input.envelope_hex,m.drand.R);
       requireThat(/^[0-9a-f]{64}$/.test(input.txid) && m.deposit_addresses.includes(input.address),"deposit reference/address");
-      const {notes,tip}=observed(), matches=notes.filter(n=>n.txid===input.txid && n.address===input.address);
+      const {notes,tip}=observed(m.network), matches=notes.filter(n=>n.txid===input.txid && n.address===input.address);
       requireThat(matches.length===1,"deposit not unique or absent"); const n=matches[0];
       requireThat(n.pool==="ironwood" && n.height && tip-n.height+1>=m.confirmations && !n.spent_in_txid,"deposit confirmation/pool/spent");
       requireThat(n.memo_hex===input.envelope_hex,"deposit memo mismatch");
@@ -96,7 +97,7 @@ try {
       };
       cutoff(now<m.T_freeze,"freeze missed cutoff");
       requireThat(now<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"freeze after release");
-      const {notes}=observed();
+      const {notes}=observed(m.network);
       cutoff(ledger.leaves.every(l=>notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height && !n.spent_in_txid)),"freeze deposit left chain");
       const commitment=tree(ledger.leaves);
       const published=Math.floor(Date.now()/1000);
@@ -104,7 +105,7 @@ try {
       ledger.frozen={auction_id:id,manifest_hash,...commitment,leaf_count:ledger.leaves.length,cutoff:m.T_freeze,published_at:published,leaves:ledger.leaves}; ledger.state="SEALED-WAIT"; result=ledger.frozen;
     } else if(command==="open") {
       requireThat(ledger.state==="SEALED-WAIT" && now>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"opening state/release");
-      const {notes}=observed();
+      const {notes}=observed(m.network);
       requireThat(ledger.frozen,"no frozen set"); checkFrozen(ledger.frozen!,id,manifest_hash);
       const beacon=await fetch(`${process.env.BNZ_DRAND_URLS!.split(",")[0]}/${QUICKNET.chain_hash}/public/${m.drand.R}`);
       requireThat(beacon.ok,"drand unavailable at opening");
@@ -175,7 +176,7 @@ try {
     } else if(command==="cancel") {
       requireThat(["OPEN","SEALED-WAIT","CANCELLED"].includes(ledger.state) && !ledger.opened,"cancel after opening");
       ledger.state="CANCELLED";
-      const {notes}=observed();
+      const {notes}=observed(m.network);
       const deposits=notes.filter(n=>m.deposit_addresses.includes(n.address) && n.height && !n.spent_in_txid);
       result={auction_id:id,state:"REFUNDING",refunds:deposits.map(n=>({txid:n.txid,address:n.address,amount_zats:String(n.value_zats)})),trace:ledger.trace}; ledger.state="REFUNDING";
     } else if(command==="receipt") {

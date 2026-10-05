@@ -104,17 +104,17 @@ function sealPadded(plaintext: string, recipientPublicHexes: string[]): string {
   return hex(Buffer.concat([header, nonce, body]));
 }
 // v1: a plain shielded-UA plaintext (pre-R19 callers and evidence).
-export function sealEnvelope(plaintext: string, recipientPublicHexes: string[]): string {
-  requireShieldedDestination(plaintext);
+export function sealEnvelope(plaintext: string, recipientPublicHexes: string[], network: string): string {
+  requireShieldedDestination(plaintext, network);
   return sealPadded(plaintext, recipientPublicHexes);
 }
 // R19 item 1: seal the v2 payload. The plaintext is the canonical JSON of {v:2, refund, deliver?}
 // (manifest/schema `canonical`), inside the unchanged fixed padded plaintext. R25 item 1: the
 // deliver's `salt` is generated HERE — 32 fresh random bytes inside the sealed envelope, never
 // caller-supplied — so only parties who open the envelope know it.
-export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHexes: string[]): string {
+export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHexes: string[], network: string): string {
   requireThat(payload !== null && typeof payload === "object" && !Array.isArray(payload), "envelope payload");
-  requireShieldedDestination(payload.refund);
+  requireShieldedDestination(payload.refund, network);
   const doc: Record<string, unknown> = { v: 2, refund: payload.refund };
   // R25 item 3: the railgun kind has no escrow adapter and is not shipped — refused at `bid seal` outright
   if (payload.deliver !== undefined) requireThat(payload.deliver.kind !== "railgun", "deliver.kind railgun not supported");
@@ -208,9 +208,9 @@ function openPadded(envelopeCtHex: string, recipientPrivateHex: string): string 
 // R19 item 1: read the payload. A plain-UA plaintext (v1) is read as {refund}; a `{`-leading plaintext
 // must be exactly the v2 shape. `deliver` is returned unformat-validated — every use runs
 // `requireDeliver` (seal did already; a tampered sealer is refused at use, e.g. into the exception queue).
-function parseEnvelopePayload(text: string): EnvelopePayload {
+function parseEnvelopePayload(text: string, network: string): EnvelopePayload {
   if (!text.startsWith("{")) {
-    requireShieldedDestination(text);
+    requireShieldedDestination(text, network);
     return { refund: text };
   }
   let doc: any;
@@ -221,14 +221,14 @@ function parseEnvelopePayload(text: string): EnvelopePayload {
       (keys.join(",") === "refund,v" || (keys.join(",") === "deliver,refund,v" && doc.deliver !== null && typeof doc.deliver === "object" && !Array.isArray(doc.deliver))),
     "envelope payload v2",
   );
-  requireShieldedDestination(doc.refund);
+  requireShieldedDestination(doc.refund, network);
   return doc.deliver === undefined ? { refund: doc.refund } : { refund: doc.refund, deliver: doc.deliver as DeliverInput };
 }
-export function openEnvelopePayload(envelopeCtHex: string, recipientPrivateHex: string): EnvelopePayload {
-  return parseEnvelopePayload(openPadded(envelopeCtHex, recipientPrivateHex));
+export function openEnvelopePayload(envelopeCtHex: string, recipientPrivateHex: string, network: string): EnvelopePayload {
+  return parseEnvelopePayload(openPadded(envelopeCtHex, recipientPrivateHex), network);
 }
-export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string): string {
-  return openEnvelopePayload(envelopeCtHex, recipientPrivateHex).refund;
+export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string, network: string): string {
+  return openEnvelopePayload(envelopeCtHex, recipientPrivateHex, network).refund;
 }
 
 // Owner binding over (auction_id, ciphertext_hash, envelope_ct) and the salted public commitment (threat #7/#32).

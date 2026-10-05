@@ -26,7 +26,8 @@ export const pczt=(...args:string[])=>run(bin("zcash-devtool"),["pczt","-w",vaul
 // §11 H7: under host custody the coordinator only ever holds the redacted candidate (allowRedacted).
 export const inspect=(file:string,net:string,allowRedacted=false)=>JSON.parse(run(pcztBin(ROOT,STATE),["inspect",file,ufvkFile(STATE),...(allowRedacted?["--allow-redacted"]:[]),"--network",net]));
 export const monetary=(id:string)=>JSON.parse(run(process.execPath,[path.join(ROOT,"settle/dist/plan.mjs"),id]));
-export const notes=()=>run(scanBin(ROOT,STATE),["scan","test",vaultDir(STATE)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+// R33 P2-1 (G-7): the scanner runs on the signed manifest's network — never a hardcoded one.
+export const notes=(net:string)=>run(scanBin(ROOT,STATE),["scan",net,vaultDir(STATE)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
 export function prove(file:string,output:string):Promise<void> {
   return new Promise((resolve,reject)=> {
     const p=spawn(bin("zcash-devtool"),["pczt","-w",vaultDir(STATE),"prove",file,"--output",output]);

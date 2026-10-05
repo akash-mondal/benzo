@@ -105,16 +105,18 @@ export async function run(argv: string[]): Promise<number | object> {
       requireThat(tip > prior.expiry_height, `${prior.sources.find(x => sources.includes(x))} is in batch ${prior.batch}, which can still mine until ${prior.expiry_height}`);
     }
 
-    // 4. The sighash, computed here.
-    const sighash = await sighashOf(path.join(st, "bin", "zcash-sign"), process.env.BNZ_NETWORK ?? "test", candidate);
+    // 4. The sighash, computed here — zcash-sign takes the network from the signed manifest (R33 P2-1),
+    // never BNZ_NETWORK or a literal.
+    const sighash = await sighashOf(path.join(st, "bin", "zcash-sign"), network, candidate);
     // Ruling R28 item 6 (F5): the full (unredacted) candidate never stays on this machine's disk after the check.
     rmSync(candidate, { force: true }); rmSync(recomputed, { force: true });
     // Reviewer G's G-4: this host's signed {party, output_index} map (party names only), for receipt attribution.
     // R33 item 3 (P1-3): the map carries this host's own defaults list too, so the published settlement's
-    // `defaults` can never be a coordinator-only list.
+    // `defaults` can never be a coordinator-only list. R33 P2-4: the approval records the randomizers this
+    // host's own inspect reported (in zcash-sign's order), and `sign join --count` must equal their count.
     const wkey = path.join(st, "witness", `${o.name}.key`);
     const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults }, readFileSync(wkey, "utf8").trim()) : null;
-    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, defaults, approved_at: Math.floor(Date.now() / 1000) };
+    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });
     writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });

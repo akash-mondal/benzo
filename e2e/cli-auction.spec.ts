@@ -130,7 +130,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const ownerOf=(ct:string)=>JSON.parse(readFileSync(path.join(STATE,'bids',id,ct+'.json'),'utf8')).owner_private_hex;
     // R17 item 2 drill (R15.3 shape): a well-shaped forged claim — a real envelope sealed to the pinned keys
     // but a garbage owner signature — is refused at record time; the owner's valid claim below is accepted.
-    writeFileSync(path.join(privateDir,'claim-junk.json'),JSON.stringify({auction_id:id,party:'leaf:0',claim_envelope_ct:sealEnvelope(refund[0],envelopeKeys),owner_sig:'22'.repeat(64)}));
+    writeFileSync(path.join(privateDir,'claim-junk.json'),JSON.stringify({auction_id:id,party:'leaf:0',claim_envelope_ct:sealEnvelope(refund[0],envelopeKeys,manifest.network),owner_sig:'22'.repeat(64)}));
     const junk=cli(['claim-refund','--id',id,'--file',path.join(privateDir,'claim-junk.json'),'--defer']);
     const request=good(['claim-refund','--id',id,'--party',memoStrayParty,'--destination',refund[9],'--owner-key-stdin'],ownerOf(strayMemoBid.ciphertext_hash));
     const claimFile=path.join(privateDir,'claim-memo-stray.json');writeFileSync(claimFile,JSON.stringify(request));

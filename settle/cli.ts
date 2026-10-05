@@ -23,7 +23,7 @@ const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`
 const manifestNet=()=>client(auction().manifest,auction().signer).manifest.network as string;
 type ResolvedRow=Row&{recipient?:string;reason?:string};
 function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envelopes?:Record<string,string>;envelope_agreed?:Record<string,string>}):ResolvedRow[] {
-  const route=read(`routing-${name}.json`),observed=notes();
+  const route=read(`routing-${name}.json`),observed=notes(manifestNet());
   requireThat(hash(jsonBytes(route))===read("routing-commitment.json").sha256,"signer routing changed after intake");
   // R6 (W): in product mode a bid's destination comes only from its owner-signed settlement envelope, opened
   // with the signer's own key; operator routing pins only the non-bid sinks (seller, stray refunds).
@@ -50,7 +50,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envel
     // every other destination, never operator input.
     const claimCt=plan.claim_envelopes?.[row.party];
     if(claimCt) {
-      const recipient=openDestination({ciphertext_hash:hash(Buffer.from(claimCt,"hex")),envelope_ct:claimCt,owner_sig:""},ownEnvelopePrivate(STATE,name)??"");
+      const recipient=openDestination({ciphertext_hash:hash(Buffer.from(claimCt,"hex")),envelope_ct:claimCt,owner_sig:""},ownEnvelopePrivate(STATE,name)??"",manifestNet());
       if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
       return {...row,reason:`claim envelope refused: this signer's key does not open it (party ${row.party}; refund waits in the exception queue)`};
     }
@@ -106,8 +106,9 @@ function check(ledger:Ledger,batch:number,candidate:string,name:string,randomize
 }
 function guard(metadata:any,tip:number) {
   requireThat(metadata.expiry_height>tip,"expired PCZT; refusing broadcast");
-  // Published testnet height in ZIP 214; expiry must not straddle the next consensus branch.
-  requireThat(!(tip<4465026&&metadata.expiry_height>=4465026),"PCZT expiry reaches NU7 activation; refusing create/broadcast");
+  // Published testnet height in ZIP 214; expiry must not straddle the next consensus branch. R33 P2-1: the
+  // straddle guard is testnet-only (mainnet's activation height is not set; settle/src/main.rs agrees).
+  if(manifestNet()==="test")requireThat(!(tip<4465026&&metadata.expiry_height>=4465026),"PCZT expiry reaches NU7 activation; refusing create/broadcast");
 }
 // §11 H3/H4 (host custody): build the batch packet, have each preferred signer host approve it from its own data,
 // sign with two approving hosts, and on a mid-session failure (the kill drill) record the abandoned session and
@@ -309,7 +310,7 @@ async function worker(ledger:Ledger) {
       const metadata=inspect(staged.pczt_path!,manifestNet(),custody),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       if(metadata.expiry_height<=tip) {
         const m=client(auction().manifest,auction().signer).manifest;
-        const funding=notes().filter(n=>m.deposit_addresses.includes(n.address)&&n.height>0&&n.height<=metadata.expiry_height&&n.value_zats>0);
+        const funding=notes(m.network).filter(n=>m.deposit_addresses.includes(n.address)&&n.height>0&&n.height<=metadata.expiry_height&&n.value_zats>0);
         const start=Math.min(...funding.map(n=>n.height));
         requireThat(Number.isSafeInteger(start)&&start>0&&start<=metadata.expiry_height,"expired batch deposit range missing");
         let endHash:string|undefined;

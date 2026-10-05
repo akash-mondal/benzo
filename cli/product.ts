@@ -105,7 +105,7 @@ export async function runCommand(command:string,args:string[]) {
     {const k=generateKeyPairSync('ed25519'),probe=signRecord(m,k.privateKey.export({type:'pkcs8',format:'pem'}).toString());modeEntry(probe).client(probe,probe.signer)}
     // Part 2: an RFQ under the product carries its buyer's signed treasury block (host custody derives the return from it).
     if(m.clearing?.mode==='rfq')requireThat(m.rfq?.treasury_ua&&m.rfq?.funding_ua,'rfq needs the buyer treasury_ua and funding_ua');
-    if(treasuryBlock(m)){const tb=treasuryBlock(m)!;requireShieldedDestination(tb.treasury_ua);
+    if(treasuryBlock(m)){const tb=treasuryBlock(m)!;requireShieldedDestination(tb.treasury_ua,m.network);
       // R28 item 7 (G-8): a funding address belongs to one auction only (its funded sum counts every note ever received).
       for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(treasuryBlock(mm)?.funding_ua!==tb.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
     }
@@ -174,7 +174,7 @@ export async function runCommand(command:string,args:string[]) {
     if(lots)requireThat(typeof bid.lot==='string'&&lots.includes(bid.lot),'multi-lot order needs a manifest lot id');else requireThat(bid.lot===undefined,'lot id on a single-lot round');
     requireThat(bid.holder===undefined||((m as any).clearing.mode==='launch'&&bid.holder===true),'holder flag is launch-only');
     const owner=bid.owner_private_hex!==undefined?(requireThat(/^[0-9a-f]{64}$/.test(bid.owner_private_hex),'owner_private_hex'),{private_hex:bid.owner_private_hex,public_hex:ownerPublic(bid.owner_private_hex)}):undefined;
-    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,deliver:bid.deliver,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined,owner});
+    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,deliver:bid.deliver,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined,owner,network:m.network});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {
@@ -254,7 +254,7 @@ export async function runCommand(command:string,args:string[]) {
       // Design §6.1: a buyback opens only when the treasury has funded budget × lots, confirmed, into funding_ua.
       if(treasuryBlock(m)) {
         syncRetry(()=>wallet('sync','-s',process.env.BNZ_LWD_URL!));wallet('enhance','-s',process.env.BNZ_LWD_URL!);
-        const tip=JSON.parse(wallet('balance','--json')).chain_tip_height,funded=treasuryFunded(m as any,notes(),tip),need=treasuryRequired(m as any);
+        const tip=JSON.parse(wallet('balance','--json')).chain_tip_height,funded=treasuryFunded(m as any,notes(m.network),tip),need=treasuryRequired(m as any);
         requireThat(funded>=need,`treasury funded ${funded} of ${need} zats (confirmed at funding_ua); refusing to open`);
       }
     }
@@ -270,7 +270,7 @@ export async function runCommand(command:string,args:string[]) {
     const {manifest:m}=client(doc.manifest,doc.signer);
     const key=ownEnvelopePrivate(STATE,o.name);requireThat(key,'signer envelope key missing');
     const opens:{leaf:number|null;party:string;ok:boolean;dest_sha256:string|null}[]=[];
-    const open=(rec:any):string|null=>{try{return rec?openDestination(rec,key!):null}catch{return null}};
+    const open=(rec:any):string|null=>{try{return rec?openDestination(rec,key!,m.network):null}catch{return null}};
     // R15 item 3: a claimed row pays through its claim envelope, so the claim's opening report supersedes any
     // bid-envelope entry for the same party (the plan's two-signer gate counts one entry class per row).
     const claimed=new Set<string>();
@@ -289,12 +289,12 @@ export async function runCommand(command:string,args:string[]) {
     // R26 item 1: one entry per REFUNDABLE scanned deposit note — the report covers exactly the plan's
     // refund rows (`deposit:<txid>:<pool>:<action_index>`); a zero-value note is never an obligation and
     // gets no entry.
-    for(const n of refundable(notes().filter((x:any)=>m.deposit_addresses.includes(x.address))).payable) {
+    for(const n of refundable(notes(m.network).filter((x:any)=>m.deposit_addresses.includes(x.address))).payable) {
       const party=depositParty(n);
       if(claimed.has(party)||(doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
       // R20: only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
       // for a memo-less or v1 stray is not something this signer reports ok for.
-      const dest=open(authenticatedMemoEnvelope(notes(),party,doc.manifest,doc.envelopes,bin('tle')));
+      const dest=open(authenticatedMemoEnvelope(notes(m.network),party,doc.manifest,doc.envelopes,bin('tle')));
       opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
     // R23 item 2 (Reviewer G G3): the report is signed by this signer's own witness key (a member of the
@@ -309,14 +309,14 @@ export async function runCommand(command:string,args:string[]) {
     // The destination is chosen by the owner and never passes through operator input unsigned.
     requireThat(id&&o.party&&o.destination&&o['owner-key-stdin'],'--id --party --destination --owner-key-stdin required');
     requireThat(/^leaf:[0-9]+$/.test(o.party)||isDepositParty(o.party),'claim party');
-    requireShieldedDestination(o.destination);
     const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
     // R15 item 3 (R F6 + head finding on R13): the destination is SEALED in a v2 envelope to the manifest's
     // pinned signer keys — the plaintext destination and any destination hash never enter the request or the
     // operator's view. The signed body carries only the claim envelope's hash.
     const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
+    requireShieldedDestination(o.destination,m.network); // R33 P2-1: the manifest's network, never a literal
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
-    const claim_envelope_ct=sealEnvelope(o.destination,m.envelope_keys!);
+    const claim_envelope_ct=sealEnvelope(o.destination,m.envelope_keys!,m.network);
     const body={kind:'claim-refund',auction_id:id,party:o.party,claim_envelope_sha256:hash(Buffer.from(claim_envelope_ct,'hex'))};
     return {...body,claim_envelope_ct,owner_sig:signStatement(owner,body)};
   }
@@ -335,7 +335,7 @@ export async function runCommand(command:string,args:string[]) {
         const o=read(ledger(id)).opened?.find((x:any)=>x.leaf_index===Number(party.slice(5)));
         return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,'hex').subarray(61,93).toString('hex'):null;
       }
-      const note=party.startsWith('deposit:')?partyNote(notes(),party):undefined;
+      const note=party.startsWith('deposit:')?partyNote(notes(m.network),party):undefined;
       const memo=note?.memo_hex?memoSealedBid(note.memo_hex):null;
       if(!memo)return null;
       const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(memo.ciphertext_hex,'hex'),maxBuffer:1<<20});
@@ -374,7 +374,9 @@ export async function runCommand(command:string,args:string[]) {
       // Phase 6 (R29): one single-message session per spend, all open at once (frost-client signs only the first
       // message of a session, so a multi-message session is never used). This host joins exactly the spend count
       // of the transaction it approved — every session asks for the approved sighash, checked per session above.
-      requireThat(/^[1-9][0-9]?$/.test(o.count)&&approved.some((a:any)=>a.spends===Number(o.count)),'--count is not the spend count of the approved transaction');
+      // R33 P2-4: --count must equal the length of the randomizers this host's own inspect recorded in its
+      // approval (the same count as its spends) — the approval answers exactly that many prompts.
+      requireThat(/^[1-9][0-9]?$/.test(o.count)&&approved.some((a:any)=>Array.isArray(a.randomizers)&&a.randomizers.length===Number(o.count)&&a.spends===Number(o.count)),'--count is not the randomizer count of the approved transaction');
       const listed=spawnSync(bin('frost-client'),['sessions','-c',cfg,'-s',server],{encoding:'utf8',env,timeout:120_000});
       const ids=[...String(listed.stderr).matchAll(/^Session with ID ([0-9a-f-]{36})$/gm)].map(m=>m[1]);
       requireThat(listed.status===0&&ids.length===Number(o.count),`${ids.length} open sessions, expected ${o.count}`);

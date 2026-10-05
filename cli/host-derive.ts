@@ -94,7 +94,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       for (const c of claims.filter(c => c.party === party)) {
         try {
           const body = { kind: "claim-refund", auction_id: o.id, party, claim_envelope_sha256: sha(Buffer.from(c.claim_envelope_ct, "hex")) };
-          if (owner && verifyStatement(owner, body, c.owner_sig)) { const d = openDestination({ envelope_ct: c.claim_envelope_ct } as any, key!); if (d) return d; }
+          if (owner && verifyStatement(owner, body, c.owner_sig)) { const d = openDestination({ envelope_ct: c.claim_envelope_ct } as any, key!, (pub.manifest as any).network); if (d) return d; }
         } catch (e) { process.stderr.write(`WARN claim for ${party} skipped: ${(e as Error).message}\n`); } // never fatal; G-5: say why
       }
       return null;
@@ -145,7 +145,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const party = `leaf:${a.leaf_index}`, owed = BigInt(owedBy.get(party) ?? "0");
       if (!(owed > 0n)) continue;
       const rec = validEnvelope(view, a.leaf_index);
-      const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!) : null);
+      const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: owed.toString(), source: leafSource(a.leaf_index) });
     }
     // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
@@ -159,7 +159,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest.deposit_addresses, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
       const rec = authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, tle);
-      const dest = claimDest(party, memoOwner(n)) ?? (rec ? openDestination(rec, key!) : null);
+      const dest = claimDest(party, memoOwner(n)) ?? (rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: String(n.value_zats), source: party });
     }
     // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the

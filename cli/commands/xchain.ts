@@ -425,7 +425,7 @@ export async function run(argv: string[]): Promise<number> {
         let malformed: string | null = null;
         for (const priv of envPrivates) {
           let payload;
-          try { payload = openEnvelopePayload(rec.envelope_ct, priv); } catch { continue; } // not this signer's envelope / bad wrap
+          try { payload = openEnvelopePayload(rec.envelope_ct, priv, (pub.manifest as any).network); } catch { continue; } // not this signer's envelope / bad wrap
           if (payload.deliver === undefined) { noDeliver++; continue; }
           try {
             const dd = requireDeliver(payload.deliver);

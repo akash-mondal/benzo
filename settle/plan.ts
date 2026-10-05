@@ -64,7 +64,7 @@ try {
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
   const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state,id),...args]);
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);
-  const notes=execute(scanBin(root,state),["scan","test",vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+  const notes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   let tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
   const ledgerFile=path.join(state,"settle",id,"ledger.sqlite"),owned=new Set<string>();
   if(existsSync(ledgerFile)) {
@@ -136,7 +136,7 @@ try {
         wallet("sync","-s",process.env.BNZ_LWD_URL!);tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       }
       // Fresh scan after the window: a balance payment that mined at the window's end must count.
-      const balNotes=execute(scanBin(root,state),["scan","test",vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+      const balNotes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
       defaults=balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
     }
   }

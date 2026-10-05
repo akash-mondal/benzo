@@ -22,6 +22,8 @@ import path from "node:path";
 // its own index (alice 0, bob 1, carol 2), so an operator cannot pin keys it holds and still get signatures.
 // Checked at auction sign and again in the signer's settlement plan.
 export const SIGNER_ENVELOPE_INDEX: Record<string, number> = { alice: 0, bob: 1, carol: 2 };
+// R33 P2-1 (G-7): the destination network always comes from the signed manifest, never an env default.
+const netOf = (manifestPacket: { bytes: string }): string => JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8")).network;
 export function requireOwnEnvelopeKey(m: { envelope_keys?: string[] }, name: string, stateDir: string): void {
   const index = SIGNER_ENVELOPE_INDEX[name];
   requireThat(index !== undefined, "unknown signer");
@@ -93,9 +95,9 @@ export function memoBindsEnvelope(memoEnvelopeTag: string | null, envelopeCtHex:
 // commits to the envelope tag (framing v2) — with no tlock opening at all, then opens it with its own
 // key to the bidder's destination. A record the memo does not bind is never opened (null) and the cancel
 // path moves its deposit to the exception queue. Track A wires this into the CANCELLED/REFUNDING branch.
-export function memoBoundEnvelope(memoHex: string, rec: EnvelopeRecord, envelopePrivateHex: string): string | null {
+export function memoBoundEnvelope(memoHex: string, rec: EnvelopeRecord, envelopePrivateHex: string, network: string): string | null {
   const memo = memoSealedBid(memoHex);
-  return memo && memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) ? openDestination(rec, envelopePrivateHex) : null;
+  return memo && memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) ? openDestination(rec, envelopePrivateHex, network) : null;
 }
 
 // The published-record format rule is the one shared `envelopeRecordValid(record, envelope_keys)` exported
@@ -134,9 +136,9 @@ export function validEnvelope(a: { manifest: any; frozen: any; opened?: any[]; e
 // The signer's own key opens the authenticated envelope to the bidder's shielded destination, or null when
 // the envelope cannot be opened with it (wrong key, corrupted box, or a plaintext that is not a shielded
 // destination). Total for the same reason as validEnvelope (R7 item 3).
-export function openDestination(rec: EnvelopeRecord, envelopePrivateHex: string): string | null {
+export function openDestination(rec: EnvelopeRecord, envelopePrivateHex: string, network: string): string | null {
   try {
-    return openEnvelope(rec.envelope_ct, envelopePrivateHex);
+    return openEnvelope(rec.envelope_ct, envelopePrivateHex, network);
   } catch {
     return null;
   }
@@ -152,7 +154,7 @@ export function envelopeRecipient(
   _coordinatorPinned?: string | null,
 ): string | null {
   const rec = validEnvelope(a, leafIndex);
-  return rec ? openDestination(rec, envelopePrivateHex) : null;
+  return rec ? openDestination(rec, envelopePrivateHex, netOf(a.manifest)) : null;
 }
 
 // R20 (head review of c7f1029): a stray or cancelled deposit's envelope is AUTHENTICATED before it is ever
@@ -205,7 +207,7 @@ export function memoEnvelopeRecipient(
 ): string | null {
   try {
     const rec = authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, tleBin);
-    return rec ? openDestination(rec, envelopePrivateHex) : null;
+    return rec ? openDestination(rec, envelopePrivateHex, netOf(manifestPacket)) : null;
   } catch {
     return null;
   }

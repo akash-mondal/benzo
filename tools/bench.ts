@@ -68,7 +68,7 @@ async function stage(name: string, dir: string, count: number) {
     const bids: any[] = [];
     for (let i = 0; i < count; i++) {
       const owner = { private_hex: bytes("owner:" + i).toString("hex"), public_hex: ownerPublic(bytes("owner:" + i).toString("hex")) };
-      const envelope_ct = sealEnvelope(destination(), envelopeKeys.map(k => k.public_hex));
+      const envelope_ct = sealEnvelope(destination(), envelopeKeys.map(k => k.public_hex), "test"); // bench fixtures are testnet-format (destination() above)
       const nonce = bytes("nonce:" + i).subarray(0, 16).toString("hex"), pt = Buffer.alloc(128);
       Buffer.from(auction_id, "hex").copy(pt, 1); pt.writeBigUInt64BE(BigInt(1 + bytes("price:" + i).readUInt32BE(0) % 100) * 1000n, 33);
       pt.writeUInt32BE(1 + bytes("quantity:" + i).readUInt32BE(0) % 10, 41); Buffer.from(nonce, "hex").copy(pt, 45);

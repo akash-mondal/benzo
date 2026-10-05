@@ -40,6 +40,23 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32, net: Network) -> anyho
     // therefore testnet-only until then.
     if net==Network::TestNetwork { ensure!(!(u32::from(proposal.min_target_height())<=4_465_026 && u32::from(expiry)>=4_465_026),"PCZT expiry reaches NU7 activation; refusing create"); }
     let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&net,accounts[0],OvkPolicy::Discard,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
+    // Ruling R33 P2-5 (R30's size claim covers spends too): the batch must hold at most 29 value-carrying
+    // spends and 29 outputs (max(spends, outputs) <= 29) — 28 recipients plus change stay under 100 KB, and
+    // a vault holding many small notes must not build an oversized transaction. Counted through the Verifier
+    // exactly like `inspect` counts (dummy/padded actions carry no value on either side).
+    let (mut spends, mut outs) = (0usize, 0usize);
+    {
+        let mut tally = |b: &Bundle| -> Result<(), OrchardError<&'static str>> {
+            for a in b.actions() {
+                if let Some(v) = a.spend().value() { if v.inner() > 0 { spends += 1; } }
+                if let Some(v) = a.output().value() { if v.inner() > 0 { outs += 1; } }
+            }
+            Ok(())
+        };
+        Verifier::new(pczt.clone()).with_orchard(|b| tally(b)).map_err(|e|anyhow!("PCZT count: {e:?}"))?
+            .with_ironwood(|b| tally(b)).map_err(|e|anyhow!("PCZT count: {e:?}"))?.finish();
+    }
+    ensure!(std::cmp::max(spends, outs) <= 29, "batch must have at most 29 spends and 29 outputs");
     std::fs::write(output,pczt.serialize().map_err(|e|anyhow!("serialization: {e:?}"))?)?;
     Ok(())
 }

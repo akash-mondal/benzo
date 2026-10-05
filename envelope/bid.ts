@@ -30,7 +30,7 @@ export function buildBidPlaintext(f: BidFields): Buffer {
 // plaintext_hex to round R and then call bindSealedBid to attach the owner signature over the resulting ciphertext hash.
 // R19 item 1: `deliver` (the cross-chain destination) rides the same envelope as payload v2; `destination_ua`
 // stays the mandatory shielded refund (for the product's Zcash settlement).
-export function prepareBid(args: { auction_id: string; price_zats: bigint; quantity: number; destination_ua?: string; deliver?: DeliverInput; envelope_public_hexs?: string[]; owner?: OwnerKey }): Omit<SealedBid, "ciphertext_hash_hex" | "owner_sig_hex"> {
+export function prepareBid(args: { auction_id: string; price_zats: bigint; quantity: number; destination_ua?: string; deliver?: DeliverInput; envelope_public_hexs?: string[]; owner?: OwnerKey; network: string }): Omit<SealedBid, "ciphertext_hash_hex" | "owner_sig_hex"> {
   // A pinned identity (OTC buyer/seller key, RFQ dealer key) bids with its own key; everyone else gets a one-time key.
   const owner = args.owner ?? generateOwnerKey(), nonce_hex = randomBytes(16).toString("hex");
   let envelope_ct_hex = "";
@@ -38,8 +38,8 @@ export function prepareBid(args: { auction_id: string; price_zats: bigint; quant
     requireThat(Array.isArray(args.envelope_public_hexs) && args.envelope_public_hexs.length > 0 &&
       args.envelope_public_hexs.every(h => typeof h === "string" && /^[0-9a-f]{64}$/.test(h)), "envelope public key");
     envelope_ct_hex = args.deliver !== undefined
-      ? sealEnvelopePayload({ refund: args.destination_ua, deliver: args.deliver }, args.envelope_public_hexs!)
-      : sealEnvelope(args.destination_ua, args.envelope_public_hexs!);
+      ? sealEnvelopePayload({ refund: args.destination_ua, deliver: args.deliver }, args.envelope_public_hexs!, args.network)
+      : sealEnvelope(args.destination_ua, args.envelope_public_hexs!, args.network);
   } else {
     requireThat(args.deliver === undefined, "envelope deliver without a refund destination");
   }

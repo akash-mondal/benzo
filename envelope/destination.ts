@@ -69,13 +69,13 @@ export function isUnifiedOn(destination: string, network: string): boolean {
 }
 
 // The envelope validator: only a Sapling address or a unified address with a shielded receiver is admissible,
-// and only on this auction's network — a mainnet (or regtest) destination would burn the refund (threat #7).
-// Benzo is testnet-only until Phase 7; when mainnet starts this takes the manifest's network alongside.
-export function requireShieldedDestination(destination: string): void {
-  const { kind, shielded, network } = classifyDestination(destination);
+// and only on this auction's network — a wrong-network destination would burn the refund (threat #7). The
+// network comes from the signed manifest at every call site (G-7/R33 P2-1: never an env default or a literal).
+export function requireShieldedDestination(destination: string, network: string): void {
+  const { kind, shielded, network: net } = classifyDestination(destination);
   if (kind === "transparent") requireThat(false, "transparent address (t-addr)");
   if (kind === "tex") requireThat(false, "TEX address");
   if (kind === "unified") requireThat(shielded, "UA without a shielded receiver");
   requireThat(shielded, "not a shielded destination");
-  requireThat(network === "test", "wrong-network address");
+  requireThat(net === network, "wrong-network address");
 }
