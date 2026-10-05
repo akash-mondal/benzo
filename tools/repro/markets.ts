@@ -60,6 +60,8 @@ const SCENARIOS: Record<string, Scenario> = {
   // RFQ with one valid quote (X not allowlisted): cancelled, every quote refunded exact C and the whole 500 returns.
   "rfq-cancel": { mode: "rfq", treasury: 500, owners: ["A", "B", "X"], extra: c => ({ rfq: rfqBlock(c, [c.owners.A, c.owners.B]) }),
     bids: o => [{ price: 400, owner: o.A }, { price: 200, owner: o.X }], expect: () => ({ "leaf:0": C, "leaf:1": C, treasury: 500 }) },
+  // Phase 6 measure-first: one uniform auction with 8 bids (8 deposit spends in the batch), for per-session timing.
+  "scale-8": { mode: "uniform", supply: 4, extra: () => ({ q_max: 1 }), bids: () => [300, 290, 280, 270, 260, 250, 240, 230].map(price => ({ price })) },
   "revision": { mode: "uniform", owners: ["reviser"], extra: () => ({}),
     bids: o => [{ price: 200, owner: o.reviser }, { price: 250 }, { price: 300, owner: o.reviser }],
     outcomes: o => o[0] === "superseded" && o[2] === "winner" && o[1] !== "winner" },
