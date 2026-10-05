@@ -70,8 +70,45 @@ untouched: `settle/{ledger,plan,cli,sign}.ts`, `cli/{product,host-derive}.ts`, `
   --format=esm --outfile=tmp/bidder-bundle-proof.mjs && node tmp/bidder-bundle-proof.mjs`.
 - Commits: `979ca65` (packaging + proof drivers), `ee5022b` (evidence `pk-bidder.out`).
 
-Items 3–4 **IN PROGRESS**: reproducible-build notes (PK), then the PK/DOC rows of
-`docs/evidence/phase-6/EVIDENCE.md`.
+**Item 3 — reproducible-build notes (gate PK): DONE with proof.**
+
+- `docs/reproducible-build.md` (`1159c80`, digest updates `64546a1`/`9aee17e`): the exact pinned
+  toolchain (Node v24.15.0 / npm 12.0.2 / bsdtar 3.5.3 / Apple gzip 475 / esbuild 0.28.2 /
+  typescript 5.9.3 / `@playwright/test` 1.63.0 → `chromium_headless_shell-1243` / tlock-js 0.9.0,
+  everything else from `package-lock.json`, plus the `tools/pins.env` table), the commands that
+  rebuild `dist/benzo-verify.mjs`, the npm package and the bidder bundle **byte-for-byte**, and the
+  expected sha256 values: `fc735f3c…` / `7f3e08aef6a6e2f8f1c47eefe6b54d1c1a2a0a50fd591c27ec5ae3948b4d38e6` /
+  `fa54df28…`. The fresh-clone transcript is `docs/evidence/phase-6/pk-rebuild.out` — **PASS, all
+  three digests match** (clone of `track-b` at `9aee17e` into `/tmp/benzo-rebuild`, `npm ci --offline`,
+  then the three build commands).
+- Making "the npm package byte-for-byte" true required two packager fixes and one startup fix, each
+  found by the fresh-clone run and each recorded in `docs/reproducible-build.md` §4–5:
+  1. `tools/package.mjs` now packs through `tools/deterministic-tar.mjs` (ustar — pax records atime
+     and is not byte-stable; sorted file list; fixed mtime incl. symlinks via `lutimesSync`; modes
+     normalized 644/755; uid/gid 0; `gzip -n`).
+  2. `node_modules/**/.bin/*` symlinks: one (`rpc-websockets/node_modules/.bin/uuid`) was an
+     **absolute** link into the builder's checkout — it broke byte-for-byte rebuilds and would dangle
+     for any stranger. `tarGz({linkRoot})` rewrites such links to archive-relative targets.
+  3. `npm run package` must `build:seal` first (`seal/dist` is gitignored; the extract needs it).
+  4. **Packaged-CLI startup:** the router imports every command at startup and
+     `cli/commands/auction-keys.ts` eagerly imported `settle/io`, which resolves `BNZ_STATE_DIR` at
+     import time (`settle/io.ts:8`) — so `bin/benzo --help` and every read path died in any extract
+     or checkout without `.env` (`ERROR benzo The "paths[1]" argument must be of type string`).
+     Fixed by importing `settle/io` inside `run()` (the `bid-seal.ts` pattern). **Flagged under
+     Questions — one line in a Track-A-flavoured file (`cli/commands/auction-keys.ts`), not on the
+     batch's banned list.**
+- Regenerated (old values superseded, still in git history): `pk-package.out` / `pk-package.sha256`
+  (tarball was `856fae26…` under the old `tar czf`) and `pk-package-verify.out` — the clean `/tmp`
+  extract at `9aee17e` now starts with no `.env`, runs `bin/benzo verify` on the shipped Phase 4
+  evidence **offline**, all checks OK, exit 0.
+- Command: `bash tmp/rebuild-proof.sh > docs/evidence/phase-6/pk-rebuild.out` (scratch driver in
+  `tmp/`, gitignored); package evidence captured with `npm run package` + `tar -tzf` + the clean
+  extract transcript.
+- Commits: `1159c80` (deterministic packager + notes), `4f9c442` (build:seal fix), `64546a1`
+  (absolute-symlink rewrite), `9aee17e` (auction-keys startup fix + final digests), `7bb5021`
+  (evidence).
+
+Item 4 **IN PROGRESS**: the PK/DOC rows of `docs/evidence/phase-6/EVIDENCE.md`.
 
 ### Questions (run 32)
 
@@ -87,6 +124,12 @@ Items 3–4 **IN PROGRESS**: reproducible-build notes (PK), then the PK/DOC rows
   (`clear/launch.ts:40-51`), so `/allocation`'s row positions correlate with the winning leaves visible
   in `/result`. Changing it is product behaviour outside this offline packaging batch (and
   `clear/launch.ts` sits in Track A's launch lane) — worth a later-phase item, or ruled acceptable?
+- **`cli/commands/auction-keys.ts` edit (item 3) — please confirm.** The clean-extract proof showed
+  its eager `settle/io` import (which resolves `BNZ_STATE_DIR` at import time) killed the whole
+  packaged CLI outside a checkout. I deferred the import into `run()` (the `bid-seal.ts` pattern) —
+  a two-line change in a file that is not on the batch's banned list but reads like Track A's launch
+  lane. Revert or re-home it if Track A wants it done differently; without it gate PK's "stranger
+  runs `benzo verify` from outside any checkout" claim fails.
 - **"A static file server you already have pinned" (item 2) — what I used.** No static file server is
   pinned in `tools/pins.env` or the lockfile (esbuild's `--servedir` would be one, but its binary lives
   in `node_modules`, which the proof environment is denied). I served the extracted bundle with the
@@ -2543,9 +2586,10 @@ No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, nev
 
 ## Last session
 - **Window:** 2026-10-05T19:40Z– (run 32, batch B32, in progress).
-- **Outcome so far:** items 1–2 DONE (API reference + drift check PASS 11 shapes at `f5a022a`, mutation
+- **Outcome so far:** items 1–3 DONE (API reference + drift check PASS 11 shapes at `f5a022a`, mutation
   B32-a red at `7d06f55`; bidder bundle `fa54df28…` two identical builds + clean-machine seal-open
-  proof PASS at `979ca65`/`ee5022b`); items 3–4 in progress.
+  proof PASS at `979ca65`/`ee5022b`; reproducible-build notes + fresh-clone rebuild PASS all three
+  digests at `9aee17e`/`7bb5021`); item 4 in progress.
 
 ## Previous session (run 31)
 - **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
