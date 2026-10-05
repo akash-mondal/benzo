@@ -48,7 +48,7 @@ export function deliveryBatch(m: LaunchManifest, result: ClearResult, orders: Re
   }
   return { version: 1, auction_id: m.auction_id, delivery: "project_on_token_chain", rows };
 }
-export function clearLaunch(input: ClearInput): ClearResult {
+export function clearLaunch(input: ClearInput, opts: { dry?: boolean } = {}): ClearResult {
   const { manifest: m } = clientLaunch(input.manifest, input.signer), data = input.launch ?? {};
   const orders = marketOrders(input, m, LAUNCH_LAYOUT), lot = m.launch.standard_lot_size;
   const floor = effectiveReserve(m, sealedReserve(m, input.reserve_opening, zats(m.tick_zats, "tick")));
@@ -101,11 +101,19 @@ export function clearLaunch(input: ClearInput): ClearResult {
   const C=zats(m.C_zats,"C"),fee=cancelled?0n:zats(m.fee_zats,"fee");
   const allocations=orders.map(o=>{const payment=paid(o);return {leaf_index:o.leaf_index,price_zats:o.price.toString(),quantity:o.quantity,fill:o.fill,payment_zats:payment.toString(),refund_zats:refundAfter(payment,fee,C).toString(),...(m.bond?{balance_due_zats:balanceDue(payment,fee,C).toString()}:{}),outcome:cancelled?"cancelled":o.reason||(o.fill?"winner":"unfilled"),tranche:trancheOf(o.leaf_index)===1?"holder":"main"};});
   const result = { ...marketResult(input,m,allocations,price,fee*BigInt(orders.length)), cancelled, launch_supply: m.supply, holder_price_zats: floor.toString() };
+  // `dry`: the fills before winners submit delivery records (`benzo launch winners`); never published.
+  if (opts.dry) return result as ClearResult;
   const batch = deliveryBatch(m,result,orders,data.delivery ?? []);
   return { ...result, allocation_file_hash: hash(jsonBytes(batch)) };
 }
 // The launch allocation file a result's allocation_file_hash commits to, rebuilt from the same clear inputs, so the
 // publisher can write the allocation.json that verify checks (part 2 live: publish never wrote it).
+// Part 2 launch flow: after opening anyone can compute the winners; each winner signs its token-chain destinations
+// (`benzo launch deliver`), and only then does the clear (which commits to the allocation file) run.
+export function launchWinners(input: ClearInput): { leaf_index: number; fill: number; lots: number }[] {
+  const { manifest: m } = clientLaunch(input.manifest, input.signer);
+  return clearLaunch({ ...input, launch: { ...(input.launch ?? {}), delivery: [] } }, { dry: true }).allocations.filter(a => a.fill > 0).map(a => ({ leaf_index: a.leaf_index, fill: a.fill, lots: a.fill / m.launch.standard_lot_size }));
+}
 export function launchAllocationFile(input: ClearInput): Buffer {
   const { manifest: m } = clientLaunch(input.manifest, input.signer);
   return jsonBytes(deliveryBatch(m, clearLaunch(input), marketOrders(input, m, LAUNCH_LAYOUT), input.launch?.delivery ?? []));

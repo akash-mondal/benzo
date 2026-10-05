@@ -14,7 +14,7 @@ import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} fr
 // deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
 import {treasuryBlock,treasuryFunded,treasuryRequired} from '../clear/mode-b';
 import {clientCommon as client,modeEntry} from '../clear/registry';
-import {launchAllocationFile} from '../clear/launch';
+import {launchAllocationFile,launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
@@ -44,6 +44,7 @@ export function publish(id:string) {
   // R8 G10 (design §5): the signed witness set travels with every rebuilt document, and the witness-signed
   // certificates placed in the public dir by `benzo witness sign` are carried over instead of clobbered.
   if(a.witness_set)doc.witness_set=a.witness_set;
+  if(a.launch_input)doc.launch_input=a.launch_input; // part 2: launch delivery records, so verify re-derives the clear
   const previous=existsSync(path.join(dir,'auction.json'))?JSON.parse(readFileSync(path.join(dir,'auction.json'),'utf8')):{};
   if(previous.witness_cert)doc.witness_cert=previous.witness_cert;
   // R23 item 1: witness-certified strays statements survive every rebuild of the document.
@@ -130,6 +131,9 @@ export async function runCommand(command:string,args:string[]) {
     const response=await fetch(process.env.BNZ_DRAND_URLS!.split(',')[0]+'/'+m.drand.chain_hash+'/public/latest');requireThat(response.ok,'drand status unavailable');const round=(await response.json()).round;
     requireThat(Number.isSafeInteger(chainTip)&&chainTip>0&&Number.isSafeInteger(round)&&round>0,'status tip/round');return {auction_id:id,state:a.state,accepted:a.leaves.length,manifest_hash:a.manifest.sha256,chain_tip:chainTip,drand_round:round};
   }
+  // Part 2 launch flow: winners after opening (no records yet), then each winner's owner-signed delivery record.
+  if(command==='launch winners'){requireThat(id,'--id required');const a=read(ledger(id));requireThat(a.state==='OPENED','launch winners after opening, before the clear');return {auction_id:id,winners:launchWinners({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input})}}
+  if(command==='launch deliver'){requireThat(id,'--id required');const r=ac('deliver',id,input(o));publish(id);return r}
   if(command==='bid prepare'||command==='bid seal') {
     requireThat(o.manifest&&o.signer,'--manifest --signer required');const packet=read(o.manifest),prepared=client(packet,o.signer),m=prepared.manifest;
     if(command==='bid prepare')return prepared;
