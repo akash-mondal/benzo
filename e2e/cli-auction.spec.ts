@@ -46,6 +46,23 @@
 // r26-1-scanner-action-index, r26-1-report-parties, r26-1-two-refund-rows, r26-1-zero-paid-refused,
 // r26-1-zero-counted, r23-2-report-signed, r23-2-two-signed-agree, r23-2-one-key-twice, r23-2-foreign-key,
 // r23-2-forged-report-ignored.
+//
+// R35 folds (run 33), tranche 3 group A — same four answers as above:
+// 1. Behaviour: a malformed / wrong-key / transparent-destination envelope record moves its leaf to the
+//    exception queue and never aborts settlement (R7 item 3; Reviewer R F-4 = Reviewer G G3; the g2
+//    probe's three cases), and the signer-side reserve binding refuses a forged published reserve
+//    opening before any signature (R6 F2 / R7 item 5; Reviewer R F2 — the G2 steering surface).
+// 2. Regression: plan.ts reverting to a per-row throw (one bad record wedges every refund), or
+//    requireReserveOpening accepting an opening that does not match manifest.sealed_reserve.
+// 3. No earlier spec injects malformed records into a live cleared auction's ledger, or drives the
+//    reserve binding over a sealed-reserve corpus.
+// 4. Seam: none — the shipped settle plan over the spec's own cleared auction (backup/restore) and the
+//    shipped requireReserveOpening over the script's own sealed-reserve corpus; expected values are the
+//    fixtures the checks chose. (r7-5's live emit leg — publish() carries reserve_opening after R —
+//    needs a sealed-reserve product auction the spec's manifest does not carry; its binding legs fold
+//    here and the emit leg is flagged under Questions for the head to place.)
+// IDs (tranche 3 group A): r7-3-exception-queue, g2-envelope-crash-not-exception, g2-wrong-key-exception,
+// g2-taddr-exception, U7, r7-5-reserve-opening.
 import {expect,test} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
@@ -63,6 +80,7 @@ import * as z from './lib/zcash';
 import {foldR15,foldR263,foldR233,foldGForged,foldKC,foldMR} from './lib/readpath';
 import {foldR261} from './lib/readpath-r261';
 import {foldR232} from './lib/readpath-r232';
+import {foldReserve,foldR73} from './lib/readpath-live';
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 // BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
@@ -122,6 +140,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
   // ---- R35 folds (tranche 2): envelope rules, deposit parties, signed opens reports (see the header) ----
   const FOLD2=['mr-manifest-envelope-keys','mr-3keys-open','mr-4th-key-refused','mr-equal-lengths','mr-stanza-swap-refused','mr-shared-rule-export','mr-verify','mr-verify-foreign-key','mr-verify-foreign-set','mr-verify-pre-v2-pinned','mr-verify-2of3-pinned','mr-verify-pre-v2-unpinned','mr-verify-phase2-4','r26-1-scanner-action-index','r26-1-report-parties','r26-1-two-refund-rows','r26-1-zero-paid-refused','r26-1-zero-counted','r23-2-report-signed','r23-2-two-signed-agree','r23-2-one-key-twice','r23-2-foreign-key','r23-2-forged-report-ignored'];
   for(const fold of [foldMR,foldR261,foldR232])try{await fold(run)}catch(e){run.notRun(FOLD2,`fold setup: ${(e as Error).message}`)}
+  // ---- R35 folds (tranche 3 group A, offline legs): the sealed-reserve binding (see the header) ----
+  const FOLD3=['U7','r7-5-reserve-opening'];
+  for(const fold of [foldReserve])try{await fold(run)}catch(e){run.notRun(FOLD3,`fold setup: ${(e as Error).message}`)}
   const stop=await startFrostd();let active:ReturnType<typeof worker>|undefined,paused:number|undefined,api:any,apiData:any;
   try {
     const id=randomBytes(32).toString('hex'),now=Math.ceil(Date.now()/1000),release=now+24*60,R=1+Math.ceil((release-Number(env('BNZ_DRAND_GENESIS')))/3);
@@ -236,6 +257,8 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     // stray stay correct exception rows.
     const expected=result.allocations.map((a:any)=>({party:`leaf:${a.leaf_index}`,amount_zats:a.refund_zats})).filter((e:any)=>BigInt(e.amount_zats)>0n&&Number(e.party.slice(5))<8);expected.push({party:'seller',amount_zats:result.conservation.payout_zats});expected.push({party:memoStrayParty,amount_zats:String(memoStray.value_zats)});
     await run.check('O2','CLI lifecycle clear produces the published result.json of the Phase 2 pure clear',()=>{expect.soft(sha(JSON.stringify(doc.result)+'\n')).toBe(sha(pure));expect.soft(sha(readFileSync(path.join(publicDir,'result.json')))).toBe(sha(pure));expect.soft(doc.state).toBe('SETTLING');expect.soft(doc.result.freeze_root).toBe(frozen.root)});
+    // ---- R35 folds (tranche 3 group A, live legs): exception-queue drills over this cleared auction ----
+    try{await foldR73(run,id)}catch(e){run.notRun(['r7-3-exception-queue','g2-envelope-crash-not-exception','g2-wrong-key-exception','g2-taddr-exception'],`fold setup: ${(e as Error).message}`)}
     await run.check('T1','envelope refunds land at the destinations sealed in the bids, one claim refund at its owner-named destination, never operator routing; unclaimable rows stay exceptions',()=>{
       expect.soft(junk.code).not.toBe(0);expect.soft(junk.error).toContain('claim owner signature');
       expect.soft(completed.code).toBe(0);
