@@ -12,7 +12,7 @@ import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
 // Design §6.1: manifests are read through the mode registry (its launch -> zilkroad -> public-auction cycle, which
 // deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
-import {treasuryFunded,treasuryRequired} from '../clear/mode-b';
+import {treasuryBlock,treasuryFunded,treasuryRequired} from '../clear/mode-b';
 import {clientCommon as client,modeEntry} from '../clear/registry';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
@@ -76,9 +76,11 @@ export async function runCommand(command:string,args:string[]) {
     // Every registry mode (A13 item 3): the draft is held to its OWN mode's rules — its registry client run on a copy signed
     // with a throwaway key (the clients verify a signature first); nothing about the real signing key changes.
     {const k=generateKeyPairSync('ed25519'),probe=signRecord(m,k.privateKey.export({type:'pkcs8',format:'pem'}).toString());modeEntry(probe).client(probe,probe.signer)}
-    if(m.clearing?.mode==='buyback'){requireShieldedDestination(m.buyback.treasury_ua);
+    // Part 2: an RFQ under the product carries its buyer's signed treasury block (host custody derives the return from it).
+    if(m.clearing?.mode==='rfq')requireThat(m.rfq?.treasury_ua&&m.rfq?.funding_ua,'rfq needs the buyer treasury_ua and funding_ua');
+    if(treasuryBlock(m)){const tb=treasuryBlock(m)!;requireShieldedDestination(tb.treasury_ua);
       // R28 item 7 (G-8): a funding address belongs to one auction only (its funded sum counts every note ever received).
-      for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(mm?.buyback?.funding_ua!==m.buyback.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
+      for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(treasuryBlock(mm)?.funding_ua!==tb.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
     }
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
@@ -193,8 +195,8 @@ export async function runCommand(command:string,args:string[]) {
       // Design §6.1 (test harness): the treasury leg of a buyback, paid to the SIGNED funding_ua in the same transaction.
       const treasury=bid.treasury;
       if(treasury) {
-        requireThat((m as any).clearing.mode==='buyback'&&/^[1-9][0-9]*$/.test(treasury.amount_zats),'treasury funding needs a buyback and an amount');
-        const suffix='.'+(bids.length+(reserve?1:0));params.set('address'+suffix,(m as any).buyback.funding_ua);params.set('amount'+suffix,(Number(treasury.amount_zats)/1e8).toFixed(8));
+        requireThat(treasuryBlock(m)&&/^[1-9][0-9]*$/.test(treasury.amount_zats),'treasury funding needs a treasury block and an amount');
+        const suffix='.'+(bids.length+(reserve?1:0));params.set('address'+suffix,treasuryBlock(m)!.funding_ua);params.set('amount'+suffix,(Number(treasury.amount_zats)/1e8).toFixed(8));
       }
       syncRetry(()=>execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]));
       const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'balance','--json']));
@@ -220,7 +222,7 @@ export async function runCommand(command:string,args:string[]) {
         checkCertificates(doc.witness_cert??[],spec,freezeStatement(m,a.frozen));
       }
       // Design §6.1: a buyback opens only when the treasury has funded budget × lots, confirmed, into funding_ua.
-      if((m as any).clearing.mode==='buyback') {
+      if(treasuryBlock(m)) {
         syncRetry(()=>wallet('sync','-s',process.env.BNZ_LWD_URL!));wallet('enhance','-s',process.env.BNZ_LWD_URL!);
         const tip=JSON.parse(wallet('balance','--json')).chain_tip_height,funded=treasuryFunded(m as any,notes(),tip),need=treasuryRequired(m as any);
         requireThat(funded>=need,`treasury funded ${funded} of ${need} zats (confirmed at funding_ua); refusing to open`);

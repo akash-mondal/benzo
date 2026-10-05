@@ -3,6 +3,7 @@
 import { checkMissingDeposits } from "./missing-deposits";
 import { checkDeliveryExceptions } from "../adapters/zilkroad";
 import { checkBuybackReport } from "../adapters/buyback-report";
+import { treasuryBlock } from "../clear/mode-b";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
@@ -520,7 +521,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       // Design §6.1: a buyback's one `treasury` row returns unspent budget to the signed treasury_ua. Its amount
       // (funded − treasury_zats) rests on shielded funding notes only the signers see; they derive it from their
       // own scans before approving. Publicly it is held to the stray rules: positive, one receipt, matching amount.
-      if (party === "treasury") { requireThat((pub.manifest as any).clearing?.mode === "buyback", "treasury row outside a buyback"); return; }
+      if (party === "treasury") { requireThat(treasuryBlock(pub.manifest) !== null, "treasury row outside a mode with a treasury block"); return; }
       requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);
     };
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.

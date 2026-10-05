@@ -16,7 +16,7 @@ import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
-import {treasuryFunded,treasuryReturn} from "../clear/mode-b";
+import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
@@ -256,7 +256,7 @@ try {
   }
   // Design §6.1: a buyback returns what the treasury funded minus the cleared spend (everything when cancelled) to the
   // signed treasury_ua. funded = every mined note at the signed funding_ua (spent ones too, so later batches agree).
-  if((m as any).clearing?.mode==="buyback") {
+  if(treasuryBlock(m)) {
     const back=treasuryReturn(m as any,["CANCELLED","REFUNDING"].includes(src.state)?null:result,treasuryFunded(m as any,notes,tip)); // R28 item 7 (G-8): confirmed funding only
     if(back>0n)obligations.push({party:"treasury",kind:"payout",amount_zats:back.toString()} as any);
   }

@@ -48,12 +48,19 @@ export function validatePhase5(m: any): void {
 // Design §6.1: what the treasury must fund (budget per lot) and what returns to it. `funded` counts every mined note
 // ever received at funding_ua (spent or not: a later batch must see the same number). A cancelled round (no result)
 // returns everything funded.
-export const treasuryRequired = (m: BuybackManifest): bigint => zats(m.buyback.budget_zats, "budget") * BigInt(m.lots?.length ?? 1);
-export function treasuryFunded(m: BuybackManifest, notes: { address: string; height: number | null; value_zats: number | string }[], confirmedAt?: number): bigint {
-  return notes.filter(n => n.address === m.buyback.funding_ua && n.height && (confirmedAt === undefined || confirmedAt - n.height + 1 >= m.confirmations))
+// Part 2: the treasury leg of any mode that has one — a buyback, or an RFQ whose buyer funds the budget. Its signed
+// treasury_ua/funding_ua play the same role in both.
+export type TreasuryBlock = { budget_zats: string; treasury_ua: string; funding_ua: string; lots: number };
+export function treasuryBlock(m: any): TreasuryBlock | null {
+  const b = m?.clearing?.mode === "buyback" ? m.buyback : m?.clearing?.mode === "rfq" && m.rfq?.treasury_ua ? m.rfq : null;
+  return b ? { budget_zats: b.budget_zats, treasury_ua: b.treasury_ua, funding_ua: b.funding_ua, lots: m.lots?.length ?? 1 } : null;
+}
+export const treasuryRequired = (m: any): bigint => { const t = treasuryBlock(m)!; return zats(t.budget_zats, "budget") * BigInt(t.lots); };
+export function treasuryFunded(m: any, notes: { address: string; height: number | null; value_zats: number | string }[], confirmedAt?: number): bigint {
+  return notes.filter(n => n.address === treasuryBlock(m)!.funding_ua && n.height && (confirmedAt === undefined || confirmedAt - n.height + 1 >= m.confirmations))
     .reduce((s, n) => s + BigInt(n.value_zats), 0n);
 }
-export function treasuryReturn(m: BuybackManifest, result: ClearBody | null, funded: bigint): bigint {
+export function treasuryReturn(m: any, result: ClearBody | null, funded: bigint): bigint {
   const spent = result ? zats(result.conservation.treasury_zats ?? "0", "treasury") : 0n;
   requireThat(funded >= spent, "treasury funding below the cleared spend");
   return funded - spent;
