@@ -23,12 +23,18 @@ let ok = true; const check = (n: string, pass: boolean, d = "") => { say(`${pass
 const cfg = JSON.parse(readFileSync(path.join(STATE, "product", `${id}.json`), "utf8")), publicDir = path.resolve(cfg.public_dir);
 const doc = () => JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8")), signer = doc().signer;
 const status = JSON.parse(sh(process.execPath, [path.join(ROOT, "settle/dist/cli.mjs"), "status", id]));
-const exceptions = status.rows.filter((r: any) => r.state === "exception" && r.party.startsWith("deposit:"));
+let exceptions = status.rows.filter((r: any) => r.state === "exception" && r.party.startsWith("deposit:"));
 say(`auction ${id} state ${doc().state}: ${exceptions.length} exception rows`);
 // The bidder's side: map each exception deposit to its bid (memo ciphertext hash -> the owner key `bid seal` kept).
 const vault = path.join(STATE, "vaults", id, "wallet");
 for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]);
 const notes = z.run(z.scanner, ["scan", "test", vault]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+// A cancel that stopped before its ledger pinned any row: the claimable parties are the vault's own unspent deposit notes.
+if (!exceptions.length) {
+  const m = JSON.parse(Buffer.from(doc().manifest.bytes, "base64").toString("utf8"));
+  exceptions = notes.filter((n: any) => m.deposit_addresses.includes(n.address) && n.height && !n.spent_in_txid && n.value_zats > 0).map((n: any) => ({ party: depositParty(n), amount_zats: String(n.value_zats) }));
+  say(`no pinned rows; ${exceptions.length} unspent deposit notes from the vault scan`);
+}
 // A rerun reuses the claims already recorded (a party's recorded claim can't be replaced by a different one).
 const claimedFile = path.join(OUT, "claimed.json");
 const claimed: Record<string, { destination: string; amount: string; file?: string }> = existsSync(claimedFile) ? JSON.parse(readFileSync(claimedFile, "utf8")) : {};
