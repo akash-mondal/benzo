@@ -54,12 +54,17 @@ async function stage(name: string, dir: string, count: number) {
     requireThat(release < Date.now() / 1000, "benchmark round must be past");
     const witness_set = signRecord({ version: 1, auction_id, q_w: 2, keys: [0, 1, 2].map(i => rawPublic("witness:" + i)) }, pem("manifest"));
     const address = "utest1" + bytes("public-deposit-address").toString("hex");
+    const envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
     const manifest: Manifest = { version: 1, network: "test", auction_id, escrow_ua: address, frost_group_key: bytes("group").toString("hex"), lot: "offline scale",
       supply: count, reserve_zats: "1000", tick_zats: "1000", B_max_zats: "100000", q_max: 10, C_zats: "1000100", fee_zats: "100",
       deposit_addresses: [address], drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
       clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
-      refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", witness_set_hash: witnessSetHash(witness_set) };
-    const packet = signRecord(manifest, pem("manifest")), envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
+      refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
+      // The product rule (R7 item 2): the signed manifest pins the three envelope keys the bids are sealed to,
+      // in the exact stanza order sealEnvelope uses; verify's envelope record check enforces it (a bench run
+      // without this field is refused `envelope record format`, which is the rule working, not a product bug).
+      envelope_keys: envelopeKeys.map(k => k.public_hex), witness_set_hash: witnessSetHash(witness_set) };
+    const packet = signRecord(manifest, pem("manifest"));
     const bids: any[] = [];
     for (let i = 0; i < count; i++) {
       const owner = { private_hex: bytes("owner:" + i).toString("hex"), public_hex: ownerPublic(bytes("owner:" + i).toString("hex")) };
