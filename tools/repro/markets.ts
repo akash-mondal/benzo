@@ -4,6 +4,8 @@
 // the bidder's own destination, and `benzo verify` passes on a cold copy.
 // Build+run: npx esbuild tools/repro/markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/markets.mjs && BNZ_LWD_SINGLE=1 node tmp/markets.mjs <scenario>...
 import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { Keypair } from "@solana/web3.js";
+import { SigningKey, Wallet } from "ethers";
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -30,7 +32,7 @@ async function takeLock(lock: string, staleMs: number) {
   for (;;) { try { mkdirSync(lock); held.add(lock); return; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
 }
 function dropLock(lock: string) { rmSync(lock, { recursive: true, force: true }); held.delete(lock); }
-type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
+type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean; deliver?: { chain: string; kind: string; to: string; elgamal?: string } };
 type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number };
 type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
   // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
@@ -52,6 +54,27 @@ const SCENARIOS: Record<string, Scenario> = {
     bids: () => [{ price: 300 }, { price: 250 }, { price: 200 }], expect: () => ({ "leaf:0": C, "leaf:1": C, "leaf:2": C }) },
   // Bid revision (uniform, supply 1): one owner bids 200, then revises to 300 inside the window; only the revision counts
   // and the superseded deposit is refunded exact C.
+  // Part 2 §2 cross-chain demos (tools/repro/xchain-demos.ts): each seals the winners' cross-chain destinations
+  // (`deliver`) in the bids' envelopes — the ONLY source of target-chain destinations. The fresh deliver targets are
+  // generated per run and written to the run's private state as xchain-delivers.json (harness bidder state, like
+  // refunds.json) so the demo driver can assert payment at them.
+  "xchain-drop": { mode: "uniform", supply: 3, extra: () => ({ q_max: 1 }),
+    bids: () => [
+      { price: 300, quantity: 2, deliver: { chain: "solana", kind: "address", to: solanaFresh() } },
+      { price: 250, deliver: { chain: "solana", kind: "address", to: solanaFresh() } },
+      { price: 200, deliver: { chain: "solana", kind: "address", to: solanaFresh() } }] },
+  // Mode B buyback window: sellers' asks, paid on Ethereum Sepolia through stealth delivery (R24: Railgun deferred).
+  "xchain-buyback": { mode: "buyback", supply: 2, treasury: 600, owners: ["s1", "s2"],
+    extra: c => ({ buyback: { budget_zats: "600", max_price_zats: "300", treasury_ua: c.treasuryUa, funding_ua: c.fundingUa } }),
+    bids: o => [
+      { price: 300, owner: o.s1, deliver: { chain: "evm", kind: "stealth", to: evmFreshMeta() } },
+      { price: 250, owner: o.s2, deliver: { chain: "evm", kind: "stealth", to: evmFreshMeta() } }] },
+  // ZEC<->SOL blind OTC (the match): the SOL leg settles through the Solana escrow to fresh addresses.
+  "xchain-otc": { mode: "otc", owners: ["buyer", "seller"],
+    extra: c => ({ reserve_zats: "0", otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
+    bids: o => [
+      { price: 1000, owner: o.buyer, deliver: { chain: "solana", kind: "address", to: solanaFresh() } },
+      { price: 600, owner: o.seller, deliver: { chain: "solana", kind: "address", to: solanaFresh() } }] },
   // RFQ (reverse-Vickrey): dealers A and B allowlisted, X not. Quotes A 400, B 300, X 200: X is refused, B wins and is
   // paid the second-lowest valid quote (400); the buyer funded 500, so 100 returns to its treasury_ua.
   "rfq": { mode: "rfq", treasury: 500, owners: ["A", "B", "X"], extra: c => ({ rfq: rfqBlock(c, [c.owners.A, c.owners.B]) }),
@@ -76,12 +99,16 @@ function rfqBlock(c: Ctx, dealers: { public_hex: string }[]) {
   const spki = () => generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "der" }).toString("hex");
   return { dealer_keys: dealers.map(d => d.public_hex), max_price_zats: "500", budget_zats: "500", delivery_deadline_height: c.tip + 20000, delivery_signers: [spki(), spki(), spki()], treasury_ua: c.treasuryUa, funding_ua: c.fundingUa };
 }
+// Fresh cross-chain destinations for the demo drivers (generated here; the sealed envelope is the only carrier).
+const solanaFresh = () => Keypair.generate().publicKey.toBase58();
+const evmFreshMeta = () => { const s = Wallet.createRandom().signingKey, v = Wallet.createRandom().signingKey; return "0x" + SigningKey.computePublicKey(s.privateKey, true).slice(2) + SigningKey.computePublicKey(v.privateKey, true).slice(2); };
 async function run(name: string) {
   const sc = SCENARIOS[name]; if (!sc) throw new Error(`unknown scenario ${name}`);
   const log = path.join(OUT, `${name}.out`); writeFileSync(log, "");
   const say = (s: string) => { console.log(`[${name}] ${s}`); writeFileSync(log, readFileSync(log, "utf8") + s + "\n"); };
   let ok = true; const check = (id: string, pass: boolean, d = "") => { say(`${pass ? "PASS" : "ERROR"} ${id}${d ? " " + d : ""}`); ok &&= pass; };
-  const id = randomBytes(32).toString("hex"); say(`auction ${id} mode ${sc.mode}`);
+  const id = process.env.BNZ_MARKETS_ID ?? randomBytes(32).toString("hex"); // the cross-chain demos pre-bind the id to their escrow lock (lock before bidding)
+  say(`auction ${id} mode ${sc.mode}`);
   // Concurrent DKGs on the same hosts and frostd collide (live: "bob dkg exited 1"); processes take turns.
   const dkgLock = path.join(STATE, "run", "markets-dkg.lock");
   await takeLock(dkgLock, 600_000);
@@ -94,6 +121,7 @@ async function run(name: string) {
   const refunds = bids.map(() => bidder()), sellerUa = bidder(), treasuryUa = bidder(), fundingUa = addr();
   const privateDir = path.join(STATE, "run", `markets-${id}`), publicDir = path.join(ROOT, "tmp/markets/public", id); mkdirSync(privateDir, { recursive: true });
   writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
+  writeFileSync(path.join(privateDir, "xchain-delivers.json"), JSON.stringify(bids.map(b => b.deliver ?? null))); // harness bidder state for the xchain demo driver
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: sc.batch_cap ?? 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
@@ -107,7 +135,7 @@ async function run(name: string) {
   const packet = benzo(["auction", "sign", "--id", id]);
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
-  const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
+  const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}), ...(b.deliver ? { deliver: b.deliver } : {}) }), address: deposits[i] }));
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
   writeFileSync(path.join(privateDir, "sealed.json"), JSON.stringify(sealed));
   let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: String(sc.reserve ?? 60000) }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });

@@ -98,4 +98,19 @@ export function hostEnvelopeOpens(id: string, publicDir: string) {
     writeFileSync(path.join(STATE, "settle", id, `envelope-opens-${n}.json`), JSON.stringify(report));
   }
 }
+// Part 2 §2 cross-chain on the hosts: each signer host generates its OWN xchain key (public half registered on the
+// Mac for the escrow's pinned signer set; the private half never leaves the host) and signs its attestation record
+// over the pushed public dir with `xchain attest --host-record`.
+export function hostXchainKeys(chain: "evm" | "solana"): string[] {
+  return NAMES.map(n => {
+    const reg = path.join(STATE, "custody", `xchain-${chain}-${n}.pub`);
+    if (existsSync(reg)) return readFileSync(reg, "utf8").trim();
+    const k = hostBenzo(n, ["xchain", "keygen", "--chain", chain, "--name", n]);
+    mkdirSync(path.dirname(reg), { recursive: true }); writeFileSync(reg, k.public); return k.public;
+  });
+}
+export function hostXchainAttest(n: string, args: string[]): any {
+  return JSON.parse(host(n, [`${H}/bin/benzo`, "xchain", "attest", "--host-record", ...args]));
+}
+
 export const benzoBin = path.join(ROOT, "bin/benzo");
