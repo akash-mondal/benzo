@@ -227,8 +227,9 @@ async function worker(ledger:Ledger) {
   const custody=existsSync(path.join(STATE,"vaults",id,"keys.json"));
   // §11 H6: under host custody the coordinator holds no envelope key; the plan already gated every envelope refund on
   // host-signed agreement reports, and the recipients are derived on the hosts (sign build / sign approve).
-  const derivable=custody?hostDerivable():null;
-  if(custody)requireThat(derivable,"no signer host could list its derivable rows");
+  // Nothing payable (every row already an exception, e.g. a cancel before R) needs no host derivation.
+  const derivable=custody&&plan.obligations.length?hostDerivable():new Set<string>();
+  if(custody&&plan.obligations.length)requireThat(derivable,"no signer host could list its derivable rows");
   const pinned:any[]=custody?plan.obligations.map((o:any)=>derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):destinations(plan.obligations,settings().signers[0],plan);
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>({party,kind,amount_zats})),
