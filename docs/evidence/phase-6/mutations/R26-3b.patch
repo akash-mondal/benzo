@@ -1,3 +1,7 @@
+# Re-pointed (R35.3a, run 33): the r26-3-* assertions now live in e2e/cli-auction.spec.ts via
+# e2e/lib/readpath.ts (tools/repro/r26-3-projection-repro.mjs stays until gate RG deletes it).
+# Red run: git apply this patch, then BNZ_LIVE=1 npx playwright test --project=cli-auction (the
+# fold block); expect ERROR r26-3-projection-without-field. Original record: mutations/R26-3b.out.
 diff --git a/api/public-auction.ts b/api/public-auction.ts
 index 367773f..d842b2c 100644
 --- a/api/public-auction.ts

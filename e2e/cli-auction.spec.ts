@@ -4,6 +4,28 @@
 //    R7M1 (refunds paid to an operator routing sink instead of owner-named destinations) breaks T1.
 // 3. The four earlier specs drive lower-level boundaries and never exercise this product or expired staged-batch recovery.
 // 4. No seam: shipped commands, real testnet/drand/tle/PCZT/FROST, coordinator SQLite fault and a suspended real signer.
+//
+// R35 folds (run 33), tranche 1 — folded from tools/repro/* into e2e/lib/readpath.ts (the scripts stay until
+// gate RG proves these IDs pass and turn red under their re-pointed mutations, then deletes them):
+// 1. Behaviour: the read path's leaf/envelope/claims rules — projection divergence (R26 item 3), the read API
+//    failing closed on claims without a beacon (R23 item 3), forged claims and witness-certified strays
+//    (R23 item 1), the verify leaf state machine (R15 items 1-2), and the envelope key-commitment rules
+//    (R12 item 2 / R10 item 1). DESIGN §§4-6; threats behind Reviewer R's F4/F5 and Reviewer G's G1.
+// 2. Regression: verify accepting a rowless receipt, a divergent projection, a forged or wrong-party claim, a
+//    1-of-3/reordered/unpinned envelope record, or the read API 500ing on claims-without-beacon.
+// 3. No earlier spec drives the verifier over tampered corpora or the read API over a claims fixture; R1 only
+//    corrupts the live auction's amounts/root.
+// 4. Seam: none — the shipped bin/benzo and the shipped verifier API over corpora the checks build themselves
+//    (real tlock via the pinned tle, the published beacon, official committed evidence dirs); expected values
+//    are the inputs the check chose or the vectors' own labels.
+// IDs (tranche 1): r15-machine-runs-without-records, r15-zero-refund-needs-no-row, r15-strangers-refused,
+// r15-phase2-4, r26-3-projections-match, r26-3-opened-diverges, r26-3-beacon-diverges, r26-3-receipts-diverges,
+// r26-3-summary-diverges, r26-3-projection-without-field, r23-3-api-claims-no-beacon,
+// r23-3-api-claims-with-beacon, r23-3-api-never-500, g-forged-claim-accepted, g-forged-claim-control,
+// r23-1-certified-claim-accepted, r23-1-wrong-party-refused, r23-1-quorum-refused, r23-1-tampered-sig-certified,
+// r23-1-witness-strays-sign, kc-api-exports, kc-key-32-interop, kc-recipients-order,
+// kc-split-key-recipient1-opens, kc-split-key-recipient2-commitment, kc-3of3-accepted, kc-1of3-refused,
+// kc-2of3-refused, kc-reorder-refused, kc-wrongset-refused.
 import {expect,test} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
@@ -18,6 +40,7 @@ import {depositParty} from '../settle/deposits';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
+import {foldR15,foldR263,foldR233,foldGForged,foldKC} from './lib/readpath';
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 // BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
@@ -71,6 +94,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
   try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of ENDPOINTS)z.tip(e)}catch(e){run.notRun(IDS,String(e))}
   z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');
   if(z.spendable(z.balance('bidder'))-12*C-200000<3*C+40000)run.notRun(IDS,'drill would cross bidder floor; Needs user funds');
+  // ---- R35 folds (tranche 1): read-path corpora and verifier rules (see the header) ----
+  const FOLD1=['r15-machine-runs-without-records','r15-zero-refund-needs-no-row','r15-strangers-refused','r15-phase2-4','r26-3-projections-match','r26-3-opened-diverges','r26-3-beacon-diverges','r26-3-receipts-diverges','r26-3-summary-diverges','r26-3-projection-without-field','r23-3-api-claims-no-beacon','r23-3-api-claims-with-beacon','r23-3-api-never-500','g-forged-claim-accepted','g-forged-claim-control','r23-1-certified-claim-accepted','r23-1-wrong-party-refused','r23-1-quorum-refused','r23-1-tampered-sig-certified','r23-1-witness-strays-sign','kc-api-exports','kc-key-32-interop','kc-recipients-order','kc-split-key-recipient1-opens','kc-split-key-recipient2-commitment','kc-3of3-accepted','kc-1of3-refused','kc-2of3-refused','kc-reorder-refused','kc-wrongset-refused'];
+  for(const fold of [foldR15,foldR263,foldR233,foldGForged,foldKC])try{await fold(run)}catch(e){run.notRun(FOLD1,`fold setup: ${(e as Error).message}`)}
   const stop=await startFrostd();let active:ReturnType<typeof worker>|undefined,paused:number|undefined,api:any,apiData:any;
   try {
     const id=randomBytes(32).toString('hex'),now=Math.ceil(Date.now()/1000),release=now+24*60,R=1+Math.ceil((release-Number(env('BNZ_DRAND_GENESIS')))/3);
