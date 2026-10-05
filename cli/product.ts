@@ -136,7 +136,13 @@ export async function runCommand(command:string,args:string[]) {
     // Head merge (R17): the destination is sealed to ALL THREE signers' keys pinned by the verified manifest
     // (multi-recipient v2 envelope); a caller-supplied envelope_pubkey, if any, must still be one of them.
     if(bid.refund_ua!==undefined)requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3&&(bid.envelope_pubkey===undefined||m.envelope_keys.includes(bid.envelope_pubkey)),'envelope key is not pinned by the signed manifest');
-    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,deliver:bid.deliver,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined});
+    // Part 2 (every registry mode): the order uses its mode's layout version; a multi-lot round binds the lot id; a launch
+    // holder-tranche order sets the holder flag; a pinned identity (OTC party, RFQ dealer) supplies its own owner key.
+    const layout=modeEntry(packet).layout,lots:string[]|undefined=(m as any).lots;
+    if(lots)requireThat(typeof bid.lot==='string'&&lots.includes(bid.lot),'multi-lot order needs a manifest lot id');else requireThat(bid.lot===undefined,'lot id on a single-lot round');
+    requireThat(bid.holder===undefined||((m as any).clearing.mode==='launch'&&bid.holder===true),'holder flag is launch-only');
+    const owner=bid.owner_private_hex!==undefined?(requireThat(/^[0-9a-f]{64}$/.test(bid.owner_private_hex),'owner_private_hex'),{private_hex:bid.owner_private_hex,public_hex:ownerPublic(bid.owner_private_hex)}):undefined;
+    const prep=prepareBid({auction_id:m.auction_id,price_zats:BigInt(bid.price_zats),quantity:Number(bid.quantity),destination_ua:bid.refund_ua,deliver:bid.deliver,envelope_public_hexs:bid.refund_ua!==undefined?m.envelope_keys:undefined,owner});
     const server=http.createServer((req,res)=>{const n=req.url==='/main.js'?'main.js':'index.html';res.setHeader('Content-Type',n.endsWith('.js')?'text/javascript':'text/html');res.end(readFileSync(path.join(ROOT,'seal/dist',n)))});
     await new Promise<void>(r=>server.listen(0,'127.0.0.1',r));const browser=await chromium.launch();
     try {
@@ -145,11 +151,12 @@ export async function runCommand(command:string,args:string[]) {
         // R16 item 2 (memo framing v2, R18): the memo commits to the first 18 bytes of SHA-256(envelope_ct)
         // of this bid's settlement envelope, or 18 zero bytes when the bid carries none — the sealer writes
         // it into the memo.
-        envelope_tag:prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18)};
+        envelope_tag:prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18),
+        layout_version:String(layout.version),binding:lots?bid.lot:m.auction_id,holder:bid.holder?'1':''};
       await page.route('**/*',route=>route.abort());
       for(const [k,v] of Object.entries(fields)) {
         // the owner-material inputs are hidden; Playwright fill only types into visible fields
-        if(['owner','nonce','commitment','envelope_tag'].includes(k))await page.locator('#'+k).evaluate((el,value)=>{(el as HTMLInputElement).value=String(value)},v);
+        if(['owner','nonce','commitment','envelope_tag','layout_version','binding','holder'].includes(k))await page.locator('#'+k).evaluate((el,value)=>{(el as HTMLInputElement).value=String(value)},v);
         else await page.locator('#'+k).fill(v);
       }
       await page.locator('#seal').click();await page.waitForFunction(()=>document.getElementById('envelope')!.textContent||document.getElementById('error')!.textContent);
