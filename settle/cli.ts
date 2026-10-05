@@ -231,7 +231,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     // this or another auction) and would make a join see the wrong session count: close them all first.
     closeStale();
     try {
-      const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server});
+      const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server,network:manifestNet()});
       writeFileSync(file(`batch-${batchId}.custody.json`),jsonBytes({pair,events,attempts:attempt}),{mode:0o600});
         writeFileSync(file(`batch-${batchId}.maps.json`),jsonBytes(pair.map(n=>maps[n]??null)),{mode:0o600}); // G-4: the signing pair's signed maps
       return signing;

@@ -44,7 +44,7 @@ const frostClient = (args: string[]) => start(bin("frost-client"), args, { SSL_C
 // §11 H4 (host custody): an auction that ran its own DKG keeps its shares on the OrbStack signer hosts. The FROST
 // coordinator runs on the first chosen host (its auction config holds the group) and each participant joins from
 // its own host through `benzo sign join`, which answers frost-client's prompt itself against its own approval.
-export type HostCustody = { id: string; groupKey: string; server: string };
+export type HostCustody = { id: string; groupKey: string; server: string; network: string }; // network: the signed manifest's (G-7)
 const H = "/home/benzo/.benzo";
 const orb = (name: string, args: string[]) => start("orb", ["run", "-m", `benzo-${name}`, "-u", "benzo", ...args]);
 const hostPubkeys = new Map<string, string>();
@@ -189,7 +189,7 @@ export async function withSigningLock<T>(fn: () => Promise<T>): Promise<T> {
 }
 async function zcashSignRound(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody):Promise<{ sighash: string; sessions: Session[] }> {
   if(pair.length!==2||new Set(pair).size!==2||pair.some(n=>!["alice","bob","carol"].includes(n)))throw Error("choose two distinct FROST signers");
-  const p = start(bin("zcash-sign"), ["sign", "-n", env("BNZ_NETWORK"), "-i", input, "-o", output]);
+  const p = start(bin("zcash-sign"), ["sign", "-n", custody?.network ?? env("BNZ_NETWORK"), "-i", input, "-o", output]);
   let sighash = "";
   const sessions: Session[] = [];
   let parallel: { expected: { pool: string; index: number; alpha: string }[]; sessions: Session[] } | undefined;
@@ -201,7 +201,7 @@ async function zcashSignRound(input: string, output: string, check:(name:string,
       // R29: every spend's randomizer comes from this machine's own inspect of the same PCZT; zcash-sign then asks for
       // them in the same order, and any mismatch stops the round before a signature is handed over.
       if (!parallel) {
-        const expected = (inspect(input, env("BNZ_NETWORK"), true).randomizers ?? []) as { pool: string; index: number; alpha: string }[];
+        const expected = (inspect(input, custody.network, true).randomizers ?? []) as { pool: string; index: number; alpha: string }[];
         if (!expected.length) throw new Error("inspect found no spends awaiting signature");
         const t0 = Date.now();
         parallel = { expected, sessions: await signParallelHost(sighash, expected.map(x => x.alpha), pair, custody) };
