@@ -134,6 +134,14 @@ function hostDerivable():Set<string>|null {
   return null;
 }
 async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_zats:string}[],proven:string) {
+  // R28 liveness: hosts approve each deposit in at most one live candidate, so a retry after a failed signing reuses
+  // the candidate already built for this batch (same txid, which the hosts' ledgers accept again) while it is valid,
+  // instead of building a new one the hosts must refuse until the first expires.
+  const prior=file(`batch-${batchId}.build.json`);
+  if(existsSync(prior)&&existsSync(proven)&&["alice","bob","carol"].every(s=>existsSync(file(`batch-${batchId}.sealed-${s}.bin`)))) {
+    const b=JSON.parse(readFileSync(prior,"utf8")),tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
+    if(hash(readFileSync(proven))===b.plan_version&&inspect(proven,true).expiry_height>tip+20&&jsonBytes(b.outputs.map((o:any)=>o.party).sort()).equals(jsonBytes(rows.map(r=>r.party).sort())))return b;
+  }
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file(`build-${batchId}`);
