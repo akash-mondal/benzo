@@ -47,18 +47,35 @@ not pin `envelope_keys`, so the shipped verifier's envelope-record check refused
 (`ERROR envelope refused: envelope record format`); fixed in `3bfde30`, stage chain green at 100 bids
 before the evidence run.
 
-Commits so far: `ed0b323` (item 1 a–d code), `973feac` (verify-bundle rebuild, see Questions),
-`3bfde30` (bench harness fix), `1f4258b` (item 1 evidence). `npm run typecheck` and
-`npm run check:bundle` green at `3bfde30`.
+Commits so far: `ed0b323` (item 1 a–d code), `973feac` (verify-bundle rebuild; accepted by R32),
+`3bfde30` (bench harness fix), `1f4258b` (item 1 evidence), `826170e` (item 2 evidence). R32
+(`617c9f2`) answered the run-31 Questions (below). `npm run typecheck` and `npm run check:bundle`
+green at `3bfde30`.
 
-**Item 2 — leak-audit re-run (gate LA): IN PROGRESS.**
+**Item 2 — leak-audit re-run (gate LA): DONE with proof.** `npm run leak-audit` (as shipped) over
+`docs/evidence/**` (incl. `phase-5/markets/`, `phase-5/repro/` B30 evidence, `phase-6/scale/`,
+mutations, repro), the `tmp/**/public*` dirs, and `--git` full-blob history (subsumes `git log -p`
+since `7c235d6`); sensitive list rebuilt only from this checkout's `.benzo/` (52 kept + 54 added =
+106 entries — added the xchain host/chain keys, witness/TLS/program keys, manifest-signing PEM; values
+never printed). Range `7c235d6` → `5475c60`, 172 commits. 560 rows first pass; the 303 new-context
+rows reviewed one by one: 229 intended-public deposit/balance/fixture/test-vector addresses (+34
+reviewed allowlist paths, 28 → 62), 32 tmp scratch, 42 = the publicly known **anvil dev key 0**
+fixture constant hardcoded as `ANVIL_SK` in `crosschain/*.mjs` + `tools/repro/xchain-demos.ts` (new
+class G, disclosed, not custody). Final **331 rows, every one classified A–G** in
+`docs/evidence/phase-6/leak-audit.md`; record `leak-findings-2026-10-05.json`.
+**No real finding**: no keys/mnemonics/UFVKs/envelope plaintext in any surface or blob, no
+refund/delivery addresses outside the immutable disclosed class C. Still owed (as at run 2):
+bid-plaintext-before-release `release_time` entries.
 
 **Item 3 — Phase 6 evidence index (DOC/RG prep): OPEN.**
 
 ### Questions (run 31)
 
-- **Verify bundle merged in the B30/A14 merge is not a standard rebuild (fixed forward in `973feac`; please fold into a Ruling / tell Builder A).** `git status` after `npm run build:verify` from this repo root showed `dist/benzo-verify.mjs` differing from the merged version by exactly 109 esbuild comment-line pairs — the merged bundle embeds the **other checkout's** `node_modules` paths (`../../../Users/akshmnd/Dev Projects/benzo/node_modules/…`), so it was not produced by `npm run build:verify` from a repo root. Fresh rebuilds here are deterministic (two builds, identical sha256) and pass the full offline verify on `tmp/canon-p3` (exit 0); the diff has 0 non-comment lines. I rebuilt and committed the standard artifact (`973feac`); `npm run check:bundle` is green at this commit. Both builders should produce the bundle only via `npm run build:verify` from their repo root, or `check:bundle` flips red in whichever checkout did not build it last.
-- **Open from run 30 (needs a Ruling before I fix it): `e2e/lib/frost.ts` `startFrostd` passes no `-p`** (frostd's default :2744 is Builder A's port; clients use `BNZ_FROSTD_ADDR` = :2745 here). `tools/setup-testnet.sh` was fixed (`b30e826`); the e2e lib was left untouched as out of that run's scope. R31 did not cover it.
+- **Both run-31 questions are CLOSED by R32 (head, `617c9f2`) — no action left.** (1) Verify-bundle
+  provenance: the head confirms the merged bundle was built in a temporary worktree with a linked
+  `node_modules`; `973feac` is the accepted bundle, and any future merge rebuilds it in the real
+  checkout after the merge. (2) `e2e/lib/frost.ts startFrostd` now binds `BNZ_FROSTD_ADDR`'s port
+  (fixed by the head in `617c9f2`).
 
 ## Previous run (30): head batch — cross-chain on the signer hosts, xchain demo drivers, mainnet readiness, guides
 
