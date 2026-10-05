@@ -1,0 +1,6 @@
+commit 973feac (tree clean; settled B30 merge + batching module)
+utc 2026-10-05T18:02:33Z
+command npx esbuild tools/repro/batching-equal.ts --bundle --platform=node --format=esm --outfile=tmp/batching-equal.mjs && node tmp/batching-equal.mjs
+PASS batching-equal cap=13 batches=77 rows=1000
+PASS batching-equal cap=28 batches=36 rows=1000
+exit=0

@@ -1,0 +1,15 @@
+diff --git a/settle/batching.ts b/settle/batching.ts
+index ba0127a..25e29ac 100644
+--- a/settle/batching.ts
++++ b/settle/batching.ts
+@@ -16,8 +16,8 @@ export function planBatches(obligations: PlanRow[], cap: number): PlannedBatch[]
+   requireThat(new Set(parties).size === parties.length, "unique settlement parties");
+   // SQLite `ORDER BY party` is BINARY collation: memcmp over the stored UTF-8 bytes. Buffer.compare
+   // over the UTF-8 encoding is that order exactly (JS string `<` is UTF-16 code-unit order and
+-  // disagrees for non-BMP rows; localeCompare disagrees even for plain ASCII).
+-  const sorted = [...obligations].sort((a, b) => Buffer.compare(Buffer.from(a.party, "utf8"), Buffer.from(b.party, "utf8")));
++  // disagrees for non-BMP rows; localeCompare disagrees even for plain ASCII). B31-a: localeCompare.
++  const sorted = [...obligations].sort((a, b) => a.party.localeCompare(b.party));
+   const batches: PlannedBatch[] = [];
+   for (let i = 0; i < sorted.length; i += cap)
+     batches.push({ id: batches.length + 1, parties: sorted.slice(i, i + cap).map(o => o.party) });
