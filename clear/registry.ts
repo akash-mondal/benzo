@@ -1,7 +1,7 @@
 // Gate EN: one dispatch point on the signed manifest's clearing.mode. A new market type is a registry entry —
 // pure clear + manifest rules + verify-side money rules + its versioned plaintext layout — never a copy of the
 // verify path. `benzo verify`, the read API and signer recomputation all come through here.
-import { client, requireThat, type Manifest, type Signed } from "../manifest/schema";
+import { client, hash, requireThat, type Manifest, type Signed } from "../manifest/schema";
 import { clear, checkResultModeA, obligationsModeA, type ClearInput, type ClearResult, type ClearBody, type SettlementExtras } from "./core";
 import { clearModeB, clientBuyback, checkResultBuyback, obligationsModeB, type BuybackManifest } from "./mode-b";
 import { OTC_LAYOUT, clientOTC, clearOTC, checkResultOTC, obligationsOTC, type OTCManifest } from "./otc";
@@ -36,7 +36,11 @@ export const registry: Record<string, ModeEntry> = {
 // The mode is read from the signed bytes; entry.client re-verifies them against the same --signer anchor, so the
 // peek and the signed content can never disagree.
 export function modeEntry(packet: Signed): ModeEntry {
-  const m = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8"));
+  // The bytes' integrity is checked before peeking (the same rule and message as verifyRecord), so a tampered packet
+  // is refused as "manifest byte hash", never as a JSON parse error (live regression P1 after product moved here).
+  const raw = typeof packet?.bytes === "string" ? Buffer.from(packet.bytes, "base64") : Buffer.alloc(0);
+  requireThat(typeof packet?.bytes === "string" && raw.toString("base64") === packet.bytes && hash(raw) === packet.sha256, "manifest byte hash");
+  const m = JSON.parse(raw.toString("utf8"));
   const mode = m?.clearing?.mode;
   requireThat(typeof mode === "string" && registry[mode] !== undefined, `unknown clearing mode ${String(mode)}`);
   return registry[mode]!;
