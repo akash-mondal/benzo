@@ -24,7 +24,10 @@ const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, 
 const latestRound = async () => (await (await fetch(`${DRAND}/public/latest`)).json()).round as number;
 
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
-type Scenario = { mode: string; extra: (ctx: { owners: Record<string, { private_hex: string; public_hex: string }> }) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[]; expect: (refunds: string[]) => Record<string, number> };
+type Scenario = { mode: string; supply?: number; extra: (ctx: { owners: Record<string, { private_hex: string; public_hex: string }> }) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
+  // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
+  // an outcome assertion (`outcomes`) on that result.
+  expect?: (refunds: string[]) => Record<string, number>; outcomes?: (o: string[]) => boolean };
 // Expected receipts are per party in zats (C = 200,000).
 const SCENARIOS: Record<string, Scenario> = {
   // Blind OTC, match: buyer bids 1,000, seller asks 600 -> midpoint 800; buyer gets C - 800 back, seller C + 800.
@@ -33,6 +36,17 @@ const SCENARIOS: Record<string, Scenario> = {
   // Blind OTC, no match: bid 500 < ask 700 -> cancelled; both get exact C back.
   "otc-nomatch": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
     bids: o => [{ price: 500, owner: o.buyer }, { price: 700, owner: o.seller }], expect: () => ({ "leaf:0": C, "leaf:1": C }) },
+  // Launch (main tranche), minimum raise met: supply 2, bids 300/250/200 -> two lots at the uniform 250; raise 500.
+  "launch-meet": { mode: "launch", supply: 2, extra: () => ({ launch: { standard_lot_size: 1, minimum_raise_zats: "500" } }),
+    bids: () => [{ price: 300 }, { price: 250 }, { price: 200 }], expect: () => ({ "leaf:0": C - 250, "leaf:1": C - 250, "leaf:2": C, seller: 500 }) },
+  // Launch, minimum raise missed (600 > 500): cancelled, everyone gets exact C back.
+  "launch-miss": { mode: "launch", supply: 2, extra: () => ({ launch: { standard_lot_size: 1, minimum_raise_zats: "600" } }),
+    bids: () => [{ price: 300 }, { price: 250 }, { price: 200 }], expect: () => ({ "leaf:0": C, "leaf:1": C, "leaf:2": C }) },
+  // Bid revision (uniform, supply 1): one owner bids 200, then revises to 300 inside the window; only the revision counts
+  // and the superseded deposit is refunded exact C.
+  "revision": { mode: "uniform", owners: ["reviser"], extra: () => ({}),
+    bids: o => [{ price: 200, owner: o.reviser }, { price: 250 }, { price: 300, owner: o.reviser }],
+    outcomes: o => o[0] === "superseded" && o[2] === "winner" && o[1] !== "winner" },
 };
 
 async function run(name: string) {
@@ -54,7 +68,7 @@ async function run(name: string) {
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
   const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
-  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners }) };
+  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners }) };
   benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
   const packet = benzo(["auction", "sign", "--id", id]);
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
@@ -83,7 +97,10 @@ async function run(name: string) {
   const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
   writeFileSync(path.join(OUT, `${name}-settle.log`), ((settle.stdout || "") + "\n----\n" + (settle.stderr || "")).replace(/\x1b\[[0-9;]*m/g, ""));
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
-  const want = sc.expect(refunds);
+  const fin = doc(), owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(fin.manifest).obligations(fin.result, null)].map(([p, v]) => [p, Number(v)]));
+  const want = sc.expect ? sc.expect(refunds) : owed;
+  if (sc.expect) check(`${name}-expected-equals-obligations`, JSON.stringify(Object.entries(want).sort()) === JSON.stringify(Object.entries(owed).sort()), JSON.stringify(owed));
+  if (sc.outcomes) check(`${name}-outcomes`, sc.outcomes(fin.result.allocations.map((a: any) => a.outcome)), fin.result.allocations.map((a: any) => a.outcome).join(","));
   check(`${name}-settled`, settle.status === 0, `exit ${settle.status}`);
   check(`${name}-receipts`, JSON.stringify(Object.entries(receipts).sort()) === JSON.stringify(Object.entries(want).sort()), JSON.stringify(receipts));
   z.sync("bidder"); z.enhance("bidder");
