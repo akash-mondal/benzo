@@ -1,7 +1,7 @@
 // Glue for frostd, frost-client and zcash-sign: one FROST signing session per randomizer (trap 7), answered on the
 // prompts the tools print (trap 6).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { bin, env, STATE, ROOT } from "./io";
@@ -126,7 +126,25 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
 }
 
 // Runs `zcash-sign sign`, answering each `Randomizer #i` prompt with a fresh FROST session.
-export async function zcashSign(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody): Promise<{ sighash: string; sessions: Session[] }> {
+// One FROST signing round at a time on this machine (live part 2: two auctions settling at once collided — a host's
+// frost-client serves one session per identity, and a failover's --close-all ended the other auction's session).
+// A lock dir under state/run, taken for the whole round, stale after 15 minutes.
+export async function zcashSign(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody):Promise<{ sighash: string; sessions: Session[] }> {
+  return withSigningLock(() => zcashSignRound(input, output, check, pair, auction, batch, custody));
+}
+// Reentrant within one process: the host-custody signer (settle/cli.ts hostSign) holds it across its whole attempt
+// loop, including the failover's session closes, so no other auction's round runs in between.
+let signingLockDepth = 0;
+export async function withSigningLock<T>(fn: () => Promise<T>): Promise<T> {
+  const lock = path.join(STATE, "run", "frost-signing.lock");
+  if (signingLockDepth === 0) for (;;) {
+    try { mkdirSync(lock); break; }
+    catch { try { if (Date.now() - statSync(lock).mtimeMs > 15 * 60_000) rmSync(lock, { recursive: true, force: true }); } catch {} await new Promise(r => setTimeout(r, 3000)); }
+  }
+  signingLockDepth++;
+  try { return await fn(); } finally { if (--signingLockDepth === 0) rmSync(lock, { recursive: true, force: true }); }
+}
+async function zcashSignRound(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody):Promise<{ sighash: string; sessions: Session[] }> {
   if(pair.length!==2||new Set(pair).size!==2||pair.some(n=>!["alice","bob","carol"].includes(n)))throw Error("choose two distinct FROST signers");
   const p = start(bin("zcash-sign"), ["sign", "-n", env("BNZ_NETWORK"), "-i", input, "-o", output]);
   let sighash = "";

@@ -8,7 +8,7 @@ import {verifyApprovalMap} from "../witness";
 import {treasuryBlock} from "../clear/mode-b";
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints} from "./io";
-import {pubkey,zcashSign} from "./sign";
+import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {partyNote} from "./deposits";
 import { vaultDir, pcztBin } from "../manifest/paths";
@@ -173,7 +173,8 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   }
   throw Error(`no signer host could build batch ${batchId}`);
 }
-async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {
+async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey))}
+async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string) {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file(`packet-${batchId}`);
