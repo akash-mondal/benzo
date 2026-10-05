@@ -161,10 +161,11 @@ export function checkStraysCerts(certs: StraysCert[], spec: WitnessSpec): Strays
 
 // Reviewer G's G-4: an approving host's signed map from each non-change output index to the party it derived for it, over
 // the candidate's txid — receipts are attributed from two hosts' agreeing maps, never from the coordinator's relayed
-// build.json. Domain-separated from every other witness-key signature.
-export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[] };
+// build.json. Domain-separated from every other witness-key signature. R33 item 3 (P1-3): the map also carries the
+// defaults list the host derived from its own scan, so `settlement.defaults` can never be a coordinator-only list.
+export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[]; defaults: number[] };
 export type ApprovalMap = ApprovalMapBody & { witness: string; signature: string };
-const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs })]);
+const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults })]);
 export function signApprovalMap(body: ApprovalMapBody, privateHex: string): ApprovalMap {
   requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
   const key = edPrivate(privateHex);

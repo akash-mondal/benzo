@@ -16114,6 +16114,14 @@ function checkStraysCerts(certs, spec) {
   requireThat(signed.size >= spec.q_w, `strays witness quorum ${signed.size}-of-${spec.keys.length}`);
   return certs[0].statement;
 }
+var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults })]);
+function verifyApprovalMap(m2, keys2) {
+  try {
+    return !!m2 && keys2.includes(m2.witness) && /^[0-9a-f]{128}$/.test(String(m2.signature)) && Array.isArray(m2.outputs) && verify3(null, mapBytes(m2), edPublic(m2.witness), Buffer.from(m2.signature, "hex"));
+  } catch {
+    return false;
+  }
+}
 
 // settle/envelopes.ts
 function sealedBidPlaintext(pt2, manifestPacket) {
@@ -16490,6 +16498,19 @@ function checkPublicAuction(pub, opts = {}) {
     if (!m2.bond) return;
     if (!pub.result) return;
     if (pub.settlement) requireThat(pub.settlement.defaults !== void 0, "settled bond auction lacks the defaults list");
+  });
+  run2("defaults", () => {
+    const m2 = pub.manifest;
+    if (!m2.bond || !pub.settlement || pub.settlement.defaults === void 0) return;
+    requireThat(pub.witnessSet && m2.witness_set_hash === witnessSetHash(pub.witnessSet), "host-signed defaults need a pinned witness set");
+    const keys2 = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), m2.auction_id).keys;
+    const maps = (pub.settlement.approval_maps ?? []).filter((mp) => !!mp && mp.auction_id === m2.auction_id && verifyApprovalMap(mp, keys2));
+    const same = (mp) => jsonBytes(mp.defaults ?? null).equals(jsonBytes(pub.settlement.defaults));
+    if (maps.length > 0 && !maps.some(same)) requireThat(false, "settlement defaults differ from the host-signed approval maps");
+    requireThat(
+      new Set(maps.filter(same).map((mp) => mp.witness)).size >= 2,
+      "settlement defaults are not carried by two agreeing host-signed approval maps"
+    );
   });
   run2("accounting-strays", () => {
     if (!pub.settlement) return;

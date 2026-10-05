@@ -357,7 +357,10 @@ async function worker(ledger:Ledger) {
       // cross-check, logged if it differs. Never by recipient.
       const doc=JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).public_dir),"auction.json"),"utf8"));
       const wkeys=verifyRecord<any>(doc.witness_set,doc.signer).keys as string[],maps=JSON.parse(readFileSync(base+".maps.json","utf8"));
-      requireThat(Array.isArray(maps)&&maps.length===2&&maps.every((m:any)=>m&&verifyApprovalMap(m,wkeys)&&m.txid===staged.txid)&&maps[0].witness!==maps[1].witness&&jsonBytes(maps[0].outputs).equals(jsonBytes(maps[1].outputs)),"the signing hosts' output maps are missing, unsigned or disagree");
+      requireThat(Array.isArray(maps)&&maps.length===2&&maps.every((m:any)=>m&&verifyApprovalMap(m,wkeys)&&m.txid===staged.txid)&&maps[0].witness!==maps[1].witness&&jsonBytes(maps[0].outputs).equals(jsonBytes(maps[1].outputs))&&jsonBytes(maps[0].defaults??null).equals(jsonBytes(maps[1].defaults??null)),"the signing hosts' output maps are missing, unsigned or disagree");
+      // R33 item 3 (P1-3): the signing hosts' own defaults lists must also equal this plan's derivation — a
+      // disagreement stops the settlement before anything is published.
+      if((plan as any).defaults!==undefined)requireThat(jsonBytes(maps[0].defaults).equals(jsonBytes((plan as any).defaults)),"the signing hosts' defaults differ from the plan's derivation");
       const built={outputs:maps[0].outputs},relayed=JSON.parse(readFileSync(base+".build.json","utf8"));
       for(const x of built.outputs)if(!relayed.outputs.some((y:any)=>y.party===x.party&&y.output_index===x.output_index))console.error(`ERROR build.json differs from the hosts' signed map for ${x.party}; using the hosts' map`);
       const receipt=batch.outputs.map((row:any)=>{const m=built.outputs.find((x:any)=>x.party===row.party);requireThat(m,`no built output for ${row.party}`);const o=i.outputs.find((x:any)=>x.index===m.output_index&&!x.is_change);requireThat(o&&o.amount_zats===row.amount_zats,"mined amount differs from result.json");return {party:row.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});

@@ -13,7 +13,7 @@ import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
-import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
+import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, verifyApprovalMap, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
 // The witness set rides in a separate signed packet, not in the manifest.
@@ -34,6 +34,9 @@ export type SettlementSummary = {
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
   delivery_defaults?: Signed[];
+  // R33 item 3: the signer hosts' G-4 approval maps (each carrying the defaults list that host derived from its
+  // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
+  approval_maps?: import("../witness").ApprovalMap[];
 };
 export type PublicResult = ClearBody;
 // Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
@@ -520,6 +523,21 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (!m.bond) return;
     if (!pub.result) return; // cancelled before the clear: there are no balances to bind
     if (pub.settlement) requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
+  });
+  // R33 item 3 (P1-3): `settlement.defaults` is bound to what the signer hosts signed. verify requires it to
+  // equal the defaults list in two VERIFIED approval maps from distinct pinned signers (the manifest's witness
+  // set). A coordinator-only list — the reviewer's equal-balance swap, for which obligations, rows and receipts
+  // are identical for two default sets with the same balance total — is refused here with its own error.
+  run("defaults", () => {
+    const m = pub.manifest;
+    if (!m.bond || !pub.settlement || pub.settlement.defaults === undefined) return;
+    requireThat(pub.witnessSet && m.witness_set_hash === witnessSetHash(pub.witnessSet!), "host-signed defaults need a pinned witness set");
+    const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), m.auction_id).keys;
+    const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));
+    const same = (mp: { defaults?: number[] }) => jsonBytes(mp.defaults ?? null).equals(jsonBytes(pub.settlement!.defaults!));
+    if (maps.length > 0 && !maps.some(same)) requireThat(false, "settlement defaults differ from the host-signed approval maps");
+    requireThat(new Set(maps.filter(same).map(mp => mp.witness)).size >= 2,
+      "settlement defaults are not carried by two agreeing host-signed approval maps");
   });
   run("accounting-strays", () => {
     if (!pub.settlement) return;

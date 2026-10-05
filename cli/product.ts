@@ -18,7 +18,7 @@ import {clientCommon as client,modeEntry} from '../clear/registry';
 import {launchAllocationFile,launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
-import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
+import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
@@ -62,10 +62,19 @@ export function publish(id:string) {
     const paid=new Set<any>(read(path.join(sd,'receipts.json')).map((r:any)=>r.party));
     const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,claim_envelope_sha256:c.claim_envelope_sha256,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
     if(used.length)doc.claims=used;
+    // R33 item 3 (P1-3): `settlement.defaults` is published only when two agreeing host-signed approval maps
+    // (the G-4 maps, verified against the pinned witness set) carry the same list; the maps themselves publish
+    // with the settlement so `benzo verify` re-checks the binding. A coordinator-only list is never published.
+    const maps=s.batches.flatMap((b:any)=>{try{return JSON.parse(readFileSync(path.join(sd,`batch-${b.id}.maps.json`),'utf8'))}catch{return []}});
+    if(s.plan?.defaults!==undefined) {
+      const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
+      const agreeing=(maps as any[]).filter((mp:any)=>mp&&verifyApprovalMap(mp,wkeys)&&mp.auction_id===id&&jsonBytes(mp.defaults??null).equals(jsonBytes(s.plan.defaults)));
+      requireThat(new Set(agreeing.map((mp:any)=>mp.witness)).size>=2,'settlement.defaults needs two agreeing host-signed approval maps; refusing to publish');
+    }
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
-      // Part 2 (bond-then-pay): the defaults this plan derived from its own scan (never operator input; every
-      // signer host re-derived them before approving) reach the public settlement for verify's obligations.
-      ...(s.plan?.defaults!==undefined?{defaults:s.plan.defaults}:{}),batches:s.batches.map((b:any)=>{
+      // Part 2 (bond-then-pay): the defaults derived by the plan and co-signed by the signer hosts (above).
+      ...(s.plan?.defaults!==undefined?{defaults:s.plan.defaults}:{}),
+      ...(maps.length?{approval_maps:maps}:{}),batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
       return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
     })};

@@ -68,8 +68,9 @@ export async function run(argv: string[]): Promise<number | object> {
     const candidate = path.join(packet, "candidate.full.pczt");
     writeFileSync(candidate, openBlob(readFileSync(sealed), own!), { mode: 0o600 });
 
-    // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts).
-    const { expected, payout, network, balanceSources } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts) — including its own
+    // defaults list from its own scan (R33 item 3), which joins the signed G-4 map and the approval record.
+    const { expected, payout, network, balanceSources, defaults } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
     // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
@@ -109,9 +110,11 @@ export async function run(argv: string[]): Promise<number | object> {
     // Ruling R28 item 6 (F5): the full (unredacted) candidate never stays on this machine's disk after the check.
     rmSync(candidate, { force: true }); rmSync(recomputed, { force: true });
     // Reviewer G's G-4: this host's signed {party, output_index} map (party names only), for receipt attribution.
+    // R33 item 3 (P1-3): the map carries this host's own defaults list too, so the published settlement's
+    // `defaults` can never be a coordinator-only list.
     const wkey = path.join(st, "witness", `${o.name}.key`);
-    const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index) }, readFileSync(wkey, "utf8").trim()) : null;
-    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, approved_at: Math.floor(Date.now() / 1000) };
+    const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults }, readFileSync(wkey, "utf8").trim()) : null;
+    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, defaults, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });
     writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });
