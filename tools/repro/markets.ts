@@ -3,7 +3,7 @@
 // clear on the same opened set, the receipts equal the scenario's expected obligations, every refund/payment landed at
 // the bidder's own destination, and `benzo verify` passes on a cold copy.
 // Build+run: npx esbuild tools/repro/markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/markets.mjs && BNZ_LWD_SINGLE=1 node tmp/markets.mjs <scenario>...
-import { randomBytes } from "node:crypto";
+import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -24,7 +24,8 @@ const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, 
 const latestRound = async () => (await (await fetch(`${DRAND}/public/latest`)).json()).round as number;
 
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
-type Scenario = { mode: string; supply?: number; extra: (ctx: { owners: Record<string, { private_hex: string; public_hex: string }> }) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
+type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number };
+type Scenario = { mode: string; supply?: number; treasury?: number; extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
   // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
   // an outcome assertion (`outcomes`) on that result.
   expect?: (refunds: string[]) => Record<string, number>; outcomes?: (o: string[]) => boolean };
@@ -44,11 +45,25 @@ const SCENARIOS: Record<string, Scenario> = {
     bids: () => [{ price: 300 }, { price: 250 }, { price: 200 }], expect: () => ({ "leaf:0": C, "leaf:1": C, "leaf:2": C }) },
   // Bid revision (uniform, supply 1): one owner bids 200, then revises to 300 inside the window; only the revision counts
   // and the superseded deposit is refunded exact C.
+  // RFQ (reverse-Vickrey): dealers A and B allowlisted, X not. Quotes A 400, B 300, X 200: X is refused, B wins and is
+  // paid the second-lowest valid quote (400); the buyer funded 500, so 100 returns to its treasury_ua.
+  "rfq": { mode: "rfq", treasury: 500, owners: ["A", "B", "X"], extra: c => ({ rfq: rfqBlock(c, [c.owners.A, c.owners.B]) }),
+    bids: o => [{ price: 400, owner: o.A }, { price: 300, owner: o.B }, { price: 200, owner: o.X }],
+    expect: () => ({ "leaf:0": C, "leaf:1": C + 400, "leaf:2": C, treasury: 100 }), outcomes: o => o[1] === "winner" && o[2] === "not_allowlisted" },
+  // RFQ with one valid quote (X not allowlisted): cancelled, every quote refunded exact C and the whole 500 returns.
+  "rfq-cancel": { mode: "rfq", treasury: 500, owners: ["A", "B", "X"], extra: c => ({ rfq: rfqBlock(c, [c.owners.A, c.owners.B]) }),
+    bids: o => [{ price: 400, owner: o.A }, { price: 200, owner: o.X }], expect: () => ({ "leaf:0": C, "leaf:1": C, treasury: 500 }) },
   "revision": { mode: "uniform", owners: ["reviser"], extra: () => ({}),
     bids: o => [{ price: 200, owner: o.reviser }, { price: 250 }, { price: 300, owner: o.reviser }],
     outcomes: o => o[0] === "superseded" && o[2] === "winner" && o[1] !== "winner" },
 };
 
+// RFQ block: the allowlisted dealers, a budget and cap, three throwaway delivery-attestation signers (not exercised
+// here), a delivery deadline past the round, and the buyer's signed treasury return and funding addresses.
+function rfqBlock(c: Ctx, dealers: { public_hex: string }[]) {
+  const spki = () => generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "der" }).toString("hex");
+  return { dealer_keys: dealers.map(d => d.public_hex), max_price_zats: "1000", budget_zats: "500", delivery_deadline_height: c.tip + 20000, delivery_signers: [spki(), spki(), spki()], treasury_ua: c.treasuryUa, funding_ua: c.fundingUa };
+}
 async function run(name: string) {
   const sc = SCENARIOS[name]; if (!sc) throw new Error(`unknown scenario ${name}`);
   const log = path.join(OUT, `${name}.out`); writeFileSync(log, "");
@@ -61,20 +76,20 @@ async function run(name: string) {
   const bids = sc.bids(owners);
   const vault = path.join(STATE, "vaults", id, "wallet"), addr = () => fresh(vault), bidder = () => fresh(path.join(STATE, "bidder"));
   const deposits = [k.escrow_ua, ...bids.slice(1).map(() => addr())], reserveUa = addr();
-  const refunds = bids.map(() => bidder()), sellerUa = bidder();
+  const refunds = bids.map(() => bidder()), sellerUa = bidder(), treasuryUa = bidder(), fundingUa = addr();
   const privateDir = path.join(STATE, "run", `markets-${id}`), publicDir = path.join(ROOT, "tmp/markets/public", id); mkdirSync(privateDir, { recursive: true });
   writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
   const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
-  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners }) };
+  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip() }) };
   benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
   const packet = benzo(["auction", "sign", "--id", id]);
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
-  const paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" } });
+  const paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
   say(`funding ${paid.txid}`);
   for (let h = 0; ; await sleep(30_000)) {
     for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]);
@@ -99,14 +114,16 @@ async function run(name: string) {
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
   const fin = doc(), owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(fin.manifest).obligations(fin.result, null)].map(([p, v]) => [p, Number(v)]));
   const want = sc.expect ? sc.expect(refunds) : owed;
-  if (sc.expect) check(`${name}-expected-equals-obligations`, JSON.stringify(Object.entries(want).sort()) === JSON.stringify(Object.entries(owed).sort()), JSON.stringify(owed));
+  // The plan adds the treasury return beside the mode's obligations; compare the rest.
+  const noT = (o: Record<string, number>) => JSON.stringify(Object.entries(o).filter(([p]) => p !== "treasury").sort());
+  if (sc.expect) check(`${name}-expected-equals-obligations`, noT(want) === noT(owed), JSON.stringify(owed));
   if (sc.outcomes) check(`${name}-outcomes`, sc.outcomes(fin.result.allocations.map((a: any) => a.outcome)), fin.result.allocations.map((a: any) => a.outcome).join(","));
   check(`${name}-settled`, settle.status === 0, `exit ${settle.status}`);
   check(`${name}-receipts`, JSON.stringify(Object.entries(receipts).sort()) === JSON.stringify(Object.entries(want).sort()), JSON.stringify(receipts));
   z.sync("bidder"); z.enhance("bidder");
   const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
   const at = (a: string) => got.filter((n: any) => n.address === a).reduce((s: number, n: any) => s + n.value_zats, 0);
-  check(`${name}-landed`, Object.entries(want).every(([p, v]) => !p.startsWith("leaf:") || at(refunds[Number(p.slice(5))]) === v), JSON.stringify(refunds.map(at)));
+  check(`${name}-landed`, Object.entries(want).every(([p, v]) => p.startsWith("leaf:") ? at(refunds[Number(p.slice(5))]) === v : p === "treasury" ? at(treasuryUa) === v : true), JSON.stringify([...refunds.map(at), at(treasuryUa)]));
   const cold = path.join(OUT, "cold", id); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
   const v = spawnSync(benzoBin, ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
   check(`${name}-cold-verify`, v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
