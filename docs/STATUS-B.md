@@ -3,7 +3,74 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (28): Phase 6 Track B documentation and closure — **READY FOR MERGE**
+## Current run (30): head batch — cross-chain on the signer hosts, xchain demo drivers, mainnet readiness, guides
+
+Task (this session's head message): merge main, then four items in order, one commit per item with proof.
+Tree after `git merge main` (`970ce70`; main's R28/R29/R30 + part-2 work): `npm ci`, all `npm run build:*`
+green (`vendor/nu7` materialized via `tools/nu7/build.sh crates`), `npm run typecheck` clean, `npm run
+e2e` **PASS 36 s** before new work. Rules in force: no VM/orb/frostd-2744/testnet-spend/live-spec
+activity, no mainnet, no frontend, no pin changes, never weaken R28.
+
+**Item 1 — cross-chain on the signer hosts (part 2 §2 (a)–(d)): DONE with proof** — code
+`b74a28a`, evidence `d969dc0`.
+
+1. **(a)** `benzo xchain keygen --chain evm|solana --name SIGNER` (runs ON a host like `witness
+   keygen`): writes `state/xchain/<chain>-<name>.key` mode 0600, refuses to replace it, prints only
+   the public part (EVM address / Solana pubkey).
+2. **(b)** `benzo xchain attest --host-record`: one signer host's own single envelope key + xchain key
+   over the pushed public dir; every leaf's opening and destination still derived by the host itself
+   (R21/R22/R19 unchanged); output is the host's SIGNATURE record (attestation bytes — EIP-712 digest
+   / Solana 200-byte message —, its own signature, its own derived payouts) and the only thing printed.
+   `--envelope-key` also accepts the shipped `sign envelope-key` JSON. **Without `--host-record` the R25
+   item 2 ≥2-agreement rule stands unchanged** (a single/duplicated key can never attest a leaf); the
+   2-of-3 rule in host mode is enforced at release (below).
+3. **(c)** `benzo xchain release --attestation FILE --attestation FILE ...`: the coordinator collects
+   host records over the **identical attestation bytes and payout sets**, re-derives the bytes from the
+   record fields + chain inputs, verifies every signature against **the escrow's own pinned signer set
+   read from chain**, requires ≥ 2 distinct pinned signers, and never holds a signer key
+   (`--signer-key` refused outright; `--key` is the crank/payer key only). R28 holds: every
+   destination comes from the host-derived records; the coordinator supplies none.
+4. **(d) Proof on local anvil + solana-test-validator with three local signer state dirs standing in
+   for the hosts** (`BNZ_STATE_DIR` per signer, `$BNZ_STATE_DIR/xchain-hosts/{alice,bob,carol}` + eve as
+   third party): `bash crosschain/host-attest-demo.sh` → **34/34 PASS**
+   (`docs/evidence/phase-5/repro/host-attest-demo.out`). Real fixture (tlock-sealed bids, real drand
+   quicknet beacon, shipped clearing result, gate-X certificates). Lock signer set = the three hosts'
+   keys. Includes the named refusal (a third party's attestation) and four more: forged signer,
+   coordinator-swapped destination, single record, `--signer-key` on release. Payment asserted as
+   balances at the fresh sealed destinations (both chains).
+   **Mutation reds:** `mutations/X1-a.out` (pinned-set check disabled → `ERROR
+   host-release-third-party-refused`), `mutations/X1-b.out` (payout-identity check disabled → `ERROR
+   host-release-swapped-destination-refused`; the swapped pair then released rc=0). Tree clean after
+   `git apply -R` but the mutation files.
+
+**Merge regression found and fixed first (`f2e24e2`, evidence `1245f77`):** main's 91d9182 made
+`benzo witness sign` recompute the frozen root from the witness's own vault scan, so
+`crosschain/local-demo.sh` aborted at `ERROR witness refused: leaf 0: deposit not in this witness's
+own scan` (`repro/local-demo-cert-before.out`) — its synthetic fixture has no chain to scan, and faking
+the scan would mock a pinned tool. The fixture now signs the same statement with the shipped witness
+primitive (`witness/index.ts`, what the command itself signs); every signature is still verified by the
+attest/checkPublicAuction code under test. Fail-before/pass-after at the same harness: **39/39 PASS**
+(`repro/local-demo-cert-after.out`). The shipped `witness sign` runs on the hosts over their own vault
+scans in live runs (`e2e/lib/hosts.ts` hostWitnessCerts) — unchanged. **Main carries the same
+breakage** (head: fold `f2e24e2` in at the merge).
+
+Commits so far: `f2e24e2` (local-demo cert fix) + `1245f77` (its evidence), `b74a28a` (item 1 code +
+`crosschain/host-attest-demo.{sh,mjs}`), `d969dc0` (item 1 evidence + mutations).
+
+Next: item 2 (`tools/repro/xchain-demos.ts`), then item 3 (mainnet readiness), then item 4 (guides).
+
+### Questions (this run)
+
+1. **`--host-record` design note (item 1 (b)):** a host attests with its own single envelope key, so
+   the per-leaf ≥2-agreement moves to the coordinator's release (two host records over the identical
+   attestation bytes from 2 distinct pinned signers — two hosts that opened a different deliver cannot
+   agree on the allocation root). The old rule stands unchanged without the flag. If you want a
+   different shape (e.g. records always carry 2 keys), say so under a Ruling and I will change it.
+2. **local-demo fixture certs are signed in-process now** (see above) because `witness sign` requires
+   an own vault scan post-91d9182. If you prefer the fixture drive the command against a real scanned
+   vault, that needs the live testnet lane (not mine per this run's rules).
+
+## Previous run (28): Phase 6 Track B documentation and closure — **READY FOR MERGE**
 
 State: **READY FOR MERGE** (updated 2026-10-03T16:5xZ). All four head-message items are DONE with
 proof, plus one merge-regression fix the packaging proof exposed. Closing checks at the fix commit
