@@ -17,6 +17,8 @@ import { envelopePublicKey, openEnvelopePayload } from "../../envelope";
 import { type Deliver, deliverSha256, requireDeliver } from "../../envelope/deliver";
 import { CANONICAL_ERC5564_ANNOUNCER, deriveSettlementStealthAddress, prepareAnnouncement } from "../../crosschain/stealth";
 import { checkPublicAuction, loadCompletePublicAuction } from "../../api/public-auction";
+import { readOrder } from "../../clear/layout";
+import { modeEntry } from "../../clear/registry";
 import { validEnvelope } from "../../settle/envelopes";
 import { decryptPublished, deriveClaimOpenings, publishedClient } from "../published-beacon";
 import { requireReserveOpening } from "../../manifest/reserve";
@@ -408,7 +410,11 @@ export async function run(argv: string[]): Promise<number> {
         try { ptHex = await decryptPublished(fl.ciphertext_hex, local); } catch (e) { ex(`bid did not open: ${(e as Error).message}`); continue; }
         if (!ptHex) { ex("bid did not open"); continue; }
         const opened = Buffer.from(ptHex, "hex");
-        if (opened.length !== 128 || opened[0] !== 0 || opened.subarray(1, 33).toString("hex") !== pub.manifest.auction_id) { ex("opened bid layout"); continue; }
+        // gate EN: the opened order parses under the MANIFEST MODE's own plaintext layout (uniform/buyback
+        // LAYOUT_V0, OTC version 3, …) with the auction (or lot) binding — never a hardcoded shape
+        const layout = modeEntry(pub.manifestPacket as any).layout;
+        const order = readOrder(layout, ptHex, (pub.manifest as any).lots ?? [pub.manifest.auction_id]);
+        if (opened.length !== layout.bytes || order.reason !== "") { ex("opened bid layout"); continue; }
         const rec = pub.envelopes.find((e) => e.ciphertext_hash === fl.ciphertext_hash) as any;
         if (!rec || typeof rec.envelope_ct !== "string" || typeof rec.owner_sig !== "string") { ex("no envelope record"); continue; }
         // R21 check 3: the record's owner_sig and settlement commitment against THIS opening (shared rule)
