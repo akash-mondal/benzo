@@ -158,9 +158,11 @@ async function resume(id: string) {
   say(`${ok && v.status === 0 ? "RESULT PASS" : "RESULT FAIL"} (verify exit ${v.status})`);
   return ok && v.status === 0;
 }
-const frostd = spawn(path.join(STATE, "bin/frostd"), ["-i", "127.0.0.1", "-p", env("BNZ_FROSTD_ADDR").split(":").at(-1)!, "-c", path.join(STATE, "tls/frostd.pem"), "-k", path.join(STATE, "tls/frostd.key")], { stdio: "ignore" });
+// Parallel harness processes share one frostd on the fixed port: start one only if none is listening.
+const port = env("BNZ_FROSTD_ADDR").split(":").at(-1)!, listening = spawnSync("nc", ["-z", "127.0.0.1", port]).status === 0;
+const frostd = listening ? null : spawn(path.join(STATE, "bin/frostd"), ["-i", "127.0.0.1", "-p", env("BNZ_FROSTD_ADDR").split(":").at(-1)!, "-c", path.join(STATE, "tls/frostd.pem"), "-k", path.join(STATE, "tls/frostd.key")], { stdio: "ignore" });
 await sleep(2000);
 let all = true;
 try { for (const n of process.argv.slice(2)) { try { all = (n.startsWith("resume:") ? await resume(n.slice(7)) : await run(n)) && all; } catch (e) { console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
-finally { frostd.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `benzo-${n}`]); }
+finally { frostd?.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `benzo-${n}`]); }
 process.exitCode = all ? 0 : 1;
