@@ -3,7 +3,62 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (31): Phase 6 Track B offline batch — bench batch-plan + projection (SC offline), leak re-run (LA), evidence index (DOC/RG prep)
+## Current run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
+
+Task (this session's head message): `track-b` fast-forwarded to main at `1bbb849` (B31 merged); `npm ci` +
+all `npm run build:*` green (`build:seal/core/settle/cli/verify`; `npm run check:bundle` OK, bundle
+`fc735f3c…`); then four items in order, one commit per item with proof. **Offline only except drand
+quicknet reads for item 2.** No OrbStack/VM/orb/frostd :2744/testnet spends/`tools/repro/markets.ts`/live
+specs, no mainnet, no frontend (`seal/src`, `seal/index.html` untouched), no pin changes. Track A files
+untouched: `settle/{ledger,plan,cli,sign}.ts`, `cli/{product,host-derive}.ts`, `tools/repro/markets.ts`.
+
+**Item 1 — API reference for the UI (gate DOC): DONE with proof.**
+
+- `docs/api-reference.md` (`f5a022a`): every route of `benzo api serve` and `node api/dist/server.mjs`
+  (`/auction/:auction_id`, `/operator`, `/freeze`, `/result`, `/allocation`, `/receipt/:ciphertext_hash`),
+  the states each answers in and its 409/400/404/405 bodies, every response field typed and explained
+  from the code with `file:line`, the trust layers (signed manifest, `--signer` anchor R20b,
+  `benzo verify`'s opening re-derivation), what a UI must never trust without `benzo verify`, and the
+  privacy section: no route returns bid plaintext (ever — `opened`/`claims`/`envelopes` have no route,
+  `api/server.ts:32-86`); no route returns any Zcash refund/payout destination (settlement receipts are
+  exactly the six T2 fields, `api/public-auction.ts:26,225,502`; `receipt.inclusion.deposit.address` is
+  the public escrow deposit address); the launch `/allocation` token-chain delivery rows are documented
+  as the one destination-bearing output by design (see Questions). Each response's key set is a
+  `<!-- shape: … -->` block — the machine-checked contract.
+- `tools/repro/api-reference-check.ts` (`f5a022a`): builds `api/dist/server.mjs` from the working tree
+  (`node cli/build.mjs`), serves the committed published auction dir
+  `docs/evidence/phase-5/markets/launch/cold-f1170469` (plus pre-result and mid-flight-broken copies of
+  the same document in `tmp/` for the 409/400 bodies), requests every documented route and case, and
+  asserts each response's key set against the doc's shape blocks; also the startup contract
+  (`--signer` mismatch → exit 1; missing `--dir` → exit 2).
+- Proof: `docs/evidence/phase-6/repro/api-reference.out` — **PASS api-reference 11 documented shapes**
+  (16 requests + 2 startup cases), run at `f5a022a`, 2026-10-05T20:12Z, exit 0. **Mutation B32-a**
+  (`mutations/B32-a.patch`: drop `leaf_count` from the `/auction/:auction_id` response) →
+  `ERROR shape.auction … missing key leaf_count`, exit 1, tree clean after `git apply -R`
+  (`mutations/B32-a.out`).
+- Command: `npx esbuild tools/repro/api-reference-check.ts --bundle --platform=node --format=esm
+  --outfile=tmp/api-reference-check.mjs && node tmp/api-reference-check.mjs`.
+- Commits: `f5a022a` (doc + check tool), `7d06f55` (evidence). `npm run typecheck` green at `f5a022a`.
+
+Items 2–4 **IN PROGRESS**: bidder bundle + clean-machine proof (PK), reproducible-build notes (PK),
+then the PK/DOC rows of `docs/evidence/phase-6/EVIDENCE.md`.
+
+### Questions (run 32)
+
+- **API-reference privacy wording — one confirmation, not blocking.** The batch asks the doc to
+  "confirm that no route returns … any refund/delivery destination". As written that is not literally
+  true of `GET /allocation` (launch): it serves the delivery batch's **token-chain** destinations
+  (`clear/launch.ts:13,36-53`, served `api/server.ts:76-80`). I documented these as the one
+  destination-bearing output by design (DESIGN §9 asset delivery; the rows carry no `leaf_index`) and
+  confirmed the narrow claims exactly: no route returns bid plaintext, and no route returns any Zcash
+  refund/payout destination. Tell me if the doc should instead assert the stronger wording (and I'll
+  file `/allocation` as a leak) or the narrower one ("no Zcash refund/delivery destination").
+- **Launch delivery row order (noted, not fixed).** `deliveryBatch` emits `rows` in winner leaf order
+  (`clear/launch.ts:40-51`), so `/allocation`'s row positions correlate with the winning leaves visible
+  in `/result`. Changing it is product behaviour outside this offline packaging batch (and
+  `clear/launch.ts` sits in Track A's launch lane) — worth a later-phase item, or ruled acceptable?
+
+## Previous run (31): Phase 6 Track B offline batch — bench batch-plan + projection (SC offline), leak re-run (LA), evidence index (DOC/RG prep)
 
 Task (this session's head message): `track-b` fast-forwarded to main at `6e5cc7b` (B30 batch merged);
 `npm ci` + all `npm run build:*` + `npm run check:bundle` green there before new work; then three items in
@@ -2445,10 +2500,18 @@ Default verify re-derives every opening with `$BNZ_STATE_DIR/bin/tle -d` against
 
 None open otherwise. The prior entries are closed by R21: **Q1** dropped (item 3 — only the user's own words are recorded as user instructions; the entry had quoted a head prompt), **Q2** budget ~626 lines accepted (item 4), **Q3** load shapes ruled (item 5: `verify` keeps requiring `frozen`/`result`; the read API is lifecycle-safe — done in cad928d), **Q4** `operator view --dir PUBLIC` accepted (item 6).
 
+Open questions live in the current run's section (run 32: the `/allocation` privacy wording and the
+launch delivery row order).
+
 ## Test audit (R11: Track B adds none)
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
 
 ## Last session
+- **Window:** 2026-10-05T19:40Z– (run 32, batch B32, in progress).
+- **Outcome so far:** item 1 DONE (API reference + drift check PASS 11 shapes at `f5a022a`, mutation
+  B32-a red at `7d06f55`); items 2–4 in progress.
+
+## Previous session (run 31)
 - **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
 - **Outcome:** All three offline items delivered with proof. (1) `settle/batching.ts` (`planBatches`,
   SQLite byte order) + `tools/repro/batching-equal.ts` equivalence against a real `Ledger` (PASS
