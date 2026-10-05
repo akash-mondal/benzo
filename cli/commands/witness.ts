@@ -9,7 +9,7 @@ import { depositParty, strayNotes } from "../../settle/deposits";
 import { checkCertificates, freezeStatement, generateWitnessKey, signStatement, signStrays, straysStatementBytes, validateWitnessSet, witnessSetHash, type StraysEntry, type WitnessCert, type WitnessSet } from "../../witness";
 import { repoRoot } from "../../manifest/root";
 import { recomputeFrozen } from "../../witness/recompute";
-import { ownScan } from "../host-derive";
+import { custodyBinding, ownScan } from "../host-derive";
 import { chainTip } from "../host-chain";
 
 export const noun = "witness";
@@ -99,6 +99,9 @@ export async function run(argv: string[]): Promise<number> {
     const statement = freezeStatement(pub.manifest, pub.frozen!);
     if (mode === "sign") {
       const resolved = witnessKey(o.key);
+      // Ruling R28 item 1: on a signer host (it holds this auction's DKG share) certifying also pins the manifest — the
+      // signer key, group key and vault addresses are checked and its hash recorded before any later approval.
+      if (existsSync(path.join(state, "auctions", pub.manifest.auction_id, "group-key.txt"))) custodyBinding(pub.manifest.auction_id, state, root, pub, o.signer);
       // Design §5: the root is recomputed from THIS witness's own scan of the auction vault before anything is
       // signed; a leaf it cannot see, or a different root, is refused and never certified.
       const own = recomputeFrozen(pub.manifest as any, pub.manifest_hash, pub.frozen!, await ownScan(state, root, pub.manifest.auction_id), { confirmedAt: chainTip(state) });

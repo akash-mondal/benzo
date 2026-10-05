@@ -13,6 +13,7 @@ import {cpSync,existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'nod
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND} from './lib/env';
 import {jsonBytes,signRecord} from '../manifest/schema';
+import {generateKeyPairSync} from 'node:crypto';
 import {witnessSetHash} from '../witness';
 import {clearForMode,clientForMode} from '../clear/registry';
 import {sealBlob} from '../envelope';
@@ -21,7 +22,7 @@ import {Run} from './lib/run';
 import {H,NAMES,benzoBin,dkgOnHosts,hostEnvelopeKeys,hostEnvelopeOpens,hostTry,hostWitnessCerts,hostWitnessKeys,push,sh} from './lib/hosts';
 import * as z from './lib/zcash';
 
-const IDS=['Y1a','V1a','X1a','V1b','W2','Y1b','V2','W1','X1b','Y1c'],C=Number(env('BNZ_COLLATERAL_ZATS'));
+const IDS=['Y1a','V1a','X1a','V1b','W2','W3','W4','W5','Y1b','V2','W6','W1','X1b','Y1c'],C=Number(env('BNZ_COLLATERAL_ZATS'));
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -72,7 +73,7 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     });
     // Three sealed asks, the fee reserve and the treasury leg (to the signed funding_ua) in one funding transaction.
     const asks=deposits.map((address,i)=>({...benzo(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(200+10*i),quantity:1,address,refund_ua:refunds[i]}),address}));
-    const paid=benzo(['bid','deposit','--id',id,'--pay'],{bids:asks,reserve:{address:reserveUa,amount_zats:'70000'},treasury:{amount_zats:manifest.buyback.budget_zats}});
+    const paid=benzo(['bid','deposit','--id',id,'--pay'],{bids:asks,reserve:{address:reserveUa,amount_zats:'600000'},treasury:{amount_zats:manifest.buyback.budget_zats}});
     console.log(`funding ${paid.txid}`);
     for(let h=0;;await sleep(30_000)) {
       for(const v of ['sync','enhance'])z.run(path.join(STATE,'bin/zcash-devtool'),['wallet','-w',vault,v,'-s',env('BNZ_LWD_URL')]);
@@ -120,6 +121,42 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
         expect(hostTry(n,['test','-f',`${H}/approvals/${id}/batch-99.json`]).status).not.toBe(0);
       }
     });
+    // Ruling R28: the attacks the part 1 milestone review found, each against the live hosts. `attack` builds a candidate
+    // from the Mac's copy of the vault (the coordinator, or a malicious builder emulated by the test harness, which
+    // knows the bidders' destinations), optionally edits the full copy and the packet's public dir, seals the full copy
+    // to the hosts' envelope keys and asks alice and carol to approve it. Every one must be refused with no approval.
+    const attack=(tag:string,batch:number,payments:{recipient:string;amount_zats:string}[],o:{full?:(file:string)=>string;pub?:(dir:string)=>void;signer?:string}={})=> {
+      const w=path.join(STATE,'settle',id,tag);rmSync(w,{recursive:true,force:true});mkdirSync(w,{recursive:true});
+      const created=path.join(w,'created.pczt'),proven=path.join(w,'proven.pczt'),redacted=path.join(w,'candidate.pczt');
+      sh(pcztBin,['create',vault,created,'364'],JSON.stringify(payments));
+      sh(path.join(STATE,'bin/zcash-devtool'),['pczt','-w',vault,'prove',created,'--output',proven]);
+      const info=JSON.parse(sh(pcztBin,['inspect',proven,path.join(STATE,'vaults',id,'ufvk.txt')])),full=o.full?o.full(proven):proven;
+      redactCandidate(STATE,proven,redacted,info);
+      envelopeKeys.forEach((pub,i)=>writeFileSync(path.join(w,`sealed-${NAMES[i]}.bin`),sealBlob(readFileSync(full),pub)));
+      for(const f of [created,proven,full])rmSync(f,{force:true});cpSync(publicDir,path.join(w,'public'),{recursive:true});o.pub?.(path.join(w,'public'));
+      writeFileSync(path.join(w,'packet.json'),JSON.stringify({auction_id:id,batch,plan_version:sha(readFileSync(redacted)),signer:o.signer??signer}));
+      return ['alice','carol'].map(n=>{push(n,w,`${tag}-${id.slice(0,12)}`);const r=hostTry(n,[`${H}/bin/benzo`,'sign','approve','--id',id,'--batch',String(batch),'--packet',`/home/benzo/${tag}-${id.slice(0,12)}`,'--name',n]);
+        return {n,status:r.status,stderr:r.stderr??'',approved:hostTry(n,['test','-f',`${H}/approvals/${id}/batch-${batch}.json`]).status===0}});
+    };
+    const refused=(rs:ReturnType<typeof attack>,why:RegExp)=>{for(const r of rs){expect(r.status,`${r.n} approved`).not.toBe(0);expect(r.approved,`${r.n} recorded an approval`).toBe(false);expect(r.stderr).toMatch(why)}};
+    const legit=[{recipient:refunds[0],amount_zats:String(C+210)},{recipient:refunds[1],amount_zats:String(C+210)},{recipient:refunds[2],amount_zats:String(C)},{recipient:treasuryUa,amount_zats:'10'}];
+    // W3 (F3): every real row paid correctly, plus the remainder to a deposit address disguised as change (user address
+    // removed from the full copy). Before R28 a host counted any vault address as change and approved it.
+    await run.check('W3','an output to a vault deposit address is never accepted as change',()=> {
+      refused(attack('w3',98,[...legit,{recipient:deposits[1],amount_zats:'20000'}],{full:(f)=> {
+        const i=JSON.parse(sh(pcztBin,['inspect',f,path.join(STATE,'vaults',id,'ufvk.txt')])).outputs.find((x:any)=>x.recipient===deposits[1]);
+        const out=f+'.no-ua';sh(path.join(STATE,'bin/zcash-devtool'),['pczt','redact','-k',`${i.pool}.action.${i.index}.output.user_address`,f,'--output',out]);return out}}),/not owned change|not a row this signer derived/);
+    });
+    // W4 (G-1): a packet whose manifest is re-signed by a key the hosts did not pin.
+    await run.check('W4','a manifest signed by any key but the pinned operator key is refused',()=> {
+      const k=generateKeyPairSync('ed25519'),pem=k.privateKey.export({type:'pkcs8',format:'pem'}).toString();
+      const fake=signRecord(JSON.parse(Buffer.from(json(manifestFile).bytes,'base64').toString('utf8')),pem);
+      refused(attack('w4',97,legit,{signer:fake.signer,pub:(d)=>{writeFileSync(path.join(d,'manifest.json'),JSON.stringify(fake));const a=json(path.join(d,'auction.json'));a.manifest=fake;a.signer=fake.signer;writeFileSync(path.join(d,'auction.json'),JSON.stringify(a))}}),/pinned operator key|signature|signer|witness|manifest/i);
+    });
+    // W5 (G-3): the frozen root stripped and the state flipped, to void a frozen auction into full refunds.
+    await run.check('W5','a packet without the frozen root a host pinned is refused',()=> {
+      refused(attack('w5',96,legit,{pub:(d)=>{rmSync(path.join(d,'frozen.json'),{force:true});const a=json(path.join(d,'auction.json'));delete a.frozen;delete a.result;a.state='REFUNDING';writeFileSync(path.join(d,'auction.json'),JSON.stringify(a))}}),/frozen root|pinned|frozen/i);
+    });
     // Y1: settlement with the kill drill — bob's host is stopped mid-session; the batch completes with alice + carol.
     const settle=spawnSync(benzoBin,['settle','--id',id],{encoding:'utf8',env:{...process.env,BNZ_DRILL_STOP:'bob'},maxBuffer:64<<20});
     writeFileSync(path.join(privateDir,'settle.log'),(settle.stdout||'')+'\n----\n'+(settle.stderr||''));
@@ -138,6 +175,10 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
       const at=(a:string)=>got.filter((n:any)=>n.address===a).reduce((s:number,n:any)=>s+n.value_zats,0);
       expect([at(refunds[0]),at(refunds[1]),at(refunds[2]),at(treasuryUa)]).toEqual([C+210,C+210,C,10]);
       expect(at(attacker)).toBe(0);
+    });
+    // W6 (F2): after batch 1 mined, a new candidate paying leaf 0's real row again (the vault keeps the fee reserve).
+    await run.check('W6','a row already paid by a mined batch is never approved again',()=> {
+      refused(attack('w6',95,[legit[0]]),/already paid by mined batch/);
     });
     await run.check('W1','no refund destination in any operator file, public file or log; coordinator saw only the redacted candidate',()=> {
       const places=[publicDir,path.join(STATE,'settle',id),path.join(STATE,'product'),path.join(STATE,'auction'),path.join(STATE,'run','auction-cli.log'),path.join(privateDir,'settle.log')];
