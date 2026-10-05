@@ -1,3 +1,7 @@
+# Re-pointed (R35.3a, run 33): the U7 assertion now lives in e2e/cli-auction.spec.ts via
+# e2e/lib/readpath-live.ts foldReserve (tools/repro/reserve-opening-repro.mjs stays until gate RG
+# deletes it). Red run: git apply this patch, then BNZ_LIVE=1 npx playwright test --project=cli-auction
+# (the FOLD3 block); expect ERROR U7. Original record: mutations/U7.out.
 --- a/manifest/reserve.ts
 +++ b/manifest/reserve.ts
 @@ -26,7 +26,7 @@ export function requireReserveOpening(
