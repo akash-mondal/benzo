@@ -48,9 +48,11 @@ not pin `envelope_keys`, so the shipped verifier's envelope-record check refused
 before the evidence run.
 
 Commits so far: `ed0b323` (item 1 a–d code), `973feac` (verify-bundle rebuild; accepted by R32),
-`3bfde30` (bench harness fix), `1f4258b` (item 1 evidence), `826170e` (item 2 evidence). R32
-(`617c9f2`) answered the run-31 Questions (below). `npm run typecheck` and `npm run check:bundle`
-green at `3bfde30`.
+`3bfde30` (bench harness fix), `1f4258b` (item 1 evidence), `826170e` (item 2 evidence),
+`d826521` (STATUS after item 2), `2824944` (item 3 evidence). R32 (`617c9f2`) answered the run-31
+Questions (below). `npm run typecheck` and `npm run check:bundle` green at `3bfde30`; no code changed
+after that, so both still hold. Batch complete: all three items delivered with proof, offline only,
+no Track A file touched, no VM/frostd/testnet-spend activity, no mainnet.
 
 **Item 2 — leak-audit re-run (gate LA): DONE with proof.** `npm run leak-audit` (as shipped) over
 `docs/evidence/**` (incl. `phase-5/markets/`, `phase-5/repro/` B30 evidence, `phase-6/scale/`,
@@ -67,7 +69,17 @@ class G, disclosed, not custody). Final **331 rows, every one classified A–G**
 refund/delivery addresses outside the immutable disclosed class C. Still owed (as at run 2):
 bid-plaintext-before-release `release_time` entries.
 
-**Item 3 — Phase 6 evidence index (DOC/RG prep): OPEN.**
+**Item 3 — Phase 6 evidence index (DOC/RG prep): DONE with proof.** `docs/evidence/phase-6/EVIDENCE.md`
+(`2824944`): (a) gate table — one row per gate (H, SC, LA, PK, DOC, RG) with status, committed
+evidence paths, the one-command repro and exactly what is missing; nothing marked done without
+evidence (SC offline half READY FOR REVIEW; LA ready for its range with the post-RG pass owed;
+H/SC-live/RG OPEN on Track A; PK/DOC partial with named gaps). (b) LP-0004 table — one row per
+completed live testnet auction in the committed evidence: 8 phase-5 markets scenario runs, 3
+recoveries, the head's 7-auction live spec run (`spec-run/`, `b698770`), and scale-8 ×3 + scale-27 —
+auction id, mode, bidders, frozen root, drand round, settlement txids, `benzo verify` verdict, fees,
+every cell read from committed files ("not recorded" where absent; the drop rows read from `main`'s
+`2acbeb6` evidence, noted in-table). `lp-0004.md` now points at it (22 added cycles, same
+single-wallet caveat).
 
 ### Questions (run 31)
 
@@ -2437,12 +2449,14 @@ None open otherwise. The prior entries are closed by R21: **Q1** dropped (item 3
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
 
 ## Last session
-- **Window:** 2026-10-05T17:45Z–18:55Z (run 31, item 1).
-- **Outcome:** Item 1 done with proof: `settle/batching.ts` (`planBatches`, SQLite byte order),
-  `tools/repro/batching-equal.ts` equivalence against a real `Ledger` (PASS 77/36 batches at cap
-  13/28, `docs/evidence/phase-6/repro/batching-equal.out`), mutation B31-a red at both caps, bench
-  stage `batch-plan` at cap 28 + projection, and `npm run bench -- --bids 17000` **PASS** end to end
-  (all 7 stages incl. the shipped verifier; 608 batches, estimated_fee_zats 88040000; projection
-  24.13 h at cap 13 / 20.85 h at cap 28 — `docs/evidence/phase-6/bench.json`). Harness fix: the
-  bench's synthetic manifest now pins `envelope_keys` (`3bfde30`). Verify bundle rebuilt the standard
-  way (`973feac`, see Questions). Items 2–3 next.
+- **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
+- **Outcome:** All three offline items delivered with proof. (1) `settle/batching.ts` (`planBatches`,
+  SQLite byte order) + `tools/repro/batching-equal.ts` equivalence against a real `Ledger` (PASS
+  77/36 batches at cap 13/28), mutation B31-a red at both caps, bench stage `batch-plan` at cap 28 +
+  projection, and `npm run bench -- --bids 17000` **PASS** end to end (608 batches,
+  estimated_fee_zats 88040000; 24.13 h at cap 13 / 20.85 h at cap 28 — `bench.json`); harness fix:
+  the bench manifest pins `envelope_keys` (`3bfde30`). (2) leak-audit re-run over `7c235d6..5475c60`:
+  106 sensitive entries from own `.benzo/`, 331 final findings all classified A–G, no real finding
+  (`leak-findings-2026-10-05.json`, `leak-audit.md`). (3) `EVIDENCE.md`: gate table + LP-0004
+  per-auction rows (22 cycles), `lp-0004.md` pointing at it. R32 closed both run-31 questions and
+  accepted the rebuilt verify bundle (`973feac`).
