@@ -11,7 +11,7 @@ import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Pat
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
-import { memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
+import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
 import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
 
@@ -433,7 +433,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         // claim's SHA-256(memo_hex) must appear with the same party in a q_w-certified strays statement.
         requireThat(certified?.has(`${c.party}\u0000${hash(Buffer.from(c.memo_hex!, "hex"))}`), `claim ${i} memo not in a certified strays statement`);
         const derived = opts.claimOpenings?.get(i), pt = derived ? Buffer.from(derived, "hex") : null;
-        requireThat(pt && pt.length === 128 && pt[0] === 0 && pt.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i} memo opening`);
+        requireThat(pt && sealedBidPlaintext(pt, pub.manifestPacket), `claim ${i} memo opening`);
         owner = pt!.subarray(61, 93).toString("hex");
       }
       requireThat(owner && verifyStatement(owner!, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c.party, claim_envelope_sha256: c.claim_envelope_sha256 }, c.owner_sig), `claim ${i} owner signature`);

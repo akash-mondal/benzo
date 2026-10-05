@@ -8316,6 +8316,10 @@ function validatePhase5(m2) {
     requireThat(budget > 0n && maxPrice >= tick && maxPrice % tick === 0n, "buyback budget/max_price");
   }
 }
+function treasuryBlock(m2) {
+  const b2 = m2?.clearing?.mode === "buyback" ? m2.buyback : m2?.clearing?.mode === "rfq" && m2.rfq?.treasury_ua ? m2.rfq : null;
+  return b2 ? { budget_zats: b2.budget_zats, treasury_ua: b2.treasury_ua, funding_ua: b2.funding_ua, lots: m2.lots?.length ?? 1 } : null;
+}
 function clientBuyback(packet, trustedSigner) {
   const r2 = clientPhase5(packet, trustedSigner);
   requireThat(r2.manifest.clearing.mode === "buyback" && r2.manifest.buyback, "buyback clearing mode");
@@ -8540,7 +8544,12 @@ var RFQ_LAYOUT = { ...LAYOUT_V0, version: 2 };
 function clientRFQ(packet, signer) {
   return marketClient(packet, signer, "rfq", (m2) => {
     const r2 = m2.rfq;
-    requireThat(r2 && Object.keys(r2).sort().join(",") === "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,max_price_zats", "rfq fields");
+    const keys2 = Object.keys(r2 ?? {}).sort().join(","), base = "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,max_price_zats";
+    requireThat(r2 && (keys2 === base || keys2 === "budget_zats,dealer_keys,delivery_deadline_height,delivery_signers,funding_ua,max_price_zats,treasury_ua"), "rfq fields");
+    if (r2.treasury_ua !== void 0) {
+      const ua2 = m2.network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/, f2 = r2.funding_ua, t2 = r2.treasury_ua;
+      requireThat(ua2.test(t2) && ua2.test(f2) && t2 !== f2 && !m2.deposit_addresses.includes(f2) && !m2.deposit_addresses.includes(t2), "rfq treasury_ua/funding_ua");
+    }
     requireThat(!m2.bond && !m2.lots && !m2.serials && m2.supply === 1 && m2.q_max === 1, "rfq single quote/lot");
     requireThat(Array.isArray(r2.dealer_keys) && r2.dealer_keys.length >= 2 && r2.dealer_keys.every((k2) => /^[0-9a-f]{64}$/.test(k2)) && new Set(r2.dealer_keys).size === r2.dealer_keys.length, "rfq dealer keys");
     requireThat(Array.isArray(r2.delivery_signers) && r2.delivery_signers.length === 3 && r2.delivery_signers.every((k2) => /^[0-9a-f]{88}$/.test(k2)) && new Set(r2.delivery_signers).size === 3, "rfq delivery signers");
@@ -12139,7 +12148,7 @@ function deliveryBatch(m2, result, orders, records) {
   }
   return { version: 1, auction_id: m2.auction_id, delivery: "project_on_token_chain", rows };
 }
-function clearLaunch(input) {
+function clearLaunch(input, opts = {}) {
   const { manifest: m2 } = clientLaunch(input.manifest, input.signer), data = input.launch ?? {};
   const orders = marketOrders(input, m2, LAUNCH_LAYOUT), lot = m2.launch.standard_lot_size;
   const floor = effectiveReserve(m2, sealedReserve(m2, input.reserve_opening, zats(m2.tick_zats, "tick")));
@@ -12213,6 +12222,7 @@ function clearLaunch(input) {
     return { leaf_index: o2.leaf_index, price_zats: o2.price.toString(), quantity: o2.quantity, fill: o2.fill, payment_zats: payment.toString(), refund_zats: refundAfter(payment, fee, C2).toString(), ...m2.bond ? { balance_due_zats: balanceDue(payment, fee, C2).toString() } : {}, outcome: cancelled ? "cancelled" : o2.reason || (o2.fill ? "winner" : "unfilled"), tranche: trancheOf(o2.leaf_index) === 1 ? "holder" : "main" };
   });
   const result = { ...marketResult(input, m2, allocations, price, fee * BigInt(orders.length)), cancelled, launch_supply: m2.supply, holder_price_zats: floor.toString() };
+  if (opts.dry) return result;
   const batch = deliveryBatch(m2, result, orders, data.delivery ?? []);
   return { ...result, allocation_file_hash: hash(jsonBytes(batch)) };
 }
@@ -16095,6 +16105,10 @@ function checkStraysCerts(certs, spec) {
 }
 
 // settle/envelopes.ts
+function sealedBidPlaintext(pt2, manifestPacket) {
+  const m2 = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8")), l2 = modeEntry(manifestPacket).layout;
+  return pt2.length === l2.bytes && pt2[0] === l2.version && [m2.auction_id, ...m2.lots ?? []].includes(pt2.subarray(l2.auction_at, l2.auction_at + l2.auction_len).toString("hex"));
+}
 function memoSealedBid(memoHex) {
   try {
     if (typeof memoHex !== "string" || !/^[0-9a-f]{1024}$/.test(memoHex)) return null;
@@ -16398,7 +16412,7 @@ function checkPublicAuction(pub, opts = {}) {
         requireThat(typeof c2.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c2.memo_hex) && memoSealedBid(c2.memo_hex) !== null, `claim ${i2} memo_hex`);
         requireThat(certified?.has(`${c2.party}\0${hash(Buffer.from(c2.memo_hex, "hex"))}`), `claim ${i2} memo not in a certified strays statement`);
         const derived = opts.claimOpenings?.get(i2), pt2 = derived ? Buffer.from(derived, "hex") : null;
-        requireThat(pt2 && pt2.length === 128 && pt2[0] === 0 && pt2.subarray(1, 33).toString("hex") === pub.manifest.auction_id, `claim ${i2} memo opening`);
+        requireThat(pt2 && sealedBidPlaintext(pt2, pub.manifestPacket), `claim ${i2} memo opening`);
         owner = pt2.subarray(61, 93).toString("hex");
       }
       requireThat(owner && verifyStatement(owner, { kind: "claim-refund", auction_id: pub.manifest.auction_id, party: c2.party, claim_envelope_sha256: c2.claim_envelope_sha256 }, c2.owner_sig), `claim ${i2} owner signature`);
@@ -16467,7 +16481,7 @@ function checkPublicAuction(pub, opts = {}) {
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : /* @__PURE__ */ new Map();
     const stray = (party) => {
       if (party === "treasury") {
-        requireThat(pub.manifest.clearing?.mode === "buyback", "treasury row outside a buyback");
+        requireThat(treasuryBlock(pub.manifest) !== null, "treasury row outside a mode with a treasury block");
         return;
       }
       requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);

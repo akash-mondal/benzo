@@ -10,7 +10,7 @@ import {DatabaseSync} from "node:sqlite";
 import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
-import {validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
+import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
 import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
@@ -149,7 +149,7 @@ try {
     if(memoOpened===null)return null;
     writeFileSync(memoPt,memoOpened,{mode:0o600});
     const pt=memoOpened;
-    return pt.length===128&&pt[0]===0&&pt.subarray(1,33).toString("hex")===id?pt:null;
+    return sealedBidPlaintext(pt,src.manifest)?pt:null;
   };
   const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
   // R7 item 6 + R20: a stray/cancelled deposit with a valid sealed-bid memo resolves through its own
