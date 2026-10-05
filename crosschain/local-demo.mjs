@@ -7,7 +7,7 @@
 // drand quicknet round whose beacon the run waits for and publishes (BLS-verified at every use),
 // with a REAL product result (the shipped clearing recomputed over the openings — allocations[].fill
 // is the only source of the attested leaves, R24 item 2) and a gate-X witness set whose q_w=2 of 3
-// certificates cover the frozen root (`benzo witness sign`). The four honest winners are sealed
+// certificates cover the frozen root (the fixture's gate-X certificates). The four honest winners are sealed
 // through the shipped `benzo bid seal` (real owner keys, real
 // browser tlock, deliver payload v2 in the envelope); the two hostile-sealer winners wrap a
 // tampered envelope around a real tlock. R19/R21: `benzo xchain attest` derives every winner's
@@ -192,7 +192,7 @@ async function main() {
   const signerPem = signerKey.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
   const signerHex = signerKey.publicKey.export({ type: "spki", format: "der" }).toString("hex");
   // gate X (R22 repro needs it): a real witness set, its hash pinned by the signed manifest (R4 item 2),
-  // certified q_w=2 of n_w=3 over the frozen root below through the shipped `benzo witness sign`
+  // certified q_w=2 of n_w=3 over the frozen root below
   const witnessKeys = [wit.generateWitnessKey(), wit.generateWitnessKey(), wit.generateWitnessKey()];
   const witnessSet = { version: 1, auction_id: auction1, q_w: 2, keys: witnessKeys.map((k) => k.public_hex) };
   const witnessPacket = schema.signRecord(witnessSet, signerPem);
@@ -331,12 +331,23 @@ async function main() {
       clearResult.allocations.every((x) => x.fill === 1) && clearResult.freeze_root === frozen.root &&
       BigInt(clearResult.conservation.input_zats) === BigInt(clearResult.conservation.payout_zats) + BigInt(clearResult.conservation.refund_zats) + BigInt(clearResult.conservation.fees_zats),
     JSON.stringify(clearResult.allocations?.map((x) => x.fill)));
+  // gate X: the witness quorum's certificates over the frozen root. `benzo witness sign` recomputes the
+  // root from the witness's OWN vault scan (91d9182, design §5) — a real chain check no synthetic fixture
+  // can satisfy, and faking that scan would mock a pinned tool. The fixture therefore signs the exact
+  // statement with the shipped witness primitive the command itself signs with (`witness/index.ts`);
+  // every signature is still verified by the code under test (checkPublicAuction/attest). The shipped
+  // command runs on the signer hosts over their own vault scans in live runs (e2e/lib/hosts.ts
+  // hostWitnessCerts).
+  const fixtureCert = (() => {
+    const statement = wit.freezeStatement(checked.manifest, frozen);
+    return { statement, signatures: witnessKeys.slice(0, 2).map((k) => wit.signStatement(statement, k.private_hex)) };
+  })();
   const doc = {
     version: 1, auction_id: auction1, signer: signerHex, manifest: packet, state: "OPENED", receipts: [],
     frozen, opened: openedInput,
     beacon: { round: R, signature: beacon.signature, chain_hash: chainHash },
     envelopes: publishedRecords,
-    witness_set: witnessPacket,
+    witness_set: witnessPacket, witness_cert: [fixtureCert],
     result: clearResult,
   };
   mkdirSync(PUBDIR, { recursive: true });
@@ -345,16 +356,8 @@ async function main() {
   const resultBytes = schema.jsonBytes(clearResult);
   const resultFile = path.join(PUBDIR, "result.json");
   writeFileSync(resultFile, resultBytes);
-  // gate X: the witness quorum certifies the frozen root with the shipped `benzo witness sign`
-  const witnessKeyFiles = witnessKeys.map((k, i) => {
-    const p = path.join(KEYDIR, `witness-key-${i}.key`);
-    writeFileSync(p, k.private_hex, { mode: 0o600 });
-    return p;
-  });
-  for (const f of witnessKeyFiles.slice(0, 2)) {
-    execFileSync("node", [path.join(REPO, "cli/dist/benzo.mjs"), "witness", "sign", "--dir", PUBDIR, "--signer", signerHex, "--key", f],
-      { cwd: REPO, encoding: "utf8" });
-  }
+  // the fixture's witness key files stay in the state dir like a host's (`witness keygen` layout)
+  witnessKeys.map((k, i) => writeFileSync(path.join(KEYDIR, `witness-key-${i}.key`), k.private_hex, { mode: 0o600 }));
   // R14 item 4: the attested result_hash is the product's published result hash (manifest/schema
   // `hash`: sha256 over the raw result.json bytes), so `xchain status --result` ties the escrow's
   // approval to the published file
