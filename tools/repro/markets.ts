@@ -5,7 +5,7 @@
 // Build+run: npx esbuild tools/repro/markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/markets.mjs && BNZ_LWD_SINGLE=1 node tmp/markets.mjs <scenario>...
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT, STATE, env, DRAND } from "../../e2e/lib/env";
 import { jsonBytes, signRecord } from "../../manifest/schema";
@@ -89,8 +89,12 @@ async function run(name: string) {
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
-  const paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
-  say(`funding ${paid.txid}`);
+  // One bidder wallet funds every scenario: parallel harness processes take turns (a lock dir, stale after 40 min),
+  // holding it until the funding matured.
+  const lock = path.join(STATE, "run", "markets-fund.lock");
+  for (;;) { try { mkdirSync(lock); break; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > 2_400_000) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
+  let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
+    say(`funding ${paid.txid}`);
   for (let h = 0; ; await sleep(30_000)) {
     for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]);
     const t = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "list-tx", "--json"])).find((t: any) => t.txid === paid.txid);
@@ -98,6 +102,7 @@ async function run(name: string) {
     if (t?.mined_height && tip >= t.mined_height + 9) break;
     if (++h > 80) throw new Error("funding did not mature");
   }
+  } finally { rmSync(lock, { recursive: true, force: true }); } // held until the funding matured, so the wallet's change is spendable
   for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
   while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000);
   if (Date.now() / 1000 >= manifest.T_freeze) throw new Error("deposits matured after T_freeze");
