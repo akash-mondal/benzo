@@ -1,3 +1,7 @@
+# Re-pointed (R35.3a, run 33): the r23-2-* assertions now live in e2e/cli-auction.spec.ts via
+# e2e/lib/readpath-r232.ts (tools/repro/r23-2-signed-opens-repro.mjs stays until gate RG deletes it).
+# Red run: git apply this patch, then BNZ_LIVE=1 npx playwright test --project=cli-auction (the fold
+# block); expect ERROR r23-2-report-signed (and r23-2-forged-report-ignored). Original: mutations/R23-2.out.
 diff --git a/cli/product.ts b/cli/product.ts
 index d2b0077..3be3b34 100644
 --- a/cli/product.ts

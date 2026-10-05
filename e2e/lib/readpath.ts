@@ -480,3 +480,157 @@ export async function foldKC(run: Run): Promise<void> {
     need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[0], recipients[1], env.generateEnvelopeKey().public_hex])), 0) === null, "accepted an unpinned third key");
   });
 }
+
+// ---------------------------------------------------------------------------
+// foldMR — tools/repro/mr-envelope-repro.mjs (R12 item 1 / R10 item 1; the mr-* IDs).
+// ---------------------------------------------------------------------------
+export async function foldMR(run: Run): Promise<void> {
+  const refused = (fn: () => unknown, want: string) => {
+    try { fn(); } catch (e) {
+      const m = e instanceof Error ? e.message : String(e);
+      if (m.includes(want)) return;
+      throw Error(`got "${m}", want "${want}"`);
+    }
+    throw Error(`accepted, want refusal "${want}"`);
+  };
+  const SAPLING = "ztestsapling1redacted";
+  const UA_SHIELDED = "utest1redacted";
+  const flip = (h: string, i = 3) => h.slice(0, i * 2) + (h[i * 2] === "0" ? "1" : "0") + h.slice(i * 2 + 1);
+  const keys = [env.generateEnvelopeKey(), env.generateEnvelopeKey(), env.generateEnvelopeKey()];
+  const recipients = keys.map((k) => k.public_hex);
+  const attacker = env.generateEnvelopeKey();
+  await run.check("mr-manifest-envelope-keys", "the signed manifest pins exactly 3 distinct envelope keys", () => {
+    const base: any = {
+      version: 1, network: "test", auction_id: rndHex(32), escrow_ua: "utest1" + rndHex(35),
+      frost_group_key: rndHex(32), lot: "envelope fold lot", supply: 5,
+      reserve_zats: "0", tick_zats: "1000", B_max_zats: "50000", q_max: 10,
+      C_zats: "500000", fee_zats: "0", deposit_addresses: ["utest1" + rndHex(35), "utest1" + rndHex(35), "utest1" + rndHex(35)],
+      drand: { ...schema.QUICKNET, R: 32760000 }, T_submit: 1790000000, T_freeze: 1790000800, confirmations: 10,
+      clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
+      refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
+      envelope_keys: recipients,
+    };
+    schema.validateManifest(base);
+    refused(() => schema.validateManifest({ ...base, envelope_keys: [...recipients, rndHex(32)] }), "envelope_keys");
+    refused(() => schema.validateManifest({ ...base, envelope_keys: [recipients[0], recipients[0], recipients[1]] }), "envelope_keys");
+  });
+  let envA = "", envB = "";
+  await run.check("mr-3keys-open", "one envelope opens to the same destination with each of the 3 recipient keys", () => {
+    envA = env.sealEnvelope(UA_SHIELDED, recipients);
+    const got = keys.map((k) => env.openEnvelope(envA, k.private_hex));
+    need(got.every((g) => g === UA_SHIELDED), `opens ${JSON.stringify(got)} != destination`);
+  });
+  await run.check("mr-4th-key-refused", "a 4th key is refused (no stanza for it)", () => {
+    refused(() => env.openEnvelope(envA, env.generateEnvelopeKey().private_hex), "refused: envelope recipient");
+  });
+  await run.check("mr-equal-lengths", "every n = 3 envelope ciphertext is 1852 hex (926 bytes)", () => {
+    envB = env.sealEnvelope(SAPLING, recipients);
+    const lengths = [env.sealEnvelope(SAPLING, recipients), env.sealEnvelope(UA_SHIELDED, recipients), envA, envB].map((ct) => ct.length);
+    need(lengths.every((l) => l === 1852), `lengths ${lengths.join(",")} (want all 1852 = 926 bytes)`);
+  });
+  await run.check("mr-stanza-swap-refused", "a whole stanza swapped between envelopes is refused for every recipient", () => {
+    const a = Buffer.from(envA, "hex"), b = Buffer.from(envB, "hex"), off = 18, stanza = 32 + 80;
+    const swapped = Buffer.concat([a.subarray(0, off), b.subarray(off, off + stanza), a.subarray(off + stanza)]).toString("hex");
+    refused(() => env.openEnvelope(swapped, keys[0].private_hex), "refused: envelope key commitment");
+    for (const k of keys.slice(1)) refused(() => env.openEnvelope(swapped, k.private_hex), "refused: envelope body");
+  });
+  await run.check("mr-shared-rule-export", "envelope/ exports envelopeRecordValid(record, envelope_keys)", () => {
+    need(typeof (env as any).envelopeRecordValid === "function", "envelopeRecordValid not exported from envelope/");
+  });
+
+  const ctx = await drandRound();
+  const { R, release, chain } = ctx;
+  const T_freeze = release - 100, T_submit = T_freeze - 800, published_at = T_freeze - 200;
+  const recordCt: Record<string, (d: string) => string> = {
+    good: (d) => env.sealEnvelope(d, recipients),
+    "foreign-key": (d) => env.sealEnvelope(d, [attacker.public_hex]),
+    "foreign-set": (d) => env.sealEnvelope(d, [attacker.public_hex, recipients[1], recipients[2]]),
+    "pre-v2": () => randomBytes(572).toString("hex"),
+    "2of3": (d) => env.sealEnvelope(d, recipients.slice(0, 2)),
+  };
+  type Bid = { kind: string; destination?: string };
+  const buildMrCorpus = (name: string, { pinned, bids }: { pinned: boolean; bids: Bid[] }) => {
+    const signerKey = generateKeyPairSync("ed25519");
+    const signerPem = signerKey.privateKey.export({ type: "pkcs8", format: "pem" }) as string;
+    const signer = signerKey.publicKey.export({ type: "spki", format: "der" }).toString("hex");
+    const auction_id = rndHex(32);
+    const manifest: any = {
+      version: 1, network: "test", auction_id,
+      escrow_ua: "utest1" + rndHex(35), frost_group_key: rndHex(32), lot: "envelope fold lot", supply: 5,
+      reserve_zats: "0", tick_zats: "1000", B_max_zats: "50000", q_max: 10,
+      C_zats: "500000", fee_zats: "0", deposit_addresses: bids.map(() => "utest1" + rndHex(35)),
+      drand: { ...schema.QUICKNET, R }, T_submit, T_freeze, confirmations: 10,
+      clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
+      refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
+    };
+    if (pinned) manifest.envelope_keys = recipients;
+    const packet = schema.signRecord(manifest, signerPem);
+    const leaves: any[] = [], envelopes: any[] = [], owners: any[] = [];
+    for (const [i, b] of bids.entries()) {
+      const ct = recordCt[b.kind](b.destination ?? UA_SHIELDED);
+      const owner = env.generateOwnerKey(), nonce_hex = randomBytes(16).toString("hex");
+      const commitment = env.settlementCommitment(nonce_hex, ct);
+      const plaintext = bid.buildBidPlaintext({ auction_id, price_zats: 10000n + BigInt(i) * 5000n, quantity: 1, nonce_hex, owner_public_hex: owner.public_hex, settlement_commitment_hex: commitment }).toString("hex");
+      const sealed = tleSeal(plaintext, R, chain);
+      const ciphertext_hash = sha256(sealed);
+      owners.push(owner);
+      envelopes.push({ ciphertext_hash, envelope_ct: ct, owner_sig: env.signEnvelope(owner as any, auction_id, ciphertext_hash, ct) });
+      leaves.push({ auction_id, manifest_hash: packet.sha256, ciphertext_hash, deposit: { txid: rndHex(32), pool: "ironwood", address: manifest.deposit_addresses[i], diversifier_index: String(i) }, leaf_index: i, ciphertext_hex: sealed.toString("hex") });
+    }
+    const { root, paths } = merkle.tree(leaves);
+    const frozen = { auction_id, manifest_hash: packet.sha256, root, leaf_count: leaves.length, cutoff: T_freeze, published_at, leaves, paths };
+    const opened = leaves.map((l) => ({ leaf_index: l.leaf_index, plaintext_hex: tleOpen(l.ciphertext_hex, chain) }));
+    const result = core.clear({ manifest: packet, signer, frozen, opened });
+    const dir = path.join(ROOT, "tmp/r35-folds/mr", name);
+    const write = (envelopeList: any[]) => {
+      rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
+      const doc = { version: 1, auction_id, signer, manifest: packet, state: "CLEARED", receipts: [], frozen, result, opened, envelopes: envelopeList, beacon: { round: ctx.beacon.round, signature: ctx.beacon.signature, chain_hash: chain } };
+      for (const [file, value] of [["auction.json", doc], ["manifest.json", packet], ["frozen.json", frozen], ["result.json", result], ["envelope.json", envelopeList]] as [string, unknown][])
+        writeFileSync(path.join(dir, file), schema.jsonBytes(value));
+      return doc;
+    };
+    return { dir, signer, packet, envelopes, owners, write };
+  };
+  await run.check("mr-verify", "the shipped verifier accepts a fresh pinned corpus and routes owner-binding breaks to the exception queue", () => {
+    const c = buildMrCorpus("good", { pinned: true, bids: [{ kind: "good", destination: SAPLING }, { kind: "good", destination: UA_SHIELDED }, { kind: "good", destination: SAPLING }] });
+    c.write(c.envelopes);
+    const ok = verifyRun(c.dir, c.signer);
+    need(ok.code === 0 && ok.out.includes("OK envelope"), `verify exit ${ok.code}: ${ok.out.slice(0, 300)}`);
+    c.write(c.envelopes.map((e, i) => (i === 0 ? { ...e, owner_sig: flip(e.owner_sig) } : e)));
+    const sig = verifyRun(c.dir, c.signer);
+    need(sig.code === 0 && sig.out.includes("WARN invalid envelope 0; refund goes to the exception queue"), `owner_sig flip: exit ${sig.code}: ${sig.out.slice(0, 300)}`);
+    const swapped = c.envelopes.map((e) => ({ ...e }));
+    const t = swapped[0].envelope_ct; swapped[0].envelope_ct = swapped[1].envelope_ct; swapped[1].envelope_ct = t;
+    c.write(swapped);
+    const sw = verifyRun(c.dir, c.signer);
+    need(sw.code === 0 && sw.out.includes("WARN invalid envelope 0; refund goes to the exception queue; invalid envelope 1; refund goes to the exception queue"), `ct swap: exit ${sw.code}: ${sw.out.slice(0, 300)}`);
+    c.write(c.envelopes);
+  });
+  const ruleProbe = (id: string, corpus: { name: string; pinned: boolean; kind: string; destination?: string }, want: "ERROR" | "OK") =>
+    run.check(id, `a ${corpus.kind} record under ${corpus.pinned ? "pinned" : "unpinned"} keys gives ${want} envelope`, () => {
+      const c = buildMrCorpus(corpus.name, { pinned: corpus.pinned, bids: [{ kind: corpus.kind, destination: corpus.destination }] });
+      c.write(c.envelopes);
+      const r = verifyRun(c.dir, c.signer);
+      const line = (r.out.match(/OK envelope|ERROR envelope [^\n]*/) ?? ["no envelope line"])[0];
+      if (want === "ERROR") need(r.code === 1 && r.out.includes("ERROR envelope"), `got exit ${r.code} ${line}`);
+      else need(r.code === 0 && r.out.includes("OK envelope"), `got exit ${r.code} ${line}`);
+    });
+  await ruleProbe("mr-verify-foreign-key", { name: "foreign-key", pinned: true, kind: "foreign-key" }, "ERROR");
+  await ruleProbe("mr-verify-foreign-set", { name: "foreign-set", pinned: true, kind: "foreign-set" }, "ERROR");
+  await ruleProbe("mr-verify-pre-v2-pinned", { name: "pre-v2-pinned", pinned: true, kind: "pre-v2" }, "ERROR");
+  await ruleProbe("mr-verify-2of3-pinned", { name: "2of3-pinned", pinned: true, kind: "2of3" }, "ERROR");
+  await ruleProbe("mr-verify-pre-v2-unpinned", { name: "pre-v2-unpinned", pinned: false, kind: "pre-v2" }, "OK");
+  await run.check("mr-verify-phase2-4", "the Phase 2, 3 and 4 evidence dirs (pre-v2 records / no envelope_keys) still verify OK", () => {
+    const signerOf = (file: string, field?: string) => { const j = JSON.parse(readFileSync(path.join(ROOT, file), "utf8")); return field ? j[field] : j.signer; };
+    const phase2 = verifyRun(path.join(ROOT, "docs/evidence/phase-2/auction"), signerOf("docs/evidence/phase-2/auction/signer.json"), ["--fetch-beacon"]);
+    need(phase2.code === 0 && phase2.out.includes("OK envelope"), `phase-2 exit ${phase2.code}: ${phase2.out.slice(0, 300)}`);
+    const p3 = path.join(ROOT, "tmp/r35-folds/mr/phase3-public");
+    rmSync(p3, { recursive: true, force: true }); mkdirSync(p3, { recursive: true });
+    for (const f of ["manifest.json", "frozen.json", "result.json", "summary.json"]) copyFileSync(path.join(ROOT, "docs/evidence/phase-3/settle/main", f), path.join(p3, f));
+    copyFileSync(path.join(ROOT, "docs/evidence/phase-3/settle/signer.json"), path.join(p3, "signer.json"));
+    const phase3 = verifyRun(p3, signerOf("docs/evidence/phase-3/settle/signer.json"), ["--fetch-beacon"]);
+    need(phase3.code === 0 && phase3.out.includes("OK envelope"), `phase-3 exit ${phase3.code}: ${phase3.out.slice(0, 300)}`);
+    const phase4 = verifyRun(path.join(ROOT, "docs/evidence/phase-4/cli"), signerOf("docs/evidence/phase-4/cli/auction.json", "signer"));
+    need(phase4.code === 0 && phase4.out.includes("OK envelope"), `phase-4 exit ${phase4.code}: ${phase4.out.slice(0, 300)}`);
+  });
+}

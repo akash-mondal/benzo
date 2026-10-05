@@ -26,6 +26,26 @@
 // r23-1-witness-strays-sign, kc-api-exports, kc-key-32-interop, kc-recipients-order,
 // kc-split-key-recipient1-opens, kc-split-key-recipient2-commitment, kc-3of3-accepted, kc-1of3-refused,
 // kc-2of3-refused, kc-reorder-refused, kc-wrongset-refused.
+//
+// R35 folds (run 33), tranche 2 — same four answers as above apply:
+// 1. Behaviour: the multi-recipient envelope rule set (R12 item 1 / R10 item 1: manifest-pinned recipient
+//    set, key commitment, equal lengths, stanza-swap refusal, pre-v2 compatibility) — DESIGN §6 envelopes;
+//    deposit parties by output position (R26 item 1: two notes to one address stay distinct rows and
+//    zero-value notes are never obligations) — DESIGN §5 deposits; signed envelope-opens reports
+//    (R23 item 2: the plan counts only signer-signed, agreeing reports) — DESIGN §6.
+// 2. Regression: the shared record rule accepting a foreign/reordered/2-of-3/pre-v2-pinned record, the
+//    scanner collapsing same-address outputs onto one party, or the plan counting an unsigned opens report.
+// 3. No earlier spec drives benzo-scan over a same-address fixture wallet, the shared envelopeRecordValid
+//    rule against the official vectors, or the signed opens-report gate.
+// 4. Seam: r26-1/r23-2 drive the shipped benzo-scan, `benzo sign envelope-opens` and the settlement
+//    Ledger/plan over fixture wallets the checks build (the scripts' own verbatim bodies, ported with
+//    their assertion IDs); expected values are the fixtures the checks chose.
+// IDs (tranche 2): mr-manifest-envelope-keys, mr-3keys-open, mr-4th-key-refused, mr-equal-lengths,
+// mr-stanza-swap-refused, mr-shared-rule-export, mr-verify, mr-verify-foreign-key, mr-verify-foreign-set,
+// mr-verify-pre-v2-pinned, mr-verify-2of3-pinned, mr-verify-pre-v2-unpinned, mr-verify-phase2-4,
+// r26-1-scanner-action-index, r26-1-report-parties, r26-1-two-refund-rows, r26-1-zero-paid-refused,
+// r26-1-zero-counted, r23-2-report-signed, r23-2-two-signed-agree, r23-2-one-key-twice, r23-2-foreign-key,
+// r23-2-forged-report-ignored.
 import {expect,test} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
@@ -40,7 +60,9 @@ import {depositParty} from '../settle/deposits';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
-import {foldR15,foldR263,foldR233,foldGForged,foldKC} from './lib/readpath';
+import {foldR15,foldR263,foldR233,foldGForged,foldKC,foldMR} from './lib/readpath';
+import {foldR261} from './lib/readpath-r261';
+import {foldR232} from './lib/readpath-r232';
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 // BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
@@ -97,6 +119,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
   // ---- R35 folds (tranche 1): read-path corpora and verifier rules (see the header) ----
   const FOLD1=['r15-machine-runs-without-records','r15-zero-refund-needs-no-row','r15-strangers-refused','r15-phase2-4','r26-3-projections-match','r26-3-opened-diverges','r26-3-beacon-diverges','r26-3-receipts-diverges','r26-3-summary-diverges','r26-3-projection-without-field','r23-3-api-claims-no-beacon','r23-3-api-claims-with-beacon','r23-3-api-never-500','g-forged-claim-accepted','g-forged-claim-control','r23-1-certified-claim-accepted','r23-1-wrong-party-refused','r23-1-quorum-refused','r23-1-tampered-sig-certified','r23-1-witness-strays-sign','kc-api-exports','kc-key-32-interop','kc-recipients-order','kc-split-key-recipient1-opens','kc-split-key-recipient2-commitment','kc-3of3-accepted','kc-1of3-refused','kc-2of3-refused','kc-reorder-refused','kc-wrongset-refused'];
   for(const fold of [foldR15,foldR263,foldR233,foldGForged,foldKC])try{await fold(run)}catch(e){run.notRun(FOLD1,`fold setup: ${(e as Error).message}`)}
+  // ---- R35 folds (tranche 2): envelope rules, deposit parties, signed opens reports (see the header) ----
+  const FOLD2=['mr-manifest-envelope-keys','mr-3keys-open','mr-4th-key-refused','mr-equal-lengths','mr-stanza-swap-refused','mr-shared-rule-export','mr-verify','mr-verify-foreign-key','mr-verify-foreign-set','mr-verify-pre-v2-pinned','mr-verify-2of3-pinned','mr-verify-pre-v2-unpinned','mr-verify-phase2-4','r26-1-scanner-action-index','r26-1-report-parties','r26-1-two-refund-rows','r26-1-zero-paid-refused','r26-1-zero-counted','r23-2-report-signed','r23-2-two-signed-agree','r23-2-one-key-twice','r23-2-foreign-key','r23-2-forged-report-ignored'];
+  for(const fold of [foldMR,foldR261,foldR232])try{await fold(run)}catch(e){run.notRun(FOLD2,`fold setup: ${(e as Error).message}`)}
   const stop=await startFrostd();let active:ReturnType<typeof worker>|undefined,paused:number|undefined,api:any,apiData:any;
   try {
     const id=randomBytes(32).toString('hex'),now=Math.ceil(Date.now()/1000),release=now+24*60,R=1+Math.ceil((release-Number(env('BNZ_DRAND_GENESIS')))/3);
