@@ -284,3 +284,7 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
   10. **F7/G-7:** `BNZ_LWD_SINGLE` is keyed on the signed manifest's network, not an env default.
   11. **F8:** `tools/nu7/build.sh` requires every unpatched package's lock entry to be unchanged (`lockdiff.py`) and always re-applies patches to freshly verified crates.
   **Open (P2):** G-4 (receipt attribution via the coordinator-relayed `build.json` index map; amounts and destinations stay host-approved) and G-5 (a row no host can derive deadlocks its batch; liveness). These go to builders after the live re-proof. Mainnet still needs the testnet literals removed (G-7).
+- R31 2026-10-05 (head, answers STATUS-B run 30 Questions 1–2): **Cross-chain host attestations.**
+  1. `--host-record` is accepted as designed. Each host attests with its own envelope key and xchain key over its own derivation. The ≥ 2 agreement moves to `benzo xchain release`, which requires records from **two distinct signers in the lock's signer set** over **byte-identical** attestation bytes. It refuses any record from a key outside that set (B's third-party refusal is the proof). This is the same 2-of-3 trust as FROST settlement. Without the flag, the old rule is unchanged.
+  2. The local-demo fixture certificates signed in-process with the shipped witness primitive are accepted for the offline lane: `witness sign` needs a real vault scan since 91d9182, and a fixture cannot provide one honestly. The live demos the head runs after the merge use the real `benzo witness sign` on the signer hosts.
+
