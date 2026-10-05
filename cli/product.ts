@@ -14,6 +14,7 @@ import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} fr
 // deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
 import {treasuryBlock,treasuryFunded,treasuryRequired} from '../clear/mode-b';
 import {clientCommon as client,modeEntry} from '../clear/registry';
+import {launchAllocationFile} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
@@ -62,6 +63,8 @@ export function publish(id:string) {
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');
   save(path.join(dir,'manifest.json'),doc.manifest);if(doc.frozen)save(path.join(dir,'frozen.json'),doc.frozen);if(doc.result)save(path.join(dir,'result.json'),doc.result);
+  // A launch result commits to its allocation file; publish it (same clear inputs, hash re-checked).
+  if(doc.result?.allocation_file_hash){const f=launchAllocationFile({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input});requireThat(hash(f)===doc.result.allocation_file_hash,'launch allocation file differs from the result');writeFileSync(path.join(dir,'allocation.json'),f)}
   save(path.join(dir,'signer.json'),{signer:doc.signer});save(path.join(dir,'receipts.json'),doc.receipts);if(doc.opened)save(path.join(dir,'opened.json'),doc.opened);if(doc.beacon)save(path.join(dir,'beacon.json'),doc.beacon);if(doc.settlement)save(path.join(dir,'summary.json'),doc.settlement);
   if(a.envelopes){doc.envelopes=a.envelopes;save(path.join(dir,'envelope.json'),a.envelopes)}
   save(path.join(dir,'auction.json'),doc);return doc;

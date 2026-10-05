@@ -104,6 +104,12 @@ export function clearLaunch(input: ClearInput): ClearResult {
   const batch = deliveryBatch(m,result,orders,data.delivery ?? []);
   return { ...result, allocation_file_hash: hash(jsonBytes(batch)) };
 }
+// The launch allocation file a result's allocation_file_hash commits to, rebuilt from the same clear inputs, so the
+// publisher can write the allocation.json that verify checks (part 2 live: publish never wrote it).
+export function launchAllocationFile(input: ClearInput): Buffer {
+  const { manifest: m } = clientLaunch(input.manifest, input.signer);
+  return jsonBytes(deliveryBatch(m, clearLaunch(input), marketOrders(input, m, LAUNCH_LAYOUT), input.launch?.delivery ?? []));
+}
 export function checkResultLaunch(m: LaunchManifest, r: ClearBody) {
   // Holder payments use their floor, so enforce per-leaf C and actual tranche prices directly.
   const C=zats(m.C_zats,"C"),fee=r.cancelled?0n:zats(m.fee_zats,"fee");
