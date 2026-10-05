@@ -18,7 +18,9 @@ every loser is refunded automatically in shielded ZEC (the claim, `docs/research
 4. **Clear.** A public, deterministic clearing through the mode registry computes fills, prices and refunds from the
    opened orders.
 5. **Settle.** A 2-of-3 FROST vault pays out and refunds (`docs/research/DESIGN.md` §6), and every signer recomputes the
-   result and checks every output before signing.
+   result and checks every output before signing. The testnet deployment settles under **host custody** (R28): each
+   signer host pins the operator's manifest-signing key and the frozen root, re-derives every output from its own chain
+   scan, and keeps a txid approval ledger so no source is paid twice (`docs/evidence/phase-5/y2-r28/`).
 6. **Prove.** Bidders get private settlement receipts, and `benzo verify` recomputes the whole auction from the public
    directory.
 
@@ -31,17 +33,18 @@ All modes run on the same engine: the same deposit C, the same freeze, the same 
 |---|---|---|
 | Uniform auction (Mode A) | Multi-unit; everyone pays the lowest winning price; the last band fills pro-rata | **testnet-proven live** |
 | Vickrey | Single lot; the winner pays the second price | offline-proven |
-| Collection drop | Multi-lot uniform auction; serials assigned by a drand-driven shuffle | offline-proven |
-| Launch | Holder and public tranches with a minimum raise; allocations in standard lots | offline-proven |
-| Buyback | A treasury buys the lowest sealed asks; recurring windows with a public report | offline-proven |
-| RFQ | Reverse auction: lowest ask wins, second-lowest sets the price; two quotes minimum | offline-proven |
-| Blind OTC | One buyer and one seller post sealed limits; they trade at the midpoint if the limits cross | offline-proven |
+| Collection drop | Multi-lot uniform auction; serials assigned by a drand-driven shuffle | **testnet-proven live** |
+| Launch | Holder and public tranches with a minimum raise; allocations in standard lots | **testnet-proven live** |
+| Buyback | A treasury buys the lowest sealed asks; recurring windows with a public report | **testnet-proven live** |
+| RFQ | Reverse auction: lowest ask wins, second-lowest sets the price; two quotes minimum | **testnet-proven live** |
+| Blind OTC | One buyer and one seller post sealed limits; they trade at the midpoint if the limits cross | **testnet-proven live** |
 
 **testnet-proven live** means the full path ran on Zcash testnet: real payments with memos, mining, scanning, clearing
-and 2-of-3 FROST settlement (`docs/evidence/phase-1/EVIDENCE.md` … `docs/evidence/phase-4/EVIDENCE.md`).
-**offline-proven** means the mode was sealed and opened with real tlock against the drand mainnet quicknet beacon and
-cleared and checked by the shipped code, but has not run on the testnet yet (the runs are recorded in
-`docs/STATUS-B.md`). One caveat: the Phase 2 live run computed a Vickrey comparison on live inputs, but the sample
+and 2-of-3 FROST settlement (`docs/evidence/phase-1/EVIDENCE.md` … `docs/evidence/phase-4/EVIDENCE.md`, and — one row
+per live auction — the LP-0004 table in [`docs/evidence/phase-6/EVIDENCE.md`](docs/evidence/phase-6/EVIDENCE.md), with
+the run artifacts under `docs/evidence/phase-5/markets/`). **offline-proven** means the mode was sealed and opened with
+real tlock against the drand mainnet quicknet beacon and cleared and checked by the shipped code, but has not run on
+the testnet yet (the runs are recorded in `docs/STATUS-B.md`). One caveat: the Phase 2 live run computed a Vickrey comparison on live inputs, but the sample
 prices tied, so the distinct first/second-price path is offline-proven only (`docs/evidence/phase-2/EVIDENCE.md`).
 
 ## What's private, what's public
@@ -59,7 +62,10 @@ prices tied, so the distinct first/second-price path is offline-proven only (`do
 A winner's cross-chain payout destination travels in the same sealed settlement envelope as its Zcash
 refund — signers attest only what they open themselves, never an operator file
 (`docs/evidence/phase-5/repro/r19-attest-deliver.out`), and each chain's escrow pays only the kinds it
-can (`docs/evidence/phase-5/repro/r25-3-kinds-after.out`). Where each private-delivery path stands:
+can (`docs/evidence/phase-5/repro/r25-3-kinds-after.out`). Under host custody each host attests with its own envelope
+and cross-chain keys, and `benzo xchain release` pays only when **two distinct signers in the lock's signer set** attest
+byte-identical derivations — the same 2-of-3 trust as FROST settlement (R31;
+`docs/evidence/phase-5/mutations/X1-a.out`, `X1-b.out`). Where each private-delivery path stands:
 
 | Path | Status | Evidence |
 |---|---|---|
@@ -103,8 +109,8 @@ memo commits to it (memo framing v2) — so cancellation never needs a decryptio
 
 ## Quick start
 
-Node 24 and a checkout are enough. These are the exact commands and output of one run
-(log `tmp/proof-logs/run13-*.out`, `docs/STATUS-B.md`):
+Node 24 and a checkout are enough. These are the exact commands and output of one run (2026-10-06; the runs are recorded in `docs/STATUS-B.md`,
+and [`docs/reproducible-build.md`](docs/reproducible-build.md) has the byte-for-byte rebuild recipe):
 
 ```sh
 npm ci                 # install the locked dependencies
@@ -117,9 +123,9 @@ Each exited 0. The verification bundle rebuilds byte-for-byte:
 
 ```text
 $ shasum -a 256 dist/benzo-verify.mjs
-89d90c5370b9c42fb5e29f8d99f9672303d8c0546b1d4970aaaac175690355c4  dist/benzo-verify.mjs
+effd985395dd976b0f737df16f27eb81d2bd195d1db07c0e5671228ad21b3b1d  dist/benzo-verify.mjs
 $ cat docs/verify-bundle.sha256
-89d90c5370b9c42fb5e29f8d99f9672303d8c0546b1d4970aaaac175690355c4  dist/benzo-verify.mjs
+effd985395dd976b0f737df16f27eb81d2bd195d1db07c0e5671228ad21b3b1d  dist/benzo-verify.mjs
 ```
 
 Then verify the shipped public auction directory (the expected signer key is published in the directory's own
@@ -127,23 +133,29 @@ Then verify the shipped public auction directory (the expected signer key is pub
 
 ```text
 $ bin/benzo verify --dir docs/evidence/phase-4/cli --signer 302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891
+OK projection
 OK missing-deposits
 OK delivery
 OK report
 OK manifest
 OK freeze
-WARN no witness set (pre-Phase-5 manifest)
 OK witness
 OK receipts
 OK clear
 OK envelope
+OK claims
 OK accounting
+OK balances
+WARN no witness set (pre-Phase-5 manifest)
 OK accounting-strays
 ```
 
 Exit code 0. The same checks run from the standalone bundle outside any checkout; see
 [`docs/verify-it-yourself.md`](docs/verify-it-yourself.md) for a full walkthrough, what each check means, and a
 tampering demo. Why the release time is exact and the beacon is trustworthy: [`docs/why-timelock.md`](docs/why-timelock.md).
+Building a UI? Every route of the JSON API is documented in [`docs/api-reference.md`](docs/api-reference.md). The three
+shipped artifacts — the verify bundle, the npm package and the bidder bundle — rebuild byte-for-byte from a fresh
+clone: [`docs/reproducible-build.md`](docs/reproducible-build.md).
 
 ## Evidence
 
@@ -158,10 +170,15 @@ Testnet runs (each `EVIDENCE.md` links the artifacts and the recorded command):
 - [`docs/evidence/phase-4/EVIDENCE.md`](docs/evidence/phase-4/EVIDENCE.md) — the CLI auction on testnet: operator
   commands, public API, multi-batch FROST settlement.
 
-Offline scale ([`docs/evidence/phase-6/bench.json`](docs/evidence/phase-6/bench.json)): 17,000 synthetic sealed bids
-(the organizer's 48-hour volume, `docs/PHASE-6.md`), sealed with real tlock to a past quicknet round, then admitted,
-frozen, opened, cleared and verified: **open 431.6 s, clear 0.9 s, verify 443.1 s**. Settlement batching is not
-measured in that file yet.
+Offline scale ([`docs/evidence/phase-6/bench.json`](docs/evidence/phase-6/bench.json), run at `3bfde30`): 17,000
+synthetic sealed bids (the organizer's 48-hour volume, `docs/PHASE-6.md`), sealed with real tlock to a past quicknet
+round, then admitted, frozen, opened, cleared, batch-planned and verified: **generate 538 s, admission 3 s, freeze
+0.4 s, open 451 s, clear 0.7 s, batch-plan 0.07 s, verify 455 s** (peak RSS ≤ 1,058 MiB). Settlement: **608 batches of
+up to 28 outputs** (`batch_cap` 28, R30 — a 28-output batch settled in one 94,380-byte transaction,
+[`docs/evidence/phase-6/scale-measure.md`](docs/evidence/phase-6/scale-measure.md)), an estimated **88,040,000 zats**
+of ZIP-317 fees, and a projected **20.9 h** of settlement wall time (24.1 h at the old cap of 13) from the measured
+scale-8/scale-27 points, with 2-of-3 FROST signing flat at 8.2 s per batch under R29's parallel single-message
+sessions (`bench.json`'s `projection` block).
 
 ## Repository layout
 
