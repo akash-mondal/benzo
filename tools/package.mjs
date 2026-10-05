@@ -18,6 +18,8 @@ const name = `benzo-${pkg.version}`;
 const stage = path.join("tmp", "package", name);
 
 execFileSync("npm", ["run", "--silent", "build:cli"], { stdio: "inherit" });
+// seal/dist is gitignored build output; a fresh clone must build it before staging.
+execFileSync("npm", ["run", "--silent", "build:seal"], { stdio: "inherit" });
 execFileSync(process.execPath, ["tools/check-bundle.mjs"], { stdio: "inherit" });
 
 rmSync(path.join("tmp", "package"), { recursive: true, force: true });

@@ -58,7 +58,7 @@ shasum -a 256 dist/benzo-verify.mjs
 # fc735f3c5c92580b8c214e4e36fc0fae8f532a8f3dc320380b3a2737aa2be092  dist/benzo-verify.mjs
 shasum -a 256 -c docs/verify-bundle.sha256
 
-npm run package                   # build:cli + check:bundle, then the tarball
+npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
 # e41cf98eb90861320d9ffd474d0c0a7c3dbd9883e29939dc55e797e6d47df4cf  dist/benzo-0.1.0.tgz
 
