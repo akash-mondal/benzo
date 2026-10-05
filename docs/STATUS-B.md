@@ -68,7 +68,69 @@ deleted or moved (the head rules on the marks first).
 
 Commits: `9f24a41` (fixes + checklist), `096c62e` (leak-run evidence).
 
-**Item 3 — README refresh (gate DOC): in progress.**
+**Item 3 — README refresh (gate DOC): DONE with proof.** `README.md` (`9f94e1f`): host custody
+(R28) in Settle; 2-of-3 host attestations (R31) in Cross-chain; settlement scale numbers (R29/R30:
+608 batches at cap 28, 88,040,000 zats, 20.9 h projection / 24.1 h at cap 13, 94,380-byte 28-output
+batch, FROST flat 8.2 s) each pointing at `bench.json`/`scale-measure.md`; the market-mode Proof
+column refreshed (all but Vickrey testnet-proven live, pointer to EVIDENCE.md LP-0004); the Quick
+start transcript re-run fresh (`bin/benzo verify` on the Phase 4 evidence at 2026-10-06, exit 0) and
+the bundle digest updated to `effd9853…` (= `docs/verify-bundle.sha256`, `npm run check:bundle` OK);
+links to `docs/api-reference.md` and `docs/reproducible-build.md`. **Track headline and honest-limits
+kept verbatim — no Ruling changed a fact there** (gate H owns the honest-limits update).
+- Item 3 follow-up (`50ee067`, evidence `00c8412`): the README/LICENSE change moves the shipped npm
+  tarball's digest, and A's bundle rebuild (`9634882`/`a1f9d90`) had already moved the verify-bundle
+  digest — `docs/reproducible-build.md`'s table and `docs/verify-it-yourself.md` §1 were re-recorded
+  (verify `effd9853…`, npm `f123cdde…`, bidder `fa54df28…` unchanged), `pk-package.{out,sha256}` +
+  `pk-package-verify.out` regenerated at `50ee067` with a **fresh-clone re-proof PASS** (clone →
+  `npm ci --offline` → `npm run package` reproduces `f123cdde…` byte-for-byte) and a clean-extract
+  verify exit 0. The rebuild found a staleness bug (recorded in reproducible-build.md §5):
+  `cli/build.mjs` never prunes `cli/dist/commands/`, so the **removed** `auction balance-addresses`
+  command stayed live in build output and in the first regenerated tarball until `cli/dist` was
+  deleted and rebuilt — the recorded digests come from the cleaned tree. **Question below (Q5).**
+
+**R35 execution (head ruling `3f71fd8`, mid-batch) — items 4-6:**
+
+**Item 4 (R35.2 RETIRE 8): DONE.** Deleted `g3-reserve-opening-unpublished.mjs`,
+`obligations-equal.ts`, `r10-5-signer-state-repro.mjs`, `r16-memo-bound-repro.mjs`,
+`r24-3i-classify-address-repro.mjs`, `r5-fund-quote-repro.mjs`, `r7-witness-repro.mjs`,
+`routing-vs-envelope-repro.mjs` (`834e465`-era tree; commit after the head's two head: commits).
+`.out` evidence, mutation patches and `fixtures/` stay. No `package.json` or operational doc
+reference existed to remove (docs cite the evidence files, not the scripts). Head's `834e465` fixed
+g-forged-claim's path itself (Q3 closed).
+
+**Item 5 (R35.3a FOLD step a): tranches 1-2 DONE and scratch-validated; tranche 3 next.**
+- **batching-equal → bench** (`cb4bcab`): the planBatches==allocate equivalence now runs inside the
+  `npm run bench` batch-plan stage. Green: `npm run bench -- --bids 100` all 7 stages PASS
+  (`PASS batching-equal cap=13 batches=77 / cap=28 batches=36`, same counts as the standalone
+  repro). Red: **B31-a re-run** `ERROR batching-equal-cap13` at `cb4bcab`
+  (`mutations/B31-a-rerun-r33.out`); `B31-a.patch` re-pointed at the bench run.
+- **g7-network → auction-core.spec.ts** (`5886882`): 11 `g7-*` IDs + four-answer header. `X3-a.patch`
+  re-cut (it no longer applied) + re-pointed (`BNZ_LIVE=1 npx playwright test --project=auction-core`
+  → `ERROR g7-mainnet-ua-refused-on-test`). Compiles/lists green (`--list` shows the test).
+- **tranche 1 → cli-auction.spec.ts via `e2e/lib/readpath.ts`** (`979f34e`): 30 IDs (r15-* x4,
+  r26-3-* x6, r23-3-* x3, g-forged-claim-*/r23-1-* x7, kc-* x10) + four-answer header. Mutation
+  patches **re-cut** (5 were stale against current `api/` sources) + re-pointed at the spec run:
+  R15-F4a/F4b/F5, R16-F2a, R23-3a (re-cut), R26-3a/R26-3b (headers).
+- **tranche 2 → cli-auction.spec.ts** (`b04a9cb`): 23 IDs (mr-* x13 in `readpath.ts`; r26-1-* x5 and
+  r23-2-* x5 as **verbatim ports** of the repro bodies in `e2e/lib/readpath-r261.ts` /
+  `readpath-r232.ts`, their `check(id, ok, reason)` calls replayed through `Run.check` so IDs and
+  expected values are byte-identical). `R23-2-revert.patch` re-pointed.
+- **Scratch validation (tmp/, not evidence):** a throwaway Playwright config runs the fold families
+  with the real `Run` outside the live spec — `npx playwright test --config=tmp/folds.config.ts`:
+  **ALL 53 PASS** (30 + 13 mr + 5 r26-1 + 5 r23-2) in ~1 min. This caught and fixed four real port
+  bugs before commit (r26-3 summary tamper no-op; two corpora invalid under the tightened claims
+  rule; missing `edSign`/`edVerify` imports in the r23-2 port). Two contract findings recorded in
+  the fold headers: today's verifier requires a certified strays statement for any claim (the
+  g-forged-claim script's own pre-R23.1 corpus would fail today), and the r26-3 corpus's refunded
+  stray row now needs claim proof.
+- **Tranche 3 (in progress): 15 scripts remain** (g1, g2, r7-1..r7-6, r7-claims, r10-2, r10-4, r15-3,
+  r16-1, r16-4, reserve-opening). Their drills are live-state-dependent (they take a live auction id
+  or the vault's real deposits) and get minted IDs (each audit row's behaviour) placed at the spec's
+  matching states; the module-level legs (g1 genuine resolution, g2 intake-shape probes, reserve-
+  opening's pure-clearing binding, U7-pinned) are offline. Per R35.3(b) every folded ID is proven
+  pass/red at the final regression — the live legs cannot be validated in this offline batch.
+
+**Item 6: STATUS updates — this entry.**
 
 ### Questions (run 33)
 
