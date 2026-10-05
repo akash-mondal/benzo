@@ -2,7 +2,7 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
-**Head line (2026-10-05T12:30Z): R28 done and proven live.** Both part 1 milestone reviews (Reviewer G and an independent subagent) found four P0 host-custody holes. All are fixed under Ruling R28, and every attack is refused live for its intended reason (`docs/evidence/phase-5/r28-live/`):
+**Head line (2026-10-05T05:25Z): R28 done and proven live.** Both part 1 milestone reviews (Reviewer G and an independent subagent) found four P0 host-custody holes. All are fixed under Ruling R28, and every attack is refused live for its intended reason (`docs/evidence/phase-5/r28-live/`):
 - W3: disguised change;
 - W4: foreign-signed manifest;
 - W5: stripped frozen root;
