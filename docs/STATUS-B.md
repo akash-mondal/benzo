@@ -3,7 +3,93 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (30): head batch — cross-chain on the signer hosts, xchain demo drivers, mainnet readiness, guides
+## Current run (31): Phase 6 Track B offline batch — bench batch-plan + projection (SC offline), leak re-run (LA), evidence index (DOC/RG prep)
+
+Task (this session's head message): `track-b` fast-forwarded to main at `6e5cc7b` (B30 batch merged);
+`npm ci` + all `npm run build:*` + `npm run check:bundle` green there before new work; then three items in
+order, one commit per item with proof. **Offline only**: no OrbStack VMs/orb/frostd :2744/testnet spends/
+`tools/repro/markets.ts`/live specs, no mainnet, no frontend, no pin changes. Track A files untouched:
+`settle/{ledger,plan,cli,sign}.ts`, `cli/{product,host-derive}.ts`, `tools/repro/markets.ts`.
+
+**Item 1 — bench batch-plan stage + projection (gate SC offline half): DONE with proof.**
+
+1. **(a) `settle/batching.ts`** — side-effect-free `planBatches(obligations, cap)` (imports only
+   `manifest/schema`; no `.env`, no wallet, no `io.ts`): eligible rows ordered by party in SQLite's
+   BINARY order (UTF-8 bytes, `Buffer.compare` — not `localeCompare`, not JS `<`), cut into batches of
+   `cap`, ids from 1. It must equal `settle/ledger.ts allocate()` exactly (Track A's file, unedited).
+2. **(b) `tools/repro/batching-equal.ts`** — pins 1,000 synthetic rows (mixed-case ASCII groups + one
+   non-BMP/BMP pair where UTF-16 order disagrees with UTF-8) into a real `Ledger` in a temp state dir,
+   drives `pin/eligible/allocate/stage/confirm` until exhausted (every batch marked mined through the
+   ledger's own methods), and compares batch-for-batch with `planBatches` for cap 13 and cap 28.
+   **PASS batching-equal cap=13 batches=77 / cap=28 batches=36**
+   (`docs/evidence/phase-6/repro/batching-equal.out`, run at `973feac`).
+3. **(c) bench stage `batch-plan`** — `tools/bench.ts` runs it as a real stage via `planBatches` at
+   **`batch_cap: 28`** (R30). Per batch: spends = the batch's deposit notes + 1 fee-reserve spend
+   (each synthetic bid backs one deposit note; the seller backs none — this reproduces the measured
+   scale-27 batch exactly: 28 spends / 28 outputs / fee 140,000), outputs = the batch's rows,
+   actions = max(spends, outputs, 2), ZIP-317 fee = 5000 × actions.
+4. **(d) projection block** in the run record — linear fit through the scale-8 and scale-27 points for
+   host build (23.026 s → 65.144 s) and parallel host approvals (19.961 s → 50.243 s), FROST flat
+   8.2 s per batch (R29), mining overlapped/excluded; every constant cites its raw evidence file
+   (`scale/scale-8-r29b-timing.jsonl`, `scale/scale-27-timing.jsonl`, `scale-measure.md`).
+   **17,000 bids: 24.13 h at cap 13 (1,308 batches), 20.85 h at cap 28 (608 batches).**
+5. **(e) proof** — `npm run bench -- --bids 17000` at `3bfde30` (2026-10-05T18:30–18:54Z): all 7 stages
+   PASS (generate 538 s, admission 3 s, freeze 0.4 s, open 451 s, clear 0.7 s, batch-plan 0.07 s,
+   verify 455 s; peak RSS ≤ 1,058 MiB), the shipped verifier all-checks-OK with network disabled,
+   `settlement_batches=608`, `estimated_fee_zats=88040000`, `status: "PASS"`
+   (`docs/evidence/phase-6/bench.json`). **Mutation B31-a**
+   (`mutations/B31-a.patch`: `planBatches` sorted with `localeCompare`) turns (b) red at both caps:
+   `ERROR batching-equal-cap13` / `ERROR batching-equal-cap28`, exit 1, tree clean after `git apply -R`
+   (`mutations/B31-a.out`).
+
+Harness fix found by the first full run (product rule working, bench stale): the synthetic manifest did
+not pin `envelope_keys`, so the shipped verifier's envelope-record check refused its v2 N-3 records
+(`ERROR envelope refused: envelope record format`); fixed in `3bfde30`, stage chain green at 100 bids
+before the evidence run.
+
+Commits so far: `ed0b323` (item 1 a–d code), `973feac` (verify-bundle rebuild; accepted by R32),
+`3bfde30` (bench harness fix), `1f4258b` (item 1 evidence), `826170e` (item 2 evidence),
+`d826521` (STATUS after item 2), `2824944` (item 3 evidence). R32 (`617c9f2`) answered the run-31
+Questions (below). `npm run typecheck` and `npm run check:bundle` green at `3bfde30`; no code changed
+after that, so both still hold. Batch complete: all three items delivered with proof, offline only,
+no Track A file touched, no VM/frostd/testnet-spend activity, no mainnet.
+
+**Item 2 — leak-audit re-run (gate LA): DONE with proof.** `npm run leak-audit` (as shipped) over
+`docs/evidence/**` (incl. `phase-5/markets/`, `phase-5/repro/` B30 evidence, `phase-6/scale/`,
+mutations, repro), the `tmp/**/public*` dirs, and `--git` full-blob history (subsumes `git log -p`
+since `7c235d6`); sensitive list rebuilt only from this checkout's `.benzo/` (52 kept + 54 added =
+106 entries — added the xchain host/chain keys, witness/TLS/program keys, manifest-signing PEM; values
+never printed). Range `7c235d6` → `5475c60`, 172 commits. 560 rows first pass; the 303 new-context
+rows reviewed one by one: 229 intended-public deposit/balance/fixture/test-vector addresses (+34
+reviewed allowlist paths, 28 → 62), 32 tmp scratch, 42 = the publicly known **anvil dev key 0**
+fixture constant hardcoded as `ANVIL_SK` in `crosschain/*.mjs` + `tools/repro/xchain-demos.ts` (new
+class G, disclosed, not custody). Final **331 rows, every one classified A–G** in
+`docs/evidence/phase-6/leak-audit.md`; record `leak-findings-2026-10-05.json`.
+**No real finding**: no keys/mnemonics/UFVKs/envelope plaintext in any surface or blob, no
+refund/delivery addresses outside the immutable disclosed class C. Still owed (as at run 2):
+bid-plaintext-before-release `release_time` entries.
+
+**Item 3 — Phase 6 evidence index (DOC/RG prep): DONE with proof.** `docs/evidence/phase-6/EVIDENCE.md`
+(`2824944`): (a) gate table — one row per gate (H, SC, LA, PK, DOC, RG) with status, committed
+evidence paths, the one-command repro and exactly what is missing; nothing marked done without
+evidence (SC offline half READY FOR REVIEW; LA ready for its range with the post-RG pass owed;
+H/SC-live/RG OPEN on Track A; PK/DOC partial with named gaps). (b) LP-0004 table — one row per
+completed live testnet auction in the committed evidence: 8 phase-5 markets scenario runs, 3
+recoveries, the head's 7-auction live spec run (`spec-run/`, `b698770`), and scale-8 ×3 + scale-27 —
+auction id, mode, bidders, frozen root, drand round, settlement txids, `benzo verify` verdict, fees,
+every cell read from committed files ("not recorded" where absent; the drop rows read from `main`'s
+`2acbeb6` evidence, noted in-table). `lp-0004.md` now points at it (22 added cycles, same
+single-wallet caveat).
+
+### Questions (run 31)
+
+- **Both run-31 questions are CLOSED by R32 (head, `617c9f2`) — no action left.** (1) Verify-bundle
+  provenance: the head confirms the merged bundle was built in a temporary worktree with a linked
+  `node_modules`; `973feac` is the accepted bundle, and any future merge rebuilds it in the real
+  checkout after the merge. (2) `e2e/lib/frost.ts startFrostd` now binds `BNZ_FROSTD_ADDR`'s port
+  (fixed by the head in `617c9f2`).
+
+## Previous run (30): head batch — cross-chain on the signer hosts, xchain demo drivers, mainnet readiness, guides
 
 Task (this session's head message): merge main, then four items in order, one commit per item with proof.
 Tree after `git merge main` (`970ce70`; main's R28/R29/R30 + part-2 work): `npm ci`, all `npm run build:*`
@@ -161,7 +247,7 @@ No `e2e/` spec added (ceiling 8, 5 used). Checks outside the ceiling (R retain):
 `e2e/buyback-mode.spec.ts` (head's) got mechanical `--network test` additions at its three
  benzo-pczt call sites (no assertion changed) — see Questions.
 
-### Questions (this run)
+### Questions (run 30)
 
 1. **`--host-record` design note (item 1 (b)):** a host attests with its own single envelope key, so
    the per-leaf ≥2-agreement moves to the coordinator's release (two host records over the identical
@@ -2363,5 +2449,14 @@ None open otherwise. The prior entries are closed by R21: **Q1** dropped (item 3
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
 
 ## Last session
-- **Window:** 2026-10-01T19:05:00Z–19:12:41Z (start time not recorded precisely).
-- **Outcome:** R21 item 5 delivered and committed (cad928d): lifecycle-safe read API (DRAFT/OPEN/SEALED-WAIT dirs serve without frozen/opened/result; `/result` and `/receipt/:h` answer 409 `{"ready":false,"state":…}` until the state carries them; `/auction/:id` reports state + `valid` from applicable checks; 400-on-manifest-failure kept), optional `--signer HEX` on `benzo api serve` and the standalone server refusing to serve on mismatch, `benzo verify` keeping its frozen/result requirement. Proven by 21 route checks (`tmp/proof-r21.mjs` → `tmp/proof-logs/r21-api.out`) on pre-freeze, counts, SEALED-WAIT, manifest-flip and settled fixtures, plus CLI/entry-point proofs (`tmp/proof-r21-cli.sh` → `tmp/proof-logs/r21-cli.out`). `npm run e2e` (seal-open) passed before new work; `npm run build:cli` + `npm run typecheck` pass at the commit. Q1 dropped per R21 item 3; Q2–Q4 closed by R21 items 4–6.
+- **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
+- **Outcome:** All three offline items delivered with proof. (1) `settle/batching.ts` (`planBatches`,
+  SQLite byte order) + `tools/repro/batching-equal.ts` equivalence against a real `Ledger` (PASS
+  77/36 batches at cap 13/28), mutation B31-a red at both caps, bench stage `batch-plan` at cap 28 +
+  projection, and `npm run bench -- --bids 17000` **PASS** end to end (608 batches,
+  estimated_fee_zats 88040000; 24.13 h at cap 13 / 20.85 h at cap 28 — `bench.json`); harness fix:
+  the bench manifest pins `envelope_keys` (`3bfde30`). (2) leak-audit re-run over `7c235d6..5475c60`:
+  106 sensitive entries from own `.benzo/`, 331 final findings all classified A–G, no real finding
+  (`leak-findings-2026-10-05.json`, `leak-audit.md`). (3) `EVIDENCE.md`: gate table + LP-0004
+  per-auction rows (22 cycles), `lp-0004.md` pointing at it. R32 closed both run-31 questions and
+  accepted the rebuilt verify bundle (`973feac`).

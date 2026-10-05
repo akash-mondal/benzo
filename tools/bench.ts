@@ -9,7 +9,8 @@ import { timelockEncrypt } from "tlock-js";
 import { decodeArmor } from "tlock-js/age/armor.js";
 import { QUICKNET, hash, jsonBytes, signRecord, requireThat, type Manifest } from "../manifest/schema";
 import { tree, type Leaf, type Frozen } from "../clear/merkle";
-import { clearForMode } from "../clear/registry";
+import { clearForMode, modeEntry } from "../clear/registry";
+import { planBatches } from "../settle/batching";
 import { ownerPublic, generateEnvelopeKey, sealEnvelope, signEnvelope, verifyEnvelope, settlementCommitment, ENVELOPE_CT_BYTES_N3 } from "../envelope";
 import { freezeStatement, signStatement, witnessSetHash, checkCertificates } from "../witness";
 import { publishedClient, decryptPublished } from "../cli/published-beacon";
@@ -17,6 +18,7 @@ import { run as verify } from "../cli/commands/verify";
 
 type Stage = { stage: string; seconds: number | null; peak_rss_mib: number | null; status: string; error?: string };
 const seed = "benzo-phase6-offline-v1";
+const BATCH_CAP = 28; // R30: batch_cap up to 28
 const bytes = (tag: string) => Buffer.from(hash(seed + ":" + tag), "hex");
 const ed = (tag: string) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), bytes(tag)]), type: "pkcs8", format: "der" });
 const pem = (tag: string) => ed(tag).export({ type: "pkcs8", format: "pem" }).toString();
@@ -52,12 +54,17 @@ async function stage(name: string, dir: string, count: number) {
     requireThat(release < Date.now() / 1000, "benchmark round must be past");
     const witness_set = signRecord({ version: 1, auction_id, q_w: 2, keys: [0, 1, 2].map(i => rawPublic("witness:" + i)) }, pem("manifest"));
     const address = "utest1" + bytes("public-deposit-address").toString("hex");
+    const envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
     const manifest: Manifest = { version: 1, network: "test", auction_id, escrow_ua: address, frost_group_key: bytes("group").toString("hex"), lot: "offline scale",
       supply: count, reserve_zats: "1000", tick_zats: "1000", B_max_zats: "100000", q_max: 10, C_zats: "1000100", fee_zats: "100",
       deposit_addresses: [address], drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
       clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
-      refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", witness_set_hash: witnessSetHash(witness_set) };
-    const packet = signRecord(manifest, pem("manifest")), envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
+      refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
+      // The product rule (R7 item 2): the signed manifest pins the three envelope keys the bids are sealed to,
+      // in the exact stanza order sealEnvelope uses; verify's envelope record check enforces it (a bench run
+      // without this field is refused `envelope record format`, which is the rule working, not a product bug).
+      envelope_keys: envelopeKeys.map(k => k.public_hex), witness_set_hash: witnessSetHash(witness_set) };
+    const packet = signRecord(manifest, pem("manifest"));
     const bids: any[] = [];
     for (let i = 0; i < count; i++) {
       const owner = { private_hex: bytes("owner:" + i).toString("hex"), public_hex: ownerPublic(bytes("owner:" + i).toString("hex")) };
@@ -101,6 +108,23 @@ async function stage(name: string, dir: string, count: number) {
     const local = publishedClient(input.beacon), frozen = read(resolve(dir, "frozen.json")), opened = [];
     for (const leaf of frozen.leaves) { const pt = await decryptPublished(leaf.ciphertext_hex, local); requireThat(pt !== null, "benchmark decrypt"); opened.push({ leaf_index: leaf.leaf_index, plaintext_hex: pt }); }
     write(resolve(dir, "opened.json"), opened);
+  } else if (name === "batch-plan") {
+    // The settlement batch plan over the cleared obligations, via the pure batching module. The fee
+    // model: each synthetic bid backs one deposit note (the seller payout backs none), plus one
+    // fee-reserve spend per batch; outputs are the batch's rows; actions = max(spends, outputs, 2);
+    // ZIP-317 fee = 5,000 zats per action. This reproduces the measured scale-27 batch exactly
+    // (27 deposits + fee reserve = 28 spends, 28 outputs, fee 140,000; docs/evidence/phase-6/scale-measure.md).
+    const result = read(resolve(dir, "result.json"));
+    const obligations = [...modeEntry(input.packet).obligations(result, null)].map(([party, amount_zats]) => ({ party, amount_zats }));
+    const batches = planBatches(obligations, BATCH_CAP);
+    let fee_zats = 0n;
+    for (const b of batches) {
+      const deposits = b.parties.filter(p => p !== "seller").length;
+      const spends = deposits + 1, outputs = b.parties.length;
+      fee_zats += 5000n * BigInt(Math.max(spends, outputs, 2));
+    }
+    write(resolve(dir, "batch-plan.json"), { batch_cap: BATCH_CAP, rows: obligations.length,
+      settlement_batches: batches.length, estimated_fee_zats: fee_zats.toString() });
   } else if (name === "clear") {
     const result = clearForMode({ manifest: input.packet, signer, frozen: read(resolve(dir, "frozen.json")), opened: read(resolve(dir, "opened.json")) });
     write(resolve(dir, "result.json"), result);
@@ -127,25 +151,46 @@ try {
     const dir = resolve("tmp", "bench-" + count); mkdirSync(dir, { recursive: true });
     const commit = execFileSync("git", ["rev-parse", "HEAD"]).toString().trim(), stages: Stage[] = [];
     for (const name of ["generate", "admission", "freeze", "open", "clear", "batch-plan", "verify"]) {
-      if (name === "batch-plan") {
-        // plan.ts is Track A-owned, has no export, and reads live state on import. Never import it here.
-        stages.push({ stage: name, seconds: null, peak_rss_mib: null, status: "BLOCKED",
-          error: "settle/plan.ts needs a side-effect-free offline batching export; importing it currently reads .env and invokes wallet operations" });
-        continue;
-      }
       process.stdout.write(`START ${name} bids=${count}\n`);
       const child = spawnSync(process.execPath, [process.argv[1], "--stage", name, dir, String(count)], { stdio: "inherit" });
       if (child.error) throw child.error; requireThat(child.status === 0, `benchmark stage ${name} exit ${child.status}`);
       stages.push(read(resolve(dir, name + "-metrics.json")));
     }
     const evidence = "docs/evidence/phase-6"; mkdirSync(evidence, { recursive: true });
+    const plan = read(resolve(dir, "batch-plan.json"));
+    // Projection for the organizer's 48-hour volume: 17,000 bids, every constant measured in
+    // docs/evidence/phase-6/scale-measure.md and cited below; nothing here is invented.
+    const fit = (y8: number, y27: number) => (x: number) => y8 + ((y27 - y8) * (x - 9)) / 19; // linear through the two measured points
+    const build = fit(23.026, 65.144), approvals = fit(19.961, 50.243), frost = 8.2;
+    const projectionRows = [...Array.from({ length: 17000 }, (_, i) => ({ party: `leaf:${i}`, amount_zats: "1" })), { party: "seller", amount_zats: "1" }];
+    const totals: Record<string, unknown> = {};
+    for (const cap of [13, 28]) {
+      const batches = planBatches(projectionRows, cap);
+      const seconds = batches.reduce((t, b) => t + build(b.parties.length) + approvals(b.parties.length) + frost, 0);
+      totals[cap] = { bids: 17000, rows: projectionRows.length, settlement_batches: batches.length, total_hours: Number((seconds / 3600).toFixed(2)) };
+    }
+    const projection = {
+      model: "per-batch seconds = host_build(rows) + host_approvals(rows) + 8.2 s FROST (flat per batch, R29); mining is overlapped with the next batch and excluded; host build and approvals are linear in rows through the scale-8 and scale-27 points",
+      constants: {
+        rows_at_measured_points: { scale_8: 9, scale_27: 28, source: "docs/evidence/phase-6/scale-measure.md (scale-8: 8 bids + seller; scale-27: 27 bids + seller)" },
+        host_build_s: { scale_8: 23.026, scale_27: 65.144, source: "docs/evidence/phase-6/scale/scale-8-r29b-timing.jsonl (host-build 23026 ms) + docs/evidence/phase-6/scale/scale-27-timing.jsonl (host-build 65144 ms), table in docs/evidence/phase-6/scale-measure.md" },
+        host_approvals_s: { scale_8: 19.961, scale_27: 50.243, source: "docs/evidence/phase-6/scale/scale-8-r29b-timing.jsonl (host-approve 17082||19961 ms, parallel wall 19.961 s) + docs/evidence/phase-6/scale/scale-27-timing.jsonl (50012||50243 ms, 50.243 s), table in docs/evidence/phase-6/scale-measure.md" },
+        frost_s_per_batch: { value: frost, source: "docs/PHASE-6.md R29 + docs/evidence/phase-6/scale-measure.md (measured frost-parallel 8103 / 8201 ms)" },
+      },
+      totals_17000_bids: totals,
+    };
     const file = resolve(evidence, "bench.json"), previous = (() => { try { return read(file).runs; } catch (e: any) { if (e.code === "ENOENT") return []; throw e; } })();
     const run = { bids: count, seed, round: read(resolve(dir, "input.json")).beacon.round, commit,
       source_sha256: hash(readFileSync("tools/bench.ts")), recorded_at: new Date().toISOString(), synthetic_deposits: true,
-      stages, batch_cap: 13, settlement_batches: null, estimated_fee_zats: null, status: "BLOCKED" };
+      stages, batch_cap: BATCH_CAP, settlement_batches: plan.settlement_batches, estimated_fee_zats: plan.estimated_fee_zats,
+      projection, status: "PASS" };
     write(file, { runs: [...previous.filter((r: any) => r.bids !== count), run].sort((a: any, b: any) => a.bids - b.bids) });
     process.stdout.write("| Stage | Seconds | Peak RSS MiB | Status |\n|---|---:|---:|---|\n");
     for (const s of stages) process.stdout.write(`| ${s.stage} | ${s.seconds?.toFixed(3) ?? "—"} | ${s.peak_rss_mib?.toFixed(1) ?? "—"} | ${s.status} |\n`);
-    process.stderr.write("ERROR bench batching protected by Track A ownership; partial results only\n"); process.exitCode = 1;
+    process.stdout.write(`SETTLEMENT batches=${plan.settlement_batches} batch_cap=${BATCH_CAP} estimated_fee_zats=${plan.estimated_fee_zats}\n`);
+    for (const [cap, t] of Object.entries(totals)) {
+      const v = t as { settlement_batches: number; total_hours: number };
+      process.stdout.write(`PROJECTION 17000 bids cap=${cap} batches=${v.settlement_batches} total_hours=${v.total_hours}\n`);
+    }
   }
 } catch (e) { process.stderr.write(`ERROR bench ${(e as Error).message}\n`); process.exitCode = 1; }

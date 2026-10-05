@@ -44,7 +44,9 @@ const frostClient = (args: string[]) => start(bin("frost-client"), args, { SSL_C
 
 export async function startFrostd(): Promise<() => void> {
   const log = createWriteStream(path.join(STATE, "run", "frostd-e2e.log"));
-  const p = start(bin("frostd"), ["-i", "127.0.0.1", "-c", path.join(TLS, "frostd.pem"), "-k", path.join(TLS, "frostd.key")], { RUST_LOG: "info" });
+  // R32: bind the checkout's own port (BNZ_FROSTD_ADDR), never frostd's default :2744 (the main checkout's).
+  const port = (process.env.BNZ_FROSTD_ADDR ?? "localhost:2744").split(":").at(-1)!;
+  const p = start(bin("frostd"), ["-i", "127.0.0.1", "-p", port, "-c", path.join(TLS, "frostd.pem"), "-k", path.join(TLS, "frostd.key")], { RUST_LOG: "info" });
   p.child.stdout!.pipe(log);
   p.child.stderr!.pipe(log);
   writeFileSync(PIDFILE, String(p.child.pid));
