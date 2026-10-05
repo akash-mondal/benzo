@@ -2,11 +2,13 @@
 // Output: dist/benzo-<version>.tgz with the CLI bundles, the shipped verify bundle,
 // docs/verify-it-yourself.md and the pinned production dependencies (so the extract
 // runs with no network install). The shipped verify bundle must match a fresh rebuild
-// of this tree (tools/check-bundle.mjs) or packaging stops.
+// of this tree (tools/check-bundle.mjs) or packaging stops. Byte-for-byte reproducible
+// (tools/deterministic-tar.mjs): two builds — including one from a fresh clone — give
+// the identical sha256 recorded in docs/reproducible-build.md.
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
+import { tarGz } from "./deterministic-tar.mjs";
 
 const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 process.chdir(root);
@@ -49,7 +51,5 @@ for (const rel of ["node_modules/@playwright/test", "node_modules/playwright", "
   copy(rel, rel);
 }
 
-execFileSync("tar", ["czf", path.join(root, "dist", `${name}.tgz`), "-C", path.join(root, "tmp", "package"), name]);
-const bytes = readFileSync(path.join("dist", `${name}.tgz`));
-const sha256 = createHash("sha256").update(bytes).digest("hex");
-console.log(JSON.stringify({ tarball: `dist/${name}.tgz`, bytes: bytes.length, sha256, production_packages: deps.length }, null, 0));
+const result = tarGz(path.join(root, "tmp", "package"), path.join(root, "dist", `${name}.tgz`));
+console.log(JSON.stringify({ tarball: `dist/${name}.tgz`, ...result, production_packages: deps.length }, null, 0));

@@ -4,18 +4,20 @@
 // .tgz files, on this machine and on a fresh clone.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, readFileSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, lutimesSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const MTIME = new Date("2026-01-01T00:00:00Z");
 
 // Every regular file under dir, relative and sorted (JS string order; names are ASCII paths).
+// Every entry under dir, relative and sorted (JS string order; names are ASCII paths). Symlinks are
+// kept as links (node_modules/.bin has many) and never followed.
 export function stageFiles(dir) {
   const out = [];
   const walk = (d) => {
     for (const name of readdirSync(d).sort()) {
       const p = path.join(d, name);
-      if (statSync(p).isDirectory()) walk(p);
+      if (lstatSync(p).isDirectory()) walk(p);
       else out.push(path.relative(dir, p));
     }
   };
@@ -26,9 +28,14 @@ export function stageFiles(dir) {
 export function tarGz(stageDir, outPath) {
   const files = stageFiles(stageDir);
   for (const rel of files) {
-    const p = path.join(stageDir, rel);
-    chmodSync(p, statSync(p).mode & 0o111 ? 0o755 : 0o644);
-    utimesSync(p, MTIME, MTIME);
+    const p = path.join(stageDir, rel), st = lstatSync(p);
+    // Symlink mtimes live on the link itself (cpSync stamps the copy time); utimesSync would follow
+    // the link and leave the tar's symlink header unstable — use lutimesSync for those.
+    if (st.isSymbolicLink()) lutimesSync(p, MTIME, MTIME);
+    else {
+      chmodSync(p, st.mode & 0o111 ? 0o755 : 0o644);
+      utimesSync(p, MTIME, MTIME);
+    }
   }
   const listFile = `${outPath}.list`, tarPath = `${outPath}.tar`;
   writeFileSync(listFile, files.map((f) => f.split(path.sep).join("/")).join("\n") + "\n");
