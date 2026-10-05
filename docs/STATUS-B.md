@@ -3,7 +3,42 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
+## Current run (33): Phase 6 Track B offline batch B33 — test/repro audit (RG prep), repo hygiene, README refresh
+
+Task (this session's head message): `track-b` fast-forwarded to main at `1a4846f` (B32 merged, Q3/Q4
+accepted); `npm ci` + `npm run build:*` green; then three items in order, one commit per item with proof.
+**Offline only**: no OrbStack/VM/orb/frostd :2744/testnet spends/`tools/repro/markets.ts`/live specs, no
+mainnet, no frontend, no pin changes, no Track A files (Builder A is mid-batch in `clear/`, `cli/`,
+`witness/`, `api/`, `settle/`). Session-start checks: clean tree at `1a4846f`; `npm run e2e` **PASSED**
+(seal-open 37 s, `tmp/e2e/report.json`, 2026-10-06). Builds: `build:seal/core/cli/verify` all exit 0
+(`build:settle` unchanged this batch — its outputs not needed for docs work).
+
+**Item 1 — test and repro audit (READY-FOR-REVIEW prep): DONE with proof.**
+`docs/evidence/phase-6/test-audit.md` (commit `39ba6c0`), written from committed evidence only; nothing
+deleted or moved (the head rules on the marks first).
+
+1. **(a) one row per `e2e/*.spec.ts`** (7 specs; all mark **R**): assertion IDs each owns (C1–C7 /
+   A1–A5+B1+D1–D3 / E,F,G,H,I / J,K,L,M,N / O,P,Q,R,S,T / Y,V,W,X / M-*); last mutation `.out` and base
+   commit per spec (M1–M4 `36913b6`; M5–M7 `4c5e4a9`; N1-regression `3174c60`; P1-expiry `47b665f`;
+   R7M1 `8a37993`; buyback 5M1/5M3 replays `cfd2f84` + live 5M5/5M2-host/5M4; markets 5M8–5M10 `7dcaeda`);
+   **every spec's covered code changed since** (file counts 6/75/60/10/52/30/26 in the cited ranges) — so
+   each owes its cheapest-mutation re-run at gate RG: M2 (seal-open, offline), M5, N7, P3, U2 (live lane),
+   5M1 replay (buyback, offline), 5M8 replay (markets, offline).
+2. **(b) one row per `tools/repro/` file** (50 + the `fixtures/` corpus): what it proves, its sanction
+   (Ruling ID / STATUS entry / head commit), the evidence that cites it (or "none" where true), and a mark —
+   17 KEEP, 25 FOLD, 8 RETIRE, corpus KEEP.
+3. **Test count and consolidation proposal:** 47 of the 50 files are tests by the AGENTS.md definition
+   (only `sweep-vault.ts`, `republish.ts` (ops) and `xchain-demos.sh` (wrapper) are not) — 54 committed
+   tests against the ceiling of 8. Proposal (head rules first): (1) a Ruling names the 14 gate evidence
+   drivers/harnesses as "evidence runs, not specs" (extending PHASE-6 §3's bench/leak-audit wording);
+   (2) fold 25 scripts into their owners (`batching-equal.ts` → the bench batch-plan stage; 24 one-shot
+   fix repros → `cli-auction.spec.ts`/`auction-core.spec.ts` as Ruling-added assertion IDs, mutation
+   `.patch`es re-pointed as red proofs); (3) RETIRE 8 superseded/covered one-shots with evidence staying
+   committed. End state: 8 tests + 14 named evidence drivers + 2 ops tools + 1 corpus.
+
+**Items 2–3 in progress.**
+
+## Previous run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
 
 Task (this session's head message): `track-b` fast-forwarded to main at `1bbb849` (B31 merged); `npm ci` +
 all `npm run build:*` green (`build:seal/core/settle/cli/verify`; `npm run check:bundle` OK, bundle
