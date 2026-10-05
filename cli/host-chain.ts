@@ -26,3 +26,11 @@ export function minedHeight(st: string, txid: string): number {
   const r = grpc(st, "GetTransaction", { hash: Buffer.from(txid, "hex").reverse().toString("base64") });
   return r.ok ? Number(JSON.parse(r.out).height) || 0 : 0;
 }
+// R33 item 2: the header time of the block at `height` (CompactTxStreamer GetBlock over the pinned protos) —
+// the host's own chain view, used to hold the balance window's start to R's release time.
+export function blockTime(st: string, height: number): number {
+  requireThat(Number.isSafeInteger(height) && height > 0, "block height");
+  const t = Number(JSON.parse(grpc(st, "GetBlock", { height }).out).time);
+  requireThat(Number.isSafeInteger(t) && t > 0, `block ${height} header time`);
+  return t;
+}

@@ -1,5 +1,5 @@
 // Shared validation and refund accounting for the §11 modes; signatures cover the mode's entire block.
-import { hash, requireThat, validateManifest, verifyRecord, zats, type Manifest, type Signed } from "../manifest/schema";
+import { checkBalanceAddresses, hash, requireThat, validateManifest, verifyRecord, zats, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen } from "./merkle";
 import { readOrders } from "./features";
 import { LAYOUT_V0, type OrderLayout } from "./layout";
@@ -10,6 +10,9 @@ export function marketClient<T>(packet: Signed, signer: string, mode: string, va
   requireThat(m.clearing.mode === mode, `${mode} mode`);
   const base: any = { ...m, clearing: { ...m.clearing, mode: "uniform" } }; delete base[mode];
   validateManifest(base); validate(m);
+  // R33 item 1: with the mode block stripped the base rules cannot see the treasury addresses, so the
+  // balance-address exclusions run again here on the full manifest.
+  if (m.bond !== undefined) checkBalanceAddresses(m);
   return { manifest: m, manifest_hash: hash(Buffer.from(packet.bytes, "base64")) };
 }
 export function marketOrders(input: ClearInput, m: MarketManifest<unknown>, layout: OrderLayout = LAYOUT_V0) {

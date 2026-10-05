@@ -79,48 +79,57 @@ export function effectiveMaxPrice(m: { buyback: { max_price_zats: string } }, se
 export const balanceDue = (payment: bigint, fee: bigint, C: bigint): bigint => (payment + fee > C ? payment + fee - C : 0n);
 export const refundAfter = (payment: bigint, fee: bigint, C: bigint): bigint => (C > fee + payment ? C - fee - payment : 0n);
 
-// Part 2, collection drop (bond-then-pay with defaults): after the clear the operator publishes one fresh vault
-// address per bonded winner (`balance_addresses` with the height `clear` observed, `clear_height`), and the winner
-// pays balance_due_zats there within balance_window_blocks of that height. Defaults are NEVER operator input:
-// every plan and every signer host derives them from its own scan with this one helper — a winner whose balance
-// address received less than balance_due_zats in mined notes by clear_height + balance_window_blocks is a default.
-export type BalanceBinding = { clear_height: number; balance_addresses: { leaf_index: number; ua: string }[] };
+// Part 2, collection drop (bond-then-pay with defaults): the balance window and the balance addresses are fixed
+// in the SIGNED manifest before bidding (R33 items 1-2, Reviewer R P1-1/P1-2) — the operator chooses neither after
+// the clear. deposit slot i pays its balance to bond.balance_addresses[i]; a winner's slot is its frozen deposit's
+// own address. A winner's balance counts only notes at its balance address with
+// balance_window_start_height < height <= balance_window_start_height + balance_window_blocks (P1-1's lower bound:
+// stale or pre-funded value never counts). Defaults are NEVER operator input: every plan and every signer host
+// derives them from its own scan with this one helper — a winner whose in-window notes fall short of
+// balance_due_zats is a default.
+export type BalanceWindowM = { deposit_addresses: string[]; bond: { balance_window_start_height: number; balance_window_blocks: number; balance_addresses: string[] } };
+export type FrozenLeaf = { leaf_index: number; deposit: { address: string } };
 export type ScannedNote = { address: string; height: number | null; value_zats: number | string };
-// One address per bonded winner, exactly: an omitted winner's payment would be invisible and its bond forfeited.
+export const balanceWindow = (m: BalanceWindowM): { start: number; end: number } => {
+  const start = m.bond.balance_window_start_height;
+  requireThat(Number.isSafeInteger(start) && start > 0 && Number.isSafeInteger(m.bond.balance_window_blocks) && m.bond.balance_window_blocks >= 1, "balance window");
+  requireThat(Number.isSafeInteger(start + m.bond.balance_window_blocks), "balance window overflow");
+  return { start, end: start + m.bond.balance_window_blocks };
+};
+// One balance address per bonded winner, from its own frozen deposit's manifest slot.
 export function balanceAddressMap(
   result: { allocations: { leaf_index: number; fill: number }[] },
-  bal: BalanceBinding,
+  leaves: FrozenLeaf[],
+  m: BalanceWindowM,
 ): Map<number, string> {
-  requireThat(Number.isSafeInteger(bal.clear_height) && bal.clear_height > 0, "clear height");
-  requireThat(Array.isArray(bal.balance_addresses), "balance addresses");
-  const winners = result.allocations.filter(a => a.fill > 0).map(a => a.leaf_index);
+  requireThat(Array.isArray(m.bond?.balance_addresses) && m.bond.balance_addresses.length === m.deposit_addresses.length, "balance addresses");
   const map = new Map<number, string>();
-  for (const e of bal.balance_addresses as any[]) {
-    requireThat(e && typeof e === "object" && !Array.isArray(e) && Object.keys(e).sort().join(",") === "leaf_index,ua" &&
-      Number.isSafeInteger(e.leaf_index) && typeof e.ua === "string" && e.ua.length > 0, "balance address entry");
-    requireThat(winners.includes(e.leaf_index) && !map.has(e.leaf_index), "balance address leaf");
-    map.set(e.leaf_index, e.ua);
+  for (const a of result.allocations) {
+    if (a.fill <= 0) continue; // only a bonded winner owes (or can default on) a balance
+    const leaf = leaves.find(l => l.leaf_index === a.leaf_index);
+    requireThat(leaf, "balance address leaf");
+    const slot = m.deposit_addresses.indexOf(leaf!.deposit.address);
+    requireThat(slot >= 0 && !map.has(a.leaf_index), "balance address leaf");
+    map.set(a.leaf_index, m.bond.balance_addresses[slot]);
   }
-  requireThat(map.size === winners.length, "balance addresses do not cover the bonded winners exactly");
-  requireThat(new Set(map.values()).size === map.size, "duplicate balance address");
   return map;
 }
 export function balanceDefaults(
-  m: { bond?: { balance_window_blocks: number } },
+  m: BalanceWindowM,
   result: { allocations: { leaf_index: number; fill: number; balance_due_zats?: string }[] },
-  bal: BalanceBinding,
+  leaves: FrozenLeaf[],
   notes: ScannedNote[],
   tip: number,
 ): number[] {
   requireThat(m.bond !== undefined, "defaults are bond-then-pay only");
-  const byLeaf = balanceAddressMap(result, bal);
-  const end = bal.clear_height + m.bond!.balance_window_blocks;
+  const byLeaf = balanceAddressMap(result, leaves, m);
+  const { start, end } = balanceWindow(m);
   requireThat(tip > end, "balance window has not passed; settlement waits");
   const defaults: number[] = [];
   for (const a of result.allocations) {
     const due = BigInt(a.balance_due_zats ?? "0");
     if (a.fill <= 0 || due === 0n) continue; // only a bonded winner owing a balance can default
-    const got = notes.filter(n => n.address === byLeaf.get(a.leaf_index) && n.height && n.height <= end)
+    const got = notes.filter(n => n.address === byLeaf.get(a.leaf_index) && n.height && n.height > start && n.height <= end)
       .reduce((s, n) => s + BigInt(n.value_zats), 0n);
     if (got < due) defaults.push(a.leaf_index);
   }

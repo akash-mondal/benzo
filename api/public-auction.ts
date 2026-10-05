@@ -8,7 +8,6 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
-import { balanceAddressMap } from "../clear/features";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
@@ -69,17 +68,12 @@ export type PublicAuction = {
   // Gate CF: the published opening of the manifest's tlock-sealed price bound (plaintext hex), present iff the
   // manifest carries `sealed_reserve`; benzo verify re-derives it with tle like the bid openings.
   reserveOpening: string | null;
-  // Part 2, collection drop (bond-then-pay): the height `clear` observed (the balance window's start) and the
-  // operator's one fresh vault address per bonded winner. Every signer host re-checks the addresses against its
-  // own vault and derives the defaults from its own scan; never operator input.
-  clearHeight: number | null;
-  balanceAddresses: { leaf_index: number; ua: string }[] | null;
 };
 export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: PublicResult; resultBytes: Buffer };
 export type Check = { id: string; error?: string; warn?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims", "clear_height", "balance_addresses"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -105,7 +99,6 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
   let launchInput: import("../clear/launch").LaunchInput | undefined;
   let serialBeacon: { round: number; signature: string } | null = null;
-  let clearHeight: number | null = null, balanceAddresses: { leaf_index: number; ua: string }[] | null = null;
   let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], straysCerts: StraysCert[], settlement: SettlementSummary | null, reserveOpening: string | null, claims: any[] = [];
   if (!legacy) {
     // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
@@ -137,13 +130,6 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
         /^[0-9a-f]{96}$/.test(serialBeacon.signature), "serial beacon");
       requireThat(manifest.serials && serialBeacon.round === manifest.drand.R + manifest.serials.seed_round_offset, "serial beacon round");
     }
-    requireThat(doc.clear_height === undefined || (Number.isSafeInteger(doc.clear_height) && doc.clear_height > 0), "clear_height");
-    clearHeight = doc.clear_height ?? null;
-    requireThat(doc.balance_addresses === undefined || Array.isArray(doc.balance_addresses), "balance_addresses");
-    balanceAddresses = (doc.balance_addresses ?? null) as { leaf_index: number; ua: string }[] | null;
-    if (balanceAddresses) for (const e of balanceAddresses)
-      requireThat(e && typeof e === "object" && !Array.isArray(e) && Object.keys(e).sort().join(",") === "leaf_index,ua" &&
-        Number.isSafeInteger(e.leaf_index) && e.leaf_index >= 0 && typeof e.ua === "string" && e.ua.length > 0, "balance address entry");
     resultBytes = result ? jsonBytes(doc.result) : null;
     receipts = doc.receipts as Signed[];
     requireThat(doc.envelopes === undefined || Array.isArray(doc.envelopes), "envelopes");
@@ -188,8 +174,6 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       ? (JSON.parse(text("witness.json")) as WitnessCert[])
       : [];
     straysCerts = [];
-    clearHeight = null;
-    balanceAddresses = null;
     settlement = existsSync(path.join(root, "summary.json"))
       ? (JSON.parse(text("summary.json")) as SettlementSummary)
       : null;
@@ -199,7 +183,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       ? String((JSON.parse(text("reserve.json")) as { plaintext_hex?: unknown }).plaintext_hex ?? "")
       : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening, clearHeight, balanceAddresses };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -525,22 +509,17 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       else requireThat(rs.length > 0, `row ${row.party} without receipt`);
     }
   });
-  // Part 2, collection drop (bond-then-pay): the published binding is exactly one fresh vault address per bonded
-  // winner plus the clear height the balance window runs from. The entry set is public and exact here; every signer
-  // host adds the ownership check (each ua external to its vault) and derives the defaults from its own scan.
+  // Part 2, collection drop (bond-then-pay): the balance window and the balance addresses are manifest-fixed
+  // before bidding (R33 items 1-2) and held to their exact shape at manifest read (manifest/schema.ts
+  // checkBalanceAddresses). Each signer host adds the chain-side checks from its own lightwalletd (`owns`, the
+  // deposit/escrow/treasury exclusions, the start block's header time at or after R, and no note at or below the
+  // window start) and derives the defaults from its own scan; never operator input. What remains public here is
+  // that a settled bond auction publishes its defaults list at all (the host-signed-map rule is item 3's).
   run("balances", () => {
     const m = pub.manifest;
-    if (!m.bond) { requireThat(pub.balanceAddresses === null && pub.clearHeight === null, "balance binding without bond"); return; }
+    if (!m.bond) return;
     if (!pub.result) return; // cancelled before the clear: there are no balances to bind
-    if (pub.settlement) requireThat(pub.balanceAddresses !== null && pub.clearHeight !== null, "settled bond auction lacks the balance binding");
-    if (!pub.balanceAddresses) return;
-    const byLeaf = balanceAddressMap(pub.result as ClearBody, { clear_height: pub.clearHeight!, balance_addresses: pub.balanceAddresses });
-    const shape = String(m.network) === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/;
-    for (const ua of byLeaf.values()) {
-      requireThat(shape.test(ua), "balance address shape");
-      requireThat(!m.deposit_addresses.includes(ua) && ua !== (m as any).buyback?.funding_ua && ua !== (m as any).rfq?.funding_ua,
-        "balance address is a deposit or funding address");
-    }
+    if (pub.settlement) requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
   });
   run("accounting-strays", () => {
     if (!pub.settlement) return;

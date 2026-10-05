@@ -14,8 +14,8 @@ import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
-import { balanceAddressMap, balanceDefaults } from "../clear/features";
-import { chainTip } from "./host-chain";
+import { balanceAddressMap, balanceDefaults, balanceWindow } from "../clear/features";
+import { blockTime, chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
 
@@ -114,22 +114,31 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // only from envelopes/claims (leaves), the routed seller output (`seller`, bound in sign approve) and the signed
     // buyback treasury; any other party has no host-derivable destination and is never paid by a host.
     const buyback = (pub.manifest as any).clearing?.mode === "buyback";
-    // Part 2, collection drop (bond-then-pay): each published balance address must be an external address of THIS
-    // host's vault (`benzo-pczt owns`) and never a deposit or funding address, and the defaults come from this
-    // host's own scan through the shared rule (clear/features.ts balanceDefaults) — never operator input.
-    const binding = (pub.manifest as any).bond && pub.result ? { clear_height: pub.clearHeight!, balance_addresses: pub.balanceAddresses! } : null;
+    // Part 2, collection drop (bond-then-pay, R33 items 1-2): the balance window and the balance addresses are
+    // manifest-fixed before bidding. Each balance address must be an external address of THIS host's vault
+    // (`benzo-pczt owns`) and never a deposit/escrow/treasury address; from THIS host's own lightwalletd the
+    // window's start block must have a header time at or after R's release time (winners learn they won before
+    // the window opens), and a balance address holding any note at or below the window start (stale or
+    // pre-funded value, P1-1) is refused. The defaults then come from this host's own scan through the shared
+    // rule (clear/features.ts balanceDefaults) — never operator input.
+    const bM: any = pub.manifest;
     let balanceSources: string[] = [];
-    if (binding) {
-      const byLeaf = balanceAddressMap(pub.result as any, binding), uas = new Set(byLeaf.values()), funding = treasuryBlock(pub.manifest)?.funding_ua;
+    if (bM.bond && pub.result) {
+      const byLeaf = balanceAddressMap(pub.result as any, pub.frozen!.leaves as any, bM), uas = new Set(byLeaf.values()), tb = treasuryBlock(pub.manifest);
+      const { start } = balanceWindow(bM);
       for (const ua of uas) {
-        requireThat(execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, o.id), ua, "--network", (pub.manifest as any).network], { encoding: "utf8" }).trim() === "external",
+        requireThat(execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, o.id), ua, "--network", bM.network], { encoding: "utf8" }).trim() === "external",
           `balance address ${String(ua).slice(0, 16)}… is not an external address of this vault`);
-        requireThat(!pub.manifest.deposit_addresses.includes(ua) && ua !== funding, "balance address is a deposit or funding address");
+        requireThat(!bM.deposit_addresses.includes(ua) && ua !== bM.escrow_ua && ua !== tb?.funding_ua && ua !== tb?.treasury_ua,
+          "balance address is a deposit, escrow or treasury address");
       }
+      requireThat(blockTime(st, start) >= QUICKNET.genesis + (bM.drand.R - 1) * QUICKNET.period, "balance window starts before the release round");
+      for (const n of notes) requireThat(!(uas.has(n.address) && n.height && n.height <= start),
+        `balance address ${String(n.address).slice(0, 16)}… holds a note at height ${n.height} at or below the window start; stale or pre-funded value refused`);
       // The approval ledger's sources include each balance note (a winner's payment the settlement spends).
       balanceSources = notes.filter((n: any) => uas.has(n.address) && n.height).map((n: any) => `balance:${n.txid}:${n.pool}:${n.action_index}`);
     }
-    const defaults = binding ? balanceDefaults(pub.manifest as any, pub.result as any, binding, notes, chainTip(st)) : [];
+    const defaults = bM.bond && pub.result ? balanceDefaults(bM, pub.result as any, pub.frozen!.leaves as any, notes, chainTip(st)) : [];
     const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub.manifest as any).bond ? { defaults } : null) : new Map<string, string>();
     for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party), `obligation ${party} has no host-derivable destination`);
     for (const a of (pub.result as any)?.allocations ?? []) {

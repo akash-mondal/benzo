@@ -26,7 +26,11 @@ export type Manifest = {
   // balance is paid in a window of balance_window_blocks), a tlock-sealed price bound (reserve floor / max price)
   // opened at R, multi-lot rounds (orders bind one lot id; each lot clears independently), and recurring-round
   // linkage (series id, round index, previous round's result hash).
-  bond?: { bond_bps: number; balance_window_blocks: number };
+  // R33 items 1-2: the balance window and the balance addresses are fixed HERE, in the signed manifest, before
+  // bidding — never chosen by the operator after the clear. deposit slot i pays its balance to
+  // balance_addresses[i]; the window is (balance_window_start_height, balance_window_start_height +
+  // balance_window_blocks] and its start block's header time is at or after R (winners learn they won first).
+  bond?: { bond_bps: number; balance_window_blocks: number; balance_addresses: string[]; balance_window_start_height: number };
   sealed_reserve?: string;
   lots?: string[];
   serials?: { first: number; count: number; seed_round_offset: number };
@@ -64,14 +68,30 @@ function keys(object: any, expected: string) {
 export const uaShape = (addr: unknown, network: string): boolean =>
   typeof addr === "string" && (network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[a-z0-9]+$/).test(addr);
 
+// R33 item 1 (P1-2): the bond-then-pay balance addresses are manifest-fixed before bidding. Same length as
+// deposit_addresses (deposit slot i pays its balance to balance_addresses[i]), distinct, UA shape on the manifest
+// network, and disjoint from deposit_addresses, escrow_ua and any treasury funding_ua/treasury_ua (P1-1: a stale
+// or pre-funded address must never be one whose earlier notes could pass for a balance payment). Mode clients that
+// strip their own block before the base rules call this again with the full manifest (clear/market.ts).
+export function checkBalanceAddresses(m: any): void {
+  requireThat(m.bond !== undefined && Array.isArray(m.bond.balance_addresses), "balance addresses");
+  const bal: unknown[] = m.bond.balance_addresses;
+  requireThat(bal.length === m.deposit_addresses.length && bal.every(a => uaShape(a, m.network)) &&
+    new Set(bal).size === bal.length, "balance addresses");
+  const excluded = new Set<string>([m.escrow_ua, ...m.deposit_addresses]);
+  for (const block of [m.buyback, m.rfq]) for (const f of [block?.funding_ua, block?.treasury_ua]) if (typeof f === "string") excluded.add(f);
+  requireThat(bal.every(a => typeof a === "string" && !excluded.has(a)), "balance address is a deposit, escrow or treasury address");
+}
+
 export function validateManifest(m: Manifest): void {
   requireThat(m.witness_set_hash === undefined || (typeof m.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m.witness_set_hash)), "witness_set_hash");
   requireThat(m.envelope_keys === undefined || (Array.isArray(m.envelope_keys) && m.envelope_keys.length === 3 &&
     m.envelope_keys.every(k => typeof k === "string" && /^[0-9a-f]{64}$/.test(k)) && new Set(m.envelope_keys).size === 3), "envelope_keys");
   requireThat(m.bond === undefined || (m.bond && typeof m.bond === "object" && !Array.isArray(m.bond) &&
-    Object.keys(m.bond).sort().join(",") === "balance_window_blocks,bond_bps" &&
+    Object.keys(m.bond).sort().join(",") === "balance_addresses,balance_window_blocks,balance_window_start_height,bond_bps" &&
     Number.isSafeInteger(m.bond.bond_bps) && m.bond.bond_bps >= 1 && m.bond.bond_bps <= 10000 &&
-    Number.isSafeInteger(m.bond.balance_window_blocks) && m.bond.balance_window_blocks >= 1), "bond");
+    Number.isSafeInteger(m.bond.balance_window_blocks) && m.bond.balance_window_blocks >= 1 &&
+    Number.isSafeInteger(m.bond.balance_window_start_height) && m.bond.balance_window_start_height >= 1), "bond");
   requireThat(m.sealed_reserve === undefined || (typeof m.sealed_reserve === "string" &&
     /^[0-9a-f]+$/.test(m.sealed_reserve) && m.sealed_reserve.length % 2 === 0 &&
     m.sealed_reserve.length >= 96 && m.sealed_reserve.length <= 4096), "sealed_reserve");
@@ -101,6 +121,11 @@ export function validateManifest(m: Manifest): void {
   requireThat(uaShape(m.escrow_ua, m.network), "testnet escrow address");
   requireThat(Array.isArray(m.deposit_addresses) && m.deposit_addresses.length > 0 &&
     m.deposit_addresses.every(a => uaShape(a, m.network)) && new Set(m.deposit_addresses).size === m.deposit_addresses.length, "per-bid addresses");
+  // R33 item 1: the balance addresses are fixed in the signed manifest before bidding — same length as
+  // deposit_addresses (deposit slot i pays its balance to balance_addresses[i]), distinct, a UA on the manifest
+  // network, and disjoint from the deposit/escrow/treasury addresses (a stale or pre-funded address can never be
+  // one whose old notes could pass for a balance payment).
+  if (m.bond !== undefined) checkBalanceAddresses(m as any);
   integer(m.supply, "supply"); integer(m.q_max, "q_max");
   const reserve = zats(m.reserve_zats, "reserve"), tick = zats(m.tick_zats, "tick"), cap = zats(m.B_max_zats, "B_max");
   const C = zats(m.C_zats, "C"), fee = zats(m.fee_zats, "fee");

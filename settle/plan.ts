@@ -15,7 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./dep
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {balanceDefaults} from "../clear/features";
+import {balanceDefaults,balanceWindow} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -123,11 +123,12 @@ try {
       requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     } else requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     result_hash=hash(fresh);
-    // Part 2, collection drop (bond-then-pay): settlement WAITS until the balance window has passed, then derives
-    // the defaults from its own scan with the shared rule (clear/features.ts balanceDefaults) — never operator input.
+    // Part 2, collection drop (bond-then-pay, R33 item 2): the balance window is the manifest-fixed
+    // (balance_window_start_height, … + balance_window_blocks] — clear_height no longer enters it. Settlement
+    // waits until tip > start + window, then derives the defaults from its own scan with the shared rule
+    // (clear/features.ts balanceDefaults) — never operator input.
     if(m.bond!==undefined) {
-      const binding={clear_height:(src as any).clear_height,balance_addresses:(src as any).balance_addresses};
-      const end=Number(binding.clear_height)+m.bond.balance_window_blocks;
+      const {start,end}=balanceWindow(m as any);
       const deadline=Date.now()+Math.max(1,end-tip+30)*75_000;
       while(tip<=end) {
         requireThat(Date.now()<deadline,"balance window did not pass");
@@ -136,7 +137,7 @@ try {
       }
       // Fresh scan after the window: a balance payment that mined at the window's end must count.
       const balNotes=execute(scanBin(root,state),["scan","test",vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
-      defaults=balanceDefaults(m,result,binding,balNotes,tip);
+      defaults=balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
     }
   }
   // R16 item 1 (Reviewer R F4): the CANCELLED/REFUNDING branch resolves each deposit exactly like the cleared

@@ -9,13 +9,12 @@ import {clearForMode, clientCommon as client} from "./registry"; // design §6.1
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
 import {drandUrls} from "../manifest/reserve";
-import {balanceAddressMap} from "./features";
 import {verifyStatement} from "../envelope";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
-type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; serial_beacon?:{round:number;signature:string}; clear_height?:number; balance_addresses?:{leaf_index:number; ua:string}[]; result?:ClearResult; trace:{operation:string; time:number}[]};
+type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; serial_beacon?:{round:number;signature:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
 const root=repoRoot();
 for (const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/); if(m && process.env[m[1]]===undefined)process.env[m[1]]=m[2];
@@ -159,30 +158,11 @@ try {
         }
         requireThat(serial_beacon,"drand serial beacon unavailable on every endpoint");
       }
-      // Part 2 (b): the tip `clear` observes starts the bond-then-pay balance window.
-      if(m.bond!==undefined && ledger.clear_height===undefined) {
-        wallet("sync","-s",process.env.BNZ_LWD_URL!);
-        ledger.clear_height=JSON.parse(wallet("balance","--json")).chain_tip_height;
-      }
+      // Part 2 (b): the balance window is fixed in the signed manifest (R33 item 2) — `clear` records nothing
+      // about it and no post-clear binding exists.
       ledger.result=clearForMode({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!,reserve_opening:ledger.reserve_opening??null,serial_beacon,launch:(ledger as any).launch_input});
       if(serial_beacon)ledger.serial_beacon=serial_beacon;
       ledger.state="CLEARED"; result=ledger.result;
-    } else if(command==="balance-addresses") {
-      // Part 2 (b): after the clear the operator publishes one fresh vault address per bonded winner
-      // (`balance_addresses: [{leaf_index, ua}]`). The entry set is held to its exact shape here (one per bonded
-      // winner, unique, a shielded UA that is not a deposit or funding address); every signer host re-checks each
-      // ua against its own vault (`benzo-pczt owns` external) before ever deriving a default from it.
-      requireThat(ledger.state==="CLEARED" && m.bond!==undefined,"balance addresses after the clear of a bond auction");
-      requireThat(ledger.result&&ledger.clear_height!==undefined,"balance addresses need a cleared result");
-      requireThat(!ledger.balance_addresses,"balance addresses already published");
-      const entries=input;
-      balanceAddressMap(ledger.result as any,{clear_height:ledger.clear_height!,balance_addresses:entries});
-      const shape=String(m.network)==="main"?/^u1[0-9a-z]+$/:/^utest1[0-9a-z]+$/;
-      for(const e of entries as any[]) {
-        requireThat(shape.test(e.ua),"balance address shape");
-        requireThat(!m.deposit_addresses.includes(e.ua)&&e.ua!==(m as any).buyback?.funding_ua&&e.ua!==(m as any).rfq?.funding_ua,"balance address is a deposit or funding address");
-      }
-      ledger.balance_addresses=entries; result={clear_height:ledger.clear_height,balance_addresses:entries};
     } else if(command==="deliver") {
       // Part 2 launch: a winner's owner-signed token-chain destinations, recorded before the clear (clearLaunch checks
       // the signature against the opened owner key and the count against the fill; checked here early too).
@@ -201,7 +181,7 @@ try {
     } else if(command==="receipt") {
       result={included:receiptMember(input.receipt,input.frozen,ledger.signer)};
     } else if(command==="status") result=ledger;
-    else throw new Error("usage: init | admit | freeze | open | clear | balance-addresses | deliver | cancel | receipt | status <auction id>; JSON stdin");
+    else throw new Error("usage: init | admit | freeze | open | clear | deliver | cancel | receipt | status <auction id>; JSON stdin");
   }
   ledger.trace.push({operation:command,time:Math.floor(Date.now()/1000)});
   writeFileSync(file+".new",jsonBytes(ledger),{mode:0o600}); renameSync(file+".new",file);
