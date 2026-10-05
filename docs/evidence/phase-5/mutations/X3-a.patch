@@ -1,13 +1,19 @@
+# Re-pointed and re-cut (R35.3a, run 33): the g7-* assertions now live in e2e/auction-core.spec.ts (the folded
+# block; tools/repro/g7-network-repro.mjs stays until gate RG deletes it). Same semantic mutation as the
+# original X3-a (uaShape ignores the network; mutations/X3-a.out records the original red at 37ac903), re-cut
+# against the current manifest/schema.ts so it applies on the final code. Red run:
+#   git apply this patch, then BNZ_LIVE=1 npx playwright test --project=auction-core
+#   expect ERROR g7-mainnet-ua-refused-on-test (and the mirror ERROR g7-testnet-ua-refused-on-main).
 diff --git a/manifest/schema.ts b/manifest/schema.ts
-index 7acab56..98cebe2 100644
+index da024ca..4cc6697 100644
 --- a/manifest/schema.ts
 +++ b/manifest/schema.ts
-@@ -62,7 +62,7 @@ function keys(object: any, expected: string) {
+@@ -66,7 +66,7 @@ function keys(object: any, expected: string) {
  // the audited `benzo-pczt classify-address` check (envelope/destination.ts isUnifiedOn). The `network: "test"`
  // lock below stays until the head lifts it.
  export const uaShape = (addr: unknown, network: string): boolean =>
 -  typeof addr === "string" && (network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[a-z0-9]+$/).test(addr);
 +  typeof addr === "string" && /^(u1|utest1)[0-9a-z]+$/.test(addr); /* MUTATION X3-a: network ignored */
  
- export function validateManifest(m: Manifest): void {
-   requireThat(m.witness_set_hash === undefined || (typeof m.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m.witness_set_hash)), "witness_set_hash");
+ // R33 item 1 (P1-2): the bond-then-pay balance addresses are manifest-fixed before bidding. Same length as
+ // deposit_addresses (deposit slot i pays its balance to balance_addresses[i]), distinct, UA shape on the manifest
