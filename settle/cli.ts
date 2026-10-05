@@ -2,8 +2,9 @@
 import {copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,writeFileSync} from "node:fs";
 import {spawnSync} from "node:child_process";
 import path from "node:path";
-import {hash,jsonBytes,requireThat} from "../manifest/schema";
+import {hash,jsonBytes,requireThat,verifyRecord} from "../manifest/schema";
 import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
+import {verifyApprovalMap} from "../witness";
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints} from "./io";
 import {pubkey,zcashSign} from "./sign";
@@ -110,6 +111,27 @@ function guard(metadata:any,tip:number) {
 // re-plan the SAME batch with the next host that approves. A host that failed is not asked again for this batch.
 // §11 H6: the first preferred signer host that can derive every allocated row builds and proves the candidate on its
 // own vault; the coordinator receives only the REDACTED proven PCZT (H7) and {party, output_index} (recipients stay on the hosts).
+// Reviewer G's G-5: before allocation, the first preferred host that answers lists the {party, amount} rows it derives
+// from its own data (`sign derivable`, no recipients). A row no host derives is pinned to the exception queue with its
+// reason instead of being allocated into a batch no host could build.
+function hostDerivable():Set<string>|null {
+  const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
+  const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
+  const packet=file("derivable");run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
+  if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600});
+  const remote=`derivable-${id.slice(0,16)}`;
+  for(const n of [...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))]) {
+    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000}).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000}).status!==0)continue;
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
+    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000});
+    if(r.status!==0){console.error(`ERROR signer ${n} could not list derivable rows: ${(r.stderr||"").trim().slice(-200)}`);continue}
+    const out=JSON.parse(r.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
+    return new Set(out.rows.map((x:any)=>`${x.party}:${x.amount_zats}`));
+  }
+  return null;
+}
 async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_zats:string}[],proven:string) {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
@@ -153,7 +175,7 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
   writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600}); // R28 item 8 (G-2): the seller output must pay this
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
-  const failed=new Set<string>(),events:any[]=[];
+  const failed=new Set<string>(),events:any[]=[],maps:Record<string,any>={};
   const approve=(n:string):boolean=>{
     const remote=`packet-${id.slice(0,16)}-${batchId}`;
     const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{encoding:"utf8",timeout:120_000});
@@ -162,6 +184,7 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
     spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
     const a=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20}); // host sync logs can pass the 1 MiB default
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
+    if(a.status===0){try{maps[n]=JSON.parse(a.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!).map??null}catch{maps[n]=null}}
     if(a.status!==0)console.error(`ERROR signer ${n} refused batch ${batchId}: ${(a.stderr||"").trim().slice(-200)}`);
     return a.status===0;
   };
@@ -172,6 +195,7 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
     try {
       const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server});
       writeFileSync(file(`batch-${batchId}.custody.json`),jsonBytes({pair,events,attempts:attempt}),{mode:0o600});
+        writeFileSync(file(`batch-${batchId}.maps.json`),jsonBytes(pair.map(n=>maps[n]??null)),{mode:0o600}); // G-4: the signing pair's signed maps
       return signing;
     } catch(e) {
       const lost=(e as any).failedSigners??[];
@@ -194,7 +218,9 @@ async function worker(ledger:Ledger) {
   const custody=existsSync(path.join(STATE,"vaults",id,"keys.json"));
   // §11 H6: under host custody the coordinator holds no envelope key; the plan already gated every envelope refund on
   // host-signed agreement reports, and the recipients are derived on the hosts (sign build / sign approve).
-  const pinned:any[]=custody?plan.obligations.map((o:any)=>({...o,recipient:"host-derived"})):destinations(plan.obligations,settings().signers[0],plan);
+  const derivable=custody?hostDerivable():null;
+  if(custody)requireThat(derivable,"no signer host could list its derivable rows");
+  const pinned:any[]=custody?plan.obligations.map((o:any)=>derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):destinations(plan.obligations,settings().signers[0],plan);
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>({party,kind,amount_zats})),
     [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>({party,kind,amount_zats,reason}))]);
@@ -276,8 +302,14 @@ async function worker(ledger:Ledger) {
     }
     const i=inspect(staged.pczt_path!,custody);
     if(custody) {
-      // §11 H6: receipts map outputs to parties by the builder's {party, output_index}, never by recipient.
-      const built=JSON.parse(readFileSync(base+".build.json","utf8"));
+      // G-4: receipts map outputs to parties by the two signing hosts' signed {party, output_index} maps, which must
+      // verify against the pinned witness set and agree (same txid, same outputs); the builder's build.json is only a
+      // cross-check, logged if it differs. Never by recipient.
+      const doc=JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).public_dir),"auction.json"),"utf8"));
+      const wkeys=verifyRecord<any>(doc.witness_set,doc.signer).keys as string[],maps=JSON.parse(readFileSync(base+".maps.json","utf8"));
+      requireThat(Array.isArray(maps)&&maps.length===2&&maps.every((m:any)=>m&&verifyApprovalMap(m,wkeys)&&m.txid===staged.txid)&&maps[0].witness!==maps[1].witness&&jsonBytes(maps[0].outputs).equals(jsonBytes(maps[1].outputs)),"the signing hosts' output maps are missing, unsigned or disagree");
+      const built={outputs:maps[0].outputs},relayed=JSON.parse(readFileSync(base+".build.json","utf8"));
+      for(const x of built.outputs)if(!relayed.outputs.some((y:any)=>y.party===x.party&&y.output_index===x.output_index))console.error(`ERROR build.json differs from the hosts' signed map for ${x.party}; using the hosts' map`);
       const receipt=batch.outputs.map((row:any)=>{const m=built.outputs.find((x:any)=>x.party===row.party);requireThat(m,`no built output for ${row.party}`);const o=i.outputs.find((x:any)=>x.index===m.output_index&&!x.is_change);requireThat(o&&o.amount_zats===row.amount_zats,"mined amount differs from result.json");return {party:row.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
       ledger.confirm(batch.id,staged.txid!,height,receipt);
       writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});

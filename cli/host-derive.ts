@@ -94,7 +94,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
         try {
           const body = { kind: "claim-refund", auction_id: o.id, party, claim_envelope_sha256: sha(Buffer.from(c.claim_envelope_ct, "hex")) };
           if (owner && verifyStatement(owner, body, c.owner_sig)) { const d = openDestination({ envelope_ct: c.claim_envelope_ct } as any, key!); if (d) return d; }
-        } catch { /* an invalid claim is skipped, never fatal */ }
+        } catch (e) { process.stderr.write(`WARN claim for ${party} skipped: ${(e as Error).message}\n`); } // never fatal; G-5: say why
       }
       return null;
     };

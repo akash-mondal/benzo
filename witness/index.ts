@@ -158,3 +158,22 @@ export function checkStraysCerts(certs: StraysCert[], spec: WitnessSpec): Strays
   requireThat(signed.size >= spec.q_w, `strays witness quorum ${signed.size}-of-${spec.keys.length}`);
   return certs[0].statement;
 }
+
+// Reviewer G's G-4: an approving host's signed map from each non-change output index to the party it derived for it, over
+// the candidate's txid — receipts are attributed from two hosts' agreeing maps, never from the coordinator's relayed
+// build.json. Domain-separated from every other witness-key signature.
+export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[] };
+export type ApprovalMap = ApprovalMapBody & { witness: string; signature: string };
+const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs })]);
+export function signApprovalMap(body: ApprovalMapBody, privateHex: string): ApprovalMap {
+  requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
+  const key = edPrivate(privateHex);
+  return { ...body, witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"), signature: sign(null, mapBytes(body), key).toString("hex") };
+}
+// Total: a forged or unsigned map is "not verified", never a throw.
+export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
+  try {
+    return !!m && keys.includes(m.witness) && /^[0-9a-f]{128}$/.test(String(m.signature)) && Array.isArray(m.outputs) &&
+      verify(null, mapBytes(m), edPublic(m.witness), Buffer.from(m.signature, "hex"));
+  } catch { return false; }
+}
