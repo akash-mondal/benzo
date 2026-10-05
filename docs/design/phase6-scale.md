@@ -21,6 +21,19 @@ Record each number in `docs/evidence/phase-6/scale-measure.md` with its command 
 4. **Parallel sessions:** throughput with 1, 4 and 8 concurrent signing sessions on the three signer hosts (after part 1 §1).
 5. **Bigger batches:** time and fee for 1 spend → 50 outputs, and for 50 spends → 50 outputs, under the ZIP-317 fee and the block size.
 
+## 2.1 Findings so far (head, 2026-10-05)
+
+- **§2.1:** settlement now records its phases (`state/run/settle-timing.jsonl`, cedcdd4):
+  - host build;
+  - each host approval;
+  - each FROST session, by pool;
+  - the whole signing step;
+  - mining.
+  Every live run from now on produces the numbers.
+- **§2.3, multi-message sessions:** `frost-client coordinator` accepts several `-m`/`-r` pairs in one session. zcash-sign computes every spend's randomizer up front and only prompts for them one at a time (`prompt_for_signatures`). So one session per batch is possible without changing zcash-sign: read the randomizers, run one session, then answer zcash-sign's prompts.
+- **Security catch (blocks option A as-is):** the frost-client participant's `confirm_message` (`frost-client/src/participant/comms.rs`) shows and confirms only `signing_package[0].message()`, but signs every message in the package. In a multi-message session a coordinator could put an unapproved message second, and a host's `sign join` (which checks the displayed message against its approved sighash) would never see it. **Option A therefore needs a participant change:** confirm every message, requiring all of them to equal the approved sighash, which they must be for one transaction's spends. As with R27, that would be a reviewable patch on the pinned frost-tools, plus a Ruling and a review.
+- **§2.4, parallel sessions:** a host's frost-client serves one session per identity at a time. Live part 2 runs collided until 9d5bc18 serialized signing machine-wide. So option C's parallelism can only come from separate identities (more signer sets), not more sessions per host.
+
 ## 3. Options the head will choose from (after §2)
 
 - **A. Multi-message signing:** one FROST session per PCZT signs every spend action, removing round trips per action. Expected to be the biggest win if §2.3 holds.
