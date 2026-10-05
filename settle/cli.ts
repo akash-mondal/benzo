@@ -121,9 +121,9 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const remote=`build-${id.slice(0,16)}-${batchId}`;
   for(const n of prefer) {
-    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`]).status!==0)continue;
-    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote]).status!==0)continue;
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`]);
+    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000}).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000}).status!==0)continue;
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
     const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20});
     if(b.status!==0){console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue}
     const built=JSON.parse(b.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
@@ -156,10 +156,10 @@ async function hostSign(batchId:number,proven:string,signed:string,groupKey:stri
   const failed=new Set<string>(),events:any[]=[];
   const approve=(n:string):boolean=>{
     const remote=`packet-${id.slice(0,16)}-${batchId}`;
-    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{encoding:"utf8"});
+    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{encoding:"utf8",timeout:120_000});
     if(r.status!==0){events.push({signer:n,approve:"unreachable"});return false}
     if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`]);
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
     const a=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20}); // host sync logs can pass the 1 MiB default
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
     if(a.status!==0)console.error(`ERROR signer ${n} refused batch ${batchId}: ${(a.stderr||"").trim().slice(-200)}`);

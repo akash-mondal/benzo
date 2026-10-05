@@ -8,15 +8,19 @@ import { ROOT, STATE, env } from "./env";
 
 export const H = "/home/benzo/.benzo", NAMES = ["alice", "bob", "carol"] as const;
 export const FROSTD = `host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
+// `orb`/`orbctl` calls have hung indefinitely on a VM that answered the next call instantly (live R28 run): they get a
+// 2-minute timeout and up to 3 attempts; every other command runs once, unbounded.
 export const sh = (cmd: string, args: string[], input?: string) => {
-  const r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20 });
-  if (r.error) throw r.error;
+  const orb = cmd === "orb" || cmd === "orbctl";
+  let r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, ...(orb ? { timeout: 120_000 } : {}) });
+  for (let i = 1; orb && r.status === null && i < 3; i++) r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, timeout: 120_000 });
+  if (r.error && !orb) throw r.error;
   if (r.status !== 0) throw new Error(`${path.basename(cmd)} ${args.slice(0, 5).join(" ")} exited ${r.status}: ${(r.stderr || r.stdout).trim().slice(-400)}`);
   return r.stdout.trim();
 };
 // `orb run` has returned an empty stdout once for a command that succeeded (live Y2, a host `cat`); retry empties.
 export const host = (n: string, args: string[]) => { for (let i = 0; ; i++) { const out = sh("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args]); if (out || i >= 2) return out; } };
-export const hostTry = (n: string, args: string[]) => spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args], { encoding: "utf8", maxBuffer: 64 << 20 });
+export const hostTry = (n: string, args: string[]) => spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args], { encoding: "utf8", maxBuffer: 64 << 20, timeout: 15 * 60_000 });
 export const hostBenzo = (n: string, args: string[]) => { const out = host(n, [`${H}/bin/benzo`, ...args]); return JSON.parse(out.split("\n").filter(l => l.startsWith("{")).at(-1)!); };
 export const push = (n: string, src: string, dest: string) => {
   sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "rm", "-rf", `/home/benzo/${dest}`]);
