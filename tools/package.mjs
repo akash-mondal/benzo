@@ -53,5 +53,5 @@ for (const rel of ["node_modules/@playwright/test", "node_modules/playwright", "
   copy(rel, rel);
 }
 
-const result = tarGz(path.join(root, "tmp", "package"), path.join(root, "dist", `${name}.tgz`));
+const result = tarGz(path.join(root, "tmp", "package"), path.join(root, "dist", `${name}.tgz`), { linkRoot: root });
 console.log(JSON.stringify({ tarball: `dist/${name}.tgz`, ...result, production_packages: deps.length }, null, 0));

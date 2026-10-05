@@ -4,7 +4,7 @@
 // .tgz files, on this machine and on a fresh clone.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, lstatSync, lutimesSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, lstatSync, lutimesSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const MTIME = new Date("2026-01-01T00:00:00Z");
@@ -25,14 +25,25 @@ export function stageFiles(dir) {
   return out.sort();
 }
 
-export function tarGz(stageDir, outPath) {
+// tarGz(stageDir, outPath, opts?): opts.linkRoot — when a staged symlink points at an absolute path
+// under linkRoot (npm's node_modules/.bin can carry such links), rewrite it to the equivalent
+// archive-relative link. Left alone it would embed the builder's own directory in the tarball (and
+// dangle on every other machine).
+export function tarGz(stageDir, outPath, opts = {}) {
   const files = stageFiles(stageDir);
   for (const rel of files) {
     const p = path.join(stageDir, rel), st = lstatSync(p);
     // Symlink mtimes live on the link itself (cpSync stamps the copy time); utimesSync would follow
     // the link and leave the tar's symlink header unstable — use lutimesSync for those.
-    if (st.isSymbolicLink()) lutimesSync(p, MTIME, MTIME);
-    else {
+    if (st.isSymbolicLink()) {
+      const target = readlinkSync(p);
+      if (path.isAbsolute(target) && opts.linkRoot && target.startsWith(opts.linkRoot + path.sep)) {
+        const top = rel.split(path.sep)[0];
+        rmSync(p);
+        symlinkSync(path.relative(path.dirname(rel), path.join(top, path.relative(opts.linkRoot, target))), p);
+      }
+      lutimesSync(p, MTIME, MTIME);
+    } else {
       chmodSync(p, st.mode & 0o111 ? 0o755 : 0o644);
       utimesSync(p, MTIME, MTIME);
     }
