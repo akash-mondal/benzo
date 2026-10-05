@@ -32,6 +32,9 @@ export const push = (n: string, src: string, dest: string) => {
 // and the same UFVK imported on every host. Returns the operator's {group_key, escrow_ua} and the reported keys.
 export async function dkgOnHosts(id: string, benzo: (args: string[], input?: any) => any) {
   const pk = (n: string) => host(n, ["cat", `${H}/contacts/${n}.pubkey`]);
+  // A killed or failed earlier DKG leaves sessions open on frostd, and frost-client then refuses to join ("user has
+  // more than one FROST session active"); close each host user's sessions first (callers serialize DKGs).
+  for (const n of NAMES) spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "env", `SSL_CERT_FILE=${H}/tls/rootCA.pem`, `${H}/bin/frost-client`, "sessions", "-c", `${H}/frost/${n}.toml`, "-s", FROSTD, "--close-all"], { timeout: 120_000 });
   const keys = await Promise.all(NAMES.map((n, i) => new Promise<string>((resolve, reject) => {
     setTimeout(() => {
       const p = spawn("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", `${H}/bin/benzo`, "sign", "dkg", "--id", id, "--name", n, "--server", FROSTD, ...(i === 0 ? ["--peers", `${pk("bob")},${pk("carol")}`] : [])]);

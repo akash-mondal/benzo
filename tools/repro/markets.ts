@@ -24,6 +24,12 @@ const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, 
 // A failed drand fetch (one killed a live run) reads as round 0, so the wait simply polls again.
 const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/latest`)).json()).round as number}catch{return 0}};
 
+// Cross-process locks (lock dirs). A lock this process holds is released if its scenario throws.
+const held = new Set<string>();
+async function takeLock(lock: string, staleMs: number) {
+  for (;;) { try { mkdirSync(lock); held.add(lock); return; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
+}
+function dropLock(lock: string) { rmSync(lock, { recursive: true, force: true }); held.delete(lock); }
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
 type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number };
 type Scenario = { mode: string; supply?: number; treasury?: number; extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
@@ -71,7 +77,10 @@ async function run(name: string) {
   const say = (s: string) => { console.log(`[${name}] ${s}`); writeFileSync(log, readFileSync(log, "utf8") + s + "\n"); };
   let ok = true; const check = (id: string, pass: boolean, d = "") => { say(`${pass ? "PASS" : "ERROR"} ${id}${d ? " " + d : ""}`); ok &&= pass; };
   const id = randomBytes(32).toString("hex"); say(`auction ${id} mode ${sc.mode}`);
-  const k = await dkgOnHosts(id, benzo);
+  // Concurrent DKGs on the same hosts and frostd collide (live: "bob dkg exited 1"); processes take turns.
+  const dkgLock = path.join(STATE, "run", "markets-dkg.lock");
+  await takeLock(dkgLock, 600_000);
+  let k: Awaited<ReturnType<typeof dkgOnHosts>>; try { k = await dkgOnHosts(id, benzo); } finally { dropLock(dkgLock); }
   const envelopeKeys = hostEnvelopeKeys(), witnessPubs = hostWitnessKeys();
   const owners = Object.fromEntries((sc.owners ?? []).map(n => [n, generateOwnerKey()]));
   const bids = sc.bids(owners);
@@ -86,8 +95,7 @@ async function run(name: string) {
   // One bidder wallet funds every scenario: parallel harness processes take turns (a lock dir, stale after 40 min),
   // taken BEFORE the manifest's deadlines are set and held until the funding matured.
   const lock = path.join(STATE, "run", "markets-fund.lock");
-  for (;;) { try { mkdirSync(lock); break; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > 2_400_000) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
-  try {
+  await takeLock(lock, 2_400_000);
   const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
   const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip() }) };
   benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
@@ -104,8 +112,7 @@ async function run(name: string) {
     if (t?.mined_height && tip >= t.mined_height + 9) break;
     if (++h > 80) throw new Error("funding did not mature");
   }
-  } finally { rmSync(lock, { recursive: true, force: true }); } // held until the funding matured, so the wallet's change is spendable
-  } catch (e) { rmSync(lock, { recursive: true, force: true }); throw e; }
+  } finally { dropLock(lock); } // held until the funding matured, so the wallet's change is spendable
   for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
   while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000);
   if (Date.now() / 1000 >= manifest.T_freeze) throw new Error("deposits matured after T_freeze");
@@ -165,6 +172,6 @@ const port = env("BNZ_FROSTD_ADDR").split(":").at(-1)!, listening = spawnSync("n
 const frostd = listening ? null : spawn(path.join(STATE, "bin/frostd"), ["-i", "127.0.0.1", "-p", env("BNZ_FROSTD_ADDR").split(":").at(-1)!, "-c", path.join(STATE, "tls/frostd.pem"), "-k", path.join(STATE, "tls/frostd.key")], { stdio: "ignore" });
 await sleep(2000);
 let all = true;
-try { for (const n of process.argv.slice(2)) { try { all = (n.startsWith("resume:") ? await resume(n.slice(7)) : await run(n)) && all; } catch (e) { console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
+try { for (const n of process.argv.slice(2)) { try { all = (n.startsWith("resume:") ? await resume(n.slice(7)) : await run(n)) && all; } catch (e) { for (const l of [...held]) dropLock(l); console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
 finally { frostd?.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `benzo-${n}`]); }
 process.exitCode = all ? 0 : 1;
