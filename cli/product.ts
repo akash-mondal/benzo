@@ -12,8 +12,8 @@ import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
 // Design §6.1: manifests are read through the mode registry (its launch -> zilkroad -> public-auction cycle, which
 // deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
-import {validatePhase5,treasuryFunded,treasuryRequired} from '../clear/mode-b';
-import {clientCommon as client} from '../clear/registry';
+import {treasuryFunded,treasuryRequired} from '../clear/mode-b';
+import {clientCommon as client,modeEntry} from '../clear/registry';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,witnessSetHash,type WitnessSet} from '../witness';
@@ -73,10 +73,13 @@ export async function runCommand(command:string,args:string[]) {
   if(command==='auction create') {
     const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");
     // Design §6.1: a buyback draft is held to the Mode B rules, and its treasury return must be a shielded destination.
-    if(m.clearing?.mode==='buyback'){validatePhase5(m);requireShieldedDestination(m.buyback.treasury_ua);
+    // Every registry mode (A13 item 3): the draft is held to its OWN mode's rules — its registry client run on a copy signed
+    // with a throwaway key (the clients verify a signature first); nothing about the real signing key changes.
+    {const k=generateKeyPairSync('ed25519'),probe=signRecord(m,k.privateKey.export({type:'pkcs8',format:'pem'}).toString());modeEntry(probe).client(probe,probe.signer)}
+    if(m.clearing?.mode==='buyback'){requireShieldedDestination(m.buyback.treasury_ua);
       // R28 item 7 (G-8): a funding address belongs to one auction only (its funded sum counts every note ever received).
       for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(mm?.buyback?.funding_ua!==m.buyback.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
-    } else validateManifest(m);
+    }
     // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
