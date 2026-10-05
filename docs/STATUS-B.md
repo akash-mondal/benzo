@@ -108,7 +108,23 @@ untouched: `settle/{ledger,plan,cli,sign}.ts`, `cli/{product,host-derive}.ts`, `
   (absolute-symlink rewrite), `9aee17e` (auction-keys startup fix + final digests), `7bb5021`
   (evidence).
 
-Item 4 **IN PROGRESS**: the PK/DOC rows of `docs/evidence/phase-6/EVIDENCE.md`.
+**Item 4 — EVIDENCE.md PK/DOC rows: DONE.** `docs/evidence/phase-6/EVIDENCE.md` (`9954f5e`):
+**PK → READY FOR REVIEW except one OPEN item** (a stranger's clean-machine run recorded end to end);
+evidence cells cite `pk-package.{out,sha256}` (`7f3e08ae…`), `pk-package-verify.out`, `pk-bidder.out`
+(`fa54df28…` + clean-machine seal-open), `pk-rebuild.out` (all three digests from a fresh clone),
+`docs/reproducible-build.md`. **DOC → partial, API reference done** (`docs/api-reference.md` +
+`repro/api-reference.out` + `mutations/B32-a.*`); OPEN items stay OPEN: the head's literal
+clean-checkout walkthrough of each guide, and gate H's honest-limits update.
+
+**Batch B32 complete.** All four items delivered with proof, offline except the drand quicknet reads
+item 2 needs. No OrbStack/VM/orb/frostd/testnet-spend/market-spec activity, no mainnet, no frontend
+(`seal/src`, `seal/index.html` untouched), no pin changes, no Track A banned file edited (one
+non-banned `cli/commands/auction-keys.ts` line moved — see Questions). Regression: `npm run e2e`
+**PASSED** (seal-open, 40 s, `tmp/e2e/report.json` at 2026-10-05T20:54Z) and `npm run typecheck` green at `9aee17e`; the later
+commits touch only `docs/`. Commit map (run 32): `f5a022a` doc+check · `7d06f55` evidence ·
+`eb6400f` STATUS · `979ca65` package:bidder+proof · `ee5022b` evidence · `830aa18` STATUS ·
+`1159c80` deterministic packager+notes · `4f9c442` build:seal fix · `64546a1` symlink fix ·
+`9aee17e` auction-keys fix · `7bb5021` evidence · `9954f5e` evidence (EVIDENCE.md).
 
 ### Questions (run 32)
 
@@ -2585,11 +2601,15 @@ launch delivery row order).
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
 
 ## Last session
-- **Window:** 2026-10-05T19:40Z– (run 32, batch B32, in progress).
-- **Outcome so far:** items 1–3 DONE (API reference + drift check PASS 11 shapes at `f5a022a`, mutation
-  B32-a red at `7d06f55`; bidder bundle `fa54df28…` two identical builds + clean-machine seal-open
-  proof PASS at `979ca65`/`ee5022b`; reproducible-build notes + fresh-clone rebuild PASS all three
-  digests at `9aee17e`/`7bb5021`); item 4 in progress.
+- **Window:** 2026-10-05T19:40Z–20:58Z (run 32, batch B32, complete).
+- **Outcome:** all four items DONE with proof — API reference + drift check PASS 11 shapes at
+  `f5a022a` (mutation B32-a red at `7d06f55`); bidder bundle `fa54df28…` two identical builds +
+  clean-machine seal-open proof PASS (`979ca65`/`ee5022b`); reproducible-build notes + fresh-clone
+  rebuild PASS all three digests (`9aee17e`/`7bb5021`), with three real bugs found and fixed along
+  the way (unbuilt `seal/dist`, an absolute `.bin` symlink leaking the builder's path, and the
+  packaged CLI dying at startup without `.env`); EVIDENCE.md PK/DOC rows refreshed (`9954f5e`).
+  `npm run e2e` PASSED; nothing owed but the OPEN items the batch names (stranger's run, head's
+  walkthrough) and the Questions above.
 
 ## Previous session (run 31)
 - **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
