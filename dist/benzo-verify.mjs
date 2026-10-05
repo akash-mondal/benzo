@@ -8138,6 +8138,20 @@ function effectiveMaxPrice(m2, sealed) {
 }
 var balanceDue = (payment, fee, C2) => payment + fee > C2 ? payment + fee - C2 : 0n;
 var refundAfter = (payment, fee, C2) => C2 > fee + payment ? C2 - fee - payment : 0n;
+function balanceAddressMap(result, bal) {
+  requireThat(Number.isSafeInteger(bal.clear_height) && bal.clear_height > 0, "clear height");
+  requireThat(Array.isArray(bal.balance_addresses), "balance addresses");
+  const winners = result.allocations.filter((a2) => a2.fill > 0).map((a2) => a2.leaf_index);
+  const map = /* @__PURE__ */ new Map();
+  for (const e of bal.balance_addresses) {
+    requireThat(e && typeof e === "object" && !Array.isArray(e) && Object.keys(e).sort().join(",") === "leaf_index,ua" && Number.isSafeInteger(e.leaf_index) && typeof e.ua === "string" && e.ua.length > 0, "balance address entry");
+    requireThat(winners.includes(e.leaf_index) && !map.has(e.leaf_index), "balance address leaf");
+    map.set(e.leaf_index, e.ua);
+  }
+  requireThat(map.size === winners.length, "balance addresses do not cover the bonded winners exactly");
+  requireThat(new Set(map.values()).size === map.size, "duplicate balance address");
+  return map;
+}
 function checkSeriesLink(current, previous) {
   requireThat(current !== void 0, "series linkage missing");
   requireThat(previous.link !== void 0 && previous.link.series_id === current.series_id, "series id");
@@ -16134,7 +16148,7 @@ function memoBindsEnvelope(memoEnvelopeTag, envelopeCtHex) {
 function readClient(packet, signer) {
   return clientForMode(packet, signer);
 }
-var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
+var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims", "clear_height", "balance_addresses"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 var openedStates = /* @__PURE__ */ new Set(["OPENED", "CLEARED", "SETTLED"]);
 var frozenStates = /* @__PURE__ */ new Set(["SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED"]);
@@ -16157,6 +16171,7 @@ function loadPublicAuction(dir, opts = {}) {
   let frozen, opened, beacon;
   let launchInput;
   let serialBeacon = null;
+  let clearHeight = null, balanceAddresses = null;
   let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, straysCerts, settlement, reserveOpening, claims = [];
   if (!legacy) {
     const doc = JSON.parse(text("auction.json"));
@@ -16185,6 +16200,12 @@ function loadPublicAuction(dir, opts = {}) {
       requireThat(Object.keys(serialBeacon).sort().join(",") === "round,signature" && /^[0-9a-f]{96}$/.test(serialBeacon.signature), "serial beacon");
       requireThat(manifest.serials && serialBeacon.round === manifest.drand.R + manifest.serials.seed_round_offset, "serial beacon round");
     }
+    requireThat(doc.clear_height === void 0 || Number.isSafeInteger(doc.clear_height) && doc.clear_height > 0, "clear_height");
+    clearHeight = doc.clear_height ?? null;
+    requireThat(doc.balance_addresses === void 0 || Array.isArray(doc.balance_addresses), "balance_addresses");
+    balanceAddresses = doc.balance_addresses ?? null;
+    if (balanceAddresses) for (const e of balanceAddresses)
+      requireThat(e && typeof e === "object" && !Array.isArray(e) && Object.keys(e).sort().join(",") === "leaf_index,ua" && Number.isSafeInteger(e.leaf_index) && e.leaf_index >= 0 && typeof e.ua === "string" && e.ua.length > 0, "balance address entry");
     resultBytes = result ? jsonBytes(doc.result) : null;
     receipts = doc.receipts;
     requireThat(doc.envelopes === void 0 || Array.isArray(doc.envelopes), "envelopes");
@@ -16217,11 +16238,13 @@ function loadPublicAuction(dir, opts = {}) {
     witnessSet = existsSync4(path4.join(root, "witness-set.json")) ? JSON.parse(text("witness-set.json")) : null;
     witnessCerts = existsSync4(path4.join(root, "witness.json")) ? JSON.parse(text("witness.json")) : [];
     straysCerts = [];
+    clearHeight = null;
+    balanceAddresses = null;
     settlement = existsSync4(path4.join(root, "summary.json")) ? JSON.parse(text("summary.json")) : null;
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
     reserveOpening = existsSync4(path4.join(root, "reserve.json")) ? String(JSON.parse(text("reserve.json")).plaintext_hex ?? "") : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening, clearHeight, balanceAddresses };
 }
 function loadCompletePublicAuction(dir, opts = {}) {
   const pub = loadPublicAuction(dir, opts);
@@ -16472,6 +16495,25 @@ function checkPublicAuction(pub, opts = {}) {
       const rs = receipts.filter((r2) => r2.party === row.party && r2.amount_zats === row.amount_zats);
       if (row.state === "exception") requireThat(rs.length === 0, `exception row ${row.party} with receipt`);
       else requireThat(rs.length > 0, `row ${row.party} without receipt`);
+    }
+  });
+  run2("balances", () => {
+    const m2 = pub.manifest;
+    if (!m2.bond) {
+      requireThat(pub.balanceAddresses === null && pub.clearHeight === null, "balance binding without bond");
+      return;
+    }
+    if (!pub.result) return;
+    if (pub.settlement) requireThat(pub.balanceAddresses !== null && pub.clearHeight !== null, "settled bond auction lacks the balance binding");
+    if (!pub.balanceAddresses) return;
+    const byLeaf = balanceAddressMap(pub.result, { clear_height: pub.clearHeight, balance_addresses: pub.balanceAddresses });
+    const shape = String(m2.network) === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/;
+    for (const ua2 of byLeaf.values()) {
+      requireThat(shape.test(ua2), "balance address shape");
+      requireThat(
+        !m2.deposit_addresses.includes(ua2) && ua2 !== m2.buyback?.funding_ua && ua2 !== m2.rfq?.funding_ua,
+        "balance address is a deposit or funding address"
+      );
     }
   });
   run2("accounting-strays", () => {

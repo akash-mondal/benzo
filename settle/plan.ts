@@ -15,6 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./dep
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
+import {balanceDefaults} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -63,8 +64,8 @@ try {
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
   const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state,id),...args]);
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);
-  const tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
   const notes=execute(scanBin(root,state),["scan","test",vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+  let tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
   const ledgerFile=path.join(state,"settle",id,"ledger.sqlite"),owned=new Set<string>();
   if(existsSync(ledgerFile)) {
     const db=new DatabaseSync(ledgerFile,{readOnly:true});
@@ -80,7 +81,7 @@ try {
   const stray=strayNotes(payNotes,m.deposit_addresses,src.frozen);
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimEnvelopes:Record<string,string>={},claimsUsed:any[]=[];
-  let result_hash:string|null=null,opened:any[]|null=null,result:any=null;
+  let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[];
   const released=Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period;
   const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
@@ -122,6 +123,21 @@ try {
       requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     } else requireThat(fresh.equals(jsonBytes(auction.result)),"fresh signer clearing differs from result.json");
     result_hash=hash(fresh);
+    // Part 2, collection drop (bond-then-pay): settlement WAITS until the balance window has passed, then derives
+    // the defaults from its own scan with the shared rule (clear/features.ts balanceDefaults) — never operator input.
+    if(m.bond!==undefined) {
+      const binding={clear_height:(src as any).clear_height,balance_addresses:(src as any).balance_addresses};
+      const end=Number(binding.clear_height)+m.bond.balance_window_blocks;
+      const deadline=Date.now()+Math.max(1,end-tip+30)*75_000;
+      while(tip<=end) {
+        requireThat(Date.now()<deadline,"balance window did not pass");
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,30_000);
+        wallet("sync","-s",process.env.BNZ_LWD_URL!);tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
+      }
+      // Fresh scan after the window: a balance payment that mined at the window's end must count.
+      const balNotes=execute(scanBin(root,state),["scan","test",vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+      defaults=balanceDefaults(m,result,binding,balNotes,tip);
+    }
   }
   // R16 item 1 (Reviewer R F4): the CANCELLED/REFUNDING branch resolves each deposit exactly like the cleared
   // path, through its envelope or its claim, with no published opening needed. The memo- and claim-bound
@@ -225,7 +241,7 @@ try {
     }
   } else {
     for(const n of stray.filter(n=>!confirmed(n)))exceptions.push({party:depositParty(n),kind:"refund",amount_zats:String(n.value_zats)});
-    for(const [party,amount] of modeEntry(src.manifest).obligations(result!)) {
+    for(const [party,amount] of modeEntry(src.manifest).obligations(result!,m.bond!==undefined?{defaults}:null)) {
       const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
       // R6 (W) + R7 items 2/3: a product-mode bid's refund destination comes only from its owner-signed
       // settlement envelope. With no valid record the row goes to the exception queue; while Track B's
@@ -262,5 +278,5 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(m.bond!==undefined?{defaults}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

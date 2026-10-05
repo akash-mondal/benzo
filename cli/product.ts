@@ -37,6 +37,11 @@ export function publish(id:string) {
   const a=read(ledger(id)),cfg=read(config(id)),dir=path.resolve(cfg.public_dir);
   const doc:any={version:1,auction_id:id,signer:a.signer,manifest:a.manifest,state:a.state,receipts:a.receipts};
   if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;
+  // Part 2, collection drop: the serial shuffle's drand beacon (a) and the bond-then-pay binding (b) — the height
+  // `clear` observed and the operator's one fresh vault address per bonded winner — publish with the round.
+  if(a.serial_beacon)doc.serial_beacon=a.serial_beacon;
+  if(a.clear_height!==undefined)doc.clear_height=a.clear_height;
+  if(a.balance_addresses)doc.balance_addresses=a.balance_addresses;
   // R7 item 5 (Reviewer G G2): the reserve opening is published after R alongside the openings, so
   // sealed-reserve product auctions can settle and verify — both re-derive it from manifest.sealed_reserve
   // and refuse any mismatch (manifest/reserve.ts requireReserveOpening).
@@ -57,7 +62,10 @@ export function publish(id:string) {
     const paid=new Set<any>(read(path.join(sd,'receipts.json')).map((r:any)=>r.party));
     const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,claim_envelope_sha256:c.claim_envelope_sha256,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
     if(used.length)doc.claims=used;
-    doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],batches:s.batches.map((b:any)=>{
+    doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
+      // Part 2 (bond-then-pay): the defaults this plan derived from its own scan (never operator input; every
+      // signer host re-derived them before approving) reach the public settlement for verify's obligations.
+      ...(s.plan?.defaults!==undefined?{defaults:s.plan.defaults}:{}),batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
       return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
     })};
@@ -134,6 +142,8 @@ export async function runCommand(command:string,args:string[]) {
   // Part 2 launch flow: winners after opening (no records yet), then each winner's owner-signed delivery record.
   if(command==='launch winners'){requireThat(id,'--id required');const a=read(ledger(id));requireThat(a.state==='OPENED','launch winners after opening, before the clear');return {auction_id:id,winners:launchWinners({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input})}}
   if(command==='launch deliver'){requireThat(id,'--id required');const r=ac('deliver',id,input(o));publish(id);return r}
+  // Part 2 (b): bond-then-pay, after the clear — publish one fresh vault address per bonded winner.
+  if(command==='auction balance-addresses'){requireThat(id,'--id required');const r=ac('balance-addresses',id,input(o));publish(id);return r}
   if(command==='bid prepare'||command==='bid seal') {
     requireThat(o.manifest&&o.signer,'--manifest --signer required');const packet=read(o.manifest),prepared=client(packet,o.signer),m=prepared.manifest;
     if(command==='bid prepare')return prepared;

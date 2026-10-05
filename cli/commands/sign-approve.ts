@@ -69,7 +69,7 @@ export async function run(argv: string[]): Promise<number | object> {
     writeFileSync(candidate, openBlob(readFileSync(sealed), own!), { mode: 0o600 });
 
     // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts).
-    const { expected, payout } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    const { expected, payout, balanceSources } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id)], { encoding: "utf8" }));
     // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
@@ -85,7 +85,9 @@ export async function run(argv: string[]): Promise<number | object> {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
       if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(e.source); mapped.push({ party: e.party, output_index: out.index }); continue; }
       // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing; paid at most once by the ledger).
-      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller"); mapped.push({ party: "seller", output_index: out.index }); continue; }
+      // Part 2 (bond-then-pay): the balance notes backing that payout are sources too, so no second live candidate can
+      // spend them again.
+      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller", ...balanceSources); mapped.push({ party: "seller", output_index: out.index }); continue; }
       throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
     }
     // Ruling R28 item 3 (F2): this host's own approval ledger. A source (deposit note, seller, treasury) already in

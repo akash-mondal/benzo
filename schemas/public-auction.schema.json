@@ -209,6 +209,33 @@
           }
         }
       }
+    },
+    "clear_height": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Part 2 bond-then-pay: the chain tip `clear` observed (the balance window's start)."
+    },
+    "balance_addresses": {
+      "type": "array",
+      "description": "Part 2 bond-then-pay: one fresh vault address per bonded winner, published after the clear.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "leaf_index",
+          "ua"
+        ],
+        "properties": {
+          "leaf_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ua": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     }
   },
   "$defs": {

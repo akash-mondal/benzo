@@ -8,7 +8,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT, STATE, env, DRAND } from "../../e2e/lib/env";
-import { jsonBytes, signRecord } from "../../manifest/schema";
+import { hash, jsonBytes, signRecord } from "../../manifest/schema";
 import { witnessSetHash } from "../../witness";
 import { clearForMode } from "../../clear/registry";
 import { generateOwnerKey, ownerPublic, signStatement } from "../../envelope";
@@ -24,19 +24,54 @@ const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, 
 // A failed drand fetch (one killed a live run) reads as round 0, so the wait simply polls again.
 const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/latest`)).json()).round as number}catch{return 0}};
 
+// Part 2 fixtures. Collection drop: three lot ids (32 bytes, bound by each order). The sealed reserve/max-price
+// plaintext is u64be price || auction_id, tlocked to round R by the pinned Go tle.
+const LOTS = ["a", "b", "c"].map(l => hash(Buffer.from(`benzo-drop-lot-${l}`)));
+const sealReserve = (price: number, id: string, R: number): string => {
+  const pt = Buffer.alloc(40); pt.writeBigUInt64BE(BigInt(price)); Buffer.from(id, "hex").copy(pt, 8);
+  const r = spawnSync(path.join(STATE, "bin/tle"), ["-e", "-f", "-r", String(R), "-c", env("BNZ_DRAND_CHAIN_HASH")], { input: pt, maxBuffer: 1 << 20 });
+  if (r.status !== 0) throw new Error(`tle seal failed: ${(r.stderr ?? Buffer.alloc(0)).toString().trim().slice(-200)}`);
+  return r.stdout.toString("hex").trim();
+};
+
 // Cross-process locks (lock dirs). A lock this process holds is released if its scenario throws.
 const held = new Set<string>();
+// Completed scenarios (the buyback series links round 2 to round 1's result hash).
+const ran: Record<string, { id: string; publicDir: string; signer: string; resultHash: string }> = {};
 async function takeLock(lock: string, staleMs: number) {
   for (;;) { try { mkdirSync(lock); held.add(lock); return; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
 }
 function dropLock(lock: string) { rmSync(lock, { recursive: true, force: true }); held.delete(lock); }
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
-type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number };
-type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
+type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
+type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number; id: string; R: number; series?: SeriesLink };
+type Post = { id: string; signer: string; cold: string; doc: () => any; check: (id: string, pass: boolean, d?: string) => void; at: (a: string) => number; sellerUa: string };
+type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; lots?: string[]; marketplace?: any;
+  // Part 2 collection drop (b): the winners that pay their balance in the window and the defaults the run expects;
+  // part 2 buyback: the serial each winner takes in (one per winner, in leaf order).
+  defaults?: number[]; balancePays?: number[]; intakeSerials?: number[];
+  extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
   // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
   // an outcome assertion (`outcomes`) on that result.
-  expect?: (refunds: string[]) => Record<string, number>; outcomes?: (o: string[]) => boolean };
+  expect?: (refunds: string[]) => Record<string, number>; outcomes?: (o: string[]) => boolean; post?: (h: Post) => Promise<void> | void };
 // Expected receipts are per party in zats (C = 200,000).
+// The collection drop's own assertions beside the shared ones: the plan's published defaults are exactly the
+// scenario's (the payer is never a default), the forfeited bond and the paid balances land at the seller's own
+// destination, and verify replays attachSerials from the published beacon — one flipped serial in the result and
+// its projection turns the cold copy red with the replay's own error, so the assignment is recomputed, never copied.
+const dropPost = async (h: Post) => {
+  h.check("drop-defaults", JSON.stringify(h.doc().settlement?.defaults ?? null) === "[2]", JSON.stringify(h.doc().settlement?.defaults));
+  h.check("drop-seller-landed", h.at(h.sellerUa) === 700_000, String(h.at(h.sellerUa)));
+  const tampered = path.join(OUT, "tamper", h.id);
+  rmSync(tampered, { recursive: true, force: true }); cpSync(h.cold, tampered, { recursive: true });
+  const tdoc = json(path.join(tampered, "auction.json"));
+  tdoc.result.serial_assignment[0].serials[0] ^= 1;
+  writeFileSync(path.join(tampered, "auction.json"), jsonBytes(tdoc));
+  writeFileSync(path.join(tampered, "result.json"), jsonBytes(tdoc.result));
+  const v = spawnSync(benzoBin, ["verify", "--dir", tampered, "--signer", h.signer], { encoding: "utf8" });
+  h.check("drop-serial-replay-enforced", v.status !== 0 && /canonical result differs/.test(v.stdout + v.stderr), `exit ${v.status}`);
+};
+
 const SCENARIOS: Record<string, Scenario> = {
   // Blind OTC, match: buyer bids 1,000, seller asks 600 -> midpoint 800; buyer gets C - 800 back, seller C + 800.
   "otc-match": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ reserve_zats: "0", otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
@@ -68,6 +103,16 @@ const SCENARIOS: Record<string, Scenario> = {
   "revision": { mode: "uniform", owners: ["reviser"], extra: () => ({}),
     bids: o => [{ price: 200, owner: o.reviser }, { price: 250 }, { price: 300, owner: o.reviser }],
     outcomes: o => o[0] === "superseded" && o[2] === "winner" && o[1] !== "winner" },
+  // Collection drop (part 2 §1 row 1): three lots, four bids, a sealed 300,000 reserve, the drand serial shuffle
+  // (seed round R+2) and bond-then-pay (C is the 1,000 bps bond of the 2,000,000 cap). Lot a clears at 500,000
+  // over the 400,000 bid, lot b at 450,000, and lot c's 100,000 bid sits below the sealed reserve (lot unfilled).
+  // Winner leaf 0 pays its 300,000 balance in the window; winner leaf 2 defaults and forfeits its 200,000 bond
+  // to the seller (seller 500,000 + 200,000; the two losing bids get exact C back).
+  "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0],
+    extra: c => ({ B_max_zats: "2000000", bond: { bond_bps: 1000, balance_window_blocks: 10 },
+      serials: { first: 0, count: 8, seed_round_offset: 2 }, sealed_reserve: sealReserve(300_000, c.id, c.R) }),
+    bids: () => [{ price: 500_000, lot: LOTS[0] }, { price: 400_000, lot: LOTS[0] }, { price: 450_000, lot: LOTS[1] }, { price: 100_000, lot: LOTS[2] }],
+    expect: () => ({ "leaf:1": C, "leaf:3": C, seller: 700_000 }), post: dropPost },
 };
 
 // RFQ block: the allowlisted dealers, a budget and cap, three throwaway delivery-attestation signers (not exercised
@@ -76,7 +121,7 @@ function rfqBlock(c: Ctx, dealers: { public_hex: string }[]) {
   const spki = () => generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "der" }).toString("hex");
   return { dealer_keys: dealers.map(d => d.public_hex), max_price_zats: "500", budget_zats: "500", delivery_deadline_height: c.tip + 20000, delivery_signers: [spki(), spki(), spki()], treasury_ua: c.treasuryUa, funding_ua: c.fundingUa };
 }
-async function run(name: string) {
+async function run(name: string, link?: SeriesLink) {
   const sc = SCENARIOS[name]; if (!sc) throw new Error(`unknown scenario ${name}`);
   const log = path.join(OUT, `${name}.out`); writeFileSync(log, "");
   const say = (s: string) => { console.log(`[${name}] ${s}`); writeFileSync(log, readFileSync(log, "utf8") + s + "\n"); };
@@ -94,6 +139,7 @@ async function run(name: string) {
   const refunds = bids.map(() => bidder()), sellerUa = bidder(), treasuryUa = bidder(), fundingUa = addr();
   const privateDir = path.join(STATE, "run", `markets-${id}`), publicDir = path.join(ROOT, "tmp/markets/public", id); mkdirSync(privateDir, { recursive: true });
   writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
+  writeFileSync(path.join(privateDir, "scenario.json"), JSON.stringify({ name, balancePays: sc.balancePays, intakeSerials: sc.intakeSerials, defaults: sc.defaults })); // resume:<id>
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: sc.batch_cap ?? 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
@@ -102,10 +148,12 @@ async function run(name: string) {
   const lock = path.join(STATE, "run", "markets-fund.lock");
   await takeLock(lock, 2_400_000);
   const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
-  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip() }) };
+  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, ...(sc.lots ? { lots: sc.lots } : { lot: `${sc.mode} round` }), supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip(), id, R, series: link }) };
   benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
   const packet = benzo(["auction", "sign", "--id", id]);
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
+  // The buyback's marketplace.json collection is published with the round; the signed manifest's lot label
+  // commits to its exact bytes (adapters/zilkroad.ts re-checks the binding).
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
@@ -145,13 +193,15 @@ async function run(name: string) {
   }
   benzo(["clear", "--id", id]);
   const doc = () => json(path.join(publicDir, "auction.json"));
-  const d = doc(), pure: any = clearForMode({ manifest: d.manifest, signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening ?? null, launch: d.launch_input });
-  check(`${name}-cli-equals-pure-clear`, jsonBytes(d.result.allocations).equals(jsonBytes(pure.allocations)) && jsonBytes(d.result.conservation).equals(jsonBytes(pure.conservation)), `outcomes ${d.result.allocations.map((a: any) => a.outcome).join(",")} price ${d.result.clearing_price_zats}`);
+  const d = doc(), pure: any = clearForMode({ manifest: d.manifest, signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening?.plaintext_hex ?? null, serial_beacon: d.serial_beacon ?? null, launch: d.launch_input });
+  check(`${name}-cli-equals-pure-clear`, jsonBytes(d.result.allocations).equals(jsonBytes(pure.allocations)) && jsonBytes(d.result.conservation).equals(jsonBytes(pure.conservation)) && jsonBytes(d.result.serial_assignment ?? null).equals(jsonBytes(pure.serial_assignment ?? null)), `outcomes ${d.result.allocations.map((a: any) => a.outcome).join(",")} price ${d.result.clearing_price_zats}`);
+  // Part 2: the drop's bond-then-pay flow runs after the clear, before settlement.
+  if (sc.balancePays) await bondFlow(id, sc, d, (manifest as any).bond.balance_window_blocks, vault, say);
   hostEnvelopeOpens(id, publicDir);
   const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
   writeFileSync(path.join(OUT, `${name}-settle.log`), ((settle.stdout || "") + "\n----\n" + (settle.stderr || "")).replace(/\x1b\[[0-9;]*m/g, ""));
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
-  const fin = doc(), owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(fin.manifest).obligations(fin.result, null)].map(([p, v]) => [p, Number(v)]));
+  const fin = doc(), owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(fin.manifest).obligations(fin.result, { defaults: sc.defaults ?? [] })].map(([p, v]) => [p, Number(v)]));
   const want = sc.expect ? sc.expect(refunds) : owed;
   // The plan adds the treasury return beside the mode's obligations; compare the rest.
   const noT = (o: Record<string, number>) => JSON.stringify(Object.entries(o).filter(([p]) => p !== "treasury").sort());
@@ -166,10 +216,32 @@ async function run(name: string) {
   const cold = path.join(OUT, "cold", id); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
   const v = spawnSync(benzoBin, ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
   check(`${name}-cold-verify`, v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
+  if (sc.post) await sc.post({ id, signer, cold, doc, check, at, sellerUa });
   say(ok ? `RESULT PASS ${name}` : `RESULT FAIL ${name}`);
+  ran[name] = { id, publicDir, signer, resultHash: hash(jsonBytes(doc().result)) };
   return ok;
 }
 
+// Part 2 (b), bond-then-pay: after the clear the operator publishes one fresh vault address per bonded winner
+// (`benzo auction balance-addresses`); the scenario's payers send their balance_due there from the bidder wallet and
+// the harness waits out the balance window (settlement waits too — the plan derives the defaults only past
+// clear_height + balance_window_blocks, and every host re-derives them from its own scan).
+async function bondFlow(id: string, sc: Pick<Scenario, "balancePays">, d: any, window: number, vault: string, say: (s: string) => void) {
+  const bal = d.result.allocations.filter((a: any) => a.fill > 0).map((a: any) => ({ leaf_index: a.leaf_index, ua: fresh(vault) }));
+  benzo(["auction", "balance-addresses", "--id", id], bal);
+  say(`balance addresses ${bal.map((b: any) => `${b.leaf_index}:${b.ua.slice(0, 16)}…`).join(" ")}`);
+  for (const leaf of sc.balancePays ?? []) {
+    const a = d.result.allocations.find((x: any) => x.leaf_index === leaf);
+    const ua = bal.find((e: any) => e.leaf_index === leaf)!.ua;
+    say(`balance paid ${a.balance_due_zats} for leaf ${leaf} (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
+  }
+  const end = d.clear_height + window;
+  for (let i = 0; z.tip() <= end; ) {
+    if (++i > 120) throw new Error("balance window did not pass");
+    await sleep(30_000);
+  }
+  say(`balance window closed at height ${z.tip()} (clear ${d.clear_height} + ${window})`);
+}
 // `resume:<id>`: finish an existing frozen product auction whose run stopped (certificates, open, clear, envelope-opens,
 // settle — whichever is still missing), then check receipts against the registry's obligations and cold-verify.
 async function resume(id: string) {
@@ -179,6 +251,7 @@ async function resume(id: string) {
   say(`state ${stateOf()}`);
   // Stopped after funding, before admission: admit the kept sealed bids, then freeze (both before T_freeze).
   const priv = path.join(STATE, "run", `markets-${id}`);
+  const scen = existsSync(path.join(priv, "scenario.json")) ? json(path.join(priv, "scenario.json")) : null;
   if (stateOf() === "OPEN" && existsSync(path.join(priv, "sealed.json")) && existsSync(path.join(priv, "funding.json"))) {
     const txid = json(path.join(priv, "funding.json")).txid;
     for (const b of json(path.join(priv, "sealed.json"))) { try { benzo(["bid", "deposit", "--id", id], { txid, address: b.address, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex }); } catch (e) { say(`WARN admit: ${String((e as Error).message).slice(-120)}`); } }
@@ -189,10 +262,13 @@ async function resume(id: string) {
   while ((await latestRound()) < m.drand.R) await sleep(10_000);
   if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
   if (stateOf() === "OPENED") benzo(["clear", "--id", id]);
+  // The dropped run's own scenario steps (balance addresses + payments) when still missing.
+  const d0 = doc();
+  if (scen?.balancePays && !d0.balance_addresses) await bondFlow(id, scen, d0, (m as any).bond.balance_window_blocks, path.join(STATE, "vaults", id, "wallet"), say);
   hostEnvelopeOpens(id, publicDir);
   const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
-  const owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(doc().manifest).obligations(doc().result, null)].map(([p, v]) => [p, Number(v)]));
+  const owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(doc().manifest).obligations(doc().result, { defaults: scen?.defaults ?? [] })].map(([p, v]) => [p, Number(v)]));
   const ok = settle.status === 0 && Object.entries(owed).every(([p, v]) => receipts[p] === v);
   say(`settle exit ${settle.status}; receipts ${JSON.stringify(receipts)}; obligations ${JSON.stringify(owed)}`);
   const v = spawnSync(benzoBin, ["verify", "--dir", publicDir, "--signer", signer], { encoding: "utf8" });
