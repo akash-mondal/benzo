@@ -2,6 +2,19 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-05T12:30Z): R28 done and proven live.** Both part 1 milestone reviews (Reviewer G and an independent subagent) found four P0 host-custody holes. All are fixed under Ruling R28, and every attack is refused live for its intended reason (`docs/evidence/phase-5/r28-live/`):
+- W3: disguised change;
+- W4: foreign-signed manifest;
+- W5: stripped frozen root;
+- W6: replay of a mined row.
+
+Proof the honest paths still work:
+- the buyback spec passes 13 of 14 IDs; W6's in-spec funding race is fixed, and W6 also passed standalone;
+- Y2 (uniform, host custody, seller row) passes;
+- the live regression is fully GREEN, 13/13 (`live-regression-r28-green`).
+
+Open P2s for the builders: G-4 (receipt attribution), G-5 (an underivable row deadlocks its batch), mainnet testnet literals (G-7).
+
 **Head line (2026-10-04T23:55Z): Phase 5 part 1 is DONE live, with its milestone review by Reviewer G in progress.**
 - Testnet moved to NU7 (4,465,026) mid-session. Ruling R27 adds the `tools/nu7` backport; `BNZ_LWD_SINGLE=1` covers the time while one public NU7 endpoint serves.
 - On NU7:
