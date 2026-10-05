@@ -11,7 +11,7 @@ import { ROOT, STATE, env, DRAND } from "../../e2e/lib/env";
 import { jsonBytes, signRecord } from "../../manifest/schema";
 import { witnessSetHash } from "../../witness";
 import { clearForMode } from "../../clear/registry";
-import { generateOwnerKey } from "../../envelope";
+import { generateOwnerKey, ownerPublic, signStatement } from "../../envelope";
 import { benzoBin, dkgOnHosts, hostEnvelopeKeys, hostEnvelopeOpens, hostWitnessCerts, hostWitnessKeys, sh } from "../../e2e/lib/hosts";
 import * as z from "../../e2e/lib/zcash";
 
@@ -119,7 +119,19 @@ async function run(name: string) {
   benzo(["freeze", "--id", id]);
   hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
   while ((await latestRound()) < R) await sleep(10_000);
-  benzo(["open", "--id", id]); benzo(["clear", "--id", id]);
+  benzo(["open", "--id", id]);
+  // Launch: the winners each sign fresh token-chain destinations (one per lot) with their bid's own owner key (kept by
+  // `bid seal` under state/bids), recorded with `launch deliver` before the clear.
+  if (sc.mode === "launch") {
+    const frozenLeaves = json(path.join(publicDir, "auction.json")).frozen.leaves;
+    for (const w of benzo(["launch", "winners", "--id", id]).winners) {
+      const ownerHex = json(path.join(STATE, "bids", id, `${frozenLeaves[w.leaf_index].ciphertext_hash}.json`)).owner_private_hex;
+      const destinations = Array.from({ length: w.lots }, () => `token-chain:${randomBytes(20).toString("hex")}`);
+      const owner = { private_hex: ownerHex, public_hex: ownerPublic(ownerHex) };
+      benzo(["launch", "deliver", "--id", id], { leaf_index: w.leaf_index, destinations, signature: signStatement(owner, { auction_id: id, leaf_index: w.leaf_index, destinations }) });
+    }
+  }
+  benzo(["clear", "--id", id]);
   const doc = () => json(path.join(publicDir, "auction.json"));
   const d = doc(), pure: any = clearForMode({ manifest: d.manifest, signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening ?? null });
   check(`${name}-cli-equals-pure-clear`, jsonBytes(d.result.allocations).equals(jsonBytes(pure.allocations)) && jsonBytes(d.result.conservation).equals(jsonBytes(pure.conservation)), `outcomes ${d.result.allocations.map((a: any) => a.outcome).join(",")} price ${d.result.clearing_price_zats}`);
