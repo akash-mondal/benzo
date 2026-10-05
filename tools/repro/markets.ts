@@ -21,7 +21,8 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const json = (p: string) => JSON.parse(readFileSync(p, "utf8"));
 const pczt = path.join(ROOT, "settle/target/release/benzo-pczt"), fresh = (w: string) => sh(pczt, ["address", w]).split("\n").at(-1)!;
 const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, input === undefined ? undefined : JSON.stringify(input)); return out.startsWith("{") || out.startsWith("[") ? JSON.parse(out.split("\n").filter(l => l.startsWith("{") || l.startsWith("[")).at(-1)!) : out; };
-const latestRound = async () => (await (await fetch(`${DRAND}/public/latest`)).json()).round as number;
+// A failed drand fetch (one killed a live run) reads as round 0, so the wait simply polls again.
+const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/latest`)).json()).round as number}catch{return 0}};
 
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean };
 type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number };
