@@ -69,7 +69,7 @@ const SCENARIOS: Record<string, Scenario> = {
 // here), a delivery deadline past the round, and the buyer's signed treasury return and funding addresses.
 function rfqBlock(c: Ctx, dealers: { public_hex: string }[]) {
   const spki = () => generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "der" }).toString("hex");
-  return { dealer_keys: dealers.map(d => d.public_hex), max_price_zats: "1000", budget_zats: "500", delivery_deadline_height: c.tip + 20000, delivery_signers: [spki(), spki(), spki()], treasury_ua: c.treasuryUa, funding_ua: c.fundingUa };
+  return { dealer_keys: dealers.map(d => d.public_hex), max_price_zats: "500", budget_zats: "500", delivery_deadline_height: c.tip + 20000, delivery_signers: [spki(), spki(), spki()], treasury_ua: c.treasuryUa, funding_ua: c.fundingUa };
 }
 async function run(name: string) {
   const sc = SCENARIOS[name]; if (!sc) throw new Error(`unknown scenario ${name}`);
