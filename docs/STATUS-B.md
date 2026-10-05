@@ -36,7 +36,57 @@ deleted or moved (the head rules on the marks first).
    `.patch`es re-pointed as red proofs); (3) RETIRE 8 superseded/covered one-shots with evidence staying
    committed. End state: 8 tests + 14 named evidence drivers + 2 ops tools + 1 corpus.
 
-**Items 2–3 in progress.**
+**Item 2 — public-repo hygiene (Phase 6 Track B item 5): DONE with proof.**
+`docs/evidence/phase-6/repo-hygiene.md` (`9f24a41`) — checklist, one command + result per line:
+
+1. **LICENSE — was FAIL, fixed** (`9f24a41`): no LICENSE existed and `package.json` had no `license`
+   field. Added `LICENSE` (MIT, `Copyright (c) 2026 Akash Mondal` from the repo's git identity) + `"license":
+   "MIT"`. **Question below: license choice + holder need head/user confirmation.** The shipped tarball does
+   not include LICENSE yet (adding it changes the recorded digests) — noted for the next packaging refresh.
+2. **`.env.example` only, all documented — PASS** (one comment fix): tracked `.env` files = `.env.example`
+   alone; every variable carries its provider | required/optional comment; name-level diff vs the real `.env`
+   shows no undocumented variable (values never printed). Two `/Users/…` setup-comment paths neutralized
+   (`your home volume`, `"$HOME/Dev Projects/benzo"`).
+3. **`.gitignore` — PASS + hardening**: `.benzo/`, `tmp/`, `vendor/nu7/`, `*.sqlite*`, `.env*` were already
+   covered; added an explicit keys block (`*.pem *.key *.agekey *.mnemonic ufvk.txt`).
+   `git ls-files -ci --exclude-standard` empty (nothing tracked becomes ignored).
+4. **No secrets in history — PASS (re-run)**: run-31 range `7c235d6..5475c60` (331 rows classified) cited;
+   `npm run leak-audit --git` re-run covers every blob of every commit (subsumes the 38 commits since
+   `5475c60`): **353 rows, 0 gone, 22 new — all classified** (20 × public `leaves[].deposit.address` in the
+   A14 buyback evidence at `05f97b8`, class C; 2 × age-armor = the bundled age codec's header/footer string
+   literals in `dist/benzo-verify.mjs` at `9634882`/`a1f9d90`, class G code constant). Record:
+   `docs/evidence/phase-6/leak-findings-2026-10-06.json` (`096c62e`, tool stdout unedited; sha256-of-value
+   rows only).
+5. **Pinned lockfiles — PASS**: root `package-lock.json` + `settle/`/`scan/`/`contracts/solana(+test/proxy)`
+   `Cargo.lock` + `contracts/evm/package-lock.json` + `tools/pins.env`; dependency scan `unpinned: []`;
+   `npm ci` clean this session.
+6. **Absolute local paths outside evidence — 2 fixed, 14 listed** (`git grep -l '/Users/' -- ':!docs/evidence'`
+   = 16 files): fixed mine — `docs/STATUS-B.md` (14 × `~/Dev Projects/`) and `.env.example`; listed
+   untouched: `deploy/signers/up.sh`, 9 × `contracts/logs/*.out`, `docs/PHASE-5.md` (head),
+   `docs/research/organizer-forensics.{jsonl,md}` (read-only), `tools/repro/g-forged-claim.mjs` (Track A's
+   `source:` provenance line — head/A should sanitize).
+
+Commits: `9f24a41` (fixes + checklist), `096c62e` (leak-run evidence).
+
+**Item 3 — README refresh (gate DOC): in progress.**
+
+### Questions (run 33)
+
+1. **LICENSE choice needs confirmation (item 2).** The phase doc's hygiene line requires a license; no Ruling
+   names one. I chose **MIT**, `Copyright (c) 2026 Akash Mondal` (the repo's git identity) and made
+   `package.json` say `"license": "MIT"`. Confirm, or rule a different license/holder and I will swap both.
+   Separately: `npm run package`'s tarball does not ship `LICENSE` yet (adding it changes the recorded
+   digests) — fold into the next packaging refresh?
+2. **Repro consolidation proposal (item 1) awaits your ruling before anything is deleted or moved.**
+   `docs/evidence/phase-6/test-audit.md` §(b): 47 of 50 `tools/repro/` files are tests by the AGENTS.md
+   definition (54 committed tests vs the ceiling of 8). Proposal: (1) a Ruling names 14 gate evidence
+   drivers/harnesses as "evidence runs, not specs" (extending PHASE-6 §3's bench/leak-audit wording);
+   (2) fold 25 scripts into their owners (`batching-equal.ts` → the bench batch-plan stage; 24 one-shot
+   fix repros → `cli-auction.spec.ts`/`auction-core.spec.ts` as Ruling-added assertion IDs);
+   (3) RETIRE 8 superseded/covered one-shots, evidence staying committed.
+3. **`tools/repro/g-forged-claim.mjs` carries a `/Users/…` path (its `source:` provenance line).** It is
+   Track A's file and B33 fixes only docs/tooling B owns; head or Builder A should replace the prefix with
+   `~/Dev Projects/` (repo-hygiene.md line 6 lists it).
 
 ## Previous run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
 
