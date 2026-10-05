@@ -1,0 +1,27 @@
+utc 2026-10-05T20:50:15Z
+source /Users/akshmnd/Dev Projects/benzo-b @ 9aee17e (track-b)
+toolchain node v24.15.0 npm 12.0.2
+toolchain tar bsdtar 3.5.3 - libarchive 3.7.4 zlib/1.2.12 liblzma/5.4.3 bz2lib/1.0.8  / gzip Apple gzip 475
+$ git clone --branch track-b <repo> /tmp/benzo-rebuild
+clone ok
+clone HEAD 9aee17e clean=0
+$ npm ci --offline
+npm ci --offline ok (npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.)
+$ npm run build:verify
+build:verify ok
+$ shasum -a 256 dist/benzo-verify.mjs
+fc735f3c5c92580b8c214e4e36fc0fae8f532a8f3dc320380b3a2737aa2be092  dist/benzo-verify.mjs
+$ shasum -a 256 -c docs/verify-bundle.sha256
+dist/benzo-verify.mjs: OK
+OK rebuild.benzo-verify fc735f3c5c92580b8c214e4e36fc0fae8f532a8f3dc320380b3a2737aa2be092
+$ npm run package
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"7f3e08aef6a6e2f8f1c47eefe6b54d1c1a2a0a50fd591c27ec5ae3948b4d38e6","bytes":29706538,"files":18322,"production_packages":112}
+$ shasum -a 256 dist/benzo-0.1.0.tgz
+7f3e08aef6a6e2f8f1c47eefe6b54d1c1a2a0a50fd591c27ec5ae3948b4d38e6  dist/benzo-0.1.0.tgz
+OK rebuild.benzo-npm-package 7f3e08aef6a6e2f8f1c47eefe6b54d1c1a2a0a50fd591c27ec5ae3948b4d38e6
+$ npm run package:bidder
+{"tarball":"dist/benzo-bidder-0.1.0.tgz","sha256":"fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6","bytes":80859,"files":2}
+$ shasum -a 256 dist/benzo-bidder-0.1.0.tgz
+fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6  dist/benzo-bidder-0.1.0.tgz
+OK rebuild.benzo-bidder fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6
+PASS fresh-clone rebuild matches all three expected sha256

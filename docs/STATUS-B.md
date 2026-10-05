@@ -3,7 +3,151 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (31): Phase 6 Track B offline batch — bench batch-plan + projection (SC offline), leak re-run (LA), evidence index (DOC/RG prep)
+## Current run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
+
+Task (this session's head message): `track-b` fast-forwarded to main at `1bbb849` (B31 merged); `npm ci` +
+all `npm run build:*` green (`build:seal/core/settle/cli/verify`; `npm run check:bundle` OK, bundle
+`fc735f3c…`); then four items in order, one commit per item with proof. **Offline only except drand
+quicknet reads for item 2.** No OrbStack/VM/orb/frostd :2744/testnet spends/`tools/repro/markets.ts`/live
+specs, no mainnet, no frontend (`seal/src`, `seal/index.html` untouched), no pin changes. Track A files
+untouched: `settle/{ledger,plan,cli,sign}.ts`, `cli/{product,host-derive}.ts`, `tools/repro/markets.ts`.
+
+**Item 1 — API reference for the UI (gate DOC): DONE with proof.**
+
+- `docs/api-reference.md` (`f5a022a`): every route of `benzo api serve` and `node api/dist/server.mjs`
+  (`/auction/:auction_id`, `/operator`, `/freeze`, `/result`, `/allocation`, `/receipt/:ciphertext_hash`),
+  the states each answers in and its 409/400/404/405 bodies, every response field typed and explained
+  from the code with `file:line`, the trust layers (signed manifest, `--signer` anchor R20b,
+  `benzo verify`'s opening re-derivation), what a UI must never trust without `benzo verify`, and the
+  privacy section: no route returns bid plaintext (ever — `opened`/`claims`/`envelopes` have no route,
+  `api/server.ts:32-86`); no route returns any Zcash refund/payout destination (settlement receipts are
+  exactly the six T2 fields, `api/public-auction.ts:26,225,502`; `receipt.inclusion.deposit.address` is
+  the public escrow deposit address); the launch `/allocation` token-chain delivery rows are documented
+  as the one destination-bearing output by design (R34 item 1). Each response's key set is a
+  `<!-- shape: … -->` block — the machine-checked contract.
+- `tools/repro/api-reference-check.ts` (`f5a022a`): builds `api/dist/server.mjs` from the working tree
+  (`node cli/build.mjs`), serves the committed published auction dir
+  `docs/evidence/phase-5/markets/launch/cold-f1170469` (plus pre-result and mid-flight-broken copies of
+  the same document in `tmp/` for the 409/400 bodies), requests every documented route and case, and
+  asserts each response's key set against the doc's shape blocks; also the startup contract
+  (`--signer` mismatch → exit 1; missing `--dir` → exit 2).
+- Proof: `docs/evidence/phase-6/repro/api-reference.out` — **PASS api-reference 11 documented shapes**
+  (16 requests + 2 startup cases), run at `f5a022a`, 2026-10-05T20:12Z, exit 0. **Mutation B32-a**
+  (`mutations/B32-a.patch`: drop `leaf_count` from the `/auction/:auction_id` response) →
+  `ERROR shape.auction … missing key leaf_count`, exit 1, tree clean after `git apply -R`
+  (`mutations/B32-a.out`).
+- Command: `npx esbuild tools/repro/api-reference-check.ts --bundle --platform=node --format=esm
+  --outfile=tmp/api-reference-check.mjs && node tmp/api-reference-check.mjs`.
+- Commits: `f5a022a` (doc + check tool), `7d06f55` (evidence). `npm run typecheck` green at `f5a022a`.
+
+**Item 2 — bidder bundle (gate PK): DONE with proof.**
+
+- `npm run package:bidder` (`tools/package-bidder.mjs`, `979ca65`): builds `seal/dist` from the tree and
+  writes `dist/benzo-bidder-0.1.0.tgz` + its sha256 sidecar — **packaging only**, `seal/src` and
+  `seal/index.html` untouched. Byte-for-byte reproducible via `tools/deterministic-tar.mjs` (ustar,
+  sorted file list, fixed mtime 2026-01-01, modes normalized 644/755, uid/gid 0, `gzip -n`; pax was
+  rejected after a test showed its atime records break determinism). Contents: `index.html` +
+  `main.js`, 80,859 bytes.
+- **Two builds identical:** sha256 `fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6`
+  from both builds, recorded in `docs/evidence/phase-6/pk-bidder.out` (`OK build-1`, `OK build-2`,
+  `OK build-identical`; sidecar re-checked against the tarball bytes).
+- **Clean-machine proof** (`tools/repro/bidder-bundle-proof.ts` + `bidder-bundle-driver.mjs`, run at
+  `979ca65`, 2026-10-05T20:26Z, exit 0): in `/tmp/benzo-bidder-proof` with `HOME` pointed at an empty
+  dir and the driver environment cut to `PATH` + `BR_*` (no `NODE_PATH`, no checkout `node_modules` —
+  the driver is node builtins only), it (1) extracted the tarball (2 entries), (2) served it with the
+  e2e's own `node:http` static-server pattern (see Questions for the "pinned static server" wording),
+  (3) drove the page headless with the same Playwright Chromium the e2e uses (pinned
+  `@playwright/test 1.63.0` → `chromium_headless_shell-1243`, resolved via `playwright-core`'s
+  `launchServer().process().spawnfile`) over the DevTools protocol — filling the form with values from
+  the committed signed manifest `docs/evidence/phase-5/markets/launch/cold-f1170469/manifest.json`
+  (auction id, C, escrow deposit address) plus chosen price/quantity/nonce/owner/commitment — and
+  (4) after quicknet round 32809545 (5 rounds ahead, waited by polling `…/public/<R>`), opened the
+  ciphertext with pinned `$BNZ_STATE_DIR/bin/tle` and asserted the 128-byte plaintext equals the
+  inputs chosen, byte for byte. Also asserted: page sealed to exactly round R; the tlock stanza is
+  `-> tlock 32809545 <quicknet chain>`; only 2 requests, both to the static origin (no network while
+  sealing); `tle` refuses before R (`too early to decrypt`).
+- Command: `npx esbuild tools/repro/bidder-bundle-proof.ts --bundle --packages=external --platform=node
+  --format=esm --outfile=tmp/bidder-bundle-proof.mjs && node tmp/bidder-bundle-proof.mjs`.
+- Commits: `979ca65` (packaging + proof drivers), `ee5022b` (evidence `pk-bidder.out`).
+
+**Item 3 — reproducible-build notes (gate PK): DONE with proof.**
+
+- `docs/reproducible-build.md` (`1159c80`, digest updates `64546a1`/`9aee17e`): the exact pinned
+  toolchain (Node v24.15.0 / npm 12.0.2 / bsdtar 3.5.3 / Apple gzip 475 / esbuild 0.28.2 /
+  typescript 5.9.3 / `@playwright/test` 1.63.0 → `chromium_headless_shell-1243` / tlock-js 0.9.0,
+  everything else from `package-lock.json`, plus the `tools/pins.env` table), the commands that
+  rebuild `dist/benzo-verify.mjs`, the npm package and the bidder bundle **byte-for-byte**, and the
+  expected sha256 values: `fc735f3c…` / `7f3e08aef6a6e2f8f1c47eefe6b54d1c1a2a0a50fd591c27ec5ae3948b4d38e6` /
+  `fa54df28…`. The fresh-clone transcript is `docs/evidence/phase-6/pk-rebuild.out` — **PASS, all
+  three digests match** (clone of `track-b` at `9aee17e` into `/tmp/benzo-rebuild`, `npm ci --offline`,
+  then the three build commands).
+- Making "the npm package byte-for-byte" true required two packager fixes and one startup fix, each
+  found by the fresh-clone run and each recorded in `docs/reproducible-build.md` §4–5:
+  1. `tools/package.mjs` now packs through `tools/deterministic-tar.mjs` (ustar — pax records atime
+     and is not byte-stable; sorted file list; fixed mtime incl. symlinks via `lutimesSync`; modes
+     normalized 644/755; uid/gid 0; `gzip -n`).
+  2. `node_modules/**/.bin/*` symlinks: one (`rpc-websockets/node_modules/.bin/uuid`) was an
+     **absolute** link into the builder's checkout — it broke byte-for-byte rebuilds and would dangle
+     for any stranger. `tarGz({linkRoot})` rewrites such links to archive-relative targets.
+  3. `npm run package` must `build:seal` first (`seal/dist` is gitignored; the extract needs it).
+  4. **Packaged-CLI startup:** the router imports every command at startup and
+     `cli/commands/auction-keys.ts` eagerly imported `settle/io`, which resolves `BNZ_STATE_DIR` at
+     import time (`settle/io.ts:8`) — so `bin/benzo --help` and every read path died in any extract
+     or checkout without `.env` (`ERROR benzo The "paths[1]" argument must be of type string`).
+     Fixed by importing `settle/io` inside `run()` (the `bid-seal.ts` pattern). **Flagged under
+     Questions — one line in a Track-A-flavoured file (`cli/commands/auction-keys.ts`), not on the
+     batch's banned list.**
+- Regenerated (old values superseded, still in git history): `pk-package.out` / `pk-package.sha256`
+  (tarball was `856fae26…` under the old `tar czf`) and `pk-package-verify.out` — the clean `/tmp`
+  extract at `9aee17e` now starts with no `.env`, runs `bin/benzo verify` on the shipped Phase 4
+  evidence **offline**, all checks OK, exit 0.
+- Command: `bash tmp/rebuild-proof.sh > docs/evidence/phase-6/pk-rebuild.out` (scratch driver in
+  `tmp/`, gitignored); package evidence captured with `npm run package` + `tar -tzf` + the clean
+  extract transcript.
+- Commits: `1159c80` (deterministic packager + notes), `4f9c442` (build:seal fix), `64546a1`
+  (absolute-symlink rewrite), `9aee17e` (auction-keys startup fix + final digests), `7bb5021`
+  (evidence).
+
+**Item 4 — EVIDENCE.md PK/DOC rows: DONE.** `docs/evidence/phase-6/EVIDENCE.md` (`9954f5e`):
+**PK → READY FOR REVIEW except one OPEN item** (a stranger's clean-machine run recorded end to end);
+evidence cells cite `pk-package.{out,sha256}` (`7f3e08ae…`), `pk-package-verify.out`, `pk-bidder.out`
+(`fa54df28…` + clean-machine seal-open), `pk-rebuild.out` (all three digests from a fresh clone),
+`docs/reproducible-build.md`. **DOC → partial, API reference done** (`docs/api-reference.md` +
+`repro/api-reference.out` + `mutations/B32-a.*`); OPEN items stay OPEN: the head's literal
+clean-checkout walkthrough of each guide, and gate H's honest-limits update.
+
+**Batch B32 complete.** All four items delivered with proof, offline except the drand quicknet reads
+item 2 needs. No OrbStack/VM/orb/frostd/testnet-spend/market-spec activity, no mainnet, no frontend
+(`seal/src`, `seal/index.html` untouched), no pin changes, no Track A banned file edited (one
+non-banned `cli/commands/auction-keys.ts` line moved — see Questions). Regression: `npm run e2e`
+**PASSED** (seal-open, 40 s, `tmp/e2e/report.json` at 2026-10-05T20:54Z) and `npm run typecheck` green at `9aee17e`; the later
+commits touch only `docs/`. Commit map (run 32): `f5a022a` doc+check · `7d06f55` evidence ·
+`eb6400f` STATUS · `979ca65` package:bidder+proof · `ee5022b` evidence · `830aa18` STATUS ·
+`1159c80` deterministic packager+notes · `4f9c442` build:seal fix · `64546a1` symlink fix ·
+`9aee17e` auction-keys fix · `7bb5021` evidence · `9954f5e` evidence (EVIDENCE.md).
+
+### Questions (run 32)
+
+- **Q1–Q2 CLOSED by R34 (head, `c4caa11`, in PHASE-6.md).** (1) The API-reference privacy wording
+  keeps the narrower claim — no route returns bid plaintext before R, no route returns any **Zcash**
+  refund or payout destination — and names `GET /allocation`'s token-chain rows as the one
+  destination-bearing output by design; `docs/api-reference.md` §4 updated accordingly. (2) The
+  launch delivery row order is fixed on Track A after A15 (rows sorted canonically by destination
+  bytes, allocation root over that order, `benzo verify` replaying the sort); my reference then
+  documents the sorted order (noted in §4 meanwhile).
+- **`cli/commands/auction-keys.ts` edit (item 3) — please confirm.** The clean-extract proof showed
+  its eager `settle/io` import (which resolves `BNZ_STATE_DIR` at import time) killed the whole
+  packaged CLI outside a checkout. I deferred the import into `run()` (the `bid-seal.ts` pattern) —
+  a two-line change in a file that is not on the batch's banned list but reads like Track A's launch
+  lane. Revert or re-home it if Track A wants it done differently; without it gate PK's "stranger
+  runs `benzo verify` from outside any checkout" claim fails.
+- **"A static file server you already have pinned" (item 2) — what I used.** No static file server is
+  pinned in `tools/pins.env` or the lockfile (esbuild's `--servedir` would be one, but its binary lives
+  in `node_modules`, which the proof environment is denied). I served the extracted bundle with the
+  project's own static-server pattern (`e2e/lib/sealer.ts`, `node:http`, zero dependencies) inside the
+  driver. Say the word if you meant a specific tool and I'll switch the proof to it.
+
+## Previous run (31): Phase 6 Track B offline batch — bench batch-plan + projection (SC offline), leak re-run (LA), evidence index (DOC/RG prep)
 
 Task (this session's head message): `track-b` fast-forwarded to main at `6e5cc7b` (B30 batch merged);
 `npm ci` + all `npm run build:*` + `npm run check:bundle` green there before new work; then three items in
@@ -2445,10 +2589,24 @@ Default verify re-derives every opening with `$BNZ_STATE_DIR/bin/tle -d` against
 
 None open otherwise. The prior entries are closed by R21: **Q1** dropped (item 3 — only the user's own words are recorded as user instructions; the entry had quoted a head prompt), **Q2** budget ~626 lines accepted (item 4), **Q3** load shapes ruled (item 5: `verify` keeps requiring `frozen`/`result`; the read API is lifecycle-safe — done in cad928d), **Q4** `operator view --dir PUBLIC` accepted (item 6).
 
+Open questions live in the current run's section (run 32: the `/allocation` privacy wording and the
+launch delivery row order).
+
 ## Test audit (R11: Track B adds none)
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
 
 ## Last session
+- **Window:** 2026-10-05T19:40Z–20:58Z (run 32, batch B32, complete).
+- **Outcome:** all four items DONE with proof — API reference + drift check PASS 11 shapes at
+  `f5a022a` (mutation B32-a red at `7d06f55`); bidder bundle `fa54df28…` two identical builds +
+  clean-machine seal-open proof PASS (`979ca65`/`ee5022b`); reproducible-build notes + fresh-clone
+  rebuild PASS all three digests (`9aee17e`/`7bb5021`), with three real bugs found and fixed along
+  the way (unbuilt `seal/dist`, an absolute `.bin` symlink leaking the builder's path, and the
+  packaged CLI dying at startup without `.env`); EVIDENCE.md PK/DOC rows refreshed (`9954f5e`).
+  `npm run e2e` PASSED; nothing owed but the OPEN items the batch names (stranger's run, head's
+  walkthrough) and the Questions above.
+
+## Previous session (run 31)
 - **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
 - **Outcome:** All three offline items delivered with proof. (1) `settle/batching.ts` (`planBatches`,
   SQLite byte order) + `tools/repro/batching-equal.ts` equivalence against a real `Ledger` (PASS

@@ -1,11 +1,14 @@
-utc 2026-10-03T16:47:32Z
-commit e0ecb63 tree with the item-4 packaging changes; tarball sha256 856fae26c44b7466db2690567c5e794f22551c93ffc6da86c7dc25b47f7098df (docs/evidence/phase-6/pk-package.sha256)
+utc 2026-10-05T20:51:20Z
+commit 9aee17e tree (run 32 item 3); tarball sha256 7f3e08aef6a6e2f8f1c47eefe6b54d1c1a2a0a50fd591c27ec5ae3948b4d38e6 (docs/evidence/phase-6/pk-package.sha256)
 clean extract in /tmp, offline (no --fetch-beacon), the shipped Phase 4 evidence copied in as the published auction directory:
 $ rm -rf /tmp/benzo-pk-run && mkdir -p /tmp/benzo-pk-run && tar -xzf dist/benzo-0.1.0.tgz -C /tmp/benzo-pk-run
 $ cp -R docs/evidence/phase-4/cli /tmp/benzo-pk-run/benzo-0.1.0/auction
 $ cd /tmp/benzo-pk-run/benzo-0.1.0 && shasum -a 256 dist/benzo-verify.mjs
-63d50137d24f9f0bfa7f56da4e447ec7944c4e4ee6878fb2cf9bdc98103162cc  dist/benzo-verify.mjs
-$ ./bin/benzo verify --dir auction --signer 302a…b7891
+fc735f3c5c92580b8c214e4e36fc0fae8f532a8f3dc320380b3a2737aa2be092  dist/benzo-verify.mjs
+$ ./bin/benzo --help | head -2   (the router starts with no .env and no state dir)
+benzo api serve --dir <public-auction-dir> [--host 127.0.0.1] [--port 8787] [--signer <ed25519-spki-der-hex>]
+benzo auction balance-addresses --id ID [--file FILE] — part 2 bond-then-pay, after the clear: publish one fresh vault address per bonded winner ({leaf_index, ua}[])
+$ ./bin/benzo verify --dir auction --signer 302a…7891
 OK projection
 OK missing-deposits
 OK delivery
@@ -19,5 +22,6 @@ OK clear
 OK envelope
 OK claims
 OK accounting
+OK balances
 OK accounting-strays
 exit=0
