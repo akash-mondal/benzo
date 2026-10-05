@@ -7,7 +7,6 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import path from "node:path";
 import { requireThat } from "../../manifest/schema";
 import { isUnifiedOn } from "../../envelope/destination";
-import { ROOT, STATE, bin, env, run as execute } from "../../settle/io";
 
 export const noun = "auction", verb = "keys";
 export const help = "benzo auction keys --id AUCTION_ID --group-keys KEY,KEY,KEY [--ufvk FILE (signer hosts: the operator's UFVK)] — check the three signers' DKG group keys agree and are fresh, derive the escrow UFVK, create the view-only vault state/vaults/<id>/, print {group_key, escrow_ua}";
@@ -19,6 +18,9 @@ export async function run(argv: string[]): Promise<number | object> {
     o[argv[i].slice(2)] = argv[i + 1];
   }
   try {
+    // settle/io resolves BNZ_STATE_DIR at import time; import it here so the packaged read paths
+    // (verify, receipt, operator, api) start without any state dir or .env (gate PK, run 32).
+    const { ROOT, STATE, bin, env, run: execute } = await import("../../settle/io");
     requireThat(/^[0-9a-f]{64}$/.test(o.id ?? ""), "auction id");
     const reported = (o["group-keys"] ?? "").split(",");
     requireThat(reported.length === 3 && reported.every(k => /^[0-9a-f]{64}$/.test(k)), "three 64-hex group keys");
