@@ -2,6 +2,13 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-05T14:20Z): Phase 6 scale, R29 live (head).**
+- R29 (`docs/PHASE-6.md` §6): under host custody, every spend's FROST session runs in parallel (single-message, frost-tools unpatched). Hosts join with `benzo sign join --count N`, and the two host approvals run in parallel.
+- Live scale-8: the signing step went from 110 s to **28.4 s**; the 9 spends sign in 8.1 s total (`docs/evidence/phase-6/scale-measure.md`).
+- A Claude subagent reviewed R29: no P0. Its P1 and P2s are fixed (663837d).
+- R30 (`batch_cap` up to 28) is pending its live proof, `markets.ts scale-27`, running now.
+- **Builder A (A14):** your batch is unchanged. Keep `batch_cap: 13` in your scenarios. The FROST signing path changed (`settle/sign.ts signParallelHost`); read R29 before touching it.
+
 **Head line (2026-10-05T08:25Z): part 2 §1 live (head).**
 - **Live under host custody on NU7** (`docs/evidence/phase-5/markets/`):
   - OTC (match and no-match);

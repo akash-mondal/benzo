@@ -33,4 +33,6 @@ Run: `tools/repro/markets.ts scale-8`, auction 95cdfb41…, the same shape (8 bi
 | FROST signing, all 9 spends | 74.8 s (9 × 8.1 s, serial) | **8.2 s** (9 sessions in parallel) |
 | Whole signing step | 110.2 s | **50.0 s** |
 
+**Parallel host approvals + review fixes (663837d), auction 6efcd40f…** (finished by `resume:` after a local DNS outage broke `benzo open`; `RESULT PASS`, verify exit 0; raw `scale/scale-8-r29b-timing.jsonl`, `scale/scale-8-r29b.log`): host build 23.0 s, approvals 17.1 s ‖ 20.0 s in parallel, FROST 9 spends **8.1 s**, whole signing step **28.4 s** (110.2 s before R29), mining 33.7 s.
+
 Signing no longer grows with spends. The per-batch cost is now build + approvals (~70 s). Next: run the two host approvals in parallel (~20 s per batch), then raise `batch_cap` (option B) so there are fewer batches.
