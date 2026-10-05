@@ -95,7 +95,8 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
     const codes = await Promise.all([coordinator.done, ...participants.map((p) => p.done)]);
     clearTimeout(timer);
     if (codes.some((c) => c !== 0)) {
-      const e = new Error(`host signing session exit codes ${codes.join(",")} (failed: ${failed.join(",") || "coordinator"}): ${(coordinator.err || coordinator.out).trim().slice(-200)}`) as Error & { failedSigners?: string[] };
+      const lostErr = failed.length ? (participants[pair.indexOf(failed[0])] as any).err?.trim().slice(-200) ?? "" : "";
+      const e = new Error(`host signing session exit codes ${codes.join(",")} (failed: ${failed.join(",") || "coordinator"}${lostErr ? `: ${lostErr}` : ""}): ${(coordinator.err || coordinator.out).trim().slice(-200)}`) as Error & { failedSigners?: string[] };
       e.failedSigners = failed.length ? failed : [pair[0]];
       throw e;
     }

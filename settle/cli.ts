@@ -202,6 +202,9 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     const pair:string[]=[];
     for(const n of prefer){if(pair.length===2)break;if(failed.has(n))continue;if(approve(n))pair.push(n);else failed.add(n)}
     requireThat(pair.length===2,`fewer than two signer hosts approve batch ${batchId}`);
+    // Under the signing lock no other round is live, so any session a host still has is stale (an abandoned round of
+    // this or another auction) and would make frost-client refuse to join: close them all on the pair first.
+    for(const n of pair)spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000});
     try {
       const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server});
       writeFileSync(file(`batch-${batchId}.custody.json`),jsonBytes({pair,events,attempts:attempt}),{mode:0o600});
