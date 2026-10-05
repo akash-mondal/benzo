@@ -14,6 +14,7 @@ import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
+import { balanceAddressMap, balanceDefaults } from "../clear/features";
 import { chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
@@ -56,7 +57,7 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string }> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[] }> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -113,7 +114,23 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // only from envelopes/claims (leaves), the routed seller output (`seller`, bound in sign approve) and the signed
     // buyback treasury; any other party has no host-derivable destination and is never paid by a host.
     const buyback = (pub.manifest as any).clearing?.mode === "buyback";
-    const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, null) : new Map<string, string>();
+    // Part 2, collection drop (bond-then-pay): each published balance address must be an external address of THIS
+    // host's vault (`benzo-pczt owns`) and never a deposit or funding address, and the defaults come from this
+    // host's own scan through the shared rule (clear/features.ts balanceDefaults) — never operator input.
+    const binding = (pub.manifest as any).bond && pub.result ? { clear_height: pub.clearHeight!, balance_addresses: pub.balanceAddresses! } : null;
+    let balanceSources: string[] = [];
+    if (binding) {
+      const byLeaf = balanceAddressMap(pub.result as any, binding), uas = new Set(byLeaf.values()), funding = treasuryBlock(pub.manifest)?.funding_ua;
+      for (const ua of uas) {
+        requireThat(execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, o.id), ua, "--network", (pub.manifest as any).network], { encoding: "utf8" }).trim() === "external",
+          `balance address ${String(ua).slice(0, 16)}… is not an external address of this vault`);
+        requireThat(!pub.manifest.deposit_addresses.includes(ua) && ua !== funding, "balance address is a deposit or funding address");
+      }
+      // The approval ledger's sources include each balance note (a winner's payment the settlement spends).
+      balanceSources = notes.filter((n: any) => uas.has(n.address) && n.height).map((n: any) => `balance:${n.txid}:${n.pool}:${n.action_index}`);
+    }
+    const defaults = binding ? balanceDefaults(pub.manifest as any, pub.result as any, binding, notes, chainTip(st)) : [];
+    const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub.manifest as any).bond ? { defaults } : null) : new Map<string, string>();
     for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party), `obligation ${party} has no host-derivable destination`);
     for (const a of (pub.result as any)?.allocations ?? []) {
       const party = `leaf:${a.leaf_index}`, owed = BigInt(owedBy.get(party) ?? "0");
@@ -147,7 +164,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
-    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network };
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources };
 }
 
 // §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and

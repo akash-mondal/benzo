@@ -23,7 +23,7 @@ const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=N
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
-const fresh=(name:string)=>z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['address',path.join(STATE,name)]).trim();
+const fresh=(name:string)=>z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['address',path.join(STATE,name),'--network','test']).trim();
 function cli(args:string[],input?:any) {
   const p=spawnSync(path.join(ROOT,'bin/benzo'),args,{input:input===undefined?undefined:(typeof input==='string'?input:JSON.stringify(input)),encoding:'utf8',maxBuffer:64<<20});
   if(p.error)throw p.error;return {code:p.status,error:p.stderr,value:p.status===0?(p.stdout.trim().startsWith('{')||p.stdout.trim().startsWith('[')?JSON.parse(p.stdout):p.stdout):null};
@@ -147,7 +147,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const amounts=batchRows.map(r=>r.amount_zats),faulted=batchRows.map((r,i)=>({...r,amount_zats:String(BigInt(r.amount_zats)+(i===0?1n:i===1?-1n:0n))}));
     for(const r of faulted)db.prepare('UPDATE obligations SET amount_zats=? WHERE party=?').run(r.amount_zats,r.party);
     const destination=(r:any)=>r.party==='seller'?refund[10]:claimDest[r.party]??(r.party.startsWith('leaf:')?refund[Number(r.party.slice(5))]:refund[10]);
-    const wrong=path.join(privateDir,'wrong.pczt');z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['create',path.join(STATE,'vault'),wrong],{input:JSON.stringify(faulted.map(r=>({recipient:destination(r),amount_zats:r.amount_zats})))});
+    const wrong=path.join(privateDir,'wrong.pczt');z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['create',path.join(STATE,'vault'),wrong,'--network','test'],{input:JSON.stringify(faulted.map(r=>({recipient:destination(r),amount_zats:r.amount_zats})))});
     const rejected=cli(['sign','inspect','--id',id,'--batch','1','--candidate',wrong,'--name','bob']);
     for(let i=0;i<batchRows.length;i++)db.prepare('UPDATE obligations SET amount_zats=? WHERE party=?').run(amounts[i],batchRows[i].party);db.close();
     await run.check('T4','signer refuses coordinator rows and a matching wrong-amount real PCZT',()=>{expect.soft(rejected.code).not.toBe(0);expect.soft(rejected.error).toContain('batch row differs from fresh signer clearing')});
@@ -166,7 +166,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
       };
       active!.done.then(v=>{if(!finished){finished=true;reject(Error(`worker exited before signer delay: ${v.err}`))}});poll();
     });
-    const candidate=path.join(STATE,'settle',id,'batch-1.proven.pczt');const metadata=JSON.parse(z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['inspect',candidate,path.join(STATE,'ufvk.txt')],{quietArgs:true}));
+    const candidate=path.join(STATE,'settle',id,'batch-1.proven.pczt');const metadata=JSON.parse(z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['inspect',candidate,path.join(STATE,'ufvk.txt'),'--network','test'],{quietArgs:true}));
     const pausedAt=z.tip();await waitFor({height:metadata.expiry_height+1,tip:()=>z.tip()},Date.now()+MINE);
     const cfg=json(productConfig);cfg.settlement.pczt_expiry_blocks=NORMAL_EXPIRY;writeFileSync(productConfig,JSON.stringify(cfg));delay={signer:'carol',paused_height:pausedAt,expiry_height:metadata.expiry_height,resumed_height:z.tip()};process.kill(paused!,'SIGCONT');paused=undefined;
     const completed=await active.done;active=undefined;

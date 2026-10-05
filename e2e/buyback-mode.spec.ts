@@ -131,12 +131,12 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
       const created=path.join(w,'created.pczt'),proven=path.join(w,'proven.pczt'),redacted=path.join(w,'candidate.pczt');
       // After a settlement the vault's leftover reserve is fresh change; wait (re-syncing) until it can fund the candidate.
       for(let by=Date.now()+15*60_000;;) {
-        try{sh(pcztBin,['create',vault,created,'364'],JSON.stringify(payments));break}
+        try{sh(pcztBin,['create',vault,created,'364','--network','test'],JSON.stringify(payments));break}
         catch(e){if(!/InsufficientFunds/.test(String((e as Error)?.message??e))||Date.now()>by)throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,20_000);
           for(const v of ['sync','enhance'])z.run(path.join(STATE,'bin/zcash-devtool'),['wallet','-w',vault,v,'-s',env('BNZ_LWD_URL')])}
       }
       sh(path.join(STATE,'bin/zcash-devtool'),['pczt','-w',vault,'prove',created,'--output',proven]);
-      const info=JSON.parse(sh(pcztBin,['inspect',proven,path.join(STATE,'vaults',id,'ufvk.txt')])),full=o.full?o.full(proven):proven;
+      const info=JSON.parse(sh(pcztBin,['inspect',proven,path.join(STATE,'vaults',id,'ufvk.txt'),'--network','test'])),full=o.full?o.full(proven):proven;
       redactCandidate(STATE,proven,redacted,info);
       envelopeKeys.forEach((pub,i)=>writeFileSync(path.join(w,`sealed-${NAMES[i]}.bin`),sealBlob(readFileSync(full),pub)));
       for(const f of [created,proven,full])rmSync(f,{force:true});cpSync(publicDir,path.join(w,'public'),{recursive:true});o.pub?.(path.join(w,'public'));
@@ -150,7 +150,7 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     // removed from the full copy). Before R28 a host counted any vault address as change and approved it.
     await run.check('W3','an output to a vault deposit address is never accepted as change',()=> {
       refused(attack('w3',98,[...legit,{recipient:deposits[1],amount_zats:'20000'}],{full:(f)=> {
-        const i=JSON.parse(sh(pcztBin,['inspect',f,path.join(STATE,'vaults',id,'ufvk.txt')])).outputs.find((x:any)=>x.recipient===deposits[1]);
+        const i=JSON.parse(sh(pcztBin,['inspect',f,path.join(STATE,'vaults',id,'ufvk.txt'),'--network','test'])).outputs.find((x:any)=>x.recipient===deposits[1]);
         const out=f+'.no-ua';sh(path.join(STATE,'bin/zcash-devtool'),['pczt','redact','-k',`${i.pool}.action.${i.index}.output.user_address`,f,'--output',out]);return out}}),/not owned change|not a row this signer derived/);
     });
     // W4 (G-1): a packet whose manifest is re-signed by a key the hosts did not pin.

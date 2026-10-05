@@ -14,7 +14,7 @@ import {serveSealer,sealBid} from "./lib/sealer";
 import {pubkey,startFrostd,zcashSign} from "./lib/frost";
 import * as z from "./lib/zcash";
 const IDS=["J1","J2","K1","L1","M1","N1"],C=Number(env("BNZ_COLLATERAL_ZATS")),ALT=env("BNZ_LWD_URL_ALT"),MINE=30*60_000;
-const freshAddress=(wallet:string)=>z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["address",path.join(STATE,wallet)]).trim();
+const freshAddress=(wallet:string)=>z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["address",path.join(STATE,wallet),"--network","test"]).trim();
 // Wallet CLI total excludes uneconomic notes; measure all mined unspent notes through the shipped chain scanner.
 const observedBalance=(wallet:string)=> {
   z.enhance(wallet);
@@ -113,7 +113,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
     const before=observedBalance("bidder"),killed=await worker(id,true),allocated=sc("status",id).value;
     write("settle/main/crash.json",bytes({signal:killed.signal,allocated:killed.allocated,rows:allocated.rows,batches:allocated.batches,at_utc:new Date().toISOString()}));
     const badFile=path.join(STATE,"settle",id,"wrong-amount.pczt"),expected=[C-clearPrice,C-clearPrice,C,C,2*clearPrice];
-    z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["create",path.join(STATE,"vault"),badFile],{input:JSON.stringify([refunds[0],refunds[1],refunds[2],refunds[3],refunds[6]].map((recipient,i)=>({recipient,amount_zats:String(expected[i]+(i===0?1:i===1?-1:0))})))});
+    z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["create",path.join(STATE,"vault"),badFile,"--network","test"],{input:JSON.stringify([refunds[0],refunds[1],refunds[2],refunds[3],refunds[6]].map((recipient,i)=>({recipient,amount_zats:String(expected[i]+(i===0?1:i===1?-1:0))})))});
     const bad=sc("check",id,["1",badFile,"alice"]),resumed=await worker(id);
     z.sync("bidder");z.enhance("bidder");z.sync("vault");const main=capture(id,"main"),after=observedBalance("bidder");
     await run.check("J1","correct amounts at real checker, PCZT and receiving-wallet boundaries",()=> {

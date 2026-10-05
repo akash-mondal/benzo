@@ -79,6 +79,54 @@ export function effectiveMaxPrice(m: { buyback: { max_price_zats: string } }, se
 export const balanceDue = (payment: bigint, fee: bigint, C: bigint): bigint => (payment + fee > C ? payment + fee - C : 0n);
 export const refundAfter = (payment: bigint, fee: bigint, C: bigint): bigint => (C > fee + payment ? C - fee - payment : 0n);
 
+// Part 2, collection drop (bond-then-pay with defaults): after the clear the operator publishes one fresh vault
+// address per bonded winner (`balance_addresses` with the height `clear` observed, `clear_height`), and the winner
+// pays balance_due_zats there within balance_window_blocks of that height. Defaults are NEVER operator input:
+// every plan and every signer host derives them from its own scan with this one helper — a winner whose balance
+// address received less than balance_due_zats in mined notes by clear_height + balance_window_blocks is a default.
+export type BalanceBinding = { clear_height: number; balance_addresses: { leaf_index: number; ua: string }[] };
+export type ScannedNote = { address: string; height: number | null; value_zats: number | string };
+// One address per bonded winner, exactly: an omitted winner's payment would be invisible and its bond forfeited.
+export function balanceAddressMap(
+  result: { allocations: { leaf_index: number; fill: number }[] },
+  bal: BalanceBinding,
+): Map<number, string> {
+  requireThat(Number.isSafeInteger(bal.clear_height) && bal.clear_height > 0, "clear height");
+  requireThat(Array.isArray(bal.balance_addresses), "balance addresses");
+  const winners = result.allocations.filter(a => a.fill > 0).map(a => a.leaf_index);
+  const map = new Map<number, string>();
+  for (const e of bal.balance_addresses as any[]) {
+    requireThat(e && typeof e === "object" && !Array.isArray(e) && Object.keys(e).sort().join(",") === "leaf_index,ua" &&
+      Number.isSafeInteger(e.leaf_index) && typeof e.ua === "string" && e.ua.length > 0, "balance address entry");
+    requireThat(winners.includes(e.leaf_index) && !map.has(e.leaf_index), "balance address leaf");
+    map.set(e.leaf_index, e.ua);
+  }
+  requireThat(map.size === winners.length, "balance addresses do not cover the bonded winners exactly");
+  requireThat(new Set(map.values()).size === map.size, "duplicate balance address");
+  return map;
+}
+export function balanceDefaults(
+  m: { bond?: { balance_window_blocks: number } },
+  result: { allocations: { leaf_index: number; fill: number; balance_due_zats?: string }[] },
+  bal: BalanceBinding,
+  notes: ScannedNote[],
+  tip: number,
+): number[] {
+  requireThat(m.bond !== undefined, "defaults are bond-then-pay only");
+  const byLeaf = balanceAddressMap(result, bal);
+  const end = bal.clear_height + m.bond!.balance_window_blocks;
+  requireThat(tip > end, "balance window has not passed; settlement waits");
+  const defaults: number[] = [];
+  for (const a of result.allocations) {
+    const due = BigInt(a.balance_due_zats ?? "0");
+    if (a.fill <= 0 || due === 0n) continue; // only a bonded winner owing a balance can default
+    const got = notes.filter(n => n.address === byLeaf.get(a.leaf_index) && n.height && n.height <= end)
+      .reduce((s, n) => s + BigInt(n.value_zats), 0n);
+    if (got < due) defaults.push(a.leaf_index);
+  }
+  return defaults;
+}
+
 export type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
 // Recurring rounds (gate CF): each manifest links to the previous round's result hash; round 1 starts the chain
 // with previous_result_hash null (enforced in manifest validation). checkSeriesLink checks a round against its
