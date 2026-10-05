@@ -287,4 +287,26 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
 - R31 2026-10-05 (head, answers STATUS-B run 30 Questions 1–2): **Cross-chain host attestations.**
   1. `--host-record` is accepted as designed. Each host attests with its own envelope key and xchain key over its own derivation. The ≥ 2 agreement moves to `benzo xchain release`, which requires records from **two distinct signers in the lock's signer set** over **byte-identical** attestation bytes. It refuses any record from a key outside that set (B's third-party refusal is the proof). This is the same 2-of-3 trust as FROST settlement. Without the flag, the old rule is unchanged.
   2. The local-demo fixture certificates signed in-process with the shipped witness primitive are accepted for the offline lane: `witness sign` needs a real vault scan since 91d9182, and a fixture cannot provide one honestly. The live demos the head runs after the merge use the real `benzo witness sign` on the signer hosts.
+- R33 2026-10-06 (head): **Reviewer R on `a5cac5c..9177c18` (`benzo-sol/reports/pr-r29-r30-a14.md`, FIX-FIRST).** R29 and R30 held. Three P1s in the collection drop's bond-then-pay (A14 item 1b) are head-confirmed against the code. All three come from one cause: **the operator chose the balance addresses and their timing after the clear, and the default list was the coordinator's own file.** Design change (head; Builder A implements in A15):
+  1. **Balance addresses are fixed in the signed manifest before bidding (P1-2).**
+     - `bond` gains `balance_addresses: string[]`, aligned index-for-index with `deposit_addresses` (deposit slot i pays its balance to `balance_addresses[i]`), and `balance_window_start_height: number`.
+     - Schema: same length as `deposit_addresses`, distinct, UA shape on the manifest network, and disjoint from `deposit_addresses`, `escrow_ua`, the treasury `funding_ua` and `treasury_ua`.
+     - `auction create` generates them as fresh vault external addresses, like the deposit addresses.
+     - The post-clear `benzo auction balance-addresses` command and the published `balance_addresses` binding are **removed**.
+     - Every host checks each one with `benzo-pczt owns … external --network <manifest>` (and keeps the deposit/funding exclusions).
+  2. **The window is fixed too (P1-2).** A winner's balance counts only from notes at its address with `balance_window_start_height < height ≤ balance_window_start_height + balance_window_blocks` (P1-1's lower bound).
+     - Each host checks from its own lightwalletd that the block at `balance_window_start_height` has a header time ≥ the UTC time of drand round R. Winners can then always learn they won before the window opens.
+     - Each host refuses a balance address that holds any note at a height ≤ `balance_window_start_height` (stale or pre-funded value, P1-1).
+     - `clear_height` no longer enters the window. Settlement waits until tip > start + window.
+  3. **Defaults are host-signed (P1-3).**
+     - `benzo sign approve` adds the `defaults` it derived to its approval record and to its G-4 signed approval map.
+     - The coordinator publishes `settlement.defaults` only if it equals the defaults in the two agreeing signed maps.
+     - `benzo verify` checks that `settlement.defaults` equals the defaults in two verified approval maps from distinct pinned signers. A coordinator-only list fails.
+  4. **P2s:**
+     - **P2-1 (G-7 leftovers):** `envelope/destination.ts` checks the destination network against the manifest's network. The NU7 straddle guard in `settle/cli.ts guard()` applies to testnet only. The `benzo-scan` calls and the zcash-sign network take the manifest's network, never `BNZ_NETWORK`. Exception: `settle/sign.ts`, where the head fixes it.
+     - **P2-4:** the approval records `randomizers` (from the host's own inspect), and `sign join --count` requires the count to equal its length.
+     - **P2-5:** `benzo-pczt create` also bounds actions, `max(spends, outputs) ≤ 29`, so the R30 size claim covers spends too.
+     - **P2-6:** the drop joins `e2e/markets.spec.ts` with assertions on host-signed defaults. Mutations **5M6** (a pre-window note counts as payment) and **5M7** (a default refunded instead of forfeited) must turn it red, plus **5M11** (a coordinator-swapped defaults list: verify must fail).
+     - **P2-2 and P2-3 (`closeStale` silent; the signing lock stolen mid-loop):** the head fixes these in `settle/cli.ts`/`settle/sign.ts`.
+  5. **Re-proof:** the drop scenario is re-run live under the new rules, and the buyback series is re-run if A15 touches its code path. Reviewer R re-reviews the A15 range before merge.
 
