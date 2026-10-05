@@ -1,7 +1,7 @@
 // Glue for frostd, frost-client and zcash-sign: one FROST signing session per randomizer (trap 7), answered on the
 // prompts the tools print (trap 6).
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, rmSync, statSync, utimesSync } from "node:fs";
 import path from "node:path";
 import readline from "node:readline";
 import { bin, env, inspect, STATE, ROOT, timing } from "./io";
@@ -185,7 +185,10 @@ export async function withSigningLock<T>(fn: () => Promise<T>): Promise<T> {
     catch { try { if (Date.now() - statSync(lock).mtimeMs > 15 * 60_000) rmSync(lock, { recursive: true, force: true }); } catch {} await new Promise(r => setTimeout(r, 3000)); }
   }
   signingLockDepth++;
-  try { return await fn(); } finally { if (--signingLockDepth === 0) rmSync(lock, { recursive: true, force: true }); }
+  // R33 P2-3: staleness is judged from the last heartbeat, not creation — a held lock is touched every minute, so a
+  // legal attempt loop longer than 15 minutes is never taken over by another auction's settle.
+  const beat = signingLockDepth === 1 ? setInterval(() => { try { const t = new Date(); utimesSync(lock, t, t); } catch {} }, 60_000) : undefined;
+  try { return await fn(); } finally { if (beat) clearInterval(beat); if (--signingLockDepth === 0) rmSync(lock, { recursive: true, force: true }); }
 }
 async function zcashSignRound(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody):Promise<{ sighash: string; sessions: Session[] }> {
   if(pair.length!==2||new Set(pair).size!==2||pair.some(n=>!["alice","bob","carol"].includes(n)))throw Error("choose two distinct FROST signers");

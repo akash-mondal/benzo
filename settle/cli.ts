@@ -197,15 +197,20 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   // frostd lets only a session's coordinator close it, and `sessions --close-all` stops at the first session the host
   // may not close; so every host (the failed one too, best effort) runs it, in rounds, until none lists a session
   // (R29 review P1). Hosts share one contact key across auctions, so this also clears other auctions' leftovers.
-  const closeStale=()=>{
+  const closeStale=(pair:string[])=>{
+    let failing:string[]=[];
     for(let round=0;round<4;round++){
-      let open=0;
+      failing=[];
       for(const n of ["alice","bob","carol"]){
         const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000});
-        if(r.status!==0)open++; // exit 0: every session it listed was closed
+        if(r.status!==0)failing.push(n); // exit 0: every session it listed was closed
       }
-      if(!open)return;
+      if(!failing.length)return;
     }
+    // R33 P2-2: never give up silently. A host that cannot close its own sessions (usually: unreachable) is named;
+    // if it is in the signing pair the attempt cannot work, otherwise the pair's joins will name any leftover count.
+    console.error(`ERROR stale FROST sessions could not be closed on ${failing.join(",")} (unreachable or sessions owned by an unreachable coordinator)`);
+    requireThat(!failing.some(n=>pair.includes(n)),`signing pair host ${failing.filter(n=>pair.includes(n)).join(",")} cannot close its stale FROST sessions`);
   };
   const approve=async(n:string):Promise<boolean>=>{
     const remote=`packet-${id.slice(0,16)}-${batchId}`;
@@ -229,7 +234,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     requireThat(pair.length===2,`fewer than two signer hosts approve batch ${batchId}`);
     // Under the signing lock no other round is live, so any session a host still has is stale (an abandoned round of
     // this or another auction) and would make a join see the wrong session count: close them all first.
-    closeStale();
+    closeStale(pair);
     try {
       const signing=await zcashSign(proven,signed,()=>{},pair,id,batchId,{id,groupKey,server,network:manifestNet()});
       writeFileSync(file(`batch-${batchId}.custody.json`),jsonBytes({pair,events,attempts:attempt}),{mode:0o600});
@@ -243,7 +248,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
       if(!lost.length)throw e;
       // frostd keeps the abandoned sessions (24 h); a survivor would then list too many and refuse to join. Close them
       // on every reachable host — including a failed coordinator, the only one frostd lets close its sessions.
-      closeStale();
+      closeStale(prefer.filter(n=>!failed.has(n)).slice(0,2));
     }
   }
   throw Error(`batch ${batchId} could not be signed by two hosts`);
