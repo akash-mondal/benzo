@@ -103,16 +103,23 @@ async function run(name: string) {
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}) }), address: deposits[i] }));
+  // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
+  writeFileSync(path.join(privateDir, "sealed.json"), JSON.stringify(sealed));
   let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: "60000" }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
     say(`funding ${paid.txid}`);
   for (let h = 0; ; await sleep(30_000)) {
-    for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]);
-    const t = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "list-tx", "--json"])).find((t: any) => t.txid === paid.txid);
-    const tip = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "balance", "--json"])).chain_tip_height;
+    // A transient endpoint error (live: "tls handshake eof") is retried on the next poll, never fatal.
+    let t: any, tip = 0;
+    try {
+      for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]);
+      t = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "list-tx", "--json"])).find((t: any) => t.txid === paid.txid);
+      tip = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "balance", "--json"])).chain_tip_height;
+    } catch (e) { say(`WARN funding poll: ${String((e as Error)?.message ?? e).slice(-120)}`); }
     if (t?.mined_height && tip >= t.mined_height + 9) break;
     if (++h > 80) throw new Error("funding did not mature");
   }
   } finally { dropLock(lock); } // held until the funding matured, so the wallet's change is spendable
+  writeFileSync(path.join(privateDir, "funding.json"), JSON.stringify({ txid: paid.txid }));
   for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
   while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000);
   if (Date.now() / 1000 >= manifest.T_freeze) throw new Error("deposits matured after T_freeze");
@@ -165,6 +172,14 @@ async function resume(id: string) {
   const cfg = json(path.join(STATE, "product", `${id}.json`)), publicDir = path.resolve(cfg.public_dir), doc = () => json(path.join(publicDir, "auction.json"));
   const signer = doc().signer, m = JSON.parse(Buffer.from(doc().manifest.bytes, "base64").toString("utf8")), stateOf = () => benzo(["auction", "status", "--id", id]).state as string;
   say(`state ${stateOf()}`);
+  // Stopped after funding, before admission: admit the kept sealed bids, then freeze (both before T_freeze).
+  const priv = path.join(STATE, "run", `markets-${id}`);
+  if (stateOf() === "OPEN" && existsSync(path.join(priv, "sealed.json")) && existsSync(path.join(priv, "funding.json"))) {
+    const txid = json(path.join(priv, "funding.json")).txid;
+    for (const b of json(path.join(priv, "sealed.json"))) { try { benzo(["bid", "deposit", "--id", id], { txid, address: b.address, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex }); } catch (e) { say(`WARN admit: ${String((e as Error).message).slice(-120)}`); } }
+    while (Date.now() / 1000 < m.T_submit + 2) await sleep(5_000);
+    benzo(["freeze", "--id", id]);
+  }
   if ((doc().witness_cert ?? []).length < 2) hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
   while ((await latestRound()) < m.drand.R) await sleep(10_000);
   if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
