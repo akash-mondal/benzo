@@ -33,10 +33,10 @@ type Scenario = { mode: string; supply?: number; treasury?: number; extra: (ctx:
 // Expected receipts are per party in zats (C = 200,000).
 const SCENARIOS: Record<string, Scenario> = {
   // Blind OTC, match: buyer bids 1,000, seller asks 600 -> midpoint 800; buyer gets C - 800 back, seller C + 800.
-  "otc-match": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
+  "otc-match": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ reserve_zats: "0", otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
     bids: o => [{ price: 1000, owner: o.buyer }, { price: 600, owner: o.seller }], expect: () => ({ "leaf:0": C - 800, "leaf:1": C + 800 }) },
   // Blind OTC, no match: bid 500 < ask 700 -> cancelled; both get exact C back.
-  "otc-nomatch": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
+  "otc-nomatch": { mode: "otc", owners: ["buyer", "seller"], extra: c => ({ reserve_zats: "0", otc: { buyer_key: c.owners.buyer.public_hex, seller_key: c.owners.seller.public_hex } }),
     bids: o => [{ price: 500, owner: o.buyer }, { price: 700, owner: o.seller }], expect: () => ({ "leaf:0": C, "leaf:1": C }) },
   // Launch (main tranche), minimum raise met: supply 2, bids 300/250/200 -> two lots at the uniform 250; raise 500.
   "launch-meet": { mode: "launch", supply: 2, extra: () => ({ launch: { standard_lot_size: 1, minimum_raise_zats: "500" } }),
@@ -87,6 +87,7 @@ async function run(name: string) {
   // taken BEFORE the manifest's deadlines are set and held until the funding matured.
   const lock = path.join(STATE, "run", "markets-fund.lock");
   for (;;) { try { mkdirSync(lock); break; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > 2_400_000) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
+  try {
   const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
   const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, lot: `${sc.mode} round`, supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip() }) };
   benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
@@ -104,6 +105,7 @@ async function run(name: string) {
     if (++h > 80) throw new Error("funding did not mature");
   }
   } finally { rmSync(lock, { recursive: true, force: true }); } // held until the funding matured, so the wallet's change is spendable
+  } catch (e) { rmSync(lock, { recursive: true, force: true }); throw e; }
   for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
   while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000);
   if (Date.now() / 1000 >= manifest.T_freeze) throw new Error("deposits matured after T_freeze");
