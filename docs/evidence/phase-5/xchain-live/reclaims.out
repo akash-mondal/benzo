@@ -1,0 +1,103 @@
+# head 2026-10-06T12:03:14Z: reclaim leftover demo escrow locks after their deadlines
+## demo1 solana 991c538f040815eec28963d09ca095419c80668025682f13307e80543bcb1fe1 — status before
+{
+  "chain": "solana",
+  "escrow": "2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu",
+  "auction": {
+    "bump": 253,
+    "refunded": false,
+    "auctionId": "0x991c538f040815eec28963d09ca095419c80668025682f13307e80543bcb1fe1",
+    "genesis": "0xce59db5080fc2c6d3bcf7ca90712d3c2e5e6c28f27f0dfbb9953bdb0894c03ab",
+    "signers": [
+      "0xa73fbeb6f8e294bfe012e488e1636618663dc868c2ca02dc69a1c43c1142f202",
+      "0xa570ffa97118260d93a4076bb465a6d09489c7db193f6b6a23482d5f882b62b7",
+      "0x7136c14a4a39d6f98a4ff5454e10a2d3babe30fd63e5425c29718f5f8dff9159"
+    ],
+    "returnTo": "3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu",
+    "amount": "80000000",
+    "standardLot": "20000000",
+    "paid": "40000000",
+    "lockUntil": 1791266931,
+    "deadline": 1791284931,
+    "paidLeaves": {}
+  },
+  "approval": null,
+  "result_hash": null
+}
+## refund
+{"chain":"solana","tx":"4PQC5mauhWmEkXb8Zrh5KozJYRaLXmsJvmSeecWLTWZfjCNHQPEX6LUVqCysN1gahBZcgpRSaRmvmfCZ3TJvjZC4"}
+## status after
+{
+  "chain": "solana",
+  "escrow": "2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu",
+  "auction": {
+    "bump": 253,
+    "refunded": true,
+    "auctionId": "0x991c538f040815eec28963d09ca095419c80668025682f13307e80543bcb1fe1",
+    "genesis": "0xce59db5080fc2c6d3bcf7ca90712d3c2e5e6c28f27f0dfbb9953bdb0894c03ab",
+    "signers": [
+      "0xa73fbeb6f8e294bfe012e488e1636618663dc868c2ca02dc69a1c43c1142f202",
+      "0xa570ffa97118260d93a4076bb465a6d09489c7db193f6b6a23482d5f882b62b7",
+      "0x7136c14a4a39d6f98a4ff5454e10a2d3babe30fd63e5425c29718f5f8dff9159"
+    ],
+    "returnTo": "3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu",
+    "amount": "80000000",
+    "standardLot": "20000000",
+    "paid": "40000000",
+    "lockUntil": 1791266931,
+    "deadline": 1791284931,
+    "paidLeaves": {}
+  },
+  "approval": null,
+  "result_hash": null
+}
+## demo2 attempt 1 evm 832f8959b044fb2a15ff033d39d5e976b7e869acc388bf5d60e6c382c95acacd — status before
+{
+  "chain": "evm",
+  "escrow": "0x1dc207D5B04C8CFB043d4420054a2219a544dD85",
+  "auction": {
+    "returnTo": "0xb6c51a0C7DF1fdcd64adf4eAEa37E1C51eb8Afc1",
+    "asset": "0x0000000000000000000000000000000000000000",
+    "standardLot": "2000000000000000",
+    "locked": "4000000000000000",
+    "paid": "0",
+    "lockUntil": 1791269131,
+    "deadline": 1791287131,
+    "signers": [
+      "0xe6FcE21F46Cb6969157AC347FB054d7aDff1c19b",
+      "0xeF32A6731Bd4435d61E050eD3db19C69D4F66FFB",
+      "0x0C75c879F745FCE7aFf9F35d4C3bB0bB150B344f"
+    ],
+    "refunded": false,
+    "batchesUsed": {},
+    "paidLeaves": {}
+  },
+  "approval": null,
+  "result_hash": null
+}
+## refund
+{"chain":"evm","tx":"0x10a9aecdc6c96ad52c8047d5990140f26ec7124199568815864e5d65e0f02cf4"}
+## status after
+{
+  "chain": "evm",
+  "escrow": "0x1dc207D5B04C8CFB043d4420054a2219a544dD85",
+  "auction": {
+    "returnTo": "0xb6c51a0C7DF1fdcd64adf4eAEa37E1C51eb8Afc1",
+    "asset": "0x0000000000000000000000000000000000000000",
+    "standardLot": "2000000000000000",
+    "locked": "4000000000000000",
+    "paid": "0",
+    "lockUntil": 1791269131,
+    "deadline": 1791287131,
+    "signers": [
+      "0xe6FcE21F46Cb6969157AC347FB054d7aDff1c19b",
+      "0xeF32A6731Bd4435d61E050eD3db19C69D4F66FFB",
+      "0x0C75c879F745FCE7aFf9F35d4C3bB0bB150B344f"
+    ],
+    "refunded": true,
+    "batchesUsed": {},
+    "paidLeaves": {}
+  },
+  "approval": null,
+  "result_hash": null
+}
