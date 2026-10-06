@@ -264,9 +264,10 @@ async function run(name: string, link?: SeriesLink) {
   while ((await latestRound()) < R) await sleep(10_000);
   benzo(["open", "--id", id]);
   // Launch: the winners each sign fresh token-chain destinations (one per lot) with their bid's own owner key (kept by
-  // `bid seal` under state/bids), recorded with `launch deliver` before the clear. R34.2 proof inputs: the destination
-  // prefixes descend with winner leaf rank (the random suffix keeps every run's values fresh), so the canonical
-  // (destination bytes, amount) row order always differs from winner leaf order and the two cannot coincide.
+  // `bid seal` under state/bids), recorded with `launch deliver` before the clear. The deliver prefixes descend with
+  // winner leaf rank (the random suffix keeps every run's values fresh), so this run's corpus always differs from the
+  // pre-R34.2 leaf-order file — an observation in the run log, never an assertion (R39.2: with few rows the two orders
+  // coincide by chance and canonical order is all R34.2 requires).
   if (sc.mode === "launch") {
     const frozenLeaves = json(path.join(publicDir, "auction.json")).frozen.leaves;
     let rank = 0;
@@ -282,20 +283,23 @@ async function run(name: string, link?: SeriesLink) {
   const doc = () => json(path.join(publicDir, "auction.json"));
   const d = doc(), pure: any = clearForMode({ manifest: d.manifest, signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening?.plaintext_hex ?? null, serial_beacon: d.serial_beacon ?? null, launch: d.launch_input });
   check(`${name}-cli-equals-pure-clear`, jsonBytes(d.result.allocations).equals(jsonBytes(pure.allocations)) && jsonBytes(d.result.conservation).equals(jsonBytes(pure.conservation)) && jsonBytes(d.result.serial_assignment ?? null).equals(jsonBytes(pure.serial_assignment ?? null)), `outcomes ${d.result.allocations.map((a: any) => a.outcome).join(",")} price ${d.result.clearing_price_zats}`);
-  // R34.2: the published allocation rows are in canonical (destination bytes, then amount) order — never winner
-  // leaf order (the deliver prefixes descend with leaf rank, so with >1 row the two orders always differ) — and
-  // the result's allocation root commits to that order (`${name}-cold-verify` replays it).
+  // R34.2 as replaced by R39.2: the published allocation rows are in canonical (destination bytes, then amount)
+  // order and the allocation root is taken over that order (`${name}-cold-verify` replays it). The winner-leaf-order
+  // line below is an observation only; the predicate never requires the two to differ.
   if (sc.mode === "launch") {
-    const rows = json(path.join(publicDir, "allocation.json")).rows as { destination: string; amount: number }[];
+    const file = readFileSync(path.join(publicDir, "allocation.json"));
+    const rows = JSON.parse(file.toString("utf8")).rows as { destination: string; amount: number }[];
+    const key = (rs: { destination: string; amount: number }[]) => JSON.stringify(rs.map(r => [r.destination, r.amount]));
+    const canonical = key(rows) === key([...rows].sort(deliveryRowOrder));
+    const rooted = hash(file) === d.result.allocation_file_hash;
     const recs: { leaf_index: number; destinations: string[] }[] = d.launch_input?.delivery ?? [];
     const leafRows = d.result.allocations.filter((a: any) => a.fill > 0).flatMap((a: any) => {
       const rec = recs.find(r => r.leaf_index === a.leaf_index)!;
       return rec.destinations.map((destination: string) => ({ destination, amount: a.fill / rec.destinations.length }));
     });
     const short = (rs: { destination: string }[]) => JSON.stringify(rs.map(r => r.destination.slice(11, 19)));
-    const key = (rs: { destination: string; amount: number }[]) => JSON.stringify(rs.map(r => [r.destination, r.amount]));
-    check(`${name}-allocation-order`, key(rows) === key([...rows].sort(deliveryRowOrder)) &&
-      (rows.length > 1 ? key(rows) !== key(leafRows) : true), `published rows ${short(rows)} vs winner leaf order ${short(leafRows)}`);
+    check(`${name}-allocation-order`, canonical && rooted,
+      `canonical=${canonical} root=${rooted}; published rows ${short(rows)} vs winner leaf order ${short(leafRows)}`);
   }
   // Part 2: the drop's bond-then-pay flow and the buyback's serial intake run after the clear, before settlement.
   if (sc.balancePays) await bondFlow(id, sc, d, say);
