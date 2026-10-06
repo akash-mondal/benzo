@@ -182,7 +182,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // Winner leaf 0 pays its 300,000 balance INSIDE the manifest-fixed window; winner leaf 2 never pays and
   // forfeits its 200,000 bond to the seller (seller 500,000 + 200,000; the two losing bids get exact C back).
   "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0],
-    extra: c => ({ B_max_zats: "2000000", bond: { bond_bps: 1000, balance_window_blocks: 20, balance_window_start_height: balanceStart(c) },
+    extra: c => ({ B_max_zats: "2000000", bond: { bond_bps: 1000, balance_window_blocks: 40, balance_window_start_height: balanceStart(c) },
       serials: { first: 0, count: 8, seed_round_offset: 2 }, sealed_reserve: sealReserve(300_000, c.id, c.R) }),
     bids: () => [{ price: 500_000, lot: LOTS[0] }, { price: 400_000, lot: LOTS[0] }, { price: 450_000, lot: LOTS[1] }, { price: 100_000, lot: LOTS[2] }],
     expect: () => ({ "leaf:1": C, "leaf:3": C, seller: 700_000 }), post: dropPost },

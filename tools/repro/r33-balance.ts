@@ -13,7 +13,10 @@
 // pre-funded one, so the expected default list is [0].
 // Run: npx esbuild tools/repro/r33-balance.ts --bundle --platform=node --format=esm --outfile=tmp/r33-balance.mjs && node tmp/r33-balance.mjs
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { balanceDefaults, balanceAddressMap } from "../../clear/features";
+import { validateManifest } from "../../manifest/schema";
 
 const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim();
@@ -87,6 +90,22 @@ const sharedM = { deposit_addresses: ["depS", "depC"], bond: { bond_bps: 500, ba
   const ok = JSON.stringify(got) === "[1]";
   console.log(`${ok ? "PASS" : "FAIL"} case3 expected [1] got ${JSON.stringify(got)} (one 300,000 payment for two 300,000 balances settles exactly one: leaf 0 paid, leaf 1 default)`);
   if (!ok) console.log(`ERROR case3 one payment settled more than one balance (or none): defaults ${JSON.stringify(got)}`);
+  all &&= ok;
+}
+
+// Case 4 (Ruling R38 item 3, N3): validateManifest requires balance_window_blocks >= 40, so an operator cannot
+// pre-commit a one-block window that guarantees every winner defaults (Reviewer R's N3). The fixture is the real
+// drop-r33 signed manifest (its own window was 12 blocks, pre-floor — historical) with only the block count
+// varied: 39 must be refused with its own bond error and 40 must validate.
+{
+  const root = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+  const packet = JSON.parse(readFileSync(path.join(root, "docs/evidence/phase-5/markets/drop-r33/drop-cold/manifest.json"), "utf8"));
+  const m = JSON.parse(Buffer.from(packet.bytes, "base64").toString("utf8"));
+  const tryValidate = (blocks: number): string | null => { try { validateManifest({ ...m, bond: { ...m.bond, balance_window_blocks: blocks } }); return null; } catch (e) { return (e as Error).message; } };
+  const refused = tryValidate(39), accepted = tryValidate(40) === null;
+  const ok = refused === "refused: bond" && accepted;
+  console.log(`${ok ? "PASS" : "FAIL"} case4 expected refused: bond at 39 and validation at 40; got ${JSON.stringify(refused)} at 39, ${accepted ? "validated" : `refused (${tryValidate(40)})`} at 40`);
+  if (!ok) console.log(`ERROR case4 balance_window_blocks floor: 39 -> ${JSON.stringify(refused)}, 40 -> ${accepted}`);
   all &&= ok;
 }
 
