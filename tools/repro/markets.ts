@@ -42,10 +42,15 @@ const ZILKROAD_LOT = "zilkroad:" + hash(jsonBytes(MARKETPLACE));
 const buybackBlock = (c: Ctx) => ({ budget_zats: "500000", max_price_zats: "200000", treasury_ua: c.treasuryUa, funding_ua: c.fundingUa });
 // R33 item 2: the balance window and its start are fixed in the SIGNED manifest before bidding. Its start block's
 // header time must be at or after R's UTC time (every host checks from its own chain), so the manifest places it
-// after the expected height at R with slack — slow blocks only delay the window (settlement waits for it).
+// after the expected height at R. The block cadence is MEASURED from this harness's own lightwalletd and the
+// estimate assumes blocks TWICE as fast as measured, plus a 25-block margin: a later window only delays the run
+// (settlement waits for it), while an early one is refused by every host (live: run 2d9793f0, 45s assumed against
+// a 22s cadence -> "balance window starts before the release round").
+const blockTime = (height: number) => Number(JSON.parse(sh(path.join(STATE, "bin/grpcurl"), ["-import-path", path.join(STATE, "proto"), "-proto", "service.proto", "-d", JSON.stringify({ height }), env("BNZ_LWD_URL"), "cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"]).out).time);
 const balanceStart = (c: Ctx) => {
   const release = Number(env("BNZ_DRAND_GENESIS")) + (c.R - 1) * 3;
-  return c.tip + Math.ceil((release - Date.now() / 1000) / 45) + 10;
+  const spb = Math.max(5, Math.round((blockTime(c.tip - 1) - blockTime(c.tip - 6)) / 5) || 30);
+  return c.tip + Math.ceil((release - Date.now() / 1000) / (spb / 2)) + 25;
 };
 
 // Cross-process locks (lock dirs). A lock this process holds is released if its scenario throws.
@@ -84,6 +89,8 @@ const dropPost = async (h: Post) => {
   // 5M11 (the reviewer's equal-balance swap): a coordinator-swapped defaults list — obligations, rows and
   // receipts are identical for two default sets with the same balance total — must fail benzo verify with its
   // own error, while OK accounting still passes on the forged copy.
+  if (!d.settlement) h.check("drop-swapped-defaults-refused", false, "no settlement to swap");
+  else {
   const swapped = path.join(OUT, "tamper", h.id + "-defaults");
   rmSync(swapped, { recursive: true, force: true }); cpSync(h.cold, swapped, { recursive: true });
   for (const f of ["auction.json", "summary.json"]) {
@@ -93,6 +100,7 @@ const dropPost = async (h: Post) => {
   }
   const vd = spawnSync(benzoBin, ["verify", "--dir", swapped, "--signer", h.signer], { encoding: "utf8" });
   h.check("drop-swapped-defaults-refused", vd.status !== 0 && /ERROR defaults refused: settlement defaults differ from the host-signed approval maps/.test(vd.stdout + vd.stderr) && /OK accounting/.test(vd.stdout + vd.stderr), `exit ${vd.status}`);
+  }
   const tampered = path.join(OUT, "tamper", h.id);
   rmSync(tampered, { recursive: true, force: true }); cpSync(h.cold, tampered, { recursive: true });
   const tdoc = json(path.join(tampered, "auction.json"));
