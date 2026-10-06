@@ -18,8 +18,9 @@ import { balanceDefaults } from "../../clear/features";
 import { deliveryRowOrder } from "../../clear/launch";
 import { hash, jsonBytes, verifyRecord } from "../../manifest/schema";
 import { validateWitnessSet, verifyApprovalMap } from "../../witness";
-import { ROOT } from "../../e2e/lib/env";
+import { ROOT, STATE } from "../../e2e/lib/env";
 import { benzoBin } from "../../e2e/lib/hosts";
+import { publish } from "../../cli/product";
 
 const [revision, rfq, dropDir, launchDir] = process.argv.slice(2);
 const doc = (f: string) => JSON.parse(readFileSync(f, "utf8"));
@@ -83,6 +84,26 @@ line("drop-swapped-defaults-refused", () => {
     `swapped [0] verify exit ${v.status} (${out.split("\n").filter(l => /^ERROR|^OK defaults/.test(l)).join(" | ")})`];
 });
 
+// ---- R37.4 (A16 item 2): the r7-5 emit leg — after R the published doc carries reserve_opening and the shipped
+// `benzo verify` accepts its re-derivation. The replay drives the real publish() over the recorded drop run's own
+// private state (auction/product/settle under $BNZ_STATE_DIR) into a scratch copy of its public dir (the recorded
+// witnesses' certs carry over as every rebuild carries them), then runs the spec's drop-reserve-opening predicate.
+// Mutation A16-b (publish drops reserve_opening) turns it red and verify refuses the rebuilt doc with
+// 'reserve opening published differs from re-derived'.
+line("drop-reserve-opening", () => {
+  const scratch = path.join(ROOT, "tmp/mut-replay-publish");
+  rmSync(scratch, { recursive: true, force: true }); mkdirSync(scratch, { recursive: true }); cpSync(dropDir, scratch, { recursive: true });
+  const cfgPath = path.join(STATE, "product", `${drop.auction_id}.json`);
+  const cfg = doc(cfgPath);
+  writeFileSync(cfgPath, jsonBytes({ ...cfg, public_dir: scratch })); // redirect the rebuild at scratch
+  let rebuilt: any, publishErr = "";
+  try { rebuilt = publish(drop.auction_id); } catch (e) { publishErr = (e as Error).message; } finally { writeFileSync(cfgPath, jsonBytes(cfg)); }
+  const ro = rebuilt?.reserve_opening?.plaintext_hex ?? null;
+  const v = spawnSync(benzoBin, ["verify", "--dir", scratch, "--signer", drop.signer], { encoding: "utf8", maxBuffer: 64 << 20 });
+  const err = (v.stdout + v.stderr).split("\n").filter((l: string) => l.startsWith("ERROR")).join(" | ");
+  return [!publishErr && typeof ro === "string" && ro.length > 0 && v.status === 0,
+    `publish ${publishErr ? "threw " + publishErr : "rebuilt the doc"}; reserve_opening ${ro === null ? "MISSING" : "present"}; verify exit ${v.status}${err ? ` (${err})` : ""}`];
+});
 // ---- R34.2 (A16 item 1, assertion replaced by R39.2): the launch delivery rows are in canonical (destination
 // bytes, then amount) order and the allocation root is over that order; `benzo verify` replays the same sort.
 // Mutation A16-a restores winner leaf order in the published allocation.json only (on the committed corpus the

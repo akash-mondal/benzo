@@ -82,6 +82,15 @@ type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: 
 const dropPost = async (h: Post) => {
   h.check("drop-defaults", JSON.stringify(h.doc().settlement?.defaults ?? null) === "[2]", JSON.stringify(h.doc().settlement?.defaults));
   h.check("drop-seller-landed", h.at(h.sellerUa) === 700_000, String(h.at(h.sellerUa)));
+  // R37.4 (the r7-5 emit leg): after R the published doc carries the reserve opening and the shipped
+  // `benzo verify` accepts its re-derivation (manifest/reserve.ts requireReserveOpening over the beacon).
+  // Mutation A16-b (publish drops reserve_opening) turns this red: verify refuses 'reserve opening published
+  // differs from re-derived' (replayed: docs/evidence/phase-6/mutations/A16-b.out).
+  const ro = h.doc().reserve_opening?.plaintext_hex ?? null;
+  const rv = spawnSync(benzoBin, ["verify", "--dir", h.cold, "--signer", h.signer], { encoding: "utf8", maxBuffer: 64 << 20 });
+  const rerr = (rv.stdout + rv.stderr).split("\n").filter(l => l.startsWith("ERROR")).join(" | ");
+  h.check("drop-reserve-opening", typeof ro === "string" && ro.length > 0 && rv.status === 0,
+    `reserve_opening ${ro === null ? "MISSING" : "present"}; verify exit ${rv.status}${rerr ? " " + rerr : ""}`);
   // R33 item 3: the published defaults are carried by two VERIFIED host-signed approval maps from distinct
   // pinned signers (the witness set) — never a coordinator-only list.
   const d = h.doc(), set = validateWitnessSet(verifyRecord(d.witness_set, d.signer), h.id);

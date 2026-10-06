@@ -11,6 +11,17 @@
 // 3. The buyback spec covers Mode B; no other spec runs OTC, launch, RFQ or revision.
 // 4. No seam: the scenarios run tools/repro/markets.ts, which drives shipped commands only, in parallel processes
 //    coordinated by its DKG and funding locks and settlement's FROST signing lock.
+// Assertion drop-reserve-opening (R37.4, the r7-5 emit leg), four answers:
+// 1. Protects the R7 item-5 emit leg (Reviewer G G2) on Phase 5 part 2 §1 row 1's sealed reserve
+//    (docs/design/phase5-part2-live.md): publish() carries reserve_opening after R, so a sealed-reserve product
+//    auction settles and `benzo verify` accepts its re-derivation.
+// 2. A credible regression is publish() dropping the opening again (the G2 dead wiring it was born from): the
+//    drop settles nothing and verify refuses. Mutation A16-b (publish drops reserve_opening) turns it red
+//    (replayed: docs/evidence/phase-6/mutations/A16-b.out).
+// 3. No existing test catches it: the drop's other IDs cover defaults, bonds and serials, and the folded
+//    U7 / r7-5-reserve-opening legs (cli-auction FOLD3) check the binding over an offline corpus, not the live
+//    emit on a settled published doc.
+// 4. No seam: it reads the published doc of the live drop run and runs the shipped `benzo verify`.
 import { expect, test } from "@playwright/test";
 import { spawn, spawnSync } from "node:child_process";
 import { writeFileSync } from "node:fs";
@@ -43,7 +54,8 @@ test("market modes settle under host custody", async () => {
       expect(errors, errors.join(" | ")).toEqual([]);
       expect(lines.some(l => l.includes(`RESULT PASS ${s}`)), `no RESULT PASS for ${s}`).toBe(true);
       // R33 P2-6: the drop's own assertions — the host-signed defaults binding and the refused coordinator swap.
-      if (s === "drop") for (const id of ["drop-defaults", "drop-defaults-maps", "drop-swapped-defaults-refused"])
+      // R37.4: and the r7-5 emit leg — the published doc carries reserve_opening after R and it verifies.
+      if (s === "drop") for (const id of ["drop-defaults", "drop-defaults-maps", "drop-swapped-defaults-refused", "drop-reserve-opening"])
         expect(lines.some(l => l.includes(`PASS ${id}`)), `no PASS ${id}`).toBe(true);
     });
   }
