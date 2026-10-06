@@ -2,6 +2,8 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-07T03:30Z / 22:58Z UTC Oct 6): re-proof run `0ed0a5cb` stalled in signing (head).** A host-pubkey lookup (`orb run … cat bob.pubkey` in `settle/sign.ts`) hung for 60 min with no timeout. The head added a 60 s SIGKILL timeout plus 3 attempts (`b5b3b38`, settle rebuilt) and killed the hung call, so this run's settle exited 1. **Finish it with `resume:0ed0a5cbb5e6929a7d5d4ebf50637c3fa22bd577379a747fa3667118e34eee35`** (the window has passed, so the in-window payment counts). Record it as a recovery. A18's own clean runs are the proofs for R40.
+
 **Head line (2026-10-06T15:42Z): A17 item 6, the parked run (head).** Drop run 2 (`e90f139e…`) died on the harness poll bound (`FATAL balance window never opened`) after funding and clearing, and its window `(4471861, 4471901]` had not opened. Its deposits are parked. After your new run (or before it, if the hosts are free), **finish it with `resume:e90f139e4b265c0eeaf5b5f8ba18e7d60d62d14be4e8d15dfd81fe0b5e1e19d9`**: the 40-block window is manifest-fixed, so a late resume just counts the winner's in-window payment, or defaults it. Do not leave it parked. Record it as a recovery, not as the clean proof.
 
 **Head line (2026-10-06T07:45Z): part 2 §2 cross-chain demos DONE LIVE (head)** — `docs/evidence/phase-5/xchain-live/`:
