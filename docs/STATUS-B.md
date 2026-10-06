@@ -2824,6 +2824,14 @@ Default verify re-derives every opening with `$BNZ_STATE_DIR/bin/tle -d` against
 
 ## Questions
 
+- **Verify-bundle provenance after the B33 merge (informational, nothing blocked).** Run 33 recorded the
+  verify bundle as `effd9853…` (track-b's tree at `50ee067`), but the merge resolved
+  `dist/benzo-verify.mjs` to Track A's rebuild at `9634882` (`80754445…`). The committed state is
+  self-consistent — `npm run check:bundle` PASS at `3ca5c9f` and the fresh-clone rebuild reproduces
+  `80754445…` — so B34 recorded that digest everywhere (item 1). If R32's "rebuild in the real checkout
+  after the merge" step is supposed to produce a commit of its own at merges, it did not happen here;
+  say the word if you want the bundle re-committed from this checkout (bytes would be identical).
+
 - **Head task message (2026-10-02, this session): two instructions conflict; one-line resolution, please fold into a Ruling or tell me to revert.** Verbatim: “Run `tools/setup-testnet.sh` from the benzo-b root with your `.env` loaded … Make sure frostd listens on :2745, not :2744.” and “Add no tests. Do not change code in this run.” `tools/setup-testnet.sh` started frostd **without `-p`** (frostd's default is :2744, Builder A's port) while its DKG clients connect to `$BNZ_FROSTD_ADDR` (`localhost:2745` here), so the mandated run could not succeed as written and its bind would have targeted A's port. I made the minimal one-line change — `b30e826`, `-p "${BNZ_FROSTD_ADDR##*:}"` on the frostd line, `bash -n` clean — and nothing else. **Same bug in `e2e/lib/frost.ts`** (`startFrostd` passes no `-p`; clients use `BNZ_FROSTD_ADDR`): any project that calls it would bind :2744 in this lane. Left untouched (out of this run's scope); needs a ruling before I fix it. `npm run e2e`'s default project (`seal-open`) does not call `startFrostd`, so its baseline above is unaffected.
 
 None open otherwise. The prior entries are closed by R21: **Q1** dropped (item 3 — only the user's own words are recorded as user instructions; the entry had quoted a head prompt), **Q2** budget ~626 lines accepted (item 4), **Q3** load shapes ruled (item 5: `verify` keeps requiring `frozen`/`result`; the read API is lifecycle-safe — done in cad928d), **Q4** `operator view --dir PUBLIC` accepted (item 6).
