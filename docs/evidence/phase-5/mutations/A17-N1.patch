@@ -1,5 +1,5 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 091bbcc..a0d7ae0 100644
+index 60eeb6b..ce39054 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
 @@ -125,31 +125,15 @@ export function balanceDefaults(
@@ -38,4 +38,4 @@ index 091bbcc..a0d7ae0 100644
 +  return defaults;
  }
  
- export type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
+ // Ruling R38 item 4 (N4): out-of-window notes at a balance address are NEVER settlement sources (never swept
