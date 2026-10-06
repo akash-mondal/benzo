@@ -123,14 +123,28 @@ g-forged-claim's path itself (Q3 closed).
   the fold headers: today's verifier requires a certified strays statement for any claim (the
   g-forged-claim script's own pre-R23.1 corpus would fail today), and the r26-3 corpus's refunded
   stray row now needs claim proof.
-- **Tranche 3 (in progress): 15 scripts remain** (g1, g2, r7-1..r7-6, r7-claims, r10-2, r10-4, r15-3,
-  r16-1, r16-4, reserve-opening). Their drills are live-state-dependent (they take a live auction id
-  or the vault's real deposits) and get minted IDs (each audit row's behaviour) placed at the spec's
-  matching states; the module-level legs (g1 genuine resolution, g2 intake-shape probes, reserve-
-  opening's pure-clearing binding, U7-pinned) are offline. Per R35.3(b) every folded ID is proven
-  pass/red at the final regression — the live legs cannot be validated in this offline batch.
+- **Tranche 3 DONE (all 15 remaining scripts folded).** `e2e/lib/readpath-live.ts` +
+  `cli-auction.spec.ts`: group A — the r7-3/g2 exception-queue drills (`r7-3-exception-queue`,
+  `g2-envelope-crash-not-exception`, `g2-wrong-key-exception`, `g2-taddr-exception`; live, injected
+  into the spec's cleared auction's ledger+public copy with backup/restore) and the sealed-reserve
+  binding (`U7`, `r7-5-reserve-opening`; offline, over the reserve-opening repro's own corpus —
+  scratch-validated in the 55/55 run). `U7.patch` re-pointed at the FOLD3 block. Group B — 12 IDs as
+  **verbatim ports** of `r7-1`(incl. the g1 row), `r7-2`, `r7-4`, `r7-6`, `r7-claims`, `r10-2`,
+  `r10-4` (2 IDs), `r15-3`, `r16-1`, `r16-4`, placed **after** the spec's own settlement/cancel flow
+  so their state drills (each restores what it mutates) cannot affect the assertions above.
+  `playwright --list` loads all 7 spec files green (9 tests in 7 files).
+- **Fold totals:** 10 mutation patches re-pointed at the spec/bench runs (B31-a; X3-a, R15-F4a/F4b/F5,
+  R16-F2a, R23-3a re-cut because they no longer applied; R26-3a/b, R23-2-revert, U7 re-pointed);
+  folded IDs: 30 (tranche 1) + 23 (tranche 2) + 6 (group A) + 12 (group B) + 11 g7 + the bench's
+  `batching-equal-cap{13,28}` = 84. Nothing in group 2 deleted (R35.3(b): deletion rides the head's
+  RG commit). Scratch validation (offline legs only): **ALL 55 PASS** at the final tree.
+- **Unvalidated by design until RG (R35.3(b)):** the live legs (group A drills, all of group B). Two
+  shape notes for the RG pass: group B's ports assert the scripts' own verdict booleans/outcome values
+  (their exact semantics), and `r7-5`'s live emit leg (publish() carries `reserve_opening` after R)
+  is not folded — the spec's manifest carries no `sealed_reserve` (Q4 below).
 
-**Item 6: STATUS updates — this entry.**
+**Item 6: STATUS updates — this entry. Batch B33 + the R35 execution are complete; every commit has
+its proof above.**
 
 ### Questions (run 33)
 
@@ -146,9 +160,22 @@ g-forged-claim's path itself (Q3 closed).
    (2) fold 25 scripts into their owners (`batching-equal.ts` → the bench batch-plan stage; 24 one-shot
    fix repros → `cli-auction.spec.ts`/`auction-core.spec.ts` as Ruling-added assertion IDs);
    (3) RETIRE 8 superseded/covered one-shots, evidence staying committed.
-3. **`tools/repro/g-forged-claim.mjs` carries a `/Users/…` path (its `source:` provenance line).** It is
-   Track A's file and B33 fixes only docs/tooling B owns; head or Builder A should replace the prefix with
-   `~/Dev Projects/` (repo-hygiene.md line 6 lists it).
+3. **CLOSED by the head (`834e465`):** the `/Users/…` path in `g-forged-claim.mjs` is gone.
+4. **`r7-5`'s live emit leg is not folded (R35.3a).** `publish()` carrying `reserve_opening` after R
+   needs a sealed-reserve product auction; the spec's manifest has no `sealed_reserve`, and adding one
+   (even a non-binding bound) changes the live fixture I cannot validate offline. Its binding legs are
+   folded (`U7`, `r7-5-reserve-opening` in the FOLD3 block). Where should the emit leg go — a
+   `sealed_reserve` added to the spec's manifest (head/Track A validates live), or a separate scenario
+   in the markets harness (Track A's live lane)?
+5. **`cli/build.mjs` never prunes `cli/dist/commands/` (found by the item-3 packaging run).** A removed
+   command stays live in build output and in any tarball built without a clean — the R33-removed
+   `auction balance-addresses` shipped in my first regenerated tarball until I deleted `cli/dist`. The
+   fix is one line in `cli/build.mjs` (rm the output dir first) — a Track A file, so head/Builder A
+   should land it; my recorded digests come from a clean build either way.
+6. **Group-B fold shape (R35.3a).** The verbatim ports assert the repros' own verdict booleans and
+   `outcome` values (their exact assertion semantics, byte-faithful), not freshly-worded semantic
+   assertions. If the head wants them re-shaped, that is best done in the RG pass when the live legs
+   can actually run.
 
 ## Previous run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
 
