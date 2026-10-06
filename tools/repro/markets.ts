@@ -46,7 +46,7 @@ const buybackBlock = (c: Ctx) => ({ budget_zats: "500000", max_price_zats: "2000
 // estimate assumes blocks TWICE as fast as measured, plus a 25-block margin: a later window only delays the run
 // (settlement waits for it), while an early one is refused by every host (live: run 2d9793f0, 45s assumed against
 // a 22s cadence -> "balance window starts before the release round").
-const blockTime = (height: number) => Number(JSON.parse(sh(path.join(STATE, "bin/grpcurl"), ["-import-path", path.join(STATE, "proto"), "-proto", "service.proto", "-d", JSON.stringify({ height }), env("BNZ_LWD_URL"), "cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"]).out).time);
+const blockTime = (height: number) => Number(JSON.parse(sh(path.join(STATE, "bin/grpcurl"), ["-import-path", path.join(STATE, "proto"), "-proto", "service.proto", "-d", JSON.stringify({ height }), env("BNZ_LWD_URL"), "cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"])).time);
 const balanceStart = (c: Ctx) => {
   const release = Number(env("BNZ_DRAND_GENESIS")) + (c.R - 1) * 3;
   const spb = Math.max(5, Math.round((blockTime(c.tip - 1) - blockTime(c.tip - 6)) / 5) || 30);
