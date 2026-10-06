@@ -1,0 +1,18 @@
+# A17 item 3 (R38 N3) replay (2026-10-06T08:44:37Z -> 2026-10-06T08:44:37Z, commit acde5e9): the balance derivation with the pre-floor validateManifest restored (docs/evidence/phase-5/mutations/A17-N3.patch: balance_window_blocks >= 1), applied then reversed; git status after reversal shows only the new mutation files.
+# command node tmp/r33-balance.mjs (replay bundle rebuilt from the mutated tree)
+# expected ERROR case4 (validateManifest accepts a 39-block window)
+commit acde5e9199f316a015d5ee33ea74dc07d8e25d68 (working tree not clean at run time)
+utc 2026-10-06T08:44:37.390Z
+command node tmp/r33-balance.mjs (tools/repro/r33-balance.ts)
+tree M manifest/schema.ts
+tree ?? docs/evidence/phase-5/mutations/A17-N3.out
+tree ?? docs/evidence/phase-5/mutations/A17-N3.patch
+api manifest window (post-R33)
+PASS case1 expected [0] got [0]
+PASS case2 expected [] got []
+shared-slot balance map [[0,"uaS"],[1,"uaS"]] -> CONFIRMED leaves 0 and 1 share one balance address
+PASS case3 expected [1] got [1] (one 300,000 payment for two 300,000 balances settles exactly one: leaf 0 paid, leaf 1 default)
+FAIL case4 expected refused: bond at 39 and validation at 40; got null at 39, validated at 40
+ERROR case4 balance_window_blocks floor: 39 -> null, 40 -> true
+RESULT FAIL r33-balance
+exit 1
