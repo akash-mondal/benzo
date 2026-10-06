@@ -1,0 +1,48 @@
+# R16-F2a re-run at commit 6802a2f (clean tree + R16-F2a.patch applied to api/public-auction.ts, cli rebuilt after apply
+# and after -R; gate RG offline half, batch B35; red shown through the scratch fold harness tmp/folds.config.ts, as in B33)
+# utc 2026-10-06T05:36:14Z (second pair; the first at 05:15:49Z showed g-forged-claim-control / r23-1-tampered-sig-certified
+# red too — that was the fold's no-op tamper flake (see STATUS-B), not this mutation: with the tamper fix in
+# e2e/lib/readpath.ts both are green under the same mutation here)
+# command: git apply docs/evidence/phase-5/mutations/R16-F2a.patch && npm run build:cli && npx playwright test
+#   --config=tmp/folds.config.ts (output tmp/e2e/R16-F2a-rg-red.out, exit 1); then git apply -R, npm run build:cli, re-run
+#   (tmp/e2e/R16-F2a-rg-green.out, exit 0, 1 passed); git status --porcelain shows only the readpath.ts tamper fix and
+#   the new evidence files
+# expected red: ERROR r15-phase2-4 (it is red; mr-verify-phase2-4 is the same mutated pre-Phase-5 rule's collateral on
+# the phase-3 corpus); red run ERROR lines:
+ERROR r15-phase2-4 Error: r15-phase2-4 threw | Expected: "" | Received: "phase-3 exit 1: OK projection | OK missing-deposits | OK delivery | OK report | OK manifest | OK freeze | OK witness | OK receipts | OK clear | OK envelope | OK accounting | OK balances | OK defaults | OK accounting-strays | WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs | WARN beacon fetched (not published) | W
+ERROR mr-verify-phase2-4 Error: mr-verify-phase2-4 threw | Expected: "" | Received: "phase-3 exit 1: OK projection | OK missing-deposits | OK delivery | OK report | OK manifest | OK freeze | OK witness | OK receipts | OK clear | OK envelope | OK accounting | OK balances | OK defaults | OK accounting-strays | WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs | WARN beacon fetched (not publishe
+# last 30 lines of the red run:
+    OK witness
+    OK receipts
+    OK clear
+    OK envelope
+    OK accounting
+    OK balances
+    OK defaults
+    OK accounting-strays
+    WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs
+    WARN beacon fetched (not published)
+    WAR"
+
+       at ../e2e/lib/run.ts:35
+
+      33 |         await body();
+      34 |       } catch (err) {
+    > 35 |         expect.soft(String((err as Error)?.message ?? err), `${id} threw`).toBe("");
+         |                                                                            ^
+      36 |       }
+      37 |       const errors = test.info().errors.slice(before);
+      38 |       this.results[id] = errors.length ? "FAIL" : "PASS";
+        at /Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:35:76
+        at Run.check (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:30:5)
+        at foldMR (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/readpath.ts:625:3)
+        at /Users/akshmnd/Dev Projects/benzo-b/tmp/folds.spec.ts:10:112
+
+    Error Context: test-results/folds-folds/error-context.md
+
+  1 failed
+    tmp/folds.spec.ts:8:1 › folds ──────────────────────────────────────────────────────────────────
+# green after git apply -R (same command, tmp/e2e/R16-F2a-rg-green.out):
+  ✓  1 tmp/folds.spec.ts:8:1 › folds (1.1m)
+
+  1 passed (1.1m)

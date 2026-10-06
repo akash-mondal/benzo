@@ -3,7 +3,105 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (34): Phase 6 Track B offline batch B34 — packaging refresh (R36+R37.5), private-repo hygiene, EVIDENCE PK row
+## Current run (35): Phase 6 Track B — gate RG offline half (batch B35)
+
+Task (this session's head message): `track-b` fast-forwarded to main at `6802a2f` (B34 merged). `npm ci` +
+`npm run build:*` green (`build:seal/core/settle/cli/verify`, typecheck; `npm run check:bundle` PASS
+`a7914c79…` = the committed bundle). R35/R37 read; `docs/evidence/phase-6/test-audit.md` read. Session-start
+`npm run e2e` PASSED (seal-open 36 s). **Offline only except drand quicknet reads**; no OrbStack/VM/`orb`/
+frostd :2744/testnet spends/`tools/repro/markets.ts` live runs/live specs, no mainnet, no frontend, no pin
+changes, no Track A files (`clear/`, `e2e/markets.spec.ts`, `tools/repro/markets.ts` untouched).
+
+**Item 1 — every offline-capable mutation re-shown red then green at `6802a2f`: DONE with proof.**
+AGENTS.md procedure per ID: clean tree, `git apply`, run, `git apply -R`, `git status --porcelain` clean;
+red (with `ERROR <id>`/the harness's own convention) and green after `-R`, each recorded in
+`docs/evidence/phase-6/mutations/<ID>-rg.out` (commit, UTC, command, the red's ERROR lines + last 30 lines,
+the green). **23 IDs** (commit `ba7b4da`, harness fix `77d401f` first):
+
+- **seal-open** (`npm run e2e`, ~40 s each): M1 `ERROR C2` (+C6), M2 `ERROR C7`, M3 `ERROR C5`, M4 `ERROR C4`.
+- **replays on the committed published data**: 5M1 `FAIL V1b` / 5M3 `FAIL X1b` (`tools/repro/mut-replay.ts`
+  on `phase-5/buyback-run4/cold/auction.json`); 5M6 `ERROR drop-defaults-window`, 5M7 `ERROR drop-forfeit`,
+  5M8 `ERROR revision`, 5M9/5M10 `ERROR rfq`, 5M11 `ERROR drop-swapped-defaults-refused`
+  (`mut-replay-markets.ts` on `revision-cold`/`rfq-cold`/`drop-r33/drop-cold`; 5M11 rebuilds `cli` so
+  `bin/benzo verify` carries the mutation).
+- **B31-a** (`npm run bench -- --stage batch-plan tmp/bench-100 100`): `ERROR batching-equal-cap13`, green
+  `PASS batching-equal cap=13/cap28`. **B32-a** (`api-reference-check`): `ERROR shape.auction … missing key
+  leaf_count`, green `PASS api-reference 11 documented shapes`.
+- **the 9 offline folded IDs' re-pointed patches** through the scratch fold harness (`npx playwright test
+  --config=tmp/folds.config.ts`, red + green each): R15-F4a (`ERROR r15-machine-runs-without-records`),
+  R15-F4b (`ERROR r15-strangers-refused`; patch re-cut), R15-F5, R16-F2a (`ERROR r15-phase2-4` +
+  `mr-verify-phase2-4` collateral), R23-3a (single clean red), R26-3a (4 divergence IDs), R26-3b (single
+  clean red), R23-2-revert (all four r23-2 IDs; patch re-cut), U7 (`ERROR U7` — with `npm run build:core`,
+  see below). Every green is `1 passed, no ERROR` on the harness that runs all 55 folded IDs.
+
+Scope call (one line under Questions): the batch's bullet list names 5M1/5M3/5M8–5M10, B31-a, B32-a, the
+offline folded patches and M2, while item 1's sentence says "every mutation whose red can be shown offline";
+I kept the enumeration's families and ran the whole of them — the same harnesses also cover **5M6/5M7/5M11**
+(committed drop data) and seal-open's **M1/M3/M4** (same `npm run e2e`) — 23 IDs where the bullets name 16.
+
+Three incident records (all in the `-rg.out` files and the RG table):
+1. **Fold harness tamper flake (fixed, `77d401f`).** `g-forged-claim-control`/`r23-1-tampered-sig-certified`
+   tamper the signature with `owner_sig.slice(0,126)+"00"`, a no-op for the ~9% of Ed25519 signatures whose
+   byte 63 is already `0x00` (S < L; **26/300 measured** from node's signer this session). It hit twice in
+   the red runs (R16-F2a, R26-3b first pairs — recorded as "collateral" there) and once in a GREEN run
+   (R23-2-revert's first pair). Classified **harness**; the fix makes the tamper always change the byte
+   (same assertion: a tampered owner_sig is refused with the claims `owner signature` error). Deterministic
+   re-run pairs after the fix are the recorded ones (R16-F2a `ERROR r15-phase2-4`, R26-3b single red,
+   R23-2-revert as expected). `tools/repro/g-forged-claim.mjs` has the same tamper but is deleted at RG
+   (R35.3b) and is left as is.
+2. **U7 needs `build:core`, not `build:cli`.** `foldReserve` drives `manifest/dist/reserve.mjs` +
+   `clear/dist/cli.mjs`; the first pair (05:41Z) rebuilt only `cli/dist`, so the mutation never reached the
+   fold and its "red run" was green — not evidence, not recorded. The recorded pair (05:44Z) rebuilds
+   `npm run build:core` after apply and after `-R`.
+3. **`mut-replay-markets.ts`'s optional launch leg is not passable on the committed corpus.** With the A16
+   `launch-cold-f1170469` dir its `launch-meet-allocation-order` line FAILs **even unmutated**
+   (`canonical=true decorrelated=false` — the corpus's canonical rows coincide with winner-leaf order).
+   My runs pass no launch dir (exactly the original 5M8–5M10 records' shape). Track A's leg/corpus —
+   Question 2 below.
+
+Patch hygiene: M1–M4 (phase-1), R15-F4b and R23-2-revert (phase-5) patches were **re-cut** at this HEAD with
+the same semantic mutations (headers record why: source drifted since their runs); 28 other patches fail
+`git apply --check` at `6802a2f` and are marked ⚠re-cut in the RG table for the live half.
+
+**Item 2 — RG table in `test-audit.md` §(c): DONE.** Every mutation ID in the project (**87**): last red
+(record file @ run commit), re-shown-at-`6802a2f` flag (23), and the one command for the live half (spec
+rows: `git apply … && BNZ_LIVE=1 npx playwright test --project=<p>`; local rows: the demo commands; live
+host rows: the signer-host deployment commands for 5M2-host/5M4/5M5). Counts: 23 re-shown, 29 live-only,
+30 local-validator, 5 retired-driver (R16-2a/2b, S5-a, R24-3i-a/b — R35.2 one-shots, evidence stands).
+Notes in the section: the replay harness's `FAIL` convention vs `ERROR`, the launch-leg finding, the U7
+first-pair note, the tamper fix.
+
+**Item 3 — `EVIDENCE.md` RG row: DONE.** RG stays **OPEN** (the live half runs at the final regression);
+the row now records the offline half (23 `*-rg.out` at `6802a2f` + the RG table) and what the live half
+owes: all Phase 1–5 specs green at one commit on post-NU7 testnet, then the table's 29 live-only +
+30 local-validator rows re-shown red at that commit (28 patches need re-cutting first), then R35.3(b)'s
+deletion of the 25 folded scripts in one head commit citing the RG evidence. Header notes run 35.
+
+**Batch B35 complete: three items, four commits (harness fix `77d401f`, evidence `ba7b4da`, and this
+docs commit), each with its proof above.** The RG live half is the head's/Track A's lane.
+
+### Questions (run 35)
+
+1. **Item 1's scope sentence vs its bullet list (done as written + the two families the sentence covers).**
+   "every mutation whose red can be shown offline" would also name M1/M3/M4 and 5M6/5M7/5M11; the bullets
+   name only M2 and 5M1/5M3/5M8–5M10. I ran the superset (both extras are the bullets' own commands/harnesses
+   over the same committed data) — say the word if the narrower list was intended and I will drop the six
+   extra `-rg.out` records from the evidence index wording (the runs themselves stand).
+2. **`mut-replay-markets.ts`'s A16 launch leg cannot go green on the committed corpus (Track A's leg).**
+   `launch-meet-allocation-order`'s `decorrelated` check fails **unmutated** on `markets/launch/cold-f1170469`
+   (`canonical=true decorrelated=false`: its canonical rows coincide with winner-leaf order, so the
+   decorrelated leg is unsatisfiable for this data). My B35 runs pass no launch dir (the original
+   5M8–5M10 shape). Should the leg re-point at a fresh A16-era launch run when one exists (the live RG),
+   or should the `decorrelated` condition be relaxed for corpora where the two orders coincide?
+3. **The B35 tamper fix (`77d401f`, `e2e/lib/readpath.ts`) changes a folded assertion's input** (not its
+   expectation): the `owner_sig` tamper now always changes the signature instead of writing a `00` byte
+   that ~9% of real signatures already have (26/300 measured; three pre-fix flaky reds/greens this batch).
+   Classified harness per "a red test is a defect report". Flagging because AGENTS.md guards assertion
+   changes; if you want the original tamper restored, the nondeterministic flake returns (~1/12 runs).
+4. **Run-33 Q6 (group-B fold shape) stands unchanged** — the ports assert the repros' own verdict
+   booleans/outcome values; re-shaping rides the live RG when the live legs can run.
+
+## Previous run (34): Phase 6 Track B offline batch B34 — packaging refresh (R36+R37.5), private-repo hygiene, EVIDENCE PK row
 
 Task (this session's head message): `track-b` fast-forwarded to main at `3ca5c9f` (B33 merged; the head's
 `5de3495` network fix — readpath folds pass the network to `seal`/`openEnvelope` — makes B's fold harness

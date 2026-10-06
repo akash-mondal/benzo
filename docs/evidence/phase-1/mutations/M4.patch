@@ -1,8 +1,13 @@
+# M4 (seal-open) — re-cut at 6802a2f for gate RG (batch B35): seal/src/main.ts drifted since the original run
+# (mutations/M4.out at 36913b6, 2026-09-30) — plaintext()/roundAt()/seal() gained the layout-version, binding and
+# holder fields and the envelope-tag rule. Same semantic mutation; expect ERROR C2 (M1: roundAt off by one),
+# ERROR C5 (M3: the envelope is exfiltrated before output), ERROR C4 (M4: the future-round refusal is removed) from
+# `npm run e2e` (the default seal-open project; its global setup rebuilds seal/dist from the working tree).
 diff --git a/seal/src/main.ts b/seal/src/main.ts
-index 220769b..fbe890c 100644
+index 3970240..1b34712 100644
 --- a/seal/src/main.ts
 +++ b/seal/src/main.ts
-@@ -70,7 +70,6 @@ async function seal(): Promise<void> {
+@@ -105,7 +105,6 @@ async function seal(): Promise<void> {
  
    const round = roundAt(t / 1000);
    const current = 1 + Math.floor((Date.now() / 1000 - QUICKNET.genesis_time) / QUICKNET.period);

@@ -2,12 +2,17 @@
 # e2e/lib/readpath-r232.ts (tools/repro/r23-2-signed-opens-repro.mjs stays until gate RG deletes it).
 # Red run: git apply this patch, then BNZ_LIVE=1 npx playwright test --project=cli-auction (the fold
 # block); expect ERROR r23-2-report-signed (and r23-2-forged-report-ignored). Original: mutations/R23-2.out.
+# Re-cut (gate RG offline half, batch B35, at 6802a2f): the cli/product.ts hunk drifted — A15 threaded
+# the network into authenticatedMemoEnvelope(notes(m.network), ...) — so its context line changed and
+# the block moved from line 217 to 297; same semantic mutation (the report is saved unsigned). The
+# settle/envelopes.ts hunk is unchanged (it still applies). Red shown through the scratch fold harness
+# tmp/folds.config.ts, as in B33.
 diff --git a/cli/product.ts b/cli/product.ts
-index d2b0077..3be3b34 100644
+index b7d7ae0..af8c93b 100644
 --- a/cli/product.ts
 +++ b/cli/product.ts
-@@ -217,12 +217,8 @@ export async function runCommand(command:string,args:string[]) {
-       const dest=open(authenticatedMemoEnvelope(notes(),party,doc.manifest,doc.envelopes,bin('tle')));
+@@ -297,12 +297,8 @@ export async function runCommand(command:string,args:string[]) {
+       const dest=open(authenticatedMemoEnvelope(notes(m.network),party,doc.manifest,doc.envelopes,bin('tle')));
        opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
      }
 -    // R23 item 2 (Reviewer G G3): the report is signed by this signer's own witness key (a member of the

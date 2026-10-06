@@ -1,0 +1,46 @@
+# R26-3a re-run at commit 6802a2f (clean tree + R26-3a.patch applied to api/public-auction.ts, cli rebuilt after apply
+# and after -R; gate RG offline half, batch B35; red shown through the scratch fold harness tmp/folds.config.ts, as in B33)
+# utc 2026-10-06T05:20:51Z
+# command: git apply docs/evidence/phase-6/mutations/R26-3a.patch && npm run build:cli && npx playwright test
+#   --config=tmp/folds.config.ts (output tmp/e2e/R26-3a-rg-red.out, exit 1); then git apply -R, npm run build:cli, re-run
+#   (tmp/e2e/R26-3a-rg-green.out, exit 0); git status --porcelain empty but for the new evidence files
+# expected red: ERROR r26-3-opened-diverges (and beacon/receipts/summary-diverges — all four are red); red run ERROR lines:
+ERROR r26-3-opened-diverges Error: r26-3-opened-diverges threw | Expected: "" | Received: "got exit 0, expected `ERROR projection refused: opened.json projection differs`: no ERROR line"
+ERROR r26-3-beacon-diverges Error: r26-3-beacon-diverges threw | Expected: "" | Received: "got exit 0, expected `ERROR projection refused: beacon.json projection differs`: no ERROR line"
+ERROR r26-3-receipts-diverges Error: r26-3-receipts-diverges threw | Expected: "" | Received: "got exit 0, expected `ERROR projection refused: receipts.json projection differs`: no ERROR line"
+ERROR r26-3-summary-diverges Error: r26-3-summary-diverges threw | Expected: "" | Received: "got exit 0, expected `ERROR projection refused: summary.json projection differs`: no ERROR line"
+# last 30 lines of the red run:
+        at /Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:35:76
+        at Run.check (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:30:5)
+        at foldR263 (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/readpath.ts:192:3)
+        at /Users/akshmnd/Dev Projects/benzo-b/tmp/folds.spec.ts:10:112
+
+    Error: r26-3-summary-diverges threw
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: ""
+    Received: "got exit 0, expected `ERROR projection refused: summary.json projection differs`: no ERROR line"
+
+       at ../e2e/lib/run.ts:35
+
+      33 |         await body();
+      34 |       } catch (err) {
+    > 35 |         expect.soft(String((err as Error)?.message ?? err), `${id} threw`).toBe("");
+         |                                                                            ^
+      36 |       }
+      37 |       const errors = test.info().errors.slice(before);
+      38 |       this.results[id] = errors.length ? "FAIL" : "PASS";
+        at /Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:35:76
+        at Run.check (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:30:5)
+        at foldR263 (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/readpath.ts:193:3)
+        at /Users/akshmnd/Dev Projects/benzo-b/tmp/folds.spec.ts:10:112
+
+    Error Context: test-results/folds-folds/error-context.md
+
+  1 failed
+    tmp/folds.spec.ts:8:1 › folds ──────────────────────────────────────────────────────────────────
+# green after git apply -R (same command, tmp/e2e/R26-3a-rg-green.out):
+  ✓  1 tmp/folds.spec.ts:8:1 › folds (1.1m)
+
+  1 passed (1.1m)

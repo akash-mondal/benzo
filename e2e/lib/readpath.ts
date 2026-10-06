@@ -346,7 +346,9 @@ export async function foldGForged(run: Run): Promise<void> {
     need(e.length === 0, `errors with the forged claim: ${JSON.stringify(e.map((c: any) => `${c.id}: ${c.error}`))}`);
   });
   await run.check("g-forged-claim-control", "the same claim with a tampered owner_sig is refused exactly on the claims check", () => {
-    const bad = { ...certified, claims: [{ ...certified.claims[0], owner_sig: owner_sig.slice(0, 126) + "00" }] };
+    // The tamper must always change the byte: S < L ~ 2^252 leaves sig[63] 0x00 in ~9% of real signatures
+    // (26/300 measured), for which a plain "+\"00\"" is a no-op and the valid signature is rightly accepted.
+    const bad = { ...certified, claims: [{ ...certified.claims[0], owner_sig: owner_sig.slice(0, 126) + (owner_sig.slice(126) === "00" ? "01" : "00") }] };
     const badErr = claimErrors(bad);
     need(badErr.length === 1 && /owner signature/.test(badErr[0].error ?? ""), `tampered sig not refused: ${JSON.stringify(badErr)}`);
   });
@@ -366,7 +368,7 @@ export async function foldGForged(run: Run): Promise<void> {
     need(e.length === 1 && /strays witness quorum/.test(e[0].error ?? ""), JSON.stringify(e));
   });
   await run.check("r23-1-tampered-sig-certified", "a tampered owner_sig is refused even under a valid strays certificate", () => {
-    const p = { ...certified, claims: [{ ...certified.claims[0], owner_sig: owner_sig.slice(0, 126) + "00" }] };
+    const p = { ...certified, claims: [{ ...certified.claims[0], owner_sig: owner_sig.slice(0, 126) + (owner_sig.slice(126) === "00" ? "01" : "00") }] };
     const e = claimErrors(p);
     need(e.length === 1 && /owner signature/.test(e[0].error ?? ""), JSON.stringify(e));
   });

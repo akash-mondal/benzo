@@ -1,0 +1,11 @@
+# 5M3 replay re-run at commit 6802a2f (clean tree + 5M3.patch applied to witness/index.ts; gate RG offline half, batch B35)
+# utc 2026-10-06T04:59:42Z
+# command: git apply docs/evidence/phase-5/mutations/5M3.patch && npx esbuild tools/repro/mut-replay.ts --bundle --platform=node
+#   --format=esm --outfile=tmp/mut-replay.mjs && node tmp/mut-replay.mjs docs/evidence/phase-5/buyback-run4/cold/auction.json
+#   (output tmp/e2e/5M3-rg-red.out); then git apply -R, re-bundle, re-run (tmp/e2e/5M3-rg-green.out); git status --porcelain empty
+# expected red: FAIL X1b (the buyback replay's own 5M convention, unchanged since mutations/5M3.out); last 30 lines of the red run:
+PASS V1b price 210 outcomes winner,winner,unfilled treasury 420
+FAIL X1b one witness counted twice reached the quorum
+# green after git apply -R (same command, tmp/e2e/5M3-rg-green.out):
+PASS V1b price 210 outcomes winner,winner,unfilled treasury 420
+PASS X1b refused: refused: witness quorum 1-of-3

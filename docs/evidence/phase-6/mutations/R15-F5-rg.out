@@ -1,0 +1,45 @@
+# R15-F5 re-run at commit 6802a2f (clean tree + R15-F5.patch applied to api/public-auction.ts, cli rebuilt after apply
+# and after -R; gate RG offline half, batch B35; red shown through the scratch fold harness tmp/folds.config.ts, as in B33)
+# utc 2026-10-06T05:13:15Z
+# command: git apply docs/evidence/phase-5/mutations/R15-F5.patch && npm run build:cli && npx playwright test
+#   --config=tmp/folds.config.ts (output tmp/e2e/R15-F5-rg-red.out, exit 1); then git apply -R, npm run build:cli, re-run
+#   (tmp/e2e/R15-F5-rg-green.out, exit 0); git status --porcelain empty but for the new evidence files
+# expected red: ERROR r15-zero-refund-needs-no-row (it is red; r26-3-projections-match is the same mutated verify
+# call's collateral); red run ERROR lines:
+ERROR r15-zero-refund-needs-no-row Error: r15-zero-refund-needs-no-row threw | Expected: "" | Received: "got exit 1: OK projection | OK missing-deposits | OK delivery | OK report | OK manifest | OK freeze | OK witness | OK receipts | OK clear | OK claims | OK accounting | OK balances | OK defaults | OK accounting-strays | WARN no witness set (pre-Phase-5 manifest) | ERROR envelope refused: missing envelope 0: missing row | "
+ERROR r26-3-projections-match Error: r26-3-projections-match threw | Expected: "" | Received: "got exit 1: ERROR envelope refused: missing envelope 0: missing row"
+# last 30 lines of the red run:
+        at /Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:35:76
+        at Run.check (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:30:5)
+        at foldR15 (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/readpath.ts:122:3)
+        at /Users/akshmnd/Dev Projects/benzo-b/tmp/folds.spec.ts:10:112
+
+    Error: r26-3-projections-match threw
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: ""
+    Received: "got exit 1: ERROR envelope refused: missing envelope 0: missing row"
+
+       at ../e2e/lib/run.ts:35
+
+      33 |         await body();
+      34 |       } catch (err) {
+    > 35 |         expect.soft(String((err as Error)?.message ?? err), `${id} threw`).toBe("");
+         |                                                                            ^
+      36 |       }
+      37 |       const errors = test.info().errors.slice(before);
+      38 |       this.results[id] = errors.length ? "FAIL" : "PASS";
+        at /Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:35:76
+        at Run.check (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/run.ts:30:5)
+        at foldR263 (/Users/akshmnd/Dev Projects/benzo-b/e2e/lib/readpath.ts:178:3)
+        at /Users/akshmnd/Dev Projects/benzo-b/tmp/folds.spec.ts:10:112
+
+    Error Context: test-results/folds-folds/error-context.md
+
+  1 failed
+    tmp/folds.spec.ts:8:1 › folds ──────────────────────────────────────────────────────────────────
+# green after git apply -R (same command, tmp/e2e/R15-F5-rg-green.out):
+  ✓  1 tmp/folds.spec.ts:8:1 › folds (1.1m)
+
+  1 passed (1.1m)
