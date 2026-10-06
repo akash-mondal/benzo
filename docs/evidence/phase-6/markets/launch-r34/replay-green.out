@@ -1,4 +1,4 @@
-# A16 replay-green (2026-10-06T06:28:36Z, commit 10bf941): the markets replay assertions on the live run data (revision/rfq published, drop-r33/drop-cold, launch-r34/launch-cold from run d24a4f26d1bd79c41d971fbc05919872ef84043fe8d12b3face870a02f4e3d64), unmutated code
+# A16 replay-green (2026-10-06T06:34:33Z, commit 20e47f8): the markets replay assertions on the live run data (revision/rfq published, drop-r33/drop-cold, launch-r34/launch-cold from run d24a4f26), unmutated code. R39.2 replaced the launch assertion: canonical order + allocation root over that order.
 PASS revision outcomes superseded,unfilled,winner price 300
 PASS rfq outcomes unfilled,winner,not_allowlisted price 400
 PASS drop-defaults published defaults [2]
@@ -6,4 +6,5 @@ PASS drop-defaults-maps 2 agreeing verified maps
 PASS drop-defaults-window defaults [2] (a pre-window note must not count as payment; fixture (4469382, 4469385] in (4469383, 4469395])
 PASS drop-forfeit obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
 PASS drop-swapped-defaults-refused swapped [0] verify exit 1 (ERROR accounting refused: settlement seller amount | ERROR defaults refused: settlement defaults differ from the host-signed approval maps)
-PASS launch-meet-allocation-order canonical=true decorrelated=true; verify exit 0
+PASS launch-meet-allocation-order canonical=true root=true; verify exit 0
+exit 0

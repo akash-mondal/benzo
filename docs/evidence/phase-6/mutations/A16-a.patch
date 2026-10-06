@@ -1,0 +1,7 @@
+diff --git a/docs/evidence/phase-6/markets/launch-r34/launch-cold/allocation.json b/docs/evidence/phase-6/markets/launch-r34/launch-cold/allocation.json
+index ea3119e..ba83e1f 100644
+--- a/docs/evidence/phase-6/markets/launch-r34/launch-cold/allocation.json
++++ b/docs/evidence/phase-6/markets/launch-r34/launch-cold/allocation.json
+@@ -1 +1 @@
+-{"auction_id":"d24a4f26d1bd79c41d971fbc05919872ef84043fe8d12b3face870a02f4e3d64","delivery":"project_on_token_chain","rows":[{"amount":1,"destination":"token-chain:fc17929d55ed870510df64662f9a1d6c05c08e71"},{"amount":1,"destination":"token-chain:ffff53b8fc96c667dd9d40331e9d31a1ddfefb0c"}],"version":1}
++{"auction_id":"d24a4f26d1bd79c41d971fbc05919872ef84043fe8d12b3face870a02f4e3d64","delivery":"project_on_token_chain","rows":[{"amount":1,"destination":"token-chain:ffff53b8fc96c667dd9d40331e9d31a1ddfefb0c"},{"amount":1,"destination":"token-chain:fc17929d55ed870510df64662f9a1d6c05c08e71"}],"version":1}
