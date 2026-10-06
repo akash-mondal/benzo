@@ -1,0 +1,41 @@
+diff --git a/clear/features.ts b/clear/features.ts
+index 091bbcc..a0d7ae0 100644
+--- a/clear/features.ts
++++ b/clear/features.ts
+@@ -125,31 +125,15 @@ export function balanceDefaults(
+   const byLeaf = balanceAddressMap(result, leaves, m);
+   const { start, end } = balanceWindow(m);
+   requireThat(tip > end, "balance window has not passed; settlement waits");
+-  const inWindow = (address: string): bigint => notes.filter(n => n.address === address && n.height && n.height > start && n.height <= end)
+-    .reduce((s, n) => s + BigInt(n.value_zats), 0n);
+-  // Ruling R38 item 2 (N1): several winning leaves may share one deposit slot and so one balance address. Per
+-  // address, walk that slot's winning leaves in leaf_index order with the in-window total: a leaf is PAID if the
+-  // remaining total covers its balance_due_zats (subtract it), otherwise it is a DEFAULT. Deterministic, and one
+-  // payment can never settle two balances (the reviewer's shared-slot case). This one rule is used by the plan,
+-  // every signer host and the verify-side replays alike.
+-  const slots = new Map<string, { leaf_index: number; due: bigint }[]>();
++  const defaults: number[] = [];
+   for (const a of result.allocations) {
+     const due = BigInt(a.balance_due_zats ?? "0");
+     if (a.fill <= 0 || due === 0n) continue; // only a bonded winner owing a balance can default
+-    const address = byLeaf.get(a.leaf_index)!;
+-    const slot = slots.get(address) ?? [];
+-    slot.push({ leaf_index: a.leaf_index, due });
+-    slots.set(address, slot);
+-  }
+-  const defaults: number[] = [];
+-  for (const [address, owed] of slots) {
+-    let got = inWindow(address);
+-    for (const o of owed.sort((x, y) => x.leaf_index - y.leaf_index)) {
+-      if (got >= o.due) got -= o.due;
+-      else defaults.push(o.leaf_index);
+-    }
++    const got = notes.filter(n => n.address === byLeaf.get(a.leaf_index) && n.height && n.height > start && n.height <= end)
++      .reduce((s, n) => s + BigInt(n.value_zats), 0n);
++    if (got < due) defaults.push(a.leaf_index);
+   }
+-  return defaults.sort((x, y) => x - y);
++  return defaults;
+ }
+ 
+ export type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };

@@ -1,0 +1,14 @@
+# A17 item 2 (R38 N1) replay-green (2026-10-06T08:31:43Z, commit 8bc689d): the balance-defaults derivation on the reviewer's shared-slot case (two 300,000 balances at one deposit slot, one 300,000 in-window payment) gives exactly one default. Unmutated code.
+# command npx esbuild tools/repro/r33-balance.ts --bundle --platform=node --format=esm --outfile=tmp/r33-balance.mjs && node tmp/r33-balance.mjs
+commit 8bc689db6c0bf71523d1865aac661cdf7041e369 (working tree not clean at run time)
+utc 2026-10-06T08:31:43.649Z
+command node tmp/r33-balance.mjs (tools/repro/r33-balance.ts)
+tree ?? docs/evidence/phase-5/mutations/A17-N1-green.out
+tree ?? docs/evidence/phase-5/mutations/A17-N1.patch
+api manifest window (post-R33)
+PASS case1 expected [0] got [0]
+PASS case2 expected [] got []
+shared-slot balance map [[0,"uaS"],[1,"uaS"]] -> CONFIRMED leaves 0 and 1 share one balance address
+PASS case3 expected [1] got [1] (one 300,000 payment for two 300,000 balances settles exactly one: leaf 0 paid, leaf 1 default)
+RESULT PASS r33-balance
+exit 0

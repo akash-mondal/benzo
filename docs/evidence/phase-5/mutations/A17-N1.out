@@ -1,0 +1,18 @@
+# A17 item 2 (R38 N1) replay (2026-10-06T08:33:02Z -> 2026-10-06T08:33:02Z, commit 8bc689d): the same derivation with the pre-change per-leaf summing restored (docs/evidence/phase-5/mutations/A17-N1.patch — the balanceDefaults loop as it was before this fix; red on the pre-change commit), applied then reversed; git status after reversal shows only the new mutation files.
+# command node tmp/r33-balance.mjs (replay bundle rebuilt from the mutated tree)
+# expected ERROR case3 (one payment settled both balances -> no default where one is owed)
+commit 8bc689db6c0bf71523d1865aac661cdf7041e369 (working tree not clean at run time)
+utc 2026-10-06T08:33:02.815Z
+command node tmp/r33-balance.mjs (tools/repro/r33-balance.ts)
+tree M clear/features.ts
+tree ?? docs/evidence/phase-5/mutations/A17-N1-green.out
+tree ?? docs/evidence/phase-5/mutations/A17-N1.out
+tree ?? docs/evidence/phase-5/mutations/A17-N1.patch
+api manifest window (post-R33)
+PASS case1 expected [0] got [0]
+PASS case2 expected [] got []
+shared-slot balance map [[0,"uaS"],[1,"uaS"]] -> CONFIRMED leaves 0 and 1 share one balance address
+FAIL case3 expected [1] got [] (one 300,000 payment for two 300,000 balances settles exactly one: leaf 0 paid, leaf 1 default)
+ERROR case3 one payment settled more than one balance (or none): defaults []
+RESULT FAIL r33-balance
+exit 1
