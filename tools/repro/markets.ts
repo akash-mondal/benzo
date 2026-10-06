@@ -351,6 +351,7 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
   // Pre-change one such note permanently wedged settlement (a host refusal over chain state a third party can
   // create); the run must still settle with it present. Idempotent on resume (a re-run never doubles the dust).
   const scanVault = () => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
+  const safeTip = () => { try { return z.tip(); } catch { return 0; } };
   for (const leaf of sc.balanceDust ?? []) {
     const ua = slot(leaf);
     if (scanVault().some((n: any) => n.address === ua && n.height && n.height <= start)) say(`dust already present at leaf ${leaf}'s balance address before the window start`);
@@ -359,7 +360,6 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
   // The bound is a poll count, not a deadline on the chain: slow testnet blocks (A17 live runs) pushed the
   // window hundreds of blocks out and an 80-minute bound aborted a funded run mid-flight (e90f139e). A failed
   // tip fetch (one DNS blip killed a32310dd hours in) reads as 0, so the wait simply polls again.
-  const safeTip = () => { try { return z.tip(); } catch { return 0; } };
   for (let i = 0; safeTip() <= start; ) {
     if (++i > 800) throw new Error("balance window never opened");
     await sleep(30_000);
