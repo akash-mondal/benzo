@@ -144,7 +144,7 @@ try {
       // built: otherwise every host's build refuses it with InsufficientFunds (live: drop-r33 attempt 1 —
       // ac51f698 mined in-window at 4469388 but had 9 confirmations when the window closed at 4469396).
       // Waiting for maturity is bounded (a mined note always matures); it never refuses chain state.
-      const bUas=new Set([...balanceAddressMap(m as any,result,src.frozen!.leaves as any).values()]),bondBlocks=m.bond.balance_window_blocks;
+      const bUas=new Set([...balanceAddressMap(result,src.frozen!.leaves as any,m as any).values()]),bondBlocks=m.bond.balance_window_blocks;
       for(;;) {
         const immature=balNotes.filter((n:any)=>bUas.has(n.address)&&n.height&&n.height>start&&n.height<=start+bondBlocks&&tip-n.height+1<10);
         if(!immature.length)break;
