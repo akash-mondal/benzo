@@ -354,11 +354,13 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
   for (const leaf of sc.balanceDust ?? []) {
     const ua = slot(leaf);
     if (scanVault().some((n: any) => n.address === ua && n.height && n.height <= start)) say(`dust already present at leaf ${leaf}'s balance address before the window start`);
-    else say(`dust sent to leaf ${leaf}'s balance address before the window opens, at tip ${z.tip()} (out of window: never counts as payment, refunds to leaf ${leaf}) (${z.pay(`zcash:?address=${ua}&amount=0.0002`)})`);
+    else say(`dust sent to leaf ${leaf}'s balance address before the window opens, at tip ${safeTip()} (out of window: never counts as payment, refunds to leaf ${leaf}) (${z.pay(`zcash:?address=${ua}&amount=0.0002`)})`);
   }
   // The bound is a poll count, not a deadline on the chain: slow testnet blocks (A17 live runs) pushed the
-  // window hundreds of blocks out and an 80-minute bound aborted a funded run mid-flight (e90f139e).
-  for (let i = 0; z.tip() <= start; ) {
+  // window hundreds of blocks out and an 80-minute bound aborted a funded run mid-flight (e90f139e). A failed
+  // tip fetch (one DNS blip killed a32310dd hours in) reads as 0, so the wait simply polls again.
+  const safeTip = () => { try { return z.tip(); } catch { return 0; } };
+  for (let i = 0; safeTip() <= start; ) {
     if (++i > 800) throw new Error("balance window never opened");
     await sleep(30_000);
   }
@@ -369,13 +371,13 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
   for (const leaf of sc.balancePays ?? []) {
     const a = d.result.allocations.find((x: any) => x.leaf_index === leaf), ua = slot(leaf);
     if (inWindow(ua) >= Number(a.balance_due_zats)) { say(`balance already paid for leaf ${leaf} in (${start}, ${start + blocks}]`); continue; }
-    say(`balance paid ${a.balance_due_zats} for leaf ${leaf}, sent at tip ${z.tip()} (window (${start}, ${start + blocks}]; a logged height is the SEND tip, never a mined height) (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
+    say(`balance paid ${a.balance_due_zats} for leaf ${leaf}, sent at tip ${safeTip()} (window (${start}, ${start + blocks}]; a logged height is the SEND tip, never a mined height) (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
   }
-  for (let i = 0; z.tip() <= start + blocks; ) {
+  for (let i = 0; safeTip() <= start + blocks; ) {
     if (++i > 800) throw new Error("balance window did not pass");
     await sleep(30_000);
   }
-  say(`balance window closed; the window was (${start}, ${start + blocks}], tip now ${z.tip()}`);
+  say(`balance window closed; the window was (${start}, ${start + blocks}], tip now ${safeTip()}`);
 }
 // Part 2 §1 row 5: each round's winners sign the serial intake (the adapters/buyback-report.ts record shape) with
 // the one-time owner key inside their own opened bid; `benzo buyback intake` validates every record against the
