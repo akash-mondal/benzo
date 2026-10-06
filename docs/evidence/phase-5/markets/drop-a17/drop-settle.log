@@ -1,0 +1,9 @@
+{"auction_id":"be7aebe8d76203a2fc23621965118310661682a7eade4fb04b7584980ed56c6a","state":"SETTLING","settled":3}
+
+----
+ERROR refund leaf:0 to the exception queue: out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund
+{"auction_id":"be7aebe8d76203a2fc23621965118310661682a7eade4fb04b7584980ed56c6a","batch":1,"allocated":3}
+settlement broadcast 6ca98d91b57887526598c3077ed6f573714df287a88954f530785099142daba5
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+{"auction_id":"be7aebe8d76203a2fc23621965118310661682a7eade4fb04b7584980ed56c6a","settled":3}

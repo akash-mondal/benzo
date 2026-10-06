@@ -1,0 +1,19 @@
+auction be7aebe8d76203a2fc23621965118310661682a7eade4fb04b7584980ed56c6a mode uniform
+funding fa6dd60e30314a1d50961440883de90ad71d7e54a35b49b03e8c6ce84c56fc0b
+PASS drop-cli-equals-pure-clear outcomes winner,unfilled,winner,below_reserve price 0
+balance window (4472304, 4472344] manifest-fixed (was operator-chosen after the clear)
+dust sent to leaf 0's balance address before the window opens, at tip 4472133 (out of window: never counts as payment, refunds to leaf 0) (8fb693ae35d9635b9500d1efba0e39cba7968ec715ebbec0b7465d8b1d243497)
+balance paid 300000 for leaf 0, sent at tip 4472306 (window (4472304, 4472344]; a logged height is the SEND tip, never a mined height) (f820dbd7e6afbed9a1e676ae174eddba7bc8384d4bfd7f7f42e86c42b5c0149d)
+balance window closed; the window was (4472304, 4472344], tip now 4472347
+PASS drop-expected-equals-obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+PASS drop-settled exit 0
+PASS drop-receipts {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+PASS drop-landed [0,200000,0,200000,0]
+PASS drop-cold-verify
+PASS drop-defaults [2]
+PASS drop-seller-landed 700000
+PASS drop-reserve-opening reserve_opening present; verify exit 0
+PASS drop-defaults-maps 2 agreeing verified maps
+PASS drop-swapped-defaults-refused exit 1
+PASS drop-serial-replay-enforced exit 1
+RESULT PASS drop
