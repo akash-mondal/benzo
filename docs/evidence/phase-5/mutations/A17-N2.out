@@ -1,0 +1,16 @@
+# A17 item 1 (R38 N2) settlement-side replay (2026-10-06T13:48:52Z -> 2026-10-06T13:48:52Z, commit c2debf1): the same derivation with the pre-change refusal restored (docs/evidence/phase-5/mutations/A17-N2.patch — cli/host-derive.ts exactly as before 94d0d13), applied then reversed; git status after reversal shows only the new mutation files.
+# command node tmp/r38-n2b.mjs derivable tmp/benzo-n2red.mjs 894999d6... (the mutated CLI bundled to tmp with its commands/; cli/dist untouched while the live drop run is in flight)
+# expected ERROR n2-derivable (the pre-change refusal wedges on the third party's pre-window dust)
+commit c2debf1d69c96167c1b67be5ef527d7b2cbc3082 (working tree not clean at run time)
+utc 2026-10-06T13:48:52.232Z
+command node tmp/r38-n2.mjs (tools/repro/r38-n2.ts)
+tree M cli/host-derive.ts
+tree ?? docs/evidence/phase-5/mutations/A17-N2-green.out
+tree ?? docs/evidence/phase-5/mutations/A17-N2.out
+tree ?? docs/evidence/phase-5/mutations/A17-N2.patch
+tree ?? tools/repro/r38-n2.ts
+ERROR sign derivable refused: balance address utest1nqp98zyq82… holds a note at height 4471226 at or below the window start; stale or pre-funded value refused
+FAIL n2-derivable exit 1; host rows []; published balance_refunds [{"amount_zats":"20000","leaf_index":0}]; output tail: ERROR sign derivable refused: balance address utest1nqp98zyq82… holds a note at height 4471226 at or below the window start; stale or pre-funded value refused
+ERROR n2-derivable the derivation refused (exit 1): ERROR sign derivable refused: balance address utest1nqp98zyq82… holds a note at height 4471226 at or below the window start; stale or pre-funded value refused
+RESULT FAIL r38-n2
+exit 1

@@ -1,0 +1,13 @@
+diff --git a/cli/host-derive.ts b/cli/host-derive.ts
+index 1c81cb4..06a3cf6 100644
+--- a/cli/host-derive.ts
++++ b/cli/host-derive.ts
+@@ -137,6 +137,8 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
+           "balance address is a deposit, escrow or treasury address");
+       }
+       requireThat(blockTime(st, start) >= QUICKNET.genesis + (bM.drand.R - 1) * QUICKNET.period, "balance window starts before the release round");
++      for (const n of notes) requireThat(!(uas.has(n.address) && n.height && n.height <= start),
++        `balance address ${String(n.address).slice(0, 16)}… holds a note at height ${n.height} at or below the window start; stale or pre-funded value refused`);
+       // Ruling R38 item 4 (N4): out-of-window balance notes are never settlement sources (never swept into
+       // change) — the in-window ones back the seller payout in the approval ledger, and each out-of-window note
+       // refunds to that slot's earliest winning leaf. This host derives both from its own scan with the shared

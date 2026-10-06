@@ -1,0 +1,12 @@
+# A17 item 1 (R38 N2) settlement-side replay-green (c2debf1): the shipped benzo sign derivable over the 894999d6 drop run's own state (real pre-window dust 0fb334e2 at 4471226 <= window start 4471407). Unmutated code.
+# command node tmp/r38-n2b.mjs derivable cli/dist/benzo.mjs 894999d6...
+commit c2debf1d69c96167c1b67be5ef527d7b2cbc3082 (working tree not clean at run time)
+utc 2026-10-06T13:47:35.059Z
+command node tmp/r38-n2.mjs (tools/repro/r38-n2.ts)
+tree ?? docs/evidence/phase-5/mutations/A17-N2-green.out
+tree ?? docs/evidence/phase-5/mutations/A17-N2.patch
+tree ?? tools/repro/r38-n2.ts
+PASS n2-derivable exit 0; host rows [{"party":"leaf:0","amount_zats":"20000"},{"party":"leaf:1","amount_zats":"200000"},{"party":"leaf:3","amount_zats":"200000"},{"party":"seller","amount_zats":"700000"}]; published balance_refunds [{"amount_zats":"20000","leaf_index":0}]
+PASS n2-derivable the host derives every payable row from its own data, including the out-of-window refund row
+RESULT PASS r38-n2
+exit 0
