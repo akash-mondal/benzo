@@ -44,9 +44,13 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32, net: Network) -> anyho
     // spends and 29 outputs (max(spends, outputs) <= 29) — 28 recipients plus change stay under 100 KB, and
     // a vault holding many small notes must not build an oversized transaction. Counted through the Verifier
     // exactly like `inspect` counts (dummy/padded actions carry no value on either side).
-    let (mut spends, mut outs) = (0usize, 0usize);
+    // Ruling R38 item 6 (N6): the TOTAL action count over both bundles is bounded too (<= 30) — dummy halves
+    // are free under the rule above, so a cross-pool batch could otherwise carry up to 58 actions while
+    // satisfying max(spends, outputs) <= 29.
+    let (mut spends, mut outs, mut actions) = (0usize, 0usize, 0usize);
     {
         let mut tally = |b: &Bundle| -> Result<(), OrchardError<&'static str>> {
+            actions += b.actions().len();
             for a in b.actions() {
                 if let Some(v) = a.spend().value() { if v.inner() > 0 { spends += 1; } }
                 if let Some(v) = a.output().value() { if v.inner() > 0 { outs += 1; } }
@@ -57,6 +61,7 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32, net: Network) -> anyho
             .with_ironwood(|b| tally(b)).map_err(|e|anyhow!("PCZT count: {e:?}"))?.finish();
     }
     ensure!(std::cmp::max(spends, outs) <= 29, "batch must have at most 29 spends and 29 outputs");
+    ensure!(actions <= 30, "batch must have at most 30 actions across both bundles");
     std::fs::write(output,pczt.serialize().map_err(|e|anyhow!("serialization: {e:?}"))?)?;
     Ok(())
 }
