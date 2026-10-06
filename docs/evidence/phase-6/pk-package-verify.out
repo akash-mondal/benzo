@@ -1,10 +1,11 @@
-utc 2026-10-05T22:06:02Z
-commit 50ee067 tree (run 33 item 3 follow-up); tarball sha256 f123cdde4382bffd3fe99bc6c78a9d6b72a2add823cf6a1cf855ab7625bc7d36 (docs/evidence/phase-6/pk-package.sha256)
-clean extract in /tmp, offline (no --fetch-beacon), the shipped Phase 4 evidence copied in as the published auction directory:
+utc 2026-10-06T04:20:55Z
+commit 3ca5c9f tree; tarball sha256 ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9
+OK tarball matches docs/evidence/phase-6/pk-package.sha256 ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9
+clean extract in /tmp, offline (no --fetch-beacon), no .env and no state dir; the shipped Phase 4 evidence copied in as the published auction directory:
 $ rm -rf /tmp/benzo-pk-run && mkdir -p /tmp/benzo-pk-run && tar -xzf dist/benzo-0.1.0.tgz -C /tmp/benzo-pk-run
 $ cp -R docs/evidence/phase-4/cli /tmp/benzo-pk-run/benzo-0.1.0/auction
 $ cd /tmp/benzo-pk-run/benzo-0.1.0 && shasum -a 256 dist/benzo-verify.mjs
-effd985395dd976b0f737df16f27eb81d2bd195d1db07c0e5671228ad21b3b1d  dist/benzo-verify.mjs
+807544459ea3f467dcd5c6e4312105e0ea2de68f7e1cccd03e3e3d9cbd1a9371  dist/benzo-verify.mjs
 $ ./bin/benzo --help | head -2   (the router starts with no .env and no state dir)
 benzo api serve --dir <public-auction-dir> [--host 127.0.0.1] [--port 8787] [--signer <ed25519-spki-der-hex>]
 benzo auction create --file unsigned-manifest.json
@@ -23,5 +24,14 @@ OK envelope
 OK claims
 OK accounting
 OK balances
+OK defaults
 OK accounting-strays
 exit=0
+$ ./bin/benzo auction balance-addresses   (R33 removed this command; must be absent from the packaged CLI)
+ERROR usage unknown command; run benzo --help
+exit=2
+OK removed-command-absent auction balance-addresses refused by the packaged router (exit 2)
+$ tar -tzf dist/benzo-0.1.0.tgz | grep -c balance-addresses   (no stale module ships)
+tar exit=0 matches=0
+OK no balance-addresses entry among the 18321 tarball entries
+PASS clean-extract verify + removed-command absence

@@ -1,22 +1,21 @@
-# Phase 6 public-repo hygiene (B33 item 2)
+# Phase 6 private-repo hygiene (R36; written in B33 item 2, re-stated by B34 item 2)
 
-Checklist with proof, run 2026-10-06 on `track-b` (tree `1a4846f` + B33 item 1). Every line below is one command
-and its result in this checkout; FAILs are fixed in this batch's item-2 commits and the fix is named. No secret
-values are printed anywhere in this file.
+Checklist with proof, run 2026-10-06 on `track-b`; line 4 re-run at `72204b2` (B34). Every check line below is
+one command and its result in this checkout; FAILs found in B33 were fixed in its item-2 commits and the fix
+is named. No secret values are printed anywhere in this file. **R36 (user instruction 2026-10-06, verbatim:
+"no public"): the repository stays private and ships no open-source license** — so B33's LICENSE line is
+dropped from this checklist (section 1 records the ruling state instead) and every secret, leak and
+absolute-path check is kept.
 
-## 1. LICENSE present and consistent with `package.json` — FAIL → FIXED
+## 1. Private repository, no license (R36) — ruling state, not a check
 
-- Before: no `LICENSE*` at the repo root (`ls LICENSE*` empty; the only licenses tracked are vendored
-  `contracts/evm/lib/forge-std/LICENSE-{MIT,APACHE}`), and `package.json` had no `"license"` field
-  (`node -e "require('./package.json').license"` → `undefined`; `git log --all -- LICENSE` empty).
-- Fix (this batch): `LICENSE` added (MIT, `Copyright (c) 2026 Akash Mondal` from the repo's git identity) and
-  `package.json` gained `"license": "MIT"` (next to the run-28 `"version": "0.1.0"`; `"private": true` is
-  unchanged — distribution is the `npm run package` tarball, not `npm publish`).
-- Proof after: `node -e "console.log(require('./package.json').license)"` → `MIT`; `head -1 LICENSE` → `MIT License`.
-- **Flagged under Questions:** the license *choice* (MIT) and the copyright holder are a judgment call, not a
-  Ruling; the head or the user should confirm or replace before the public release. The shipped npm tarball
-  (`tools/package.mjs`) does not include `LICENSE` yet — adding it changes the recorded digests
-  (`pk-package.sha256`, `docs/reproducible-build.md`), so it waits for the next packaging refresh.
+- `LICENSE` is deliberately absent (`ls LICENSE*` at the repo root is empty; the only tracked licenses are
+  vendored `contracts/evm/lib/forge-std/LICENSE-{MIT,APACHE}`, `git ls-files | grep -i LICENSE`);
+  B33's MIT `LICENSE` was removed by the head (`15209fc`). `package.json` carries `"license": "UNLICENSED"`
+  next to `"private": true` (`node -e "console.log(require('./package.json').license, require('./package.json').private)`
+  → `UNLICENSED true`). Never make the repo or any part of it public without the user.
+- The B33 question about license choice and copyright holder is closed by R36. The B34 packaging refresh
+  re-recorded the digests after `package.json` changed (`docs/reproducible-build.md`, `pk-*` evidence).
 
 ## 2. `.env.example` only; every variable documented; no real `.env` tracked — PASS (one comment fix)
 
@@ -46,15 +45,18 @@ values are printed anywhere in this file.
   supposed to be committed; `git ls-files | grep -E '\.(pem|key|agekey)$|ufvk'` → empty (no key-shaped file has
   ever been tracked).
 
-## 4. No secrets in history — PASS (re-run over everything since `5475c60`)
+## 4. No secrets in history — PASS (re-run up to the current HEAD `72204b2`)
 
-- Prior record (cite): leak audit over `7c235d6..5475c60`, 172 commits, full-blob history
-  (`--git`) + working paths — 331 rows, every one classified A–G in `leak-audit.md`,
-  record `leak-findings-2026-10-05.json`; no keys, mnemonics, UFVKs, envelope plaintext or bid plaintext
-  before its release time.
-- Re-run (this batch, the run this file proves): the same tool with `--git` scans **every blob of every commit**
-  (`git log --all` + `ls-tree`/`cat-file`, `tools/leak-audit.ts:88`), so it subsumes the 38 commits in
-  `5475c60..1a4846f` and everything after. Command (values suppressed throughout):
+- Prior records (cite): leak audit over `7c235d6..5475c60`, 172 commits, full-blob history (`--git`) +
+  working paths — 331 rows, every one classified A–G in `leak-audit.md`, record
+  `leak-findings-2026-10-05.json`; then B33's re-run — 353 rows
+  (`leak-findings-2026-10-06.json`), 22 new over `5475c60..1a4846f`, all classified (20 × class C public
+  `leaves[].deposit.address` in the A14 buyback evidence; 2 × class G age-armor header/footer literals in
+  the verify bundle).
+- Re-run (B34, the run this file proves): the same tool with `--git` scans **every blob of every commit on
+  every ref** (`git log --all` + `ls-tree`/`cat-file` in `tools/leak-audit.ts`), so this record covers the
+  range **`7c235d6`..`72204b2` (the current HEAD at run time)** in full. Command (values suppressed
+  throughout):
 
   ```sh
   npm run leak-audit -- --sensitive .benzo/leak-sensitive.json \
@@ -62,20 +64,22 @@ values are printed anywhere in this file.
     --paths docs/evidence $(find tmp -maxdepth 3 -type d -name "public*" | sort | tr '\n' ' ') --git
   ```
 
-- Result: 353 rows (`docs/evidence/phase-6/leak-findings-2026-10-06.json`, tool stdout unedited; rows carry
-  rule/label/file/line-or-commit/sha256-of-value only). Compared row-for-row with the run-31 record: **0 rows
-  gone, 22 rows new**, every new row inside `5475c60..HEAD`:
-  - 20 × `rule: address` — the public escrow deposit addresses `leaves[].deposit.address` in the published
-    buyback evidence `docs/evidence/phase-5/markets/buyback/buyback-r{1,2}-cold/{auction,frozen}.json`
-    (committed at `05f97b8`, the A14 recurring-buyback series). Intended-public class C (they appear in the
-    published public-auction document by design; no refund or delivery address is among them — the only
-    address-bearing fields matched are the deposit leaves).
-  - 2 × `rule: age-armor` — one 87-character match, sha256 `e6930baf…`, in `dist/benzo-verify.mjs` at the two
-    bundle rebuilds (`9634882`, `a1f9d90`). It is the age-armor codec's own **header/footer string literals**
-    bundled into the verify bundle (`var header = "-----BEGIN AGE ENCRYPTED FILE-----" … "-----END AGE
-    ENCRYPTED FILE-----"`, `encodeArmor`); a code constant, class G, not an encrypted payload.
-- Verdict: no secret in any commit the public repo would ship. Still owed (unchanged from run 31): the
-  bid-plaintext `release_time` sensitive entries, and the gate-LA final pass over the final regression's output.
+- Result: 379 rows (`docs/evidence/phase-6/leak-findings-2026-10-06-b34.json`, tool stdout unedited; rows
+  carry rule/label/file/line-or-commit/sha256-of-value only). Compared row-for-row with the B33 record:
+  **0 rows gone, 26 rows new**, every new row `rule: address`, every one classified:
+  - 16 × class C (intended-public): `frozen.leaves[].deposit.address` / `leaves[].deposit.address` — the
+    public escrow **deposit** addresses in the published A15 drop evidence
+    `docs/evidence/phase-5/markets/drop-r33/drop-cold/{auction,frozen}.json` (committed `61b00bb`; each
+    matched once as a working path and once per historical blob). The only matched field is
+    `deposit.address`; no refund, delivery or payout destination is among them.
+  - 10 × class G (code constant): address-shaped fixture literals in the Track A read-path harnesses
+    `e2e/lib/readpath.ts` / `readpath-live.ts` / `readpath-r261.ts` — fixed shape-test UAs (`utest10c5k…`),
+    the well-known all-zeros Sapling test address `ztestsapling1qqq…` (a public Zcash test vector), an
+    `attacker` UA constant for a redirect negative test, and `utest1r261fixture…` placeholder strings that
+    merely match the address pattern. Harness constants; no key material and no real party's destination.
+- Verdict: no secret in any commit up to the current HEAD. Still owed (unchanged from run 31): the
+  bid-plaintext `release_time` sensitive entries, and the gate-LA final pass over the final regression's
+  output.
 
 ## 5. Pinned lockfiles — PASS
 

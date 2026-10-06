@@ -3,7 +3,72 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (33): Phase 6 Track B offline batch B33 — test/repro audit (RG prep), repo hygiene, README refresh
+## Current run (34): Phase 6 Track B offline batch B34 — packaging refresh (R36+R37.5), private-repo hygiene, EVIDENCE PK row
+
+Task (this session's head message): `track-b` fast-forwarded to main at `3ca5c9f` (B33 merged; the head's
+`5de3495` network fix — readpath folds pass the network to `seal`/`openEnvelope` — makes B's fold harness
+pass on the merged tree). `npm ci` + `npm run build:*` green (`build:seal/core/settle/cli/verify` all exit 0;
+`build:verify` reproduces the committed bundle byte-identically; `npm run check:bundle` PASS).
+`npm run e2e` PASSED (seal-open 38 s, `tmp/e2e/report.json`, 2026-10-06). Rulings R36 + R37 read: repo stays
+private (no license, `package.json` `UNLICENSED`; packaging digests refresh owed), `cli/build.mjs` cleans
+`cli/dist` (R37.5; packaging refresh owed together with R36). **Offline only** (drand quicknet reads only);
+no OrbStack/VM/`orb`/frostd :2744/testnet spends/`tools/repro/markets.ts`/live specs, no mainnet, no frontend
+(`seal/` source untouched), no pin changes, no Track A files. Run-33 questions are all closed (R36/Q1,
+R35/Q2, `834e465`/Q3, R37/Q4–Q5).
+
+**Item 1 — packaging refresh (R36 + R37.5): DONE with proof.** New digests from a clean tree at `3ca5c9f`
+(two builds each, plus a fresh-clone rebuild; the item's commit adds only `docs/` text + evidence, none of
+which `tools/package.mjs` copies into the tarballs, so the digests hold at the recorded commit):
+
+- **verify bundle `80754445…`** (`807544459ea3f467dcd5c6e4312105e0ea2de68f7e1cccd03e3e3d9cbd1a9371`,
+  also `docs/verify-bundle.sha256`) — **correction of run-33's table entry**: `effd9853…` was track-b's
+  pre-merge bundle (`50ee067`); the B33 merge resolved `dist/benzo-verify.mjs` to Track A's rebuilt bundle
+  (`9634882`, A15 envelope/verify changes are bundle inputs). `npm run check:bundle` and the fresh-clone
+  rebuild both confirm `80754445…` is byte-equal to a rebuild of the merged tree.
+- **npm package `dist/benzo-0.1.0.tgz` `ab18336f…`**
+  (`ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9`, 29,695,928 bytes, 18,321
+  entries, 112 production packages) — two clean `npm run package` builds identical
+  (`docs/evidence/phase-6/pk-package.out`, `pk-package.sha256`).
+- **bidder bundle `dist/benzo-bidder-0.1.0.tgz` `fa54df28…` unchanged** (it ships only `seal/` output) —
+  two clean `npm run package:bidder` builds identical + the clean-machine seal/open proof PASS
+  (`pk-bidder.out`): extracted in a fresh `/tmp` dir with empty `HOME` and no checkout `node_modules`,
+  sealed headless to quicknet round 32818939 against the committed launch manifest, `tle` refuses before R
+  and opens after R, plaintext byte-equal to the inputs.
+- **fresh-clone rebuild PASS, all three digests** (`pk-rebuild.out`: clone HEAD `3ca5c9f`, `npm ci --offline`,
+  `build:verify` matches `docs/verify-bundle.sha256`, `package`, `package:bidder`).
+- **clean-extract `bin/benzo verify` PASS + `auction balance-addresses` absent** (`pk-package-verify.out`):
+  extract in `/tmp` with no `.env`/state dir, shipped Phase 4 evidence as the auction dir, offline —
+  all checks OK (`defaults` included), exit 0; the R33-removed command is refused by the packaged router
+  (`ERROR usage unknown command`, exit 2) and no tarball entry carries it (0 of 18,321).
+- `docs/reproducible-build.md` re-recorded: §2 digest table, §3 transcripts, §5 B34 note (R36/R37.5 changes,
+  the verify-bundle correction, what re-proves what).
+
+**Item 2 — `repo-hygiene.md` → private-repo hygiene (R36): DONE with proof.**
+`docs/evidence/phase-6/repo-hygiene.md` re-stated (this commit):
+
+- The license **check is dropped** (R36); section 1 is now ruling state, not a check: no `LICENSE` at the
+  root (only vendored `forge-std` licenses), `package.json` `UNLICENSED` + `private:true`, never public
+  without the user; B33's license-choice question closed by R36. Every other check kept verbatim (sections
+  2–6: `.env.example` only, `.gitignore` keys block, no secrets in history, pinned lockfiles, absolute paths).
+- **Leak-audit range re-stated up to the current HEAD (`72204b2`)** with a fresh run backing it: same
+  command with `--git` (every blob of every commit on every ref), **379 rows**
+  (`docs/evidence/phase-6/leak-findings-2026-10-06-b34.json`, tool stdout unedited) vs the B33 record's 353:
+  **0 gone, 26 new, all `rule: address`, all classified** — 16 × class C `leaves[].deposit.address` in the
+  published A15 drop evidence (`drop-r33/drop-cold/{auction,frozen}.json`, `61b00bb`; only the deposit
+  field matches, no refund/delivery destination), 10 × class G fixture literals in Track A's
+  `e2e/lib/readpath{,-live,-r261}.ts` (shape-test UAs, the all-zeros Sapling test vector, an `attacker` UA,
+  `utest1r261fixture…` placeholders). No secret in any commit up to `72204b2`.
+
+**Item 3 — EVIDENCE.md PK row: DONE with proof.** `docs/evidence/phase-6/EVIDENCE.md` PK row re-recorded
+from this batch's committed evidence (new digests `80754445…`/`ab18336f…`/`fa54df28…`, the two-builds and
+fresh-clone proofs, the balance-addresses absence, the verify-bundle correction), with the run-34 note in the
+file header. The one OPEN item is unchanged: a stranger's clean-machine run recorded end to end.
+
+**Batch B34 complete: three items, three commits (`72204b2`, `6f5c517`, and this one), each with its proof.**
+Nothing owed but the OPEN items the gates name (the stranger's run, head's walkthrough, gate LA's final pass)
+and the Questions below.
+
+## Previous run (33): Phase 6 Track B offline batch B33 — test/repro audit (RG prep), repo hygiene, README refresh
 
 Task (this session's head message): `track-b` fast-forwarded to main at `1a4846f` (B32 merged, Q3/Q4
 accepted); `npm ci` + `npm run build:*` green; then three items in order, one commit per item with proof.
@@ -2759,6 +2824,14 @@ Default verify re-derives every opening with `$BNZ_STATE_DIR/bin/tle -d` against
 
 ## Questions
 
+- **Verify-bundle provenance after the B33 merge (informational, nothing blocked).** Run 33 recorded the
+  verify bundle as `effd9853…` (track-b's tree at `50ee067`), but the merge resolved
+  `dist/benzo-verify.mjs` to Track A's rebuild at `9634882` (`80754445…`). The committed state is
+  self-consistent — `npm run check:bundle` PASS at `3ca5c9f` and the fresh-clone rebuild reproduces
+  `80754445…` — so B34 recorded that digest everywhere (item 1). If R32's "rebuild in the real checkout
+  after the merge" step is supposed to produce a commit of its own at merges, it did not happen here;
+  say the word if you want the bundle re-committed from this checkout (bytes would be identical).
+
 - **Head task message (2026-10-02, this session): two instructions conflict; one-line resolution, please fold into a Ruling or tell me to revert.** Verbatim: “Run `tools/setup-testnet.sh` from the benzo-b root with your `.env` loaded … Make sure frostd listens on :2745, not :2744.” and “Add no tests. Do not change code in this run.” `tools/setup-testnet.sh` started frostd **without `-p`** (frostd's default is :2744, Builder A's port) while its DKG clients connect to `$BNZ_FROSTD_ADDR` (`localhost:2745` here), so the mandated run could not succeed as written and its bind would have targeted A's port. I made the minimal one-line change — `b30e826`, `-p "${BNZ_FROSTD_ADDR##*:}"` on the frostd line, `bash -n` clean — and nothing else. **Same bug in `e2e/lib/frost.ts`** (`startFrostd` passes no `-p`; clients use `BNZ_FROSTD_ADDR`): any project that calls it would bind :2744 in this lane. Left untouched (out of this run's scope); needs a ruling before I fix it. `npm run e2e`'s default project (`seal-open`) does not call `startFrostd`, so its baseline above is unaffected.
 
 None open otherwise. The prior entries are closed by R21: **Q1** dropped (item 3 — only the user's own words are recorded as user instructions; the entry had quoted a head prompt), **Q2** budget ~626 lines accepted (item 4), **Q3** load shapes ruled (item 5: `verify` keeps requiring `frozen`/`result`; the read API is lifecycle-safe — done in cad928d), **Q4** `operator view --dir PUBLIC` accepted (item 6).
@@ -2769,16 +2842,13 @@ launch delivery row order).
 ## Test audit (R11: Track B adds none)
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
 
-## Last session
-- **Window:** 2026-10-05T19:40Z–20:58Z (run 32, batch B32, complete).
-- **Outcome:** all four items DONE with proof — API reference + drift check PASS 11 shapes at
-  `f5a022a` (mutation B32-a red at `7d06f55`); bidder bundle `fa54df28…` two identical builds +
-  clean-machine seal-open proof PASS (`979ca65`/`ee5022b`); reproducible-build notes + fresh-clone
-  rebuild PASS all three digests (`9aee17e`/`7bb5021`), with three real bugs found and fixed along
-  the way (unbuilt `seal/dist`, an absolute `.bin` symlink leaking the builder's path, and the
-  packaged CLI dying at startup without `.env`); EVIDENCE.md PK/DOC rows refreshed (`9954f5e`).
-  `npm run e2e` PASSED; nothing owed but the OPEN items the batch names (stranger's run, head's
-  walkthrough) and the Questions above.
+## Last session (run 33, batch B33 — complete)
+- **Outcome:** items 1–4 DONE with proof (commits `39ba6c0`..`50ee067`): `test-audit.md` (54 tests vs the
+  ceiling of 8; **R35** ruled: keep 14 drivers, retire 8, fold 25 into specs, red/green at RG); private-repo
+  hygiene checklist + leak re-run (353 rows, 22 new all classified); README refresh (gate DOC); the R35.2
+  retire-8 deletion run; package digests regenerated (`f123cdde…`, superseded by run 34). Its questions were
+  all closed (R36/Q1 — repo stays private, no license; R35/Q2; `834e465`/Q3; R37/Q4–Q5, incl. `cli/build.mjs`
+  cleaning `cli/dist`).
 
 ## Previous session (run 31)
 - **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
