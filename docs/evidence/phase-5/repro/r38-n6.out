@@ -1,0 +1,16 @@
+# A17 item 5 (R38 N6) (run 2026-10-06T10:15Z at a5db6c6 plus the item 5 working tree it commits: settle/src/main.rs and tools/repro/r38-n6.ts, recorded by the tree lines below): the largest shape benzo-pczt create allows (29 spends, 28 recipients + change = 29 actions) built by the shipped binaries in a fresh lab wallet and MEASURED — proven PCZT 138,779 bytes, raw transaction 94,380 bytes (fetched from lightwalletd; the same 29-action shape as R30's scale-27, whose mined raw was also 94,380 bytes). The total-action bound <= 30 closes the cross-pool 58-action hole (Reviewer R N6 (b)); a >30-action shape needs a mixed-pool wallet these runs cannot build (the reviewer's own UNCONFIRMED branch), so the bound is defence-in-depth on top of max(spends, outputs) <= 29.
+# command node tmp/r38-n6.mjs (tools/repro/r38-n6.ts)
+# note zcash-devtool pczt sign has no ironwood arm (src/commands/pczt/sign.rs KeyRef covers only orchard/sapling/transparent) and silently signs nothing; the raw-tx measurement therefore uses the wallet's own pay, which builds, signs and sends the same 29-spends / 28-recipients demand through the same selector and builder.
+commit a5db6c6cce94c15321b14c3216e0c4fa8211fa24 (working tree not clean at run time)
+utc 2026-10-06T10:15:50.212Z
+command node tmp/r38-n6.mjs (tools/repro/r38-n6.ts)
+tree M settle/src/main.rs
+tree ?? tools/repro/r38-n6.ts
+prior lab wallet recovered: 55000 zats (refused…)
+funding d7983d8a6634f18cfcd439c5fedf4aacdf8415cb6e217c94a50d8348d8be9019 — 29 notes of 200000 to the lab wallet
+PASS n6-max-shape-created 29 spends / 28 recipients + change created by the shipped benzo-pczt create
+PASS n6-max-shape-counts spends 29, non-change outputs 28, change 1 (largest allowed: 29 spends, 28 recipients + change = 29 actions)
+MEASURED largest-allowed-shape (29 spends, 28 recipients + change, 29 actions): proven PCZT 138779 bytes; raw transaction 94380 bytes (txid 8416875c28b245d7…; scale-27's 28/28 measured 94,380 bytes raw)
+PASS n6-measured proven PCZT 138779 bytes, raw tx 94380 bytes at the largest allowed shape
+PASS n6-recovered 5655000 zats returned to the bidder (eac8534424335f46…)
+RESULT PASS r38-n6
