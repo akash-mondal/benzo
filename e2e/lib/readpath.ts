@@ -415,12 +415,12 @@ export async function foldKC(run: Run): Promise<void> {
     need(KC_KEY.length === sodium.crypto_generichash_KEYBYTES, `spec KC key is ${KC_KEY.length} bytes`);
     const contentKey = sodium.randombytes_buf(32);
     honest = buildEnvelope(UA, recipients, [contentKey, contentKey, contentKey]);
-    const got = keys.map((k) => env.openEnvelope(honest, k.private_hex));
+    const got = keys.map((k) => env.openEnvelope(honest, k.private_hex, "test"));
     need(got.every((g) => g === UA), `opens ${JSON.stringify(got)} != destination`);
   });
   let env3 = "";
   await run.check("kc-recipients-order", "envelopeRecipients returns the stanza keys in order", () => {
-    env3 = env.sealEnvelope(UA, recipients);
+    env3 = env.sealEnvelope(UA, recipients, "test");
     const got = (env as any).envelopeRecipients(env3);
     need(JSON.stringify(got) === JSON.stringify(recipients), `got ${JSON.stringify(got)}`);
   });
@@ -428,10 +428,10 @@ export async function foldKC(run: Run): Promise<void> {
   await run.check("kc-split-key-recipient1-opens", "control: a hand-built split-key envelope opens for recipient 1", () => {
     const bodyKey = sodium.randombytes_buf(32), splitKey = sodium.randombytes_buf(32);
     splitHex = buildEnvelope(UA, recipients, [bodyKey, splitKey, bodyKey]);
-    need(env.openEnvelope(splitHex, keys[0].private_hex) === UA, "recipient 1 did not open");
+    need(env.openEnvelope(splitHex, keys[0].private_hex, "test") === UA, "recipient 1 did not open");
   });
   await run.check("kc-split-key-recipient2-commitment", "recipient 2 is refused with `envelope key commitment`", () => {
-    refused(() => env.openEnvelope(splitHex, keys[1].private_hex), "refused: envelope key commitment");
+    refused(() => env.openEnvelope(splitHex, keys[1].private_hex, "test"), "refused: envelope key commitment");
   });
   const signerKeyPair = generateKeyPairSync("ed25519");
   const signerPem = signerKeyPair.privateKey.export({ type: "pkcs8", format: "pem" }).toString();
@@ -468,16 +468,16 @@ export async function foldKC(run: Run): Promise<void> {
     need(!!got && got.envelope_ct === env3, `validEnvelope returned ${got === null ? "null" : "a record without the envelope"}`);
   });
   await run.check("kc-1of3-refused", "a record sealed to 1 of the 3 pinned keys is refused", () => {
-    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[0]])), 0) === null, "accepted a 1-of-3 envelope");
+    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[0]], "test")), 0) === null, "accepted a 1-of-3 envelope");
   });
   await run.check("kc-2of3-refused", "a record sealed to 2 of the 3 pinned keys is refused", () => {
-    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[0], recipients[1]])), 0) === null, "accepted a 2-of-3 envelope");
+    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[0], recipients[1]], "test")), 0) === null, "accepted a 2-of-3 envelope");
   });
   await run.check("kc-reorder-refused", "the 3 pinned keys out of manifest order are refused", () => {
-    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[1], recipients[0], recipients[2]])), 0) === null, "accepted reordered recipient keys");
+    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[1], recipients[0], recipients[2]], "test")), 0) === null, "accepted reordered recipient keys");
   });
   await run.check("kc-wrongset-refused", "a third key the manifest does not pin is refused", () => {
-    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[0], recipients[1], env.generateEnvelopeKey().public_hex])), 0) === null, "accepted an unpinned third key");
+    need(settle.validEnvelope(docFor(env.sealEnvelope(UA, [recipients[0], recipients[1], env.generateEnvelopeKey().public_hex], "test")), 0) === null, "accepted an unpinned third key");
   });
 }
 
@@ -516,23 +516,23 @@ export async function foldMR(run: Run): Promise<void> {
   });
   let envA = "", envB = "";
   await run.check("mr-3keys-open", "one envelope opens to the same destination with each of the 3 recipient keys", () => {
-    envA = env.sealEnvelope(UA_SHIELDED, recipients);
-    const got = keys.map((k) => env.openEnvelope(envA, k.private_hex));
+    envA = env.sealEnvelope(UA_SHIELDED, recipients, "test");
+    const got = keys.map((k) => env.openEnvelope(envA, k.private_hex, "test"));
     need(got.every((g) => g === UA_SHIELDED), `opens ${JSON.stringify(got)} != destination`);
   });
   await run.check("mr-4th-key-refused", "a 4th key is refused (no stanza for it)", () => {
-    refused(() => env.openEnvelope(envA, env.generateEnvelopeKey().private_hex), "refused: envelope recipient");
+    refused(() => env.openEnvelope(envA, env.generateEnvelopeKey().private_hex, "test"), "refused: envelope recipient");
   });
   await run.check("mr-equal-lengths", "every n = 3 envelope ciphertext is 1852 hex (926 bytes)", () => {
-    envB = env.sealEnvelope(SAPLING, recipients);
-    const lengths = [env.sealEnvelope(SAPLING, recipients), env.sealEnvelope(UA_SHIELDED, recipients), envA, envB].map((ct) => ct.length);
+    envB = env.sealEnvelope(SAPLING, recipients, "test");
+    const lengths = [env.sealEnvelope(SAPLING, recipients, "test"), env.sealEnvelope(UA_SHIELDED, recipients, "test"), envA, envB].map((ct) => ct.length);
     need(lengths.every((l) => l === 1852), `lengths ${lengths.join(",")} (want all 1852 = 926 bytes)`);
   });
   await run.check("mr-stanza-swap-refused", "a whole stanza swapped between envelopes is refused for every recipient", () => {
     const a = Buffer.from(envA, "hex"), b = Buffer.from(envB, "hex"), off = 18, stanza = 32 + 80;
     const swapped = Buffer.concat([a.subarray(0, off), b.subarray(off, off + stanza), a.subarray(off + stanza)]).toString("hex");
-    refused(() => env.openEnvelope(swapped, keys[0].private_hex), "refused: envelope key commitment");
-    for (const k of keys.slice(1)) refused(() => env.openEnvelope(swapped, k.private_hex), "refused: envelope body");
+    refused(() => env.openEnvelope(swapped, keys[0].private_hex, "test"), "refused: envelope key commitment");
+    for (const k of keys.slice(1)) refused(() => env.openEnvelope(swapped, k.private_hex, "test"), "refused: envelope body");
   });
   await run.check("mr-shared-rule-export", "envelope/ exports envelopeRecordValid(record, envelope_keys)", () => {
     need(typeof (env as any).envelopeRecordValid === "function", "envelopeRecordValid not exported from envelope/");
@@ -542,11 +542,11 @@ export async function foldMR(run: Run): Promise<void> {
   const { R, release, chain } = ctx;
   const T_freeze = release - 100, T_submit = T_freeze - 800, published_at = T_freeze - 200;
   const recordCt: Record<string, (d: string) => string> = {
-    good: (d) => env.sealEnvelope(d, recipients),
-    "foreign-key": (d) => env.sealEnvelope(d, [attacker.public_hex]),
-    "foreign-set": (d) => env.sealEnvelope(d, [attacker.public_hex, recipients[1], recipients[2]]),
+    good: (d) => env.sealEnvelope(d, recipients, "test"),
+    "foreign-key": (d) => env.sealEnvelope(d, [attacker.public_hex], "test"),
+    "foreign-set": (d) => env.sealEnvelope(d, [attacker.public_hex, recipients[1], recipients[2]], "test"),
     "pre-v2": () => randomBytes(572).toString("hex"),
-    "2of3": (d) => env.sealEnvelope(d, recipients.slice(0, 2)),
+    "2of3": (d) => env.sealEnvelope(d, recipients.slice(0, 2), "test"),
   };
   type Bid = { kind: string; destination?: string };
   const buildMrCorpus = (name: string, { pinned, bids }: { pinned: boolean; bids: Bid[] }) => {
