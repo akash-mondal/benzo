@@ -1,9 +1,11 @@
-utc 2026-10-05T22:06:02Z
-commit 50ee067 (run 33 item 3 follow-up: npm package regenerated after the README/LICENSE/verify-it-yourself refresh; supersedes the run-32 7f3e08ae tarball and its 18,322 entries — the removed 'auction balance-addresses' module was stale build output in cli/dist and is gone after a clean build:cli)
-command npm run package
-{"tarball":"dist/benzo-0.1.0.tgz","sha256":"f123cdde4382bffd3fe99bc6c78a9d6b72a2add823cf6a1cf855ab7625bc7d36","bytes":29686972,"files":18321,"production_packages":112}
+utc 2026-10-06T04:15:17Z
+commit 3ca5c9f (tree clean: 0 entries)
+command npm run package  # build 1
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9","bytes":29695928,"files":18321,"production_packages":112}
+command npm run package  # build 2
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9","bytes":29695928,"files":18321,"production_packages":112}
+PASS two clean npm-package builds identical ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9
+command shasum -a 256 dist/benzo-0.1.0.tgz
+ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9  dist/benzo-0.1.0.tgz
 command tar -tzf dist/benzo-0.1.0.tgz | wc -l
    18321
-command fresh-clone re-proof: git clone --branch track-b . /tmp/benzo-pk-clone && npm ci --offline && npm run package
-{"tarball":"dist/benzo-0.1.0.tgz","sha256":"f123cdde4382bffd3fe99bc6c78a9d6b72a2add823cf6a1cf855ab7625bc7d36","bytes":29686972,"files":18321,"production_packages":112}
-PASS fresh clone reproduces the digest byte-for-byte

@@ -3,7 +3,52 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (33): Phase 6 Track B offline batch B33 — test/repro audit (RG prep), repo hygiene, README refresh
+## Current run (34): Phase 6 Track B offline batch B34 — packaging refresh (R36+R37.5), private-repo hygiene, EVIDENCE PK row
+
+Task (this session's head message): `track-b` fast-forwarded to main at `3ca5c9f` (B33 merged; the head's
+`5de3495` network fix — readpath folds pass the network to `seal`/`openEnvelope` — makes B's fold harness
+pass on the merged tree). `npm ci` + `npm run build:*` green (`build:seal/core/settle/cli/verify` all exit 0;
+`build:verify` reproduces the committed bundle byte-identically; `npm run check:bundle` PASS).
+`npm run e2e` PASSED (seal-open 38 s, `tmp/e2e/report.json`, 2026-10-06). Rulings R36 + R37 read: repo stays
+private (no license, `package.json` `UNLICENSED`; packaging digests refresh owed), `cli/build.mjs` cleans
+`cli/dist` (R37.5; packaging refresh owed together with R36). **Offline only** (drand quicknet reads only);
+no OrbStack/VM/`orb`/frostd :2744/testnet spends/`tools/repro/markets.ts`/live specs, no mainnet, no frontend
+(`seal/` source untouched), no pin changes, no Track A files. Run-33 questions are all closed (R36/Q1,
+R35/Q2, `834e465`/Q3, R37/Q4–Q5).
+
+**Item 1 — packaging refresh (R36 + R37.5): DONE with proof.** New digests from a clean tree at `3ca5c9f`
+(two builds each, plus a fresh-clone rebuild; the item's commit adds only `docs/` text + evidence, none of
+which `tools/package.mjs` copies into the tarballs, so the digests hold at the recorded commit):
+
+- **verify bundle `80754445…`** (`807544459ea3f467dcd5c6e4312105e0ea2de68f7e1cccd03e3e3d9cbd1a9371`,
+  also `docs/verify-bundle.sha256`) — **correction of run-33's table entry**: `effd9853…` was track-b's
+  pre-merge bundle (`50ee067`); the B33 merge resolved `dist/benzo-verify.mjs` to Track A's rebuilt bundle
+  (`9634882`, A15 envelope/verify changes are bundle inputs). `npm run check:bundle` and the fresh-clone
+  rebuild both confirm `80754445…` is byte-equal to a rebuild of the merged tree.
+- **npm package `dist/benzo-0.1.0.tgz` `ab18336f…`**
+  (`ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9`, 29,695,928 bytes, 18,321
+  entries, 112 production packages) — two clean `npm run package` builds identical
+  (`docs/evidence/phase-6/pk-package.out`, `pk-package.sha256`).
+- **bidder bundle `dist/benzo-bidder-0.1.0.tgz` `fa54df28…` unchanged** (it ships only `seal/` output) —
+  two clean `npm run package:bidder` builds identical + the clean-machine seal/open proof PASS
+  (`pk-bidder.out`): extracted in a fresh `/tmp` dir with empty `HOME` and no checkout `node_modules`,
+  sealed headless to quicknet round 32818939 against the committed launch manifest, `tle` refuses before R
+  and opens after R, plaintext byte-equal to the inputs.
+- **fresh-clone rebuild PASS, all three digests** (`pk-rebuild.out`: clone HEAD `3ca5c9f`, `npm ci --offline`,
+  `build:verify` matches `docs/verify-bundle.sha256`, `package`, `package:bidder`).
+- **clean-extract `bin/benzo verify` PASS + `auction balance-addresses` absent** (`pk-package-verify.out`):
+  extract in `/tmp` with no `.env`/state dir, shipped Phase 4 evidence as the auction dir, offline —
+  all checks OK (`defaults` included), exit 0; the R33-removed command is refused by the packaged router
+  (`ERROR usage unknown command`, exit 2) and no tarball entry carries it (0 of 18,321).
+- `docs/reproducible-build.md` re-recorded: §2 digest table, §3 transcripts, §5 B34 note (R36/R37.5 changes,
+  the verify-bundle correction, what re-proves what).
+
+**Item 2 — `repo-hygiene.md` → private-repo hygiene (R36): OWED.** Drop the license line, keep every other
+check, re-state the leak-audit range up to the current HEAD.
+
+**Item 3 — EVIDENCE.md PK row: OWED.**
+
+## Previous run (33): Phase 6 Track B offline batch B33 — test/repro audit (RG prep), repo hygiene, README refresh
 
 Task (this session's head message): `track-b` fast-forwarded to main at `1a4846f` (B32 merged, Q3/Q4
 accepted); `npm ci` + `npm run build:*` green; then three items in order, one commit per item with proof.
