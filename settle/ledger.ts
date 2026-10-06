@@ -29,7 +29,16 @@ export class Ledger {
     this.atomic(()=> {
       for(const o of plan) {
         const old=this.rows().find(r=>r.party===o.party);
-        requireThat(!old||old.amount_zats===o.amount_zats&&old.kind===o.kind,"settlement obligation changed on resume");
+        if(old){
+          requireThat(old.kind===o.kind,"settlement obligation changed on resume");
+          if(old.amount_zats!==o.amount_zats){
+            // Ruling R38 item 4 (N4): an EXCEPTION row grows as the host-derived scan sees more out-of-window
+            // balance notes (a late payer can arrive after the first plan; live: e90f139e). A row that money has
+            // already moved for never changes.
+            requireThat(old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume");
+            this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
+          }
+        }
         if(!old)this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
         else if(old.state==="exception"&&ready.has(o.party))this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
       }
