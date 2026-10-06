@@ -1,0 +1,28 @@
+[demo3] locked 3ZgvQEd4LwdnRPdS9Df3CW8Hi5HFaWv1Z3jH6Raecy7Sts2AFisgio61dQJrQEwiYnjc6JdKWAHBAbvyA2oTjBDt
+npm notice run benzo@0.1.0 npx
+npm notice run 'esbuild' tools/repro/markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/markets.mjs
+
+  tmp/markets.mjs  103.5kb
+
+⚡ Done in 14ms
+[xchain-otc] auction d37c7942baddc2f8f160ffa7af4fdadaf304ada862e28121d4ee4e37097a47bb mode otc
+[xchain-otc] funding de137f3ea1ef5be771838480ecd5597bc0bec2685317acf324cc3f5b05147315
+[xchain-otc] PASS xchain-otc-cli-equals-pure-clear outcomes winner,winner price 800
+[xchain-otc] PASS xchain-otc-settled exit 0
+[xchain-otc] PASS xchain-otc-receipts {"leaf:0":199200,"leaf:1":200800}
+[xchain-otc] PASS xchain-otc-landed [199200,200800,0]
+[xchain-otc] PASS xchain-otc-cold-verify
+[xchain-otc] RESULT PASS xchain-otc
+PASS demo3-release
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 1000ms delay...
+PASS demo3-no-zcash-on-chain
+[demo3] result [{"fill":1,"leaf_index":0,"outcome":"winner","payment_zats":"0","price_zats":"1000","quantity":1,"refund_zats":"199200","side":"buyer"},{"fill":1,"leaf_index":1,"outcome":"winner","payment_zats":"800","price_zats":"600","quantity":1,"refund_zats":"200000","side":"seller"}] delivers [{"chain":"solana","kind":"address","to":"cTR7WB9yEi7YoFKJ6Gak6Zgv1TQScRue8gCERbJpqME"},{"chain":"solana","kind":"address","to":"Bci1FeKBiDndvR4BJ3suww4XoQCu8uLW6Xbo92LbFwpc"}] — payments asserted at the host records' destinations by xchain status
+RESULT PASS all xchain demo assertions
+exit=0
+
+# head 2026-10-06T07:40Z: on-chain record (devnet program 2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu, latest program signatures; the first after 07:0x is this demo's lock, then its release):
+# 2026-10-06T07:40:29.000Z 5Uv7MFBZUxdU4aumGo1kDFcEy6hHSSt8RiJKgRzPmH8pCeUFas6UrJDjaaJ9QAmpqpzvndzybmBA8taUDBXMMAU5 ok
+# 2026-10-06T07:40:25.000Z 4TFmBqWMu1vg6WBgdHnGPxnBYRcZVWoCVPzNhSux6sQwXXzjwCUi6awUE5JstqRJiT2HAxtLRSybM1HjaZXMTWBR ok
+# 2026-10-06T07:03:00.000Z 3ZgvQEd4LwdnRPdS9Df3CW8Hi5HFaWv1Z3jH6Raecy7Sts2AFisgio61dQJrQEwiYnjc6JdKWAHBAbvyA2oTjBDt ok
+# 2026-10-06T05:44:48.000Z 3uD6oN3GrDLYysuzkp6DzwfZzHLXp4CEBLGzCcgWqRroiADgBzyWkdwSQbwJMZuki2DPbsNf2SbYow6pwoQXrZPj ok

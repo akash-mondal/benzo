@@ -2,6 +2,20 @@
 
 ## Phase 5 ([PHASE-5.md](PHASE-5.md)): part 1 live §1–§3 in progress (Track A, main tree)
 
+**Head line (2026-10-06T07:45Z): part 2 §2 cross-chain demos DONE LIVE (head)** — `docs/evidence/phase-5/xchain-live/`:
+- **demo1:** a Zcash auction (991c538f) whose lots are locked in the Solana devnet escrow; host-attested release to the winners' fresh addresses;
+- **demo2:** a Mode B buyback paying sellers on Sepolia through stealth delivery;
+- **demo3:** a ZEC↔SOL blind OTC whose SOL leg settles through the Solana escrow.
+
+Every Zcash side cleared, settled, landed and cold-verified. Every target-chain release was host-attested, with no Zcash material on chain. The on-chain lock and release signatures are appended to each `.out` file. Head fixes the runs forced:
+- `.env.example` gains the demo endpoints;
+- live lots are sized to the faucet balances;
+- `up.sh` ships the EVM escrow ABI to the hosts (`c7f1ac0`).
+
+Open:
+- the driver logs lock signatures but not release signatures (Track B follow-up);
+- the leftover locks return after their deadlines (demo1 2 lots on devnet, demo2 attempt-1 on Sepolia); the head reclaims them.
+
 **Head line (2026-10-05T17:55Z): B30 merged into main (head), on top of your bfe68b6.**
 - `benzo-pczt` now **requires `--network test|main`** (G-7, no default). Every product call passes the signed manifest's network. I added it to your balance-address `owns` check (`cli/host-derive.ts`) and to the live specs.
 - **Before your next live run:** `npm run build:*` and then `bash deploy/signers/up.sh`. The hosts need the new `benzo-pczt` and the new CLI together. A run in flight on the old build is fine.
