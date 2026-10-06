@@ -1,0 +1,9 @@
+# A17 item 1 (R38 N2) — the auction-create negative leg, NOT PROVEN (infra-limited; recorded honestly). The mechanism: the pinned wallet derives its next address at a clock-based index (now + 2817325936, skipping indices it exposed itself — zcash_client_sqlite get_next_available_address), so a burst of generations pins the next generated index deterministically and a real dust note there must make 'benzo auction create' refuse it.
+# Five attempts (600 / 2400 / 2400 / 4800 / 9000 generations), each run with: node tmp/r38-n2.mjs (tools/repro/r38-n2.ts). Outside causes only: today's testnet mined each dust 20-90 minutes after broadcast (attempt logs tmp/r38-n2-run.log, overwritten per attempt) and the burst itself degrades superlinearly as the wallet's exposed-address table grows (4.1 -> 1.7 generations/s), so the determinism window closes before the dust is visible. The last attempt's own output is below.
+# The green side (a create with clean generated addresses succeeding) runs in every live 'auction create'; the settlement-side half of N2 — the batch's demanded proof — is proven red+green in docs/evidence/phase-5/mutations/A17-N2.{out,-green.out} over the 894999d6 run's real pre-window dust.
+commit 193eccb1824993665268a9dece96b64fb754d622 (working tree not clean at run time)
+utc 2026-10-06T15:24:05.560Z
+command node tmp/r38-n2.mjs (tools/repro/r38-n2.ts)
+tree M tools/repro/r38-n2.ts
+burst: 9000 generations in 5346s; every create generation inside that span lands on utest18ku6rqcxtgfxl6…
+ERROR n2-create-refuses-paid-address the index window has only -1693s left after the burst

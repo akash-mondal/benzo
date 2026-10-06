@@ -56,7 +56,7 @@ const addrOf = (w: string) => { const a = sh(PCZT, ["address", w, "--network", "
 
 // 2. Burst: expose a consecutive run of diversifier indices in the create wallet (one call per index; the calls
 // are ~4/s so the clock base advances slower than the run and the indices stay consecutive).
-const K = 4800;
+const K = 9000;
 const t0 = Date.now();
 for (let i = 0; i < K; i++) addrOf(vault);
 const burstSeconds = Math.round((Date.now() - t0) / 1000);
