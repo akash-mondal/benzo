@@ -59,7 +59,14 @@ which `tools/package.mjs` copies into the tarballs, so the digests hold at the r
   `e2e/lib/readpath{,-live,-r261}.ts` (shape-test UAs, the all-zeros Sapling test vector, an `attacker` UA,
   `utest1r261fixture…` placeholders). No secret in any commit up to `72204b2`.
 
-**Item 3 — EVIDENCE.md PK row: OWED.**
+**Item 3 — EVIDENCE.md PK row: DONE with proof.** `docs/evidence/phase-6/EVIDENCE.md` PK row re-recorded
+from this batch's committed evidence (new digests `80754445…`/`ab18336f…`/`fa54df28…`, the two-builds and
+fresh-clone proofs, the balance-addresses absence, the verify-bundle correction), with the run-34 note in the
+file header. The one OPEN item is unchanged: a stranger's clean-machine run recorded end to end.
+
+**Batch B34 complete: three items, three commits (`72204b2`, `6f5c517`, and this one), each with its proof.**
+Nothing owed but the OPEN items the gates name (the stranger's run, head's walkthrough, gate LA's final pass)
+and the Questions below.
 
 ## Previous run (33): Phase 6 Track B offline batch B33 — test/repro audit (RG prep), repo hygiene, README refresh
 
@@ -2827,16 +2834,13 @@ launch delivery row order).
 ## Test audit (R11: Track B adds none)
 No new specs. Proof is the logged manual runs above (scratch only in `tmp/`, never committed). The R20c corpus shows the pre-fix masking failure mode explicitly: with any `deposit:` receipt present, the old `resultBound` gate skipped every result obligation; `tmp/proof-logs/r20c-stray-missing-obligation.out` shows it now refused.
 
-## Last session
-- **Window:** 2026-10-05T19:40Z–20:58Z (run 32, batch B32, complete).
-- **Outcome:** all four items DONE with proof — API reference + drift check PASS 11 shapes at
-  `f5a022a` (mutation B32-a red at `7d06f55`); bidder bundle `fa54df28…` two identical builds +
-  clean-machine seal-open proof PASS (`979ca65`/`ee5022b`); reproducible-build notes + fresh-clone
-  rebuild PASS all three digests (`9aee17e`/`7bb5021`), with three real bugs found and fixed along
-  the way (unbuilt `seal/dist`, an absolute `.bin` symlink leaking the builder's path, and the
-  packaged CLI dying at startup without `.env`); EVIDENCE.md PK/DOC rows refreshed (`9954f5e`).
-  `npm run e2e` PASSED; nothing owed but the OPEN items the batch names (stranger's run, head's
-  walkthrough) and the Questions above.
+## Last session (run 33, batch B33 — complete)
+- **Outcome:** items 1–4 DONE with proof (commits `39ba6c0`..`50ee067`): `test-audit.md` (54 tests vs the
+  ceiling of 8; **R35** ruled: keep 14 drivers, retire 8, fold 25 into specs, red/green at RG); private-repo
+  hygiene checklist + leak re-run (353 rows, 22 new all classified); README refresh (gate DOC); the R35.2
+  retire-8 deletion run; package digests regenerated (`f123cdde…`, superseded by run 34). Its questions were
+  all closed (R36/Q1 — repo stays private, no license; R35/Q2; `834e465`/Q3; R37/Q4–Q5, incl. `cli/build.mjs`
+  cleaning `cli/dist`).
 
 ## Previous session (run 31)
 - **Window:** 2026-10-05T17:45Z–20:05Z (run 31, items 1–3, batch complete).
