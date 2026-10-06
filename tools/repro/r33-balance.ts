@@ -65,5 +65,27 @@ line("case1", { notes: [{ address: "uaA", height: 900, value_zats: 2000 }, { add
 line("case2", { notes: [{ address: "uaA", height: 1210, value_zats: 1000 }, { address: "uaB", height: 1210, value_zats: 1000 }],
   oldStart: 1000, newStart: 1200, blocks: 100, oldTip: 1300, newTip: 1310, expect: [] });
 
+// Case 3 (Ruling R38 item 2, Reviewer R's N1 shared-slot case): two winning leaves share ONE deposit slot (R26 F1
+// makes two notes at one deposit address two distinct leaves) and so one balance address. Each owes 300,000 and
+// exactly one 300,000 payment arrives in-window at their shared address. The per-slot greedy walk in leaf_index
+// order (clear/features.ts balanceDefaults) pays leaf 0's balance and defaults leaf 1 — exactly one default, and
+// one payment can never settle two balances. The pre-change helper summed the same notes once per leaf and
+// reported NO default; that behavior is restored by docs/evidence/phase-5/mutations/A17-N1.patch (red).
+const shared = { allocations: [
+  { leaf_index: 0, fill: 1, balance_due_zats: "300000" },
+  { leaf_index: 1, fill: 1, balance_due_zats: "300000" },
+  { leaf_index: 2, fill: 0, balance_due_zats: "0" },
+] } as any;
+const sharedLeaves = [0, 1, 2].map(i => ({ leaf_index: i, deposit: { address: i < 2 ? "depS" : "depC" } })) as any;
+const sharedM = { deposit_addresses: ["depS", "depC"], bond: { bond_bps: 500, balance_window_blocks: 100, balance_window_start_height: 1000, balance_addresses: ["uaS", "uaC"] } } as any;
+{
+  const map = balanceAddressMap(shared, sharedLeaves, sharedM);
+  console.log(`shared-slot balance map ${JSON.stringify([...map])} -> ${map.get(0) === map.get(1) ? "CONFIRMED leaves 0 and 1 share one balance address" : "slots differ"}`);
+  const got = balanceDefaults(sharedM, shared, sharedLeaves, [{ address: "uaS", height: 1050, value_zats: 300_000 }] as any, 1200);
+  const ok = JSON.stringify(got) === "[1]";
+  console.log(`${ok ? "PASS" : "FAIL"} case3 expected [1] got ${JSON.stringify(got)} (one 300,000 payment for two 300,000 balances settles exactly one: leaf 0 paid, leaf 1 default)`);
+  all &&= ok;
+}
+
 console.log(all ? "RESULT PASS r33-balance" : "RESULT FAIL r33-balance");
 process.exitCode = all ? 0 : 1;
