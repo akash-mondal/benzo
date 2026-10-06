@@ -1,0 +1,30 @@
+[demo1] locked 4PRygasrSnPhgcBHuoP2ek7fK8GGtAM9CMcfDHTwY7CHk49BpX5g5z1zoFE6eYkWkvm1suvpkTzCCbAfQvDmkqCC
+npm notice run benzo@0.1.0 npx
+npm notice run 'esbuild' tools/repro/markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/markets.mjs
+
+  tmp/markets.mjs  102.8kb
+
+⚡ Done in 6ms
+[xchain-drop] auction 991c538f040815eec28963d09ca095419c80668025682f13307e80543bcb1fe1 mode uniform
+[xchain-drop] funding f249178ec3f3ac8c4450fc9ad56f554ce30201d82bf4179ad3082b0c13593789
+[xchain-drop] PASS xchain-drop-cli-equals-pure-clear outcomes over_cap,winner,winner price 200
+[xchain-drop] PASS xchain-drop-settled exit 0
+[xchain-drop] PASS xchain-drop-receipts {"leaf:0":200000,"leaf:1":199800,"leaf:2":199800,"seller":400}
+[xchain-drop] PASS xchain-drop-landed [200000,199800,199800,0]
+[xchain-drop] PASS xchain-drop-cold-verify
+[xchain-drop] RESULT PASS xchain-drop
+PASS demo1-release
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 1000ms delay...
+Server responded with 429 Too Many Requests.  Retrying after 500ms delay...
+PASS demo1-no-zcash-on-chain
+[demo1] result [{"fill":0,"leaf_index":0,"outcome":"over_cap","payment_zats":"0","price_zats":"300","quantity":2,"refund_zats":"200000"},{"fill":1,"leaf_index":1,"outcome":"winner","payment_zats":"200","price_zats":"250","quantity":1,"refund_zats":"199800"},{"fill":1,"leaf_index":2,"outcome":"winner","payment_zats":"200","price_zats":"200","quantity":1,"refund_zats":"199800"}] delivers [{"chain":"solana","kind":"address","to":"BBa14SGuYuasYGJKuv39mXGgTsY1kE8gSqJt5qG1Athj"},{"chain":"solana","kind":"address","to":"7Rpk3Q9ZJo6WT4hAcFAh9aHQCjmnrQhbs2bTqWsyxcyn"},{"chain":"solana","kind":"address","to":"3NZZjcv7pnzgvpG8wHqh8tBLje8pJcUeZ5nrVRdj8HgV"}] — payments asserted at the host records' destinations by xchain status
+RESULT PASS all xchain demo assertions
+exit=0
+
+# head 2026-10-06T05:50Z: on-chain record (devnet program 2h6tgr5Ay1WE3u6kmPZnKh9EyTu7dkgWFkkrjCA5QyPu,
+# getSignaturesForAddress; the driver logs the lock signature but not the releases):
+# 2026-10-06T05:08:52Z lock     4PRygasrSnPhgcBHuoP2ek7fK8GGtAM9CMcfDHTwY7CHk49BpX5g5z1zoFE6eYkWkvm1suvpkTzCCbAfQvDmkqCC ok
+# 2026-10-06T05:44:45Z release  4FFAznGe1oCyERqq75psfQfHwD69KoCzN5nAGw1GfjKALKisFHDoq9ZSEaPGnSgh9TerVKRAHWxyoyxcUXSkTusA ok
+# 2026-10-06T05:44:48Z release  3uD6oN3GrDLYysuzkp6DzwfZzHLXp4CEBLGzCcgWqRroiADgBzyWkdwSQbwJMZuki2DPbsNf2SbYow6pwoQXrZPj ok
+# Zcash side: auction 991c538f…, funding f249178e…; settled, landed, cold verify PASS (lines above).
