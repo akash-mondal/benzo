@@ -12129,6 +12129,7 @@ function verifyStatement(ownerPublicHex, body, signatureHex) {
 
 // clear/launch.ts
 var LAUNCH_LAYOUT = { ...LAYOUT_V0, version: 1, pad_at: 126 };
+var deliveryRowOrder = (a2, b2) => Buffer.compare(Buffer.from(a2.destination, "utf8"), Buffer.from(b2.destination, "utf8")) || a2.amount - b2.amount;
 function clientLaunch(packet, signer) {
   return marketClient(packet, signer, "launch", (m2) => {
     const l2 = m2.launch;
@@ -12157,6 +12158,7 @@ function deliveryBatch(m2, result, orders, records) {
       rows.push({ destination, amount: m2.launch.standard_lot_size });
     }
   }
+  rows.sort(deliveryRowOrder);
   return { version: 1, auction_id: m2.auction_id, delivery: "project_on_token_chain", rows };
 }
 function clearLaunch(input, opts = {}) {
@@ -16354,7 +16356,15 @@ function checkPublicAuction(pub, opts = {}) {
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
     if (fresh.allocation_file_hash) {
       const file = path4.join(pub.dir, "allocation.json");
-      requireThat(existsSync4(file) && hash(readFileSync4(file)) === fresh.allocation_file_hash, "launch allocation file hash");
+      requireThat(existsSync4(file), "launch allocation file missing");
+      const bytes = readFileSync4(file);
+      let rows = [];
+      try {
+        rows = JSON.parse(bytes.toString("utf8")).rows ?? [];
+      } catch {
+      }
+      requireThat(Array.isArray(rows) && rows.every((r2) => r2 && typeof r2.destination === "string" && typeof r2.amount === "number") && rows.every((r2, i2) => i2 === 0 || deliveryRowOrder(rows[i2 - 1], r2) <= 0), "launch allocation rows not in canonical order");
+      requireThat(hash(bytes) === fresh.allocation_file_hash, "launch allocation file hash");
     }
     projection("result.json", result);
   });

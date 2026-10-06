@@ -9,18 +9,19 @@
 // balanceDefaults the run's own manifest/result/leaves with the P1-1 window fixture — the operator pre-funds the
 // defaulting winner's (leaf 2's) balance address before the window opens (300,000 at start-1) and the paying
 // winner (leaf 0) pays 300,000 inside the window. Only the lower bound separates them.
-// Usage: node tmp/mut-replay-markets.mjs <revision-cold.json> <rfq-cold.json> <drop-cold-dir>
+// Usage: node tmp/mut-replay-markets.mjs <revision-cold.json> <rfq-cold.json> <drop-cold-dir> [launch-cold-dir]
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { clearForMode, modeEntry } from "../../clear/registry";
 import { balanceDefaults } from "../../clear/features";
+import { deliveryRowOrder } from "../../clear/launch";
 import { jsonBytes, verifyRecord } from "../../manifest/schema";
 import { validateWitnessSet, verifyApprovalMap } from "../../witness";
 import { ROOT } from "../../e2e/lib/env";
 import { benzoBin } from "../../e2e/lib/hosts";
 
-const [revision, rfq, dropDir] = process.argv.slice(2);
+const [revision, rfq, dropDir, launchDir] = process.argv.slice(2);
 const doc = (f: string) => JSON.parse(readFileSync(f, "utf8"));
 const pure = (d: any): any => clearForMode({ manifest: d.manifest, signer: d.signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening ?? null, launch: d.launch_input });
 const line = (id: string, f: () => [boolean, string]) => {
@@ -80,3 +81,26 @@ line("drop-swapped-defaults-refused", () => {
   return [v.status !== 0 && /ERROR defaults refused: settlement defaults differ from the host-signed approval maps/.test(out),
     `swapped [0] verify exit ${v.status} (${out.split("\n").filter(l => /^ERROR|^OK defaults/.test(l)).join(" | ")})`];
 });
+
+// ---- R34.2 (A16 item 1): the launch delivery rows are canonical (destination bytes, then amount) and never
+// winner leaf order, and `benzo verify` replays the same sort over the result's allocation root. Mutation A16-a
+// restores winner leaf order in the published allocation.json only; the row-order assertion goes red and verify
+// must refuse the file with its own error (launch allocation rows not in canonical order).
+if (launchDir) {
+  const launch = doc(path.join(launchDir, "auction.json"));
+  const rows = doc(path.join(launchDir, "allocation.json")).rows as { destination: string; amount: number }[];
+  const recs: { leaf_index: number; destinations: string[] }[] = launch.launch_input?.delivery ?? [];
+  const leafRows = launch.result.allocations.filter((a: any) => a.fill > 0).flatMap((a: any) => {
+    const rec = recs.find((r: any) => r.leaf_index === a.leaf_index)!;
+    return rec.destinations.map((destination: string) => ({ destination, amount: a.fill / rec.destinations.length }));
+  });
+  line("launch-meet-allocation-order", () => {
+    const key = (rs: { destination: string; amount: number }[]) => JSON.stringify(rs.map(r => [r.destination, r.amount]));
+    const canonical = key(rows) === key([...rows].sort(deliveryRowOrder));
+    const decorrelated = rows.length > 1 ? key(rows) !== key(leafRows) : true;
+    const v = spawnSync(benzoBin, ["verify", "--dir", launchDir, "--signer", launch.signer], { encoding: "utf8", maxBuffer: 64 << 20 });
+    const err = (v.stdout + v.stderr).split("\n").filter((l: string) => l.startsWith("ERROR")).join(" | ");
+    return [canonical && decorrelated && v.status === 0,
+      `canonical=${canonical} decorrelated=${decorrelated}; verify exit ${v.status}${err ? ` (${err})` : ""}`];
+  });
+}

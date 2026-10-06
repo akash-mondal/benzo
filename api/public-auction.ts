@@ -10,6 +10,7 @@ import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed 
 import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
+import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
@@ -325,7 +326,15 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
     if (fresh.allocation_file_hash) {
       const file = path.join(pub.dir, "allocation.json");
-      requireThat(existsSync(file) && hash(readFileSync(file)) === fresh.allocation_file_hash, "launch allocation file hash");
+      requireThat(existsSync(file), "launch allocation file missing");
+      const bytes = readFileSync(file);
+      // R34.2: verify replays the same canonical sort (destination bytes, then amount) the allocation root was
+      // taken over — a published file restored to winner leaf order is refused by its own error.
+      let rows: { destination: string; amount: number }[] = [];
+      try { rows = JSON.parse(bytes.toString("utf8")).rows ?? []; } catch { /* refused below */ }
+      requireThat(Array.isArray(rows) && rows.every(r => r && typeof r.destination === "string" && typeof r.amount === "number") &&
+        rows.every((r, i) => i === 0 || deliveryRowOrder(rows[i - 1], r) <= 0), "launch allocation rows not in canonical order");
+      requireThat(hash(bytes) === fresh.allocation_file_hash, "launch allocation file hash");
     }
     projection("result.json", result);
   });

@@ -15,6 +15,11 @@ export type LaunchManifest = MarketManifest<{ launch: Launch }>;
 export type LaunchInput = { holder_receipts?: Signed[]; mined_heights?: Signed[]; previous_result?: ClearResult;
   delivery?: { leaf_index: number; destinations: string[]; signature: string }[] };
 export type DeliveryBatch = { version: 1; auction_id: string; delivery: "project_on_token_chain"; rows: { destination: string; amount: number }[] };
+// R34.2: the canonical delivery-row order — destination bytes, then amount. Rows leave deliveryBatch in this
+// order (never winner leaf order), the allocation root commits to it, and `benzo verify` replays it, so a
+// published row position can never correlate a fresh delivery destination with a winning leaf (and its bid).
+export const deliveryRowOrder = (a: { destination: string; amount: number }, b: { destination: string; amount: number }) =>
+  Buffer.compare(Buffer.from(a.destination, "utf8"), Buffer.from(b.destination, "utf8")) || a.amount - b.amount;
 export function clientLaunch(packet: Signed, signer: string) {
   return marketClient<{ launch: Launch }>(packet, signer, "launch", m => {
     const l = m.launch;
@@ -46,6 +51,7 @@ export function deliveryBatch(m: LaunchManifest, result: ClearResult, orders: Re
       seen.add(destination); rows.push({ destination, amount: m.launch.standard_lot_size });
     }
   }
+  rows.sort(deliveryRowOrder);
   return { version: 1, auction_id: m.auction_id, delivery: "project_on_token_chain", rows };
 }
 export function clearLaunch(input: ClearInput, opts: { dry?: boolean } = {}): ClearResult {
