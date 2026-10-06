@@ -1,7 +1,7 @@
 // Offline scale run: synthetic public deposits, real tlock/owner/envelope/witness cryptography.
 // Each stage runs in a fresh process so maxRSS is that stage's process high-water mark.
 import { createPrivateKey, createPublicKey } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
@@ -10,7 +10,8 @@ import { decodeArmor } from "tlock-js/age/armor.js";
 import { QUICKNET, hash, jsonBytes, signRecord, requireThat, type Manifest } from "../manifest/schema";
 import { tree, type Leaf, type Frozen } from "../clear/merkle";
 import { clearForMode, modeEntry } from "../clear/registry";
-import { planBatches } from "../settle/batching";
+import { planBatches, type PlanRow } from "../settle/batching";
+import { Ledger, type Obligation } from "../settle/ledger";
 import { ownerPublic, generateEnvelopeKey, sealEnvelope, signEnvelope, verifyEnvelope, settlementCommitment, ENVELOPE_CT_BYTES_N3 } from "../envelope";
 import { freezeStatement, signStatement, witnessSetHash, checkCertificates } from "../witness";
 import { publishedClient, decryptPublished } from "../cli/published-beacon";
@@ -125,6 +126,48 @@ async function stage(name: string, dir: string, count: number) {
     }
     write(resolve(dir, "batch-plan.json"), { batch_cap: BATCH_CAP, rows: obligations.length,
       settlement_batches: batches.length, estimated_fee_zats: fee_zats.toString() });
+    // R35 fold of tools/repro/batching-equal.ts (that script stays until gate RG deletes it): planBatches
+    // must equal the real settlement Ledger's allocate() batch-for-batch — same ids, same parties in the
+    // same order — at caps 13 and 28. The reference is a real Ledger over real SQLite driven through its
+    // own pin/eligible/allocate/stage/confirm methods; expected values come from that ledger, never from
+    // the code under test. Failure prints one grep-able `ERROR batching-equal-cap{13,28}` line.
+    mkdirSync("tmp", { recursive: true });
+    const eqRows: PlanRow[] = [];
+    for (let i = 0; i < 1000; i++) {
+      // "B…" sorts before "a…" in byte order and after it under localeCompare; the last two rows are
+      // non-BMP vs BMP, where UTF-16 code-unit order disagrees with UTF-8 byte order (SQLite BINARY).
+      const party = i < 998 ? (i % 2 === 0 ? "B" : "a") + i.toString(16).padStart(4, "0") + "-row" : i === 998 ? "u-\u{1F600}-x" : "u-\uFFFD-x";
+      eqRows.push({ party, amount_zats: String(1000 + i) });
+    }
+    const eqInput = [...eqRows].reverse(); // input order must not matter
+    for (const cap of [13, 28]) {
+      const state = mkdtempSync(resolve("tmp", "batching-equal-"));
+      try {
+        const ledger = new Ledger(state, hash("bench:batching-equal:" + cap));
+        ledger.pin(eqInput.map(r => ({ ...r, kind: "refund" }) as Obligation));
+        ledger.eligible();
+        const fromLedger: { id: number; parties: string[] }[] = [];
+        for (;;) {
+          const alloc = ledger.allocate(cap);
+          if (!alloc) break;
+          const file = resolve(state, `batch-${alloc.id}.bin`);
+          writeFileSync(file, Buffer.alloc(64, alloc.id));
+          const txid = hash("bench:batching-equal:" + cap + ":" + alloc.id);
+          ledger.stage(alloc.id, file, txid);
+          ledger.confirm(alloc.id, txid, 1000 + alloc.id,
+            alloc.outputs.map((o, index) => ({ party: o.party, amount_zats: o.amount_zats, index, pool: "ironwood" })));
+          fromLedger.push({ id: alloc.id, parties: alloc.outputs.map(o => o.party) });
+        }
+        ledger.close();
+        const planned = planBatches(eqInput, cap);
+        const at = fromLedger.length === planned.length ? fromLedger.findIndex((b, i) => JSON.stringify(b) !== JSON.stringify(planned[i])) : -2;
+        if (at !== -1) {
+          const i = at === -2 ? Math.min(fromLedger.length, planned.length) : at;
+          throw Error(`ERROR batching-equal-cap${cap} batch ${i + 1}: ledger ${JSON.stringify(fromLedger[i] ?? null)} vs planBatches ${JSON.stringify(planned[i] ?? null)}`);
+        }
+        process.stdout.write(`PASS batching-equal cap=${cap} batches=${planned.length} rows=${eqRows.length}\n`);
+      } finally { rmSync(state, { recursive: true, force: true }); }
+    }
   } else if (name === "clear") {
     const result = clearForMode({ manifest: input.packet, signer, frozen: read(resolve(dir, "frozen.json")), opened: read(resolve(dir, "opened.json")) });
     write(resolve(dir, "result.json"), result);

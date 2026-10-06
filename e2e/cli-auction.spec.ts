@@ -4,6 +4,88 @@
 //    R7M1 (refunds paid to an operator routing sink instead of owner-named destinations) breaks T1.
 // 3. The four earlier specs drive lower-level boundaries and never exercise this product or expired staged-batch recovery.
 // 4. No seam: shipped commands, real testnet/drand/tle/PCZT/FROST, coordinator SQLite fault and a suspended real signer.
+//
+// R35 folds (run 33), tranche 1 — folded from tools/repro/* into e2e/lib/readpath.ts (the scripts stay until
+// gate RG proves these IDs pass and turn red under their re-pointed mutations, then deletes them):
+// 1. Behaviour: the read path's leaf/envelope/claims rules — projection divergence (R26 item 3), the read API
+//    failing closed on claims without a beacon (R23 item 3), forged claims and witness-certified strays
+//    (R23 item 1), the verify leaf state machine (R15 items 1-2), and the envelope key-commitment rules
+//    (R12 item 2 / R10 item 1). DESIGN §§4-6; threats behind Reviewer R's F4/F5 and Reviewer G's G1.
+// 2. Regression: verify accepting a rowless receipt, a divergent projection, a forged or wrong-party claim, a
+//    1-of-3/reordered/unpinned envelope record, or the read API 500ing on claims-without-beacon.
+// 3. No earlier spec drives the verifier over tampered corpora or the read API over a claims fixture; R1 only
+//    corrupts the live auction's amounts/root.
+// 4. Seam: none — the shipped bin/benzo and the shipped verifier API over corpora the checks build themselves
+//    (real tlock via the pinned tle, the published beacon, official committed evidence dirs); expected values
+//    are the inputs the check chose or the vectors' own labels.
+// IDs (tranche 1): r15-machine-runs-without-records, r15-zero-refund-needs-no-row, r15-strangers-refused,
+// r15-phase2-4, r26-3-projections-match, r26-3-opened-diverges, r26-3-beacon-diverges, r26-3-receipts-diverges,
+// r26-3-summary-diverges, r26-3-projection-without-field, r23-3-api-claims-no-beacon,
+// r23-3-api-claims-with-beacon, r23-3-api-never-500, g-forged-claim-accepted, g-forged-claim-control,
+// r23-1-certified-claim-accepted, r23-1-wrong-party-refused, r23-1-quorum-refused, r23-1-tampered-sig-certified,
+// r23-1-witness-strays-sign, kc-api-exports, kc-key-32-interop, kc-recipients-order,
+// kc-split-key-recipient1-opens, kc-split-key-recipient2-commitment, kc-3of3-accepted, kc-1of3-refused,
+// kc-2of3-refused, kc-reorder-refused, kc-wrongset-refused.
+//
+// R35 folds (run 33), tranche 2 — same four answers as above apply:
+// 1. Behaviour: the multi-recipient envelope rule set (R12 item 1 / R10 item 1: manifest-pinned recipient
+//    set, key commitment, equal lengths, stanza-swap refusal, pre-v2 compatibility) — DESIGN §6 envelopes;
+//    deposit parties by output position (R26 item 1: two notes to one address stay distinct rows and
+//    zero-value notes are never obligations) — DESIGN §5 deposits; signed envelope-opens reports
+//    (R23 item 2: the plan counts only signer-signed, agreeing reports) — DESIGN §6.
+// 2. Regression: the shared record rule accepting a foreign/reordered/2-of-3/pre-v2-pinned record, the
+//    scanner collapsing same-address outputs onto one party, or the plan counting an unsigned opens report.
+// 3. No earlier spec drives benzo-scan over a same-address fixture wallet, the shared envelopeRecordValid
+//    rule against the official vectors, or the signed opens-report gate.
+// 4. Seam: r26-1/r23-2 drive the shipped benzo-scan, `benzo sign envelope-opens` and the settlement
+//    Ledger/plan over fixture wallets the checks build (the scripts' own verbatim bodies, ported with
+//    their assertion IDs); expected values are the fixtures the checks chose.
+// IDs (tranche 2): mr-manifest-envelope-keys, mr-3keys-open, mr-4th-key-refused, mr-equal-lengths,
+// mr-stanza-swap-refused, mr-shared-rule-export, mr-verify, mr-verify-foreign-key, mr-verify-foreign-set,
+// mr-verify-pre-v2-pinned, mr-verify-2of3-pinned, mr-verify-pre-v2-unpinned, mr-verify-phase2-4,
+// r26-1-scanner-action-index, r26-1-report-parties, r26-1-two-refund-rows, r26-1-zero-paid-refused,
+// r26-1-zero-counted, r23-2-report-signed, r23-2-two-signed-agree, r23-2-one-key-twice, r23-2-foreign-key,
+// r23-2-forged-report-ignored.
+//
+// R35 folds (run 33), tranche 3 group A — same four answers as above:
+// 1. Behaviour: a malformed / wrong-key / transparent-destination envelope record moves its leaf to the
+//    exception queue and never aborts settlement (R7 item 3; Reviewer R F-4 = Reviewer G G3; the g2
+//    probe's three cases), and the signer-side reserve binding refuses a forged published reserve
+//    opening before any signature (R6 F2 / R7 item 5; Reviewer R F2 — the G2 steering surface).
+// 2. Regression: plan.ts reverting to a per-row throw (one bad record wedges every refund), or
+//    requireReserveOpening accepting an opening that does not match manifest.sealed_reserve.
+// 3. No earlier spec injects malformed records into a live cleared auction's ledger, or drives the
+//    reserve binding over a sealed-reserve corpus.
+// 4. Seam: none — the shipped settle plan over the spec's own cleared auction (backup/restore) and the
+//    shipped requireReserveOpening over the script's own sealed-reserve corpus; expected values are the
+//    fixtures the checks chose. (r7-5's live emit leg — publish() carries reserve_opening after R —
+//    needs a sealed-reserve product auction the spec's manifest does not carry; its binding legs fold
+//    here and the emit leg is flagged under Questions for the head to place.)
+// IDs (tranche 3 group A): r7-3-exception-queue, g2-envelope-crash-not-exception, g2-wrong-key-exception,
+// g2-taddr-exception, U7, r7-5-reserve-opening.
+//
+// R35 folds (run 33), tranche 3 group B — same four answers; the bodies are verbatim ports of the named
+// tools/repro scripts (they stay until gate RG deletes them), run after this spec's own settlement and
+// cancel flow so their state drills cannot affect the assertions above:
+// 1. Behaviour: the gate W tampered-ledger refusal (R7 item 1 + the g1 row), pinned per-signer envelope
+//    keys with no operator-held key (R7 item 2), claim-refund completing exception refunds (R7 item 4),
+//    strays never routed through operator destinations (R7 item 6), signer-side key pin + claim-griefing
+//    fix + publicly verifiable claims (R10 item 3/R11/R13), payment through validated v2 envelopes
+//    (R10 item 2), the two-signer opens-report agreement gate + memo-authenticated strays (R10 item 4/R20),
+//    destinations sealed in claim envelopes (R15 item 3), cancelled-auction claim refunds (R16 item 1),
+//    and memo-anchored stray-claim openings (R16 item 4). DESIGN §§5-6; Reviewer R F-1/F-5/F-6, G G4/G5.
+// 2. Regression: the coordinator rewriting STATE/auction/<id>.json to redirect destinations, an operator
+//    envelope private key reappearing, a stray paid from operator routing, an unsigned or forged claim
+//    being paid or published, or claims[].opening returning.
+// 3. No earlier spec runs these drills (they mutate and restore the live private ledger, run the shipped
+//    worker/plan/sign-check against it, and build claim requests through the shipped CLI).
+// 4. Seam: none — every leg drives the shipped bin/benzo / settle plan / claim-refund over the spec's own
+//    auction or a scratch state copy; the ports assert the scripts' own verdict booleans and outcome
+//    values (their exact assertion semantics), flagged under Questions for the RG pass to re-shape.
+// IDs (tranche 3 group B): r7-1-ledger-redirect, g1-tampered-ledger-redirect, r7-2-envelope-keys,
+// r7-4-claim-refund, r7-6-stray-refunds, r7-claims-envelopes, r10-2-envelope-pays,
+// r10-4-envelope-agreement, r10-4-authenticated-strays, r15-3-claim-envelope, r16-1-cancel-claims,
+// r16-4-stray-claim-opening.
 import {expect,test} from '@playwright/test';
 import {createHash,randomBytes} from 'node:crypto';
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
@@ -18,6 +100,10 @@ import {depositParty} from '../settle/deposits';
 import {Run,waitFor,write} from './lib/run';
 import {startFrostd,pubkey,zcashSign} from './lib/frost';
 import * as z from './lib/zcash';
+import {foldR15,foldR263,foldR233,foldGForged,foldKC,foldMR} from './lib/readpath';
+import {foldR261} from './lib/readpath-r261';
+import {foldR232} from './lib/readpath-r232';
+import {foldReserve,foldR73,foldR71,foldR72,foldR74,foldR76,foldR7Claims,foldR102,foldR104,foldR153,foldR161,foldR164} from './lib/readpath-live';
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 // BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
@@ -71,6 +157,15 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
   try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of ENDPOINTS)z.tip(e)}catch(e){run.notRun(IDS,String(e))}
   z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');
   if(z.spendable(z.balance('bidder'))-12*C-200000<3*C+40000)run.notRun(IDS,'drill would cross bidder floor; Needs user funds');
+  // ---- R35 folds (tranche 1): read-path corpora and verifier rules (see the header) ----
+  const FOLD1=['r15-machine-runs-without-records','r15-zero-refund-needs-no-row','r15-strangers-refused','r15-phase2-4','r26-3-projections-match','r26-3-opened-diverges','r26-3-beacon-diverges','r26-3-receipts-diverges','r26-3-summary-diverges','r26-3-projection-without-field','r23-3-api-claims-no-beacon','r23-3-api-claims-with-beacon','r23-3-api-never-500','g-forged-claim-accepted','g-forged-claim-control','r23-1-certified-claim-accepted','r23-1-wrong-party-refused','r23-1-quorum-refused','r23-1-tampered-sig-certified','r23-1-witness-strays-sign','kc-api-exports','kc-key-32-interop','kc-recipients-order','kc-split-key-recipient1-opens','kc-split-key-recipient2-commitment','kc-3of3-accepted','kc-1of3-refused','kc-2of3-refused','kc-reorder-refused','kc-wrongset-refused'];
+  for(const fold of [foldR15,foldR263,foldR233,foldGForged,foldKC])try{await fold(run)}catch(e){run.notRun(FOLD1,`fold setup: ${(e as Error).message}`)}
+  // ---- R35 folds (tranche 2): envelope rules, deposit parties, signed opens reports (see the header) ----
+  const FOLD2=['mr-manifest-envelope-keys','mr-3keys-open','mr-4th-key-refused','mr-equal-lengths','mr-stanza-swap-refused','mr-shared-rule-export','mr-verify','mr-verify-foreign-key','mr-verify-foreign-set','mr-verify-pre-v2-pinned','mr-verify-2of3-pinned','mr-verify-pre-v2-unpinned','mr-verify-phase2-4','r26-1-scanner-action-index','r26-1-report-parties','r26-1-two-refund-rows','r26-1-zero-paid-refused','r26-1-zero-counted','r23-2-report-signed','r23-2-two-signed-agree','r23-2-one-key-twice','r23-2-foreign-key','r23-2-forged-report-ignored'];
+  for(const fold of [foldMR,foldR261,foldR232])try{await fold(run)}catch(e){run.notRun(FOLD2,`fold setup: ${(e as Error).message}`)}
+  // ---- R35 folds (tranche 3 group A, offline legs): the sealed-reserve binding (see the header) ----
+  const FOLD3=['U7','r7-5-reserve-opening'];
+  for(const fold of [foldReserve])try{await fold(run)}catch(e){run.notRun(FOLD3,`fold setup: ${(e as Error).message}`)}
   const stop=await startFrostd();let active:ReturnType<typeof worker>|undefined,paused:number|undefined,api:any,apiData:any;
   try {
     const id=randomBytes(32).toString('hex'),now=Math.ceil(Date.now()/1000),release=now+24*60,R=1+Math.ceil((release-Number(env('BNZ_DRAND_GENESIS')))/3);
@@ -185,6 +280,8 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     // stray stay correct exception rows.
     const expected=result.allocations.map((a:any)=>({party:`leaf:${a.leaf_index}`,amount_zats:a.refund_zats})).filter((e:any)=>BigInt(e.amount_zats)>0n&&Number(e.party.slice(5))<8);expected.push({party:'seller',amount_zats:result.conservation.payout_zats});expected.push({party:memoStrayParty,amount_zats:String(memoStray.value_zats)});
     await run.check('O2','CLI lifecycle clear produces the published result.json of the Phase 2 pure clear',()=>{expect.soft(sha(JSON.stringify(doc.result)+'\n')).toBe(sha(pure));expect.soft(sha(readFileSync(path.join(publicDir,'result.json')))).toBe(sha(pure));expect.soft(doc.state).toBe('SETTLING');expect.soft(doc.result.freeze_root).toBe(frozen.root)});
+    // ---- R35 folds (tranche 3 group A, live legs): exception-queue drills over this cleared auction ----
+    try{await foldR73(run,id)}catch(e){run.notRun(['r7-3-exception-queue','g2-envelope-crash-not-exception','g2-wrong-key-exception','g2-taddr-exception'],`fold setup: ${(e as Error).message}`)}
     await run.check('T1','envelope refunds land at the destinations sealed in the bids, one claim refund at its owner-named destination, never operator routing; unclaimable rows stay exceptions',()=>{
       expect.soft(junk.code).not.toBe(0);expect.soft(junk.error).toContain('claim owner signature');
       expect.soft(completed.code).toBe(0);
@@ -298,6 +395,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
       expect.soft(receiving2.filter((n:any)=>n.address===refund2[1]).reduce((s:number,n:any)=>s+n.value_zats,0)).toBe(C);
       expect.soft(rows2.get(claimParty2)?.state).toBe('refunded');
     });
+    // ---- R35 folds (tranche 3 group B): post-flow state drills (see the header; each restores what it mutates) ----
+    for(const [fold,liveIds] of [[foldR71,['r7-1-ledger-redirect','g1-tampered-ledger-redirect']],[foldR72,['r7-2-envelope-keys']],[foldR74,['r7-4-claim-refund']],[foldR76,['r7-6-stray-refunds']],[foldR7Claims,['r7-claims-envelopes']],[foldR102,['r10-2-envelope-pays']],[foldR104,['r10-4-envelope-agreement','r10-4-authenticated-strays']],[foldR153,['r15-3-claim-envelope']],[foldR161,['r16-1-cancel-claims']],[foldR164,['r16-4-stray-claim-opening']]] as [any,string[]][])
+      try{await fold(run,id)}catch(e){run.notRun(liveIds,`fold setup: ${(e as Error).message}`)}
     write('cli/auction.json',readFileSync(path.join(publicDir,'auction.json')));for(const n of ['manifest.json','frozen.json','result.json','opened.json','beacon.json','signer.json','receipts.json','summary.json'])write('cli/'+n,readFileSync(path.join(publicDir,n)));
     write('cli/cancelled.json',readFileSync(path.join(publicDir2,'auction.json')));
     write('cli/drill.json',JSON.stringify({deposit_txid:paid.txid,stray_txid:strayTx,cancelled_txid:paid2.txid,delay,recipients:expected.length,signing_ms:sessions.map((s:any)=>s.duration_ms),total_signing_ms:sessions.reduce((n:number,s:any)=>n+s.duration_ms,0),batches:settlement.batches.map((b:any)=>({id:b.id,state:b.state,actions:b.inspect.actions,fee_zats:b.inspect.fee_zats,starting_height:b.inspect.expiry_height-(b.state==='exception'?4:NORMAL_EXPIRY),mined_height:b.height,signing_ms:b.signing.sessions.map((s:any)=>s.duration_ms)})),start_height:metadata.expiry_height-4,end_height:z.tip()})+'\n');

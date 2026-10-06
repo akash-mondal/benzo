@@ -1,5 +1,10 @@
+# Re-pointed and re-cut (R35.3a, run 33): the assertions now live in e2e/cli-auction.spec.ts via
+# e2e/lib/readpath.ts (the repro script stays until gate RG deletes it). Same semantic mutation as
+# the original R23-3a (recorded in mutations/R23-3a.out), re-cut against the current source so it
+# applies on the final code. Red run: git apply this patch, then BNZ_LIVE=1 npx playwright test --project=cli-auction (the fold block)
+#   expect ERROR r23-3-api-claims-no-beacon.
 diff --git a/api/server.ts b/api/server.ts
-index b837d2a..50d2455 100644
+index b837d2a..4e06330 100644
 --- a/api/server.ts
 +++ b/api/server.ts
 @@ -35,11 +35,7 @@ export function startServer(options: ServerOptions): http.Server {
@@ -11,7 +16,7 @@ index b837d2a..50d2455 100644
 -        } catch {
 -          claimOpenings = new Map();
 -        }
-+        claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); // mutation R23-3a: the fail-closed guard is removed
++        claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); /* MUTATION R23-3a: fail-closed guard removed */
          const failed = checkPublicAuction(pub, { claimOpenings }).filter(c => c.error);
          // A manifest failure means the document cannot be trusted at all (same verdict as `benzo verify`).
          const manifestBroken = failed.find(c => c.id === "manifest");

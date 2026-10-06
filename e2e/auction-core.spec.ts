@@ -4,10 +4,24 @@
 //    replay uniqueness or cancellation without opening; each has its contracted assertion ID.
 // 3. Phase 1's two regression specs prove primitives, not an auction manifest, accepted set or clearing.
 // 4. No test-only production seam: built CLI entry points, browser sealer, real wallets/scanner, Go tle and FROST.
+//
+// R35 fold (run 33), g7-* IDs (folded from tools/repro/g7-network-repro.mjs, which is deleted at gate RG):
+// 1. Behaviour: G-7 network-aware address checks — official mainnet-format UAs are accepted only on their own
+//    network, `benzo-pczt` network commands refuse without --network and decode a UFVK only under its own network,
+//    and the manifest's network:"test" lock stays (PHASE-5 R28 open item, closed run 30; kept by R33 P2-1).
+// 2. Regression: uaShape/isUnifiedOn/classify-address accepting a mainnet UA under test (or the mirror), or a
+//    network-dependent benzo-pczt command silently defaulting — the cross-network confusion G-7 guards.
+// 3. No existing test feeds official mainnet-format vectors (tools/repro/fixtures/zcash-address-cases.json) or the
+//    classifier cross-network; every other check runs on testnet-format data only.
+// 4. Seam: none needed — the shipped benzo-pczt and the pinned zcash-sign, over official zcash-test-vectors rows
+//    (expected values come from the vectors' own labels, never from our code).
+// IDs: g7-classifier-network-labels, g7-mainnet-ua-on-main, g7-mainnet-ua-refused-on-test, g7-testnet-ua-on-test,
+// g7-testnet-ua-refused-on-main, g7-ufvk-fixture-shape, g7-ufvk-network-main, g7-ufvk-network-test,
+// g7-missing-network-refused, g7-manifest-lock-stays, g7-main-address-checks-ready.
 import {expect,test} from "@playwright/test";
 import {createHash,randomBytes} from "node:crypto";
 import {execFileSync,spawnSync} from "node:child_process";
-import {existsSync,mkdirSync,readFileSync} from "node:fs";
+import {existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {bin,DRAND,env,ROOT,STATE} from "./lib/env";
 import {startFrostd,zcashSign} from "./lib/frost";
@@ -15,6 +29,8 @@ import {Run,waitFor,write} from "./lib/run";
 import {serveSealer,sealBid} from "./lib/sealer";
 import {tleDecrypt} from "./lib/tools";
 import * as z from "./lib/zcash";
+import {uaShape,validateManifest} from "../manifest/schema";
+import {isUnifiedOn} from "../envelope/destination";
 
 const IDS=["E1","E2","F1","F2","G1","G2","G3","H1","H2","H3","H4","I1"];
 const C=Number(env("BNZ_COLLATERAL_ZATS")), MINE=30*60_000, ALT=env("BNZ_LWD_URL_ALT");
@@ -58,6 +74,65 @@ test("signed sealed auction on testnet",async({page})=> {
     const created=cli("manifest/dist/cli.mjs",["keygen",key],{}); if(created.code!==0)run.notRun(IDS,created.error);
   }
   const signer=cli("manifest/dist/cli.mjs",["public",key],{}).value.signer;
+  // ---- R35 fold: g7-network (official mainnet-format fixtures against the network-aware checks) ----
+  const G7=["g7-classifier-network-labels","g7-mainnet-ua-on-main","g7-mainnet-ua-refused-on-test","g7-testnet-ua-on-test","g7-testnet-ua-refused-on-main","g7-ufvk-fixture-shape","g7-ufvk-network-main","g7-ufvk-network-test","g7-missing-network-refused","g7-manifest-lock-stays","g7-main-address-checks-ready"];
+  const pcztBin=path.join(ROOT,"settle/target/release/benzo-pczt");
+  const pczt=(args:string[])=>{try{return{code:0,out:execFileSync(pcztBin,args,{encoding:"utf8",maxBuffer:64<<20}),err:""}}catch(e:any){return{code:e.status??1,out:e.stdout??"",err:e.stderr??""}}};
+  const need=(ok:boolean,why:string)=>{if(!ok)throw Error(why)};
+  if(!existsSync(pcztBin))run.notRun(G7,"benzo-pczt missing (npm run build:settle)");
+  {
+    const cases=JSON.parse(readFileSync(path.join(ROOT,"tools/repro/fixtures/zcash-address-cases.json"),"utf8"));
+    const labelBad:string[]=[],mainBad:string[]=[],mainRef:string[]=[],testBad:string[]=[],testRef:string[]=[];
+    for(const r of cases.ua){
+      const c=JSON.parse(pczt(["classify-address",r.address]).out.trim());
+      if(c.kind!=="unified"||c.network!==r.network)labelBad.push(`${r.address.slice(0,12)} want unified/${r.network}`);
+      const shielded=r.receivers.some((x:any)=>x.typecode===2||x.typecode===3);
+      if(shielded!==r.shielded)labelBad.push(`${r.address.slice(0,12)} shielded ${shielded} want ${r.shielded}`);
+      if(r.network==="main"){
+        if(!uaShape(r.address,"main")||isUnifiedOn(r.address,"main")!==r.shielded)mainBad.push(r.address.slice(0,16));
+        if(uaShape(r.address,"test")||isUnifiedOn(r.address,"test"))mainRef.push(r.address.slice(0,16));
+      }
+      if(r.network==="test"){
+        if(!uaShape(r.address,"test")||isUnifiedOn(r.address,"test")!==r.shielded)testBad.push(r.address.slice(0,16));
+        if(uaShape(r.address,"main")||isUnifiedOn(r.address,"main"))testRef.push(r.address.slice(0,16));
+      }
+    }
+    await run.check("g7-classifier-network-labels","classify-address reports the vectors' own network labels",()=>need(labelBad.length===0,labelBad.slice(0,3).join(" | ")));
+    await run.check("g7-mainnet-ua-on-main","mainnet UAs pass uaShape/isUnifiedOn on main exactly when shielded",()=>need(mainBad.length===0,mainBad.slice(0,3).join(" | ")));
+    await run.check("g7-mainnet-ua-refused-on-test","the same mainnet UAs are refused under test",()=>need(mainRef.length===0,mainRef.slice(0,3).join(" | ")));
+    await run.check("g7-testnet-ua-on-test","testnet UAs pass on test exactly when shielded",()=>need(testBad.length===0,testBad.slice(0,3).join(" | ")));
+    await run.check("g7-testnet-ua-refused-on-main","the same testnet UAs are refused under main",()=>need(testRef.length===0,testRef.slice(0,3).join(" | ")));
+  }
+  {
+    const ak="07".padStart(64,"0");
+    const gen=(net:string)=>execFileSync(bin("zcash-sign"),["generate","-n",net,"--ak",ak],{encoding:"utf8",maxBuffer:64<<20}).match(/Unified Full Viewing Key: "(.*)"/)?.[1]??"";
+    const ufvkMain=gen("main"),ufvkTest=gen("test");
+    await run.check("g7-ufvk-fixture-shape","the pinned zcash-sign emits uview1/uviewtest1 UFVKs for the fixture ak",()=>need(ufvkMain.startsWith("uview1")&&ufvkTest.startsWith("uviewtest1"),`${ufvkMain.slice(0,10)}/${ufvkTest.slice(0,12)}`));
+    const dir=path.join(STATE,"g7");mkdirSync(dir,{recursive:true});
+    for(const [net,uf] of [["main",ufvkMain],["test",ufvkTest]]){
+      const f=path.join(dir,`ufvk-${net}.txt`);writeFileSync(f,uf+"\n",{mode:0o600});
+      const ok=pczt(["ufvk-ak",f,"--network",net]),wrong=net==="main"?"test":"main",bad=pczt(["ufvk-ak",f,"--network",wrong]);
+      await run.check(`g7-ufvk-network-${net}`,"ufvk-ak decodes a UFVK only under its own network, returning the ak it was made from",()=>{need(ok.code===0&&ok.out.trim()===ak,`own ${ok.code}/${ok.out.trim().slice(0,8)}`);need(bad.code!==0&&/UFVK decode/.test(bad.err),`wrong-network accepted: ${bad.code}`)});
+    }
+    const none=pczt(["ufvk-ak",path.join(dir,"ufvk-test.txt")]),noneAddr=pczt(["address",path.join(dir,"no-wallet")]);
+    await run.check("g7-missing-network-refused","ufvk-ak and address refuse without --network",()=>need(none.code!==0&&/missing --network/.test(none.err+none.out)&&noneAddr.code!==0&&/missing --network/.test(noneAddr.err+noneAddr.out),`ufvk-ak ${none.code}, address ${noneAddr.code}`));
+    rmSync(dir,{recursive:true,force:true});
+  }
+  {
+    const mainAddr=JSON.parse(readFileSync(path.join(ROOT,"tools/repro/fixtures/zcash-address-cases.json"),"utf8")).ua.find((r:any)=>r.network==="main"&&r.shielded).address;
+    const base:any={
+      version:1,network:"main",auction_id:"00".repeat(32),escrow_ua:mainAddr,frost_group_key:"11".repeat(32),
+      lot:"g7",supply:1,reserve_zats:"0",tick_zats:"1",B_max_zats:"2",q_max:1,C_zats:"2",fee_zats:"0",
+      deposit_addresses:[mainAddr],
+      drand:{chain_hash:env("BNZ_DRAND_CHAIN_HASH"),public_key:env("BNZ_DRAND_PUBLIC_KEY"),scheme:"bls-unchained-g1-rfc9380",genesis:Number(env("BNZ_DRAND_GENESIS")),period:3,R:5},
+      T_submit:1_000,T_freeze:3_000,confirmations:10,
+      clearing:{mode:"uniform",band:"floor_pro_rata_units",dust:"ascending_leaf_index",tie:"ascending_leaf_index",minimum_fill:1},
+      refund:{invalid:"full_C",reorg:"C_minus_fee_remove_leaf",cancel:"full_C"},freeze:"merkle_root_v1",
+    };
+    let lockMsg="";try{validateManifest(base)}catch(e:any){lockMsg=String(e.message)}
+    await run.check("g7-manifest-lock-stays","the manifest schema still refuses network:\"main\" (version/network lock)",()=>need(/version\/network/.test(lockMsg),`a network:"main" manifest passed validateManifest (${lockMsg})`));
+    await run.check("g7-main-address-checks-ready","the manifest's u1 escrow_ua passes the network-aware checks under main",()=>need(uaShape(base.escrow_ua,"main")&&isUnifiedOn(base.escrow_ua,"main"),"u1 escrow_ua not accepted under main"));
+  }
   const stop=await startFrostd();
   try {
     const addresses=Array.from({length:6},()=>z.generateAddress("vault"));

@@ -3,7 +3,181 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
+## Current run (33): Phase 6 Track B offline batch B33 — test/repro audit (RG prep), repo hygiene, README refresh
+
+Task (this session's head message): `track-b` fast-forwarded to main at `1a4846f` (B32 merged, Q3/Q4
+accepted); `npm ci` + `npm run build:*` green; then three items in order, one commit per item with proof.
+**Offline only**: no OrbStack/VM/orb/frostd :2744/testnet spends/`tools/repro/markets.ts`/live specs, no
+mainnet, no frontend, no pin changes, no Track A files (Builder A is mid-batch in `clear/`, `cli/`,
+`witness/`, `api/`, `settle/`). Session-start checks: clean tree at `1a4846f`; `npm run e2e` **PASSED**
+(seal-open 37 s, `tmp/e2e/report.json`, 2026-10-06). Builds: `build:seal/core/cli/verify` all exit 0
+(`build:settle` unchanged this batch — its outputs not needed for docs work).
+
+**Item 1 — test and repro audit (READY-FOR-REVIEW prep): DONE with proof.**
+`docs/evidence/phase-6/test-audit.md` (commit `39ba6c0`), written from committed evidence only; nothing
+deleted or moved (the head rules on the marks first).
+
+1. **(a) one row per `e2e/*.spec.ts`** (7 specs; all mark **R**): assertion IDs each owns (C1–C7 /
+   A1–A5+B1+D1–D3 / E,F,G,H,I / J,K,L,M,N / O,P,Q,R,S,T / Y,V,W,X / M-*); last mutation `.out` and base
+   commit per spec (M1–M4 `36913b6`; M5–M7 `4c5e4a9`; N1-regression `3174c60`; P1-expiry `47b665f`;
+   R7M1 `8a37993`; buyback 5M1/5M3 replays `cfd2f84` + live 5M5/5M2-host/5M4; markets 5M8–5M10 `7dcaeda`);
+   **every spec's covered code changed since** (file counts 6/75/60/10/52/30/26 in the cited ranges) — so
+   each owes its cheapest-mutation re-run at gate RG: M2 (seal-open, offline), M5, N7, P3, U2 (live lane),
+   5M1 replay (buyback, offline), 5M8 replay (markets, offline).
+2. **(b) one row per `tools/repro/` file** (50 + the `fixtures/` corpus): what it proves, its sanction
+   (Ruling ID / STATUS entry / head commit), the evidence that cites it (or "none" where true), and a mark —
+   17 KEEP, 25 FOLD, 8 RETIRE, corpus KEEP.
+3. **Test count and consolidation proposal:** 47 of the 50 files are tests by the AGENTS.md definition
+   (only `sweep-vault.ts`, `republish.ts` (ops) and `xchain-demos.sh` (wrapper) are not) — 54 committed
+   tests against the ceiling of 8. Proposal (head rules first): (1) a Ruling names the 14 gate evidence
+   drivers/harnesses as "evidence runs, not specs" (extending PHASE-6 §3's bench/leak-audit wording);
+   (2) fold 25 scripts into their owners (`batching-equal.ts` → the bench batch-plan stage; 24 one-shot
+   fix repros → `cli-auction.spec.ts`/`auction-core.spec.ts` as Ruling-added assertion IDs, mutation
+   `.patch`es re-pointed as red proofs); (3) RETIRE 8 superseded/covered one-shots with evidence staying
+   committed. End state: 8 tests + 14 named evidence drivers + 2 ops tools + 1 corpus.
+
+**Item 2 — public-repo hygiene (Phase 6 Track B item 5): DONE with proof.**
+`docs/evidence/phase-6/repo-hygiene.md` (`9f24a41`) — checklist, one command + result per line:
+
+1. **LICENSE — was FAIL, fixed** (`9f24a41`): no LICENSE existed and `package.json` had no `license`
+   field. Added `LICENSE` (MIT, `Copyright (c) 2026 Akash Mondal` from the repo's git identity) + `"license":
+   "MIT"`. **Question below: license choice + holder need head/user confirmation.** The shipped tarball does
+   not include LICENSE yet (adding it changes the recorded digests) — noted for the next packaging refresh.
+2. **`.env.example` only, all documented — PASS** (one comment fix): tracked `.env` files = `.env.example`
+   alone; every variable carries its provider | required/optional comment; name-level diff vs the real `.env`
+   shows no undocumented variable (values never printed). Two `/Users/…` setup-comment paths neutralized
+   (`your home volume`, `"$HOME/Dev Projects/benzo"`).
+3. **`.gitignore` — PASS + hardening**: `.benzo/`, `tmp/`, `vendor/nu7/`, `*.sqlite*`, `.env*` were already
+   covered; added an explicit keys block (`*.pem *.key *.agekey *.mnemonic ufvk.txt`).
+   `git ls-files -ci --exclude-standard` empty (nothing tracked becomes ignored).
+4. **No secrets in history — PASS (re-run)**: run-31 range `7c235d6..5475c60` (331 rows classified) cited;
+   `npm run leak-audit --git` re-run covers every blob of every commit (subsumes the 38 commits since
+   `5475c60`): **353 rows, 0 gone, 22 new — all classified** (20 × public `leaves[].deposit.address` in the
+   A14 buyback evidence at `05f97b8`, class C; 2 × age-armor = the bundled age codec's header/footer string
+   literals in `dist/benzo-verify.mjs` at `9634882`/`a1f9d90`, class G code constant). Record:
+   `docs/evidence/phase-6/leak-findings-2026-10-06.json` (`096c62e`, tool stdout unedited; sha256-of-value
+   rows only).
+5. **Pinned lockfiles — PASS**: root `package-lock.json` + `settle/`/`scan/`/`contracts/solana(+test/proxy)`
+   `Cargo.lock` + `contracts/evm/package-lock.json` + `tools/pins.env`; dependency scan `unpinned: []`;
+   `npm ci` clean this session.
+6. **Absolute local paths outside evidence — 2 fixed, 14 listed** (`git grep -l '/Users/' -- ':!docs/evidence'`
+   = 16 files): fixed mine — `docs/STATUS-B.md` (14 × `~/Dev Projects/`) and `.env.example`; listed
+   untouched: `deploy/signers/up.sh`, 9 × `contracts/logs/*.out`, `docs/PHASE-5.md` (head),
+   `docs/research/organizer-forensics.{jsonl,md}` (read-only), `tools/repro/g-forged-claim.mjs` (Track A's
+   `source:` provenance line — head/A should sanitize).
+
+Commits: `9f24a41` (fixes + checklist), `096c62e` (leak-run evidence).
+
+**Item 3 — README refresh (gate DOC): DONE with proof.** `README.md` (`9f94e1f`): host custody
+(R28) in Settle; 2-of-3 host attestations (R31) in Cross-chain; settlement scale numbers (R29/R30:
+608 batches at cap 28, 88,040,000 zats, 20.9 h projection / 24.1 h at cap 13, 94,380-byte 28-output
+batch, FROST flat 8.2 s) each pointing at `bench.json`/`scale-measure.md`; the market-mode Proof
+column refreshed (all but Vickrey testnet-proven live, pointer to EVIDENCE.md LP-0004); the Quick
+start transcript re-run fresh (`bin/benzo verify` on the Phase 4 evidence at 2026-10-06, exit 0) and
+the bundle digest updated to `effd9853…` (= `docs/verify-bundle.sha256`, `npm run check:bundle` OK);
+links to `docs/api-reference.md` and `docs/reproducible-build.md`. **Track headline and honest-limits
+kept verbatim — no Ruling changed a fact there** (gate H owns the honest-limits update).
+- Item 3 follow-up (`50ee067`, evidence `00c8412`): the README/LICENSE change moves the shipped npm
+  tarball's digest, and A's bundle rebuild (`9634882`/`a1f9d90`) had already moved the verify-bundle
+  digest — `docs/reproducible-build.md`'s table and `docs/verify-it-yourself.md` §1 were re-recorded
+  (verify `effd9853…`, npm `f123cdde…`, bidder `fa54df28…` unchanged), `pk-package.{out,sha256}` +
+  `pk-package-verify.out` regenerated at `50ee067` with a **fresh-clone re-proof PASS** (clone →
+  `npm ci --offline` → `npm run package` reproduces `f123cdde…` byte-for-byte) and a clean-extract
+  verify exit 0. The rebuild found a staleness bug (recorded in reproducible-build.md §5):
+  `cli/build.mjs` never prunes `cli/dist/commands/`, so the **removed** `auction balance-addresses`
+  command stayed live in build output and in the first regenerated tarball until `cli/dist` was
+  deleted and rebuilt — the recorded digests come from the cleaned tree. **Question below (Q5).**
+
+**R35 execution (head ruling `3f71fd8`, mid-batch) — items 4-6:**
+
+**Item 4 (R35.2 RETIRE 8): DONE.** Deleted `g3-reserve-opening-unpublished.mjs`,
+`obligations-equal.ts`, `r10-5-signer-state-repro.mjs`, `r16-memo-bound-repro.mjs`,
+`r24-3i-classify-address-repro.mjs`, `r5-fund-quote-repro.mjs`, `r7-witness-repro.mjs`,
+`routing-vs-envelope-repro.mjs` (`834e465`-era tree; commit after the head's two head: commits).
+`.out` evidence, mutation patches and `fixtures/` stay. No `package.json` or operational doc
+reference existed to remove (docs cite the evidence files, not the scripts). Head's `834e465` fixed
+g-forged-claim's path itself (Q3 closed).
+
+**Item 5 (R35.3a FOLD step a): tranches 1-2 DONE and scratch-validated; tranche 3 next.**
+- **batching-equal → bench** (`cb4bcab`): the planBatches==allocate equivalence now runs inside the
+  `npm run bench` batch-plan stage. Green: `npm run bench -- --bids 100` all 7 stages PASS
+  (`PASS batching-equal cap=13 batches=77 / cap=28 batches=36`, same counts as the standalone
+  repro). Red: **B31-a re-run** `ERROR batching-equal-cap13` at `cb4bcab`
+  (`mutations/B31-a-rerun-r33.out`); `B31-a.patch` re-pointed at the bench run.
+- **g7-network → auction-core.spec.ts** (`5886882`): 11 `g7-*` IDs + four-answer header. `X3-a.patch`
+  re-cut (it no longer applied) + re-pointed (`BNZ_LIVE=1 npx playwright test --project=auction-core`
+  → `ERROR g7-mainnet-ua-refused-on-test`). Compiles/lists green (`--list` shows the test).
+- **tranche 1 → cli-auction.spec.ts via `e2e/lib/readpath.ts`** (`979f34e`): 30 IDs (r15-* x4,
+  r26-3-* x6, r23-3-* x3, g-forged-claim-*/r23-1-* x7, kc-* x10) + four-answer header. Mutation
+  patches **re-cut** (5 were stale against current `api/` sources) + re-pointed at the spec run:
+  R15-F4a/F4b/F5, R16-F2a, R23-3a (re-cut), R26-3a/R26-3b (headers).
+- **tranche 2 → cli-auction.spec.ts** (`b04a9cb`): 23 IDs (mr-* x13 in `readpath.ts`; r26-1-* x5 and
+  r23-2-* x5 as **verbatim ports** of the repro bodies in `e2e/lib/readpath-r261.ts` /
+  `readpath-r232.ts`, their `check(id, ok, reason)` calls replayed through `Run.check` so IDs and
+  expected values are byte-identical). `R23-2-revert.patch` re-pointed.
+- **Scratch validation (tmp/, not evidence):** a throwaway Playwright config runs the fold families
+  with the real `Run` outside the live spec — `npx playwright test --config=tmp/folds.config.ts`:
+  **ALL 53 PASS** (30 + 13 mr + 5 r26-1 + 5 r23-2) in ~1 min. This caught and fixed four real port
+  bugs before commit (r26-3 summary tamper no-op; two corpora invalid under the tightened claims
+  rule; missing `edSign`/`edVerify` imports in the r23-2 port). Two contract findings recorded in
+  the fold headers: today's verifier requires a certified strays statement for any claim (the
+  g-forged-claim script's own pre-R23.1 corpus would fail today), and the r26-3 corpus's refunded
+  stray row now needs claim proof.
+- **Tranche 3 DONE (all 15 remaining scripts folded).** `e2e/lib/readpath-live.ts` +
+  `cli-auction.spec.ts`: group A — the r7-3/g2 exception-queue drills (`r7-3-exception-queue`,
+  `g2-envelope-crash-not-exception`, `g2-wrong-key-exception`, `g2-taddr-exception`; live, injected
+  into the spec's cleared auction's ledger+public copy with backup/restore) and the sealed-reserve
+  binding (`U7`, `r7-5-reserve-opening`; offline, over the reserve-opening repro's own corpus —
+  scratch-validated in the 55/55 run). `U7.patch` re-pointed at the FOLD3 block. Group B — 12 IDs as
+  **verbatim ports** of `r7-1`(incl. the g1 row), `r7-2`, `r7-4`, `r7-6`, `r7-claims`, `r10-2`,
+  `r10-4` (2 IDs), `r15-3`, `r16-1`, `r16-4`, placed **after** the spec's own settlement/cancel flow
+  so their state drills (each restores what it mutates) cannot affect the assertions above.
+  `playwright --list` loads all 7 spec files green (9 tests in 7 files).
+- **Fold totals:** 10 mutation patches re-pointed at the spec/bench runs (B31-a; X3-a, R15-F4a/F4b/F5,
+  R16-F2a, R23-3a re-cut because they no longer applied; R26-3a/b, R23-2-revert, U7 re-pointed);
+  folded IDs: 30 (tranche 1) + 23 (tranche 2) + 6 (group A) + 12 (group B) + 11 g7 + the bench's
+  `batching-equal-cap{13,28}` = 84. Nothing in group 2 deleted (R35.3(b): deletion rides the head's
+  RG commit). Scratch validation (offline legs only): **ALL 55 PASS** at the final tree.
+- **Unvalidated by design until RG (R35.3(b)):** the live legs (group A drills, all of group B). Two
+  shape notes for the RG pass: group B's ports assert the scripts' own verdict booleans/outcome values
+  (their exact semantics), and `r7-5`'s live emit leg (publish() carries `reserve_opening` after R)
+  is not folded — the spec's manifest carries no `sealed_reserve` (Q4 below).
+
+**Item 6: STATUS updates — this entry. Batch B33 + the R35 execution are complete; every commit has
+its proof above.**
+
+### Questions (run 33)
+
+1. **LICENSE choice needs confirmation (item 2).** The phase doc's hygiene line requires a license; no Ruling
+   names one. I chose **MIT**, `Copyright (c) 2026 Akash Mondal` (the repo's git identity) and made
+   `package.json` say `"license": "MIT"`. Confirm, or rule a different license/holder and I will swap both.
+   Separately: `npm run package`'s tarball does not ship `LICENSE` yet (adding it changes the recorded
+   digests) — fold into the next packaging refresh?
+2. **Repro consolidation proposal (item 1) awaits your ruling before anything is deleted or moved.**
+   `docs/evidence/phase-6/test-audit.md` §(b): 47 of 50 `tools/repro/` files are tests by the AGENTS.md
+   definition (54 committed tests vs the ceiling of 8). Proposal: (1) a Ruling names 14 gate evidence
+   drivers/harnesses as "evidence runs, not specs" (extending PHASE-6 §3's bench/leak-audit wording);
+   (2) fold 25 scripts into their owners (`batching-equal.ts` → the bench batch-plan stage; 24 one-shot
+   fix repros → `cli-auction.spec.ts`/`auction-core.spec.ts` as Ruling-added assertion IDs);
+   (3) RETIRE 8 superseded/covered one-shots, evidence staying committed.
+3. **CLOSED by the head (`834e465`):** the `/Users/…` path in `g-forged-claim.mjs` is gone.
+4. **`r7-5`'s live emit leg is not folded (R35.3a).** `publish()` carrying `reserve_opening` after R
+   needs a sealed-reserve product auction; the spec's manifest has no `sealed_reserve`, and adding one
+   (even a non-binding bound) changes the live fixture I cannot validate offline. Its binding legs are
+   folded (`U7`, `r7-5-reserve-opening` in the FOLD3 block). Where should the emit leg go — a
+   `sealed_reserve` added to the spec's manifest (head/Track A validates live), or a separate scenario
+   in the markets harness (Track A's live lane)?
+5. **`cli/build.mjs` never prunes `cli/dist/commands/` (found by the item-3 packaging run).** A removed
+   command stays live in build output and in any tarball built without a clean — the R33-removed
+   `auction balance-addresses` shipped in my first regenerated tarball until I deleted `cli/dist`. The
+   fix is one line in `cli/build.mjs` (rm the output dir first) — a Track A file, so head/Builder A
+   should land it; my recorded digests come from a clean build either way.
+6. **Group-B fold shape (R35.3a).** The verbatim ports assert the repros' own verdict booleans and
+   `outcome` values (their exact assertion semantics, byte-faithful), not freshly-worded semantic
+   assertions. If the head wants them re-shaped, that is best done in the RG pass when the live legs
+   can actually run.
+
+## Previous run (32): Phase 6 Track B offline batch B32 — API reference (DOC), bidder bundle + repro notes (PK), evidence rows
 
 Task (this session's head message): `track-b` fast-forwarded to main at `1bbb849` (B31 merged); `npm ci` +
 all `npm run build:*` green (`build:seal/core/settle/cli/verify`; `npm run check:bundle` OK, bundle
@@ -1016,8 +1190,8 @@ other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin change
 
 ### Run 22 record (R14 items 1–5)
 Base: clean tree at `a623139` (head: merge main into track-b; R14 in `docs/PHASE-5.md` R14, head commit
-`0da383e`). Reviewer R's report read-only at `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-r9-contracts.md`;
-lab PoC copied from `/Users/akshmnd/Dev Projects/benzo-sol/lab/pr-b-r9/lab-only/` (read-only). Baseline `npm run
+`0da383e`). Reviewer R's report read-only at `~/Dev Projects/benzo-sol/reports/pr-b-r9-contracts.md`;
+lab PoC copied from `~/Dev Projects/benzo-sol/lab/pr-b-r9/lab-only/` (read-only). Baseline `npm run
 e2e` PASS 38 s at `a623139` (`tmp/proof-logs/r14-baseline-e2e.out`). R12 run 21 is complete (nothing open; its
 two Questions stand). No mainnet; no other-checkout access or writes; no merge/rebase/cherry-pick/push; no pin
 changes. At run start `contracts/solana` was byte-identical to `4d9c0e6` (`git diff 4d9c0e6 -- contracts/solana`
@@ -1201,7 +1375,7 @@ Commits: `a82f865` (item 1), `c8c622e` (item 2), `0c1404a` + `2ea170e` (item 3 +
 commit (item 4: rebuilt bundle + hash, doc hash refresh, this STATUS).
 Base: clean tree at `266c2e6` (head: merge main into track-b; R12 in `docs/PHASE-5.md`). Baseline `npm run e2e`
 PASS 37 s at `266c2e6` (`tmp/proof-logs/r12-baseline-e2e.out`). Reviewer R's report read-only at
-`/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-envelopes-v2.md`. No mainnet; no other-checkout access or
+`~/Dev Projects/benzo-sol/reports/pr-b-envelopes-v2.md`. No mainnet; no other-checkout access or
 writes; no merge/rebase/cherry-pick/push; no pin changes; nothing outside the repo. R10/R9 open-item sweep:
 none open for Track B (R10 item 1 and R9 items 1–4 landed in the previous run; R10 items 2–5 and R12 item 3/R13
 are Track A's).
@@ -1615,7 +1789,7 @@ the auction forever); add a dust-before-lock test (red on old code, green after)
 devnet and rerun the live cycle. (2) Multi-recipient settlement envelopes per
 `docs/design/phase5-part1-live.md` §4 [B] (libsodium), the proofs the head listed, then READY
 FOR MERGE. Read-only: the G probe
-`/Users/akshmnd/Dev Projects/benzo-sol-g/tests/g4-solana-residuals.mjs` (its on-chain probe A).
+`~/Dev Projects/benzo-sol-g/tests/g4-solana-residuals.mjs` (its on-chain probe A).
 No mainnet; no other-checkout writes; no merge/rebase/cherry-pick.
 
 1. **R8 item 1 (P1 G9), a dusted escrow state PDA blocking the auction: FIXED** (this commit).
@@ -1806,8 +1980,8 @@ main into track-b, crosschain §10). One commit per item: `d9a81c7` (item 1, F-1
 this STATUS commit (redeploy + live cycle). Every fix has a red log on the pre-fix code and a
 green log on the fix (below). Scope: `docs/design/crosschain.md` §10 items 1–5 in order, then
 redeploy both escrows and rerun lock → attest → release → refund on each. Reviewer report
-(read-only): `/Users/akshmnd/Dev Projects/benzo-sol/reports/pr-b-f5-solana9.md`; its lab probes in
-`/Users/akshmnd/Dev Projects/benzo-sol/tests/`. No other-checkout access beyond those read-only
+(read-only): `~/Dev Projects/benzo-sol/reports/pr-b-f5-solana9.md`; its lab probes in
+`~/Dev Projects/benzo-sol/tests/`. No other-checkout access beyond those read-only
 files, no merges/rebase/cherry-pick/push, no mainnet. Baseline `npm run e2e` PASS 37 s at `e1851c5`;
 final rerun PASS 38 s at the READY-FOR-MERGE tree.
 
@@ -2059,7 +2233,7 @@ never printed.
 1. **P1, EVM fee-on-transfer drain (F5): DONE, commit `d566d0c`.** `contracts/evm/src/BenzoEscrow.sol`
    `lock` now measures `balanceOf(this)` around `safeTransferFrom` and reverts `BadParameters` unless the
    delta equals `amount`. Reviewer's `FeeTokenDrain.t.sol` copied byte-identical from
-   `/Users/akshmnd/Dev Projects/benzo-sol/trackb/contracts/evm/test/FeeTokenDrain.t.sol` (diff: identical)
+   `~/Dev Projects/benzo-sol/trackb/contracts/evm/test/FeeTokenDrain.t.sol` (diff: identical)
    into `contracts/evm/test/`. Both runs shown: **red on old code** — `forge test --match-contract
    FeeTokenDrainTest` → `[FAIL: next call did not revert as expected] test_fee_on_transfer_token_drains_victim_auction`
    (`contracts/logs/p1-feetoken-old-code.out`, exit 1); **green after the fix** — `forge test` → `22 tests passed,
@@ -2346,7 +2520,7 @@ Test audit: R retain default seal-open; unchanged source/assertion IDs and basel
 - Run 13 doc lengths: `docs/verify-it-yourself.md` is 102 lines against the brief's ~60 — the eleven check lines and the real command outputs make ~60 impossible without cutting evidence. Compress on request.
 
 User instruction (2026-10-02T06:03:30Z recorded UTC), verbatim:
-> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -15`.
+> You are Builder B (Codex) on ~/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -15`.
 >
 > The head reviewed run 11 (5d83153, 22d812f, 0a6b6cc) and tested `dist/benzo-verify.mjs` from /tmp with network denied: the Phase 3 corpus verifies offline and the bundle hash matches. Your batch-plan BLOCKED item is accepted: Track A will extract a side-effect-free `settle/batching.ts` after its live regression; you rerun bench stage 5 then. Small fixes now (one commit, proof in STATUS-B):
 >
@@ -2354,18 +2528,18 @@ User instruction (2026-10-02T06:03:30Z recorded UTC), verbatim:
 > 2. **Tampered beacon signature** currently fails with "Cannot find square root" (point decode). Catch it: `ERROR verify refused: beacon BLS signature invalid`.
 > Prove from /tmp with the standalone bundle: Phase 2 cold copy OK with `--fetch-beacon`; the default gives the new message; a tampered beacon gives the clear error; Phase 3 / Mode B / CF corpora unchanged. Rebuild the bundle and update `docs/verify-bundle.sha256`. Then set READY FOR MERGE.
 >
-> Add no tests. Track B files only. Never touch /Users/akshmnd/Dev Projects/benzo, funds, keys or `.benzo/`. No merge/rebase/cherry-pick.
+> Add no tests. Track B files only. Never touch ~/Dev Projects/benzo, funds, keys or `.benzo/`. No merge/rebase/cherry-pick.
 
 - SC stage5 protected-file BLOCKER: `settle/plan.ts:10–14` performs git/.env/state initialization at import; lines21–29 run live wallet/scan work, and the file exports no offline batch planner (`rg -n export settle/plan.ts` finds none). Design §3 requires a read-only import from this Track A-owned file, while user/AGENTS forbid B from live state/wallet access or changing A files. Need A/head to expose a side-effect-free offline batch planner at cap13 with a documented ZIP-317 fee estimator, or authorize a specific pure planner import. B finished all independent stages at1000/5000/17000, but batch counts/fees stay null and stage5/run exit1; no substitute pass. No import attempted.
 
 User instruction (2026-10-02T05:10:55Z recorded UTC), verbatim:
-> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
+> You are Builder B (Codex) on ~/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
 >
 > The head reviewed your run-10 commits (9abf320, bee8e41, c1dcc3a, 95c50b7); Track B Phase 5 is complete and stays on track-b until Phase 4 is PASSED.
 >
 > Next: **Phase 6 Track B offline items, exactly as designed in `docs/design/phase6-b-offline.md`** (head-owned; implement as written, disagreements under Questions): (1) fully offline verify from the published beacon + standalone reproducible `dist/benzo-verify.mjs`; (2) `tools/leak-audit.ts`; (3) `tools/bench.ts` 17,000-bid offline benchmark. One commit per item with its logged proof in a new "Phase 6, Track B" section of STATUS-B, then READY FOR MERGE.
 >
-> Add no tests. Touch only Track B files, new `tools/` files and `package.json` scripts. Never touch /Users/akshmnd/Dev Projects/benzo, funds, keys or `.benzo/`. Do not merge, rebase or cherry-pick.
+> Add no tests. Touch only Track B files, new `tools/` files and `package.json` scripts. Never touch ~/Dev Projects/benzo, funds, keys or `.benzo/`. Do not merge, rebase or cherry-pick.
 
 ## Phase 5, Track B run 10: READY FOR MERGE
 
@@ -2402,7 +2576,7 @@ Test audit: R retain default seal-open (browser/tle assertion IDs unchanged, def
 - A integration: publisher must write the marketplace packet using the lot commitment encoding above, preserve serial-range binding, persist bidder receipt/statement siblings for bare claim, and publish signed delivery complaints. JSON schema changes, actual token delivery/observations and live settlement remain A's lane.
 
 User instruction (2026-10-02T04:40:00Z), verbatim:
-> You are Builder B (Codex) on /Users/akshmnd/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
+> You are Builder B (Codex) on ~/Dev Projects/benzo-b, branch track-b. AGENTS.md is your operating manual. Continue from STATUS-B and `git log --oneline -20`.
 > 
 > The head reviewed your run-9 commits (collection drop e70d8d8..e33ba95, launch 14061a4, RFQ ff6b2ea, OTC d67b6f6, 20ce790) and found the money rules correct. Your Phase 5 work stays on track-b until Phase 4 is PASSED.
 > 
@@ -2411,7 +2585,7 @@ User instruction (2026-10-02T04:40:00Z), verbatim:
 > 2. **Recurring buyback report (PHASE-5 R3 item 4):** for a buyback series (CF recurring rounds over Mode B), a public per-window report derived only from public data: window index, units bought, clearing price, ZEC spent (payout + fees), serials taken in. `benzo report --dir PUBLIC [--previous …]` prints it; verify checks the report matches the result.
 > 3. **Marketplace adapter, gate Z (PHASE-5 part 1):** complete the Zilkroad adapter: manifest binds collection, serial range and metadata commitment; `benzo claim --dir PUBLIC --ciphertext-hash HEX` turns the winner's private settlement receipt + statement into a delivery claim signed by the owner key; an exception-queue file format for paid-but-not-delivered, checked by verify. Read-only adapters only — no network calls to Zilkroad.
 > 4. **Missing-bid exceptions (R3 item 6, pure part):** given a published list of mined deposits (height + ciphertext hash + note id, as the scanner reports them), verify flags any deposit mined before `T_submit` that is absent from the frozen root as an exception owed an exact-C refund, and `benzo receipt prove` explains "not included; refund owed" for it.
-> Then set READY FOR MERGE. Add no tests. Touch only Track B files (plus package.json for item 1). Never touch /Users/akshmnd/Dev Projects/benzo, funds or keys. Do not merge, rebase or cherry-pick.
+> Then set READY FOR MERGE. Add no tests. Touch only Track B files (plus package.json for item 1). Never touch ~/Dev Projects/benzo, funds or keys. Do not merge, rebase or cherry-pick.
 
 ## Phase 5, Track B run 8: READY FOR MERGE
 
@@ -2469,7 +2643,7 @@ User instruction (2026-10-02T03:55:33Z), verbatim:
 > 4. Verify: when `serial_assignment` is present, fetch or read the beacon for `R + seed_round_offset` (online: the same drand HTTP path your R16 code uses; `--offline`: a published `serial_beacon {round, signature}` in auction.json), recompute, and refuse on any difference. Register through the mode registry; no per-mode verify copy.
 > 5. Proof (logged in STATUS-B): a corpus with 3 winners and 10 serials using a real past quicknet round; verify OK online and `--offline`; refusals for (a) a swapped serial, (b) a wrong beacon round, (c) Σunits > count.
 > Then continue with the remaining §11 modes as amended by PHASE-5 R3, one commit per mode with its proof: launch (tranches + minimum raise + allocation file in standard lot sizes), RFQ (reverse-Vickrey, two-quote minimum, allowlisted dealer keys), blind OTC (midpoint if max ≥ min). Then set STATUS-B READY FOR MERGE.
-> Add no tests. Touch only Track B files plus the minimal schema change. Never touch /Users/akshmnd/Dev Projects/benzo, funds or keys. No merge/rebase/cherry-pick.
+> Add no tests. Touch only Track B files plus the minimal schema change. Never touch ~/Dev Projects/benzo, funds or keys. No merge/rebase/cherry-pick.
 
 ## Phase 5, Track B run 7: READY FOR MERGE
 
