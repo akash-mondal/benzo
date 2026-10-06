@@ -1,0 +1,10 @@
+auction b1535cc95a30e2e1a2196f9a4941129382da1ed676f4aa522e624576b3f5e255 mode buyback
+funding 88cc05ddcaef0aeee7ffddf09ba697b75a819b9f8e7b913f8df92ad6897a1800
+PASS buyback-r2-cli-equals-pure-clear outcomes winner,winner price 160000
+serial intake published 1010,1011
+PASS buyback-r2-expected-equals-obligations {"leaf:0":360000,"leaf:1":360000}
+PASS buyback-r2-settled exit 0
+PASS buyback-r2-receipts {"leaf:0":360000,"leaf:1":360000,"treasury":180000}
+PASS buyback-r2-landed [360000,360000,180000]
+PASS buyback-r2-cold-verify
+RESULT PASS buyback-r2
