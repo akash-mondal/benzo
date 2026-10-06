@@ -315,11 +315,12 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays">, d: any, s
     if (++i > 160) throw new Error("balance window never opened");
     await sleep(30_000);
   }
-  const inWindow = (ua: string) => z.scanVault().filter((n: any) => n.address === ua && n.height && n.height > start && n.height <= start + blocks).reduce((s: number, n: any) => s + n.value_zats, 0);
+  const inWindow = (ua: string) => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l))
+    .filter((n: any) => n.address === ua && n.height && n.height > start && n.height <= start + blocks).reduce((s: number, n: any) => s + n.value_zats, 0);
   for (const leaf of sc.balancePays ?? []) {
     const a = d.result.allocations.find((x: any) => x.leaf_index === leaf), ua = slot(leaf);
-    if (inWindow(ua) >= Number(a.balance_due_zats)) { say(`balance already paid for leaf ${leaf}`); continue; }
-    say(`balance paid ${a.balance_due_zats} for leaf ${leaf} at height ${z.tip()} in (${start}, ${start + blocks}] (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
+    if (inWindow(ua) >= Number(a.balance_due_zats)) { say(`balance already paid for leaf ${leaf} in (${start}, ${start + blocks}]`); continue; }
+    say(`balance paid ${a.balance_due_zats} for leaf ${leaf}, sent at tip ${z.tip()} into (${start}, ${start + blocks}] (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
   }
   for (let i = 0; z.tip() <= start + blocks; ) {
     if (++i > 160) throw new Error("balance window did not pass");
