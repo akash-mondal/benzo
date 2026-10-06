@@ -56,11 +56,16 @@ export function hostPubkey(name: string): string {
   }
   return hostPubkeys.get(name)!;
 }
+// Head (2026-10-07): `orb run` can hang forever (live: a `cat bob.pubkey` sat 60 min and stalled a settlement's
+// signing). Each call gets a 60 s SIGKILL timeout and up to 3 attempts; only the last failure is thrown.
 function require_spawnSync(cmd: string, args: string[]): string {
-  const r = spawnSync(cmd, args, { encoding: "utf8" });
-  if (r.error) throw r.error;
-  if (r.status !== 0) throw new Error(`${cmd} ${args.slice(0, 4).join(" ")} exited ${r.status}: ${(r.stderr || "").trim().slice(-200)}`);
-  return r.stdout.trim();
+  let last = "";
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const r = spawnSync(cmd, args, { encoding: "utf8", timeout: 60_000, killSignal: "SIGKILL" });
+    if (!r.error && r.status === 0) return r.stdout.trim();
+    last = r.error ? String(r.error.message ?? r.error) : `exited ${r.status}: ${(r.stderr || "").trim().slice(-200)}`;
+  }
+  throw new Error(`${cmd} ${args.slice(0, 4).join(" ")} ${last}`);
 }
 
 
