@@ -118,9 +118,13 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // manifest-fixed before bidding. Each balance address must be an external address of THIS host's vault
     // (`benzo-pczt owns`) and never a deposit/escrow/treasury address; from THIS host's own lightwalletd the
     // window's start block must have a header time at or after R's release time (winners learn they won before
-    // the window opens), and a balance address holding any note at or below the window start (stale or
-    // pre-funded value, P1-1) is refused. The defaults then come from this host's own scan through the shared
+    // the window opens). The defaults then come from this host's own scan through the shared
     // rule (clear/features.ts balanceDefaults) — never operator input.
+    // Ruling R38 item 1 (N2): there is NO settlement-time refusal on chain state a third party can create. A note
+    // at a balance address at or below the window start (third-party dust, or an honest early payment) is simply
+    // out of window: it never counts as payment and is refunded (R38 item 4). The "fresh address" property is
+    // enforced only where it is ours to enforce — `auction create` generates the balance addresses and refuses
+    // one that already holds a note.
     const bM: any = pub.manifest;
     let balanceSources: string[] = [];
     if (bM.bond && pub.result) {
@@ -133,9 +137,8 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
           "balance address is a deposit, escrow or treasury address");
       }
       requireThat(blockTime(st, start) >= QUICKNET.genesis + (bM.drand.R - 1) * QUICKNET.period, "balance window starts before the release round");
-      for (const n of notes) requireThat(!(uas.has(n.address) && n.height && n.height <= start),
-        `balance address ${String(n.address).slice(0, 16)}… holds a note at height ${n.height} at or below the window start; stale or pre-funded value refused`);
       // The approval ledger's sources include each balance note (a winner's payment the settlement spends).
+      // Ruling R38 item 4 (N4, item 4 of A17) narrows this to the in-window notes.
       balanceSources = notes.filter((n: any) => uas.has(n.address) && n.height).map((n: any) => `balance:${n.txid}:${n.pool}:${n.action_index}`);
     }
     const defaults = bM.bond && pub.result ? balanceDefaults(bM, pub.result as any, pub.frozen!.leaves as any, notes, chainTip(st)) : [];
