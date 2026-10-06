@@ -261,7 +261,7 @@ async function run(name: string, link?: SeriesLink) {
       tip = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "balance", "--json"])).chain_tip_height;
     } catch (e) { say(`WARN funding poll: ${String((e as Error)?.message ?? e).slice(-120)}`); }
     if (t?.mined_height && tip >= t.mined_height + 9) break;
-    if (++h > 80) throw new Error("funding did not mature");
+    if (++h > 200) throw new Error("funding did not mature");
   }
   } finally { dropLock(lock); } // held until the funding matured, so the wallet's change is spendable
   writeFileSync(path.join(privateDir, "funding.json"), JSON.stringify({ txid: paid.txid }));
@@ -356,8 +356,10 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
     if (scanVault().some((n: any) => n.address === ua && n.height && n.height <= start)) say(`dust already present at leaf ${leaf}'s balance address before the window start`);
     else say(`dust sent to leaf ${leaf}'s balance address before the window opens, at tip ${z.tip()} (out of window: never counts as payment, refunds to leaf ${leaf}) (${z.pay(`zcash:?address=${ua}&amount=0.0002`)})`);
   }
+  // The bound is a poll count, not a deadline on the chain: slow testnet blocks (A17 live runs) pushed the
+  // window hundreds of blocks out and an 80-minute bound aborted a funded run mid-flight (e90f139e).
   for (let i = 0; z.tip() <= start; ) {
-    if (++i > 160) throw new Error("balance window never opened");
+    if (++i > 800) throw new Error("balance window never opened");
     await sleep(30_000);
   }
   // The scan must see a freshly synced wallet: an unsynced inWindow re-paid an already-mined balance payment in
@@ -370,7 +372,7 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
     say(`balance paid ${a.balance_due_zats} for leaf ${leaf}, sent at tip ${z.tip()} (window (${start}, ${start + blocks}]; a logged height is the SEND tip, never a mined height) (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
   }
   for (let i = 0; z.tip() <= start + blocks; ) {
-    if (++i > 160) throw new Error("balance window did not pass");
+    if (++i > 800) throw new Error("balance window did not pass");
     await sleep(30_000);
   }
   say(`balance window closed; the window was (${start}, ${start + blocks}], tip now ${z.tip()}`);
