@@ -50,9 +50,11 @@ const line = (id: string, s: Scenario) => {
     const got = defaultsFor(s);
     const ok = JSON.stringify(got) === JSON.stringify(s.expect);
     console.log(`${ok ? "PASS" : "FAIL"} ${id} expected ${JSON.stringify(s.expect)} got ${JSON.stringify(got)}`);
+    if (!ok) console.log(`ERROR ${id} expected ${JSON.stringify(s.expect)} got ${JSON.stringify(got)}`);
     all &&= ok;
   } catch (e) {
     console.log(`FAIL ${id} threw ${(e as Error).message}`);
+    console.log(`ERROR ${id} threw ${(e as Error).message}`);
     all = false;
   }
 };
@@ -84,6 +86,7 @@ const sharedM = { deposit_addresses: ["depS", "depC"], bond: { bond_bps: 500, ba
   const got = balanceDefaults(sharedM, shared, sharedLeaves, [{ address: "uaS", height: 1050, value_zats: 300_000 }] as any, 1200);
   const ok = JSON.stringify(got) === "[1]";
   console.log(`${ok ? "PASS" : "FAIL"} case3 expected [1] got ${JSON.stringify(got)} (one 300,000 payment for two 300,000 balances settles exactly one: leaf 0 paid, leaf 1 default)`);
+  if (!ok) console.log(`ERROR case3 one payment settled more than one balance (or none): defaults ${JSON.stringify(got)}`);
   all &&= ok;
 }
 
