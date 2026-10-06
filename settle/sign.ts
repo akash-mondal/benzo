@@ -172,8 +172,8 @@ async function signParallelHost(sighash: string, randomizers: string[], pair: st
 // One FROST signing round at a time on this machine (live part 2: two auctions settling at once collided — a host's
 // frost-client serves one session per identity, and a failover's --close-all ended the other auction's session).
 // A lock dir under state/run, taken for the whole round, stale after 15 minutes.
-export async function zcashSign(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody):Promise<{ sighash: string; sessions: Session[] }> {
-  return withSigningLock(() => zcashSignRound(input, output, check, pair, auction, batch, custody));
+export async function zcashSign(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody,network?:string):Promise<{ sighash: string; sessions: Session[] }> {
+  return withSigningLock(() => zcashSignRound(input, output, check, pair, auction, batch, custody, network));
 }
 // Reentrant within one process: the host-custody signer (settle/cli.ts hostSign) holds it across its whole attempt
 // loop, including the failover's session closes, so no other auction's round runs in between.
@@ -190,9 +190,9 @@ export async function withSigningLock<T>(fn: () => Promise<T>): Promise<T> {
   const beat = signingLockDepth === 1 ? setInterval(() => { try { const t = new Date(); utimesSync(lock, t, t); } catch {} }, 60_000) : undefined;
   try { return await fn(); } finally { if (beat) clearInterval(beat); if (--signingLockDepth === 0) rmSync(lock, { recursive: true, force: true }); }
 }
-async function zcashSignRound(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody):Promise<{ sighash: string; sessions: Session[] }> {
+async function zcashSignRound(input: string, output: string, check:(name:string,randomizer:string,sighash:string)=>void,pair=["alice","bob"],auction?:string,batch?:number,custody?:HostCustody,network?:string):Promise<{ sighash: string; sessions: Session[] }> {
   if(pair.length!==2||new Set(pair).size!==2||pair.some(n=>!["alice","bob","carol"].includes(n)))throw Error("choose two distinct FROST signers");
-  const p = start(bin("zcash-sign"), ["sign", "-n", custody?.network ?? env("BNZ_NETWORK"), "-i", input, "-o", output]);
+  const p = start(bin("zcash-sign"), ["sign", "-n", custody?.network ?? network ?? env("BNZ_NETWORK"), "-i", input, "-o", output]);
   let sighash = "";
   const sessions: Session[] = [];
   let parallel: { expected: { pool: string; index: number; alpha: string }[]; sessions: Session[] } | undefined;

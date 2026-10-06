@@ -294,7 +294,7 @@ async function worker(ledger:Ledger) {
       const tSign=Date.now();
       const signing=custody?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
         const approved=JSON.parse(run(process.execPath,existsSync(path.join(STATE,"product",`${id}.json`))?[path.join(ROOT,"cli/dist/benzo.mjs"),"sign","inspect","--id",id,"--batch",String(batch!.id),"--candidate",proven,"--name",name,"--randomizer",randomizer,"--sighash",sighash]:[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer,sighash]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
-      },settings().signers,existsSync(path.join(STATE,"product",`${id}.json`))?id:undefined,batch.id);
+      },settings().signers,existsSync(path.join(STATE,"product",`${id}.json`))?id:undefined,batch.id,undefined,manifestNet()); // R38.7: the signed manifest's network
       timing({auction:id,batch:batch.id,phase:"sign",ms:Date.now()-tSign,spends:(signing as any).sessions?.length??null,custody});
       writeFileSync(base+".signatures.json",jsonBytes(signing),{mode:0o600});
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
