@@ -99,7 +99,10 @@ const dropPost = async (h: Post) => {
     writeFileSync(path.join(swapped, f), jsonBytes(tdoc));
   }
   const vd = spawnSync(benzoBin, ["verify", "--dir", swapped, "--signer", h.signer], { encoding: "utf8" });
-  h.check("drop-swapped-defaults-refused", vd.status !== 0 && /ERROR defaults refused: settlement defaults differ from the host-signed approval maps/.test(vd.stdout + vd.stderr) && /OK accounting/.test(vd.stdout + vd.stderr), `exit ${vd.status}`);
+  // The specific ERROR is the assertion: whatever else also objects (this drop's two lots clear at different
+  // prices, so a [2]->[0] swap is not invisible to accounting — the equal-balance case is tools/repro/r33-defaults.ts),
+  // verify must refuse a coordinator-swapped defaults list with its own defaults error.
+  h.check("drop-swapped-defaults-refused", vd.status !== 0 && /ERROR defaults refused: settlement defaults differ from the host-signed approval maps/.test(vd.stdout + vd.stderr), `exit ${vd.status}`);
   }
   const tampered = path.join(OUT, "tamper", h.id);
   rmSync(tampered, { recursive: true, force: true }); cpSync(h.cold, tampered, { recursive: true });

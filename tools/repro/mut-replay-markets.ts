@@ -76,6 +76,7 @@ line("drop-swapped-defaults-refused", () => {
   }
   const v = spawnSync(benzoBin, ["verify", "--dir", swapped, "--signer", drop.signer], { encoding: "utf8", maxBuffer: 64 << 20 });
   const out = v.stdout + v.stderr;
-  return [v.status !== 0 && /ERROR defaults refused: settlement defaults differ from the host-signed approval maps/.test(out) && /OK accounting/.test(out),
-    `swapped [0] verify exit ${v.status} (${out.split("\n").filter(l => /ERROR defaults|OK accounting/.test(l)).join(" | ")})`];
+  // The specific defaults ERROR is the assertion (see tools/repro/markets.ts dropPost).
+  return [v.status !== 0 && /ERROR defaults refused: settlement defaults differ from the host-signed approval maps/.test(out),
+    `swapped [0] verify exit ${v.status} (${out.split("\n").filter(l => /^ERROR|^OK defaults/.test(l)).join(" | ")})`];
 });
