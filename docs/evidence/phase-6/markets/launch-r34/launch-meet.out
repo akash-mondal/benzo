@@ -1,0 +1,10 @@
+auction d24a4f26d1bd79c41d971fbc05919872ef84043fe8d12b3face870a02f4e3d64 mode launch
+funding a26c21a875d027d95b6e24eec1993d3fbe068e453e054f1a5b34d89937204365
+PASS launch-meet-cli-equals-pure-clear outcomes winner,winner,unfilled price 250
+PASS launch-meet-allocation-order published rows [":fc17929",":ffff53b"] vs winner leaf order [":ffff53b",":fc17929"]
+PASS launch-meet-expected-equals-obligations {"leaf:0":199750,"leaf:1":199750,"leaf:2":200000,"seller":500}
+PASS launch-meet-settled exit 0
+PASS launch-meet-receipts {"leaf:0":199750,"leaf:1":199750,"leaf:2":200000,"seller":500}
+PASS launch-meet-landed [199750,199750,200000,0]
+PASS launch-meet-cold-verify
+RESULT PASS launch-meet
