@@ -1,8 +1,13 @@
+# M1 (seal-open) — re-cut at 6802a2f for gate RG (batch B35): seal/src/main.ts drifted since the original run
+# (mutations/M1.out at 36913b6, 2026-09-30) — plaintext()/roundAt()/seal() gained the layout-version, binding and
+# holder fields and the envelope-tag rule. Same semantic mutation; expect ERROR C2 (M1: roundAt off by one),
+# ERROR C5 (M3: the envelope is exfiltrated before output), ERROR C4 (M4: the future-round refusal is removed) from
+# `npm run e2e` (the default seal-open project; its global setup rebuilds seal/dist from the working tree).
 diff --git a/seal/src/main.ts b/seal/src/main.ts
-index 220769b..d3a37b7 100644
+index 3970240..7607149 100644
 --- a/seal/src/main.ts
 +++ b/seal/src/main.ts
-@@ -32,7 +32,7 @@ function parseUint(s: string, max: bigint, what: string): bigint {
+@@ -36,7 +36,7 @@ function parseUint(s: string, max: bigint, what: string): bigint {
  
  // First round at or after UTC time t (seconds).
  function roundAt(t: number): number {
@@ -10,4 +15,4 @@ index 220769b..d3a37b7 100644
 +  return Math.ceil((t - QUICKNET.genesis_time) / QUICKNET.period);
  }
  
- function plaintext(auctionId: Uint8Array, price: bigint, quantity: number): Uint8Array {
+ // Owner material is filled by the driver (benzo bid seal produces real one-time owner keys and the salted

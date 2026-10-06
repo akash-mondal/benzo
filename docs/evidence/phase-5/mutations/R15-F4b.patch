@@ -3,21 +3,24 @@
 # the original R15-F4b (recorded in mutations/R15-F4b.out), re-cut against the current source so it
 # applies on the final code. Red run: git apply this patch, then BNZ_LIVE=1 npx playwright test --project=cli-auction (the fold block)
 #   expect ERROR r15-strangers-refused.
+# Re-cut again (gate RG offline half, batch B35, at 6802a2f): api/public-auction.ts gained the R33
+# item 3 run("defaults") block above accounting-strays, so the hunk context moved from line 522 to
+# 549. Same two-line semantic mutation; red shown through the scratch fold harness tmp/folds.config.ts.
 diff --git a/api/public-auction.ts b/api/public-auction.ts
-index 33035d9..2141c40 100644
+index 24f9652..a086a3b 100644
 --- a/api/public-auction.ts
 +++ b/api/public-auction.ts
-@@ -522,13 +522,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
-     if (pub.settlement) requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
+@@ -549,13 +549,13 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
+       "settlement defaults are not carried by two agreeing host-signed approval maps");
    });
    run("accounting-strays", () => {
 -    if (!pub.settlement) return;
 +    if (!pub.settlement || !pub.result) return; /* MUTATION R15-F4b: CANCELLED path unenforced */
      const receipts = pub.settlement.receipts ?? [];
      const rows = pub.settlement.rows ?? [];
--    // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
--    // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
--    // result exists and every party must therefore be a deposit refund.
+     // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
+     // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
+     // result exists and every party must therefore be a deposit refund.
 -    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
 +    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement);
      const stray = (party: string): void => {
