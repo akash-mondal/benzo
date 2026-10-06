@@ -15,7 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./dep
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {balanceDefaults,balanceWindow,balanceSettlement} from "../clear/features";
+import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -137,6 +137,21 @@ try {
       }
       // Fresh scan after the window: a balance payment that mined at the window's end must count.
       const balNotes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+      // Ruling R38 item 5 (N5): a batch can SPEND a balance payment only when the wallet counts it spendable —
+      // ZIP 315 requires 10 confirmations for a note sent by an external party (benzo-pczt create calls
+      // propose_transfer with ConfirmationsPolicy::default()). The plan counts the payment by mined height the
+      // moment the window closes, so a payment mined near the window's end must mature before the batch is
+      // built: otherwise every host's build refuses it with InsufficientFunds (live: drop-r33 attempt 1 —
+      // ac51f698 mined in-window at 4469388 but had 9 confirmations when the window closed at 4469396).
+      // Waiting for maturity is bounded (a mined note always matures); it never refuses chain state.
+      const bUas=new Set([...balanceAddressMap(m as any,result,src.frozen!.leaves as any).values()]),bondBlocks=m.bond.balance_window_blocks;
+      for(;;) {
+        const immature=balNotes.filter((n:any)=>bUas.has(n.address)&&n.height&&n.height>start&&n.height<=start+bondBlocks&&tip-n.height+1<10);
+        if(!immature.length)break;
+        requireThat(Date.now()<deadline,"balance payment never became spendable");
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,30_000);
+        wallet("sync","-s",process.env.BNZ_LWD_URL!);tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
+      }
       defaults=balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
       // Ruling R38 item 4 (N4): out-of-window balance notes are never settlement sources and never count as
       // payment — each refunds to that slot's earliest winning leaf (host-derived counts, published without

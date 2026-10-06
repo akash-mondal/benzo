@@ -69,7 +69,7 @@ type Post = { id: string; signer: string; cold: string; doc: () => any; check: (
 type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; lots?: string[]; marketplace?: any;
   // Part 2 collection drop (b): the winners that pay their balance in the window and the defaults the run expects;
   // part 2 buyback: the serial each winner takes in (one per winner, in leaf order).
-  defaults?: number[]; balancePays?: number[]; intakeSerials?: number[];
+  defaults?: number[]; balancePays?: number[]; balanceDust?: number[]; intakeSerials?: number[];
   extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
   // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
   // an outcome assertion (`outcomes`) on that result.
@@ -181,7 +181,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // over the 400,000 bid, lot b at 450,000, and lot c's 100,000 bid sits below the sealed reserve (lot unfilled).
   // Winner leaf 0 pays its 300,000 balance INSIDE the manifest-fixed window; winner leaf 2 never pays and
   // forfeits its 200,000 bond to the seller (seller 500,000 + 200,000; the two losing bids get exact C back).
-  "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0],
+  "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0], balanceDust: [0],
     extra: c => ({ B_max_zats: "2000000", bond: { bond_bps: 1000, balance_window_blocks: 40, balance_window_start_height: balanceStart(c) },
       serials: { first: 0, count: 8, seed_round_offset: 2 }, sealed_reserve: sealReserve(300_000, c.id, c.R) }),
     bids: () => [{ price: 500_000, lot: LOTS[0] }, { price: 400_000, lot: LOTS[0] }, { price: 450_000, lot: LOTS[1] }, { price: 100_000, lot: LOTS[2] }],
@@ -230,7 +230,7 @@ async function run(name: string, link?: SeriesLink) {
   const privateDir = path.join(STATE, "run", `markets-${id}`), publicDir = path.join(ROOT, "tmp/markets/public", id); mkdirSync(privateDir, { recursive: true });
   writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
   writeFileSync(path.join(privateDir, "xchain-delivers.json"), JSON.stringify(bids.map(b => b.deliver ?? null))); // harness bidder state for the xchain demo driver
-  writeFileSync(path.join(privateDir, "scenario.json"), JSON.stringify({ name, balancePays: sc.balancePays, intakeSerials: sc.intakeSerials, defaults: sc.defaults })); // resume:<id>
+  writeFileSync(path.join(privateDir, "scenario.json"), JSON.stringify({ name, balancePays: sc.balancePays, balanceDust: sc.balanceDust, intakeSerials: sc.intakeSerials, defaults: sc.defaults })); // resume:<id>
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: sc.batch_cap ?? 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
@@ -342,27 +342,38 @@ async function run(name: string, link?: SeriesLink) {
 // (deposit slot i pays its balance to bond.balance_addresses[i]). The payers send balance_due INSIDE the window
 // (start, start + blocks] — a note at or below the start is refused by every host (P1-1) — the defaulter never
 // pays, and settlement waits for tip > start + blocks before deriving the defaults from its own scan.
-async function bondFlow(id: string, sc: Pick<Scenario, "balancePays">, d: any, say: (s: string) => void) {
+async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceDust">, d: any, say: (s: string) => void) {
   const m = JSON.parse(Buffer.from(d.manifest.bytes, "base64").toString("utf8"));
   const start = m.bond.balance_window_start_height as number, blocks = m.bond.balance_window_blocks as number;
   const slot = (leaf: number) => m.bond.balance_addresses[m.deposit_addresses.indexOf(d.frozen.leaves[leaf].deposit.address)];
   say(`balance window (${start}, ${start + blocks}] manifest-fixed (was operator-chosen after the clear)`);
+  // A17 item 1 (R38 N2) proof vehicle: third-party dust at a winner's balance address BEFORE the window opens.
+  // Pre-change one such note permanently wedged settlement (a host refusal over chain state a third party can
+  // create); the run must still settle with it present. Idempotent on resume (a re-run never doubles the dust).
+  const scanVault = () => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
+  for (const leaf of sc.balanceDust ?? []) {
+    const ua = slot(leaf);
+    if (scanVault().some((n: any) => n.address === ua && n.height && n.height <= start)) say(`dust already present at leaf ${leaf}'s balance address before the window start`);
+    else say(`dust sent to leaf ${leaf}'s balance address before the window opens, at tip ${z.tip()} (out of window: never counts as payment, refunds to leaf ${leaf}) (${z.pay(`zcash:?address=${ua}&amount=0.0002`)})`);
+  }
   for (let i = 0; z.tip() <= start; ) {
     if (++i > 160) throw new Error("balance window never opened");
     await sleep(30_000);
   }
-  const inWindow = (ua: string) => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l))
-    .filter((n: any) => n.address === ua && n.height && n.height > start && n.height <= start + blocks).reduce((s: number, n: any) => s + n.value_zats, 0);
+  // The scan must see a freshly synced wallet: an unsynced inWindow re-paid an already-mined balance payment in
+  // the drop-r33 resume (the duplicate payment R38 item 4 now refunds instead of stranding).
+  const inWindow = (ua: string) => { z.sync(`vaults/${id}/wallet`); z.enhance(`vaults/${id}/wallet`); return scanVault()
+    .filter((n: any) => n.address === ua && n.height && n.height > start && n.height <= start + blocks).reduce((s: number, n: any) => s + n.value_zats, 0); };
   for (const leaf of sc.balancePays ?? []) {
     const a = d.result.allocations.find((x: any) => x.leaf_index === leaf), ua = slot(leaf);
     if (inWindow(ua) >= Number(a.balance_due_zats)) { say(`balance already paid for leaf ${leaf} in (${start}, ${start + blocks}]`); continue; }
-    say(`balance paid ${a.balance_due_zats} for leaf ${leaf}, sent at tip ${z.tip()} into (${start}, ${start + blocks}] (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
+    say(`balance paid ${a.balance_due_zats} for leaf ${leaf}, sent at tip ${z.tip()} (window (${start}, ${start + blocks}]; a logged height is the SEND tip, never a mined height) (${z.pay(`zcash:?address=${ua}&amount=${(Number(a.balance_due_zats) / 1e8).toFixed(8)}`)})`);
   }
   for (let i = 0; z.tip() <= start + blocks; ) {
     if (++i > 160) throw new Error("balance window did not pass");
     await sleep(30_000);
   }
-  say(`balance window closed at height ${z.tip()} (${start} + ${blocks})`);
+  say(`balance window closed; the window was (${start}, ${start + blocks}], tip now ${z.tip()}`);
 }
 // Part 2 §1 row 5: each round's winners sign the serial intake (the adapters/buyback-report.ts record shape) with
 // the one-time owner key inside their own opened bid; `benzo buyback intake` validates every record against the
