@@ -377,7 +377,8 @@ async function liveDemo(name: string) {
   const c = chains[chain];
   const signersFile = path.join(WORK, `signers-live-${chain}.json`);
   writeFileSync(signersFile, JSON.stringify((chain === "evm" ? evmPubs : solPubs), null, 2));
-  const amountLot = chain === "evm" ? parseEther("1") : BigInt(1 * LAMPORTS_PER_SOL);
+  // Live lots are testnet-faucet sized (head, 2026-10-06): the deployers hold ~0.08 Sepolia ETH and ~0.66 devnet SOL.
+  const amountLot = chain === "evm" ? parseEther("0.002") : BigInt(0.02 * LAMPORTS_PER_SOL);
   const lockLots = name === "demo1" ? 4 : 2; // enough locked for every attested lot (the escrow's cap: paid + amount <= locked)
   const returnTo = chain === "evm" ? new Wallet(readFileSync(c.key, "utf8").trim()).address : Keypair.fromSecretKey(Uint8Array.from(JSON.parse(readFileSync(c.key, "utf8")))).publicKey.toBase58();
   // the escrow lock BEFORE bidding (crosschain §2): the demo binds the auction id first
