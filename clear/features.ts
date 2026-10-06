@@ -89,7 +89,7 @@ export const refundAfter = (payment: bigint, fee: bigint, C: bigint): bigint => 
 // balance_due_zats is a default.
 export type BalanceWindowM = { deposit_addresses: string[]; bond: { balance_window_start_height: number; balance_window_blocks: number; balance_addresses: string[] } };
 export type FrozenLeaf = { leaf_index: number; deposit: { address: string } };
-export type ScannedNote = { address: string; height: number | null; value_zats: number | string };
+export type ScannedNote = { txid: string; pool: string; action_index: number; address: string; height: number | null; value_zats: number | string };
 export const balanceWindow = (m: BalanceWindowM): { start: number; end: number } => {
   const start = m.bond.balance_window_start_height;
   requireThat(Number.isSafeInteger(start) && start > 0 && Number.isSafeInteger(m.bond.balance_window_blocks) && m.bond.balance_window_blocks >= 1, "balance window");
@@ -150,6 +150,36 @@ export function balanceDefaults(
     }
   }
   return defaults.sort((x, y) => x - y);
+}
+
+// Ruling R38 item 4 (N4): out-of-window notes at a balance address are NEVER settlement sources (never swept
+// into change) and never count as payment. Each becomes a refund row to that slot's earliest winning leaf, at
+// that leaf's own refund destination ("minus the fee, like a stray": the refund identity nets the fee and
+// settlement requires fee_zats "0", so the row carries the note's full value). The rows are host-derived — every
+// plan and every signer host computes them from its own scan with this one rule — and claimable through the
+// existing claim path (`benzo claim-refund --party leaf:<i>`); only the per-leaf counts are ever published,
+// never the addresses. Several out-of-window notes at one slot merge into that leaf's single row (the ledger
+// keeps one row per party, so third-party dust can never collide with it).
+export type BalanceRefund = { leaf_index: number; amount_zats: string };
+export function balanceSettlement(
+  m: BalanceWindowM,
+  result: { allocations: { leaf_index: number; fill: number; balance_due_zats?: string }[] },
+  leaves: FrozenLeaf[],
+  notes: ScannedNote[],
+): { sources: string[]; refunds: BalanceRefund[] } {
+  requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
+  const byLeaf = balanceAddressMap(result, leaves, m);
+  const { start, end } = balanceWindow(m);
+  const slots = new Map<string, number>(); // balance address -> that slot's earliest winning leaf
+  for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, leaf);
+  const sources: string[] = [], totals = new Map<number, bigint>();
+  for (const n of notes) {
+    const leaf = slots.get(n.address);
+    if (leaf === undefined || !n.height) continue;
+    if (n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+    else totals.set(leaf, (totals.get(leaf) ?? 0n) + BigInt(n.value_zats));
+  }
+  return { sources, refunds: [...totals].sort((a, b) => a[0] - b[0]).map(([leaf_index, v]) => ({ leaf_index, amount_zats: v.toString() })) };
 }
 
 export type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };

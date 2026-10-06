@@ -14,7 +14,7 @@ import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
-import { balanceAddressMap, balanceDefaults, balanceWindow } from "../clear/features";
+import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow } from "../clear/features";
 import { blockTime, chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
@@ -126,7 +126,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // enforced only where it is ours to enforce — `auction create` generates the balance addresses and refuses
     // one that already holds a note.
     const bM: any = pub.manifest;
-    let balanceSources: string[] = [];
+    let balanceSources: string[] = [], balanceRefunds: { leaf_index: number; amount_zats: string }[] = [];
     if (bM.bond && pub.result) {
       const byLeaf = balanceAddressMap(pub.result as any, pub.frozen!.leaves as any, bM), uas = new Set(byLeaf.values()), tb = treasuryBlock(pub.manifest);
       const { start } = balanceWindow(bM);
@@ -137,12 +137,16 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
           "balance address is a deposit, escrow or treasury address");
       }
       requireThat(blockTime(st, start) >= QUICKNET.genesis + (bM.drand.R - 1) * QUICKNET.period, "balance window starts before the release round");
-      // The approval ledger's sources include each balance note (a winner's payment the settlement spends).
-      // Ruling R38 item 4 (N4, item 4 of A17) narrows this to the in-window notes.
-      balanceSources = notes.filter((n: any) => uas.has(n.address) && n.height).map((n: any) => `balance:${n.txid}:${n.pool}:${n.action_index}`);
+      // Ruling R38 item 4 (N4): out-of-window balance notes are never settlement sources (never swept into
+      // change) — the in-window ones back the seller payout in the approval ledger, and each out-of-window note
+      // refunds to that slot's earliest winning leaf. This host derives both from its own scan with the shared
+      // rule (clear/features.ts balanceSettlement), so the counts are host-derived; only counts are published.
+      const settled = balanceSettlement(bM, pub.result as any, pub.frozen!.leaves as any, notes as any);
+      balanceSources = settled.sources;
+      balanceRefunds = settled.refunds;
     }
-    const defaults = bM.bond && pub.result ? balanceDefaults(bM, pub.result as any, pub.frozen!.leaves as any, notes, chainTip(st)) : [];
-    const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub.manifest as any).bond ? { defaults } : null) : new Map<string, string>();
+    const defaults = bM.bond && pub.result ? balanceDefaults(bM, pub.result as any, pub.frozen!.leaves as any, notes as any, chainTip(st)) : [];
+    const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub.manifest as any).bond ? { defaults, balance_refunds: balanceRefunds } : null) : new Map<string, string>();
     for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party), `obligation ${party} has no host-derivable destination`);
     for (const a of (pub.result as any)?.allocations ?? []) {
       const party = `leaf:${a.leaf_index}`, owed = BigInt(owedBy.get(party) ?? "0");

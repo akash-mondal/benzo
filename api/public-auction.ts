@@ -34,6 +34,9 @@ export type SettlementSummary = {
   ignored?: { party: string; amount_zats: string }[];
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
+  // R38 item 4 (N4): out-of-window balance notes refund to the slot's earliest winning leaf — published as
+  // per-leaf counts only, never addresses.
+  balance_refunds?: { leaf_index: number; amount_zats: string }[];
   delivery_defaults?: Signed[];
   // R33 item 3: the signer hosts' G-4 approval maps (each carrying the defaults list that host derived from its
   // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
@@ -529,8 +532,13 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   // that a settled bond auction publishes its defaults list at all (the host-signed-map rule is item 3's).
   run("balances", () => {
     const m = pub.manifest;
-    if (!m.bond) return;
-    if (!pub.result) return; // cancelled before the clear: there are no balances to bind
+    const refunds = pub.settlement?.balance_refunds;
+    // Ruling R38 item 4 (N4): published counts only, never addresses — one {leaf_index, amount_zats} per
+    // attributed leaf (out-of-window balance notes refund to the slot's earliest winning leaf), and only for a
+    // bond auction with a result. The rows themselves are held to the row/receipt accounting below.
+    if (refunds !== undefined) requireThat(Array.isArray(refunds) && refunds.every(r => r && typeof r === "object" && Object.keys(r).sort().join(",") === "amount_zats,leaf_index" && Number.isSafeInteger((r as any).leaf_index) && /^[1-9][0-9]*$/.test((r as any).amount_zats)), "balance refunds shape");
+    if (!m.bond) { requireThat(refunds === undefined, "balance refunds without bond"); return; }
+    if (!pub.result) { requireThat(refunds === undefined, "balance refunds without a result"); return; } // cancelled before the clear: there are no balances to bind
     if (pub.settlement) requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
   });
   // R33 item 3 (P1-3): `settlement.defaults` is bound to what the signer hosts signed. verify requires it to

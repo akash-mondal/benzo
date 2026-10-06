@@ -8286,14 +8286,21 @@ function obligationsModeA(result, settlement) {
   const defaults = settlement?.defaults ?? [];
   requireThat(new Set(defaults).size === defaults.length, "duplicate default");
   requireThat(defaults.length === 0 || result.allocations.every((a2) => a2.balance_due_zats !== void 0), "defaults without bond");
+  const refunds = settlement?.balance_refunds ?? [];
+  requireThat(new Set(refunds.map((r2) => r2.leaf_index)).size === refunds.length, "duplicate balance refund");
+  requireThat(refunds.every((r2) => Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds");
+  requireThat(refunds.length === 0 || result.allocations.every((a2) => a2.balance_due_zats !== void 0), "balance refunds without bond");
+  const extra = new Map(refunds.map((r2) => [r2.leaf_index, BigInt(r2.amount_zats)]));
   let seller = BigInt(result.conservation.payout_zats);
   for (const a2 of result.allocations) {
+    const back = extra.get(a2.leaf_index) ?? 0n;
     if (defaults.includes(a2.leaf_index)) {
       requireThat(a2.fill > 0 && BigInt(a2.balance_due_zats ?? "0") > 0n, `default for leaf ${a2.leaf_index} that owes no balance`);
       seller += BigInt(a2.refund_zats) - BigInt(a2.balance_due_zats);
+      if (back > 0n) map.set(`leaf:${a2.leaf_index}`, back.toString());
       continue;
     }
-    const owed = BigInt(a2.refund_zats);
+    const owed = BigInt(a2.refund_zats) + back;
     if (owed > 0n) map.set(`leaf:${a2.leaf_index}`, owed.toString());
   }
   if (seller > 0n) map.set("seller", seller.toString());
@@ -16505,8 +16512,16 @@ function checkPublicAuction(pub, opts = {}) {
   });
   run2("balances", () => {
     const m2 = pub.manifest;
-    if (!m2.bond) return;
-    if (!pub.result) return;
+    const refunds = pub.settlement?.balance_refunds;
+    if (refunds !== void 0) requireThat(Array.isArray(refunds) && refunds.every((r2) => r2 && typeof r2 === "object" && Object.keys(r2).sort().join(",") === "amount_zats,leaf_index" && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds shape");
+    if (!m2.bond) {
+      requireThat(refunds === void 0, "balance refunds without bond");
+      return;
+    }
+    if (!pub.result) {
+      requireThat(refunds === void 0, "balance refunds without a result");
+      return;
+    }
     if (pub.settlement) requireThat(pub.settlement.defaults !== void 0, "settled bond auction lacks the defaults list");
   });
   run2("defaults", () => {

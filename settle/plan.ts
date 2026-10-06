@@ -15,7 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./dep
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {balanceDefaults,balanceWindow} from "../clear/features";
+import {balanceDefaults,balanceWindow,balanceSettlement} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -81,7 +81,7 @@ try {
   const stray=strayNotes(payNotes,m.deposit_addresses,src.frozen);
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimEnvelopes:Record<string,string>={},claimsUsed:any[]=[];
-  let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[];
+  let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[],balance_refunds:{leaf_index:number;amount_zats:string}[]=[];
   const released=Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period;
   const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
@@ -138,6 +138,10 @@ try {
       // Fresh scan after the window: a balance payment that mined at the window's end must count.
       const balNotes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
       defaults=balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
+      // Ruling R38 item 4 (N4): out-of-window balance notes are never settlement sources and never count as
+      // payment — each refunds to that slot's earliest winning leaf (host-derived counts, published without
+      // addresses), parked as an exception row and claimable through the existing claim path.
+      balance_refunds=balanceSettlement(m as any,result,src.frozen!.leaves as any,balNotes).refunds;
     }
   }
   // R16 item 1 (Reviewer R F4): the CANCELLED/REFUNDING branch resolves each deposit exactly like the cleared
@@ -242,7 +246,7 @@ try {
     }
   } else {
     for(const n of stray.filter(n=>!confirmed(n)))exceptions.push({party:depositParty(n),kind:"refund",amount_zats:String(n.value_zats)});
-    for(const [party,amount] of modeEntry(src.manifest).obligations(result!,m.bond!==undefined?{defaults}:null)) {
+    for(const [party,amount] of modeEntry(src.manifest).obligations(result!,m.bond!==undefined?{defaults,balance_refunds}:null)) {
       const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
       // R6 (W) + R7 items 2/3: a product-mode bid's refund destination comes only from its owner-signed
       // settlement envelope. With no valid record the row goes to the exception queue; while Track B's
@@ -252,6 +256,12 @@ try {
         // R15 item 3: a claim pays on its own owner signature over the sealed destination's hash — with the
         // same two-signer opening agreement as an envelope refund (gateEnvelope).
         if(claimEnvelopes[party]) {gateEnvelope(row);continue}
+        // Ruling R38 item 4 (N4): a row carrying out-of-window balance refunds is parked as an exception row —
+        // never auto-paid (the payer is unknowable) — and is claimable through the existing claim path above.
+        if(balance_refunds.some(r=>`leaf:${r.leaf_index}`===party)) {
+          refusals.push({party,reason:"out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund"});
+          exceptions.push({...row,reason:"out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund"});continue
+        }
         if(validEnvelope(src,Number(party.slice(5)))) {gateEnvelope(row);continue}
         const reason="no valid owner-signed settlement envelope";
         refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
@@ -279,5 +289,5 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(m.bond!==undefined?{defaults}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(m.bond!==undefined?{defaults,balance_refunds}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

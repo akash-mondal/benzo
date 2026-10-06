@@ -18,8 +18,9 @@ export type ClearBody = {
   rfq_delivery?: { deadline_height: number; signers: string[] };
   lots?: { lot_id: string; clearing_price_zats: string }[];
 };
-// Settlement-side extras the money rules may account for (gate CF: which winners defaulted on their balance).
-export type SettlementExtras = { defaults?: number[]; delivery_defaults?: Signed[] };
+// Settlement-side extras the money rules may account for (gate CF: which winners defaulted on their balance;
+// R38 item 4 / N4: the out-of-window balance refunds, published as per-leaf counts only, never addresses).
+export type SettlementExtras = { defaults?: number[]; delivery_defaults?: Signed[]; balance_refunds?: { leaf_index: number; amount_zats: string }[] };
 export type ClearResult = ClearBody & { comparison: ClearBody | null };
 function calculate(input: ClearInput, mode: "uniform" | "vickrey") {
   const {manifest:m,manifest_hash} = client(input.manifest,input.signer);
@@ -133,17 +134,28 @@ export function obligationsModeA(result: ClearBody, settlement?: SettlementExtra
   const defaults = settlement?.defaults ?? [];
   requireThat(new Set(defaults).size === defaults.length, "duplicate default");
   requireThat(defaults.length === 0 || result.allocations.every(a => a.balance_due_zats !== undefined), "defaults without bond");
+  // Ruling R38 item 4 (N4): out-of-window balance notes refund to the slot's earliest winning leaf — its own row
+  // (merged with its own refund, one row per party), host-derived and claimable through the claim path. Published
+  // counts only, never addresses.
+  const refunds = settlement?.balance_refunds ?? [];
+  requireThat(new Set(refunds.map(r => r.leaf_index)).size === refunds.length, "duplicate balance refund");
+  requireThat(refunds.every(r => Number.isSafeInteger(r.leaf_index) && /^[1-9][0-9]*$/.test(r.amount_zats)), "balance refunds");
+  requireThat(refunds.length === 0 || result.allocations.every(a => a.balance_due_zats !== undefined), "balance refunds without bond");
+  const extra = new Map(refunds.map(r => [r.leaf_index, BigInt(r.amount_zats)]));
   let seller = BigInt(result.conservation.payout_zats);
   for (const a of result.allocations) {
+    const back = extra.get(a.leaf_index) ?? 0n;
     if (defaults.includes(a.leaf_index)) {
       // Forfeit (gate CF): the defaulter never pays their balance and their fill yields the vaulted bond net of
       // fees to the seller instead of the payment (payment + refund - balance_due = C - fee). Since payout already
       // counts their would-be payment, the seller row moves by refund - balance_due; the fill is never re-cleared.
       requireThat(a.fill > 0 && BigInt(a.balance_due_zats ?? "0") > 0n, `default for leaf ${a.leaf_index} that owes no balance`);
       seller += BigInt(a.refund_zats) - BigInt(a.balance_due_zats!);
+      // Their own out-of-window payment is not the forfeited bond: it refunds to them (N4).
+      if (back > 0n) map.set(`leaf:${a.leaf_index}`, back.toString());
       continue;
     }
-    const owed = BigInt(a.refund_zats);
+    const owed = BigInt(a.refund_zats) + back;
     if (owed > 0n) map.set(`leaf:${a.leaf_index}`, owed.toString());
   }
   if (seller > 0n) map.set("seller", seller.toString());

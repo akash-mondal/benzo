@@ -74,6 +74,8 @@ export function publish(id:string) {
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
       // Part 2 (bond-then-pay): the defaults derived by the plan and co-signed by the signer hosts (above).
       ...(s.plan?.defaults!==undefined?{defaults:s.plan.defaults}:{}),
+      // Ruling R38 item 4 (N4): the out-of-window balance refunds as per-leaf counts only, never addresses.
+      ...(s.plan?.balance_refunds!==undefined?{balance_refunds:s.plan.balance_refunds}:{}),
       ...(maps.length?{approval_maps:maps}:{}),batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
       return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
