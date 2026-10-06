@@ -318,4 +318,20 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
   6. **N6.** `benzo-pczt create` bounds the **total** action count (the sum of `b.actions().len()` over both bundles) to ≤ 30. Add a measured size for the largest allowed shape to the evidence.
   7. **P2-1 leftover (head):** the non-custody `settle/sign.ts` path takes the signed manifest's network too.
   8. Reviewer R re-reviews the A17 range before merge.
+- R40 2026-10-07 (head): **Reviewer R on A16+A17 (`benzo-sol/reports/pr-a16-a17-r38.md`, FIX-FIRST).** All R38 items landed (N2, N3, N5, N6 and P2-1 FIXED; N1 and N4 PARTIAL), and the A17 evidence is honest. New, head-confirmed: **F1 (P0), F2 (P0), F4 (P0, privacy), F3 (P1), F5 and F6 (P2).** F1 and F2 come from the head's own R38 design. Root causes and rulings (Builder A, A18):
+  1. **F1: one bid per deposit slot in bond-then-pay auctions.** Deposit slots are a shared public list and a payer is unobservable on shielded Zcash, so **no rule can attribute one address's payment among several bidders.** R38.2's greedy rule is withdrawn.
+     - In an auction with `bond`, only the **first** deposit note at each deposit address (in leaf order, i.e. chain order) is an order. Every later note at that address is a **stray**, refunded through the existing stray path, so the depositor loses only the fee.
+     - The clearing input changes accordingly. Plan, hosts and verify use the one shared helper.
+     - Each balance address then belongs to exactly one leaf, and the shared-slot cases (N1, F1) cannot arise.
+     - Honest limit for the README: a slot holds one bid in a bond-then-pay auction, and a collision is refunded.
+  2. **F2: refund rows never change.** Each out-of-window note at a balance address gets its **own** immutable row, keyed by the note: `balance-late:<txid>:<pool>:<action_index>`. A newly seen note adds a new row and never grows an existing one. The ledger must accept new rows of this kind after the first plan; prove that `pin` with one more late note after a settled batch neither throws nor wedges. **This is R38's design rule again: nothing a third party can do may make settlement refuse.**
+  3. **F4: no published leaf↔destination join (launch).**
+     - `launch_input.delivery` (leaf_index, destinations, owner signatures) **is never published**; it stays in the private ledger.
+     - Delivery records reach the hosts sealed to `envelope_keys`, as claims do. Each host opens them, checks every owner signature against the opened order, builds the canonical delivery list, and **signs** `benzo-delivery-list-v1` over `allocation_file_hash` with its witness key.
+     - The published doc carries only the canonical `allocation.json` and two host signatures.
+     - `benzo verify` checks the public invariants (row count = Σ fill/lot, every amount = `standard_lot_size`, distinct destinations, canonical order, hash) **and** two valid host signatures from distinct pinned signers. Integrity rests on the same 2-of-3 trust as settlement.
+  4. **F3:** `settlement.balance_refunds` goes into the host-signed approval map, exactly like `defaults`. Verify requires it to equal two agreeing maps.
+  5. **F5:** a note at a balance address whose slot has a (losing) leaf refunds to that leaf through the same per-note row. A note at the balance address of a slot with **no** leaf is never swept, and is listed in the honest limits as unrecoverable.
+  6. **F6:** lower the bound to the measured shape: total actions ≤ **29** (`benzo-pczt create`). R30's cap stays 28 outputs.
+  7. **Re-proof:** the r39 lab repros from the report (`tests/r39-crossowner.ts`, `r39-ledger-growth.ts` and the F4 join) red before and green after; one clean live drop run; the `launch-meet` live run with verify; and mutations for F1 (greedy restored), F2 (row growth restored) and F4 (`launch_input` published). Reviewer R re-reviews.
 
