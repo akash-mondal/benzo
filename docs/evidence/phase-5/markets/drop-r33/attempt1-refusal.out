@@ -1,0 +1,14 @@
+auction 2d9793f0595e9b6d8bf32175ec203b8c7f2ed6c6bbb4f8a8ffe40817f8b7c0fc mode uniform
+funding c3fddc26948a74a76f24f00dcfcaa618d7eab41853e208f2700b5e7d9781725e
+PASS drop-cli-equals-pure-clear outcomes winner,unfilled,winner,below_reserve price 0
+balance window (4469123, 4469135] manifest-fixed (was operator-chosen after the clear)
+balance paid 300000 for leaf 0 at height 4469164 in (4469123, 4469135] (828c9cac5bfe6f901fcd0f4cdfa2f11c40f18852ea720fad9b74dcabc24b6784)
+balance window closed at height 4469164 (4469123 + 12)
+PASS drop-expected-equals-obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+ERROR drop-settled exit 1
+ERROR drop-receipts {}
+ERROR drop-landed [0,0,0,0,0]
+PASS drop-cold-verify
+ERROR drop-defaults
+ERROR drop-seller-landed 0
+ERROR drop-defaults-maps 0 agreeing verified maps

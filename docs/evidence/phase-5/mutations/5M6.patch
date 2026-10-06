@@ -1,0 +1,14 @@
+diff --git a/clear/features.ts b/clear/features.ts
+index a0d7ae0..692b3df 100644
+--- a/clear/features.ts
++++ b/clear/features.ts
+@@ -129,7 +129,8 @@ export function balanceDefaults(
+   for (const a of result.allocations) {
+     const due = BigInt(a.balance_due_zats ?? "0");
+     if (a.fill <= 0 || due === 0n) continue; // only a bonded winner owing a balance can default
+-    const got = notes.filter(n => n.address === byLeaf.get(a.leaf_index) && n.height && n.height > start && n.height <= end)
++    // 5M6: a pre-window note counts as payment
++    const got = notes.filter(n => n.address === byLeaf.get(a.leaf_index) && n.height && n.height <= end)
+       .reduce((s, n) => s + BigInt(n.value_zats), 0n);
+     if (got < due) defaults.push(a.leaf_index);
+   }

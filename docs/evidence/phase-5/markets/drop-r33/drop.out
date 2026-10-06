@@ -1,0 +1,17 @@
+auction 9c1974b33d2c733ba592c8f60a9090824e13b17f7c09917d77e3fc9d70226254 mode uniform
+funding 514ed04771fccf7972b07ac2edf0cdea5d3678cce83c7bcf5d3d4a272462ee00
+PASS drop-cli-equals-pure-clear outcomes winner,unfilled,winner,below_reserve price 0
+balance window (4469383, 4469395] manifest-fixed (was operator-chosen after the clear)
+balance paid 300000 for leaf 0 at height 4469384 in (4469383, 4469395] (ac51f698365715147aaaf027ae375db13551b6c1fcb071c6c470df67fcb45321)
+balance window closed at height 4469396 (4469383 + 12)
+PASS drop-expected-equals-obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+ERROR drop-settled exit 1
+ERROR drop-receipts {}
+ERROR drop-landed [0,0,0,0,0]
+PASS drop-cold-verify
+ERROR drop-defaults
+ERROR drop-seller-landed 0
+ERROR drop-defaults-maps 0 agreeing verified maps
+ERROR drop-swapped-defaults-refused no settlement to swap
+PASS drop-serial-replay-enforced exit 1
+RESULT FAIL drop

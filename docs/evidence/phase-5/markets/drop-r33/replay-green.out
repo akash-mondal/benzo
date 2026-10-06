@@ -1,0 +1,8 @@
+# green replay (2026-10-06T02:37:19Z, commit baad59b): the markets assertions on the live run data (revision/rfq published, drop-r33/drop-cold), unmutated tree
+PASS revision outcomes superseded,unfilled,winner price 300
+PASS rfq outcomes unfilled,winner,not_allowlisted price 400
+PASS drop-defaults published defaults [2]
+PASS drop-defaults-maps 2 agreeing verified maps
+PASS drop-defaults-window defaults [2] (a pre-window note must not count as payment; fixture (4469382, 4469385] in (4469383, 4469395])
+PASS drop-forfeit obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
+PASS drop-swapped-defaults-refused swapped [0] verify exit 1 (ERROR accounting refused: settlement seller amount | ERROR defaults refused: settlement defaults differ from the host-signed approval maps)
