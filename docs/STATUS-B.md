@@ -43,8 +43,21 @@ which `tools/package.mjs` copies into the tarballs, so the digests hold at the r
 - `docs/reproducible-build.md` re-recorded: §2 digest table, §3 transcripts, §5 B34 note (R36/R37.5 changes,
   the verify-bundle correction, what re-proves what).
 
-**Item 2 — `repo-hygiene.md` → private-repo hygiene (R36): OWED.** Drop the license line, keep every other
-check, re-state the leak-audit range up to the current HEAD.
+**Item 2 — `repo-hygiene.md` → private-repo hygiene (R36): DONE with proof.**
+`docs/evidence/phase-6/repo-hygiene.md` re-stated (this commit):
+
+- The license **check is dropped** (R36); section 1 is now ruling state, not a check: no `LICENSE` at the
+  root (only vendored `forge-std` licenses), `package.json` `UNLICENSED` + `private:true`, never public
+  without the user; B33's license-choice question closed by R36. Every other check kept verbatim (sections
+  2–6: `.env.example` only, `.gitignore` keys block, no secrets in history, pinned lockfiles, absolute paths).
+- **Leak-audit range re-stated up to the current HEAD (`72204b2`)** with a fresh run backing it: same
+  command with `--git` (every blob of every commit on every ref), **379 rows**
+  (`docs/evidence/phase-6/leak-findings-2026-10-06-b34.json`, tool stdout unedited) vs the B33 record's 353:
+  **0 gone, 26 new, all `rule: address`, all classified** — 16 × class C `leaves[].deposit.address` in the
+  published A15 drop evidence (`drop-r33/drop-cold/{auction,frozen}.json`, `61b00bb`; only the deposit
+  field matches, no refund/delivery destination), 10 × class G fixture literals in Track A's
+  `e2e/lib/readpath{,-live,-r261}.ts` (shape-test UAs, the all-zeros Sapling test vector, an `attacker` UA,
+  `utest1r261fixture…` placeholders). No secret in any commit up to `72204b2`.
 
 **Item 3 — EVIDENCE.md PK row: OWED.**
 
