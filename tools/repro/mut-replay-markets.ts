@@ -15,7 +15,8 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { clearForMode, modeEntry } from "../../clear/registry";
 import { balanceDefaults } from "../../clear/features";
-import { jsonBytes } from "../../manifest/schema";
+import { jsonBytes, verifyRecord } from "../../manifest/schema";
+import { validateWitnessSet, verifyApprovalMap } from "../../witness";
 import { ROOT } from "../../e2e/lib/env";
 import { benzoBin } from "../../e2e/lib/hosts";
 
@@ -39,6 +40,7 @@ line("rfq", () => { const r = pure(rfqq), o = r.allocations.map((a: any) => a.ou
 
 // ---- the R33 drop's bond-then-pay assertions (A15 item 4) -------------------------------------------
 const drop = doc(path.join(dropDir, "auction.json"));
+const set = validateWitnessSet(verifyRecord(drop.witness_set, drop.signer), drop.auction_id);
 const m = JSON.parse(Buffer.from(drop.manifest.bytes, "base64").toString("utf8"));
 const start = m.bond.balance_window_start_height, blocks = m.bond.balance_window_blocks;
 const slot = (leaf: number) => m.bond.balance_addresses[m.deposit_addresses.indexOf(drop.frozen.leaves[leaf].deposit.address)];
@@ -46,6 +48,14 @@ const fixtureNotes = [
   { address: slot(2), height: start - 1, value_zats: 300_000 }, // the operator pre-funds the defaulter (P1-1)
   { address: slot(0), height: start + 2, value_zats: 300_000 }, // the paying winner, inside (start, start+blocks]
 ];
+line("drop-defaults", () => {
+  const d = drop.settlement?.defaults ?? null;
+  return [JSON.stringify(d) === "[2]", `published defaults ${JSON.stringify(d)}`];
+});
+line("drop-defaults-maps", () => {
+  const maps = (drop.settlement?.approval_maps ?? []).filter((mp: any) => mp && verifyApprovalMap(mp, set.keys) && mp.auction_id === drop.auction_id && JSON.stringify(mp.defaults) === "[2]");
+  return [new Set(maps.map((mp: any) => mp.witness)).size >= 2, `${maps.length} agreeing verified maps`];
+});
 line("drop-defaults-window", () => {
   const d = balanceDefaults(m, drop.result, drop.frozen.leaves, fixtureNotes as any, start + blocks + 5);
   return [JSON.stringify(d) === "[2]", `defaults ${JSON.stringify(d)} (a pre-window note must not count as payment; fixture (${start - 1}, ${start + 2}] in (${start}, ${start + blocks}])`];
