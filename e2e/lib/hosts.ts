@@ -91,10 +91,14 @@ export function hostWitnessCerts(id: string, publicDir: string, signer: string, 
 // R23.2 envelope-opens reports computed ON each host from its own key and vault, saved where the plan reads them.
 export function hostEnvelopeOpens(id: string, publicDir: string) {
   const dir = `pub-${id.slice(0, 12)}`;
+  // R15 item 3 / Ruling R40 item 2: the recorded claims join the report input (the claim's opening report
+  // supersedes any bid-envelope entry for its row), pushed sealed exactly as the settlement packet relays them.
+  const claims = path.join(STATE, "settle", id, "claims.json");
   for (const n of NAMES) {
     for (const v of ["sync", "enhance"]) host(n, [`${H}/bin/zcash-devtool`, "wallet", "-w", `${H}/vaults/${id}/wallet`, v, "-s", env("BNZ_LWD_URL")]);
     push(n, publicDir, dir);
-    const report = hostBenzo(n, ["sign", "envelope-opens", "--id", id, "--name", n, "--public", `/home/benzo/${dir}`, "--witness-key", `${H}/witness/${n}.key`]);
+    if (existsSync(claims)) push(n, claims, `claims-${id.slice(0, 12)}.json`);
+    const report = hostBenzo(n, ["sign", "envelope-opens", "--id", id, "--name", n, "--public", `/home/benzo/${dir}`, "--witness-key", `${H}/witness/${n}.key`, ...(existsSync(claims) ? ["--claims", `/home/benzo/claims-${id.slice(0, 12)}.json`] : [])]);
     mkdirSync(path.join(STATE, "settle", id), { recursive: true });
     writeFileSync(path.join(STATE, "settle", id, `envelope-opens-${n}.json`), JSON.stringify(report));
   }

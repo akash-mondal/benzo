@@ -435,6 +435,12 @@ async function resume(id: string) {
   while ((await latestRound()) < m.drand.R) await sleep(10_000);
   if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
   if (stateOf() === "OPENED") benzo(["clear", "--id", id]);
+  // Ruling R40 item 3 (F4): a dropped launch run keeps its sealed delivery records; finish the host-signed
+  // delivery list (the `benzo sign delivery` runs and the operator-side record) before settling.
+  if (m.clearing?.mode === "launch" && existsSync(path.join(priv, "deliveries.json")) && doc().result && !doc().result.cancelled && !existsSync(path.join(STATE, "settle", id, "delivery-list.json"))) {
+    benzo(["launch", "deliver-list", "--id", id], hostDeliveryList(id, publicDir, path.join(priv, "deliveries.json"), signer, ["alice", "bob"]));
+    say("delivery list signed by alice+bob (resumed)");
+  }
   // The dropped run's own scenario steps (balance window payments) when still missing.
   const d0 = doc();
   if (scen?.balancePays) await bondFlow(id, scen, d0, say);

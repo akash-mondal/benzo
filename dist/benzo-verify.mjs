@@ -16403,7 +16403,7 @@ function checkPublicAuction(pub, opts = {}) {
     }
     projection("result.json", result);
   });
-  run2("delivery", () => {
+  run2("delivery-list", () => {
     const result = pub.result;
     if (!result || pub.manifest.clearing?.mode !== "launch") return;
     if (result.allocation_file_hash !== void 0) return;
@@ -16411,6 +16411,7 @@ function checkPublicAuction(pub, opts = {}) {
       requireThat(pub.deliveryList === void 0 && !existsSync4(path4.join(pub.dir, "allocation.json")), "launch delivery artifacts on a cancelled round");
       return;
     }
+    if (pub.state === "CLEARED" && !pub.settlement) return;
     requireThat(pub.deliveryList, "launch delivery list missing");
     const file = path4.join(pub.dir, "allocation.json");
     requireThat(existsSync4(file), "launch allocation file missing");
@@ -16498,7 +16499,7 @@ function checkPublicAuction(pub, opts = {}) {
     }
     for (const [i2, c2] of records.entries()) {
       requireThat(c2 && typeof c2 === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c2.party) || isAnyDepositParty(c2.party), `claim ${i2} party`);
+      requireThat(/^leaf:[0-9]+$/.test(c2.party) || isAnyDepositParty(c2.party) || isBalanceLateParty(c2.party), `claim ${i2} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c2.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
       let owner = null;
       if (c2.party.startsWith("leaf:")) {

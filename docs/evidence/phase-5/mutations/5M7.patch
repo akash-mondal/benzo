@@ -1,14 +1,14 @@
 diff --git a/clear/core.ts b/clear/core.ts
-index 2b4f0b9..c7227a3 100644
+index 92f9ee2..b9d5e1a 100644
 --- a/clear/core.ts
 +++ b/clear/core.ts
 @@ -150,7 +150,8 @@ export function obligationsModeA(result: ClearBody, settlement?: SettlementExtra
-       // fees to the seller instead of the payment (payment + refund - balance_due = C - fee). Since payout already
        // counts their would-be payment, the seller row moves by refund - balance_due; the fill is never re-cleared.
+       // Their own out-of-window notes are not the forfeited bond: each refunds through its own row below (N4).
        requireThat(a.fill > 0 && BigInt(a.balance_due_zats ?? "0") > 0n, `default for leaf ${a.leaf_index} that owes no balance`);
 -      seller += BigInt(a.refund_zats) - BigInt(a.balance_due_zats!);
 +      // 5M7: the defaulter's bond is refunded instead of forfeited
 +      map.set(`leaf:${a.leaf_index}`, (BigInt(a.refund_zats) + BigInt(a.balance_due_zats!)).toString());
-       // Their own out-of-window payment is not the forfeited bond: it refunds to them (N4).
-       if (back > 0n) map.set(`leaf:${a.leaf_index}`, back.toString());
        continue;
+     }
+     const owed = BigInt(a.refund_zats);

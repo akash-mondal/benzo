@@ -1,8 +1,8 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 60eeb6b..dac6a38 100644
+index bfa21cb..46d60aa 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
-@@ -125,7 +125,8 @@ export function balanceDefaults(
+@@ -153,7 +153,8 @@ export function balanceDefaults(
    const byLeaf = balanceAddressMap(result, leaves, m);
    const { start, end } = balanceWindow(m);
    requireThat(tip > end, "balance window has not passed; settlement waits");
@@ -10,5 +10,5 @@ index 60eeb6b..dac6a38 100644
 +  // 5M6: a pre-window note counts as payment
 +  const inWindow = (address: string): bigint => notes.filter(n => n.address === address && n.height && n.height <= end)
      .reduce((s, n) => s + BigInt(n.value_zats), 0n);
-   // Ruling R38 item 2 (N1): several winning leaves may share one deposit slot and so one balance address. Per
-   // address, walk that slot's winning leaves in leaf_index order with the in-window total: a leaf is PAID if the
+   // Ruling R40 item 1 (F1): the R38.2 greedy walk is withdrawn. Each balance address belongs to exactly one
+   // leaf (balanceAddressMap refuses a shared one — the clear can no longer produce it), so a winner is PAID

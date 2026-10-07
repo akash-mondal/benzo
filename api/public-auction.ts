@@ -342,7 +342,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if ((fresh as any).allocation_file_hash) {
       // Pre-F4 historical reading (immutable evidence): those docs publish their plaintext delivery records,
       // so the recomputation above also re-checks their owner signatures and commits to the allocation file —
-      // which is checked here, including the R34.2 canonical sort. New docs are checked by run("delivery").
+      // which is checked here, including the R34.2 canonical sort. New docs are checked by run("delivery-list").
       const file = path.join(pub.dir, "allocation.json");
       requireThat(existsSync(file), "launch allocation file missing");
       const bytes = readFileSync(file);
@@ -361,7 +361,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   // pinned signers (the manifest's witness set). Integrity rests on the same 2-of-3 trust as settlement; the
   // per-winner owner signatures are checked by the hosts against their own openings, never publicly re-derivable
   // (that join is exactly what must not be published).
-  run("delivery", () => {
+  run("delivery-list", () => {
     const result = pub.result;
     if (!result || (pub.manifest as any).clearing?.mode !== "launch") return;
     if ((result as any).allocation_file_hash !== undefined) return; // pre-F4 historical docs: checked with the clear recompute
@@ -369,6 +369,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(pub.deliveryList === undefined && !existsSync(path.join(pub.dir, "allocation.json")), "launch delivery artifacts on a cancelled round");
       return;
     }
+    // Mid-flow only: a CLEARED round without a settlement is between the clear and the hosts' signatures
+    // (`benzo sign delivery` runs this very check while building the list). Anything later — or any settlement
+    // at all — must carry the list.
+    if (pub.state === "CLEARED" && !pub.settlement) return;
     requireThat(pub.deliveryList, "launch delivery list missing");
     const file = path.join(pub.dir, "allocation.json");
     requireThat(existsSync(file), "launch allocation file missing");
@@ -482,7 +486,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     for (const [i, c] of records.entries()) {
       requireThat(c && typeof c === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c.party) || isAnyDepositParty(c.party), `claim ${i} party`);
+      requireThat(/^leaf:[0-9]+$/.test(c.party) || isAnyDepositParty(c.party) || isBalanceLateParty(c.party), `claim ${i} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
       let owner: string | null = null;
       if (c.party.startsWith("leaf:")) {

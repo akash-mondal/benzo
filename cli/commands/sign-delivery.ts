@@ -31,7 +31,7 @@ export async function run(argv: string[]): Promise<number | object> {
     o[argv[i].slice(2)] = argv[i + 1];
   }
   try {
-    requireThat(/^[0-9a-f]{64}$/.test(o.id ?? "") && ["alice", "bob", "carol"].includes(o.name ?? "") && /^[0-9a-f]{64}$/.test(o.signer ?? ""), "usage");
+    requireThat(/^[0-9a-f]{64}$/.test(o.id ?? "") && ["alice", "bob", "carol"].includes(o.name ?? "") && /^(?:[0-9a-f]{64}|[0-9a-f]{88})$/.test(o.signer ?? ""), "usage"); // --signer is the manifest signer (ed25519 SPKI hex, 88 chars)
     process.env.BNZ_AUCTION_ID = o.id;
     const st = state(), root = repoRoot(), dir = path.resolve(o.public);
     const pub = loadPublicAuction(dir, { signer: o.signer });
