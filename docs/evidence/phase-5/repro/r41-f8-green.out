@@ -1,0 +1,9 @@
+commit 626a867e621f1fedfeb1eae8281edf02ba6fd5d6
+utc 2026-10-07T09:56:15.953Z
+command node tmp/r41-f8-allocation.mjs (tools/repro/r41-f8-allocation.ts)
+tree ?? docs/evidence/phase-5/repro/r41-f8-green.out
+server /Users/akshmnd/Dev Projects/benzo/api/dist/server.mjs
+PASS f8-allocation-serves HTTP rows [{"amount":1,"destination":"token-chain:fc1742d778b17fe696ef7fc80baf02871973f0c4"},{"amount":1,"destination":"token-chain:ffff6dc2213efbd591c24d29b23d1eafe84b5678"}]; delivery_list.allocation_file_hash c58dde7d4b907142…; result.allocation_file_hash absent (F4)
+PASS f8-auction-valid valid true; errors []
+PASS f8-verify-green verify exit 0
+RESULT PASS r41-f8-allocation
