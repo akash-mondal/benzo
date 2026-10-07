@@ -75,15 +75,25 @@ export function publish(id:string) {
     // Ruling R41 (F7): `settlement.balance_refunds` is never gate-bound here. Refund rows are attested PER ROW
     // in the approval of the batch that PAID them (verify's balance-refs); unpaid rows publish as `pending`
     // with counts only. Comparing a live row set to any earlier signed set is exactly the F7 wedge and is gone.
+    // Ruling R42 (F12): `settlement.defaults` publishes the list carried by two agreeing host-signed
+    // approval maps (map-to-map, distinct pinned witnesses) — never this run's fresh plan derivation,
+    // which chain drift can move (the F12 wedge). A coordinator-only list is never published.
+    let agreedDefaults:number[]|undefined;
     if(s.plan?.defaults!==undefined) {
       const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
-      const agreeing=(maps as any[]).filter((mp:any)=>mp&&verifyApprovalMap(mp,wkeys)&&mp.auction_id===id&&
-        jsonBytes(mp.defaults??null).equals(jsonBytes(s.plan.defaults??null)));
-      requireThat(new Set(agreeing.map((mp:any)=>mp.witness)).size>=2,'settlement defaults need two agreeing host-signed approval maps; refusing to publish');
+      const byList=new Map<string,{list:number[];witnesses:Set<string>}>();
+      for(const mp of (maps as any[]))if(mp&&verifyApprovalMap(mp,wkeys)&&mp.auction_id===id&&Array.isArray(mp.defaults)) {
+        const k=jsonBytes(mp.defaults).toString("hex"),e=byList.get(k)??{list:mp.defaults as number[],witnesses:new Set<string>()};
+        e.witnesses.add(mp.witness);byList.set(k,e);
+      }
+      const agreed=[...byList.entries()].filter(([,e])=>e.witnesses.size>=2).sort((a,b)=>b[1].witnesses.size-a[1].witnesses.size||a[0].localeCompare(b[0]));
+      requireThat(agreed.length>0,'settlement defaults need two agreeing host-signed approval maps; refusing to publish');
+      agreedDefaults=agreed[0][1].list;
     }
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
-      // Part 2 (bond-then-pay): the defaults derived by the plan and co-signed by the signer hosts (above).
-      ...(s.plan?.defaults!==undefined?{defaults:s.plan.defaults}:{}),
+      // Part 2, collection drop (bond-then-pay): the defaults list co-signed by the signer hosts — the list
+      // carried by two agreeing maps (above), never a fresh derivation.
+      ...(agreedDefaults!==undefined?{defaults:agreedDefaults}:{}),
       // Ruling R38 item 4 (N4) + Ruling R41 (F7): the out-of-window/excess balance refunds as per-note counts
       // only, never addresses — each row marked `paid` when this settlement paid it (attested in that batch's
       // two agreeing signed maps) and `pending` otherwise (uncounted here; a later batch may pay it).

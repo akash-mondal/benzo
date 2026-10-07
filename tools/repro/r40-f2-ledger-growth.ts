@@ -110,8 +110,8 @@ writeFileSync(fakePczt, Buffer.from("r40-f2 fixture batch"));
   l.close();
 }
 
-// f2-no-amount-change: refund rows never change — a changed amount is refused (the derivation can never
-// produce one; each row is one note's own value).
+// f2-no-amount-change: refund rows never change — a re-derivation with a different amount never rewrites
+// the pinned row and never wedges (Ruling R42 F12: pin logs the divergence and the pinned row stands).
 {
   const l = new Ledger(st, uid(2));
   const p1 = rowsFor([noteA]);
@@ -119,8 +119,9 @@ writeFileSync(fakePczt, Buffer.from("r40-f2 fixture batch"));
   const partyA = `balance-late:${noteA.txid}:${noteA.pool}:${noteA.action_index}`;
   let threw: string | null = null;
   try { l.pin(p1.ready, [{ party: partyA, kind: "refund", amount_zats: "60000" }]); } catch (e) { threw = (e as Error).message; }
-  line("f2-no-amount-change", threw === "refused: settlement obligation changed on resume",
-    `changed amount -> ${JSON.stringify(threw)} (rows are immutable)`);
+  const row = l.rows().find(r => r.party === partyA);
+  line("f2-no-amount-change", threw === null && row?.amount_zats === "50000",
+    `changed re-derivation -> ${threw ? `threw ${JSON.stringify(threw)} (WEDGE)` : `no throw; the pinned row stands at ${row?.amount_zats} (rows are immutable)`}`);
   l.close();
 }
 

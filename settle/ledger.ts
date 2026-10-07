@@ -31,32 +31,48 @@ export class Ledger {
       for(const o of plan) {
         const old=this.rows().find(r=>r.party===o.party);
         if(old){
-          requireThat(old.kind===o.kind,"settlement obligation changed on resume");
+          // Ruling R42 (F12): pin is monotone and total over chain-derived differences — a re-derivation
+          // that differs from a pinned row is LOGGED and the PINNED ROW STANDS, and pin never throws for it
+          // (a fresh-vs-pinned refusal is the F12 wedge). The only amount that ever moves is the pre-existing
+          // monotone growth of an unpaid EXCEPTION payout (025c736; treasury growth is Mode B): amounts only
+          // grow there, and a row money has moved for never changes. Ruling R40 item 2 (F2) holds for refunds.
+          if(old.kind!==o.kind)console.error(`WARN settlement obligation ${o.party} re-derived kind ${o.kind} differs from pinned ${old.kind}; the pinned row stands`);
           if(old.amount_zats!==o.amount_zats){
-            // Ruling R40 item 2 (F2): REFUND rows never change — each out-of-window note is its own immutable
-            // `balance-late:` row and a newly seen note ADDS a new row, so no chain state a third party can
-            // create may make settlement refuse. The 025c736 growth allowance is withdrawn for refunds; an
-            // unpaid EXCEPTION payout may still grow (a row money has moved for never changes).
-            requireThat(o.kind==="payout"&&old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume");
-            this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
+            if(o.kind==="payout"&&old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats))this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
+            else {
+              console.error(`WARN settlement obligation ${o.party} re-derived ${o.amount_zats} differs from pinned ${old.amount_zats}; the pinned row stands`);
+              // A row whose re-derived amount disagrees with its pinned one is never payable at the stale
+              // amount (every host derives the fresh amount and would refuse the candidate): it waits in the
+              // exception queue — claimable like any parked row — until a derivation agrees again. Rows in
+              // flight (allocated/staged) or settled are untouched history.
+              if(["seen","eligible","exception"].includes(old.state))this.db.prepare("UPDATE obligations SET state='exception' WHERE party=?").run(o.party);
+            }
           }
         }
         if(!old)this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
-        else if(old.state==="exception"&&ready.has(o.party))this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
+        else if(old.state==="exception"&&ready.has(o.party)) {
+          // A row whose re-derived amount differs from its pinned one is never made payable at the stale
+          // amount (every host derives the fresh amount and would refuse the candidate): it waits until a
+          // derivation agrees with the pinned row again, and nothing else is held up by it.
+          const now=this.rows().find(r=>r.party===o.party)!;
+          if(now.amount_zats===o.amount_zats)this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
+          else console.error(`WARN settlement obligation ${o.party} pinned at ${now.amount_zats} but re-derived ${o.amount_zats}; not payable until a derivation agrees`);
+        }
       }
-      // Ruling R40 item 2 (F2) + Ruling R41 item 4 (F10): refund rows never change and a newly seen late note
-      // ADDS its own row, so no chain state a third party can create may make settlement refuse. A
-      // `balance-late:`/`balance-excess:` row the plan no longer produces (its note reorged away or
-      // reclassified) is dropped while no money has moved for it, and kept as its own history otherwise; any
-      // other row vanishing is still a refusal.
+      // Ruling R40 item 2 (F2) + Ruling R41 item 4 (F10) + Ruling R42 (F12): refund rows never change and a
+      // newly seen late note ADDS its own row. A `balance-late:`/`balance-excess:` row the plan no longer
+      // produces (its note reorged away or reclassified) is dropped while no money has moved for it (F2),
+      // kept as its own history otherwise; any other row vanishing from the re-derivation is logged and the
+      // pinned row stands — never a refusal.
       const parties=new Set(plan.map(p=>p.party));
       for(const r of this.rows()) {
         if(parties.has(r.party))continue;
         if(isRefundRowParty(r.party)) {
           if(["exception","seen","eligible"].includes(r.state))this.db.prepare("DELETE FROM obligations WHERE party=?").run(r.party);
+          else console.error(`WARN pinned refund row ${r.party} vanished from the re-derivation after payment; keeping it`);
           continue;
         }
-        requireThat(false,"settlement obligation disappeared on resume");
+        console.error(`WARN settlement obligation ${r.party} vanished from the re-derivation; the pinned row stands`);
       }
       this.db.exec("DELETE FROM plan");this.db.prepare("INSERT INTO plan VALUES(?)").run(digest);
     });

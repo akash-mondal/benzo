@@ -110,6 +110,10 @@ the balance money they sent), and an out-of-window payment refunds to them as it
 claimable with that slot's bid owner key.
 - **A note at the balance address of a deposit slot with no bid is unrecoverable** (R40 F5): nobody can
 claim it (no owner key exists for the slot), so it is never swept and never refunded.
+- **A reorg deeper than the 10-confirmation gate is outside the model** (R42 F12): every refund row is
+payable only from notes past the ZIP-315 confirmations rule (10), and a re-derivation that differs from a
+pinned row is logged with the pinned row standing — but a reorg deeper than that gate is out of scope, as
+for any Zcash wallet.
 - The signer-reproducible stealth derivation is custom (2-of-3 signers must derive the same one-time
 address); its salt is known only to envelope openers, so a guessed meta-address links nothing
 (`docs/AUDITS.md`, `docs/evidence/phase-5/repro/r25-1-link-after.out`).
