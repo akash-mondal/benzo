@@ -32,17 +32,30 @@ export class Ledger {
         if(old){
           requireThat(old.kind===o.kind,"settlement obligation changed on resume");
           if(old.amount_zats!==o.amount_zats){
-            // Ruling R38 item 4 (N4): an EXCEPTION row grows as the host-derived scan sees more out-of-window
-            // balance notes (a late payer can arrive after the first plan; live: e90f139e). A row that money has
-            // already moved for never changes.
-            requireThat(old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume");
+            // Ruling R40 item 2 (F2): REFUND rows never change — each out-of-window note is its own immutable
+            // `balance-late:` row and a newly seen note ADDS a new row, so no chain state a third party can
+            // create may make settlement refuse. The 025c736 growth allowance is withdrawn for refunds; an
+            // unpaid EXCEPTION payout may still grow (a row money has moved for never changes).
+            requireThat(o.kind==="payout"&&old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume");
             this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
           }
         }
         if(!old)this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
         else if(old.state==="exception"&&ready.has(o.party))this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
       }
-      requireThat(this.rows().every(o=>plan.some(p=>p.party===o.party)),"settlement obligation disappeared on resume");
+      // Ruling R40 item 2 (F2): refund rows never change and a newly seen late note ADDS its own row, so no
+      // chain state a third party can create may make settlement refuse. A `balance-late:` row the plan no
+      // longer produces (its note reorged away or reclassified) is dropped while no money has moved for it,
+      // and kept as its own history otherwise; any other row vanishing is still a refusal.
+      const parties=new Set(plan.map(p=>p.party));
+      for(const r of this.rows()) {
+        if(parties.has(r.party))continue;
+        if(r.party.startsWith("balance-late:")) {
+          if(["exception","seen","eligible"].includes(r.state))this.db.prepare("DELETE FROM obligations WHERE party=?").run(r.party);
+          continue;
+        }
+        requireThat(false,"settlement obligation disappeared on resume");
+      }
       this.db.exec("DELETE FROM plan");this.db.prepare("INSERT INTO plan VALUES(?)").run(digest);
     });
     return digest;

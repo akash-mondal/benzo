@@ -24,10 +24,12 @@ export async function run(argv: string[]): Promise<number | object> {
     process.env.BNZ_AUCTION_ID = o.id;
     const packet = path.resolve(o.packet), meta = JSON.parse(readFileSync(path.join(packet, "packet.json"), "utf8"));
     requireThat(meta.auction_id === o.id, "packet is for another auction");
-    const { expected, payout } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
+    const { expected, payout, balanceRefunds } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
     const rows = expected.map(e => ({ party: e.party, amount_zats: e.amount_zats }));
     if (payout !== "0" && typeof meta.seller_ua === "string") rows.push({ party: "seller", amount_zats: payout });
-    return { auction_id: o.id, name: o.name, rows };
+    // Ruling R40 item 2 (F2): this host's own per-note late-refund counts (party names and amounts, no
+    // recipients and no addresses) — the same derivation the plan publishes as settlement.balance_refunds.
+    return { auction_id: o.id, name: o.name, rows, balance_refunds: balanceRefunds };
   } catch (e) {
     process.stderr.write(`ERROR sign derivable ${(e as Error).message}\n`);
     return 1;

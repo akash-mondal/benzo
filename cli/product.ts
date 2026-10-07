@@ -15,6 +15,7 @@ import {pcztBin,vaultDir} from '../manifest/paths';
 // deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
 import {treasuryBlock,treasuryFunded,treasuryRequired} from '../clear/mode-b';
 import {clientCommon as client,modeEntry} from '../clear/registry';
+import {isBalanceLateParty,balanceLateNote,balanceLateLeafIndex} from '../clear/features';
 import {launchAllocationFile,launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
@@ -318,7 +319,7 @@ export async function runCommand(command:string,args:string[]) {
     // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.
     // The destination is chosen by the owner and never passes through operator input unsigned.
     requireThat(id&&o.party&&o.destination&&o['owner-key-stdin'],'--id --party --destination --owner-key-stdin required');
-    requireThat(/^leaf:[0-9]+$/.test(o.party)||isDepositParty(o.party),'claim party');
+    requireThat(/^leaf:[0-9]+$/.test(o.party)||isDepositParty(o.party)||isBalanceLateParty(o.party),'claim party');
     const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
     // R15 item 3 (R F6 + head finding on R13): the destination is SEALED in a v2 envelope to the manifest's
     // pinned signer keys — the plaintext destination and any destination hash never enter the request or the
@@ -334,7 +335,7 @@ export async function runCommand(command:string,args:string[]) {
     // Operator side (R7 item 4 + R11): record the owner-signed request and settle what it promotes (the signer
     // plan verifies the owner signature against its own fresh opening). --defer records without settling.
     requireThat(id,'--id required');const request=input(o);
-    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||isDepositParty(request.party))&&typeof request.claim_envelope_ct==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
+    requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||isDepositParty(request.party)||isBalanceLateParty(request.party))&&typeof request.claim_envelope_ct==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
     const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
     requireThat(envelopeRecordValid({envelope_ct:request.claim_envelope_ct,owner_sig:request.owner_sig},m.envelope_keys),'claim envelope format');
     // R17 item 2: the owner signature is verified at record time with the same rule as the signer plan, and
@@ -343,6 +344,14 @@ export async function runCommand(command:string,args:string[]) {
     const ownerKeyFor=(party:string):string|null=>{
       if(party.startsWith('leaf:')) {
         const o=read(ledger(id)).opened?.find((x:any)=>x.leaf_index===Number(party.slice(5)));
+        return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,'hex').subarray(61,93).toString('hex'):null;
+      }
+      // Ruling R40 items 2/5: a balance-late row refunds to the deposit slot's own leaf (the shared rule
+      // balanceLateLeafIndex), so the owner key is that leaf's one-time key, from the operator's own opened bids.
+      if(isBalanceLateParty(party)) {
+        const l=read(ledger(id)),n=balanceLateNote(notes(m.network),party);
+        const leaf=n?balanceLateLeafIndex(m,l.frozen?.leaves??[],n):null;
+        const o=leaf!==null?l.opened?.find((x:any)=>x.leaf_index===leaf):undefined;
         return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,'hex').subarray(61,93).toString('hex'):null;
       }
       const note=party.startsWith('deposit:')?partyNote(notes(m.network),party):undefined;

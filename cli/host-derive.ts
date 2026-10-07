@@ -14,7 +14,7 @@ import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, isSlotCollision, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
-import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow } from "../clear/features";
+import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, isBalanceLateParty, type BalanceRefund } from "../clear/features";
 import { blockTime, chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
@@ -57,7 +57,7 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[] }> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[] }> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -126,7 +126,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // enforced only where it is ours to enforce — `auction create` generates the balance addresses and refuses
     // one that already holds a note.
     const bM: any = pub.manifest;
-    let balanceSources: string[] = [], balanceRefunds: { leaf_index: number; amount_zats: string }[] = [];
+    let balanceSources: string[] = [], balanceRefunds: BalanceRefund[] = [];
     if (bM.bond && pub.result) {
       const byLeaf = balanceAddressMap(pub.result as any, pub.frozen!.leaves as any, bM), uas = new Set(byLeaf.values()), tb = treasuryBlock(pub.manifest);
       const { start } = balanceWindow(bM);
@@ -137,23 +137,33 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
           "balance address is a deposit, escrow or treasury address");
       }
       requireThat(blockTime(st, start) >= QUICKNET.genesis + (bM.drand.R - 1) * QUICKNET.period, "balance window starts before the release round");
-      // Ruling R38 item 4 (N4): out-of-window balance notes are never settlement sources (never swept into
-      // change) — the in-window ones back the seller payout in the approval ledger, and each out-of-window note
-      // refunds to that slot's earliest winning leaf. This host derives both from its own scan with the shared
-      // rule (clear/features.ts balanceSettlement), so the counts are host-derived; only counts are published.
+      // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): out-of-window balance notes are never settlement
+      // sources (never swept into change) — the in-window ones back the seller payout in the approval ledger,
+      // and each out-of-window note gets its own immutable refund row to that slot's own leaf. This host derives
+      // both from its own scan with the shared rule (clear/features.ts balanceSettlement); only counts are
+      // published.
       const settled = balanceSettlement(bM, pub.result as any, pub.frozen!.leaves as any, notes as any);
       balanceSources = settled.sources;
       balanceRefunds = settled.refunds;
     }
     const defaults = bM.bond && pub.result ? balanceDefaults(bM, pub.result as any, pub.frozen!.leaves as any, notes as any, chainTip(st)) : [];
     const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub.manifest as any).bond ? { defaults, balance_refunds: balanceRefunds } : null) : new Map<string, string>();
-    for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party), `obligation ${party} has no host-derivable destination`);
+    for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party) || isBalanceLateParty(party), `obligation ${party} has no host-derivable destination`);
     for (const a of (pub.result as any)?.allocations ?? []) {
       const party = `leaf:${a.leaf_index}`, owed = BigInt(owedBy.get(party) ?? "0");
       if (!(owed > 0n)) continue;
       const rec = validEnvelope(view, a.leaf_index);
       const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: owed.toString(), source: leafSource(a.leaf_index) });
+    }
+    // Ruling R40 item 2 (F2): each per-note late-refund row is claim-paid only — its owner key is the deposit
+    // slot's own leaf (this host's own derivation above), and the destination comes only from that owner's
+    // claim envelope, exactly like a leaf's claim.
+    for (const r of balanceRefunds) {
+      const owed = BigInt(owedBy.get(r.party) ?? "0");
+      if (!(owed > 0n)) continue;
+      const dest = claimDest(r.party, ownerOf(r.leaf_index));
+      if (dest) expected.push({ party: r.party, recipient: dest, amount_zats: owed.toString(), source: r.party });
     }
     // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
     // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN
@@ -182,7 +192,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
-    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults };
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds };
 }
 
 // §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and

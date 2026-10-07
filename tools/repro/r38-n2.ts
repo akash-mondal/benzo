@@ -141,10 +141,13 @@ if (MODE === "derivable") {
   const run = sh(process.execPath, [binPath, "sign", "derivable", "--id", id, "--packet", packet, "--name", "alice"], undefined, { BNZ_STATE_DIR: lab2, BNZ_LWD_SINGLE: "1" });
   const out = run.out + run.err;
   const rows = (() => { try { return JSON.parse(out.trim().split("\n").filter(l => l.startsWith("{")).at(-1)!).rows as { party: string; amount_zats: string }[]; } catch { return []; } })();
-  const want = (doc.settlement?.balance_refunds ?? []) as { leaf_index: number; amount_zats: string }[];
-  const got = want.map(w => rows.find(r => r.party === `leaf:${w.leaf_index}` && r.amount_zats === w.amount_zats) ? 1 : 0);
+  const hostRefunds = (() => { try { return JSON.parse(out.trim().split("\n").filter(l => l.startsWith("{")).at(-1)!).balance_refunds as { party: string; leaf_index: number; amount_zats: string }[]; } catch { return []; } })();
+  // Ruling R40 item 2 (F2): the out-of-window refund rows are per-note `balance-late:` rows, host-derived
+  // from this signer's own scan (sign derivable prints them beside the payable rows; they are claim-paid).
+  const want = (doc.settlement?.balance_refunds ?? []) as { party: string; leaf_index: number; amount_zats: string }[];
+  const got = want.map(w => hostRefunds.find(r => r.party === w.party && r.amount_zats === w.amount_zats && r.leaf_index === w.leaf_index) ? 1 : 0);
   const ok = run.code === 0 && want.length > 0 && got.every(Boolean) && !/stale or pre-funded/.test(out);
-  console.log(`${ok ? "PASS" : "FAIL"} n2-derivable exit ${run.code}; host rows ${JSON.stringify(rows)}; published balance_refunds ${JSON.stringify(want)}${ok ? "" : `; output tail: ${out.trim().split("\n").slice(-2).join(" | ").slice(-300)}`}`);
+  console.log(`${ok ? "PASS" : "FAIL"} n2-derivable exit ${run.code}; host rows ${JSON.stringify(rows)}; host balance_refunds ${JSON.stringify(hostRefunds)}; published balance_refunds ${JSON.stringify(want)}${ok ? "" : `; output tail: ${out.trim().split("\n").slice(-2).join(" | ").slice(-300)}`}`);
   if (!ok) console.log(`ERROR n2-derivable ${run.code === 0 ? "the host did not derive the out-of-window refund rows it must" : `the derivation refused (exit ${run.code}): ${out.split("\n").filter(l => /ERROR|refused/.test(l)).at(-1)?.trim()}`}`);
   else pass("n2-derivable", "the host derives every payable row from its own data, including the out-of-window refund row");
   if (!ok) failures++;

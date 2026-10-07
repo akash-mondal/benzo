@@ -169,15 +169,45 @@ export function balanceDefaults(
   return defaults;
 }
 
-// Ruling R38 item 4 (N4): out-of-window notes at a balance address are NEVER settlement sources (never swept
-// into change) and never count as payment. Each becomes a refund row to that slot's earliest winning leaf, at
-// that leaf's own refund destination ("minus the fee, like a stray": the refund identity nets the fee and
-// settlement requires fee_zats "0", so the row carries the note's full value). The rows are host-derived — every
-// plan and every signer host computes them from its own scan with this one rule — and claimable through the
-// existing claim path (`benzo claim-refund --party leaf:<i>`); only the per-leaf counts are ever published,
-// never the addresses. Several out-of-window notes at one slot merge into that leaf's single row (the ledger
-// keeps one row per party, so third-party dust can never collide with it).
-export type BalanceRefund = { leaf_index: number; amount_zats: string };
+// Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): out-of-window notes at a balance address are NEVER
+// settlement sources (never swept into change) and never count as payment. Each note gets its OWN immutable
+// refund row, keyed by the note — `balance-late:<txid>:<pool>:<action_index>` — at that slot's own leaf's
+// refund destination ("minus the fee, like a stray": settlement requires fee_zats "0", so the row carries the
+// note's full value). A newly seen note ADDS a new row and never grows an existing one: refund rows never
+// change, so nothing a third party can send may make settlement refuse (the reviewer's ledger-growth wedge).
+// The rows are host-derived — every plan and every signer host computes them from its own scan with this one
+// rule — and claimable through the existing claim path (`benzo claim-refund --party balance-late:…`) with the
+// slot leaf's owner key; only the per-note counts are ever published, never the addresses.
+export type BalanceRefund = { party: string; leaf_index: number; amount_zats: string };
+const BALANCE_LATE = /^balance-late:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
+export const balanceLateParty = (n: { txid: string; pool: string; action_index: number }): string => {
+  const party = `balance-late:${n.txid}:${n.pool}:${n.action_index}`;
+  requireThat(BALANCE_LATE.test(party) && Number(BALANCE_LATE.exec(party)![3]) <= 65535, "balance-late party identity");
+  return party;
+};
+export const isBalanceLateParty = (party: string): boolean => {
+  const m = BALANCE_LATE.exec(party);
+  return !!m && Number(m[3]) <= 65535;
+};
+// The note a balance-late party names (the scan's own identity), or undefined.
+export function balanceLateNote<T extends { txid: string; pool: string; action_index: number }>(notes: T[], party: string): T | undefined {
+  const m = BALANCE_LATE.exec(party);
+  return m && Number(m[3]) <= 65535
+    ? notes.find(n => n.txid === m[1] && String(n.pool) === m[2] && String(n.action_index) === m[3])
+    : undefined;
+}
+// Ruling R40 items 2/5: the leaf a balance-late row refunds to — the deposit slot's own leaf (the first note
+// at that slot in leaf order, winner or loser). One shared rule for the plan, every signer host and verify.
+export function balanceLateLeafIndex(
+  m: { deposit_addresses: string[]; bond?: unknown },
+  leaves: { leaf_index: number; deposit: { address: string } }[],
+  note: { address: string },
+): number | null {
+  const slot = (m as BalanceWindowM).bond !== undefined ? (m as BalanceWindowM).bond.balance_addresses.indexOf(note.address) : -1;
+  if (slot < 0) return null;
+  const leaf = slotOrders(m, leaves).orders.find(l => l.deposit.address === m.deposit_addresses[slot]);
+  return leaf ? leaf.leaf_index : null;
+}
 export function balanceSettlement(
   m: BalanceWindowM,
   result: { allocations: { leaf_index: number; fill: number; balance_due_zats?: string }[] },
@@ -189,14 +219,14 @@ export function balanceSettlement(
   const { start, end } = balanceWindow(m);
   const slots = new Map<string, number>(); // balance address -> its one leaf (R40 item 1: one bid per slot)
   for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, leaf);
-  const sources: string[] = [], totals = new Map<number, bigint>();
+  const sources: string[] = [], refunds: BalanceRefund[] = [];
   for (const n of notes) {
     const leaf = slots.get(n.address);
-    if (leaf === undefined || !n.height) continue;
+    if (leaf === undefined || !n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
     if (n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-    else totals.set(leaf, (totals.get(leaf) ?? 0n) + BigInt(n.value_zats));
+    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
   }
-  return { sources, refunds: [...totals].sort((a, b) => a[0] - b[0]).map(([leaf_index, v]) => ({ leaf_index, amount_zats: v.toString() })) };
+  return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
 }
 
 export type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };

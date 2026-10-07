@@ -8092,7 +8092,7 @@ function readOrders(input, m2, layout = LAYOUT_V0) {
   const lots = m2.lots ?? null;
   const allowed = lots ?? [m2.auction_id];
   requireThat(input.opened.length === input.frozen.leaf_count && new Set(input.opened.map((o2) => o2.leaf_index)).size === input.opened.length, "one opening per frozen leaf");
-  const orders = input.frozen.leaves.map((l2) => {
+  const orders = slotOrders(m2, input.frozen.leaves).orders.map((l2) => {
     const o2 = input.opened.find((x2) => x2.leaf_index === l2.leaf_index);
     let price = 0n, quantity = 0, bound_hex = "", owner_hex = "", reason = "";
     if (o2?.error === "reorg") reason = "reorg";
@@ -8148,6 +8148,23 @@ function effectiveMaxPrice(m2, sealed) {
 }
 var balanceDue = (payment, fee, C2) => payment + fee > C2 ? payment + fee - C2 : 0n;
 var refundAfter = (payment, fee, C2) => C2 > fee + payment ? C2 - fee - payment : 0n;
+function slotOrders(m2, leaves) {
+  const seen = /* @__PURE__ */ new Set(), orders = [], collisions = [];
+  for (const l2 of [...leaves].sort((a2, b2) => a2.leaf_index - b2.leaf_index)) {
+    if (m2.bond !== void 0 && seen.has(l2.deposit.address)) {
+      collisions.push(l2);
+      continue;
+    }
+    seen.add(l2.deposit.address);
+    orders.push(l2);
+  }
+  return { orders, collisions };
+}
+var BALANCE_LATE = /^balance-late:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
+var isBalanceLateParty = (party) => {
+  const m2 = BALANCE_LATE.exec(party);
+  return !!m2 && Number(m2[3]) <= 65535;
+};
 function checkSeriesLink(current, previous) {
   requireThat(current !== void 0, "series linkage missing");
   requireThat(previous.link !== void 0 && previous.link.series_id === current.series_id, "series id");
@@ -8287,22 +8304,20 @@ function obligationsModeA(result, settlement) {
   requireThat(new Set(defaults).size === defaults.length, "duplicate default");
   requireThat(defaults.length === 0 || result.allocations.every((a2) => a2.balance_due_zats !== void 0), "defaults without bond");
   const refunds = settlement?.balance_refunds ?? [];
-  requireThat(new Set(refunds.map((r2) => r2.leaf_index)).size === refunds.length, "duplicate balance refund");
-  requireThat(refunds.every((r2) => Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds");
+  requireThat(new Set(refunds.map((r2) => r2.party)).size === refunds.length, "duplicate balance refund");
+  requireThat(refunds.every((r2) => isBalanceLateParty(r2.party) && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds");
   requireThat(refunds.length === 0 || result.allocations.every((a2) => a2.balance_due_zats !== void 0), "balance refunds without bond");
-  const extra = new Map(refunds.map((r2) => [r2.leaf_index, BigInt(r2.amount_zats)]));
   let seller = BigInt(result.conservation.payout_zats);
   for (const a2 of result.allocations) {
-    const back = extra.get(a2.leaf_index) ?? 0n;
     if (defaults.includes(a2.leaf_index)) {
       requireThat(a2.fill > 0 && BigInt(a2.balance_due_zats ?? "0") > 0n, `default for leaf ${a2.leaf_index} that owes no balance`);
       seller += BigInt(a2.refund_zats) - BigInt(a2.balance_due_zats);
-      if (back > 0n) map.set(`leaf:${a2.leaf_index}`, back.toString());
       continue;
     }
-    const owed = BigInt(a2.refund_zats) + back;
+    const owed = BigInt(a2.refund_zats);
     if (owed > 0n) map.set(`leaf:${a2.leaf_index}`, owed.toString());
   }
+  for (const r2 of refunds) map.set(r2.party, r2.amount_zats);
   if (seller > 0n) map.set("seller", seller.toString());
   return map;
 }
@@ -16444,6 +16459,11 @@ function checkPublicAuction(pub, opts = {}) {
       if (c2.party.startsWith("leaf:")) {
         const opening = pub.opened.find((o2) => o2.leaf_index === Number(c2.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
+      } else if (isBalanceLateParty(c2.party)) {
+        const entry = (pub.settlement?.balance_refunds ?? []).find((r2) => r2.party === c2.party);
+        requireThat(entry, `claim ${i2} balance-late row not in the published counts`);
+        const opening = pub.opened.find((o2) => o2.leaf_index === entry.leaf_index);
+        owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
       } else {
         requireThat(typeof c2.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c2.memo_hex) && memoSealedBid(c2.memo_hex) !== null, `claim ${i2} memo_hex`);
         requireThat(certified?.has(`${c2.party}\0${hash(Buffer.from(c2.memo_hex, "hex"))}`), `claim ${i2} memo not in a certified strays statement`);
@@ -16455,7 +16475,7 @@ function checkPublicAuction(pub, opts = {}) {
     }
     for (const row of rows) {
       if (!receipts.some((r2) => r2.party === row.party)) continue;
-      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:")) continue;
+      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:") && !isBalanceLateParty(row.party)) continue;
       if (!pub.manifest.envelope_keys) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? void 0 : (pub.envelopes ?? []).find((e) => {
@@ -16513,7 +16533,7 @@ function checkPublicAuction(pub, opts = {}) {
   run2("balances", () => {
     const m2 = pub.manifest;
     const refunds = pub.settlement?.balance_refunds;
-    if (refunds !== void 0) requireThat(Array.isArray(refunds) && refunds.every((r2) => r2 && typeof r2 === "object" && Object.keys(r2).sort().join(",") === "amount_zats,leaf_index" && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds shape");
+    if (refunds !== void 0) requireThat(Array.isArray(refunds) && refunds.every((r2) => r2 && typeof r2 === "object" && Object.keys(r2).sort().join(",") === "amount_zats,leaf_index,party" && isBalanceLateParty(r2.party) && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)) && new Set(refunds.map((r2) => r2.party)).size === refunds.length, "balance refunds shape");
     if (!m2.bond) {
       requireThat(refunds === void 0, "balance refunds without bond");
       return;

@@ -15,7 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollis
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement} from "../clear/features";
+import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement,isBalanceLateParty,balanceLateNote,balanceLateLeafIndex,type BalanceRefund} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -81,7 +81,7 @@ try {
   const stray=strayNotes(payNotes,m,src.frozen); // R40 item 1 (F1): a slot collision is a stray too
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimEnvelopes:Record<string,string>={},claimsUsed:any[]=[];
-  let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[],balance_refunds:{leaf_index:number;amount_zats:string}[]=[];
+  let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[],balance_refunds:BalanceRefund[]=[],balNotes:any[]=[];
   const released=Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period;
   const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
@@ -136,7 +136,7 @@ try {
         wallet("sync","-s",process.env.BNZ_LWD_URL!);tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       }
       // Fresh scan after the window: a balance payment that mined at the window's end must count.
-      const balNotes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
+      balNotes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
       // Ruling R38 item 5 (N5): a batch can SPEND a balance payment only when the wallet counts it spendable —
       // ZIP 315 requires 10 confirmations for a note sent by an external party (benzo-pczt create calls
       // propose_transfer with ConfirmationsPolicy::default()). The plan counts the payment by mined height the
@@ -153,9 +153,10 @@ try {
         wallet("sync","-s",process.env.BNZ_LWD_URL!);tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       }
       defaults=balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
-      // Ruling R38 item 4 (N4): out-of-window balance notes are never settlement sources and never count as
-      // payment — each refunds to that slot's earliest winning leaf (host-derived counts, published without
-      // addresses), parked as an exception row and claimable through the existing claim path.
+      // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): out-of-window balance notes are never settlement
+      // sources and never count as payment — each note gets its own immutable `balance-late:…` row to that
+      // slot's own leaf (host-derived counts, published without addresses), parked as an exception row and
+      // claimable through the existing claim path. A newly seen note adds a new row and never grows one.
       balance_refunds=balanceSettlement(m as any,result,src.frozen!.leaves as any,balNotes).refunds;
     }
   }
@@ -170,6 +171,15 @@ try {
   const bidPlaintextFor=(party:string):Buffer|null=>{
     if(party.startsWith("leaf:")) {
       const o=opened?.find(x=>x.leaf_index===Number(party.slice(5)));
+      return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
+    }
+    // Ruling R40 items 2/5: a balance-late row refunds to the deposit slot's own leaf (winner or loser), so
+    // the claim's one-time owner key is that leaf's key, from the signer's own fresh tlock opening — the
+    // shared rule (clear/features.ts balanceLateLeafIndex), never operator input.
+    if(isBalanceLateParty(party)) {
+      const n=balanceLateNote(balNotes.length?balNotes:notes,party);
+      const leaf=n?balanceLateLeafIndex(m as any,(src.frozen?.leaves??[]) as any,n):null;
+      const o=leaf!==null?opened?.find(x=>x.leaf_index===leaf):undefined;
       return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
     }
     const note=partyNote(depositNotes,party);
@@ -267,16 +277,19 @@ try {
       // settlement envelope. With no valid record the row goes to the exception queue; while Track B's
       // multi-recipient envelope format is unmerged, even a valid envelope destination is refused with a clear
       // error — never paid from an operator-held key — and waits in the queue for an owner-signed claim.
+      if(published&&isBalanceLateParty(party)) {
+        // Ruling R40 item 2 (F2): a per-note late-refund row is parked as an exception row — never auto-paid
+        // (the payer is unknowable) — unless its owner already claimed it; the claim path pays it with the
+        // slot leaf's owner key (bidPlaintextFor above).
+        if(claimEnvelopes[party]) {gateEnvelope(row);continue}
+        const reason="out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund";
+        refusals.push({party,reason});
+        exceptions.push({...row,reason});continue
+      }
       if(published&&party.startsWith("leaf:")) {
         // R15 item 3: a claim pays on its own owner signature over the sealed destination's hash — with the
         // same two-signer opening agreement as an envelope refund (gateEnvelope).
         if(claimEnvelopes[party]) {gateEnvelope(row);continue}
-        // Ruling R38 item 4 (N4): a row carrying out-of-window balance refunds is parked as an exception row —
-        // never auto-paid (the payer is unknowable) — and is claimable through the existing claim path above.
-        if(balance_refunds.some(r=>`leaf:${r.leaf_index}`===party)) {
-          refusals.push({party,reason:"out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund"});
-          exceptions.push({...row,reason:"out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund"});continue
-        }
         if(validEnvelope(src,Number(party.slice(5)))) {gateEnvelope(row);continue}
         const reason="no valid owner-signed settlement envelope";
         refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);

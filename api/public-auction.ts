@@ -10,6 +10,7 @@ import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed 
 import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
+import { isBalanceLateParty } from "../clear/features";
 import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
@@ -34,9 +35,10 @@ export type SettlementSummary = {
   ignored?: { party: string; amount_zats: string }[];
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
-  // R38 item 4 (N4): out-of-window balance notes refund to the slot's earliest winning leaf — published as
-  // per-leaf counts only, never addresses.
-  balance_refunds?: { leaf_index: number; amount_zats: string }[];
+  // R38 item 4 (N4) + R40 item 2 (F2): out-of-window balance notes refund to the slot's own leaf — one
+  // immutable row per note (party `balance-late:<txid>:<pool>:<action_index>`), published as counts only,
+  // never addresses.
+  balance_refunds?: import("../clear/features").BalanceRefund[];
   delivery_defaults?: Signed[];
   // R33 item 3: the signer hosts' G-4 approval maps (each carrying the defaults list that host derived from its
   // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
@@ -438,6 +440,14 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       if (c.party.startsWith("leaf:")) {
         const opening = pub.opened.find(o => o.leaf_index === Number(c.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
+      } else if (isBalanceLateParty(c.party)) {
+        // Ruling R40 items 2/5: a balance-late row refunds to the deposit slot's own leaf — the published,
+        // host-derived mapping (settlement.balance_refunds, one row per note) names it — so the claim's owner
+        // key is that leaf's key, from the re-derived opening.
+        const entry = (pub.settlement?.balance_refunds ?? []).find(r => r.party === c.party);
+        requireThat(entry, `claim ${i} balance-late row not in the published counts`);
+        const opening = pub.opened.find(o => o.leaf_index === entry!.leaf_index);
+        owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
       } else {
         // R16 item 4: the memo the claim publishes must be an openable sealed bid of THIS auction (the same
         // 128-byte layout rule the signer plan enforces against the scanned deposit) and the owner key comes
@@ -456,8 +466,8 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     for (const row of rows) {
       if (!receipts.some(r => r.party === row.party)) continue;
       // The seller payout is the documented operator-pinned sink (Q18); claim evidence is required only for
-      // bid leaves and stray deposits.
-      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:")) continue;
+      // bid leaves, per-note late-refund rows and stray deposits.
+      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:") && !isBalanceLateParty(row.party)) continue;
       // R13 proves claim-paid rows. Only Phase 5 product dirs (manifest pinning envelope_keys) have the
       // claim path at all — a pre-Phase-5 row was paid by the pre-W route and is not a claim-paid row — so
       // the requirement is skipped there (the R4.2 pre-Phase-5 reading; merge regression that broke the
@@ -533,10 +543,13 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   run("balances", () => {
     const m = pub.manifest;
     const refunds = pub.settlement?.balance_refunds;
-    // Ruling R38 item 4 (N4): published counts only, never addresses — one {leaf_index, amount_zats} per
-    // attributed leaf (out-of-window balance notes refund to the slot's earliest winning leaf), and only for a
-    // bond auction with a result. The rows themselves are held to the row/receipt accounting below.
-    if (refunds !== undefined) requireThat(Array.isArray(refunds) && refunds.every(r => r && typeof r === "object" && Object.keys(r).sort().join(",") === "amount_zats,leaf_index" && Number.isSafeInteger((r as any).leaf_index) && /^[1-9][0-9]*$/.test((r as any).amount_zats)), "balance refunds shape");
+    // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): published counts only, never addresses — one
+    // {party, leaf_index, amount_zats} per late note (its own immutable `balance-late:` row, refunds to the
+    // slot's own leaf), and only for a bond auction with a result. The rows themselves are held to the
+    // row/receipt accounting below.
+    if (refunds !== undefined) requireThat(Array.isArray(refunds) &&
+      refunds.every(r => r && typeof r === "object" && Object.keys(r).sort().join(",") === "amount_zats,leaf_index,party" && isBalanceLateParty((r as any).party) && Number.isSafeInteger((r as any).leaf_index) && /^[1-9][0-9]*$/.test((r as any).amount_zats)) &&
+      new Set(refunds.map(r => r.party)).size === refunds.length, "balance refunds shape");
     if (!m.bond) { requireThat(refunds === undefined, "balance refunds without bond"); return; }
     if (!pub.result) { requireThat(refunds === undefined, "balance refunds without a result"); return; } // cancelled before the clear: there are no balances to bind
     if (pub.settlement) requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
