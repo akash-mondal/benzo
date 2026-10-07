@@ -267,8 +267,12 @@ async function worker(ledger:Ledger) {
   if(custody&&plan.obligations.length)requireThat(derivable,"no signer host could list its derivable rows");
   const pinned:any[]=custody?plan.obligations.map((o:any)=>derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):destinations(plan.obligations,settings().signers[0],plan);
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
-  ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>({party,kind,amount_zats})),
-    [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>({party,kind,amount_zats,reason}))]);
+  // Ruling R42 (F15): each refund row carries its backing note identities into the ledger (keyed by note
+  // identity: one note backs at most one refund row across all row classes) — the shared derivation's rows.
+  const backing=new Map<string,string[]>((plan.balance_refunds??[]).map((r:any)=>[r.party,(r.notes??[])as string[]]));
+  const keyed=(o:any)=>backing.has(o.party)&&backing.get(o.party)!.length?{...o,notes:backing.get(o.party)}:o;
+  ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>keyed({party,kind,amount_zats})),
+    [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>keyed({party,kind,amount_zats,reason}))].map(keyed));
   ledger.eligible();
   const signoffs:any[]=existsSync(file("signoffs.json"))?read("signoffs.json"):[];
   let batch;
@@ -326,7 +330,7 @@ async function worker(ledger:Ledger) {
           requireThat(typeof blocks.at(-1).hash==="string"&&Buffer.from(blocks.at(-1).hash,"base64").length===32,"expired batch end hash missing");
           requireThat(!endHash||endHash===blocks.at(-1).hash,"expired batch endpoints disagree");endHash=blocks.at(-1).hash;
         }
-        ledger.expire(batch.id);console.log(JSON.stringify({auction_id:id,batch:batch.id,state:"exception",expiry_height:metadata.expiry_height,tip}));ledger.pin(plan.obligations,plan.exceptions);ledger.eligible();continue;
+        ledger.expire(batch.id);console.log(JSON.stringify({auction_id:id,batch:batch.id,state:"exception",expiry_height:metadata.expiry_height,tip}));ledger.pin(plan.obligations.map(keyed),plan.exceptions.map(keyed));ledger.eligible();continue;
       }
       guard(metadata,tip);
       // Under host custody the candidate was built in a signer host's own vault, whose account id this operator vault

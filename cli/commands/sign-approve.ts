@@ -120,9 +120,12 @@ export async function run(argv: string[]): Promise<number | object> {
     // map's `strays` attests each stray deposit row this batch pays — its note identity and this host's own
     // scanned memo hash — and nothing else; the deleted strays statement is replaced exactly here.
     const wkey = path.join(st, "witness", `${o.name}.key`);
-    const paidRefunds = balanceRefunds.filter(r => mapped.some(x => x.party === r.party));
+    // Ruling R42 (F15): the rows' backing notes are ledger-internal derivation data — the signed and
+    // published map carries each row's {party, leaf_index, amount_zats} only (the excess row's in-window
+    // note set stays private to the vault scans).
+    const paidRefunds = balanceRefunds.filter(r => mapped.some(x => x.party === r.party)).map(({ notes, ...row }) => row);
     const paidStrays = strays.filter(s => mapped.some(x => x.party === s.party));
-    const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds, strays: paidStrays }, readFileSync(wkey, "utf8").trim()) : null;
+    const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds as any, strays: paidStrays }, readFileSync(wkey, "utf8").trim()) : null;
     const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });

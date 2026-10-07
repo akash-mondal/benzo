@@ -4,8 +4,20 @@ import {mkdirSync,readFileSync,statSync} from "node:fs";
 import path from "node:path";
 import {hash,jsonBytes,requireThat} from "../manifest/schema";
 import {isRefundRowParty} from "../clear/features";
-export type Obligation={party:string;kind:"payout"|"refund";amount_zats:string};
-export type Row=Obligation & {batch:number|null;state:string;txid:string|null;output_index:number|null;pool:string|null};
+import {isDepositParty} from "./deposits";
+// Ruling R42 (F15): one note backs at most one REFUND row across all row classes (stray, late, excess,
+// collision) — the ledger keys refunds by NOTE IDENTITY (`<txid>:<pool>:<action_index>`), so a reorg
+// re-classification can never pay the same note twice. `Obligation.notes` names a row's backing notes (the
+// excess row's in-window notes); a `balance-late:`/`deposit:` party IS its own note identity.
+export type Obligation={party:string;kind:"payout"|"refund";amount_zats:string;notes?:string[]};
+const NOTE_PARTY=/^(?:deposit|balance-late):([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
+const isKeyedRefund=(party:string)=>isRefundRowParty(party)||isDepositParty(party);
+const backingOf=(o:{party:string;notes?:string[]}):string[]=>{
+  if(Array.isArray(o.notes))return o.notes;
+  const m=NOTE_PARTY.exec(o.party);
+  return m&&Number(m[3])<=65535?[`${m[1]}:${m[2]}:${m[3]}`]:[];
+};
+export type Row={party:string;kind:"payout"|"refund";amount_zats:string;batch:number|null;state:string;txid:string|null;output_index:number|null;pool:string|null}; // stored rows carry no derivation notes
 export class Ledger {
   readonly db:DatabaseSync;
   constructor(state:string,readonly auction:string) {
@@ -15,7 +27,8 @@ export class Ledger {
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS plan(hash TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS obligations(party TEXT PRIMARY KEY,kind TEXT NOT NULL,amount_zats TEXT NOT NULL,state TEXT NOT NULL,batch INTEGER,txid TEXT,output_index INTEGER,pool TEXT);
-      CREATE TABLE IF NOT EXISTS batches(id INTEGER PRIMARY KEY,pczt_path TEXT,pczt_hash TEXT,txid TEXT UNIQUE,height INTEGER,state TEXT NOT NULL DEFAULT 'staged');`);
+      CREATE TABLE IF NOT EXISTS batches(id INTEGER PRIMARY KEY,pczt_path TEXT,pczt_hash TEXT,txid TEXT UNIQUE,height INTEGER,state TEXT NOT NULL DEFAULT 'staged');
+      CREATE TABLE IF NOT EXISTS refund_backing(note TEXT PRIMARY KEY,party TEXT NOT NULL);`);
     if(!this.db.prepare("PRAGMA table_info(batches)").all().some(c=>c.name==="state"))this.db.exec("ALTER TABLE batches ADD COLUMN state TEXT NOT NULL DEFAULT 'staged'");
   }
   private atomic<T>(fn:()=>T):T {
@@ -49,8 +62,29 @@ export class Ledger {
             }
           }
         }
-        if(!old)this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
-        else if(old.state==="exception"&&ready.has(o.party)) {
+        if(!old){
+          // Ruling R42 (F15): a NEW refund row claims its backing notes by note identity. A note that
+          // already backs a different party's refund row — a reorg re-classified an already-refunded note
+          // into the other class — never backs a second row: the row is not created (logged), and nothing
+          // pays that note twice. The pre-fix per-class key (party uniqueness per class) is the A20-F15
+          // mutation.
+          if(isKeyedRefund(o.party)) {
+            const backing=backingOf(o);
+            const taken=backing.filter(n=>{const r=this.db.prepare("SELECT party FROM refund_backing WHERE note=?").get(n) as {party:string}|undefined;return !!r&&r.party!==o.party});
+            if(taken.length){
+              console.error(`WARN refund row ${o.party} not created: note ${taken[0]} already backs a refund row (one note one refund; Ruling R42 F15)`);
+              continue;
+            }
+            this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
+            for(const n of backing)this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
+          } else this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
+        }
+        else {
+          // An existing row stands (F12); its backing set only ever grows (INSERT OR IGNORE never steals a
+          // note another row already backs) — the row's amount may already cover those notes' value.
+          if(isKeyedRefund(o.party))for(const n of backingOf(o))this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
+        }
+        if(old&&old.state==="exception"&&ready.has(o.party)) {
           // A row whose re-derived amount differs from its pinned one is never made payable at the stale
           // amount (every host derives the fresh amount and would refuse the candidate): it waits until a
           // derivation agrees with the pinned row again, and nothing else is held up by it.
@@ -68,7 +102,12 @@ export class Ledger {
       for(const r of this.rows()) {
         if(parties.has(r.party))continue;
         if(isRefundRowParty(r.party)) {
-          if(["exception","seen","eligible"].includes(r.state))this.db.prepare("DELETE FROM obligations WHERE party=?").run(r.party);
+          // Dropping an unpaid row releases its backing notes (no money moved, so the note may back its own
+          // row again after the reorg resolves); a kept (paid) row keeps its notes forever — refunded once.
+          if(["exception","seen","eligible"].includes(r.state)) {
+            this.db.prepare("DELETE FROM obligations WHERE party=?").run(r.party);
+            this.db.prepare("DELETE FROM refund_backing WHERE party=?").run(r.party);
+          }
           else console.error(`WARN pinned refund row ${r.party} vanished from the re-derivation after payment; keeping it`);
           continue;
         }

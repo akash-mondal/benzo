@@ -178,7 +178,11 @@ export function balanceDefaults(
 // The rows are host-derived — every plan and every signer host computes them from its own scan with this one
 // rule — and claimable through the existing claim path (`benzo claim-refund --party balance-late:…`) with the
 // slot leaf's owner key; only the per-note counts are ever published, never the addresses.
-export type BalanceRefund = { party: string; leaf_index: number; amount_zats: string; state?: "pending" | "paid"; matured?: boolean };
+// Ruling R42 (F15): `notes` names the scanned notes backing the row (`<txid>:<pool>:<action_index>`), so
+// the settlement ledger can key refunds by NOTE IDENTITY — one note backs at most one refund row across all
+// row classes and a reorg re-classification can never pay the same note twice. Internal derivation data:
+// never published (published entries are {party, leaf_index, amount_zats, state} only) and never signed.
+export type BalanceRefund = { party: string; leaf_index: number; amount_zats: string; state?: "pending" | "paid"; matured?: boolean; notes?: string[] };
 const BALANCE_LATE = /^balance-late:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
 export const balanceLateParty = (n: { txid: string; pool: string; action_index: number }): string => {
   const party = `balance-late:${n.txid}:${n.pool}:${n.action_index}`;
@@ -262,7 +266,7 @@ export function balanceSettlement(
     const leaf = balanceLateLeafIndex(m, leaves, n);
     if (leaf === null) continue;
     if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
+    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n), notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
   }
   // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
   // settle becomes ONE immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf — a paid
@@ -278,7 +282,9 @@ export function balanceSettlement(
     const total = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n);
     const settledZats = due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6)
     const excess = total - settledZats;
-    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured) });
+    // Ruling R42 (F15): the excess row's backing is the in-window notes it is carved from — one note backs
+    // at most one refund row across all row classes, enforced by the ledger's note-identity key.
+    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured), notes: inNotes.map(n => `${n.txid}:${n.pool}:${n.action_index}`) });
   }
   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
 }
