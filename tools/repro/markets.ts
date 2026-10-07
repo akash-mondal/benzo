@@ -7,7 +7,7 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { Keypair } from "@solana/web3.js";
 import { SigningKey, Wallet } from "ethers";
 import { spawn, spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT, STATE, env, DRAND } from "../../e2e/lib/env";
 import { hash, jsonBytes, signRecord, verifyRecord } from "../../manifest/schema";
@@ -68,11 +68,13 @@ function dropLock(lock: string) { rmSync(lock, { recursive: true, force: true })
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean; deliver?: { chain: string; kind: string; to: string; elgamal?: string } };
 type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
 type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number; id: string; R: number; series?: SeriesLink };
-type Post = { id: string; signer: string; cold: string; doc: () => any; check: (id: string, pass: boolean, d?: string) => void; at: (a: string) => number; sellerUa: string };
+type Post = { id: string; signer: string; cold: string; doc: () => any; check: (id: string, pass: boolean, d?: string) => void; at: (a: string) => number; sellerUa: string; late: { party: string; amount: number; leaf: number } | null };
 type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; lots?: string[]; marketplace?: any;
   // Part 2 collection drop (b): the winners that pay their balance in the window and the defaults the run expects;
   // part 2 buyback: the serial each winner takes in (one per winner, in leaf order).
   defaults?: number[]; balancePays?: number[]; balanceDust?: number[]; intakeSerials?: number[];
+  // A19 (R41 F7/F9): the leaf whose balance address gets ONE 1-zat note AFTER the two hosts sign batch 1.
+  lateDust?: { leaf: number };
   extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
   // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
   // an outcome assertion (`outcomes`) on that result.
@@ -125,6 +127,24 @@ const dropPost = async (h: Post) => {
   writeFileSync(path.join(tampered, "result.json"), jsonBytes(tdoc.result));
   const v = spawnSync(benzoBin, ["verify", "--dir", tampered, "--signer", h.signer], { encoding: "utf8" });
   h.check("drop-serial-replay-enforced", v.status !== 0 && /canonical result differs/.test(v.stdout + v.stderr), `exit ${v.status}`);
+  // Ruling R41 (F7/F9): the claimed late row is `paid` and attested in the two agreeing maps of the batch that
+  // PAID it (its `balance_refunds` carry the row, its outputs the row's {party, output_index}); the row's claim
+  // publishes; and every unpaid refund row publishes as `pending` with no receipt (counts only — verify does not
+  // count them). The cold-verify assertion above runs the real balance-refs check over exactly this data.
+  if (h.late) {
+    const d = h.doc(), set = validateWitnessSet(verifyRecord(d.witness_set, d.signer), h.id);
+    const entry = (d.settlement?.balance_refunds ?? []).find((e: any) => e.party === h.late!.party);
+    const receipt = (d.settlement?.receipts ?? []).find((r: any) => r.party === h.late!.party);
+    const attested = (d.settlement?.approval_maps ?? []).filter((mp: any) => mp && verifyApprovalMap(mp, set.keys) && receipt && mp.txid === receipt.txid &&
+      (mp.balance_refunds ?? []).some((r: any) => r.party === h.late!.party && r.amount_zats === String(h.late!.amount)) &&
+      (mp.outputs ?? []).some((o: any) => o.party === h.late!.party && o.output_index === receipt.output_index));
+    h.check("drop-late-row-attested", entry?.state === "paid" && attested.length === 2 && new Set(attested.map((mp: any) => mp.witness)).size === 2,
+      `entry ${entry?.state}; attesting maps ${attested.length} (distinct ${new Set(attested.map((mp: any) => mp.witness)).size})`);
+    h.check("drop-late-claim-published", (d.claims ?? []).some((c: any) => c.party === h.late!.party), `${(d.claims ?? []).length} published claims`);
+    const unpaid = (d.settlement?.balance_refunds ?? []).filter((e: any) => e.party !== h.late!.party);
+    h.check("drop-unpaid-rows-pending", unpaid.length >= 1 && unpaid.every((e: any) => e.state === "pending"),
+      `unpaid rows ${JSON.stringify(unpaid.map((e: any) => ({ party: e.party.slice(0, 28) + "…", state: e.state })))}`);
+  }
 };
 
 const SCENARIOS: Record<string, Scenario> = {
@@ -184,7 +204,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // over the 400,000 bid, lot b at 450,000, and lot c's 100,000 bid sits below the sealed reserve (lot unfilled).
   // Winner leaf 0 pays its 300,000 balance INSIDE the manifest-fixed window; winner leaf 2 never pays and
   // forfeits its 200,000 bond to the seller (seller 500,000 + 200,000; the two losing bids get exact C back).
-  "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0], balanceDust: [0],
+  "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0], balanceDust: [0], lateDust: { leaf: 0 },
     extra: c => ({ B_max_zats: "2000000", bond: { bond_bps: 1000, balance_window_blocks: 40, balance_window_start_height: balanceStart(c) },
       serials: { first: 0, count: 8, seed_round_offset: 2 }, sealed_reserve: sealReserve(300_000, c.id, c.R) }),
     bids: () => [{ price: 500_000, lot: LOTS[0] }, { price: 400_000, lot: LOTS[0] }, { price: 450_000, lot: LOTS[1] }, { price: 100_000, lot: LOTS[2] }],
@@ -233,7 +253,7 @@ async function run(name: string, link?: SeriesLink) {
   const privateDir = path.join(STATE, "run", `markets-${id}`), publicDir = path.join(ROOT, "tmp/markets/public", id); mkdirSync(privateDir, { recursive: true });
   writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
   writeFileSync(path.join(privateDir, "xchain-delivers.json"), JSON.stringify(bids.map(b => b.deliver ?? null))); // harness bidder state for the xchain demo driver
-  writeFileSync(path.join(privateDir, "scenario.json"), JSON.stringify({ name, balancePays: sc.balancePays, balanceDust: sc.balanceDust, intakeSerials: sc.intakeSerials, defaults: sc.defaults })); // resume:<id>
+  writeFileSync(path.join(privateDir, "scenario.json"), JSON.stringify({ name, balancePays: sc.balancePays, balanceDust: sc.balanceDust, intakeSerials: sc.intakeSerials, defaults: sc.defaults, lateDust: sc.lateDust })); // resume:<id>
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: sc.batch_cap ?? 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
@@ -334,8 +354,16 @@ async function run(name: string, link?: SeriesLink) {
   if (sc.balancePays) await bondFlow(id, sc, d, say);
   if (sc.intakeSerials) intakeFlow(name, id, d, sc.intakeSerials, say);
   hostEnvelopeOpens(id, publicDir);
-  const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
-  writeFileSync(path.join(OUT, `${name}-settle.log`), ((settle.stdout || "") + "\n----\n" + (settle.stderr || "")).replace(/\x1b\[[0-9;]*m/g, ""));
+  const settleLog = path.join(OUT, `${name}-settle.log`);
+  writeFileSync(settleLog, "");
+  const runSettle = (tag: string) => {
+    const s = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
+    appendFileSync(settleLog, `\n==== ${tag} ====\n` + ((s.stdout || "") + "\n----\n" + (s.stderr || "")).replace(/\x1b\[[0-9;]*m/g, ""));
+    return s;
+  };
+  let settle: { status: number | null }, late: { party: string; amount: number; leaf: number } | null = null;
+  if (!sc.lateDust) settle = runSettle("settle");
+  else ({ settle, late } = await lateDustFlow(name, id, sc, d, say, check, runSettle, doc, publicDir, refunds));
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
   const fin = doc(), owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(fin.manifest).obligations(fin.result, { defaults: sc.defaults ?? [] })].map(([p, v]) => [p, Number(v)]));
   const want = sc.expect ? sc.expect(refunds) : owed;
@@ -344,15 +372,18 @@ async function run(name: string, link?: SeriesLink) {
   if (sc.expect) check(`${name}-expected-equals-obligations`, noT(want) === noT(owed), JSON.stringify(owed));
   if (sc.outcomes) check(`${name}-outcomes`, sc.outcomes(fin.result.allocations.map((a: any) => a.outcome)), fin.result.allocations.map((a: any) => a.outcome).join(","));
   check(`${name}-settled`, settle.status === 0, `exit ${settle.status}`);
-  check(`${name}-receipts`, JSON.stringify(Object.entries(receipts).sort()) === JSON.stringify(Object.entries(want).sort()), JSON.stringify(receipts));
+  // A19 (R41.1): the claimed late row's receipt sits beside the scenario's expected ones.
+  const wantAll = { ...want, ...(late ? { [late!.party]: late!.amount } : {}) };
+  check(`${name}-receipts`, JSON.stringify(Object.entries(receipts).sort()) === JSON.stringify(Object.entries(wantAll).sort()), JSON.stringify(receipts));
   z.sync("bidder"); z.enhance("bidder");
   const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
   const at = (a: string) => got.filter((n: any) => n.address === a).reduce((s: number, n: any) => s + n.value_zats, 0);
   check(`${name}-landed`, Object.entries(want).every(([p, v]) => p.startsWith("leaf:") ? at(refunds[Number(p.slice(5))]) === v : p === "treasury" ? at(treasuryUa) === v : true), JSON.stringify([...refunds.map(at), at(treasuryUa)]));
+  if (late) check(`${name}-late-landed`, at(refunds[late.leaf]) === late.amount, `leaf ${late.leaf}'s own destination holds ${at(refunds[late.leaf])} (the late row refunded to its slot's bidder)`);
   const cold = path.join(OUT, "cold", id); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
   const v = spawnSync(benzoBin, ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
   check(`${name}-cold-verify`, v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
-  if (sc.post) await sc.post({ id, signer, cold, doc, check, at, sellerUa });
+  if (sc.post) await sc.post({ id, signer, cold, doc, check, at, sellerUa, late });
   say(ok ? `RESULT PASS ${name}` : `RESULT FAIL ${name}`);
   ran[name] = { id, publicDir, signer, resultHash: hash(jsonBytes(doc().result)) };
   return ok;
@@ -398,6 +429,66 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
     await sleep(30_000);
   }
   say(`balance window closed; the window was (${start}, ${start + blocks}], tip now ${safeTip()}`);
+}
+// A19 (R41 F7/F9) proof vehicle: ONE 1-zatoshi note sent to a winner's manifest-public balance address AFTER the
+// two signer hosts approved batch 1 — the exact wedge window of Reviewer R's F7 repro. The run must complete end
+// to end (R41.1): batch 1 finalizes and publishes with the new row `pending`, the owner (the slot's own leaf key)
+// claims it to that bidder's own destination, the row stays PENDING until the confirmations rule (R41.3), and the
+// NEXT batch pays it — receipts and claims complete. Every settle run must exit 0 (red under A19-F7: the second
+// publish refuses over the grown row set; red under A19-F9: the claimed row is paid at 1 confirmation).
+async function lateDustFlow(name: string, id: string, sc: Pick<Scenario, "lateDust">, d: any, say: (s: string) => void,
+  check: (id: string, pass: boolean, detail?: string) => void, runSettle: (tag: string) => { status: number | null },
+  doc: () => any, publicDir: string, refunds: string[]) {
+  const m = JSON.parse(Buffer.from(d.manifest.bytes, "base64").toString("utf8"));
+  const leaf = sc.lateDust!.leaf;
+  const ua = m.bond.balance_addresses[m.deposit_addresses.indexOf(d.frozen.leaves[leaf].deposit.address)];
+  const settleDir = path.join(STATE, "settle", id);
+  const scanVault = () => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
+  // The settle worker signs batch 1 mid-run; batch-1.maps.json appears only after BOTH hosts approved and the
+  // batch signed — after their scans. Start settle detached so the note can land inside that window.
+  const s1 = spawn(benzoBin, ["settle", "--id", id]);
+  let s1out = "", s1err = "";
+  s1.stdout!.on("data", x => s1out += x); s1.stderr!.on("data", x => s1err += x);
+  const s1done = new Promise<number | null>(res => s1.on("close", res));
+  const maps = path.join(settleDir, "batch-1.maps.json");
+  for (let i = 0; !existsSync(maps); ) { if (++i > 480) throw new Error("batch 1 was never signed by two hosts"); await sleep(5_000); }
+  const seen = new Set(scanVault().map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`));
+  say(`A19 F7: 1-zat note sent to leaf ${leaf}'s balance address AFTER both hosts signed batch 1 (${z.pay(`zcash:?address=${ua}&amount=0.00000001`)})`);
+  check(`${name}-late-settle1`, (await s1done) === 0, "batch 1 finalized and published despite the late note");
+  appendFileSync(path.join(OUT, `${name}-settle.log`), `\n==== settle-1 (batch 1; the late note lands after the hosts signed) ====\n${(s1out + "\n----\n" + s1err).replace(/\x1b\[[0-9;]*m/g, "")}`);
+  let note: any = null;
+  for (let i = 0; i < 360 && !note; i++) {
+    z.sync(`vaults/${id}/wallet`); z.enhance(`vaults/${id}/wallet`);
+    note = scanVault().find((n: any) => n.address === ua && n.height && !seen.has(`${n.txid}:${n.pool}:${n.action_index}`));
+    if (!note) await sleep(10_000);
+  }
+  if (!note) throw new Error("the late dust note never mined");
+  const party = `balance-late:${note.txid}:${note.pool}:${note.action_index}`;
+  say(`A19 F7: the late note ${party} mined at ${note.height} (${note.value_zats} zats)`);
+  // The owner claim: the slot's own leaf's one-time key signs it to that bidder's own destination.
+  const owner = json(path.join(STATE, "bids", id, `${d.frozen.leaves[leaf].ciphertext_hash}.json`)).owner_private_hex;
+  const request = benzoRaw(["claim-refund", "--id", id, "--party", party, "--destination", refunds[leaf], "--owner-key-stdin"], owner);
+  benzo(["claim-refund", "--id", id, "--defer", "true"], request);
+  say(`A19 F7: the claim for ${party} recorded (owner-signed to leaf ${leaf}'s own destination)`);
+  hostEnvelopeOpens(id, publicDir); // the two-signer gate opens the claim's sealed destination
+  // R41.3: at low confirmations the claimed row must stay PENDING (its entry `pending`, no receipt).
+  const settle2 = runSettle("settle-2 (the claim is recorded; the row must stay pending until confirmed)");
+  const sum2 = json(path.join(settleDir, "summary.json"));
+  const row2 = (sum2.plan?.balance_refunds ?? []).find((r: any) => r.party === party);
+  const paid2 = (doc().settlement?.receipts ?? []).some((r: any) => r.party === party);
+  const entry2 = (doc().settlement?.balance_refunds ?? []).find((e: any) => e.party === party);
+  check(`${name}-late-refund-gate`, settle2.status === 0 && !paid2 && row2?.matured === false && entry2?.state === "pending",
+    `settle-2 exit ${settle2.status}; plan row matured ${String(row2?.matured)}; paid ${paid2}; entry ${entry2?.state} (note at ~${z.tip() - note.height + 1} confs)`);
+  // Poll the block height (never a fixed sleep) until the note clears the confirmations rule, then pay the row.
+  for (let i = 0; z.tip() - note.height + 1 < 12; ) {
+    if (++i > 480) throw new Error("the late note never reached the confirmations rule");
+    await sleep(15_000);
+  }
+  const settle3 = runSettle("settle-3 (the claim matures; the next batch pays the row)");
+  const receipt3 = (doc().settlement?.receipts ?? []).filter((r: any) => r.party === party);
+  check(`${name}-late-refund-paid`, settle3.status === 0 && receipt3.length === 1 && Number(receipt3[0].amount_zats) === note.value_zats,
+    `settle-3 exit ${settle3.status}; receipt ${JSON.stringify(receipt3)}`);
+  return { settle: settle3, late: { party, amount: Number(note.value_zats), leaf } };
 }
 // Part 2 §1 row 5: each round's winners sign the serial intake (the adapters/buyback-report.ts record shape) with
 // the one-time owner key inside their own opened bid; `benzo buyback intake` validates every record against the
