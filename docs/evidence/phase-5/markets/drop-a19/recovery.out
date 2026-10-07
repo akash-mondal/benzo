@@ -1,0 +1,29 @@
+[resume 2afb29e4] state SETTLING
+[resume 2afb29e4] balance window (4474811, 4474851] manifest-fixed (was operator-chosen after the clear)
+[resume 2afb29e4] dust already present at leaf 0's balance address before the window start
+[resume 2afb29e4] balance already paid for leaf 0 in (4474811, 4474851]
+[resume 2afb29e4] balance window closed; the window was (4474811, 4474851], tip now 4474887
+[resume 2afb29e4] settle exit 1; receipts {"balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1":1,"leaf:1":200000,"leaf:3":200000,"seller":700000}; obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+[resume 2afb29e4] RESULT FAIL (verify exit 0)
+
+== recovery attempt 2 (after a 100,000 zat fee-reserve top-up 0ba380f42c82e10bb0eb49dc6e6ba27b39a18e914f5cc8d8fe638aa39299f756 — attempt 1's batch 3 was 1 zat short of its network fee: InsufficientFunds available 34999 required 35000) ==
+[resume 2afb29e4] state SETTLING
+[resume 2afb29e4] balance window (4474811, 4474851] manifest-fixed (was operator-chosen after the clear)
+[resume:2afb29e43beb6da4932b1e827714aa22381e95d867d6aa6a97717268ff26421e] FATAL Error: benzo-scan scan test /Users/akshmnd/Dev Projects/benzo/.benzo/vaults/2afb29e43beb6da4932b1e827714aa22381e95d867d6aa6a97717268ff26421e/wallet exited 1: Error: no memo stored for 0ba380f42c82e10bb0eb49dc6e6ba27b39a18e914f5cc8d8fe638aa39299f756:0; run `wallet enhance` first
+    at run (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:1335:29)
+    at scanVault (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:1814:27)
+    at bondFlow (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:1824:9)
+    at resume (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:1952:32)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:1999:82
+
+== recovery attempt 3 (vault enhanced for the top-up note; same funds as attempt 2) ==
+[resume 2afb29e4] state SETTLING
+[resume 2afb29e4] balance window (4474811, 4474851] manifest-fixed (was operator-chosen after the clear)
+[resume 2afb29e4] dust already present at leaf 0's balance address before the window start
+[resume 2afb29e4] balance already paid for leaf 0 in (4474811, 4474851]
+[resume 2afb29e4] balance window closed; the window was (4474811, 4474851], tip now 4474961
+[resume 2afb29e4] settle exit 0; receipts {"balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1":1,"balance-late:e718a592c00380ed32a61367acad42fa1a95e445897d8a4f128093057c3d0a85:ironwood:1":20000,"leaf:1":200000,"leaf:3":200000,"seller":700000}; obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+[resume 2afb29e4] RESULT PASS (verify exit 0)
+
+== recovery close-out: every funded value of run 2afb29e4 is at its intended destination (leaf:1 200000, leaf:3 200000, seller 700000, the late row 1 zat and the pre-window dust row 20000 both at leaf 0's own refund destination). The repair top-up (0ba380f4…, 100,000 zats) minus network fees remains in the auction vault as fee reserve (vault total 104,999 zats at 4474967): sweeping a per-auction DKG vault needs the full FROST signing flow and is not worth 0.00105 ZEC of testnet reserve — recorded here, not hidden. ==

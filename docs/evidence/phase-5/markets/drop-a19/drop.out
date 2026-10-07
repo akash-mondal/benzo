@@ -1,0 +1,29 @@
+auction 2afb29e43beb6da4932b1e827714aa22381e95d867d6aa6a97717268ff26421e mode uniform
+funding 8402d7aad42e38f2448f228b094f13e4c1258a92d2a2c66cb2e5b250b75f878a
+PASS drop-cli-equals-pure-clear outcomes winner,unfilled,winner,below_reserve price 0
+balance window (4474811, 4474851] manifest-fixed (was operator-chosen after the clear)
+dust sent to leaf 0's balance address before the window opens, at tip 4474744 (out of window: never counts as payment, refunds to leaf 0) (e718a592c00380ed32a61367acad42fa1a95e445897d8a4f128093057c3d0a85)
+balance paid 300000 for leaf 0, sent at tip 4474813 (window (4474811, 4474851]; a logged height is the SEND tip, never a mined height) (e625b8d397bb5b02a4e53010a106ab17027d51ae1d0df8f77f6861ea433b195b)
+balance window closed; the window was (4474811, 4474851], tip now 4474852
+A19 F7: 1-zat note sent to leaf 0's balance address AFTER both hosts signed batch 1 (e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04)
+PASS drop-late-settle1 batch 1 finalized and published despite the late note
+A19 F7: the late note balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1 mined at 4474860 (1 zats)
+A19 F7: the claim for balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1 recorded (owner-signed to leaf 0's own destination)
+PASS drop-late-refund-gate settle-2 exit 0; plan row matured false; paid false; entry pending (note at ~4 confs)
+PASS drop-late-refund-paid settle-3 exit 0; receipt [{"amount_zats":"1","auction_id":"2afb29e43beb6da4932b1e827714aa22381e95d867d6aa6a97717268ff26421e","output_index":0,"party":"balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1","pool":"ironwood","txid":"152be85e9f65cef71db1cc958cab6fc1ee543458933e209aa0858c261347f9ef"}]
+PASS drop-expected-equals-obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+PASS drop-settled exit 0
+PASS drop-receipts {"balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1":1,"leaf:1":200000,"leaf:3":200000,"seller":700000}
+PASS drop-landed [1,200000,0,200000,0]
+PASS drop-late-landed leaf 0's own destination holds 1 (the late row refunded to its slot's bidder)
+PASS drop-cold-verify
+PASS drop-defaults [2]
+PASS drop-seller-landed 700000
+PASS drop-reserve-opening reserve_opening present; verify exit 0
+PASS drop-defaults-maps 4 agreeing verified maps
+PASS drop-swapped-defaults-refused exit 1
+PASS drop-serial-replay-enforced exit 1
+PASS drop-late-row-attested entry paid; attesting maps 2 (distinct 2)
+PASS drop-late-claim-published 1 published claims
+PASS drop-unpaid-rows-pending unpaid rows [{"party":"balance-late:e718a592c00380e…","state":"pending"}]
+RESULT PASS drop
