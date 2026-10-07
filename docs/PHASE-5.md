@@ -344,4 +344,7 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
   3. **F9:** a late or excess refund row is payable only from notes with the same confirmations rule as strays and sources (`confirmations: 10` / ZIP-315). Until then it stays pending, so a reorg can never make the vault refund money it never received.
   4. **F10:** in-window value above `balance_due_zats` at a balance address becomes one immutable `balance-excess:<leaf_index>` refund row to that leaf. It is final, because settlement waits until the window has closed. Correct the README honest-limit line to match.
   5. **Re-proof:** each finding red before and green after, with a mutation for F7 (the snapshot binding restored) and F9 (the confirmation gate removed); one clean live `drop` run; the `launch-meet` corpus re-verified with `/allocation` serving. Reviewer R re-reviews.
+  6. (2026-10-07, answers A19 Questions 7–9.)
+     - **Q7, Q8 accepted.** The F3 repro tampers a PAID entry. Pre-A19 bond corpora fail the new shape, as the Q4 historical class does, and the re-verification target is each phase's newest corpus.
+     - **Q9:** a **defaulted** winner's in-window payment (below the due) is **refunded in full** as its `balance-excess:<leaf_index>` row. A default forfeits the bond and the lot, never the balance money the bidder sent. The vault keeps nothing at a balance address beyond what settles a paid winner's due. The README honest-limit line says exactly that.
 
