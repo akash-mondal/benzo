@@ -1,0 +1,11 @@
+r42-f15 RED BEFORE — tools/repro/r42-f15-note-refunds.ts (its source copied into a pristine git worktree of fda25b4 and compiled THERE, so it drives that tree's own clear/features + settle/ledger). The F15 defect reproduces in BOTH re-classification orders: an already-refunded note re-classified by a reorg into the other refund-row class gets a second refund row that is created and REFUNDED — the same note's value paid twice (the per-class key only enforces party uniqueness within one class).
+commit fda25b4150255ac57185093d5d60679105edec13
+utc 2026-10-07T18:20:48.113Z
+command node tmp/r42-f15-note-refunds.mjs (tools/repro/r42-f15-note-refunds.ts)
+tree ?? tools/repro/r42-f15-note-refunds.ts
+FAIL f15-late-after-paid-excess excess row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified late row CREATED and refunded (DOUBLE REFUND); refund rows for the note: 2
+ERROR f15-late-after-paid-excess excess row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified late row CREATED and refunded (DOUBLE REFUND); refund rows for the note: 2
+FAIL f15-excess-after-paid-late late row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified excess row CREATED and refunded (DOUBLE REFUND)
+ERROR f15-excess-after-paid-late late row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified excess row CREATED and refunded (DOUBLE REFUND)
+PASS f15-unrelated-note-rows note b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:1 keeps its own refunded row (5000); the newly seen note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 gets its own row (refunded) — the key never blocks unrelated notes
+RESULT FAIL r42-f15-note-refunds

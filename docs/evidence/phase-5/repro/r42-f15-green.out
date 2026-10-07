@@ -1,0 +1,18 @@
+r42-f15 GREEN AFTER — tools/repro/r42-f15-note-refunds.ts at the note-identity key fix. Both orders refuse the second row (the note key logs and never creates it) and nothing pays the note twice; an unrelated note keeps its own row.
+commit fd672f42b13d77fabbf919a9fa250f8440e86aee
+utc 2026-10-07T18:43:04.374Z
+command node tmp/r42-f15-note-refunds.mjs (tools/repro/r42-f15-note-refunds.ts)
+tree M clear/features.ts
+tree  M cli/commands/sign-approve.ts
+tree  M docs/evidence/phase-1/versions.txt
+tree  M settle/cli.ts
+tree  M settle/ledger.ts
+tree ?? tools/repro/r42-f15-note-refunds.ts
+WARN refund row balance-late:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 not created: note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 already backs a refund row (one note one refund; Ruling R42 F15)
+WARN pinned refund row balance-excess:0 vanished from the re-derivation after payment; keeping it
+PASS f15-late-after-paid-excess excess row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified late row not created (note key); refund rows for the note: 1
+WARN refund row balance-excess:0 not created: note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 already backs a refund row (one note one refund; Ruling R42 F15)
+WARN pinned refund row balance-late:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 vanished from the re-derivation after payment; keeping it
+PASS f15-excess-after-paid-late late row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified excess row not created (note key)
+PASS f15-unrelated-note-rows note b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:1 keeps its own refunded row (5000); the newly seen note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 gets its own row (refunded) — the key never blocks unrelated notes
+RESULT PASS r42-f15-note-refunds
