@@ -273,6 +273,14 @@ async function run(name: string, link?: SeriesLink) {
   if (sc.marketplace) writeFileSync(path.join(publicDir, "marketplace.json"), jsonBytes(sc.marketplace));
   const signer = packet.signer, manifestFile = path.join(publicDir, "manifest.json");
   const sealed = bids.map((b, i) => ({ ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: String(b.price), quantity: b.quantity ?? 1, address: deposits[i], refund_ua: refunds[i], ...(b.owner ? { owner_private_hex: b.owner.private_hex } : {}), ...(b.lot ? { lot: b.lot } : {}), ...(b.holder ? { holder: true } : {}), ...(b.deliver ? { deliver: b.deliver } : {}) }), address: deposits[i] }));
+  // A20 (R42.1) live stray-claim leg, stage 1: one MORE sealed bid — its own fresh owner key — sealed here
+  // (within the submission deadline) and NEVER admitted. Its memo is a valid sealed bid of this auction; the
+  // note it pays for is a stray deposit (settle/deposits.ts strayNotes), claimed later with its own owner key.
+  let straySealed: any = null;
+  if (sc.strayClaim) {
+    const owner = generateOwnerKey();
+    straySealed = { ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: "280", quantity: 1, address: deposits[0], refund_ua: refunds[0], owner_private_hex: owner.private_hex }), owner, destination: bidder() };
+  }
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
   writeFileSync(path.join(privateDir, "sealed.json"), JSON.stringify(sealed));
   let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: String(sc.reserve ?? 60000) }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
@@ -291,13 +299,15 @@ async function run(name: string, link?: SeriesLink) {
   } finally { dropLock(lock); } // held until the funding matured, so the wallet's change is spendable
   writeFileSync(path.join(privateDir, "funding.json"), JSON.stringify({ txid: paid.txid }));
   for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
-  // A20 (R42.1) live stray-claim leg: one MORE sealed bid — its own fresh owner key — paid in its own
-  // transaction to a deposit address, and NEVER admitted: it is a stray deposit (settle/deposits.ts
-  // strayNotes), claimed with its own owner key to a fresh destination. The F11 fix is proven live: the
-  // batch that pays it must attest its note identity and memo hash per row in two agreeing host-signed
-  // approval maps, which ${name}-stray-row-attested checks below.
-  let stray: { party: string; amount: number; memo_sha256: string; destination: string } | null = null;
-  if (sc.strayClaim) stray = await strayClaimFlow(name, id, manifestFile, signer, deposits[0], bidder(), say);
+  // A20 stray-claim leg, stage 2: the stray is paid in its OWN transaction to the deposit address (never
+  // admitted) and matures beside the run's other notes.
+  let strayBefore: Set<string> | null = null;
+  if (straySealed) {
+    const scan0 = () => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
+    z.sync(`vaults/${id}/wallet`); z.enhance(`vaults/${id}/wallet`);
+    strayBefore = new Set(scan0().map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`));
+    say(`A20 F11: stray deposit paid to ${deposits[0].slice(0, 18)}… (never admitted) ${z.pay(straySealed.uri)}`);
+  }
   while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000);
   if (Date.now() / 1000 >= manifest.T_freeze) throw new Error("deposits matured after T_freeze");
   benzo(["freeze", "--id", id]);
@@ -362,6 +372,25 @@ async function run(name: string, link?: SeriesLink) {
   // Part 2: the drop's bond-then-pay flow and the buyback's serial intake run after the clear, before settlement.
   if (sc.balancePays) await bondFlow(id, sc, d, say);
   if (sc.intakeSerials) intakeFlow(name, id, d, sc.intakeSerials, say);
+  // A20 stray-claim leg, stage 3: the stray's own owner key claims its refund to a fresh destination; the
+  // F11 fix is proven live by ${name}-stray-row-attested (the paying batch's two agreeing maps attest the
+  // note identity and the SHA-256 of the scanned memo).
+  let stray: { party: string; amount: number; memo_sha256: string; destination: string } | null = null;
+  if (straySealed) {
+    const scanS = () => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
+    let note: any = null;
+    for (let i = 0; i < 360 && !note; i++) {
+      z.sync(`vaults/${id}/wallet`); z.enhance(`vaults/${id}/wallet`);
+      note = scanS().find((n: any) => n.address === deposits[0] && n.height && !strayBefore!.has(`${n.txid}:${n.pool}:${n.action_index}`));
+      if (!note) await sleep(10_000);
+    }
+    if (!note) throw new Error("the stray deposit never mined");
+    const party = `deposit:${note.txid}:${note.pool}:${note.action_index}`;
+    const request = benzoRaw(["claim-refund", "--id", id, "--party", party, "--destination", straySealed.destination, "--owner-key-stdin"], straySealed.owner.private_hex);
+    benzo(["claim-refund", "--id", id, "--defer", "true"], request);
+    stray = { party, amount: Number(note.value_zats), memo_sha256: hash(Buffer.from(straySealed.envelope_hex, "hex")), destination: straySealed.destination };
+    say(`A20 F11: the stray ${party} mined at ${note.height} (${note.value_zats} zats); its own owner key claimed it to a fresh destination`);
+  }
   hostEnvelopeOpens(id, publicDir);
   const settleLog = path.join(OUT, `${name}-settle.log`);
   writeFileSync(settleLog, "");
@@ -461,33 +490,6 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
   }
   say(`balance window closed; the window was (${start}, ${start + blocks}], tip now ${safeTip()}`);
 }
-// A20 (R42.1, F11) live stray-claim leg: a sealed bid with its own fresh owner key is paid in its own
-// transaction to a manifest-public deposit address and never admitted — a stray deposit. Its memo is a valid
-// sealed bid of this auction, so its own owner key claims the refund (`benzo claim-refund`, the stray claim
-// path of settle/plan.ts) to a fresh destination. The note identity and the SHA-256 of its scanned memo must
-// be attested per row by the two agreeing host-signed maps of the batch that pays it — the exact F11 fix.
-async function strayClaimFlow(name: string, id: string, manifestFile: string, signer: string, depositUa: string,
-  destination: string, say: (s: string) => void) {
-  const scanVault = () => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
-  const owner = generateOwnerKey();
-  const sealedStray = benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer],
-    { price_zats: "280", quantity: 1, address: depositUa, refund_ua: destination, owner_private_hex: owner.private_hex }); // a valid in-band price; the note VALUE is C (the payment URI)
-  const before = new Set(scanVault().map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`));
-  say(`A20 F11: stray deposit paid to ${depositUa.slice(0, 18)}… (never admitted) ${z.pay(sealedStray.uri)}`);
-  let note: any = null;
-  for (let i = 0; i < 360 && !note; i++) {
-    z.sync(`vaults/${id}/wallet`); z.enhance(`vaults/${id}/wallet`);
-    note = scanVault().find((n: any) => n.address === depositUa && n.height && !before.has(`${n.txid}:${n.pool}:${n.action_index}`));
-    if (!note) await sleep(10_000);
-  }
-  if (!note) throw new Error("the stray deposit never mined");
-  const party = `deposit:${note.txid}:${note.pool}:${note.action_index}`;
-  const request = benzoRaw(["claim-refund", "--id", id, "--party", party, "--destination", destination, "--owner-key-stdin"], owner.private_hex);
-  benzo(["claim-refund", "--id", id, "--defer", "true"], request);
-  say(`A20 F11: the stray ${party} mined at ${note.height} (${note.value_zats} zats); its own owner key claimed it to a fresh destination`);
-  return { party, amount: Number(note.value_zats), memo_sha256: hash(Buffer.from(sealedStray.envelope_hex, "hex")), destination };
-}
-
 // A19 (R41 F7/F9) proof vehicle: ONE 1-zatoshi note sent to a winner's manifest-public balance address AFTER the
 // two signer hosts approved batch 1 — the exact wedge window of Reviewer R's F7 repro. The run must complete end
 // to end (R41.1): batch 1 finalizes and publishes with the new row `pending`, the owner (the slot's own leaf key)
