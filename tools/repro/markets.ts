@@ -243,7 +243,7 @@ async function run(name: string, link?: SeriesLink) {
   const id = process.env.BNZ_MARKETS_ID ?? randomBytes(32).toString("hex"); // the cross-chain demos pre-bind the id to their escrow lock (lock before bidding)
   say(`auction ${id} mode ${sc.mode}`);
   // Concurrent DKGs on the same hosts and frostd collide (live: "bob dkg exited 1"); processes take turns.
-  const dkgLock = path.join(STATE, "run", "markets-dkg.lock");
+  const dkgLock = assertScratch(path.join(ROOT, "tmp", "markets-dkg.lock")); // R43: the lock lives under tmp/
   await takeLock(dkgLock, 600_000);
   let k: Awaited<ReturnType<typeof dkgOnHosts>>; try { k = await dkgOnHosts(id, benzo); } finally { dropLock(dkgLock); }
   const envelopeKeys = hostEnvelopeKeys(), witnessPubs = hostWitnessKeys();
