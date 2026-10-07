@@ -1,17 +1,9 @@
-commit 178048f03525fd5a15ce3e8b0a9e4587b2490257 (working tree not clean at run time)
-utc 2026-10-07T00:37:29.572Z
+# CORRECTION (same run id, right artifact): 3709d41's r40-f2-green.out was captured from the MUTATION's stale esbuild bundle in tmp/ (it shows RESULT FAIL). This file is the real green run: bundle rebuilt from the clean tree at 178048f, RESULT PASS. Lesson recorded in STATUS (the mutation step must rebuild the bundle before the green re-run).
+commit 3709d41baa6cc795d52958f97cac710267741bb9
+utc 2026-10-07T00:37:37.979Z
 command node tmp/r40-f2-ledger-growth.mjs (tools/repro/r40-f2-ledger-growth.ts)
-tree ?? docs/evidence/phase-5/mutations/A18-F2.out
-tree ?? docs/evidence/phase-5/mutations/A18-F2.patch
-tree ?? docs/evidence/phase-5/repro/r40-f2-green.out
-tree ?? docs/evidence/phase-5/repro/r40-f2-r38-n4.out
-tree ?? docs/evidence/phase-5/repro/r40-f2-red-before.out
-FAIL f2-late-rows-immutable rows note A [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"}]; rows A+B [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"80000"}] (a new note adds a new row; the ready rows never change)
-ERROR f2-late-rows-immutable rows note A [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"}]; rows A+B [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"80000"}] (a new note adds a new row; the ready rows never change)
-FAIL f2-late-note-after-settled-batch batch 1 settled (balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0=exception,leaf:0=refunded); one more late note -> pin accepted the new row undefined; claim batch allocates ["balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0"]
-ERROR f2-late-note-after-settled-batch batch 1 settled (balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0=exception,leaf:0=refunded); one more late note -> pin accepted the new row undefined; claim batch allocates ["balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0"]
-FAIL f2-no-amount-change changed amount -> null (rows are immutable)
-ERROR f2-no-amount-change changed amount -> null (rows are immutable)
-FAIL f2-reorg-drop note B reorged away -> pin threw "refused: settlement obligation changed on resume" (WEDGE)
-ERROR f2-reorg-drop note B reorged away -> pin threw "refused: settlement obligation changed on resume" (WEDGE)
-RESULT FAIL r40-f2-ledger-growth
+PASS f2-late-rows-immutable rows note A [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"}]; rows A+B [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"},{"party":"balance-late:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:ironwood:1","kind":"refund","amount_zats":"30000"}] (a new note adds a new row; the ready rows never change)
+PASS f2-late-note-after-settled-batch batch 1 settled (balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0=exception,leaf:0=refunded); one more late note -> pin accepted the new row {"party":"balance-late:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:ironwood:1","kind":"refund","amount_zats":"30000","state":"exception","batch":null,"txid":null,"output_index":null,"pool":null}; claim batch allocates ["balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","balance-late:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:ironwood:1"]
+PASS f2-no-amount-change changed amount -> "refused: settlement obligation changed on resume" (rows are immutable)
+PASS f2-reorg-drop note B reorged away -> pin dropped the unpaid row and proceeded
+RESULT PASS r40-f2-ledger-growth
