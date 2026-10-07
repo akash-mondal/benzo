@@ -29,7 +29,9 @@ console.log(`commit ${execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT, en
 console.log(`utc ${new Date().toISOString()}`);
 for (const l of execFileSync("git", ["status", "--porcelain"], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").filter(Boolean)) console.log(`tree ${l}`);
 
+// This driver rmSync's its state dir at startup; refuse the real one (the A20 incident, docs/STATUS.md).
 const state = path.resolve(ROOT, process.env.BNZ_STATE_DIR ?? "tmp/r42-f12-state");
+if (state === path.resolve(ROOT, ".benzo")) throw new Error("refusing to run against the real state dir; pass BNZ_STATE_DIR=tmp/...");
 const publicDir = path.join(ROOT, "tmp/r42-f12-public");
 rmSync(state, { recursive: true, force: true }); rmSync(publicDir, { recursive: true, force: true });
 mkdirSync(state, { recursive: true }); mkdirSync(publicDir, { recursive: true });

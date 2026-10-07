@@ -34,7 +34,12 @@ console.log(`utc ${new Date().toISOString()}`);
 console.log("command node tmp/r41-f7-map-wedge.mjs (tools/repro/r41-f7-map-wedge.ts)");
 for (const l of execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim().split("\n").filter(Boolean)) console.log(`tree ${l}`);
 
+// This driver rmSync's its state dir at startup and publish() resolves the same path from BNZ_STATE_DIR —
+// which settle/io self-loads from .env (./.benzo) when the documented override is missing. Running it
+// without the override once deleted the real state directory (A20 incident, docs/STATUS.md); it now
+// refuses to touch the real one.
 const state = path.resolve(ROOT, process.env.BNZ_STATE_DIR ?? "tmp/r41-f7-state");
+if (state === path.resolve(ROOT, ".benzo")) throw new Error("refusing to run against the real state dir; pass BNZ_STATE_DIR=tmp/...");
 rmSync(state, { recursive: true, force: true });
 const publicDir = path.join(ROOT, "tmp/r41-f7-public");
 rmSync(publicDir, { recursive: true, force: true });
