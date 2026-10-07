@@ -347,4 +347,20 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
   6. (2026-10-07, answers A19 Questions 7–9.)
      - **Q7, Q8 accepted.** The F3 repro tampers a PAID entry. Pre-A19 bond corpora fail the new shape, as the Q4 historical class does, and the re-verification target is each phase's newest corpus.
      - **Q9:** a **defaulted** winner's in-window payment (below the due) is **refunded in full** as its `balance-excess:<leaf_index>` row. A default forfeits the bond and the lot, never the balance money the bidder sent. The vault keeps nothing at a balance address beyond what settles a paid winner's due. The README honest-limit line says exactly that.
+- R42 2026-10-07 (head): **Reviewer R on A19 (`benzo-sol/reports/pr-a19-r41.md`, FIX-FIRST).** F2, F7, F8, F9, F10 and R41.6 are FIXED; refund-row conservation is zat-exact; the evidence is honest. The exhaustive wedge-class sweep the head ordered found the class in **older** code: F11 (P0, the R23 strays statement), F12 (P1, defaults and pin), F13 and F14 (P1, one-sided verify) and F15 (P2). **The rule (R41) is final and now applies to every set in the system:** a signature or a pin never covers a set that third parties or chain drift can still change. **Every chain-derived fact is attested per row, in the approval maps of the batch that pays it, and checked map-to-map, never against a live re-derivation.** Fixes (Builder A, A20):
+  1. **F11 (P0): strays are attested per row at payment, exactly as R41.1.**
+     - The approval map of the batch that pays a stray carries that stray's note identity and memo hash.
+     - `benzo verify` requires every published stray claim to appear in two agreeing maps from distinct pinned signers.
+     - Delete the closed "one strays statement per auction" design (`checkStraysCerts`, the set-equality in `cli/commands/witness.ts`, and the strays certificate requirement). The witness set keeps certifying the **frozen root** only, which is fixed before R.
+     - Prove it with the reviewer's `r41-strays-wedge` (both legs: a late stray, and a stray between two witness runs). Each must complete settlement and verify.
+  2. **F12 (P1):**
+     - `defaults` are attested in the paying batch's maps and compared map-to-map, never against a fresh plan.
+     - `Ledger.pin` is monotone for every chain-derived amount. A re-derivation that differs from a pinned, unpaid row is logged and the pinned row stands. It never throws.
+     - Honest limit: a reorg deeper than the 10-confirmation gate is outside the model, as for any Zcash wallet.
+  3. **F13 and F14 (P1): verify is two-sided.**
+     - Every paid refund entry must have its row attested in two maps of its paying batch.
+     - **Every** settlement receipt to a refund-class party must be explained by an entry and a map.
+     - An unexplained receipt or entry fails verify with a specific ERROR.
+  4. **F15 (P2):** one note backs at most one refund row across all row classes (stray, late, excess, collision). The ledger keys refunds by note identity, so a reorg re-classification cannot pay the same note twice.
+  5. **Re-proof:** each finding red before and green after (the reviewer's repros are under `benzo-sol/lab/pr-a19/tests/`), with mutations for F11 (the closed set restored), F13 (the one-sided check restored) and F15 (the per-class key restored); one clean live `drop` run plus one stray-claim live leg; and every earlier spec family that used strays certs re-verified. Reviewer R re-reviews.
 
