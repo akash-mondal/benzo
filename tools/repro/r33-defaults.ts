@@ -96,7 +96,7 @@ const settlementRows = [...obligations].map(([party, amount_zats]) => ({ party, 
 const receipts = [...obligations].map(([party, amount_zats], i) => ({ auction_id: auctionId, party, txid: createHash("sha256").update(`r33-settle-${party}`).digest("hex"), pool: "ironwood", output_index: i, amount_zats }));
 
 // ---- the signer hosts' G-4 maps carry the defaults list they derived (here: the truth) -----------------
-const maps = [0, 1].map(i => signApprovalMap({ auction_id: auctionId, batch: 1, txid: receipts[0].txid, outputs: [{ party: "leaf:2", output_index: 0 }, { party: "seller", output_index: 1 }], defaults: truth }, W[i].private_hex));
+const maps = [0, 1].map(i => signApprovalMap({ auction_id: auctionId, batch: 1, txid: receipts[0].txid, outputs: [{ party: "leaf:2", output_index: 0 }, { party: "seller", output_index: 1 }], defaults: truth, balance_refunds: [] }, W[i].private_hex));
 const statement = freezeStatement(manifest as any, frozen);
 
 // ---- assemble the published directory exactly as the product publishes it ------------------------------
@@ -104,7 +104,7 @@ const doc: any = {
   version: 1, auction_id: auctionId, signer, manifest: packet, state: "SETTLED", receipts: leaves.map(l => signRecord({ auction_id: auctionId, manifest_hash: packet.sha256, ciphertext_hash: l.ciphertext_hash, deposit: l.deposit, leaf_index: l.leaf_index }, signerPem)),
   frozen, result, opened, beacon,
   witness_set: witnessSet, witness_cert: [{ statement, signatures: [signStatement(statement, W[0].private_hex), signStatement(statement, W[1].private_hex)] }],
-  settlement: { rows: settlementRows, receipts, offline_signer: "carol", ignored: [], defaults: truth, approval_maps: maps },
+  settlement: { rows: settlementRows, receipts, offline_signer: "carol", ignored: [], defaults: truth, balance_refunds: [], approval_maps: maps },
 };
 const writeDir = (dir: string, settlement: typeof doc.settlement) => {
   rmSync(dir, { recursive: true, force: true });

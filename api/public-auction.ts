@@ -600,7 +600,27 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       new Set(refunds.map(r => r.party)).size === refunds.length, "balance refunds shape");
     if (!m.bond) { requireThat(refunds === undefined, "balance refunds without bond"); return; }
     if (!pub.result) { requireThat(refunds === undefined, "balance refunds without a result"); return; } // cancelled before the clear: there are no balances to bind
-    if (pub.settlement) requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
+    if (pub.settlement) {
+      requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
+      // Ruling R40 item 4 (F3): the counts are host-signed data — a settled bond auction always publishes
+      // them, so a coordinator can never omit real refunds silently.
+      requireThat(pub.settlement.balance_refunds !== undefined, "settled bond auction lacks the balance refund counts");
+    }
+  });
+  // Ruling R40 item 4 (F3): `settlement.balance_refunds` is bound to what the signer hosts signed, exactly
+  // like `defaults`. verify requires it to equal the per-note list in two VERIFIED approval maps from
+  // distinct pinned signers. A coordinator-only list — the reviewer's fabricated (20,000→25,000) or omitted
+  // counts, for which rows and receipts can be regenerated to agree — is refused here with its own error.
+  run("balance-refs", () => {
+    const m = pub.manifest;
+    if (!m.bond || !pub.settlement || pub.settlement.balance_refunds === undefined) return;
+    requireThat(pub.witnessSet && m.witness_set_hash === witnessSetHash(pub.witnessSet!), "host-signed balance refunds need a pinned witness set");
+    const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), m.auction_id).keys;
+    const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));
+    const same = (mp: { balance_refunds?: import("../clear/features").BalanceRefund[] }) => jsonBytes(mp.balance_refunds ?? null).equals(jsonBytes(pub.settlement!.balance_refunds!));
+    if (maps.length > 0 && !maps.some(same)) requireThat(false, "settlement balance_refunds differ from the host-signed approval maps");
+    requireThat(new Set(maps.filter(same).map(mp => mp.witness)).size >= 2,
+      "settlement balance_refunds are not carried by two agreeing host-signed approval maps");
   });
   // R33 item 3 (P1-3): `settlement.defaults` is bound to what the signer hosts signed. verify requires it to
   // equal the defaults list in two VERIFIED approval maps from distinct pinned signers (the manifest's witness

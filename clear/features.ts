@@ -217,13 +217,16 @@ export function balanceSettlement(
   requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
   const byLeaf = balanceAddressMap(result, leaves, m);
   const { start, end } = balanceWindow(m);
-  const slots = new Map<string, number>(); // balance address -> its one leaf (R40 item 1: one bid per slot)
-  for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, leaf);
   const sources: string[] = [], refunds: BalanceRefund[] = [];
   for (const n of notes) {
-    const leaf = slots.get(n.address);
-    if (leaf === undefined || !n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
-    if (n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+    if (!n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
+    // Ruling R40 item 5 (F5): a note at a balance address whose slot has a leaf — winner OR loser — refunds
+    // to that leaf through the same per-note row (only a paid winner's in-window notes are payment). A note
+    // at the balance address of a slot with NO leaf is never swept and gets no row: nobody can claim it (the
+    // README honest limits list it as unrecoverable).
+    const leaf = balanceLateLeafIndex(m, leaves, n);
+    if (leaf === null) continue;
+    if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
   }
   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
