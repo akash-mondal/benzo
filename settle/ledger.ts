@@ -3,6 +3,7 @@ import {DatabaseSync} from "node:sqlite";
 import {mkdirSync,readFileSync,statSync} from "node:fs";
 import path from "node:path";
 import {hash,jsonBytes,requireThat} from "../manifest/schema";
+import {isRefundRowParty} from "../clear/features";
 export type Obligation={party:string;kind:"payout"|"refund";amount_zats:string};
 export type Row=Obligation & {batch:number|null;state:string;txid:string|null;output_index:number|null;pool:string|null};
 export class Ledger {
@@ -43,14 +44,15 @@ export class Ledger {
         if(!old)this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
         else if(old.state==="exception"&&ready.has(o.party))this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
       }
-      // Ruling R40 item 2 (F2): refund rows never change and a newly seen late note ADDS its own row, so no
-      // chain state a third party can create may make settlement refuse. A `balance-late:` row the plan no
-      // longer produces (its note reorged away or reclassified) is dropped while no money has moved for it,
-      // and kept as its own history otherwise; any other row vanishing is still a refusal.
+      // Ruling R40 item 2 (F2) + Ruling R41 item 4 (F10): refund rows never change and a newly seen late note
+      // ADDS its own row, so no chain state a third party can create may make settlement refuse. A
+      // `balance-late:`/`balance-excess:` row the plan no longer produces (its note reorged away or
+      // reclassified) is dropped while no money has moved for it, and kept as its own history otherwise; any
+      // other row vanishing is still a refusal.
       const parties=new Set(plan.map(p=>p.party));
       for(const r of this.rows()) {
         if(parties.has(r.party))continue;
-        if(r.party.startsWith("balance-late:")) {
+        if(isRefundRowParty(r.party)) {
           if(["exception","seen","eligible"].includes(r.state))this.db.prepare("DELETE FROM obligations WHERE party=?").run(r.party);
           continue;
         }

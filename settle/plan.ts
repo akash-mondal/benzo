@@ -15,7 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollis
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement,isBalanceLateParty,isRefundRowParty,balanceLateNote,balanceLateLeafIndex,type BalanceRefund} from "../clear/features";
+import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement,isRefundRowParty,refundRowLeafIndex,type BalanceRefund} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -173,12 +173,12 @@ try {
       const o=opened?.find(x=>x.leaf_index===Number(party.slice(5)));
       return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
     }
-    // Ruling R40 items 2/5: a balance-late row refunds to the deposit slot's own leaf (winner or loser), so
-    // the claim's one-time owner key is that leaf's key, from the signer's own fresh tlock opening — the
-    // shared rule (clear/features.ts balanceLateLeafIndex), never operator input.
-    if(isBalanceLateParty(party)) {
-      const n=balanceLateNote(balNotes.length?balNotes:notes,party);
-      const leaf=n?balanceLateLeafIndex(m as any,(src.frozen?.leaves??[]) as any,n):null;
+    // Ruling R40 items 2/5 + Ruling R41 item 4 (F10): a refund row refunds to the deposit slot's own leaf
+    // (`balance-late:`: the note's slot; `balance-excess:<leaf>`: its own key), so the claim's one-time owner
+    // key is that leaf's key, from the signer's own fresh tlock opening — the shared rule
+    // (clear/features.ts refundRowLeafIndex), never operator input.
+    if(isRefundRowParty(party)) {
+      const leaf=refundRowLeafIndex(m as any,(src.frozen?.leaves??[]) as any,party,balNotes.length?balNotes:notes);
       const o=leaf!==null?opened?.find(x=>x.leaf_index===leaf):undefined;
       return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
     }
