@@ -1,0 +1,20 @@
+r41-f9 RED BEFORE — tools/repro/r41-f9-confirmations.ts run against a pristine git-archive of 5bca097 (no confirmations gate; the tree lines are the parent repo's, not the code under test)
+commit 8707e878080ff21818a5e3b719e69502f3ac18e7
+utc 2026-10-07T10:07:10.361Z
+command node tmp/r41-f9-confirmations.mjs (tools/repro/r41-f9-confirmations.ts)
+tree M clear/features.ts
+tree  M cli/host-derive.ts
+tree  M cli/product.ts
+tree  M settle/plan.ts
+tree  M tools/repro/r38-n4.ts
+tree  M tools/repro/r40-f2-ledger-growth.ts
+tree  M tools/repro/r40-f5-rows.ts
+tree  M tools/repro/r41-f7-map-wedge.ts
+tree ?? tools/repro/r41-f9-confirmations.ts
+FAIL f9-late-row-not-payable row present amount 7 matured undefined at 6 confirmations (must exist and stay pending: red before — no gate, the row is payable at 1 conf)
+ERROR f9-late-row-not-payable row present amount 7 matured undefined at 6 confirmations (must exist and stay pending: red before — no gate, the row is payable at 1 conf)
+FAIL f9-late-row-payable-after-confirmations matured at 9 confs undefined; at 10 confs undefined (m.confirmations = 10)
+ERROR f9-late-row-payable-after-confirmations matured at 9 confs undefined; at 10 confs undefined (m.confirmations = 10)
+FAIL f9-gate-stricter-rule confirmations 20 at 19 confs matured undefined; confirmations 3 at 6 confs matured undefined (gate = max(m.confirmations, 10))
+ERROR f9-gate-stricter-rule confirmations 20 at 19 confs matured undefined; confirmations 3 at 6 confs matured undefined (gate = max(m.confirmations, 10))
+RESULT FAIL r41-f9-confirmations

@@ -1,0 +1,8 @@
+commit 668e5fd4b1f003fb5d5d8b74d7bdaa9b123aa6cd
+utc 2026-10-07T10:15:02.370Z
+command node tmp/r41-f9-confirmations.mjs (tools/repro/r41-f9-confirmations.ts)
+tree ?? docs/evidence/phase-5/repro/r41-f9-green.out
+PASS f9-late-row-not-payable row present amount 7 matured false at 6 confirmations (must exist and stay pending: red before — no gate, the row is payable at 1 conf)
+PASS f9-late-row-payable-after-confirmations matured at 9 confs false; at 10 confs true (m.confirmations = 10)
+PASS f9-gate-stricter-rule confirmations 20 at 19 confs matured false; confirmations 3 at 6 confs matured false (gate = max(m.confirmations, 10))
+RESULT PASS r41-f9-confirmations
