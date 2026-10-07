@@ -231,6 +231,29 @@ export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string,
   return openEnvelopePayload(envelopeCtHex, recipientPrivateHex, network).refund;
 }
 
+// Ruling R40 item 3 (F4): a launch delivery record is SEALED to the manifest's `envelope_keys` ("as claims
+// do"), so the leaf<->destination join is known only to the envelope-key holders and never to the operator or
+// the published directory. The plaintext is the canonical JSON
+// {v:1, kind:"launch-delivery", destinations:[…]} inside the same fixed 512-byte padded envelope as every
+// claim, so a delivery record and a claim are indistinguishable by length. A payload that does not fit is
+// refused at the winner's client (fail loudly), never truncated. The owner signature covers the sealed
+// record's SHA-256 (the claim-path body), so intake and every host check it without seeing destinations.
+export function sealDelivery(destinations: string[], recipientPublicHexes: string[]): string {
+  requireThat(Array.isArray(destinations) && destinations.length > 0 &&
+    destinations.every(d => typeof d === "string" && d.length > 0 && d.length <= 256) &&
+    new Set(destinations).size === destinations.length, "delivery destinations");
+  return sealPadded(canonical({ v: 1, kind: "launch-delivery", destinations }), recipientPublicHexes);
+}
+export function openDelivery(envelopeCtHex: string, recipientPrivateHex: string): string[] {
+  let doc: any;
+  try { doc = JSON.parse(openPadded(envelopeCtHex, recipientPrivateHex)); } catch { requireThat(false, "delivery payload"); doc = null; }
+  requireThat(doc !== null && typeof doc === "object" && !Array.isArray(doc) && Object.keys(doc).sort().join(",") === "destinations,kind,v" &&
+    doc.v === 1 && doc.kind === "launch-delivery" && Array.isArray(doc.destinations) && doc.destinations.length > 0 &&
+    doc.destinations.every((d: any) => typeof d === "string" && d.length > 0 && d.length <= 256) &&
+    new Set(doc.destinations).size === doc.destinations.length, "delivery payload");
+  return doc.destinations;
+}
+
 // Owner binding over (auction_id, ciphertext_hash, envelope_ct) and the salted public commitment (threat #7/#32).
 export function ownerBinding(auctionIdHex: string, ciphertextHashHex: string, envelopeCtHex: string): Buffer {
   return Buffer.concat([Buffer.from("benzo-envelope-v1"), raw(auctionIdHex, 32), raw(ciphertextHashHex, 32), raw(envelopeCtHex, 0)]);

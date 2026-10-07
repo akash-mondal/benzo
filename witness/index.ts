@@ -178,3 +178,28 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
       verify(null, mapBytes(m), edPublic(m.witness), Buffer.from(m.signature, "hex"));
   } catch { return false; }
 }
+
+// Ruling R40 item 3 (F4): the canonical launch delivery list is host-signed. Each host opens the sealed
+// delivery records with its own envelope key, checks every owner signature against its own openings, builds
+// the canonical list (clear/launch.ts deliveryBatch) and signs `benzo-delivery-list-v1` over its
+// allocation_file_hash with its witness key. `benzo verify` requires two valid signatures from distinct
+// pinned signers — integrity rests on the same 2-of-3 trust as settlement. Domain-separated like every other
+// witness-key signature.
+export type DeliveryListBody = { version: 1; auction_id: string; allocation_file_hash: string };
+export type DeliveryListSig = { witness: string; signature: string };
+const deliveryListBytes = (b: DeliveryListBody) => Buffer.concat([Buffer.from("benzo-delivery-list-v1"),
+  jsonBytes({ version: b.version, auction_id: b.auction_id, allocation_file_hash: b.allocation_file_hash })]);
+export function signDeliveryList(body: DeliveryListBody, privateHex: string): DeliveryListSig {
+  requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
+  requireThat(body && body.version === 1 && /^[0-9a-f]{64}$/.test(String(body.auction_id)) && /^[0-9a-f]{64}$/.test(String(body.allocation_file_hash)), "delivery list body");
+  const key = edPrivate(privateHex);
+  return { witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"),
+    signature: sign(null, deliveryListBytes(body), key).toString("hex") };
+}
+// Total: a forged or unsigned signature is "not verified", never a throw.
+export function verifyDeliveryListSig(s: DeliveryListSig, body: DeliveryListBody, keys: string[]): boolean {
+  try {
+    return !!s && Array.isArray(keys) && keys.includes(s.witness) && /^[0-9a-f]{128}$/.test(String(s.signature)) &&
+      verify(null, deliveryListBytes(body), edPublic(s.witness), Buffer.from(s.signature, "hex"));
+  } catch { return false; }
+}

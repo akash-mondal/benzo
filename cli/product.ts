@@ -7,7 +7,7 @@ import http from 'node:http';
 import {chromium} from '@playwright/test';
 import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
-import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid} from '../envelope';
+import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid,sealDelivery} from '../envelope';
 import {requireShieldedDestination} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
 import {pcztBin,vaultDir} from '../manifest/paths';
@@ -16,10 +16,10 @@ import {pcztBin,vaultDir} from '../manifest/paths';
 import {treasuryBlock,treasuryFunded,treasuryRequired} from '../clear/mode-b';
 import {clientCommon as client,modeEntry} from '../clear/registry';
 import {isBalanceLateParty,balanceLateNote,balanceLateLeafIndex} from '../clear/features';
-import {launchAllocationFile,launchWinners} from '../clear/launch';
+import {launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
-import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,witnessSetHash,type WitnessSet} from '../witness';
+import {checkCertificates,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,verifyDeliveryListSig,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
@@ -50,7 +50,11 @@ export function publish(id:string) {
   // R8 G10 (design §5): the signed witness set travels with every rebuilt document, and the witness-signed
   // certificates placed in the public dir by `benzo witness sign` are carried over instead of clobbered.
   if(a.witness_set)doc.witness_set=a.witness_set;
-  if(a.launch_input)doc.launch_input=a.launch_input; // part 2: launch delivery records, so verify re-derives the clear
+  if(a.launch_input){const {delivery,...rest}=a.launch_input;
+    // Ruling R40 item 3 (F4): the launch DELIVERY records stay private (the ledger only) — the published doc
+    // never carries the leaf<->destination join. The rest of launch_input (holder receipts, mined heights, the
+    // previous result) is public clear input and publishes as before.
+    if(Object.keys(rest).length)doc.launch_input=rest}
   const previous=existsSync(path.join(dir,'auction.json'))?JSON.parse(readFileSync(path.join(dir,'auction.json'),'utf8')):{};
   if(previous.witness_cert)doc.witness_cert=previous.witness_cert;
   // R23 item 1: witness-certified strays statements survive every rebuild of the document.
@@ -83,9 +87,25 @@ export function publish(id:string) {
     })};
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');
+  // Ruling R40 item 3 (F4): launch delivery records stay private. The published doc carries only the canonical
+  // allocation.json and two host signatures (`benzo-delivery-list-v1` over allocation_file_hash) — the signing
+  // hosts' merged `benzo sign delivery` output, recorded by `benzo launch deliver-list`. This gate refuses a
+  // list whose file hash or host signatures do not check; verify re-checks the public invariants and the two
+  // signatures against the pinned witness set.
+  const dl=path.join(sd,'delivery-list.json');
+  if(existsSync(dl)) {
+    const list=JSON.parse(readFileSync(dl,'utf8'));
+    requireThat(list&&typeof list.allocation_file_hash==='string'&&/^[0-9a-f]{64}$/.test(list.allocation_file_hash)&&list.batch&&Array.isArray(list.signatures),'launch delivery list shape');
+    requireThat(hash(jsonBytes(list.batch))===list.allocation_file_hash,'launch allocation file differs from the delivery list');
+    requireThat(list.batch.auction_id===id,'launch delivery list is for another auction');
+    const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
+    const body={version:1 as const,auction_id:id,allocation_file_hash:list.allocation_file_hash};
+    const signed=new Set<string>((list.signatures as any[]).filter((s:any)=>verifyDeliveryListSig(s,body,wkeys)).map((s:any)=>s.witness));
+    requireThat(signed.size>=2,'launch delivery list is not carried by two host signatures; refusing to publish');
+    writeFileSync(path.join(dir,'allocation.json'),jsonBytes(list.batch));
+    doc.delivery_list={allocation_file_hash:list.allocation_file_hash,signatures:list.signatures};
+  }
   save(path.join(dir,'manifest.json'),doc.manifest);if(doc.frozen)save(path.join(dir,'frozen.json'),doc.frozen);if(doc.result)save(path.join(dir,'result.json'),doc.result);
-  // A launch result commits to its allocation file; publish it (same clear inputs, hash re-checked).
-  if(doc.result?.allocation_file_hash){const f=launchAllocationFile({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input});requireThat(hash(f)===doc.result.allocation_file_hash,'launch allocation file differs from the result');writeFileSync(path.join(dir,'allocation.json'),f)}
   save(path.join(dir,'signer.json'),{signer:doc.signer});save(path.join(dir,'receipts.json'),doc.receipts);if(doc.opened)save(path.join(dir,'opened.json'),doc.opened);if(doc.beacon)save(path.join(dir,'beacon.json'),doc.beacon);if(doc.settlement)save(path.join(dir,'summary.json'),doc.settlement);
   if(a.envelopes){doc.envelopes=a.envelopes;save(path.join(dir,'envelope.json'),a.envelopes)}
   save(path.join(dir,'auction.json'),doc);return doc;
@@ -167,7 +187,28 @@ export async function runCommand(command:string,args:string[]) {
   }
   // Part 2 launch flow: winners after opening (no records yet), then each winner's owner-signed delivery record.
   if(command==='launch winners'){requireThat(id,'--id required');const a=read(ledger(id));requireThat(a.state==='OPENED','launch winners after opening, before the clear');return {auction_id:id,winners:launchWinners({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input})}}
+  if(command==='launch deliver'&&o['owner-key-stdin']) {
+    // Bidder side (Ruling R40 item 3, F4): the winner's token-chain destinations are SEALED to the manifest's
+    // `envelope_keys` ("as claims do") and the bid's one-time owner key signs the sealed record's SHA-256 — the
+    // operator records it without seeing the destinations and the published doc never carries the join.
+    requireThat(id&&o['leaf-index']&&/^[0-9]+$/.test(o['leaf-index'])&&o.destinations,'--id --leaf-index --destinations --owner-key-stdin required');
+    const destinations=o.destinations.split(',').filter(Boolean);
+    const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
+    const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
+    requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
+    const delivery_envelope_ct=sealDelivery(destinations,m.envelope_keys!);
+    const body={kind:'launch-deliver',auction_id:id,leaf_index:Number(o['leaf-index']),delivery_envelope_sha256:hash(Buffer.from(delivery_envelope_ct,'hex'))};
+    return {leaf_index:Number(o['leaf-index']),delivery_envelope_ct,owner_sig:signStatement(owner,body)};
+  }
   if(command==='launch deliver'){requireThat(id,'--id required');const r=ac('deliver',id,input(o));publish(id);return r}
+  if(command==='launch deliver-list') {
+    // Operator side (Ruling R40 item 3): record the signing hosts' merged delivery list (the same
+    // allocation_file_hash signed by two `benzo sign delivery` runs). publish() gates the file's hash and
+    // signatures again and writes the canonical allocation.json; nothing else about the delivery is published.
+    requireThat(id,'--id required');const list=input(o);
+    save(path.join(STATE,'settle',id,'delivery-list.json'),list);publish(id);
+    return {auction_id:id,allocation_file_hash:list?.allocation_file_hash,signatures:Array.isArray(list?.signatures)?list.signatures.length:0};
+  }
   if(command==='bid prepare'||command==='bid seal') {
     requireThat(o.manifest&&o.signer,'--manifest --signer required');const packet=read(o.manifest),prepared=client(packet,o.signer),m=prepared.manifest;
     if(command==='bid prepare')return prepared;

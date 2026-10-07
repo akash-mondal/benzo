@@ -15,7 +15,7 @@ import { validateWitnessSet, verifyApprovalMap, witnessSetHash } from "../../wit
 import { clearForMode } from "../../clear/registry";
 import { deliveryRowOrder } from "../../clear/launch";
 import { generateOwnerKey, ownerPublic, signStatement } from "../../envelope";
-import { benzoBin, dkgOnHosts, hostEnvelopeKeys, hostEnvelopeOpens, hostWitnessCerts, hostWitnessKeys, sh } from "../../e2e/lib/hosts";
+import { benzoBin, dkgOnHosts, hostDeliveryList, hostEnvelopeKeys, hostEnvelopeOpens, hostWitnessCerts, hostWitnessKeys, sh } from "../../e2e/lib/hosts";
 import * as z from "../../e2e/lib/zcash";
 
 const C = 200_000; // part 2: small collateral
@@ -24,6 +24,9 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const json = (p: string) => JSON.parse(readFileSync(p, "utf8"));
 const pczt = path.join(ROOT, "settle/target/release/benzo-pczt"), fresh = (w: string) => sh(pczt, ["address", w, "--network", env("BNZ_NETWORK")]).split("\n").at(-1)!;
 const benzo = (args: string[], input?: any) => { const out = sh(benzoBin, args, input === undefined ? undefined : JSON.stringify(input)); return out.startsWith("{") || out.startsWith("[") ? JSON.parse(out.split("\n").filter(l => l.startsWith("{") || l.startsWith("[")).at(-1)!) : out; };
+// Raw-stdin variant for the build-mode commands that read key material from fd 0 (e.g. `launch deliver
+// --owner-key-stdin`); the key never lands in argv.
+const benzoRaw = (args: string[], raw: string) => JSON.parse(sh(benzoBin, args, raw).split("\n").filter(l => l.startsWith("{")).at(-1)!);
 // A failed drand fetch (one killed a live run) reads as round 0, so the wait simply polls again.
 const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/latest`)).json()).round as number}catch{return 0}};
 
@@ -272,23 +275,37 @@ async function run(name: string, link?: SeriesLink) {
   hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
   while ((await latestRound()) < R) await sleep(10_000);
   benzo(["open", "--id", id]);
-  // Launch: the winners each sign fresh token-chain destinations (one per lot) with their bid's own owner key (kept by
-  // `bid seal` under state/bids), recorded with `launch deliver` before the clear. The deliver prefixes descend with
-  // winner leaf rank (the random suffix keeps every run's values fresh), so this run's corpus always differs from the
-  // pre-R34.2 leaf-order file — an observation in the run log, never an assertion (R39.2: with few rows the two orders
-  // coincide by chance and canonical order is all R34.2 requires).
+  // Launch: the winners each record their token-chain destinations SEALED to the manifest's envelope_keys
+  // (Ruling R40 item 3 — `benzo launch deliver` builds the sealed record with the bid's own owner key signing
+  // its SHA-256; the operator records it without seeing the destinations), before the clear. The deliver
+  // prefixes descend with winner leaf rank (the random suffix keeps every run's values fresh), so this run's
+  // corpus always differs from any earlier leaf-order file — an observation in the run log, never an assertion
+  // (R39.2: with few rows the two orders coincide by chance and canonical order is all R34.2 requires).
+  const deliveryRecs: { leaf_index: number; destinations: string[] }[] = [], deliverySealed: any[] = [];
   if (sc.mode === "launch") {
     const frozenLeaves = json(path.join(publicDir, "auction.json")).frozen.leaves;
     let rank = 0;
     for (const w of benzo(["launch", "winners", "--id", id]).winners) {
       const ownerHex = json(path.join(STATE, "bids", id, `${frozenLeaves[w.leaf_index].ciphertext_hash}.json`)).owner_private_hex;
       const destinations = Array.from({ length: w.lots }, (_, j) => `token-chain:${(0xffff - 1000 * rank - j).toString(16).padStart(4, "0")}${randomBytes(18).toString("hex")}`);
-      const owner = { private_hex: ownerHex, public_hex: ownerPublic(ownerHex) };
-      benzo(["launch", "deliver", "--id", id], { leaf_index: w.leaf_index, destinations, signature: signStatement(owner, { auction_id: id, leaf_index: w.leaf_index, destinations }) });
+      const record = benzoRaw(["launch", "deliver", "--id", id, "--leaf-index", String(w.leaf_index), "--destinations", destinations.join(","), "--owner-key-stdin"], ownerHex);
+      benzo(["launch", "deliver", "--id", id], record);
+      deliveryRecs.push({ leaf_index: w.leaf_index, destinations });
+      deliverySealed.push(record);
       rank++;
     }
   }
   benzo(["clear", "--id", id]);
+  // Ruling R40 item 3 (F4): after the clear the signing hosts open the sealed records with their own envelope
+  // keys, check every owner signature against their own openings, build the canonical delivery list and sign
+  // `benzo-delivery-list-v1` over its allocation_file_hash. The merged list is recorded with
+  // `benzo launch deliver-list`, which publishes only the canonical allocation.json and the two signatures.
+  if (sc.mode === "launch") {
+    const deliveriesFile = path.join(privateDir, "deliveries.json");
+    writeFileSync(deliveriesFile, JSON.stringify(deliverySealed));
+    benzo(["launch", "deliver-list", "--id", id], hostDeliveryList(id, publicDir, deliveriesFile, signer, ["alice", "bob"]));
+    say(`delivery list signed by alice+bob (${deliverySealed.length} sealed records)`);
+  }
   const doc = () => json(path.join(publicDir, "auction.json"));
   const d = doc(), pure: any = clearForMode({ manifest: d.manifest, signer, frozen: d.frozen, opened: d.opened, reserve_opening: d.reserve_opening?.plaintext_hex ?? null, serial_beacon: d.serial_beacon ?? null, launch: d.launch_input });
   check(`${name}-cli-equals-pure-clear`, jsonBytes(d.result.allocations).equals(jsonBytes(pure.allocations)) && jsonBytes(d.result.conservation).equals(jsonBytes(pure.conservation)) && jsonBytes(d.result.serial_assignment ?? null).equals(jsonBytes(pure.serial_assignment ?? null)), `outcomes ${d.result.allocations.map((a: any) => a.outcome).join(",")} price ${d.result.clearing_price_zats}`);
@@ -300,15 +317,18 @@ async function run(name: string, link?: SeriesLink) {
     const rows = JSON.parse(file.toString("utf8")).rows as { destination: string; amount: number }[];
     const key = (rs: { destination: string; amount: number }[]) => JSON.stringify(rs.map(r => [r.destination, r.amount]));
     const canonical = key(rows) === key([...rows].sort(deliveryRowOrder));
-    const rooted = hash(file) === d.result.allocation_file_hash;
-    const recs: { leaf_index: number; destinations: string[] }[] = d.launch_input?.delivery ?? [];
+    // Ruling R40 item 3 (F4): the allocation root is the host-signed quantity (`benzo-delivery-list-v1` over
+    // allocation_file_hash, two pinned signers — checked again by `${name}-cold-verify`); the doc carries no
+    // leaf<->destination join at all.
+    const rooted = hash(file) === d.delivery_list?.allocation_file_hash;
+    const noJoin = d.launch_input?.delivery === undefined && !JSON.stringify(d).includes("delivery_envelope_ct");
     const leafRows = d.result.allocations.filter((a: any) => a.fill > 0).flatMap((a: any) => {
-      const rec = recs.find(r => r.leaf_index === a.leaf_index)!;
+      const rec = deliveryRecs.find(r => r.leaf_index === a.leaf_index)!;
       return rec.destinations.map((destination: string) => ({ destination, amount: a.fill / rec.destinations.length }));
     });
     const short = (rs: { destination: string }[]) => JSON.stringify(rs.map(r => r.destination.slice(11, 19)));
-    check(`${name}-allocation-order`, canonical && rooted,
-      `canonical=${canonical} root=${rooted}; published rows ${short(rows)} vs winner leaf order ${short(leafRows)}`);
+    check(`${name}-allocation-order`, canonical && rooted && noJoin,
+      `canonical=${canonical} root=${rooted} noJoin=${noJoin}; published rows ${short(rows)} vs winner leaf order ${short(leafRows)}`);
   }
   // Part 2: the drop's bond-then-pay flow and the buyback's serial intake run after the clear, before settlement.
   if (sc.balancePays) await bondFlow(id, sc, d, say);

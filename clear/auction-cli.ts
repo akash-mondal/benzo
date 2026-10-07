@@ -165,13 +165,18 @@ try {
       if(serial_beacon)ledger.serial_beacon=serial_beacon;
       ledger.state="CLEARED"; result=ledger.result;
     } else if(command==="deliver") {
-      // Part 2 launch: a winner's owner-signed token-chain destinations, recorded before the clear (clearLaunch checks
-      // the signature against the opened owner key and the count against the fill; checked here early too).
+      // Part 2 launch: a winner's token-chain destinations, recorded before the clear. Ruling R40 item 3 (F4):
+      // the record is SEALED to the manifest's `envelope_keys` ("as claims do") — the operator records and
+      // relays it without seeing the destinations, so the leaf<->destination join stays out of every published
+      // document. The owner signature covers the sealed record's SHA-256 (the claim-path body), so intake still
+      // checks it against the opened order here; every signing host re-checks it after opening.
       requireThat(ledger.state==="OPENED","launch delivery records are taken after opening, before the clear");
-      requireThat(input && Number.isInteger(input.leaf_index) && Array.isArray(input.destinations) && /^[0-9a-f]{128}$/.test(input.signature),"launch delivery record");
+      requireThat(input&&Object.keys(input).sort().join(",")==="delivery_envelope_ct,leaf_index,owner_sig"&&Number.isInteger(input.leaf_index)&&typeof input.delivery_envelope_ct==="string"&&/^[0-9a-f]{128}$/.test(input.owner_sig),"launch delivery record");
+      requireThat(envelopeRecordValid({envelope_ct:input.delivery_envelope_ct,owner_sig:input.owner_sig},m.envelope_keys),"launch delivery record format");
       const pt=ledger.opened!.find((o:any)=>o.leaf_index===input.leaf_index)?.plaintext_hex;requireThat(pt,"launch delivery for an unopened leaf");
-      requireThat(verifyStatement(Buffer.from(pt!,"hex").subarray(61,93).toString("hex"),{auction_id:id,leaf_index:input.leaf_index,destinations:input.destinations},input.signature),"launch delivery owner signature");
-      const li=(ledger as any).launch_input??{};li.delivery=[...(li.delivery??[]).filter((r:any)=>r.leaf_index!==input.leaf_index),{leaf_index:input.leaf_index,destinations:input.destinations,signature:input.signature}].sort((a:any,b:any)=>a.leaf_index-b.leaf_index);
+      const body={kind:"launch-deliver",auction_id:id,leaf_index:input.leaf_index,delivery_envelope_sha256:hash(Buffer.from(input.delivery_envelope_ct,"hex"))};
+      requireThat(verifyStatement(Buffer.from(pt!,"hex").subarray(61,93).toString("hex"),body,input.owner_sig),"launch delivery owner signature");
+      const li=(ledger as any).launch_input??{};li.delivery=[...(li.delivery??[]).filter((r:any)=>r.leaf_index!==input.leaf_index),{leaf_index:input.leaf_index,delivery_envelope_ct:input.delivery_envelope_ct,owner_sig:input.owner_sig}].sort((a:any,b:any)=>a.leaf_index-b.leaf_index);
       (ledger as any).launch_input=li;result={recorded:input.leaf_index,delivery:li.delivery.length};
     } else if(command==="cancel") {
       requireThat(["OPEN","SEALED-WAIT","CANCELLED"].includes(ledger.state) && !ledger.opened,"cancel after opening");

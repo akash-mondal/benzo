@@ -13,7 +13,12 @@ export type Launch = { standard_lot_size: number; minimum_raise_zats: string;
   follow_on?: { previous_result_hash: string; price_zats: string } };
 export type LaunchManifest = MarketManifest<{ launch: Launch }>;
 export type LaunchInput = { holder_receipts?: Signed[]; mined_heights?: Signed[]; previous_result?: ClearResult;
-  delivery?: { leaf_index: number; destinations: string[]; signature: string }[] };
+  delivery?: LaunchDeliveryRecord[] };
+// Ruling R40 item 3 (F4): a delivery record is sealed to the manifest's `envelope_keys` ("as claims do") —
+// the operator records and relays it without ever seeing the destinations; the leaf<->destination join stays
+// private (the ledger and the envelope-key holders only). The owner signature covers the sealed record's
+// SHA-256, exactly like a claim.
+export type LaunchDeliveryRecord = { leaf_index: number; delivery_envelope_ct: string; owner_sig: string };
 export type DeliveryBatch = { version: 1; auction_id: string; delivery: "project_on_token_chain"; rows: { destination: string; amount: number }[] };
 // R34.2: the canonical delivery-row order — destination bytes, then amount. Rows leave deliveryBatch in this
 // order (never winner leaf order), the allocation root commits to it, and `benzo verify` replays it, so a
@@ -37,15 +42,14 @@ export function clientLaunch(packet: Signed, signer: string) {
     }
   });
 }
-export function deliveryBatch(m: LaunchManifest, result: ClearResult, orders: ReturnType<typeof marketOrders>, records: NonNullable<LaunchInput["delivery"]>): DeliveryBatch {
+export function deliveryBatch(m: LaunchManifest, result: ClearResult, records: { leaf_index: number; destinations: string[] }[]): DeliveryBatch {
   const rows: DeliveryBatch["rows"] = [], seen = new Set<string>();
   requireThat(new Set(records.map(r => r.leaf_index)).size === records.length, "duplicate launch delivery");
   const winners = result.allocations.filter(a => a.fill);
   requireThat(records.length === winners.length, "launch delivery count");
   for (const a of winners) {
-    const r = records.find(r => r.leaf_index === a.leaf_index), owner = orders.find(o => o.leaf_index === a.leaf_index)!.owner_hex;
-    requireThat(r && r.destinations.length === a.fill / m.launch.standard_lot_size &&
-      verifyStatement(owner, { auction_id: m.auction_id, leaf_index: a.leaf_index, destinations: r.destinations }, r.signature), "launch delivery owner signature/count");
+    const r = records.find(r => r.leaf_index === a.leaf_index);
+    requireThat(r && r.destinations.length === a.fill / m.launch.standard_lot_size, "launch delivery count");
     for (const destination of r!.destinations) {
       requireThat(typeof destination === "string" && destination.length > 0 && destination.length <= 256 && !seen.has(destination), "launch fresh destination");
       seen.add(destination); rows.push({ destination, amount: m.launch.standard_lot_size });
@@ -54,7 +58,12 @@ export function deliveryBatch(m: LaunchManifest, result: ClearResult, orders: Re
   rows.sort(deliveryRowOrder);
   return { version: 1, auction_id: m.auction_id, delivery: "project_on_token_chain", rows };
 }
-export function clearLaunch(input: ClearInput, opts: { dry?: boolean } = {}): ClearResult {
+// Ruling R40 item 3 (F4): the clear never sees the delivery records — they are sealed to `envelope_keys` and
+// only the envelope-key holders (the signer hosts) open them, check every owner signature against the opened
+// order, and build the canonical delivery list (deliveryBatch) which they sign `benzo-delivery-list-v1` over
+// (witness/index.ts). The result carries no allocation_file_hash; the published doc carries only the canonical
+// allocation.json and two host signatures (benzo verify checks the public invariants plus the signatures).
+export function clearLaunch(input: ClearInput): ClearResult {
   const { manifest: m } = clientLaunch(input.manifest, input.signer), data = input.launch ?? {};
   const orders = marketOrders(input, m, LAUNCH_LAYOUT), lot = m.launch.standard_lot_size;
   const floor = effectiveReserve(m, sealedReserve(m, input.reserve_opening, zats(m.tick_zats, "tick")));
@@ -107,22 +116,35 @@ export function clearLaunch(input: ClearInput, opts: { dry?: boolean } = {}): Cl
   const C=zats(m.C_zats,"C"),fee=cancelled?0n:zats(m.fee_zats,"fee");
   const allocations=orders.map(o=>{const payment=paid(o);return {leaf_index:o.leaf_index,price_zats:o.price.toString(),quantity:o.quantity,fill:o.fill,payment_zats:payment.toString(),refund_zats:refundAfter(payment,fee,C).toString(),...(m.bond?{balance_due_zats:balanceDue(payment,fee,C).toString()}:{}),outcome:cancelled?"cancelled":o.reason||(o.fill?"winner":"unfilled"),tranche:trancheOf(o.leaf_index)===1?"holder":"main"};});
   const result = { ...marketResult(input,m,allocations,price,fee*BigInt(orders.length)), cancelled, launch_supply: m.supply, holder_price_zats: floor.toString() };
-  // `dry`: the fills before winners submit delivery records (`benzo launch winners`); never published.
-  if (opts.dry) return result as ClearResult;
-  const batch = deliveryBatch(m,result,orders,data.delivery ?? []);
-  return { ...result, allocation_file_hash: hash(jsonBytes(batch)) };
+  // Pre-F4 historical reading (immutable evidence only): a doc that publishes its PLAINTEXT delivery records
+  // (each with the owner's signature over {auction_id, leaf_index, destinations}) keeps the old recomputation,
+  // including that check, and a result that commits to the allocation file. New delivery records are sealed to
+  // `envelope_keys` (Ruling R40 item 3), so the clear never sees their destinations and the result carries no
+  // allocation_file_hash — the canonical list is host-built and host-signed (`benzo-delivery-list-v1`) instead.
+  const legacyRecords: any[] = ((data as any).delivery ?? []).filter((r: any) => r && Array.isArray(r.destinations));
+  if (legacyRecords.length > 0 && legacyRecords.length === ((data as any).delivery ?? []).length) {
+    const rows: { destination: string; amount: number }[] = [], seen = new Set<string>();
+    requireThat(new Set(legacyRecords.map((r: any) => r.leaf_index)).size === legacyRecords.length, "duplicate launch delivery");
+    const winners = result.allocations.filter(a => a.fill);
+    requireThat(legacyRecords.length === winners.length, "launch delivery count");
+    for (const a of winners) {
+      const r = legacyRecords.find((x: any) => x.leaf_index === a.leaf_index), owner = orders.find(o => o.leaf_index === a.leaf_index)!.owner_hex;
+      requireThat(r && r.destinations.length === a.fill / lot &&
+        verifyStatement(owner, { auction_id: m.auction_id, leaf_index: a.leaf_index, destinations: r.destinations }, r.signature), "launch delivery owner signature/count");
+      for (const destination of r.destinations as string[]) {
+        requireThat(typeof destination === "string" && destination.length > 0 && destination.length <= 256 && !seen.has(destination), "launch fresh destination");
+        seen.add(destination); rows.push({ destination, amount: lot });
+      }
+    }
+    rows.sort(deliveryRowOrder);
+    return { ...result, allocation_file_hash: hash(jsonBytes({ version: 1, auction_id: m.auction_id, delivery: "project_on_token_chain", rows })) } as ClearResult;
+  }
+  return result as ClearResult;
 }
-// The launch allocation file a result's allocation_file_hash commits to, rebuilt from the same clear inputs, so the
-// publisher can write the allocation.json that verify checks (part 2 live: publish never wrote it).
-// Part 2 launch flow: after opening anyone can compute the winners; each winner signs its token-chain destinations
-// (`benzo launch deliver`), and only then does the clear (which commits to the allocation file) run.
+// The launch winners (fills and lots) from the clear inputs — the delivery records come later (sealed).
 export function launchWinners(input: ClearInput): { leaf_index: number; fill: number; lots: number }[] {
   const { manifest: m } = clientLaunch(input.manifest, input.signer);
-  return clearLaunch({ ...input, launch: { ...(input.launch ?? {}), delivery: [] } }, { dry: true }).allocations.filter(a => a.fill > 0).map(a => ({ leaf_index: a.leaf_index, fill: a.fill, lots: a.fill / m.launch.standard_lot_size }));
-}
-export function launchAllocationFile(input: ClearInput): Buffer {
-  const { manifest: m } = clientLaunch(input.manifest, input.signer);
-  return jsonBytes(deliveryBatch(m, clearLaunch(input), marketOrders(input, m, LAUNCH_LAYOUT), input.launch?.delivery ?? []));
+  return clearLaunch(input).allocations.filter(a => a.fill > 0).map(a => ({ leaf_index: a.leaf_index, fill: a.fill, lots: a.fill / m.launch.standard_lot_size }));
 }
 export function checkResultLaunch(m: LaunchManifest, r: ClearBody) {
   // Holder payments use their floor, so enforce per-leaf C and actual tranche prices directly.

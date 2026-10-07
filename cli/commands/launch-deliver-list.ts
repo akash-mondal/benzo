@@ -1,0 +1,2 @@
+export const noun='launch',verb='deliver-list',help='benzo launch deliver-list --id ID < delivery-list.json — operator: record the signing hosts\' merged `benzo sign delivery` output (allocation_file_hash, batch, two signatures) so publish writes the canonical allocation.json and the host signatures (Ruling R40 item 3)';
+export const run=async(args:string[])=>{const {runCommand}=await import('../product');return runCommand('launch deliver-list',args)};

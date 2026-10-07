@@ -4,6 +4,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { requireThat } from "../../manifest/schema";
 import { ROOT, STATE, env } from "./env";
 
 export const H = "/home/benzo/.benzo", NAMES = ["alice", "bob", "carol"] as const;
@@ -111,6 +112,27 @@ export function hostXchainKeys(chain: "evm" | "solana"): string[] {
 }
 export function hostXchainAttest(n: string, args: string[]): any {
   return JSON.parse(host(n, [`${H}/bin/benzo`, "xchain", "attest", "--host-record", ...args]));
+}
+
+// Ruling R40 item 3 (F4): the canonical launch delivery list is built and signed ON the named hosts (each
+// opens the sealed records with its own envelope key and checks every owner signature against its own
+// openings), merged here and recorded with `benzo launch deliver-list`. Returns the merged list.
+export function hostDeliveryList(id: string, publicDir: string, deliveriesFile: string, signer: string, names: string[]): any {
+  const dir = `pub-${id.slice(0, 12)}`;
+  let merged: any = null;
+  for (const n of names) {
+    push(n, publicDir, dir);
+    push(n, deliveriesFile, "deliveries.json");
+    const out = hostBenzo(n, ["sign", "delivery", "--id", id, "--public", `/home/benzo/${dir}`, "--deliveries", "/home/benzo/deliveries.json", "--name", n, "--signer", signer]);
+    requireThat(out && out.allocation_file_hash && out.batch && Array.isArray(out.signatures) && out.signatures.length === 1, `${n} delivery-list output`);
+    if (!merged) merged = out;
+    else {
+      if (out.allocation_file_hash !== merged.allocation_file_hash || JSON.stringify(out.batch) !== JSON.stringify(merged.batch))
+        throw new Error(`the signing hosts built different delivery lists (${merged.allocation_file_hash.slice(0, 12)}… vs ${out.allocation_file_hash.slice(0, 12)}…)`);
+      merged.signatures.push(out.signatures[0]);
+    }
+  }
+  return merged;
 }
 
 export const benzoBin = path.join(ROOT, "bin/benzo");

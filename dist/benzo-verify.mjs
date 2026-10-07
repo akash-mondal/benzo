@@ -12166,24 +12166,7 @@ function clientLaunch(packet, signer) {
     }
   });
 }
-function deliveryBatch(m2, result, orders, records) {
-  const rows = [], seen = /* @__PURE__ */ new Set();
-  requireThat(new Set(records.map((r2) => r2.leaf_index)).size === records.length, "duplicate launch delivery");
-  const winners = result.allocations.filter((a2) => a2.fill);
-  requireThat(records.length === winners.length, "launch delivery count");
-  for (const a2 of winners) {
-    const r2 = records.find((r3) => r3.leaf_index === a2.leaf_index), owner = orders.find((o2) => o2.leaf_index === a2.leaf_index).owner_hex;
-    requireThat(r2 && r2.destinations.length === a2.fill / m2.launch.standard_lot_size && verifyStatement(owner, { auction_id: m2.auction_id, leaf_index: a2.leaf_index, destinations: r2.destinations }, r2.signature), "launch delivery owner signature/count");
-    for (const destination of r2.destinations) {
-      requireThat(typeof destination === "string" && destination.length > 0 && destination.length <= 256 && !seen.has(destination), "launch fresh destination");
-      seen.add(destination);
-      rows.push({ destination, amount: m2.launch.standard_lot_size });
-    }
-  }
-  rows.sort(deliveryRowOrder);
-  return { version: 1, auction_id: m2.auction_id, delivery: "project_on_token_chain", rows };
-}
-function clearLaunch(input, opts = {}) {
+function clearLaunch(input) {
   const { manifest: m2 } = clientLaunch(input.manifest, input.signer), data = input.launch ?? {};
   const orders = marketOrders(input, m2, LAUNCH_LAYOUT), lot = m2.launch.standard_lot_size;
   const floor = effectiveReserve(m2, sealedReserve(m2, input.reserve_opening, zats(m2.tick_zats, "tick")));
@@ -12257,9 +12240,25 @@ function clearLaunch(input, opts = {}) {
     return { leaf_index: o2.leaf_index, price_zats: o2.price.toString(), quantity: o2.quantity, fill: o2.fill, payment_zats: payment.toString(), refund_zats: refundAfter(payment, fee, C2).toString(), ...m2.bond ? { balance_due_zats: balanceDue(payment, fee, C2).toString() } : {}, outcome: cancelled ? "cancelled" : o2.reason || (o2.fill ? "winner" : "unfilled"), tranche: trancheOf(o2.leaf_index) === 1 ? "holder" : "main" };
   });
   const result = { ...marketResult(input, m2, allocations, price, fee * BigInt(orders.length)), cancelled, launch_supply: m2.supply, holder_price_zats: floor.toString() };
-  if (opts.dry) return result;
-  const batch = deliveryBatch(m2, result, orders, data.delivery ?? []);
-  return { ...result, allocation_file_hash: hash(jsonBytes(batch)) };
+  const legacyRecords = (data.delivery ?? []).filter((r2) => r2 && Array.isArray(r2.destinations));
+  if (legacyRecords.length > 0 && legacyRecords.length === (data.delivery ?? []).length) {
+    const rows = [], seen = /* @__PURE__ */ new Set();
+    requireThat(new Set(legacyRecords.map((r2) => r2.leaf_index)).size === legacyRecords.length, "duplicate launch delivery");
+    const winners = result.allocations.filter((a2) => a2.fill);
+    requireThat(legacyRecords.length === winners.length, "launch delivery count");
+    for (const a2 of winners) {
+      const r2 = legacyRecords.find((x2) => x2.leaf_index === a2.leaf_index), owner = orders.find((o2) => o2.leaf_index === a2.leaf_index).owner_hex;
+      requireThat(r2 && r2.destinations.length === a2.fill / lot && verifyStatement(owner, { auction_id: m2.auction_id, leaf_index: a2.leaf_index, destinations: r2.destinations }, r2.signature), "launch delivery owner signature/count");
+      for (const destination of r2.destinations) {
+        requireThat(typeof destination === "string" && destination.length > 0 && destination.length <= 256 && !seen.has(destination), "launch fresh destination");
+        seen.add(destination);
+        rows.push({ destination, amount: lot });
+      }
+    }
+    rows.sort(deliveryRowOrder);
+    return { ...result, allocation_file_hash: hash(jsonBytes({ version: 1, auction_id: m2.auction_id, delivery: "project_on_token_chain", rows })) };
+  }
+  return result;
 }
 function checkResultLaunch(m2, r2) {
   const C2 = zats(m2.C_zats, "C"), fee = r2.cancelled ? 0n : zats(m2.fee_zats, "fee");
@@ -16146,6 +16145,17 @@ function verifyApprovalMap(m2, keys2) {
     return false;
   }
 }
+var deliveryListBytes = (b2) => Buffer.concat([
+  Buffer.from("benzo-delivery-list-v1"),
+  jsonBytes({ version: b2.version, auction_id: b2.auction_id, allocation_file_hash: b2.allocation_file_hash })
+]);
+function verifyDeliveryListSig(s2, body, keys2) {
+  try {
+    return !!s2 && Array.isArray(keys2) && keys2.includes(s2.witness) && /^[0-9a-f]{128}$/.test(String(s2.signature)) && verify3(null, deliveryListBytes(body), edPublic(s2.witness), Buffer.from(s2.signature, "hex"));
+  } catch {
+    return false;
+  }
+}
 
 // settle/envelopes.ts
 function sealedBidPlaintext(pt2, manifestPacket) {
@@ -16177,7 +16187,7 @@ function memoBindsEnvelope(memoEnvelopeTag, envelopeCtHex) {
 function readClient(packet, signer) {
   return clientForMode(packet, signer);
 }
-var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
+var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "delivery_list", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 var openedStates = /* @__PURE__ */ new Set(["OPENED", "CLEARED", "SETTLED"]);
 var frozenStates = /* @__PURE__ */ new Set(["SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED"]);
@@ -16199,6 +16209,7 @@ function loadPublicAuction(dir, opts = {}) {
   let signer, manifestPacket, manifest, manifest_hash, state;
   let frozen, opened, beacon;
   let launchInput;
+  let deliveryList;
   let serialBeacon = null;
   let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, straysCerts, settlement, reserveOpening, claims = [];
   if (!legacy) {
@@ -16223,6 +16234,8 @@ function loadPublicAuction(dir, opts = {}) {
     opened = Array.isArray(doc.opened) ? doc.opened : [];
     beacon = readBeacon(doc.beacon ?? null, manifest);
     launchInput = doc.launch_input;
+    deliveryList = doc.delivery_list;
+    if (deliveryList !== void 0) requireThat(deliveryList && typeof deliveryList === "object" && !Array.isArray(deliveryList) && Object.keys(deliveryList).sort().join(",") === "allocation_file_hash,signatures" && /^[0-9a-f]{64}$/.test(String(deliveryList.allocation_file_hash)) && Array.isArray(deliveryList.signatures) && deliveryList.signatures.every((s2) => s2 && typeof s2 === "object" && Object.keys(s2).sort().join(",") === "signature,witness" && /^[0-9a-f]{64}$/.test(String(s2.witness)) && /^[0-9a-f]{128}$/.test(String(s2.signature))), "delivery list shape");
     serialBeacon = doc.serial_beacon ?? null;
     if (serialBeacon) {
       requireThat(Object.keys(serialBeacon).sort().join(",") === "round,signature" && /^[0-9a-f]{96}$/.test(serialBeacon.signature), "serial beacon");
@@ -16264,7 +16277,7 @@ function loadPublicAuction(dir, opts = {}) {
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
     reserveOpening = existsSync4(path4.join(root, "reserve.json")) ? String(JSON.parse(text("reserve.json")).plaintext_hex ?? "") : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, deliveryList, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
 }
 function loadCompletePublicAuction(dir, opts = {}) {
   const pub = loadPublicAuction(dir, opts);
@@ -16389,6 +16402,38 @@ function checkPublicAuction(pub, opts = {}) {
       requireThat(hash(bytes) === fresh.allocation_file_hash, "launch allocation file hash");
     }
     projection("result.json", result);
+  });
+  run2("delivery", () => {
+    const result = pub.result;
+    if (!result || pub.manifest.clearing?.mode !== "launch") return;
+    if (result.allocation_file_hash !== void 0) return;
+    if (result.cancelled) {
+      requireThat(pub.deliveryList === void 0 && !existsSync4(path4.join(pub.dir, "allocation.json")), "launch delivery artifacts on a cancelled round");
+      return;
+    }
+    requireThat(pub.deliveryList, "launch delivery list missing");
+    const file = path4.join(pub.dir, "allocation.json");
+    requireThat(existsSync4(file), "launch allocation file missing");
+    const bytes = readFileSync4(file);
+    let rows = [];
+    try {
+      rows = JSON.parse(bytes.toString("utf8")).rows ?? [];
+    } catch {
+    }
+    const lot = pub.manifest.launch?.standard_lot_size;
+    requireThat(Number.isSafeInteger(lot) && lot > 0, "launch standard lot size");
+    requireThat(Array.isArray(rows) && rows.every((r2) => r2 && typeof r2 === "object" && Object.keys(r2).sort().join(",") === "amount,destination" && typeof r2.destination === "string" && r2.destination.length > 0 && r2.destination.length <= 256 && r2.amount === lot), "launch allocation rows");
+    requireThat(new Set(rows.map((r2) => r2.destination)).size === rows.length, "launch allocation destinations not distinct");
+    requireThat(rows.every((r2, i2) => i2 === 0 || deliveryRowOrder(rows[i2 - 1], r2) <= 0), "launch allocation rows not in canonical order");
+    requireThat(hash(bytes) === pub.deliveryList.allocation_file_hash, "launch allocation file hash");
+    const want = result.allocations.reduce((n2, a2) => n2 + a2.fill, 0) / lot;
+    requireThat(rows.length === want, "launch delivery count");
+    requireThat(pub.witnessSet && pub.manifest.witness_set_hash === witnessSetHash(pub.witnessSet), "launch delivery signatures need a pinned witness set");
+    const keys2 = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), pub.manifest.auction_id).keys;
+    const body = { version: 1, auction_id: pub.manifest.auction_id, allocation_file_hash: pub.deliveryList.allocation_file_hash };
+    const signed = /* @__PURE__ */ new Set();
+    for (const s2 of pub.deliveryList.signatures) if (verifyDeliveryListSig(s2, body, keys2)) signed.add(s2.witness);
+    requireThat(signed.size >= 2, "launch delivery list is not carried by two host signatures");
   });
   run2("envelope", () => {
     const records = pub.envelopes;

@@ -15,7 +15,7 @@ import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
-import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, verifyApprovalMap, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
+import { checkCertificates, checkStraysCerts, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type StraysCert, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
 // The witness set rides in a separate signed packet, not in the manifest.
@@ -60,6 +60,10 @@ export type PublicAuction = {
   beacon: Beacon | null;
   serialBeacon: { round: number; signature: string } | null;
   launchInput: import("../clear/launch").LaunchInput | undefined;
+  // Ruling R40 item 3 (F4): the launch delivery list — only the canonical allocation.json and two host
+  // signatures (`benzo-delivery-list-v1` over allocation_file_hash) are ever published; the sealed delivery
+  // records themselves never are.
+  deliveryList: { allocation_file_hash: string; signatures: import("../witness").DeliveryListSig[] } | undefined;
   result: PublicResult | null;
   resultBytes: Buffer | null;
   receipts: Signed[];
@@ -82,7 +86,7 @@ export type CompletePublicAuction = PublicAuction & { frozen: Frozen; result: Pu
 export type Check = { id: string; error?: string; warn?: string };
 
 // Canonical document keys, per schemas/public-auction.schema.json (additionalProperties: false).
-const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "claims"]);
+const canonicalKeys = new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "delivery_list", "claims"]);
 const states = new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
 // The schema requires opened + beacon once the state reaches OPENED.
 const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
@@ -107,6 +111,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   let signer: string, manifestPacket: Signed, manifest: Manifest, manifest_hash: string, state: string;
   let frozen: Frozen | null, opened: Opened[], beacon: Beacon | null;
   let launchInput: import("../clear/launch").LaunchInput | undefined;
+  let deliveryList: { allocation_file_hash: string; signatures: import("../witness").DeliveryListSig[] } | undefined;
   let serialBeacon: { round: number; signature: string } | null = null;
   let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], straysCerts: StraysCert[], settlement: SettlementSummary | null, reserveOpening: string | null, claims: any[] = [];
   if (!legacy) {
@@ -133,6 +138,11 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
     opened = Array.isArray(doc.opened) ? (doc.opened as Opened[]) : [];
     beacon = readBeacon(doc.beacon ?? null, manifest);
     launchInput = doc.launch_input;
+    deliveryList = doc.delivery_list;
+    if (deliveryList !== undefined) requireThat(deliveryList && typeof deliveryList === "object" && !Array.isArray(deliveryList) &&
+      Object.keys(deliveryList).sort().join(",") === "allocation_file_hash,signatures" && /^[0-9a-f]{64}$/.test(String(deliveryList.allocation_file_hash)) &&
+      Array.isArray(deliveryList.signatures) && deliveryList.signatures.every((s: any) => s && typeof s === "object" && Object.keys(s).sort().join(",") === "signature,witness" &&
+        /^[0-9a-f]{64}$/.test(String(s.witness)) && /^[0-9a-f]{128}$/.test(String(s.signature))), "delivery list shape");
     serialBeacon = doc.serial_beacon ?? null;
     if (serialBeacon) {
       requireThat(Object.keys(serialBeacon).sort().join(",") === "round,signature" &&
@@ -192,7 +202,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       ? String((JSON.parse(text("reserve.json")) as { plaintext_hex?: unknown }).plaintext_hex ?? "")
       : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, deliveryList, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
 }
 
 // Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
@@ -329,19 +339,57 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     requireThat(pub.frozen, "missing frozen");
     const fresh = clearForMode({ manifest: pub.manifestPacket, signer: pub.signer, frozen: pub.frozen!, opened: pub.opened, reserve_opening: pub.reserveOpening, serial_beacon: pub.serialBeacon, launch: pub.launchInput });
     requireThat(jsonBytes(fresh).equals(resultBytes), "canonical result differs");
-    if (fresh.allocation_file_hash) {
+    if ((fresh as any).allocation_file_hash) {
+      // Pre-F4 historical reading (immutable evidence): those docs publish their plaintext delivery records,
+      // so the recomputation above also re-checks their owner signatures and commits to the allocation file —
+      // which is checked here, including the R34.2 canonical sort. New docs are checked by run("delivery").
       const file = path.join(pub.dir, "allocation.json");
       requireThat(existsSync(file), "launch allocation file missing");
       const bytes = readFileSync(file);
-      // R34.2: verify replays the same canonical sort (destination bytes, then amount) the allocation root was
-      // taken over — a published file restored to winner leaf order is refused by its own error.
       let rows: { destination: string; amount: number }[] = [];
       try { rows = JSON.parse(bytes.toString("utf8")).rows ?? []; } catch { /* refused below */ }
       requireThat(Array.isArray(rows) && rows.every(r => r && typeof r.destination === "string" && typeof r.amount === "number") &&
         rows.every((r, i) => i === 0 || deliveryRowOrder(rows[i - 1], r) <= 0), "launch allocation rows not in canonical order");
-      requireThat(hash(bytes) === fresh.allocation_file_hash, "launch allocation file hash");
+      requireThat(hash(bytes) === (fresh as any).allocation_file_hash, "launch allocation file hash");
     }
     projection("result.json", result);
+  });
+  // Ruling R40 item 3 (F4): launch delivery records stay private. The published doc carries only the canonical
+  // allocation.json and two host signatures (`benzo-delivery-list-v1` over allocation_file_hash). verify holds
+  // the file to the public invariants — row count = Σ fill/lot, every amount = standard_lot_size, distinct
+  // destinations, canonical (destination bytes, then amount) order, hash — and the signatures to two distinct
+  // pinned signers (the manifest's witness set). Integrity rests on the same 2-of-3 trust as settlement; the
+  // per-winner owner signatures are checked by the hosts against their own openings, never publicly re-derivable
+  // (that join is exactly what must not be published).
+  run("delivery", () => {
+    const result = pub.result;
+    if (!result || (pub.manifest as any).clearing?.mode !== "launch") return;
+    if ((result as any).allocation_file_hash !== undefined) return; // pre-F4 historical docs: checked with the clear recompute
+    if (result.cancelled) {
+      requireThat(pub.deliveryList === undefined && !existsSync(path.join(pub.dir, "allocation.json")), "launch delivery artifacts on a cancelled round");
+      return;
+    }
+    requireThat(pub.deliveryList, "launch delivery list missing");
+    const file = path.join(pub.dir, "allocation.json");
+    requireThat(existsSync(file), "launch allocation file missing");
+    const bytes = readFileSync(file);
+    let rows: { destination: string; amount: number }[] = [];
+    try { rows = JSON.parse(bytes.toString("utf8")).rows ?? []; } catch { /* refused below */ }
+    const lot = (pub.manifest as any).launch?.standard_lot_size;
+    requireThat(Number.isSafeInteger(lot) && lot > 0, "launch standard lot size");
+    requireThat(Array.isArray(rows) && rows.every(r => r && typeof r === "object" && Object.keys(r).sort().join(",") === "amount,destination" &&
+      typeof r.destination === "string" && r.destination.length > 0 && r.destination.length <= 256 && r.amount === lot), "launch allocation rows");
+    requireThat(new Set(rows.map(r => r.destination)).size === rows.length, "launch allocation destinations not distinct");
+    requireThat(rows.every((r, i) => i === 0 || deliveryRowOrder(rows[i - 1], r) <= 0), "launch allocation rows not in canonical order");
+    requireThat(hash(bytes) === pub.deliveryList!.allocation_file_hash, "launch allocation file hash");
+    const want = result.allocations.reduce((n, a) => n + a.fill, 0) / lot!;
+    requireThat(rows.length === want, "launch delivery count");
+    requireThat(pub.witnessSet && pub.manifest.witness_set_hash === witnessSetHash(pub.witnessSet), "launch delivery signatures need a pinned witness set");
+    const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), pub.manifest.auction_id).keys;
+    const body = { version: 1 as const, auction_id: pub.manifest.auction_id, allocation_file_hash: pub.deliveryList!.allocation_file_hash };
+    const signed = new Set<string>();
+    for (const s of pub.deliveryList!.signatures) if (verifyDeliveryListSig(s, body, keys)) signed.add(s.witness);
+    requireThat(signed.size >= 2, "launch delivery list is not carried by two host signatures");
   });
   // Gate W: published envelope records verify against the owner pubkey inside each opening, and the opening's
   // salted settlement commitment binds the same envelope ciphertext (threat #7, #32). Dirs without records are pre-W.

@@ -104,11 +104,14 @@ line("drop-reserve-opening", () => {
   return [!publishErr && typeof ro === "string" && ro.length > 0 && v.status === 0,
     `publish ${publishErr ? "threw " + publishErr : "rebuilt the doc"}; reserve_opening ${ro === null ? "MISSING" : "present"}; verify exit ${v.status}${err ? ` (${err})` : ""}`];
 });
-// ---- R34.2 (A16 item 1, assertion replaced by R39.2): the launch delivery rows are in canonical (destination
-// bytes, then amount) order and the allocation root is over that order; `benzo verify` replays the same sort.
-// Mutation A16-a restores winner leaf order in the published allocation.json only (on the committed corpus the
-// two orders differ); the row-order assertion goes red and verify must refuse with its own error
-// ('launch allocation rows not in canonical order').
+// ---- R34.2 (A16 item 1, assertion replaced by R39.2) + R40 item 3 (F4): the launch delivery rows are in
+// canonical (destination bytes, then amount) order, the allocation root is the host-signed quantity
+// (`benzo-delivery-list-v1` over allocation_file_hash) over that order, and the published doc carries NO
+// leaf<->destination join (the sealed delivery records never publish). `benzo verify` replays the sort and
+// checks the two host signatures. Mutation A16-a restores winner leaf order in the published allocation.json
+// only (on the committed corpus the two orders differ); the row-order assertion goes red and verify must
+// refuse with its own error ('launch allocation rows not in canonical order'). Mutation A18-F4 publishes
+// `launch_input` again; the join assertion goes red.
 if (launchDir) {
   const launch = doc(path.join(launchDir, "auction.json"));
   const file = readFileSync(path.join(launchDir, "allocation.json"));
@@ -116,10 +119,13 @@ if (launchDir) {
   line("launch-meet-allocation-order", () => {
     const key = (rs: { destination: string; amount: number }[]) => JSON.stringify(rs.map(r => [r.destination, r.amount]));
     const canonical = key(rows) === key([...rows].sort(deliveryRowOrder));
-    const rooted = hash(file) === launch.result.allocation_file_hash;
+    // Era-aware: a pre-F4 corpus commits to its allocation file in the result; a new one carries the
+    // host-signed quantity (`benzo-delivery-list-v1` over allocation_file_hash) and no join (R40 item 3).
+    const rooted = hash(file) === (launch.delivery_list?.allocation_file_hash ?? launch.result.allocation_file_hash);
+    const noJoin = launch.delivery_list === undefined || (launch.launch_input?.delivery === undefined && !JSON.stringify(launch).includes("delivery_envelope_ct"));
     const v = spawnSync(benzoBin, ["verify", "--dir", launchDir, "--signer", launch.signer], { encoding: "utf8", maxBuffer: 64 << 20 });
     const err = (v.stdout + v.stderr).split("\n").filter((l: string) => l.startsWith("ERROR")).join(" | ");
-    return [canonical && rooted && v.status === 0,
-      `canonical=${canonical} root=${rooted}; verify exit ${v.status}${err ? ` (${err})` : ""}`];
+    return [canonical && rooted && noJoin && v.status === 0,
+      `canonical=${canonical} root=${rooted} noJoin=${noJoin}; verify exit ${v.status}${err ? ` (${err})` : ""}`];
   });
 }
