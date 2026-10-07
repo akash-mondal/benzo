@@ -264,16 +264,20 @@ export function balanceSettlement(
     if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
   }
-  // Ruling R41 item 4 (F10): in-window value ABOVE `balance_due_zats` at a winner's balance address becomes ONE
-  // immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf. It is FINAL — settlement waits
-  // until the window has closed before deriving it — and it refunds exactly like a `balance-late:` row (parked,
-  // claimable with that leaf's owner key, under the same confirmations gate — its backing is the in-window notes).
-  // R41.4's literal rule: value at or below the due settles the balance (a defaulted winner's partial payment
-  // settles toward the balance they forfeited and is not refunded — README honest limits).
+  // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
+  // settle becomes ONE immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf — a paid
+  // winner settles `balance_due_zats` and refunds the excess above it; a DEFAULTED winner refunds their
+  // in-window payment IN FULL (a default forfeits the bond and the lot, never the balance money the bidder
+  // sent). The vault keeps nothing at a balance address beyond what settles a paid winner's due. The row is
+  // final (settlement derives it only after the window closes) and refunds exactly like a `balance-late:` row
+  // (parked, claimable with that leaf's owner key, under the same confirmations gate — its backing is the
+  // in-window notes).
   for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) {
     const due = BigInt(result.allocations.find(a => a.leaf_index === leaf)?.balance_due_zats ?? "0");
     const inNotes = notes.filter(n => n.address === address && n.height && n.height > start && n.height <= end && BigInt(n.value_zats) !== 0n);
-    const excess = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n) - due;
+    const total = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n);
+    const settledZats = due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6)
+    const excess = total - settledZats;
     if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured) });
   }
   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };

@@ -19,8 +19,10 @@
 //   f10-excess-row-gated      the row's maturity follows its backing in-window notes (R41.3 excess leg: red
 //                             before — no row at all);
 //   f10-no-excess-at-exact-due  a payment of exactly the due yields no excess row (the settled drop's shape);
-//   f10-default-no-excess     a defaulted winner (in-window total below the due) yields no excess row — their
-//                             partial payment settles toward the balance they forfeited (README honest limit).
+//   f10-default-full-refund   a defaulted winner (in-window total below the due) refunds their in-window
+//                             payment IN FULL as its `balance-excess:0` row — a default forfeits the bond and
+//                             the lot, never the balance money the bidder sent (Ruling R41.6 answering Q9; red
+//                             before: the payment is kept by the vault).
 // Run: npx esbuild tools/repro/r41-f10-excess.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r41-f10-excess.mjs && node tmp/r41-f10-excess.mjs
 import { execFileSync } from "node:child_process";
 import { balanceSettlement, isRefundRowParty, refundRowLeafIndex, type ScannedNote } from "../../clear/features";
@@ -84,11 +86,12 @@ line("f10-no-excess-at-exact-due", () => {
     `refunds ${JSON.stringify(settled.refunds)} sources ${settled.sources.length} (exactly the due: no excess row — the settled drop's shape)`];
 });
 
-line("f10-default-no-excess", () => {
+line("f10-default-full-refund", () => {
   const partial = [{ ...overpaid[0], value_zats: 100_000 }] as ScannedNote[]; // below the due: leaf 0 defaults
   const settled = balanceSettlement(m, result, leaves, partial, 1300);
-  return [settled.refunds.length === 0 && settled.sources.length === 1,
-    `refunds ${JSON.stringify(settled.refunds)} sources ${settled.sources.length} (a defaulted winner's below-due payment settles toward the balance they forfeited — R41.4's literal rule, README honest limit)`];
+  const rows = settled.refunds.filter(r => r.party === excessParty);
+  return [rows.length === 1 && rows[0].amount_zats === "100000" && settled.sources.length === 1,
+    `excess ${JSON.stringify(rows.map(r => ({ party: r.party, amount: r.amount_zats })))} sources ${settled.sources.length} (R41.6: a defaulted winner's 100,000 in-window payment refunds in full — red before: kept by the vault)`];
 });
 
 console.log(all ? "RESULT PASS r41-f10-excess" : "RESULT FAIL r41-f10-excess");

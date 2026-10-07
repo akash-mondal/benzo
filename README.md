@@ -102,11 +102,12 @@ holds a signed settlement statement (`docs/evidence/phase-4/EVIDENCE.md`).
 deposit slots are a shared public list and a payer is unobservable on shielded Zcash, so no rule can
 attribute one address's payment among several bidders. Only the first deposit note at each slot is an
 order; every later note there is a stray, refunded to its own depositor (who loses only the fee).
-- **A payment that arrives at a balance address is that slot's bidder's** (R40 F1, R41 F10): money sent to
-someone's manifest-fixed balance address settles their balance up to `balance_due_zats` (a defaulted winner's
-partial in-window payment settles toward the balance they forfeited with their bond and is never refunded);
-the in-window excess above the due and any out-of-window payment refund to that slot's bidder as their own
-immutable `balance-excess` / `balance-late` rows, claimable with that slot's bid owner key.
+- **A payment that arrives at a balance address is that slot's bidder's** (R40 F1, R41 F10, R41.6): money sent to
+someone's manifest-fixed balance address settles that slot's balance up to `balance_due_zats` and nothing else —
+the vault keeps nothing there. An overpayment's excess and a defaulted winner's whole in-window payment refund to
+that slot's bidder as their own immutable `balance-excess` row (a default forfeits the bond and the lot, never
+the balance money they sent), and an out-of-window payment refunds to them as its own `balance-late` row — each
+claimable with that slot's bid owner key.
 - **A note at the balance address of a deposit slot with no bid is unrecoverable** (R40 F5): nobody can
 claim it (no owner key exists for the slot), so it is never swept and never refunded.
 - The signer-reproducible stealth derivation is custom (2-of-3 signers must derive the same one-time
