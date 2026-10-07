@@ -1,0 +1,13 @@
+# A18 item 3 (R40.3, F4) lab leg of the green at 71c2cf0: the same repro driving the SHIPPED publish() over the pre-F4 run's own recorded private state (--rebuild f1170469…): the rebuilt document carries NO join (f4-no-join-key PASS) and the allocation invariants hold. f4-verify-passes fails ONLY because the historical result commits to an allocation file the recomputation cannot rebuild without the private records (the pre-F4 era); the full three-line green (verify included) completes on the A18 launch-meet live corpus in item 7.
+# command node tmp/r40-f4-join.mjs --rebuild f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542
+commit 71c2cf0161172d0d7b22b3264f8d6ce7ca0a48d1 (working tree not clean at run time)
+utc 2026-10-07T01:20:33.329Z
+command node tmp/r40-f4-join.mjs (tools/repro/r40-f4-join.ts)
+tree ?? docs/evidence/phase-5/mutations/A18-F4.patch
+rebuild f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542 -> tmp/r40-f4-rebuild/f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542
+== f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542 (f1170469, state SETTLED)
+PASS f4-no-join-key the published document set carries no leaf<->destination join
+PASS f4-allocation rows 2 want 2; lot 1; canonical true; committed hash e949eff3521e (0 host signatures)
+FAIL f4-verify-passes verify exit 1 (ERROR clear refused: canonical result differs)
+ERROR f4-verify-passes verify exit 1 (ERROR clear refused: canonical result differs)
+RESULT FAIL r40-f4-join

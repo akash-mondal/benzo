@@ -1,0 +1,12 @@
+# A18 item 3 (R40.3, F4) red-before: tools/repro/r40-f4-join.ts over the PRE-F4 committed corpus docs/evidence/phase-5/markets/launch/cold-f1170469 at 71c2cf0 — exactly Reviewer R's F4 finding: f4-no-join-key RED (launch_input.destination published: destination<->leaf join, position-by-position), while f4-verify-passes is GREEN (verify accepts the leak) and the allocation invariants hold. The single red is the join.
+# command node tmp/r40-f4-join.mjs docs/evidence/phase-5/markets/launch/cold-f1170469
+commit 71c2cf0161172d0d7b22b3264f8d6ce7ca0a48d1 (working tree not clean at run time)
+utc 2026-10-07T01:20:32.376Z
+command node tmp/r40-f4-join.mjs (tools/repro/r40-f4-join.ts)
+tree ?? docs/evidence/phase-5/mutations/A18-F4.patch
+== cold-f1170469 (f1170469, state SETTLED)
+FAIL f4-no-join-key launch_input.delivery published | auction.json.launch_input.delivery[0] pairs a destination with a leaf | auction.json.launch_input.delivery[1] pairs a destination with a leaf
+ERROR f4-no-join-key launch_input.delivery published | auction.json.launch_input.delivery[0] pairs a destination with a leaf | auction.json.launch_input.delivery[1] pairs a destination with a leaf
+PASS f4-allocation rows 2 want 2; lot 1; canonical true; committed hash e949eff3521e (0 host signatures)
+PASS f4-verify-passes verify exit 0
+RESULT FAIL r40-f4-join
