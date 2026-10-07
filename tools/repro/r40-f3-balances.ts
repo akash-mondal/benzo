@@ -1,15 +1,16 @@
-// Ruling R40 item 4 (F3, A18 item 4): `settlement.balance_refunds` is host-signed data, exactly like
-// `defaults`. Reviewer R's F3 (reports/pr-a16-a17-r38.md) tampered the published counts (20,000→25,000) and
-// regenerated rows/receipts/summary to agree — the lying coordinator's ordinary publish output — and
-// `benzo verify` accepted it (`== verify exit: 0`), because the accounting replays the published values
-// self-referentially and no host signature covered them. R40: the counts join the G-4 approval map body and
-// verify requires them to equal two agreeing verified maps from distinct pinned signers.
+// Ruling R40 item 4 (F3, A18 item 4) as re-ruled by R41 item 1 (F7, A19 item 1): the published refund-row counts
+// are host-attested PER ROW, in the approval of the batch that pays the row (its `balance_refunds` carry just the
+// rows that batch pays). Reviewer R's F3 (reports/pr-a16-a17-r38.md) tampered the published counts (20,000→25,000)
+// and regenerated rows/receipts/summary to agree — the lying coordinator's ordinary publish output — and
+// `benzo verify` accepted it, because no host signature covered them. Post-R41 the binding is the paying batch's
+// two agreeing maps: a fabricated or inflated PAID count is refused with its own error. An UNPAID row publishes
+// as `pending` with counts only and verify does not count it (R41.1), so the tamper below must hit a PAID entry.
 //
 // Assertions (args: <corpus-dir> [verify-bundle.mjs]):
 //   f3-baseline-verifies  the UNTAMPERED corpus verifies (the tamper below is the only difference);
-//   f3-tamper-refused     the tampered corpus is REFUSED with the F3 binding error — red before (the pre-F3
-//                         verifier exits 0 on it: Reviewer R's exact finding) and green after, on a corpus
-//                         whose maps carry the counts (the A18 live run).
+//   f3-tamper-refused     the tampered corpus is REFUSED with the attestation error — red before (the pre-F3
+//                         verifier exits 0 on it: Reviewer R's exact finding) and green after, on a corpus whose
+//                         maps attest the paid rows (the A19 live run).
 // Run: npx esbuild tools/repro/r40-f3-balances.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r40-f3-balances.mjs && node tmp/r40-f3-balances.mjs <corpus-dir> [verify.mjs]
 import { execFileSync, spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -41,6 +42,9 @@ const line = (id: string, ok: boolean, d: string) => {
 const base = doc(path.join(corpus, "auction.json"));
 const refunds = base.settlement?.balance_refunds ?? [];
 if (!refunds.length) { console.log(`ERROR f3-setup corpus ${corpus} carries no balance_refunds`); process.exit(1); }
+// R41.1: the tamper must inflate a PAID row (pending counts are ruled unbound); the A19 corpora always pay one.
+const paidRows = refunds.filter((r: any) => r.state === "paid");
+if (!paidRows.length) { console.log(`ERROR f3-setup corpus ${corpus} has no PAID refund row (R41.1: pending counts are not counted)`); process.exit(1); }
 console.log(`corpus ${path.basename(corpus)} (${base.auction_id.slice(0, 8)}) balance_refunds ${JSON.stringify(refunds)}`);
 
 // f3-baseline-verifies: the unmodified corpus is accepted by the verifier under test.
@@ -57,23 +61,24 @@ const bump = 5000;
 {
   const d = doc(path.join(tampered, "auction.json"));
   const list = d.settlement.balance_refunds, rows = d.settlement.rows ?? [], receipts = d.settlement.receipts ?? [];
-  for (const [i, r] of list.entries()) {
+  for (const r of list) {
+    if (r.state !== "paid") continue; // R41.1: pending counts are not counted — the tamper hits the attested rows
     const parties = r.party !== undefined ? [r.party] : [`leaf:${r.leaf_index}`];
     r.amount_zats = String(Number(r.amount_zats) + bump);
     for (const p of parties) {
       for (const row of rows) if (row.party === p) row.amount_zats = String(Number(row.amount_zats) + bump);
       for (const rec of receipts) if (rec.party === p) rec.amount_zats = String(Number(rec.amount_zats) + bump);
     }
-    if (i === 0) break; // one inflated count is the finding
+    break; // one inflated count is the finding
   }
   writeFileSync(path.join(tampered, "auction.json"), jsonBytes(d));
   writeFileSync(path.join(tampered, "summary.json"), jsonBytes(d.settlement));
 }
 const t = runVerify(tampered, base.signer);
 const errs = errors(t);
-const bound = errs.some(e => /balance_refunds (differ from the host-signed approval maps|are not carried by two agreeing host-signed approval maps)/.test(e));
+const bound = errs.some(e => /paid refund row .* is not attested by two agreeing host-signed approval maps|not published as paid with its amount/.test(e));
 line("f3-tamper-refused", t.status !== 0 && bound,
-  `tampered (+${bump}) verify exit ${t.status}; ${bound ? "refused with the F3 binding error" : `no F3 binding error — ${errs.slice(0, 3).join(" | ") || "ACCEPTED (Reviewer R's F3)"}`}`);
+  `tampered (+${bump} on a PAID row) verify exit ${t.status}; ${bound ? "refused with the per-row attestation error" : `no attestation error — ${errs.slice(0, 3).join(" | ") || "ACCEPTED (Reviewer R's F3)"}`}`);
 
 console.log(all ? "RESULT PASS r40-f3-balances" : "RESULT FAIL r40-f3-balances");
 process.exitCode = all ? 0 : 1;
