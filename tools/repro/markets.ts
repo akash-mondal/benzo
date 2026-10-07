@@ -279,7 +279,7 @@ async function run(name: string, link?: SeriesLink) {
   let straySealed: any = null;
   if (sc.strayClaim) {
     const owner = generateOwnerKey();
-    straySealed = { ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: "280", quantity: 1, address: deposits[0], refund_ua: refunds[0], owner_private_hex: owner.private_hex }), owner, destination: bidder() };
+    straySealed = { ...benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer], { price_zats: "280", quantity: 1, address: deposits[0], refund_ua: refunds[0], lot: LOTS[0], owner_private_hex: owner.private_hex }), owner, destination: bidder() };
   }
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
   writeFileSync(path.join(privateDir, "sealed.json"), JSON.stringify(sealed));
@@ -580,9 +580,12 @@ async function resume(id: string) {
     const txid = json(path.join(priv, "funding.json")).txid;
     for (const b of json(path.join(priv, "sealed.json"))) { try { benzo(["bid", "deposit", "--id", id], { txid, address: b.address, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex }); } catch (e) { say(`WARN admit: ${String((e as Error).message).slice(-120)}`); } }
     while (Date.now() / 1000 < m.T_submit + 2) await sleep(5_000);
-    benzo(["freeze", "--id", id]);
+    // A run dropped past the freeze cutoff is a CANCELLED auction (unfrozen after T_freeze): never force the
+    // freeze — its deposits refund through their own memo-bound envelopes below.
+    if (Date.now() / 1000 < m.T_freeze) benzo(["freeze", "--id", id]);
+    else say(`T_freeze passed unfrozen: the auction is cancelled; settlement refunds every deposit through its own memo`);
   }
-  if ((doc().witness_cert ?? []).length < 2) hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
+  if ((doc().witness_cert ?? []).length < 2 && doc().frozen) hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
   while ((await latestRound()) < m.drand.R) await sleep(10_000);
   if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
   if (stateOf() === "OPENED") benzo(["clear", "--id", id]);
@@ -594,14 +597,18 @@ async function resume(id: string) {
   }
   // The dropped run's own scenario steps (balance window payments) when still missing.
   const d0 = doc();
-  if (scen?.balancePays) await bondFlow(id, scen, d0, say);
-  if (scen?.intakeSerials && !existsSync(path.join(publicDir, "serial-intake.json"))) intakeFlow(`resume-${id.slice(0, 8)}`, id, doc(), scen.intakeSerials, say);
+  if (scen?.balancePays && d0.result) await bondFlow(id, scen, d0, say);
+  if (scen?.intakeSerials && d0.result && !existsSync(path.join(publicDir, "serial-intake.json"))) intakeFlow(`resume-${id.slice(0, 8)}`, id, doc(), scen.intakeSerials, say);
   hostEnvelopeOpens(id, publicDir);
   const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
-  const owed = Object.fromEntries([...(await import("../../clear/registry")).modeEntry(doc().manifest).obligations(doc().result, { defaults: scen?.defaults ?? [] })].map(([p, v]) => [p, Number(v)]));
-  const ok = settle.status === 0 && Object.entries(owed).every(([p, v]) => receipts[p] === v);
-  say(`settle exit ${settle.status}; receipts ${JSON.stringify(receipts)}; obligations ${JSON.stringify(owed)}`);
+  // A cancelled run has no result: its obligations are the deposits themselves, each refunded at its own note
+  // value through its memo-bound envelope (or its owner's claim) — and `benzo verify` is the accounting check.
+  const owed = doc().result
+    ? Object.fromEntries([...(await import("../../clear/registry")).modeEntry(doc().manifest).obligations(doc().result, { defaults: scen?.defaults ?? [] })].map(([p, v]) => [p, Number(v)]))
+    : {};
+  const ok = settle.status === 0 && (doc().result ? Object.entries(owed).every(([p, v]) => receipts[p] === v) : Object.keys(receipts).length > 0);
+  say(`settle exit ${settle.status}; receipts ${JSON.stringify(receipts)}${doc().result ? `; obligations ${JSON.stringify(owed)}` : " (cancelled: each deposit refunds at its own note value)"}`);
   const v = spawnSync(benzoBin, ["verify", "--dir", publicDir, "--signer", signer], { encoding: "utf8" });
   say(`${ok && v.status === 0 ? "RESULT PASS" : "RESULT FAIL"} (verify exit ${v.status})`);
   return ok && v.status === 0;

@@ -1,0 +1,18 @@
+A20 drop recovery — funded run 05185a52209839cac511b7063323062af665900922c8fb03923407c678291543 (the harness
+crashed at the stray leg's `bid seal` on the submission-deadline check AFTER funding and admission; the leg was
+fixed to seal with the bids — commits 5b7a313 — and the CLEAN run 8fb20cb2 carries the proof). The run is past
+its freeze cutoff, so it is a CANCELLED auction (unfrozen after T_freeze): never force the freeze — its four
+deposits refund at their own note values through their memo-bound envelopes. Commands (UTC 2026-10-07T21:2x–21:5x):
+1. `node tmp/markets.mjs resume:05185a52…` (harness resume, patched to walk the cancelled path): the run took the
+   cancel branch ("T_freeze passed unfrozen: the auction is cancelled") but settle exited 1 before the cancel:
+   "settlement requires cleared result" — recorded here, not hidden.
+2. `benzo cancel --id 05185a52…` -> state REFUNDING.
+3. `BNZ_LWD_SINGLE=1 benzo settle --id 05185a52…` -> {"settled": 4} — four deposit refunds of 200,000 each
+   (receipts: deposit:be860b68… x4, one per admitted bid, at their own note values).
+4. The refunds landed at each bid's own envelope destination (the bidder-wallet scan vs the run's refunds.json):
+PASS xc-landed [redacted address 0ea8d644c3] holds 200000 (the deposit refunded at its own note value)
+PASS xc-landed [redacted address cc9914a597] holds 200000 (the deposit refunded at its own note value)
+PASS xc-landed [redacted address 90137bfb01] holds 200000 (the deposit refunded at its own note value)
+PASS xc-landed [redacted address fe9ac40b07] holds 200000 (the deposit refunded at its own note value)
+5. SKIP xc-verify (cancelled before freeze: no frozen root to verify against — the A18 cancel-claims precedent).
+RESULT PASS 05185a52 recovered: every deposit refunded to its own bidder; nothing parked.
