@@ -1,5 +1,5 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 73fd3bf..511189b 100644
+index 6b68ecd..aabf482 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
 @@ -261,7 +261,8 @@ export function balanceSettlement(
@@ -11,4 +11,4 @@ index 73fd3bf..511189b 100644
 +    if (byLeaf.has(leaf)) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
      else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
    }
-   // Ruling R41 item 4 (F10): in-window value ABOVE `balance_due_zats` at a winner's balance address becomes ONE
+   // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT

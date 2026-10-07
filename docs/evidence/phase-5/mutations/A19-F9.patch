@@ -1,5 +1,5 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 73fd3bf..b49fcdd 100644
+index 6b68ecd..d8b7c35 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
 @@ -262,7 +262,7 @@ export function balanceSettlement(
@@ -9,12 +9,12 @@ index 73fd3bf..b49fcdd 100644
 -    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
 +    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: true });
    }
-   // Ruling R41 item 4 (F10): in-window value ABOVE `balance_due_zats` at a winner's balance address becomes ONE
-   // immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf. It is FINAL — settlement waits
-@@ -274,7 +274,7 @@ export function balanceSettlement(
-     const due = BigInt(result.allocations.find(a => a.leaf_index === leaf)?.balance_due_zats ?? "0");
-     const inNotes = notes.filter(n => n.address === address && n.height && n.height > start && n.height <= end && BigInt(n.value_zats) !== 0n);
-     const excess = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n) - due;
+   // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
+   // settle becomes ONE immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf — a paid
+@@ -278,7 +278,7 @@ export function balanceSettlement(
+     const total = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n);
+     const settledZats = due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6)
+     const excess = total - settledZats;
 -    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured) });
 +    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: true });
    }

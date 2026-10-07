@@ -1,5 +1,5 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 73fd3bf..f351af7 100644
+index 6b68ecd..899a725 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
 @@ -262,7 +262,12 @@ export function balanceSettlement(
@@ -14,8 +14,8 @@ index 73fd3bf..f351af7 100644
 +      else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
 +    }
    }
-   // Ruling R41 item 4 (F10): in-window value ABOVE `balance_due_zats` at a winner's balance address becomes ONE
-   // immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf. It is FINAL — settlement waits
+   // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
+   // settle becomes ONE immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf — a paid
 diff --git a/settle/ledger.ts b/settle/ledger.ts
 index dd10a9b..ac7d2ee 100644
 --- a/settle/ledger.ts
