@@ -1,13 +1,6 @@
-# 5M7 replay against the A17 drop run (2026-10-06T19:10:32Z -> 2026-10-06T19:10:32Z, commit 6f4fec0): the markets assertions with docs/evidence/phase-5/mutations/5M7.patch applied (a default refunded instead of forfeited to the seller), applied then reversed; git status after reversal shows only the new mutation files.
-# command node tmp/mut-replay-markets.mjs <revision-cold> <rfq-cold> docs/evidence/phase-5/markets/drop-a17/drop-cold (replay bundle rebuilt from the mutated tree)
-# expected ERROR drop-forfeit
+# 5M7 mutation replay (a default refunded instead of forfeited), regenerated on the A18 tree and replayed on the A18 drop corpus: ERROR drop-forfeit. Patch applied with git apply, run, reversed with git apply -R.
+# command node tmp/mut-replay-markets.mjs <revision> <rfq> docs/evidence/phase-5/markets/drop-a18/drop-cold <launch>
 PASS revision outcomes superseded,unfilled,winner price 300
 PASS rfq outcomes unfilled,winner,not_allowlisted price 400
-PASS drop-defaults published defaults [2]
-PASS drop-defaults-maps 2 agreeing verified maps
-PASS drop-defaults-window defaults [2] (a pre-window note must not count as payment; fixture (4472303, 4472306] in (4472304, 4472344])
 FAIL drop-forfeit obligations {"leaf:1":200000,"leaf:2":250000,"leaf:3":200000,"seller":950000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
 ERROR drop-forfeit obligations {"leaf:1":200000,"leaf:2":250000,"leaf:3":200000,"seller":950000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
-PASS drop-swapped-defaults-refused swapped [0] verify exit 1 (ERROR accounting refused: settlement seller amount | ERROR defaults refused: settlement defaults differ from the host-signed approval maps)
-PASS drop-reserve-opening publish rebuilt the doc; reserve_opening present; verify exit 0
-exit 1

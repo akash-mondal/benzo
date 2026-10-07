@@ -1,0 +1,18 @@
+commit 9d2d119e2aa6442d501dd4c2e4f82f13d3e81670 (working tree not clean at run time)
+utc 2026-10-07T05:57:37.701Z
+command node tmp/r38-n2.mjs (tools/repro/r38-n2.ts)
+tree M api/public-auction.ts
+tree  M cli/commands/sign-delivery.ts
+tree  M deploy/signers/manifest.json
+tree  M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-5/mutations/5M6.patch
+tree  M docs/evidence/phase-5/mutations/5M7.patch
+tree  M docs/evidence/phase-5/mutations/A18-F1.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/verify-bundle.sha256
+tree  M e2e/lib/hosts.ts
+tree  M tools/repro/markets.ts
+tree ?? docs/evidence/phase-5/markets/drop-a18/
+PASS n2-derivable exit 0; host rows [{"party":"leaf:1","amount_zats":"200000"},{"party":"leaf:3","amount_zats":"200000"},{"party":"balance-late:740a18632fdc5a1bdff771122a953ab9a7da478b2a85b905c36c9f4ac7bb1caa:ironwood:1","amount_zats":"20000"},{"party":"seller","amount_zats":"700000"}]; host balance_refunds [{"party":"balance-late:740a18632fdc5a1bdff771122a953ab9a7da478b2a85b905c36c9f4ac7bb1caa:ironwood:1","leaf_index":0,"amount_zats":"20000"}]; published balance_refunds [{"amount_zats":"20000","leaf_index":0,"party":"balance-late:740a18632fdc5a1bdff771122a953ab9a7da478b2a85b905c36c9f4ac7bb1caa:ironwood:1"}]
+PASS n2-derivable the host derives every payable row from its own data, including the out-of-window refund row
+RESULT PASS r38-n2

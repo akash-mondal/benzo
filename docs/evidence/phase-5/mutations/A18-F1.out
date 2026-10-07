@@ -1,14 +1,26 @@
-# A18-F1 mutation replay (R40 item 1): 'greedy restored' — docs/evidence/phase-5/mutations/A18-F1.patch applied at 0662700 (readOrders keeps every frozen leaf as an order, balanceAddressMap loses the shared-address refusal, balanceDefaults restores the R38.2 greedy walk). tools/repro/r40-f1-crossowner.ts must fail with ERROR f1-one-order-per-slot / ERROR f1-no-greedy. Patch applied with git apply, run, reversed with git apply -R (tree clean after).
-commit 0662700b14355029c48553cf9595e09bfef19d8e (working tree not clean at run time)
-utc 2026-10-07T00:04:19.097Z
+# A18-F1 mutation replay (R40 item 1): 'greedy restored' — docs/evidence/phase-5/mutations/A18-F1.patch. The patch is REGENERATED on the post-F5 tree (item 4's rewrite moved its hunks) with identical semantics (readOrders keeps every frozen leaf as an order, balanceAddressMap loses the shared-address refusal). Replayed red at the final tree (331c09a): ERROR f1-one-order-per-slot / ERROR f1-no-greedy. Earlier replay (item 1's evidence commit) used the original patch. Patch applied with git apply, run, reversed with git apply -R.
+# command node tmp/r40-f1-crossowner.mjs
+commit 9d2d119e2aa6442d501dd4c2e4f82f13d3e81670 (working tree not clean at run time)
+utc 2026-10-07T05:56:46.705Z
 command node tmp/r40-f1-crossowner.mjs (tools/repro/r40-f1-crossowner.ts)
-tree M clear/features.ts
-tree ?? docs/evidence/phase-5/mutations/A18-F1.patch
+tree M api/public-auction.ts
+tree  M clear/features.ts
+tree  M cli/commands/sign-delivery.ts
+tree  M deploy/signers/manifest.json
+tree  M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-5/mutations/5M6.patch
+tree  M docs/evidence/phase-5/mutations/5M7.patch
+tree  M docs/evidence/phase-5/mutations/A18-F1.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/verify-bundle.sha256
+tree  M e2e/lib/hosts.ts
+tree  M tools/repro/markets.ts
+tree ?? docs/evidence/phase-5/markets/drop-a18/
 owners distinct: true; allocations [[0,1,"300000","winner"],[1,1,"300000","winner"]]
 FAIL f1-one-order-per-slot orders [0] collisions [1] allocations [[0,1],[1,1]]
 ERROR f1-one-order-per-slot orders [0] collisions [1] allocations [[0,1],[1,1]]
 PASS f1-collision-is-stray strays ["3d6c339c"] (the collision deposits through the stray path to its own depositor)
 FAIL f1-no-greedy shared-slot fixture refused (null); defaults with no payment at the address [0,1] (the slot's own bidder defaults; no cross-leaf credit walk)
 ERROR f1-no-greedy shared-slot fixture refused (null); defaults with no payment at the address [0,1] (the slot's own bidder defaults; no cross-leaf credit walk)
-observation f1-payment-attribution defaults with a 300,000 payment at the shared address [1] (the payment is the slot owner's — the R40 honest limit)
+observation f1-payment-attribution defaults with a 300,000 payment at the shared address [] (the payment is the slot owner's — the R40 honest limit)
 RESULT FAIL r40-f1-crossowner

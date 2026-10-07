@@ -1,0 +1,20 @@
+commit 9d2d119e2aa6442d501dd4c2e4f82f13d3e81670 (working tree not clean at run time)
+utc 2026-10-07T06:05:57.573Z
+command node tmp/r40-f4-join.mjs (tools/repro/r40-f4-join.ts)
+tree M api/public-auction.ts
+tree  M cli/commands/sign-delivery.ts
+tree  M deploy/signers/manifest.json
+tree  M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-5/mutations/5M6.patch
+tree  M docs/evidence/phase-5/mutations/5M7.patch
+tree  M docs/evidence/phase-5/mutations/A18-F1.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/verify-bundle.sha256
+tree  M e2e/lib/hosts.ts
+tree  M tools/repro/markets.ts
+tree ?? docs/evidence/phase-5/markets/drop-a18/
+== 39b5ca116d9771c5c8533f17c7618c75a947adb8a5a4482fa30ce615ecc2717d (39b5ca11, state SETTLED)
+PASS f4-no-join-key the published document set carries no leaf<->destination join
+PASS f4-allocation rows 2 want 2; lot 1; canonical true; committed hash c58dde7d4b90 (2 host signatures)
+PASS f4-verify-passes verify exit 0
+RESULT PASS r40-f4-join

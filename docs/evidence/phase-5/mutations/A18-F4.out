@@ -1,14 +1,25 @@
-# A18-F4 mutation replay (R40 item 3): 'launch_input published' — docs/evidence/phase-5/mutations/A18-F4.patch applied at 71c2cf0 (publish() re-publishes launch_input with its delivery records). The join repro's rebuild leg must fail with ERROR f4-no-join-key (the destination<->leaf join reappears in the published doc). Patch applied with git apply, run, reversed with git apply -R (tree clean after).
-# command node tmp/r40-f4-join.mjs --rebuild f1170469… (bundle built WITH the patch applied)
-commit 71c2cf0161172d0d7b22b3264f8d6ce7ca0a48d1 (working tree not clean at run time)
-utc 2026-10-07T01:20:14.780Z
+# A18-F4 mutation replay (R40 item 3): 'launch_input published' — docs/evidence/phase-5/mutations/A18-F4.patch applied at the final tree, replayed over the CLEAN live launch-meet run's own recorded state (--rebuild 6edc8674…): ERROR f4-no-join-key (the delivery records reappear in the published doc). Patch applied with git apply, run, reversed with git apply -R.
+# command node tmp/r40-f4-join.mjs --rebuild 6edc8674…
+commit 9d2d119e2aa6442d501dd4c2e4f82f13d3e81670 (working tree not clean at run time)
+utc 2026-10-07T05:57:16.705Z
 command node tmp/r40-f4-join.mjs (tools/repro/r40-f4-join.ts)
-tree M cli/product.ts
-tree ?? docs/evidence/phase-5/mutations/A18-F4.patch
-rebuild f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542 -> tmp/r40-f4-rebuild/f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542
-== f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542 (f1170469, state SETTLED)
-FAIL f4-no-join-key launch_input.delivery published | auction.json.launch_input.delivery[0] pairs a destination with a leaf | auction.json.launch_input.delivery[1] pairs a destination with a leaf
-ERROR f4-no-join-key launch_input.delivery published | auction.json.launch_input.delivery[0] pairs a destination with a leaf | auction.json.launch_input.delivery[1] pairs a destination with a leaf
-PASS f4-allocation rows 2 want 2; lot 1; canonical true; committed hash e949eff3521e (0 host signatures)
+tree M api/public-auction.ts
+tree  M cli/commands/sign-delivery.ts
+tree  M cli/product.ts
+tree  M deploy/signers/manifest.json
+tree  M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-5/mutations/5M6.patch
+tree  M docs/evidence/phase-5/mutations/5M7.patch
+tree  M docs/evidence/phase-5/mutations/A18-F1.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/verify-bundle.sha256
+tree  M e2e/lib/hosts.ts
+tree  M tools/repro/markets.ts
+tree ?? docs/evidence/phase-5/markets/drop-a18/
+rebuild 6edc8674a29c06734270e0958c46612cd1bd8448ca1b9ff008ee64b593679084 -> tmp/r40-f4-rebuild/6edc8674a29c06734270e0958c46612cd1bd8448ca1b9ff008ee64b593679084
+== 6edc8674a29c06734270e0958c46612cd1bd8448ca1b9ff008ee64b593679084 (6edc8674, state SETTLED)
+FAIL f4-no-join-key launch_input.delivery published
+ERROR f4-no-join-key launch_input.delivery published
+PASS f4-allocation rows 2 want 2; lot 1; canonical true; committed hash dec5ddda4188 (2 host signatures)
 PASS f4-verify-passes verify exit 0
 RESULT FAIL r40-f4-join
