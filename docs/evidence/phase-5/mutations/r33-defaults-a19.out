@@ -1,0 +1,34 @@
+# r33-defaults green re-run at the A19 tree (its map-body covered code — benzo-approval-map-v1's signed bytes — is byte-identical in A19; the in-driver swap refusal is its own red).
+# A19 test-audit re-run at d762b123e0284f1c64eb1e4543c3052bfb9cbe38 (the covered code changed in A19; no patch (in-driver)). Patch applied with git apply, the test rebuilt from the tree, run, reversed with git apply -R (tree clean after).
+# command node tmp/r33-defaults.mjs
+# utc 2026-10-07T13:15:16Z
+command node tmp/r33-defaults.mjs (tools/repro/r33-defaults.ts)
+tree M deploy/signers/manifest.json
+tree  M docs/evidence/phase-5/mutations/A17-N4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/evidence/phase-5/mutations/A18-F5.patch
+OK projection
+OK missing-deposits
+OK delivery
+OK report
+OK manifest
+OK freeze
+OK witness
+OK receipts
+OK clear
+OK delivery-list
+OK envelope
+OK claims
+OK accounting
+OK balances
+OK balance-refs
+OK defaults
+OK accounting-strays
+PASS r33-defaults-true-list (settlement.defaults equals two host-signed maps)
+derivations winners owe: [[0,1,"300000"],[1,1,"300000"],[2,0,"0"]]
+OK accounting
+OK accounting-strays
+ERROR defaults refused: settlement defaults differ from the host-signed approval maps
+PASS r33-defaults-swap-refused (coordinator-swapped list refused with its own ERROR)
+PASS r33-defaults-swap-invisible-to-accounting (obligations/rows/receipts cannot tell the lists apart)
+RESULT PASS r33-defaults

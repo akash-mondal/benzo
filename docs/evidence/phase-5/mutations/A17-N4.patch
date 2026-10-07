@@ -1,14 +1,14 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index bfa21cb..5386f1f 100644
+index 73fd3bf..511189b 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
-@@ -226,7 +226,8 @@ export function balanceSettlement(
+@@ -261,7 +261,8 @@ export function balanceSettlement(
      // README honest limits list it as unrecoverable).
      const leaf = balanceLateLeafIndex(m, leaves, n);
      if (leaf === null) continue;
 -    if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-+    // MUTATION A17-N4: out-of-window notes are swept into change again (every note is a source).
++    // MUTATION A17-N4: out-of-window notes are swept into change again (every note at a winner's address is a source).
 +    if (byLeaf.has(leaf)) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
+     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
    }
-   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
+   // Ruling R41 item 4 (F10): in-window value ABOVE `balance_due_zats` at a winner's balance address becomes ONE

@@ -1,0 +1,16 @@
+# A18-F4 mutation replay (launch_input published) over the launch-meet run's recorded state (6edc8674): ERROR f4-no-join-key.
+# A19 test-audit re-run at d762b123e0284f1c64eb1e4543c3052bfb9cbe38 (the covered code changed in A19; patch applied unchanged). Patch applied with git apply, the test rebuilt from the tree, run, reversed with git apply -R (tree clean after).
+# command git apply A18-F4.patch && node tmp/r40-f4-join.mjs --rebuild 6edc8674a29c06734270e0958c46612cd1bd8448ca1b9ff008ee64b593679084
+# utc 2026-10-07T13:15:16Z
+commit d762b123e0284f1c64eb1e4543c3052bfb9cbe38 (working tree not clean at run time)
+utc 2026-10-07T13:08:49.902Z
+command node tmp/r40-f4-join.mjs (tools/repro/r40-f4-join.ts)
+tree M cli/product.ts
+tree  M deploy/signers/manifest.json
+rebuild 6edc8674a29c06734270e0958c46612cd1bd8448ca1b9ff008ee64b593679084 -> tmp/r40-f4-rebuild/6edc8674a29c06734270e0958c46612cd1bd8448ca1b9ff008ee64b593679084
+== 6edc8674a29c06734270e0958c46612cd1bd8448ca1b9ff008ee64b593679084 (6edc8674, state SETTLED)
+FAIL f4-no-join-key launch_input.delivery published
+ERROR f4-no-join-key launch_input.delivery published
+PASS f4-allocation rows 2 want 2; lot 1; canonical true; committed hash dec5ddda4188 (2 host signatures)
+PASS f4-verify-passes verify exit 0
+RESULT FAIL r40-f4-join

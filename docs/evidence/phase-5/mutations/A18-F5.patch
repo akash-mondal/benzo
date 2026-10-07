@@ -1,13 +1,13 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index bfa21cb..1f644d2 100644
+index 73fd3bf..9aa97e6 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
-@@ -217,16 +217,13 @@ export function balanceSettlement(
-   requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
-   const byLeaf = balanceAddressMap(result, leaves, m);
-   const { start, end } = balanceWindow(m);
+@@ -252,16 +252,13 @@ export function balanceSettlement(
+   // note(s) mature it stays pending, so a reorg can never make the vault refund money it never received.
+   const gate = Math.max(m.confirmations ?? 10, 10);
+   const matured = (n: ScannedNote): boolean => !!n.height && tip - n.height + 1 >= gate;
 +  const slots = new Map<string, number>(); // MUTATION/RED-REPLAY A18-F5: winners only (the pre-F5 rule)
-+  for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, leaf);
++  for (const [l, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, l);
    const sources: string[] = [], refunds: BalanceRefund[] = [];
    for (const n of notes) {
 -    if (!n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
@@ -21,6 +21,6 @@ index bfa21cb..1f644d2 100644
 +    const leaf = slots.get(n.address);
 +    if (leaf === undefined || !n.height || BigInt(n.value_zats) === 0n) continue;
 +    if (n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
+     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
    }
-   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
+   // Ruling R41 item 4 (F10): in-window value ABOVE `balance_due_zats` at a winner's balance address becomes ONE

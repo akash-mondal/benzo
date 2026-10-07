@@ -1,0 +1,13 @@
+# A17-N2 mutation replay (the pre-change settlement-time refusal over pre-window notes restored in cli/host-derive.ts) over the A19 drop run (2afb29e4): ERROR n2-derivable (stale or pre-funded value refused — the wedge over third-party chain state). The green leg runs at the same tree without the patch (n2-derivable PASS: the host derives every payable row plus both refund rows).
+# A19 test-audit re-run at d762b123e0284f1c64eb1e4543c3052bfb9cbe38 (the covered code changed in A19; patch applied unchanged). Patch applied with git apply, the test rebuilt from the tree, run, reversed with git apply -R (tree clean after).
+# command git apply A17-N2.patch && npm run build:cli && node tmp/r38-n2.mjs derivable cli/dist/benzo.mjs 2afb29e43beb6da4932b1e827714aa22381e95d867d6aa6a97717268ff26421e
+# utc 2026-10-07T13:15:16Z
+commit d762b123e0284f1c64eb1e4543c3052bfb9cbe38 (working tree not clean at run time)
+utc 2026-10-07T13:10:57.367Z
+command node tmp/r38-n2.mjs (tools/repro/r38-n2.ts)
+tree M cli/host-derive.ts
+tree  M deploy/signers/manifest.json
+ERROR sign derivable refused: balance address utest1gpjhjfeh53… holds a note at height 4474747 at or below the window start; stale or pre-funded value refused
+FAIL n2-derivable exit 1; host rows []; host balance_refunds []; published balance_refunds [{"amount_zats":"1","leaf_index":0,"party":"balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1","state":"paid"},{"amount_zats":"20000","leaf_index":0,"party":"balance-late:e718a592c00380ed32a61367acad42fa1a95e445897d8a4f128093057c3d0a85:ironwood:1","state":"paid"}]; output tail: ERROR sign derivable refused: balance address utest1gpjhjfeh53… holds a note at height 4474747 at or below the window start; stale or pre-funded value refused
+ERROR n2-derivable the derivation refused (exit 1): ERROR sign derivable refused: balance address utest1gpjhjfeh53… holds a note at height 4474747 at or below the window start; stale or pre-funded value refused
+RESULT FAIL r38-n2
