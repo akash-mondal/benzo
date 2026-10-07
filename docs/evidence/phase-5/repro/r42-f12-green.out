@@ -1,0 +1,12 @@
+r42-f12 GREEN AFTER — tools/repro/r42-f12-drift.ts (adapted from the reviewer's r41-f7-rerun-and-residue.ts part 2; source: benzo-sol/lab/pr-a19/tests/r41-f7-rerun-and-residue.ts) at the F12 fix. f12a: defaults bind map-to-map with no fresh-plan comparison; f12b/c/d: pin logs every re-derivation difference and the pinned row stands, never a throw (mismatched rows wait in the exception queue); f12e: publish() publishes the maps' agreed defaults with a drifted plan derivation.
+commit fe9fcf96b816b4fd929cd12a0b8f0a0622eff2b2
+utc 2026-10-07T18:05:43.767Z
+PASS f12a-defaults-map-to-map agreeing maps finalize with no plan comparison (true); disagreeing defaults threw "refused: the signing hosts' output maps are missing, unsigned or disagree" (map-to-map only)
+WARN settlement obligation seller re-derived 200000 differs from pinned 500000; the pinned row stands
+PASS f12b-pin-seller-drift NO-THROW; the pinned row stands at 500000 (state exception) — a defaults flip can never wedge or rewrite it
+WARN settlement obligation balance-excess:0 re-derived 30000 differs from pinned 50000; the pinned row stands
+PASS f12c-pin-excess-drift NO-THROW; the pinned row stands at 50000
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+PASS f12d-pin-row-vanish NO-THROW; the vanished row stands at 200000
+PASS f12e-publish-map-defaults plan derivation drifted to [1]; publish served and published defaults [0] from two agreeing maps
+RESULT PASS r42-f12-drift
