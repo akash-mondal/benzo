@@ -76,6 +76,7 @@ type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: 
   defaults?: number[]; balancePays?: number[]; balanceDust?: number[]; intakeSerials?: number[];
   // A19 (R41 F7/F9): the leaf whose balance address gets ONE 1-zat note AFTER the two hosts sign batch 1.
   lateDust?: { leaf: number };
+  strayClaim?: boolean;
   extra: (ctx: Ctx) => any; owners?: string[]; bids: (o: Record<string, any>) => Bid[];
   // Explicit expected receipts per party; when absent, the registry's own obligations over the published result, plus
   // an outcome assertion (`outcomes`) on that result.
@@ -205,7 +206,7 @@ const SCENARIOS: Record<string, Scenario> = {
   // over the 400,000 bid, lot b at 450,000, and lot c's 100,000 bid sits below the sealed reserve (lot unfilled).
   // Winner leaf 0 pays its 300,000 balance INSIDE the manifest-fixed window; winner leaf 2 never pays and
   // forfeits its 200,000 bond to the seller (seller 500,000 + 200,000; the two losing bids get exact C back).
-  "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0], balanceDust: [0], lateDust: { leaf: 0 },
+  "drop": { mode: "uniform", supply: 1, lots: LOTS, defaults: [2], balancePays: [0], balanceDust: [0], lateDust: { leaf: 0 }, strayClaim: true,
     extra: c => ({ B_max_zats: "2000000", bond: { bond_bps: 1000, balance_window_blocks: 40, balance_window_start_height: balanceStart(c) },
       serials: { first: 0, count: 8, seed_round_offset: 2 }, sealed_reserve: sealReserve(300_000, c.id, c.R) }),
     bids: () => [{ price: 500_000, lot: LOTS[0] }, { price: 400_000, lot: LOTS[0] }, { price: 450_000, lot: LOTS[1] }, { price: 100_000, lot: LOTS[2] }],
@@ -254,7 +255,7 @@ async function run(name: string, link?: SeriesLink) {
   const privateDir = path.join(STATE, "run", `markets-${id}`), publicDir = path.join(ROOT, "tmp/markets/public", id); mkdirSync(privateDir, { recursive: true });
   writeFileSync(path.join(privateDir, "refunds.json"), JSON.stringify(refunds)); // test-harness bidder state
   writeFileSync(path.join(privateDir, "xchain-delivers.json"), JSON.stringify(bids.map(b => b.deliver ?? null))); // harness bidder state for the xchain demo driver
-  writeFileSync(path.join(privateDir, "scenario.json"), JSON.stringify({ name, balancePays: sc.balancePays, balanceDust: sc.balanceDust, intakeSerials: sc.intakeSerials, defaults: sc.defaults, lateDust: sc.lateDust })); // resume:<id>
+  writeFileSync(path.join(privateDir, "scenario.json"), JSON.stringify({ name, balancePays: sc.balancePays, balanceDust: sc.balanceDust, intakeSerials: sc.intakeSerials, defaults: sc.defaults, lateDust: sc.lateDust, strayClaim: sc.strayClaim })); // resume:<id>
   const witnessSet = signRecord({ version: 1, auction_id: id, q_w: 2, keys: witnessPubs }, readFileSync(path.join(STATE, "auction", "manifest-signing.pem"), "utf8"));
   writeFileSync(path.join(privateDir, "witness-set.json"), JSON.stringify(witnessSet));
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: sc.batch_cap ?? 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
@@ -290,6 +291,13 @@ async function run(name: string, link?: SeriesLink) {
   } finally { dropLock(lock); } // held until the funding matured, so the wallet's change is spendable
   writeFileSync(path.join(privateDir, "funding.json"), JSON.stringify({ txid: paid.txid }));
   for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
+  // A20 (R42.1) live stray-claim leg: one MORE sealed bid — its own fresh owner key — paid in its own
+  // transaction to a deposit address, and NEVER admitted: it is a stray deposit (settle/deposits.ts
+  // strayNotes), claimed with its own owner key to a fresh destination. The F11 fix is proven live: the
+  // batch that pays it must attest its note identity and memo hash per row in two agreeing host-signed
+  // approval maps, which ${name}-stray-row-attested checks below.
+  let stray: { party: string; amount: number; memo_sha256: string; destination: string } | null = null;
+  if (sc.strayClaim) stray = await strayClaimFlow(name, id, manifestFile, signer, deposits[0], bidder(), say);
   while (Date.now() / 1000 < manifest.T_submit + 2) await sleep(5_000);
   if (Date.now() / 1000 >= manifest.T_freeze) throw new Error("deposits matured after T_freeze");
   benzo(["freeze", "--id", id]);
@@ -373,14 +381,36 @@ async function run(name: string, link?: SeriesLink) {
   if (sc.expect) check(`${name}-expected-equals-obligations`, noT(want) === noT(owed), JSON.stringify(owed));
   if (sc.outcomes) check(`${name}-outcomes`, sc.outcomes(fin.result.allocations.map((a: any) => a.outcome)), fin.result.allocations.map((a: any) => a.outcome).join(","));
   check(`${name}-settled`, settle.status === 0, `exit ${settle.status}`);
-  // A19 (R41.1): the claimed late row's receipt sits beside the scenario's expected ones.
-  const wantAll = { ...want, ...(late ? { [late!.party]: late!.amount } : {}) };
+  // A19 (R41.1): the claimed late row's receipt sits beside the scenario's expected ones; A20: so does the
+  // stray claim's. A stray still waiting out its confirmations gets one more settle before the check.
+  if (stray && !(doc().settlement?.receipts ?? []).some((r: any) => r.party === stray!.party)) {
+    const s4 = runSettle("settle-stray (the stray claim matures; its batch pays it)");
+    check(`${name}-stray-settle`, s4.status === 0, `exit ${s4.status}`);
+    settle = s4;
+  }
+  const wantAll = { ...want, ...(late ? { [late!.party]: late!.amount } : {}), ...(stray ? { [stray!.party]: stray!.amount } : {}) };
   check(`${name}-receipts`, JSON.stringify(Object.entries(receipts).sort()) === JSON.stringify(Object.entries(wantAll).sort()), JSON.stringify(receipts));
   z.sync("bidder"); z.enhance("bidder");
   const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
   const at = (a: string) => got.filter((n: any) => n.address === a).reduce((s: number, n: any) => s + n.value_zats, 0);
   check(`${name}-landed`, Object.entries(want).every(([p, v]) => p.startsWith("leaf:") ? at(refunds[Number(p.slice(5))]) === v : p === "treasury" ? at(treasuryUa) === v : true), JSON.stringify([...refunds.map(at), at(treasuryUa)]));
   if (late) check(`${name}-late-landed`, at(refunds[late.leaf]) === late.amount, `leaf ${late.leaf}'s own destination holds ${at(refunds[late.leaf])} (the late row refunded to its slot's bidder)`);
+  // A20 (R42.1, F11) live: the stray's owner-signed claim is published with its scanned memo, the refund
+  // landed at the claim's own destination, and the paying batch's TWO agreeing maps attest the stray's note
+  // identity and memo hash — the per-row attestation that replaced the closed strays statement.
+  if (stray) {
+    check(`${name}-stray-landed`, at(stray.destination) === stray.amount, `the claim's destination holds ${at(stray.destination)} (the stray refunded to its claimant)`);
+    const claim = (fin.claims ?? []).find((c: any) => c.party === stray!.party);
+    check(`${name}-stray-claim-published`, !!claim && claim.memo_hex?.length === 1024 && !!claim.owner_sig,
+      `claim ${claim ? "published with its scanned memo and owner signature" : "MISSING from the published doc"}`);
+    const set = validateWitnessSet(verifyRecord(fin.witness_set, fin.signer), id);
+    const attested = (fin.settlement?.approval_maps ?? []).filter((mp: any) => mp && verifyApprovalMap(mp, set.keys) && mp.auction_id === id &&
+      (mp.strays ?? []).some((s: any) => s.party === stray!.party && s.memo_sha256 === stray!.memo_sha256) &&
+      (mp.outputs ?? []).some((o: any) => o.party === stray!.party));
+    check(`${name}-stray-row-attested`, attested.length >= 2 && new Set(attested.map((mp: any) => mp.witness)).size >= 2 &&
+      JSON.stringify(attested[0].strays) === JSON.stringify(attested[1].strays),
+      `${attested.length} agreeing maps attest {party, memo_sha256} (distinct witnesses ${new Set(attested.map((mp: any) => mp.witness)).size})`);
+  }
   const cold = path.join(OUT, "cold", id); rmSync(assertScratch(cold), { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
   const v = spawnSync(benzoBin, ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
   check(`${name}-cold-verify`, v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
@@ -431,6 +461,33 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
   }
   say(`balance window closed; the window was (${start}, ${start + blocks}], tip now ${safeTip()}`);
 }
+// A20 (R42.1, F11) live stray-claim leg: a sealed bid with its own fresh owner key is paid in its own
+// transaction to a manifest-public deposit address and never admitted — a stray deposit. Its memo is a valid
+// sealed bid of this auction, so its own owner key claims the refund (`benzo claim-refund`, the stray claim
+// path of settle/plan.ts) to a fresh destination. The note identity and the SHA-256 of its scanned memo must
+// be attested per row by the two agreeing host-signed maps of the batch that pays it — the exact F11 fix.
+async function strayClaimFlow(name: string, id: string, manifestFile: string, signer: string, depositUa: string,
+  destination: string, say: (s: string) => void) {
+  const scanVault = () => z.run(z.scanner, ["scan", env("BNZ_NETWORK"), path.join(STATE, "vaults", id, "wallet")]).trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
+  const owner = generateOwnerKey();
+  const sealedStray = benzo(["bid", "seal", "--manifest", manifestFile, "--signer", signer],
+    { price_zats: "280", quantity: 1, address: depositUa, refund_ua: destination, owner_private_hex: owner.private_hex }); // a valid in-band price; the note VALUE is C (the payment URI)
+  const before = new Set(scanVault().map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`));
+  say(`A20 F11: stray deposit paid to ${depositUa.slice(0, 18)}… (never admitted) ${z.pay(sealedStray.uri)}`);
+  let note: any = null;
+  for (let i = 0; i < 360 && !note; i++) {
+    z.sync(`vaults/${id}/wallet`); z.enhance(`vaults/${id}/wallet`);
+    note = scanVault().find((n: any) => n.address === depositUa && n.height && !before.has(`${n.txid}:${n.pool}:${n.action_index}`));
+    if (!note) await sleep(10_000);
+  }
+  if (!note) throw new Error("the stray deposit never mined");
+  const party = `deposit:${note.txid}:${note.pool}:${note.action_index}`;
+  const request = benzoRaw(["claim-refund", "--id", id, "--party", party, "--destination", destination, "--owner-key-stdin"], owner.private_hex);
+  benzo(["claim-refund", "--id", id, "--defer", "true"], request);
+  say(`A20 F11: the stray ${party} mined at ${note.height} (${note.value_zats} zats); its own owner key claimed it to a fresh destination`);
+  return { party, amount: Number(note.value_zats), memo_sha256: hash(Buffer.from(sealedStray.envelope_hex, "hex")), destination };
+}
+
 // A19 (R41 F7/F9) proof vehicle: ONE 1-zatoshi note sent to a winner's manifest-public balance address AFTER the
 // two signer hosts approved batch 1 — the exact wedge window of Reviewer R's F7 repro. The run must complete end
 // to end (R41.1): batch 1 finalizes and publishes with the new row `pending`, the owner (the slot's own leaf key)
