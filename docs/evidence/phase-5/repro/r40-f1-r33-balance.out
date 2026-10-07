@@ -1,0 +1,11 @@
+commit 0662700b14355029c48553cf9595e09bfef19d8e (working tree not clean at run time)
+utc 2026-10-07T00:05:49.656Z
+command node tmp/r33-balance.mjs (tools/repro/r33-balance.ts)
+tree ?? docs/evidence/phase-5/mutations/A18-F1.patch
+tree ?? docs/evidence/phase-5/repro/r40-f1-red-before.out
+api manifest window (post-R33)
+PASS case1 expected [0] got [0]
+PASS case2 expected [] got []
+PASS case3 orders [0,2] collisions [1] shared result -> "refused: balance address shared by two winning leaves (one bid per deposit slot)"
+PASS case4 expected refused: bond at 39 and validation at 40; got "refused: bond" at 39, validated at 40
+RESULT PASS r33-balance

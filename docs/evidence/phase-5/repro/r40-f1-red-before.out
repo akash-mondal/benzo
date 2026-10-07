@@ -1,0 +1,13 @@
+# A18 item 1 (R40.1, F1) red-before: Reviewer R's own cross-owner repro (benzo-sol/lab/pr-a16-a17/tests/r39-crossowner.ts) copied to tmp/r39-crossowner-red.ts and run against the pre-fix tree at a1c5abb (2026-10-06T23:5xZ). The exploit legs fire exactly as in reports/pr-a16-a17-r38.md.
+# command node tmp/r39-crossowner-red.mjs
+commit a1c5abb2bc53d5e5e97074ee8c086e0c2ba35813
+owners distinct: true | allocations: [[0,1,"500000","300000","0"],[1,1,"500000","300000","0"]]
+shared balance address: true utest1rfixture041572ec7a
+defaults with ONLY the victim's 300,000 payment: [1]
+FAIL crossowner-greedy — the leaf that PAID IN FULL is defaulted; the non-paying leaf 0 is credited as paid
+obligations: [["seller","700000"]]
+attacker (leaf:0) owed: undefined | victim (leaf:1) owed: (row gone: bond forfeited to seller)
+balanceSettlement(late victim payment): {"sources":[],"refunds":[{"leaf_index":0,"amount_zats":"300000"}]}
+FAIL crossowner-redirect — the victim's late 300,000 is claimable only by the ATTACKER's owner-signed claim (leaf:0)
+balanceSettlement(note at a non-winner slot): {"sources":[],"refunds":[]} -> silently stranded (no row)
+RESULT FAIL r39-crossowner

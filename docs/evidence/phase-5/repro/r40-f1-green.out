@@ -1,0 +1,11 @@
+commit 0662700b14355029c48553cf9595e09bfef19d8e (working tree not clean at run time)
+utc 2026-10-07T00:05:49.366Z
+command node tmp/r40-f1-crossowner.mjs (tools/repro/r40-f1-crossowner.ts)
+tree ?? docs/evidence/phase-5/mutations/A18-F1.patch
+tree ?? docs/evidence/phase-5/repro/r40-f1-red-before.out
+owners distinct: true; allocations [[0,1,"300000","winner"]]
+PASS f1-one-order-per-slot orders [0] collisions [1] allocations [[0,1]]
+PASS f1-collision-is-stray strays ["3d6c339c"] (the collision deposits through the stray path to its own depositor)
+PASS f1-no-greedy shared-slot fixture refused ("refused: balance address shared by two winning leaves (one bid per deposit slot)"); defaults with no payment at the address [0] (the slot's own bidder defaults; no cross-leaf credit walk)
+observation f1-payment-attribution defaults with a 300,000 payment at the shared address [] (the payment is the slot owner's — the R40 honest limit)
+RESULT PASS r40-f1-crossowner
