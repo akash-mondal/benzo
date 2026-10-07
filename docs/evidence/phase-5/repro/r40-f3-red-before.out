@@ -1,0 +1,20 @@
+# A18 item 4 (R40.4, F3) red-before: tools/repro/r40-f3-balances.ts over the pre-F3 verifier (dist/benzo-verify.mjs extracted from git at a1c5abb) and the committed drop-a17 corpus — Reviewer R's F3 exactly: the inflated balance_refunds counts (+5000, rows/receipts/summary regenerated to agree) are ACCEPTED (verify exit 0). The F3 green (refused with the host-map binding error) completes on the A18 live corpus whose maps carry the counts (item 7).
+# command node tmp/r40-f3-balances.mjs docs/evidence/phase-5/markets/drop-a17/drop-cold tmp/verify-a1c5abb.mjs
+commit a62b493523a4a8904cb3244aaa19bc020dfdb1de (working tree not clean at run time)
+utc 2026-10-07T01:32:37.617Z
+command node tmp/r40-f3-balances.mjs (tools/repro/r40-f3-balances.ts)
+tree M README.md
+tree  M api/public-auction.ts
+tree  M clear/features.ts
+tree  M cli/commands/sign-approve.ts
+tree  M cli/product.ts
+tree  M settle/cli.ts
+tree  M settle/src/main.rs
+tree  M witness/index.ts
+tree ?? tools/repro/r40-f3-balances.ts
+tree ?? tools/repro/r40-f5-rows.ts
+corpus drop-cold (be7aebe8) balance_refunds [{"amount_zats":"20000","leaf_index":0}]
+PASS f3-baseline-verifies verify exit 0
+FAIL f3-tamper-refused tampered (+5000) verify exit 0; no F3 binding error — ACCEPTED (Reviewer R's F3)
+ERROR f3-tamper-refused tampered (+5000) verify exit 0; no F3 binding error — ACCEPTED (Reviewer R's F3)
+RESULT FAIL r40-f3-balances

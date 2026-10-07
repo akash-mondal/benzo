@@ -1,0 +1,12 @@
+# A18-F5 red replay (R40 item 5): the pre-F5 rule restored (balanceSettlement maps only winning leaves' addresses) — docs/evidence/phase-5/mutations/A18-F5.patch applied at fd068fb. tools/repro/r40-f5-rows.ts must fail with ERROR f5-losing-leaf (the reviewer's F5: a note at a losing leaf's balance address is silently dropped). Patch applied with git apply, run, reversed with git apply -R (tree clean after). f5-no-leaf-slot stays green in both eras — its fix is the README honest-limit entry (R40.5 chose unrecoverable + documented over a row).
+# command node tmp/r40-f5-rows.mjs
+commit fd068fbf1a22a06a7b2d9a50fc7e717703e982bd (working tree not clean at run time)
+utc 2026-10-07T01:39:11.902Z
+command node tmp/r40-f5-rows.mjs (tools/repro/r40-f5-rows.ts)
+tree M clear/features.ts
+tree ?? docs/evidence/phase-5/mutations/A18-F5.patch
+PASS f5-winner-matrix sources ["balance:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0"]; refunds [{"party":"balance-late:a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2:ironwood:0","leaf_index":0,"amount_zats":"7"}] (the winner's in-window note pays; its late note is its own row)
+FAIL f5-losing-leaf losing-leaf rows [] (every note at a losing leaf's balance address refunds to that leaf, one immutable row per note)
+ERROR f5-losing-leaf losing-leaf rows [] (every note at a losing leaf's balance address refunds to that leaf, one immutable row per note)
+PASS f5-no-leaf-slot the note at the no-bid slot produced neither a row nor a source — unrecoverable (README honest limits)
+RESULT FAIL r40-f5-rows
