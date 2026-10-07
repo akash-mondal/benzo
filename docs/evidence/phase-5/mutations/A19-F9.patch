@@ -1,27 +1,27 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 6b68ecd..d8b7c35 100644
+index adfbd3a..e12e51d 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
-@@ -262,7 +262,7 @@ export function balanceSettlement(
+@@ -266,7 +266,7 @@ export function balanceSettlement(
      const leaf = balanceLateLeafIndex(m, leaves, n);
      if (leaf === null) continue;
      if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
--    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
-+    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: true });
+-    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n), notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
++    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: true, notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
    }
    // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
    // settle becomes ONE immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf — a paid
-@@ -278,7 +278,7 @@ export function balanceSettlement(
-     const total = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n);
-     const settledZats = due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6)
+@@ -284,7 +284,7 @@ export function balanceSettlement(
      const excess = total - settledZats;
--    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured) });
-+    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: true });
+     // Ruling R42 (F15): the excess row's backing is the in-window notes it is carved from — one note backs
+     // at most one refund row across all row classes, enforced by the ledger's note-identity key.
+-    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured), notes: inNotes.map(n => `${n.txid}:${n.pool}:${n.action_index}`) });
++    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: true, notes: inNotes.map(n => `${n.txid}:${n.pool}:${n.action_index}`) });
    }
    return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
  }
 diff --git a/cli/host-derive.ts b/cli/host-derive.ts
-index 31bfb84..ff027e1 100644
+index a190666..d9bce38 100644
 --- a/cli/host-derive.ts
 +++ b/cli/host-derive.ts
 @@ -166,7 +166,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro

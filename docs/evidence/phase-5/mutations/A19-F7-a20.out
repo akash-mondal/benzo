@@ -1,0 +1,31 @@
+# A19-F7 mutation RE-RUN (its covered code changed in A20; the patch is REGENERATED on the A20 tree with identical semantics) — bundle built after applying the patch; reversed clean.
+commit 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2
+utc 2026-10-07T19:02:40.548Z
+command node tmp/r41-f7-map-wedge.mjs (tools/repro/r41-f7-map-wedge.ts)
+tree M cli/commands/sign-approve.ts
+tree  M cli/product.ts
+tree  M deploy/signers/manifest.json
+tree  M docs/evidence/phase-5/mutations/A17-N4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/evidence/phase-5/mutations/A18-F4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F5.patch
+tree  M docs/evidence/phase-5/mutations/A19-F7.patch
+tree  M docs/evidence/phase-5/mutations/A19-F9.patch
+tree  M witness/index.ts
+tree ?? docs/evidence/phase-5/mutations/A20-F11.out
+tree ?? docs/evidence/phase-5/mutations/A20-F11.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F13.out
+tree ?? docs/evidence/phase-5/mutations/A20-F13.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F15.out
+tree ?? docs/evidence/phase-5/mutations/A20-F15.patch
+tree ?? docs/evidence/phase-5/repro/r42-corpora-recheck.out
+PASS f7-late-note-adds-pending-row plan at approve []; after one third-party note [{"party":"balance-late:ddddddddddddddd…","amount":"1"}]
+PASS f7-pin-accepts pin accepted the new per-note row after the settled batch (rows=2)
+FAIL f7-finalize-accepts threw refused: the signing hosts' balance_refunds differ from the plan's derivation
+ERROR f7-finalize-accepts threw refused: the signing hosts' balance_refunds differ from the plan's derivation
+FAIL f7-publish-serves threw refused: settlement defaults/balance_refunds need two agreeing host-signed approval maps; refusing to publish
+ERROR f7-publish-serves threw refused: settlement defaults/balance_refunds need two agreeing host-signed approval maps; refusing to publish
+PASS f7-next-batch-paid batch 2 paid the claimed row; receipts [{"party":"balance-late:ddddddddddddddd…","amount":"1"},{"party":"leaf:0…","amount":"200000"}]
+PASS f7-claims-complete entry paid; claims published 1; attesting maps 2 (distinct 2)
+RESULT FAIL r41-f7-map-wedge
+driver exit 1

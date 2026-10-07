@@ -1,0 +1,13 @@
+A20-F11 mutation — the closed strays statement restored (R42.1 red); run at 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 2026-10-07T18:46:50Z
+commit 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2
+utc 2026-10-07T18:46:50.984Z
+tree M api/public-auction.ts
+tree ?? docs/evidence/phase-5/mutations/A20-F11.patch
+FAIL f11a-late-stray-settles-verifies stray B settled in batch 2 (attested per row in two agreeing maps); verify errors ["claims: refused: claim 0 memo not in a certified strays statement"]
+ERROR f11a-late-stray-settles-verifies stray B settled in batch 2 (attested per row in two agreeing maps); verify errors ["claims: refused: claim 0 memo not in a certified strays statement"]
+FAIL f11b-stray-between-witness-runs certification: both certifications carry the same frozen statement (2-of-2 quorum); the in-between stray's claim paid and verify errors ["claims: refused: claim 0 memo not in a certified strays statement"]
+ERROR f11b-stray-between-witness-runs certification: both certifications carry the same frozen statement (2-of-2 quorum); the in-between stray's claim paid and verify errors ["claims: refused: claim 0 memo not in a certified strays statement"]
+FAIL f11c-unattested-claim-refused forged attestation refused: ["claims: refused: claim 0 memo not in a certified strays statement"]
+ERROR f11c-unattested-claim-refused forged attestation refused: ["claims: refused: claim 0 memo not in a certified strays statement"]
+RESULT FAIL r42-f11-strays
+driver exit 1

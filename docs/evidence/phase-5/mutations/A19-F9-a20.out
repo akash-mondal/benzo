@@ -1,0 +1,30 @@
+# A19-F9 mutation RE-RUN (its covered code changed in A20; the patch is REGENERATED on the A20 tree with identical semantics) — bundle built after applying the patch; reversed clean.
+A19-F9 mutation re-run (covered code changed in A20) at 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 2026-10-07T18:54:02Z
+commit 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2
+utc 2026-10-07T18:54:02.324Z
+command node tmp/r41-f9-confirmations.mjs (tools/repro/r41-f9-confirmations.ts)
+tree M clear/features.ts
+tree  M cli/host-derive.ts
+tree  M deploy/signers/manifest.json
+tree  M docs/evidence/phase-5/mutations/A17-N4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/evidence/phase-5/mutations/A18-F4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F5.patch
+tree  M docs/evidence/phase-5/mutations/A19-F7.patch
+tree  M docs/evidence/phase-5/mutations/A19-F9.patch
+tree  M settle/plan.ts
+tree ?? docs/evidence/phase-5/mutations/A20-F11.out
+tree ?? docs/evidence/phase-5/mutations/A20-F11.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F13.out
+tree ?? docs/evidence/phase-5/mutations/A20-F13.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F15.out
+tree ?? docs/evidence/phase-5/mutations/A20-F15.patch
+tree ?? docs/evidence/phase-5/repro/r42-corpora-recheck.out
+FAIL f9-late-row-not-payable row present amount 7 matured true at 6 confirmations (must exist and stay pending: red before — no gate, the row is payable at 1 conf)
+ERROR f9-late-row-not-payable row present amount 7 matured true at 6 confirmations (must exist and stay pending: red before — no gate, the row is payable at 1 conf)
+FAIL f9-late-row-payable-after-confirmations matured at 9 confs true; at 10 confs true (m.confirmations = 10)
+ERROR f9-late-row-payable-after-confirmations matured at 9 confs true; at 10 confs true (m.confirmations = 10)
+FAIL f9-gate-stricter-rule confirmations 20 at 19 confs matured true; confirmations 3 at 6 confs matured true (gate = max(m.confirmations, 10))
+ERROR f9-gate-stricter-rule confirmations 20 at 19 confs matured true; confirmations 3 at 6 confs matured true (gate = max(m.confirmations, 10))
+RESULT FAIL r41-f9-confirmations
+driver exit 1

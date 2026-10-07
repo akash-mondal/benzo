@@ -1,45 +1,48 @@
 diff --git a/cli/commands/sign-approve.ts b/cli/commands/sign-approve.ts
-index 3c906af..32a98ff 100644
+index 9d476ca..1e09aff 100644
 --- a/cli/commands/sign-approve.ts
 +++ b/cli/commands/sign-approve.ts
-@@ -118,7 +118,7 @@ export async function run(argv: string[]): Promise<number | object> {
-     // outputs — a set fixed here, that no third party can grow). It is the per-row attestation of each paid
-     // `balance-late:`/`balance-excess:` row; this host's live row set is never signed.
-     const wkey = path.join(st, "witness", `${o.name}.key`);
--    const paidRefunds = balanceRefunds.filter(r => mapped.some(x => x.party === r.party));
-+    const paidRefunds = balanceRefunds;
-     const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds }, readFileSync(wkey, "utf8").trim()) : null;
+@@ -123,7 +123,7 @@ export async function run(argv: string[]): Promise<number | object> {
+     // Ruling R42 (F15): the rows' backing notes are ledger-internal derivation data — the signed and
+     // published map carries each row's {party, leaf_index, amount_zats} only (the excess row's in-window
+     // note set stays private to the vault scans).
+-    const paidRefunds = balanceRefunds.filter(r => mapped.some(x => x.party === r.party)).map(({ notes, ...row }) => row);
++    const paidRefunds = balanceRefunds.map(({ notes, ...row }) => row); // MUTATION A19-F7: the live row set signed again
+     const paidStrays = strays.filter(s => mapped.some(x => x.party === s.party));
+     const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds as any, strays: paidStrays }, readFileSync(wkey, "utf8").trim()) : null;
      const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
-     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
 diff --git a/cli/product.ts b/cli/product.ts
-index 890c83f..9c54242 100644
+index 22d0705..e50ce36 100644
 --- a/cli/product.ts
 +++ b/cli/product.ts
-@@ -77,11 +77,12 @@ export function publish(id:string) {
-     // Ruling R41 (F7): `settlement.balance_refunds` is never gate-bound here. Refund rows are attested PER ROW
-     // in the approval of the batch that PAID them (verify's balance-refs); unpaid rows publish as `pending`
-     // with counts only. Comparing a live row set to any earlier signed set is exactly the F7 wedge and is gone.
--    if(s.plan?.defaults!==undefined) {
-+    if(s.plan?.defaults!==undefined||s.plan?.balance_refunds!==undefined) {
+@@ -81,6 +81,9 @@ export function publish(id:string) {
+     let agreedDefaults:number[]|undefined;
+     if(s.plan?.defaults!==undefined) {
        const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
-       const agreeing=(maps as any[]).filter((mp:any)=>mp&&verifyApprovalMap(mp,wkeys)&&mp.auction_id===id&&
--        jsonBytes(mp.defaults??null).equals(jsonBytes(s.plan.defaults??null)));
--      requireThat(new Set(agreeing.map((mp:any)=>mp.witness)).size>=2,'settlement defaults need two agreeing host-signed approval maps; refusing to publish');
-+        jsonBytes(mp.defaults??null).equals(jsonBytes(s.plan.defaults??null))&&
-+        jsonBytes(mp.balance_refunds??null).equals(jsonBytes(s.plan.balance_refunds??null)));
-+      requireThat(new Set(agreeing.map((mp:any)=>mp.witness)).size>=2,'settlement defaults/balance_refunds need two agreeing host-signed approval maps; refusing to publish');
-     }
-     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
-       // Part 2 (bond-then-pay): the defaults derived by the plan and co-signed by the signer hosts (above).
++      // MUTATION A19-F7: the snapshot binding restored — publish compares the live plan set again.
++      const snap=(maps as any[]).filter((mp:any)=>mp&&verifyApprovalMap(mp,wkeys)&&mp.auction_id===id&&jsonBytes(mp.balance_refunds??null).equals(jsonBytes(s.plan.balance_refunds??null)));
++      requireThat(new Set(snap.map((mp:any)=>mp.witness)).size>=2,'settlement defaults/balance_refunds need two agreeing host-signed approval maps; refusing to publish');
+       const byList=new Map<string,{list:number[];witnesses:Set<string>}>();
+       for(const mp of (maps as any[]))if(mp&&verifyApprovalMap(mp,wkeys)&&mp.auction_id===id&&Array.isArray(mp.defaults)) {
+         const k=jsonBytes(mp.defaults).toString("hex"),e=byList.get(k)??{list:mp.defaults as number[],witnesses:new Set<string>()};
 diff --git a/witness/index.ts b/witness/index.ts
-index 41d4f6e..bb096ab 100644
+index 7de1f53..45f83ba 100644
 --- a/witness/index.ts
 +++ b/witness/index.ts
-@@ -193,6 +193,7 @@ export function agreedBatchMaps(maps: unknown, keys: string[], txid: string, pla
-     jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes(ms[1].balance_refunds ?? null)),
+@@ -140,7 +140,7 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
+ // attest only the rows this batch pays, so nothing a third party adds to the chain can move this check.
+ // Ruling R42 (F12): `defaults` is compared map-to-map only, never against a fresh derivation — the two host
+ // signatures already rule out a coordinator-only list, and a fresh-vs-signed comparison is the F12 wedge.
+-export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): ApprovalMap[] {
++export function agreedBatchMaps(maps: unknown, keys: string[], txid: string, plan: { balance_refunds?: unknown } | null = null): ApprovalMap[] { // MUTATION A19-F7: fresh-plan comparison restored
+   const ms = maps as ApprovalMap[];
+   requireThat(Array.isArray(ms) && ms.length === 2 && ms.every((mp) => mp && verifyApprovalMap(mp, keys) && mp.txid === txid) &&
+     ms[0].witness !== ms[1].witness && jsonBytes(ms[0].outputs).equals(jsonBytes(ms[1].outputs)) &&
+@@ -148,6 +148,7 @@ export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): Ap
+     jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes(ms[1].balance_refunds ?? null)) &&
+     jsonBytes(ms[0].strays ?? null).equals(jsonBytes(ms[1].strays ?? null)),
      "the signing hosts' output maps are missing, unsigned or disagree");
-   if (plan?.defaults !== undefined) requireThat(jsonBytes(ms[0].defaults).equals(jsonBytes(plan.defaults)), "the signing hosts' defaults differ from the plan's derivation");
-+  if ((plan as any)?.balance_refunds !== undefined) requireThat(jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes((plan as any).balance_refunds)), "the signing hosts' balance_refunds differ from the plan's derivation");
++  if (plan) requireThat(jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes(plan.balance_refunds ?? null)), "the signing hosts' balance_refunds differ from the plan's derivation"); // MUTATION A19-F7
    return ms;
  }
  

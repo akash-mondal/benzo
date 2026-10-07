@@ -1,0 +1,26 @@
+# A18-F5 mutation RE-RUN (its covered code changed in A20; the patch is REGENERATED on the A20 tree with identical semantics) — bundle built after applying the patch; reversed clean.
+A18-F5 mutation re-run (covered code changed in A20) at 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 2026-10-07T19:00:21Z
+commit 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 (working tree not clean at run time)
+utc 2026-10-07T19:00:21.238Z
+command node tmp/r40-f5-rows.mjs (tools/repro/r40-f5-rows.ts)
+tree M clear/features.ts
+tree  M deploy/signers/manifest.json
+tree  M docs/evidence/phase-5/mutations/A17-N4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/evidence/phase-5/mutations/A18-F4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F5.patch
+tree  M docs/evidence/phase-5/mutations/A19-F7.patch
+tree  M docs/evidence/phase-5/mutations/A19-F9.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F11.out
+tree ?? docs/evidence/phase-5/mutations/A20-F11.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F13.out
+tree ?? docs/evidence/phase-5/mutations/A20-F13.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F15.out
+tree ?? docs/evidence/phase-5/mutations/A20-F15.patch
+tree ?? docs/evidence/phase-5/repro/r42-corpora-recheck.out
+PASS f5-winner-matrix sources ["balance:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0"]; refunds [{"party":"balance-late:a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2:ironwood:0","leaf_index":0,"amount_zats":"7","matured":true,"notes":["a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2:ironwood:0"]}] (the winner's in-window note pays; its late note is its own row)
+FAIL f5-losing-leaf losing-leaf rows [] (every note at a losing leaf's balance address refunds to that leaf, one immutable row per note)
+ERROR f5-losing-leaf losing-leaf rows [] (every note at a losing leaf's balance address refunds to that leaf, one immutable row per note)
+PASS f5-no-leaf-slot the note at the no-bid slot produced neither a row nor a source — unrecoverable (README honest limits)
+RESULT FAIL r40-f5-rows
+driver exit 1

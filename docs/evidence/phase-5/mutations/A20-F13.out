@@ -1,0 +1,16 @@
+A20-F13 mutation — the one-sided check restored (R42.3 red); run at 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 2026-10-07T18:47:35Z
+commit 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2
+utc 2026-10-07T18:47:36.035Z
+tree M api/public-auction.ts
+tree  M dist/benzo-verify.mjs
+tree  M docs/verify-bundle.sha256
+tree ?? docs/evidence/phase-5/mutations/A20-F11.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F13.patch
+corpus drop-cold (2afb29e4) entries [{"amount_zats":"1","leaf_index":0,"party":"balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1","state":"paid"},{"amount_zats":"20000","leaf_index":0,"party":"balance-late:e718a592c00380ed32a61367acad42fa1a95e445897d8a4f128093057c3d0a85:ironwood:1","state":"pending"}]
+PASS f13-f14-baseline-verifies verify exit 0
+FAIL f13-entry-receipt-no-row-refused H1 exit 0; NO ERROR (defect)
+ERROR f13-entry-receipt-no-row-refused H1 exit 0; NO ERROR (defect)
+PASS f13-control-row-attested C1 exit 1; ERROR claims refused: claim-paid row balance-late:abababababababababababababababababababababababababababababababab:ironwood:2 without a published claim | ERROR balance-refs refused: paid refund row balance-late:abababababababababababababababababababababababababababababababab:ironwood:2 is not attested by two agreeing host-signed approval maps of its paying batch
+PASS f14-receipt-only-refused H2 exit 1; ERROR balance-refs refused: unexplained refund receipt balance-late:abababababababababababababababababababababababababababababababab:ironwood:2: no published paid entry | ERROR accounting-strays refused: unexplained refund receipt balance-late:abababababababababababababababababababababababababababababababab:ironwood:2: no published paid entry
+RESULT FAIL r42-f13-f14-tamper
+driver exit 1

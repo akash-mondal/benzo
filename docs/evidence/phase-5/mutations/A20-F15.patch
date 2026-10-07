@@ -1,0 +1,19 @@
+diff --git a/settle/ledger.ts b/settle/ledger.ts
+index c484294..57e6cc1 100644
+--- a/settle/ledger.ts
++++ b/settle/ledger.ts
+@@ -69,12 +69,9 @@ export class Ledger {
+           // pays that note twice. The pre-fix per-class key (party uniqueness per class) is the A20-F15
+           // mutation.
+           if(isKeyedRefund(o.party)) {
++            // MUTATION A20-F15: the per-class key restored — party uniqueness per class only; a note may
++            // back a second refund row in another class (the F15 double refund).
+             const backing=backingOf(o);
+-            const taken=backing.filter(n=>{const r=this.db.prepare("SELECT party FROM refund_backing WHERE note=?").get(n) as {party:string}|undefined;return !!r&&r.party!==o.party});
+-            if(taken.length){
+-              console.error(`WARN refund row ${o.party} not created: note ${taken[0]} already backs a refund row (one note one refund; Ruling R42 F15)`);
+-              continue;
+-            }
+             this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
+             for(const n of backing)this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
+           } else this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");

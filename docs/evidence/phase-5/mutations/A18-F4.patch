@@ -1,5 +1,5 @@
 diff --git a/cli/product.ts b/cli/product.ts
-index e6fafea..d4cf7c9 100644
+index 22d0705..7768632 100644
 --- a/cli/product.ts
 +++ b/cli/product.ts
 @@ -50,11 +50,7 @@ export function publish(id:string) {
@@ -14,4 +14,4 @@ index e6fafea..d4cf7c9 100644
 +  if(a.launch_input)doc.launch_input=a.launch_input; // MUTATION A18-F4: launch_input published again
    const previous=existsSync(path.join(dir,'auction.json'))?JSON.parse(readFileSync(path.join(dir,'auction.json'),'utf8')):{};
    if(previous.witness_cert)doc.witness_cert=previous.witness_cert;
-   // R23 item 1: witness-certified strays statements survive every rebuild of the document.
+   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');

@@ -1,31 +1,31 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 6b68ecd..899a725 100644
+index adfbd3a..e3731ac 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
-@@ -262,7 +262,12 @@ export function balanceSettlement(
+@@ -266,7 +266,12 @@ export function balanceSettlement(
      const leaf = balanceLateLeafIndex(m, leaves, n);
      if (leaf === null) continue;
      if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
--    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
+-    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n), notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
 +    else {
 +      // MUTATION A18-F2 (row growth restored): later notes merge into the leaf's first row and grow it.
 +      const first = refunds.find(r => r.leaf_index === leaf);
 +      if (first) first.amount_zats = (BigInt(first.amount_zats) + BigInt(n.value_zats)).toString();
-+      else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
++      else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n), notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
 +    }
    }
    // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
    // settle becomes ONE immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf — a paid
 diff --git a/settle/ledger.ts b/settle/ledger.ts
-index dd10a9b..ac7d2ee 100644
+index c484294..f3fdc09 100644
 --- a/settle/ledger.ts
 +++ b/settle/ledger.ts
-@@ -37,7 +37,7 @@ export class Ledger {
-             // `balance-late:` row and a newly seen note ADDS a new row, so no chain state a third party can
-             // create may make settlement refuse. The 025c736 growth allowance is withdrawn for refunds; an
-             // unpaid EXCEPTION payout may still grow (a row money has moved for never changes).
--            requireThat(o.kind==="payout"&&old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume");
-+            requireThat(old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume"); // MUTATION A18-F2: growth allowed
-             this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
-           }
-         }
+@@ -51,7 +51,7 @@ export class Ledger {
+           // grow there, and a row money has moved for never changes. Ruling R40 item 2 (F2) holds for refunds.
+           if(old.kind!==o.kind)console.error(`WARN settlement obligation ${o.party} re-derived kind ${o.kind} differs from pinned ${old.kind}; the pinned row stands`);
+           if(old.amount_zats!==o.amount_zats){
+-            if(o.kind==="payout"&&old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats))this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
++            if(old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats))this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party); // MUTATION A18-F2: growth allowed
+             else {
+               console.error(`WARN settlement obligation ${o.party} re-derived ${o.amount_zats} differs from pinned ${old.amount_zats}; the pinned row stands`);
+               // A row whose re-derived amount disagrees with its pinned one is never payable at the stale

@@ -1,0 +1,14 @@
+# 5M7 mutation re-run (its covered code changed in A20; patch applied unchanged) — bundle built after applying; reversed clean. The replay's drop-reserve-opening leg is incident-blocked (the run's private state was lost — see docs/STATUS.md); the mutation's own assertion is red for the stated reason.
+# 5M7 mutation replay on the A20 drop corpus (covered code changed in A20); run at 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 2026-10-07T19:05:34Z
+PASS revision outcomes superseded,unfilled,winner price 300
+PASS rfq outcomes unfilled,winner,not_allowlisted price 400
+PASS drop-defaults published defaults [2]
+PASS drop-defaults-maps 4 agreeing verified maps
+PASS drop-defaults-window defaults [2] (a pre-window note must not count as payment; fixture (4474810, 4474813] in (4474811, 4474851])
+FAIL drop-forfeit obligations {"leaf:1":200000,"leaf:2":250000,"leaf:3":200000,"seller":950000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
+ERROR drop-forfeit obligations {"leaf:1":200000,"leaf:2":250000,"leaf:3":200000,"seller":950000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
+PASS drop-swapped-defaults-refused swapped [0] verify exit 1 (ERROR accounting refused: settlement seller amount | ERROR defaults refused: settlement defaults differ from the host-signed approval maps)
+FAIL drop-reserve-opening threw ENOENT: no such file or directory, open '/Users/akshmnd/Dev Projects/benzo/.benzo/product/2afb29e43beb6da4932b1e827714aa22381e95d867d6aa6a97717268ff26421e.json'
+ERROR drop-reserve-opening threw ENOENT: no such file or directory, open '/Users/akshmnd/Dev Projects/benzo/.benzo/product/2afb29e43beb6da4932b1e827714aa22381e95d867d6aa6a97717268ff26421e.json'
+PASS launch-meet-allocation-order canonical=true root=true noJoin=true; verify exit 0
+driver exit 1

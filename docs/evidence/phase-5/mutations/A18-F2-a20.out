@@ -1,0 +1,31 @@
+# A18-F2 mutation RE-RUN (its covered code changed in A20; the patch is REGENERATED on the A20 tree with identical semantics) — bundle built after applying the patch; reversed clean.
+A18-F2 mutation re-run (covered code changed in A20) at 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 2026-10-07T18:54:02Z
+commit 9dcb7b0399ab07b9a7fff4a15811da7ab7189bb2 (working tree not clean at run time)
+utc 2026-10-07T18:54:02.224Z
+command node tmp/r40-f2-ledger-growth.mjs (tools/repro/r40-f2-ledger-growth.ts)
+tree M clear/features.ts
+tree  M deploy/signers/manifest.json
+tree  M docs/evidence/phase-5/mutations/A17-N4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F2.patch
+tree  M docs/evidence/phase-5/mutations/A18-F4.patch
+tree  M docs/evidence/phase-5/mutations/A18-F5.patch
+tree  M docs/evidence/phase-5/mutations/A19-F7.patch
+tree  M docs/evidence/phase-5/mutations/A19-F9.patch
+tree  M settle/ledger.ts
+tree ?? docs/evidence/phase-5/mutations/A20-F11.out
+tree ?? docs/evidence/phase-5/mutations/A20-F11.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F13.out
+tree ?? docs/evidence/phase-5/mutations/A20-F13.patch
+tree ?? docs/evidence/phase-5/mutations/A20-F15.out
+tree ?? docs/evidence/phase-5/mutations/A20-F15.patch
+tree ?? docs/evidence/phase-5/repro/r42-corpora-recheck.out
+FAIL f2-late-rows-immutable rows note A [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"}]; rows A+B [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"80000"}] (a new note adds a new row; the ready rows never change)
+ERROR f2-late-rows-immutable rows note A [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"}]; rows A+B [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"80000"}] (a new note adds a new row; the ready rows never change)
+FAIL f2-late-note-after-settled-batch batch 1 settled (balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0=exception,leaf:0=refunded); one more late note -> pin accepted the new row undefined; claim batch allocates ["balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0"]
+ERROR f2-late-note-after-settled-batch batch 1 settled (balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0=exception,leaf:0=refunded); one more late note -> pin accepted the new row undefined; claim batch allocates ["balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0"]
+FAIL f2-no-amount-change changed re-derivation -> no throw; the pinned row stands at 60000 (rows are immutable)
+ERROR f2-no-amount-change changed re-derivation -> no throw; the pinned row stands at 60000 (rows are immutable)
+WARN settlement obligation balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0 re-derived 50000 differs from pinned 80000; the pinned row stands
+PASS f2-reorg-drop note B reorged away -> pin dropped the unpaid row and proceeded
+RESULT FAIL r40-f2-ledger-growth
+driver exit 1

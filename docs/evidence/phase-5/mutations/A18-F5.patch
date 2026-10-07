@@ -1,8 +1,8 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 6b68ecd..668aed7 100644
+index adfbd3a..8ba4a0d 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
-@@ -252,16 +252,13 @@ export function balanceSettlement(
+@@ -256,14 +256,12 @@ export function balanceSettlement(
    // note(s) mature it stays pending, so a reorg can never make the vault refund money it never received.
    const gate = Math.max(m.confirmations ?? 10, 10);
    const matured = (n: ScannedNote): boolean => !!n.height && tip - n.height + 1 >= gate;
@@ -10,17 +10,13 @@ index 6b68ecd..668aed7 100644
 +  for (const [l, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, l);
    const sources: string[] = [], refunds: BalanceRefund[] = [];
    for (const n of notes) {
--    if (!n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
+     if (!n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
 -    // Ruling R40 item 5 (F5): a note at a balance address whose slot has a leaf — winner OR loser — refunds
 -    // to that leaf through the same per-note row (only a paid winner's in-window notes are payment). A note
 -    // at the balance address of a slot with NO leaf is never swept and gets no row: nobody can claim it (the
 -    // README honest limits list it as unrecoverable).
 -    const leaf = balanceLateLeafIndex(m, leaves, n);
--    if (leaf === null) continue;
--    if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-+    const leaf = slots.get(n.address);
-+    if (leaf === undefined || !n.height || BigInt(n.value_zats) === 0n) continue;
-+    if (n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
-   }
-   // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
++    const leaf = byLeaf.has(slots.get(n.address) ?? -1) ? (slots.get(n.address) ?? null) : null;
+     if (leaf === null) continue;
+     if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n), notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
