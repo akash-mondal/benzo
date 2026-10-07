@@ -178,7 +178,7 @@ export function balanceDefaults(
 // The rows are host-derived — every plan and every signer host computes them from its own scan with this one
 // rule — and claimable through the existing claim path (`benzo claim-refund --party balance-late:…`) with the
 // slot leaf's owner key; only the per-note counts are ever published, never the addresses.
-export type BalanceRefund = { party: string; leaf_index: number; amount_zats: string };
+export type BalanceRefund = { party: string; leaf_index: number; amount_zats: string; state?: "pending" | "paid" };
 const BALANCE_LATE = /^balance-late:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
 export const balanceLateParty = (n: { txid: string; pool: string; action_index: number }): string => {
   const party = `balance-late:${n.txid}:${n.pool}:${n.action_index}`;
@@ -189,6 +189,35 @@ export const isBalanceLateParty = (party: string): boolean => {
   const m = BALANCE_LATE.exec(party);
   return !!m && Number(m[3]) <= 65535;
 };
+// Ruling R41 item 4 (F10): in-window value above `balance_due_zats` at a balance address becomes ONE immutable
+// `balance-excess:<leaf_index>` refund row to that slot's own leaf (final — settlement waits until the window has
+// closed). It refunds exactly like a `balance-late:` row: parked, claimable with that leaf's owner key.
+const BALANCE_EXCESS = /^balance-excess:(0|[1-9][0-9]*)$/;
+export const balanceExcessParty = (leaf: number): string => {
+  requireThat(Number.isSafeInteger(leaf) && leaf >= 0, "balance-excess party identity");
+  return `balance-excess:${leaf}`;
+};
+export const isBalanceExcessParty = (party: string): boolean => BALANCE_EXCESS.test(party);
+export const balanceExcessLeafIndex = (party: string): number | null => {
+  const m = BALANCE_EXCESS.exec(party);
+  return m ? Number(m[1]) : null;
+};
+// Ruling R41 (F7): the refund rows of bond-then-pay — one immutable row per late note and one per leaf's
+// in-window excess. A host attests such a row only in the approval of the batch that PAYS it; unpaid rows are
+// published as `pending` with counts only and no signature ever covers a set that third parties can still grow.
+export const isRefundRowParty = (party: string): boolean => isBalanceLateParty(party) || isBalanceExcessParty(party);
+// The leaf a refund row refunds to: the excess row's own key, or the late note's deposit slot's own leaf.
+export function refundRowLeafIndex(
+  m: { deposit_addresses: string[]; bond?: unknown },
+  leaves: { leaf_index: number; deposit: { address: string } }[],
+  party: string,
+  notes: ScannedNote[],
+): number | null {
+  const excess = balanceExcessLeafIndex(party);
+  if (excess !== null) return excess;
+  const n = balanceLateNote(notes, party);
+  return n ? balanceLateLeafIndex(m, leaves, n) : null;
+}
 // The note a balance-late party names (the scan's own identity), or undefined.
 export function balanceLateNote<T extends { txid: string; pool: string; action_index: number }>(notes: T[], party: string): T | undefined {
   const m = BALANCE_LATE.exec(party);

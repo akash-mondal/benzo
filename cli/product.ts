@@ -71,22 +71,25 @@ export function publish(id:string) {
     // (the G-4 maps, verified against the pinned witness set) carry the same list; the maps themselves publish
     // with the settlement so `benzo verify` re-checks the binding. A coordinator-only list is never published.
     const maps=s.batches.flatMap((b:any)=>{try{return JSON.parse(readFileSync(path.join(sd,`batch-${b.id}.maps.json`),'utf8'))}catch{return []}});
-    // R33 item 3 (P1-3) + Ruling R40 item 4 (F3): `settlement.defaults` AND `settlement.balance_refunds` are
-    // published only when two agreeing host-signed approval maps (verified against the pinned witness set)
-    // carry the same lists; the maps themselves publish with the settlement so `benzo verify` re-checks the
-    // binding. Coordinator-only lists are never published.
-    if(s.plan?.defaults!==undefined||s.plan?.balance_refunds!==undefined) {
+    // R33 item 3 (P1-3): `settlement.defaults` is published only when two agreeing host-signed approval maps
+    // (verified against the pinned witness set) carry the same list; the maps themselves publish with the
+    // settlement so `benzo verify` re-checks the binding. A coordinator-only list is never published.
+    // Ruling R41 (F7): `settlement.balance_refunds` is never gate-bound here. Refund rows are attested PER ROW
+    // in the approval of the batch that PAID them (verify's balance-refs); unpaid rows publish as `pending`
+    // with counts only. Comparing a live row set to any earlier signed set is exactly the F7 wedge and is gone.
+    if(s.plan?.defaults!==undefined) {
       const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
       const agreeing=(maps as any[]).filter((mp:any)=>mp&&verifyApprovalMap(mp,wkeys)&&mp.auction_id===id&&
-        jsonBytes(mp.defaults??null).equals(jsonBytes(s.plan.defaults??null))&&
-        jsonBytes(mp.balance_refunds??null).equals(jsonBytes(s.plan.balance_refunds??null)));
-      requireThat(new Set(agreeing.map((mp:any)=>mp.witness)).size>=2,'settlement defaults/balance_refunds need two agreeing host-signed approval maps; refusing to publish');
+        jsonBytes(mp.defaults??null).equals(jsonBytes(s.plan.defaults??null)));
+      requireThat(new Set(agreeing.map((mp:any)=>mp.witness)).size>=2,'settlement defaults need two agreeing host-signed approval maps; refusing to publish');
     }
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
       // Part 2 (bond-then-pay): the defaults derived by the plan and co-signed by the signer hosts (above).
       ...(s.plan?.defaults!==undefined?{defaults:s.plan.defaults}:{}),
-      // Ruling R38 item 4 (N4): the out-of-window balance refunds as per-leaf counts only, never addresses.
-      ...(s.plan?.balance_refunds!==undefined?{balance_refunds:s.plan.balance_refunds}:{}),
+      // Ruling R38 item 4 (N4) + Ruling R41 (F7): the out-of-window/excess balance refunds as per-note counts
+      // only, never addresses — each row marked `paid` when this settlement paid it (attested in that batch's
+      // two agreeing signed maps) and `pending` otherwise (uncounted here; a later batch may pay it).
+      ...(s.plan?.balance_refunds!==undefined?{balance_refunds:s.plan.balance_refunds.map((r:any)=>({...r,state:paid.has(r.party)?"paid":"pending"}))}:{}),
       ...(maps.length?{approval_maps:maps}:{}),batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
       return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};

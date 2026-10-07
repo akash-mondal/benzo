@@ -8165,6 +8165,13 @@ var isBalanceLateParty = (party) => {
   const m2 = BALANCE_LATE.exec(party);
   return !!m2 && Number(m2[3]) <= 65535;
 };
+var BALANCE_EXCESS = /^balance-excess:(0|[1-9][0-9]*)$/;
+var isBalanceExcessParty = (party) => BALANCE_EXCESS.test(party);
+var balanceExcessLeafIndex = (party) => {
+  const m2 = BALANCE_EXCESS.exec(party);
+  return m2 ? Number(m2[1]) : null;
+};
+var isRefundRowParty = (party) => isBalanceLateParty(party) || isBalanceExcessParty(party);
 function checkSeriesLink(current, previous) {
   requireThat(current !== void 0, "series linkage missing");
   requireThat(previous.link !== void 0 && previous.link.series_id === current.series_id, "series id");
@@ -8303,9 +8310,9 @@ function obligationsModeA(result, settlement) {
   const defaults = settlement?.defaults ?? [];
   requireThat(new Set(defaults).size === defaults.length, "duplicate default");
   requireThat(defaults.length === 0 || result.allocations.every((a2) => a2.balance_due_zats !== void 0), "defaults without bond");
-  const refunds = settlement?.balance_refunds ?? [];
+  const refunds = (settlement?.balance_refunds ?? []).filter((r2) => r2.state !== "pending");
   requireThat(new Set(refunds.map((r2) => r2.party)).size === refunds.length, "duplicate balance refund");
-  requireThat(refunds.every((r2) => isBalanceLateParty(r2.party) && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds");
+  requireThat(refunds.every((r2) => isRefundRowParty(r2.party) && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds");
   requireThat(refunds.length === 0 || result.allocations.every((a2) => a2.balance_due_zats !== void 0), "balance refunds without bond");
   let seller = BigInt(result.conservation.payout_zats);
   for (const a2 of result.allocations) {
@@ -16499,7 +16506,7 @@ function checkPublicAuction(pub, opts = {}) {
     }
     for (const [i2, c2] of records.entries()) {
       requireThat(c2 && typeof c2 === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c2.party) || isAnyDepositParty(c2.party) || isBalanceLateParty(c2.party), `claim ${i2} party`);
+      requireThat(/^leaf:[0-9]+$/.test(c2.party) || isAnyDepositParty(c2.party) || isRefundRowParty(c2.party), `claim ${i2} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c2.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c2.owner_sig), `claim ${i2} fields`);
       let owner = null;
       if (c2.party.startsWith("leaf:")) {
@@ -16507,8 +16514,11 @@ function checkPublicAuction(pub, opts = {}) {
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
       } else if (isBalanceLateParty(c2.party)) {
         const entry = (pub.settlement?.balance_refunds ?? []).find((r2) => r2.party === c2.party);
-        requireThat(entry, `claim ${i2} balance-late row not in the published counts`);
+        requireThat(entry && entry.state === "paid", `claim ${i2} balance-late row not in the published paid counts`);
         const opening = pub.opened.find((o2) => o2.leaf_index === entry.leaf_index);
+        owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
+      } else if (isBalanceExcessParty(c2.party)) {
+        const opening = pub.opened.find((o2) => o2.leaf_index === balanceExcessLeafIndex(c2.party));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
       } else {
         requireThat(typeof c2.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c2.memo_hex) && memoSealedBid(c2.memo_hex) !== null, `claim ${i2} memo_hex`);
@@ -16521,7 +16531,7 @@ function checkPublicAuction(pub, opts = {}) {
     }
     for (const row of rows) {
       if (!receipts.some((r2) => r2.party === row.party)) continue;
-      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:") && !isBalanceLateParty(row.party)) continue;
+      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:") && !isRefundRowParty(row.party)) continue;
       if (!pub.manifest.envelope_keys) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? void 0 : (pub.envelopes ?? []).find((e) => {
@@ -16579,7 +16589,7 @@ function checkPublicAuction(pub, opts = {}) {
   run2("balances", () => {
     const m2 = pub.manifest;
     const refunds = pub.settlement?.balance_refunds;
-    if (refunds !== void 0) requireThat(Array.isArray(refunds) && refunds.every((r2) => r2 && typeof r2 === "object" && Object.keys(r2).sort().join(",") === "amount_zats,leaf_index,party" && isBalanceLateParty(r2.party) && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)) && new Set(refunds.map((r2) => r2.party)).size === refunds.length, "balance refunds shape");
+    if (refunds !== void 0) requireThat(Array.isArray(refunds) && refunds.every((r2) => r2 && typeof r2 === "object" && Object.keys(r2).sort().join(",") === "amount_zats,leaf_index,party,state" && isRefundRowParty(r2.party) && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats) && (r2.state === "pending" || r2.state === "paid") && (balanceExcessLeafIndex(r2.party) === null || balanceExcessLeafIndex(r2.party) === r2.leaf_index)) && new Set(refunds.map((r2) => r2.party)).size === refunds.length, "balance refunds shape");
     if (!m2.bond) {
       requireThat(refunds === void 0, "balance refunds without bond");
       return;
@@ -16599,12 +16609,26 @@ function checkPublicAuction(pub, opts = {}) {
     requireThat(pub.witnessSet && m2.witness_set_hash === witnessSetHash(pub.witnessSet), "host-signed balance refunds need a pinned witness set");
     const keys2 = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), m2.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter((mp) => !!mp && mp.auction_id === m2.auction_id && verifyApprovalMap(mp, keys2));
-    const same = (mp) => jsonBytes(mp.balance_refunds ?? null).equals(jsonBytes(pub.settlement.balance_refunds));
-    if (maps.length > 0 && !maps.some(same)) requireThat(false, "settlement balance_refunds differ from the host-signed approval maps");
-    requireThat(
-      new Set(maps.filter(same).map((mp) => mp.witness)).size >= 2,
-      "settlement balance_refunds are not carried by two agreeing host-signed approval maps"
-    );
+    const rows = pub.settlement.rows ?? [], receipts = pub.settlement.receipts ?? [];
+    const entries = pub.settlement.balance_refunds ?? [];
+    for (const e of entries) {
+      const rec = receipts.filter((r2) => r2.party === e.party);
+      if (e.state === "pending") {
+        requireThat(rec.length === 0, `pending refund row ${e.party} has a receipt`);
+        continue;
+      }
+      requireThat(rec.length === 1, `paid refund row ${e.party} lacks its receipt`);
+    }
+    for (const r2 of rows.filter((r3) => isRefundRowParty(r3.party) && receipts.some((x2) => x2.party === r3.party))) {
+      const rec = receipts.find((x2) => x2.party === r2.party);
+      const entry = entries.find((e) => e.party === r2.party);
+      requireThat(!!entry && entry.state === "paid" && entry.amount_zats === r2.amount_zats, `paid refund row ${r2.party} is not published as paid with its amount`);
+      const attested = maps.filter((mp) => mp.txid === rec.txid && (mp.balance_refunds ?? []).some((e) => e.party === r2.party && e.leaf_index === entry.leaf_index && e.amount_zats === r2.amount_zats) && (mp.outputs ?? []).some((o2) => o2.party === r2.party && o2.output_index === rec.output_index));
+      requireThat(
+        attested.length >= 2 && new Set(attested.map((mp) => mp.witness)).size >= 2 && jsonBytes(attested[0].outputs).equals(jsonBytes(attested[1].outputs)) && jsonBytes(attested[0].balance_refunds ?? null).equals(jsonBytes(attested[1].balance_refunds ?? null)),
+        `paid refund row ${r2.party} is not attested by two agreeing host-signed approval maps of its paying batch`
+      );
+    }
   });
   run2("defaults", () => {
     const m2 = pub.manifest;
@@ -16633,6 +16657,7 @@ function checkPublicAuction(pub, opts = {}) {
     };
     for (const r2 of receipts) {
       if (expected.has(r2.party)) continue;
+      if (isRefundRowParty(r2.party)) continue;
       stray(r2.party);
       requireThat(/^[1-9][0-9]*$/.test(r2.amount_zats), `stray ${r2.party} amount`);
       const row = rows.find((x2) => x2.party === r2.party);
@@ -16641,6 +16666,11 @@ function checkPublicAuction(pub, opts = {}) {
     }
     for (const row of rows) {
       if (expected.has(row.party)) continue;
+      if (isRefundRowParty(row.party)) {
+        requireThat(row.state === "exception" && !receipts.some((r2) => r2.party === row.party), `refund row ${row.party} is neither a counted obligation nor a pending unpaid row`);
+        requireThat(/^[1-9][0-9]*$/.test(row.amount_zats), `refund row ${row.party} amount`);
+        continue;
+      }
       stray(row.party);
       requireThat(/^[1-9][0-9]*$/.test(row.amount_zats), `stray ${row.party} amount`);
       const rs = receipts.filter((r2) => r2.party === row.party);

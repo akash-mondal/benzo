@@ -10,7 +10,7 @@ import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed 
 import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
-import { isBalanceLateParty } from "../clear/features";
+import { balanceExcessLeafIndex, isBalanceExcessParty, isBalanceLateParty, isRefundRowParty } from "../clear/features";
 import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
@@ -486,19 +486,24 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     for (const [i, c] of records.entries()) {
       requireThat(c && typeof c === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every(k => typeof (c as any)[k] === "string") && Object.keys(c).every(k => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k)), `claim ${i} shape`);
-      requireThat(/^leaf:[0-9]+$/.test(c.party) || isAnyDepositParty(c.party) || isBalanceLateParty(c.party), `claim ${i} party`);
+      requireThat(/^leaf:[0-9]+$/.test(c.party) || isAnyDepositParty(c.party) || isRefundRowParty(c.party), `claim ${i} party`);
       requireThat(/^[0-9a-f]{64}$/.test(c.claim_envelope_sha256) && /^[0-9a-f]{128}$/.test(c.owner_sig), `claim ${i} fields`);
       let owner: string | null = null;
       if (c.party.startsWith("leaf:")) {
         const opening = pub.opened.find(o => o.leaf_index === Number(c.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
       } else if (isBalanceLateParty(c.party)) {
-        // Ruling R40 items 2/5: a balance-late row refunds to the deposit slot's own leaf — the published,
-        // host-derived mapping (settlement.balance_refunds, one row per note) names it — so the claim's owner
-        // key is that leaf's key, from the re-derived opening.
+        // Ruling R40 items 2/5 + Ruling R41 (F7): a balance-late row refunds to the deposit slot's own leaf — the
+        // published, host-derived mapping (settlement.balance_refunds, one row per note) names it — so the
+        // claim's owner key is that leaf's key, from the re-derived opening. A published claim is for a PAID row
+        // (the publisher never publishes a pending row's claim), whose entry is the attested one.
         const entry = (pub.settlement?.balance_refunds ?? []).find(r => r.party === c.party);
-        requireThat(entry, `claim ${i} balance-late row not in the published counts`);
+        requireThat(entry && entry.state === "paid", `claim ${i} balance-late row not in the published paid counts`);
         const opening = pub.opened.find(o => o.leaf_index === entry!.leaf_index);
+        owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
+      } else if (isBalanceExcessParty(c.party)) {
+        // Ruling R41 item 4 (F10): an excess row names its own leaf in the party.
+        const opening = pub.opened.find(o => o.leaf_index === balanceExcessLeafIndex(c.party));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
       } else {
         // R16 item 4: the memo the claim publishes must be an openable sealed bid of THIS auction (the same
@@ -519,7 +524,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       if (!receipts.some(r => r.party === row.party)) continue;
       // The seller payout is the documented operator-pinned sink (Q18); claim evidence is required only for
       // bid leaves, per-note late-refund rows and stray deposits.
-      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:") && !isBalanceLateParty(row.party)) continue;
+      if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:") && !isRefundRowParty(row.party)) continue;
       // R13 proves claim-paid rows. Only Phase 5 product dirs (manifest pinning envelope_keys) have the
       // claim path at all — a pre-Phase-5 row was paid by the pre-W route and is not a claim-paid row — so
       // the requirement is skipped there (the R4.2 pre-Phase-5 reading; merge regression that broke the
@@ -595,12 +600,15 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   run("balances", () => {
     const m = pub.manifest;
     const refunds = pub.settlement?.balance_refunds;
-    // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): published counts only, never addresses — one
-    // {party, leaf_index, amount_zats} per late note (its own immutable `balance-late:` row, refunds to the
-    // slot's own leaf), and only for a bond auction with a result. The rows themselves are held to the
-    // row/receipt accounting below.
+    // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2) + Ruling R41 (F7/F10): published counts only, never
+    // addresses — one {party, leaf_index, amount_zats, state} per immutable refund row (its own `balance-late:`
+    // row per note, one `balance-excess:` row per leaf's in-window excess). Each row is `paid` when this
+    // settlement paid it (attested in that batch's maps — run("balance-refs")) and `pending` otherwise.
     if (refunds !== undefined) requireThat(Array.isArray(refunds) &&
-      refunds.every(r => r && typeof r === "object" && Object.keys(r).sort().join(",") === "amount_zats,leaf_index,party" && isBalanceLateParty((r as any).party) && Number.isSafeInteger((r as any).leaf_index) && /^[1-9][0-9]*$/.test((r as any).amount_zats)) &&
+      refunds.every(r => r && typeof r === "object" && Object.keys(r).sort().join(",") === "amount_zats,leaf_index,party,state" &&
+        isRefundRowParty((r as any).party) && Number.isSafeInteger((r as any).leaf_index) && /^[1-9][0-9]*$/.test((r as any).amount_zats) &&
+        ((r as any).state === "pending" || (r as any).state === "paid") &&
+        (balanceExcessLeafIndex((r as any).party) === null || balanceExcessLeafIndex((r as any).party) === (r as any).leaf_index)) &&
       new Set(refunds.map(r => r.party)).size === refunds.length, "balance refunds shape");
     if (!m.bond) { requireThat(refunds === undefined, "balance refunds without bond"); return; }
     if (!pub.result) { requireThat(refunds === undefined, "balance refunds without a result"); return; } // cancelled before the clear: there are no balances to bind
@@ -611,20 +619,38 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(pub.settlement.balance_refunds !== undefined, "settled bond auction lacks the balance refund counts");
     }
   });
-  // Ruling R40 item 4 (F3): `settlement.balance_refunds` is bound to what the signer hosts signed, exactly
-  // like `defaults`. verify requires it to equal the per-note list in two VERIFIED approval maps from
-  // distinct pinned signers. A coordinator-only list — the reviewer's fabricated (20,000→25,000) or omitted
-  // counts, for which rows and receipts can be regenerated to agree — is refused here with its own error.
+  // Ruling R41 (F7): per-row, paid-time attestation. A host attests a refund row only in the approval of the
+  // batch that PAYS it — that map's `balance_refunds` covers just the rows among its own outputs (a set fixed at
+  // signing, that no third party can grow). Every PAID refund row in the settlement must appear — party,
+  // leaf_index, amount — in two agreeing verified maps of its paying batch (whose outputs carry its
+  // {party, output_index}). Unpaid rows publish as `pending` with counts only and are not counted here at all:
+  // a newly seen note adds a pending row for a later batch and never makes any check refuse. Fabricated or
+  // inflated PAID counts (Reviewer R's F3) are refused here with their own error.
   run("balance-refs", () => {
     const m = pub.manifest;
     if (!m.bond || !pub.settlement || pub.settlement.balance_refunds === undefined) return;
     requireThat(pub.witnessSet && m.witness_set_hash === witnessSetHash(pub.witnessSet!), "host-signed balance refunds need a pinned witness set");
     const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), m.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));
-    const same = (mp: { balance_refunds?: import("../clear/features").BalanceRefund[] }) => jsonBytes(mp.balance_refunds ?? null).equals(jsonBytes(pub.settlement!.balance_refunds!));
-    if (maps.length > 0 && !maps.some(same)) requireThat(false, "settlement balance_refunds differ from the host-signed approval maps");
-    requireThat(new Set(maps.filter(same).map(mp => mp.witness)).size >= 2,
-      "settlement balance_refunds are not carried by two agreeing host-signed approval maps");
+    const rows = pub.settlement.rows ?? [], receipts = pub.settlement.receipts ?? [];
+    const entries = pub.settlement.balance_refunds ?? [];
+    for (const e of entries) {
+      const rec = receipts.filter(r => r.party === e.party);
+      if (e.state === "pending") { requireThat(rec.length === 0, `pending refund row ${e.party} has a receipt`); continue; }
+      requireThat(rec.length === 1, `paid refund row ${e.party} lacks its receipt`);
+    }
+    for (const r of rows.filter(r => isRefundRowParty(r.party) && receipts.some(x => x.party === r.party))) {
+      const rec = receipts.find(x => x.party === r.party)!;
+      const entry = entries.find(e => e.party === r.party);
+      requireThat(!!entry && entry.state === "paid" && entry.amount_zats === r.amount_zats, `paid refund row ${r.party} is not published as paid with its amount`);
+      const attested = maps.filter(mp => mp.txid === rec.txid &&
+        (mp.balance_refunds ?? []).some(e => e.party === r.party && e.leaf_index === entry!.leaf_index && e.amount_zats === r.amount_zats) &&
+        (mp.outputs ?? []).some(o => o.party === r.party && o.output_index === rec.output_index));
+      requireThat(attested.length >= 2 && new Set(attested.map(mp => mp.witness)).size >= 2 &&
+        jsonBytes(attested[0].outputs).equals(jsonBytes(attested[1].outputs)) &&
+        jsonBytes(attested[0].balance_refunds ?? null).equals(jsonBytes(attested[1].balance_refunds ?? null)),
+        `paid refund row ${r.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
+    }
   });
   // R33 item 3 (P1-3): `settlement.defaults` is bound to what the signer hosts signed. verify requires it to
   // equal the defaults list in two VERIFIED approval maps from distinct pinned signers (the manifest's witness
@@ -659,6 +685,9 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.
     for (const r of receipts) {
       if (expected.has(r.party)) continue;
+      // Ruling R41 (F7): refund rows are counted only when PAID (with their attested published entry). A paid
+      // row whose entry is missing or pending is refused by run("balance-refs"); a pending row is not counted.
+      if (isRefundRowParty(r.party)) continue;
       stray(r.party);
       // R26 item 1: a zero-value note is never an obligation (it is counted as ignored below).
       requireThat(/^[1-9][0-9]*$/.test(r.amount_zats), `stray ${r.party} amount`);
@@ -668,6 +697,13 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     for (const row of rows) {
       if (expected.has(row.party)) continue;
+      // Ruling R41 (F7): an uncounted (pending or unpublished) refund row is never a stray. The only state
+      // here is an unpaid row with no receipt — money never moved for it, and a later batch may pay it.
+      if (isRefundRowParty(row.party)) {
+        requireThat(row.state === "exception" && !receipts.some(r => r.party === row.party), `refund row ${row.party} is neither a counted obligation nor a pending unpaid row`);
+        requireThat(/^[1-9][0-9]*$/.test(row.amount_zats), `refund row ${row.party} amount`);
+        continue;
+      }
       stray(row.party);
       requireThat(/^[1-9][0-9]*$/.test(row.amount_zats), `stray ${row.party} amount`);
       const rs = receipts.filter(r => r.party === row.party);

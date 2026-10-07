@@ -4,7 +4,7 @@ import {spawn,spawnSync} from "node:child_process";
 import path from "node:path";
 import {hash,jsonBytes,requireThat,verifyRecord} from "../manifest/schema";
 import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
-import {verifyApprovalMap} from "../witness";
+import {agreedBatchMaps} from "../witness";
 import {treasuryBlock} from "../clear/mode-b";
 import {Ledger,type Row} from "./ledger";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints,timing} from "./io";
@@ -358,16 +358,14 @@ async function worker(ledger:Ledger) {
       // cross-check, logged if it differs. Never by recipient.
       const doc=JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).public_dir),"auction.json"),"utf8"));
       const wkeys=verifyRecord<any>(doc.witness_set,doc.signer).keys as string[],maps=JSON.parse(readFileSync(base+".maps.json","utf8"));
-      requireThat(Array.isArray(maps)&&maps.length===2&&maps.every((m:any)=>m&&verifyApprovalMap(m,wkeys)&&m.txid===staged.txid)&&maps[0].witness!==maps[1].witness&&jsonBytes(maps[0].outputs).equals(jsonBytes(maps[1].outputs))&&jsonBytes(maps[0].defaults??null).equals(jsonBytes(maps[1].defaults??null))&&jsonBytes(maps[0].balance_refunds??null).equals(jsonBytes(maps[1].balance_refunds??null)),"the signing hosts' output maps are missing, unsigned or disagree");
-      // R33 item 3 (P1-3): the signing hosts' own defaults lists must also equal this plan's derivation — a
-      // disagreement stops the settlement before anything is published.
-      if((plan as any).defaults!==undefined)requireThat(jsonBytes(maps[0].defaults).equals(jsonBytes((plan as any).defaults)),"the signing hosts' defaults differ from the plan's derivation");
-      // Ruling R40 item 4 (F3): the same for the per-note balance refunds — the hosts' own derivation must
-      // equal this plan's, so `settlement.balance_refunds` is never a coordinator-only list.
-      if((plan as any).balance_refunds!==undefined)requireThat(jsonBytes(maps[0].balance_refunds??null).equals(jsonBytes((plan as any).balance_refunds)),"the signing hosts' balance_refunds differ from the plan's derivation");
-      const built={outputs:maps[0].outputs},relayed=JSON.parse(readFileSync(base+".build.json","utf8"));
+      // Ruling R41 (F7): the two agreeing maps of THIS batch bind exactly what it pays — the `balance-late:`/
+      // `balance-excess:` rows among its outputs are attested here, at paid time, and nowhere else. The stable
+      // defaults list is still bound to this plan's derivation (R33 P1-3); a refund-row set is never compared to
+      // a live plan, so nothing a third party sends to a balance address may make this step refuse.
+      const pair=agreedBatchMaps(maps,wkeys,staged.txid!,plan as {defaults?:number[]});
+      const built={outputs:pair[0].outputs},relayed=JSON.parse(readFileSync(base+".build.json","utf8"));
       for(const x of built.outputs)if(!relayed.outputs.some((y:any)=>y.party===x.party&&y.output_index===x.output_index))console.error(`ERROR build.json differs from the hosts' signed map for ${x.party}; using the hosts' map`);
-      const receipt=batch.outputs.map((row:any)=>{const m=built.outputs.find((x:any)=>x.party===row.party);requireThat(m,`no built output for ${row.party}`);const o=i.outputs.find((x:any)=>x.index===m.output_index&&!x.is_change);requireThat(o&&o.amount_zats===row.amount_zats,"mined amount differs from result.json");return {party:row.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
+      const receipt=batch.outputs.map((row:any)=>{const m:any=built.outputs.find((x:any)=>x.party===row.party);requireThat(m,`no built output for ${row.party}`);const o=i.outputs.find((x:any)=>x.index===m.output_index&&!x.is_change);requireThat(o&&o.amount_zats===row.amount_zats,"mined amount differs from result.json");return {party:row.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
       ledger.confirm(batch.id,staged.txid!,height,receipt);
       writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
     } else {

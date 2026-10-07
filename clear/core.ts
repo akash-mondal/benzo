@@ -1,7 +1,7 @@
 // Pure auction clearing: no clock, operator choices or network. Integers only, with rules bound by the manifest.
 import { client, requireThat, zats, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen, type Frozen } from "./merkle";
-import { balanceDue, effectiveReserve, isBalanceLateParty, readOrders, refundAfter, sealedReserve } from "./features";
+import { balanceDue, effectiveReserve, isRefundRowParty, readOrders, refundAfter, sealedReserve } from "./features";
 export type Opened = { leaf_index: number; plaintext_hex: string | null; error?: string };
 export type ClearInput = { manifest: Signed; signer: string; frozen: Frozen; opened: Opened[]; reserve_opening?: string | null; serial_beacon?: { round: number; signature: string } | null; launch?: import("./launch").LaunchInput };
 export type Allocation = {
@@ -134,13 +134,16 @@ export function obligationsModeA(result: ClearBody, settlement?: SettlementExtra
   const defaults = settlement?.defaults ?? [];
   requireThat(new Set(defaults).size === defaults.length, "duplicate default");
   requireThat(defaults.length === 0 || result.allocations.every(a => a.balance_due_zats !== undefined), "defaults without bond");
-  // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): each out-of-window balance note is its own immutable
-  // refund row (`balance-late:<txid>:<pool>:<action_index>`) to that slot's own leaf, host-derived and
-  // claimable through the claim path with that leaf's owner key. A newly seen note adds a NEW row and never
-  // grows an existing one. Published counts only, never addresses.
-  const refunds = settlement?.balance_refunds ?? [];
+  // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2) + Ruling R41 (F7): each out-of-window balance note is its
+  // own immutable refund row (`balance-late:<txid>:<pool>:<action_index>`) and each leaf's in-window excess is
+  // one `balance-excess:<leaf_index>` row (F10), host-derived and claimable through the claim path with that
+  // leaf's owner key. A newly seen note adds a NEW row and never grows an existing one. Published counts only,
+  // never addresses. Ruling R41 (F7): a published `pending` row is counts-only and is NOT counted here (verify
+  // does not count it); a PAID row is counted, held to the row/receipt accounting and attested by the paying
+  // batch's maps. The plan's own derivation carries no state and counts every row it parks or promotes.
+  const refunds = (settlement?.balance_refunds ?? []).filter(r => r.state !== "pending");
   requireThat(new Set(refunds.map(r => r.party)).size === refunds.length, "duplicate balance refund");
-  requireThat(refunds.every(r => isBalanceLateParty(r.party) && Number.isSafeInteger(r.leaf_index) && /^[1-9][0-9]*$/.test(r.amount_zats)), "balance refunds");
+  requireThat(refunds.every(r => isRefundRowParty(r.party) && Number.isSafeInteger(r.leaf_index) && /^[1-9][0-9]*$/.test(r.amount_zats)), "balance refunds");
   requireThat(refunds.length === 0 || result.allocations.every(a => a.balance_due_zats !== undefined), "balance refunds without bond");
   let seller = BigInt(result.conservation.payout_zats);
   for (const a of result.allocations) {

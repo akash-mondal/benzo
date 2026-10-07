@@ -163,8 +163,9 @@ export function checkStraysCerts(certs: StraysCert[], spec: WitnessSpec): Strays
 // the candidate's txid — receipts are attributed from two hosts' agreeing maps, never from the coordinator's relayed
 // build.json. Domain-separated from every other witness-key signature. R33 item 3 (P1-3): the map also carries the
 // defaults list the host derived from its own scan, so `settlement.defaults` can never be a coordinator-only list.
-// Ruling R40 item 4 (F3): it carries the per-note balance refunds the host derived from its own scan too, so
-// `settlement.balance_refunds` can never be a coordinator-only list either.
+// Ruling R41 (F7): `balance_refunds` carries ONLY the refund rows THIS BATCH pays (the rows among its own outputs,
+// a set fixed at signing) — never the host's live row set, which third parties can still grow. A refund row is
+// attested here, at paid time, and nowhere else; no signature ever covers a set that can still change.
 export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[]; defaults: number[]; balance_refunds: import("../clear/features").BalanceRefund[] };
 export type ApprovalMap = ApprovalMapBody & { witness: string; signature: string };
 const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults, balance_refunds: b.balance_refunds })]);
@@ -179,6 +180,20 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
     return !!m && keys.includes(m.witness) && /^[0-9a-f]{128}$/.test(String(m.signature)) && Array.isArray(m.outputs) &&
       verify(null, mapBytes(m), edPublic(m.witness), Buffer.from(m.signature, "hex"));
   } catch { return false; }
+}
+// Ruling R41 (F7): the worker's finalize binding over one batch's signed maps — the two agreeing maps of THAT
+// batch (same txid, same outputs/defaults/refund rows, distinct pinned witnesses), plus the stable defaults list
+// binding (R33 P1-3). A refund-row set is NEVER compared to a live plan: the maps attest only the rows this batch
+// pays, so nothing a third party adds to the chain can move this check.
+export function agreedBatchMaps(maps: unknown, keys: string[], txid: string, plan: { defaults?: number[] } | null = null): ApprovalMap[] {
+  const ms = maps as ApprovalMap[];
+  requireThat(Array.isArray(ms) && ms.length === 2 && ms.every((mp) => mp && verifyApprovalMap(mp, keys) && mp.txid === txid) &&
+    ms[0].witness !== ms[1].witness && jsonBytes(ms[0].outputs).equals(jsonBytes(ms[1].outputs)) &&
+    jsonBytes(ms[0].defaults ?? null).equals(jsonBytes(ms[1].defaults ?? null)) &&
+    jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes(ms[1].balance_refunds ?? null)),
+    "the signing hosts' output maps are missing, unsigned or disagree");
+  if (plan?.defaults !== undefined) requireThat(jsonBytes(ms[0].defaults).equals(jsonBytes(plan.defaults)), "the signing hosts' defaults differ from the plan's derivation");
+  return ms;
 }
 
 // Ruling R40 item 3 (F4): the canonical launch delivery list is host-signed. Each host opens the sealed
