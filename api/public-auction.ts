@@ -579,6 +579,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         continue;
       }
       requireThat(!(row && row.state === "exception"), `exception row ${party} with receipt`);
+      requireThat(!!row, `settlement obligation ${party} has a receipt but no row`);
       requireThat(rs.length === 1, `duplicate settlement ${party}`);
       requireThat(rs[0].amount_zats === amount, `settlement ${party} amount`);
     }
@@ -620,11 +621,12 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   });
   // Ruling R41 (F7): per-row, paid-time attestation. A host attests a refund row only in the approval of the
   // batch that PAYS it — that map's `balance_refunds` covers just the rows among its own outputs (a set fixed at
-  // signing, that no third party can grow). Every PAID refund row in the settlement must appear — party,
-  // leaf_index, amount — in two agreeing verified maps of its paying batch (whose outputs carry its
-  // {party, output_index}). Unpaid rows publish as `pending` with counts only and are not counted here at all:
-  // a newly seen note adds a pending row for a later batch and never makes any check refuse. Fabricated or
-  // inflated PAID counts (Reviewer R's F3) are refused here with their own error.
+  // signing, that no third party can grow). Unpaid rows publish as `pending` with counts only and are not
+  // counted here at all: a newly seen note adds a pending row for a later batch and never makes any check
+  // refuse. Ruling R42 (F13/F14): the check is TWO-SIDED — driven from the entries, the rows AND the receipts:
+  // every paid ENTRY has its settlement row and two attesting maps; every paid ROW is published as paid with
+  // its amount and attested; every RECEIPT to a refund-class party is explained by a paid entry and a map.
+  // An unexplained receipt or entry fails with its own ERROR — nothing is silently stranded or silently paid.
   run("balance-refs", () => {
     const m = pub.manifest;
     if (!m.bond || !pub.settlement || pub.settlement.balance_refunds === undefined) return;
@@ -633,22 +635,36 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));
     const rows = pub.settlement.rows ?? [], receipts = pub.settlement.receipts ?? [];
     const entries = pub.settlement.balance_refunds ?? [];
+    const attested = (party: string, leaf: number, amount: string, rec: { txid: string; output_index: number }): boolean => {
+      const pair = maps.filter(mp => mp.txid === rec.txid &&
+        (mp.balance_refunds ?? []).some(e => e.party === party && e.leaf_index === leaf && e.amount_zats === amount) &&
+        (mp.outputs ?? []).some(o => o.party === party && o.output_index === rec.output_index));
+      return pair.length >= 2 && new Set(pair.map(mp => mp.witness)).size >= 2 &&
+        jsonBytes(pair[0].outputs).equals(jsonBytes(pair[1].outputs)) &&
+        jsonBytes(pair[0].balance_refunds ?? null).equals(jsonBytes(pair[1].balance_refunds ?? null));
+    };
+    // Entry side (F13): a fabricated PAID entry + receipt with no row — Reviewer R's H1 — is refused here,
+    // regardless of which rows the document carries.
     for (const e of entries) {
-      const rec = receipts.filter(r => r.party === e.party);
-      if (e.state === "pending") { requireThat(rec.length === 0, `pending refund row ${e.party} has a receipt`); continue; }
-      requireThat(rec.length === 1, `paid refund row ${e.party} lacks its receipt`);
+      const rs = receipts.filter(r => r.party === e.party);
+      if (e.state === "pending") { requireThat(rs.length === 0, `pending refund row ${e.party} has a receipt`); continue; }
+      requireThat(rs.length === 1, `paid refund row ${e.party} lacks its receipt`);
+      const row = rows.find(r => r.party === e.party);
+      requireThat(!!row && row.amount_zats === e.amount_zats, `paid refund entry ${e.party} has no settlement row with its amount`);
+      requireThat(attested(e.party, e.leaf_index, e.amount_zats, rs[0]), `paid refund entry ${e.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
     }
+    // Row side (F13): a paid refund row is published as paid with its amount and attested (R41.1).
     for (const r of rows.filter(r => isRefundRowParty(r.party) && receipts.some(x => x.party === r.party))) {
       const rec = receipts.find(x => x.party === r.party)!;
       const entry = entries.find(e => e.party === r.party);
       requireThat(!!entry && entry.state === "paid" && entry.amount_zats === r.amount_zats, `paid refund row ${r.party} is not published as paid with its amount`);
-      const attested = maps.filter(mp => mp.txid === rec.txid &&
-        (mp.balance_refunds ?? []).some(e => e.party === r.party && e.leaf_index === entry!.leaf_index && e.amount_zats === r.amount_zats) &&
-        (mp.outputs ?? []).some(o => o.party === r.party && o.output_index === rec.output_index));
-      requireThat(attested.length >= 2 && new Set(attested.map(mp => mp.witness)).size >= 2 &&
-        jsonBytes(attested[0].outputs).equals(jsonBytes(attested[1].outputs)) &&
-        jsonBytes(attested[0].balance_refunds ?? null).equals(jsonBytes(attested[1].balance_refunds ?? null)),
-        `paid refund row ${r.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
+      requireThat(attested(r.party, entry!.leaf_index, r.amount_zats, rec), `paid refund row ${r.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
+    }
+    // Receipt side (F14): every settlement receipt to a refund-class party is explained by a published paid
+    // entry — Reviewer R's H2 (a receipt with no entry and no row) is refused here with its own error.
+    for (const r of receipts.filter(r => isRefundRowParty(r.party))) {
+      const entry = entries.find(e => e.party === r.party);
+      requireThat(!!entry && entry.state === "paid", `unexplained refund receipt ${r.party}: no published paid entry`);
     }
   });
   // R33 item 3 (P1-3): `settlement.defaults` is bound to what the signer hosts signed. verify requires it to
@@ -684,9 +700,9 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.
     for (const r of receipts) {
       if (expected.has(r.party)) continue;
-      // Ruling R41 (F7): refund rows are counted only when PAID (with their attested published entry). A paid
-      // row whose entry is missing or pending is refused by run("balance-refs"); a pending row is not counted.
-      if (isRefundRowParty(r.party)) continue;
+      // Ruling R42 (F14): the R41 skip is gone — a refund-class receipt no published paid entry counts is
+      // UNEXPLAINED and refuses with its own error (T1 "nothing is silently stranded" holds over receipts too).
+      requireThat(!isRefundRowParty(r.party), `unexplained refund receipt ${r.party}: no published paid entry`);
       stray(r.party);
       // R26 item 1: a zero-value note is never an obligation (it is counted as ignored below).
       requireThat(/^[1-9][0-9]*$/.test(r.amount_zats), `stray ${r.party} amount`);

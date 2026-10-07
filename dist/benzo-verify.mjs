@@ -16534,6 +16534,7 @@ function checkPublicAuction(pub, opts = {}) {
         continue;
       }
       requireThat(!(row && row.state === "exception"), `exception row ${party} with receipt`);
+      requireThat(!!row, `settlement obligation ${party} has a receipt but no row`);
       requireThat(rs.length === 1, `duplicate settlement ${party}`);
       requireThat(rs[0].amount_zats === amount, `settlement ${party} amount`);
     }
@@ -16570,23 +16571,30 @@ function checkPublicAuction(pub, opts = {}) {
     const maps = (pub.settlement.approval_maps ?? []).filter((mp) => !!mp && mp.auction_id === m2.auction_id && verifyApprovalMap(mp, keys2));
     const rows = pub.settlement.rows ?? [], receipts = pub.settlement.receipts ?? [];
     const entries = pub.settlement.balance_refunds ?? [];
+    const attested = (party, leaf, amount, rec) => {
+      const pair = maps.filter((mp) => mp.txid === rec.txid && (mp.balance_refunds ?? []).some((e) => e.party === party && e.leaf_index === leaf && e.amount_zats === amount) && (mp.outputs ?? []).some((o2) => o2.party === party && o2.output_index === rec.output_index));
+      return pair.length >= 2 && new Set(pair.map((mp) => mp.witness)).size >= 2 && jsonBytes(pair[0].outputs).equals(jsonBytes(pair[1].outputs)) && jsonBytes(pair[0].balance_refunds ?? null).equals(jsonBytes(pair[1].balance_refunds ?? null));
+    };
     for (const e of entries) {
-      const rec = receipts.filter((r2) => r2.party === e.party);
+      const rs = receipts.filter((r2) => r2.party === e.party);
       if (e.state === "pending") {
-        requireThat(rec.length === 0, `pending refund row ${e.party} has a receipt`);
+        requireThat(rs.length === 0, `pending refund row ${e.party} has a receipt`);
         continue;
       }
-      requireThat(rec.length === 1, `paid refund row ${e.party} lacks its receipt`);
+      requireThat(rs.length === 1, `paid refund row ${e.party} lacks its receipt`);
+      const row = rows.find((r2) => r2.party === e.party);
+      requireThat(!!row && row.amount_zats === e.amount_zats, `paid refund entry ${e.party} has no settlement row with its amount`);
+      requireThat(attested(e.party, e.leaf_index, e.amount_zats, rs[0]), `paid refund entry ${e.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
     }
     for (const r2 of rows.filter((r3) => isRefundRowParty(r3.party) && receipts.some((x2) => x2.party === r3.party))) {
       const rec = receipts.find((x2) => x2.party === r2.party);
       const entry = entries.find((e) => e.party === r2.party);
       requireThat(!!entry && entry.state === "paid" && entry.amount_zats === r2.amount_zats, `paid refund row ${r2.party} is not published as paid with its amount`);
-      const attested = maps.filter((mp) => mp.txid === rec.txid && (mp.balance_refunds ?? []).some((e) => e.party === r2.party && e.leaf_index === entry.leaf_index && e.amount_zats === r2.amount_zats) && (mp.outputs ?? []).some((o2) => o2.party === r2.party && o2.output_index === rec.output_index));
-      requireThat(
-        attested.length >= 2 && new Set(attested.map((mp) => mp.witness)).size >= 2 && jsonBytes(attested[0].outputs).equals(jsonBytes(attested[1].outputs)) && jsonBytes(attested[0].balance_refunds ?? null).equals(jsonBytes(attested[1].balance_refunds ?? null)),
-        `paid refund row ${r2.party} is not attested by two agreeing host-signed approval maps of its paying batch`
-      );
+      requireThat(attested(r2.party, entry.leaf_index, r2.amount_zats, rec), `paid refund row ${r2.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
+    }
+    for (const r2 of receipts.filter((r3) => isRefundRowParty(r3.party))) {
+      const entry = entries.find((e) => e.party === r2.party);
+      requireThat(!!entry && entry.state === "paid", `unexplained refund receipt ${r2.party}: no published paid entry`);
     }
   });
   run2("defaults", () => {
@@ -16616,7 +16624,7 @@ function checkPublicAuction(pub, opts = {}) {
     };
     for (const r2 of receipts) {
       if (expected.has(r2.party)) continue;
-      if (isRefundRowParty(r2.party)) continue;
+      requireThat(!isRefundRowParty(r2.party), `unexplained refund receipt ${r2.party}: no published paid entry`);
       stray(r2.party);
       requireThat(/^[1-9][0-9]*$/.test(r2.amount_zats), `stray ${r2.party} amount`);
       const row = rows.find((x2) => x2.party === r2.party);
