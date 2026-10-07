@@ -3,9 +3,9 @@ frost-client v0.1.0 (https://github.com/ZcashFoundation/frost-tools?rev=06c0dbdb
     frost-client
 frostd v0.1.0 (https://github.com/ZcashFoundation/frost-tools?rev=06c0dbdbb1bac9b99cd255e74ba2f387c295e660#06c0dbdb):
     frostd
-zcash-devtool v0.1.0 (https://github.com/zcash/zcash-devtool?rev=5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8#5a26ee85):
+zcash-devtool v0.1.0 (/Users/akshmnd/Dev Projects/benzo/.benzo/src/zcash-devtool-5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8):
     zcash-devtool
-zcash-sign v0.1.0 (https://github.com/ZcashFoundation/frost-tools?rev=06c0dbdbb1bac9b99cd255e74ba2f387c295e660#06c0dbdb):
+zcash-sign v0.1.0 (/Users/akshmnd/Dev Projects/benzo/.benzo/src/frost-tools-06c0dbdbb1bac9b99cd255e74ba2f387c295e660/zcash-sign):
     zcash-sign
 # go version -m tle
 $BNZ_STATE_DIR/bin/tle: go1.25.6
