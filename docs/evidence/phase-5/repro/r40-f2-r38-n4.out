@@ -1,0 +1,8 @@
+# A18 item 2 (R40.2, F2) green: tools/repro/r40-f2-ledger-growth.ts at 178048f and r38-n4.ts re-run on the drop-r33 run's real late note with the per-note row shape.
+# command node tmp/r40-f2-ledger-growth.mjs; node tmp/r38-n4.mjs
+window (4469383, 4469395] from the run's own signed manifest; late note(s) at leaf 0's balance address: f73de8b8@4469413=300000 (f73de8b8: the run's log printed "at height 4469411" — its SEND tip; the note mined at 4469413, out of window either way)
+PASS n4-refund-row refunds [{"party":"balance-late:f73de8b8b7995968e45f0b231ddbbd232523519b399d787f371bd93fe331672b:ironwood:0","leaf_index":0,"amount_zats":"300000"}] want [{"party":"balance-late:f73de8b8b7995968e45f0b231ddbbd232523519b399d787f371bd93fe331672b:ironwood:0","leaf_index":0,"amount_zats":"300000"}] (one immutable row per late note, to that slot's own leaf)
+PASS n4-no-sweep sources ["balance:ac51f698365715147aaaf027ae375db13551b6c1fcb071c6c470df67fcb45321:ironwood:1"] want ["balance:ac51f698365715147aaaf027ae375db13551b6c1fcb071c6c470df67fcb45321:ironwood:1"] (out-of-window notes are never settlement sources)
+PASS n4-defaults defaults [2] (the late payment never rescues a default)
+PASS n4-prewindow-dust defaults [2], refunds [{"party":"balance-late:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd:ironwood:0","leaf_index":0,"amount_zats":"5000"},{"party":"balance-late:f73de8b8b7995968e45f0b231ddbbd232523519b399d787f371bd93fe331672b:ironwood:0","leaf_index":0,"amount_zats":"300000"}] (pre-window dust never counts as payment and is refused by nothing: it adds its own per-note refund row)
+RESULT PASS r38-n4

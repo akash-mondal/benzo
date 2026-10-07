@@ -1,0 +1,38 @@
+diff --git a/clear/features.ts b/clear/features.ts
+index bf28203..ef4e003 100644
+--- a/clear/features.ts
++++ b/clear/features.ts
+@@ -219,12 +219,17 @@ export function balanceSettlement(
+   const { start, end } = balanceWindow(m);
+   const slots = new Map<string, number>(); // balance address -> its one leaf (R40 item 1: one bid per slot)
+   for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, leaf);
+-  const sources: string[] = [], refunds: BalanceRefund[] = [];
++  const sources: string[] = [], refunds: BalanceRefund[] = [], totals = new Map<number, bigint>();
+   for (const n of notes) {
+     const leaf = slots.get(n.address);
+-    if (leaf === undefined || !n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
++    if (leaf === undefined || !n.height || BigInt(n.value_zats) === 0n) continue;
+     if (n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+-    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
++    else {
++      totals.set(leaf, 0n);
++      const first = refunds.find(r => r.leaf_index === leaf);
++      if (first) first.amount_zats = (BigInt(first.amount_zats) + BigInt(n.value_zats)).toString();
++      else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
++    }
+   }
+   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
+ }
+diff --git a/settle/ledger.ts b/settle/ledger.ts
+index f07e4dd..fc8a16f 100644
+--- a/settle/ledger.ts
++++ b/settle/ledger.ts
+@@ -36,7 +36,7 @@ export class Ledger {
+             // `balance-late:` row and a newly seen note ADDS a new row, so no chain state a third party can
+             // create may make settlement refuse. The 025c736 growth allowance is withdrawn for refunds; an
+             // unpaid EXCEPTION payout may still grow (a row money has moved for never changes).
+-            requireThat(o.kind==="payout"&&old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume");
++            requireThat(old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats),"settlement obligation changed on resume");
+             this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
+           }
+         }
