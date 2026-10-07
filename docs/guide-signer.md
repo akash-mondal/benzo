@@ -19,17 +19,14 @@ commands print public values only. Never print a private key.
    with `signer envelope key missing` — it is never skipped.
 
 2. **Keep your witness key.** Your witness key is a member of the manifest's pinned witness set, in
-   a file under the state dir. It signs the frozen-root certificate and the strays statement, and it
-   signs your envelope-opening report.
+   a file under the state dir. It signs the frozen-root certificate and your envelope-opening report.
+   (Ruling R42: the strays statement is gone — a stray deposit is attested per row, at payment, in the
+   approval map you sign with `benzo sign approve` from your own vault scan.)
 
    ```text
    $ benzo witness sign --dir PUBLIC --signer HEX --key FILE
-   $ benzo witness strays --dir PUBLIC --signer HEX --key FILE --notes scanner-output.jsonl
    $ benzo witness verify --dir PUBLIC --signer HEX
    ```
-
-   `witness strays` builds the strays statement from your own scanner output, so the public can tie
-   every stray-deposit claim to the chain. Two witnesses' scans that disagree refuse loudly.
 
 3. **Write your envelope-opening report before any batch is planned.** You open every refund
    envelope with your own key and record only `ok` and the destination hash — never the destination.

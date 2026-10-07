@@ -16056,19 +16056,6 @@ import path4 from "node:path";
 
 // witness/index.ts
 import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
-
-// settle/deposits.ts
-var PARTY = /^deposit:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
-function isDepositParty(party) {
-  const m2 = PARTY.exec(party);
-  return !!m2 && Number(m2[3]) <= 65535;
-}
-var LEGACY_PARTY = /^deposit:([0-9a-f]{64}):(0|[1-9][0-9]*)$/;
-function isAnyDepositParty(party) {
-  return isDepositParty(party) || !!LEGACY_PARTY.exec(party);
-}
-
-// witness/index.ts
 var witnessSetHash = (packet) => hash(jsonBytes(packet));
 var edPublic = (h2) => createPublicKey3({ key: Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), Buffer.from(h2, "hex")]), type: "spki", format: "der" });
 function validateWitnessSet(set, auctionId) {
@@ -16109,42 +16096,7 @@ function checkCertificates(certs, spec, statement) {
   }
   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
 }
-function straysStatementBytes(st2) {
-  requireThat(st2 && typeof st2 === "object" && Object.keys(st2).sort().join(",") === "auction_id,strays,version", "strays statement fields");
-  requireThat(st2.version === 1 && /^[0-9a-f]{64}$/.test(String(st2.auction_id)), "strays statement binding");
-  requireThat(Array.isArray(st2.strays), "strays statement entries");
-  const seen = /* @__PURE__ */ new Set();
-  for (const e of st2.strays) {
-    requireThat(e && typeof e === "object" && Object.keys(e).sort().join(",") === "memo_sha256,party,value_zats", "strays entry fields");
-    requireThat(isDepositParty(e.party), "strays entry party");
-    requireThat(/^[0-9a-f]{64}$/.test(String(e.memo_sha256)), "strays entry memo hash");
-    zats(e.value_zats, "strays entry value");
-    requireThat(!seen.has(e.party), "duplicate strays entry party");
-    seen.add(e.party);
-  }
-  return jsonBytes(st2);
-}
-function checkStraysCerts(certs, spec) {
-  requireThat(Array.isArray(certs) && certs.length > 0, "missing strays statement");
-  for (const c2 of certs) {
-    requireThat(c2 && typeof c2 === "object" && c2.statement && Array.isArray(c2.signatures), "strays certificate shape");
-    requireThat(c2.signatures.length > 0, "strays certificate without signatures");
-    for (const s2 of c2.signatures) requireThat(s2 && /^[0-9a-f]{64}$/.test(String(s2.witness)) && /^[0-9a-f]{128}$/.test(String(s2.signature)), "strays signature shape");
-    straysStatementBytes(c2.statement);
-  }
-  const wanted = straysStatementBytes(certs[0].statement).toString("hex");
-  for (const c2 of certs) requireThat(straysStatementBytes(c2.statement).toString("hex") === wanted, "two strays statements for one auction");
-  const signed = /* @__PURE__ */ new Set();
-  for (const c2 of certs) for (const s2 of c2.signatures) {
-    if (signed.has(s2.witness)) continue;
-    requireThat(spec.keys.includes(s2.witness), "strays signature not from the witness set");
-    requireThat(verify3(null, Buffer.concat([Buffer.from("benzo-strays-v1"), straysStatementBytes(c2.statement)]), edPublic(s2.witness), Buffer.from(s2.signature, "hex")), `witness ${s2.witness} strays signature`);
-    signed.add(s2.witness);
-  }
-  requireThat(signed.size >= spec.q_w, `strays witness quorum ${signed.size}-of-${spec.keys.length}`);
-  return certs[0].statement;
-}
-var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults, balance_refunds: b2.balance_refunds })]);
+var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults, balance_refunds: b2.balance_refunds, ...b2.strays !== void 0 ? { strays: b2.strays } : {} })]);
 function verifyApprovalMap(m2, keys2) {
   try {
     return !!m2 && keys2.includes(m2.witness) && /^[0-9a-f]{128}$/.test(String(m2.signature)) && Array.isArray(m2.outputs) && verify3(null, mapBytes(m2), edPublic(m2.witness), Buffer.from(m2.signature, "hex"));
@@ -16162,6 +16114,17 @@ function verifyDeliveryListSig(s2, body, keys2) {
   } catch {
     return false;
   }
+}
+
+// settle/deposits.ts
+var PARTY = /^deposit:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
+function isDepositParty(party) {
+  const m2 = PARTY.exec(party);
+  return !!m2 && Number(m2[3]) <= 65535;
+}
+var LEGACY_PARTY = /^deposit:([0-9a-f]{64}):(0|[1-9][0-9]*)$/;
+function isAnyDepositParty(party) {
+  return isDepositParty(party) || !!LEGACY_PARTY.exec(party);
 }
 
 // settle/envelopes.ts
@@ -16218,7 +16181,7 @@ function loadPublicAuction(dir, opts = {}) {
   let launchInput;
   let deliveryList;
   let serialBeacon = null;
-  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, straysCerts, settlement, reserveOpening, claims = [];
+  let resultBytes, result, receipts, envelopes, witnessSet, witnessCerts, settlement, reserveOpening, claims = [];
   if (!legacy) {
     const doc = JSON.parse(text("auction.json"));
     requireThat(doc && typeof doc === "object" && !Array.isArray(doc), "auction.json");
@@ -16256,8 +16219,6 @@ function loadPublicAuction(dir, opts = {}) {
     witnessSet = doc.witness_set ?? null;
     requireThat(doc.witness_cert === void 0 || Array.isArray(doc.witness_cert), "witness_cert");
     witnessCerts = doc.witness_cert ?? [];
-    requireThat(doc.strays_cert === void 0 || Array.isArray(doc.strays_cert), "strays_cert");
-    straysCerts = doc.strays_cert ?? [];
     requireThat(doc.claims === void 0 || Array.isArray(doc.claims), "claims");
     claims = doc.claims ?? [];
     settlement = doc.settlement ?? null;
@@ -16279,12 +16240,11 @@ function loadPublicAuction(dir, opts = {}) {
     envelopes = existsSync4(path4.join(root, "envelope.json")) ? JSON.parse(text("envelope.json")) : [];
     witnessSet = existsSync4(path4.join(root, "witness-set.json")) ? JSON.parse(text("witness-set.json")) : null;
     witnessCerts = existsSync4(path4.join(root, "witness.json")) ? JSON.parse(text("witness.json")) : [];
-    straysCerts = [];
     settlement = existsSync4(path4.join(root, "summary.json")) ? JSON.parse(text("summary.json")) : null;
     state = settlement ? "SETTLED" : result ? "CLEARED" : frozen ? "SEALED-WAIT" : "OPEN";
     reserveOpening = existsSync4(path4.join(root, "reserve.json")) ? String(JSON.parse(text("reserve.json")).plaintext_hex ?? "") : null;
   }
-  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, deliveryList, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, straysCerts, claims, settlement, reserveOpening };
+  return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, deliveryList, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, claims, settlement, reserveOpening };
 }
 function loadCompletePublicAuction(dir, opts = {}) {
   const pub = loadPublicAuction(dir, opts);
@@ -16494,16 +16454,8 @@ function checkPublicAuction(pub, opts = {}) {
   run2("claims", () => {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
-    let certified = null;
-    if (pub.straysCerts?.length) {
-      requireThat(pub.manifest.witness_set_hash, "strays certification requires a pinned witness set");
-      requireThat(pub.witnessSet, "strays certification requires the witness set");
-      requireThat(witnessSetHash(pub.witnessSet) === pub.manifest.witness_set_hash, "witness set hash mismatch");
-      const spec = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), pub.manifest.auction_id);
-      const statement = checkStraysCerts(pub.straysCerts, spec);
-      requireThat(statement.auction_id === pub.manifest.auction_id, "strays statement auction");
-      certified = new Map(statement.strays.map((e) => [`${e.party}\0${e.memo_sha256}`, e.value_zats]));
-    }
+    const mapKeys = pub.witnessSet && pub.manifest.witness_set_hash === witnessSetHash(pub.witnessSet) ? validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), pub.manifest.auction_id).keys : [];
+    const maps = (pub.settlement?.approval_maps ?? []).filter((mp) => !!mp && mp.auction_id === pub.manifest.auction_id && verifyApprovalMap(mp, mapKeys));
     for (const [i2, c2] of records.entries()) {
       requireThat(c2 && typeof c2 === "object" && ["party", "claim_envelope_sha256", "owner_sig"].every((k2) => typeof c2[k2] === "string") && Object.keys(c2).every((k2) => ["party", "claim_envelope_sha256", "owner_sig", "memo_hex"].includes(k2)), `claim ${i2} shape`);
       requireThat(/^leaf:[0-9]+$/.test(c2.party) || isAnyDepositParty(c2.party) || isRefundRowParty(c2.party), `claim ${i2} party`);
@@ -16522,7 +16474,14 @@ function checkPublicAuction(pub, opts = {}) {
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex, "hex").subarray(61, 93).toString("hex") : null;
       } else {
         requireThat(typeof c2.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c2.memo_hex) && memoSealedBid(c2.memo_hex) !== null, `claim ${i2} memo_hex`);
-        requireThat(certified?.has(`${c2.party}\0${hash(Buffer.from(c2.memo_hex, "hex"))}`), `claim ${i2} memo not in a certified strays statement`);
+        const rec = receipts.find((r2) => r2.party === c2.party);
+        requireThat(!!rec, `claim ${i2} stray claim without a receipt`);
+        const memoHash = hash(Buffer.from(c2.memo_hex, "hex"));
+        const attested = maps.filter((mp) => mp.txid === rec.txid && (mp.strays ?? []).some((s2) => s2.party === c2.party && s2.memo_sha256 === memoHash) && (mp.outputs ?? []).some((o2) => o2.party === c2.party && o2.output_index === rec.output_index));
+        requireThat(
+          attested.length >= 2 && new Set(attested.map((mp) => mp.witness)).size >= 2 && jsonBytes(attested[0].strays ?? null).equals(jsonBytes(attested[1].strays ?? null)) && jsonBytes(attested[0].outputs).equals(jsonBytes(attested[1].outputs)),
+          `claim ${i2} memo is not attested by two agreeing host-signed approval maps of its paying batch`
+        );
         const derived = opts.claimOpenings?.get(i2), pt2 = derived ? Buffer.from(derived, "hex") : null;
         requireThat(pt2 && sealedBidPlaintext(pt2, pub.manifestPacket), `claim ${i2} memo opening`);
         owner = pt2.subarray(61, 93).toString("hex");

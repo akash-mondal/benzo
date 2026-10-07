@@ -57,8 +57,6 @@ export function publish(id:string) {
     if(Object.keys(rest).length)doc.launch_input=rest}
   const previous=existsSync(path.join(dir,'auction.json'))?JSON.parse(readFileSync(path.join(dir,'auction.json'),'utf8')):{};
   if(previous.witness_cert)doc.witness_cert=previous.witness_cert;
-  // R23 item 1: witness-certified strays statements survive every rebuild of the document.
-  if(previous.strays_cert)doc.strays_cert=previous.strays_cert;
   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
   if(existsSync(summary)) {
     const s=read(summary);

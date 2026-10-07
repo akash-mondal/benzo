@@ -57,7 +57,7 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[] }> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] }> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -176,13 +176,20 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const pt = ct ? tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(ct, "hex")) : null;
       return pt ? pt.subarray(61, 93).toString("hex") : null;
     };
+    // Ruling R42 (F11): every deposit row this host derives also derives its per-row attestation — the note
+    // identity and the SHA-256 of its own scanned memo — for the map this host signs when the batch pays it.
+    const strays: import("../witness").StrayAttestation[] = [];
     for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
       const rec = authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, tle);
       // Ruling R40 item 1 (F1): a slot collision refunds through the owner-signed claim path only (the plan
       // never auto-pays it; its record belongs to the frozen leaf's ciphertext) — the same rule on this host.
       const dest = claimDest(party, memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
-      if (dest) expected.push({ party, recipient: dest, amount_zats: String(n.value_zats), source: party });
+      if (dest) {
+        requireThat(typeof n.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(n.memo_hex), "stray note memo");
+        expected.push({ party, recipient: dest, amount_zats: String(n.value_zats), source: party });
+        strays.push({ party, memo_sha256: sha(Buffer.from(n.memo_hex, "hex")) });
+      }
     }
     // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the
     // signed treasury_ua/funding_ua and this signer's own scan.
@@ -195,7 +202,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
-    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds };
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays };
 }
 
 // §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and

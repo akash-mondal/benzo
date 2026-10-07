@@ -6,7 +6,7 @@
 // the pinned Go tle, the published beacon, committed evidence dirs), never from the code under test.
 // Families land in tranches; each ID's four AGENTS.md answers live in e2e/cli-auction.spec.ts's header.
 import { execFileSync, spawnSync } from "node:child_process";
-import { createHash, generateKeyPairSync, randomBytes, sign as edSign } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import sodium from "libsodium-wrappers";
@@ -241,8 +241,15 @@ export async function foldR233(run: Run): Promise<void> {
   const party = `deposit:${rndHex(32)}:ironwood:0`;
   const claimBody = { kind: "claim-refund", auction_id: auctionId, party, claim_envelope_sha256: rndHex(32) };
   const claim = { party, claim_envelope_sha256: claimBody.claim_envelope_sha256, owner_sig: env.signStatement(owner as any, claimBody as any) as string, memo_hex: memo.toString("hex") };
-  const strays: any = { version: 1, auction_id: auctionId, strays: [{ party, memo_sha256: sha256(memo), value_zats: "500000" }] };
-  const straysCert = { statement: strays, signatures: [witness.signStrays(strays, w1.private_hex), witness.signStrays(strays, w2.private_hex)] };
+  // Ruling R42 (F11): the stray claim's memo is bound to the chain by the paying batch's per-row
+  // attestation (two agreeing host-signed maps carrying {party, memo_sha256}), never a closed statement.
+  const r233tx = rndHex(32);
+  const mapBody: any = { auction_id: auctionId, batch: 1, txid: r233tx, outputs: [{ party, output_index: 0 }], defaults: [], balance_refunds: [], strays: [{ party, memo_sha256: sha256(memo) }] };
+  const settlement = {
+    rows: [{ party, kind: "refund", amount_zats: "500000", state: "paid" }],
+    receipts: [{ auction_id: auctionId, party, txid: r233tx, pool: "ironwood", output_index: 0, amount_zats: "500000" }],
+    approval_maps: [witness.signApprovalMap(mapBody, w1.private_hex), witness.signApprovalMap(mapBody, w2.private_hex)],
+  };
   const beaconRes = await fetch(`${drandBase}/${chainHash}/public/${R}`);
   need(beaconRes.ok, `drand HTTP ${beaconRes.status} for round ${R}`);
   const beaconJson = await beaconRes.json();
@@ -250,7 +257,7 @@ export async function foldR233(run: Run): Promise<void> {
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
   const writeDoc = (beacon: boolean) => writeFileSync(path.join(dir, "auction.json"), JSON.stringify({
     version: 1, auction_id: auctionId, signer: signerHex, manifest: packet, state: "REFUNDING", receipts: [],
-    claims: [claim], witness_set: witnessSet, strays_cert: [straysCert],
+    claims: [claim], witness_set: witnessSet, settlement,
     ...(beacon ? { beacon: { round: R, signature: beaconJson.signature, chain_hash: chainHash } } : {}),
   }, null, 2) + "\n");
   const { startServer } = await import("../../api/server");
@@ -313,35 +320,32 @@ export async function foldGForged(run: Run): Promise<void> {
     receipts: [{ auction_id: auctionId, party, txid: "attacker-tx", pool: "orchard", output_index: 0, amount_zats: "1000" }],
   };
   const claims = [{ party, claim_envelope_sha256: claimEnvelopeSha, owner_sig, memo_hex }];
-  // R23 item 1 controls: the witness-certified strays statement binds every stray claim's memo to the
-  // witnesses' own scans (Ed25519 over "benzo-strays-v1" || canonical JSON, by the pinned witness set).
-  // Today's verifier requires the certificate for any claim (the rule tightened after this script's last
-  // green at e0ecb63 — its pre-R23.1 uncertified form now fails `claims refused: claim 0 memo not in a
-  // certified strays statement`), so the base document carries it.
+  // Ruling R42 (F11) controls: the paying batch's PER-ROW attestation binds every stray claim's memo to
+  // the hosts' own scans (Ed25519 over "benzo-approval-map-v1" || canonical JSON, by the pinned witness
+  // set). The verifier requires two agreeing attestations of the batch whose receipt pays the stray.
   const edRaw = (k: any) => ({ private_hex: k.privateKey.export({ type: "pkcs8", format: "der" }).subarray(16).toString("hex"), public_hex: k.publicKey.export({ type: "spki", format: "der" }).subarray(12).toString("hex") });
-  const edPrivate = (h: string) => ({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(h, "hex")]), type: "pkcs8" as const, format: "der" as const });
   const W = [edRaw(generateKeyPairSync("ed25519")), edRaw(generateKeyPairSync("ed25519"))];
-  const signStrays = (st: any, w: any) => ({ witness: w.public_hex, signature: edSign(null, Buffer.concat([Buffer.from("benzo-strays-v1"), schema.jsonBytes(st)]), edPrivate(w.private_hex)).toString("hex") });
   const manifestSigner = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }) as string;
   const witnessSet = schema.signRecord({ version: 1, auction_id: auctionId, q_w: 2, keys: W.map((w) => w.public_hex) }, manifestSigner);
   const manifest2 = { ...manifest, witness_set_hash: schema.hash(schema.jsonBytes(witnessSet)) };
   const packet2 = schema.signRecord(manifest2, manifestSigner);
   const memo_sha256 = sha256(Buffer.from(memo_hex, "hex"));
-  const statement: any = { version: 1, auction_id: auctionId, strays: [{ party, memo_sha256, value_zats: "1000" }] };
+  const attestationBody = (s: { party: string; memo_sha256: string }) => ({ auction_id: auctionId, batch: 1, txid: "attacker-tx", outputs: [{ party, output_index: 0 }], defaults: [], balance_refunds: [], strays: [s] });
+  const attestedSettlement = (s: { party: string; memo_sha256: string }, signers: any[]) => ({ ...settlement, approval_maps: signers.map((w) => witness.signApprovalMap(attestationBody(s) as any, w.private_hex)) });
   const basePub: any = {
     dir: ROOT, signer: packet.signer, legacy: true, state: "REFUNDING",
     manifestPacket: packet, manifest, manifest_hash: schema.client(packet, packet.signer).manifest_hash,
     frozen: null, opened: [], beacon, serialBeacon: null, launchInput: undefined,
-    result: null, resultBytes: null, receipts: [], envelopes: [], witnessSet: null, witnessCerts: [], straysCerts: [],
+    result: null, resultBytes: null, receipts: [], envelopes: [], witnessSet: null, witnessCerts: [],
     settlement, claims,
   };
   const certified: any = {
     ...basePub, signer: packet2.signer, manifestPacket: packet2, manifest: manifest2, manifest_hash: schema.hash(Buffer.from(packet2.bytes, "base64")),
-    witnessSet, straysCerts: [{ statement, signatures: W.map((w) => signStrays(statement, w)) }],
+    witnessSet, settlement: attestedSettlement({ party, memo_sha256 }, W),
   };
   const openings = await pb.deriveClaimOpenings(certified.claims, beacon);
   const claimErrors = (p: any) => api.checkPublicAuction(p, { claimOpenings: openings }).filter((c: any) => c.error && c.id === "claims");
-  await run.check("g-forged-claim-accepted", "the self-consistent claim verifies end to end: owner key anchored in the beacon-opened memo and the memo in the certified strays statement", () => {
+  await run.check("g-forged-claim-accepted", "the self-consistent claim verifies end to end: owner key anchored in the beacon-opened memo and the memo attested per row by the paying batch's two agreeing maps", () => {
     const e = api.checkPublicAuction(certified, { claimOpenings: openings }).filter((c: any) => c.error);
     need(e.length === 0, `errors with the forged claim: ${JSON.stringify(e.map((c: any) => `${c.id}: ${c.error}`))}`);
   });
@@ -352,30 +356,29 @@ export async function foldGForged(run: Run): Promise<void> {
     const badErr = claimErrors(bad);
     need(badErr.length === 1 && /owner signature/.test(badErr[0].error ?? ""), `tampered sig not refused: ${JSON.stringify(badErr)}`);
   });
-  await run.check("r23-1-certified-claim-accepted", "a claim bound to the witnesses' certified strays statement verifies", () => {
+  await run.check("r23-1-attested-claim-accepted", "a claim bound to the paying batch's per-row attestations verifies", () => {
     const e = claimErrors(certified);
     need(e.length === 0, JSON.stringify(e));
   });
-  await run.check("r23-1-wrong-party-refused", "a strays statement for a different party is refused", () => {
-    const wrong = { ...statement, strays: [{ ...statement.strays[0], party: `deposit:${"ab".repeat(32)}:ironwood:0` }] };
-    const p = { ...certified, straysCerts: [{ statement: wrong, signatures: W.map((w) => signStrays(wrong, w)) }] };
+  await run.check("r23-1-wrong-party-refused", "maps attesting a different party are refused", () => {
+    const p = { ...certified, settlement: attestedSettlement({ party: `deposit:${"ab".repeat(32)}:ironwood:0`, memo_sha256 }, W) };
     const e = claimErrors(p);
-    need(e.length === 1 && /certified strays statement/.test(e[0].error ?? ""), JSON.stringify(e));
+    need(e.length === 1 && /not attested by two agreeing host-signed approval maps/.test(e[0].error ?? ""), JSON.stringify(e));
   });
-  await run.check("r23-1-quorum-refused", "a strays certificate below the q_w quorum is refused", () => {
-    const p = { ...certified, straysCerts: [{ statement, signatures: [signStrays(statement, W[0])] }] };
+  await run.check("r23-1-quorum-refused", "one attesting map (below the two-map rule) is refused", () => {
+    const p = { ...certified, settlement: attestedSettlement({ party, memo_sha256 }, [W[0]]) };
     const e = claimErrors(p);
-    need(e.length === 1 && /strays witness quorum/.test(e[0].error ?? ""), JSON.stringify(e));
+    need(e.length === 1 && /not attested by two agreeing host-signed approval maps/.test(e[0].error ?? ""), JSON.stringify(e));
   });
-  await run.check("r23-1-tampered-sig-certified", "a tampered owner_sig is refused even under a valid strays certificate", () => {
+  await run.check("r23-1-tampered-sig-attested", "a tampered owner_sig is refused even under valid per-row attestations", () => {
     const p = { ...certified, claims: [{ ...certified.claims[0], owner_sig: owner_sig.slice(0, 126) + (owner_sig.slice(126) === "00" ? "01" : "00") }] };
     const e = claimErrors(p);
     need(e.length === 1 && /owner signature/.test(e[0].error ?? ""), JSON.stringify(e));
   });
-  await run.check("r23-1-witness-strays-sign", "q_w witnesses sign their own scans; the certificate is what the verifier accepts", () => {
-    const fed = { ...statement, strays: [{ ...statement.strays[0], memo_sha256: sha256("other memo") }] };
-    const e = claimErrors({ ...certified, straysCerts: [{ statement: fed, signatures: W.map((w) => signStrays(fed, w)) }] });
-    need(e.length >= 0 && claimErrors(certified).length === 0 && e.length > 0, `fed ${JSON.stringify(e)} / certified ok`);
+  await run.check("r23-1-forged-attestation-refused", "the hosts' signed per-row attestation is what the verifier accepts — a forged memo hash is refused while the honest one passes", () => {
+    const fed = attestedSettlement({ party, memo_sha256: sha256("other memo") }, W);
+    const e = claimErrors({ ...certified, settlement: fed });
+    need(claimErrors(certified).length === 0 && e.length > 0, `fed ${JSON.stringify(e)} / attested ok`);
   });
 }
 

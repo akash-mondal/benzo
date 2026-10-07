@@ -3,22 +3,18 @@
 // coordinator can equivocate on the accepted set (threat #5, #6, #22). Two certificates for different roots are
 // always refused; one root per auction.
 import { createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from "node:crypto";
-import { hash, jsonBytes, requireThat, zats, type Signed } from "../manifest/schema";
-import { isDepositParty } from "../settle/deposits";
+import { hash, jsonBytes, requireThat, type Signed } from "../manifest/schema";
 
 export type WitnessSpec = { q_w: number; keys: string[] }; // signed witness_set packet: n_w = keys.length
 export type WitnessSet = { version: 1; auction_id: string; q_w: number; keys: string[] };
 export type WitnessStatement = { version: 1; auction_id: string; frozen_root: string; leaf_count: number; T_freeze: number; chain_anchor: string };
 export type WitnessCert = { statement: WitnessStatement; signatures: { witness: string; signature: string }[] };
 
-// R23 item 1: the strays statement. After settlement each witness signs what ITS OWN scan saw at the
-// auction's deposit addresses outside the frozen set — party (the output-position identity), the SHA-256
-// of the deposit's memo bytes and the received value — so a published stray claim can be bound to the
-// chain: verify requires every stray claim's SHA-256(memo_hex) in a q_w-certified strays statement with
-// the same party. One statement per auction (conflicting statements are refused, like one frozen root).
-export type StraysEntry = { party: string; memo_sha256: string; value_zats: string };
-export type StraysStatement = { version: 1; auction_id: string; strays: StraysEntry[] };
-export type StraysCert = { statement: StraysStatement; signatures: { witness: string; signature: string }[] };
+// Ruling R42 (F11): the closed "one strays statement per auction" design is DELETED. A stray set is
+// third-party-growable chain state (deposit addresses stay public forever), so no signature may ever cover
+// it as a set — exactly R41's rule. A stray is attested PER ROW, at payment, in the approval maps of the
+// batch that pays it ({party, memo_sha256} — the note identity and its scanned memo hash), and verify
+// checks those attestations map-to-map. The witness set certifies the frozen root only, fixed before R.
 
 // R23 item 2: envelope-opens reports are signed by the reporting signer's own witness key (a member of
 // the same pinned witness set), and the settlement plan counts only reports whose signature verifies —
@@ -111,54 +107,6 @@ export function verifyOpensReport(r: OpensReport, keys: string[] | null): boolea
   }
 }
 
-// R23 item 1 (Reviewer G G1): the strays statement binds a published stray claim to the chain through the
-// witnesses' own scans. Domain-separated like the freeze statement ("benzo-strays-v1").
-export function straysStatementBytes(st: StraysStatement): Buffer {
-  requireThat(st && typeof st === "object" && Object.keys(st).sort().join(",") === "auction_id,strays,version", "strays statement fields");
-  requireThat(st.version === 1 && /^[0-9a-f]{64}$/.test(String(st.auction_id)), "strays statement binding");
-  requireThat(Array.isArray(st.strays), "strays statement entries");
-  const seen = new Set<string>();
-  for (const e of st.strays) {
-    requireThat(e && typeof e === "object" && Object.keys(e).sort().join(",") === "memo_sha256,party,value_zats", "strays entry fields");
-    requireThat(isDepositParty(e.party), "strays entry party");
-    requireThat(/^[0-9a-f]{64}$/.test(String(e.memo_sha256)), "strays entry memo hash");
-    zats(e.value_zats, "strays entry value");
-    requireThat(!seen.has(e.party), "duplicate strays entry party");
-    seen.add(e.party);
-  }
-  return jsonBytes(st);
-}
-
-export function signStrays(st: StraysStatement, privateHex: string): { witness: string; signature: string } {
-  requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
-  const key = edPrivate(privateHex);
-  return { witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"),
-    signature: sign(null, Buffer.concat([Buffer.from("benzo-strays-v1"), straysStatementBytes(st)]), key).toString("hex") };
-}
-
-// One strays statement per auction (conflicting statements refuse, like one frozen root), q_w-of-n_w over
-// distinct pinned witness keys. Returns the certified statement.
-export function checkStraysCerts(certs: StraysCert[], spec: WitnessSpec): StraysStatement {
-  requireThat(Array.isArray(certs) && certs.length > 0, "missing strays statement");
-  for (const c of certs) {
-    requireThat(c && typeof c === "object" && c.statement && Array.isArray(c.signatures), "strays certificate shape");
-    requireThat(c.signatures.length > 0, "strays certificate without signatures");
-    for (const s of c.signatures) requireThat(s && /^[0-9a-f]{64}$/.test(String(s.witness)) && /^[0-9a-f]{128}$/.test(String(s.signature)), "strays signature shape");
-    straysStatementBytes(c.statement);
-  }
-  const wanted = straysStatementBytes(certs[0].statement).toString("hex");
-  for (const c of certs) requireThat(straysStatementBytes(c.statement).toString("hex") === wanted, "two strays statements for one auction");
-  const signed = new Set<string>();
-  for (const c of certs) for (const s of c.signatures) {
-    if (signed.has(s.witness)) continue;
-    requireThat(spec.keys.includes(s.witness), "strays signature not from the witness set");
-    requireThat(verify(null, Buffer.concat([Buffer.from("benzo-strays-v1"), straysStatementBytes(c.statement)]), edPublic(s.witness), Buffer.from(s.signature, "hex")), `witness ${s.witness} strays signature`);
-    signed.add(s.witness);
-  }
-  requireThat(signed.size >= spec.q_w, `strays witness quorum ${signed.size}-of-${spec.keys.length}`);
-  return certs[0].statement;
-}
-
 // Reviewer G's G-4: an approving host's signed map from each non-change output index to the party it derived for it, over
 // the candidate's txid — receipts are attributed from two hosts' agreeing maps, never from the coordinator's relayed
 // build.json. Domain-separated from every other witness-key signature. R33 item 3 (P1-3): the map also carries the
@@ -166,9 +114,14 @@ export function checkStraysCerts(certs: StraysCert[], spec: WitnessSpec): Strays
 // Ruling R41 (F7): `balance_refunds` carries ONLY the refund rows THIS BATCH pays (the rows among its own outputs,
 // a set fixed at signing) — never the host's live row set, which third parties can still grow. A refund row is
 // attested here, at paid time, and nowhere else; no signature ever covers a set that can still change.
-export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[]; defaults: number[]; balance_refunds: import("../clear/features").BalanceRefund[] };
+// Ruling R42 (F11): `strays` carries ONLY the stray deposit rows this batch pays, each with its note
+// identity and scanned memo hash — the per-row attestation that replaces the deleted strays statement.
+export type StrayAttestation = { party: string; memo_sha256: string };
+export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[]; defaults: number[]; balance_refunds: import("../clear/features").BalanceRefund[]; strays?: StrayAttestation[] };
 export type ApprovalMap = ApprovalMapBody & { witness: string; signature: string };
-const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults, balance_refunds: b.balance_refunds })]);
+// Maps signed before R42 carry no `strays` field and keep their exact signed bytes (the field joins the
+// signed body only when present); maps signed after R42 attest their strays per row over the same bytes.
+const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults, balance_refunds: b.balance_refunds, ...(b.strays !== undefined ? { strays: b.strays } : {}) })]);
 export function signApprovalMap(body: ApprovalMapBody, privateHex: string): ApprovalMap {
   requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
   const key = edPrivate(privateHex);
@@ -182,17 +135,19 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
   } catch { return false; }
 }
 // Ruling R41 (F7): the worker's finalize binding over one batch's signed maps — the two agreeing maps of THAT
-// batch (same txid, same outputs/defaults/refund rows, distinct pinned witnesses), plus the stable defaults list
-// binding (R33 P1-3). A refund-row set is NEVER compared to a live plan: the maps attest only the rows this batch
-// pays, so nothing a third party adds to the chain can move this check.
-export function agreedBatchMaps(maps: unknown, keys: string[], txid: string, plan: { defaults?: number[] } | null = null): ApprovalMap[] {
+// batch (same txid, same outputs/defaults/refund rows/strays, distinct pinned witnesses), plus the stable
+// defaults list binding (R33 P1-3). A refund-row set or stray set is NEVER compared to a live plan: the maps
+// attest only the rows this batch pays, so nothing a third party adds to the chain can move this check.
+// Ruling R42 (F12): `defaults` is compared map-to-map only, never against a fresh derivation — the two host
+// signatures already rule out a coordinator-only list, and a fresh-vs-signed comparison is the F12 wedge.
+export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): ApprovalMap[] {
   const ms = maps as ApprovalMap[];
   requireThat(Array.isArray(ms) && ms.length === 2 && ms.every((mp) => mp && verifyApprovalMap(mp, keys) && mp.txid === txid) &&
     ms[0].witness !== ms[1].witness && jsonBytes(ms[0].outputs).equals(jsonBytes(ms[1].outputs)) &&
     jsonBytes(ms[0].defaults ?? null).equals(jsonBytes(ms[1].defaults ?? null)) &&
-    jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes(ms[1].balance_refunds ?? null)),
+    jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes(ms[1].balance_refunds ?? null)) &&
+    jsonBytes(ms[0].strays ?? null).equals(jsonBytes(ms[1].strays ?? null)),
     "the signing hosts' output maps are missing, unsigned or disagree");
-  if (plan?.defaults !== undefined) requireThat(jsonBytes(ms[0].defaults).equals(jsonBytes(plan.defaults)), "the signing hosts' defaults differ from the plan's derivation");
   return ms;
 }
 

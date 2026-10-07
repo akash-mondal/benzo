@@ -22,8 +22,8 @@
 // r15-phase2-4, r26-3-projections-match, r26-3-opened-diverges, r26-3-beacon-diverges, r26-3-receipts-diverges,
 // r26-3-summary-diverges, r26-3-projection-without-field, r23-3-api-claims-no-beacon,
 // r23-3-api-claims-with-beacon, r23-3-api-never-500, g-forged-claim-accepted, g-forged-claim-control,
-// r23-1-certified-claim-accepted, r23-1-wrong-party-refused, r23-1-quorum-refused, r23-1-tampered-sig-certified,
-// r23-1-witness-strays-sign, kc-api-exports, kc-key-32-interop, kc-recipients-order,
+// r23-1-attested-claim-accepted, r23-1-wrong-party-refused, r23-1-quorum-refused, r23-1-tampered-sig-attested,
+// r23-1-forged-attestation-refused (R42 renamed these from the deleted strays-statement mechanism), kc-api-exports, kc-key-32-interop, kc-recipients-order,
 // kc-split-key-recipient1-opens, kc-split-key-recipient2-commitment, kc-3of3-accepted, kc-1of3-refused,
 // kc-2of3-refused, kc-reorder-refused, kc-wrongset-refused.
 //
@@ -158,7 +158,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
   z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');
   if(z.spendable(z.balance('bidder'))-12*C-200000<3*C+40000)run.notRun(IDS,'drill would cross bidder floor; Needs user funds');
   // ---- R35 folds (tranche 1): read-path corpora and verifier rules (see the header) ----
-  const FOLD1=['r15-machine-runs-without-records','r15-zero-refund-needs-no-row','r15-strangers-refused','r15-phase2-4','r26-3-projections-match','r26-3-opened-diverges','r26-3-beacon-diverges','r26-3-receipts-diverges','r26-3-summary-diverges','r26-3-projection-without-field','r23-3-api-claims-no-beacon','r23-3-api-claims-with-beacon','r23-3-api-never-500','g-forged-claim-accepted','g-forged-claim-control','r23-1-certified-claim-accepted','r23-1-wrong-party-refused','r23-1-quorum-refused','r23-1-tampered-sig-certified','r23-1-witness-strays-sign','kc-api-exports','kc-key-32-interop','kc-recipients-order','kc-split-key-recipient1-opens','kc-split-key-recipient2-commitment','kc-3of3-accepted','kc-1of3-refused','kc-2of3-refused','kc-reorder-refused','kc-wrongset-refused'];
+  const FOLD1=['r15-machine-runs-without-records','r15-zero-refund-needs-no-row','r15-strangers-refused','r15-phase2-4','r26-3-projections-match','r26-3-opened-diverges','r26-3-beacon-diverges','r26-3-receipts-diverges','r26-3-summary-diverges','r26-3-projection-without-field','r23-3-api-claims-no-beacon','r23-3-api-claims-with-beacon','r23-3-api-never-500','g-forged-claim-accepted','g-forged-claim-control','r23-1-attested-claim-accepted','r23-1-wrong-party-refused','r23-1-quorum-refused','r23-1-tampered-sig-attested','r23-1-forged-attestation-refused','kc-api-exports','kc-key-32-interop','kc-recipients-order','kc-split-key-recipient1-opens','kc-split-key-recipient2-commitment','kc-3of3-accepted','kc-1of3-refused','kc-2of3-refused','kc-reorder-refused','kc-wrongset-refused'];
   for(const fold of [foldR15,foldR263,foldR233,foldGForged,foldKC])try{await fold(run)}catch(e){run.notRun(FOLD1,`fold setup: ${(e as Error).message}`)}
   // ---- R35 folds (tranche 2): envelope rules, deposit parties, signed opens reports (see the header) ----
   const FOLD2=['mr-manifest-envelope-keys','mr-3keys-open','mr-4th-key-refused','mr-equal-lengths','mr-stanza-swap-refused','mr-shared-rule-export','mr-verify','mr-verify-foreign-key','mr-verify-foreign-set','mr-verify-pre-v2-pinned','mr-verify-2of3-pinned','mr-verify-pre-v2-unpinned','mr-verify-phase2-4','r26-1-scanner-action-index','r26-1-report-parties','r26-1-two-refund-rows','r26-1-zero-paid-refused','r26-1-zero-counted','r23-2-report-signed','r23-2-two-signed-agree','r23-2-one-key-twice','r23-2-foreign-key','r23-2-forged-report-ignored'];
@@ -266,10 +266,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const cfg=json(productConfig);cfg.settlement.pczt_expiry_blocks=NORMAL_EXPIRY;writeFileSync(productConfig,JSON.stringify(cfg));delay={signer:'carol',paused_height:pausedAt,expiry_height:metadata.expiry_height,resumed_height:z.tip()};process.kill(paused!,'SIGCONT');paused=undefined;
     const completed=await active.done;active=undefined;
     if(completed.code!==0)console.log(`ERROR T3 worker ${completed.err.slice(-500)}`);
-    // Head (live run 14): R23 item 1 live — two witnesses sign the strays statement from their own vault scan before
-    // the public document is read and cold-verified (one shared scan here; separate hosts in part 1 §1).
-    {z.sync('vault');z.enhance('vault');const witnessScan=path.join(privateDir,'witness-scan.jsonl');writeFileSync(witnessScan,z.scanVault().map(n=>JSON.stringify(n)).join('\n')+'\n');
-     for(const i of [0,1])good(['witness','strays','--dir',publicDir,'--signer',signer,'--key',path.join(STATE,'witness',`w${i}.key`),'--notes',witnessScan]);}
+    // Ruling R42 (F11): the `witness strays` step is deleted with the closed strays statement. Each stray's
+    // memo is bound to the chain by the per-row attestation in the approval maps of the batch that pays it
+    // (signed by each host at approve time from its own vault scan), which the cold verify re-checks below.
     const doc=json(path.join(publicDir,'auction.json')),settlement=doc.settlement??{rows:[],receipts:[],batches:[]};
     z.sync('bidder');z.enhance('bidder');const receiving=z.run(z.scanner,['scan','test',path.join(STATE,'bidder')]).trim().split('\n').filter(Boolean).map(l=>JSON.parse(l));
     // R7 items 4/6/7: every claim-named refund lands at its owner-named destination (the destination sealed in

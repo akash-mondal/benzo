@@ -65,7 +65,7 @@ output is the same.
 - `receipts` — every admission receipt is a valid signature over its ciphertext and deposit, in order.
 - `clear` — the published result equals the clearing recomputed from the opened orders.
 - `envelope` — every settlement envelope is intact, signed by its bidder and bound to its ciphertext; destinations are never printed.
-- `claims` — every published claim carries an owner signature that verifies against the owner key in the re-derived opening, and every stray claim's memo appears in the witnesses' certified strays statement.
+- `claims` — every published claim carries an owner signature that verifies against the owner key in the re-derived opening, and every stray claim's note identity and memo hash are attested per row by two agreeing host-signed approval maps of the batch that paid it.
 - `accounting` — payouts + refunds + fees + balances equal the deposits taken in; receipts match obligations.
 - `accounting-strays` — every deposit outside the result is refunded or listed as a signed exception, exactly once.
 

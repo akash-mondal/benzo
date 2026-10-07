@@ -70,7 +70,7 @@ export async function run(argv: string[]): Promise<number | object> {
 
     // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts) — including its own
     // defaults list from its own scan (R33 item 3), which joins the signed G-4 map and the approval record.
-    const { expected, payout, network, balanceSources, defaults, balanceRefunds } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    const { expected, payout, network, balanceSources, defaults, balanceRefunds, strays } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
     // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
@@ -116,10 +116,13 @@ export async function run(argv: string[]): Promise<number | object> {
     // host's own inspect reported (in zcash-sign's order), and `sign join --count` must equal their count.
     // Ruling R41 (F7): the map's `balance_refunds` carries ONLY the refund rows this batch pays (among its own
     // outputs — a set fixed here, that no third party can grow). It is the per-row attestation of each paid
-    // `balance-late:`/`balance-excess:` row; this host's live row set is never signed.
+    // `balance-late:`/`balance-excess:` row; this host's live row set is never signed. Ruling R42 (F11): the
+    // map's `strays` attests each stray deposit row this batch pays — its note identity and this host's own
+    // scanned memo hash — and nothing else; the deleted strays statement is replaced exactly here.
     const wkey = path.join(st, "witness", `${o.name}.key`);
     const paidRefunds = balanceRefunds.filter(r => mapped.some(x => x.party === r.party));
-    const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds }, readFileSync(wkey, "utf8").trim()) : null;
+    const paidStrays = strays.filter(s => mapped.some(x => x.party === s.party));
+    const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds, strays: paidStrays }, readFileSync(wkey, "utf8").trim()) : null;
     const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });
