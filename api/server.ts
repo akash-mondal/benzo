@@ -74,9 +74,14 @@ export function startServer(options: ServerOptions): http.Server {
         return send(res, 200, JSON.parse(pub.resultBytes.toString("utf8")));
       }
       if (parts[0] === "allocation" && parts.length === 1) {
-        if (!pub.result?.allocation_file_hash) return send(res, 409, { ready: false, state: pub.state });
+        // Ruling R41 item 2 (F8): the hash-checked delivery channel is keyed on the HOST-SIGNED
+        // `benzo-delivery-list-v1` statement (R40.3's delivery_list), not the `result.allocation_file_hash`
+        // field F4 removed — pre-F4 docs fall back to the result field. The file is checked against whichever
+        // is present, so the channel the route exists to protect actually serves.
+        const commit = pub.deliveryList?.allocation_file_hash ?? pub.result?.allocation_file_hash;
+        if (!commit) return send(res, 409, { ready: false, state: pub.state });
         const bytes = readFileSync(path.join(pub.dir, "allocation.json"));
-        requireThat(hash(bytes) === pub.result.allocation_file_hash, "launch allocation file hash");
+        requireThat(hash(bytes) === commit, "launch allocation file hash");
         return send(res, 200, JSON.parse(bytes.toString("utf8")));
       }
       if (parts[0] === "receipt" && parts[1]) {
