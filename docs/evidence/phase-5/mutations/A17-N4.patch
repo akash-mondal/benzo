@@ -1,22 +1,14 @@
 diff --git a/clear/features.ts b/clear/features.ts
-index 60eeb6b..79fb0ff 100644
+index bfa21cb..5386f1f 100644
 --- a/clear/features.ts
 +++ b/clear/features.ts
-@@ -172,14 +172,13 @@ export function balanceSettlement(
-   const { start, end } = balanceWindow(m);
-   const slots = new Map<string, number>(); // balance address -> that slot's earliest winning leaf
-   for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, leaf);
--  const sources: string[] = [], totals = new Map<number, bigint>();
-+  const sources: string[] = [];
-   for (const n of notes) {
-     const leaf = slots.get(n.address);
-     if (leaf === undefined || !n.height) continue;
--    if (n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
--    else totals.set(leaf, (totals.get(leaf) ?? 0n) + BigInt(n.value_zats));
-+    sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+@@ -226,7 +226,8 @@ export function balanceSettlement(
+     // README honest limits list it as unrecoverable).
+     const leaf = balanceLateLeafIndex(m, leaves, n);
+     if (leaf === null) continue;
+-    if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
++    // MUTATION A17-N4: out-of-window notes are swept into change again (every note is a source).
++    if (byLeaf.has(leaf)) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
    }
--  return { sources, refunds: [...totals].sort((a, b) => a[0] - b[0]).map(([leaf_index, v]) => ({ leaf_index, amount_zats: v.toString() })) };
-+  return { sources, refunds: [] };
- }
- 
- export type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
+   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
