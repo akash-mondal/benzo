@@ -15,7 +15,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { balanceDefaults, balanceAddressMap } from "../../clear/features";
+import { balanceDefaults, balanceAddressMap, slotOrders } from "../../clear/features";
 import { validateManifest } from "../../manifest/schema";
 
 const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
@@ -70,12 +70,14 @@ line("case1", { notes: [{ address: "uaA", height: 900, value_zats: 2000 }, { add
 line("case2", { notes: [{ address: "uaA", height: 1210, value_zats: 1000 }, { address: "uaB", height: 1210, value_zats: 1000 }],
   oldStart: 1000, newStart: 1200, blocks: 100, oldTip: 1300, newTip: 1310, expect: [] });
 
-// Case 3 (Ruling R38 item 2, Reviewer R's N1 shared-slot case): two winning leaves share ONE deposit slot (R26 F1
-// makes two notes at one deposit address two distinct leaves) and so one balance address. Each owes 300,000 and
-// exactly one 300,000 payment arrives in-window at their shared address. The per-slot greedy walk in leaf_index
-// order (clear/features.ts balanceDefaults) pays leaf 0's balance and defaults leaf 1 — exactly one default, and
-// one payment can never settle two balances. The pre-change helper summed the same notes once per leaf and
-// reported NO default; that behavior is restored by docs/evidence/phase-5/mutations/A17-N1.patch (red).
+// Case 3 (Ruling R40 item 1, superseding R38 item 2's greedy rule): two winning leaves at ONE deposit slot
+// can no longer exist. The reviewer's cross-owner repro (tools/repro/r40-f1-crossowner.ts) showed the greedy
+// walk credits whichever co-slot leaf has the lower leaf_index regardless of who paid; R40 withdraws it — in a
+// bond auction only the first deposit note at each slot is an order and a later note is a stray (refunded to
+// its own depositor). The shipped helpers hold the invariant: the shared helper splits the fixture's leaves
+// into one order and one collision, and balanceAddressMap REFUSES a result where two winning leaves share one
+// balance address (the clear can no longer produce one). Red with the A18 F1 mutation (multi-order slots +
+// greedy restored): the fixture is accepted again and one payment settles two balances.
 const shared = { allocations: [
   { leaf_index: 0, fill: 1, balance_due_zats: "300000" },
   { leaf_index: 1, fill: 1, balance_due_zats: "300000" },
@@ -84,12 +86,13 @@ const shared = { allocations: [
 const sharedLeaves = [0, 1, 2].map(i => ({ leaf_index: i, deposit: { address: i < 2 ? "depS" : "depC" } })) as any;
 const sharedM = { deposit_addresses: ["depS", "depC"], bond: { bond_bps: 500, balance_window_blocks: 100, balance_window_start_height: 1000, balance_addresses: ["uaS", "uaC"] } } as any;
 {
-  const map = balanceAddressMap(shared, sharedLeaves, sharedM);
-  console.log(`shared-slot balance map ${JSON.stringify([...map])} -> ${map.get(0) === map.get(1) ? "CONFIRMED leaves 0 and 1 share one balance address" : "slots differ"}`);
-  const got = balanceDefaults(sharedM, shared, sharedLeaves, [{ address: "uaS", height: 1050, value_zats: 300_000 }] as any, 1200);
-  const ok = JSON.stringify(got) === "[1]";
-  console.log(`${ok ? "PASS" : "FAIL"} case3 expected [1] got ${JSON.stringify(got)} (one 300,000 payment for two 300,000 balances settles exactly one: leaf 0 paid, leaf 1 default)`);
-  if (!ok) console.log(`ERROR case3 one payment settled more than one balance (or none): defaults ${JSON.stringify(got)}`);
+  const { orders, collisions } = slotOrders(sharedM, sharedLeaves);
+  let refused: string | null = null;
+  try { balanceAddressMap(shared, sharedLeaves, sharedM); } catch (e) { refused = (e as Error).message; }
+  const ok = JSON.stringify(orders.map((o: any) => o.leaf_index)) === "[0,2]" && JSON.stringify(collisions.map((o: any) => o.leaf_index)) === "[1]" &&
+    refused === "refused: balance address shared by two winning leaves (one bid per deposit slot)";
+  console.log(`${ok ? "PASS" : "FAIL"} case3 orders ${JSON.stringify(orders.map((o: any) => o.leaf_index))} collisions ${JSON.stringify(collisions.map((o: any) => o.leaf_index))} shared result -> ${JSON.stringify(refused)}`);
+  if (!ok) console.log(`ERROR case3 one deposit slot must hold exactly one bid; got orders ${JSON.stringify(orders.map((o: any) => o.leaf_index))} collisions ${JSON.stringify(collisions.map((o: any) => o.leaf_index))} shared refusal ${JSON.stringify(refused)}`);
   all &&= ok;
 }
 

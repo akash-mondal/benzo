@@ -12,7 +12,7 @@ import { pcztBin, scanBin, ufvkFile, vaultDir } from "../manifest/paths";
 import { loadPublicAuction } from "../api/public-auction";
 import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
-import { depositParty, refundable, strayNotes } from "../settle/deposits";
+import { depositParty, isSlotCollision, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow } from "../clear/features";
 import { blockTime, chainTip } from "./host-chain";
@@ -163,10 +163,12 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const pt = ct ? tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(ct, "hex")) : null;
       return pt ? pt.subarray(61, 93).toString("hex") : null;
     };
-    for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest.deposit_addresses, pub.frozen)) as any).payable as any[]) {
+    for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
       const rec = authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, tle);
-      const dest = claimDest(party, memoOwner(n)) ?? (rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
+      // Ruling R40 item 1 (F1): a slot collision refunds through the owner-signed claim path only (the plan
+      // never auto-pays it; its record belongs to the frozen leaf's ciphertext) — the same rule on this host.
+      const dest = claimDest(party, memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
       if (dest) expected.push({ party, recipient: dest, amount_zats: String(n.value_zats), source: party });
     }
     // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the

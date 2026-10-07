@@ -80,11 +80,12 @@ export async function run(argv: string[]): Promise<number> {
     if (mode === "strays") {
       // R23 item 1 (Reviewer G G1): the strays statement is built from THIS witness's own scan (its
       // benzo-scan output), never from operator input — every deposit-address note outside the frozen
-      // set, by output position, with its memo hash and received value. Scans that disagree refuse
+      // set (and, Ruling R40 item 1, every slot collision — the later note at a used deposit slot), by
+      // output position, with its memo hash and received value. Scans that disagree refuse
       // loudly (one strays statement per auction).
       const resolved = witnessKey(o.key);
       const notes = readFileSync(o.notes, "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
-      const strays: StraysEntry[] = strayNotes(notes, pub.manifest.deposit_addresses, pub.frozen)
+      const strays: StraysEntry[] = strayNotes(notes, pub.manifest, pub.frozen)
         .map(n => { requireThat(typeof n.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(n.memo_hex), "witness scan memo"); return { party: depositParty(n), memo_sha256: hash(Buffer.from(n.memo_hex, "hex")), value_zats: String(n.value_zats) }; })
         .sort((a, b) => a.party.localeCompare(b.party));
       const statement = { version: 1 as const, auction_id: pub.manifest.auction_id, strays };

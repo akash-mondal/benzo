@@ -4,6 +4,7 @@
 // address, and each note is its own refund obligation. Every plan, claim, verify and evidence path derives
 // and parses deposit parties through these helpers. A zero-value note is never an obligation: it is
 // ignored here and counted in verify's accounting (`settlement.ignored`).
+import { slotOrders } from "../clear/features";
 export type DepositNote = {
   txid: string;
   pool: string;
@@ -59,13 +60,31 @@ export function refundable<T extends DepositNote>(notes: T[]): { payable: T[]; i
 }
 
 // The plan's stray rule, shared with the witnesses' strays statement: a deposit-address note that is not
-// one of the frozen leaves' deposits (or any of them when nothing was frozen).
+// one of the frozen leaves' deposits (or any of them when nothing was frozen). Ruling R40 item 1 (F1): in a
+// bond-then-pay auction a slot collision's note is a stray too — only the first deposit note at each deposit
+// slot is an order (clear/features.ts slotOrders, the one shared rule), so the later note at a used slot
+// refunds through this same stray path to its own depositor and can never be credited or defaulted against a
+// co-slot bidder.
 export function strayNotes<T extends { txid: string; address: string }>(
   notes: T[],
-  depositAddresses: string[],
-  frozen: { leaves: { deposit: { txid: string; address: string } }[] } | null | undefined,
+  m: { deposit_addresses: string[]; bond?: unknown },
+  frozen: { leaves: { leaf_index: number; deposit: { txid: string; address: string } }[] } | null | undefined,
 ): T[] {
+  const leaves = frozen?.leaves ?? [];
+  const collide = new Set(slotOrders(m, leaves).collisions.map(l => `${l.deposit.txid}:${l.deposit.address}`));
   return notes.filter(n =>
-    depositAddresses.includes(n.address) &&
-    !(frozen?.leaves ?? []).some(l => l.deposit.txid === n.txid && l.deposit.address === n.address));
+    m.deposit_addresses.includes(n.address) &&
+    (!leaves.some(l => l.deposit.txid === n.txid && l.deposit.address === n.address) ||
+     collide.has(`${n.txid}:${n.address}`)));
+}
+
+// The slot-collision notes among the strays (R40 item 1): their published envelope record belongs to the
+// frozen LEAF's ciphertext, so the memo-to-record binding is not publicly checkable for a stray row — the
+// plan and every host refund them through the owner-signed claim path only.
+export function isSlotCollision<T extends { txid: string; address: string }>(
+  n: T,
+  m: { deposit_addresses: string[]; bond?: unknown },
+  frozen: { leaves: { leaf_index: number; deposit: { txid: string; address: string } }[] } | null | undefined,
+): boolean {
+  return slotOrders(m, (frozen?.leaves ?? [])).collisions.some(l => l.deposit.txid === n.txid && l.deposit.address === n.address);
 }

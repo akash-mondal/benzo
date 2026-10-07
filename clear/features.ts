@@ -15,12 +15,15 @@ export type OrderView = {
 // ids in multi-lot rounds, else the auction_id), and applies bid revision: among binding-valid orders with the
 // same (owner key, lot), only the latest admitted (highest committed leaf index) counts; earlier ones are marked
 // "superseded" and refunded exactly once (they never rank, so they can never also earn an unfilled refund).
-export function readOrders(input: ClearInput, m: { auction_id: string; lots?: string[] }, layout: OrderLayout = LAYOUT_V0): OrderView[] {
+export function readOrders(input: ClearInput, m: { auction_id: string; lots?: string[]; bond?: unknown }, layout: OrderLayout = LAYOUT_V0): OrderView[] {
   const lots = m.lots ?? null;
   const allowed = lots ?? [m.auction_id];
   requireThat(input.opened.length === input.frozen.leaf_count &&
     new Set(input.opened.map(o => o.leaf_index)).size === input.opened.length, "one opening per frozen leaf");
-  const orders: OrderView[] = input.frozen.leaves.map(l => {
+  // Ruling R40 item 1 (F1): in a bond-then-pay auction only the first deposit note at each deposit slot is an
+  // order — a slot collision is not an order at all (it refunds through the stray path), so the clearing input
+  // carries exactly one bid per slot and no rule ever attributes one address's payment among several bidders.
+  const orders: OrderView[] = slotOrders(m, input.frozen.leaves).orders.map(l => {
     const o = input.opened.find(x => x.leaf_index === l.leaf_index)!;
     let price = 0n, quantity = 0, bound_hex = "", owner_hex = "", reason = "";
     if (o?.error === "reorg") reason = "reorg";
@@ -90,6 +93,27 @@ export const refundAfter = (payment: bigint, fee: bigint, C: bigint): bigint => 
 export type BalanceWindowM = { deposit_addresses: string[]; bond: { balance_window_start_height: number; balance_window_blocks: number; balance_addresses: string[] } };
 export type FrozenLeaf = { leaf_index: number; deposit: { address: string } };
 export type ScannedNote = { txid: string; pool: string; action_index: number; address: string; height: number | null; value_zats: number | string };
+
+// Ruling R40 item 1 (F1): one bid per deposit slot in a bond-then-pay auction. Deposit slots are a shared
+// public list and a payer is unobservable on shielded Zcash, so no rule can attribute one address's payment
+// among several bidders — the shared-slot cases cannot arise instead. Only the FIRST deposit note at each
+// deposit address (leaf order = chain order) is an order; every later note at that slot is a slot collision
+// and refunds through the stray path to its own depositor. This one helper is the rule: the clearing input
+// (readOrders), the plan's stray classification (settle/deposits.ts strayNotes), every signer host and the
+// witness strays statement consume it, so plan, hosts and verify can never disagree.
+export function slotOrders<T extends { leaf_index: number; deposit: { address: string } }>(
+  m: { bond?: unknown },
+  leaves: T[],
+): { orders: T[]; collisions: T[] } {
+  const seen = new Set<string>(), orders: T[] = [], collisions: T[] = [];
+  for (const l of [...leaves].sort((a, b) => a.leaf_index - b.leaf_index)) {
+    if (m.bond !== undefined && seen.has(l.deposit.address)) { collisions.push(l); continue; }
+    seen.add(l.deposit.address);
+    orders.push(l);
+  }
+  return { orders, collisions };
+}
+
 export const balanceWindow = (m: BalanceWindowM): { start: number; end: number } => {
   const start = m.bond.balance_window_start_height;
   requireThat(Number.isSafeInteger(start) && start > 0 && Number.isSafeInteger(m.bond.balance_window_blocks) && m.bond.balance_window_blocks >= 1, "balance window");
@@ -112,6 +136,10 @@ export function balanceAddressMap(
     requireThat(slot >= 0 && !map.has(a.leaf_index), "balance address leaf");
     map.set(a.leaf_index, m.bond.balance_addresses[slot]);
   }
+  // Ruling R40 item 1 (F1): one bid per deposit slot, so each balance address belongs to exactly one leaf.
+  // The clearing input can no longer produce anything else; a result that shares one is refused here rather
+  // than attributed by any walk (this checks the recomputed result, never chain state).
+  requireThat(new Set(map.values()).size === map.size, "balance address shared by two winning leaves (one bid per deposit slot)");
   return map;
 }
 export function balanceDefaults(
@@ -127,29 +155,18 @@ export function balanceDefaults(
   requireThat(tip > end, "balance window has not passed; settlement waits");
   const inWindow = (address: string): bigint => notes.filter(n => n.address === address && n.height && n.height > start && n.height <= end)
     .reduce((s, n) => s + BigInt(n.value_zats), 0n);
-  // Ruling R38 item 2 (N1): several winning leaves may share one deposit slot and so one balance address. Per
-  // address, walk that slot's winning leaves in leaf_index order with the in-window total: a leaf is PAID if the
-  // remaining total covers its balance_due_zats (subtract it), otherwise it is a DEFAULT. Deterministic, and one
-  // payment can never settle two balances (the reviewer's shared-slot case). This one rule is used by the plan,
-  // every signer host and the verify-side replays alike.
-  const slots = new Map<string, { leaf_index: number; due: bigint }[]>();
-  for (const a of result.allocations) {
-    const due = BigInt(a.balance_due_zats ?? "0");
-    if (a.fill <= 0 || due === 0n) continue; // only a bonded winner owing a balance can default
-    const address = byLeaf.get(a.leaf_index)!;
-    const slot = slots.get(address) ?? [];
-    slot.push({ leaf_index: a.leaf_index, due });
-    slots.set(address, slot);
-  }
+  // Ruling R40 item 1 (F1): the R38.2 greedy walk is withdrawn. Each balance address belongs to exactly one
+  // leaf (balanceAddressMap refuses a shared one — the clear can no longer produce it), so a winner is PAID
+  // when its own address's in-window notes cover its balance_due_zats and a DEFAULT otherwise. Deterministic,
+  // used by the plan, every signer host and the verify-side replays alike; one payment can never settle two
+  // balances because two balances can never share one address.
   const defaults: number[] = [];
-  for (const [address, owed] of slots) {
-    let got = inWindow(address);
-    for (const o of owed.sort((x, y) => x.leaf_index - y.leaf_index)) {
-      if (got >= o.due) got -= o.due;
-      else defaults.push(o.leaf_index);
-    }
+  for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) {
+    const due = BigInt(result.allocations.find(a => a.leaf_index === leaf)?.balance_due_zats ?? "0");
+    if (due === 0n) continue; // only a bonded winner owing a balance can default
+    if (inWindow(address) < due) defaults.push(leaf);
   }
-  return defaults.sort((x, y) => x - y);
+  return defaults;
 }
 
 // Ruling R38 item 4 (N4): out-of-window notes at a balance address are NEVER settlement sources (never swept
@@ -170,7 +187,7 @@ export function balanceSettlement(
   requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
   const byLeaf = balanceAddressMap(result, leaves, m);
   const { start, end } = balanceWindow(m);
-  const slots = new Map<string, number>(); // balance address -> that slot's earliest winning leaf
+  const slots = new Map<string, number>(); // balance address -> its one leaf (R40 item 1: one bid per slot)
   for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) if (!slots.has(address)) slots.set(address, leaf);
   const sources: string[] = [], totals = new Map<number, bigint>();
   for (const n of notes) {

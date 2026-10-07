@@ -11,7 +11,7 @@ import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/sche
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
 import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
-import {depositParty,partyNote,isDepositParty,refundable,strayNotes} from "./deposits";
+import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -78,7 +78,7 @@ try {
   // is never an obligation — it is ignored and counted in verify's accounting.
   const {payable:payNotes,ignored}=refundable(depositNotes);
   const confirmed=(n:any)=>n.height&&tip-n.height+1>=m.confirmations;
-  const stray=strayNotes(payNotes,m.deposit_addresses,src.frozen);
+  const stray=strayNotes(payNotes,m,src.frozen); // R40 item 1 (F1): a slot collision is a stray too
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimEnvelopes:Record<string,string>={},claimsUsed:any[]=[];
   let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[],balance_refunds:{leaf_index:number;amount_zats:string}[]=[];
@@ -290,8 +290,14 @@ try {
       // the exception queue, claimable only when its memo holds an owner key (benzo claim-refund).
       if(!published) {obligations.push(row);continue}
       if(claimEnvelopes[party]) {gateEnvelope(row);continue}
-      if(strayEnvelope(party)) {gateEnvelope(row);continue}
-      const reason=!bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":"no valid owner-signed settlement envelope";
+      // Ruling R40 item 1 (F1): a slot collision (the later note at a used deposit slot) is refunded through the
+      // stray CLAIM path only. Its published envelope record belongs to the frozen LEAF's ciphertext and the
+      // note's memo-to-record binding is not publicly checkable for a stray row (benzo verify requires a
+      // published claim for every paid deposit row), so no auto-pay leg applies; the memo's own owner key claims
+      // the refund and the depositor loses only the fee.
+      if(strayEnvelope(party)&&!isSlotCollision(n,m,src.frozen)) {gateEnvelope(row);continue}
+      const reason=isSlotCollision(n,m,src.frozen)?"deposit slot collision with an earlier bid; the refund is claimable through benzo claim-refund":
+        !bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":"no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }
