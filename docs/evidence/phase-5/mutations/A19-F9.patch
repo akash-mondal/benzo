@@ -1,0 +1,48 @@
+diff --git a/clear/features.ts b/clear/features.ts
+index 73fd3bf..b49fcdd 100644
+--- a/clear/features.ts
++++ b/clear/features.ts
+@@ -262,7 +262,7 @@ export function balanceSettlement(
+     const leaf = balanceLateLeafIndex(m, leaves, n);
+     if (leaf === null) continue;
+     if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+-    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
++    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: true });
+   }
+   // Ruling R41 item 4 (F10): in-window value ABOVE `balance_due_zats` at a winner's balance address becomes ONE
+   // immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf. It is FINAL — settlement waits
+@@ -274,7 +274,7 @@ export function balanceSettlement(
+     const due = BigInt(result.allocations.find(a => a.leaf_index === leaf)?.balance_due_zats ?? "0");
+     const inNotes = notes.filter(n => n.address === address && n.height && n.height > start && n.height <= end && BigInt(n.value_zats) !== 0n);
+     const excess = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n) - due;
+-    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured) });
++    if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: true });
+   }
+   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
+ }
+diff --git a/cli/host-derive.ts b/cli/host-derive.ts
+index 31bfb84..ff027e1 100644
+--- a/cli/host-derive.ts
++++ b/cli/host-derive.ts
+@@ -166,7 +166,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
+       const owed = BigInt(owedBy.get(r.party) ?? "0");
+       if (!(owed > 0n)) continue;
+       const dest = claimDest(r.party, ownerOf(r.leaf_index));
+-      if (dest && r.matured) expected.push({ party: r.party, recipient: dest, amount_zats: owed.toString(), source: r.party });
++      if (dest) expected.push({ party: r.party, recipient: dest, amount_zats: owed.toString(), source: r.party });
+     }
+     // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
+     // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN
+diff --git a/settle/plan.ts b/settle/plan.ts
+index af8c9ea..635a2ac 100644
+--- a/settle/plan.ts
++++ b/settle/plan.ts
+@@ -286,7 +286,7 @@ try {
+         // matures it stays PENDING even when claimed — a reorg must never make the vault refund money it
+         // never received.
+         const derived=balance_refunds.find(r=>r.party===party);
+-        if(claimEnvelopes[party]&&derived?.matured===true) {gateEnvelope(row);continue}
++        if(claimEnvelopes[party]) {gateEnvelope(row);continue}
+         const reason=derived?.matured!==true?"refund note not confirmed; the row stays pending until the confirmations rule (R41.3)":
+           "out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund";
+         refusals.push({party,reason});

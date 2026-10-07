@@ -1,0 +1,20 @@
+commit 273eb4eec79c41c86c94d942ef1c9c351b1f06dd (mutation applied to the clean tree; reverted after the run)
+utc 2026-10-07T10:24:22Z
+command git apply docs/evidence/phase-5/mutations/A19-F7.patch && BNZ_STATE_DIR=tmp/r41-f7-state-mut node tmp/r41-f7-map-wedge.mjs   (tools/repro/r41-f7-map-wedge.ts, freshly bundled)
+mutation A19-F7 the snapshot binding restored (sign-approve signs the live row set; agreedBatchMaps and publish() compare it to the plan — Reviewer R's F7 wedge)
+commit 273eb4eec79c41c86c94d942ef1c9c351b1f06dd
+utc 2026-10-07T10:24:01.655Z
+command node tmp/r41-f7-map-wedge.mjs (tools/repro/r41-f7-map-wedge.ts)
+tree M cli/commands/sign-approve.ts
+tree  M cli/product.ts
+tree  M witness/index.ts
+tree ?? docs/evidence/phase-5/mutations/A19-F7.patch
+PASS f7-late-note-adds-pending-row plan at approve []; after one third-party note [{"party":"balance-late:ddddddddddddddd…","amount":"1"}]
+PASS f7-pin-accepts pin accepted the new per-note row after the settled batch (rows=2)
+FAIL f7-finalize-accepts threw refused: the signing hosts' balance_refunds differ from the plan's derivation
+ERROR f7-finalize-accepts threw refused: the signing hosts' balance_refunds differ from the plan's derivation
+FAIL f7-publish-serves threw refused: settlement defaults/balance_refunds need two agreeing host-signed approval maps; refusing to publish
+ERROR f7-publish-serves threw refused: settlement defaults/balance_refunds need two agreeing host-signed approval maps; refusing to publish
+PASS f7-next-batch-paid batch 2 paid the claimed row; receipts [{"party":"balance-late:ddddddddddddddd…","amount":"1"},{"party":"leaf:0…","amount":"200000"}]
+PASS f7-claims-complete entry paid; claims published 1; attesting maps 2 (distinct 2)
+RESULT FAIL r41-f7-map-wedge

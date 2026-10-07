@@ -1,0 +1,20 @@
+commit 273eb4eec79c41c86c94d942ef1c9c351b1f06dd (mutation applied to the clean tree; reverted after the run)
+utc 2026-10-07T10:25:14Z
+command git apply docs/evidence/phase-5/mutations/A19-F9.patch && node tmp/r41-f9-confirmations.mjs   (tools/repro/r41-f9-confirmations.ts, freshly bundled)
+mutation A19-F9 the confirmation gate removed (balanceSettlement marks every refund row matured; the plan promotes and the host derives payable regardless of confirmations)
+commit 273eb4eec79c41c86c94d942ef1c9c351b1f06dd
+utc 2026-10-07T10:25:06.783Z
+command node tmp/r41-f9-confirmations.mjs (tools/repro/r41-f9-confirmations.ts)
+tree M clear/features.ts
+tree  M cli/host-derive.ts
+tree  M settle/plan.ts
+tree ?? docs/evidence/phase-5/mutations/A19-F7.out
+tree ?? docs/evidence/phase-5/mutations/A19-F7.patch
+tree ?? docs/evidence/phase-5/mutations/A19-F9.patch
+FAIL f9-late-row-not-payable row present amount 7 matured true at 6 confirmations (must exist and stay pending: red before — no gate, the row is payable at 1 conf)
+ERROR f9-late-row-not-payable row present amount 7 matured true at 6 confirmations (must exist and stay pending: red before — no gate, the row is payable at 1 conf)
+FAIL f9-late-row-payable-after-confirmations matured at 9 confs true; at 10 confs true (m.confirmations = 10)
+ERROR f9-late-row-payable-after-confirmations matured at 9 confs true; at 10 confs true (m.confirmations = 10)
+FAIL f9-gate-stricter-rule confirmations 20 at 19 confs matured true; confirmations 3 at 6 confs matured true (gate = max(m.confirmations, 10))
+ERROR f9-gate-stricter-rule confirmations 20 at 19 confs matured true; confirmations 3 at 6 confs matured true (gate = max(m.confirmations, 10))
+RESULT FAIL r41-f9-confirmations
