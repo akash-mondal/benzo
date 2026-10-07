@@ -1,0 +1,11 @@
+r42-f13 RED BEFORE — tools/repro/r42-f13-f14-tamper.ts (the reviewer's H1/H2 /tmp tampers from reports/pr-a19-r41.md F13/F14, no lab file exists for them) run against a pristine git worktree of fda25b4 with THAT tree's own committed dist/benzo-verify.mjs. The defect reproduces exactly: H1 (a fabricated PAID refund entry + receipt with NO row) and H2 (a refund-class receipt with no entry and no row) both verify clean (exit 0), while the baseline passes and the row-keeping control C1 is refused by the R41.1 attestation — the reviewer's finding verbatim.
+commit fda25b4150255ac57185093d5d60679105edec13
+utc 2026-10-07T18:10:04.878Z
+corpus drop-cold (2afb29e4) entries [{"amount_zats":"1","leaf_index":0,"party":"balance-late:e5d3ed13011a549a6b82977e5aec8f2e3e8d7b9830364fb2d5d566fcec87ae04:ironwood:1","state":"paid"},{"amount_zats":"20000","leaf_index":0,"party":"balance-late:e718a592c00380ed32a61367acad42fa1a95e445897d8a4f128093057c3d0a85:ironwood:1","state":"pending"}]
+PASS f13-f14-baseline-verifies verify exit 0
+FAIL f13-entry-receipt-no-row-refused H1 exit 0; NO ERROR (defect)
+ERROR f13-entry-receipt-no-row-refused H1 exit 0; NO ERROR (defect)
+PASS f13-control-row-attested C1 exit 1; ERROR claims refused: claim-paid row balance-late:abababababababababababababababababababababababababababababababab:ironwood:2 without a published claim | ERROR balance-refs refused: paid refund row balance-late:abababababababababababababababababababababababababababababababab:ironwood:2 is not attested by two agreeing host-signed approval maps of its paying batch
+FAIL f14-receipt-only-refused H2 exit 0; NO ERROR (defect)
+ERROR f14-receipt-only-refused H2 exit 0; NO ERROR (defect)
+RESULT FAIL r42-f13-f14-tamper
