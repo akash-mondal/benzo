@@ -178,6 +178,9 @@ The assertions are exactly PHASE-5 §6: V1 V2 W1 W2 X1 Y1. Mutations 5M1–5M5 a
   `benzo sign join` (host mode) signs only when its approval holds this exact sighash: it compares frost-client's printed message with the approved sighash before answering `y`.
 - **H4. Coordinator on a host and the kill drill.** In host mode the FROST coordinator runs on `pair[0]`'s host (its auction config holds the group), driven over `orb run` with the sighash and randomizer on stdin. If a session fails mid-batch (the drill: `orb stop benzo-bob` after bob joined), the worker records the abandoned session (no nonce reuse; it's a new session), swaps in the next signer that approves, and re-signs **the same batch**. The ledger shows no duplicate outputs.
 - **H5. Signer-side reports from hosts.** Envelope keys (`benzo sign envelope-key` on each host, pinned in the manifest), `sign envelope-opens --public DIR --claims FILE` and the witness certificate and strays statement run **on the hosts** against the pushed public dir and each host's own vault scan. Their outputs return to the coordinator (stdout or `orbctl pull`).
+
+> **Superseded by Ruling R42 (2026-10-07):** the closed per-auction strays statement described here was deleted. Third parties can grow the stray set at any time, so a signed set over it could permanently break verification and wedge settlement (Reviewer R F11). Each stray refund is now attested per row in the approval maps of the batch that pays it, and the witness set certifies the frozen root only. See `docs/PHASE-5.md` R42.
+
 - **Limit to state:** the seller payout destination is operator routing, so hosts check its amount, not its address. Pinning the seller UA in the signed manifest closes this (future item).
 - **Proof:** one live product auction with host custody (fresh DKG, three bids, a refund paid through envelopes) settled entirely by host approvals and host-held shares, plus the kill drill completing with alice + carol.
 

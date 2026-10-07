@@ -363,4 +363,5 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
      - An unexplained receipt or entry fails verify with a specific ERROR.
   4. **F15 (P2):** one note backs at most one refund row across all row classes (stray, late, excess, collision). The ledger keys refunds by note identity, so a reorg re-classification cannot pay the same note twice.
   5. **Re-proof:** each finding red before and green after (the reviewer's repros are under `benzo-sol/lab/pr-a19/tests/`), with mutations for F11 (the closed set restored), F13 (the one-sided check restored) and F15 (the per-class key restored); one clean live `drop` run plus one stray-claim live leg; and every earlier spec family that used strays certs re-verified. Reviewer R re-reviews.
+  6. (2026-10-07, answers A20 Questions 10–11.) **Q10 accepted:** pre-A20 strays-cert corpora fail verify under R42, as the historical class does (R41.6). The re-verification target is the A20 live stray-claim corpus. **Q11:** the guide corrections are accepted. The head marked `docs/design/phase5-part1-live.md` §H5 as superseded by R42.
 
