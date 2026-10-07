@@ -14,6 +14,7 @@
 // exit 0 there (the defect), so f13/f14 go ERROR (r42-f13-red-before.out).
 // Run: npx esbuild tools/repro/r42-f13-f14-tamper.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r42-f13-f14-tamper.mjs && node tmp/r42-f13-f14-tamper.mjs <corpus-dir> [verify.mjs]
 import { execFileSync, spawnSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { jsonBytes } from "../../manifest/schema";
@@ -46,7 +47,7 @@ console.log(`corpus ${path.basename(corpus)} (${base.auction_id.slice(0, 8)}) en
 let n = 0;
 const tamper = (mutate: (d: any) => void): string => {
   const dir = path.join(ROOT, `tmp/r42-f13-tamper/${base.auction_id}-${++n}`);
-  rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true }); cpSync(corpus, dir, { recursive: true });
+  rmSync(assertScratch(dir), { recursive: true, force: true }); mkdirSync(dir, { recursive: true }); cpSync(corpus, dir, { recursive: true });
   const d = doc(path.join(dir, "auction.json"));
   mutate(d);
   writeFileSync(path.join(dir, "auction.json"), jsonBytes(d));

@@ -6,6 +6,7 @@
 // from that ledger's output, never from the code under test. No live services, no network, no secrets.
 // Repro: npx esbuild tools/repro/batching-equal.ts --bundle --platform=node --format=esm --outfile=tmp/batching-equal.mjs && node tmp/batching-equal.mjs
 import { createHash } from "node:crypto";
+import { assertScratch } from "./scratch";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Ledger, type Obligation } from "../../settle/ledger";
@@ -43,7 +44,7 @@ function driveLedger(cap: number): { id: number; parties: string[] }[] {
     ledger.close();
     return batches;
   } finally {
-    rmSync(state, { recursive: true, force: true });
+    rmSync(assertScratch(state), { recursive: true, force: true });
   }
 }
 

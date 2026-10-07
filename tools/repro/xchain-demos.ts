@@ -33,6 +33,7 @@
 //     --outfile=tmp/xchain-demos.mjs && bash tools/repro/xchain-demos.sh demo1 demo2 demo3
 // Live (the head, on main): node tmp/xchain-demos.mjs <demo1|demo2|demo3>   (BNZ_LWD_SINGLE=1)
 import { execFileSync, spawnSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -53,7 +54,7 @@ import * as hosts from "../../e2e/lib/hosts";
 
 const WORK = path.join(ROOT, "tmp/xchain-demos"); mkdirSync(WORK, { recursive: true });
 const PUB = path.join(WORK, "public");
-const HOSTROOT = path.join(STATE, "xchain-hosts"); // the dry run's stand-in hosts: BNZ_STATE_DIR per signer
+const HOSTROOT = assertScratch(path.join(WORK, "xchain-hosts")); // the dry run's stand-in hosts: BNZ_STATE_DIR per signer (R43: tmp/ only)
 const HOSTS = ["alice", "bob", "carol"];
 const UA = "utest1redacted"; // a real testnet UA (zcash-test-vectors)
 const sha256 = (b: Buffer | Uint8Array) => createHash("sha256").update(b).digest("hex");
@@ -188,7 +189,7 @@ async function buildFixture(name: string, mode: "uniform" | "buyback" | "otc", d
     witness_set: witnessPacket, witness_cert: [cert],
     result,
   };
-  rmSync(PUB, { recursive: true, force: true });
+  rmSync(assertScratch(PUB), { recursive: true, force: true });
   mkdirSync(PUB, { recursive: true });
   writeFileSync(path.join(PUB, "auction.json"), JSON.stringify(doc, null, 2) + "\n");
   const resultBytes = jsonBytes(result);
@@ -432,7 +433,7 @@ try {
   if (local) {
     if (!localChains.solana.escrow) throw new Error("BNZ_SOLANA_PROGRAM must name the loaded local program");
     // fresh stand-in host state dirs per run
-    rmSync(HOSTROOT, { recursive: true, force: true });
+    rmSync(assertScratch(HOSTROOT), { recursive: true, force: true });
     for (const n of HOSTS) mkdirSync(hostDir(n), { recursive: true, mode: 0o700 });
     // crank keys + escrow deploy + canonical Announcer/Registry for the stealth demo
     const ANVIL_SK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";

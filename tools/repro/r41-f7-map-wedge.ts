@@ -19,6 +19,7 @@
 // and publish() is the shipped publisher; this repro drives both at their real boundary.
 // Run: npx esbuild tools/repro/r41-f7-map-wedge.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r41-f7-map-wedge.mjs && BNZ_STATE_DIR=tmp/r41-f7-state node tmp/r41-f7-map-wedge.mjs
 import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { assertScratch } from "./scratch";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -38,8 +39,7 @@ for (const l of execFileSync("git", ["status", "--porcelain"], { encoding: "utf8
 // which settle/io self-loads from .env (./.benzo) when the documented override is missing. Running it
 // without the override once deleted the real state directory (A20 incident, docs/STATUS.md); it now
 // refuses to touch the real one.
-const state = path.resolve(ROOT, process.env.BNZ_STATE_DIR ?? "tmp/r41-f7-state");
-if (state === path.resolve(ROOT, ".benzo")) throw new Error("refusing to run against the real state dir; pass BNZ_STATE_DIR=tmp/...");
+const state = assertScratch(process.env.BNZ_STATE_DIR ?? "tmp/r41-f7-state"); // R43: tmp/ or $TMPDIR only
 rmSync(state, { recursive: true, force: true });
 const publicDir = path.join(ROOT, "tmp/r41-f7-public");
 rmSync(publicDir, { recursive: true, force: true });

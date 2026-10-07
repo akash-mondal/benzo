@@ -5,6 +5,7 @@
 // joined the first signing session; the batch is re-planned and completed with alice + carol).
 // Build+run: npx esbuild tools/repro/y2-host-custody.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/y2.mjs && node tmp/y2.mjs
 import { randomBytes } from "node:crypto";
+import { assertScratch } from "./scratch";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -87,7 +88,7 @@ async function afterAdmission(id: string, manifest: any, signer: string, publicD
     const got = z.run(z.scanner, ["scan", "test", path.join(STATE, "bidder")]).trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
     const refunded = refunds.slice(0, 3).filter(a => got.some((n: any) => n.address === a && n.value_zats > 0)).length;
     if (refunds.length) check("y2-envelope-refunds-landed", refunded >= 1, `${refunded} of 3 bid destinations received`); else say("SKIP y2-envelope-refunds-landed (resumed run: bid destinations are sealed and not stored)");
-    const cold = path.join(OUT, "cold"); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
+    const cold = path.join(OUT, "cold"); rmSync(assertScratch(cold), { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
     const v = spawnSync(path.join(ROOT, "bin/benzo"), ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
     check("y2-cold-verify", v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
 }

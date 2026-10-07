@@ -6,6 +6,7 @@
 // Run: npx esbuild tools/repro/bidder-bundle-proof.ts --bundle --packages=external --platform=node \
 //        --format=esm --outfile=tmp/bidder-bundle-proof.mjs && node tmp/bidder-bundle-proof.mjs
 import { execFileSync, spawnSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { createHash, randomBytes } from "node:crypto";
 import { copyFileSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
@@ -41,7 +42,7 @@ if (createHash("sha256").update(readFileSync(tarball)).digest("hex") !== builds[
 
 // 2. fresh /tmp directory, empty HOME, extract the tarball
 const fresh = "/tmp/benzo-bidder-proof", home = path.join(fresh, "home");
-rmSync(fresh, { recursive: true, force: true });
+rmSync(assertScratch(fresh), { recursive: true, force: true });
 mkdirSync(home, { recursive: true });
 execFileSync("tar", ["-xzf", path.join(root, tarball), "-C", fresh]);
 const bundle = path.join(fresh, "benzo-bidder-0.1.0");

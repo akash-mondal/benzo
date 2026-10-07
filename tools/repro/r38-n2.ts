@@ -12,6 +12,7 @@
 // wallet (the bidder's own keys, under $BNZ_STATE_DIR) and is swept back at the end.
 // Run: npx esbuild tools/repro/r38-n2.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r38-n2.mjs && node tmp/r38-n2.mjs
 import { execFileSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { randomBytes } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -48,8 +49,8 @@ const copyWallet = (src: string, dst: string) => {
 const MODE = process.argv[2] ?? "create";
 if (MODE !== "derivable") {
 // 1. The lab state: a copy of the bidder wallet (its own keys stay under $BNZ_STATE_DIR) as the create's vault.
-const lab = path.join(STATE, "lab-n2"), vault = path.join(lab, "vault"), peek = path.join(lab, "peek");
-rmSync(lab, { recursive: true, force: true }); mkdirSync(path.join(lab, "vault"), { recursive: true, mode: 0o700 }); mkdirSync(path.join(lab, "run"), { recursive: true, mode: 0o700 });
+const lab = assertScratch(path.join(ROOT, "tmp", "r38-n2-lab")), vault = path.join(lab, "vault"), peek = path.join(lab, "peek"); // R43: tmp/ only
+rmSync(assertScratch(lab), { recursive: true, force: true }); mkdirSync(path.join(lab, "vault"), { recursive: true, mode: 0o700 }); mkdirSync(path.join(lab, "run"), { recursive: true, mode: 0o700 });
 copyWallet(path.join(STATE, "bidder"), vault);
 
 const addrOf = (w: string) => { const a = sh(PCZT, ["address", w, "--network", "test"]).out.trim().split("\n").at(-1) ?? ""; if (!a.startsWith("u")) throw new Error(`could not generate an address for ${w}: ${a}`); return a; };
@@ -121,8 +122,8 @@ if (MODE === "derivable") {
   const docFile = path.join(ROOT, "tmp/markets/public", id, "auction.json");
   const doc = JSON.parse(readFileSync(docFile, "utf8"));
   const manifest = JSON.parse(Buffer.from(doc.manifest.bytes, "base64").toString("utf8"));
-  const lab2 = path.join(STATE, "lab-n2b");
-  rmSync(lab2, { recursive: true, force: true });
+  const lab2 = assertScratch(path.join(ROOT, "tmp", "r38-n2-lab2")); // R43: tmp/ only
+  rmSync(assertScratch(lab2), { recursive: true, force: true });
   for (const d of ["run", "auctions", "vaults", "signers"]) mkdirSync(path.join(lab2, d), { recursive: true, mode: 0o700 });
   try { cpSync(path.join(STATE, "bin"), path.join(lab2, "bin"), { recursive: true, dereference: true }); } catch { /* tools resolve from the build tree too */ }
   cpSync(path.join(STATE, "proto"), path.join(lab2, "proto"), { recursive: true });

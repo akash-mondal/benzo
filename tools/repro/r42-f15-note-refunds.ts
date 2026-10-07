@@ -22,6 +22,7 @@
 //                                  notes) and the refunded row's history is untouched.
 // Run: npx esbuild tools/repro/r42-f15-note-refunds.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r42-f15-note-refunds.mjs && node tmp/r42-f15-note-refunds.mjs
 import { execFileSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -125,6 +126,6 @@ const settleAll = (l: Ledger, d: { ready: Obligation[]; parked: Obligation[] }):
   l.close();
 }
 
-rmSync(st, { recursive: true, force: true });
+rmSync(assertScratch(st), { recursive: true, force: true });
 console.log(all ? "RESULT PASS r42-f15-note-refunds" : "RESULT FAIL r42-f15-note-refunds");
 process.exitCode = all ? 0 : 1;

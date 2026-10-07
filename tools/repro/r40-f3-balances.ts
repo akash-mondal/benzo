@@ -13,6 +13,7 @@
 //                         maps attest the paid rows (the A19 live run).
 // Run: npx esbuild tools/repro/r40-f3-balances.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r40-f3-balances.mjs && node tmp/r40-f3-balances.mjs <corpus-dir> [verify.mjs]
 import { execFileSync, spawnSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { jsonBytes } from "../../manifest/schema";
@@ -56,7 +57,7 @@ line("f3-baseline-verifies", b.status === 0, `verify exit ${b.status}${errors(b)
 // `leaf:<leaf_index>`'s row; new ones carry the per-note `balance-late:` party.) The projections are rewritten
 // as the publisher writes them (canonical bytes).
 const tampered = path.join(ROOT, `tmp/r40-f3-tamper/${base.auction_id}`);
-rmSync(tampered, { recursive: true, force: true }); mkdirSync(tampered, { recursive: true }); cpSync(corpus, tampered, { recursive: true });
+rmSync(assertScratch(tampered), { recursive: true, force: true }); mkdirSync(tampered, { recursive: true }); cpSync(corpus, tampered, { recursive: true });
 const bump = 5000;
 {
   const d = doc(path.join(tampered, "auction.json"));

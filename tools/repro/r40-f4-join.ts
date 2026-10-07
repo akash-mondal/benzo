@@ -20,6 +20,7 @@
 // lab leg of the green (no join key in the REBUILT document) and of the A18-F4 mutation replay.
 // Run: npx esbuild tools/repro/r40-f4-join.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r40-f4-join.mjs && node tmp/r40-f4-join.mjs [--rebuild ID] <public-dir>...
 import { execFileSync, spawnSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { jsonBytes } from "../../manifest/schema";
@@ -42,7 +43,7 @@ if (dirs[0] === "--rebuild") {
   const cfgPath = path.join(STATE, "product", `${id}.json`);
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
   const scratch = path.join(ROOT, `tmp/r40-f4-rebuild/${id}`);
-  rmSync(scratch, { recursive: true, force: true }); mkdirSync(scratch, { recursive: true });
+  rmSync(assertScratch(scratch), { recursive: true, force: true }); mkdirSync(scratch, { recursive: true });
   if (cfg.public_dir && existsSync(cfg.public_dir)) cpSync(cfg.public_dir, scratch, { recursive: true });
   writeFileSync(cfgPath, jsonBytes({ ...cfg, public_dir: scratch }));
   let err = "";

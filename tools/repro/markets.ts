@@ -4,6 +4,7 @@
 // the bidder's own destination, and `benzo verify` passes on a cold copy.
 // Build+run: npx esbuild tools/repro/markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/markets.mjs && BNZ_LWD_SINGLE=1 node tmp/markets.mjs <scenario>...
 import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { assertScratch } from "./scratch";
 import { Keypair } from "@solana/web3.js";
 import { SigningKey, Wallet } from "ethers";
 import { spawn, spawnSync } from "node:child_process";
@@ -62,9 +63,9 @@ const held = new Set<string>();
 // Completed scenarios (the buyback series links round 2 to round 1's result hash).
 const ran: Record<string, { id: string; publicDir: string; signer: string; resultHash: string }> = {};
 async function takeLock(lock: string, staleMs: number) {
-  for (;;) { try { mkdirSync(lock); held.add(lock); return; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(lock, { recursive: true, force: true }); await sleep(5_000); } }
+  for (;;) { try { mkdirSync(lock); held.add(lock); return; } catch { if (existsSync(lock) && Date.now() - statSync(lock).mtimeMs > staleMs) rmSync(assertScratch(lock), { recursive: true, force: true }); await sleep(5_000); } }
 }
-function dropLock(lock: string) { rmSync(lock, { recursive: true, force: true }); held.delete(lock); }
+function dropLock(lock: string) { rmSync(assertScratch(lock), { recursive: true, force: true }); held.delete(lock); }
 type Bid = { price: number; quantity?: number; owner?: { private_hex: string; public_hex: string }; lot?: string; holder?: boolean; deliver?: { chain: string; kind: string; to: string; elgamal?: string } };
 type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
 type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number; id: string; R: number; series?: SeriesLink };
@@ -107,7 +108,7 @@ const dropPost = async (h: Post) => {
   if (!d.settlement) h.check("drop-swapped-defaults-refused", false, "no settlement to swap");
   else {
   const swapped = path.join(OUT, "tamper", h.id + "-defaults");
-  rmSync(swapped, { recursive: true, force: true }); cpSync(h.cold, swapped, { recursive: true });
+  rmSync(assertScratch(swapped), { recursive: true, force: true }); cpSync(h.cold, swapped, { recursive: true });
   for (const f of ["auction.json", "summary.json"]) {
     const tdoc = json(path.join(swapped, f));
     if (f === "auction.json") tdoc.settlement.defaults = [0]; else tdoc.defaults = [0];
@@ -120,7 +121,7 @@ const dropPost = async (h: Post) => {
   h.check("drop-swapped-defaults-refused", vd.status !== 0 && /ERROR defaults refused: settlement defaults differ from the host-signed approval maps/.test(vd.stdout + vd.stderr), `exit ${vd.status}`);
   }
   const tampered = path.join(OUT, "tamper", h.id);
-  rmSync(tampered, { recursive: true, force: true }); cpSync(h.cold, tampered, { recursive: true });
+  rmSync(assertScratch(tampered), { recursive: true, force: true }); cpSync(h.cold, tampered, { recursive: true });
   const tdoc = json(path.join(tampered, "auction.json"));
   tdoc.result.serial_assignment[0].serials[0] ^= 1;
   writeFileSync(path.join(tampered, "auction.json"), jsonBytes(tdoc));
@@ -259,7 +260,7 @@ async function run(name: string, link?: SeriesLink) {
   writeFileSync(path.join(privateDir, "operator.json"), JSON.stringify({ settlement: { signers: ["alice", "bob"], batch_cap: sc.batch_cap ?? 13, pczt_expiry_blocks: 364 }, routing: { bidders: deposits.map(deposit_ua => ({ deposit_ua })), seller_ua: sellerUa, fee_reserve_ua: reserveUa } }));
   // One bidder wallet funds every scenario: parallel harness processes take turns (a lock dir, stale after 40 min),
   // taken BEFORE the manifest's deadlines are set and held until the funding matured.
-  const lock = path.join(STATE, "run", "markets-fund.lock");
+  const lock = assertScratch(path.join(ROOT, "tmp", "markets-fund.lock")); // R43: the lock lives under tmp/
   await takeLock(lock, 2_400_000);
   const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
   const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, ...(sc.lots ? { lots: sc.lots } : { lot: `${sc.mode} round` }), supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip(), id, R, series: link }) };
@@ -380,7 +381,7 @@ async function run(name: string, link?: SeriesLink) {
   const at = (a: string) => got.filter((n: any) => n.address === a).reduce((s: number, n: any) => s + n.value_zats, 0);
   check(`${name}-landed`, Object.entries(want).every(([p, v]) => p.startsWith("leaf:") ? at(refunds[Number(p.slice(5))]) === v : p === "treasury" ? at(treasuryUa) === v : true), JSON.stringify([...refunds.map(at), at(treasuryUa)]));
   if (late) check(`${name}-late-landed`, at(refunds[late.leaf]) === late.amount, `leaf ${late.leaf}'s own destination holds ${at(refunds[late.leaf])} (the late row refunded to its slot's bidder)`);
-  const cold = path.join(OUT, "cold", id); rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
+  const cold = path.join(OUT, "cold", id); rmSync(assertScratch(cold), { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
   const v = spawnSync(benzoBin, ["verify", "--dir", cold, "--signer", signer], { encoding: "utf8" });
   check(`${name}-cold-verify`, v.status === 0, (v.stdout + v.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | "));
   if (sc.post) await sc.post({ id, signer, cold, doc, check, at, sellerUa, late });

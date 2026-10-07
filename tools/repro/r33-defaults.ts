@@ -14,6 +14,7 @@
 // ciphertext and check is real and every value is recomputed by the shipped code under test.
 // Run: npx esbuild tools/repro/r33-defaults.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r33-defaults.mjs && node tmp/r33-defaults.mjs
 import { execFileSync, spawnSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -107,7 +108,7 @@ const doc: any = {
   settlement: { rows: settlementRows, receipts, offline_signer: "carol", ignored: [], defaults: truth, balance_refunds: [], approval_maps: maps },
 };
 const writeDir = (dir: string, settlement: typeof doc.settlement) => {
-  rmSync(dir, { recursive: true, force: true });
+  rmSync(assertScratch(dir), { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const d = { ...doc, settlement };
   for (const [name, value] of [["auction.json", d], ["manifest.json", packet], ["frozen.json", frozen], ["result.json", result], ["opened.json", opened], ["beacon.json", beacon], ["receipts.json", doc.receipts], ["witness-set.json", witnessSet], ["witness.json", doc.witness_cert], ["summary.json", settlement]] as const)

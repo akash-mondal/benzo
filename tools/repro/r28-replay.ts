@@ -3,6 +3,7 @@
 // and ask alice and carol to approve it. Both must refuse with "already paid by mined batch" and record no approval.
 // Build+run: npx esbuild tools/repro/r28-replay.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r28r.mjs && node tmp/r28r.mjs <auction-id> <recipient> <amount_zats>
 import { createHash } from "node:crypto";
+import { assertScratch } from "./scratch";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { STATE, env } from "../../e2e/lib/env";
@@ -16,7 +17,8 @@ const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const cfg = JSON.parse(readFileSync(path.join(STATE, "product", `${id}.json`), "utf8")), publicDir = path.resolve(cfg.public_dir);
 const doc = JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8")), m = JSON.parse(Buffer.from(doc.manifest.bytes, "base64").toString("utf8"));
 const vault = path.join(STATE, "vaults", id, "wallet"), pczt = path.join(STATE, "../settle/target/release/benzo-pczt");
-const w = path.join(STATE, "settle", id, "r28-replay"); rmSync(w, { recursive: true, force: true }); mkdirSync(w, { recursive: true });
+const w = assertScratch(path.join(ROOT, "tmp", `r28-replay-${id}`)); // R43: tmp/ only; the packet is pushed to the hosts from here
+rmSync(w, { recursive: true, force: true }); mkdirSync(w, { recursive: true });
 const created = path.join(w, "created.pczt"), proven = path.join(w, "proven.pczt"), redacted = path.join(w, "candidate.pczt");
 for (let by = Date.now() + 15 * 60_000; ;) {
   try { sh(pczt, ["create", vault, created, "364", "--network", "test"], JSON.stringify([{ recipient, amount_zats: amount }])); break; }

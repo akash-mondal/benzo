@@ -16,6 +16,7 @@
 //                               by two agreeing maps (the F12 publish wedge is gone).
 // Run: npx esbuild tools/repro/r42-f12-drift.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r42-f12-drift.mjs && BNZ_STATE_DIR=tmp/r42-f12-state node tmp/r42-f12-drift.mjs
 import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { assertScratch } from "./scratch";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -30,10 +31,9 @@ console.log(`utc ${new Date().toISOString()}`);
 for (const l of execFileSync("git", ["status", "--porcelain"], { cwd: ROOT, encoding: "utf8" }).trim().split("\n").filter(Boolean)) console.log(`tree ${l}`);
 
 // This driver rmSync's its state dir at startup; refuse the real one (the A20 incident, docs/STATUS.md).
-const state = path.resolve(ROOT, process.env.BNZ_STATE_DIR ?? "tmp/r42-f12-state");
-if (state === path.resolve(ROOT, ".benzo")) throw new Error("refusing to run against the real state dir; pass BNZ_STATE_DIR=tmp/...");
+const state = assertScratch(process.env.BNZ_STATE_DIR ?? "tmp/r42-f12-state"); // R43: tmp/ or $TMPDIR only
 const publicDir = path.join(ROOT, "tmp/r42-f12-public");
-rmSync(state, { recursive: true, force: true }); rmSync(publicDir, { recursive: true, force: true });
+rmSync(state, { recursive: true, force: true }); rmSync(assertScratch(publicDir), { recursive: true, force: true });
 mkdirSync(state, { recursive: true }); mkdirSync(publicDir, { recursive: true });
 
 let all = true;

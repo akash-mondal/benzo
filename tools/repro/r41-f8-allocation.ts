@@ -17,6 +17,7 @@
 //   f8-verify-green       the shipped `benzo verify` exits 0 on the served copy.
 // Run: npx esbuild tools/repro/r41-f8-allocation.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r41-f8-allocation.mjs && npm run build:cli && node tmp/r41-f8-allocation.mjs docs/evidence/phase-5/markets/launch-a18/launch-cold
 import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { hash } from "../../manifest/schema";
@@ -48,7 +49,7 @@ const line = (id: string, f: () => [boolean, string]) => {
 
 // Serve a READ-ONLY copy of the corpus (the server never writes; the copy keeps the evidence pristine).
 const served = path.join(ROOT, "tmp/r41-f8-served");
-rmSync(served, { recursive: true, force: true });
+rmSync(assertScratch(served), { recursive: true, force: true });
 mkdirSync(served, { recursive: true });
 cpSync(corpus, served, { recursive: true });
 const doc = JSON.parse(readFileSync(path.join(served, "auction.json"), "utf8"));

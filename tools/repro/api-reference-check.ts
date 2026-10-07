@@ -4,6 +4,7 @@
 // Run: npx esbuild tools/repro/api-reference-check.ts --bundle --platform=node --format=esm \
 //        --outfile=tmp/api-reference-check.mjs && node tmp/api-reference-check.mjs
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -71,7 +72,7 @@ const doc1 = JSON.parse(readFileSync(path.join(PRIMARY, "auction.json"), "utf8")
 const signer: string = doc1.signer, auctionId: string = doc1.auction_id;
 const leafHash: string = doc1.frozen.leaves[0].ciphertext_hash;
 const early = path.join("tmp", "api-reference-early");
-rmSync(early, { recursive: true, force: true });
+rmSync(assertScratch(early), { recursive: true, force: true });
 mkdirSync(early, { recursive: true });
 // Derived from the committed directory (same signed manifest), stopped before the freeze: only the
 // fields a DRAFT/OPEN document carries, so the not-ready bodies can be asserted offline (R21 item 5).
@@ -82,7 +83,7 @@ writeFileSync(path.join(early, "auction.json"), JSON.stringify({
 // closed and the server answers the invalid-document body (api/server.ts:25-30) instead of stale data.
 // (A directory that already fails at startup refuses to serve at all — exit 1, cli/commands/api.ts:31-36.)
 const broken = path.join("tmp", "api-reference-broken");
-rmSync(broken, { recursive: true, force: true });
+rmSync(assertScratch(broken), { recursive: true, force: true });
 mkdirSync(broken, { recursive: true });
 const badPacket = { ...doc1.manifest, signature: (doc1.manifest.signature[0] === "0" ? "1" : "0") + doc1.manifest.signature.slice(1) };
 const breakDir = () => writeFileSync(path.join(broken, "auction.json"), JSON.stringify({

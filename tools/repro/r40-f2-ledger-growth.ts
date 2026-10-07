@@ -18,6 +18,7 @@
 //                                       never wedges a later plan.
 // Run: npx esbuild tools/repro/r40-f2-ledger-growth.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r40-f2-ledger-growth.mjs && node tmp/r40-f2-ledger-growth.mjs
 import { execFileSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -139,6 +140,6 @@ writeFileSync(fakePczt, Buffer.from("r40-f2 fixture batch"));
   l.close();
 }
 
-rmSync(st, { recursive: true, force: true });
+rmSync(assertScratch(st), { recursive: true, force: true });
 console.log(all ? "RESULT PASS r40-f2-ledger-growth" : "RESULT FAIL r40-f2-ledger-growth");
 process.exitCode = all ? 0 : 1;

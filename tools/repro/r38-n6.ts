@@ -16,6 +16,7 @@
 // except these self-payments.
 // Run: npx esbuild tools/repro/r38-n6.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r38-n6.mjs && node tmp/r38-n6.mjs
 import { execFileSync } from "node:child_process";
+import { assertScratch } from "./scratch";
 import { existsSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import * as z from "../../e2e/lib/zcash";
@@ -42,7 +43,7 @@ let failures = 0;
 const pass = (id: string, detail = "") => console.log(`PASS ${id}${detail ? " " + detail : ""}`);
 const fail = (id: string, reason: string) => { failures++; console.log(`ERROR ${id} ${reason}`); };
 
-const lab = path.join(STATE, "lab-n6"), wallet = path.join(lab, "wallet"), idFile = path.join(STATE, "lab-n6.age");
+const lab = assertScratch(path.join(ROOT, "tmp", "r38-n6-lab")), wallet = path.join(lab, "wallet"), idFile = path.join(lab, "lab-n6.age"); // R43: tmp/ only
 const bidderAddr = () => sh(PCZT, ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim().split("\n").at(-1)!;
 const labAddr = () => sh(PCZT, ["address", wallet, "--network", "test"]).out.trim().split("\n").at(-1)!;
 const labNotes = () => sh(path.join(ROOT, "scan/target/release/benzo-scan"), ["scan", "test", wallet]).out.trim().split("\n").filter(Boolean).map(l => JSON.parse(l)).filter((n: any) => !n.spent_in_txid && n.value_zats > 0);
@@ -58,7 +59,7 @@ if (existsSync(wallet)) {
     console.log(`prior lab wallet recovered: ${old} zats (${(back.out.match(/^[0-9a-f]{64}$/gm) ?? []).at(-1)?.slice(0, 16) ?? "refused"}…)`);
   }
 }
-rmSync(wallet, { recursive: true, force: true }); mkdirSync(lab, { recursive: true, mode: 0o700 });
+rmSync(assertScratch(wallet), { recursive: true, force: true }); mkdirSync(lab, { recursive: true, mode: 0o700 });
 const init = sh(DEVTOOL, ["wallet", "-w", wallet, "init", "--name", "lab-n6", "-i", idFile, "-n", "test", "-s", LWD]);
 if (init.code !== 0) { fail("n6-max-shape-created", `wallet init refused: ${(init.err || init.out).trim().slice(-200)}`); process.exit(1); }
 

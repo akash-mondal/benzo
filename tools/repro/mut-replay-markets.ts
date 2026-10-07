@@ -11,6 +11,7 @@
 // winner (leaf 0) pays 300,000 inside the window. Only the lower bound separates them.
 // Usage: node tmp/mut-replay-markets.mjs <revision-cold.json> <rfq-cold.json> <drop-cold-dir> [launch-cold-dir]
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { assertScratch } from "./scratch";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { clearForMode, modeEntry } from "../../clear/registry";
@@ -71,7 +72,7 @@ line("drop-forfeit", () => {
 });
 line("drop-swapped-defaults-refused", () => {
   const swapped = path.join(ROOT, "tmp/mut-replay-drop-swap");
-  rmSync(swapped, { recursive: true, force: true }); mkdirSync(swapped, { recursive: true }); cpSync(dropDir, swapped, { recursive: true });
+  rmSync(assertScratch(swapped), { recursive: true, force: true }); mkdirSync(swapped, { recursive: true }); cpSync(dropDir, swapped, { recursive: true });
   for (const f of ["auction.json", "summary.json"]) {
     const tdoc = doc(path.join(swapped, f));
     if (f === "auction.json") tdoc.settlement.defaults = [0]; else tdoc.defaults = [0];
@@ -92,7 +93,7 @@ line("drop-swapped-defaults-refused", () => {
 // 'reserve opening published differs from re-derived'.
 line("drop-reserve-opening", () => {
   const scratch = path.join(ROOT, "tmp/mut-replay-publish");
-  rmSync(scratch, { recursive: true, force: true }); mkdirSync(scratch, { recursive: true }); cpSync(dropDir, scratch, { recursive: true });
+  rmSync(assertScratch(scratch), { recursive: true, force: true }); mkdirSync(scratch, { recursive: true }); cpSync(dropDir, scratch, { recursive: true });
   const cfgPath = path.join(STATE, "product", `${drop.auction_id}.json`);
   const cfg = doc(cfgPath);
   writeFileSync(cfgPath, jsonBytes({ ...cfg, public_dir: scratch })); // redirect the rebuild at scratch
