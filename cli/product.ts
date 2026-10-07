@@ -89,7 +89,7 @@ export function publish(id:string) {
       // Ruling R38 item 4 (N4) + Ruling R41 (F7): the out-of-window/excess balance refunds as per-note counts
       // only, never addresses — each row marked `paid` when this settlement paid it (attested in that batch's
       // two agreeing signed maps) and `pending` otherwise (uncounted here; a later batch may pay it).
-      ...(s.plan?.balance_refunds!==undefined?{balance_refunds:s.plan.balance_refunds.map((r:any)=>({...r,state:paid.has(r.party)?"paid":"pending"}))}:{}),
+      ...(s.plan?.balance_refunds!==undefined?{balance_refunds:s.plan.balance_refunds.map((r:any)=>({party:r.party,leaf_index:r.leaf_index,amount_zats:r.amount_zats,state:paid.has(r.party)?"paid":"pending"}))}:{}),
       ...(maps.length?{approval_maps:maps}:{}),batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
       return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};

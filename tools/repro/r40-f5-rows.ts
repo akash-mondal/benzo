@@ -47,17 +47,20 @@ const line = (id: string, ok: boolean, d: string) => {
   all &&= ok;
 };
 const row = (n: ScannedNote, leaf: number) => ({ party: `balance-late:${n.txid}:${n.pool}:${n.action_index}`, leaf_index: leaf, amount_zats: String(n.value_zats) });
-const settled = balanceSettlement(m, result, leaves, notes);
+// Ruling R41 item 3 (F9): rows carry the maturity flag; these assertions are about row identity, so they compare
+// the published fields only (r41-f9-confirmations.ts owns the maturity gate).
+const shape = (rs: typeof settled.refunds) => rs.map(r => ({ party: r.party, leaf_index: r.leaf_index, amount_zats: r.amount_zats }));
+const settled = balanceSettlement(m, result, leaves, notes, 1300);
 const owed = obligationsModeA(result, { defaults: [], balance_refunds: settled.refunds });
 
 line("f5-winner-matrix",
   JSON.stringify(settled.sources) === JSON.stringify([`balance:${"a1".repeat(32)}:ironwood:0`]) &&
-    JSON.stringify(settled.refunds.filter(r => r.leaf_index === 0)) === JSON.stringify([row(notes[1], 0)]) &&
+    JSON.stringify(shape(settled.refunds.filter(r => r.leaf_index === 0))) === JSON.stringify([row(notes[1], 0)]) &&
     owed.get(row(notes[1], 0).party) === "7",
   `sources ${JSON.stringify(settled.sources)}; refunds ${JSON.stringify(settled.refunds)} (the winner's in-window note pays; its late note is its own row)`);
 
 line("f5-losing-leaf",
-  JSON.stringify(settled.refunds.filter(r => r.leaf_index === 1).sort((a, b) => a.party.localeCompare(b.party))) === JSON.stringify([row(notes[2], 1), row(notes[3], 1)].sort((a, b) => a.party.localeCompare(b.party))) &&
+  JSON.stringify(shape(settled.refunds.filter(r => r.leaf_index === 1)).sort((a, b) => a.party.localeCompare(b.party))) === JSON.stringify([row(notes[2], 1), row(notes[3], 1)].sort((a, b) => a.party.localeCompare(b.party))) &&
     !settled.sources.some(s => s.includes("b1".repeat(32))) &&
     owed.get(row(notes[2], 1).party) === "11" && owed.get(row(notes[3], 1).party) === "13",
   `losing-leaf rows ${JSON.stringify(settled.refunds.filter(r => r.leaf_index === 1))} (every note at a losing leaf's balance address refunds to that leaf, one immutable row per note)`);

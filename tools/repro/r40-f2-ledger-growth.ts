@@ -44,7 +44,7 @@ const noteB: ScannedNote = { txid: "bb".repeat(32), pool: "ironwood", action_ind
 // Exactly the plan's derivation (settle/plan.ts): the mode's obligations over the result and the shared
 // per-note rows, split into the ready set and the parked (exception) set as the plan pins them.
 const rowsFor = (notes: ScannedNote[]): { ready: Obligation[]; parked: Obligation[] } => {
-  const settled = balanceSettlement(m, result, leaves, notes);
+  const settled = balanceSettlement(m, result, leaves, notes, 1300);
   const owed = obligationsModeA(result, { defaults: [], balance_refunds: settled.refunds });
   const mk = (party: string, amount_zats: string): Obligation => ({ party, kind: "refund", amount_zats });
   return {

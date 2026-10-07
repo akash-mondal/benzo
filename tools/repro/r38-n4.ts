@@ -57,12 +57,13 @@ const line = (id: string, ok: boolean, d: string) => {
   all &&= ok;
 };
 
-const settled = balanceSettlement(manifest as any, result as any, frozen.leaves as any, notes as any);
+const settled = balanceSettlement(manifest as any, result as any, frozen.leaves as any, notes as any, 4469500);
 // Ruling R40 item 2 (F2): each late note is its OWN immutable row — `balance-late:<txid>:<pool>:<action_index>`
 // to that slot's own leaf — so a newly seen note adds a new row and never grows an existing one.
 const lateRows = (ns: any[]) => ns.map(n => ({ party: `balance-late:${n.txid}:${n.pool}:${n.action_index}`, leaf_index: 0, amount_zats: String(n.value_zats) })).sort((a, b) => a.party.localeCompare(b.party));
+const shape = (rs: any[]) => rs.map(r => ({ party: r.party, leaf_index: r.leaf_index, amount_zats: r.amount_zats })); // R41.3 maturity flag excluded (r41-f9-confirmations.ts owns it)
 // n4-refund-row: one immutable refund row per late note — to that slot's own leaf (leaf 0), for the note's value.
-line("n4-refund-row", late.length > 0 && JSON.stringify(settled.refunds) === JSON.stringify(lateRows(late)),
+line("n4-refund-row", late.length > 0 && JSON.stringify(shape(settled.refunds)) === JSON.stringify(lateRows(late)),
   `refunds ${JSON.stringify(settled.refunds)} want ${JSON.stringify(lateRows(late))} (one immutable row per late note, to that slot's own leaf)`);
 // n4-no-sweep: the settlement's sources are exactly the in-window payment(s) — the late note is never swept.
 const wantSources = inWindow.map((n: any) => `balance:${n.txid}:${n.pool}:${n.action_index}`).sort();
@@ -75,9 +76,9 @@ line("n4-defaults", JSON.stringify(balanceDefaults(manifest as any, result as an
   const dust = { txid: "d".repeat(64), pool: "ironwood", action_index: 0, address: slot(0), height: start - 1, value_zats: 5000 };
   const dusted = [...notes, dust];
   const d = balanceDefaults(manifest as any, result as any, frozen.leaves as any, dusted as any, 4469500);
-  const s2 = balanceSettlement(manifest as any, result as any, frozen.leaves as any, dusted as any);
+  const s2 = balanceSettlement(manifest as any, result as any, frozen.leaves as any, dusted as any, 4469500);
   // F2: the dust note adds its OWN row; the existing rows never change (immutable per note).
-  line("n4-prewindow-dust", JSON.stringify(d) === "[2]" && JSON.stringify(s2.refunds) === JSON.stringify(lateRows([...late, dust])) && s2.sources.length === wantSources.length,
+  line("n4-prewindow-dust", JSON.stringify(d) === "[2]" && JSON.stringify(shape(s2.refunds)) === JSON.stringify(lateRows([...late, dust])) && s2.sources.length === wantSources.length,
     `defaults ${JSON.stringify(d)}, refunds ${JSON.stringify(s2.refunds)} (pre-window dust never counts as payment and is refused by nothing: it adds its own per-note refund row)`);
 }
 

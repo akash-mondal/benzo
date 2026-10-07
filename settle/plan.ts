@@ -15,7 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollis
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement,isBalanceLateParty,balanceLateNote,balanceLateLeafIndex,type BalanceRefund} from "../clear/features";
+import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement,isBalanceLateParty,isRefundRowParty,balanceLateNote,balanceLateLeafIndex,type BalanceRefund} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -157,7 +157,7 @@ try {
       // sources and never count as payment — each note gets its own immutable `balance-late:…` row to that
       // slot's own leaf (host-derived counts, published without addresses), parked as an exception row and
       // claimable through the existing claim path. A newly seen note adds a new row and never grows one.
-      balance_refunds=balanceSettlement(m as any,result,src.frozen!.leaves as any,balNotes).refunds;
+      balance_refunds=balanceSettlement(m as any,result,src.frozen!.leaves as any,balNotes,tip).refunds;
     }
   }
   // R16 item 1 (Reviewer R F4): the CANCELLED/REFUNDING branch resolves each deposit exactly like the cleared
@@ -277,12 +277,18 @@ try {
       // settlement envelope. With no valid record the row goes to the exception queue; while Track B's
       // multi-recipient envelope format is unmerged, even a valid envelope destination is refused with a clear
       // error — never paid from an operator-held key — and waits in the queue for an owner-signed claim.
-      if(published&&isBalanceLateParty(party)) {
+      if(published&&isRefundRowParty(party)) {
         // Ruling R40 item 2 (F2): a per-note late-refund row is parked as an exception row — never auto-paid
         // (the payer is unknowable) — unless its owner already claimed it; the claim path pays it with the
         // slot leaf's owner key (bidPlaintextFor above).
-        if(claimEnvelopes[party]) {gateEnvelope(row);continue}
-        const reason="out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund";
+        // Ruling R41 item 3 (F9): a late or excess refund row is PAYABLE only from notes with the same
+        // confirmations rule as strays and sources (m.confirmations / ZIP-315's 10). Until its backing note
+        // matures it stays PENDING even when claimed — a reorg must never make the vault refund money it
+        // never received.
+        const derived=balance_refunds.find(r=>r.party===party);
+        if(claimEnvelopes[party]&&derived?.matured===true) {gateEnvelope(row);continue}
+        const reason=derived?.matured!==true?"refund note not confirmed; the row stays pending until the confirmations rule (R41.3)":
+          "out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund";
         refusals.push({party,reason});
         exceptions.push({...row,reason});continue
       }

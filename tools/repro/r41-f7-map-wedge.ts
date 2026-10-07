@@ -66,7 +66,7 @@ const m = { deposit_addresses: ["dep0"], bond: { bond_bps: 500, balance_window_b
 const result = { allocations: [{ leaf_index: 0, fill: 1, refund_zats: "200000", balance_due_zats: "300000" }], conservation: { payout_zats: "0", input_zats: "200000", refund_zats: "200000", fees_zats: "0", balances_zats: "300000" } } as any;
 const leaves = [{ leaf_index: 0, deposit: { address: "dep0" } }] as any;
 
-const L0 = balanceSettlement(m, result, leaves, []).refunds; // the approve-time derivation: []
+const L0 = balanceSettlement(m, result, leaves, [], 1300).refunds; // the approve-time derivation: []
 // Batch 1 pays the winner's own leaf refund. Its maps attest ONLY the refund rows batch 1 pays (none) — the
 // two hosts' live row sets are never signed (R41).
 const txid1 = "11".repeat(32);
@@ -78,7 +78,7 @@ const b1maps: ApprovalMap[] = [signApprovalMap(mapBody(alice, txid1, 1, [{ party
 // ONE third-party note arrives AFTER the hosts signed: 1 zatoshi at the manifest-public balance address, out of
 // the window. Every later derivation gives it its own immutable row.
 const dust: ScannedNote = { txid: "dd".repeat(32), pool: "ironwood", action_index: 0, address: "bal0", height: 1200, value_zats: 1 };
-const L1 = balanceSettlement(m, result, leaves, [dust]).refunds;
+const L1 = balanceSettlement(m, result, leaves, [dust], 1300).refunds;
 line("f7-late-note-adds-pending-row", () => [JSON.stringify(L1.map(r => ({ party: r.party, leaf_index: r.leaf_index, amount_zats: r.amount_zats }))) ===
   JSON.stringify([{ party: `balance-late:${dust.txid}:${dust.pool}:${dust.action_index}`, leaf_index: 0, amount_zats: "1" }]),
   `plan at approve ${JSON.stringify(L0)}; after one third-party note ${JSON.stringify(L1.map(r => ({ party: r.party.slice(0, 28) + "…", amount: r.amount_zats })))}`]);

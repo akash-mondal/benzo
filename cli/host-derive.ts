@@ -14,7 +14,7 @@ import { verifyStatement } from "../envelope/index";
 import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, isSlotCollision, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
-import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, isBalanceLateParty, type BalanceRefund } from "../clear/features";
+import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, isRefundRowParty, type BalanceRefund } from "../clear/features";
 import { blockTime, chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
@@ -142,13 +142,13 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       // and each out-of-window note gets its own immutable refund row to that slot's own leaf. This host derives
       // both from its own scan with the shared rule (clear/features.ts balanceSettlement); only counts are
       // published.
-      const settled = balanceSettlement(bM, pub.result as any, pub.frozen!.leaves as any, notes as any);
+      const settled = balanceSettlement(bM, pub.result as any, pub.frozen!.leaves as any, notes as any, chainTip(st));
       balanceSources = settled.sources;
       balanceRefunds = settled.refunds;
     }
     const defaults = bM.bond && pub.result ? balanceDefaults(bM, pub.result as any, pub.frozen!.leaves as any, notes as any, chainTip(st)) : [];
     const owedBy = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub.manifest as any).bond ? { defaults, balance_refunds: balanceRefunds } : null) : new Map<string, string>();
-    for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party) || isBalanceLateParty(party), `obligation ${party} has no host-derivable destination`);
+    for (const party of owedBy.keys()) requireThat(party === "seller" || /^leaf:[0-9]+$/.test(party) || isRefundRowParty(party), `obligation ${party} has no host-derivable destination`);
     for (const a of (pub.result as any)?.allocations ?? []) {
       const party = `leaf:${a.leaf_index}`, owed = BigInt(owedBy.get(party) ?? "0");
       if (!(owed > 0n)) continue;
@@ -159,11 +159,14 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // Ruling R40 item 2 (F2): each per-note late-refund row is claim-paid only — its owner key is the deposit
     // slot's own leaf (this host's own derivation above), and the destination comes only from that owner's
     // claim envelope, exactly like a leaf's claim.
+    // Ruling R41 item 3 (F9): a late or excess refund row is PAYABLE only from notes with the same confirmations
+    // rule as strays and sources (m.confirmations / ZIP-315's 10) — an immature row is never derived as payable,
+    // so a candidate paying it is refused by this host however the coordinator builds it.
     for (const r of balanceRefunds) {
       const owed = BigInt(owedBy.get(r.party) ?? "0");
       if (!(owed > 0n)) continue;
       const dest = claimDest(r.party, ownerOf(r.leaf_index));
-      if (dest) expected.push({ party: r.party, recipient: dest, amount_zats: owed.toString(), source: r.party });
+      if (dest && r.matured) expected.push({ party: r.party, recipient: dest, amount_zats: owed.toString(), source: r.party });
     }
     // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
     // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN

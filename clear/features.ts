@@ -90,7 +90,7 @@ export const refundAfter = (payment: bigint, fee: bigint, C: bigint): bigint => 
 // stale or pre-funded value never counts). Defaults are NEVER operator input: every plan and every signer host
 // derives them from its own scan with this one helper — a winner whose in-window notes fall short of
 // balance_due_zats is a default.
-export type BalanceWindowM = { deposit_addresses: string[]; bond: { balance_window_start_height: number; balance_window_blocks: number; balance_addresses: string[] } };
+export type BalanceWindowM = { deposit_addresses: string[]; confirmations?: number; bond: { balance_window_start_height: number; balance_window_blocks: number; balance_addresses: string[] } };
 export type FrozenLeaf = { leaf_index: number; deposit: { address: string } };
 export type ScannedNote = { txid: string; pool: string; action_index: number; address: string; height: number | null; value_zats: number | string };
 
@@ -178,7 +178,7 @@ export function balanceDefaults(
 // The rows are host-derived — every plan and every signer host computes them from its own scan with this one
 // rule — and claimable through the existing claim path (`benzo claim-refund --party balance-late:…`) with the
 // slot leaf's owner key; only the per-note counts are ever published, never the addresses.
-export type BalanceRefund = { party: string; leaf_index: number; amount_zats: string; state?: "pending" | "paid" };
+export type BalanceRefund = { party: string; leaf_index: number; amount_zats: string; state?: "pending" | "paid"; matured?: boolean };
 const BALANCE_LATE = /^balance-late:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
 export const balanceLateParty = (n: { txid: string; pool: string; action_index: number }): string => {
   const party = `balance-late:${n.txid}:${n.pool}:${n.action_index}`;
@@ -242,10 +242,16 @@ export function balanceSettlement(
   result: { allocations: { leaf_index: number; fill: number; balance_due_zats?: string }[] },
   leaves: FrozenLeaf[],
   notes: ScannedNote[],
+  tip: number,
 ): { sources: string[]; refunds: BalanceRefund[] } {
   requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
   const byLeaf = balanceAddressMap(result, leaves, m);
   const { start, end } = balanceWindow(m);
+  // Ruling R41 item 3 (F9): a late or excess refund row is PAYABLE only from notes with the same confirmations
+  // rule as strays and sources (m.confirmations / ZIP-315's 10 — the stricter of the two). Until its backing
+  // note(s) mature it stays pending, so a reorg can never make the vault refund money it never received.
+  const gate = Math.max(m.confirmations ?? 10, 10);
+  const matured = (n: ScannedNote): boolean => !!n.height && tip - n.height + 1 >= gate;
   const sources: string[] = [], refunds: BalanceRefund[] = [];
   for (const n of notes) {
     if (!n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
@@ -256,7 +262,7 @@ export function balanceSettlement(
     const leaf = balanceLateLeafIndex(m, leaves, n);
     if (leaf === null) continue;
     if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
-    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats) });
+    else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n) });
   }
   return { sources, refunds: refunds.sort((a, b) => a.party.localeCompare(b.party)) };
 }
