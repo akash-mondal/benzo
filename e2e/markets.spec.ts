@@ -29,11 +29,14 @@ import path from "node:path";
 import { ROOT } from "./lib/env";
 import { Run } from "./lib/run";
 
-const GROUPS = [["drop", "otc-match", "launch-meet", "rfq"], ["otc-nomatch", "launch-miss", "rfq-cancel", "revision"]];
+const PAIRED = [["drop", "otc-match", "launch-meet", "rfq"], ["otc-nomatch", "launch-miss", "rfq-cancel", "revision"]];
+// Gate RG (docs/design/phase6-rg.md §2 #6): BNZ_MARKETS_SERIAL=1 runs every scenario in one group, one after another.
+const SERIAL = process.env.BNZ_MARKETS_SERIAL === "1";
+const GROUPS = SERIAL ? [PAIRED.flat()] : PAIRED;
 const IDS = GROUPS.flat().map(s => `M-${s}`);
 
 test("market modes settle under host custody", async () => {
-  test.setTimeout(240 * 60_000); const run = new Run("markets");
+  test.setTimeout((SERIAL ? 420 : 240) * 60_000); const run = new Run("markets");
   const bundle = path.join(ROOT, "tmp/markets-spec.mjs");
   const b = spawnSync("npx", ["esbuild", "tools/repro/markets.ts", "--bundle", "--packages=external", "--platform=node", "--format=esm", `--outfile=${bundle}`, "--log-level=warning"], { cwd: ROOT, encoding: "utf8" });
   if (b.status !== 0) run.notRun(IDS, `harness bundle: ${b.stderr}`);
