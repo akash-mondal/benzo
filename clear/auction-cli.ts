@@ -12,6 +12,7 @@ import {drandUrls} from "../manifest/reserve";
 import {verifyStatement} from "../envelope";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
+import { LWD_STALLED, lwdBound, lwdTimedOut } from "../settle/bounded";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; serial_beacon?:{round:number;signature:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
@@ -23,15 +24,17 @@ const state=path.resolve(root,process.env.BNZ_STATE_DIR!);
 const dir=path.join(state,"auction"), key=path.join(dir,"manifest-signing.pem");
 mkdirSync(dir,{recursive:true,mode:0o700});
 const execute=(cmd:string,args:string[])=> {
-  const r=spawnSync(cmd,args,{encoding:"utf8",maxBuffer:64<<20});
+  const r=spawnSync(cmd,args,{encoding:"utf8",maxBuffer:64<<20,...lwdBound(cmd,args)});
   appendFileSync(path.join(state,"run","auction-cli.log"),`\n${path.basename(cmd)} ${args[0]}\n${r.stdout??""}${r.stderr??""}`);
+  const stalled=lwdTimedOut(cmd,r);if(stalled)throw stalled;
   if(r.error)throw r.error;
   requireThat(r.status===0,`${path.basename(cmd)} exited ${r.status}: ${(r.stderr||r.stdout).trim().slice(-300)}`); return r.stdout;
 };
 const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state),...args]);
 // R33 P2-1 (G-7): the vault scan runs on the signed manifest's network — never a hardcoded one.
 function observed(net:string):{notes:Note[]; tip:number} {
-  wallet("sync","-s",process.env.BNZ_LWD_URL!); wallet("enhance","-s",process.env.BNZ_LWD_URL!);
+  // R48: a stalled stream is retried (sync resumes where it stopped); any other failure refuses as before.
+  for(const verb of ["sync","enhance"])for(let attempt=1;;attempt++){try{wallet(verb,"-s",process.env.BNZ_LWD_URL!);break}catch(e){if(attempt>=3||!String((e as Error)?.message).includes(LWD_STALLED))throw e}}
   const balance=JSON.parse(wallet("balance","--json"));
   const notes=execute(scanBin(root,state),["scan",net,vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};

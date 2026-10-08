@@ -18,6 +18,7 @@ import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, i
 import { blockTime, chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
+import { lwdBound, lwdTimedOut } from "../settle/bounded";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 // This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
@@ -26,9 +27,11 @@ export async function ownScan(st: string, root: string, id: string, net: string)
   const devtool = path.join(st, "bin", "zcash-devtool"), lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
   for (const verb of ["sync", "enhance"]) {
     for (let attempt = 1; ; attempt++) {
-      const r = spawnSync(devtool, ["wallet", "-w", vaultDir(st, id), verb, "-s", lwd], { encoding: "utf8" });
+      const args = ["wallet", "-w", vaultDir(st, id), verb, "-s", lwd];
+      const r = spawnSync(devtool, args, { encoding: "utf8", ...lwdBound(devtool, args) });
       if (r.status === 0) break;
-      requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node/.test(r.stderr ?? ""), `vault ${verb} failed: ${(r.stderr ?? "").trim().slice(-160)}`);
+      const err = lwdTimedOut(devtool, r)?.message ?? r.stderr ?? ""; // R48: a stalled stream is transient
+      requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node|stalled lightwalletd stream/.test(err), `vault ${verb} failed: ${err.trim().slice(-160)}`);
       await new Promise(res => setTimeout(res, 5000 * attempt));
     }
   }

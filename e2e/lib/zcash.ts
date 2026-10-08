@@ -3,13 +3,16 @@ import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { bin, E2E, env, ROOT, STATE } from "./env";
+import { lwdBound, lwdTimedOut } from "../../settle/bounded";
 
 const LOG = path.join(E2E, "cli.log");
 
 export function run(cmd: string, args: string[], opts: { input?: string; quietArgs?: boolean } = {}): string {
   mkdirSync(E2E, { recursive: true });
-  const r = spawnSync(cmd, args, { input: opts.input, encoding: "utf8", maxBuffer: 64 << 20 });
+  const r = spawnSync(cmd, args, { input: opts.input, encoding: "utf8", maxBuffer: 64 << 20, ...lwdBound(cmd, args) });
   appendFileSync(LOG, `\n$ ${path.basename(cmd)} ${opts.quietArgs ? "…" : args.join(" ")}\n${r.stdout ?? ""}${r.stderr ?? ""}`);
+  const stalled = lwdTimedOut(cmd, r);
+  if (stalled) throw stalled;
   if (r.error) throw r.error;
   if (r.status !== 0) throw new Error(`${path.basename(cmd)} ${args.slice(0, 4).join(" ")} exited ${r.status}: ${(r.stderr || r.stdout).trim().split("\n").slice(-3).join(" | ")}`);
   return r.stdout;
@@ -20,7 +23,7 @@ export const wallet = (name: string, ...args: string[]) => run(bin("zcash-devtoo
 export const pczt = (name: string, ...args: string[]) => run(bin("zcash-devtool"), ["pczt", "-w", path.join(STATE, name), ...args]);
 
 // Head (live run 14): load-balanced lightwalletd backends can be a few blocks apart; retry a sync 4x with backoff.
-const SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset/;
+const SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream/;
 export const sync = (name: string) => {
   for (let attempt = 1; ; attempt++) {
     try { return wallet(name, "sync", "-s", LWD); } catch (e) {
@@ -61,7 +64,7 @@ export const send = (file: string) => lastTxid(pczt("vault", "send", "-s", LWD, 
 // Head (2026-10-03, live run 10 died on one "error receiving data from backing node"): transient endpoint errors
 // (Internal, Unavailable, DeadlineExceeded, backend/connection failures) are retried 4 times with backoff;
 // NotFound and every other answer are returned or thrown unchanged.
-const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF/;
+const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream/;
 function retryTransient<T>(f: () => T): T {
   for (let attempt = 1; ; attempt++) {
     try { return f(); } catch (e) {

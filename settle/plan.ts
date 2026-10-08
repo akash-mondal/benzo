@@ -21,14 +21,16 @@ import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
+import { lwdBound, lwdTimedOut } from "./bounded";
 const root=repoRoot();
 for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2];
 }
 const state=path.resolve(root,process.env.BNZ_STATE_DIR!);
 function execute(cmd:string,args:string[],input?:string):string {
-  const r=spawnSync(cmd,args,{input,encoding:"utf8",maxBuffer:64<<20});
+  const r=spawnSync(cmd,args,{input,encoding:"utf8",maxBuffer:64<<20,...lwdBound(cmd,args)});
   appendFileSync(path.join(state,"run","settle-plan.log"),`\n${path.basename(cmd)}\n${r.stderr??""}`);
+  const stalled=lwdTimedOut(cmd,r);if(stalled)throw stalled;
   if(r.error)throw r.error;
   requireThat(r.status===0,`${path.basename(cmd)} failed: ${(r.stderr||r.stdout).trim().slice(-250)}`);return r.stdout;
 }

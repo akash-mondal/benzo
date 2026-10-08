@@ -1,0 +1,20 @@
+commit (parent) 266fd0f878586feb8e5e191292b8d9f94666519c
+utc 2026-10-08T15:02:59Z
+command: BNZ_LWD_TIMEOUT_MS=1500 node tmp/r48/proof.mjs  (stub grpcurl/zcash-devtool that sleep 600; proof.ts calls settle/io.ts run + syncRetry)
+PASS grpcurl bounded in 1505 ms: grpcurl timed out after 1500 ms: stalled lightwalletd stream
+PASS sync bounded and retried, gave up after 36022 ms: zcash-devtool timed out after 1500 ms: stalled lightwalletd stream
+PASS non-lightwalletd call unbounded (3010 ms)
+sync attempts in this run: 4 (the stub call log holds 8 lines: 4 from a first run, then these 4)
+
+--- tmp/r48/proof.ts (not committed as a script: AGENTS.md 8-test ceiling; source kept here for reproduction) ---
+import path from "node:path";
+import { run, syncRetry } from "../../settle/io";
+const B = path.resolve("tmp/r48/bin");
+const t0 = Date.now();
+try { run(path.join(B, "grpcurl"), ["-d", "{}", "testnet.zec.rocks:443", "x/GetLatestBlock"]); console.log("FAIL grpcurl returned"); }
+catch (e) { console.log(`${/stalled lightwalletd stream/.test(String(e)) ? "PASS" : "FAIL"} grpcurl bounded in ${Date.now() - t0} ms: ${(e as Error).message}`); }
+const t1 = Date.now();
+try { syncRetry(() => run(path.join(B, "zcash-devtool"), ["wallet", "-w", "x", "sync", "-s", "testnet.zec.rocks:443"])); }
+catch (e) { console.log(`PASS sync bounded and retried, gave up after ${Date.now() - t1} ms: ${(e as Error).message}`); }
+const t2 = Date.now();
+try { run("/bin/sleep", ["3"]); console.log(`PASS non-lightwalletd call unbounded (${Date.now() - t2} ms)`); } catch (e) { console.log(`FAIL ${(e as Error).message}`); }
