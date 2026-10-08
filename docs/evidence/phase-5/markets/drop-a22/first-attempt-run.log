@@ -1,0 +1,13 @@
+[drop] auction eadfe78fe79f0eee71d9b28ee7ecbc9b247a55b3f84cd8ce0f41667ba710cb53 mode uniform
+[drop] funding 0f37f9a841c97d8afa40848af65d5760fccef3f6fe743e740733ddd3ced00d70
+[drop] A20 F11: stray deposit paid to utest1r3jcdhfwgguy… (never admitted) 36d24f433d3b5c4983e5e5e6c34b8dae97d35eb855daf44cde3590ffd3658154
+[drop] PASS drop-cli-equals-pure-clear outcomes winner,unfilled,winner,below_reserve price 0
+[drop] balance window (4476867, 4476907] manifest-fixed (was operator-chosen after the clear)
+[drop] dust sent to leaf 0's balance address before the window opens, at tip 4476838 (out of window: never counts as payment, refunds to leaf 0) (4cfa8a9767bd279b03c7b36a187bd3e66c9e78bd60ef93ef1067990ea0006c35)
+[drop] balance paid 300000 for leaf 0, sent at tip 4476870 (window (4476867, 4476907]; a logged height is the SEND tip, never a mined height) (8578d8d09de7375ae7ff4876a3fdc79110f66f643c9d97153999866d5f35ad97)
+[drop] balance window closed; the window was (4476867, 4476907], tip now 4476911
+[drop] A20 F11: the stray deposit:36d24f433d3b5c4983e5e5e6c34b8dae97d35eb855daf44cde3590ffd3658154:ironwood:0 mined at 4476773 (200000 zats); its own owner key claimed it to a fresh destination
+[drop] FATAL Error: batch 1 was never signed by two hosts
+    at lateDustFlow (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:1935:26)
+    at async run2 (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:1834:28)
+    at async file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets.mjs:2072:109

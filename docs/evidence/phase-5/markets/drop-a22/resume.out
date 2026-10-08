@@ -1,0 +1,7 @@
+[resume eadfe78f] state CLEARED
+[resume eadfe78f] balance window (4476867, 4476907] manifest-fixed (was operator-chosen after the clear)
+[resume eadfe78f] dust already present at leaf 0's balance address before the window start
+[resume eadfe78f] balance already paid for leaf 0 in (4476867, 4476907]
+[resume eadfe78f] balance window closed; the window was (4476867, 4476907], tip now 4477080
+[resume eadfe78f] settle exit 0; receipts {"deposit:36d24f433d3b5c4983e5e5e6c34b8dae97d35eb855daf44cde3590ffd3658154:ironwood:0":200000,"leaf:1":200000,"leaf:3":200000,"seller":700000}; obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+[resume eadfe78f] RESULT PASS (verify exit 0)
