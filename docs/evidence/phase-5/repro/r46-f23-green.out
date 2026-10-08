@@ -1,0 +1,14 @@
+commit 23f6023ad4b9462e358d51a87aef8fb4041524bb
+utc 2026-10-08T10:40:05.482Z
+command node tmp/r46-f23.mjs (tools/repro/r46-f23.ts)
+tree ?? docs/evidence/phase-5/mutations/A24-F23stand.out
+tree ?? docs/evidence/phase-5/mutations/A24-F23stand.patch
+tree ?? docs/evidence/phase-5/repro/r46-f23-green.out
+tree ?? docs/evidence/phase-5/repro/r46-f23-red-before.out
+PASS f23a-matured-only immature n1 (a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0, 2 confs): derivation [["balance-excess:0","60000"]] vs note-absent [["balance-excess:0","60000"]] (equal: true); at 10 confs [["balance-excess:0","10000"]] — a note is classified only once matured, so an in-model reorg can never move it across the window edge after it is counted
+PASS f23a-flip-in-replaced late row released true; excess row refunded at 10000 (fresh derivation 10000) and settled at 10000 (red before: stale 60000 SETTLES — +50000 over-refund of other users' vault funds)
+PASS f23b-rederive-eligible after three pins the excess row is eligible at 10000 (red before: parked 'exception' at the stale 60000 forever — the correct 10000 refund can never complete)
+PASS f23c-flip-out-both-rows excess eligible at 60000 + late eligible at 50000 = 110000 (received 110000, settled 0 — the default case refunds in full)
+PASS f23-unpaid-taking-not-subtracted rows [["balance-excess:0","10000","eligible"],["balance-late:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0","50000","eligible"]] (red before: L's unpaid 50000 subtracted -> the fresh row skipped, its value stranded)
+RESULT PASS r46-f23
+exit 0

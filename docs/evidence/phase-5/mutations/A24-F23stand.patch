@@ -1,0 +1,29 @@
+diff --git a/settle/ledger.ts b/settle/ledger.ts
+index 236dbd2..802b6a9 100644
+--- a/settle/ledger.ts
++++ b/settle/ledger.ts
+@@ -106,7 +106,7 @@ export class Ledger {
+             // destroyed it and then dropped the row — probes p2a/p2b). Ruling R45 (F22): where the subtraction
+             // does run, its single-note assumption is an ASSERTION — a multi-note taking row is an ERROR,
+             // never a wrong amount.
+-            const moved=[...new Set(takenNotes.map(n=>ownerOf(n)!.party))].filter(p=>{const r=this.rows().find(x=>x.party===p);return !!r&&["paid","refunded"].includes(r.state)});
++            const moved=[...new Set(takenNotes.map(n=>ownerOf(n)!.party))];
+             for(const p of moved)requireThat(Number((this.db.prepare("SELECT COUNT(*) AS c FROM refund_backing WHERE party=?").get(p) as {c:number}).c)===1,`multi-note taking row ${p} backs more than one note; the per-note skip subtracts a taking row's amount only when it backs exactly one note (a multi-note taking row is an ERROR)`);
+             const takenValue=moved.reduce((s,p)=>s+BigInt(this.rows().find(r=>r.party===p)!.amount_zats),0n);
+             const usable=BigInt(o.amount_zats)-takenValue;
+@@ -116,15 +116,6 @@ export class Ledger {
+           }
+         }
+         let old=this.rows().find(r=>r.party===o2.party);
+-        // Ruling R46 (F23), step 2: an unpaid REFUND row whose fresh derivation differs is REPLACED — deleted
+-        // and recreated, releasing its notes. "Rows never change" binds only rows money has moved for; a row a
+-        // signed batch commits is history too (its staged transaction pays its pinned amounts). A payout row
+-        // keeps Ruling R42 (F12)'s stands rule and its monotone exception growth.
+-        if(old&&unpaidRow(old)&&old.kind==="refund"&&(old.kind!==o2.kind||old.amount_zats!==o2.amount_zats||!sameNotes(o2.party,backingOf(o2)))) {
+-          this.db.prepare("DELETE FROM obligations WHERE party=?").run(o.party);
+-          this.db.prepare("DELETE FROM refund_backing WHERE party=?").run(o.party);
+-          old=undefined;
+-        }
+         if(old){
+           // Ruling R42 (F12): pin is monotone and total over chain-derived differences — a re-derivation that
+           // differs from a pinned row is LOGGED and the PINNED ROW STANDS, and pin never throws for it (a
