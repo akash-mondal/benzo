@@ -150,6 +150,30 @@ export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): Ap
     "the signing hosts' output maps are missing, unsigned or disagree");
   return ms;
 }
+// Ruling R44 (F19): the settlement defaults tie-break is deterministic and SHARED by publish and verify —
+// the list attested by two agreeing maps (same list, distinct pinned witnesses) of the EARLIEST paying batch
+// (a batch whose payment txid is among the paid receipts), batch numbers ascending. Drift across batches can
+// carry two host-attested lists; the earliest paying batch decides, never witness counts or key hex. Returns
+// null when no paying batch's two maps agree.
+export function earliestAgreedDefaults(maps: unknown, keys: string[], paidTxids: string[]): number[] | null {
+  const ms = (Array.isArray(maps) ? maps : []).filter((mp): mp is ApprovalMap => !!mp && verifyApprovalMap(mp as ApprovalMap, keys) && Array.isArray((mp as ApprovalMap).defaults));
+  const paying = new Set(paidTxids);
+  const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b) => ms.some((mp) => mp.batch === b && paying.has(mp.txid))).sort((a, b) => a - b);
+  for (const b of batches) {
+    const byList = new Map<string, { list: number[]; witnesses: Set<string> }>();
+    for (const mp of ms.filter((mp) => mp.batch === b)) {
+      const k = jsonBytes(mp.defaults).toString("hex");
+      const e = byList.get(k) ?? { list: [...mp.defaults], witnesses: new Set<string>() };
+      e.witnesses.add(mp.witness);
+      byList.set(k, e);
+    }
+    const agreed = [...byList.values()]
+      .filter((e) => e.witnesses.size >= 2)
+      .sort((x, y) => y.witnesses.size - x.witnesses.size || jsonBytes(x.list).toString("hex").localeCompare(jsonBytes(y.list).toString("hex")));
+    if (agreed.length) return agreed[0].list;
+  }
+  return null;
+}
 
 // Ruling R40 item 3 (F4): the canonical launch delivery list is host-signed. Each host opens the sealed
 // delivery records with its own envelope key, checks every owner signature against its own openings, builds

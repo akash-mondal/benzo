@@ -16104,6 +16104,23 @@ function verifyApprovalMap(m2, keys2) {
     return false;
   }
 }
+function earliestAgreedDefaults(maps, keys2, paidTxids) {
+  const ms = (Array.isArray(maps) ? maps : []).filter((mp) => !!mp && verifyApprovalMap(mp, keys2) && Array.isArray(mp.defaults));
+  const paying = new Set(paidTxids);
+  const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b2) => ms.some((mp) => mp.batch === b2 && paying.has(mp.txid))).sort((a2, b2) => a2 - b2);
+  for (const b2 of batches) {
+    const byList = /* @__PURE__ */ new Map();
+    for (const mp of ms.filter((mp2) => mp2.batch === b2)) {
+      const k2 = jsonBytes(mp.defaults).toString("hex");
+      const e = byList.get(k2) ?? { list: [...mp.defaults], witnesses: /* @__PURE__ */ new Set() };
+      e.witnesses.add(mp.witness);
+      byList.set(k2, e);
+    }
+    const agreed = [...byList.values()].filter((e) => e.witnesses.size >= 2).sort((x2, y2) => y2.witnesses.size - x2.witnesses.size || jsonBytes(x2.list).toString("hex").localeCompare(jsonBytes(y2.list).toString("hex")));
+    if (agreed.length) return agreed[0].list;
+  }
+  return null;
+}
 var deliveryListBytes = (b2) => Buffer.concat([
   Buffer.from("benzo-delivery-list-v1"),
   jsonBytes({ version: b2.version, auction_id: b2.auction_id, allocation_file_hash: b2.allocation_file_hash })
@@ -16603,12 +16620,9 @@ function checkPublicAuction(pub, opts = {}) {
     requireThat(pub.witnessSet && m2.witness_set_hash === witnessSetHash(pub.witnessSet), "host-signed defaults need a pinned witness set");
     const keys2 = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), m2.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter((mp) => !!mp && mp.auction_id === m2.auction_id && verifyApprovalMap(mp, keys2));
-    const same = (mp) => jsonBytes(mp.defaults ?? null).equals(jsonBytes(pub.settlement.defaults));
-    if (maps.length > 0 && !maps.some(same)) requireThat(false, "settlement defaults differ from the host-signed approval maps");
-    requireThat(
-      new Set(maps.filter(same).map((mp) => mp.witness)).size >= 2,
-      "settlement defaults are not carried by two agreeing host-signed approval maps"
-    );
+    const expected = earliestAgreedDefaults(maps, keys2, (pub.settlement.receipts ?? []).map((r2) => r2.txid));
+    requireThat(expected !== null, "settlement defaults are not carried by two agreeing host-signed approval maps");
+    requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected)), "settlement defaults differ from the host-signed approval maps");
   });
   run2("accounting-strays", () => {
     if (!pub.settlement) return;

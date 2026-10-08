@@ -15,7 +15,7 @@ import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
-import { checkCertificates, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
+import { checkCertificates, earliestAgreedDefaults, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
 // The witness set rides in a separate signed packet, not in the manifest.
@@ -671,16 +671,19 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   // equal the defaults list in two VERIFIED approval maps from distinct pinned signers (the manifest's witness
   // set). A coordinator-only list — the reviewer's equal-balance swap, for which obligations, rows and receipts
   // are identical for two default sets with the same balance total — is refused here with its own error.
+  // Ruling R44 (F19): verify applies the SAME deterministic tie-break publish uses (witness/index.ts
+  // earliestAgreedDefaults) — the list attested by the two agreeing maps of the EARLIEST paying batch. Under
+  // drift (two host-attested lists across batches) the published list must be that one; a different attested
+  // list is refused with the same error.
   run("defaults", () => {
     const m = pub.manifest;
     if (!m.bond || !pub.settlement || pub.settlement.defaults === undefined) return;
     requireThat(pub.witnessSet && m.witness_set_hash === witnessSetHash(pub.witnessSet!), "host-signed defaults need a pinned witness set");
     const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), m.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));
-    const same = (mp: { defaults?: number[] }) => jsonBytes(mp.defaults ?? null).equals(jsonBytes(pub.settlement!.defaults!));
-    if (maps.length > 0 && !maps.some(same)) requireThat(false, "settlement defaults differ from the host-signed approval maps");
-    requireThat(new Set(maps.filter(same).map(mp => mp.witness)).size >= 2,
-      "settlement defaults are not carried by two agreeing host-signed approval maps");
+    const expected = earliestAgreedDefaults(maps, keys, (pub.settlement.receipts ?? []).map(r => r.txid));
+    requireThat(expected !== null, "settlement defaults are not carried by two agreeing host-signed approval maps");
+    requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected)), "settlement defaults differ from the host-signed approval maps");
   });
   run("accounting-strays", () => {
     if (!pub.settlement) return;
