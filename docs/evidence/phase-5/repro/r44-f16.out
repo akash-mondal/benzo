@@ -1,0 +1,6 @@
+commit d06f912df730b99d9869d1e8fba0e205ce482370
+utc 2026-10-08T00:12:37.481Z
+PASS old-expire-path pre-R44 :333 shape promotes the parked row into batch 1 (expected: promoted, the finding)
+PASS r44-pinRows after expire + re-pin: leaf:7 exception; next batch 2 rows [seller]
+PASS r44-unbuildable leaf:1 exception (claimable); next batch 2 = [leaf:2] — the queue moves
+RESULT r44-f16 PASS
