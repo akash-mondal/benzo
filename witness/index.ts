@@ -140,13 +140,18 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
 // attest only the rows this batch pays, so nothing a third party adds to the chain can move this check.
 // Ruling R42 (F12): `defaults` is compared map-to-map only, never against a fresh derivation — the two host
 // signatures already rule out a coordinator-only list, and a fresh-vs-signed comparison is the F12 wedge.
+// Two maps of one batch agree when their signed bodies match (outputs, defaults, refund rows, strays) and
+// their witnesses are distinct pinned signers — the G-4 agreement `agreedBatchMaps` binds at finalize.
+const mapPairAgrees = (a: ApprovalMap, b: ApprovalMap): boolean =>
+  a.witness !== b.witness &&
+  jsonBytes(a.outputs).equals(jsonBytes(b.outputs)) &&
+  jsonBytes(a.defaults ?? null).equals(jsonBytes(b.defaults ?? null)) &&
+  jsonBytes(a.balance_refunds ?? null).equals(jsonBytes(b.balance_refunds ?? null)) &&
+  jsonBytes(a.strays ?? null).equals(jsonBytes(b.strays ?? null));
 export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): ApprovalMap[] {
   const ms = maps as ApprovalMap[];
   requireThat(Array.isArray(ms) && ms.length === 2 && ms.every((mp) => mp && verifyApprovalMap(mp, keys) && mp.txid === txid) &&
-    ms[0].witness !== ms[1].witness && jsonBytes(ms[0].outputs).equals(jsonBytes(ms[1].outputs)) &&
-    jsonBytes(ms[0].defaults ?? null).equals(jsonBytes(ms[1].defaults ?? null)) &&
-    jsonBytes(ms[0].balance_refunds ?? null).equals(jsonBytes(ms[1].balance_refunds ?? null)) &&
-    jsonBytes(ms[0].strays ?? null).equals(jsonBytes(ms[1].strays ?? null)),
+    mapPairAgrees(ms[0], ms[1]),
     "the signing hosts' output maps are missing, unsigned or disagree");
   return ms;
 }
@@ -155,9 +160,18 @@ export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): Ap
 // (a batch whose payment txid is among the paid receipts), batch numbers ascending. Drift across batches can
 // carry two host-attested lists; the earliest paying batch decides, never witness counts or key hex. Returns
 // null when no paying batch's two maps agree.
+// Ruling R45 (F21): the tie-break must not be steerable by OMITTING a batch's maps. Before it is computed,
+// EVERY paying batch (from the receipts — a payout-only batch included, which no other check attests) must
+// carry two agreeing verified maps; an invisible batch can never move the earliest-agreed list to a later
+// batch's. Throws naming the unattested paying batch (Reviewer R's f19-omit probe).
 export function earliestAgreedDefaults(maps: unknown, keys: string[], paidTxids: string[]): number[] | null {
   const ms = (Array.isArray(maps) ? maps : []).filter((mp): mp is ApprovalMap => !!mp && verifyApprovalMap(mp as ApprovalMap, keys) && Array.isArray((mp as ApprovalMap).defaults));
   const paying = new Set(paidTxids);
+  for (const txid of paying) {
+    const mine = ms.filter((mp) => mp.txid === txid);
+    requireThat(mine.some((a) => mine.some((b) => mapPairAgrees(a, b))),
+      `paying batch ${txid} is not attested by two agreeing host-signed approval maps; the defaults tie-break cannot be steered by omission`);
+  }
   const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b) => ms.some((mp) => mp.batch === b && paying.has(mp.txid))).sort((a, b) => a - b);
   for (const b of batches) {
     const byList = new Map<string, { list: number[]; witnesses: Set<string> }>();

@@ -94,7 +94,10 @@ const result = clearForMode({ manifest: packet, signer, frozen, opened: opened a
 const truth: number[] = [0];
 const obligations = obligationsModeA(result as any, { defaults: truth });
 const settlementRows = [...obligations].map(([party, amount_zats]) => ({ party, kind: party === "seller" ? "payout" : "refund", amount_zats, state: "paid" }));
-const receipts = [...obligations].map(([party, amount_zats], i) => ({ auction_id: auctionId, party, txid: createHash("sha256").update(`r33-settle-${party}`).digest("hex"), pool: "ironwood", output_index: i, amount_zats }));
+// Ruling R45 (F21): a batch pays every one of its rows in ONE transaction — the receipts of a batch share
+// the batch's payment txid (ledger.receipts), and that txid is what its approval maps attest. One batch here.
+const settleTxid = createHash("sha256").update(`r33-settle-batch-1`).digest("hex");
+const receipts = [...obligations].map(([party, amount_zats], i) => ({ auction_id: auctionId, party, txid: settleTxid, pool: "ironwood", output_index: i, amount_zats }));
 
 // ---- the signer hosts' G-4 maps carry the defaults list they derived (here: the truth) -----------------
 const maps = [0, 1].map(i => signApprovalMap({ auction_id: auctionId, batch: 1, txid: receipts[0].txid, outputs: [{ party: "leaf:2", output_index: 0 }, { party: "seller", output_index: 1 }], defaults: truth, balance_refunds: [] }, W[i].private_hex));

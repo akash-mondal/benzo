@@ -16104,9 +16104,17 @@ function verifyApprovalMap(m2, keys2) {
     return false;
   }
 }
+var mapPairAgrees = (a2, b2) => a2.witness !== b2.witness && jsonBytes(a2.outputs).equals(jsonBytes(b2.outputs)) && jsonBytes(a2.defaults ?? null).equals(jsonBytes(b2.defaults ?? null)) && jsonBytes(a2.balance_refunds ?? null).equals(jsonBytes(b2.balance_refunds ?? null)) && jsonBytes(a2.strays ?? null).equals(jsonBytes(b2.strays ?? null));
 function earliestAgreedDefaults(maps, keys2, paidTxids) {
   const ms = (Array.isArray(maps) ? maps : []).filter((mp) => !!mp && verifyApprovalMap(mp, keys2) && Array.isArray(mp.defaults));
   const paying = new Set(paidTxids);
+  for (const txid of paying) {
+    const mine = ms.filter((mp) => mp.txid === txid);
+    requireThat(
+      mine.some((a2) => mine.some((b2) => mapPairAgrees(a2, b2))),
+      `paying batch ${txid} is not attested by two agreeing host-signed approval maps; the defaults tie-break cannot be steered by omission`
+    );
+  }
   const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b2) => ms.some((mp) => mp.batch === b2 && paying.has(mp.txid))).sort((a2, b2) => a2 - b2);
   for (const b2 of batches) {
     const byList = /* @__PURE__ */ new Map();
