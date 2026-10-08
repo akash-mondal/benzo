@@ -7,7 +7,20 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
+
+// R43/F17: only tmp/ or $TMPDIR targets may be deleted. This driver is copied standalone into the fresh
+// directory by tools/repro/bidder-bundle-proof.ts (it resolves nothing from any checkout), so the
+// tools/repro/scratch.ts assertScratch check is inlined here with the same semantics.
+const assertScratch = (target) => {
+  const r = path.resolve(target);
+  const under = (b) => r === b || r.startsWith(b + path.sep);
+  if (!under(path.resolve(os.tmpdir())) && !under(path.resolve("/tmp"))) {
+    throw new Error(`R43: refusing to delete or rebuild outside tmp/ or $TMPDIR: ${r}`);
+  }
+  return r;
+};
 
 const DIR = process.env.BR_DIR, CHROME = process.env.BR_CHROME, TLE = process.env.BR_TLE;
 const DRAND = process.env.BR_DRAND, CHAIN = process.env.BR_CHAIN;
@@ -32,7 +45,7 @@ ok(`static-server ${origin} serving ${DIR}`);
 
 // 2. pinned Playwright Chromium (chrome-headless-shell), CDP on an ephemeral port
 const profile = path.join(path.dirname(DIR), "chromium-profile");
-rmSync(profile, { recursive: true, force: true });
+rmSync(assertScratch(profile), { recursive: true, force: true }); // R43/F17: BR_DIR-derived; refuse outside tmp/ or $TMPDIR
 const chrome = spawn(CHROME, ["--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check", "about:blank"], { stdio: "ignore" });
 const devtools = path.join(profile, "DevToolsActivePort");
 for (let i = 0; existsSync(devtools) === false && i < 100; i++) await new Promise((r) => setTimeout(r, 100));

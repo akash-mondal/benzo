@@ -6,13 +6,17 @@
 // would delete the real state; the guard makes that impossible before a single byte is touched.
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { repoRoot } from "../../manifest/root";
+// The explicit .ts extension lets plain-Node .mjs repro drivers import this guard too (F17); esbuild
+// (how the .ts drivers run) resolves it either way.
+import { repoRoot } from "../../manifest/root.ts";
 
 export function assertScratch(target: string): string {
   const root = repoRoot();
   const r = path.resolve(root, target);
   const under = (base: string) => r === base || r.startsWith(base + path.sep);
-  if (!under(path.join(root, "tmp")) && !under(path.resolve(tmpdir()))) {
+  // "/tmp" is the POSIX shared temp root; on macOS os.tmpdir() is /var/folders/... so it is a distinct base
+  // (the clean-machine bidder proof deliberately uses a literal /tmp fresh dir, F17 sweep).
+  if (!under(path.join(root, "tmp")) && !under(path.resolve(tmpdir())) && !under(path.resolve("/tmp"))) {
     throw new Error(`R43: refusing to delete or rebuild outside tmp/ or $TMPDIR: ${r}`);
   }
   return r;

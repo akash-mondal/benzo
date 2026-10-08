@@ -6,6 +6,7 @@
 // this offline batch by design: R35.3(b) proves every folded ID pass/red at the final regression.
 import { spawnSync, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, statSync, writeFileSync } from "node:fs";
+import { assertScratch } from "../../tools/repro/scratch.ts"; // R43/F17: only tmp/ or $TMPDIR targets may be deleted
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -656,8 +657,10 @@ const leaf0 = doc.frozen.leaves[0];
 const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", id, leaf0.ciphertext_hash + ".json"), "utf8")).owner_private_hex;
 const dest = spawnSync(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"], { encoding: "utf8" }).stdout.trim();
 const junk = { kind: "claim-refund", auction_id: id, party: "leaf:0", destination_ua: dest, destination_sha256: "0".repeat(64), owner_sig: "11".repeat(64) };
-const claimsFile = path.join(STATE, "run", "r7-claims-repro");
-rmSync(claimsFile, { recursive: true, force: true }); mkdirSync(claimsFile, { recursive: true });
+// R43/F17: the claim scratch lives under tmp/ and the delete is guarded — it used to be STATE/run, i.e. the
+// A20 incident shape (settle/io self-loads BNZ_STATE_DIR=./.benzo, so the resolved target was the real state).
+const claimsFile = path.join(ROOT, "tmp/e2e/r7/claims-repro");
+rmSync(assertScratch(claimsFile), { recursive: true, force: true }); mkdirSync(claimsFile, { recursive: true });
 writeFileSync(path.join(claimsFile, "junk.json"), JSON.stringify(junk), { mode: 0o600 });
 show("R11 record junk claim (well-shaped, forged signature)", cli(["claim-refund", "--id", id, "--file", path.join(claimsFile, "junk.json"), "--defer"]));
 const request = cli(["claim-refund", "--id", id, "--party", "leaf:0", "--destination", dest, "--owner-key-stdin"], undefined, ownerPrivate);
@@ -680,7 +683,7 @@ if (settle) {
   console.log(`R13 settle exit ${settled.code}`);
 }
 const cold = path.join(ROOT, "tmp/e2e/r7/claims-cold");
-rmSync(cold, { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
+rmSync(assertScratch(cold), { recursive: true, force: true }); cpSync(publicDir, cold, { recursive: true });
 const signer = JSON.parse(readFileSync(path.join(publicDir, "signer.json"), "utf8")).signer;
 const clean = cli(["verify", "--dir", cold, "--signer", signer]);
 console.log(`R13 verify on the claim-paid copy: exit ${clean.code} ${clean.out.split("\n").filter((l) => l.startsWith("ERROR")).join(" | ").slice(0, 200) || "(no error lines)"}`);
