@@ -62,12 +62,22 @@ export function write(rel: string, content: string | Uint8Array) {
   writeFileSync(p, content);
 }
 
+// R54: one dropped drand read (`fetch failed: read ETIMEDOUT`, RG attempt 6 settle-crash) must not fail a live run:
+// each request is bounded at 15 s and a network error or HTTP 5xx is retried 5x with backoff.
 export async function latestRound(): Promise<number> {
-  const res = await fetch(`${DRAND}/public/latest`);
-  if (!res.ok) throw new Error(`drand /public/latest: HTTP ${res.status}`);
-  const round = (await res.json()).round;
-  if (!Number.isInteger(round)) throw new Error("drand /public/latest: no round");
-  return round;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const res = await fetch(`${DRAND}/public/latest`, { signal: AbortSignal.timeout(15_000) });
+      if (res.status >= 500) throw new Error(`drand /public/latest: HTTP ${res.status}`);
+      if (!res.ok) throw Object.assign(new Error(`drand /public/latest: HTTP ${res.status}`), { final: true });
+      const round = (await res.json()).round;
+      if (!Number.isInteger(round)) throw Object.assign(new Error("drand /public/latest: no round"), { final: true });
+      return round;
+    } catch (e) {
+      if ((e as any).final || attempt >= 5) throw e;
+      await new Promise((r) => setTimeout(r, 2000 * attempt));
+    }
+  }
 }
 
 // Polls until the drand round or chain height reaches `target`; throws at the deadline (ms since epoch).
