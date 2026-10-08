@@ -1,0 +1,9 @@
+# r44-f19 GREEN — tools/repro/r44-f19.ts at the F19 commit (68fb2f7), verify = the shipped dist/benzo-verify.mjs (rebuilt for the api change)
+# command npx esbuild tools/repro/r44-f19.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r44-f19.mjs && BNZ_STATE_DIR=tmp/r44-f19-state node tmp/r44-f19.mjs
+commit 68fb2f7d437abca11d535bcb50337fc0c129b263
+utc 2026-10-08T01:27:26.469Z
+command node tmp/r44-f19.mjs (tools/repro/r44-f19.ts)
+PASS f19-verify-earliest-list-ok published [0] (batch 1's two agreeing maps): verify exit 0, OK defaults
+PASS f19-verify-refuses-later-list published [1] (batch 2's drifted list, 3 witnesses) refused with the specific ERROR
+PASS f19-publish-earliest-agreeing-batch publish() served settlement.defaults [0]; batch 1 (earliest paying) attested [0] with 2 witnesses, batch 2 drifted [1] with 3
+RESULT PASS r44-f19

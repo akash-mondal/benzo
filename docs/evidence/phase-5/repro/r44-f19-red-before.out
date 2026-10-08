@@ -1,0 +1,12 @@
+# r44-f19 RED BEFORE — driver + publish sources from the pre-F19 tree 048b6f7 (worktree), verify = that tree's own dist/benzo-verify.mjs
+# command (cwd tmp/f19-pre) ../../node_modules/.bin/esbuild tools/repro/r44-f19.ts --bundle ... --outfile=../r44-f19-red.mjs && BNZ_STATE_DIR=tmp/r44-f19-state node ../r44-f19-red.mjs ../f19-pre-verify.mjs
+commit 048b6f7b493ac0816d41553466206abad4bb8888
+utc 2026-10-08T01:27:11.597Z
+command node tmp/r44-f19.mjs (tools/repro/r44-f19.ts)
+tree ?? tools/repro/r44-f19.ts
+PASS f19-verify-earliest-list-ok published [0] (batch 1's two agreeing maps): verify exit 0, OK defaults
+FAIL f19-verify-refuses-later-list published [1] ACCEPTED (exit 0) — the wrong one of two host-attested lists verified
+ERROR f19-verify-refuses-later-list published [1] ACCEPTED (exit 0) — the wrong one of two host-attested lists verified
+FAIL f19-publish-earliest-agreeing-batch publish() served settlement.defaults [1]; batch 1 (earliest paying) attested [0] with 2 witnesses, batch 2 drifted [1] with 3
+ERROR f19-publish-earliest-agreeing-batch publish() served settlement.defaults [1]; batch 1 (earliest paying) attested [0] with 2 witnesses, batch 2 drifted [1] with 3
+RESULT FAIL r44-f19
