@@ -1,1 +1,0 @@
-{"outage":"ECONNREFUSED","opening_calls":0,"worker_code":1,"worker_error":"ERROR settle node exited 1: ERROR settle refused: signer envelope key missing\n","deposit_txid":"5cae967c6ec6e986560bdab9d4bf688fc2556502a6721d72db736730bbfb23cd","before":18260000,"after":18260000,"collateral_zats":500000,"fee_reserve_zats":15000}
