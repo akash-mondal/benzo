@@ -73,10 +73,10 @@ line("f10-excess-row", () => {
 });
 
 line("f10-excess-row-gated", () => {
-  const young = balanceSettlement(m, result, leaves, overpaid, 1052).refunds.find(r => r.party === excessParty); // a2 has 2 confs
+  const young = balanceSettlement(m, result, leaves, overpaid, 1052).refunds.find(r => r.party === excessParty); // a1/a2 immature
   const old = balanceSettlement(m, result, leaves, overpaid, 1300).refunds.find(r => r.party === excessParty);
-  return [young?.matured === false && old?.matured === true,
-    `matured at 2 confs on the backing note ${String(young?.matured)}; after the gate ${String(old?.matured)} (R41.3 excess leg: the row stays pending until its in-window notes confirm)`];
+  return [young === undefined && old?.matured === true,
+    `at 2-3 confs on the backing notes ${young ? `row present at ${young.amount_zats}` : "no row (invisible until matured; R46 F23)"}; after the gate ${old ? `matured ${String(old.matured)}` : "missing"} (R41.3 excess leg: the row is derived only once its in-window notes confirm)`];
 });
 
 line("f10-no-excess-at-exact-due", () => {

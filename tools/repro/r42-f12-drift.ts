@@ -10,7 +10,9 @@
 //                               whose `defaults` lists disagree are refused map-to-map;
 //   f12b-pin-seller-drift       a defaults flip re-deriving `seller` at a different amount never throws —
 //                               the pinned row stands and is never made payable at the stale amount;
-//   f12c-pin-excess-drift       a re-derived `balance-excess:` amount never throws — the pinned row stands;
+//   f12c-pin-excess-drift       a re-derived `balance-excess:` amount never throws — Ruling R46 (F23): an
+//                               UNPAID refund row whose derivation differs is replaced (delete + recreate,
+//                               releasing its notes); rows money has moved for are the immutable ones;
 //   f12d-pin-row-vanish         a row vanishing from the re-derivation never throws — the pinned row stands;
 //   f12e-publish-map-defaults   publish() serves with a DRIFTED plan.defaults and publishes the list carried
 //                               by two agreeing maps (the F12 publish wedge is gone).
@@ -88,7 +90,7 @@ ledger3.pin([excessRow], []);
 line("f12c-pin-excess-drift", () => {
   const t = throws(() => { ledger3.pin([{ ...excessRow, amount_zats: "30000" }], []); }, /./);
   const row = ledger3.rows().find(r => r.party === "balance-excess:0");
-  return [t === "NO-THROW" && row?.amount_zats === "50000", `${t}; the pinned row stands at ${row?.amount_zats}`];
+  return [t === "NO-THROW" && row?.amount_zats === "30000", `${t}; the unpaid row is replaced at ${row?.amount_zats} (Ruling R46 F23 — never a wedge)`];
 });
 
 const ledger4 = new Ledger(state, hash(randomBytes(32)));

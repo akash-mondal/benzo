@@ -43,21 +43,31 @@ const line = (id: string, ok: boolean, d: string) => {
 
 const st = mkdtempSync(path.join(tmpdir(), "benzo-r45-f22-"));
 const uid = (n: number) => n.toString(16).padStart(2, "0").repeat(32);
+const fakePczt = path.join(st, "b.pczt");
+writeFileSync(fakePczt, Buffer.from("r45-f22 fixture batch"));
+// Ruling R46 (F23): the F18 skip runs against a row money has moved for — the taking row is SETTLED first
+// (an unpaid taking row is dropped or replaced before any subtraction, never subtracted).
+const settle = (l: Ledger): void => {
+  l.eligible();
+  const b = l.allocate(13)!;
+  l.stage(b.id, fakePczt, "11".repeat(32));
+  l.confirm(b.id, "11".repeat(32), 100, b.outputs.map((o, i) => ({ party: o.party, amount_zats: o.amount_zats, index: i, pool: "orchard" })));
+};
 const N1 = `${"a1".repeat(32)}:ironwood:0` // 60,000 — in-window note 1
 const N3 = `${"c3".repeat(32)}:ironwood:2` // 40,000 — in-window note 2
 const N2 = `${"b2".repeat(32)}:ironwood:1` // 100,000 — the free note of the new row
 const lateParty = `balance-late:${N2}`;
 
 // f22: the F22 shape at pin()'s real boundary. P is a MULTI-NOTE taking row (`balance-excess:0` over N1+N3,
-// 100,000). The new row's backing is [N3, N2] — N3 is already P's (taken), N2 is free — and its amount
-// (140,000) is the two notes' values. The F18 amount rule subtracts P's WHOLE 100,000 for the one taken note
+// 100,000) money has moved for (settled below). The new row's backing is [N3, N2] — N3 is already P's
+// (taken), N2 is free — and its amount (140,000) is the two notes' values. The F18 amount rule subtracts P's WHOLE 100,000 for the one taken note
 // N3 (its own value is 40,000): the row is created at 40,000 instead of 100,000 and 60,000 of N2's value is
 // silently stranded. Ruling R45: that is an ERROR, never a wrong subtraction.
 {
   const l = new Ledger(st, uid(1));
   const P: Obligation = { party: "balance-excess:0", kind: "refund", amount_zats: "100000", notes: [N1, N3] };
   const Q: Obligation = { party: lateParty, kind: "refund", amount_zats: "140000", notes: [N3, N2] };
-  l.pin([P], []);
+  l.pin([P], []); settle(l);
   let refused = "";
   try { l.pin([Q], []); } catch (e) { refused = (e as Error).message; }
   const row = l.rows().find(r => r.party === lateParty);
@@ -69,12 +79,13 @@ const lateParty = `balance-late:${N2}`;
 }
 
 // control: f18b's shape unchanged — a SINGLE-NOTE taking row (`balance-late:` N1, 100,000 = N1's own value)
-// subtracts exactly its note's value from the multi-note excess row (110,000 - 100,000 = 10,000 over N3).
+// money has moved for subtracts exactly its note's value from the multi-note excess row (110,000 - 100,000 =
+// 10,000 over N3).
 {
   const l = new Ledger(st, uid(2));
   const P: Obligation = { party: `balance-late:${N1}`, kind: "refund", amount_zats: "100000", notes: [N1] };
   const Q: Obligation = { party: "balance-excess:0", kind: "refund", amount_zats: "110000", notes: [N1, N3] };
-  l.pin([P], []);
+  l.pin([P], []); settle(l);
   let refused = "";
   try { l.pin([Q], []); } catch (e) { refused = (e as Error).message; }
   const row = l.rows().find(r => r.party === "balance-excess:0");

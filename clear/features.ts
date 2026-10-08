@@ -142,6 +142,15 @@ export function balanceAddressMap(
   requireThat(new Set(map.values()).size === map.size, "balance address shared by two winning leaves (one bid per deposit slot)");
   return map;
 }
+// Ruling R46 (F23): a balance-address note is CLASSIFIED only once matured (the R5 confirmations,
+// `confirmations: 10` — the stricter of the manifest's rule and ZIP-315's 10). Unmatured notes are invisible
+// to the derivation (in-window, late and excess alike), so an in-model reorg (fewer than 10 blocks) can never
+// move a note across the window edge after it is counted. This one gate is the classification rule the plan,
+// every signer host and the verify-side replays all consume.
+export const balanceMatured = <T extends { height: number | null }>(m: { confirmations?: number }, notes: T[], tip: number): T[] => {
+  const gate = Math.max(m.confirmations ?? 10, 10);
+  return notes.filter(n => !!n.height && tip - n.height! + 1 >= gate);
+};
 export function balanceDefaults(
   m: BalanceWindowM,
   result: { allocations: { leaf_index: number; fill: number; balance_due_zats?: string }[] },
@@ -153,7 +162,8 @@ export function balanceDefaults(
   const byLeaf = balanceAddressMap(result, leaves, m);
   const { start, end } = balanceWindow(m);
   requireThat(tip > end, "balance window has not passed; settlement waits");
-  const inWindow = (address: string): bigint => notes.filter(n => n.address === address && n.height && n.height > start && n.height <= end)
+  const seen = balanceMatured(m, notes, tip); // Ruling R46 (F23): classified only once matured
+  const inWindow = (address: string): bigint => seen.filter(n => n.address === address && n.height && n.height > start && n.height <= end)
     .reduce((s, n) => s + BigInt(n.value_zats), 0n);
   // Ruling R40 item 1 (F1): the R38.2 greedy walk is withdrawn. Each balance address belongs to exactly one
   // leaf (balanceAddressMap refuses a shared one — the clear can no longer produce it), so a winner is PAID
@@ -253,13 +263,15 @@ export function balanceSettlement(
   requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
   const byLeaf = balanceAddressMap(result, leaves, m);
   const { start, end } = balanceWindow(m);
-  // Ruling R41 item 3 (F9): a late or excess refund row is PAYABLE only from notes with the same confirmations
-  // rule as strays and sources (m.confirmations / ZIP-315's 10 — the stricter of the two). Until its backing
-  // note(s) mature it stays pending, so a reorg can never make the vault refund money it never received.
+  // Ruling R41 item 3 (F9) + Ruling R46 (F23): a late or excess refund row is derived only from notes with the
+  // same confirmations rule as strays and sources (m.confirmations / ZIP-315's 10 — the stricter of the two).
+  // Unmatured notes are invisible to the derivation entirely (not rows in `pending`): an in-model reorg can
+  // never move a note across the window edge after it is counted, so plan, hosts and verify agree forever.
   const gate = Math.max(m.confirmations ?? 10, 10);
   const matured = (n: ScannedNote): boolean => !!n.height && tip - n.height + 1 >= gate;
+  const seen = balanceMatured(m, notes, tip); // Ruling R46 (F23): classified only once matured
   const sources: string[] = [], refunds: BalanceRefund[] = [];
-  for (const n of notes) {
+  for (const n of seen) {
     if (!n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
     // Ruling R40 item 5 (F5): a note at a balance address whose slot has a leaf — winner OR loser — refunds
     // to that leaf through the same per-note row (only a paid winner's in-window notes are payment). A note
@@ -280,7 +292,7 @@ export function balanceSettlement(
   // in-window notes).
   for (const [leaf, address] of [...byLeaf].sort((a, b) => a[0] - b[0])) {
     const due = BigInt(result.allocations.find(a => a.leaf_index === leaf)?.balance_due_zats ?? "0");
-    const inNotes = notes.filter(n => n.address === address && n.height && n.height > start && n.height <= end && BigInt(n.value_zats) !== 0n);
+    const inNotes = seen.filter(n => n.address === address && n.height && n.height > start && n.height <= end && BigInt(n.value_zats) !== 0n);
     const total = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n);
     const settledZats = due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6)
     const excess = total - settledZats;

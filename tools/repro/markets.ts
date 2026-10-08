@@ -531,14 +531,16 @@ async function lateDustFlow(name: string, id: string, sc: Pick<Scenario, "lateDu
   benzo(["claim-refund", "--id", id, "--defer", "true"], request);
   say(`A19 F7: the claim for ${party} recorded (owner-signed to leaf ${leaf}'s own destination)`);
   hostEnvelopeOpens(id, publicDir); // the two-signer gate opens the claim's sealed destination
-  // R41.3: at low confirmations the claimed row must stay PENDING (its entry `pending`, no receipt).
-  const settle2 = runSettle("settle-2 (the claim is recorded; the row must stay pending until confirmed)");
+  // R41.3 as superseded by Ruling R46 (F23): at low confirmations the claimed row must not exist at all — an
+  // unmatured note is invisible to the derivation (no row, no published entry), so nothing can pay it and no
+  // reorg of it can move value. (Was: a derived row parked `pending`.)
+  const settle2 = runSettle("settle-2 (the claim is recorded; the note is not classified until confirmed)");
   const sum2 = json(path.join(settleDir, "summary.json"));
   const row2 = (sum2.plan?.balance_refunds ?? []).find((r: any) => r.party === party);
   const paid2 = (doc().settlement?.receipts ?? []).some((r: any) => r.party === party);
   const entry2 = (doc().settlement?.balance_refunds ?? []).find((e: any) => e.party === party);
-  check(`${name}-late-refund-gate`, settle2.status === 0 && !paid2 && row2?.matured === false && entry2?.state === "pending",
-    `settle-2 exit ${settle2.status}; plan row matured ${String(row2?.matured)}; paid ${paid2}; entry ${entry2?.state} (note at ~${z.tip() - note.height + 1} confs)`);
+  check(`${name}-late-refund-gate`, settle2.status === 0 && !paid2 && row2 === undefined && entry2 === undefined,
+    `settle-2 exit ${settle2.status}; plan row ${row2 ? `present matured ${String(row2.matured)}` : "absent (R46: unmatured notes are invisible)"}; paid ${paid2}; entry ${entry2 ? entry2.state : "absent"} (note at ~${z.tip() - note.height + 1} confs)`);
   // Poll the block height (never a fixed sleep) until the note clears the confirmations rule, then pay the row.
   for (let i = 0; z.tip() - note.height + 1 < 12; ) {
     if (++i > 480) throw new Error("the late note never reached the confirmations rule");
