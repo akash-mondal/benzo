@@ -1,0 +1,25 @@
+commit 91922bfa1592f64d24709b2df3d959085d36364a
+utc 2026-10-08T16:01:44Z
+command: node tmp/r48/pins-check.mjs (calls e2e/lib/pins.ts pinsMismatch on the live .benzo after tools/nu7/build.sh rebuilt zcash-devtool and zcash-sign with provenance; each tamper is restored)
+real tools: OK
+tampered zcash-sign binary: zcash-sign binary differs from the one tools/nu7/build.sh built
+edited zcash-sign source: zcash-sign source has edits beyond build.sh's:  M zcash-sign/src/main.rs
+restored: OK
+
+--- tmp/r48/pins-check.ts ---
+import { copyFileSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { pinsMismatch } from "../../e2e/lib/pins";
+import { STATE } from "../../e2e/lib/env";
+console.log(`real tools: ${pinsMismatch() ?? "OK"}`);
+// Spoof 1: a different binary at the right path (restored after).
+const b = path.join(STATE, "bin", "zcash-sign"), keep = b + ".r49keep"; copyFileSync(b, keep);
+writeFileSync(b, Buffer.concat([readFileSync(keep), Buffer.from("tamper")]));
+console.log(`tampered zcash-sign binary: ${pinsMismatch() ?? "OK (FAIL: accepted)"}`);
+copyFileSync(keep, b);
+// Spoof 2: an edited source file in the checkout (restored after).
+const f = path.join(STATE, "src", "frost-tools-06c0dbdbb1bac9b99cd255e74ba2f387c295e660", "zcash-sign", "src", "main.rs"), orig = readFileSync(f);
+writeFileSync(f, Buffer.concat([orig, Buffer.from("\n// tamper\n")]));
+console.log(`edited zcash-sign source: ${pinsMismatch() ?? "OK (FAIL: accepted)"}`);
+writeFileSync(f, orig);
+console.log(`restored: ${pinsMismatch() ?? "OK"}`);
