@@ -1,0 +1,13 @@
+diff --git a/witness/index.ts b/witness/index.ts
+index 910d70a..4dbeaab 100644
+--- a/witness/index.ts
++++ b/witness/index.ts
+@@ -172,7 +172,7 @@ export function earliestAgreedDefaults(maps: unknown, keys: string[], paidTxids:
+     requireThat(mine.some((a) => mine.some((b) => mapPairAgrees(a, b))),
+       `paying batch ${txid} is not attested by two agreeing host-signed approval maps; the defaults tie-break cannot be steered by omission`);
+   }
+-  const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b) => ms.some((mp) => mp.batch === b && paying.has(mp.txid))).sort((a, b) => a - b);
++  const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b) => ms.some((mp) => mp.batch === b && paying.has(mp.txid))).sort((a, b) => b - a); // A23-F19tiebreak MUTATION: the latest batch first (pre-F19)
+   for (const b of batches) {
+     const byList = new Map<string, { list: number[]; witnesses: Set<string> }>();
+     for (const mp of ms.filter((mp) => mp.batch === b)) {

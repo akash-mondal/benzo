@@ -1,0 +1,18 @@
+# mutation A23-F19tiebreak (the defaults tie-break takes the LATEST agreeing batch — pre-F19 nondeterminism — in witness/index.ts earliestAgreedDefaults) at commit 0d1ab70, run 2026-10-08T06:27:42Z
+# command: npm run build:verify && esbuild tools/repro/r44-f19.ts ... && BNZ_STATE_DIR=tmp/r44-f19-state node tmp/r44-f19.mjs; expected red: ERROR f19-verify-earliest-list-ok, ERROR f19-verify-refuses-later-list, ERROR f19-publish-earliest-agreeing-batch
+commit 0d1ab70db08982400872fec80a68a8052306ccde
+utc 2026-10-08T06:27:06.879Z
+command node tmp/r44-f19.mjs (tools/repro/r44-f19.ts)
+tree M dist/benzo-verify.mjs
+tree  M docs/verify-bundle.sha256
+tree  M witness/index.ts
+tree ?? docs/evidence/phase-5/mutations/A23-F18skip.out
+tree ?? docs/evidence/phase-5/mutations/A23-F18skip.patch
+tree ?? docs/evidence/phase-5/mutations/A23-F19tiebreak.patch
+FAIL f19-verify-earliest-list-ok published [0] (batch 1's two agreeing maps): verify exit 1, ERROR defaults refused: settlement defaults differ from the host-signed approval maps
+ERROR f19-verify-earliest-list-ok published [0] (batch 1's two agreeing maps): verify exit 1, ERROR defaults refused: settlement defaults differ from the host-signed approval maps
+FAIL f19-verify-refuses-later-list published [1] ACCEPTED (exit 0) — the wrong one of two host-attested lists verified
+ERROR f19-verify-refuses-later-list published [1] ACCEPTED (exit 0) — the wrong one of two host-attested lists verified
+FAIL f19-publish-earliest-agreeing-batch publish() served settlement.defaults [1]; batch 1 (earliest paying) attested [0] with 2 witnesses, batch 2 drifted [1] with 3
+ERROR f19-publish-earliest-agreeing-batch publish() served settlement.defaults [1]; batch 1 (earliest paying) attested [0] with 2 witnesses, batch 2 drifted [1] with 3
+RESULT FAIL r44-f19
