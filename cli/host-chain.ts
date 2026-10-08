@@ -3,14 +3,16 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { requireThat } from "../manifest/schema";
+import { lwdBound, lwdTimedOut } from "../settle/bounded";
 
-const TRANSIENT = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF/;
+const TRANSIENT = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream/;
 function grpc(st: string, method: string, body: object): { ok: boolean; out: string } {
   const lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
   for (let attempt = 1; ; attempt++) {
-    const r = spawnSync(path.join(st, "bin", "grpcurl"), ["-import-path", path.join(st, "proto"), "-proto", "service.proto", "-d", JSON.stringify(body), lwd, `cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`], { encoding: "utf8" });
+    const cmd = path.join(st, "bin", "grpcurl"), args = ["-import-path", path.join(st, "proto"), "-proto", "service.proto", "-d", JSON.stringify(body), lwd, `cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`];
+    const r = spawnSync(cmd, args, { encoding: "utf8", ...lwdBound(cmd, args) }); // R49: Reviewer R P1-2 on R48
     if (r.status === 0) return { ok: true, out: r.stdout };
-    const err = `${r.stderr ?? ""}${r.stdout ?? ""}`;
+    const err = lwdTimedOut(cmd, r)?.message ?? `${r.stderr ?? ""}${r.stdout ?? ""}`;
     if (/NotFound|not found/i.test(err)) return { ok: false, out: err };
     requireThat(attempt < 4 && TRANSIENT.test(err), `lightwalletd ${method}: ${err.trim().slice(-160)}`);
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5000 * attempt);

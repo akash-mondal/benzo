@@ -11,3 +11,6 @@ export const lwdBound = (cmd: string, args: string[]) => talksToLwd(cmd, args) ?
 // The error to throw when spawnSync hit the bound (it reports ETIMEDOUT), else null.
 export const lwdTimedOut = (cmd: string, r: { error?: Error }) =>
   (r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT" ? new Error(`${path.basename(cmd)} timed out after ${LWD_TIMEOUT_MS} ms: ${LWD_STALLED}`) : null;
+// R49 (Reviewer R P2-7 on R48): `tle -d` fetches the drand beacon over HTTP, so a stalled relay would block open/cancel at R.
+export const DRAND_TIMEOUT_MS = Number(process.env.BNZ_DRAND_TIMEOUT_MS ?? 120_000);
+export const tleBound = { timeout: DRAND_TIMEOUT_MS, killSignal: "SIGKILL" as const };

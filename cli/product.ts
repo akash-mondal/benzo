@@ -21,6 +21,7 @@ import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,a
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,earliestAgreedDefaults,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,verifyDeliveryListSig,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
+import {tleBound} from '../settle/bounded';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
 const key=path.join(STATE,'auction/manifest-signing.pem');
@@ -415,7 +416,7 @@ export async function runCommand(command:string,args:string[]) {
       const note=party.startsWith('deposit:')?partyNote(notes(m.network),party):undefined;
       const memo=note?.memo_hex?memoSealedBid(note.memo_hex):null;
       if(!memo)return null;
-      const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(memo.ciphertext_hex,'hex'),maxBuffer:1<<20});
+      const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(memo.ciphertext_hex,'hex'),maxBuffer:1<<20,...tleBound}); // R49: a stalled relay derives nothing
       if(r.status!==0)return null;
       const pt=r.stdout;return Buffer.isBuffer(pt)&&pt.length===128?pt.subarray(61,93).toString('hex'):null;
     };

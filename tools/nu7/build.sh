@@ -65,6 +65,17 @@ case "${1:-}" in
     extra=$(python3 "$HERE/lockdiff.py" "$src/Cargo.lock.pinned" "$src/Cargo.lock" "${cvs[@]}")
     [ -z "$extra" ] || { echo "ERROR $src: lock changed beyond the patched packages:" >&2; echo "$extra" | head -20 >&2; exit 1; }
     cargo install --locked --path "$src/$1" --root "$state" --target-dir "$target" --force "${@:2}"
+    # R49 (Reviewer R P1-1 on R47): cargo records a path install by its path string only, which names the rev but proves
+    # nothing. Record what this build actually used: the checkout's HEAD, the NU7 patches, and the built binary's digest.
+    # e2e/lib/pins.ts checks all three against the live tree before any live spec runs.
+    bin=$([ "$1" = "." ] && basename "$git" || basename "$1")
+    mkdir -p "$state/nu7-provenance"
+    python3 - "$state/nu7-provenance/$bin.json" "$bin" "$rev" "$(git -C "$src" rev-parse HEAD)" "$src/$1" "$state/bin/$bin" "$HERE" "${cvs[@]}" <<'PY'
+import sys,json,hashlib,os
+out,binname,rev,head,src,binpath,here,*cvs=sys.argv[1:]
+h=lambda f:hashlib.sha256(open(f,'rb').read()).hexdigest()
+json.dump({"bin":binname,"rev":rev,"src_head":head,"src":os.path.realpath(src),"patches":{cv:h(os.path.join(here,cv+".patch")) for cv in cvs},"bin_sha256":h(binpath)},open(out,"w"),indent=1)
+PY
     ;;
   *) echo "usage: see header" >&2; exit 2;;
 esac

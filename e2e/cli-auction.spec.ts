@@ -93,6 +93,7 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync} from 'nod
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
+import {pinsMismatch} from './lib/pins';
 import {jsonBytes,signRecord} from '../manifest/schema';
 import {sealEnvelope} from '../envelope';
 import {generateWitnessKey,witnessSetHash} from '../witness';
@@ -150,9 +151,7 @@ async function cleanup() {
 test('CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery',async()=> {
   test.setTimeout(110*60_000);const run=new Run('cli-auction');
   const pins=Object.fromEntries(readFileSync(path.join(ROOT,'tools/pins.env'),'utf8').split('\n').map(l=>l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter(Boolean).map(m=>[m![1],m![2]]));
-  const installed=execFileSync('cargo',['install','--list','--root',STATE],{encoding:'utf8'});
-  for(const name of ['zcash-devtool','frostd','frost-client','zcash-sign'])if(!installed.split('\n').some(l=>l.startsWith(name+' v')&&(l.includes('?rev='+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']+'#')||l.includes('-'+pins[name==='zcash-devtool'?'DEVTOOL_REV':'FROST_TOOLS_REV']))))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
-  for(const [name,module,tag] of [['tle','github.com/drand/tlock',pins.TLE_TAG],['grpcurl','github.com/fullstorydev/grpcurl',pins.GRPCURL_TAG]])if(!execFileSync('go',['version','-m',path.join(STATE,'bin',name)],{encoding:'utf8'}).includes('\tmod\t'+module+'\t'+tag+'\t'))run.notRun(IDS,'pinned '+name+' does not match tools/pins.env');
+  {const pinned=pinsMismatch();if(pinned)run.notRun(IDS,`pinned binaries do not match tools/pins.env: ${pinned}`)} // R49: e2e/lib/pins.ts
   for(const file of ['vault/data.sqlite','frost/alice.toml','frost/bob.toml','frost/carol.toml','ufvk.txt'])if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
   try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of ENDPOINTS)z.tip(e)}catch(e){run.notRun(IDS,String(e))}
   z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');

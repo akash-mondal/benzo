@@ -6,14 +6,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requireThat } from "../../manifest/schema";
 import { ROOT, STATE, env } from "./env";
+import { lwdBound, lwdTimedOut } from "../../settle/bounded";
 
 export const H = "/home/benzo/.benzo", NAMES = ["alice", "bob", "carol"] as const;
 export const FROSTD = `host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
 // `orb`/`orbctl` calls have hung indefinitely on a VM that answered the next call instantly (live R28 run): they get a
-// 2-minute timeout and up to 3 attempts; every other command runs once, unbounded.
+// 2-minute timeout and up to 3 attempts. A lightwalletd call is bounded as in the product (R48/R49); every other
+// command runs once, unbounded.
 export const sh = (cmd: string, args: string[], input?: string) => {
   const orb = cmd === "orb" || cmd === "orbctl";
-  let r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, ...(orb ? { timeout: 120_000 } : {}) });
+  let r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, ...(orb ? { timeout: 120_000 } : lwdBound(cmd, args)) });
+  const stalled = orb ? null : lwdTimedOut(cmd, r);
+  if (stalled) throw stalled;
   for (let i = 1; orb && r.status === null && i < 3; i++) r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, timeout: 120_000 });
   if (r.error && !orb) throw r.error;
   if (r.status !== 0) throw new Error(`${path.basename(cmd)} ${args.slice(0, 5).join(" ")} exited ${r.status}: ${(r.stderr || r.stdout).trim().slice(-400)}`);

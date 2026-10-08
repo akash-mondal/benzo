@@ -128,6 +128,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
       expect.soft(after-before).toBe(4*C);expect.soft(observedBalance("vault")).toBe(0);
       write("settle/main/balances.json",bytes({before,after,vault:observedBalance("vault"),deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:30000,expected_output_zats:expected}));
     });
+    if(!ALT)run.narrowed("J1","single lightwalletd endpoint; second-endpoint agreement not checked (BNZ_LWD_SINGLE=1, R27/R47)");
     await run.check("L1","real kill and resume produce one final receipt per obligation",()=> {
       expect.soft(killed.signal).toBe("SIGKILL");expect.soft(killed.allocated).toBe(5);expect.soft(allocated.rows.filter((r:any)=>r.state==="allocated").length).toBe(5);
       expect.soft(new Set(main.rows.map((r:any)=>r.party)).size).toBe(5);expect.soft(main.rows.filter((r:any)=>["paid","refunded"].includes(r.state)).length).toBe(5);
@@ -158,5 +159,6 @@ test("settlement survives a worker crash and drand outage with one signer not se
       expect.soft(c.receipts.map((r:any)=>r.amount_zats)).toEqual([String(C),String(C)]);expect.soft(cancelAfter-cancelBefore).toBe(2*C);expect.soft(observedBalance("vault")).toBe(0);
       for(const b of c.batches){expect.soft(b.inspect?.input_zats).toBe(2*C+15000);expect.soft(b.inspect?.output_zats).toBe(2*C);expect.soft(b.proofs.length).toBe(LWD.length);if(ALT)expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
     });
+    if(!ALT)run.narrowed("M1","single lightwalletd endpoint; second-endpoint agreement not checked (BNZ_LWD_SINGLE=1, R27/R47)");
   } finally {try{await recovery()}finally{stop()}}
 });

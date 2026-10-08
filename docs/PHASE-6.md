@@ -101,3 +101,20 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
   2. **The fix.** `settle/bounded.ts` bounds every child process that talks to a lightwalletd server (grpcurl, or zcash-devtool given `-s`). The default is 600 s (`BNZ_LWD_TIMEOUT_MS`), killed with SIGKILL. A timeout throws `… stalled lightwalletd stream`, which the transient-retry patterns treat like `Unavailable`. Wallet sync is incremental, so a retry resumes from the last scanned block. The fix applies in `settle/io.ts` (`run`; `wallet` now retries `enhance` as well as `sync`), `settle/plan.ts`, `clear/auction-cli.ts` (sync and enhance retried up to 3×), `cli/host-derive.ts` (`ownScan`, host code) and the harness `e2e/lib/zcash.ts`. Other calls are not bounded: proving and signing can legitimately take long.
   3. **Proof:** `docs/evidence/phase-6/repro/r48-stall.out`. With stub binaries that never answer, grpcurl is bounded at the limit; a stalled sync is bounded, retried four times, then refused; a call that does not talk to lightwalletd runs unbounded.
   4. **Consequences.** This is product and host code, so the hosts are provisioned again (`deploy/signers/up.sh`), and gate RG restarts from project #1 at the new `RG_COMMIT` (phase6-rg §2). Reviewer R reviews R47–R48 before the RG row is marked READY FOR REVIEW.
+- R49 2026-10-08 (head, answers Reviewer R `benzo-sol/reports/pr-rg-r47-r48.md`, FIX-FIRST: 2 P1, 7 P2). Both P1s are accepted, and so are the P2s worth fixing before RG. RG attempt 4 (`c0256cd`) is stopped after `auction-core`, and the run restarts from project #1 (host code changed).
+  1. **P1-1, the pin check trusted a path string.** R47.1 accepted any path install whose path contained `-<rev>`. The reviewer showed that a spoofed line passes. Binary digests in `tools/pins.env` (the reviewer's fix) do not work, because these builds are not reproducible across machines. Instead, `tools/nu7/build.sh tool` writes `<state>/nu7-provenance/<bin>.json` after each install: the rev, the checkout's HEAD, the source path, the sha256 of each NU7 patch, and the sha256 of the built binary. The shared precondition `e2e/lib/pins.ts` (used by golden-path, auction-core and cli-auction) requires:
+     - the exact `<state>/src/<repo>-<rev>` install path;
+     - a provenance record;
+     - checkout HEAD = record = pinned rev;
+     - no checkout edits beyond build.sh's own (`Cargo.toml`, `Cargo.lock`, `Cargo.lock.pinned`);
+     - patch digests equal to the committed `tools/nu7/*.patch`;
+     - the binary's digest equal to the recorded one.
+
+     frostd and frost-client keep cargo's `?rev=<rev>#` git form. The local NU7 tools are rebuilt once so that they carry the record.
+  2. **P1-2, `cli/host-chain.ts` grpcurl was unbounded** (signer hosts: `sign build/approve/witness/derivable`). It now uses `lwdBound`/`lwdTimedOut`, and a stall is treated as transient. R48's "every lightwalletd call" now holds. Proof: the `chainTip` leg in `docs/evidence/phase-6/repro/r48-stall.out`.
+  3. **P2s fixed:**
+     - the harness `e2e/lib/hosts.ts` `sh` bounds lightwalletd calls (P2-2, the markets `blockTime`);
+     - the proof asserts `/stalled/` and counts the attempts on every leg (P2-3);
+     - `Run.narrowed()` records `PASS (narrowed: …)` in `run.json` for A1, I1, J1 and M1 under `BNZ_LWD_SINGLE=1` (P2-4);
+     - `tle -d` is bounded at 120 s (`BNZ_DRAND_TIMEOUT_MS`) in `clear/auction-cli.ts` (both openings) and `cli/product.ts` (P2-5).
+  4. **P2s that go to the README honest limits:** the retry ceilings end in refusal, not completion; power loss during a sync. Also listed there: the single testnet endpoint. **P2-7** (the manifest commit) is closed by `c0256cd` and its successor; the RG row cites the hosts' manifest commit.

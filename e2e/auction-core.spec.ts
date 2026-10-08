@@ -24,6 +24,7 @@ import {execFileSync,spawnSync} from "node:child_process";
 import {existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {bin,DRAND,env,LWD,LWD_ALT,ROOT,STATE} from "./lib/env";
+import {pinsMismatch} from "./lib/pins";
 import {startFrostd,zcashSign} from "./lib/frost";
 import {Run,waitFor,write} from "./lib/run";
 import {serveSealer,sealBid} from "./lib/sealer";
@@ -40,14 +41,6 @@ const bytes=(v:any)=>Buffer.from(canonical(v)+"\n");
 function cli(file:string,args:string[],input:any) {
   const r=spawnSync(process.execPath,[path.join(ROOT,file),...args],{input:JSON.stringify(input),encoding:"utf8",maxBuffer:64<<20});
   if(r.error)throw r.error; return {code:r.status,out:r.stdout,error:r.stderr,value:r.status===0?JSON.parse(r.stdout):null};
-}
-function pinsMismatch() {
-  const pins=Object.fromEntries(readFileSync(path.join(ROOT,"tools/pins.env"),"utf8").split("\n").map(l=>l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter(Boolean).map(m=>[m![1],m![2]]));
-  const cargo=execFileSync("cargo",["install","--list","--root",STATE]).toString();
-  for(const [tool,rev] of [["zcash-devtool",pins.DEVTOOL_REV],["frostd",pins.FROST_TOOLS_REV],["frost-client",pins.FROST_TOOLS_REV],["zcash-sign",pins.FROST_TOOLS_REV]])
-    if(!cargo.split("\n").some(l=>l.startsWith(`${tool} v`)&&(l.includes(`?rev=${rev}#`)||l.includes(`-${rev}`))))return `${tool} not built from ${rev}`;
-  for(const [tool,mod,tag] of [["tle","github.com/drand/tlock",pins.TLE_TAG],["grpcurl","github.com/fullstorydev/grpcurl",pins.GRPCURL_TAG]])
-    if(!existsSync(bin(tool))||!execFileSync("go",["version","-m",bin(tool)]).toString().includes(`\tmod\t${mod}\t${tag}\t`))return `${tool} not ${mod}@${tag}`;
 }
 // Independent published Merkle protocol, not an import from production: raw ciphertext hash + deposit reference.
 function included(r:any,f:any,ctHash=r.ciphertext_hash) {
@@ -269,5 +262,6 @@ test("signed sealed auction on testnet",async({page})=> {
       expect.soft(after.bidder-before.bidder).toBe(5*C+oldNotes.reduce((n,l)=>n+l.value_zats,0));expect.soft(after.vault).toBe(0);
       if(alternate)expect.soft(alternate.height).toBe(height);expect.soft(fee).toBe(reserve);
     });
+    if(!ALT)run.narrowed("I1","single lightwalletd endpoint; second-endpoint agreement not checked (BNZ_LWD_SINGLE=1, R27/R47)");
   } finally {stop()}
 });

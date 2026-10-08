@@ -1,20 +1,30 @@
-commit (parent) 266fd0f878586feb8e5e191292b8d9f94666519c
-utc 2026-10-08T15:02:59Z
-command: BNZ_LWD_TIMEOUT_MS=1500 node tmp/r48/proof.mjs  (stub grpcurl/zcash-devtool that sleep 600; proof.ts calls settle/io.ts run + syncRetry)
-PASS grpcurl bounded in 1505 ms: grpcurl timed out after 1500 ms: stalled lightwalletd stream
-PASS sync bounded and retried, gave up after 36022 ms: zcash-devtool timed out after 1500 ms: stalled lightwalletd stream
-PASS non-lightwalletd call unbounded (3010 ms)
-sync attempts in this run: 4 (the stub call log holds 8 lines: 4 from a first run, then these 4)
+commit (parent) 6e00af00b9f9f051300e34207907dee8f044e6ca + working tree (R49)
+utc 2026-10-08T15:38:49Z
+command: BNZ_LWD_TIMEOUT_MS=1500 node tmp/r48/proof.mjs  (stubs exec sleep 600 and log each call)
+PASS settle/io run grpcurl bounded in 1504 ms: grpcurl timed out after 1500 ms: stalled lightwalletd stream
+PASS settle/io syncRetry: 4 bounded attempts, refused after 36029 ms: zcash-devtool timed out after 1500 ms: stalled lightwalletd stream
+PASS cli/host-chain chainTip (signer host): 4 bounded attempts, refused after 36021 ms: refused: lightwalletd GetLatestBlock: grpcurl timed out after 1500 ms: stalled lightwalletd stream
+PASS non-lightwalletd call unbounded (3009 ms)
+RESULT r49-stall PASS
+exit 0
 
 --- tmp/r48/proof.ts (not committed as a script: AGENTS.md 8-test ceiling; source kept here for reproduction) ---
+import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { run, syncRetry } from "../../settle/io";
-const B = path.resolve("tmp/r48/bin");
-const t0 = Date.now();
-try { run(path.join(B, "grpcurl"), ["-d", "{}", "testnet.zec.rocks:443", "x/GetLatestBlock"]); console.log("FAIL grpcurl returned"); }
-catch (e) { console.log(`${/stalled lightwalletd stream/.test(String(e)) ? "PASS" : "FAIL"} grpcurl bounded in ${Date.now() - t0} ms: ${(e as Error).message}`); }
-const t1 = Date.now();
-try { syncRetry(() => run(path.join(B, "zcash-devtool"), ["wallet", "-w", "x", "sync", "-s", "testnet.zec.rocks:443"])); }
-catch (e) { console.log(`PASS sync bounded and retried, gave up after ${Date.now() - t1} ms: ${(e as Error).message}`); }
-const t2 = Date.now();
-try { run("/bin/sleep", ["3"]); console.log(`PASS non-lightwalletd call unbounded (${Date.now() - t2} ms)`); } catch (e) { console.log(`FAIL ${(e as Error).message}`); }
+import { chainTip } from "../../cli/host-chain";
+const B = path.resolve("tmp/r48/bin"), HS = path.resolve("tmp/r48/hoststate");
+const calls = (f: string) => { try { return readFileSync(f, "utf8").split("\n").filter(Boolean).length; } catch { return 0; } };
+let all = true; const line = (ok: boolean, d: string) => { console.log(`${ok ? "PASS" : "FAIL"} ${d}`); all &&= ok; };
+let t = Date.now();
+try { run(path.join(B, "grpcurl"), ["-d", "{}", "testnet.zec.rocks:443", "x/GetLatestBlock"]); line(false, "grpcurl returned"); }
+catch (e) { line(/stalled lightwalletd stream/.test(String(e)), `settle/io run grpcurl bounded in ${Date.now() - t} ms: ${(e as Error).message}`); }
+t = Date.now(); rmSync(path.join(B, "calls"), { force: true });
+try { syncRetry(() => run(path.join(B, "zcash-devtool"), ["wallet", "-w", "x", "sync", "-s", "testnet.zec.rocks:443"])); line(false, "sync returned"); }
+catch (e) { const n = calls(path.join(B, "calls")); line(/stalled lightwalletd stream/.test(String(e)) && n === 4, `settle/io syncRetry: ${n} bounded attempts, refused after ${Date.now() - t} ms: ${(e as Error).message}`); }
+t = Date.now(); rmSync(path.join(HS, "bin", "calls"), { force: true });
+try { chainTip(HS); line(false, "host chainTip returned"); }
+catch (e) { const n = calls(path.join(HS, "bin", "calls")); line(/stalled lightwalletd stream/.test(String(e)) && n === 4, `cli/host-chain chainTip (signer host): ${n} bounded attempts, refused after ${Date.now() - t} ms: ${(e as Error).message}`); }
+t = Date.now();
+try { run("/bin/sleep", ["3"]); line(Date.now() - t >= 3000, `non-lightwalletd call unbounded (${Date.now() - t} ms)`); } catch (e) { line(false, (e as Error).message); }
+console.log(`RESULT r49-stall ${all ? "PASS" : "FAIL"}`); process.exitCode = all ? 0 : 1;

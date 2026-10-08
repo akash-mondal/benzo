@@ -121,6 +121,15 @@ A signer host that fails in a non-typed way forever (it never answers or always 
 until it is fixed or replaced; and a payout row (seller, treasury) that no host can ever derive has no
 automatic completion path — it waits, it is never paid elsewhere. Both are liveness limits: funds are never
 misdirected.
+- **One lightwalletd endpoint on testnet** (R27/R47): since NU7, `testnet.zec.rocks` is the only public NU7
+testnet endpoint, so testnet runs set `BNZ_LWD_SINGLE=1` and no second endpoint confirms heights or
+transactions. The live evidence records each such check as `PASS (narrowed: …)`. Mainnet refuses the flag and
+needs two endpoints.
+- **Chain and beacon calls are time-bounded, not guaranteed to finish** (R48/R49): every lightwalletd call is
+killed after 10 min (`BNZ_LWD_TIMEOUT_MS`) and retried as transient, and `tle -d` is killed after 2 min. Wallet
+sync keeps its progress, but a sync needing more than 3–4 bounded attempts (a long-unsynced wallet) refuses, and
+the operator re-runs it. A machine power loss during a sync can leave a block cache that later refuses to decode
+(it never yields wrong notes); re-syncing from a clean cache fixes it.
 - The signer-reproducible stealth derivation is custom (2-of-3 signers must derive the same one-time
 address); its salt is known only to envelope openers, so a guessed meta-address links nothing
 (`docs/AUDITS.md`, `docs/evidence/phase-5/repro/r25-1-link-after.out`).

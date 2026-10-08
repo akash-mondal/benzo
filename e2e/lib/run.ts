@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DRAND, E2E, OUT } from "./env";
 
-type Result = "PASS" | "FAIL" | "NOT RUN";
+type Result = "PASS" | `PASS (narrowed: ${string})` | "FAIL" | "NOT RUN";
 
 // One line: the assertion's name plus its expected and received values, without colour codes.
 const reason = (message: string) =>
@@ -39,6 +39,11 @@ export class Run {
       if (errors.length) console.log(`ERROR ${id} ${reason(errors[0].message ?? "")}`);
       this.save();
     });
+  }
+
+  // R49 (Reviewer R P2-6 on R47): a check that ran only part of its title records that in run.json, not a bare PASS.
+  narrowed(id: string, why: string) {
+    if (this.results[id] === "PASS") { this.results[id] = `PASS (narrowed: ${why})`; this.save(); }
   }
 
   // A failed precondition: print `NOT RUN <cause>`, mark every ID NOT RUN, and fail the test.

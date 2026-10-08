@@ -12,7 +12,7 @@ import {drandUrls} from "../manifest/reserve";
 import {verifyStatement} from "../envelope";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
-import { LWD_STALLED, lwdBound, lwdTimedOut } from "../settle/bounded";
+import { DRAND_TIMEOUT_MS, LWD_STALLED, lwdBound, lwdTimedOut, tleBound } from "../settle/bounded";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; serial_beacon?:{round:number;signature:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
@@ -117,8 +117,9 @@ try {
         if(!notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height))return {leaf_index:l.leaf_index,plaintext_hex:null,error:"reorg"};
         const ct=path.join(dir,`${id}-${l.leaf_index}.age`), pt=path.join(dir,`${id}-${l.leaf_index}.bin`); writeFileSync(ct,Buffer.from(l.ciphertext_hex,"hex"),{mode:0o600});
         ledger.trace.push({operation:"tle -d",time:now});
-        const opening=spawnSync(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash,"-o",pt,ct],{encoding:"utf8"});
+        const opening=spawnSync(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash,"-o",pt,ct],{encoding:"utf8",...tleBound});
         appendFileSync(path.join(state,"run","auction-cli.log"),`\ntle -d\n${opening.stderr??""}`);
+        if((opening.error as NodeJS.ErrnoException|undefined)?.code==="ETIMEDOUT")throw new Error(`tle opening timed out after ${DRAND_TIMEOUT_MS} ms: stalled drand relay`);
         if(opening.error)throw opening.error;
         if(opening.status!==0) {
           // Only authenticated ciphertext failures are bad bids. Relay/beacon/tool failures remain errors.
@@ -130,8 +131,9 @@ try {
       if(m.sealed_reserve!==undefined) {
         // Gate CF: the manifest's sealed price bound opens at R with the bids and feeds the clear below.
         ledger.trace.push({operation:"tle -d reserve",time:now});
-        const reserveOpen=spawnSync(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash],{input:Buffer.from(m.sealed_reserve,"hex"),maxBuffer:1<<20});
+        const reserveOpen=spawnSync(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash],{input:Buffer.from(m.sealed_reserve,"hex"),maxBuffer:1<<20,...tleBound});
         appendFileSync(path.join(state,"run","auction-cli.log"),`\ntle -d reserve\n${reserveOpen.stderr??""}`);
+        if((reserveOpen.error as NodeJS.ErrnoException|undefined)?.code==="ETIMEDOUT")throw new Error(`tle reserve opening timed out after ${DRAND_TIMEOUT_MS} ms: stalled drand relay`);
         if(reserveOpen.error)throw reserveOpen.error;
         requireThat(reserveOpen.status===0,`tle reserve opening failed: ${(reserveOpen.stderr??Buffer.alloc(0)).toString().trim().slice(-300)}`);
         ledger.reserve_opening=reserveOpen.stdout.toString("hex");

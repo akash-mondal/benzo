@@ -15,6 +15,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { bin, DRAND, env, LWD, LWD_ALT, ROOT, STATE } from "./lib/env";
+import { pinsMismatch } from "./lib/pins";
 import { startFrostd, zcashSign, type Session } from "./lib/frost";
 import { Run, waitFor, write } from "./lib/run";
 import { sealBid, serveSealer } from "./lib/sealer";
@@ -27,24 +28,6 @@ const MINE = 30 * 60_000; // each deposit and the refund is mined within 30 minu
 const sha256 = (hex: string) => createHash("sha256").update(Buffer.from(hex, "hex")).digest("hex");
 const minedHeight = (txid: string) => () => z.minedHeight(txid);
 
-function pinsMismatch(): string | undefined {
-  const pins = Object.fromEntries(
-    readFileSync(path.join(ROOT, "tools", "pins.env"), "utf8")
-      .split("\n")
-      .map((l) => l.match(/^([A-Z0-9_]+)=(\S*)$/))
-      .filter((m) => m !== null)
-      .map((m) => [m![1], m![2]]),
-  );
-  const cargo = execFileSync("cargo", ["install", "--list", "--root", STATE]).toString();
-  const rust: [string, string][] = [["zcash-devtool", pins.DEVTOOL_REV], ["frostd", pins.FROST_TOOLS_REV], ["frost-client", pins.FROST_TOOLS_REV], ["zcash-sign", pins.FROST_TOOLS_REV]];
-  // Ruling R27: zcash-devtool and zcash-sign are built by tools/nu7/build.sh from the pinned rev's verified source
-  // (`cargo install --path <state>/src/<repo>-<rev>`), so cargo records a path naming that same rev, not `?rev=`.
-  for (const [crate, rev] of rust)
-    if (!cargo.split("\n").some((l) => l.startsWith(`${crate} v`) && (l.includes(`?rev=${rev}#`) || l.includes(`-${rev}`)))) return `${crate} is not built from ${rev}`;
-  const go: [string, string, string][] = [["tle", "github.com/drand/tlock", pins.TLE_TAG], ["grpcurl", "github.com/fullstorydev/grpcurl", pins.GRPCURL_TAG]];
-  for (const [tool, mod, tag] of go)
-    if (!existsSync(bin(tool)) || !execFileSync("go", ["version", "-m", bin(tool)]).toString().includes(`\tmod\t${mod}\t${tag}\t`)) return `${tool} is not ${mod}@${tag}`;
-}
 
 test("golden path on testnet", async ({ page }) => {
   test.setTimeout(75 * 60_000);
@@ -214,6 +197,7 @@ test("golden path on testnet", async ({ page }) => {
       if (ALT) expect.soft(heightAlt, "height on the second endpoint").toBe(heightPrimary);
       depositLines.forEach((l, i) => expect.soft(l?.spent_in_txid, `deposit ${i + 1} spent in`).toBe(refundTxid));
     });
+    if(!ALT)run.narrowed("A1","single lightwalletd endpoint; second-endpoint agreement not checked (BNZ_LWD_SINGLE=1, R27/R47)");
     await run.check("A2", "one 2-participant frostd session per randomizer", () => {
       expect.soft(signing.sessions.length, "sessions vs real spends in the PCZT").toBe(realSpends);
       for (const s of signing.sessions) {
