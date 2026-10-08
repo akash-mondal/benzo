@@ -373,4 +373,14 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
   3. **F18 (P2):** when one note of a multi-note excess row is already taken, skip only that note, never the whole row. `backingOf` may never silently disable the keying: an unkeyable note is an ERROR. Conservation must stay zat-exact.
   4. **F19 (P2):** the `defaults` tie-break is deterministic and enforced by verify. If two host-attested lists differ (drift only), publish uses the list attested by the maps of the **earliest** paying batch whose two maps agree, and verify applies the same rule.
   5. No new live run unless item 1's change touches the settle path that the drop scenario exercises; if it does, one clean `drop` run. Then READY FOR REVIEW. Reviewer R does a short confirmation pass, and then **gate RG starts** (`docs/design/phase6-rg.md`).
+- R45 2026-10-08 (head): **Reviewer R confirmation pass on R44 (`benzo-sol/reports/pr-a22-r44.md`, FIX-FIRST).** F16's wedge is genuinely closed, and F17, F18 and F19 are FIXED. **F20 (P1) is a flaw in the head's own F16 implementation:** any failed `sign build` (including a timeout or kill) counted as a refusal, and every row of the batch was condemned forever, payout rows included. Fixes:
+  1. **F20 (head, `this commit`).**
+     - `benzo sign build` refuses with a **typed** exit 3 and `ERROR sign build refused-rows [parties]`, listing every row it cannot derive. Any other failure exits 1.
+     - The coordinator calls a batch unbuildable only when **every reached host** gave a typed refusal. It sets aside only the rows **no** reached host derives (the intersection); the other rows settle in the next batch.
+     - A set-aside refund row becomes a claimable exception, recorded atomically in `unbuildable.json`. A payout row (seller, treasury) is **never condemned**: it is deferred for this run only and re-derived on the next settle.
+     - A timeout, kill or non-typed failure is "unreachable": the batch is retried, as before R44.
+     - Every iteration removes at least one row from the eligible set, so the loop terminates.
+  2. **F21 (P2, Builder A):** the `defaults` tie-break must not be steerable by omitting a batch's maps. Verify requires two agreeing maps for **every** paying batch, payout-only batches included, before the tie-break is computed.
+  3. **F22 (P2, Builder A):** the F18 amount rule's single-note assumption becomes an assertion: a multi-note taking row is an ERROR, never silently mis-sized.
+  4. **Re-proof (Builder A, A23):** after the head deploys (`up.sh`), one clean live `drop` run, plus a lab repro of F20 (a host timeout is retried; a typed refusal sets aside only the refused rows; a seller row is deferred, never condemned). Then gate RG.
 
