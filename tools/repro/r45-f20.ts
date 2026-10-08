@@ -1,40 +1,50 @@
-// Ruling R45 item 4 (Reviewer R F20, P1 in the head's F16 fix; `benzo-sol/reports/pr-a22-r44.md`): the
-// unbuildable-batch path must never condemn honest rows. A host `sign build` that TIMES OUT or exits 1 is
-// "unreachable" — the batch is retried and nothing is condemned. Only when EVERY reached host gives a TYPED
-// refusal (exit 3 listing the rows it cannot derive) is the batch unbuildable, and only the rows NO reached
-// host derives (the intersection) are set aside: a refund row becomes a claimable exception (recorded in
-// unbuildable.json), a payout row (seller, treasury) is DEFERRED for this run only — never condemned — and is
-// re-derived on the next settle. The pre-R45 rule (any failure condemns the whole batch forever) is the
-// mutation red.
-// 1. Which behavior does it protect: settlement liveness and recoverability (DESIGN settlement flow; R44 F16
-//    expiry semantics as corrected by R45) — a transient host failure must never strand honest rows, and a
-//    condemned seller payout (which `claim-refund` cannot claim) must never exist.
-// 2. Which credible regression makes it fail: the pre-R45 classification (settle/cli.ts before d2255fb) — any
-//    nonzero `sign build` status INCLUDING a timeout counted as a refusal and every row of the batch was
-//    condemned forever, payout rows included (Reviewer R's F20 X1b/X1c).
-// 3. Why no existing test catches it: r44-f16 drives the expired-batch re-pin only; nothing drove a timeout
-//    vs a typed refusal, the intersection rule, or the payout-row deferral/re-eligibility.
-// 4. Production seam: none — this drives the shipped pure rule (settle/build-outcome.ts classifyBuildAttempts
-//    and setAsideRows, extracted from settle/cli.ts hostBuild/worker, behaviour identical) and the shipped
-//    Ledger (pin/expire/allocate/eligible/stage/confirm) with exactly the worker's catch sequence
-//    (`expire; pinRows; eligible; continue`). Scratch state only (R43 guard).
-// Assertions (the A23-F20 mutation — the pre-R45 rule — turns all three red):
-//   f20-timeout-retried                a host timeout (status null) plus an exit-1 failure: the batch is NOT
-//                                      unbuildable, nothing is set aside, and the retry sees the same batch
-//                                      with every row still allocated (nothing condemned);
-//   f20-set-aside-only-refused-rows    every reached host typed-refuses, disagreeing on supersets
-//                                      {X,Y} and {X,Z}: only the intersection X is set aside (a refund row →
-//                                      claimable exception), and seller + leaf:1 settle in the NEXT batch;
-//   f20-seller-deferred-not-condemned  every reached host typed-refuses the seller row: it is deferred (never
-//                                      in the condemned/unbuildable record) and the next settle re-derives it
-//                                      eligible again, while the other rows settle first.
+// Ruling R45 item 4 (Reviewer R F20, P1 in the head's F16 fix; `benzo-sol/reports/pr-a22-r44.md`), CORRECTED
+// by Ruling R46 (Reviewer R F20 residual + F25; `benzo-sol/reports/pr-a23-r45.md`): the unbuildable-batch path
+// must never condemn honest rows. A host `sign build` that TIMES OUT or exits 1 is "unreachable" — the batch is
+// retried and nothing is set aside. Only when EVERY reached host gives a TYPED refusal (exit 3 listing the rows
+// it cannot derive) is anything set aside, and only the rows NO reached host derives (the intersection, within
+// the batch). **R46: a set-aside is RUN-LOCAL and never persisted (unbuildable.json is gone)** — every settle
+// re-derives every row through the G-5 derivable gate, so an owner's claim that makes a refund derivable pays it
+// on the next settle, and a payout re-derives as soon as a host can build it. When every reached host typed-refuses
+// but no row is refused by ALL of them (disjoint sets), the batch is ISOLATED: its rows retry one per batch, and a
+// singleton refused by every reached host is set aside by name. Every iteration builds a batch or removes a row.
+// 1. Which behavior does it protect: settlement liveness and recoverability (DESIGN settlement flow; R44 F16's
+//    expiry semantics as corrected by R45/R46) — a transient host failure must never strand honest rows, a
+//    condemned payout must never exist, and a claimable refund must actually pay once claimed.
+// 2. Which credible regression makes it fail: the pre-R45 classification (any failure, timeouts included,
+//    condemned every row of the batch forever — Reviewer R's F20 X1b/X1c) and the pre-R46 persistent set-aside
+//    (unbuildable.json: a set-aside row was condemned FOREVER, so an owner claim could never pay it), plus the
+//    R45 F25 wedge (disjoint typed refusals killed the run and every future run).
+// 3. Why no existing test catches it: r44-f16 drives the expired-batch re-pin only; nothing drove a timeout vs a
+//    typed refusal, the intersection rule, the run-local set-aside's claim-then-paid path, or the isolation.
+// 4. Production seam: none — this drives the shipped pure rule (settle/build-outcome.ts classifyBuildAttempts,
+//    extracted from settle/cli.ts hostBuild and now carrying R46's batch-scoped intersection + isolation) and
+//    the shipped Ledger (pin/expire/allocate/eligible/stage/confirm) with exactly the worker's catch sequence
+//    (settle/cli.ts: `ledger.expire; pinRows; eligible; continue`, set-aside rows exception for THIS run only).
+//    Scratch state only (R43 guard).
+// Assertions (the A24-F20persist mutation — the persistent set-aside restored — turns the two re-derivation
+// legs red; the R45-era A23-F20 mutation (any failure condemns the whole batch) turns all four red):
+//   f20-timeout-retried                a host timeout (status null) plus an exit-1 failure: not unbuildable and
+//                                      not isolated, nothing set aside, and the retry sees the same batch with
+//                                      every row still allocated;
+//   f20-set-aside-only-refused-rows    every reached host typed-refuses, disagreeing on supersets {X,leaf:1} and
+//                                      {X,seller}: only the intersection X is set aside (run-locally), leaf:1 +
+//                                      seller settle in the NEXT batch, and once an owner claim makes X derivable
+//                                      the next settle PAYS it (claim-then-paid; never condemned);
+//   f20-seller-deferred-not-condemned  every reached host typed-refuses the seller payout row: set aside for this
+//                                      run only, the other rows settle first, and the next settle re-derives and
+//                                      pays it — nothing is persisted, so no payout can be condemned forever;
+//   f20-isolate-disjoint-refusals      every reached host typed-refuses but DISJOINTLY ({X} vs {leaf:1}): nothing
+//                                      is set aside, the batch is isolated — its rows retry one per batch — and a
+//                                      singleton refused by every reached host is set aside by name while the
+//                                      other singletons settle (the F25 wedge closed).
 // Run: npx esbuild tools/repro/r45-f20.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r45-f20.mjs && node tmp/r45-f20.mjs
 import { execFileSync } from "node:child_process";
 import { assertScratch } from "./scratch";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { classifyBuildAttempts, setAsideRows, type BuildOutcome } from "../../settle/build-outcome";
+import { classifyBuildAttempts, type BuildOutcome } from "../../settle/build-outcome";
 import { Ledger, type Obligation } from "../../settle/ledger";
 
 console.log(`commit ${execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim()}`);
@@ -48,6 +58,10 @@ const line = (id: string, ok: boolean, d: string) => {
   if (!ok) console.log(`ERROR ${id} ${d}`);
   all &&= ok;
 };
+const caseRun = (id: string, fn: () => [boolean, string]): void => {
+  try { const [ok, d] = fn(); line(id, ok, d); }
+  catch (e) { line(id, false, `threw: ${(e as Error).message.slice(0, 200)}`); }
+};
 
 const st = mkdtempSync(path.join(tmpdir(), "benzo-r45-f20-"));
 const uid = (n: number) => n.toString(16).padStart(2, "0").repeat(32);
@@ -57,29 +71,21 @@ const N = `${"11".repeat(32)}:ironwood:0`;
 const X: Obligation = { party: `balance-late:${N}`, kind: "refund", amount_zats: "5000", notes: [N] };
 const leaf1: Obligation = { party: "leaf:1", kind: "refund", amount_zats: "200000" };
 const seller: Obligation = { party: "seller", kind: "payout", amount_zats: "700000" };
-const settleBatch = (l: Ledger, id: number): void => {
-  const b = l.allocate(13)!;
+const asideReason = "set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
+const settleBatch = (l: Ledger, id: number, cap = 13): void => {
+  const b = l.allocate(cap)!;
   const txid = id.toString(16).padStart(2, "0").repeat(32);
   l.stage(b.id, fakePczt, txid);
   l.confirm(b.id, txid, 100, b.outputs.map((o, i) => ({ party: o.party, amount_zats: o.amount_zats, index: i, pool: "orchard" })));
 };
-// The worker's catch sequence after a set-aside (settle/cli.ts): expire the batch, re-pin — pinRows drops the
-// recipient of every set-aside row (condemned to unbuildable.json or deferred for this run), so only the other
-// rows stay ready — then re-allocate. The NEXT settle run re-derives every row except the recorded condemned.
-const setAsideRun = (l: Ledger, batchId: number, ready: Obligation[], condemned: string[], deferred: string[]): void => {
+// The worker's catch sequence (settle/cli.ts, R46): expire the batch, re-pin — pinRows drops the recipient of
+// every run-locally set-aside row (exception for THIS run with the aside reason) — then re-allocate. Nothing is
+// persisted: the NEXT settle re-derives every row through the G-5 gate (an owner claim makes a refund derivable).
+const setAsideRun = (l: Ledger, batchId: number, ready: Obligation[], aside: string[], pool: Obligation[]): void => {
   l.expire(batchId);
-  const aside = new Set([...condemned, ...deferred]);
-  const exceptions = [...condemned, ...deferred].map((p) => {
-    const o = [X, leaf1, seller].find((r) => r.party === p)!;
-    return { ...o, reason: condemned.includes(p) ? "no signer host derives this row from its own data; claimable through benzo claim-refund" : "payout deferred: no signer host could build it this run; re-derived on the next settle" };
-  });
-  l.pin(ready.filter((r) => !aside.has(r.party)), exceptions);
+  l.pin(ready.filter((r) => !aside.includes(r.party)),
+    aside.map((p) => ({ ...pool.find((r) => r.party === p)!, reason: asideReason })));
   l.eligible();
-};
-// A case that throws is a failed case (one grep-able ERROR line), never a crashed run.
-const caseRun = (id: string, fn: () => [boolean, string]): void => {
-  try { const [ok, d] = fn(); line(id, ok, d); }
-  catch (e) { line(id, false, `threw: ${(e as Error).message.slice(0, 200)}`); }
 };
 
 // ---- case 1: a host timeout (SIGKILL kill: status null) and an exit-1 transient — "unreachable", retried --
@@ -88,45 +94,48 @@ caseRun("f20-timeout-retried", () => {
   l.pin([leaf1, seller], []); l.eligible();
   const b1 = l.allocate(13)!;
   const attempts: BuildOutcome[] = [{ status: null, stderr: "" }, { status: 1, stderr: "ERROR signer bob could not build: connection reset" }];
-  const c = classifyBuildAttempts(attempts);
-  const aside = setAsideRows(b1.outputs.map(({ party, kind }) => ({ party, kind })), c.refusedRows);
-  const retry = l.allocate(13)!; // the worker rethrows on !unbuildable: the batch is retried as-is
+  const c = classifyBuildAttempts(attempts, b1.outputs.map((o) => o.party));
+  const retry = l.allocate(13)!; // the worker rethrows on !unbuildable && !isolate: the batch is retried as-is
   const states = Object.fromEntries(l.rows().map((r) => [r.party, r.state]));
-  const ok = !c.unbuildable && c.refusedRows.length === 0 && aside.condemned.length === 0 && aside.deferred.length === 0 &&
+  const ok = !c.unbuildable && !c.isolate && c.refusedRows.length === 0 &&
     retry.id === b1.id && retry.outputs.length === 2 && Object.values(states).every((s) => s === "allocated");
-  l.close();
-  return [ok,
-    `classify(unbuildable=${c.unbuildable}, refusedRows=${JSON.stringify(c.refusedRows)}); set-aside condemned ${JSON.stringify(aside.condemned)} deferred ${JSON.stringify(aside.deferred)}; retry sees batch ${retry.id} with ${retry.outputs.length} rows (batch ${b1.id}), row states ${JSON.stringify(states)} — a timeout/exit-1 is retried, never condemned`];
-});
-
-// ---- case 2: every reached host typed-refuses, disagreeing on supersets — only the intersection is set aside
-caseRun("f20-set-aside-only-refused-rows", () => {
-  const l = new Ledger(st, uid(2));
-  l.pin([X, leaf1, seller], []); l.eligible();
-  const b1 = l.allocate(13)!;
-  const attempts: BuildOutcome[] = [
-    { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([X.party, "leaf:1"])}` },
-    { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([X.party, "seller"])}` },
-  ];
-  const c = classifyBuildAttempts(attempts);
-  const aside = setAsideRows(b1.outputs.map(({ party, kind }) => ({ party, kind })), c.refusedRows);
-  setAsideRun(l, b1.id, [leaf1, seller], aside.condemned, aside.deferred);
-  const b2 = l.allocate(13)!;
-  settleBatch(l, 2);
-  // the next settle run: the condemned row stays recorded (its unbuildable.json entry), never re-promoted
-  l.pin([leaf1, seller].map((o) => ({ ...o })), [{ ...X, reason: "no signer host derives this row from its own data; claimable through benzo claim-refund" }]);
-  l.eligible();
-  const x = l.rows().find((r) => r.party === X.party)!;
-  const ok = c.unbuildable && JSON.stringify(c.refusedRows) === JSON.stringify([X.party]) &&
-    JSON.stringify(aside.condemned) === JSON.stringify([X.party]) && aside.deferred.length === 0 &&
-    JSON.stringify(b2.outputs.map((o) => o.party)) === JSON.stringify(["leaf:1", "seller"]) &&
-    x.state === "exception" && !l.receipts().some((r) => r.party === X.party);
-  const d = `classify(unbuildable=${c.unbuildable}, refusedRows=${JSON.stringify(c.refusedRows)}) — the intersection of {${X.party},leaf:1} and {${X.party},seller}; set-aside condemned ${JSON.stringify(aside.condemned)} deferred ${JSON.stringify(aside.deferred)}; next batch pays ${JSON.stringify(b2.outputs.map((o) => o.party))}; the refused row stays ${x.state} (claimable exception, never paid)`;
+  const d = `classify(unbuildable=${c.unbuildable}, isolate=${c.isolate}, refusedRows=${JSON.stringify(c.refusedRows)}); retry sees batch ${retry.id} with ${retry.outputs.length} rows (batch ${b1.id}), row states ${JSON.stringify(states)} — a timeout/exit-1 is retried, never set aside`;
   l.close();
   return [ok, d];
 });
 
-// ---- case 3: a refused SELLER row is deferred, never condemned, and eligible again on the next settle ----
+// ---- case 2: typed refusals {X,leaf:1} / {X,seller}: only the intersection X is set aside (run-locally), the
+// ---- other rows settle next, and an owner claim pays X on the following settle (R46 claim-then-paid) --------
+caseRun("f20-set-aside-only-refused-rows", () => {
+  const l = new Ledger(st, uid(2));
+  l.pin([X, leaf1, seller], []); l.eligible();
+  const b1 = l.allocate(13)!;
+  const parties = b1.outputs.map((o) => o.party);
+  const attempts: BuildOutcome[] = [
+    { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([X.party, "leaf:1"])}` },
+    { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([X.party, "seller"])}` },
+  ];
+  const c = classifyBuildAttempts(attempts, parties);
+  setAsideRun(l, b1.id, [leaf1, seller], c.refusedRows, [X, leaf1, seller]);
+  const b2 = l.allocate(13)!;
+  settleBatch(l, 2);
+  const xMid = l.rows().find((r) => r.party === X.party)!;
+  // the next settle: nothing persisted (R46) — X is re-derived through the G-5 gate; the owner claim that made
+  // it derivable is recorded, so the run pins it ready and the ledger promotes it out of the exception queue.
+  l.pin([X, leaf1, seller], []);
+  l.eligible();
+  const b3 = l.allocate(13)!;
+  settleBatch(l, 3);
+  const xEnd = l.rows().find((r) => r.party === X.party)!;
+  const ok = c.unbuildable && !c.isolate && JSON.stringify(c.refusedRows) === JSON.stringify([X.party]) &&
+    JSON.stringify(b2.outputs.map((o) => o.party)) === JSON.stringify(["leaf:1", "seller"]) &&
+    xMid.state === "exception" && b3.outputs.some((o) => o.party === X.party) && xEnd.state === "refunded";
+  const d = `classify(unbuildable=${c.unbuildable}, refusedRows=${JSON.stringify(c.refusedRows)}) — the intersection of {X,leaf:1} and {X,seller}; next batch pays ${JSON.stringify(b2.outputs.map((o) => o.party))}; X this run: ${xMid.state} (set aside run-locally, never persisted); after the owner claim the next settle pays it in batch ${b3.id} → ${xEnd.state}`;
+  l.close();
+  return [ok, d];
+});
+
+// ---- case 3: a refused SELLER payout row is set aside this run only and paid on the next settle -------------
 caseRun("f20-seller-deferred-not-condemned", () => {
   const l = new Ledger(st, uid(3));
   l.pin([leaf1, seller], []); l.eligible();
@@ -135,24 +144,70 @@ caseRun("f20-seller-deferred-not-condemned", () => {
     { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify(["seller"])}` },
     { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify(["seller"])}` },
   ];
-  const c = classifyBuildAttempts(attempts);
-  const aside = setAsideRows(b1.outputs.map(({ party, kind }) => ({ party, kind })), c.refusedRows);
-  setAsideRun(l, b1.id, [leaf1], aside.condemned, aside.deferred);
+  const c = classifyBuildAttempts(attempts, b1.outputs.map((o) => o.party));
+  setAsideRun(l, b1.id, [leaf1], c.refusedRows, [leaf1, seller]);
   const b2 = l.allocate(13)!;
   settleBatch(l, 2); // the other rows settle first
   const sellerMid = l.rows().find((r) => r.party === "seller")!;
-  // the next settle run: the deferred payout row is re-derived (it is NOT in the unbuildable record) and
-  // promoted from its this-run exception back to eligible — the shipped pin's exception-promotion path.
+  // the next settle: nothing persisted — the payout row is re-derived as soon as a host can build it.
   l.pin([leaf1, seller], []);
   l.eligible();
   const b3 = l.allocate(13)!;
   settleBatch(l, 3);
   const sellerEnd = l.rows().find((r) => r.party === "seller")!;
   const ok = c.unbuildable && JSON.stringify(c.refusedRows) === JSON.stringify(["seller"]) &&
-    aside.condemned.length === 0 && JSON.stringify(aside.deferred) === JSON.stringify(["seller"]) &&
     JSON.stringify(b2.outputs.map((o) => o.party)) === JSON.stringify(["leaf:1"]) &&
     sellerMid.state === "exception" && b3.outputs.some((o) => o.party === "seller") && sellerEnd.state === "paid";
-  const d = `set-aside condemned ${JSON.stringify(aside.condemned)} (never the payout row) deferred ${JSON.stringify(aside.deferred)}; this run: ${sellerMid.state} (deferred exception, not unbuildable.json); the next settle pays it in batch ${b3.id} → ${sellerEnd.state}; the other rows settled first in batch ${b2.id}`;
+  const d = `classify(refusedRows=${JSON.stringify(c.refusedRows)}); this run: ${sellerMid.state} (set aside run-locally — R46: no unbuildable.json, nothing ever persisted); the next settle re-derives and pays it in batch ${b3.id} → ${sellerEnd.state}; the other rows settled first in batch ${b2.id}`;
+  l.close();
+  return [ok, d];
+});
+
+// ---- case 4: disjoint typed refusals — nothing set aside; the batch is ISOLATED (one row per batch); the
+// ---- singletons a host CAN build settle, and a singleton every reached host typed-refuses is set aside by
+// ---- name so the loop terminates (R46/F25) ---------------------------------------------------------------
+caseRun("f20-isolate-disjoint-refusals", () => {
+  const nZ = `${"22".repeat(32)}:ironwood:2`;
+  const Z: Obligation = { party: `balance-late:${nZ}`, kind: "refund", amount_zats: "7000", notes: [nZ] };
+  const l = new Ledger(st, uid(4));
+  l.pin([X, leaf1, Z], []); l.eligible();
+  const b1 = l.allocate(13)!;
+  const parties = b1.outputs.map((o) => o.party);
+  // host 1 cannot derive X; host 2 cannot derive leaf:1 — the refusal sets are DISJOINT.
+  const c = classifyBuildAttempts([
+    { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([X.party])}` },
+    { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([leaf1.party])}` },
+  ], parties);
+  // the worker: nothing set aside at batch level; isolate = the batch's row count -> its rows retry one per batch
+  let isolate = c.isolate ? b1.outputs.length : 0;
+  l.expire(b1.id); l.pin([X, leaf1, Z], []); l.eligible();
+  const steps: string[] = [];
+  const onSingleton: Record<string, () => void> = {
+    [X.party]: () => { // X: host 1 refuses it again, host 2 BUILDS it (its refusal named only leaf:1)
+      steps.push(`${X.party} built`); settleBatch(l, 21, 1);
+    },
+    [leaf1.party]: () => { // leaf:1: host 2 refuses it again, host 1 BUILDS it
+      steps.push("leaf:1 built"); settleBatch(l, 22, 1);
+    },
+    [Z.party]: () => { // Z: every reached host gives a typed refusal naming rows outside it -> set aside by name
+      const one = classifyBuildAttempts([
+        { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([X.party])}` },
+        { status: 3, stderr: `ERROR sign build refused-rows ${JSON.stringify([leaf1.party])}` },
+      ], [Z.party]);
+      const b = l.allocate(1)!;
+      steps.push(`${Z.party} set aside by name (singleton: unbuildable=${one.unbuildable}, isolate=${one.isolate}, refusedRows=${JSON.stringify(one.refusedRows)})`);
+      setAsideRun(l, b.id, [], [Z.party], [Z]);
+    },
+  };
+  while (isolate > 0) {
+    isolate--;
+    const b = l.allocate(1)!;
+    onSingleton[b.outputs[0].party]();
+  }
+  const states = Object.fromEntries(l.rows().map((r) => [r.party, r.state]));
+  const ok = !c.unbuildable && c.isolate && c.refusedRows.length === 0 && steps.length === 3 &&
+    states[X.party] === "refunded" && states["leaf:1"] === "refunded" && states[Z.party] === "exception";
+  const d = `classify(unbuildable=${c.unbuildable}, isolate=${c.isolate}, refusedRows=${JSON.stringify(c.refusedRows)}) — disjoint refusals set NOTHING aside; one per batch: ${JSON.stringify(steps)}; row states ${JSON.stringify(states)} — the derivable singletons settle and the refused singleton is set aside by name (F25: every iteration builds a batch or removes a row)`;
   l.close();
   return [ok, d];
 });

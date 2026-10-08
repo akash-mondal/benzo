@@ -1,0 +1,13 @@
+diff --git a/settle/ledger.ts b/settle/ledger.ts
+index 3989d07..6622991 100644
+--- a/settle/ledger.ts
++++ b/settle/ledger.ts
+@@ -115,7 +115,7 @@ export class Ledger {
+           // note another row already backs) — the row's amount may already cover those notes' value.
+           if(isKeyedRefund(o2.party))for(const n of backingOf(o2))this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
+         }
+-        if(old&&old.state==="exception"&&ready.has(o.party)) {
++        if(false&&old&&old.state==="exception"&&ready.has(o.party)) { // A24-F20persist MUTATION: the persistent set-aside restored (pre-R46 unbuildable.json semantics) — a row once set aside is never re-derived/payable again
+           // A row whose re-derived amount differs from its pinned one is never made payable at the stale
+           // amount (every host derives the fresh amount and would refuse the candidate): it waits until a
+           // derivation agrees with the pinned row again, and nothing else is held up by it.

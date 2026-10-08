@@ -1,0 +1,16 @@
+# mutation A24-F20persist (the persistent set-aside restored — pre-R46 unbuildable.json semantics: a row once set aside is never re-derived/payable again — at the ledger seam the repro drives) at commit 66aca14, run 2026-10-08T09:01:11Z
+# command: npx esbuild tools/repro/r45-f20.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r45-f20.mjs && node tmp/r45-f20.mjs; expected red: ERROR f20-set-aside-only-refused-rows, ERROR f20-seller-deferred-not-condemned (and ERROR f20-isolate-disjoint-refusals — its singletons are re-derived too); f20-timeout-retried stays green (retries are not re-derivations)
+commit 66aca146dc1ce9a019422256e87bdb5bfd004f54
+utc 2026-10-08T09:00:06.460Z
+command node tmp/r45-f20.mjs (tools/repro/r45-f20.ts)
+tree M settle/ledger.ts
+tree  M tools/repro/r45-f20.ts
+tree ?? docs/evidence/phase-5/mutations/A24-F20persist.patch
+PASS f20-timeout-retried classify(unbuildable=false, isolate=false, refusedRows=[]); retry sees batch 1 with 2 rows (batch 1), row states {"leaf:1":"allocated","seller":"allocated"} — a timeout/exit-1 is retried, never set aside
+FAIL f20-set-aside-only-refused-rows threw: Cannot read properties of null (reading 'id')
+ERROR f20-set-aside-only-refused-rows threw: Cannot read properties of null (reading 'id')
+FAIL f20-seller-deferred-not-condemned threw: Cannot read properties of null (reading 'id')
+ERROR f20-seller-deferred-not-condemned threw: Cannot read properties of null (reading 'id')
+FAIL f20-isolate-disjoint-refusals threw: Cannot read properties of null (reading 'outputs')
+ERROR f20-isolate-disjoint-refusals threw: Cannot read properties of null (reading 'outputs')
+RESULT FAIL r45-f20
