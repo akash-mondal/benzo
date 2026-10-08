@@ -1,0 +1,12 @@
+# r45-f20 GREEN — tools/repro/r45-f20.ts at the F20-repro commit (20741da), mutation reversed
+# command npx esbuild tools/repro/r45-f20.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r45-f20.mjs && node tmp/r45-f20.mjs
+commit 20741da1ab3021e734f8ef9472986a841fc841e1
+utc 2026-10-08T06:13:52.765Z
+command node tmp/r45-f20.mjs (tools/repro/r45-f20.ts)
+tree ?? docs/evidence/phase-5/mutations/A23-F20.out
+tree ?? docs/evidence/phase-5/mutations/A23-F20.patch
+tree ?? docs/evidence/phase-5/repro/r45-f20-green.out
+PASS f20-timeout-retried classify(unbuildable=false, refusedRows=[]); set-aside condemned [] deferred []; retry sees batch 1 with 2 rows (batch 1), row states {"leaf:1":"allocated","seller":"allocated"} — a timeout/exit-1 is retried, never condemned
+PASS f20-set-aside-only-refused-rows classify(unbuildable=true, refusedRows=["balance-late:1111111111111111111111111111111111111111111111111111111111111111:ironwood:0"]) — the intersection of {balance-late:1111111111111111111111111111111111111111111111111111111111111111:ironwood:0,leaf:1} and {balance-late:1111111111111111111111111111111111111111111111111111111111111111:ironwood:0,seller}; set-aside condemned ["balance-late:1111111111111111111111111111111111111111111111111111111111111111:ironwood:0"] deferred []; next batch pays ["leaf:1","seller"]; the refused row stays exception (claimable exception, never paid)
+PASS f20-seller-deferred-not-condemned set-aside condemned [] (never the payout row) deferred ["seller"]; this run: exception (deferred exception, not unbuildable.json); the next settle pays it in batch 3 → paid; the other rows settled first in batch 2
+RESULT PASS r45-f20
