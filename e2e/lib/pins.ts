@@ -20,6 +20,8 @@ const NU7_PATCHES: Record<string, string[]> = {
 const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 64 << 20 });
 
 export function pinsMismatch(): string | undefined {
+  const hiddenRoot = git(ROOT, "ls-files", "-v").split("\n").filter((l) => l && !l.startsWith("H "));
+  if (hiddenRoot.length) return `this checkout has files hidden from git status: ${hiddenRoot.slice(0, 3).join(", ")}`;
   const pins = Object.fromEntries(readFileSync(path.join(ROOT, "tools/pins.env"), "utf8").split("\n").map((l) => l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter((m) => m !== null).map((m) => [m![1], m![2]]));
   const cargo = execFileSync("cargo", ["install", "--list", "--root", STATE]).toString().split("\n");
   for (const crate of ["frostd", "frost-client"])
@@ -52,8 +54,12 @@ export function pinsMismatch(): string | undefined {
     // R52 (S6): the record must carry exactly the committed patch set, each at its committed digest.
     const recorded = Object.keys(p.patches ?? {}).sort().join(",");
     if (recorded !== [...cvs].sort().join(",")) return `${crate} provenance lists patches [${recorded}], expected [${[...cvs].sort().join(",")}]`;
-    for (const cv of cvs)
-      if (sha(path.join(ROOT, "tools/nu7", `${cv}.patch`)) !== p.patches[cv]) return `${crate} was built with a different ${cv}.patch`;
+    // R53 (Reviewer R S6b on R52): the committed digest comes from git (HEAD), never the working tree, and no file in
+    // this checkout may be hidden from the dirty-tree check (global-setup).
+    for (const cv of cvs) {
+      const committed = createHash("sha256").update(execFileSync("git", ["-C", ROOT, "show", `HEAD:tools/nu7/${cv}.patch`])).digest("hex");
+      if (committed !== p.patches[cv]) return `${crate} was built with a different ${cv}.patch`;
+    }
     if (sha(bin(crate)) !== p.bin_sha256) return `${crate} binary differs from the one tools/nu7/build.sh built`;
   }
   const go: [string, string, string][] = [["tle", "github.com/drand/tlock", pins.TLE_TAG], ["grpcurl", "github.com/fullstorydev/grpcurl", pins.GRPCURL_TAG]];
