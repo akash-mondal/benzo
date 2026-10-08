@@ -110,10 +110,17 @@ the balance money they sent), and an out-of-window payment refunds to them as it
 claimable with that slot's bid owner key.
 - **A note at the balance address of a deposit slot with no bid is unrecoverable** (R40 F5): nobody can
 claim it (no owner key exists for the slot), so it is never swept and never refunded.
-- **A reorg deeper than the 10-confirmation gate is outside the model** (R42 F12): every refund row is
-payable only from notes past the ZIP-315 confirmations rule (10), and a re-derivation that differs from a
-pinned row is logged with the pinned row standing — but a reorg deeper than that gate is out of scope, as
-for any Zcash wallet.
+- **A reorg deeper than the 10-confirmation gate is outside the model** (R42 F12, R46 F23): balance-address
+notes are classified (in-window, late, excess) only once past the ZIP-315 confirmations rule (10), so a
+shallower reorg cannot move a note across the window edge; an **unpaid** refund row whose derivation changes is
+replaced (rows money has moved for never change), and conservation is checked at every pin. A reorg deeper
+than that gate is out of scope, as for any Zcash wallet.
+- **Liveness limits of settlement** (R45/R46): rows that no reachable signer host can build are set aside for
+that settle run only and re-derived on the next one — an owner's claim makes a set-aside refund payable then.
+A signer host that fails in a non-typed way forever (it never answers or always crashes) stalls settlement
+until it is fixed or replaced; and a payout row (seller, treasury) that no host can ever derive has no
+automatic completion path — it waits, it is never paid elsewhere. Both are liveness limits: funds are never
+misdirected.
 - The signer-reproducible stealth derivation is custom (2-of-3 signers must derive the same one-time
 address); its salt is known only to envelope openers, so a guessed meta-address links nothing
 (`docs/AUDITS.md`, `docs/evidence/phase-5/repro/r25-1-link-after.out`).
