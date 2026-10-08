@@ -40,6 +40,10 @@ export default function globalTeardown() {
     results,
     sha256: Object.fromEntries([...hashed.map((f) => [path.relative(dest, f), sha256(f)]), ...built.map((p) => [p, sha256(path.join(ROOT, p))])]),
     tools,
+    // R52 (Reviewer R S8 on R49): chain of custody for the NU7 path builds. The provenance record is attested by
+    // the machine under test, so the evidence pins its digest and the binary's; a later swap shows against it.
+    nu7_provenance: Object.fromEntries(["zcash-devtool", "zcash-sign"].filter((b) => existsSync(path.join(STATE, "nu7-provenance", `${b}.json`)))
+      .map((b) => [b, { record_sha256: sha256(path.join(STATE, "nu7-provenance", `${b}.json`)), bin_sha256: sha256(bin(b)) }])),
   };
   writeFileSync(path.join(dest, "run.json"), JSON.stringify(run, null, 1) + "\n");
   console.log(`run.json -> ${path.relative(ROOT, dest)}${evidence && !write ? " (NOT RUN or no results: no evidence written)" : ""}`);

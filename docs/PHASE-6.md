@@ -126,3 +126,13 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
      - The runner stopped. When the head killed the queued `buyback-mode` (`playwright test` and its node worker), an already-spawned `benzo bid deposit` still broadcast one stray deposit (`049296e3…`) to auction `347372d9…`. That auction is recovered by cancel plus `tools/repro/x-cancel-claims.ts`.
      - Head rule from this: stop a live spec by killing its whole process group, and only between steps that move funds. Better still, let it finish.
   4. Product and host code changed: the hosts are provisioned again and RG restarts from project #1.
+- R52 2026-10-08 (head, answers Reviewer R `benzo-sol/reports/pr-rg-r49.md`, FIX-FIRST: 3 P1, 3 P2). All accepted.
+  1. **The pin gate checks the committed facts, not the record's** (`e2e/lib/pins.ts`):
+     - **S6:** the required NU7 patch set per tool is fixed in the gate (as `tools/bootstrap.sh` builds it). The record must list exactly that set, each at the committed digest.
+     - **S7:** `Cargo.lock.pinned` must equal the checkout's committed `Cargo.lock`. `tools/nu7/lockdiff.py` runs at gate time, as at build time. The `Cargo.toml` diff may contain only the NU7 `[patch.crates-io]` path lines into `<state>/nu7-crates`.
+     - **S9:** every tracked file must be plain in `git ls-files -v`, so no skip-worktree or assume-unchanged file can hide an edit.
+     - **S8 is closed by chain of custody, not prevention.** The record is attested by the machine under test, and without reproducible builds nothing on that machine can prove it independently. Each evidence `run.json` now pins `nu7_provenance` (the record's digest and the binary's), so a later swap is detectable against committed evidence.
+     - **The honest guarantee:** "built from the pinned source by `tools/nu7/build.sh`, as attested by the machine under test".
+     - Proof: `docs/evidence/phase-6/repro/r49-pins.out` (real tools OK; S2, S4, S6, S7 and S9 refused; restored OK).
+  2. **`tle -d` is bounded everywhere it runs.** `manifest/reserve.ts` `tleDecryptFailover` (signer plan, host derive, delivery, envelopes, `benzo verify`) now bounds each relay at `DRAND_TIMEOUT_MS`, and a timeout fails over to the next endpoint like any network error. With R49's three sites, no product `tle` spawn is unbounded, and the README's claim now holds. The harness drand spawns are bounded too (`e2e/lib/readpath.ts`, `tools.ts`, `readpath-live.ts`, `tools/repro/markets.ts`). The verify bundle is rebuilt (`docs/verify-bundle.sha256`).
+  3. P2: `Run.narrowed()` throws on an unknown id. The RG row cites the hosts' manifest commit of the final attempt.

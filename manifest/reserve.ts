@@ -6,6 +6,7 @@
 // decrypts: it owns the presence and equality rules only.
 import { spawnSync } from "node:child_process";
 import { requireThat } from "./schema";
+import { DRAND_TIMEOUT_MS, tleBound } from "../settle/bounded";
 
 // Go tle decryption of one tlock ciphertext; null when the ciphertext is authentic but undecryptable
 // (wrong round/chain or tampered), matching the signer's leaf handling and verify's cross-check.
@@ -20,7 +21,9 @@ export function tleDecryptFailover(tleBin: string, chainHash: string, ciphertext
   const errors: string[] = [];
   for (let round = 0; round < 3; round++) {
     for (const url of drandUrls()) {
-      const r = spawnSync(tleBin, ["-d", "-n", url, "-c", chainHash], { input: ciphertext, maxBuffer: 1 << 20 });
+      const r = spawnSync(tleBin, ["-d", "-n", url, "-c", chainHash], { input: ciphertext, maxBuffer: 1 << 20, ...tleBound });
+      // R52 (Reviewer R P1-2 on R49): a stalled relay is bounded and fails over to the next endpoint like any network error.
+      if ((r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") { errors.push(`${url}: timed out after ${DRAND_TIMEOUT_MS} ms (stalled drand relay)`); continue; }
       if (r.error) throw r.error;
       if (r.status === 0) return r.stdout;
       const error = r.stderr.toString();

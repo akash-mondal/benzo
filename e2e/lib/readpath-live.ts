@@ -17,6 +17,7 @@ import * as settle from "../../settle/envelopes";
 import { requireReserveOpening } from "../../manifest/reserve";
 import { ROOT, STATE, bin } from "./env";
 import type { Run } from "./run";
+import { tleBound } from "../../settle/bounded"; // R52: drand spawns are bounded like the product's
 
 const need = (ok: boolean, why: string) => { if (!ok) throw Error(why); };
 const sha256 = (b: any) => createHash("sha256").update(b).digest("hex");
@@ -783,7 +784,7 @@ const sealedDestination = sh(path.join(ROOT, "settle/target/release/benzo-pczt")
 if (!sealedDestination.startsWith("utest1")) { console.error(`fresh bidder address unavailable: ${sealedDestination}`); process.exit(2); }
 const sealBid = (i, price, destination) => {
   const prep = bid.prepareBid({ auction_id, price_zats: price, quantity: 1, destination_ua: destination, envelope_public_hexs: destination ? signerKeys : undefined });
-  const sealed = spawnSync(TLE, ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(prep.plaintext_hex, "hex"), maxBuffer: 1 << 20 });
+  const sealed = spawnSync(TLE, ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(prep.plaintext_hex, "hex"), maxBuffer: 1 << 20, ...tleBound });
   if (sealed.status !== 0) { console.error(`tle seal: ${sealed.stderr?.toString().trim()}`); process.exit(2); }
   const ciphertext_hash = sha256(sealed.stdout);
   return { bound: bid.bindSealedBid(prep, auction_id, ciphertext_hash), ct: sealed.stdout.toString("hex"), ciphertext_hash };
@@ -796,7 +797,7 @@ const leaves = [bid0, bid1].map((b, i) => ({ auction_id, manifest_hash: packet.s
 const { root, paths } = merkle.tree(leaves);
 const frozen = { auction_id, manifest_hash: packet.sha256, root, leaf_count: leaves.length, cutoff: T_freeze, published_at, leaves, paths };
 const opened = leaves.map((l) => {
-  const r = spawnSync(TLE, ["-d", "-c", chain], { input: Buffer.from(l.ciphertext_hex, "hex"), maxBuffer: 1 << 20 });
+  const r = spawnSync(TLE, ["-d", "-c", chain], { input: Buffer.from(l.ciphertext_hex, "hex"), maxBuffer: 1 << 20, ...tleBound });
   if (r.status !== 0) { console.error(`tle open: ${r.stderr?.toString().trim()}`); process.exit(2); }
   return { leaf_index: l.leaf_index, plaintext_hex: r.stdout.toString("hex") };
 });
@@ -979,13 +980,13 @@ const sealSabotaged = (dest, broken) => {
   const envelope_ct_hex = Buffer.concat([header, aeadNonce, body]).toString("hex");
   const commitment = env.settlementCommitment(bidNonce, envelope_ct_hex);
   const plaintext = bid.buildBidPlaintext({ auction_id, price_zats: 1000n, quantity: 1, nonce_hex: bidNonce, owner_public_hex: owner.public_hex, settlement_commitment_hex: commitment }).toString("hex");
-  const sealed = spawnSync(TLE, ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(plaintext, "hex"), maxBuffer: 1 << 20 });
+  const sealed = spawnSync(TLE, ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(plaintext, "hex"), maxBuffer: 1 << 20, ...tleBound });
   if (sealed.status !== 0) { console.error(`tle seal: ${sealed.stderr?.toString().trim()}`); process.exit(2); }
   const ciphertext_hash = sha256(sealed.stdout);
   return { bound: bid.bindSealedBid({ plaintext_hex: plaintext, nonce_hex: bidNonce, owner, settlement_commitment_hex: commitment, envelope_ct_hex }, auction_id, ciphertext_hash), ct: sealed.stdout.toString("hex"), ciphertext_hash };
 };
 const bidWinner = bid.prepareBid({ auction_id, price_zats: C, quantity: 1 });
-const winnerSealed = spawnSync(TLE, ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(bidWinner.plaintext_hex, "hex"), maxBuffer: 1 << 20 });
+const winnerSealed = spawnSync(TLE, ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(bidWinner.plaintext_hex, "hex"), maxBuffer: 1 << 20, ...tleBound });
 const winnerHash = sha256(winnerSealed.stdout);
 const bid1 = sealSabotaged(dest1, [2]);     // only carol is sabotaged: alice and bob agree
 const bid2 = sealSabotaged(dest2, [1, 2]);  // bob and carol are sabotaged: only alice can open
@@ -999,7 +1000,7 @@ const leaves = specs.map((b, i) => ({ auction_id, manifest_hash: packet.sha256, 
 const { root, paths } = merkle.tree(leaves);
 const frozen = { auction_id, manifest_hash: packet.sha256, root, leaf_count: leaves.length, cutoff: T_freeze, published_at, leaves, paths };
 const opened = leaves.map((l) => {
-  const r = spawnSync(TLE, ["-d", "-c", chain], { input: Buffer.from(l.ciphertext_hex, "hex"), maxBuffer: 1 << 20 });
+  const r = spawnSync(TLE, ["-d", "-c", chain], { input: Buffer.from(l.ciphertext_hex, "hex"), maxBuffer: 1 << 20, ...tleBound });
   if (r.status !== 0) { console.error(`tle open: ${r.stderr?.toString().trim()}`); process.exit(2); }
   return { leaf_index: l.leaf_index, plaintext_hex: r.stdout.toString("hex") };
 });

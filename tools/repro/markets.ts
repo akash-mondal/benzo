@@ -18,6 +18,7 @@ import { deliveryRowOrder } from "../../clear/launch";
 import { generateOwnerKey, ownerPublic, signStatement } from "../../envelope";
 import { benzoBin, dkgOnHosts, hostDeliveryList, hostEnvelopeKeys, hostEnvelopeOpens, hostWitnessCerts, hostWitnessKeys, sh } from "../../e2e/lib/hosts";
 import * as z from "../../e2e/lib/zcash";
+import { tleBound } from "../../settle/bounded"; // R52: drand spawns are bounded like the product's
 
 const C = 200_000; // part 2: small collateral
 const OUT = path.join(ROOT, "tmp/markets"); mkdirSync(OUT, { recursive: true });
@@ -36,7 +37,7 @@ const latestRound=async()=>{try{return (await (await fetch(`${DRAND}/public/late
 const LOTS = ["a", "b", "c"].map(l => hash(Buffer.from(`benzo-drop-lot-${l}`)));
 const sealReserve = (price: number, id: string, R: number): string => {
   const pt = Buffer.alloc(40); pt.writeBigUInt64BE(BigInt(price)); Buffer.from(id, "hex").copy(pt, 8);
-  const r = spawnSync(path.join(STATE, "bin/tle"), ["-e", "-f", "-r", String(R), "-c", env("BNZ_DRAND_CHAIN_HASH")], { input: pt, maxBuffer: 1 << 20 });
+  const r = spawnSync(path.join(STATE, "bin/tle"), ["-e", "-f", "-r", String(R), "-c", env("BNZ_DRAND_CHAIN_HASH")], { input: pt, maxBuffer: 1 << 20, ...tleBound });
   if (r.status !== 0) throw new Error(`tle seal failed: ${(r.stderr ?? Buffer.alloc(0)).toString().trim().slice(-200)}`);
   return r.stdout.toString("hex").trim();
 };

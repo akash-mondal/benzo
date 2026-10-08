@@ -11,6 +11,13 @@ import { bin, ROOT, STATE } from "./env";
 
 const sha = (f: string) => createHash("sha256").update(readFileSync(f)).digest("hex");
 const BUILD_EDITS = new Set([" M Cargo.toml", " M Cargo.lock", "?? Cargo.lock.pinned"]);
+// R52 (Reviewer R S6 on R49): the NU7 patch set each tool must carry, as tools/bootstrap.sh builds it — the gate checks
+// the committed set, not whatever the record lists.
+const NU7_PATCHES: Record<string, string[]> = {
+  "zcash-devtool": ["zcash_protocol-0.10.5", "zcash_primitives-0.30.1", "pczt-0.9.3"],
+  "zcash-sign": ["zcash_protocol-0.10.0", "zcash_primitives-0.29.0", "pczt-0.8.0-rc.1"],
+};
+const git = (dir: string, ...args: string[]) => execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", maxBuffer: 64 << 20 });
 
 export function pinsMismatch(): string | undefined {
   const pins = Object.fromEntries(readFileSync(path.join(ROOT, "tools/pins.env"), "utf8").split("\n").map((l) => l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter((m) => m !== null).map((m) => [m![1], m![2]]));
@@ -26,10 +33,27 @@ export function pinsMismatch(): string | undefined {
     const p = JSON.parse(readFileSync(pf, "utf8"));
     const head = execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"]).toString().trim();
     if (p.rev !== rev || p.src_head !== rev || head !== rev) return `${crate} source is not at ${rev} (recorded ${p.src_head}, checkout ${head})`;
-    const edits = execFileSync("git", ["-C", checkout, "status", "--porcelain", "--untracked-files=normal"]).toString().split("\n").filter(Boolean).filter((l) => !BUILD_EDITS.has(l));
+    const edits = git(checkout, "status", "--porcelain", "--untracked-files=normal").split("\n").filter(Boolean).filter((l) => !BUILD_EDITS.has(l));
     if (edits.length) return `${crate} source has edits beyond build.sh's: ${edits.slice(0, 3).join(", ")}`;
-    for (const [cv, digest] of Object.entries(p.patches as Record<string, string>))
-      if (sha(path.join(ROOT, "tools/nu7", `${cv}.patch`)) !== digest) return `${crate} was built with a different ${cv}.patch`;
+    // R52 (S9): skip-worktree / assume-unchanged files hide edits from `git status`; every tracked file must be plain.
+    const hidden = git(checkout, "ls-files", "-v").split("\n").filter((l) => l && !l.startsWith("H "));
+    if (hidden.length) return `${crate} source has files hidden from git status: ${hidden.slice(0, 3).join(", ")}`;
+    // R52 (S7): the allowed edits must be exactly build.sh's. Cargo.lock.pinned is the committed lock; Cargo.lock
+    // differs from it only in the patched packages (lockdiff.py, as at build time); Cargo.toml only gains the NU7
+    // [patch.crates-io] path lines into <state>/nu7-crates.
+    const cvs = NU7_PATCHES[crate];
+    if (readFileSync(path.join(checkout, "Cargo.lock.pinned"), "utf8") !== git(checkout, "show", "HEAD:Cargo.lock")) return `${crate} Cargo.lock.pinned is not the committed lock`;
+    const lockExtra = execFileSync("python3", [path.join(ROOT, "tools/nu7/lockdiff.py"), path.join(checkout, "Cargo.lock.pinned"), path.join(checkout, "Cargo.lock"), ...cvs], { encoding: "utf8" }).trim();
+    if (lockExtra) return `${crate} Cargo.lock changed beyond the NU7 packages: ${lockExtra.split("\n")[0]}`;
+    const tomlLines = git(checkout, "diff", "--no-color", "-U0", "HEAD", "--", "Cargo.toml").split("\n").filter((l) => /^[+-]/.test(l) && !/^(\+\+\+|---) /.test(l));
+    const allowed = new Set(["+[patch.crates-io]", "+", ...cvs.map((cv) => `+${cv.startsWith("pczt-") ? "pczt" : cv.replace(/-[^-]+$/, "")} = { path = "${path.join(STATE, "nu7-crates", cv)}" } # NU7 backport, tools/nu7 (Ruling R27)`)]);
+    const badToml = tomlLines.filter((l) => !allowed.has(l));
+    if (badToml.length) return `${crate} Cargo.toml has edits beyond the NU7 patch lines: ${badToml[0]}`;
+    // R52 (S6): the record must carry exactly the committed patch set, each at its committed digest.
+    const recorded = Object.keys(p.patches ?? {}).sort().join(",");
+    if (recorded !== [...cvs].sort().join(",")) return `${crate} provenance lists patches [${recorded}], expected [${[...cvs].sort().join(",")}]`;
+    for (const cv of cvs)
+      if (sha(path.join(ROOT, "tools/nu7", `${cv}.patch`)) !== p.patches[cv]) return `${crate} was built with a different ${cv}.patch`;
     if (sha(bin(crate)) !== p.bin_sha256) return `${crate} binary differs from the one tools/nu7/build.sh built`;
   }
   const go: [string, string, string][] = [["tle", "github.com/drand/tlock", pins.TLE_TAG], ["grpcurl", "github.com/fullstorydev/grpcurl", pins.GRPCURL_TAG]];

@@ -23,6 +23,7 @@ import * as witness from "../../witness";
 import * as pb from "../../cli/published-beacon";
 import { ROOT, STATE, bin } from "./env";
 import type { Run } from "./run";
+import { tleBound } from "../../settle/bounded"; // R52: drand spawns are bounded like the product's
 
 const sha256 = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
 const rndHex = (n: number) => randomBytes(n).toString("hex");
@@ -45,12 +46,12 @@ const drandRound = async (): Promise<{ R: number; release: number; beacon: any; 
   return { R, release, beacon: await beaconRes.json(), chain };
 };
 const tleSeal = (plaintextHex: string, R: number, chain: string): Buffer => {
-  const sealed = spawnSync(bin("tle"), ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(plaintextHex, "hex"), maxBuffer: 1 << 20 });
+  const sealed = spawnSync(bin("tle"), ["-e", "-f", "-r", String(R), "-c", chain], { input: Buffer.from(plaintextHex, "hex"), maxBuffer: 1 << 20, ...tleBound });
   need(sealed.status === 0, `tle seal: ${sealed.stderr?.toString().trim()}`);
   return sealed.stdout as Buffer;
 };
 const tleOpen = (ctHex: string, chain: string): string => {
-  const r = spawnSync(bin("tle"), ["-d", "-c", chain], { input: Buffer.from(ctHex, "hex"), maxBuffer: 1 << 20 });
+  const r = spawnSync(bin("tle"), ["-d", "-c", chain], { input: Buffer.from(ctHex, "hex"), maxBuffer: 1 << 20, ...tleBound });
   need(r.status === 0, `tle open: ${r.stderr?.toString().trim()}`);
   return (r.stdout as Buffer).toString("hex");
 };

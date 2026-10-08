@@ -7990,6 +7990,13 @@ function client(packet, trustedSigner) {
 
 // manifest/reserve.ts
 import { spawnSync } from "node:child_process";
+
+// settle/bounded.ts
+var LWD_TIMEOUT_MS = Number(process.env.BNZ_LWD_TIMEOUT_MS ?? 6e5);
+var DRAND_TIMEOUT_MS = Number(process.env.BNZ_DRAND_TIMEOUT_MS ?? 12e4);
+var tleBound = { timeout: DRAND_TIMEOUT_MS, killSignal: "SIGKILL" };
+
+// manifest/reserve.ts
 var MAC_FAILURE = /bad header MAC|failed to decrypt and authenticate payload chunk/;
 function drandUrls() {
   return (process.env.BNZ_DRAND_URLS || "https://api.drand.sh").split(",").map((u2) => u2.trim()).filter(Boolean);
@@ -7998,7 +8005,11 @@ function tleDecryptFailover(tleBin, chainHash, ciphertext) {
   const errors = [];
   for (let round = 0; round < 3; round++) {
     for (const url of drandUrls()) {
-      const r2 = spawnSync(tleBin, ["-d", "-n", url, "-c", chainHash], { input: ciphertext, maxBuffer: 1 << 20 });
+      const r2 = spawnSync(tleBin, ["-d", "-n", url, "-c", chainHash], { input: ciphertext, maxBuffer: 1 << 20, ...tleBound });
+      if (r2.error?.code === "ETIMEDOUT") {
+        errors.push(`${url}: timed out after ${DRAND_TIMEOUT_MS} ms (stalled drand relay)`);
+        continue;
+      }
       if (r2.error) throw r2.error;
       if (r2.status === 0) return r2.stdout;
       const error = r2.stderr.toString();

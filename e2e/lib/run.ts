@@ -43,6 +43,7 @@ export class Run {
 
   // R49 (Reviewer R P2-6 on R47): a check that ran only part of its title records that in run.json, not a bare PASS.
   narrowed(id: string, why: string) {
+    if (!(id in this.results)) throw new Error(`narrowed: unknown check ${id}`); // R52 (P2): a typo must not leave a bare PASS
     if (this.results[id] === "PASS") { this.results[id] = `PASS (narrowed: ${why})`; this.save(); }
   }
 
