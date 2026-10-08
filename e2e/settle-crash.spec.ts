@@ -8,12 +8,12 @@ import {spawn,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import {bin,DRAND,E2E,ROOT,STATE,env} from "./lib/env";
+import {bin,DRAND,E2E,ROOT,STATE,env,LWD,LWD_ALT} from "./lib/env";
 import {Run,waitFor,write} from "./lib/run";
 import {serveSealer,sealBid} from "./lib/sealer";
 import {pubkey,startFrostd,zcashSign} from "./lib/frost";
 import * as z from "./lib/zcash";
-const IDS=["J1","J2","K1","L1","M1","N1"],C=Number(env("BNZ_COLLATERAL_ZATS")),ALT=env("BNZ_LWD_URL_ALT"),MINE=30*60_000;
+const IDS=["J1","J2","K1","L1","M1","N1"],C=Number(env("BNZ_COLLATERAL_ZATS")),ALT=LWD_ALT,MINE=30*60_000;
 const freshAddress=(wallet:string)=>z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["address",path.join(STATE,wallet),"--network","test"]).trim();
 // Wallet CLI total excludes uneconomic notes; measure all mined unspent notes through the shipped chain scanner.
 const observedBalance=(wallet:string)=> {
@@ -70,7 +70,7 @@ function capture(id:string,label:string) {
   const batches=status.batches.map((b:any)=> {
     const base=path.join(dir,`batch-${b.id}`),i=existsSync(base+".inspect.json")?JSON.parse(readFileSync(base+".inspect.json","utf8")):null;
     const signing=existsSync(base+".signatures.json")?JSON.parse(readFileSync(base+".signatures.json","utf8")):null;
-    const proofs=b.height?[z.getTransaction(b.txid),z.getTransaction(b.txid,ALT)]:[];
+    const proofs=b.height?[z.getTransaction(b.txid),...(ALT?[z.getTransaction(b.txid,ALT)]:[])]:[];
     return {...b,pczt_path:undefined,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing,proofs:proofs.map(p=>({height:p.height,raw_hash:sha(p.raw)}))};
   });
   // F4 (R28): the member who never submitted a signoff is computed from the recorded signoffs, not a constant.
@@ -82,7 +82,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
   test.setTimeout(80*60_000);const run=new Run("settle-crash");
   for(const file of ["vault/data.sqlite","frost/alice.toml","frost/bob.toml","frost/carol.toml","ufvk.txt"])
     if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
-  try{await fetch(`${DRAND}/info`).then(r=>{if(!r.ok)throw Error(`drand HTTP ${r.status}`)});for(const e of [env("BNZ_LWD_URL"),ALT])if(Math.abs(z.tip(e)-4465026)<=40)throw Error("NU7 window")}catch(e){run.notRun(IDS,(e as Error).message)}
+  try{await fetch(`${DRAND}/info`).then(r=>{if(!r.ok)throw Error(`drand HTTP ${r.status}`)});for(const e of LWD)if(Math.abs(z.tip(e)-4465026)<=40)throw Error("NU7 window")}catch(e){run.notRun(IDS,(e as Error).message)}
   z.sync("bidder");z.sync("vault");z.enhance("vault");
   if(observedBalance("vault")!==0)run.notRun(IDS,"vault not empty; reconcile before new deposits");
   if(z.spendable(z.balance("bidder"))-4*C-100_000<3*C+40_000)run.notRun(IDS,"main drill would cross bidder floor; ask before spending");
@@ -121,7 +121,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
       expect.soft(resumed.code).toBe(0);expect.soft(main.receipts.map((r:any)=>Number(r.amount_zats)).sort((a:number,b:number)=>a-b)).toEqual([...expected].sort((a,b)=>a-b));
       const got=z.run(z.scanner,["scan","test",path.join(STATE,"bidder")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
       [refunds[0],refunds[1],refunds[2],refunds[3],refunds[6]].forEach((address,i)=>expect.soft(got.filter(n=>n.address===address).reduce((n,l)=>n+l.value_zats,0)).toBe(expected[i]));
-      for(const b of main.batches){expect.soft(b.inspect?.input_zats).toBe(4*C+30000);expect.soft(b.inspect?.output_zats).toBe(4*C);expect.soft(b.inspect?.fee_zats).toBe(30000);expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
+      for(const b of main.batches){expect.soft(b.inspect?.input_zats).toBe(4*C+30000);expect.soft(b.inspect?.output_zats).toBe(4*C);expect.soft(b.inspect?.fee_zats).toBe(30000);expect.soft(b.proofs.length).toBe(LWD.length);if(ALT)expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
       expect.soft(after-before).toBe(4*C);expect.soft(observedBalance("vault")).toBe(0);
       write("settle/main/balances.json",bytes({before,after,vault:observedBalance("vault"),deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:30000,expected_output_zats:expected}));
     });
@@ -153,7 +153,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
     await run.check("M1","closed drand endpoint cannot impede exact-C unopened refunds",()=> {
       expect.soft(outage).toBe("ECONNREFUSED");expect.soft(cancelledRun.code).toBe(0);expect.soft(trace.length).toBe(0);expect.soft(cancelled.value.trace.filter((r:any)=>r.operation==="tle -d").length).toBe(0);
       expect.soft(c.receipts.map((r:any)=>r.amount_zats)).toEqual([String(C),String(C)]);expect.soft(cancelAfter-cancelBefore).toBe(2*C);expect.soft(observedBalance("vault")).toBe(0);
-      for(const b of c.batches){expect.soft(b.inspect?.input_zats).toBe(2*C+15000);expect.soft(b.inspect?.output_zats).toBe(2*C);expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
+      for(const b of c.batches){expect.soft(b.inspect?.input_zats).toBe(2*C+15000);expect.soft(b.inspect?.output_zats).toBe(2*C);expect.soft(b.proofs.length).toBe(LWD.length);if(ALT)expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
     });
   } finally {try{await recovery()}finally{stop()}}
 });

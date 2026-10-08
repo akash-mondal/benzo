@@ -21,4 +21,8 @@ export const bin = (tool: string) => path.join(STATE, "bin", tool);
 // Every run stages its output here; an evidence run copies it to BNZ_EVIDENCE_DIR at the end (global-teardown.ts).
 export const E2E = path.join(ROOT, "tmp", "e2e");
 export const OUT = path.join(E2E, "out");
+// R27/R47: with BNZ_LWD_SINGLE=1 (testnet only, while one public NU7 endpoint serves) the specs read the primary
+// endpoint alone, as settlement's lwdEndpoints() does; the evidence records that no second endpoint agreed.
+export const LWD_ALT: string | null = process.env.BNZ_LWD_SINGLE === "1" ? null : env("BNZ_LWD_URL_ALT");
+export const LWD = [env("BNZ_LWD_URL"), ...(LWD_ALT ? [LWD_ALT] : [])];
 export const DRAND = env("BNZ_DRAND_URLS").split(",")[0] + "/" + env("BNZ_DRAND_CHAIN_HASH");

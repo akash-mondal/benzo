@@ -14,7 +14,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { bin, DRAND, env, ROOT, STATE } from "./lib/env";
+import { bin, DRAND, env, LWD, LWD_ALT, ROOT, STATE } from "./lib/env";
 import { startFrostd, zcashSign, type Session } from "./lib/frost";
 import { Run, waitFor, write } from "./lib/run";
 import { sealBid, serveSealer } from "./lib/sealer";
@@ -22,7 +22,7 @@ import * as z from "./lib/zcash";
 
 const IDS = ["B1", "D1", "D2", "D3", "A1", "A2", "A3", "A4", "A5"];
 const C = Number(env("BNZ_COLLATERAL_ZATS"));
-const ALT = env("BNZ_LWD_URL_ALT");
+const ALT = LWD_ALT;
 const MINE = 30 * 60_000; // each deposit and the refund is mined within 30 minutes of broadcast
 const sha256 = (hex: string) => createHash("sha256").update(Buffer.from(hex, "hex")).digest("hex");
 const minedHeight = (txid: string) => () => z.minedHeight(txid);
@@ -54,7 +54,7 @@ test("golden path on testnet", async ({ page }) => {
   if (pinned) run.notRun(IDS, `pinned binaries do not match tools/pins.env: ${pinned}`);
   const answers = await fetch(`${DRAND}/info`).then((r) => r.ok).catch(() => false);
   if (!answers) run.notRun(IDS, `drand ${DRAND}/info did not answer`);
-  for (const endpoint of [env("BNZ_LWD_URL"), ALT]) {
+  for (const endpoint of LWD) {
     try {
       z.tip(endpoint);
     } catch (e) {
@@ -173,15 +173,15 @@ test("golden path on testnet", async ({ page }) => {
 
     // 10. Settle: the refund is mined and both wallets are synced.
     const heightPrimary = await waitFor({ height: 1, tip: minedHeight(refundTxid) }, sentRefund + MINE);
-    await waitFor({ height: heightPrimary, tip: () => z.tip(ALT) }, sentRefund + MINE);
-    const heightAlt = z.getTransaction(refundTxid, ALT).height;
+    if (ALT) await waitFor({ height: heightPrimary, tip: () => z.tip(ALT) }, sentRefund + MINE);
+    const heightAlt = ALT ? z.getTransaction(refundTxid, ALT).height : null;
     const raw = z.getTransaction(refundTxid).raw;
     write(
       "frost/refund.json",
       JSON.stringify(
         {
           txid: refundTxid,
-          height: { [env("BNZ_LWD_URL")]: heightPrimary, [ALT]: heightAlt },
+          height: { [env("BNZ_LWD_URL")]: heightPrimary, ...(ALT ? { [ALT]: heightAlt } : { second_endpoint: "none (BNZ_LWD_SINGLE=1, R27/R47)" }) },
           header_hex: raw.subarray(0, 4).toString("hex"),
           version_group_id_hex: raw.subarray(4, 8).toString("hex"),
           consensus_branch_id: raw.readUInt32LE(8).toString(16).padStart(8, "0"),
@@ -211,7 +211,7 @@ test("golden path on testnet", async ({ page }) => {
     );
 
     await run.check("A1", "refund mined at one height on both endpoints and spends both deposits", () => {
-      expect.soft(heightAlt, "height on the second endpoint").toBe(heightPrimary);
+      if (ALT) expect.soft(heightAlt, "height on the second endpoint").toBe(heightPrimary);
       depositLines.forEach((l, i) => expect.soft(l?.spent_in_txid, `deposit ${i + 1} spent in`).toBe(refundTxid));
     });
     await run.check("A2", "one 2-participant frostd session per randomizer", () => {

@@ -23,7 +23,7 @@ import {createHash,randomBytes} from "node:crypto";
 import {execFileSync,spawnSync} from "node:child_process";
 import {existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from "node:fs";
 import path from "node:path";
-import {bin,DRAND,env,ROOT,STATE} from "./lib/env";
+import {bin,DRAND,env,LWD,LWD_ALT,ROOT,STATE} from "./lib/env";
 import {startFrostd,zcashSign} from "./lib/frost";
 import {Run,waitFor,write} from "./lib/run";
 import {serveSealer,sealBid} from "./lib/sealer";
@@ -33,7 +33,7 @@ import {uaShape,validateManifest} from "../manifest/schema";
 import {isUnifiedOn} from "../envelope/destination";
 
 const IDS=["E1","E2","F1","F2","G1","G2","G3","H1","H2","H3","H4","I1"];
-const C=Number(env("BNZ_COLLATERAL_ZATS")), MINE=30*60_000, ALT=env("BNZ_LWD_URL_ALT");
+const C=Number(env("BNZ_COLLATERAL_ZATS")), MINE=30*60_000, ALT=LWD_ALT;
 const sha=(bytes:Buffer|string)=>createHash("sha256").update(bytes).digest("hex");
 const canonical=(v:any):string=>Array.isArray(v)?`[${v.map(canonical).join(",")}]`:v!==null&&typeof v==="object"?`{${Object.keys(v).sort().map(k=>JSON.stringify(k)+":"+canonical(v[k])).join(",")}}`:JSON.stringify(v);
 const bytes=(v:any)=>Buffer.from(canonical(v)+"\n");
@@ -61,7 +61,7 @@ test("signed sealed auction on testnet",async({page})=> {
   const run=new Run("auction-core"), pinned=pinsMismatch();
   if(pinned)run.notRun(IDS,pinned);
   const info=await fetch(`${DRAND}/info`).then(async r=>{if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()}).catch(e=>run.notRun(IDS,`drand ${e.message}`));
-  for(const endpoint of [env("BNZ_LWD_URL"),ALT])try{z.tip(endpoint)}catch(e){run.notRun(IDS,`${endpoint}: ${(e as Error).message}`)}
+  for(const endpoint of LWD)try{z.tip(endpoint)}catch(e){run.notRun(IDS,`${endpoint}: ${(e as Error).message}`)}
   for(const f of ["vault/data.sqlite","frost/alice.toml","frost/bob.toml","frost/carol.toml"])
     if(!existsSync(path.join(STATE,f)))run.notRun(IDS,`missing ${f}`);
   z.sync("bidder"); if(z.spendable(z.balance("bidder"))<3*C+40_000)run.notRun(IDS,"bidder below 3C + 40000");
@@ -238,7 +238,7 @@ test("signed sealed auction on testnet",async({page})=> {
     });
     await run.check("I1","exact C cancel refund with fee-reserve and zero opening calls",async()=> {
     const cancelled=ac("cancel",cancelId);write("auction/cancel.json",bytes({code:cancelled.code,response:cancelled.value,error:cancelled.error}));
-    const freshTip=Math.max(z.tip(),z.tip(ALT));
+    const freshTip=Math.max(z.tip(),ALT?z.tip(ALT):0);
     await waitFor({height:freshTip,tip:()=>{z.sync("vault");z.sync("bidder");return Math.min(z.balance("vault").chain_tip_height,z.balance("bidder").chain_tip_height)}},Date.now()+MINE);
     const before={bidder:z.balance("bidder").total,vault:z.balance("vault").total};
     const refundTo=z.generateAddress("bidder"), dir=path.join(STATE,"run",`auction-pczt-${Date.now()}`);mkdirSync(dir,{recursive:true,mode:0o700});
@@ -248,7 +248,7 @@ test("signed sealed auction on testnet",async({page})=> {
     const signing=await zcashSign(proven,signedPczt);
     const sum=(re:RegExp)=>[...inspect.matchAll(re)].reduce((n,m)=>n+Number(m[1]),0), inputs=sum(/^ {2}- Spend: (\d+) zatoshis$/gm), outputs=sum(/^ {2}- Output: (\d+) zatoshis/gm),fee=inputs-outputs;
     if(fee!==reserve)throw Error(`fee reserve ${reserve} differs from inspected fee ${fee}; refusing refund broadcast`);
-    const metadata=JSON.parse(z.run(z.scanner,["pczt",signedPczt])),broadcastTip=Math.max(z.tip(),z.tip(ALT));
+    const metadata=JSON.parse(z.run(z.scanner,["pczt",signedPczt])),broadcastTip=Math.max(z.tip(),ALT?z.tip(ALT):0);
     if(metadata.tx_version!==6 || !["37a5165b","77190ad9"].includes(metadata.consensus_branch_id) || metadata.expiry_height<=broadcastTip)throw Error(`PCZT preflight: version/branch/expiry ${JSON.stringify(metadata)} at tip ${broadcastTip}; no broadcast`);
     const refundTxid=z.send(signedPczt), sent=Date.now();console.log(`refund broadcast ${refundTxid}`);
     const walletHeight=await waitFor({height:1,tip:()=> {
@@ -257,17 +257,17 @@ test("signed sealed auction on testnet",async({page})=> {
     }},sent+MINE);
     const height=z.getTransaction(refundTxid).height;
     if(height!==walletHeight)throw Error(`refund chain height ${height} differs from wallet-confirmed height ${walletHeight}`);
-    await waitFor({height,tip:()=>z.tip(ALT)},sent+MINE);
-    const alternate=z.getTransaction(refundTxid,ALT);
+    if(ALT)await waitFor({height,tip:()=>z.tip(ALT)},sent+MINE);
+    const alternate=ALT?z.getTransaction(refundTxid,ALT):null;
     await waitFor({height,tip:()=>{z.sync("bidder");z.sync("vault");return Math.min(z.balance("bidder").chain_tip_height,z.balance("vault").chain_tip_height)}},sent+MINE);
     z.enhance("vault"); const spent=z.scanVault().filter(n=>n.spent_in_txid===refundTxid),after={bidder:z.balance("bidder").total,vault:z.balance("vault").total};
-    const settlement={refund_txid:refundTxid,height,alternate_height:alternate.height,fee_reserve_zats:reserve,fee_zats:fee,input_zats:inputs,output_zats:outputs,before,after,deposits:spent.filter(n=>txids.includes(n.txid)),cancel_deposit_txid:txids[4],cancel_refund_zats:C,preflight:{fresh_tip:freshTip,broadcast_tip:broadcastTip,...metadata}};
+    const settlement={refund_txid:refundTxid,height,alternate_height:alternate?.height??"none (BNZ_LWD_SINGLE=1, R27/R47)",fee_reserve_zats:reserve,fee_zats:fee,input_zats:inputs,output_zats:outputs,before,after,deposits:spent.filter(n=>txids.includes(n.txid)),cancel_deposit_txid:txids[4],cancel_refund_zats:C,preflight:{fresh_tip:freshTip,broadcast_tip:broadcastTip,...metadata}};
     write("auction/refund.json",bytes(settlement));write("auction/pczt-inspect.txt",inspect);write("auction/signatures.json",bytes(signing));
       expect.soft(cancelled.code).toBe(0);expect.soft(cancelled.value?.refunds.map((r:any)=>r.amount_zats)).toEqual([String(C)]);
       expect.soft(cancelled.value?.trace.filter((r:any)=>r.operation==="tle -d").length).toBe(0);
       expect.soft(spent.find(n=>n.txid===txids[4])?.value_zats).toBe(C);
       expect.soft(after.bidder-before.bidder).toBe(5*C+oldNotes.reduce((n,l)=>n+l.value_zats,0));expect.soft(after.vault).toBe(0);
-      expect.soft(alternate.height).toBe(height);expect.soft(fee).toBe(reserve);
+      if(alternate)expect.soft(alternate.height).toBe(height);expect.soft(fee).toBe(reserve);
     });
   } finally {stop()}
 });
