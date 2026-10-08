@@ -387,4 +387,17 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
      - **Q13 accepted:** POSIX `/tmp` is a third scratch base for `assertScratch`. It is scratch space like the repo `tmp/` and `$TMPDIR`, and the env-stripped child resolves `os.tmpdir()` there.
      - **Q14: re-target, do not widen.** Loosening an assertion needs a ruling. `r40-f3-balances` matches only the entry-side wording this tamper deterministically hits ("paid refund entry … is not attested … of its paying batch"). Replace the widened regex with that one wording.
      - **Q15 accepted:** the F22 assertion stays at the F18 amount rule (where a wrong number would be computed). The fully-taken-row skip keeps its WARN-and-skip, because that path is money-safe and plausibly reachable under a reorg. An unconditional assertion there would be a settlement crash, which is the R38 wedge class.
+- R46 2026-10-08 (head): **Reviewer R final confirmation on R45 (`benzo-sol/reports/pr-a23-r45.md`, FIX-FIRST).** F21 and F22 are FIXED; F20 is PARTIAL. New: F23 (P1, borderline P0), F25 (P1), F24 (P2). F20's residual and F25 are flaws in the head's own code. Fixes:
+  1. **F20 residual and F25 (head, this commit).**
+     - Set-asides are **run-local** and never persisted (`unbuildable.json` is gone). Every settle re-derives every row through the G-5 derivable gate, so an owner's claim that makes a refund derivable pays it on the next settle, and a payout re-derives as soon as a host can build it.
+     - When every reached host typed-refuses but no row is refused by all of them (disjoint sets, or names outside the batch), the batch is **isolated**: its rows are retried one per batch, and a singleton refused by all reached hosts is set aside by name.
+     - Every iteration either builds a batch or removes a row, so the loop terminates.
+     - A timeout, kill or non-typed failure stays a retry. Honest limit: a host that fails non-typed **forever** stalls the run until it is fixed or replaced, which is a liveness limit, never a misdirection.
+  2. **F23 (Builder A, A24): balance-address notes are classified only once matured.**
+     - The in-window, late and excess classification (`clear/features.ts`, plan, hosts and verify alike) considers only notes with the R5 confirmations (`confirmations: 10`). Unmatured notes are invisible to the derivation, so an in-model reorg (fewer than 10 blocks) can never move a note across the window edge after it is counted.
+     - `Ledger.pin` (defence in depth): an **unpaid** refund row whose fresh derivation differs is **replaced** (deleted and recreated, releasing its notes). "Rows never change" binds only rows money has moved for. An unpaid taking row's amount is never subtracted.
+     - Assert conservation at pin: rows + settled + refunded = received.
+     - Prove it with the reviewer's probes p2a, p2b and p3, red before and green after.
+  3. **F24 (Builder A):** apply R45.5-Q14: re-target `r40-f3-balances`' regex to the single entry-side wording.
+  4. **Builder A also updates `tools/repro/r45-f20.ts`** to the run-local semantics (claim-then-paid next settle, plus an isolation leg for disjoint refusals) and adds a mutation that restores the persistent set-aside. Then one clean live `drop` run, and READY FOR REVIEW. Reviewer R confirms, then gate RG.
 
