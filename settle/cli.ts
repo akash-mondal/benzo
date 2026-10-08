@@ -154,12 +154,14 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,signer:doc.signer,seller_ua:cfg.routing?.seller_ua,expiry_blocks:settings().pczt_expiry_blocks}),{mode:0o600});
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const remote=`build-${id.slice(0,16)}-${batchId}`;
+  let reached=0,refused=0;
   for(const n of prefer) {
     if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000}).status!==0)continue;
     if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000}).status!==0)continue;
     spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
     const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20});
-    if(b.status!==0){console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue}
+    reached++;
+    if(b.status!==0){refused++;console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue}
     const built=JSON.parse(b.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
     // §11 H7: pull only the redacted candidate and the sealed full copies; the full candidate never reaches here.
     const pulled=file(`batch-${batchId}.pulled.pczt`);
@@ -174,7 +176,8 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     writeFileSync(file(`batch-${batchId}.build.json`),jsonBytes(built),{mode:0o600});
     return built;
   }
-  throw Error(`no signer host could build batch ${batchId}`);
+  // R44 (F16): every host that was reached refused to build — the batch is unbuildable, not merely unreachable.
+  throw Object.assign(Error(`no signer host could build batch ${batchId}`),{unbuildable:reached>0&&refused===reached});
 }
 async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey))}
 async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string) {
@@ -265,14 +268,22 @@ async function worker(ledger:Ledger) {
   // Nothing payable (every row already an exception, e.g. a cancel before R) needs no host derivation.
   const derivable=custody&&plan.obligations.length?hostDerivable():new Set<string>();
   if(custody&&plan.obligations.length)requireThat(derivable,"no signer host could list its derivable rows");
-  const pinned:any[]=custody?plan.obligations.map((o:any)=>derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):destinations(plan.obligations,settings().signers[0],plan);
+  // R44 (F16): rows of a batch every reachable host refused to build stay exceptions (monotone, never re-promoted).
+  const unbuildableFile=file("unbuildable.json"),unbuildable=new Set<string>(existsSync(unbuildableFile)?JSON.parse(readFileSync(unbuildableFile,"utf8")):[]);
+  const pinned:any[]=custody?plan.obligations.map((o:any)=>unbuildable.has(o.party)?{...o,reason:"every signer host refused to build its batch; claimable through benzo claim-refund"}:derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):destinations(plan.obligations,settings().signers[0],plan);
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   // Ruling R42 (F15): each refund row carries its backing note identities into the ledger (keyed by note
   // identity: one note backs at most one refund row across all row classes) — the shared derivation's rows.
   const backing=new Map<string,string[]>((plan.balance_refunds??[]).map((r:any)=>[r.party,(r.notes??[])as string[]]));
   const keyed=(o:any)=>backing.has(o.party)&&backing.get(o.party)!.length?{...o,notes:backing.get(o.party)}:o;
-  ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>keyed({party,kind,amount_zats})),
-    [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>keyed({party,kind,amount_zats,reason}))].map(keyed));
+  // R44 (F16): the first pin and every re-pin use these same arguments, so a re-pin can never promote a row the
+  // derivable gate (G-5) or the unbuildable record parked.
+  const pinRows=()=>{
+    for(const o of pinned)if(unbuildable.has(o.party)&&o.recipient){delete o.recipient;o.reason="every signer host refused to build its batch; claimable through benzo claim-refund";}
+    ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>keyed({party,kind,amount_zats})),
+      [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>keyed({party,kind,amount_zats,reason}))].map(keyed));
+  };
+  pinRows();
   ledger.eligible();
   const signoffs:any[]=existsSync(file("signoffs.json"))?read("signoffs.json"):[];
   let batch;
@@ -286,7 +297,16 @@ async function worker(ledger:Ledger) {
       if(custody) {
         // §11 H6: a signer host builds and proves the candidate from its own derivations; only {party, output_index} returns.
         {const t0=Date.now();
-        await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);
+        try{await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);}
+        catch(e){
+          if(!(e as any).unbuildable)throw e;
+          // R44 (F16): an unbuildable batch never pins the queue — its rows become claimable exceptions, recorded so no
+          // later pin re-promotes them, and the worker continues with the rest.
+          for(const o of batch.outputs)unbuildable.add(o.party);
+          writeFileSync(unbuildableFile,JSON.stringify([...unbuildable].sort()),{mode:0o600});
+          console.error(`ERROR batch ${batch.id} is unbuildable (every reachable signer host refused); its ${batch.outputs.length} rows move to the exception queue, claimable through benzo claim-refund`);
+          ledger.expire(batch.id);pinRows();ledger.eligible();continue;
+        }
         timing({auction:id,batch:batch.id,phase:"host-build",ms:Date.now()-t0});}
         guard(inspect(proven,manifestNet(),true),JSON.parse(wallet("balance","--json")).chain_tip_height);
       } else {
@@ -330,7 +350,7 @@ async function worker(ledger:Ledger) {
           requireThat(typeof blocks.at(-1).hash==="string"&&Buffer.from(blocks.at(-1).hash,"base64").length===32,"expired batch end hash missing");
           requireThat(!endHash||endHash===blocks.at(-1).hash,"expired batch endpoints disagree");endHash=blocks.at(-1).hash;
         }
-        ledger.expire(batch.id);console.log(JSON.stringify({auction_id:id,batch:batch.id,state:"exception",expiry_height:metadata.expiry_height,tip}));ledger.pin(plan.obligations.map(keyed),plan.exceptions.map(keyed));ledger.eligible();continue;
+        ledger.expire(batch.id);console.log(JSON.stringify({auction_id:id,batch:batch.id,state:"exception",expiry_height:metadata.expiry_height,tip}));pinRows();ledger.eligible();continue;
       }
       guard(metadata,tip);
       // Under host custody the candidate was built in a signer host's own vault, whose account id this operator vault
