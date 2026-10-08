@@ -383,4 +383,8 @@ Ceiling 8. After part 1: 6 used. Part 2 takes **7. `e2e/markets.spec.ts`** (live
   2. **F21 (P2, Builder A):** the `defaults` tie-break must not be steerable by omitting a batch's maps. Verify requires two agreeing maps for **every** paying batch, payout-only batches included, before the tie-break is computed.
   3. **F22 (P2, Builder A):** the F18 amount rule's single-note assumption becomes an assertion: a multi-note taking row is an ERROR, never silently mis-sized.
   4. **Re-proof (Builder A, A23):** after the head deploys (`up.sh`), one clean live `drop` run, plus a lab repro of F20 (a host timeout is retried; a typed refusal sets aside only the refused rows; a seller row is deferred, never condemned). Then gate RG.
+  5. (2026-10-08, answers A22/A23 Questions 13–15.)
+     - **Q13 accepted:** POSIX `/tmp` is a third scratch base for `assertScratch`. It is scratch space like the repo `tmp/` and `$TMPDIR`, and the env-stripped child resolves `os.tmpdir()` there.
+     - **Q14: re-target, do not widen.** Loosening an assertion needs a ruling. `r40-f3-balances` matches only the entry-side wording this tamper deterministically hits ("paid refund entry … is not attested … of its paying batch"). Replace the widened regex with that one wording.
+     - **Q15 accepted:** the F22 assertion stays at the F18 amount rule (where a wrong number would be computed). The fully-taken-row skip keeps its WARN-and-skip, because that path is money-safe and plausibly reachable under a reorg. An unconditional assertion there would be a settlement crash, which is the R38 wedge class.
 
