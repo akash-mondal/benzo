@@ -7,6 +7,7 @@ import {clientCommon as client} from "../clear/registry"; // design §6.1: every
 import {agreedBatchMaps} from "../witness";
 import {treasuryBlock} from "../clear/mode-b";
 import {Ledger,type Row} from "./ledger";
+import {classifyBuildAttempts,setAsideRows,type BuildOutcome} from "./build-outcome";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints,timing} from "./io";
 import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
@@ -155,8 +156,9 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const remote=`build-${id.slice(0,16)}-${batchId}`;
   // R45 (F20): a host counts as refusing only on its TYPED refusal (sign build exit 3 with the rows it cannot derive);
-  // a timeout, kill or any other failure is "unreachable" and the batch is retried, never condemned.
-  let reached=0,refused=0;let refusedRows:Set<string>|undefined;
+  // a timeout, kill or any other failure is "unreachable" and the batch is retried, never condemned. The pure
+  // classification lives in settle/build-outcome.ts (the R45 lab repro drives it).
+  const attempts:BuildOutcome[]=[];
   for(const n of prefer) {
     if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
     if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
@@ -165,10 +167,8 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     // SIGKILL bound waits forever (a `rm -rf` stalled 50 min and orphaned a funded settle). Every orb/orbctl
     // call here is bounded with SIGKILL — an unreachable host fails loudly and the batch flow moves on.
     const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
-    reached++;
     if(b.status!==0){
-      const m=b.status===3?/ERROR sign build refused-rows (\[.*\])/.exec(b.stderr||""):null;
-      if(m){refused++;const mine=new Set<string>(JSON.parse(m[1]));refusedRows=refusedRows?new Set([...refusedRows].filter(p=>mine.has(p))):mine;}
+      attempts.push({status:b.status,stderr:b.stderr??""});
       console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue;
     }
     const built=JSON.parse(b.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
@@ -185,10 +185,10 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     writeFileSync(file(`batch-${batchId}.build.json`),jsonBytes(built),{mode:0o600});
     return built;
   }
-  // R44 (F16): every host that was reached refused to build — the batch is unbuildable, not merely unreachable.
-  // Unbuildable only when EVERY reached host gave a typed refusal; the rows to set aside are the ones none of them derive.
-  const unbuildable=reached>0&&refused===reached&&!!refusedRows&&refusedRows.size>0;
-  throw Object.assign(Error(`no signer host could build batch ${batchId}`),{unbuildable,refusedRows:unbuildable?[...refusedRows!]:[]});
+  // R44 (F16) + Ruling R45 (F20): unbuildable only when EVERY reached host gave a typed refusal; the rows to
+  // set aside are the ones no reached host derives (the intersection).
+  const {unbuildable,refusedRows}=classifyBuildAttempts(attempts);
+  throw Object.assign(Error(`no signer host could build batch ${batchId}`),{unbuildable,refusedRows});
 }
 async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey))}
 async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string) {
@@ -318,12 +318,11 @@ async function worker(ledger:Ledger) {
           // R45 (F20): only the rows NO reached host derives are set aside; the rest of the batch settles in the next
           // batch. A refund row becomes a claimable exception (recorded, atomically); a payout row (seller, treasury)
           // is never condemned — it is deferred for this run only and re-derived on the next settle.
-          const named=new Set<string>((e as any).refusedRows);
-          for(const o of batch.outputs.filter(o=>named.has(o.party))){
-            if(o.kind==="refund")unbuildable.add(o.party);else deferred.add(o.party);
-          }
+          const aside=setAsideRows(batch.outputs.map(({party,kind})=>({party,kind})),(e as any).refusedRows??[]);
+          for(const p of aside.condemned)unbuildable.add(p);
+          for(const p of aside.deferred)deferred.add(p);
           const tmpU=unbuildableFile+".tmp";writeFileSync(tmpU,JSON.stringify([...unbuildable].sort()),{mode:0o600});renameSync(tmpU,unbuildableFile);
-          console.error(`ERROR batch ${batch.id}: every reachable signer host refused rows ${[...named].join(",")}; refund rows move to the exception queue (claimable through benzo claim-refund), payout rows are deferred to the next settle, the other rows settle next`);
+          console.error(`ERROR batch ${batch.id}: every reachable signer host refused rows ${[...aside.condemned,...aside.deferred].join(",")}; refund rows move to the exception queue (claimable through benzo claim-refund), payout rows are deferred to the next settle, the other rows settle next`);
           ledger.expire(batch.id);pinRows();ledger.eligible();continue;
         }
         timing({auction:id,batch:batch.id,phase:"host-build",ms:Date.now()-t0});}
