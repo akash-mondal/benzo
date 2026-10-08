@@ -222,12 +222,14 @@ export function refundRowLeafIndex(
   const n = balanceLateNote(notes, party);
   return n ? balanceLateLeafIndex(m, leaves, n) : null;
 }
-// The note a balance-late party names (the scan's own identity), or undefined.
+// The note a balance-late party names (the scan's own identity), or undefined. Ruling R44 (F18): an
+// unkeyable note is an ERROR, never a silent disable — a note-shaped party outside the scanner's u16 range
+// can never be keyed by note identity and is refused loudly.
 export function balanceLateNote<T extends { txid: string; pool: string; action_index: number }>(notes: T[], party: string): T | undefined {
   const m = BALANCE_LATE.exec(party);
-  return m && Number(m[3]) <= 65535
-    ? notes.find(n => n.txid === m[1] && String(n.pool) === m[2] && String(n.action_index) === m[3])
-    : undefined;
+  if (!m) return undefined;
+  requireThat(Number(m[3]) <= 65535, `unkeyable balance-late note identity ${party}; an unkeyable note is an ERROR`);
+  return notes.find(n => n.txid === m[1] && String(n.pool) === m[2] && String(n.action_index) === m[3]);
 }
 // Ruling R40 items 2/5: the leaf a balance-late row refunds to — the deposit slot's own leaf (the first note
 // at that slot in leaf order, winner or loser). One shared rule for the plan, every signer host and verify.

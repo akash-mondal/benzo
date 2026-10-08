@@ -11,11 +11,16 @@ import {isDepositParty} from "./deposits";
 // excess row's in-window notes); a `balance-late:`/`deposit:` party IS its own note identity.
 export type Obligation={party:string;kind:"payout"|"refund";amount_zats:string;notes?:string[]};
 const NOTE_PARTY=/^(?:deposit|balance-late):([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
+// Ruling R44 (F18): a note-shaped party with an out-of-range action_index (or the legacy deposit identity)
+// can never be keyed by note identity — it is an ERROR, never a silently unkeyed row (the pre-fix `[]`
+// backing disabled the key and let one note refund twice).
+const LEGACY_NOTE_PARTY=/^deposit:([0-9a-f]{64}):(0|[1-9][0-9]*)$/;
 const isKeyedRefund=(party:string)=>isRefundRowParty(party)||isDepositParty(party);
 const backingOf=(o:{party:string;notes?:string[]}):string[]=>{
   if(Array.isArray(o.notes))return o.notes;
   const m=NOTE_PARTY.exec(o.party);
-  return m&&Number(m[3])<=65535?[`${m[1]}:${m[2]}:${m[3]}`]:[];
+  requireThat(!m || Number(m[3])<=65535,`unkeyable refund note identity ${o.party}; an unkeyable note is an ERROR`);
+  return m?[`${m[1]}:${m[2]}:${m[3]}`]:[];
 };
 export type Row={party:string;kind:"payout"|"refund";amount_zats:string;batch:number|null;state:string;txid:string|null;output_index:number|null;pool:string|null}; // stored rows carry no derivation notes
 export class Ledger {
@@ -42,18 +47,47 @@ export class Ledger {
     const digest=hash(jsonBytes(plan));
     this.atomic(()=> {
       for(const o of plan) {
-        const old=this.rows().find(r=>r.party===o.party);
+        // Ruling R44 (F18): an unkeyable note is an ERROR — refuse note-shaped parties the note key cannot
+        // hold (the scanner's u16 range; the legacy identity has no pool and was never keyable), and require
+        // every keyed refund row to carry keyable note backing. Keying is never silently disabled.
+        const shaped=NOTE_PARTY.exec(o.party) ?? LEGACY_NOTE_PARTY.exec(o.party);
+        requireThat(!shaped || (NOTE_PARTY.test(o.party)&&Number(NOTE_PARTY.exec(o.party)![3])<=65535),`unkeyable refund note identity ${o.party}; an unkeyable note is an ERROR`);
+        if(isKeyedRefund(o.party))requireThat(backingOf(o).length>0,`refund row ${o.party} carries no keyable note backing; an unkeyable note is an ERROR`);
+        // Ruling R44 (F18): a backing note already taken by ANOTHER party's refund row is skipped per note,
+        // never per row — the row is created over its FREE notes and the taken notes' refunded value leaves
+        // its amount, so a multi-note excess row still refunds the remaining notes' value and conservation
+        // stays zat-exact (row + settled + already-refunded = every zat received, once). The pre-fix skip
+        // dropped the whole row and stranded the free notes' value.
+        let o2=o;
+        if(isKeyedRefund(o.party)) {
+          const backing=backingOf(o);
+          const ownerOf=(n:string)=>this.db.prepare("SELECT refund_backing.party AS party, obligations.amount_zats AS amount_zats FROM refund_backing JOIN obligations ON obligations.party=refund_backing.party WHERE refund_backing.note=?").get(n) as {party:string;amount_zats:string}|undefined;
+          const owners=backing.map(ownerOf);
+          const takenNotes=backing.filter((n,i)=>!!owners[i]&&owners[i]!.party!==o.party);
+          if(takenNotes.length) {
+            const free=backing.filter((n,i)=>!owners[i]||owners[i]!.party===o.party);
+            if(!free.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund; Ruling R42 F15)`);continue;}
+            // The taking rows refund exactly their own notes' values (a stray/late/collision row is one note
+            // at its own value), so their amounts are the skipped notes' value.
+            const takenValue=[...new Set(takenNotes.map(n=>ownerOf(n)!.party))].reduce((s,p)=>s+BigInt(this.rows().find(r=>r.party===p)!.amount_zats),0n);
+            const usable=BigInt(o.amount_zats)-takenValue;
+            if(usable<=0n){console.error(`WARN refund row ${o.party} not created: its value is already refunded by the rows backing its taken notes (one note one refund; Ruling R42 F15)`);continue;}
+            console.error(`WARN refund row ${o.party}: note ${takenNotes[0]} already backs a refund row; skipping that note only (amount ${o.amount_zats} -> ${usable}; Ruling R44 F18)`);
+            o2={...o,amount_zats:usable.toString(),notes:free};
+          }
+        }
+        const old=this.rows().find(r=>r.party===o2.party);
         if(old){
           // Ruling R42 (F12): pin is monotone and total over chain-derived differences — a re-derivation
           // that differs from a pinned row is LOGGED and the PINNED ROW STANDS, and pin never throws for it
           // (a fresh-vs-pinned refusal is the F12 wedge). The only amount that ever moves is the pre-existing
           // monotone growth of an unpaid EXCEPTION payout (025c736; treasury growth is Mode B): amounts only
           // grow there, and a row money has moved for never changes. Ruling R40 item 2 (F2) holds for refunds.
-          if(old.kind!==o.kind)console.error(`WARN settlement obligation ${o.party} re-derived kind ${o.kind} differs from pinned ${old.kind}; the pinned row stands`);
-          if(old.amount_zats!==o.amount_zats){
-            if(o.kind==="payout"&&old.state==="exception"&&BigInt(o.amount_zats)>BigInt(old.amount_zats))this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o.amount_zats,o.party);
+          if(old.kind!==o2.kind)console.error(`WARN settlement obligation ${o.party} re-derived kind ${o2.kind} differs from pinned ${old.kind}; the pinned row stands`);
+          if(old.amount_zats!==o2.amount_zats){
+            if(o2.kind==="payout"&&old.state==="exception"&&BigInt(o2.amount_zats)>BigInt(old.amount_zats))this.db.prepare("UPDATE obligations SET amount_zats=? WHERE party=?").run(o2.amount_zats,o.party);
             else {
-              console.error(`WARN settlement obligation ${o.party} re-derived ${o.amount_zats} differs from pinned ${old.amount_zats}; the pinned row stands`);
+              console.error(`WARN settlement obligation ${o.party} re-derived ${o2.amount_zats} differs from pinned ${old.amount_zats}; the pinned row stands`);
               // A row whose re-derived amount disagrees with its pinned one is never payable at the stale
               // amount (every host derives the fresh amount and would refuse the candidate): it waits in the
               // exception queue — claimable like any parked row — until a derivation agrees again. Rows in
@@ -63,34 +97,28 @@ export class Ledger {
           }
         }
         if(!old){
-          // Ruling R42 (F15): a NEW refund row claims its backing notes by note identity. A note that
-          // already backs a different party's refund row — a reorg re-classified an already-refunded note
-          // into the other class — never backs a second row: the row is not created (logged), and nothing
-          // pays that note twice. The pre-fix per-class key (party uniqueness per class) is the A20-F15
-          // mutation.
-          if(isKeyedRefund(o.party)) {
-            const backing=backingOf(o);
-            const taken=backing.filter(n=>{const r=this.db.prepare("SELECT party FROM refund_backing WHERE note=?").get(n) as {party:string}|undefined;return !!r&&r.party!==o.party});
-            if(taken.length){
-              console.error(`WARN refund row ${o.party} not created: note ${taken[0]} already backs a refund row (one note one refund; Ruling R42 F15)`);
-              continue;
-            }
-            this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
-            for(const n of backing)this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
-          } else this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o.party,o.kind,o.amount_zats,ready.has(o.party)?"seen":"exception");
+          // Ruling R42 (F15) + Ruling R44 (F18): a NEW refund row claims its backing notes by note identity —
+          // the per-note skip and amount adjustment ran above, so every backing note here is free. A note that
+          // already backs a different party's refund row never backs a second row. The pre-fix per-class key
+          // (party uniqueness per class only) is the A20-F15 mutation.
+          if(isKeyedRefund(o2.party)) {
+            const backing=backingOf(o2);
+            this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o2.party,o2.kind,o2.amount_zats,ready.has(o2.party)?"seen":"exception");
+            for(const n of backing)this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o2.party);
+          } else this.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state) VALUES(?,?,?,?)").run(o2.party,o2.kind,o2.amount_zats,ready.has(o2.party)?"seen":"exception");
         }
         else {
           // An existing row stands (F12); its backing set only ever grows (INSERT OR IGNORE never steals a
           // note another row already backs) — the row's amount may already cover those notes' value.
-          if(isKeyedRefund(o.party))for(const n of backingOf(o))this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
+          if(isKeyedRefund(o2.party))for(const n of backingOf(o2))this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
         }
         if(old&&old.state==="exception"&&ready.has(o.party)) {
           // A row whose re-derived amount differs from its pinned one is never made payable at the stale
           // amount (every host derives the fresh amount and would refuse the candidate): it waits until a
           // derivation agrees with the pinned row again, and nothing else is held up by it.
           const now=this.rows().find(r=>r.party===o.party)!;
-          if(now.amount_zats===o.amount_zats)this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
-          else console.error(`WARN settlement obligation ${o.party} pinned at ${now.amount_zats} but re-derived ${o.amount_zats}; not payable until a derivation agrees`);
+          if(now.amount_zats===o2.amount_zats)this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
+          else console.error(`WARN settlement obligation ${o.party} pinned at ${now.amount_zats} but re-derived ${o2.amount_zats}; not payable until a derivation agrees`);
         }
       }
       // Ruling R40 item 2 (F2) + Ruling R41 item 4 (F10) + Ruling R42 (F12): refund rows never change and a
