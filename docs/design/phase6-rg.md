@@ -38,7 +38,7 @@ Serial, because deposits are refunded to our own wallets but are locked while ea
 4. `docs/evidence/phase-6/EVIDENCE.md`: the RG row goes from OPEN to READY FOR REVIEW with the commit, commands and paths. Then the final review (Reviewer G, final report only).
 
 ## 5. Who runs it
-- The head drives §2 and §4.1.
-- Builder A runs §3's live mutations.
-- Builder B runs §4.3.
+- The head drives §2, §3's live mutations and §4.1 (2026-10-08: live, stateful and funds-moving work stays with the head).
+- Builder B runs §4.2's leak-audit pass and §4.3, offline only.
+- Builder A takes offline items only (no OrbStack, no testnet).
 - One live harness process at a time, machine-wide.
