@@ -130,6 +130,11 @@ killed after 10 min (`BNZ_LWD_TIMEOUT_MS`) and retried as transient, and `tle -d
 sync keeps its progress, but a sync needing more than 3–4 bounded attempts (a long-unsynced wallet) refuses, and
 the operator re-runs it. A machine power loss during a sync can leave a block cache that later refuses to decode
 (it never yields wrong notes); re-syncing from a clean cache fixes it.
+- **Test-harness gates attest the machine under test** (R49/R52/R53): the NU7 tools are path builds, so
+the pinned-binary gate checks the build's provenance record against the committed source and patches, and each
+evidence `run.json` pins the record's digest. The gate cannot be independent of the machine that built the tools;
+reproducible builds would be needed for that. The development fund-recovery sweeps in the live specs assume one
+live run at a time.
 - The signer-reproducible stealth derivation is custom (2-of-3 signers must derive the same one-time
 address); its salt is known only to envelope openers, so a guessed meta-address links nothing
 (`docs/AUDITS.md`, `docs/evidence/phase-5/repro/r25-1-link-after.out`).
