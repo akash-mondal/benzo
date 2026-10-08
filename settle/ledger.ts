@@ -68,7 +68,10 @@ export class Ledger {
             const free=backing.filter((n,i)=>!owners[i]||owners[i]!.party===o.party);
             if(!free.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund; Ruling R42 F15)`);continue;}
             // The taking rows refund exactly their own notes' values (a stray/late/collision row is one note
-            // at its own value), so their amounts are the skipped notes' value.
+            // at its own value), so their amounts are the skipped notes' value. Ruling R45 (F22): that
+            // single-note assumption is an ASSERTION — the subtraction below would silently mis-size a
+            // multi-note taking row (under-refund or spurious skip), so it is an ERROR, never a wrong amount.
+            for(const p of new Set(takenNotes.map(n=>ownerOf(n)!.party)))requireThat(Number((this.db.prepare("SELECT COUNT(*) AS c FROM refund_backing WHERE party=?").get(p) as {c:number}).c)===1,`multi-note taking row ${p} backs more than one note; the per-note skip subtracts a taking row's amount only when it backs exactly one note (a multi-note taking row is an ERROR)`);
             const takenValue=[...new Set(takenNotes.map(n=>ownerOf(n)!.party))].reduce((s,p)=>s+BigInt(this.rows().find(r=>r.party===p)!.amount_zats),0n);
             const usable=BigInt(o.amount_zats)-takenValue;
             if(usable<=0n){console.error(`WARN refund row ${o.party} not created: its value is already refunded by the rows backing its taken notes (one note one refund; Ruling R42 F15)`);continue;}
