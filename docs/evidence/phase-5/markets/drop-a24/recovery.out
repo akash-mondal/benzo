@@ -1,0 +1,34 @@
+# recovery of the A24 clean drop run d710c2c737960065647ecc886c82804bd54cdbaa4d7fb931ff787ca9ab141366 (drop-a24): the parked pre-window dust row (the designed end state drop-unpaid-rows-pending) owner-claimed to leaf 0's own destination and paid
+# command BNZ_LWD_SINGLE=1 node tmp/recover-dust-a24.mjs (scratch driver mirroring markets.ts lateDustFlow's claim path; commit c26e8e6)
+utc 2026-10-08T11:57:31Z
+file:///Users/akshmnd/Dev%20Projects/benzo/tmp/recover-dust-a24.mjs:38
+  if (r.status !== 0) throw new Error(`${path2.basename(cmd)} ${args.slice(0, 5).join(" ")} exited ${r.status}: ${(r.stderr || r.stdout).trim().slice(-400)}`);
+                            ^
+
+Error: benzo claim-refund --id d710c2c737960065647ecc886c82804bd54cdbaa4d7fb931ff787ca9ab141366 --defer true exited 1: ERROR benzo benzo-scan exited 1: Error: no memo stored for f78b06d89fcf391aa756eee5a6f9813820a72fb23647f97961d5987789f80525:1; run `wallet enhance` first
+    at sh (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/recover-dust-a24.mjs:38:29)
+    at file:///Users/akshmnd/Dev%20Projects/benzo/tmp/recover-dust-a24.mjs:163:1
+    at ModuleJob.run (node:internal/modules/esm/module_job:437:25)
+    at async node:internal/modules/esm/loader:639:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.15.0
+
+== retry with the vault wallet synced + enhanced first (the first attempt above: the vault wallet had not seen the dust note's memo since the run ended) ==
+claim recorded for balance-late:54d28d57110880610d82fdc305aa315883469bf9b0b5c45a21c29d87d6cb56ae:ironwood:0 (owner-signed to leaf 0's own destination, never printed)
+two-signer envelope opens refreshed
+vault spendable before: 29999
+settle exit 1 (attempt 1):  could not build batch 3: 54cdbaa4d7fb931ff787ca9ab141366/wallet /home/benzo/build-d710c2c737960065-3/created.pczt 364 --network test
+Error: proposal: InsufficientFunds { available: Zatoshis(29999), required: Zatoshis(30000) }
+ERROR settle no signer host could build batch 3
+ERROR benzo settle exit 1
+fee-reserve top-up 100,000 zats from the harness wallet to the auction vault (never printed the address): da96077bc400285289e2287025de2543c8ede85d921c53ba3b5b064a41d966c8
+vault spendable after the top-up + enhance: 129999
+settle exit 0 (attempt 2 (after the fee-reserve top-up))
+rows still pending: []
+dust row: {"amount_zats":"20000","batch":3,"kind":"refund","output_index":1,"party":"balance-late:54d28d57110880610d82fdc305aa315883469bf9b0b5c45a21c29d87d6cb56ae:ironwood:0","pool":"ironwood","state":"refunded","txid":"0d6f4fc28d18c92e26309901be0c3b6f5de777298b1bcf9792bd9a0b6e44b4e6"}
+dust receipt: [{"amount_zats":"20000","auction_id":"d710c2c737960065647ecc886c82804bd54cdbaa4d7fb931ff787ca9ab141366","output_index":1,"party":"balance-late:54d28d57110880610d82fdc305aa315883469bf9b0b5c45a21c29d87d6cb56ae:ironwood:0","pool":"ironwood","txid":"0d6f4fc28d18c92e26309901be0c3b6f5de777298b1bcf9792bd9a0b6e44b4e6"}]
+published pending after: []
+cold verify exit 0
+vault after: total 0
+vault after (re-checked): {"chain_tip_height":4478343,"ironwood_spendable":99999,"orchard_spendable":0,"sapling_spendable":0,"total":99999,"transparent_spendable":0}
