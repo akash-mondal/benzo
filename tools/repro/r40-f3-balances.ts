@@ -77,9 +77,9 @@ const bump = 5000;
 }
 const t = runVerify(tampered, base.signer);
 const errs = errors(t);
-// A20's two-sided balance-refs (F13/F14) words the entry-side refusal "paid refund entry ... is not attested";
-// the row-side keeps "paid refund row ...". Both are the per-row attestation refusal this tamper must get.
-const bound = errs.some(e => /paid refund (?:entry|row) .* is not attested by two agreeing host-signed approval maps|not published as paid with its amount/.test(e));
+// Ruling R45.5-Q14 (F24): re-target, do not widen — match ONLY the entry-side wording this tamper
+// deterministically hits (A20's two-sided balance-refs F13/F14).
+const bound = errs.some(e => /paid refund entry .* is not attested by two agreeing host-signed approval maps of its paying batch/.test(e));
 line("f3-tamper-refused", t.status !== 0 && bound,
   `tampered (+${bump} on a PAID row) verify exit ${t.status}; ${bound ? "refused with the per-row attestation error" : `no attestation error — ${errs.slice(0, 3).join(" | ") || "ACCEPTED (Reviewer R's F3)"}`}`);
 
