@@ -7,7 +7,11 @@
 // (recorded in unbuildable.json), a payout row (seller, treasury) is deferred for this run only and re-derived
 // on the next settle. Every iteration removes at least one row from the eligible set, so the loop terminates.
 export type BuildOutcome = { status: number | null; stderr: string };
-export function classifyBuildAttempts(attempts: BuildOutcome[]): { unbuildable: boolean; refusedRows: string[] } {
+// R46 (Reviewer R F25): when every reached host typed-refused but no row is refused by ALL of them (disjoint refusal
+// sets, or names outside the batch), nothing is set aside — the batch is ISOLATED instead: its rows are retried one
+// per batch, so a singleton refused by every reached host is set aside by name. Every iteration therefore either
+// builds a batch or removes a row, and the loop terminates.
+export function classifyBuildAttempts(attempts: BuildOutcome[], batchParties?: string[]): { unbuildable: boolean; isolate: boolean; refusedRows: string[] } {
   let refused = 0;
   let refusedRows: Set<string> | undefined;
   for (const b of attempts) {
@@ -19,9 +23,10 @@ export function classifyBuildAttempts(attempts: BuildOutcome[]): { unbuildable: 
       refusedRows = refusedRows ? new Set([...refusedRows].filter((p) => mine.has(p))) : mine;
     }
   }
-  const reached = attempts.length;
-  const unbuildable = reached > 0 && refused === reached && !!refusedRows && refusedRows.size > 0;
-  return { unbuildable, refusedRows: unbuildable ? [...refusedRows!] : [] };
+  const reached = attempts.length, allTyped = reached > 0 && refused === reached;
+  const inBatch = [...(refusedRows ?? [])].filter((p) => !batchParties || batchParties.includes(p));
+  const unbuildable = allTyped && inBatch.length > 0;
+  return { unbuildable, isolate: allTyped && !unbuildable, refusedRows: unbuildable ? inBatch : [] };
 }
 export function setAsideRows(outputs: { party: string; kind: string }[], refusedRows: string[]): { condemned: string[]; deferred: string[] } {
   const named = new Set(refusedRows);
