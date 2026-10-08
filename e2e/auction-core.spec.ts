@@ -263,5 +263,14 @@ test("signed sealed auction on testnet",async({page})=> {
       if(alternate)expect.soft(alternate.height).toBe(height);expect.soft(fee).toBe(reserve);
     });
     if(!ALT)run.narrowed("I1","single lightwalletd endpoint; second-endpoint agreement not checked (BNZ_LWD_SINGLE=1, R27/R47)");
-  } finally {stop()}
+  } finally {
+    // R51: a run that throws after funding sweeps the vault back to the bidder (development-only, as cli-auction's
+    // cleanup); RG attempt 5 left six deposits parked when a tip sync threw mid-run.
+    try{z.sync("vault");z.enhance("vault");if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0)){
+      const d=path.join(STATE,"run",`auction-core-recovery-${Date.now()}`);mkdirSync(d,{recursive:true});
+      for(let by=Date.now()+15*60_000;;){try{z.pczt("vault","create-max","--address",z.generateAddress("bidder"),"--output",path.join(d,"created.pczt"));break}
+        catch(e){if(!/ineligible/.test(String((e as Error)?.message??e))||Date.now()>by)throw e;await new Promise(r=>setTimeout(r,20_000));z.sync("vault")}}
+      z.pczt("vault","prove",path.join(d,"created.pczt"),"--output",path.join(d,"proven.pczt"));await zcashSign(path.join(d,"proven.pczt"),path.join(d,"signed.pczt"));
+      console.log(`development-only fund recovery ${z.send(path.join(d,"signed.pczt"))}`)}}catch(e){console.log(`RECOVERY FAILED ${(e as Error).message}`)}
+    stop()}
 });

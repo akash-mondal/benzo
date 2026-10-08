@@ -33,8 +33,8 @@ const execute=(cmd:string,args:string[])=> {
 const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state),...args]);
 // R33 P2-1 (G-7): the vault scan runs on the signed manifest's network — never a hardcoded one.
 function observed(net:string):{notes:Note[]; tip:number} {
-  // R48: a stalled stream is retried (sync resumes where it stopped); any other failure refuses as before.
-  for(const verb of ["sync","enhance"])for(let attempt=1;;attempt++){try{wallet(verb,"-s",process.env.BNZ_LWD_URL!);break}catch(e){if(attempt>=3||!String((e as Error)?.message).includes(LWD_STALLED))throw e}}
+  // R48/R51: a stalled stream or a tip race (NonSequentialBlocks, newer/past range) is retried; others refuse.
+  for(const verb of ["sync","enhance"])for(let attempt=1;;attempt++){try{wallet(verb,"-s",process.env.BNZ_LWD_URL!);break}catch(e){if(attempt>=3||!(String((e as Error)?.message).includes(LWD_STALLED)||/NonSequentialBlocks|newer than the latest block|past the valid range/.test(String((e as Error)?.message))))throw e}}
   const balance=JSON.parse(wallet("balance","--json"));
   const notes=execute(scanBin(root,state),["scan",net,vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};

@@ -31,7 +31,7 @@ export async function ownScan(st: string, root: string, id: string, net: string)
       const r = spawnSync(devtool, args, { encoding: "utf8", ...lwdBound(devtool, args) });
       if (r.status === 0) break;
       const err = lwdTimedOut(devtool, r)?.message ?? r.stderr ?? ""; // R48: a stalled stream is transient
-      requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node|stalled lightwalletd stream/.test(err), `vault ${verb} failed: ${err.trim().slice(-160)}`);
+      requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node|stalled lightwalletd stream|NonSequentialBlocks/.test(err), `vault ${verb} failed: ${err.trim().slice(-160)}`);
       await new Promise(res => setTimeout(res, 5000 * attempt));
     }
   }

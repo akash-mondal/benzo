@@ -17,7 +17,7 @@ export function run(cmd:string,args:string[],input?:string|Buffer):string {
 // Head (2026-10-03, live run 14): the public lightwalletd sits behind a load balancer whose backends can be a few
 // blocks apart ("GetBlock: block N is newer than the latest block"); a wallet sync retries 4x with backoff on that
 // and on transient endpoint errors. Every other wallet command is unchanged.
-const SYNC_TRANSIENT=/newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream/;
+const SYNC_TRANSIENT=/newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks/;
 export function syncRetry(f:()=>string):string {
   for(let attempt=1;;attempt++) {
     try{return f()}catch(e){if(attempt>=4||!SYNC_TRANSIENT.test(String((e as Error)?.message??e)))throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5000*attempt)}

@@ -23,7 +23,7 @@ export const wallet = (name: string, ...args: string[]) => run(bin("zcash-devtoo
 export const pczt = (name: string, ...args: string[]) => run(bin("zcash-devtool"), ["pczt", "-w", path.join(STATE, name), ...args]);
 
 // Head (live run 14): load-balanced lightwalletd backends can be a few blocks apart; retry a sync 4x with backoff.
-const SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream/;
+const SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks/;
 export const sync = (name: string) => {
   for (let attempt = 1; ; attempt++) {
     try { return wallet(name, "sync", "-s", LWD); } catch (e) {
