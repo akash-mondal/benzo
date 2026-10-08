@@ -45,7 +45,7 @@ function pinsMismatch() {
   const pins=Object.fromEntries(readFileSync(path.join(ROOT,"tools/pins.env"),"utf8").split("\n").map(l=>l.match(/^([A-Z0-9_]+)=(\S*)$/)).filter(Boolean).map(m=>[m![1],m![2]]));
   const cargo=execFileSync("cargo",["install","--list","--root",STATE]).toString();
   for(const [tool,rev] of [["zcash-devtool",pins.DEVTOOL_REV],["frostd",pins.FROST_TOOLS_REV],["frost-client",pins.FROST_TOOLS_REV],["zcash-sign",pins.FROST_TOOLS_REV]])
-    if(!cargo.split("\n").some(l=>l.startsWith(`${tool} v`)&&l.includes(`?rev=${rev}#`)))return `${tool} not built from ${rev}`;
+    if(!cargo.split("\n").some(l=>l.startsWith(`${tool} v`)&&(l.includes(`?rev=${rev}#`)||l.includes(`-${rev}`))))return `${tool} not built from ${rev}`;
   for(const [tool,mod,tag] of [["tle","github.com/drand/tlock",pins.TLE_TAG],["grpcurl","github.com/fullstorydev/grpcurl",pins.GRPCURL_TAG]])
     if(!existsSync(bin(tool))||!execFileSync("go",["version","-m",bin(tool)]).toString().includes(`\tmod\t${mod}\t${tag}\t`))return `${tool} not ${mod}@${tag}`;
 }

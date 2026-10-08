@@ -37,8 +37,10 @@ function pinsMismatch(): string | undefined {
   );
   const cargo = execFileSync("cargo", ["install", "--list", "--root", STATE]).toString();
   const rust: [string, string][] = [["zcash-devtool", pins.DEVTOOL_REV], ["frostd", pins.FROST_TOOLS_REV], ["frost-client", pins.FROST_TOOLS_REV], ["zcash-sign", pins.FROST_TOOLS_REV]];
+  // Ruling R27: zcash-devtool and zcash-sign are built by tools/nu7/build.sh from the pinned rev's verified source
+  // (`cargo install --path <state>/src/<repo>-<rev>`), so cargo records a path naming that same rev, not `?rev=`.
   for (const [crate, rev] of rust)
-    if (!cargo.split("\n").some((l) => l.startsWith(`${crate} v`) && l.includes(`?rev=${rev}#`))) return `${crate} is not built from ${rev}`;
+    if (!cargo.split("\n").some((l) => l.startsWith(`${crate} v`) && (l.includes(`?rev=${rev}#`) || l.includes(`-${rev}`)))) return `${crate} is not built from ${rev}`;
   const go: [string, string, string][] = [["tle", "github.com/drand/tlock", pins.TLE_TAG], ["grpcurl", "github.com/fullstorydev/grpcurl", pins.GRPCURL_TAG]];
   for (const [tool, mod, tag] of go)
     if (!existsSync(bin(tool)) || !execFileSync("go", ["version", "-m", bin(tool)]).toString().includes(`\tmod\t${mod}\t${tag}\t`)) return `${tool} is not ${mod}@${tag}`;
