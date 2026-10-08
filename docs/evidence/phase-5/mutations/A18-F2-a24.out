@@ -1,0 +1,10 @@
+commit b536ce30bbab9abbaf475477b6cdd5ec0d3421ac (A18-F2 REGENERATED on the A24 tree — identical semantics: late-note row growth restored, exception growth allowed)
+utc 2026-10-08T10:53:55Z
+command node tmp/mut-f2.mjs
+FAIL f2-late-rows-immutable rows note A [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"}]; rows A+B [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"80000"}] (a new note adds a new row; the ready rows never change)
+ERROR f2-late-rows-immutable rows note A [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"50000"}]; rows A+B [{"party":"balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","kind":"refund","amount_zats":"80000"}] (a new note adds a new row; the ready rows never change)
+FAIL f2-late-note-after-settled-batch batch 1 settled (balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0=exception,leaf:0=refunded); one more late note -> pin accepted the new row undefined; claim batch allocates ["balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0"]
+ERROR f2-late-note-after-settled-batch batch 1 settled (balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0=exception,leaf:0=refunded); one more late note -> pin accepted the new row undefined; claim batch allocates ["balance-late:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0"]
+PASS f2-unpaid-refund-row-replaced changed re-derivation -> no throw; the unpaid row is replaced at 60000 (Ruling R46 F23)
+PASS f2-reorg-drop note B reorged away -> pin dropped the unpaid row and proceeded
+RESULT FAIL r40-f2-ledger-growth

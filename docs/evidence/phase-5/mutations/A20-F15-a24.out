@@ -1,0 +1,9 @@
+commit b536ce30bbab9abbaf475477b6cdd5ec0d3421ac (A20-F15 REGENERATED on the A24 tree — identical semantics: the per-class key restored)
+utc 2026-10-08T10:52:40Z
+command node tmp/mut-f15.mjs
+FAIL f15-late-after-paid-excess excess row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified late row CREATED and refunded (DOUBLE REFUND); refund rows for the note: 2
+ERROR f15-late-after-paid-excess excess row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified late row CREATED and refunded (DOUBLE REFUND); refund rows for the note: 2
+FAIL f15-excess-after-paid-late late row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified excess row CREATED and refunded (DOUBLE REFUND)
+ERROR f15-excess-after-paid-late late row refunded (100000) refunded for note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; re-classified excess row CREATED and refunded (DOUBLE REFUND)
+PASS f15-unrelated-note-rows note b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:1 keeps its own refunded row (5000); the newly seen note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 gets its own row (refunded) — the key never blocks unrelated notes
+RESULT FAIL r42-f15-note-refunds

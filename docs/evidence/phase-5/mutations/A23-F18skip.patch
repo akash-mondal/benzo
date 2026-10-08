@@ -1,13 +1,13 @@
 diff --git a/settle/ledger.ts b/settle/ledger.ts
-index 3989d07..550076e 100644
+index 236dbd2..2c9fcf9 100644
 --- a/settle/ledger.ts
 +++ b/settle/ledger.ts
-@@ -66,7 +66,7 @@ export class Ledger {
-           const takenNotes=backing.filter((n,i)=>!!owners[i]&&owners[i]!.party!==o.party);
-           if(takenNotes.length) {
-             const free=backing.filter((n,i)=>!owners[i]||owners[i]!.party===o.party);
--            if(!free.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund; Ruling R42 F15)`);continue;}
-+            if(takenNotes.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund; Ruling R42 F15)`);continue;} // A23-F18skip MUTATION: pre-F18 whole-row skip
-             // The taking rows refund exactly their own notes' values (a stray/late/collision row is one note
-             // at its own value), so their amounts are the skipped notes' value. Ruling R45 (F22): that
-             // single-note assumption is an ASSERTION — the subtraction below would silently mis-size a
+@@ -100,7 +100,7 @@ export class Ledger {
+             const skip=()=>{const old=this.rows().find(r=>r.party===o.party);
+               if(old&&unpaidRow(old)&&old.kind==="refund"){this.db.prepare("DELETE FROM obligations WHERE party=?").run(o.party);this.db.prepare("DELETE FROM refund_backing WHERE party=?").run(o.party);want.set(o.party,0n)}
+               else if(old)history.add(o.party);else want.set(o.party,0n)};
+-            if(!free.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund; Ruling R42 F15)`);skip();continue;}
++            if(takenNotes.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund; Ruling R42 F15)`);skip();continue;} // A23-F18skip MUTATION (regenerated a24): pre-F18 whole-row skip
+             // Ruling R46 (F23): only a row money has moved for represents refunded value — an UNPAID taking
+             // row's amount is NEVER subtracted (its own row still owes that value; the pre-fix subtraction
+             // destroyed it and then dropped the row — probes p2a/p2b). Ruling R45 (F22): where the subtraction

@@ -1,0 +1,23 @@
+commit b536ce30bbab9abbaf475477b6cdd5ec0d3421ac (A19-F9 REGENERATED on the A24 tree — the R46 gate moved into balanceMatured, so the mutation now removes it there; identical semantics to the A19 original: rows derived and payable at 1 conf)
+utc 2026-10-08T10:51:19Z
+command node tmp/fresh-r41-f9-confirmations.mjs + node tmp/fresh-r41-f10-excess.mjs
+commit b536ce30bbab9abbaf475477b6cdd5ec0d3421ac
+utc 2026-10-08T10:51:20.042Z
+command node tmp/r41-f9-confirmations.mjs (tools/repro/r41-f9-confirmations.ts)
+tree M clear/features.ts
+tree  M cli/host-derive.ts
+tree  M docs/evidence/phase-5/mutations/A19-F9.patch
+tree  M settle/plan.ts
+FAIL f9-late-row-not-payable row present amount 7 matured true at 6 confirmations (red before: no gate at all, the row is derived and payable at 1 conf)
+ERROR f9-late-row-not-payable row present amount 7 matured true at 6 confirmations (red before: no gate at all, the row is derived and payable at 1 conf)
+FAIL f9-late-row-payable-after-confirmations at 9 confs present matured true; at 10 confs matured true (m.confirmations = 10; R46 F23: classified only once matured)
+ERROR f9-late-row-payable-after-confirmations at 9 confs present matured true; at 10 confs matured true (m.confirmations = 10; R46 F23: classified only once matured)
+FAIL f9-gate-stricter-rule confirmations 20 at 19 confs classified; confirmations 3 at 6 confs classified (gate = max(m.confirmations, 10))
+ERROR f9-gate-stricter-rule confirmations 20 at 19 confs classified; confirmations 3 at 6 confs classified (gate = max(m.confirmations, 10))
+RESULT FAIL r41-f9-confirmations
+PASS f10-excess-row excess [{"party":"balance-excess:0","amount":"50000"}] late 1 sources 2 owed 50000 (in-window 350,000 above the 300,000 due refunds as one immutable row to leaf 0; red before: swept into vault change)
+FAIL f10-excess-row-gated at 2-3 confs on the backing notes row present at 50000; after the gate matured true (R41.3 excess leg: the row is derived only once its in-window notes confirm)
+ERROR f10-excess-row-gated at 2-3 confs on the backing notes row present at 50000; after the gate matured true (R41.3 excess leg: the row is derived only once its in-window notes confirm)
+PASS f10-no-excess-at-exact-due refunds [] sources 1 (exactly the due: no excess row — the settled drop's shape)
+PASS f10-default-full-refund excess [{"party":"balance-excess:0","amount":"100000"}] sources 1 (R41.6: a defaulted winner's 100,000 in-window payment refunds in full — red before: kept by the vault)
+RESULT FAIL r41-f10-excess

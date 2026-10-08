@@ -1,0 +1,16 @@
+commit b536ce30bbab9abbaf475477b6cdd5ec0d3421ac (A23-F18skip REGENERATED on the A24 tree — identical semantics: the pre-F18 whole-row skip)
+utc 2026-10-08T10:51:43Z
+command node tmp/mut-f18.mjs + node tmp/mut-f22.mjs
+FAIL f18a-multinote-per-note-skip late row refunded 100000 for the taken note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; excess row over the free note c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3:ironwood:2: NOT CREATED (free note value stranded)
+ERROR f18a-multinote-per-note-skip late row refunded 100000 for the taken note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0; excess row over the free note c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3:ironwood:2: NOT CREATED (free note value stranded)
+FAIL f18a-conservation settled 0 + balance refund rows = 100000 vs received 140000 at the balance address (zat-exact)
+ERROR f18a-conservation settled 0 + balance refund rows = 100000 vs received 140000 at the balance address (zat-exact)
+FAIL f18b-zat-exact-conservation excess row NOT CREATED; settled 30000 + balance refund rows = 130000 vs received 140000 at the balance address (zat-exact)
+ERROR f18b-zat-exact-conservation excess row NOT CREATED; settled 30000 + balance refund rows = 130000 vs received 140000 at the balance address (zat-exact)
+PASS f18c-unkeyable-note-error refused: refused: unkeyable refund note identity balance-late:d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4:or; rows created: 0; legacy identity refused: true
+RESULT FAIL r44-f18
+FAIL f22-multinote-taking-row-error pin ACCEPTED silently: new row not created (spurious skip); 100000 of the free note's value can never refund
+ERROR f22-multinote-taking-row-error pin ACCEPTED silently: new row not created (spurious skip); 100000 of the free note's value can never refund
+FAIL f22-single-note-skip-unchanged per-note skip intact: excess row over the free note at undefined (expected 10000)
+ERROR f22-single-note-skip-unchanged per-note skip intact: excess row over the free note at undefined (expected 10000)
+RESULT FAIL r45-f22
