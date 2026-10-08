@@ -1,0 +1,12 @@
+# r45-f22 RED BEFORE — tools/repro/r45-f22.ts on the pre-F22 tree ada3be7 (driver uncommitted)
+# command npx esbuild tools/repro/r45-f22.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r45-f22.mjs && node tmp/r45-f22.mjs
+commit ada3be746352ba1487e493237f66cfd057bd416f
+utc 2026-10-08T05:59:46.629Z
+command node tmp/r45-f22.mjs (tools/repro/r45-f22.ts)
+tree ?? tools/repro/r45-f22.ts
+WARN refund row balance-late:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:1: note c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3:ironwood:2 already backs a refund row; skipping that note only (amount 140000 -> 40000; Ruling R44 F18)
+FAIL f22-multinote-taking-row-error pin ACCEPTED silently: new row created at 40000 (correct: 100000 — the taking row's whole amount was subtracted for one 40000 note); 60000 of the free note's value can never refund
+ERROR f22-multinote-taking-row-error pin ACCEPTED silently: new row created at 40000 (correct: 100000 — the taking row's whole amount was subtracted for one 40000 note); 60000 of the free note's value can never refund
+WARN refund row balance-excess:0: note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 already backs a refund row; skipping that note only (amount 110000 -> 10000; Ruling R44 F18)
+PASS f22-single-note-skip-unchanged per-note skip intact: excess row over the free note at 10000 (expected 10000)
+RESULT FAIL r45-f22
