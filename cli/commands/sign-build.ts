@@ -39,26 +39,31 @@ export async function run(argv: string[]): Promise<number | object> {
     // Each allocated row gets the recipient THIS signer derived; the seller payout goes to the operator routing UA
     // (stated limit: hosts check its amount against the result, not its address).
     const pool = [...expected];
+    // R45 (Reviewer R F20): a derivation refusal is TYPED — every row this signer cannot derive is listed and the
+    // command exits 3, so the coordinator can tell "these rows are underivable" from a transient failure (exit 1).
+    const refusedRows: string[] = [];
     const payment = rows.map(r => {
       if (r.party === "seller") {
         // G-7: the routing UA is checked through the audited classifier on the manifest's OWN network (never a
         // hardcoded testnet shape)
-        requireThat(r.amount_zats === payout && isUnifiedOn(meta.seller_ua ?? "", network), "seller row differs from the result payout or has no routing UA");
+        if (!(r.amount_zats === payout && isUnifiedOn(meta.seller_ua ?? "", network))) { refusedRows.push(r.party); return null; }
         return { party: r.party, recipient: meta.seller_ua as string, amount_zats: r.amount_zats };
       }
       const i = pool.findIndex(e => e.party === r.party && e.amount_zats === r.amount_zats);
-      requireThat(i >= 0, `row ${r.party} (${r.amount_zats} zats) is not one this signer derived`);
+      if (i < 0) { refusedRows.push(r.party); return null; }
       const [e] = pool.splice(i, 1);
       return { party: r.party, recipient: e.recipient, amount_zats: r.amount_zats };
     });
+    if (refusedRows.length) { process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(refusedRows)}\n`); return 3; }
+    const paymentRows = payment as { party: string; recipient: string; amount_zats: string }[];
     const created = path.join(packet, "created.pczt"), proven = path.join(packet, "proven.pczt");
-    execFileSync(pcztBin(root, st), ["create", vaultDir(st, o.id), created, String(meta.expiry_blocks), "--network", network], { input: JSON.stringify(payment.map(p => ({ recipient: p.recipient, amount_zats: p.amount_zats }))), encoding: "utf8" });
+    execFileSync(pcztBin(root, st), ["create", vaultDir(st, o.id), created, String(meta.expiry_blocks), "--network", network], { input: JSON.stringify(paymentRows.map(p => ({ recipient: p.recipient, amount_zats: p.amount_zats }))), encoding: "utf8" });
     const prove = spawnSync(path.join(st, "bin", "zcash-devtool"), ["pczt", "-w", vaultDir(st, o.id), "prove", created, "--output", proven], { encoding: "utf8", maxBuffer: 64 << 20 });
     requireThat(prove.status === 0, `prove failed: ${(prove.stderr ?? "").trim().slice(-200)}`);
     // Map each row to its output index by inspecting the proven candidate here (the builder may shuffle actions).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", proven, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
     const avail = (info.outputs ?? []).filter((x: any) => !x.is_change);
-    const outputs = payment.map(p => {
+    const outputs = paymentRows.map(p => {
       const k = avail.findIndex((x: any) => x.recipient === p.recipient && String(x.amount_zats) === p.amount_zats);
       requireThat(k >= 0, `built candidate lacks the output for ${p.party}`);
       const [x] = avail.splice(k, 1);
