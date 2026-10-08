@@ -154,6 +154,10 @@ async function signParallelHost(sighash: string, randomizers: string[], pair: st
     const participants = pair.map(n => orb(n, [`${H}/bin/benzo`, "sign", "join", "--id", custody.id, "--name", n, "--sighash", sighash, "--count", String(randomizers.length), "--server", custody.server]));
     all.push(...participants);
     participants.forEach((p, i) => p.done.then(code => { if (code !== 0 && !aborted) { failed.push(pair[i]); abort(); } }));
+    // Test-only drill hook (BNZ_DRILL_STOP=<signer>), as in signOnce: stop that signer's host once it joined, mid-session,
+    // once. R55: R29's parallel path had dropped it, so buyback-mode's Y1b kill drill never fired.
+    const drill = pair.indexOf(process.env.BNZ_DRILL_STOP ?? "");
+    if (drill >= 0 && !process.env.BNZ_DRILL_DONE) { process.env.BNZ_DRILL_DONE = "1"; await when(participants[drill], "Joining signing session..."); require_spawnSync("orb", ["stop", `benzo-${pair[drill]}`]); }
     const codes = await Promise.all(all.map(p => p.done));
     if (codes.some(c => c !== 0)) {
       const lostErr = failed.length ? participants[pair.indexOf(failed[0])].err.trim().slice(-200) : "";
