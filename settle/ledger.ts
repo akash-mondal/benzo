@@ -185,7 +185,7 @@ export class Ledger {
         if(history.has(o.party))continue;
         const row=this.rows().find(r=>r.party===o.party),wantAmt=want.get(o.party)??0n;
         requireThat(row===undefined?wantAmt===0n:BigInt(row.amount_zats)===wantAmt,
-          `conservation at pin: rows + settled + refunded = received (${o.party} derived ${wantAmt} vs ledger ${row!.amount_zats})`);
+          `conservation at pin: rows + settled + refunded = received (${o.party} derived ${wantAmt} vs ledger ${row?row.amount_zats:"no row"})`);
       }
       this.db.exec("DELETE FROM plan");this.db.prepare("INSERT INTO plan VALUES(?)").run(digest);
     });
