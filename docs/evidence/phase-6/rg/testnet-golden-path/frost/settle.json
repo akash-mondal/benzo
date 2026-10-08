@@ -1,0 +1,24 @@
+{
+ "deposits": [
+  {
+   "txid": "4670036200fbbb3ccaec5d53c58070eff576fac69a43037b7dcdec07a076bd7a",
+   "value_zats": 500000,
+   "spent_in_txid": "92586b9802e6958ac8f4d9ec1401de468308886410628167224bdb8249c3a1b2"
+  },
+  {
+   "txid": "98ad7ffeb49fd30e905bc6a420dd835d3febfb0e2c6a99d2710ca48a56d4c243",
+   "value_zats": 500000,
+   "spent_in_txid": "92586b9802e6958ac8f4d9ec1401de468308886410628167224bdb8249c3a1b2"
+  }
+ ],
+ "spent_vault_notes_zats": 1000000,
+ "fee_zats": 10000,
+ "bidder_total": {
+  "before": 18484996,
+  "after": 19474996
+ },
+ "vault_total": {
+  "before": 1000000,
+  "after": 0
+ }
+}
