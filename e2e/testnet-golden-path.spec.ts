@@ -118,10 +118,12 @@ test("golden path on testnet", async ({ page }) => {
         expect.soft(m[0]?.value_zats, `bid${i + 1} value`).toBe(C);
       });
     });
-    await run.check("D3", "operator view differs only in txid, height, address, index and ciphertext", () => {
+    await run.check("D3", "operator view differs only in txid, height, address, index, shuffled action position and ciphertext", () => {
       const [a, b] = mine.map((m) => m[0]);
       const rest = (l: z.ScanLine) => {
-        const { txid, height, address, diversifier_index, memo_hex, ...others } = l;
+        // R50: the Orchard builder shuffles a bundle's actions, so the note's action_index is uniformly random per
+        // transaction (like its txid), not a fingerprint; comparing it made D3 pass only when two shuffles agreed.
+        const { txid, height, address, diversifier_index, memo_hex, action_index, ...others } = l;
         const len = parseInt(memo_hex.slice(10, 14), 16);
         return { ...others, memo_header: memo_hex.slice(0, 14), memo_tail: memo_hex.slice(14 + 2 * len) };
       };
