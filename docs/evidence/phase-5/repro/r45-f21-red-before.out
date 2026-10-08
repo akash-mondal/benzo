@@ -1,0 +1,15 @@
+# r45-f21 RED BEFORE — tools/repro/r45-f21.ts on the pre-F21 tree aa15129 (driver uncommitted), verify = that tree's dist/benzo-verify.mjs
+# command npx esbuild tools/repro/r45-f21.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r45-f21.mjs && BNZ_STATE_DIR=tmp/r45-f21-state node tmp/r45-f21.mjs
+commit aa15129469c6c6fc1bba197b205a47df7e179987
+utc 2026-10-08T05:37:27.397Z
+command node tmp/r45-f21.mjs (tools/repro/r45-f21.ts)
+tree ?? tools/repro/r45-f21.ts
+PASS f21-probe-both-present both batches present → [0] (the earliest paying batch's list [0])
+FAIL f21-probe-omission-refused batch 1's maps omitted → earliestAgreedDefaults returned [1] — the tie-break is steered to the later batch's list
+ERROR f21-probe-omission-refused batch 1's maps omitted → earliestAgreedDefaults returned [1] — the tie-break is steered to the later batch's list
+FAIL f21-verify-omission-refused batch 1's maps omitted, published [1]: verify exit 0 — the steered defaults VERIFIED (the tie-break cannot see the hidden batch)
+ERROR f21-verify-omission-refused batch 1's maps omitted, published [1]: verify exit 0 — the steered defaults VERIFIED (the tie-break cannot see the hidden batch)
+FAIL f21-verify-later-batch-attested batch 2's maps omitted, published [0]: verify exit 0 — only the earliest batch's attestation was required (R45 requires EVERY paying batch)
+ERROR f21-verify-later-batch-attested batch 2's maps omitted, published [0]: verify exit 0 — only the earliest batch's attestation was required (R45 requires EVERY paying batch)
+PASS f21-verify-both-batches-ok both batches attested, published [0]: verify exit 0, OK defaults
+RESULT FAIL r45-f21
