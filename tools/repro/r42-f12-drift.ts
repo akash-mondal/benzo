@@ -80,9 +80,13 @@ line("f12b-pin-seller-drift", () => {
 });
 
 const ledger3 = new Ledger(state, hash(randomBytes(32)));
-ledger3.pin([{ party: "balance-excess:0", kind: "refund", amount_zats: "50000" }], []);
+// R44 F18 (A22): a keyed refund row carries its keyable note backing (the worker's `keyed` wrapper) — the
+// excess row's in-window note.
+const excessNote = `${"11".repeat(32)}:ironwood:0`;
+const excessRow: Obligation = { party: "balance-excess:0", kind: "refund", amount_zats: "50000", notes: [excessNote] };
+ledger3.pin([excessRow], []);
 line("f12c-pin-excess-drift", () => {
-  const t = throws(() => { ledger3.pin([{ party: "balance-excess:0", kind: "refund", amount_zats: "30000" }], []); }, /./);
+  const t = throws(() => { ledger3.pin([{ ...excessRow, amount_zats: "30000" }], []); }, /./);
   const row = ledger3.rows().find(r => r.party === "balance-excess:0");
   return [t === "NO-THROW" && row?.amount_zats === "50000", `${t}; the pinned row stands at ${row?.amount_zats}`];
 });
@@ -107,7 +111,9 @@ line("f12d-pin-row-vanish", () => {
   writeFileSync(path.join(state, "auction", `${auctionId}.json`), jsonBytes({ signer, manifest, state: "SETTLED", receipts: [], witness_set: witnessSet }));
   writeFileSync(path.join(state, "product", `${auctionId}.json`), jsonBytes({ public_dir: publicDir, settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 } }));
   writeFileSync(path.join(dir, "summary.json"), jsonBytes({ auction_id: auctionId, rows: [leafRow], batches: [{ id: 1, txid: txid1, height: 100, state: "mined" }], plan: { defaults: [1] }, offline_signer: "carol" }));
-  writeFileSync(path.join(dir, "receipts.json"), jsonBytes([]));
+  // A mined batch has one receipt per paid output (ledger.confirm); the F19 tie-break is driven by the paid
+  // receipts' txids, so an empty receipts.json models no paying batch at all.
+  writeFileSync(path.join(dir, "receipts.json"), jsonBytes([{ auction_id: auctionId, party: "leaf:0", txid: txid1, pool: "ironwood", output_index: 0, amount_zats: "200000" }]));
   writeFileSync(path.join(dir, "batch-1.maps.json"), jsonBytes(b1maps));
   line("f12e-publish-map-defaults", () => {
     const doc: any = publish(auctionId);
