@@ -511,7 +511,7 @@ async function lateDustFlow(name: string, id: string, sc: Pick<Scenario, "lateDu
   s1.stdout!.on("data", x => s1out += x); s1.stderr!.on("data", x => s1err += x);
   const s1done = new Promise<number | null>(res => s1.on("close", res));
   const maps = path.join(settleDir, "batch-1.maps.json");
-  for (let i = 0; !existsSync(maps); ) { if (++i > 480) throw new Error("batch 1 was never signed by two hosts"); await sleep(5_000); }
+  for (let i = 0; !existsSync(maps); ) { if (++i > 480) { try { s1.kill("SIGKILL"); } catch {} throw new Error("batch 1 was never signed by two hosts"); } await sleep(5_000); }
   const seen = new Set(scanVault().map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`));
   say(`A19 F7: 1-zat note sent to leaf ${leaf}'s balance address AFTER both hosts signed batch 1 (${z.pay(`zcash:?address=${ua}&amount=0.00000001`)})`);
   check(`${name}-late-settle1`, (await s1done) === 0, "batch 1 finalized and published despite the late note");

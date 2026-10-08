@@ -126,10 +126,10 @@ function hostDerivable():Set<string>|null {
   writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600});
   const remote=`derivable-${id.slice(0,16)}`;
   for(const n of [...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))]) {
-    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000}).status!==0)continue;
-    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000}).status!==0)continue;
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
-    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000});
+    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"});
+    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
     if(r.status!==0){console.error(`ERROR signer ${n} could not list derivable rows: ${(r.stderr||"").trim().slice(-200)}`);continue}
     const out=JSON.parse(r.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
     return new Set(out.rows.map((x:any)=>`${x.party}:${x.amount_zats}`));
@@ -156,21 +156,24 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   const remote=`build-${id.slice(0,16)}-${batchId}`;
   let reached=0,refused=0;
   for(const n of prefer) {
-    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000}).status!==0)continue;
-    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000}).status!==0)continue;
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000});
-    const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20});
+    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"});
+    // A22 live-run defect (the b5b3b38 class): orb can stall and ignores SIGTERM, so a spawnSync without a
+    // SIGKILL bound waits forever (a `rm -rf` stalled 50 min and orphaned a funded settle). Every orb/orbctl
+    // call here is bounded with SIGKILL — an unreachable host fails loudly and the batch flow moves on.
+    const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
     reached++;
     if(b.status!==0){refused++;console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue}
     const built=JSON.parse(b.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
     // §11 H7: pull only the redacted candidate and the sealed full copies; the full candidate never reaches here.
     const pulled=file(`batch-${batchId}.pulled.pczt`);
     run("rm",["-f",pulled]);
-    requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/proven.redacted.pczt`,pulled]).status===0&&existsSync(pulled),`could not pull the candidate from ${n}`);
+    requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/proven.redacted.pczt`,pulled],{timeout:120_000,killSignal:"SIGKILL"}).status===0&&existsSync(pulled),`could not pull the candidate from ${n}`);
     requireThat(hash(readFileSync(pulled))===built.plan_version,"pulled candidate differs from the builder's plan_version");
     for(const s of ["alice","bob","carol"]) {
       const f=file(`batch-${batchId}.sealed-${s}.bin`);run("rm",["-f",f]);
-      requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/sealed-${s}.bin`,f]).status===0&&existsSync(f),`could not pull the candidate sealed to ${s}`);
+      requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/sealed-${s}.bin`,f],{timeout:120_000,killSignal:"SIGKILL"}).status===0&&existsSync(f),`could not pull the candidate sealed to ${s}`);
     }
     copyFileSync(pulled,proven);
     writeFileSync(file(`batch-${batchId}.build.json`),jsonBytes(built),{mode:0o600});
@@ -195,7 +198,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   // Phase 6: the hosts approve in parallel (each derives and checks on its own machine; ~20 s each, serial before).
   const orbAsync=(args:string[],timeout=0)=>new Promise<{status:number|null;stdout:string;stderr:string}>(resolve=>{
     const c=spawn("orb",args);let stdout="",stderr="";c.stdout.on("data",d=>stdout+=d);c.stderr.on("data",d=>stderr+=d);
-    const t=timeout?setTimeout(()=>c.kill(),timeout):undefined;
+    const t=timeout?setTimeout(()=>c.kill("SIGKILL"),timeout):undefined;
     c.on("error",e=>{stderr+=String(e);});c.on("close",code=>{if(t)clearTimeout(t);resolve({status:code,stdout,stderr})});
   });
   // frostd lets only a session's coordinator close it, and `sessions --close-all` stops at the first session the host
@@ -206,7 +209,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     for(let round=0;round<4;round++){
       failing=[];
       for(const n of ["alice","bob","carol"]){
-        const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000});
+        const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000,killSignal:"SIGKILL"});
         if(r.status!==0)failing.push(n); // exit 0: every session it listed was closed
       }
       if(!failing.length)return;
@@ -220,10 +223,10 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     const remote=`packet-${id.slice(0,16)}-${batchId}`;
     const r=await orbAsync(["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],120_000);
     if(r.status!==0){events.push({signer:n,approve:"unreachable"});return false}
-    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
+    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8",timeout:120_000,killSignal:"SIGKILL"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
     await orbAsync(["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],120_000);
     const tA=Date.now();
-    const a=await orbAsync(["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n]);
+    const a=await orbAsync(["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],15*60_000);
     timing({auction:id,batch:batchId,phase:"host-approve",signer:n,ms:Date.now()-tA,ok:a.status===0});
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
     if(a.status===0){try{maps[n]=JSON.parse(a.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!).map??null}catch{maps[n]=null}}
