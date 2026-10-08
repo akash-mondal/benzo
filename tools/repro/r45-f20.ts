@@ -63,21 +63,27 @@ const settleBatch = (l: Ledger, id: number): void => {
   l.stage(b.id, fakePczt, txid);
   l.confirm(b.id, txid, 100, b.outputs.map((o, i) => ({ party: o.party, amount_zats: o.amount_zats, index: i, pool: "orchard" })));
 };
-// The worker's catch sequence after a set-aside (settle/cli.ts): expire the batch, re-pin with the condemned
-// refund rows recorded (unbuildable.json) and the deferred payout rows exception-only for this run, then
-// re-allocate. The NEXT settle run re-derives every row except the recorded condemned ones.
+// The worker's catch sequence after a set-aside (settle/cli.ts): expire the batch, re-pin — pinRows drops the
+// recipient of every set-aside row (condemned to unbuildable.json or deferred for this run), so only the other
+// rows stay ready — then re-allocate. The NEXT settle run re-derives every row except the recorded condemned.
 const setAsideRun = (l: Ledger, batchId: number, ready: Obligation[], condemned: string[], deferred: string[]): void => {
   l.expire(batchId);
+  const aside = new Set([...condemned, ...deferred]);
   const exceptions = [...condemned, ...deferred].map((p) => {
     const o = [X, leaf1, seller].find((r) => r.party === p)!;
     return { ...o, reason: condemned.includes(p) ? "no signer host derives this row from its own data; claimable through benzo claim-refund" : "payout deferred: no signer host could build it this run; re-derived on the next settle" };
   });
-  l.pin(ready, exceptions);
+  l.pin(ready.filter((r) => !aside.has(r.party)), exceptions);
   l.eligible();
+};
+// A case that throws is a failed case (one grep-able ERROR line), never a crashed run.
+const caseRun = (id: string, fn: () => [boolean, string]): void => {
+  try { const [ok, d] = fn(); line(id, ok, d); }
+  catch (e) { line(id, false, `threw: ${(e as Error).message.slice(0, 200)}`); }
 };
 
 // ---- case 1: a host timeout (SIGKILL kill: status null) and an exit-1 transient — "unreachable", retried --
-{
+caseRun("f20-timeout-retried", () => {
   const l = new Ledger(st, uid(1));
   l.pin([leaf1, seller], []); l.eligible();
   const b1 = l.allocate(13)!;
@@ -88,13 +94,13 @@ const setAsideRun = (l: Ledger, batchId: number, ready: Obligation[], condemned:
   const states = Object.fromEntries(l.rows().map((r) => [r.party, r.state]));
   const ok = !c.unbuildable && c.refusedRows.length === 0 && aside.condemned.length === 0 && aside.deferred.length === 0 &&
     retry.id === b1.id && retry.outputs.length === 2 && Object.values(states).every((s) => s === "allocated");
-  line("f20-timeout-retried", ok,
-    `classify(unbuildable=${c.unbuildable}, refusedRows=${JSON.stringify(c.refusedRows)}); set-aside condemned ${JSON.stringify(aside.condemned)} deferred ${JSON.stringify(aside.deferred)}; retry sees batch ${retry.id} with ${retry.outputs.length} rows (batch ${b1.id}), row states ${JSON.stringify(states)} — a timeout/exit-1 is retried, never condemned`);
   l.close();
-}
+  return [ok,
+    `classify(unbuildable=${c.unbuildable}, refusedRows=${JSON.stringify(c.refusedRows)}); set-aside condemned ${JSON.stringify(aside.condemned)} deferred ${JSON.stringify(aside.deferred)}; retry sees batch ${retry.id} with ${retry.outputs.length} rows (batch ${b1.id}), row states ${JSON.stringify(states)} — a timeout/exit-1 is retried, never condemned`];
+});
 
 // ---- case 2: every reached host typed-refuses, disagreeing on supersets — only the intersection is set aside
-{
+caseRun("f20-set-aside-only-refused-rows", () => {
   const l = new Ledger(st, uid(2));
   l.pin([X, leaf1, seller], []); l.eligible();
   const b1 = l.allocate(13)!;
@@ -115,13 +121,13 @@ const setAsideRun = (l: Ledger, batchId: number, ready: Obligation[], condemned:
     JSON.stringify(aside.condemned) === JSON.stringify([X.party]) && aside.deferred.length === 0 &&
     JSON.stringify(b2.outputs.map((o) => o.party)) === JSON.stringify(["leaf:1", "seller"]) &&
     x.state === "exception" && !l.receipts().some((r) => r.party === X.party);
-  line("f20-set-aside-only-refused-rows", ok,
-    `classify(unbuildable=${c.unbuildable}, refusedRows=${JSON.stringify(c.refusedRows)}) — the intersection of {${X.party},leaf:1} and {${X.party},seller}; set-aside condemned ${JSON.stringify(aside.condemned)} deferred ${JSON.stringify(aside.deferred)}; next batch pays ${JSON.stringify(b2.outputs.map((o) => o.party))}; the refused row stays ${x.state} (claimable exception, never paid)`);
+  const d = `classify(unbuildable=${c.unbuildable}, refusedRows=${JSON.stringify(c.refusedRows)}) — the intersection of {${X.party},leaf:1} and {${X.party},seller}; set-aside condemned ${JSON.stringify(aside.condemned)} deferred ${JSON.stringify(aside.deferred)}; next batch pays ${JSON.stringify(b2.outputs.map((o) => o.party))}; the refused row stays ${x.state} (claimable exception, never paid)`;
   l.close();
-}
+  return [ok, d];
+});
 
 // ---- case 3: a refused SELLER row is deferred, never condemned, and eligible again on the next settle ----
-{
+caseRun("f20-seller-deferred-not-condemned", () => {
   const l = new Ledger(st, uid(3));
   l.pin([leaf1, seller], []); l.eligible();
   const b1 = l.allocate(13)!;
@@ -146,10 +152,10 @@ const setAsideRun = (l: Ledger, batchId: number, ready: Obligation[], condemned:
     aside.condemned.length === 0 && JSON.stringify(aside.deferred) === JSON.stringify(["seller"]) &&
     JSON.stringify(b2.outputs.map((o) => o.party)) === JSON.stringify(["leaf:1"]) &&
     sellerMid.state === "exception" && b3.outputs.some((o) => o.party === "seller") && sellerEnd.state === "paid";
-  line("f20-seller-deferred-not-condemned", ok,
-    `set-aside condemned ${JSON.stringify(aside.condemned)} (never the payout row) deferred ${JSON.stringify(aside.deferred)}; this run: ${sellerMid.state} (deferred exception, not unbuildable.json); the next settle pays it in batch ${b3.id} → ${sellerEnd.state}; the other rows settled first in batch ${b2.id}`);
+  const d = `set-aside condemned ${JSON.stringify(aside.condemned)} (never the payout row) deferred ${JSON.stringify(aside.deferred)}; this run: ${sellerMid.state} (deferred exception, not unbuildable.json); the next settle pays it in batch ${b3.id} → ${sellerEnd.state}; the other rows settled first in batch ${b2.id}`;
   l.close();
-}
+  return [ok, d];
+});
 
 rmSync(assertScratch(st), { recursive: true, force: true });
 console.log(all ? "RESULT PASS r45-f20" : "RESULT FAIL r45-f20");
