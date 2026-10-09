@@ -1,7 +1,7 @@
 // After all specs: write run.json. On an evidence run with no NOT RUN, replace the run's evidence dirs with this run's output.
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cpSync, existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { bin, E2E, OUT, ROOT, STATE } from "./env";
 
@@ -45,6 +45,8 @@ export default function globalTeardown() {
     nu7_provenance: Object.fromEntries(["zcash-devtool", "zcash-sign"].map((b) => [b, existsSync(path.join(STATE, "nu7-provenance", `${b}.json`))
       ? { record_sha256: sha256(path.join(STATE, "nu7-provenance", `${b}.json`)), bin_sha256: sha256(bin(b)) } : "MISSING"])), // R53: never silently omitted
   };
+  // R67: a spec that writes no evidence subdirectory (buyback-mode) still gets its run.json — the dir may not exist yet.
+  mkdirSync(dest, { recursive: true });
   writeFileSync(path.join(dest, "run.json"), JSON.stringify(run, null, 1) + "\n");
   console.log(`run.json -> ${path.relative(ROOT, dest)}${evidence && !write ? " (NOT RUN or no results: no evidence written)" : ""}`);
 }

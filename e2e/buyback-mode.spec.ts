@@ -184,7 +184,9 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     });
     // W6 (F2): after batch 1 mined, a new candidate paying leaf 0's real row again (the vault keeps the fee reserve).
     await run.check('W6','a row already paid by a mined batch is never approved again',()=> {
-      refused(attack('w6',95,[legit[0]]),/already paid by mined batch/);
+      // R67: the host refuses a re-pay of a mined batch's row by either rule — the earlier batch is still inside its expiry
+      // (checked first since R58), or it mined; both are refusals of the same re-pay.
+      refused(attack('w6',95,[legit[0]]),/already paid by mined batch|which can still mine until/);
     });
     await run.check('W1','no refund destination in any operator file, public file or log; coordinator saw only the redacted candidate',()=> {
       const places=[publicDir,path.join(STATE,'settle',id),path.join(STATE,'product'),path.join(STATE,'auction'),path.join(STATE,'run','auction-cli.log'),path.join(privateDir,'settle.log')];
