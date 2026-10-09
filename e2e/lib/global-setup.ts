@@ -13,6 +13,13 @@ export default function globalSetup() {
       console.log("NOT RUN dirty tree");
       throw new Error("NOT RUN dirty tree");
     }
+    // R58 (Reviewer R F1 on R57): skip-worktree / assume-unchanged files hide edits from `git status`, so the clean-tree
+    // rule also requires every tracked file to be plain — for every evidence run, not only the specs that call pins.ts.
+    const hidden = execFileSync("git", ["ls-files", "-v"], { cwd: ROOT }).toString().split("\n").filter((l) => l && !l.startsWith("H "));
+    if (hidden.length) {
+      console.log(`NOT RUN files hidden from git status: ${hidden.slice(0, 3).join(", ")}`);
+      throw new Error("NOT RUN hidden files");
+    }
   }
   mkdirSync(path.join(E2E, "out"), { recursive: true });
   writeFileSync(path.join(E2E, "start.txt"), new Date().toISOString());

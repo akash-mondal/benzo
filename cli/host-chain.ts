@@ -28,6 +28,18 @@ export function minedHeight(st: string, txid: string): number {
   const r = grpc(st, "GetTransaction", { hash: Buffer.from(txid, "hex").reverse().toString("base64") });
   return r.ok ? Number(JSON.parse(r.out).height) || 0 : 0;
 }
+// R58 (Reviewer R F2 on R57): "this endpoint does not know the txid" is not proof the transaction never mined (all
+// hosts share one testnet endpoint, so a lagging or pruned answer is correlated). Absence is proven only from the
+// full block range [from, to]: every block present and contiguous, and the txid in none of them.
+export function provenAbsent(st: string, txid: string, from: number, to: number): boolean {
+  requireThat(Number.isSafeInteger(from) && Number.isSafeInteger(to) && from > 0 && from <= to, `absence range [${from}, ${to}]`);
+  const r = grpc(st, "GetBlockRange", { start: { height: from }, end: { height: to } });
+  requireThat(r.ok, `lightwalletd GetBlockRange [${from}, ${to}] unavailable`);
+  const blocks = r.out.trim().split(/\n(?=\{)/).map((l) => JSON.parse(l));
+  requireThat(blocks.length === to - from + 1 && blocks.every((b, i) => Number(b.height) === from + i), `incomplete block range [${from}, ${to}]`);
+  const ids = new Set(blocks.flatMap((b) => b.vtx ?? []).map((t: any) => Buffer.from(t.txid, "base64").reverse().toString("hex")));
+  return !ids.has(txid);
+}
 // R33 item 2: the header time of the block at `height` (CompactTxStreamer GetBlock over the pinned protos) —
 // the host's own chain view, used to hold the balance window's start to R's release time.
 export function blockTime(st: string, height: number): number {

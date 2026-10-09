@@ -122,7 +122,7 @@ export async function foldR73(run: Run, auctionId: string): Promise<void> {
   };
   const caseB = await drill((leaf: any) => {
     const wrongKey = envmod.generateEnvelopeKey();
-    return { ciphertext_hash: leaf.ciphertext_hash, envelope_ct: envmod.sealEnvelope("utest1redacted", [wrongKey.public_hex]), owner_sig: "ab".repeat(64) };
+    return { ciphertext_hash: leaf.ciphertext_hash, envelope_ct: envmod.sealEnvelope("utest1redacted", [wrongKey.public_hex], "test"), owner_sig: "ab".repeat(64) };
   });
   await run.check("g2-wrong-key-exception", "a record sealed to a key the signers do not hold goes to the exception queue, never an obligation", () => {
     need(caseB.out === "FIXED", `${caseB.out}: ${caseB.why}`);
@@ -316,7 +316,7 @@ try {
 const attacker = "utest1redacted";
 const fabricated = published.frozen.leaves.map((leaf) => {
   const owner = generateOwnerKey(), nonce = randomBytes(16).toString("hex");
-  const envelope_ct = sealEnvelope(attacker, sealToPub);
+  const envelope_ct = sealEnvelope(attacker, sealToPub, "test");
   const pt = Buffer.alloc(128);
   Buffer.from(nonce, "hex").copy(pt, 45);
   Buffer.from(owner.public_hex, "hex").copy(pt, 61);
@@ -1092,7 +1092,7 @@ if (plan) {
     if (!note) { console.log(`R20 ${label}: no such note in the scan; skipped`); return; }
     const party = `deposit:${note.txid}:${note.diversifier_index}`;
     const operatorOwner = env.generateOwnerKey();
-    const operatorCt = env.sealEnvelope(sellerUa, signerKeys);
+    const operatorCt = env.sealEnvelope(sellerUa, signerKeys, "test");
     const ctHash = sha256(Buffer.from(senv.memoSealedBid(note.memo_hex) ?? "", "hex"));
     const rec = { ciphertext_hash: ctHash, envelope_ct: operatorCt, owner_sig: env.signEnvelope(operatorOwner, auction_id, ctHash, operatorCt) };
     const aliceKey = JSON.parse(readFileSync(path.join(STATE, "signers", "alice", "envelope-key.json"), "utf8")).private_hex;

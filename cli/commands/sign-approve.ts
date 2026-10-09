@@ -21,7 +21,7 @@ import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
 import { deriveRows, redactCandidate } from "../host-derive";
-import { chainTip, minedHeight } from "../host-chain";
+import { chainTip, minedHeight, provenAbsent } from "../host-chain";
 import { openBlob } from "../../envelope/index";
 import { signApprovalMap } from "../../witness";
 import { ownEnvelopePrivate } from "../../settle/envelopes";
@@ -99,10 +99,15 @@ export async function run(argv: string[]): Promise<number | object> {
     requireThat(info.expiry_height > tip && info.expiry_height <= tip + 10000, `candidate expiry ${info.expiry_height} outside (tip, tip + 10000]`);
     const dir = path.join(st, "approvals", o.id), ledgerFile = path.join(dir, "ledger.json");
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const ledger: { batch: number; txid: string; expiry_height: number; sources: string[] }[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
+    const ledger: { batch: number; txid: string; expiry_height: number; sources: string[]; approved_tip?: number }[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
     for (const prior of ledger.filter(e => e.txid !== info.txid && e.sources.some(x => sources.includes(x)))) {
-      requireThat(minedHeight(st, prior.txid) === 0, `${prior.sources.find(x => sources.includes(x))} already paid by mined batch ${prior.batch}`);
-      requireThat(tip > prior.expiry_height, `${prior.sources.find(x => sources.includes(x))} is in batch ${prior.batch}, which can still mine until ${prior.expiry_height}`);
+      const src = prior.sources.find(x => sources.includes(x));
+      requireThat(tip > prior.expiry_height, `${src} is in batch ${prior.batch}, which can still mine until ${prior.expiry_height}`);
+      requireThat(minedHeight(st, prior.txid) === 0, `${src} already paid by mined batch ${prior.batch}`);
+      // R58 (Reviewer R F2 on R57): an endpoint's NotFound is not absence. The earlier transaction can only have mined
+      // in (its approval tip, its expiry]; R28 item 9 bounds that to 10,000 blocks for a ledger entry from before R58.
+      const from = (prior.approved_tip ?? prior.expiry_height - 10000) + 1;
+      requireThat(provenAbsent(st, prior.txid, from, prior.expiry_height), `${src} already paid by mined batch ${prior.batch} (in blocks ${from}..${prior.expiry_height})`);
     }
 
     // 4. The sighash, computed here — zcash-sign takes the network from the signed manifest (R33 P2-1),
@@ -128,7 +133,7 @@ export async function run(argv: string[]): Promise<number | object> {
     const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds as any, strays: paidStrays }, readFileSync(wkey, "utf8").trim()) : null;
     const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
-    if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources });
+    if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources, approved_tip: tip });
     writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });
     return approval;
   } catch (e) {

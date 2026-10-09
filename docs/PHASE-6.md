@@ -155,3 +155,20 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
   - the serial timeout is 960 min.
 
   The parked drop (vault 1,380,000 zats, state CLEARED) is finished with `tools/repro/markets.ts resume:9ddb4e5a…` once the current live run ends. Then `settle-crash` and `markets` re-run.
+- R58 2026-10-09 (head, answers Reviewer R `benzo-sol/reports/pr-rg-r57.md`, FIX-FIRST: 2 P1, 4 P2):
+  1. **F2, P1, accepted: a host re-pay needs positive proof of absence.** `sign approve` let a source already in an earlier approved batch be approved again when this host's `minedHeight` was 0. That value also means "the endpoint answered NotFound", and every host uses the same testnet endpoint, so one lagging or pruned answer could mislead two hosts at once and approve a 2-of-3 re-pay of a mined row. Now:
+     - the earlier batch must be past its expiry, and `minedHeight` must be 0;
+     - **and** `cli/host-chain.ts` `provenAbsent` must fetch every block in (approval tip, expiry] contiguously and find the txid in none of them. A missing range refuses.
+     - New ledger entries record `approved_tip`. An entry from before R58 uses expiry − 10,000, the R28 item 9 bound.
+
+     This is host code: the hosts are provisioned again, and gate RG restarts from project #1.
+  2. **F1, P1, accepted:** `e2e/lib/global-setup.ts` now refuses an evidence run when any tracked file is hidden from `git status` (`git ls-files -v`). That covers every project, not only the specs that call `pins.ts`.
+  3. **P2s:**
+     - F6, accepted: a `git show` failure in `pins.ts` is now a NOT RUN string.
+     - F3, accepted: the W6 title stays, but R55 item 2's explanation is the record. With R58, any two hosts can no longer both be wrong about a mined batch.
+     - F4 goes to the README honest limits: losing a host's `approvals/` ledger while keeping its keys weakens that host's own check, so the ledger is backed up with the keys.
+     - F5 goes to the residuals: the settle-crash "no wedge" leg covers the low-level shape only.
+- R59 2026-10-09 (head, RG attempt 6 re-runs):
+  1. **`cli-auction` NOT RUN, "wrong-network address".** `foldR73` case B, `foldR71` and `foldR104` in `e2e/lib/readpath-live.ts` called `sealEnvelope` without a network. A15 made the network a parameter that defaults to main. The head had fixed `e2e/lib/readpath.ts` (`5de3495`) but missed this file. All three now pass `"test"`. Harness-only.
+  2. **`markets` drop: "batch 1 was never signed by two hosts".** The late-dust flow waited 40 min for batch 1's maps file, then threw **before** saving settle's output, so the cause was lost. It now stops waiting as soon as settle exits, saves settle's output to `tmp/markets/drop-settle.log`, and puts settle's last ERROR lines into the failure. The drop auction `75d1ab9d…` is finished with `resume:` before the restart. The cause is diagnosed from the next run.
+  3. **`buyback-mode`** passed every ID, but the run reported failure with no evidence: the global teardown never printed. The runner now keeps each project's Playwright `report.json`, so the next run shows the cause.

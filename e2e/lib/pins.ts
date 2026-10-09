@@ -57,7 +57,9 @@ export function pinsMismatch(): string | undefined {
     // R53 (Reviewer R S6b on R52): the committed digest comes from git (HEAD), never the working tree, and no file in
     // this checkout may be hidden from the dirty-tree check (global-setup).
     for (const cv of cvs) {
-      const committed = createHash("sha256").update(execFileSync("git", ["-C", ROOT, "show", `HEAD:tools/nu7/${cv}.patch`])).digest("hex");
+      let committed: string;
+      try { committed = createHash("sha256").update(execFileSync("git", ["-C", ROOT, "show", `HEAD:tools/nu7/${cv}.patch`])).digest("hex"); }
+      catch { return `tools/nu7/${cv}.patch is not committed`; } // R58 (P2): a gate miss is NOT RUN, never a spec error
       if (committed !== p.patches[cv]) return `${crate} was built with a different ${cv}.patch`;
     }
     if (sha(bin(crate)) !== p.bin_sha256) return `${crate} binary differs from the one tools/nu7/build.sh built`;
