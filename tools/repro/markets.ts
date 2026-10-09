@@ -472,6 +472,9 @@ async function bondFlow(id: string, sc: Pick<Scenario, "balancePays" | "balanceD
   for (const leaf of sc.balanceDust ?? []) {
     const ua = slot(leaf);
     if (scanVault().some((n: any) => n.address === ua && n.height && n.height <= start)) say(`dust already present at leaf ${leaf}'s balance address before the window start`);
+    // R62: pre-window dust only while the window has not started — a resume past the start sent fresh "pre-window"
+    // dust that landed after it (RG attempt 6 resumes of 75d1ab9d…).
+    else if (safeTip() + 2 >= start) say(`window start ${start} reached (tip ${safeTip()}); no pre-window dust sent at leaf ${leaf}`);
     else say(`dust sent to leaf ${leaf}'s balance address before the window opens, at tip ${safeTip()} (out of window: never counts as payment, refunds to leaf ${leaf}) (${z.pay(`zcash:?address=${ua}&amount=0.0002`)})`);
   }
   // The bound is a poll count, not a deadline on the chain: slow testnet blocks (A17 live runs) pushed the
