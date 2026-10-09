@@ -7,7 +7,7 @@
 import { spawnSync, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, statSync, writeFileSync } from "node:fs";
 import { assertScratch } from "../../tools/repro/scratch.ts"; // R43/F17: only tmp/ or $TMPDIR targets may be deleted
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
+import { createCipheriv, createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import * as schema from "../../manifest/schema";
@@ -132,11 +132,11 @@ export async function foldR73(run: Run, auctionId: string): Promise<void> {
     const tAddr = "tmEZPFPFmP3nJnMH1mzf5uTQWaUbVMdMYdV37wnM";
     const eph = generateKeyPairSync("x25519");
     const ephPub = Buffer.from(eph.publicKey.export({ type: "spki", format: "der" })).subarray(12).toString("hex");
-    const shared = require("node:crypto").diffieHellman({ privateKey: eph.privateKey, publicKey: createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b656e032100", "hex"), Buffer.from(key.public_hex, "hex")]), type: "spki", format: "der" }) });
+    const shared = diffieHellman({ privateKey: eph.privateKey, publicKey: createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b656e032100", "hex"), Buffer.from(key.public_hex, "hex")]), type: "spki", format: "der" }) });
     const dk = sha256(Buffer.concat([Buffer.from("benzo-envelope-v1"), shared, Buffer.from(ephPub, "hex"), Buffer.from(key.public_hex, "hex")]));
     const nonceB = sha256(Buffer.concat([shared, Buffer.from(ephPub, "hex")])).subarray(0, 12);
     const payload = Buffer.alloc(512); payload.writeUInt16BE(tAddr.length, 0); Buffer.from(tAddr, "utf8").copy(payload, 2);
-    const cipher = require("node:crypto").createCipheriv("chacha20-poly1305", dk, nonceB, { authTagLength: 16 });
+    const cipher = createCipheriv("chacha20-poly1305", dk, nonceB, { authTagLength: 16 });
     const body = Buffer.concat([cipher.update(payload), cipher.final(), cipher.getAuthTag()]);
     return { ciphertext_hash: leaf.ciphertext_hash, envelope_ct: Buffer.concat([Buffer.from(ephPub, "hex"), nonceB, body]).toString("hex"), owner_sig: "ab".repeat(64) };
   });
