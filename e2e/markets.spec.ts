@@ -36,7 +36,7 @@ const GROUPS = SERIAL ? [PAIRED.flat()] : PAIRED;
 const IDS = GROUPS.flat().map(s => `M-${s}`);
 
 test("market modes settle under host custody", async () => {
-  test.setTimeout((SERIAL ? 960 : 240) * 60_000); // R57: testnet blocks slowed to ~90 s (Oct 8–9); each bond window waits on them const run = new Run("markets");
+  test.setTimeout((SERIAL ? 960 : 240) * 60_000); const run = new Run("markets"); // R57: 960 min serial; testnet blocks slowed to ~90 s (Oct 8–9)
   const bundle = path.join(ROOT, "tmp/markets-spec.mjs");
   const b = spawnSync("npx", ["esbuild", "tools/repro/markets.ts", "--bundle", "--packages=external", "--platform=node", "--format=esm", `--outfile=${bundle}`, "--log-level=warning"], { cwd: ROOT, encoding: "utf8" });
   if (b.status !== 0) run.notRun(IDS, `harness bundle: ${b.stderr}`);
