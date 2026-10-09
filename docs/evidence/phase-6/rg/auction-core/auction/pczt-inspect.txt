@@ -1,0 +1,22 @@
+6 Ironwood actions:
+- 0:
+  - Spend: 500001 zatoshis
+  - Output: Zero value (likely a dummy)
+- 1:
+  - Spend: 500000 zatoshis
+  - Output: Zero value (likely a dummy)
+- 2:
+  - Spend: 499999 zatoshis
+  - Output: Zero value (likely a dummy)
+- 3:
+  - Spend: 30000 zatoshis
+  - Output: Zero value (likely a dummy)
+- 4:
+  - Spend: 500000 zatoshis
+  - Output: 2500000 zatoshis to [redacted address 6cc9203e6c]
+- 5:
+  - Spend: 500000 zatoshis
+  - Output: Zero value (likely a dummy)
+
+TxID: 0d0bc6889ed71123246e7c8221c6fdc084612ae8cb83d886bc9cbefb25683e58
+Version: V6
