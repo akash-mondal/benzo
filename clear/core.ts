@@ -20,7 +20,10 @@ export type ClearBody = {
 };
 // Settlement-side extras the money rules may account for (gate CF: which winners defaulted on their balance;
 // R38 item 4 / N4: the out-of-window balance refunds, published as per-leaf counts only, never addresses).
-export type SettlementExtras = { defaults?: number[]; delivery_defaults?: Signed[]; balance_refunds?: import("./features").BalanceRefund[] };
+// Ruling R61: `bond_void` — the signed balance window's start block predates R's release time, so no winner
+// could have known they won when the window opened: the bond is void, nobody defaults, every deposit refunds in
+// full on its own leaf, every balance note refunds on its own row, and the seller is paid nothing.
+export type SettlementExtras = { defaults?: number[]; delivery_defaults?: Signed[]; balance_refunds?: import("./features").BalanceRefund[]; bond_void?: boolean };
 export type ClearResult = ClearBody & { comparison: ClearBody | null };
 function calculate(input: ClearInput, mode: "uniform" | "vickrey") {
   const {manifest:m,manifest_hash} = client(input.manifest,input.signer);
@@ -145,6 +148,19 @@ export function obligationsModeA(result: ClearBody, settlement?: SettlementExtra
   requireThat(new Set(refunds.map(r => r.party)).size === refunds.length, "duplicate balance refund");
   requireThat(refunds.every(r => isRefundRowParty(r.party) && Number.isSafeInteger(r.leaf_index) && /^[1-9][0-9]*$/.test(r.amount_zats)), "balance refunds");
   requireThat(refunds.length === 0 || result.allocations.every(a => a.balance_due_zats !== undefined), "balance refunds without bond");
+  if (settlement?.bond_void) {
+    // Ruling R61: a void bond. Each leaf gets back exactly what its deposit vaulted (payment + refund - balance_due,
+    // i.e. C at zero auction fee; a non-winner's refund is already C), and each balance note refunds on its own row.
+    requireThat(defaults.length === 0, "a void bond has no defaults");
+    requireThat(result.allocations.every(a => a.balance_due_zats !== undefined), "bond void without bond");
+    for (const a of result.allocations) {
+      const owed = BigInt(a.refund_zats) + BigInt(a.payment_zats) - BigInt(a.balance_due_zats ?? "0");
+      requireThat(owed >= 0n, `void refund for leaf ${a.leaf_index}`);
+      if (owed > 0n) map.set(`leaf:${a.leaf_index}`, owed.toString());
+    }
+    for (const r of refunds) map.set(r.party, r.amount_zats);
+    return map;
+  }
   let seller = BigInt(result.conservation.payout_zats);
   for (const a of result.allocations) {
     if (defaults.includes(a.leaf_index)) {

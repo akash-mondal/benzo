@@ -15,7 +15,7 @@ import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollis
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
-import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement,isRefundRowParty,refundRowLeafIndex,type BalanceRefund} from "../clear/features";
+import {balanceAddressMap,balanceDefaults,balanceWindow,balanceSettlement,bondVoidAt,isRefundRowParty,refundRowLeafIndex,type BalanceRefund} from "../clear/features";
 import {modeEntry,clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
@@ -83,7 +83,7 @@ try {
   const stray=strayNotes(payNotes,m,src.frozen); // R40 item 1 (F1): a slot collision is a stray too
   const exceptions:{party:string;kind:string;amount_zats:string;reason?:string}[]=[];
   const obligations:Obligation[]=[],checks:{operation:string;ciphertext_hash?:string}[]=[],refusals:{party:string;reason:string}[]=[],claimEnvelopes:Record<string,string>={},claimsUsed:any[]=[];
-  let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[],balance_refunds:BalanceRefund[]=[],balNotes:any[]=[];
+  let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[],balance_refunds:BalanceRefund[]=[],balNotes:any[]=[],bondVoid=false;
   const released=Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period;
   const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
@@ -154,12 +154,17 @@ try {
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,30_000);
         wallet("sync","-s",process.env.BNZ_LWD_URL!);tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
       }
-      defaults=balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
+      // Ruling R61: the start block's header time, from this coordinator's own lightwalletd — before R's release
+      // the bond is void (nobody defaults; every deposit and balance note refunds in full). The hosts decide the
+      // same from their own chain views and sign it; only their agreed value is ever published.
+      const startBlock=JSON.parse(execute(path.join(state,"bin","grpcurl"),["-import-path",path.join(state,"proto"),"-proto","service.proto","-d",JSON.stringify({height:start}),process.env.BNZ_LWD_URL!,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"]));
+      bondVoid=bondVoidAt(m as any,Number(startBlock.time));
+      defaults=bondVoid?[]:balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
       // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): out-of-window balance notes are never settlement
       // sources and never count as payment — each note gets its own immutable `balance-late:…` row to that
       // slot's own leaf (host-derived counts, published without addresses), parked as an exception row and
       // claimable through the existing claim path. A newly seen note adds a new row and never grows one.
-      balance_refunds=balanceSettlement(m as any,result,src.frozen!.leaves as any,balNotes,tip).refunds;
+      balance_refunds=balanceSettlement(m as any,result,src.frozen!.leaves as any,balNotes,tip,bondVoid).refunds;
     }
   }
   // R16 item 1 (Reviewer R F4): the CANCELLED/REFUNDING branch resolves each deposit exactly like the cleared
@@ -273,7 +278,7 @@ try {
     }
   } else {
     for(const n of stray.filter(n=>!confirmed(n)))exceptions.push({party:depositParty(n),kind:"refund",amount_zats:String(n.value_zats)});
-    for(const [party,amount] of modeEntry(src.manifest).obligations(result!,m.bond!==undefined?{defaults,balance_refunds}:null)) {
+    for(const [party,amount] of modeEntry(src.manifest).obligations(result!,m.bond!==undefined?{defaults,balance_refunds,...(bondVoid?{bond_void:true}:{})}:null)) {
       const row:{party:string;kind:"refund"|"payout";amount_zats:string}={party,kind:party==="seller"?"payout":"refund",amount_zats:amount};
       // R6 (W) + R7 items 2/3: a product-mode bid's refund destination comes only from its owner-signed
       // settlement envelope. With no valid record the row goes to the exception queue; while Track B's
@@ -331,5 +336,5 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(m.bond!==undefined?{defaults,balance_refunds}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(m.bond!==undefined?{defaults,balance_refunds,...(bondVoid?{bond_void:true}:{})}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

@@ -19,7 +19,7 @@ import {isRefundRowParty,refundRowLeafIndex} from '../clear/features';
 import {launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
-import {checkCertificates,earliestAgreedDefaults,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,verifyDeliveryListSig,witnessSetHash,type WitnessSet} from '../witness';
+import {checkCertificates,earliestAgreedBond,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,verifyDeliveryListSig,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
 import {tleBound} from '../settle/bounded';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
@@ -82,17 +82,18 @@ export function publish(id:string) {
     // Ruling R44 (F19): when drift carries two host-attested lists, the tie-break is deterministic — the
     // list attested by the two agreeing maps of the EARLIEST paying batch (the shared rule
     // witness/index.ts earliestAgreedDefaults, which verify enforces byte-identically).
-    let agreed:number[]|undefined;
+    let agreed:number[]|undefined,agreedVoid=false;
     if(s.plan?.defaults!==undefined) {
       const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
-      const pick=earliestAgreedDefaults((maps as any[]).filter(mp=>mp&&mp.auction_id===id),wkeys,(read(path.join(sd,'receipts.json'))as any[]).map((r:any)=>r.txid));
+      // Ruling R61: the agreed pair {defaults, bond_void} — a void bond is published only when two agreeing maps attest it.
+      const pick=earliestAgreedBond((maps as any[]).filter(mp=>mp&&mp.auction_id===id),wkeys,(read(path.join(sd,'receipts.json'))as any[]).map((r:any)=>r.txid));
       requireThat(pick!==null,'settlement defaults need two agreeing host-signed approval maps; refusing to publish');
-      agreed=pick!;
+      agreed=pick!.defaults;agreedVoid=pick!.bond_void;
     }
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
       // Part 2, collection drop (bond-then-pay): the defaults list co-signed by the signer hosts — the list
       // carried by two agreeing maps (above), never a fresh derivation.
-      ...(agreed!==undefined?{defaults:agreed}:{}),
+      ...(agreed!==undefined?{defaults:agreed}:{}),...(agreedVoid?{bond_void:true}:{}),
       // Ruling R38 item 4 (N4) + Ruling R41 (F7): the out-of-window/excess balance refunds as per-note counts
       // only, never addresses — each row marked `paid` when this settlement paid it (attested in that batch's
       // two agreeing signed maps) and `pending` otherwise (uncounted here; a later batch may pay it).

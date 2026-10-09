@@ -114,6 +114,13 @@ export function slotOrders<T extends { leaf_index: number; deposit: { address: s
   return { orders, collisions };
 }
 
+// Ruling R61: the bond is void when the window's start block has a header time before R's release time (winners
+// must know they won before the window opens). Every party decides it from its own chain view of that one header;
+// published settlements carry the value two agreeing host-signed maps attest.
+export const bondVoidAt = (m: { drand: { genesis: number; period: number; R: number } }, startHeaderTime: number): boolean => {
+  requireThat(Number.isSafeInteger(startHeaderTime) && startHeaderTime > 0, "balance window start header time");
+  return startHeaderTime < m.drand.genesis + (m.drand.R - 1) * m.drand.period;
+};
 export const balanceWindow = (m: BalanceWindowM): { start: number; end: number } => {
   const start = m.bond.balance_window_start_height;
   requireThat(Number.isSafeInteger(start) && start > 0 && Number.isSafeInteger(m.bond.balance_window_blocks) && m.bond.balance_window_blocks >= 1, "balance window");
@@ -259,6 +266,7 @@ export function balanceSettlement(
   leaves: FrozenLeaf[],
   notes: ScannedNote[],
   tip: number,
+  bondVoid = false, // Ruling R61: a void bond settles no balance — every in-window note refunds in full on its excess row
 ): { sources: string[]; refunds: BalanceRefund[] } {
   requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
   const byLeaf = balanceAddressMap(result, leaves, m);
@@ -279,7 +287,7 @@ export function balanceSettlement(
     // README honest limits list it as unrecoverable).
     const leaf = balanceLateLeafIndex(m, leaves, n);
     if (leaf === null) continue;
-    if (byLeaf.has(leaf) && n.height > start && n.height <= end) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`);
+    if (byLeaf.has(leaf) && n.height > start && n.height <= end) { if (!bondVoid) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`); }
     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n), notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
   }
   // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
@@ -294,7 +302,7 @@ export function balanceSettlement(
     const due = BigInt(result.allocations.find(a => a.leaf_index === leaf)?.balance_due_zats ?? "0");
     const inNotes = seen.filter(n => n.address === address && n.height && n.height > start && n.height <= end && BigInt(n.value_zats) !== 0n);
     const total = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n);
-    const settledZats = due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6)
+    const settledZats = !bondVoid && due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6); nor does a void bond (R61)
     const excess = total - settledZats;
     // Ruling R42 (F15): the excess row's backing is the in-window notes it is carved from — one note backs
     // at most one refund row across all row classes, enforced by the ledger's note-identity key.

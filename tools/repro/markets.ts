@@ -55,8 +55,11 @@ const buybackBlock = (c: Ctx) => ({ budget_zats: "500000", max_price_zats: "2000
 const blockTime = (height: number) => Number(JSON.parse(sh(path.join(STATE, "bin/grpcurl"), ["-import-path", path.join(STATE, "proto"), "-proto", "service.proto", "-d", JSON.stringify({ height }), env("BNZ_LWD_URL"), "cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"])).time);
 const balanceStart = (c: Ctx) => {
   const release = Number(env("BNZ_DRAND_GENESIS")) + (c.R - 1) * 3;
-  const spb = Math.max(5, Math.round((blockTime(c.tip - 1) - blockTime(c.tip - 6)) / 5) || 30);
-  return c.tip + Math.ceil((release - Date.now() / 1000) / (spb / 2)) + 25;
+  const spb = Math.max(5, Math.round((blockTime(c.tip - 1) - blockTime(c.tip - 51)) / 50) || 30);
+  // R61: testnet cadence swung 14–90 s within a day (RG attempt 6: a 90 s estimate was overtaken by 14 s blocks and
+  // the window started before R, which R61 now voids). Assume blocks at least 3× faster than measured and never
+  // slower than 10 s: a later window only delays the run; an early one voids the bond and fails the scenario.
+  return c.tip + Math.ceil((release - Date.now() / 1000) / Math.min(spb / 3, 10)) + 25;
 };
 
 // Cross-process locks (lock dirs). A lock this process holds is released if its scenario throws.

@@ -15,7 +15,7 @@ import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
-import { checkCertificates, earliestAgreedDefaults, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
+import { checkCertificates, earliestAgreedBond, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
 // The witness set rides in a separate signed packet, not in the manifest.
@@ -35,6 +35,8 @@ export type SettlementSummary = {
   ignored?: { party: string; amount_zats: string }[];
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
+  // R61: the bond is void (the window's start block predates R) — attested by two agreeing host-signed maps.
+  bond_void?: boolean;
   // R38 item 4 (N4) + R40 item 2 (F2): out-of-window balance notes refund to the slot's own leaf — one
   // immutable row per note (party `balance-late:<txid>:<pool>:<action_index>`), published as counts only,
   // never addresses.
@@ -681,9 +683,12 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     requireThat(pub.witnessSet && m.witness_set_hash === witnessSetHash(pub.witnessSet!), "host-signed defaults need a pinned witness set");
     const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), m.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));
-    const expected = earliestAgreedDefaults(maps, keys, (pub.settlement.receipts ?? []).map(r => r.txid));
+    const expected = earliestAgreedBond(maps, keys, (pub.settlement.receipts ?? []).map(r => r.txid));
     requireThat(expected !== null, "settlement defaults are not carried by two agreeing host-signed approval maps");
-    requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected)), "settlement defaults differ from the host-signed approval maps");
+    requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected!.defaults)), "settlement defaults differ from the host-signed approval maps");
+    // Ruling R61: a void bond (refund everything, pay the seller nothing) is accepted only when the same two agreeing
+    // host-signed maps attest it — and a published settlement can never drop a void the hosts attested.
+    requireThat(!!pub.settlement.bond_void === expected!.bond_void, "settlement bond_void differs from the host-signed approval maps");
   });
   run("accounting-strays", () => {
     if (!pub.settlement) return;

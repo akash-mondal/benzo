@@ -8325,6 +8325,17 @@ function obligationsModeA(result, settlement) {
   requireThat(new Set(refunds.map((r2) => r2.party)).size === refunds.length, "duplicate balance refund");
   requireThat(refunds.every((r2) => isRefundRowParty(r2.party) && Number.isSafeInteger(r2.leaf_index) && /^[1-9][0-9]*$/.test(r2.amount_zats)), "balance refunds");
   requireThat(refunds.length === 0 || result.allocations.every((a2) => a2.balance_due_zats !== void 0), "balance refunds without bond");
+  if (settlement?.bond_void) {
+    requireThat(defaults.length === 0, "a void bond has no defaults");
+    requireThat(result.allocations.every((a2) => a2.balance_due_zats !== void 0), "bond void without bond");
+    for (const a2 of result.allocations) {
+      const owed = BigInt(a2.refund_zats) + BigInt(a2.payment_zats) - BigInt(a2.balance_due_zats ?? "0");
+      requireThat(owed >= 0n, `void refund for leaf ${a2.leaf_index}`);
+      if (owed > 0n) map.set(`leaf:${a2.leaf_index}`, owed.toString());
+    }
+    for (const r2 of refunds) map.set(r2.party, r2.amount_zats);
+    return map;
+  }
   let seller = BigInt(result.conservation.payout_zats);
   for (const a2 of result.allocations) {
     if (defaults.includes(a2.leaf_index)) {
@@ -16107,7 +16118,7 @@ function checkCertificates(certs, spec, statement) {
   }
   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
 }
-var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults, balance_refunds: b2.balance_refunds, ...b2.strays !== void 0 ? { strays: b2.strays } : {} })]);
+var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults, balance_refunds: b2.balance_refunds, ...b2.strays !== void 0 ? { strays: b2.strays } : {}, ...b2.bond_void ? { bond_void: true } : {} })]);
 function verifyApprovalMap(m2, keys2) {
   try {
     return !!m2 && keys2.includes(m2.witness) && /^[0-9a-f]{128}$/.test(String(m2.signature)) && Array.isArray(m2.outputs) && verify3(null, mapBytes(m2), edPublic(m2.witness), Buffer.from(m2.signature, "hex"));
@@ -16115,8 +16126,8 @@ function verifyApprovalMap(m2, keys2) {
     return false;
   }
 }
-var mapPairAgrees = (a2, b2) => a2.witness !== b2.witness && jsonBytes(a2.outputs).equals(jsonBytes(b2.outputs)) && jsonBytes(a2.defaults ?? null).equals(jsonBytes(b2.defaults ?? null)) && jsonBytes(a2.balance_refunds ?? null).equals(jsonBytes(b2.balance_refunds ?? null)) && jsonBytes(a2.strays ?? null).equals(jsonBytes(b2.strays ?? null));
-function earliestAgreedDefaults(maps, keys2, paidTxids) {
+var mapPairAgrees = (a2, b2) => a2.witness !== b2.witness && jsonBytes(a2.outputs).equals(jsonBytes(b2.outputs)) && jsonBytes(a2.defaults ?? null).equals(jsonBytes(b2.defaults ?? null)) && jsonBytes(a2.balance_refunds ?? null).equals(jsonBytes(b2.balance_refunds ?? null)) && jsonBytes(a2.strays ?? null).equals(jsonBytes(b2.strays ?? null)) && !!a2.bond_void === !!b2.bond_void;
+function earliestAgreedBond(maps, keys2, paidTxids) {
   const ms = (Array.isArray(maps) ? maps : []).filter((mp) => !!mp && verifyApprovalMap(mp, keys2) && Array.isArray(mp.defaults));
   const paying = new Set(paidTxids);
   for (const txid of paying) {
@@ -16130,13 +16141,13 @@ function earliestAgreedDefaults(maps, keys2, paidTxids) {
   for (const b2 of batches) {
     const byList = /* @__PURE__ */ new Map();
     for (const mp of ms.filter((mp2) => mp2.batch === b2)) {
-      const k2 = jsonBytes(mp.defaults).toString("hex");
-      const e = byList.get(k2) ?? { list: [...mp.defaults], witnesses: /* @__PURE__ */ new Set() };
+      const k2 = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void }).toString("hex");
+      const e = byList.get(k2) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, witnesses: /* @__PURE__ */ new Set() };
       e.witnesses.add(mp.witness);
       byList.set(k2, e);
     }
-    const agreed = [...byList.values()].filter((e) => e.witnesses.size >= 2).sort((x2, y2) => y2.witnesses.size - x2.witnesses.size || jsonBytes(x2.list).toString("hex").localeCompare(jsonBytes(y2.list).toString("hex")));
-    if (agreed.length) return agreed[0].list;
+    const agreed = [...byList.values()].filter((e) => e.witnesses.size >= 2).sort((x2, y2) => y2.witnesses.size - x2.witnesses.size || jsonBytes({ defaults: x2.list, bond_void: x2.bond_void }).toString("hex").localeCompare(jsonBytes({ defaults: y2.list, bond_void: y2.bond_void }).toString("hex")));
+    if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void };
   }
   return null;
 }
@@ -16639,9 +16650,10 @@ function checkPublicAuction(pub, opts = {}) {
     requireThat(pub.witnessSet && m2.witness_set_hash === witnessSetHash(pub.witnessSet), "host-signed defaults need a pinned witness set");
     const keys2 = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), m2.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter((mp) => !!mp && mp.auction_id === m2.auction_id && verifyApprovalMap(mp, keys2));
-    const expected = earliestAgreedDefaults(maps, keys2, (pub.settlement.receipts ?? []).map((r2) => r2.txid));
+    const expected = earliestAgreedBond(maps, keys2, (pub.settlement.receipts ?? []).map((r2) => r2.txid));
     requireThat(expected !== null, "settlement defaults are not carried by two agreeing host-signed approval maps");
-    requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected)), "settlement defaults differ from the host-signed approval maps");
+    requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected.defaults)), "settlement defaults differ from the host-signed approval maps");
+    requireThat(!!pub.settlement.bond_void === expected.bond_void, "settlement bond_void differs from the host-signed approval maps");
   });
   run2("accounting-strays", () => {
     if (!pub.settlement) return;

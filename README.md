@@ -130,6 +130,11 @@ killed after 10 min (`BNZ_LWD_TIMEOUT_MS`) and retried as transient, and `tle -d
 sync keeps its progress, but a sync needing more than 3–4 bounded attempts (a long-unsynced wallet) refuses, and
 the operator re-runs it. A machine power loss during a sync can leave a block cache that later refuses to decode
 (it never yields wrong notes); re-syncing from a clean cache fixes it.
+- **A bond window is a block height** (R33/R61): the operator fixes `balance_window_start_height` before
+bidding, but R is a time. If blocks arrive faster than the operator assumed, so that the window's start block
+predates R, nobody could have known they won when the window opened. The bond is then **void**: two signer
+hosts attest it, every deposit and every balance payment refunds in full, and the seller is paid nothing. The
+sale fails rather than funds locking. Pick a conservative start.
 - **Test-harness gates attest the machine under test** (R49/R52/R53): the NU7 tools are path builds, so
 the pinned-binary gate checks the build's provenance record against the committed source and patches, and each
 evidence `run.json` pins the record's digest. The gate cannot be independent of the machine that built the tools;
