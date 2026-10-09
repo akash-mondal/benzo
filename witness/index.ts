@@ -184,6 +184,7 @@ export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: str
   for (const b of batches) {
     const byList = new Map<string, { list: number[]; bond_void: boolean; bond_start: { height: number; hash: string; time: number } | null; witnesses: Set<string> }>();
     for (const mp of ms.filter((mp) => mp.batch === b)) {
+      // `?? null` is load-bearing: jsonBytes refuses `undefined`, and every pre-R63 map has no bond_start (R65).
       const k = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null }).toString("hex");
       const e = byList.get(k) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null, witnesses: new Set<string>() };
       e.witnesses.add(mp.witness);

@@ -1,5 +1,5 @@
-commit (parent) 896c1d091bf5ee63a79c12fd57a14694076c7131 + working tree (R61, R63, R64)
-utc 2026-10-09T13:00:30Z
+commit (parent) 3fa35331eac9aa87021f42dbe7c7bee2d728667d + working tree (R61, R63, R64, R65)
+utc 2026-10-09T13:29:32Z
 command: node tmp/r61/proof.mjs
 PASS r61-normal {"leaf:0":"900000","leaf:1":"900000","leaf:2":"1000000","seller":"600000"}
 PASS r61-void-refunds-all {"leaf:0":"1000000","leaf:1":"1000000","leaf:2":"1000000"}
@@ -15,7 +15,8 @@ PASS r63-map-pre-r61-bytes both committed launch-a18 maps verify unchanged
 PASS r63-header-agreement different headers refused (refused: paying batch t1 is not attested by two agreeing hos…); identical headers agree
 PASS r63-header-tamper editing a signed start header breaks the signature
 PASS r64-bonded-launch-refused unbonded: accepted; bonded via registry: refused: bond is a uniform/vickrey (mode A) feature only; via clientLaunch: refused: bond is a uniform/vickrey (mode A) feature only
-RESULT r61-r63 PASS
+PASS r65-endpoint-key testnet.zec.rocks:443 for all four spellings; a different host differs
+RESULT r61-r65 PASS
 
 --- tmp/r61/proof.ts (not committed as a script: AGENTS.md 8-test ceiling) ---
 // R61 offline proof (head): the void-bond rules on the shipped code.
@@ -28,6 +29,7 @@ import path from "node:path";
 import { signApprovalMap, verifyApprovalMap, earliestAgreedBond, earliestAgreedDefaults, validateWitnessSet } from "../../witness";
 import { verifyRecord, signRecord } from "../../manifest/schema";
 import { registry } from "../../clear/registry";
+import { endpointKey } from "../../settle/bounded";
 let all = true; const line = (id: string, ok: boolean, d: string) => { console.log(`${ok ? "PASS" : "FAIL"} ${id} ${d}`); all &&= ok; };
 const C = 1_000_000n;
 // Two bonded winners (bond = C, price 300000 + balance 200000 owed) and one loser.
@@ -86,4 +88,7 @@ const { clientLaunch } = await import("../../clear/launch");
 const direct = (() => { try { clientLaunch(bonded, bonded.signer); return "accepted"; } catch (e) { return (e as Error).message; } })();
 line("r64-bonded-launch-refused", call("launch", plain) === "accepted" && /mode A\) feature only/.test(call("launch", bonded)) && /mode A\) feature only/.test(direct),
   `unbonded: ${call("launch", plain)}; bonded via registry: ${call("launch", bonded).slice(0, 70)}; via clientLaunch: ${direct.slice(0, 70)}`);
-console.log(`RESULT r61-r63 ${all ? "PASS" : "FAIL"}`); process.exitCode = all ? 0 : 1;
+// R65: one endpoint written two ways is one endpoint.
+const same = ["testnet.zec.rocks:443", "Testnet.Zec.Rocks.:443", "testnet.zec.rocks", "https://testnet.zec.rocks:443"].map(endpointKey);
+line("r65-endpoint-key", new Set(same).size === 1 && endpointKey("zaino.testnet.unsafe.zec.rocks:443") !== same[0], `${same[0]} for all four spellings; a different host differs`);
+console.log(`RESULT r61-r65 ${all ? "PASS" : "FAIL"}`); process.exitCode = all ? 0 : 1;

@@ -21,7 +21,7 @@ import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
-import { lwdBound, lwdTimedOut } from "./bounded";
+import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
 const root=repoRoot();
 for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2];
@@ -160,8 +160,10 @@ try {
       // R64 (Reviewer R P2-3 on R63): the same header rule as the hosts — every configured endpoint, all agreeing.
       const single=process.env.BNZ_LWD_SINGLE==="1";requireThat(!single||m.network==="test","BNZ_LWD_SINGLE is testnet-only");
       const endpoints=[process.env.BNZ_LWD_URL!,...(single?[]:[process.env.BNZ_LWD_URL_ALT??""])];
-      requireThat(endpoints.every(e=>!!e)&&new Set(endpoints.map(e=>e.trim().toLowerCase())).size===endpoints.length,"two distinct lightwalletd endpoints (BNZ_LWD_URL, BNZ_LWD_URL_ALT) are required");
+      requireThat(endpoints.every(e=>!!e)&&new Set(endpoints.map(endpointKey)).size===endpoints.length,"two distinct lightwalletd endpoints (BNZ_LWD_URL, BNZ_LWD_URL_ALT) are required");
       const headers=endpoints.map((e:string)=>JSON.parse(execute(path.join(state,"bin","grpcurl"),["-import-path",path.join(state,"proto"),"-proto","service.proto","-d",JSON.stringify({height:start}),e,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"])));
+      // R65 (P2-2): the header must be the start height's, with a hash and a time, and agree across endpoints.
+      requireThat(headers.every((h:any)=>Number(h.height)===start&&typeof h.hash==="string"&&h.hash.length>0&&Number.isSafeInteger(Number(h.time))&&Number(h.time)>0),`block ${start} header`);
       requireThat(headers.every((h:any)=>h.hash===headers[0].hash&&h.time===headers[0].time),`block ${start} header differs across lightwalletd endpoints`);
       bondVoid=bondVoidAt(m as any,Number(headers[0].time));
       defaults=bondVoid?[]:balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);

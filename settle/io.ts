@@ -3,7 +3,7 @@ import {appendFileSync,readFileSync,existsSync} from "node:fs";
 import path from "node:path";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin, pcztBin, ufvkFile } from "../manifest/paths";
-import { lwdBound, lwdTimedOut } from "./bounded";
+import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
 export const ROOT=repoRoot();
 for(const l of (existsSync(path.join(ROOT,".env"))?readFileSync(path.join(ROOT,".env"),"utf8"):"").split("\n")) {const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2]}
 export const STATE=path.resolve(ROOT,process.env.BNZ_STATE_DIR!),bin=(n:string)=>path.join(STATE,"bin",n);
@@ -62,7 +62,7 @@ export function lwdEndpoints(network: string): string[] {
   }
   const pair = [env("BNZ_LWD_URL"), env("BNZ_LWD_URL_ALT")];
   // R64: one endpoint configured twice is not a second-endpoint agreement.
-  if (pair[0].trim().toLowerCase() === pair[1].trim().toLowerCase()) throw new Error("BNZ_LWD_URL_ALT must be a different endpoint from BNZ_LWD_URL");
+  if (endpointKey(pair[0]) === endpointKey(pair[1])) throw new Error("BNZ_LWD_URL_ALT must be a different endpoint from BNZ_LWD_URL");
   return pair;
 }
 // Phase 6 scale, measure first (docs/design/phase6-scale.md §2): settlement phase timings, one JSON line each in

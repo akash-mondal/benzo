@@ -227,3 +227,11 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
      - P2-7: the markets resume can double-send dust while an earlier dust tx is still unmined (harness only).
      - P2-9: the pre-existing `drop-r33` evidence fails today's schema (`balance_window_blocks` 12 < 40). It is a superseded record from before the 40-block minimum, which R35.3(b)'s evidence pass annotates.
   4. Product, host and verify code changed (the verify bundle is rebuilt). Attempt 8 continues for signal, and the gate's final run is attempt 9, after Reviewer R confirms R64.
+- R65 2026-10-09 (head, Reviewer R `benzo-sol/reports/pr-rg-r64.md`: **APPROVE**, 5 P2):
+  - Fixed:
+    - P2-1: endpoints compare as normalized `host:port` (`settle/bounded.ts` `endpointKey`: lowercase, no scheme, no trailing dot, default 443) at all three sites, with a proof leg.
+    - P2-2: the plan's start header must be the start height's, carry a hash and a time, and agree across endpoints.
+    - P2-5: the load-bearing `?? null` in the tie-break key is commented.
+    - P2-4: the proof result is renamed `r61-r65`.
+  - Residual: P2-3. Launch's balance arithmetic stays: deleting it gains nothing now that bond is refused in launch, and it risks committed launch evidence. P2-2's "compare the plan to the attested header before obligations" is covered by the hosts refusing any candidate whose rows they derive differently.
+  - Attempt 8 stops after `settle-crash` (a safe point), and **attempt 9 is the gate's run** at this commit, on hosts provisioned from it.

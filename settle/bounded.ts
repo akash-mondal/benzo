@@ -14,3 +14,10 @@ export const lwdTimedOut = (cmd: string, r: { error?: Error }) =>
 // R49 (Reviewer R P2-7 on R48): `tle -d` fetches the drand beacon over HTTP, so a stalled relay would block open/cancel at R.
 export const DRAND_TIMEOUT_MS = Number(process.env.BNZ_DRAND_TIMEOUT_MS ?? 120_000);
 export const tleBound = { timeout: DRAND_TIMEOUT_MS, killSignal: "SIGKILL" as const };
+// R65 (Reviewer R P2-1 on R64): endpoints compare as normalized host:port (lowercase, no trailing dot, default 443),
+// so one endpoint written two ways ("Host.:443", "host") is never counted as two.
+export const endpointKey = (e: string): string => {
+  const t = e.trim().toLowerCase().replace(/^https?:\/\//, "");
+  const [host, port] = t.includes(":") ? [t.slice(0, t.lastIndexOf(":")), t.slice(t.lastIndexOf(":") + 1)] : [t, "443"];
+  return `${host.replace(/\.$/, "")}:${port || "443"}`;
+};
