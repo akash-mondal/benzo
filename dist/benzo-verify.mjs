@@ -8171,6 +8171,10 @@ function slotOrders(m2, leaves) {
   }
   return { orders, collisions };
 }
+var bondVoidAt = (m2, startHeaderTime) => {
+  requireThat(Number.isSafeInteger(startHeaderTime) && startHeaderTime > 0, "balance window start header time");
+  return startHeaderTime < m2.drand.genesis + (m2.drand.R - 1) * m2.drand.period;
+};
 var BALANCE_LATE = /^balance-late:([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
 var isBalanceLateParty = (party) => {
   const m2 = BALANCE_LATE.exec(party);
@@ -15864,15 +15868,20 @@ function attachSerials(result, m2, beacon) {
 }
 
 // clear/registry.ts
+var noBond = (c2) => (p2, s2) => {
+  const r2 = c2(p2, s2);
+  requireThat(r2.manifest.bond === void 0, "bond is a uniform/vickrey (mode A) feature only");
+  return r2;
+};
 var registry = {
   uniform: { layout: LAYOUT_V0, client, clear: (input) => attachSerials(clear(input), client(input.manifest, input.signer).manifest, input.serial_beacon), checkResult: (m2, r2) => checkResultModeA(m2, r2), obligations: obligationsModeA },
   vickrey: { layout: LAYOUT_V0, client, clear, checkResult: (m2, r2) => checkResultModeA(m2, r2), obligations: obligationsModeA },
-  otc: { layout: OTC_LAYOUT, client: clientOTC, clear: clearOTC, checkResult: (m2, r2) => checkResultOTC(m2, r2), obligations: obligationsOTC },
-  rfq: { layout: RFQ_LAYOUT, client: clientRFQ, clear: clearRFQ, checkResult: (m2, r2) => checkResultRFQ(m2, r2), obligations: obligationsRFQ },
-  launch: { layout: LAUNCH_LAYOUT, client: clientLaunch, clear: clearLaunch, checkResult: (m2, r2) => checkResultLaunch(m2, r2), obligations: obligationsModeA },
+  otc: { layout: OTC_LAYOUT, client: noBond(clientOTC), clear: clearOTC, checkResult: (m2, r2) => checkResultOTC(m2, r2), obligations: obligationsOTC },
+  rfq: { layout: RFQ_LAYOUT, client: noBond(clientRFQ), clear: clearRFQ, checkResult: (m2, r2) => checkResultRFQ(m2, r2), obligations: obligationsRFQ },
+  launch: { layout: LAUNCH_LAYOUT, client: noBond(clientLaunch), clear: clearLaunch, checkResult: (m2, r2) => checkResultLaunch(m2, r2), obligations: obligationsModeA },
   buyback: {
     layout: LAYOUT_V0,
-    client: clientBuyback,
+    client: noBond(clientBuyback),
     clear: clearModeB,
     checkResult: (m2, r2) => checkResultBuyback(m2, r2),
     obligations: obligationsModeB
@@ -16118,7 +16127,7 @@ function checkCertificates(certs, spec, statement) {
   }
   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
 }
-var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults, balance_refunds: b2.balance_refunds, ...b2.strays !== void 0 ? { strays: b2.strays } : {}, ...b2.bond_void ? { bond_void: true } : {} })]);
+var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults, balance_refunds: b2.balance_refunds, ...b2.strays !== void 0 ? { strays: b2.strays } : {}, ...b2.bond_void ? { bond_void: true } : {}, ...b2.bond_start ? { bond_start: b2.bond_start } : {} })]);
 function verifyApprovalMap(m2, keys2) {
   try {
     return !!m2 && keys2.includes(m2.witness) && /^[0-9a-f]{128}$/.test(String(m2.signature)) && Array.isArray(m2.outputs) && verify3(null, mapBytes(m2), edPublic(m2.witness), Buffer.from(m2.signature, "hex"));
@@ -16126,7 +16135,7 @@ function verifyApprovalMap(m2, keys2) {
     return false;
   }
 }
-var mapPairAgrees = (a2, b2) => a2.witness !== b2.witness && jsonBytes(a2.outputs).equals(jsonBytes(b2.outputs)) && jsonBytes(a2.defaults ?? null).equals(jsonBytes(b2.defaults ?? null)) && jsonBytes(a2.balance_refunds ?? null).equals(jsonBytes(b2.balance_refunds ?? null)) && jsonBytes(a2.strays ?? null).equals(jsonBytes(b2.strays ?? null)) && !!a2.bond_void === !!b2.bond_void;
+var mapPairAgrees = (a2, b2) => a2.witness !== b2.witness && jsonBytes(a2.outputs).equals(jsonBytes(b2.outputs)) && jsonBytes(a2.defaults ?? null).equals(jsonBytes(b2.defaults ?? null)) && jsonBytes(a2.balance_refunds ?? null).equals(jsonBytes(b2.balance_refunds ?? null)) && jsonBytes(a2.strays ?? null).equals(jsonBytes(b2.strays ?? null)) && !!a2.bond_void === !!b2.bond_void && jsonBytes(a2.bond_start ?? null).equals(jsonBytes(b2.bond_start ?? null));
 function earliestAgreedBond(maps, keys2, paidTxids) {
   const ms = (Array.isArray(maps) ? maps : []).filter((mp) => !!mp && verifyApprovalMap(mp, keys2) && Array.isArray(mp.defaults));
   const paying = new Set(paidTxids);
@@ -16141,13 +16150,13 @@ function earliestAgreedBond(maps, keys2, paidTxids) {
   for (const b2 of batches) {
     const byList = /* @__PURE__ */ new Map();
     for (const mp of ms.filter((mp2) => mp2.batch === b2)) {
-      const k2 = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void }).toString("hex");
-      const e = byList.get(k2) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, witnesses: /* @__PURE__ */ new Set() };
+      const k2 = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null }).toString("hex");
+      const e = byList.get(k2) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null, witnesses: /* @__PURE__ */ new Set() };
       e.witnesses.add(mp.witness);
       byList.set(k2, e);
     }
     const agreed = [...byList.values()].filter((e) => e.witnesses.size >= 2).sort((x2, y2) => y2.witnesses.size - x2.witnesses.size || jsonBytes({ defaults: x2.list, bond_void: x2.bond_void }).toString("hex").localeCompare(jsonBytes({ defaults: y2.list, bond_void: y2.bond_void }).toString("hex")));
-    if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void };
+    if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void, bond_start: agreed[0].bond_start };
   }
   return null;
 }
@@ -16646,6 +16655,8 @@ function checkPublicAuction(pub, opts = {}) {
   });
   run2("defaults", () => {
     const m2 = pub.manifest;
+    if (pub.settlement && pub.settlement.bond_void !== void 0)
+      requireThat(!!m2.bond && !!pub.result && pub.settlement.defaults !== void 0, "settlement bond_void outside a settled bond auction");
     if (!m2.bond || !pub.settlement || pub.settlement.defaults === void 0) return;
     requireThat(pub.witnessSet && m2.witness_set_hash === witnessSetHash(pub.witnessSet), "host-signed defaults need a pinned witness set");
     const keys2 = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), m2.auction_id).keys;
@@ -16654,6 +16665,11 @@ function checkPublicAuction(pub, opts = {}) {
     requireThat(expected !== null, "settlement defaults are not carried by two agreeing host-signed approval maps");
     requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected.defaults)), "settlement defaults differ from the host-signed approval maps");
     requireThat(!!pub.settlement.bond_void === expected.bond_void, "settlement bond_void differs from the host-signed approval maps");
+    const start = expected.bond_start;
+    if (start) {
+      requireThat(start.height === m2.bond.balance_window_start_height, "signed bond start header is not the manifest's window start");
+      requireThat(expected.bond_void === bondVoidAt(m2, start.time), "settlement bond_void does not follow from the signed start header time");
+    } else requireThat(!expected.bond_void, "a void bond needs the signed start header");
   });
   run2("accounting-strays", () => {
     if (!pub.settlement) return;

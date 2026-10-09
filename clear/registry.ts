@@ -18,15 +18,22 @@ export type ModeEntry = {
   obligations: (result: ClearBody, settlement?: SettlementExtras | null) => Map<string, string>;
 };
 
+// Ruling R63 (Reviewer R P1-1 on R61): a bond (bond-then-pay, R33/R61 void) is a mode-A feature (uniform/vickrey).
+// Every other mode refuses a manifest that carries one — launch delivery, OTC, RFQ and buyback never read the bond.
+const noBond = <T extends { manifest: unknown }>(c: (p: Signed, s: string) => T) => (p: Signed, s: string): T => {
+  const r = c(p, s);
+  requireThat((r.manifest as { bond?: unknown }).bond === undefined, "bond is a uniform/vickrey (mode A) feature only");
+  return r;
+};
 export const registry: Record<string, ModeEntry> = {
   uniform: { layout: LAYOUT_V0, client, clear: input => attachSerials(clear(input), client(input.manifest, input.signer).manifest, input.serial_beacon), checkResult: (m, r) => checkResultModeA(m as Manifest, r), obligations: obligationsModeA },
   vickrey: { layout: LAYOUT_V0, client, clear, checkResult: (m, r) => checkResultModeA(m as Manifest, r), obligations: obligationsModeA },
-  otc: { layout: OTC_LAYOUT, client: clientOTC, clear: clearOTC, checkResult: (m,r) => checkResultOTC(m as OTCManifest,r), obligations: obligationsOTC },
-  rfq: { layout: RFQ_LAYOUT, client: clientRFQ, clear: clearRFQ, checkResult: (m,r) => checkResultRFQ(m as RFQManifest,r), obligations: obligationsRFQ },
-  launch: { layout: LAUNCH_LAYOUT, client: clientLaunch, clear: clearLaunch, checkResult: (m,r) => checkResultLaunch(m as LaunchManifest,r), obligations: obligationsModeA },
+  otc: { layout: OTC_LAYOUT, client: noBond(clientOTC), clear: clearOTC, checkResult: (m,r) => checkResultOTC(m as OTCManifest,r), obligations: obligationsOTC },
+  rfq: { layout: RFQ_LAYOUT, client: noBond(clientRFQ), clear: clearRFQ, checkResult: (m,r) => checkResultRFQ(m as RFQManifest,r), obligations: obligationsRFQ },
+  launch: { layout: LAUNCH_LAYOUT, client: noBond(clientLaunch), clear: clearLaunch, checkResult: (m,r) => checkResultLaunch(m as LaunchManifest,r), obligations: obligationsModeA },
   buyback: {
     layout: LAYOUT_V0,
-    client: clientBuyback,
+    client: noBond(clientBuyback),
     clear: clearModeB,
     checkResult: (m, r) => checkResultBuyback(m as BuybackManifest, r),
     obligations: obligationsModeB,

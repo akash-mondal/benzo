@@ -311,7 +311,8 @@ if (!existsSync(operatorKeyFile)) {
   sealToPub = ek.public_hex;
   const rec = (published.envelopes ?? [])[0];
   let opened = "(could not open)";
-  try { if (rec && ek.private_hex) opened = ab(openEnvelope(rec.envelope_ct, ek.private_hex, "test")); } catch (e) { opened = `(open threw: ${(e as Error).message})`; }
+  // R63 (P2-7): never print the destination itself into evidence — only its hash and length.
+  try { if (rec && ek.private_hex) { const d = openEnvelope(rec.envelope_ct, ek.private_hex, "test"); opened = `sha256 ${createHash("sha256").update(d).digest("hex")} (${d.length} chars)`; } } catch (e) { opened = `(open threw: ${(e as Error).message})`; }
   console.log(`F-1 CONFIRMED: operator state ${path.basename(operatorKeyFile)} holds the envelope private key; leaf 0's destination ${opened}`);
 }
 // Part B: self-consistent fabricated (opened, envelopes) pairs per leaf — the operator's own owner key,

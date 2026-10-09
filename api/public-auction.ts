@@ -10,7 +10,7 @@ import { hash, jsonBytes, requireThat, verifyRecord, type Manifest, type Signed 
 import { checkFrozen, member, receiptMember, type Deposit, type Frozen, type Path } from "../clear/merkle";
 import { type ClearBody, type Opened } from "../clear/core";
 import { clientForMode, clearForMode, modeEntry } from "../clear/registry";
-import { balanceExcessLeafIndex, isBalanceExcessParty, isBalanceLateParty, isRefundRowParty } from "../clear/features";
+import { balanceExcessLeafIndex, bondVoidAt, isBalanceExcessParty, isBalanceLateParty, isRefundRowParty } from "../clear/features";
 import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
@@ -679,6 +679,9 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   // list is refused with the same error.
   run("defaults", () => {
     const m = pub.manifest;
+    // R63 (Reviewer R P2-5 on R61): a published bond_void outside a settled bond auction is refused, never ignored.
+    if (pub.settlement && pub.settlement.bond_void !== undefined)
+      requireThat(!!m.bond && !!pub.result && pub.settlement.defaults !== undefined, "settlement bond_void outside a settled bond auction");
     if (!m.bond || !pub.settlement || pub.settlement.defaults === undefined) return;
     requireThat(pub.witnessSet && m.witness_set_hash === witnessSetHash(pub.witnessSet!), "host-signed defaults need a pinned witness set");
     const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), m.auction_id).keys;
@@ -689,6 +692,14 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // Ruling R61: a void bond (refund everything, pay the seller nothing) is accepted only when the same two agreeing
     // host-signed maps attest it — and a published settlement can never drop a void the hosts attested.
     requireThat(!!pub.settlement.bond_void === expected!.bond_void, "settlement bond_void differs from the host-signed approval maps");
+    // R63 (Reviewer R P1-2 on R61): the void is recomputed from the start header the two agreeing hosts SIGNED — it
+    // must be the manifest's start height, and the void must equal bondVoidAt(manifest, signed header time). A void
+    // with no signed header (a map signed before R63) is refused; a non-void without one stays valid (back-compat).
+    const start = expected!.bond_start;
+    if (start) {
+      requireThat(start.height === m.bond.balance_window_start_height, "signed bond start header is not the manifest's window start");
+      requireThat(expected!.bond_void === bondVoidAt(m as any, start.time), "settlement bond_void does not follow from the signed start header time");
+    } else requireThat(!expected!.bond_void, "a void bond needs the signed start header");
   });
   run("accounting-strays", () => {
     if (!pub.settlement) return;

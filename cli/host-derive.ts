@@ -15,7 +15,7 @@ import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopeP
 import { depositParty, isSlotCollision, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, bondVoidAt, isRefundRowParty, type BalanceRefund } from "../clear/features";
-import { blockTime, chainTip } from "./host-chain";
+import { blockHeader, chainTip } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
 import { lwdBound, lwdTimedOut } from "../settle/bounded";
@@ -60,7 +60,7 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean}> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean; bondStart: import("./host-chain").BlockHeader | null}> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -129,7 +129,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // enforced only where it is ours to enforce — `auction create` generates the balance addresses and refuses
     // one that already holds a note.
     const bM: any = pub.manifest;
-    let balanceSources: string[] = [], balanceRefunds: BalanceRefund[] = [], bondVoid = false;
+    let balanceSources: string[] = [], balanceRefunds: BalanceRefund[] = [], bondVoid = false, bondStart: import("./host-chain").BlockHeader | null = null;
     if (bM.bond && pub.result) {
       const byLeaf = balanceAddressMap(pub.result as any, pub.frozen!.leaves as any, bM), uas = new Set(byLeaf.values()), tb = treasuryBlock(pub.manifest);
       const { start } = balanceWindow(bM);
@@ -143,7 +143,9 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       // good — RG attempt 6, drop 75d1ab9d…). The bond is void: nobody defaults, every deposit and every balance
       // note refunds in full, the seller is paid nothing. This host decides it from its own chain view and signs it.
       requireThat(bM.drand.genesis === QUICKNET.genesis && bM.drand.period === QUICKNET.period, "manifest drand is not the pinned quicknet");
-      bondVoid = bondVoidAt(bM, blockTime(st, start));
+      // R63: the start header from every configured endpoint (refused unless they agree), signed into this host's map.
+      bondStart = blockHeader(st, start, bM.network);
+      bondVoid = bondVoidAt(bM, bondStart.time);
       // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): out-of-window balance notes are never settlement
       // sources (never swept into change) — the in-window ones back the seller payout in the approval ledger,
       // and each out-of-window note gets its own immutable refund row to that slot's own leaf. This host derives
@@ -209,7 +211,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
-    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays, bondVoid };
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart };
 }
 
 // §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and

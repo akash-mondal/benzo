@@ -195,3 +195,20 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
   6. **Consequences.** This is product and host code (`clear/`, `settle/plan.ts`, `cli/host-derive.ts`, `cli/commands/sign-approve.ts`, `cli/product.ts`, `api/public-auction.ts`, `witness/`). The hosts are provisioned again, and the locked drop `75d1ab9d…` is settled under R61 (void, full refunds) before RG attempt 7 restarts from project #1. Reviewer R reviews R61 first.
 - R62 2026-10-09 (head): **`deploy/signers/up.sh` provisioned stale host code.** It only checked that `cli/dist/benzo.mjs` existed. Nothing had rebuilt the bundles since the markets run's global setup at `665e447`, so the R58, R60 and R61 host changes were never on the hosts: the drop resume still met the pre-R61 refusal. `up.sh` now runs `build:core`, `build:settle` and `build:cli` from the tree before it ships anything. The host provisioning recorded at `cd3d98b` is superseded and is done again. Also, the markets resume sent "pre-window" balance dust after the window had already started (twice on `75d1ab9d…`; harmless, since each note refunds to leaf 0 on its own row). It now sends dust only while the tip is below the start.
   - R54 addendum 2 (2026-10-09): api.drand.sh answers in about 1 s again, so the local `.env` relay order is back to `.env.example`'s. Cloudflare first had changed seal-open C6: Cloudflare answers HTTP 404 for a future round, where api.drand.sh answers 425. The offline e2e is green again with the restored order.
+- R63 2026-10-09 (head, answers Reviewer R `benzo-sol/reports/pr-rg-r61.md`, BLOCK: 2 P1, 6 P2):
+  1. **P1-1, accepted: a bonded launch would deliver tokens through a void or a default.** The schema accepted a bond on any mode, but only mode A's obligations read it; launch delivery never did. `clear/registry.ts` now wraps the launch, OTC, RFQ and buyback clients so they refuse a manifest that carries `bond`. A bond is a uniform/vickrey feature only.
+  2. **P1-2, accepted: one lightwalletd's header time decided the void.**
+     - `cli/host-chain.ts` `blockHeader` reads the start block's {height, hash, time} from **every** configured endpoint (`BNZ_LWD_URL` and `BNZ_LWD_URL_ALT`) and refuses unless they all agree. Under `BNZ_LWD_SINGLE=1` it reads one endpoint, testnet only; `up.sh` now passes that flag to the hosts only when the operator sets it.
+     - Each host signs the header into its approval map as `bond_start`; the field joins the bytes only when present.
+     - Two maps agree only on the identical header, and the R44 tie-break keys on {defaults, bond_void, bond_start}.
+     - `benzo verify` requires the signed header to be the manifest's start height, and recomputes `bond_void` with `bondVoidAt` from the signed time. A void with no signed header is refused.
+  3. **P2s:**
+     - Fixed:
+       - P2-5: verify refuses a `bond_void` outside a settled bond auction.
+       - P2-6: `auction create` refuses a window start that is already mined.
+       - P2-7: the F-1 probe prints only a hash and length of any opened destination.
+       - P2-3, wording: a void refunds C − fee, which is exactly C because settlement requires a zero auction fee.
+       - P2-4: the proof now verifies committed **pre-R61** maps (`phase-5/markets/launch-a18`) byte for byte under the new code.
+     - Residual: P2-8 (the late-approval NotFound signal) stays with the R60 absence-proof residual.
+  4. **Proof:** `docs/evidence/phase-6/repro/r61-void.out` (RESULT r61-r63 PASS). New legs: pre-R61 map bytes, refusal of different headers, a tampered signed header, and bond limited to mode A. The last leg inspects the wrapped clients rather than driving a bonded launch end to end.
+  5. **Consequences.** The drop `75d1ab9d…` settled under R61 maps that carry no `bond_start`, so its published settlement now fails verify ("a void bond needs the signed start header"). That is the recovery record of an auction settled before R63; its funds were all refunded. Product and host code changed: the hosts are provisioned again, and RG restarts from project #1 (attempt 8). Attempt 7's runner is stopped after `auction-core`.

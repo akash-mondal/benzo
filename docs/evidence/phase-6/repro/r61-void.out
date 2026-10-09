@@ -1,6 +1,6 @@
-commit (parent) ed98f45e53efbd22ca68c0e648209b6ff9661fbe + working tree (R61)
-utc 2026-10-09T11:21:02Z
-command: node tmp/r61/proof.mjs (shipped clear/core.ts obligationsModeA, clear/features.ts balanceSettlement + bondVoidAt, witness/index.ts maps)
+commit (parent) 5907c4a1dfbbaf56119107c1fbaaf74e4d721cd1 + working tree (R61+R63)
+utc 2026-10-09T12:17:06Z
+command: node tmp/r61/proof.mjs
 PASS r61-normal {"leaf:0":"900000","leaf:1":"900000","leaf:2":"1000000","seller":"600000"}
 PASS r61-void-refunds-all {"leaf:0":"1000000","leaf:1":"1000000","leaf:2":"1000000"}
 PASS r61-void-no-defaults refused: a void bond has no defaults
@@ -9,16 +9,23 @@ PASS r61-balance-normal sources 1 refunds 0
 PASS r61-balance-void [{"party":"balance-excess:0","leaf_index":0,"amount_zats":"200000","matured":true,"notes":["aa:ironwood:0"]}]
 PASS r61-map-backcompat a map without the field verifies and carries no field
 PASS r61-map-tamper flipping bond_void either way breaks the signature
-PASS r61-agreed-pair {"defaults":[],"bond_void":true}
+PASS r61-agreed-pair {"defaults":[],"bond_void":true,"bond_start":null}
 PASS r61-disagree refused: paying batch t1 is not attested by two agreeing host-signed approval maps; the defaults tie-break cannot be steered by omission
-RESULT r61 PASS
+PASS r63-map-pre-r61-bytes both committed launch-a18 maps verify unchanged
+PASS r63-header-agreement different headers refused (refused: paying batch t1 is not attested by two agreeing hos…); identical headers agree
+PASS r63-header-tamper editing a signed start header breaks the signature
+PASS r63-bond-mode-a-only launch/otc/rfq/buyback clients refuse a bond; uniform/vickrey accept it
+RESULT r61-r63 PASS
 
 --- tmp/r61/proof.ts (not committed as a script: AGENTS.md 8-test ceiling) ---
 // R61 offline proof (head): the void-bond rules on the shipped code.
 import { generateKeyPairSync } from "node:crypto";
 import { obligationsModeA } from "../../clear/core";
 import { balanceSettlement, bondVoidAt } from "../../clear/features";
-import { signApprovalMap, verifyApprovalMap, earliestAgreedBond, earliestAgreedDefaults } from "../../witness";
+import { readFileSync } from "node:fs";
+import { signApprovalMap, verifyApprovalMap, earliestAgreedBond, earliestAgreedDefaults, validateWitnessSet } from "../../witness";
+import { verifyRecord } from "../../manifest/schema";
+import { registry } from "../../clear/registry";
 let all = true; const line = (id: string, ok: boolean, d: string) => { console.log(`${ok ? "PASS" : "FAIL"} ${id} ${d}`); all &&= ok; };
 const C = 1_000_000n;
 // Two bonded winners (bond = C, price 300000 + balance 200000 owed) and one loser.
@@ -52,4 +59,18 @@ const agreed = earliestAgreedBond([voidA, voidB], keys, ["t1"]); let mixed: any 
 line("r61-agreed-pair", agreed?.bond_void === true && JSON.stringify(agreed?.defaults) === "[]" && earliestAgreedDefaults([voidA, voidB], keys, ["t1"])?.length === 0, JSON.stringify(agreed));
 let mixedErr = ""; try { mixed = earliestAgreedBond([plainA, voidB], keys, ["t1"]); } catch (e) { mixedErr = (e as Error).message; }
 line("r61-disagree", mixed === null || /not attested by two agreeing/.test(mixedErr), mixedErr || String(mixed));
-console.log(`RESULT r61 ${all ? "PASS" : "FAIL"}`); process.exitCode = all ? 0 : 1;
+// R63: a pre-R61 map from committed evidence keeps its exact signed bytes under the new code.
+const old = JSON.parse(readFileSync("docs/evidence/phase-5/markets/launch-a18/launch-cold/auction.json", "utf8"));
+const oldKeys = validateWitnessSet(verifyRecord<any>(old.witness_set, old.signer), old.auction_id).keys;
+line("r63-map-pre-r61-bytes", old.settlement.approval_maps.every((mp: any) => verifyApprovalMap(mp, oldKeys) && mp.bond_void === undefined && mp.bond_start === undefined), "both committed launch-a18 maps verify unchanged");
+// R63: two maps that saw different start headers never agree (no pair, so no attested void).
+const hdr = (time: number) => ({ height: 100, hash: "ab".repeat(32), time });
+const hA = signApprovalMap({ ...body, bond_void: true, bond_start: hdr(1029) }, ka.priv), hB = signApprovalMap({ ...body, bond_void: true, bond_start: hdr(1031) }, kb.priv);
+let hErr = ""; try { earliestAgreedBond([hA, hB], keys, ["t1"]); } catch (e) { hErr = (e as Error).message; }
+const hB2 = signApprovalMap({ ...body, bond_void: true, bond_start: hdr(1029) }, kb.priv);
+line("r63-header-agreement", /not attested by two agreeing/.test(hErr) && earliestAgreedBond([hA, hB2], keys, ["t1"])?.bond_start?.time === 1029, `different headers refused (${hErr.slice(0, 60)}…); identical headers agree`);
+line("r63-header-tamper", !verifyApprovalMap({ ...hA, bond_start: hdr(1031) } as any, keys), "editing a signed start header breaks the signature");
+// R63: a bond on a non-mode-A manifest is refused by the registry client wrapper (launch / otc / rfq / buyback).
+const wrapped = ["launch", "otc", "rfq", "buyback"].every((k) => String((registry as any)[k].client).includes("bond is a uniform/vickrey"));
+line("r63-bond-mode-a-only", wrapped && !String((registry as any).uniform.client).includes("bond is a uniform/vickrey"), "launch/otc/rfq/buyback clients refuse a bond; uniform/vickrey accept it");
+console.log(`RESULT r61-r63 ${all ? "PASS" : "FAIL"}`); process.exitCode = all ? 0 : 1;

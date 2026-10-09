@@ -118,11 +118,11 @@ export function verifyOpensReport(r: OpensReport, keys: string[] | null): boolea
 // identity and scanned memo hash — the per-row attestation that replaces the deleted strays statement.
 export type StrayAttestation = { party: string; memo_sha256: string };
 // Ruling R61: `bond_void` joins the signed body only when true, so every earlier map keeps its exact signed bytes.
-export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[]; defaults: number[]; balance_refunds: import("../clear/features").BalanceRefund[]; strays?: StrayAttestation[]; bond_void?: boolean };
+export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[]; defaults: number[]; balance_refunds: import("../clear/features").BalanceRefund[]; strays?: StrayAttestation[]; bond_void?: boolean; bond_start?: { height: number; hash: string; time: number } };
 export type ApprovalMap = ApprovalMapBody & { witness: string; signature: string };
 // Maps signed before R42 carry no `strays` field and keep their exact signed bytes (the field joins the
 // signed body only when present); maps signed after R42 attest their strays per row over the same bytes.
-const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults, balance_refunds: b.balance_refunds, ...(b.strays !== undefined ? { strays: b.strays } : {}), ...(b.bond_void ? { bond_void: true } : {}) })]);
+const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults, balance_refunds: b.balance_refunds, ...(b.strays !== undefined ? { strays: b.strays } : {}), ...(b.bond_void ? { bond_void: true } : {}), ...(b.bond_start ? { bond_start: b.bond_start } : {}) })]);
 export function signApprovalMap(body: ApprovalMapBody, privateHex: string): ApprovalMap {
   requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
   const key = edPrivate(privateHex);
@@ -149,7 +149,8 @@ const mapPairAgrees = (a: ApprovalMap, b: ApprovalMap): boolean =>
   jsonBytes(a.defaults ?? null).equals(jsonBytes(b.defaults ?? null)) &&
   jsonBytes(a.balance_refunds ?? null).equals(jsonBytes(b.balance_refunds ?? null)) &&
   jsonBytes(a.strays ?? null).equals(jsonBytes(b.strays ?? null)) &&
-  !!a.bond_void === !!b.bond_void;
+  !!a.bond_void === !!b.bond_void &&
+  jsonBytes(a.bond_start ?? null).equals(jsonBytes(b.bond_start ?? null)); // R63: both hosts saw the identical start header
 export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): ApprovalMap[] {
   const ms = maps as ApprovalMap[];
   requireThat(Array.isArray(ms) && ms.length === 2 && ms.every((mp) => mp && verifyApprovalMap(mp, keys) && mp.txid === txid) &&
@@ -171,7 +172,7 @@ export function earliestAgreedDefaults(maps: unknown, keys: string[], paidTxids:
 }
 // Ruling R61: the same tie-break over the pair {defaults, bond_void} — two agreeing maps attest both together, so
 // a published `bond_void` can never be a coordinator-only claim (verify enforces it byte-identically).
-export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: string[]): { defaults: number[]; bond_void: boolean } | null {
+export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: string[]): { defaults: number[]; bond_void: boolean; bond_start: { height: number; hash: string; time: number } | null } | null {
   const ms = (Array.isArray(maps) ? maps : []).filter((mp): mp is ApprovalMap => !!mp && verifyApprovalMap(mp as ApprovalMap, keys) && Array.isArray((mp as ApprovalMap).defaults));
   const paying = new Set(paidTxids);
   for (const txid of paying) {
@@ -181,17 +182,17 @@ export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: str
   }
   const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b) => ms.some((mp) => mp.batch === b && paying.has(mp.txid))).sort((a, b) => a - b);
   for (const b of batches) {
-    const byList = new Map<string, { list: number[]; bond_void: boolean; witnesses: Set<string> }>();
+    const byList = new Map<string, { list: number[]; bond_void: boolean; bond_start: { height: number; hash: string; time: number } | null; witnesses: Set<string> }>();
     for (const mp of ms.filter((mp) => mp.batch === b)) {
-      const k = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void }).toString("hex");
-      const e = byList.get(k) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, witnesses: new Set<string>() };
+      const k = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null }).toString("hex");
+      const e = byList.get(k) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null, witnesses: new Set<string>() };
       e.witnesses.add(mp.witness);
       byList.set(k, e);
     }
     const agreed = [...byList.values()]
       .filter((e) => e.witnesses.size >= 2)
       .sort((x, y) => y.witnesses.size - x.witnesses.size || jsonBytes({ defaults: x.list, bond_void: x.bond_void }).toString("hex").localeCompare(jsonBytes({ defaults: y.list, bond_void: y.bond_void }).toString("hex")));
-    if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void };
+    if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void, bond_start: agreed[0].bond_start };
   }
   return null;
 }

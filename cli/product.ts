@@ -146,7 +146,10 @@ export async function runCommand(command:string,args:string[]) {
       m.bond.balance_addresses=m.deposit_addresses.map(()=>String(execute(pcztBin(ROOT,STATE),['address',vault,'--network',m.network])).trim().split('\n').at(-1));
       wallet('sync','-s',process.env.BNZ_LWD_URL??'testnet.zec.rocks:443');wallet('enhance','-s',process.env.BNZ_LWD_URL??'testnet.zec.rocks:443');
       const held=notes(m.network).filter((n:any)=>m.bond.balance_addresses.includes(n.address));
-      requireThat(held.length===0,`a generated balance address already holds ${held.length} note(s); refusing`);}
+      requireThat(held.length===0,`a generated balance address already holds ${held.length} note(s); refusing`);
+      // R63 (Reviewer R P2-6 on R61): an operator cannot sign a window whose start is already mined (a forced void).
+      const tipNow=JSON.parse(String(wallet('balance','--json'))).chain_tip_height;
+      requireThat(Number.isSafeInteger(tipNow)&&m.bond.balance_window_start_height>tipNow,`balance window start ${m.bond.balance_window_start_height} is already mined (tip ${tipNow}); refusing`);}
     // Design §6.1: a buyback draft is held to the Mode B rules, and its treasury return must be a shielded destination.
     // Every registry mode (A13 item 3): the draft is held to its OWN mode's rules — its registry client run on a copy signed
     // with a throwaway key (the clients verify a signature first); nothing about the real signing key changes.
