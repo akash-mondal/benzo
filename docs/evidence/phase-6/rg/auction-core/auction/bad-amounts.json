@@ -1,0 +1,1 @@
+[{"outcome":"rejected","reason":"ERROR auction refused: deposit amount differs from C","txid":"af6c75ac765f3ebb01a8d4254755eccbff5e555555a24bc7a15a313353d88394","value_zats":499999},{"outcome":"rejected","reason":"ERROR auction refused: deposit amount differs from C","txid":"300c23cc719a8f4278283d0418f3aa44bf68f4e29044c16ededd971b1af72ac3","value_zats":500001}]
