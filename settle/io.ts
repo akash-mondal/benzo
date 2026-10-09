@@ -60,7 +60,10 @@ export function lwdEndpoints(network: string): string[] {
     process.stderr.write(`WARN single lightwalletd endpoint ${env("BNZ_LWD_URL")} (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement\n`);
     return [env("BNZ_LWD_URL")];
   }
-  return [env("BNZ_LWD_URL"), env("BNZ_LWD_URL_ALT")];
+  const pair = [env("BNZ_LWD_URL"), env("BNZ_LWD_URL_ALT")];
+  // R64: one endpoint configured twice is not a second-endpoint agreement.
+  if (pair[0].trim().toLowerCase() === pair[1].trim().toLowerCase()) throw new Error("BNZ_LWD_URL_ALT must be a different endpoint from BNZ_LWD_URL");
+  return pair;
 }
 // Phase 6 scale, measure first (docs/design/phase6-scale.md §2): settlement phase timings, one JSON line each in
 // state/run/settle-timing.jsonl ({at, auction, batch, phase, ms, ...}). Never contains a destination or a key.

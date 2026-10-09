@@ -51,6 +51,8 @@ export function blockHeader(st: string, height: number, network: string): BlockH
   requireThat(!single || network === "test", "BNZ_LWD_SINGLE is testnet-only; a mainnet header needs two endpoints");
   const endpoints = [process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443", ...(single ? [] : [process.env.BNZ_LWD_URL_ALT ?? ""])];
   requireThat(endpoints.every((e) => e.length > 0), "second lightwalletd endpoint (BNZ_LWD_URL_ALT) not configured");
+  // R64 (Reviewer R P1 on R63): one endpoint configured twice is not a cross-check.
+  requireThat(single || new Set(endpoints.map((e) => e.trim().toLowerCase())).size === endpoints.length, "BNZ_LWD_URL_ALT must be a different endpoint from BNZ_LWD_URL");
   const seen = endpoints.map((e) => {
     const b = JSON.parse(grpc(st, "GetBlock", { height }, e).out);
     const h: BlockHeader = { height: Number(b.height), hash: Buffer.from(String(b.hash ?? ""), "base64").reverse().toString("hex"), time: Number(b.time) };

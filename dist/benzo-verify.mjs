@@ -12188,6 +12188,7 @@ var deliveryRowOrder = (a2, b2) => Buffer.compare(Buffer.from(a2.destination, "u
 function clientLaunch(packet, signer) {
   return marketClient(packet, signer, "launch", (m2) => {
     const l2 = m2.launch;
+    requireThat(m2.bond === void 0, "bond is a uniform/vickrey (mode A) feature only");
     requireThat(l2 && Object.keys(l2).every((k2) => ["standard_lot_size", "minimum_raise_zats", "holder", "follow_on"].includes(k2)), "launch fields");
     requireThat(Number.isSafeInteger(l2.standard_lot_size) && l2.standard_lot_size > 0 && m2.supply % l2.standard_lot_size === 0 && m2.q_max % l2.standard_lot_size === 0, "launch standard lot size");
     zats(l2.minimum_raise_zats, "minimum raise");
@@ -16155,7 +16156,7 @@ function earliestAgreedBond(maps, keys2, paidTxids) {
       e.witnesses.add(mp.witness);
       byList.set(k2, e);
     }
-    const agreed = [...byList.values()].filter((e) => e.witnesses.size >= 2).sort((x2, y2) => y2.witnesses.size - x2.witnesses.size || jsonBytes({ defaults: x2.list, bond_void: x2.bond_void }).toString("hex").localeCompare(jsonBytes({ defaults: y2.list, bond_void: y2.bond_void }).toString("hex")));
+    const agreed = [...byList.values()].filter((e) => e.witnesses.size >= 2).sort((x2, y2) => y2.witnesses.size - x2.witnesses.size || jsonBytes({ defaults: x2.list, bond_void: x2.bond_void, bond_start: x2.bond_start }).toString("hex").localeCompare(jsonBytes({ defaults: y2.list, bond_void: y2.bond_void, bond_start: y2.bond_start }).toString("hex")));
     if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void, bond_start: agreed[0].bond_start };
   }
   return null;

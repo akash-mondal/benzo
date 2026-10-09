@@ -136,7 +136,12 @@ predates R, nobody could have known they won when the window opened. The bond is
 hosts attest it over the identical signed start-block header (read from every configured endpoint), `benzo
 verify` recomputes it from that header, every deposit refunds C minus the auction fee (settlement requires a
 zero fee, so exactly C), every balance payment refunds in full, and the seller is paid nothing. A bond is a
-uniform/vickrey feature only, and `auction create` refuses a start that is already mined. The
+uniform/vickrey feature only, and `auction create` refuses a start that is already mined.
+- **Each signer host trusts its own lightwalletd endpoints** (R28/R64): a host reads notes, mined heights and the
+bond-window header from the endpoints in its own launcher config, and two distinct endpoints must agree
+(`BNZ_LWD_SINGLE=1` is testnet-only). In this testnet deployment one operator provisions all three hosts with the
+same endpoint pair, so the 2-of-3 rests on that one pair. On mainnet each signer's operator must choose its own
+independent endpoints. The
 sale fails rather than funds locking. Pick a conservative start.
 - **Test-harness gates attest the machine under test** (R49/R52/R53): the NU7 tools are path builds, so
 the pinned-binary gate checks the build's provenance record against the committed source and patches, and each

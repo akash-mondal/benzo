@@ -1,5 +1,5 @@
-commit (parent) 5907c4a1dfbbaf56119107c1fbaaf74e4d721cd1 + working tree (R61+R63)
-utc 2026-10-09T12:17:06Z
+commit (parent) 896c1d091bf5ee63a79c12fd57a14694076c7131 + working tree (R61, R63, R64)
+utc 2026-10-09T13:00:30Z
 command: node tmp/r61/proof.mjs
 PASS r61-normal {"leaf:0":"900000","leaf:1":"900000","leaf:2":"1000000","seller":"600000"}
 PASS r61-void-refunds-all {"leaf:0":"1000000","leaf:1":"1000000","leaf:2":"1000000"}
@@ -14,7 +14,7 @@ PASS r61-disagree refused: paying batch t1 is not attested by two agreeing host-
 PASS r63-map-pre-r61-bytes both committed launch-a18 maps verify unchanged
 PASS r63-header-agreement different headers refused (refused: paying batch t1 is not attested by two agreeing hos…); identical headers agree
 PASS r63-header-tamper editing a signed start header breaks the signature
-PASS r63-bond-mode-a-only launch/otc/rfq/buyback clients refuse a bond; uniform/vickrey accept it
+PASS r64-bonded-launch-refused unbonded: accepted; bonded via registry: refused: bond is a uniform/vickrey (mode A) feature only; via clientLaunch: refused: bond is a uniform/vickrey (mode A) feature only
 RESULT r61-r63 PASS
 
 --- tmp/r61/proof.ts (not committed as a script: AGENTS.md 8-test ceiling) ---
@@ -23,8 +23,10 @@ import { generateKeyPairSync } from "node:crypto";
 import { obligationsModeA } from "../../clear/core";
 import { balanceSettlement, bondVoidAt } from "../../clear/features";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { signApprovalMap, verifyApprovalMap, earliestAgreedBond, earliestAgreedDefaults, validateWitnessSet } from "../../witness";
-import { verifyRecord } from "../../manifest/schema";
+import { verifyRecord, signRecord } from "../../manifest/schema";
 import { registry } from "../../clear/registry";
 let all = true; const line = (id: string, ok: boolean, d: string) => { console.log(`${ok ? "PASS" : "FAIL"} ${id} ${d}`); all &&= ok; };
 const C = 1_000_000n;
@@ -71,6 +73,17 @@ const hB2 = signApprovalMap({ ...body, bond_void: true, bond_start: hdr(1029) },
 line("r63-header-agreement", /not attested by two agreeing/.test(hErr) && earliestAgreedBond([hA, hB2], keys, ["t1"])?.bond_start?.time === 1029, `different headers refused (${hErr.slice(0, 60)}…); identical headers agree`);
 line("r63-header-tamper", !verifyApprovalMap({ ...hA, bond_start: hdr(1031) } as any, keys), "editing a signed start header breaks the signature");
 // R63: a bond on a non-mode-A manifest is refused by the registry client wrapper (launch / otc / rfq / buyback).
-const wrapped = ["launch", "otc", "rfq", "buyback"].every((k) => String((registry as any)[k].client).includes("bond is a uniform/vickrey"));
-line("r63-bond-mode-a-only", wrapped && !String((registry as any).uniform.client).includes("bond is a uniform/vickrey"), "launch/otc/rfq/buyback clients refuse a bond; uniform/vickrey accept it");
+// R64 (Reviewer R P2-6 on R63): DRIVE the launch client on a real (committed) launch manifest, re-signed with a
+// throwaway key — unbonded it is accepted; with a valid-shaped bond it is refused, by the registry wrapper and by
+// clientLaunch itself.
+const lm = JSON.parse(Buffer.from(old.manifest.bytes, "base64").toString("utf8"));
+const { privateKey } = generateKeyPairSync("ed25519"), pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+const signedFor = (v: any) => { const pk = signRecord(v, pem); return { pk, signer: (pk as any).signer ?? verifyRecordSigner(pk) }; };
+function verifyRecordSigner(pk: any): string { return pk.signer; }
+const plain = signRecord(lm, pem) as any, bonded = signRecord({ ...lm, B_max_zats: "2000000", bond: { bond_bps: 1000, balance_window_blocks: 40, balance_window_start_height: 5000000, balance_addresses: lm.deposit_addresses.map(() => (spawnSync(path.resolve("settle/target/release/benzo-pczt"), ["address", path.resolve(".benzo/bidder"), "--network", "test"], { encoding: "utf8" }).stdout.trim().split("\n").at(-1))) } }, pem) as any;
+const call = (k: string, pk: any) => { try { (registry as any)[k].client(pk, pk.signer); return "accepted"; } catch (e) { return (e as Error).message; } };
+const { clientLaunch } = await import("../../clear/launch");
+const direct = (() => { try { clientLaunch(bonded, bonded.signer); return "accepted"; } catch (e) { return (e as Error).message; } })();
+line("r64-bonded-launch-refused", call("launch", plain) === "accepted" && /mode A\) feature only/.test(call("launch", bonded)) && /mode A\) feature only/.test(direct),
+  `unbonded: ${call("launch", plain)}; bonded via registry: ${call("launch", bonded).slice(0, 70)}; via clientLaunch: ${direct.slice(0, 70)}`);
 console.log(`RESULT r61-r63 ${all ? "PASS" : "FAIL"}`); process.exitCode = all ? 0 : 1;

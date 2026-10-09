@@ -28,6 +28,8 @@ export const deliveryRowOrder = (a: { destination: string; amount: number }, b: 
 export function clientLaunch(packet: Signed, signer: string) {
   return marketClient<{ launch: Launch }>(packet, signer, "launch", m => {
     const l = m.launch;
+    // R64 (Reviewer R P2-2 on R63): refused inside the client too, so no caller of clientLaunch can admit a bonded launch.
+    requireThat((m as { bond?: unknown }).bond === undefined, "bond is a uniform/vickrey (mode A) feature only");
     requireThat(l && Object.keys(l).every(k => ["standard_lot_size", "minimum_raise_zats", "holder", "follow_on"].includes(k)), "launch fields");
     requireThat(Number.isSafeInteger(l.standard_lot_size) && l.standard_lot_size > 0 && m.supply % l.standard_lot_size === 0 && m.q_max % l.standard_lot_size === 0, "launch standard lot size");
     zats(l.minimum_raise_zats, "minimum raise");

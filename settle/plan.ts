@@ -157,8 +157,13 @@ try {
       // Ruling R61: the start block's header time, from this coordinator's own lightwalletd — before R's release
       // the bond is void (nobody defaults; every deposit and balance note refunds in full). The hosts decide the
       // same from their own chain views and sign it; only their agreed value is ever published.
-      const startBlock=JSON.parse(execute(path.join(state,"bin","grpcurl"),["-import-path",path.join(state,"proto"),"-proto","service.proto","-d",JSON.stringify({height:start}),process.env.BNZ_LWD_URL!,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"]));
-      bondVoid=bondVoidAt(m as any,Number(startBlock.time));
+      // R64 (Reviewer R P2-3 on R63): the same header rule as the hosts — every configured endpoint, all agreeing.
+      const single=process.env.BNZ_LWD_SINGLE==="1";requireThat(!single||m.network==="test","BNZ_LWD_SINGLE is testnet-only");
+      const endpoints=[process.env.BNZ_LWD_URL!,...(single?[]:[process.env.BNZ_LWD_URL_ALT??""])];
+      requireThat(endpoints.every(e=>!!e)&&new Set(endpoints.map(e=>e.trim().toLowerCase())).size===endpoints.length,"two distinct lightwalletd endpoints (BNZ_LWD_URL, BNZ_LWD_URL_ALT) are required");
+      const headers=endpoints.map((e:string)=>JSON.parse(execute(path.join(state,"bin","grpcurl"),["-import-path",path.join(state,"proto"),"-proto","service.proto","-d",JSON.stringify({height:start}),e,"cash.z.wallet.sdk.rpc.CompactTxStreamer/GetBlock"])));
+      requireThat(headers.every((h:any)=>h.hash===headers[0].hash&&h.time===headers[0].time),`block ${start} header differs across lightwalletd endpoints`);
+      bondVoid=bondVoidAt(m as any,Number(headers[0].time));
       defaults=bondVoid?[]:balanceDefaults(m as any,result,src.frozen!.leaves as any,balNotes,tip);
       // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): out-of-window balance notes are never settlement
       // sources and never count as payment — each note gets its own immutable `balance-late:…` row to that

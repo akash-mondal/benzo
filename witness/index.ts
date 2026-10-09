@@ -191,7 +191,7 @@ export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: str
     }
     const agreed = [...byList.values()]
       .filter((e) => e.witnesses.size >= 2)
-      .sort((x, y) => y.witnesses.size - x.witnesses.size || jsonBytes({ defaults: x.list, bond_void: x.bond_void }).toString("hex").localeCompare(jsonBytes({ defaults: y.list, bond_void: y.bond_void }).toString("hex")));
+      .sort((x, y) => y.witnesses.size - x.witnesses.size || jsonBytes({ defaults: x.list, bond_void: x.bond_void, bond_start: x.bond_start }).toString("hex").localeCompare(jsonBytes({ defaults: y.list, bond_void: y.bond_void, bond_start: y.bond_start }).toString("hex"))); // R64: bond_start in the selection too
     if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void, bond_start: agreed[0].bond_start };
   }
   return null;

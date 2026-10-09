@@ -212,3 +212,18 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
      - Residual: P2-8 (the late-approval NotFound signal) stays with the R60 absence-proof residual.
   4. **Proof:** `docs/evidence/phase-6/repro/r61-void.out` (RESULT r61-r63 PASS). New legs: pre-R61 map bytes, refusal of different headers, a tampered signed header, and bond limited to mode A. The last leg inspects the wrapped clients rather than driving a bonded launch end to end.
   5. **Consequences.** The drop `75d1ab9d…` settled under R61 maps that carry no `bond_start`, so its published settlement now fails verify ("a void bond needs the signed start header"). That is the recovery record of an auction settled before R63; its funds were all refunded. Product and host code changed: the hosts are provisioned again, and RG restarts from project #1 (attempt 8). Attempt 7's runner is stopped after `auction-core`.
+- R64 2026-10-09 (head, answers Reviewer R `benzo-sol/reports/pr-rg-r63.md`, BLOCK: 1 P1, 8 P2):
+  1. **P1: one endpoint configured twice defeated the header cross-check. Accepted, with its limit stated.**
+     - Fixed: hosts (`cli/host-chain.ts` `blockHeader`), the coordinator (`settle/io.ts` `lwdEndpoints`) and the plan (`settle/plan.ts`) all refuse a `BNZ_LWD_URL_ALT` equal to `BNZ_LWD_URL`.
+     - Stated as a limit: both endpoints come from each host's own launcher config. That is the R28 trust model: a host already reads notes and mined heights from those endpoints. In this testnet deployment one operator provisions all three hosts with the same pair. On mainnet each signer's operator chooses its own independent endpoints; the README honest limits say so.
+  2. **P2s fixed:**
+     - P2-2: `clientLaunch` itself refuses a bond, not only the registry wrapper.
+     - P2-3: the plan reads the start header from every configured endpoint and requires agreement, exactly like the hosts.
+     - P2-4: the R44 tie-break *selection* now includes `bond_start`.
+     - P2-6: the proof **drives** the launch client on a committed launch-a18 manifest, re-signed with a throwaway key. Unbonded it is accepted; with a schema-valid bond it is refused by both the wrapper and `clientLaunch`.
+     - P2-8: `up.sh` counts dirtiness after building and refuses a dirty tree, unless `BNZ_UP_ALLOW_DIRTY=1` for a lab run.
+  3. **P2s that go to the residuals:**
+     - P2-5: the r61 obligations fixture is arithmetic-only, not a reachable clear.
+     - P2-7: the markets resume can double-send dust while an earlier dust tx is still unmined (harness only).
+     - P2-9: the pre-existing `drop-r33` evidence fails today's schema (`balance_window_blocks` 12 < 40). It is a superseded record from before the 40-block minimum, which R35.3(b)'s evidence pass annotates.
+  4. Product, host and verify code changed (the verify bundle is rebuilt). Attempt 8 continues for signal, and the gate's final run is attempt 9, after Reviewer R confirms R64.
