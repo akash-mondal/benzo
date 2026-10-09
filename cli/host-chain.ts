@@ -10,7 +10,7 @@ function grpc(st: string, method: string, body: object): { ok: boolean; out: str
   const lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
   for (let attempt = 1; ; attempt++) {
     const cmd = path.join(st, "bin", "grpcurl"), args = ["-import-path", path.join(st, "proto"), "-proto", "service.proto", "-d", JSON.stringify(body), lwd, `cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`];
-    const r = spawnSync(cmd, args, { encoding: "utf8", ...lwdBound(cmd, args) }); // R49: Reviewer R P1-2 on R48
+    const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 256 << 20, ...lwdBound(cmd, args) }); // R49: Reviewer R P1-2 on R48; R60: block ranges are large
     if (r.status === 0) return { ok: true, out: r.stdout };
     const err = lwdTimedOut(cmd, r)?.message ?? `${r.stderr ?? ""}${r.stdout ?? ""}`;
     if (/NotFound|not found/i.test(err)) return { ok: false, out: err };

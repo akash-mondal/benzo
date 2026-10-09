@@ -301,14 +301,18 @@ const published = JSON.parse(readFileSync(path.join(path.resolve(config.public_d
 // bidder's destination — the privacy leak Reviewer R F-1 / Reviewer G G4.
 const operatorKeyFile = path.join(STATE, "product", `${id}.envelope.json`);
 let sealToPub = null;
-try {
+// R60 (Reviewer R P1 on R58): FIXED is printed only when the key file is ABSENT. Any other failure (a present key
+// that throws while opening) is a CONFIRMED leak, never a pass; opening uses the manifest's network.
+if (!existsSync(operatorKeyFile)) {
+  console.log("F-1 FIXED: no operator-held envelope private key exists in product state");
+  sealToPub = generateEnvelopeKey().public_hex; // any key; after the fix nothing opens it — the probe never needs to
+} else {
   const ek = JSON.parse(readFileSync(operatorKeyFile, "utf8"));
   sealToPub = ek.public_hex;
   const rec = (published.envelopes ?? [])[0];
-  if (rec && ek.private_hex) console.log(`F-1 CONFIRMED: operator state ${path.basename(operatorKeyFile)} holds the envelope private key; it decrypts leaf 0's destination ${ab(openEnvelope(rec.envelope_ct, ek.private_hex))}`);
-} catch {
-  console.log("F-1 FIXED: no operator-held envelope private key exists in product state");
-  sealToPub = generateEnvelopeKey().public_hex; // any key; after the fix nothing opens it — the probe never needs to
+  let opened = "(could not open)";
+  try { if (rec && ek.private_hex) opened = ab(openEnvelope(rec.envelope_ct, ek.private_hex, "test")); } catch (e) { opened = `(open threw: ${(e as Error).message})`; }
+  console.log(`F-1 CONFIRMED: operator state ${path.basename(operatorKeyFile)} holds the envelope private key; leaf 0's destination ${opened}`);
 }
 // Part B: self-consistent fabricated (opened, envelopes) pairs per leaf — the operator's own owner key,
 // nonce and commitment over an envelope sealed to the auction envelope key and carrying the operator's

@@ -100,13 +100,17 @@ export async function run(argv: string[]): Promise<number | object> {
     const dir = path.join(st, "approvals", o.id), ledgerFile = path.join(dir, "ledger.json");
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const ledger: { batch: number; txid: string; expiry_height: number; sources: string[]; approved_tip?: number }[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
+    // R60 (Reviewer R P2 on R58): never approve a candidate that has already mined (a late approver would otherwise
+    // record an approval tip above its mining height).
+    requireThat(minedHeight(st, info.txid) === 0, `candidate ${info.txid} has already mined; refusing a late approval`);
     for (const prior of ledger.filter(e => e.txid !== info.txid && e.sources.some(x => sources.includes(x)))) {
       const src = prior.sources.find(x => sources.includes(x));
       requireThat(tip > prior.expiry_height, `${src} is in batch ${prior.batch}, which can still mine until ${prior.expiry_height}`);
       requireThat(minedHeight(st, prior.txid) === 0, `${src} already paid by mined batch ${prior.batch}`);
       // R58 (Reviewer R F2 on R57): an endpoint's NotFound is not absence. The earlier transaction can only have mined
       // in (its approval tip, its expiry]; R28 item 9 bounds that to 10,000 blocks for a ledger entry from before R58.
-      const from = (prior.approved_tip ?? prior.expiry_height - 10000) + 1;
+      // R60 (P2): 100 blocks of margin below the approval tip for endpoint lag; a candidate already mined is refused below.
+      const from = Math.max(1, (prior.approved_tip ?? prior.expiry_height - 10000) - 100 + 1);
       requireThat(provenAbsent(st, prior.txid, from, prior.expiry_height), `${src} already paid by mined batch ${prior.batch} (in blocks ${from}..${prior.expiry_height})`);
     }
 

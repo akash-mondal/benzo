@@ -340,7 +340,9 @@ async function run(name: string, link?: SeriesLink) {
   // keys, check every owner signature against their own openings, build the canonical delivery list and sign
   // `benzo-delivery-list-v1` over its allocation_file_hash. The merged list is recorded with
   // `benzo launch deliver-list`, which publishes only the canonical allocation.json and the two signatures.
-  if (sc.mode === "launch") {
+  // R60: a launch with no winners (launch-miss: minimum raise not met) has nothing to deliver; the hosts rightly
+  // refuse an empty delivery list (R40), and settlement never needs one.
+  if (sc.mode === "launch" && deliverySealed.length > 0) {
     const deliveriesFile = path.join(privateDir, "deliveries.json");
     writeFileSync(deliveriesFile, JSON.stringify(deliverySealed));
     benzo(["launch", "deliver-list", "--id", id], hostDeliveryList(id, publicDir, deliveriesFile, signer, ["alice", "bob"]));
