@@ -24,7 +24,7 @@
 // 4. No seam: it reads the published doc of the live drop run and runs the shipped `benzo verify`.
 import { expect, test } from "@playwright/test";
 import { spawn, spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT } from "./lib/env";
 import { Run } from "./lib/run";
@@ -36,7 +36,7 @@ const GROUPS = SERIAL ? [PAIRED.flat()] : PAIRED;
 const IDS = GROUPS.flat().map(s => `M-${s}`);
 
 test("market modes settle under host custody", async () => {
-  test.setTimeout((SERIAL ? 420 : 240) * 60_000); const run = new Run("markets");
+  test.setTimeout((SERIAL ? 960 : 240) * 60_000); // R57: testnet blocks slowed to ~90 s (Oct 8–9); each bond window waits on them const run = new Run("markets");
   const bundle = path.join(ROOT, "tmp/markets-spec.mjs");
   const b = spawnSync("npx", ["esbuild", "tools/repro/markets.ts", "--bundle", "--packages=external", "--platform=node", "--format=esm", `--outfile=${bundle}`, "--log-level=warning"], { cwd: ROOT, encoding: "utf8" });
   if (b.status !== 0) run.notRun(IDS, `harness bundle: ${b.stderr}`);
@@ -45,8 +45,10 @@ test("market modes settle under host custody", async () => {
     // Stagger so the groups' DKGs and fundings start apart (the locks would serialize them anyway).
     await new Promise(r => setTimeout(r, i * 120_000));
     const p = spawn(process.execPath, [bundle, ...g], { cwd: ROOT, env: process.env });
-    let out = ""; p.stdout.on("data", d => (out += d)); p.stderr.on("data", d => (out += d));
-    p.on("close", () => { logs[i] = out; writeFileSync(path.join(ROOT, `tmp/markets-spec-${i}.log`), out); resolve(); });
+    // R57: stream to the log as it runs, so a timeout or kill keeps every scenario line written so far.
+    const log = path.join(ROOT, `tmp/markets-spec-${i}.log`); writeFileSync(log, "");
+    let out = ""; const take = (d: Buffer) => { out += d; appendFileSync(log, d); }; p.stdout.on("data", take); p.stderr.on("data", take);
+    p.on("close", () => { logs[i] = out; resolve(); });
   })));
   const all = logs.join("\n");
   for (const s of GROUPS.flat()) {

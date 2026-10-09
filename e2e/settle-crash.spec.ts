@@ -154,11 +154,16 @@ test("settlement survives a worker crash and drand outage with one signer not se
     const cancelledRun=await worker(cancel,false,{BNZ_DRAND_URLS:dead});z.sync("bidder");z.sync("vault");const c=capture(cancel,"cancel"),cancelAfter=observedBalance("bidder");
     const trace=existsSync(path.join(STATE,"run","settle-tle.jsonl"))?readFileSync(path.join(STATE,"run","settle-tle.jsonl"),"utf8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l)).filter(l=>l.auction_id===cancel):[];
     write("settle/cancel/outage.json",bytes({outage,opening_calls:trace.length,worker_code:cancelledRun.code,worker_error:cancelledRun.error,deposit_txid:cancelTx,before:cancelBefore,after:cancelAfter,collateral_zats:C,fee_reserve_zats:15000}));
-    await run.check("M1","closed drand endpoint cannot impede exact-C unopened refunds",()=> {
+    // R56: since R16 item 1 a cancelled-before-R deposit refunds only through its owner's claim or an envelope two
+    // signers' envelope-opens reports agree on (R23); neither exists before R in this low-level drill, so the outage
+    // must leave every deposit waiting at exact C in the claim queue — no opening, no wedge, nothing paid anywhere.
+    // The paid claim path is proven live by cli-auction's envelope-opens legs and tools/repro/x-cancel-claims.ts.
+    await run.check("M1","closed drand endpoint cannot impede a cancel: every deposit waits unopened at exact C in the claim queue",()=> {
       expect.soft(outage).toBe("ECONNREFUSED");expect.soft(cancelledRun.code).toBe(0);expect.soft(trace.length).toBe(0);expect.soft(cancelled.value.trace.filter((r:any)=>r.operation==="tle -d").length).toBe(0);
-      expect.soft(c.receipts.map((r:any)=>r.amount_zats)).toEqual([String(C),String(C)]);expect.soft(cancelAfter-cancelBefore).toBe(2*C);expect.soft(observedBalance("vault")).toBe(0);
-      for(const b of c.batches){expect.soft(b.inspect?.input_zats).toBe(2*C+15000);expect.soft(b.inspect?.output_zats).toBe(2*C);expect.soft(b.proofs.length).toBe(LWD.length);if(ALT)expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
+      const refunds=c.rows.filter((r:any)=>r.kind==="refund");
+      expect.soft(refunds.map((r:any)=>[r.state,r.amount_zats])).toEqual([["exception",String(C)],["exception",String(C)]]);
+      expect.soft((cancelledRun.error.match(/to the exception queue: cancelled before release; refund is claimable after R/g)??[]).length).toBe(2);
+      expect.soft(c.receipts).toEqual([]);expect.soft(c.batches).toEqual([]);expect.soft(cancelAfter-cancelBefore).toBe(0);expect.soft(observedBalance("vault")).toBe(2*C+15000);
     });
-    if(!ALT)run.narrowed("M1","single lightwalletd endpoint; second-endpoint agreement not checked (BNZ_LWD_SINGLE=1, R27/R47)");
   } finally {try{await recovery()}finally{stop()}}
 });
