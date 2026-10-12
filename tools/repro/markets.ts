@@ -357,7 +357,12 @@ async function run(name: string, link?: SeriesLink) {
   // R34.2 as replaced by R39.2: the published allocation rows are in canonical (destination bytes, then amount)
   // order and the allocation root is taken over that order (`${name}-cold-verify` replays it). The winner-leaf-order
   // line below is an observation only; the predicate never requires the two to differ.
-  if (sc.mode === "launch") {
+  // R68: a launch with no winners (launch-miss) publishes no delivery list and no allocation file (R60) — assert that
+  // instead of reading a file that rightly does not exist.
+  if (sc.mode === "launch" && deliverySealed.length === 0)
+    check(`${name}-no-delivery`, !existsSync(path.join(publicDir, "allocation.json")) && d.delivery_list === undefined && d.result.allocations.every((a: any) => a.fill === 0),
+      "no winners: no allocation file, no delivery list, every fill 0");
+  if (sc.mode === "launch" && deliverySealed.length > 0) {
     const file = readFileSync(path.join(publicDir, "allocation.json"));
     const rows = JSON.parse(file.toString("utf8")).rows as { destination: string; amount: number }[];
     const key = (rs: { destination: string; amount: number }[]) => JSON.stringify(rs.map(r => [r.destination, r.amount]));
