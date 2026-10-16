@@ -15,8 +15,11 @@ for (let iter = 0; iter < 3000; iter++) {
   const allocations = leaves.map((l) => { const fill = rnd() < 0.6 ? 1 : 0; return { leaf_index: l.leaf_index, fill, balance_due_zats: fill ? String(100000 + Math.floor(rnd() * 3) * 100000) : "0" }; });
   const notes = Array.from({ length: Math.floor(rnd() * 8) }, (_, k) => ({ txid: (iter * 16 + k).toString(16).padStart(64, "0"), pool: "ironwood", action_index: 0, address: pick(balance),
     height: rnd() < 0.1 ? null : start - 20 + Math.floor(rnd() * (tip - start + 20)), value_zats: pick([0, 20000, 100000, 200000, 300000]) }));
+  // R-AF-6: a scan may list one note twice; a duplicate must change nothing.
+  if (notes.length && rnd() < 0.3) notes.push({ ...notes[Math.floor(rnd() * notes.length)] });
+  const bondVoid = rnd() < 0.25; // R-AF-7: the void path is exercised too
   let out: any;
-  try { out = balanceSettlement(m, { allocations } as any, leaves as any, notes as any, tip); }
+  try { out = balanceSettlement(m, { allocations } as any, leaves as any, notes as any, tip, bondVoid); }
   catch (e) { fails.I1++; example.I1 ??= (e as Error).message; continue; }
   const matured = (n: any) => !!n.height && tip - n.height + 1 >= 10, key = (n: any) => `${n.txid}:${n.pool}:${n.action_index}`;
   // R42 (F15): a note backs at most one REFUND row (an in-window note may split between the settled due and its excess row).
@@ -25,10 +28,11 @@ for (let iter = 0; iter < 3000; iter++) {
   backed.push(...out.sources.map((s: string) => s.replace(/^balance:/, "")));
   const unmatured = new Set(notes.filter((n) => !matured(n)).map(key));
   if (backed.some((b) => unmatured.has(b))) { fails.I3++; example.I3 ??= `unmatured note backs a row at tip ${tip}`; }
-  const withLeaf = notes.filter((n) => matured(n) && Number(n.value_zats) > 0 && balance.indexOf(n.address) < 3);
+  const uniq = [...new Map(notes.map((n) => [key(n), n])).values()]; // one note is one note
+  const withLeaf = uniq.filter((n) => matured(n) && Number(n.value_zats) > 0 && balance.indexOf(n.address) < 3);
   const total = withLeaf.reduce((s, n) => s + Number(n.value_zats), 0);
   const refunded = out.refunds.reduce((s: number, r: any) => s + Number(r.amount_zats), 0);
-  const settled = allocations.filter((a) => a.fill > 0).reduce((s, a) => {
+  const settled = bondVoid ? 0 : allocations.filter((a) => a.fill > 0).reduce((s, a) => { // a void bond settles nothing
     const inW = withLeaf.filter((n) => n.address === balance[a.leaf_index] && n.height! > start && n.height! <= end).reduce((x, n) => x + Number(n.value_zats), 0);
     return s + (inW >= Number(a.balance_due_zats) && Number(a.balance_due_zats) > 0 ? Number(a.balance_due_zats) : 0); }, 0);
   if (refunded + settled !== total) { fails.I4++; example.I4 ??= `refunded ${refunded} + settled ${settled} != matured ${total}`; }
