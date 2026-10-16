@@ -316,3 +316,20 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
    - **R74 §1(c) amended.** Each allowlist entry, path or value, carries a written justification. §1(e) amended: the sha256 of the audited export archive is recorded, and the pushed tree must be byte-identical to it.
    - **Third comment-swallow (`4feaa86`).** Acknowledged. The detecting rule and the pre-commit `npm run check` reach main with the agent-friendly merge right after gold. The repair is evidenced by typecheck (0 errors at `48741cd`) and the offline guard probe (`ERROR B … was not written`, reason recorded).
    - **Owed items (unchanged):** the t-addr repro fold, five spec manifests, and the `release_time` entries.
+
+### R76 — Reviewer R on R75 (`pr-rg-r75.md`, BLOCK on one P1): one P1, three P2s
+
+1. **P1 (the Solana rule missed real keys that have no digit): FIXED.**
+   - `solana-address` is now ANY 32–44-char base58 token that decodes to exactly 32 bytes, using `@scure/base` (audited, already a direct dependency). There are no case or digit heuristics.
+   - The EVM rule accepts `0X` and uses "not alphanumeric" boundaries, so `_` neighbours no longer hide a match.
+   - **Proof** (`repro/r76-leak-rules.out`):
+     - The planted digitless Solana key, Solana key between underscores, uppercase `0X` EVM address and EVM address between underscores are all found, as are the three R75 plants (7 rows).
+     - The R75 tool missed three of them.
+     - The clean file (a 64-hex hash, a plain word, a CamelCase sentence) gives no row.
+     - Over `contracts/`, `crosschain/` and `docs/` at HEAD: 338 evm, 337 solana and 329 address rows for the release scrub to classify.
+2. **P2s:**
+   - **`redactAddresses` (`fail_reasons`, evidence writers).** It now also abbreviates Solana keys (the same 32-byte decode) and replaces 24-word mnemonics. Probe: a digitless key, a `0X` EVM address and a mnemonic are redacted; a 64-hex hash is kept.
+   - **Split-across-lines and other renderings.** A residual: the release scrub's human classification (R74 §1(a)) reviews the export's text files, and the audit alone is not claimed to be complete.
+   - **(c)/(e) consolidated.** The release scrub is R74 §1 as amended by R75 and here.
+     - (c) The allowlist holds exact file paths only. Each path needs a written justification in a sibling `leak-allowlist.md`, and no allowed path may hold a real destination.
+     - (e) The sha256 of the audited export archive is recorded, and the push is done from that archive only. A re-check at push time is part of the scrub's script.
