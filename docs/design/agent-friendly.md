@@ -106,3 +106,22 @@ The last row is the user's own steering, read from the transcripts: the head thi
   - `approval_maps` is enforced by `defaults`, `balance-refs` or `claims`, depending on the mode.
   - `tools/af/registry-measure.ts` shows 0 false alarms over 26 settled committed documents. Restoring either wrong entry gives an error on 26 of 26 and 23 of 26 documents respectively.
   - A field whose own check already failed raises no second error.
+
+## The opaque `Destination` (step 3's privacy half, prototyped on the branch)
+
+- **What it is.** `settle/destination.ts`. `openDestination`, `envelopeRecipient`, `memoEnvelopeRecipient` and `memoBoundEnvelope` now return a `Destination`, not a string:
+  - `JSON.stringify` throws;
+  - template strings and `util.inspect` print `[Destination]`;
+  - there is no enumerable field;
+  - the address comes out only through `reveal()`.
+- **Proof.** `tools/af/dest-proof.ts` checks all six properties, and all six hold.
+- **Cost.** 6 reveal points, all at payment construction:
+  - 3 in `settle/cli.ts`, which build the payment row and the agreed-hash cross-check;
+  - 2 in `cli/host-derive.ts`, which build the expected payment rows (typing found a 6th, R46's balance-refund row, that came after the first measurement);
+  - 1 in `cli/product.ts`, which only hashes it for the opening report.
+- **Rule `opaque-destination` in `check:structure`.** Outside `envelope/` and `settle/envelopes`, product code may not name `openEnvelope`, and `.reveal()` may appear only in those three files.
+  - A planted `console.log(d.reveal())` in `clear/core.ts` is flagged.
+  - So is an aliased `import { openEnvelope as _oe }` in `settle/plan.ts`; a first version of the rule that matched only calls missed it.
+- **A silent-pass trap it removed.** `tools/repro/r10-4-envelope-agreement-repro.mjs` compared the opened destination with `===`. Against a `Destination` it would have printed "some destination" and never CONFIRMED. It now compares the revealed value.
+- **Not covered.** `openEnvelopePayload` in `cli/commands/xchain.ts` reads the cross-chain `deliver` only, and is allow-listed. The `crosschain/*.mjs` devnet demos are out of scope.
+- **Before merge.** This changes host-side derivation, so it merges only with a full RG re-run.

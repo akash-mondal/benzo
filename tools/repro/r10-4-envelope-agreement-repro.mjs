@@ -236,9 +236,11 @@ if (plan) {
     const ctHash = sha256(Buffer.from(senv.memoSealedBid(note.memo_hex) ?? "", "hex"));
     const rec = { ciphertext_hash: ctHash, envelope_ct: operatorCt, owner_sig: env.signEnvelope(operatorOwner, auction_id, ctHash, operatorCt) };
     const aliceKey = JSON.parse(readFileSync(path.join(STATE, "signers", "alice", "envelope-key.json"), "utf8")).private_hex;
-    const resolved = senv.authenticatedMemoEnvelope
+    const opened = senv.authenticatedMemoEnvelope
       ? senv.memoEnvelopeRecipient(notes, party, packet, [rec], TLE, aliceKey)
       : senv.memoEnvelopeRecipient(notes, party, [rec], aliceKey);
+    // An opaque Destination (agent-friendly F) is compared by its revealed value; older builds return a string.
+    const resolved = opened && typeof opened.reveal === "function" ? opened.reveal() : opened;
     console.log(`R20 ${label}: operator-inserted record resolves to ${resolved === sellerUa ? "the operator's destination" : resolved === null ? "null" : "some destination"}`);
     return resolved;
   };

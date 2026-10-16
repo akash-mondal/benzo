@@ -16086,6 +16086,30 @@ function checkBuybackReport(pub) {
 import { existsSync as existsSync4, readFileSync as readFileSync4 } from "node:fs";
 import path4 from "node:path";
 
+// settle/destination.ts
+var INSPECT = /* @__PURE__ */ Symbol.for("nodejs.util.inspect.custom");
+var Destination = class {
+  #ua;
+  constructor(ua2) {
+    this.#ua = ua2;
+  }
+  reveal() {
+    return this.#ua;
+  }
+  equals(other) {
+    return !!other && other.#ua === this.#ua;
+  }
+  toJSON() {
+    throw new Error("a Destination is never serialized; call reveal() only where the payment is built");
+  }
+  toString() {
+    return "[Destination]";
+  }
+  [INSPECT]() {
+    return "[Destination]";
+  }
+};
+
 // witness/index.ts
 import { createPrivateKey as createPrivateKey3, createPublicKey as createPublicKey3, generateKeyPairSync as generateKeyPairSync2, sign as sign3, verify as verify3 } from "node:crypto";
 var witnessSetHash = (packet) => hash(jsonBytes(packet));

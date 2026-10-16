@@ -14,6 +14,7 @@ const PRODUCT = /^(settle|cli|clear|api|witness|manifest|envelope|crosschain)\//
 const HARNESS = /^(e2e\/|tools\/repro\/markets\.ts$)/;
 const CHAIN_TOOL = /grpcurl|zcash-devtool|["'/]tle["']|bin\/tle|bin\("tle"\)|bin\('tle'\)/;
 const SPAWN = /\b(spawnSync|execFileSync|execSync|spawn|execFile)\s*\(/; // R-AF-2: async forms too
+const REVEAL_SITES = new Set(["settle/cli.ts", "cli/host-derive.ts", "cli/product.ts"]);
 const errors = [];
 const err = (f, line, rule, msg) => errors.push(`${f}:${line} [${rule}] ${msg}`);
 
@@ -47,6 +48,15 @@ for (const f of files) {
         err(f, i + 1, "bounded-chain-io", `${m[1]} holds a chain tool; bound this call with lwdBound/tleBound (settle/bounded) or use settle/io run()`);
     });
   }
+  // 3c. opaque-destination (class F: four P0s and B37 were a destination reaching a public document or log). A
+  // bidder's destination is opened only through settle/envelopes (it returns an opaque Destination), and it is
+  // revealed only at the reviewed payment-construction points below. A new reveal site is a review decision.
+  // envelope/ is the primitive itself; crosschain/*.mjs are devnet demos that check the sealed deliver round trip.
+  if (PRODUCT.test(f) && f.endsWith(".ts") && !f.startsWith("envelope/") && !/^settle\/(envelopes|destination)\.ts$/.test(f)) lines.forEach((l, i) => {
+    if (/\bopenEnvelope\b/.test(l)) err(f, i + 1, "opaque-destination", "open destinations with openDestination (settle/envelopes), which returns an opaque Destination");
+    if (/\bopenEnvelopePayload\b/.test(l) && f !== "cli/commands/xchain.ts") err(f, i + 1, "opaque-destination", "openEnvelopePayload exposes the refund destination; only xchain's deliver attestation may use it");
+    if (/\.reveal\(\)/.test(l) && !REVEAL_SITES.has(f)) err(f, i + 1, "opaque-destination", "Destination.reveal() belongs only at payment construction (settle/cli.ts, cli/host-derive.ts, cli/product.ts); add a site only with a review");
+  });
   // 4. evidence-through-write (R71): harness evidence files are written only through e2e/lib/run.ts write(), which redacts.
   if (HARNESS.test(f) && f !== "e2e/lib/run.ts") lines.forEach((l, i) => {
     if (/writeFileSync\([^)]*\b(OUT|EVIDENCE|evidence)\b/.test(l)) err(f, i + 1, "evidence-through-write", "write evidence with write() from e2e/lib/run.ts so destinations are redacted (B37 findings 1–3)");

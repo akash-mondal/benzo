@@ -11,7 +11,7 @@ import { tleDecryptFailover } from "../manifest/reserve";
 import { pcztBin, scanBin, ufvkFile, vaultDir } from "../manifest/paths";
 import { loadPublicAuction } from "../api/public-auction";
 import { verifyStatement } from "../envelope/index";
-import { authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
+import { Destination, authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, isSlotCollision, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, bondVoidAt, isRefundRowParty, type BalanceRefund } from "../clear/features";
@@ -93,7 +93,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     const ownerOf = (i: number) => { const p = opened.find(x => x.leaf_index === i)?.plaintext_hex; return p ? Buffer.from(p, "hex").subarray(61, 93).toString("hex") : null; };
     const view = { manifest: pub.manifestPacket, frozen: pub.frozen, opened, envelopes: pub.envelopes };
     const claims: any[] = existsSync(path.join(packet, "claims.json")) ? JSON.parse(readFileSync(path.join(packet, "claims.json"), "utf8")) : [];
-    const claimDest = (party: string, owner: string | null): string | null => {
+    const claimDest = (party: string, owner: string | null): Destination | null => {
       for (const c of claims.filter(c => c.party === party)) {
         try {
           const body = { kind: "claim-refund", auction_id: o.id, party, claim_envelope_sha256: sha(Buffer.from(c.claim_envelope_ct, "hex")) };
@@ -163,7 +163,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (!(owed > 0n)) continue;
       const rec = validEnvelope(view, a.leaf_index);
       const dest = claimDest(party, ownerOf(a.leaf_index)) ?? (rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
-      if (dest) expected.push({ party, recipient: dest, amount_zats: owed.toString(), source: leafSource(a.leaf_index) });
+      if (dest) expected.push({ party, recipient: dest.reveal(), amount_zats: owed.toString(), source: leafSource(a.leaf_index) });
     }
     // Ruling R40 item 2 (F2): each per-note late-refund row is claim-paid only — its owner key is the deposit
     // slot's own leaf (this host's own derivation above), and the destination comes only from that owner's
@@ -175,7 +175,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const owed = BigInt(owedBy.get(r.party) ?? "0");
       if (!(owed > 0n)) continue;
       const dest = claimDest(r.party, ownerOf(r.leaf_index));
-      if (dest && r.matured) expected.push({ party: r.party, recipient: dest, amount_zats: owed.toString(), source: r.party });
+      if (dest && r.matured) expected.push({ party: r.party, recipient: dest.reveal(), amount_zats: owed.toString(), source: r.party });
     }
     // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
     // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN
@@ -196,7 +196,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const dest = claimDest(party, memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
       if (dest) {
         requireThat(typeof n.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(n.memo_hex), "stray note memo");
-        expected.push({ party, recipient: dest, amount_zats: String(n.value_zats), source: party });
+        expected.push({ party, recipient: dest.reveal(), amount_zats: String(n.value_zats), source: party });
         strays.push({ party, memo_sha256: sha(Buffer.from(n.memo_hex, "hex")) });
       }
     }
