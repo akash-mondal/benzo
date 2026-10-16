@@ -125,3 +125,16 @@ The last row is the user's own steering, read from the transcripts: the head thi
 - **A silent-pass trap it removed.** `tools/repro/r10-4-envelope-agreement-repro.mjs` compared the opened destination with `===`. Against a `Destination` it would have printed "some destination" and never CONFIRMED. It now compares the revealed value.
 - **Not covered.** `openEnvelopePayload` in `cli/commands/xchain.ts` reads the cross-chain `deliver` only, and is allow-listed. The `crosschain/*.mjs` devnet demos are out of scope.
 - **Before merge.** This changes host-side derivation, so it merges only with a full RG re-run.
+
+## Rule `comment-swallowed-statement` (the same mistake twice: R57 and R71)
+
+- **The mistake.** Twice, a head edit glued a marker comment in front of the rest of a line, which turned a statement into a comment:
+  - R57 swallowed the markets `const run = new Run("markets");` (fixed in 665e447);
+  - R71 swallowed auction-core's `write("auction/signatures.json", …)`. Reviewer R's P1-1 on R72 caught it after an RG re-run had already committed evidence without the file.
+- **The rule.** It flags a `//` comment whose text ends in a call statement with a literal argument: `name("…");`.
+- **Proof.**
+  - At 665e447~1 it flags `e2e/markets.spec.ts:39`.
+  - At c9f2fc7 it flags `e2e/auction-core.spec.ts:258`.
+  - At the fix (edf3784) and at branch HEAD it is clean.
+  - The only other candidate, a prose comment ending in `max(spends, outputs, 2);`, does not match because it has no literal argument.
+- **The second layer (R73, on main).** `Run` now takes the evidence files each ID cites, and fails the ID when they were not written. An offline probe passes the ID that writes its file and FAILs the one whose write is commented out.

@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 
 const ref = process.argv.includes("--ref") ? process.argv[process.argv.indexOf("--ref") + 1] : null;
 const git = (...a) => execFileSync("git", a, { encoding: "utf8", maxBuffer: 256 << 20 });
-const files = (ref ? git("ls-tree", "-r", "--name-only", ref) : git("ls-files")).split("\n").filter((f) => /\.(ts|mjs)$/.test(f) && !f.startsWith("node_modules/") && !/\/dist\//.test(f));
+const files = (ref ? git("ls-tree", "-r", "--name-only", ref) : git("ls-files")).split("\n").filter((f) => /\.(ts|mjs)$/.test(f) && !f.startsWith("node_modules/") && !/(^|\/)dist\//.test(f));
 const read = (f) => (ref ? git("show", `${ref}:${f}`) : execFileSync("cat", [f], { encoding: "utf8", maxBuffer: 64 << 20 }));
 
 const PRODUCT = /^(settle|cli|clear|api|witness|manifest|envelope|crosschain)\//;
@@ -56,6 +56,14 @@ for (const f of files) {
     if (/\bopenEnvelope\b/.test(l)) err(f, i + 1, "opaque-destination", "open destinations with openDestination (settle/envelopes), which returns an opaque Destination");
     if (/\bopenEnvelopePayload\b/.test(l) && f !== "cli/commands/xchain.ts") err(f, i + 1, "opaque-destination", "openEnvelopePayload exposes the refund destination; only xchain's deliver attestation may use it");
     if (/\.reveal\(\)/.test(l) && !REVEAL_SITES.has(f)) err(f, i + 1, "opaque-destination", "Destination.reveal() belongs only at payment construction (settle/cli.ts, cli/host-derive.ts, cli/product.ts); add a site only with a review");
+  });
+  // 3d. comment-swallowed-statement (R57 and R71: an edit glued a marker comment in front of the rest of the line, so a
+  // statement became a comment — the markets Run construction, then auction-core's signatures.json write). A `//`
+  // comment whose text ends in a call statement `name(…);` is flagged; put code and comment on separate lines.
+  if (/\.(ts|mjs)$/.test(f)) lines.forEach((l, i) => {
+    const c = l.match(/(?:^|[^:"'`\\])\/\/(.*)$/);
+    if (c && /[A-Za-z_$][\w$.]*\([^()]*["'`][^()]*(\([^()]*\)[^()]*)*\)\s*;\s*$/.test(c[1]) && !/["'`]/.test(l.slice(0, l.indexOf("//" + c[1])).replace(/(["'`])(?:\\.|(?!\1).)*\1/g, "")))
+      err(f, i + 1, "comment-swallowed-statement", "this comment ends in a statement; a marker comment swallowed code (R57, R71) — move the comment after the code or onto its own line");
   });
   // 4. evidence-through-write (R71): harness evidence files are written only through e2e/lib/run.ts write(), which redacts.
   if (HARNESS.test(f) && f !== "e2e/lib/run.ts") lines.forEach((l, i) => {
