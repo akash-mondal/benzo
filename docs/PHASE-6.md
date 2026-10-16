@@ -254,3 +254,12 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
      - P2-4: R70's coverage sentence is narrowed to read "partly exercised". The withdrawal is noted in the spec header, and the RG row lists the withdrawn IDs.
      - P2-5: the `markets` evidence `43be172` (all FAIL in two minutes) was the 2026-10-15 11:06Z network outage. Every scenario failed at `benzo auction keys` (the hosts' DKG could not reach the network) before funding. The passing run `638ae26` is at identical code.
      - Residuals: P2-3 (since R58 the expiry check runs first, so W6 does not reach the mined-batch rule live) and P2-6 (the claims check stops at the first failing claim, so under the narrowing later claim rows are unchecked).
+- R72 2026-10-16 (head, phase6-rg §4.1, R35.3(b)): **16 folded `tools/repro/` scripts deleted.** Each one's folded IDs passed live in gate RG, and the evidence is cited:
+  - `g-forged-claim`, `kc-key-commitment-repro`, `r15-verify-leaves-repro`, `r26-3-projection-repro` → `cli-auction` FOLD1 (`g-forged-claim-*`, `kc-*`, `r15-*`, `r26-3-*`);
+  - `mr-envelope-repro`, `r23-2-signed-opens-repro`, `r26-1-deposit-party-repro` → FOLD2 (`mr-*`, `r23-2-*`, `r26-1-*`);
+  - `r7-5-reserve-opening-repro`, `reserve-opening-repro` → FOLD3 (`U7`, `r7-5-reserve-opening`);
+  - `r7-3-exception-queue-repro`, `g2-envelope-crash-not-exception` → `foldR73` (`r7-3-exception-queue`, `g2-*`);
+  - `r7-1-ledger-redirect-repro`, `g1-tampered-ledger-redirect` → `foldR71`;
+  - `r23-3-api-claims-repro` → S1 / `r23-3-api-*`.
+
+  All of the above are PASS in `docs/evidence/phase-6/rg/cli-auction/run.json` (74 IDs, code `a24a3a8`). `g7-network-repro` → `auction-core` `g7-*` (11 IDs, PASS, `docs/evidence/phase-6/rg/auction-core/run.json`). `batching-equal.ts` → the `npm run bench` batch-plan stage (gate SC evidence). **Kept** (R70): the nine withdrawn group-B originals `r7-2`, `r7-4`, `r7-6`, `r7-claims`, `r10-2`, `r10-4`, `r15-3`, `r16-1` and `r16-4`. Their committed Phase-5 evidence remains the record. Comments that name a deleted script are provenance only; no code imports them.
