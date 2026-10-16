@@ -142,15 +142,15 @@ export async function foldR15(run: Run): Promise<void> {
   });
   await run.check("r15-phase2-4", "the Phase 2, 3 and 4 evidence dirs (no envelope_keys) still verify OK envelope", () => {
     const signerOf = (file: string, field?: string) => { const j = JSON.parse(readFileSync(path.join(ROOT, file), "utf8")); return field ? j[field] : j.signer; };
-    const phase2 = verifyRun(path.join(ROOT, "docs/evidence/phase-2/auction"), signerOf("docs/evidence/phase-2/auction/signer.json"), ["--fetch-beacon"]);
+    const phase2 = verifyRun(path.join(ROOT, "docs/evidence/phase-2/auction"), signerOf("docs/evidence/phase-2/auction/signer.json"), ["--fetch-beacon", "--legacy-unattested"]); // R78: pre-R42 evidence
     need(phase2.code === 0 && phase2.out.includes("OK envelope"), `phase-2 exit ${phase2.code}: ${phase2.out.slice(0, 300)}`);
     const p3 = path.join(ROOT, "tmp/r35-folds/phase3-public");
     rmSync(p3, { recursive: true, force: true }); mkdirSync(p3, { recursive: true });
     for (const f of ["manifest.json", "frozen.json", "result.json", "summary.json"]) copyFileSync(path.join(ROOT, "docs/evidence/phase-3/settle/main", f), path.join(p3, f));
     copyFileSync(path.join(ROOT, "docs/evidence/phase-3/settle/signer.json"), path.join(p3, "signer.json"));
-    const phase3 = verifyRun(p3, signerOf("docs/evidence/phase-3/settle/signer.json"), ["--fetch-beacon"]);
+    const phase3 = verifyRun(p3, signerOf("docs/evidence/phase-3/settle/signer.json"), ["--fetch-beacon", "--legacy-unattested"]);
     need(phase3.code === 0 && phase3.out.includes("OK envelope"), `phase-3 exit ${phase3.code}: ${phase3.out.slice(0, 300)}`);
-    const phase4 = verifyRun(path.join(ROOT, "docs/evidence/phase-4/cli"), signerOf("docs/evidence/phase-4/cli/auction.json", "signer"));
+    const phase4 = verifyRun(path.join(ROOT, "docs/evidence/phase-4/cli"), signerOf("docs/evidence/phase-4/cli/auction.json", "signer"), ["--legacy-unattested"]);
     need(phase4.code === 0 && phase4.out.includes("OK envelope"), `phase-4 exit ${phase4.code}: ${phase4.out.slice(0, 300)}`);
   });
 }
@@ -628,15 +628,15 @@ export async function foldMR(run: Run): Promise<void> {
   await ruleProbe("mr-verify-pre-v2-unpinned", { name: "pre-v2-unpinned", pinned: false, kind: "pre-v2" }, "OK");
   await run.check("mr-verify-phase2-4", "the Phase 2, 3 and 4 evidence dirs (pre-v2 records / no envelope_keys) still verify OK", () => {
     const signerOf = (file: string, field?: string) => { const j = JSON.parse(readFileSync(path.join(ROOT, file), "utf8")); return field ? j[field] : j.signer; };
-    const phase2 = verifyRun(path.join(ROOT, "docs/evidence/phase-2/auction"), signerOf("docs/evidence/phase-2/auction/signer.json"), ["--fetch-beacon"]);
+    const phase2 = verifyRun(path.join(ROOT, "docs/evidence/phase-2/auction"), signerOf("docs/evidence/phase-2/auction/signer.json"), ["--fetch-beacon", "--legacy-unattested"]); // R78: pre-R42 evidence
     need(phase2.code === 0 && phase2.out.includes("OK envelope"), `phase-2 exit ${phase2.code}: ${phase2.out.slice(0, 300)}`);
     const p3 = path.join(ROOT, "tmp/r35-folds/mr/phase3-public");
     rmSync(p3, { recursive: true, force: true }); mkdirSync(p3, { recursive: true });
     for (const f of ["manifest.json", "frozen.json", "result.json", "summary.json"]) copyFileSync(path.join(ROOT, "docs/evidence/phase-3/settle/main", f), path.join(p3, f));
     copyFileSync(path.join(ROOT, "docs/evidence/phase-3/settle/signer.json"), path.join(p3, "signer.json"));
-    const phase3 = verifyRun(p3, signerOf("docs/evidence/phase-3/settle/signer.json"), ["--fetch-beacon"]);
+    const phase3 = verifyRun(p3, signerOf("docs/evidence/phase-3/settle/signer.json"), ["--fetch-beacon", "--legacy-unattested"]);
     need(phase3.code === 0 && phase3.out.includes("OK envelope"), `phase-3 exit ${phase3.code}: ${phase3.out.slice(0, 300)}`);
-    const phase4 = verifyRun(path.join(ROOT, "docs/evidence/phase-4/cli"), signerOf("docs/evidence/phase-4/cli/auction.json", "signer"));
+    const phase4 = verifyRun(path.join(ROOT, "docs/evidence/phase-4/cli"), signerOf("docs/evidence/phase-4/cli/auction.json", "signer"), ["--legacy-unattested"]);
     need(phase4.code === 0 && phase4.out.includes("OK envelope"), `phase-4 exit ${phase4.code}: ${phase4.out.slice(0, 300)}`);
   });
 }

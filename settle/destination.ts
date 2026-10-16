@@ -21,6 +21,12 @@ export class Destination {
   toString(): string {
     return "[Destination]";
   }
+  // R78 (Reviewer R F-7): `==`, `+` or arithmetic on a Destination throws instead of comparing "[Destination]" strings,
+  // which would make two different destinations look equal. Template strings still print "[Destination]".
+  [Symbol.toPrimitive](hint: string): string {
+    if (hint === "string") return "[Destination]";
+    throw new Error("a Destination has no primitive value; compare with equals() or reveal() at payment construction");
+  }
   [INSPECT](): string {
     return "[Destination]";
   }

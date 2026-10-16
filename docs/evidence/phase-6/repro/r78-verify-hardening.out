@@ -1,0 +1,31 @@
+# R78 (Reviewer R F-1/F-2/F-3/F-6/F-7 on R77). Script: tools/repro/r78-verify-hardening.ts (offline)
+## before (f7311ee code)
+F-1 no-maps fabricated receipt, default (strict):  ACCEPTED
+F-1 same, --legacy-unattested (pre-R42 evidence):   ACCEPTED
+F-2 rows[0].d_t2:  ACCEPTED
+F-2 rows[0].d_zc:  ACCEPTED
+F-2 rows[0].note:  ACCEPTED
+F-2 rows[0].d_tex:  ACCEPTED
+F-2 rows[0].d_vk:  ACCEPTED
+F-2 rows[0].reason (a destination in a known field):  REFUSED no-destinations: refused: published settlement carries an address at settlement.rows[0].state
+F-3 receipts[0].pool = "banana":  ACCEPTED
+honest (maps):  ACCEPTED
+F-6 treasuryFunded([note, same note]) = 2000 (one note is 1000)
+F-7 destA + "" = [Destination]; destA == "x" = false; +destA = NaN; `${destA}` = [Destination]; destA.equals(destB) = false
+## after (R78)
+F-1 no-maps fabricated receipt, default (strict):  REFUSED receipt-attestation: refused: receipts not host-attested: no approval maps published (verify --legacy-unatteste
+F-1 same, --legacy-unattested (pre-R42 evidence):   ACCEPTED
+F-2 rows[0].d_t2:  REFUSED receipt-attestation: refused: settlement row 0 keys | no-destinations: refused: published settlement carries an address at settlement.rows[0].d_t2
+F-2 rows[0].d_zc:  REFUSED receipt-attestation: refused: settlement row 0 keys | no-destinations: refused: published settlement carries an address at settlement.rows[0].d_zc
+F-2 rows[0].note:  REFUSED receipt-attestation: refused: settlement row 0 keys | no-destinations: refused: published settlement carries an address at settlement.rows[0].note
+F-2 rows[0].d_tex:  REFUSED receipt-attestation: refused: settlement row 0 keys | no-destinations: refused: published settlement carries an address at settlement.rows[0].d_tex
+F-2 rows[0].d_vk:  REFUSED receipt-attestation: refused: settlement row 0 keys | no-destinations: refused: published settlement carries an address at settlement.rows[0].d_vk
+F-2 rows[0].reason (a destination in a known field):  REFUSED no-destinations: refused: published settlement carries an address at settlement.rows[0].state
+F-3 receipts[0].pool = "banana":  REFUSED receipt-attestation: refused: settlement receipt 0 fields
+honest (maps):  ACCEPTED
+F-6 treasuryFunded([note, same note]) = 1000 (one note is 1000)
+F-7 destA + "" THROWS (a Destination has no primitive value; co…); destA == "x" THROWS (a Destination has no primitive value; co…); +destA THROWS (a Destination has no primitive value; co…); `${destA}` = [Destination]; destA.equals(destB) = false
+## R78 F-5: tools/repro/r77-serial-beacon.ts now pins the other-round signature
+published beacon: ACCEPTED
+forged beacon (one hex digit changed, not a curve point): REFUSED ERROR clear Cannot find square root
+substituted beacon (quicknet round 32856451's real signature, a valid point, wrong round): REFUSED ERROR clear refused: serial beacon BLS signature

@@ -57,7 +57,11 @@ export function treasuryBlock(m: any): TreasuryBlock | null {
 }
 export const treasuryRequired = (m: any): bigint => { const t = treasuryBlock(m)!; return zats(t.budget_zats, "budget") * BigInt(t.lots); };
 export function treasuryFunded(m: any, notes: { address: string; height: number | null; value_zats: number | string }[], confirmedAt?: number): bigint {
+  // R78 (Reviewer R F-6, the G-3 class): one note is one note — a scan listing {txid, pool, action_index} twice
+  // never inflates the funded total (the same identity rule as balanceMatured).
+  const seen = new Set<string>();
   return notes.filter(n => n.address === treasuryBlock(m)!.funding_ua && n.height && (confirmedAt === undefined || confirmedAt - n.height + 1 >= m.confirmations))
+    .filter(n => { const id = n as unknown as { txid?: string; pool?: string; action_index?: number }; if (id.txid === undefined) return true; const k = `${id.txid}:${id.pool}:${id.action_index}`; if (seen.has(k)) return false; seen.add(k); return true; })
     .reduce((s, n) => s + BigInt(n.value_zats), 0n);
 }
 export function treasuryReturn(m: any, result: ClearBody | null, funded: bigint): bigint {

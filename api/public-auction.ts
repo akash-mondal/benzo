@@ -1,6 +1,7 @@
 // Public auction directory model shared by `benzo verify`, operator view, receipt show and the read-only API.
 // Reads only public files; never loads BNZ_STATE_DIR secrets or bid-side keys.
 import { checkMissingDeposits } from "./missing-deposits";
+import { findSensitive } from "../envelope/leak-patterns";
 import { checkDeliveryExceptions } from "../adapters/zilkroad";
 import { checkBuybackReport } from "../adapters/buyback-report";
 import { treasuryBlock } from "../clear/mode-b";
@@ -257,7 +258,9 @@ const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "
 // runtime — it is bundled into settle/plan.mjs through the adapters); checkPublicAuction takes its result
 // and fails closed for a stray claim whose memo does not open.
 
-export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: Map<number, string | null> } = {}): Check[] {
+// R78: `allowUnattested` exists only for re-verifying pre-R42 evidence (verify --legacy-unattested); every other
+// caller is strict, so an operator cannot downgrade receipt attestation by omitting the host maps.
+export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: Map<number, string | null>; allowUnattested?: boolean } = {}): Check[] {
   const checks: Check[] = [];
   // R-AF-5: a settlement field counts as verified only if its registered check actually read it (not merely ran).
   let current = "";
@@ -600,14 +603,22 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     for (const [i, r] of receipts.entries()) requireThat(
-      typeof r.party === "string" && r.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r.txid)) &&
+      typeof r.party === "string" && r.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r.txid)) && /^(sapling|orchard|ironwood)$/.test(String(r.pool)) &&
         Number.isSafeInteger(r.output_index) && r.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r.amount_zats)),
       `settlement receipt ${i} fields`);
     requireThat(new Set(receipts.map(r => `${r.txid}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
+    // R78 (F-2): rows and batches carry exactly their documented keys, so no extra field can ride along.
+    for (const [i, r] of (pub.settlement.rows ?? []).entries())
+      requireThat(r && typeof r === "object" && Object.keys(r).every(k => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid"].includes(k)), `settlement row ${i} keys`);
+    for (const [i, b] of ((pub.settlement.batches ?? []) as any[]).entries())
+      requireThat(b && typeof b === "object" && Object.keys(b).every(k => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing"].includes(k)), `settlement batch ${i} keys`);
     const published = pub.settlement.approval_maps ?? [];
     if (published.length === 0) {
-      requireThat((pub.manifest.network as string) !== "main", "mainnet settlement without host-signed approval maps");
-      return "receipts not host-attested: no approval maps published (pre-R42 or local signing)";
+      // R78 (Reviewer R F-1 on R77): the publisher chooses whether maps appear, so their absence is never a pass.
+      // Only an explicit legacy re-verification of pre-R42 testnet evidence downgrades it to a printed WARN.
+      requireThat(receipts.length === 0 || (!!opts.allowUnattested && (pub.manifest.network as string) !== "main"),
+        "receipts not host-attested: no approval maps published (verify --legacy-unattested only for pre-R42 testnet evidence)");
+      return receipts.length ? "receipts not host-attested: legacy re-verification (--legacy-unattested), pre-R42 testnet evidence only" : undefined;
     }
     const keys = pub.witnessSet && pub.manifest.witness_set_hash === witnessSetHash(pub.witnessSet!)
       ? validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), pub.manifest.auction_id).keys : [];
@@ -837,10 +848,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   // carry txids and output indexes; parties are leaf/deposit/row names; a destination has no business here.
   run("no-destinations", () => {
     if (!pub.settlement) return;
-    const ADDRESS = /\b(?:utest1|u1|ztestsapling1|zs1|tm|t1|t3|tex1)[0-9a-z]{30,}\b/i;
+    // R78 (F-2): the one shared definition (envelope/leak-patterns.ts): every chain's addresses, viewing keys, seeds.
     const hits: string[] = [];
     const walk = (v: unknown, at: string): void => {
-      if (typeof v === "string") { if (ADDRESS.test(v)) hits.push(at); }
+      if (typeof v === "string") { if (findSensitive(v).length) hits.push(at); }
       else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
       else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, `${at}.${k}`);
     };

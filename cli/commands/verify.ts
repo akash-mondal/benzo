@@ -10,7 +10,7 @@ import { publishedClient, decryptPublished, deriveClaimOpenings } from "../publi
 
 export const noun = "verify";
 export const verb = "";
-export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] — re-derive openings offline and reproduce clear + accounting";
+export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] — re-derive openings offline and reproduce clear + accounting";
 
 // Go tle is an optional independent cross-check, resolved only through PATH (shared with the signer
 // plan through manifest/reserve.ts so the sealed-reserve rules cannot drift).
@@ -21,7 +21,7 @@ export async function run(argv: string[]): Promise<number> {
     process.stdout.write(help + "\n");
     return 0;
   }
-  let dir = "", signerHex = "", fetchBeacon = false, crossCheck = false, previous = "";
+  let dir = "", signerHex = "", fetchBeacon = false, crossCheck = false, previous = "", legacyUnattested = false;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--dir") dir = argv[++i] ?? "";
     else if (argv[i] === "--signer") signerHex = argv[++i] ?? "";
@@ -29,6 +29,7 @@ export async function run(argv: string[]): Promise<number> {
     else if (argv[i] === "--fetch-beacon") fetchBeacon = true;
     else if (argv[i] === "--tle") crossCheck = true;
     else if (argv[i] === "--previous") previous = argv[++i] ?? "";
+    else if (argv[i] === "--legacy-unattested") legacyUnattested = true; // R78: pre-R42 testnet evidence only
     else {
       process.stderr.write(`ERROR verify usage: ${help}\n`);
       return 2;
@@ -109,7 +110,7 @@ export async function run(argv: string[]): Promise<number> {
         }
       }
     }
-    const checks = checkPublicAuction(pub, { claimOpenings });
+    const checks = checkPublicAuction(pub, { claimOpenings, allowUnattested: legacyUnattested });
     let failed = false;
     for (const c of checks) {
       if (c.warn) process.stderr.write(`WARN ${c.warn}\n`);

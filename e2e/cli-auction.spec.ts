@@ -306,7 +306,10 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     // maps, so R42's per-row attestation of a paid stray claim's memo cannot be met here. Cold verify must pass every
     // other check: exactly one ERROR, and only that one. The attested claim is proven under host custody (markets drop).
     const verifyErrors=(verified.error||'').split('\n').filter((l:string)=>/^ERROR/.test(l));
-    const verifiedLocal=verified.code===0||(verifyErrors.length===1&&/^ERROR claims refused: claim \d+ memo is not attested by two agreeing host-signed approval maps of its paying batch$/.test(verifyErrors[0]));
+    // R42/R71 + R78: local signing has no host maps, so verify refuses exactly the host-attestation class — the stray
+    // claim memo (claims) and the receipts (receipt-attestation) — and nothing else.
+    const localClass=[/^ERROR claims refused: claim \d+ memo is not attested by two agreeing host-signed approval maps of its paying batch$/,/^ERROR receipt-attestation refused: receipts not host-attested: no approval maps published/];
+    const verifiedLocal=verified.code===0||(verifyErrors.length>=1&&verifyErrors.length<=2&&verifyErrors.every(e=>localClass.some(re=>re.test(e)))&&verifyErrors.some(e=>localClass[1].test(e)));
     const shown=cli(['receipt','show','--dir',cold,'--ciphertext-hash',frozen.leaves[0].ciphertext_hash]);
     // F3 (R28): pass the bidder's own signed admission receipt for leaf:0, and compare the settlement
     // receipt fields against result.json.

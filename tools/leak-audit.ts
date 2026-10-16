@@ -3,8 +3,7 @@ import { readFileSync, readdirSync, lstatSync } from "node:fs";
 import { resolve, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { base58 } from "@scure/base";
-import { mnemonicSpans } from "../e2e/lib/redact";
+import { findSensitive } from "../envelope/leak-patterns";
 
 type Sensitive = { label: string; value: string; release_time?: number | string };
 type Finding = { rule: string; label: string; file: string; line?: number; commit?: string; sha256: string };
@@ -55,30 +54,20 @@ function main() {
         }
       }
     }
+    // R78: addresses on every chain, viewing keys and BIP39 seeds come from the one shared definition that verify's
+    // no-destinations guard and the evidence redactor use (envelope/leak-patterns.ts). The file allowlist covers
+    // address-class rules only, never keys or seeds.
+    for (const m of findSensitive(text)) {
+      if (/address$/.test(m.rule) && allowed.has(file)) continue;
+      add(m.rule, m.rule, file, text, m.index, m.value, commit);
+    }
     const patterns: [string, RegExp][] = [
-      // R75/R76 (Reviewer R P1s on R74/R75): every chain Benzo settles on. Zcash adds TEX (`tex1`/`textest1`) and
-      // Sprout (`zc`/`zt`); Ethereum is `0x`/`0X` + 40 hex; Solana is ANY 32–44-char base58 token that decodes to
-      // exactly 32 bytes (@scure/base) — no shape heuristics, so a digitless real key is not missed. Boundaries are
-      // "not alphanumeric", so an `_` neighbour cannot hide a match. Rows are classified by the release scrub (R74
-      // §1(a)), never ignored; false positives cost review time, never coverage.
-      // R77: "not alphanumeric" boundaries here too, so `refund_utest1…` cannot hide a Zcash address.
-      ["address", /(?<![0-9A-Za-z])(?:(?:utest1|uregtest1|u1|ztestsapling1|zs1|textest1|tex1)[a-z0-9]{20,}|(?:t1|t3|tm|t2)[1-9A-HJ-NP-Za-km-z]{33}|z[ct][1-9A-HJ-NP-Za-km-z]{90,})(?![0-9A-Za-z])/g],
-      ["evm-address", /(?<![0-9A-Za-z])0[xX][0-9a-fA-F]{40}(?![0-9A-Za-z])/g],
-      ["solana-address", /(?<![0-9A-Za-z])[1-9A-HJ-NP-Za-km-z]{32,44}(?![0-9A-Za-z])/g],
-      ["viewing-key", /\b(?:uviewtest1|uview1|uview|zxviewtestsapling1|zxviews1|zxview)[a-zA-Z0-9]{20,}\b/g],
-      ["mnemonic", /\b(?:[a-z]{3,12}[ \t\r\n]+){23}[a-z]{3,12}\b/g],
+      ["mnemonic", /(?<![A-Za-z])(?:[a-z]{3,12}[ \t\r\n]+){23}[a-z]{3,12}(?![A-Za-z])/g], // 24-word shape, off-list too
       ["pem-private-key", /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----/g],
       ["age-armor", /-----BEGIN AGE ENCRYPTED FILE-----[\s\S]*?-----END AGE ENCRYPTED FILE-----/g],
     ];
-    // R77: BIP39 seeds of every length (wordlist + checksum), beside the 24-word shape rule above.
-    for (const [a, b] of mnemonicSpans(text)) add("mnemonic-bip39", "mnemonic-bip39", file, text, a, text.slice(a, b), commit);
-    for (const [rule, pattern] of patterns) {
-      if (/address$/.test(rule) && allowed.has(file)) continue; // R75: the file allowlist covers every address rule
-      for (const match of text.matchAll(pattern)) {
-        if (rule === "solana-address" && !isEd25519Key(match[0])) continue;
-        add(rule, rule, file, text, match.index!, match[0], commit);
-      }
-    }
+    for (const [rule, pattern] of patterns)
+      for (const match of text.matchAll(pattern)) add(rule, rule, file, text, match.index!, match[0], commit);
   };
   const command = (args: string[]) => execFileSync("git", args, { maxBuffer: 256 * 1024 * 1024 });
   // For tracked working files use the last commit time, as specified; untracked files use mtime.
@@ -118,7 +107,3 @@ function main() {
 }
 try { main(); } catch { process.stderr.write("ERROR leak-audit input or scan failed (values suppressed)\n"); process.exitCode = 2; }
 
-// R76: a Solana address is exactly a base58-encoded 32-byte public key.
-function isEd25519Key(token: string): boolean {
-  try { return base58.decode(token).length === 32; } catch { return false; }
-}

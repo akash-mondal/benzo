@@ -338,7 +338,7 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
 
 G confirmed every claim of the gate itself: one product tree since R65, six pins disclosed, the five live mutations red, and evidence destination-free at HEAD. It raised one P1 against the product.
 
-1. **G-1 (P1, FIXED): verify accepted settlement receipts that no host attested.**
+1. **G-1 (P1): verify accepted settlement receipts that no host attested.** Fixed where maps are published; R78 closes the no-maps downgrade.
    - The new verify check `receipt-attestation` (`api/public-auction.ts`):
      - every receipt has well-formed fields (64-hex txid, non-negative output_index, positive amount);
      - no two receipts name the same output;
@@ -362,3 +362,35 @@ G confirmed every claim of the gate itself: one product tree since R65, six pins
    - Residuals, unchanged: over-redaction of 43–44-char base58 tokens; a key with one stray base58 character appended; the scrub script does not exist yet (Phase 7).
 6. **The agent-friendly work is merged** (`df2ca4d`): check:structure, the property test, redact-by-construction `write()`, the read-tracked trust registry, the no-destinations guard, note dedupe, the typed harness and tools, and the opaque `Destination`. `core.hooksPath=.githooks`, so `npm run check` runs on every head commit.
 7. **The gate.** G-1 and the merge change product code (verify, settlement derivation, host derive), so RG's "product unchanged since R65" no longer holds. **Gate RG re-runs all six projects at ONE commit** (this R77 commit plus the host re-provision), which also clears R's six-pin P2.
+
+### R78 — Reviewer R on R77 (`pr-rg-r77.md`, BLOCK): two P1s, five P2s
+
+All proofs are offline, in `repro/r78-verify-hardening.out` (`tools/repro/r78-verify-hardening.ts`), before and after.
+
+1. **F-1 (P1, FIXED): the operator could downgrade G-1 by omitting the maps.**
+   - `receipt-attestation` is now strict for every caller: a settlement with receipts and no host maps is REFUSED. The publisher chooses whether maps appear, so their absence is never a pass.
+   - Only `benzo verify --legacy-unattested`, which exists to re-verify pre-R42 testnet evidence, downgrades it to a printed WARN. It never applies on mainnet.
+   - G's scenario A (a fabricated txid and output on y2-r28, no maps) was ACCEPTED before; it is REFUSED now and ACCEPTED only with the flag.
+   - The live specs adapt:
+     - `r15-phase2-4` re-verifies the Phase 2–4 evidence with the flag;
+     - cli-auction's P2/R1 (local signing, no host maps) accept exactly the host-attestation class, the claims memo and the receipts, and nothing else.
+   - Over the 26 committed settled documents (`tmp/r77` measurement): strict mode adds only this ERROR, on the 18 documents without maps; legacy mode only the WARN. drop-a17 still fails five checks.
+2. **F-2 (P1, FIXED): verify's leak guard had a narrower pattern than the redactor and the audit.**
+   - `envelope/leak-patterns.ts` is now the ONE definition, used by verify's `no-destinations`, the evidence redactor and `leak-audit`. It covers:
+     - Zcash unified, Sapling, TEX, regtest, P2PKH/P2SH and Sprout addresses;
+     - viewing keys;
+     - EVM addresses;
+     - Solana keys (a 32-byte base58 decode);
+     - BIP39 seeds (wordlist and checksum).
+
+     It uses "not alphanumeric" boundaries throughout, and its decoders are audited (`@scure/base`, `@scure/bip39`).
+   - Rows and batches must carry exactly their documented keys.
+   - `rows[0]` gaining `d_t2`, `d_zc`, `refund_utest1…`, `textest1…` or `refund_uviewtest1…` was ACCEPTED before and is REFUSED now.
+   - The widened guard and the key checks raise no error on any committed settled document.
+3. **P2s:**
+   - **F-3 FIXED.** A receipt's `pool` must be sapling, orchard or ironwood; `"banana"` is REFUSED.
+   - **F-4 FIXED by the shared module.** The audit's viewing-key and seed rules use the same boundaries.
+   - **F-5 FIXED.** `r77-serial-beacon.ts` pins the other-round signature (quicknet round 32856451) in the script.
+   - **F-6 FIXED.** `treasuryFunded` dedupes funding notes by `{txid, pool, action_index}`: a duplicated line gave 2000 before and gives 1000 now.
+   - **F-7 FIXED.** `Destination[Symbol.toPrimitive]` throws for the default and number hints. `destA + ""`, `destA == "x"` and `+destA` all throw; template strings still print `[Destination]`.
+4. **The gate.** RG attempt 10 (code `73cf582`) was stopped after `testnet-golden-path` (9/9) and the in-flight `auction-core`, because R78 changes verify and the harness. Attempt 11 re-provisions the hosts and runs all six projects at the R78 commit.
