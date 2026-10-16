@@ -1,0 +1,37 @@
+mutation U2 (docs/evidence/phase-4/mutations/U2.patch) on project cli-auction
+commit 8970b834f99d313c48df929ce51f7332689678a9 (patch applied on top, then reverted)
+utc 2026-10-16T16:14:46Z
+expected red: S1
+ERROR ids: S1 benzo 
+RESULT RED (expected)
+--- last 30 lines ---
+true   reserve opening (2000) -> leaf0:winner:pay=4000:refund=996000 leaf1:winner:pay=4000:refund=996000 leaf2:unfilled:pay=0:refund=1000000 clearing=4000
+forged reserve opening (5000) -> leaf0:winner:pay=5000:refund=995000 leaf1:below_reserve:pay=0:refund=1000000 leaf2:below_reserve:pay=0:refund=1000000 clearing=5000
+
+results differ: [33mtrue[39m
+
+signer-side binding refuses the forged opening: refused: reserve opening published differs from re-derived
+F2 FIXED: the signer re-derives the sealed reserve and refuses a forged published opening before any signature.
+CLI funding 84eda74fa8d21bca6d791dc68d1ed929d4d5e4c25bd9108deda2eea6bf9e45ac
+CLI stray funding 086310ec140ff59c4d824a3a2a16cdbc148eb6f3d132427ba667081aabea70a4
+shared rule, pinned keys, malformed ct: refused
+shared rule, pinned keys, this dir's own record: accepted
+shared rule, no pinned keys, the same record: refused
+shared rule, short owner_sig: refused
+plan exit 0
+obligations: ["deposit:086310ec140ff59c4d824a3a2a16cdbc148eb6f3d132427ba667081aabea70a4:ironwood:2","leaf:1","leaf:2","leaf:3","leaf:4","leaf:5","leaf:6","leaf:7","seller"]
+exceptions: [{"party":"leaf:0","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:8","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:9","reason":"no valid owner-signed settlement envelope"},{"party":"deposit:086310ec140ff59c4d824a3a2a16cdbc148eb6f3d132427ba667081aabea70a4:ironwood:0","reason":"deposit memo is not an openable sealed bid; no owner key claims it"}]
+FIXED: the plan completed with leaf:0 in the exception queue (no valid owner-signed settlement envelope) while every other party stayed payable.
+restored both documents; outcome FIXED
+ERROR S1 Error: expect(received).not.toMatch(expected) | Expected pattern: not /price_zats|quantity|plaintext_hex/ | Received string:      "{\"auction_id\":\"4169861baa5ef0f5512410324753323785c59e63b07a0a5e8340a39f7dfe630f\",\"C_zats\":\"500000\",\"count\":10,\"total_collateral_zats\":\"5000000\",\"blobs\":[{\"leaf_index\":0,\"ciphertext_hash\":\"efd9cf057061e70185887cc67dfdf8874bde19efbf4d0b963ba203b3d174
+CLI cancelled funding 98885707fd8bb9df9a455d69141e9e12b1766f5dfd62fd8ece556188887af345
+F-1 FIXED: no operator-held envelope private key exists in product state
+allocated batch 1 rows: (none)
+sign inspect exit 1
+ERROR benzo node exited 1: ERROR settle node exited 1: ERROR settle refused: frozen deposit missing or spent; resume needs mined-batch reconciliation
+FIXED: the signer refused the redirected PCZT (ERROR benzo node exited 1: ERROR settle node exited 1: ERROR settle refused: frozen deposit missing or spent; resume needs mined-batch reconciliation).
+restored 4169861baa5ef0f5512410324753323785c59e63b07a0a5e8340a39f7dfe630f.json; outcome FIXED
+development cleanup ba27656e41e324434eebde5eaf625efcb5606d1cc85e16d1c8c99470332f30dd
+run.json -> tmp/e2e/out
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (4905 s)
+run failed; details in tmp/e2e/report.json
