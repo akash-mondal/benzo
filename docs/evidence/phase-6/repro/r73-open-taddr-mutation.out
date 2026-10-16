@@ -1,0 +1,7 @@
+PASS v2-format-valid: hostile envelope is 926 bytes (n=3 is 926)
+FAIL v2-open-refuses-taddr: openEnvelope -> accepted tmEZhbWH…
+FAIL v2-settle-exception: openDestination -> a destination
+PASS v1-format-valid: hostile envelope is 926 bytes (n=3 is 926)
+FAIL v1-open-refuses-taddr: openEnvelope -> accepted tmEZhbWH…
+FAIL v1-settle-exception: openDestination -> a destination
+RESULT FAIL (4)
