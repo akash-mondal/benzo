@@ -24,6 +24,7 @@
     "settle",
     "cli",
     "api",
-    "crosschain"
+    "crosschain",
+    "tools"
   ]
 }

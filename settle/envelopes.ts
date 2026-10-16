@@ -5,6 +5,8 @@
 // with its own key. A bid without a valid envelope is not paid here; the plan moves it to the exception queue.
 // source: envelope record/public shapes from api/public-auction.ts (Track B), validation rules per
 // docs/design/phase5-part1-live.md §4.
+import { Destination } from "./destination";
+export { Destination };
 import { verifyOpensReport, type OpensReport } from "../witness";
 import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope } from "../envelope";
 import { hash, QUICKNET, requireThat, type Signed } from "../manifest/schema";
@@ -95,7 +97,7 @@ export function memoBindsEnvelope(memoEnvelopeTag: string | null, envelopeCtHex:
 // commits to the envelope tag (framing v2) — with no tlock opening at all, then opens it with its own
 // key to the bidder's destination. A record the memo does not bind is never opened (null) and the cancel
 // path moves its deposit to the exception queue. Track A wires this into the CANCELLED/REFUNDING branch.
-export function memoBoundEnvelope(memoHex: string, rec: EnvelopeRecord, envelopePrivateHex: string, network: string): string | null {
+export function memoBoundEnvelope(memoHex: string, rec: EnvelopeRecord, envelopePrivateHex: string, network: string): Destination | null {
   const memo = memoSealedBid(memoHex);
   return memo && memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) ? openDestination(rec, envelopePrivateHex, network) : null;
 }
@@ -136,9 +138,10 @@ export function validEnvelope(a: { manifest: any; frozen: any; opened?: any[]; e
 // The signer's own key opens the authenticated envelope to the bidder's shielded destination, or null when
 // the envelope cannot be opened with it (wrong key, corrupted box, or a plaintext that is not a shielded
 // destination). Total for the same reason as validEnvelope (R7 item 3).
-export function openDestination(rec: EnvelopeRecord, envelopePrivateHex: string, network: string): string | null {
+export function openDestination(rec: EnvelopeRecord, envelopePrivateHex: string, network: string): Destination | null {
   try {
-    return openEnvelope(rec.envelope_ct, envelopePrivateHex, network);
+    const ua = openEnvelope(rec.envelope_ct, envelopePrivateHex, network);
+    return ua ? new Destination(ua) : null;
   } catch {
     return null;
   }
@@ -152,7 +155,7 @@ export function envelopeRecipient(
   leafIndex: number,
   envelopePrivateHex: string,
   _coordinatorPinned?: string | null,
-): string | null {
+): Destination | null {
   const rec = validEnvelope(a, leafIndex);
   return rec ? openDestination(rec, envelopePrivateHex, netOf(a.manifest)) : null;
 }
@@ -204,7 +207,7 @@ export function memoEnvelopeRecipient(
   envelopes: EnvelopeRecord[] | undefined,
   tleBin: string,
   envelopePrivateHex: string,
-): string | null {
+): Destination | null {
   try {
     const rec = authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, tleBin);
     return rec ? openDestination(rec, envelopePrivateHex, netOf(manifestPacket)) : null;

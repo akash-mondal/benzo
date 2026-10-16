@@ -52,7 +52,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envel
     const claimCt=plan.claim_envelopes?.[row.party];
     if(claimCt) {
       const recipient=openDestination({ciphertext_hash:hash(Buffer.from(claimCt,"hex")),envelope_ct:claimCt,owner_sig:""},ownEnvelopePrivate(STATE,name)??"",manifestNet());
-      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
+      if(recipient) {const ua=recipient.reveal();requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(ua,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient:ua}}
       return {...row,reason:`claim envelope refused: this signer's key does not open it (party ${row.party}; refund waits in the exception queue)`};
     }
     // R10 item 2 (design §4): a product-mode refund whose bid carries a validated v2 envelope is paid to the
@@ -61,7 +61,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envel
     // its reason, never a throw (R12 item 3); the row is claimable through benzo claim-refund.
     if(product&&row.party.startsWith("leaf:")) {
       const recipient=envelopeRecipient(a,Number(row.party.slice(5)),ownEnvelopePrivate(STATE,name)??"");
-      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
+      if(recipient) {const ua=recipient.reveal();requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(ua,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient:ua}}
       return {...row,reason:`envelope destination refused: this signer's key does not open the envelope (party ${row.party}; refund waits in the exception queue)`};
     }
     // Design §6.1: the buyback treasury return goes to the signed manifest's treasury_ua, never to routing.
@@ -73,7 +73,7 @@ function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim_envel
     // is no operator-chosen destination.
     if(product&&row.party!=="seller") {
       const recipient=memoEnvelopeRecipient(observed,row.party,(a as any).manifest,(a as any).envelopes,path.join(STATE,"bin","tle"),ownEnvelopePrivate(STATE,name)??"");
-      if(recipient) {requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(recipient,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient}}
+      if(recipient) {const ua=recipient.reveal();requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(ua,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient:ua}}
       return {...row,reason:`stray refund refused: no owner-signed settlement envelope or claim (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
     }
     const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;

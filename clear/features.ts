@@ -156,7 +156,16 @@ export function balanceAddressMap(
 // every signer host and the verify-side replays all consume.
 export const balanceMatured = <T extends { height: number | null }>(m: { confirmations?: number }, notes: T[], tip: number): T[] => {
   const gate = Math.max(m.confirmations ?? 10, 10);
-  return notes.filter(n => !!n.height && tip - n.height! + 1 >= gate);
+  // Agent-friendly (Reviewer R R-AF-6): one note is one note. A scan listing the same {txid, pool, action_index} twice
+  // must not double-count a payment or back two refund rows; every balance rule passes through this one gate.
+  const seen = new Set<string>();
+  return notes.filter(n => {
+    if (!n.height || tip - n.height! + 1 < gate) return false;
+    const id = n as unknown as { txid?: string; pool?: string; action_index?: number };
+    const k = `${id.txid}:${id.pool}:${id.action_index}`;
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
 };
 export function balanceDefaults(
   m: BalanceWindowM,

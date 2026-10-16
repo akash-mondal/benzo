@@ -1,4 +1,3 @@
-// @ts-nocheck
 // R35 fold (run 33): a verbatim port of tools/repro/r23-2-signed-opens-repro.mjs (R23 item 2) — the
 // script stays until gate RG proves the folded IDs pass and then deletes it. The body is the script's
 // own (fixture wallet + scratch state, the shipped `benzo sign envelope-opens` writer and the
@@ -411,7 +410,7 @@ symlinkSync(path.join(ROOT, "scan"), path.join(REPO, "scan"), "dir");
 writeFileSync(path.join(STATE, "signers", "alice", "envelope-key.json"), JSON.stringify({ public_hex: "11".repeat(32), private_hex: "22".repeat(32) }));
 
 // The pinned witness set: three fixture keys, q_w = 2 (the same shape the product flow pins).
-const edRaw = (k) => ({
+const edRaw = (k: any) => ({
   private_hex: k.privateKey.export({ type: "pkcs8", format: "der" }).subarray(16).toString("hex"),
   public_hex: k.publicKey.export({ type: "spki", format: "der" }).subarray(12).toString("hex"),
 });
@@ -419,7 +418,7 @@ const W = [0, 1, 2].map(() => edRaw(generateKeyPairSync("ed25519")));
 const foreign = edRaw(generateKeyPairSync("ed25519"));
 for (const [i, w] of W.entries()) writeFileSync(path.join(STATE, "witness", `w${i}.key`), w.private_hex, { mode: 0o600 });
 
-const signerKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" });
+const signerKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 const now = Math.floor(Date.now() / 1000);
 const R = 2 + Math.floor((now + 30 * 86400 - schema.QUICKNET.genesis) / schema.QUICKNET.period);
 const ID = createHash("sha256").update("r23-2 fixture").digest("hex");
@@ -465,7 +464,7 @@ const keys = W.map(w => w.public_hex);
 const dest = createHash("sha256").update("agreed destination").digest("hex");
 const party = `deposit:${TXID}:ironwood:0`;
 const opens = [{ leaf: null, party, ok: true, dest_sha256: dest }];
-const signReport = (signer, w) => ({ signer, opens, witness: w.public_hex, signature: edSign(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), schema.jsonBytes({ signer, opens })]), { key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(w.private_hex, "hex")]), type: "pkcs8", format: "der" }).toString("hex") });
+const signReport = (signer: any, w: any) => ({ signer, opens, witness: w.public_hex, signature: edSign(null, Buffer.concat([Buffer.from("benzo-envelope-opens-v1"), schema.jsonBytes({ signer, opens })]), { key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(w.private_hex, "hex")]), type: "pkcs8", format: "der" }).toString("hex") });
 
 const forged = [{ signer: "alice", opens }, { signer: "bob", opens }];
 const forgedAgreed = settle.agreedDestinations(forged, keys);

@@ -76,7 +76,7 @@ if (dust.code !== 0 || !dustTx) { fail("n2-create-refuses-paid-address", `dust p
 console.log(`dust ${dustTx.slice(0, 16)}… sent to the target address; waiting for it to mine (the check syncs the vault first, so it must be on chain)`);
 
 // 5. Wait until the lab vault's own scan sees the note (bounded; the index window is ~K seconds long).
-const scan = () => sh(path.join(ROOT, "scan/target/release/benzo-scan"), ["scan", "test", vault]).out.trim().split("\n").filter(Boolean).map(l => JSON.parse(l));
+const scan = () => sh(path.join(ROOT, "scan/target/release/benzo-scan"), ["scan", "test", vault]).out.trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
 let seen = false;
 for (let i = 0; i < 240 && !seen; i++) {
   sh(DEVTOOL, ["wallet", "-w", vault, "sync", "-s", LWD]); sh(DEVTOOL, ["wallet", "-w", vault, "enhance", "-s", LWD]);
@@ -94,14 +94,14 @@ const manifest = JSON.stringify({
 });
 const created = sh(process.execPath, [BENZO, "auction", "create"], manifest, { BNZ_STATE_DIR: lab });
 const msg = (created.err + created.out).trim();
-if (/a generated balance address already holds 1 note\(s\); refusing/.test(msg)) pass("n2-create-refuses-paid-address", `create refused the regenerated paid address: ${msg.split("\n").filter(l => /refusing/.test(l)).at(-1)?.trim()}`);
+if (/a generated balance address already holds 1 note\(s\); refusing/.test(msg)) pass("n2-create-refuses-paid-address", `create refused the regenerated paid address: ${msg.split("\n").filter((l: string) => /refusing/.test(l)).at(-1)?.trim()}`);
 else fail("n2-create-refuses-paid-address", `create did not refuse the paid address (exit ${created.code}): ${msg.slice(-300)}`);
 
 // 7. Recover: the dust was sent to an address derived from the bidder's own seed, so it never left the
 // bidder's keyspace — the bidder wallet itself tracks it (the scan trial-decrypts every derived index).
 sh(DEVTOOL, ["wallet", "-w", path.join(STATE, "bidder"), "sync", "-s", LWD]);
 sh(DEVTOOL, ["wallet", "-w", path.join(STATE, "bidder"), "enhance", "-s", LWD]);
-const mine = sh(path.join(ROOT, "scan/target/release/benzo-scan"), ["scan", "test", path.join(STATE, "bidder")]).out.trim().split("\n").filter(Boolean).map(l => JSON.parse(l))
+const mine = sh(path.join(ROOT, "scan/target/release/benzo-scan"), ["scan", "test", path.join(STATE, "bidder")]).out.trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l))
   .find((n: any) => n.address === target && !n.spent_in_txid);
 mine ? pass("n2-recovered", `the dust note (${mine.value_zats} zats) is a note of the bidder's own wallet at its derived address — nothing left the project's keyspace`)
      : fail("n2-recovered", `the bidder wallet does not see the dust note at ${target.slice(0, 20)}…`);
@@ -141,15 +141,15 @@ if (MODE === "derivable") {
   const packet = path.join(STATE, "settle", id, "derivable");
   const run = sh(process.execPath, [binPath, "sign", "derivable", "--id", id, "--packet", packet, "--name", "alice"], undefined, { BNZ_STATE_DIR: lab2, BNZ_LWD_SINGLE: "1" });
   const out = run.out + run.err;
-  const rows = (() => { try { return JSON.parse(out.trim().split("\n").filter(l => l.startsWith("{")).at(-1)!).rows as { party: string; amount_zats: string }[]; } catch { return []; } })();
-  const hostRefunds = (() => { try { return JSON.parse(out.trim().split("\n").filter(l => l.startsWith("{")).at(-1)!).balance_refunds as { party: string; leaf_index: number; amount_zats: string }[]; } catch { return []; } })();
+  const rows = (() => { try { return JSON.parse(out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!).rows as { party: string; amount_zats: string }[]; } catch { return []; } })();
+  const hostRefunds = (() => { try { return JSON.parse(out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!).balance_refunds as { party: string; leaf_index: number; amount_zats: string }[]; } catch { return []; } })();
   // Ruling R40 item 2 (F2): the out-of-window refund rows are per-note `balance-late:` rows, host-derived
   // from this signer's own scan (sign derivable prints them beside the payable rows; they are claim-paid).
   const want = (doc.settlement?.balance_refunds ?? []) as { party: string; leaf_index: number; amount_zats: string }[];
   const got = want.map(w => hostRefunds.find(r => r.party === w.party && r.amount_zats === w.amount_zats && r.leaf_index === w.leaf_index) ? 1 : 0);
   const ok = run.code === 0 && want.length > 0 && got.every(Boolean) && !/stale or pre-funded/.test(out);
   console.log(`${ok ? "PASS" : "FAIL"} n2-derivable exit ${run.code}; host rows ${JSON.stringify(rows)}; host balance_refunds ${JSON.stringify(hostRefunds)}; published balance_refunds ${JSON.stringify(want)}${ok ? "" : `; output tail: ${out.trim().split("\n").slice(-2).join(" | ").slice(-300)}`}`);
-  if (!ok) console.log(`ERROR n2-derivable ${run.code === 0 ? "the host did not derive the out-of-window refund rows it must" : `the derivation refused (exit ${run.code}): ${out.split("\n").filter(l => /ERROR|refused/.test(l)).at(-1)?.trim()}`}`);
+  if (!ok) console.log(`ERROR n2-derivable ${run.code === 0 ? "the host did not derive the out-of-window refund rows it must" : `the derivation refused (exit ${run.code}): ${out.split("\n").filter((l: string) => /ERROR|refused/.test(l)).at(-1)?.trim()}`}`);
   else pass("n2-derivable", "the host derives every payable row from its own data, including the out-of-window refund row");
   if (!ok) failures++;
 }

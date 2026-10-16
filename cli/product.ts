@@ -342,7 +342,7 @@ export async function runCommand(command:string,args:string[]) {
     const {manifest:m}=client(doc.manifest,doc.signer);
     const key=ownEnvelopePrivate(STATE,o.name);requireThat(key,'signer envelope key missing');
     const opens:{leaf:number|null;party:string;ok:boolean;dest_sha256:string|null}[]=[];
-    const open=(rec:any):string|null=>{try{return rec?openDestination(rec,key!,m.network):null}catch{return null}};
+    const open=(rec:any):string|null=>{try{return rec?openDestination(rec,key!,m.network)?.reveal()??null:null}catch{return null}}; // revealed only to hash it below
     // R15 item 3: a claimed row pays through its claim envelope, so the claim's opening report supersedes any
     // bid-envelope entry for the same party (the plan's two-signer gate counts one entry class per row).
     const claimed=new Set<string>();

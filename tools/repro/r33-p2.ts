@@ -43,7 +43,7 @@ const sh = (cmd: string, args: string[], input?: string) => {
   catch (e: any) { return { code: e.status ?? 1, out: e.stdout ?? "", err: e.stderr ?? String(e) }; }
 };
 const addr = () => sh(PCZT, ["address", BIDDER, "--network", "test"]).out.trim().split("\n").at(-1)!;
-const scan = () => sh(SCAN, ["scan", "test", BIDDER]).out.trim().split("\n").filter(Boolean).map(l => JSON.parse(l)).filter((n: any) => !n.spent_in_txid);
+const scan = () => sh(SCAN, ["scan", "test", BIDDER]).out.trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l)).filter((n: any) => !n.spent_in_txid);
 const walletTotal = () => Number(JSON.parse(sh(DEVTOOL, ["wallet", "-w", BIDDER, "balance", "--json"]).out.trim().split("\n").at(-1)!).total);
 const create = (pays: { recipient: string; amount_zats: string }[], name: string) =>
   sh(PCZT, ["create", BIDDER, path.join(ROOT, `tmp/${name}.pczt`), "364", "--network", "test"], JSON.stringify(pays));

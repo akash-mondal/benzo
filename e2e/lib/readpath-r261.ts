@@ -1,4 +1,3 @@
-// @ts-nocheck
 // R35 fold (run 33): a verbatim port of tools/repro/r26-1-deposit-party-repro.mjs (R26 item 1) — the
 // script stays until gate RG proves the folded IDs pass and then deletes it. The body is the script's own
 // (fixture wallet DDL, the real benzo-scan, the shipped CLI and settlement Ledger); its
@@ -28,7 +27,7 @@ export async function foldR261(run: Run): Promise<void> {
 const ID = createHash("sha256").update("r26-1 fixture auction").digest("hex");
 const TXID = "f100000000000000000000000000000000000000000000000000000000000001";
 const D1 = "utest1r261fixturedepositone", D2 = "utest1r261fixturedeposittwo";
-const memoBytes = (tag) => {
+const memoBytes = (tag: any) => {
   const m = Buffer.alloc(512);
   Buffer.from("ff424e5a01", "hex").copy(m, 0);
   const ct = randomBytes(200);
@@ -443,10 +442,10 @@ writeFileSync(path.join(STATE, "signers", "alice", "envelope-key.json"), JSON.st
 // R23 item 2: the report is signed with the signer's own witness key (a fixture key here; the flag is
 // ignored by trees from before R23 item 2, so this harness runs against either).
 writeFileSync(path.join(STATE, "witness-alice.key"), "33".repeat(32), { mode: 0o600 });
-const signerKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" });
+const signerKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 const now = Math.floor(Date.now() / 1000);
 const R = 2 + Math.floor((now + 30 * 86400 - schema.QUICKNET.genesis) / schema.QUICKNET.period);
-const manifest = {
+const manifest: schema.Manifest = {
   version: 1, network: "test", auction_id: ID, escrow_ua: "utest1r261fixtureescrow", frost_group_key: "ab".repeat(32),
   lot: "r26-1 fixture", supply: 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "30", q_max: 1,
   C_zats: "500000", fee_zats: "0", deposit_addresses: [D1, D2],
@@ -461,28 +460,28 @@ writeFileSync(path.join(publicDir, "auction.json"), JSON.stringify({ version: 1,
 writeFileSync(path.join(STATE, "product", `${ID}.json`), JSON.stringify({ public_dir: publicDir, settlement: { signers: ["alice", "bob"], pczt_expiry_blocks: 364, batch_cap: 13 }, routing: { bidders: [], seller_ua: "utest1seller" } }));
 const cli = spawnSync(process.execPath, [path.join(ROOT, "cli/dist/benzo.mjs"), "sign", "envelope-opens", "--id", ID, "--name", "alice", "--witness-key", path.join(STATE, "witness-alice.key")],
   { cwd: REPO, env: { ...process.env, BNZ_STATE_DIR: STATE }, encoding: "utf8", maxBuffer: 64 << 20 });
-if (cli.status !== 0) { console.log(`ERROR r26-1-report-parties benzo sign envelope-opens refused: ${(cli.stderr || cli.stdout).trim().slice(-300)}`); failed++; }
+if (cli.status !== 0) { console.log(`ERROR r26-1-report-parties benzo sign envelope-opens refused: ${(cli.stderr || cli.stdout).trim().slice(-300)}`); } // R73-proto: was failed++ on an undefined name (a ReferenceError turned this FAIL into NOT RUN); the check below fails on an empty report
 const report = cli.status === 0 ? JSON.parse(readFileSync(path.join(STATE, "settle", ID, "envelope-opens-alice.json"), "utf8")) : { opens: [] };
 const entries = report.opens ?? [];
-const newParty = (n) => `deposit:${n.txid}:${n.pool}:${n.action_index}`;
+const newParty = (n: any) => `deposit:${n.txid}:${n.pool}:${n.action_index}`;
 const expectedParties = new Set([newParty(FIXTURE[0]), newParty(FIXTURE[1])]);
 check("r26-1-report-parties",
-  entries.length === 2 && new Set(entries.map(e => e.party)).size === 2 && entries.every(e => expectedParties.has(e.party)),
-  `tree party rule gave ${JSON.stringify(entries.map(e => e.party))}; want exactly ${JSON.stringify([...expectedParties])} (no zero-value entry)`);
+  entries.length === 2 && new Set(entries.map((e: any) => e.party)).size === 2 && entries.every((e: any) => expectedParties.has(e.party)),
+  `tree party rule gave ${JSON.stringify(entries.map((e: any) => e.party))}; want exactly ${JSON.stringify([...expectedParties])} (no zero-value entry)`);
 
 // ---- the shipped ledger: one refund row per report entry (the plan's per-note rows) ----
 // Party to note: the new rule matches exactly; the pre-fix diversifier-index rule maps to the first note
 // of the address (both same-address notes collide) — that collision is what the ledger then refuses.
-const noteFor = (party) => {
+const noteFor = (party: any) => {
   const neu = /^deposit:([0-9a-f]{64}):(sapling|orchard|ironwood):(\d+)$/.exec(party);
   if (neu) return FIXTURE.find(n => n.txid === neu[1] && n.pool === neu[2] && String(n.action_index) === neu[3]);
   const legacy = /^deposit:([0-9a-f]{64}):(.+)$/.exec(party);
   return legacy ? FIXTURE.find(n => n.txid === legacy[1] && String(n.diversifier_index) === legacy[2]) : undefined;
 };
-const rows = entries.map(e => ({ party: e.party, kind: "refund", amount_zats: String(noteFor(e.party)?.value_zats) }));
+const rows = entries.map((e: any) => ({ party: e.party, kind: "refund", amount_zats: String(noteFor(e.party)?.value_zats) }));
 const led = new ledger.Ledger(STATE, ID);
 let pinned = null, pinError = null;
-try { pinned = led.pin(rows); } catch (e) { pinError = (e.message ?? String(e)).replace(/^refused: /, ""); }
+try { pinned = led.pin(rows); } catch (e) { pinError = ((e as Error).message ?? String(e)).replace(/^refused: /, ""); }
 const stored = led.rows();
 led.close();
 check("r26-1-two-refund-rows",
@@ -493,14 +492,14 @@ check("r26-1-two-refund-rows",
 
 // ---- verify's accounting over the same identities ----
 const zeroParty = `deposit:${TXID}:ironwood:2`;
-const basePub = {
+const basePub: Omit<api.PublicAuction, "settlement"> = {
   dir: ROOT, signer: packet.signer, legacy: true, state: "REFUNDING",
   manifestPacket: packet, manifest, manifest_hash: schema.hash(Buffer.from(packet.bytes, "base64")),
   frozen: null, opened: [], beacon: null, serialBeacon: null, launchInput: undefined,
   result: null, resultBytes: null, receipts: [], envelopes: [], witnessSet: null, witnessCerts: [],
-  claims: [], reserveOpening: null,
+  claims: [], reserveOpening: null, deliveryList: undefined,
 };
-const accountingStrays = (settlement) => {
+const accountingStrays = (settlement: any) => {
   const checks = api.checkPublicAuction({ ...basePub, settlement }, {});
   return checks.find(c => c.id === "accounting-strays")?.error ?? null;
 };

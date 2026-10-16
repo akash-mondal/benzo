@@ -6,7 +6,7 @@ import { createHash } from "node:crypto";
 import { assertScratch } from "./scratch";
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { STATE, env } from "../../e2e/lib/env";
+import { ROOT, STATE, env } from "../../e2e/lib/env";
 import { H, NAMES, hostTry, push, sh } from "../../e2e/lib/hosts";
 import { sealBlob } from "../../envelope";
 import { redactCandidate } from "../../cli/host-derive";
