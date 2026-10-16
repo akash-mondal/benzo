@@ -1,17 +1,17 @@
 {
  "command": "BNZ_LIVE=1 node node_modules/.bin/playwright test --project=markets",
- "commit": "7b148b6bf558bc1e3b6a9416cd1680d481859fba",
- "start_utc": "2026-10-15T11:06:19.562Z",
- "end_utc": "2026-10-15T11:08:20.295Z",
+ "commit": "43be172fe67ac3ace13729acbb00562985c7d8a2",
+ "start_utc": "2026-10-16T01:26:36.734Z",
+ "end_utc": "2026-10-16T08:09:57.783Z",
  "results": {
-  "M-drop": "FAIL",
-  "M-otc-match": "FAIL",
-  "M-launch-meet": "FAIL",
-  "M-rfq": "FAIL",
-  "M-otc-nomatch": "FAIL",
-  "M-launch-miss": "FAIL",
-  "M-rfq-cancel": "FAIL",
-  "M-revision": "FAIL"
+  "M-drop": "PASS",
+  "M-otc-match": "PASS",
+  "M-launch-meet": "PASS",
+  "M-rfq": "PASS",
+  "M-otc-nomatch": "PASS",
+  "M-launch-miss": "PASS",
+  "M-rfq-cancel": "PASS",
+  "M-revision": "PASS"
  },
  "sha256": {
   "cli/dist/benzo.mjs": "18a801acecf203968da4066ee9d3f128d449fc149607bc9366a63007bf32715c",
