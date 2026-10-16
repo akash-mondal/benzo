@@ -133,8 +133,10 @@ export async function foldR73(run: Run, auctionId: string): Promise<void> {
     const eph = generateKeyPairSync("x25519");
     const ephPub = Buffer.from(eph.publicKey.export({ type: "spki", format: "der" })).subarray(12).toString("hex");
     const shared = diffieHellman({ privateKey: eph.privateKey, publicKey: createPublicKey({ key: Buffer.concat([Buffer.from("302a300506032b656e032100", "hex"), Buffer.from(key.public_hex, "hex")]), type: "spki", format: "der" }) });
-    const dk = sha256(Buffer.concat([Buffer.from("benzo-envelope-v1"), shared, Buffer.from(ephPub, "hex"), Buffer.from(key.public_hex, "hex")]));
-    const nonceB = sha256(Buffer.concat([shared, Buffer.from(ephPub, "hex")])).subarray(0, 12);
+    // R69: raw digests (the file's `sha256` helper returns hex; the cipher needs a 32-byte key and a 12-byte nonce).
+    const sha256raw = (b: Buffer) => createHash("sha256").update(b).digest();
+    const dk = sha256raw(Buffer.concat([Buffer.from("benzo-envelope-v1"), shared, Buffer.from(ephPub, "hex"), Buffer.from(key.public_hex, "hex")]));
+    const nonceB = sha256raw(Buffer.concat([shared, Buffer.from(ephPub, "hex")])).subarray(0, 12);
     const payload = Buffer.alloc(512); payload.writeUInt16BE(tAddr.length, 0); Buffer.from(tAddr, "utf8").copy(payload, 2);
     const cipher = createCipheriv("chacha20-poly1305", dk, nonceB, { authTagLength: 16 });
     const body = Buffer.concat([cipher.update(payload), cipher.final(), cipher.getAuthTag()]);
