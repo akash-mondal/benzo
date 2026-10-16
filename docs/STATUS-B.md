@@ -3,7 +3,57 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (36): Phase 6 Track B — B36 packaging refresh (phase6-rg §4.3)
+## Current run (37): Phase 6 Track B — B37, gate LA final pass (phase6-rg §4.2)
+
+Task (this session's head message): `track-b` fast-forwarded to main at `4991761` (gate RG's six live
+projects green, evidence in `docs/evidence/phase-6/rg/`). `npm ci` + `npm run e2e` PASSED (seal-open
+40 s, `tmp/e2e/report.json`) at session start. **Offline only**; no OrbStack/VM/`orb`/frostd/testnet
+spends/live specs/`tools/repro/markets.ts`, no `.benzo/` reads beyond the leak tool's own 0600
+sensitive file, no `.env`, no mainnet, no frontend, no product changes.
+
+**Gate LA final pass: DONE (item 1 + item 2), evidence commit `4687c57`.** `tools/leak-audit.ts`
+(the run-2/31 recipe) over `docs/evidence/phase-6/rg/` (all six projects), every evidence file added
+since the B34 pass (368 paths since `72204b2`, incl. `repro/{r48-stall,r49-pins,r61-void,r70-folds}.out`
+— zero rows on all four), and `git log -p 5475c60..HEAD` (subsumed by `--git`: every blob of every
+commit on every ref). Run at `4991761`, record `docs/evidence/phase-6/leak-findings-rg.json` (tool
+stdout unedited, **798 rows**, exit 1), section "RG final pass" in `leak-audit.md`.
+
+- **Accounting:** 798 = 379 inherited (byte-identical to the B34 record `leak-findings-2026-10-06-b34.json`,
+  0 rows gone; dispositions stand) + 419 new, **every row classified A–G**: 346 × class C intended-public
+  per-bid **deposit** addresses (drop-a17–a24 / launch-a18 / launch-r34 cold docs, rg `clear-input`/
+  `frozen`/`deposits`/`refund`/`auction`/`api` deposit fields, golden-path `scan/{addresses.json,
+  operator-view.jsonl}` per-bid deposit notes), 16 × class B `age-armor` self-matches in rebuilt
+  `dist/benzo-verify.mjs` (all 53 historical bundle versions checked: marker-literal spans, zero
+  base64 payloads), 26 × class G fixture literals re-keyed under new blobs (22 `readpath*` fixture
+  UAs + 4 anvil dev-key-0 rows in `xchain-demos.ts` — all 26 value digests already in the B34 record),
+  and **31 REAL rows in 4 files** (below).
+- **Real findings (reported under Questions, NOT fixed — the head decides):** full refund/delivery
+  destinations in committed evidence, new since B34: `rg/testnet-golden-path/frost/pczt-inspect.txt:5,17`
+  (FROST-signed PCZT output destinations), `rg/auction-core/auction/pczt-inspect.txt:4` (claim/refund
+  PCZT outputs), `rg/auction-core/auction/cancel.json:1` (`response.refunds[].address`), and
+  `phase-5/markets/drop-a20/recovery.out:13-16` (4 refund destinations). file:line + type only; no
+  values printed anywhere.
+- **Verdict:** no keys, mnemonics, UFVKs, PEM/age key material anywhere (zero `viewing-key`/`mnemonic`/
+  `pem-private-key` rows; the only `exact-value` rows are the public anvil fixture); no envelope
+  plaintext; residue classes A/C/D/E/F unchanged. Limits stated in the record: the exact-value list is
+  frozen at the run-31 106 entries (batch forbids re-reading `.benzo/`; only `.benzo/bidder/*.sqlite`
+  changed since — names inspected only), and the owed `release_time` bid-plaintext entries are still
+  not covered.
+- **Item 2 — EVIDENCE.md LA row: DONE.** Points at `leak-findings-rg.json` + the "RG final pass"
+  section with the four real files under the open items. The RG row is untouched (the head owns it).
+
+Commands that prove the batch: the one-command repro in `leak-audit.md` (run at `4991761`),
+`npm run e2e` (PASSED at session start). Nothing owed for B37 but the Questions below.
+
+### Questions (this run)
+- **Real finding 1 — `docs/evidence/phase-6/rg/testnet-golden-path/frost/pczt-inspect.txt:5` (and `:17`), type: full FROST-signed PCZT output destination** (`Output: 990000 zatoshis to <UA>`; 9 rows / 7 distinct values, also in the 7 superseded RG re-run revisions of the file). Reported, not fixed.
+- **Real finding 2 — `docs/evidence/phase-6/rg/auction-core/auction/pczt-inspect.txt:4`, type: full claim/refund PCZT output destination** (`Output: 2500000 zatoshis to <UA>`; 7 rows / 6 distinct values, 6 superseded revisions).
+- **Real finding 3 — `docs/evidence/phase-6/rg/auction-core/auction/cancel.json:1`, type: full cancel refund address** (`response.refunds[].address`; 7 rows / 6 distinct values, 6 superseded revisions).
+- **Real finding 4 — `docs/evidence/phase-5/markets/drop-a20/recovery.out:13-16`, type: full refund destinations** ("the refunds landed at each bid's own envelope destination"; 8 rows / 4 distinct values; committed by the head's A20 run, not mine).
+  These four are the historical class-C shape (real refund/delivery destinations) but are **new** evidence committed after B34, so per this batch's rule they are reported here rather than only disclosed. Evidence was never edited; tell me if you want any handling (e.g. a Ruling that testnet-only self-owned destinations in gate evidence are accepted, or a re-run/abbreviation of the emitting captures).
+- **Exact-value scope frozen (stated limit, not a finding):** this batch forbids reading anything under `.benzo/`, so the `test-ua-extra-*` refresh of runs 2/31 did not run; the list is the run-31 106 entries. Pattern rules still catch every address/viewing-key/mnemonic/PEM/age form; a raw key not in the list would be missed by `exact-value`. Say the word if you want a silent refresh ordered.
+
+## Previous run (36): Phase 6 Track B — B36 packaging refresh (phase6-rg §4.3)
 
 Task (this session's head message): `track-b` fast-forwarded to main at `638ae26` (product code final
 since R65; R66–R68 harness-only). `npm ci` + `npm run build:*` green (seal/core/settle/cli/verify +
