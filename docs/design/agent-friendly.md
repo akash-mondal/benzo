@@ -138,3 +138,6 @@ The last row is the user's own steering, read from the transcripts: the head thi
   - At the fix (edf3784) and at branch HEAD it is clean.
   - The only other candidate, a prose comment ending in `max(spends, outputs, 2);`, does not match because it has no literal argument.
 - **The second layer (R73, on main).** `Run` now takes the evidence files each ID cites, and fails the ID when they were not written. An offline probe passes the ID that writes its file and FAILs the one whose write is commented out.
+- **A third time, 2026-10-17 (4feaa86, head, R74).** A trailing comment swallowed `console.log(…); }` in `e2e/lib/run.ts`.
+  - The rule's first form missed it because the swallowed text ended in `}`. It now allows trailing braces, and flags all three incidents on history (665e447~1, c9f2fc7, 4feaa86). HEAD stays clean.
+  - Typecheck caught this one at once, as a syntax error. Main has no pre-commit gate, though, so it reached a commit. This branch's `.githooks/pre-commit` (`npm run check`) would have stopped it.
