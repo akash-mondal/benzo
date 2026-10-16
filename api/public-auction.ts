@@ -62,7 +62,7 @@ type TrustEntry = { trust: Trust; verifiedBy: readonly string[] } | { trust: "in
 export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } = {
   auction_id: { trust: "derived", verifiedBy: ["accounting"] },
   rows: { trust: "derived", verifiedBy: ["accounting"] },
-  receipts: { trust: "chain-receipt", verifiedBy: ["accounting"] },
+  receipts: { trust: "chain-receipt", verifiedBy: ["accounting", "receipt-attestation"] },
   ignored: { trust: "derived", verifiedBy: ["accounting-strays"] },
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
@@ -588,6 +588,34 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         } catch { valid = false; }
       }
       if (!valid) requireThat(records.some(c => c.party === row.party), `claim-paid row ${row.party} without a published claim`);
+    }
+  });
+  // R77 (Reviewer G G-1 on gate RG): every settlement receipt is a well-formed, unique chain output, and — wherever host
+  // attestation exists — it is bound to the hosts' own signed record of what the paying batch pays. Before this, a
+  // leaf/seller/treasury receipt's txid and output_index were never compared with any host map, so an operator could
+  // publish a fabricated txid, or point a party at an output the hosts attribute to someone else, and verify passed.
+  // Required when the settlement publishes approval maps at all, and always on mainnet (the signed manifest's
+  // network: a mainnet auction is host-custody only, so maps must exist). Pre-R42 testnet evidence carries no maps.
+  run("receipt-attestation", () => {
+    if (!pub.settlement) return;
+    const receipts = pub.settlement.receipts ?? [];
+    for (const [i, r] of receipts.entries()) requireThat(
+      typeof r.party === "string" && r.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r.txid)) &&
+        Number.isSafeInteger(r.output_index) && r.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r.amount_zats)),
+      `settlement receipt ${i} fields`);
+    requireThat(new Set(receipts.map(r => `${r.txid}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
+    const published = pub.settlement.approval_maps ?? [];
+    if (published.length === 0) {
+      requireThat((pub.manifest.network as string) !== "main", "mainnet settlement without host-signed approval maps");
+      return "receipts not host-attested: no approval maps published (pre-R42 or local signing)";
+    }
+    const keys = pub.witnessSet && pub.manifest.witness_set_hash === witnessSetHash(pub.witnessSet!)
+      ? validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), pub.manifest.auction_id).keys : [];
+    const maps = published.filter((mp: any) => !!mp && mp.auction_id === pub.manifest.auction_id && verifyApprovalMap(mp as ApprovalMap, keys)) as ApprovalMap[];
+    for (const r of receipts) {
+      const attested = maps.filter(mp => mp.txid === r.txid && (mp.outputs ?? []).some(o => o.party === r.party && o.output_index === r.output_index));
+      requireThat(new Set(attested.map(mp => mp.witness)).size >= 2 && attested.every(mp => jsonBytes(mp.outputs).equals(jsonBytes(attested[0].outputs))),
+        `receipt ${r.party} (${r.txid.slice(0, 12)}…:${r.output_index}) is not attested by two agreeing host-signed approval maps of its batch`);
     }
   });
   // R20c: result obligations and stray-deposit obligations (T1) are checked in separate passes, so one

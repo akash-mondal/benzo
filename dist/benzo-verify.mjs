@@ -16153,9 +16153,11 @@ function checkCertificates(certs, spec, statement) {
   requireThat(signed.size >= spec.q_w, `witness quorum ${signed.size}-of-${spec.keys.length}`);
 }
 var mapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults, balance_refunds: b2.balance_refunds, ...b2.strays !== void 0 ? { strays: b2.strays } : {}, ...b2.bond_void ? { bond_void: true } : {}, ...b2.bond_start ? { bond_start: b2.bond_start } : {} })]);
+var legacyMapBytes = (b2) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b2.auction_id, batch: b2.batch, txid: b2.txid, outputs: b2.outputs, defaults: b2.defaults })]);
+var isLegacyMap = (m2) => m2.balance_refunds === void 0 && m2.strays === void 0 && m2.bond_void === void 0 && m2.bond_start === void 0;
 function verifyApprovalMap(m2, keys2) {
   try {
-    return !!m2 && keys2.includes(m2.witness) && /^[0-9a-f]{128}$/.test(String(m2.signature)) && Array.isArray(m2.outputs) && verify3(null, mapBytes(m2), edPublic(m2.witness), Buffer.from(m2.signature, "hex"));
+    return !!m2 && keys2.includes(m2.witness) && /^[0-9a-f]{128}$/.test(String(m2.signature)) && Array.isArray(m2.outputs) && verify3(null, isLegacyMap(m2) ? legacyMapBytes(m2) : mapBytes(m2), edPublic(m2.witness), Buffer.from(m2.signature, "hex"));
   } catch {
     return false;
   }
@@ -16241,7 +16243,7 @@ function readClient(packet, signer) {
 var SETTLEMENT_TRUST = {
   auction_id: { trust: "derived", verifiedBy: ["accounting"] },
   rows: { trust: "derived", verifiedBy: ["accounting"] },
-  receipts: { trust: "chain-receipt", verifiedBy: ["accounting"] },
+  receipts: { trust: "chain-receipt", verifiedBy: ["accounting", "receipt-attestation"] },
   ignored: { trust: "derived", verifiedBy: ["accounting-strays"] },
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
@@ -16616,6 +16618,29 @@ function checkPublicAuction(pub, opts = {}) {
         }
       }
       if (!valid) requireThat(records.some((c2) => c2.party === row.party), `claim-paid row ${row.party} without a published claim`);
+    }
+  });
+  run2("receipt-attestation", () => {
+    if (!pub.settlement) return;
+    const receipts = pub.settlement.receipts ?? [];
+    for (const [i2, r2] of receipts.entries()) requireThat(
+      typeof r2.party === "string" && r2.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r2.txid)) && Number.isSafeInteger(r2.output_index) && r2.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r2.amount_zats)),
+      `settlement receipt ${i2} fields`
+    );
+    requireThat(new Set(receipts.map((r2) => `${r2.txid}:${r2.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
+    const published = pub.settlement.approval_maps ?? [];
+    if (published.length === 0) {
+      requireThat(pub.manifest.network !== "main", "mainnet settlement without host-signed approval maps");
+      return "receipts not host-attested: no approval maps published (pre-R42 or local signing)";
+    }
+    const keys2 = pub.witnessSet && pub.manifest.witness_set_hash === witnessSetHash(pub.witnessSet) ? validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), pub.manifest.auction_id).keys : [];
+    const maps = published.filter((mp) => !!mp && mp.auction_id === pub.manifest.auction_id && verifyApprovalMap(mp, keys2));
+    for (const r2 of receipts) {
+      const attested = maps.filter((mp) => mp.txid === r2.txid && (mp.outputs ?? []).some((o2) => o2.party === r2.party && o2.output_index === r2.output_index));
+      requireThat(
+        new Set(attested.map((mp) => mp.witness)).size >= 2 && attested.every((mp) => jsonBytes(mp.outputs).equals(jsonBytes(attested[0].outputs))),
+        `receipt ${r2.party} (${r2.txid.slice(0, 12)}\u2026:${r2.output_index}) is not attested by two agreeing host-signed approval maps of its batch`
+      );
     }
   });
   run2("accounting", () => {

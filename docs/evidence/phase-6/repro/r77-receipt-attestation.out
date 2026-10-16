@@ -1,0 +1,16 @@
+# R77 (Reviewer G G-1): verify on tampered settlement receipts of docs/evidence/phase-6/markets/launch-r34/launch-cold (two host-signed approval maps). Script: tools/repro/r77-receipt-attestation.ts
+## before (df2ca4d)
+honest: ACCEPTED
+fabricated-txid: ACCEPTED
+swapped-output-index: ACCEPTED
+duplicate-output: ACCEPTED
+## after (R77)
+honest: ACCEPTED
+fabricated-txid: REFUSED receipt-attestation: refused: receipt leaf:0 (aaaaaaaaaaaa…:2) is not attested by two agreeing host-signed approval maps of its bat
+swapped-output-index: REFUSED receipt-attestation: refused: receipt leaf:0 (4da8f58578e0…:1) is not attested by two agreeing host-signed approval maps of its bat
+duplicate-output: REFUSED receipt-attestation: refused: two settlement receipts name the same output
+## G's own fixtures (/tmp/g-verify, Reviewer G lab): launch = two receipts on one output; tampered = fabricated txid on a no-maps testnet doc
+launch old: (verify passes)
+launch new: ERROR receipt-attestation refused: two settlement receipts name the same output (verify FAILS)
+tampered old: (verify passes)
+tampered new: WARN receipts not host-attested: no approval maps published (pre-R42 or local signing) (verify passes)

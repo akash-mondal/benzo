@@ -129,10 +129,15 @@ export function signApprovalMap(body: ApprovalMapBody, privateHex: string): Appr
   return { ...body, witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"), signature: sign(null, mapBytes(body), key).toString("hex") };
 }
 // Total: a forged or unsigned map is "not verified", never a throw.
+// R77: maps signed before A18 (fd068fb, R40.4) carry no balance_refunds/strays/bond fields and were signed over
+// {auction_id, batch, txid, outputs, defaults} only. Such a map verifies over exactly those bytes — the same
+// domain tag and a pinned host key, so nothing an operator can produce; it attests its outputs and nothing newer.
+const legacyMapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults })]);
+const isLegacyMap = (m: ApprovalMap) => m.balance_refunds === undefined && m.strays === undefined && m.bond_void === undefined && m.bond_start === undefined;
 export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
   try {
     return !!m && keys.includes(m.witness) && /^[0-9a-f]{128}$/.test(String(m.signature)) && Array.isArray(m.outputs) &&
-      verify(null, mapBytes(m), edPublic(m.witness), Buffer.from(m.signature, "hex"));
+      verify(null, isLegacyMap(m) ? legacyMapBytes(m) : mapBytes(m), edPublic(m.witness), Buffer.from(m.signature, "hex"));
   } catch { return false; }
 }
 // Ruling R41 (F7): the worker's finalize binding over one batch's signed maps — the two agreeing maps of THAT

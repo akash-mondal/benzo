@@ -333,3 +333,32 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
    - **(c)/(e) consolidated.** The release scrub is R74 §1 as amended by R75 and here.
      - (c) The allowlist holds exact file paths only. Each path needs a written justification in a sibling `leak-allowlist.md`, and no allowed path may hold a real destination.
      - (e) The sha256 of the audited export archive is recorded, and the push is done from that archive only. A re-check at push time is part of the scrub's script.
+
+### R77 — Reviewer G's final RG review (`benzo-sol-g/reports/rg-final.md`, REQUEST CHANGES) and Reviewer R on R76 (`pr-rg-r76.md`, APPROVE)
+
+G confirmed every claim of the gate itself: one product tree since R65, six pins disclosed, the five live mutations red, and evidence destination-free at HEAD. It raised one P1 against the product.
+
+1. **G-1 (P1, FIXED): verify accepted settlement receipts that no host attested.**
+   - The new verify check `receipt-attestation` (`api/public-auction.ts`):
+     - every receipt has well-formed fields (64-hex txid, non-negative output_index, positive amount);
+     - no two receipts name the same output;
+     - wherever approval maps are published, each receipt `{party, txid, output_index}` is in two agreeing maps signed by distinct pinned witnesses for that txid;
+     - a mainnet settlement without maps is refused. The manifest's network is signed, and mainnet is host-custody only.
+   - Testnet documents with no maps (pre-R42 evidence, local signing) carry a printed WARN, "receipts not host-attested".
+   - `verifyApprovalMap` also verifies maps signed before A18 (fd068fb) over their original bytes `{auction_id, batch, txid, outputs, defaults}`. That needs a pinned host key, so nothing an operator can produce.
+   - **Proof** (`repro/r77-receipt-attestation.out`, `tools/repro/r77-receipt-attestation.ts`), on launch-r34, which has two host maps:
+     - a fabricated txid, two swapped output indexes and a duplicated output were all ACCEPTED before and are all REFUSED now; the honest document is still accepted;
+     - G's `/tmp/g-verify/launch` fixture is now refused.
+   - Over all 26 committed settled documents, no honest document changes verdict. drop-a17 (already refused by five checks) loses its `defaults` error, because its pre-A18 maps now verify.
+2. **G-2 (P2, REFUTED with proof).** `settle/plan.ts` recomputes through `clear/dist/cli.mjs`: `clearForMode` → `attachSerials`, which BLS-verifies the serial beacon against the pinned quicknet key. On drop-a17 (`repro/r77-serial-beacon.out`):
+   - the published beacon is ACCEPTED;
+   - a one-digit forgery is REFUSED (not a curve point);
+   - a real drand signature of another round is REFUSED ("serial beacon BLS signature").
+3. **G-3 (P3, FIXED by the agent-friendly merge `df2ca4d`).** `balanceMatured` dedupes notes by `{txid, pool, action_index}`, and the settlement property test injects duplicates.
+4. **G's observations.** The M5 header lists A4|A5|B1|D1 while the run stops at the first failure, so only B1 is red. The U2 id list carries a stray `benzo` token. Both are cosmetic and are recorded here; the committed outputs stay unedited.
+5. **R's P2s on R76, FIXED** (`repro/r77-leak-p2s.out`):
+   - The redactor and `leak-audit`'s Zcash rule use "not alphanumeric" boundaries, so `refund_utest1…` is caught.
+   - BIP39 seeds of 12/15/18/21/24 words are detected by wordlist plus checksum, using `@scure/bip39`, now a direct dependency. 12- and 18-word seeds are caught, 14 words of prose are not, and the tree has 0 such rows.
+   - Residuals, unchanged: over-redaction of 43–44-char base58 tokens; a key with one stray base58 character appended; the scrub script does not exist yet (Phase 7).
+6. **The agent-friendly work is merged** (`df2ca4d`): check:structure, the property test, redact-by-construction `write()`, the read-tracked trust registry, the no-destinations guard, note dedupe, the typed harness and tools, and the opaque `Destination`. `core.hooksPath=.githooks`, so `npm run check` runs on every head commit.
+7. **The gate.** G-1 and the merge change product code (verify, settlement derivation, host derive), so RG's "product unchanged since R65" no longer holds. **Gate RG re-runs all six projects at ONE commit** (this R77 commit plus the host re-provision), which also clears R's six-pin P2.

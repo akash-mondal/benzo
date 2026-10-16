@@ -4,6 +4,7 @@ import { resolve, relative } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { base58 } from "@scure/base";
+import { mnemonicSpans } from "../e2e/lib/redact";
 
 type Sensitive = { label: string; value: string; release_time?: number | string };
 type Finding = { rule: string; label: string; file: string; line?: number; commit?: string; sha256: string };
@@ -60,7 +61,8 @@ function main() {
       // exactly 32 bytes (@scure/base) — no shape heuristics, so a digitless real key is not missed. Boundaries are
       // "not alphanumeric", so an `_` neighbour cannot hide a match. Rows are classified by the release scrub (R74
       // §1(a)), never ignored; false positives cost review time, never coverage.
-      ["address", /\b(?:utest1|uregtest1|u1|ztestsapling1|zs1|textest1|tex1)[a-z0-9]{20,}\b|\b(?:t1|t3|tm|t2)[1-9A-HJ-NP-Za-km-z]{33}\b|\bz[ct][1-9A-HJ-NP-Za-km-z]{90,}\b/g],
+      // R77: "not alphanumeric" boundaries here too, so `refund_utest1…` cannot hide a Zcash address.
+      ["address", /(?<![0-9A-Za-z])(?:(?:utest1|uregtest1|u1|ztestsapling1|zs1|textest1|tex1)[a-z0-9]{20,}|(?:t1|t3|tm|t2)[1-9A-HJ-NP-Za-km-z]{33}|z[ct][1-9A-HJ-NP-Za-km-z]{90,})(?![0-9A-Za-z])/g],
       ["evm-address", /(?<![0-9A-Za-z])0[xX][0-9a-fA-F]{40}(?![0-9A-Za-z])/g],
       ["solana-address", /(?<![0-9A-Za-z])[1-9A-HJ-NP-Za-km-z]{32,44}(?![0-9A-Za-z])/g],
       ["viewing-key", /\b(?:uviewtest1|uview1|uview|zxviewtestsapling1|zxviews1|zxview)[a-zA-Z0-9]{20,}\b/g],
@@ -68,6 +70,8 @@ function main() {
       ["pem-private-key", /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----/g],
       ["age-armor", /-----BEGIN AGE ENCRYPTED FILE-----[\s\S]*?-----END AGE ENCRYPTED FILE-----/g],
     ];
+    // R77: BIP39 seeds of every length (wordlist + checksum), beside the 24-word shape rule above.
+    for (const [a, b] of mnemonicSpans(text)) add("mnemonic-bip39", "mnemonic-bip39", file, text, a, text.slice(a, b), commit);
     for (const [rule, pattern] of patterns) {
       if (/address$/.test(rule) && allowed.has(file)) continue; // R75: the file allowlist covers every address rule
       for (const match of text.matchAll(pattern)) {
