@@ -94,6 +94,7 @@ import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
 import {pinsMismatch} from './lib/pins';
+import {tleBound} from '../settle/bounded';
 import {jsonBytes,signRecord} from '../manifest/schema';
 import {sealEnvelope} from '../envelope';
 import {generateWitnessKey,witnessSetHash} from '../witness';
@@ -212,7 +213,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     for(const i of [0,1])good(['witness','sign','--dir',publicDir,'--signer',signer,'--key',path.join(STATE,'witness',`w${i}.key`)]);
     await waitFor({round:R},(release+60)*1000);
     good(['open','--id',id]);const result=good(['clear','--id',id]);
-    const referenceOpened=frozen.leaves.map((leaf:any)=>{const p=spawnSync(path.join(STATE,'bin/tle'),['-d','-c',env('BNZ_DRAND_CHAIN_HASH')],{input:Buffer.from(leaf.ciphertext_hex,'hex')});if(p.error)throw p.error;if(p.status!==0)throw Error(p.stderr.toString());return {leaf_index:leaf.leaf_index,plaintext_hex:p.stdout.toString('hex')}});
+    const referenceOpened=frozen.leaves.map((leaf:any)=>{const p=spawnSync(path.join(STATE,'bin/tle'),['-d','-c',env('BNZ_DRAND_CHAIN_HASH')],{input:Buffer.from(leaf.ciphertext_hex,'hex'),...tleBound});if(p.error)throw p.error;if(p.status!==0)throw Error(p.stderr.toString());return {leaf_index:leaf.leaf_index,plaintext_hex:p.stdout.toString('hex')}});
     const pure=z.run(process.execPath,[path.join(ROOT,'clear/dist/cli.mjs')],{input:JSON.stringify({manifest:packet,signer,frozen,opened:referenceOpened})});
     write('cli/clear-reference.json',pure);
     // R10.2/R15.3/R16.6: the eight envelope bids refund through their validated v2 envelopes with NO claims
