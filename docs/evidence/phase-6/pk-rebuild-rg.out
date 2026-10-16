@@ -1,0 +1,89 @@
+utc 2026-10-16T08:49:46Z
+source /Users/akshmnd/Dev Projects/benzo-b @ 638ae26 (track-b)
+toolchain node v24.15.0 npm 12.0.2
+toolchain bsdtar 3.5.3 - libarchive 3.7.4 zlib/1.2.12 liblzma/5.4.3 bz2lib/1.0.8  / Apple gzip 475
+homes /tmp/benzo-rg-rebuild/home-a and /tmp/benzo-rg-rebuild/home-b empty: no .npmrc, no npm cache (npm registry defaults; the builder's ~/.npmrc carries only allow-scripts/min-release-age and is not read)
+isolation each clone installs its own node_modules from package-lock.json; no command reads /Users/akshmnd/Dev Projects/benzo-b/node_modules; runs use env -i (HOME, PATH only)
+recipe docs/reproducible-build.md section 3, run twice (independent fresh clones A and B), artifacts then compared byte for byte
+checkout guard: npm run check:bundle
+OK check:bundle b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce dist/benzo-verify.mjs and docs/verify-bundle.sha256 match a fresh rebuild of this tree
+
+=== run a: fresh clone /tmp/benzo-rg-rebuild/clone-a, HOME=/tmp/benzo-rg-rebuild/home-a (empty) ===
+$ env -i HOME=/tmp/benzo-rg-rebuild/home-a PATH=<system> git clone --branch track-b /Users/akshmnd/Dev Projects/benzo-b /tmp/benzo-rg-rebuild/clone-a
+clone ok
+clone HEAD 638ae26 porcelain=0
+$ npm ci
+npm ci ok (added 117 packages, and audited 118 packages in 8s)
+clone node_modules top-level entries: 70 (own install)
+$ npm run build:verify
+build:verify ok
+$ shasum -a 256 dist/benzo-verify.mjs
+b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce  dist/benzo-verify.mjs
+$ shasum -a 256 -c docs/verify-bundle.sha256
+dist/benzo-verify.mjs: OK
+OK run-a.benzo-verify b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce
+$ npm run package
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c","bytes":29831880,"files":18323,"production_packages":112}
+$ shasum -a 256 dist/benzo-0.1.0.tgz
+5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c  dist/benzo-0.1.0.tgz
+OK run-a.benzo-npm-package 5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c
+$ npm run package:bidder
+{"tarball":"dist/benzo-bidder-0.1.0.tgz","sha256":"fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6","bytes":80859,"files":2}
+$ shasum -a 256 dist/benzo-bidder-0.1.0.tgz
+fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6  dist/benzo-bidder-0.1.0.tgz
+OK run-a.benzo-bidder fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6
+
+=== run b: fresh clone /tmp/benzo-rg-rebuild/clone-b, HOME=/tmp/benzo-rg-rebuild/home-b (empty) ===
+$ env -i HOME=/tmp/benzo-rg-rebuild/home-b PATH=<system> git clone --branch track-b /Users/akshmnd/Dev Projects/benzo-b /tmp/benzo-rg-rebuild/clone-b
+clone ok
+clone HEAD 638ae26 porcelain=0
+$ npm ci
+npm ci ok (added 117 packages, and audited 118 packages in 6s)
+clone node_modules top-level entries: 70 (own install)
+$ npm run build:verify
+build:verify ok
+$ shasum -a 256 dist/benzo-verify.mjs
+b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce  dist/benzo-verify.mjs
+$ shasum -a 256 -c docs/verify-bundle.sha256
+dist/benzo-verify.mjs: OK
+OK run-b.benzo-verify b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce
+$ npm run package
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c","bytes":29831880,"files":18323,"production_packages":112}
+$ shasum -a 256 dist/benzo-0.1.0.tgz
+5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c  dist/benzo-0.1.0.tgz
+OK run-b.benzo-npm-package 5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c
+$ npm run package:bidder
+{"tarball":"dist/benzo-bidder-0.1.0.tgz","sha256":"fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6","bytes":80859,"files":2}
+$ shasum -a 256 dist/benzo-bidder-0.1.0.tgz
+fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6  dist/benzo-bidder-0.1.0.tgz
+OK run-b.benzo-bidder fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6
+
+=== two independent builds compared byte for byte ===
+IDENTICAL run-a == run-b dist/benzo-verify.mjs
+IDENTICAL run-a == run-b dist/benzo-0.1.0.tgz
+IDENTICAL run-a == run-b dist/benzo-bidder-0.1.0.tgz
+$ cmp clone-a/dist/benzo-verify.mjs <checkout>/dist/benzo-verify.mjs
+IDENTICAL fresh-clone bundle == the committed dist/benzo-verify.mjs at 638ae26
+$ shasum -a 256 -c docs/verify-bundle.sha256   (in the clone)
+dist/benzo-verify.mjs: OK
+
+=== cross-check: in-tree build at the same tree == fresh-clone build ===
+$ npm run package && npm run package:bidder   (in the checkout at 638ae26, before any edit)
+in-tree builds ok
+IDENTICAL in-tree == fresh-clone dist/benzo-verify.mjs
+IDENTICAL in-tree == fresh-clone dist/benzo-0.1.0.tgz
+IDENTICAL in-tree == fresh-clone dist/benzo-bidder-0.1.0.tgz
+
+=== recorded values at 638ae26 vs the measured digests ===
+$ grep -Hn -E '^[0-9a-f]{64}  dist/benzo-verify.mjs' README.md docs/verify-it-yourself.md docs/verify-bundle.sha256
+/Users/akshmnd/Dev Projects/benzo-b/README.md:176:effd985395dd976b0f737df16f27eb81d2bd195d1db07c0e5671228ad21b3b1d  dist/benzo-verify.mjs
+/Users/akshmnd/Dev Projects/benzo-b/README.md:178:effd985395dd976b0f737df16f27eb81d2bd195d1db07c0e5671228ad21b3b1d  dist/benzo-verify.mjs
+/Users/akshmnd/Dev Projects/benzo-b/docs/verify-it-yourself.md:12:effd985395dd976b0f737df16f27eb81d2bd195d1db07c0e5671228ad21b3b1d  dist/benzo-verify.mjs
+/Users/akshmnd/Dev Projects/benzo-b/docs/verify-it-yourself.md:14:effd985395dd976b0f737df16f27eb81d2bd195d1db07c0e5671228ad21b3b1d  dist/benzo-verify.mjs
+/Users/akshmnd/Dev Projects/benzo-b/docs/verify-bundle.sha256:1:b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce  dist/benzo-verify.mjs
+measured bundle b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce = docs/verify-bundle.sha256 at 638ae26 (R64 rebuilt the bundle; R65 changed no bundle input)
+measured npm package 5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c != the run-34 expected ab18336f… — product code landed after run 34's refresh at 3ca5c9f (R34.2, R38, R40–R46, R48–R65); item 2 records the refreshed value
+measured bidder fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6 = the run-34 expected fa54df28… (seal/ and its inputs untouched since run 32)
+finding: README.md and docs/verify-it-yourself.md still record the superseded run-33 bundle digest (effd9853…) although docs/verify-bundle.sha256 is b122bf2b… since R64; both files are npm-tarball inputs (tools/package.mjs), so item 2's fix to them changes the npm-package digest again — the refreshed expected npm digest is measured at the item-2 tree and supersedes the value above
+
+PASS two independent fresh-clone rebuilds byte-identical for all three artifacts; dist/benzo-verify.mjs == docs/verify-bundle.sha256 at 638ae26

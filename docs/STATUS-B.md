@@ -3,7 +3,78 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
-## Current run (35): Phase 6 Track B — gate RG offline half (batch B35)
+## Current run (36): Phase 6 Track B — B36 packaging refresh (phase6-rg §4.3)
+
+Task (this session's head message): `track-b` fast-forwarded to main at `638ae26` (product code final
+since R65; R66–R68 harness-only). `npm ci` + `npm run build:*` green (seal/core/settle/cli/verify +
+typecheck; `npm run check:bundle` PASS `b122bf2b…`). **Offline only**; no OrbStack/VM/`orb`/frostd
+:2744/testnet spends/live specs/`tools/repro/markets.ts`, no `.benzo/` in either checkout, no mainnet,
+no frontend, no product or pin changes. `npm run e2e` PASSED (seal-open 37 s) — run at the end of the
+batch rather than at session start; the three offline items do not depend on it (AGENTS step 4, noted).
+
+**Item 1 — fresh-clone rebuild of the three release artifacts at `638ae26`: DONE (commit `1c327e3`).**
+`docs/evidence/phase-6/pk-rebuild-rg.out`: two independent fresh clones in `/tmp` (empty `HOME` each —
+no `.npmrc`, no npm cache, npm registry defaults; `env -i`; own `node_modules`; nothing reads this
+checkout's `node_modules`) run `docs/reproducible-build.md` §3 twice. All three artifacts
+**byte-identical** across the two runs and equal to the in-tree build (`cmp`):
+- `dist/benzo-verify.mjs` `b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce` —
+  equals `docs/verify-bundle.sha256` at `638ae26` (`shasum -c` OK) — the batch's named check;
+- `dist/benzo-0.1.0.tgz` `5d36782f807d51cc886b62d10700e0538942acb06006f8218cc7755bd180853c`
+  at `638ae26` (18,323 entries, 112 production packages);
+- `dist/benzo-bidder-0.1.0.tgz` `fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6`
+  — unchanged since run 32 (`git log 3ca5c9f..HEAD -- seal/ package.json tools/package-bidder.mjs
+  tools/deterministic-tar.mjs` is empty).
+The transcript also records the finding that drove item 2: `README.md` and `docs/verify-it-yourself.md`
+still showed the run-33 bundle digest `effd9853…` while `docs/verify-bundle.sha256` has been
+`b122bf2b…` since R64.
+
+**Item 2 — documented values refreshed: DONE (commit `a9752a4`).**
+- `docs/reproducible-build.md`: expected bundle `b122bf2b…` (rebuilt by R42 `28f52e3`/`414bcbd`, R44
+  `68fb2f7`, F21 `bd315fd`, R52 `42db1fe`, R61 `38e8d76`, R63 `03f4404`, R64 `0d50cdd`; R65 changed no
+  bundle input — `npm run check:bundle` PASS at `638ae26`); expected npm
+  `9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a` (the same verify code plus the
+  R34.2/R38/R40–R46/R48–R65 CLI/host changes and this commit's shipped-doc fix); bidder `fa54df28…`
+  unchanged. The §5 "B36 refresh" note carries the citations and the `5d36782f…` → `9693395b…`
+  explanation (README/verify-it-yourself are tarball inputs, `tools/package.mjs`).
+- `README.md` + `docs/verify-it-yourself.md`: `effd9853…` → `b122bf2b…` (each ×2 recorded lines).
+- Regenerated run records: `pk-package.out` (two clean `npm run package` builds identical at
+  `9693395b…`), `pk-package.sha256`, `pk-package-verify.out` (clean `/tmp` extract with empty `HOME`,
+  no `.env`, no state dir: `bin/benzo verify` on the shipped Phase 4 evidence offline — all OK incl.
+  `delivery-list`/`balance-refs`/`defaults`, exit 0; `auction balance-addresses` absent, exit 2, 0 of
+  18,323 entries).
+- **Post-commit proof that the recorded npm digest is what a fresh clone of the recording commit
+  produces** (clone of `a9752a4`, porcelain=0, empty `HOME`, `env -i`): `npm ci && npm run package` →
+  `{"sha256":"9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a","bytes":29831721,"files":18323,"production_packages":112}`;
+  `shasum -a 256 -c docs/verify-bundle.sha256` → `dist/benzo-verify.mjs: OK`; `npm run package:bidder`
+  → `fa54df28…`. Nothing the batch commits after item 2 is a tarball input, so the expected values
+  hold at the commit that records them and after.
+
+**Item 3 — EVIDENCE.md PK row: DONE (commit `ecbc38e`).** The PK row points at `pk-rebuild-rg.out` as
+the current fresh-clone record, carries the run-36 digests and the `effd9853…` correction with its
+`5d36782f…` → `9693395b…` consequence, and cites the `a9752a4` re-proof (this file). The RG row is
+untouched (the head owns it). The gate's OPEN item — a stranger's clean-machine run end to end — is
+unchanged.
+
+Commands that prove the batch: `bash tmp/rebuild-rg.sh` (the item-1 transcript; kept with
+`tmp/pk-package-rg.sh` in gitignored `tmp/` as the runnable drivers), `npm run check:bundle` (PASS
+`b122bf2b…` at `638ae26` and at `ecbc38e`), `npm run e2e` (PASSED seal-open 37 s at the `ecbc38e`
+tree, `tmp/e2e/report.json`).
+
+### Questions (this run)
+- **The batch's citation range ("R48–R65") is narrower than the measured change set.** The documented
+digests were last recorded at run 34 (`3ca5c9f`, R37). Since then the shipped artifacts also changed
+under R34.2, R38 and R40–R46 (Track A hardening F1–F25; `git log 3ca5c9f..638ae26` over the shipped
+inputs), and the bundle was rebuilt before R48 at `28f52e3`/`414bcbd`/`68fb2f7`/`bd315fd`. I cited the
+full set in `docs/reproducible-build.md` §5. Nothing blocked; fold into a Ruling if you want the
+narrower range recorded instead.
+- **Transcript vs expected npm digest — explained, not a discrepancy.** `pk-rebuild-rg.out` is the
+literal "fresh clone of this commit" (`638ae26`) and measures the npm tarball `5d36782f…` there; the
+expected `9693395b…` is measured at the item-2 tree, because fixing the two shipped docs (tarball
+inputs) moves the digest. Both records and the explanation are committed, and the `a9752a4`
+fresh-clone re-proof closes the loop. If you prefer `pk-rebuild-rg.out` regenerated at the final batch
+commit so the transcript alone shows the expected values, say so and I re-run it.
+
+## Previous run (35, batch B35 — gate RG offline half): complete
 
 Task (this session's head message): `track-b` fast-forwarded to main at `6802a2f` (B34 merged). `npm ci` +
 `npm run build:*` green (`build:seal/core/settle/cli/verify`, typecheck; `npm run check:bundle` PASS

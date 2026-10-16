@@ -3,7 +3,7 @@
 How to rebuild Benzo's three release artifacts **byte-for-byte** on any machine, and what their
 sha256 values must be. Every input is pinned; nothing resolves `@latest` or a branch. The transcript
 of one such rebuild from a fresh clone in `/tmp` is recorded at
-`docs/evidence/phase-6/pk-rebuild.out`.
+`docs/evidence/phase-6/pk-rebuild-rg.out`.
 
 ## 1. Pinned toolchain
 
@@ -40,8 +40,8 @@ it is the toolchain the project's evidence runs against:
 
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
-| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `807544459ea3f467dcd5c6e4312105e0ea2de68f7e1cccd03e3e3d9cbd1a9371` (also in `docs/verify-bundle.sha256`) |
-| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9` |
+| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce` (also in `docs/verify-bundle.sha256`) |
+| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a` |
 | `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6` |
 
 ## 3. The commands (fresh clone)
@@ -55,12 +55,12 @@ npm ci                            # exact tree from package-lock.json
 
 npm run build:verify              # rebuilds the shipped verify bundle + its digest
 shasum -a 256 dist/benzo-verify.mjs
-# 807544459ea3f467dcd5c6e4312105e0ea2de68f7e1cccd03e3e3d9cbd1a9371  dist/benzo-verify.mjs
+# b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce  dist/benzo-verify.mjs
 shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
-# ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9  dist/benzo-0.1.0.tgz
+# 9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a  dist/benzo-0.1.0.tgz
 
 npm run package:bidder            # build:seal, then the bidder tarball
 shasum -a 256 dist/benzo-bidder-0.1.0.tgz
@@ -132,5 +132,35 @@ run-28 record in `docs/STATUS-B.md`).
   extract (`bin/benzo verify` on the shipped Phase 4 evidence, offline, exit 0) and shows the R33-removed
   `auction balance-addresses` is absent from the packaged CLI (router refuses it, exit 2; no tarball
   entry).
+- **B36 refresh (run 36, 2026-10-16).** All three values re-recorded after the product rulings that
+  landed since run 34's refresh at `3ca5c9f`. `docs/evidence/phase-6/pk-rebuild-rg.out` is the
+  fresh-clone record: two independent clones in `/tmp` with empty HOME rebuild all three artifacts
+  byte-identically at `638ae26` (and equal to the in-tree build), with `dist/benzo-verify.mjs` equal
+  to `docs/verify-bundle.sha256` there. What changed and why:
+  - verify bundle `80754445…` → `b122bf2b…`: the bundle was rebuilt by R42's refund/stray verify
+    (`28f52e3`, `414bcbd`), R44's F19 defaults tie-break verify (`68fb2f7`), F21 (`bd315fd`), R52's
+    `tle` failover bounding in `manifest/reserve.ts` (`42db1fe`), R61's void-bond verify (`38e8d76`),
+    R63's bond-is-mode-A-only verify (`03f4404`) and R64's `bond_void` recomputation (`0d50cdd`, the
+    commit that recorded `b122bf2b…`). R65 changed no bundle input (`npm run check:bundle` PASS at
+    `638ae26`).
+  - npm package `ab18336f…` → `9693395b…` (18,323 entries, 112 production packages; the two extra
+    entries are R40.3's `launch-deliver-list`/`sign-delivery` command modules): the same verify code,
+    plus the CLI/host-side rulings R34.2, R38, R40–R46 and R48–R65 (bounded lightwalletd/drand calls,
+    proven-absence re-pay refusals, the void bond, endpoint normalization), and this refresh's
+    shipped-doc fix below.
+  - bidder bundle `fa54df28…` **unchanged**: `seal/` and its inputs (`seal/src`, `seal/index.html`,
+    `package.json`, the packager) are untouched since run 32 — `git log 3ca5c9f..HEAD -- seal/
+    package.json tools/package-bidder.mjs tools/deterministic-tar.mjs` is empty — and the fresh-clone
+    rebuild re-measures it unchanged.
+  - The shipped-doc fix and the two digests. `README.md` and `docs/verify-it-yourself.md` are tarball
+    inputs (`tools/package.mjs`) and still recorded the superseded run-33 bundle digest (`effd9853…`)
+    although `docs/verify-bundle.sha256` has been `b122bf2b…` since R64; this refresh corrects them,
+    which is why the npm digest measured at `638ae26` (`5d36782f…`, in the rebuild transcript) differs
+    from the expected `9693395b…` above. `pk-package.out` (two clean `npm run package` builds
+    identical) and `pk-package-verify.out` (clean extract in `/tmp` with empty HOME: `bin/benzo verify`
+    on the shipped Phase 4 evidence offline, exit 0; `auction balance-addresses` absent, exit 2)
+    record `9693395b…` at the tree that carries the fix. Nothing this batch commits afterwards
+    touches a tarball input, so the expected values hold at the commit that records them and after.
+  - `pk-rebuild.out` stays the run-34 record; `pk-rebuild-rg.out` supersedes it.
 - Cargo (`settle/`, `npm run build:settle`) is not part of the three artifacts; the Rust toolchain
   is whatever `cargo build --release --locked` accepts from `settle/Cargo.lock`.
