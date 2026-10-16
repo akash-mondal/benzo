@@ -1,6 +1,6 @@
 // Step, result and waiting helpers shared by the two specs.
 import { expect, test } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DRAND, E2E, OUT } from "./env";
 
@@ -18,7 +18,9 @@ const reason = (message: string) =>
 
 export class Run {
   results: Record<string, Result> = {};
-  constructor(private spec: string) {}
+  // R73 (Reviewer R P1-1 on R72): the evidence files each ID cites. A check whose cited files were not written is a
+  // FAIL — a swallowed or skipped write() can no longer pass silently (R71 lost auction/signatures.json this way).
+  constructor(private spec: string, private evidence: Record<string, string[]> = {}) {}
 
   private save() {
     mkdirSync(path.join(E2E, "results"), { recursive: true });
@@ -34,6 +36,7 @@ export class Run {
       } catch (err) {
         expect.soft(String((err as Error)?.message ?? err), `${id} threw`).toBe("");
       }
+      for (const rel of this.evidence[id] ?? []) expect.soft(existsSync(path.join(OUT, rel)), `${id} evidence ${rel} was not written`).toBe(true);
       const errors = test.info().errors.slice(before);
       this.results[id] = errors.length ? "FAIL" : "PASS";
       if (errors.length) console.log(`ERROR ${id} ${reason(errors[0].message ?? "")}`);

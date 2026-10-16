@@ -51,7 +51,12 @@ function included(r:any,f:any,ctHash=r.ciphertext_hash) {
 
 test("signed sealed auction on testnet",async({page})=> {
   test.setTimeout(75*60_000);
-  const run=new Run("auction-core"), pinned=pinsMismatch();
+  // R73: the evidence each ID cites; Run fails an ID whose files were not written.
+  const run=new Run("auction-core",{
+    E1:["auction/deposits.json","auction/receipts.json"],G1:["auction/clear-input.json","auction/opened.json","auction/result.json"],
+    G3:["auction/vickrey.json"],H2:["auction/bad-amounts.json"],H3:["auction/frozen.json"],
+    I1:["auction/cancel.json","auction/pczt-inspect.txt","auction/refund.json","auction/signatures.json"],
+  }), pinned=pinsMismatch();
   if(pinned)run.notRun(IDS,pinned);
   const info=await fetch(`${DRAND}/info`).then(async r=>{if(!r.ok)throw Error(`HTTP ${r.status}`);return r.json()}).catch(e=>run.notRun(IDS,`drand ${e.message}`));
   for(const endpoint of LWD)try{z.tip(endpoint)}catch(e){run.notRun(IDS,`${endpoint}: ${(e as Error).message}`)}
@@ -255,7 +260,8 @@ test("signed sealed auction on testnet",async({page})=> {
     await waitFor({height,tip:()=>{z.sync("bidder");z.sync("vault");return Math.min(z.balance("bidder").chain_tip_height,z.balance("vault").chain_tip_height)}},sent+MINE);
     z.enhance("vault"); const spent=z.scanVault().filter(n=>n.spent_in_txid===refundTxid),after={bidder:z.balance("bidder").total,vault:z.balance("vault").total};
     const settlement={refund_txid:refundTxid,height,alternate_height:alternate?.height??"none (BNZ_LWD_SINGLE=1, R27/R47)",fee_reserve_zats:reserve,fee_zats:fee,input_zats:inputs,output_zats:outputs,before,after,deposits:spent.filter(n=>txids.includes(n.txid)),cancel_deposit_txid:txids[4],cancel_refund_zats:C,preflight:{fresh_tip:freshTip,broadcast_tip:broadcastTip,...metadata}};
-    write("auction/refund.json",bytes(settlement));write("auction/pczt-inspect.txt",redactAddresses(inspect)); // R71write("auction/signatures.json",bytes(signing));
+    write("auction/refund.json",bytes(settlement));write("auction/pczt-inspect.txt",redactAddresses(inspect)); // R71: redacted
+    write("auction/signatures.json",bytes(signing)); // R73: restored (R71's marker comment had swallowed it)
       expect.soft(cancelled.code).toBe(0);expect.soft(cancelled.value?.refunds.map((r:any)=>r.amount_zats)).toEqual([String(C)]);
       expect.soft(cancelled.value?.trace.filter((r:any)=>r.operation==="tle -d").length).toBe(0);
       expect.soft(spent.find(n=>n.txid===txids[4])?.value_zats).toBe(C);
