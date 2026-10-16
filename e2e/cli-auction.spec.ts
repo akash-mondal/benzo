@@ -105,6 +105,8 @@ import {foldR15,foldR263,foldR233,foldGForged,foldKC,foldMR} from './lib/readpat
 import {foldR261} from './lib/readpath-r261';
 import {foldR232} from './lib/readpath-r232';
 import {foldReserve,foldR73,foldR71} from './lib/readpath-live';
+// R70/R71: tranche-3 group B (r7-2, r7-4, r7-6, r7-claims, r10-2, r10-4 x2, r15-3, r16-1, r16-4) is withdrawn from this spec;
+// only r7-1 / g1-tampered-ledger-redirect remain. Their originals stay in tools/repro/ with Phase-5 evidence.
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
 // BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];

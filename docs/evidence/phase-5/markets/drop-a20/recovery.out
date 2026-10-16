@@ -10,9 +10,11 @@ deposits refund at their own note values through their memo-bound envelopes. Com
 3. `BNZ_LWD_SINGLE=1 benzo settle --id 05185a52…` -> {"settled": 4} — four deposit refunds of 200,000 each
    (receipts: deposit:be860b68… x4, one per admitted bid, at their own note values).
 4. The refunds landed at each bid's own envelope destination (the bidder-wallet scan vs the run's refunds.json):
-PASS xc-landed [redacted address 0ea8d644c3] holds 200000 (the deposit refunded at its own note value)
-PASS xc-landed [redacted address cc9914a597] holds 200000 (the deposit refunded at its own note value)
-PASS xc-landed [redacted address 90137bfb01] holds 200000 (the deposit refunded at its own note value)
-PASS xc-landed [redacted address fe9ac40b07] holds 200000 (the deposit refunded at its own note value)
+PASS xc-landed utest1h8cn…twl5tv holds 200000 (the deposit refunded at its own note value)
+PASS xc-landed utest180jn…fqpemu holds 200000 (the deposit refunded at its own note value)
+PASS xc-landed utest1h05n…qjkxn8 holds 200000 (the deposit refunded at its own note value)
+PASS xc-landed utest1dx2x…7gvu8r holds 200000 (the deposit refunded at its own note value)
 5. SKIP xc-verify (cancelled before freeze: no frozen root to verify against — the A18 cancel-claims precedent).
 RESULT PASS 05185a52 recovered: every deposit refunded to its own bidder; nothing parked.
+
+# R71 (2026-10-16): 4 full refund destinations in this head recovery log were abbreviated after B37's leak audit (real finding 4); nothing else changed.

@@ -26,7 +26,7 @@ import path from "node:path";
 import {bin,DRAND,env,LWD,LWD_ALT,ROOT,STATE} from "./lib/env";
 import {pinsMismatch} from "./lib/pins";
 import {startFrostd,zcashSign} from "./lib/frost";
-import {Run,waitFor,write} from "./lib/run";
+import {Run,redactAddresses,waitFor,write} from "./lib/run";
 import {serveSealer,sealBid} from "./lib/sealer";
 import {tleDecrypt} from "./lib/tools";
 import * as z from "./lib/zcash";
@@ -230,7 +230,7 @@ test("signed sealed auction on testnet",async({page})=> {
       expect.soft(result?.allocations.map((a:any)=>a.fill)).toEqual([1,0]);expect.soft(result?.allocations[0].payment_zats).toBe(price);write("auction/vickrey.json",bytes(result));
     });
     await run.check("I1","exact C cancel refund with fee-reserve and zero opening calls",async()=> {
-    const cancelled=ac("cancel",cancelId);write("auction/cancel.json",bytes({code:cancelled.code,response:cancelled.value,error:cancelled.error}));
+    const cancelled=ac("cancel",cancelId);write("auction/cancel.json",redactAddresses(bytes({code:cancelled.code,response:cancelled.value,error:cancelled.error}).toString())); // R71
     const freshTip=Math.max(z.tip(),ALT?z.tip(ALT):0);
     await waitFor({height:freshTip,tip:()=>{z.sync("vault");z.sync("bidder");return Math.min(z.balance("vault").chain_tip_height,z.balance("bidder").chain_tip_height)}},Date.now()+MINE);
     const before={bidder:z.balance("bidder").total,vault:z.balance("vault").total};
@@ -255,7 +255,7 @@ test("signed sealed auction on testnet",async({page})=> {
     await waitFor({height,tip:()=>{z.sync("bidder");z.sync("vault");return Math.min(z.balance("bidder").chain_tip_height,z.balance("vault").chain_tip_height)}},sent+MINE);
     z.enhance("vault"); const spent=z.scanVault().filter(n=>n.spent_in_txid===refundTxid),after={bidder:z.balance("bidder").total,vault:z.balance("vault").total};
     const settlement={refund_txid:refundTxid,height,alternate_height:alternate?.height??"none (BNZ_LWD_SINGLE=1, R27/R47)",fee_reserve_zats:reserve,fee_zats:fee,input_zats:inputs,output_zats:outputs,before,after,deposits:spent.filter(n=>txids.includes(n.txid)),cancel_deposit_txid:txids[4],cancel_refund_zats:C,preflight:{fresh_tip:freshTip,broadcast_tip:broadcastTip,...metadata}};
-    write("auction/refund.json",bytes(settlement));write("auction/pczt-inspect.txt",inspect);write("auction/signatures.json",bytes(signing));
+    write("auction/refund.json",bytes(settlement));write("auction/pczt-inspect.txt",redactAddresses(inspect)); // R71write("auction/signatures.json",bytes(signing));
       expect.soft(cancelled.code).toBe(0);expect.soft(cancelled.value?.refunds.map((r:any)=>r.amount_zats)).toEqual([String(C)]);
       expect.soft(cancelled.value?.trace.filter((r:any)=>r.operation==="tle -d").length).toBe(0);
       expect.soft(spent.find(n=>n.txid===txids[4])?.value_zats).toBe(C);

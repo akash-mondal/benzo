@@ -17,7 +17,7 @@ import path from "node:path";
 import { bin, DRAND, env, LWD, LWD_ALT, ROOT, STATE } from "./lib/env";
 import { pinsMismatch } from "./lib/pins";
 import { startFrostd, zcashSign, type Session } from "./lib/frost";
-import { Run, waitFor, write } from "./lib/run";
+import { Run, redactAddresses, waitFor, write } from "./lib/run";
 import { sealBid, serveSealer } from "./lib/sealer";
 import * as z from "./lib/zcash";
 
@@ -145,7 +145,7 @@ test("golden path on testnet", async ({ page }) => {
     z.pczt("vault", "prove", created, "--output", proven);
     const signing = await zcashSign(proven, signed);
     const inspectSigned = z.pczt("vault", "inspect", signed);
-    write("frost/pczt-inspect.txt", `# pczt inspect created.pczt\n${inspectCreated}\n# pczt inspect signed.pczt\n${inspectSigned}`);
+    write("frost/pczt-inspect.txt", redactAddresses(`# pczt inspect created.pczt\n${inspectCreated}\n# pczt inspect signed.pczt\n${inspectSigned}`)); // R71
     write(
       "frost/coordinator.txt",
       [`sighash ${signing.sighash}`, ...signing.sessions.map((s: Session, i) => `session ${i}: signers ${s.signers.join(",")} randomizer ${s.randomizer} signature ${s.signature}`)].join("\n") + "\n",

@@ -142,8 +142,14 @@ export async function foldR73(run: Run, auctionId: string): Promise<void> {
     const body = Buffer.concat([cipher.update(payload), cipher.final(), cipher.getAuthTag()]);
     return { ciphertext_hash: leaf.ciphertext_hash, envelope_ct: Buffer.concat([Buffer.from(ephPub, "hex"), nonceB, body]).toString("hex"), owner_sig: "ab".repeat(64) };
   });
-  await run.check("g2-taddr-exception", "a record carrying a transparent destination goes to the exception queue, never an obligation", () => {
+  // R71 (Reviewer R P1-2 on R70): this drill's record (a fresh key, the pre-v2 shape) is refused before the shielded-only
+  // rule is reached, so the ID says exactly that, and the shielded-only rule itself is asserted on the shared validator
+  // (requireShieldedDestination: sealEnvelope and openEnvelope both run it) with a real testnet t-address.
+  let tRule = "";
+  try { envmod.sealEnvelope("tmEZPFPFmP3nJnMH1mzf5uTQWaUbVMdMYdV37wnM", [envmod.generateEnvelopeKey().public_hex], "test"); tRule = "accepted"; } catch (e) { tRule = (e as Error).message; }
+  await run.check("g2-taddr-exception", "a malformed record carrying a transparent destination goes to the exception queue, and the shared envelope validator refuses a non-shielded (t-address) destination", () => {
     need(caseC.out === "FIXED", `${caseC.out}: ${caseC.why}`);
+    need(/transparent address \(t-addr\)|not a shielded destination/.test(tRule), `shared validator on a t-address: ${tRule}`);
   });
 }
 
