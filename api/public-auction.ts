@@ -54,19 +54,23 @@ export type SettlementSummary = {
 // settlement field declares where its trust comes from and which verify check enforces it. Adding a field to
 // SettlementSummary without an entry here is a type error (the mapped type has no optional keys), and verify refuses a
 // published field whose check did not run — so a new field can never ship unchecked.
-type Trust = "derived" | "chain-receipt" | "host-attested" | "informational";
-export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: { trust: Trust; verifiedBy: string } } = {
-  auction_id: { trust: "derived", verifiedBy: "accounting" },
-  rows: { trust: "derived", verifiedBy: "accounting" },
-  receipts: { trust: "chain-receipt", verifiedBy: "receipts" },
-  ignored: { trust: "derived", verifiedBy: "accounting" },
-  defaults: { trust: "host-attested", verifiedBy: "defaults" },
-  bond_void: { trust: "host-attested", verifiedBy: "defaults" },
-  balance_refunds: { trust: "host-attested", verifiedBy: "balance-refs" },
-  delivery_defaults: { trust: "host-attested", verifiedBy: "delivery" },
-  approval_maps: { trust: "host-attested", verifiedBy: "defaults" },
-  batches: { trust: "informational", verifiedBy: "receipts" },
-  offline_signer: { trust: "informational", verifiedBy: "receipts" },
+type Trust = "derived" | "chain-receipt" | "host-attested";
+// A verified field names the checks that enforce it; verify requires that at least one of them read it (R-AF-5:
+// "ran" is not enough — the first registry named `receipts` for settlement.receipts, a check that only reads the
+// deposit receipts). An informational field is published unverified and says so; the leak guard still scans it.
+type TrustEntry = { trust: Trust; verifiedBy: readonly string[] } | { trust: "informational"; verifiedBy: readonly [] };
+export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } = {
+  auction_id: { trust: "derived", verifiedBy: ["accounting"] },
+  rows: { trust: "derived", verifiedBy: ["accounting"] },
+  receipts: { trust: "chain-receipt", verifiedBy: ["accounting"] },
+  ignored: { trust: "derived", verifiedBy: ["accounting-strays"] },
+  defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
+  bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
+  balance_refunds: { trust: "host-attested", verifiedBy: ["balance-refs"] },
+  delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
+  approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
+  batches: { trust: "informational", verifiedBy: [] },
+  offline_signer: { trust: "informational", verifiedBy: [] },
 };
 
 export type PublicResult = ClearBody;
@@ -255,12 +259,27 @@ const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "
 
 export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: Map<number, string | null> } = {}): Check[] {
   const checks: Check[] = [];
+  // R-AF-5: a settlement field counts as verified only if its registered check actually read it (not merely ran).
+  let current = "";
+  const readBy = new Map<string, Set<string>>();
+  if (pub.settlement) {
+    const settlement = new Proxy(pub.settlement, {
+      get(t, k, r) {
+        if (typeof k === "string" && current) (readBy.get(k) ?? readBy.set(k, new Set()).get(k)!).add(current);
+        return Reflect.get(t, k, r);
+      },
+    });
+    pub = { ...pub, settlement };
+  }
   const run = (id: string, fn: () => string | void) => {
+    current = id;
     try {
       const warn = fn();
       checks.push(warn ? { id, warn } : { id });
     } catch (e) {
       checks.push({ id, error: (e as Error).message });
+    } finally {
+      current = "";
     }
   };
   // Canonical dirs carry byte-identical manifest.json, frozen.json and result.json projections (schema description).
@@ -802,11 +821,13 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   });
   // Agent-friendly (class B): every present settlement field must have had its enforcing check run.
   if (pub.settlement) {
-    const ran = new Set(checks.map((c) => c.id));
+    const ran = new Set(checks.map((c) => c.id)), failed = new Set(checks.filter((c) => c.error).map((c) => c.id));
     for (const k of Object.keys(pub.settlement)) {
-      const t = (SETTLEMENT_TRUST as Record<string, { verifiedBy: string }>)[k];
+      const t = (SETTLEMENT_TRUST as Record<string, TrustEntry>)[k];
       if (!t) checks.push({ id: "trust-registry", error: `settlement field ${k} has no trust entry (SETTLEMENT_TRUST)` });
-      else if (!ran.has(t.verifiedBy)) checks.push({ id: "trust-registry", error: `settlement field ${k}: its check ${t.verifiedBy} did not run` });
+      else if (t.trust === "informational" || t.verifiedBy.some((c) => failed.has(c))) continue; // a failed check already fails verify
+      else if (!t.verifiedBy.some((c) => ran.has(c))) checks.push({ id: "trust-registry", error: `settlement field ${k}: none of its checks (${t.verifiedBy.join(", ")}) ran` });
+      else if (!t.verifiedBy.some((c) => readBy.get(k)?.has(c))) checks.push({ id: "trust-registry", error: `settlement field ${k}: its checks (${t.verifiedBy.join(", ")}) ran but none read it` });
     }
   }
   return checks;

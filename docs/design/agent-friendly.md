@@ -99,4 +99,10 @@ The last row is the user's own steering, read from the transcripts: the head thi
   - `tools/repro/r28-replay.ts` used `ROOT` without importing it. R43 added that line, so the driver has thrown a ReferenceError on start ever since. That is class C again.
   - `r41-f7-map-wedge.ts` passed a fourth argument that `agreedBatchMaps` no longer takes.
 - **The r261 fixture's `as any` is gone.** It is typed as `PublicAuction` now. Typing it showed the fixture's `deliveryList: null` where the type says `undefined`. The folds still pass 10 of 10 offline.
-- **Still open:** R-AF-5. `verifiedBy` proves only that the named check ran. The next step ties each field to an assertion inside its check.
+- **R-AF-5, P2: "ran" is now "read".** While a check runs, verify watches which settlement fields it reads (a Proxy on `pub.settlement`). A field counts as verified only if one of its registered checks read it. Informational fields declare `verifiedBy: []`.
+  - The stricter rule found two wrong entries in the first registry:
+    - `receipts` named the check `receipts`, which reads the deposit receipts, not `settlement.receipts`;
+    - `ignored` named `accounting`, but `accounting-strays` is the check that enforces it.
+  - `approval_maps` is enforced by `defaults`, `balance-refs` or `claims`, depending on the mode.
+  - `tools/af/registry-measure.ts` shows 0 false alarms over 26 settled committed documents. Restoring either wrong entry gives an error on 26 of 26 and 23 of 26 documents respectively.
+  - A field whose own check already failed raises no second error.

@@ -16215,17 +16215,17 @@ function readClient(packet, signer) {
   return clientForMode(packet, signer);
 }
 var SETTLEMENT_TRUST = {
-  auction_id: { trust: "derived", verifiedBy: "accounting" },
-  rows: { trust: "derived", verifiedBy: "accounting" },
-  receipts: { trust: "chain-receipt", verifiedBy: "receipts" },
-  ignored: { trust: "derived", verifiedBy: "accounting" },
-  defaults: { trust: "host-attested", verifiedBy: "defaults" },
-  bond_void: { trust: "host-attested", verifiedBy: "defaults" },
-  balance_refunds: { trust: "host-attested", verifiedBy: "balance-refs" },
-  delivery_defaults: { trust: "host-attested", verifiedBy: "delivery" },
-  approval_maps: { trust: "host-attested", verifiedBy: "defaults" },
-  batches: { trust: "informational", verifiedBy: "receipts" },
-  offline_signer: { trust: "informational", verifiedBy: "receipts" }
+  auction_id: { trust: "derived", verifiedBy: ["accounting"] },
+  rows: { trust: "derived", verifiedBy: ["accounting"] },
+  receipts: { trust: "chain-receipt", verifiedBy: ["accounting"] },
+  ignored: { trust: "derived", verifiedBy: ["accounting-strays"] },
+  defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
+  bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
+  balance_refunds: { trust: "host-attested", verifiedBy: ["balance-refs"] },
+  delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
+  approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
+  batches: { trust: "informational", verifiedBy: [] },
+  offline_signer: { trust: "informational", verifiedBy: [] }
 };
 var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "delivery_list", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
@@ -16335,12 +16335,26 @@ function readBeacon(raw2, manifest) {
 var settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
 function checkPublicAuction(pub, opts = {}) {
   const checks = [];
+  let current = "";
+  const readBy = /* @__PURE__ */ new Map();
+  if (pub.settlement) {
+    const settlement = new Proxy(pub.settlement, {
+      get(t2, k2, r2) {
+        if (typeof k2 === "string" && current) (readBy.get(k2) ?? readBy.set(k2, /* @__PURE__ */ new Set()).get(k2)).add(current);
+        return Reflect.get(t2, k2, r2);
+      }
+    });
+    pub = { ...pub, settlement };
+  }
   const run2 = (id, fn) => {
+    current = id;
     try {
       const warn = fn();
       checks.push(warn ? { id, warn } : { id });
     } catch (e) {
       checks.push({ id, error: e.message });
+    } finally {
+      current = "";
     }
   };
   const projection = (name, value) => {
@@ -16751,11 +16765,13 @@ function checkPublicAuction(pub, opts = {}) {
     requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
   });
   if (pub.settlement) {
-    const ran = new Set(checks.map((c2) => c2.id));
+    const ran = new Set(checks.map((c2) => c2.id)), failed = new Set(checks.filter((c2) => c2.error).map((c2) => c2.id));
     for (const k2 of Object.keys(pub.settlement)) {
       const t2 = SETTLEMENT_TRUST[k2];
       if (!t2) checks.push({ id: "trust-registry", error: `settlement field ${k2} has no trust entry (SETTLEMENT_TRUST)` });
-      else if (!ran.has(t2.verifiedBy)) checks.push({ id: "trust-registry", error: `settlement field ${k2}: its check ${t2.verifiedBy} did not run` });
+      else if (t2.trust === "informational" || t2.verifiedBy.some((c2) => failed.has(c2))) continue;
+      else if (!t2.verifiedBy.some((c2) => ran.has(c2))) checks.push({ id: "trust-registry", error: `settlement field ${k2}: none of its checks (${t2.verifiedBy.join(", ")}) ran` });
+      else if (!t2.verifiedBy.some((c2) => readBy.get(k2)?.has(c2))) checks.push({ id: "trust-registry", error: `settlement field ${k2}: its checks (${t2.verifiedBy.join(", ")}) ran but none read it` });
     }
   }
   return checks;
