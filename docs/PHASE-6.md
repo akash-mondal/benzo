@@ -304,3 +304,15 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
    - **P2-5.** The RG row names the all-FAIL markets run by its code `7b148b6`, and the tail is current.
    - **P2-6.** `run.json` gains `fail_reasons`: the first assertion message of each FAIL. The offline probe records "B evidence r73/b.txt was not written".
    - **P2-7.** The RG row discloses the six pins and states the rule as applied: one product-code tree, checked by equal built-artifact digests and the earliest-to-latest pin diff. The harness differs per run.
+
+### R75 — Reviewer R on R74 (`pr-rg-r74.md`, FIX-FIRST/BLOCK): one P1, four P2s
+
+1. **P1 (the release audit could not see EVM, Solana, TEX or Sprout destinations): FIXED.**
+   - `tools/leak-audit.ts` gains `evm-address` (`0x` + 40 hex) and `solana-address` (a 32–44-char base58 token mixing upper case, lower case and digits). `address` adds `tex1`/`textest1` and Sprout `zc`/`zt`. The file allowlist applies to every address rule.
+   - **Proof** (`repro/r75-leak-rules.out`): planted files carry an EIP-55 address, a Solana address and a TEX address, plus a clean file with a 64-hex hash and a plain word. The old tool (@`48741cd`) gives rc 0 with 0 rows. The new tool gives rc 1 with exactly three rows (one per planted destination) and none for the clean file.
+   - On the current tree the new rules surface about 770 more rows (about 190 distinct values) in `contracts/`, `crosschain/`, docs and evidence. The release scrub (R74 §1(a)) must classify them; they are never ignored.
+2. **P2s:**
+   - **`fail_reasons`.** Redaction now also covers `textest1`, unified/Sapling viewing keys and EVM addresses.
+   - **R74 §1(c) amended.** Each allowlist entry, path or value, carries a written justification. §1(e) amended: the sha256 of the audited export archive is recorded, and the pushed tree must be byte-identical to it.
+   - **Third comment-swallow (`4feaa86`).** Acknowledged. The detecting rule and the pre-commit `npm run check` reach main with the agent-friendly merge right after gold. The repair is evidenced by typecheck (0 errors at `48741cd`) and the offline guard probe (`ERROR B … was not written`, reason recorded).
+   - **Owed items (unchanged):** the t-addr repro fold, five spec manifests, and the `release_time` entries.

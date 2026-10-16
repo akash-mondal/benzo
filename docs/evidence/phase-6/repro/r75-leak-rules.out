@@ -1,0 +1,28 @@
+# R75: leak-audit on planted cross-chain destinations (tmp/r75/plant: delivery.txt = EVM + Solana + TEX; clean.txt = 64-hex hash + plain word)
+## before (tools/leak-audit.ts @ 48741cd) rc and rows:
+[]
+
+## after (R75):
+[
+  {
+    "rule": "address",
+    "label": "address",
+    "file": "tmp/r75/plant/delivery.txt",
+    "line": 3,
+    "sha256": "8c4e53fb9e56425d00a50516fe2c42705041a0992e731f4e043212ab575f99b8"
+  },
+  {
+    "rule": "evm-address",
+    "label": "evm-address",
+    "file": "tmp/r75/plant/delivery.txt",
+    "line": 1,
+    "sha256": "e066de5176c4f671c4d01441f2c9a6d8dcb4098b770f90b96f5bb2ce21b925cc"
+  },
+  {
+    "rule": "solana-address",
+    "label": "solana-address",
+    "file": "tmp/r75/plant/delivery.txt",
+    "line": 2,
+    "sha256": "f0f571fa2e7ec7b5470df5574dd1fc2db2929528b7e2c1d625508eb0a5ecff16"
+  }
+]

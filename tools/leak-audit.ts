@@ -54,14 +54,19 @@ function main() {
       }
     }
     const patterns: [string, RegExp][] = [
-      ["address", /\b(?:utest1|uregtest1|u1|ztestsapling1|zs1)[a-z0-9]{20,}\b|\b(?:t1|t3|tm|t2)[1-9A-HJ-NP-Za-km-z]{33}\b/g],
+      // R75 (Reviewer R P1 on R74): every chain Benzo settles on. Zcash adds TEX (`tex1`/`textest1`) and Sprout
+      // (`zc`/`zt`); Ethereum is `0x` + 40 hex; Solana is a 32–44-char base58 token that mixes cases and digits (a
+      // plain word or hex string never matches). Rows are classified by the release scrub (R74 §1(a)), never ignored.
+      ["address", /\b(?:utest1|uregtest1|u1|ztestsapling1|zs1|textest1|tex1)[a-z0-9]{20,}\b|\b(?:t1|t3|tm|t2)[1-9A-HJ-NP-Za-km-z]{33}\b|\bz[ct][1-9A-HJ-NP-Za-km-z]{90,}\b/g],
+      ["evm-address", /\b0x[0-9a-fA-F]{40}\b/g],
+      ["solana-address", /(?<![0-9A-Za-z])(?=[1-9A-HJ-NP-Za-km-z]*[A-Z])(?=[1-9A-HJ-NP-Za-km-z]*[a-z])(?=[1-9A-HJ-NP-Za-km-z]*[1-9])[1-9A-HJ-NP-Za-km-z]{32,44}(?![0-9A-Za-z])/g],
       ["viewing-key", /\b(?:uviewtest1|uview1|uview|zxviewtestsapling1|zxviews1|zxview)[a-zA-Z0-9]{20,}\b/g],
       ["mnemonic", /\b(?:[a-z]{3,12}[ \t\r\n]+){23}[a-z]{3,12}\b/g],
       ["pem-private-key", /-----BEGIN (?:[A-Z0-9]+ )?PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )?PRIVATE KEY-----/g],
       ["age-armor", /-----BEGIN AGE ENCRYPTED FILE-----[\s\S]*?-----END AGE ENCRYPTED FILE-----/g],
     ];
     for (const [rule, pattern] of patterns) {
-      if (rule === "address" && allowed.has(file)) continue;
+      if (/address$/.test(rule) && allowed.has(file)) continue; // R75: the file allowlist covers every address rule
       for (const match of text.matchAll(pattern)) add(rule, rule, file, text, match.index!, match[0], commit);
     }
   };
