@@ -252,7 +252,7 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
   3. **P1-2, accepted.** `g2-taddr-exception`'s drill record (a fresh key, the pre-v2 shape) is refused before the shielded-only rule is reached. The ID now says exactly that, and it also asserts the shielded-only rule on the shared validator (`requireShieldedDestination`, run by both `sealEnvelope` and `openEnvelope`) with a t-address.
   4. **P2s:**
      - P2-4: R70's coverage sentence is narrowed to read "partly exercised". The withdrawal is noted in the spec header, and the RG row lists the withdrawn IDs.
-     - P2-5: the `markets` evidence `43be172` (all FAIL in two minutes) was the 2026-10-15 11:06Z network outage. Every scenario failed at `benzo auction keys` (the hosts' DKG could not reach the network) before funding. The passing run `638ae26` is at identical code.
+     - P2-5 (R73 correction: the cause is head testimony — that run.json kept bare FAILs, no logs; and the ids are: the all-FAIL run was code `7b148b6`, recorded in commit `43be172`): the `markets` all-FAIL run (two minutes) was the 2026-10-15 11:06Z network outage. Every scenario failed at `benzo auction keys` (the hosts' DKG could not reach the network) before funding. The passing run `638ae26` is at identical code.
      - Residuals: P2-3 (since R58 the expiry check runs first, so W6 does not reach the mined-batch rule live) and P2-6 (the claims check stops at the first failing claim, so under the narrowing later claim rows are unchecked).
 - R72 2026-10-16 (head, phase6-rg §4.1, R35.3(b)): **16 folded `tools/repro/` scripts deleted.** Each one's folded IDs passed live in gate RG, and the evidence is cited:
   - `g-forged-claim`, `kc-key-commitment-repro`, `r15-verify-leaves-repro`, `r26-3-projection-repro` → `cli-auction` FOLD1 (`g-forged-claim-*`, `kc-*`, `r15-*`, `r26-3-*`);
@@ -262,4 +262,23 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
   - `r7-1-ledger-redirect-repro`, `g1-tampered-ledger-redirect` → `foldR71`;
   - `r23-3-api-claims-repro` → S1 / `r23-3-api-*`.
 
-  All of the above are PASS in `docs/evidence/phase-6/rg/cli-auction/run.json` (74 IDs, code `a24a3a8`). `g7-network-repro` → `auction-core` `g7-*` (11 IDs, PASS, `docs/evidence/phase-6/rg/auction-core/run.json`). `batching-equal.ts` → the `npm run bench` batch-plan stage (gate SC evidence). **Kept** (R70): the nine withdrawn group-B originals `r7-2`, `r7-4`, `r7-6`, `r7-claims`, `r10-2`, `r10-4`, `r15-3`, `r16-1` and `r16-4`. Their committed Phase-5 evidence remains the record. Comments that name a deleted script are provenance only; no code imports them.
+  All of the above are PASS in `docs/evidence/phase-6/rg/cli-auction/run.json` (74 IDs; run.json pins commit `1145b4a`, code `975b4b1`, recorded in `6c45e3a` — R73 corrected this from "`a24a3a8`", which was true when written and went stale with the R71 re-run). `g7-network-repro` → `auction-core` `g7-*` (11 IDs, PASS, `docs/evidence/phase-6/rg/auction-core/run.json`). `batching-equal.ts` → the `npm run bench` batch-plan stage (gate SC evidence). **Kept** (R70): the nine withdrawn group-B originals `r7-2`, `r7-4`, `r7-6`, `r7-claims`, `r10-2`, `r10-4`, `r15-3`, `r16-1` and `r16-4`. Their committed Phase-5 evidence remains the record. Comments that name a deleted script are provenance only; no code imports them.
+
+### R73 — Reviewer R on R72 (`pr-rg-r72.md`, FIX-FIRST): two P1s, five P2s
+
+1. **P1-1 (auction-core lost `auction/signatures.json`): FIXED, with an enforced guard.**
+   - **Cause:** R71's marker comment swallowed the `write()` call.
+   - **Fix:** the write is restored on its own line (edf3784). `Run` now takes the evidence files each ID cites and FAILs an ID whose files were not written. auction-core declares its manifest (E1, G1, G3, H2, H3, I1).
+   - **Proof:** an offline probe gives the writing ID PASS and the ID whose write is commented out FAIL ("evidence … was not written").
+   - **Re-run:** auction-core re-ran live at edf3784 (product code unchanged since R65). `signatures.json` was written again, but E1 and H3 FAILed only on the new guard: the head's first manifest named files written just after those IDs close (deposits/receipts after E1, frozen after H3). The manifest was re-attributed to H1/F1 and auction-core re-runs at the R73 commit. The R73 attempt-1 evidence stays in history (`9c1eb98`).
+   - **Branch rule:** `agent-friendly` adds `comment-swallowed-statement`, which flags both the R57 and R71 incidents on history.
+2. **P1-2 (unredacted lab destinations remain in history): RULED. Accepted for the testnet gate; fixed before anything is public.**
+   - The four REAL leak findings are fixed at HEAD only. Superseded revisions on `main` still carry the full destinations.
+   - These are the head's own testnet lab wallets, in a repo that is private by standing rule. That exposure is accepted for gate RG, and the LA row now says exactly that.
+   - **Binding:** nothing from this history is ever made public. A public or submission repo is published from a fresh, history-free export, re-audited with `leak-audit --git` (which must exit 0) before it is pushed. Rewriting the private history is the user's call.
+3. **P2s:**
+   - (3) The open-time rule is now proven offline by `tools/repro/r73-open-taddr.ts`. A hostile sealer builds a well-formed n = 3 v2 (and v1) envelope with a t-addr refund. `openEnvelope` refuses it with "transparent address (t-addr)", and `openDestination` gives null, which sends it to the exception queue. After the fix, 6/6 PASS (`repro/r73-open-taddr-after.out`). With both `requireShieldedDestination` calls removed from `parseEnvelopePayload`, 4 FAIL (`repro/r73-open-taddr-mutation.out`). Residual: the exception reason is the generic "envelope destination refused" (`openDestination` is total by R7.3), not the rule's name.
+   - (4) The 2026-10-15 outage claim is reworded as head testimony (run.json kept bare FAILs). The commit/tree ids are separated: the all-FAIL run was code 7b148b6, recorded in 43be172.
+   - (5) The SC row's repro now points at `tools/bench.ts` stage `batch-plan`; the R72 citation names the pinned run (1145b4a, code 975b4b1).
+   - (6) `redactAddresses` covers t2/t3/zc.
+   - (7) The cli-auction header marks the withdrawn group-B IDs.

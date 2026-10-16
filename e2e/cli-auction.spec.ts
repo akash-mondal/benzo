@@ -82,7 +82,8 @@
 // 4. Seam: none — every leg drives the shipped bin/benzo / settle plan / claim-refund over the spec's own
 //    auction or a scratch state copy; the ports assert the scripts' own verdict booleans and outcome
 //    values (their exact assertion semantics), flagged under Questions for the RG pass to re-shape.
-// IDs (tranche 3 group B): r7-1-ledger-redirect, g1-tampered-ledger-redirect, r7-2-envelope-keys,
+// IDs (tranche 3 group B) — R70/R71/R73: only r7-1-ledger-redirect and g1-tampered-ledger-redirect still run (foldR71);
+// the other ten below are WITHDRAWN (see the note after the imports). Originally: r7-1-ledger-redirect, g1-tampered-ledger-redirect, r7-2-envelope-keys,
 // r7-4-claim-refund, r7-6-stray-refunds, r7-claims-envelopes, r10-2-envelope-pays,
 // r10-4-envelope-agreement, r10-4-authenticated-strays, r15-3-claim-envelope, r16-1-cancel-claims,
 // r16-4-stray-claim-opening.

@@ -97,5 +97,5 @@ export async function waitFor(what: { round: number } | { height: number; tip: (
 // R71 (B37 leak audit, real findings 1–3): evidence never carries a full shielded or transparent destination — a
 // refund/output address in committed evidence links a payout to its recipient. Writers that capture raw tool output
 // pass it through here; the abbreviated form keeps enough to cross-reference within one evidence directory.
-const ADDRESS = /\b(?:utest1|u1|ztestsapling1|zs1|tm|t1|tex1)[0-9a-z]{30,}\b/gi;
+const ADDRESS = /\b(?:utest1|u1|ztestsapling1|zs1|zc|tm|t1|t2|t3|tex1)[0-9a-z]{30,}\b/gi; // R73: + P2SH t2/t3, sprout zc
 export const redactAddresses = (text: string): string => text.replace(ADDRESS, (a) => `${a.slice(0, 10)}…${a.slice(-6)}`);

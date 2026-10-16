@@ -51,10 +51,10 @@ function included(r:any,f:any,ctHash=r.ciphertext_hash) {
 
 test("signed sealed auction on testnet",async({page})=> {
   test.setTimeout(75*60_000);
-  // R73: the evidence each ID cites; Run fails an ID whose files were not written.
+  // R73: the evidence files written by the time each ID closes; Run fails the ID when one is missing.
   const run=new Run("auction-core",{
-    E1:["auction/deposits.json","auction/receipts.json"],G1:["auction/clear-input.json","auction/opened.json","auction/result.json"],
-    G3:["auction/vickrey.json"],H2:["auction/bad-amounts.json"],H3:["auction/frozen.json"],
+    H1:["auction/deposits.json","auction/receipts.json"],F1:["auction/frozen.json"],G1:["auction/clear-input.json","auction/opened.json","auction/result.json"],
+    G3:["auction/vickrey.json"],H2:["auction/bad-amounts.json"],
     I1:["auction/cancel.json","auction/pczt-inspect.txt","auction/refund.json","auction/signatures.json"],
   }), pinned=pinsMismatch();
   if(pinned)run.notRun(IDS,pinned);
