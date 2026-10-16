@@ -1,0 +1,77 @@
+# Making Benzo agent-friendly (head, 2026-10-16)
+
+Goal: the next agent that touches this repo should do the right thing by default. Fix mistakes at the highest level
+that works: architecture, then types, then a check whose error names the fix, then a test. Prose comes last.
+
+## The data
+
+- **Reviewer R:** 133 findings across 30 reports (9 P0, 43 P1, 81 P2), in `benzo-sol/reports/`.
+- **Head rulings:** R47–R72 during gate RG alone, in `docs/PHASE-6.md`.
+- **User corrections:** 56 corrective messages in the session transcripts.
+
+Reading every P0/P1 finding gives six classes. A class counts once it has happened twice.
+
+| Class | P0/P1 | What kept going wrong |
+|---|---|---|
+| A. Settlement wedges and double-backing | ~12 (4 P0) | a signed or pinned set compared with live chain state; a throw on a note a third party can add |
+| B. Verify trusts an unattested field | ~8 | a published field the operator can fabricate is accepted |
+| C. Test and evidence integrity | ~7, plus 9 harness bugs in R59–R70 | checks that pass for the wrong reason; `@ts-nocheck` code that never ran |
+| D. Gate and provenance bypass | ~6 | pins, skip-worktree, stale bundle, dirty tree (closed in R49–R53) |
+| E. Unbounded or single-oracle chain I/O | ~5, plus R48 | raw `spawnSync` of grpcurl/devtool/tle; NotFound read as absence |
+| F. Privacy through published or evidence fields | ~5 (4 P0), plus B37 | a destination joinable to a bid; raw tool output in evidence |
+
+## What each class gets, and the proof
+
+Every check below was run against a real past mistake. All of it is on branch `agent-friendly`.
+
+**A. Property test: `tools/checks/settlement-invariants.ts`.** It runs 3,000 random chain histories through the balance-settlement rule and checks four invariants:
+- it never throws on valid chain state;
+- a note backs at most one refund row;
+- an unconfirmed note is invisible;
+- value is conserved.
+
+*Proof:* the current code passes. The code just before R46 fails about 480 times per seed on I3 and I4, which is Reviewer R's F23. That P1 took a review round; the test finds it in about a second.
+
+**B. Trust registry: `SETTLEMENT_TRUST` in `api/public-auction.ts`.** Every published settlement field declares its trust source and the verify check that enforces it. A field with no entry is a type error, and verify refuses a field whose check did not run.
+
+*Proof:*
+- deleting the `bond_void` entry gives TS2741;
+- over every committed settled document there were 0 false alarms;
+- the registry found two fields the product publishes but verify never checks: `batches` and `offline_signer`. They are now marked informational.
+
+**C. No untyped harness: `tools/check-structure.mjs`, rule `no-ts-nocheck`.** Three fold files carried `@ts-nocheck`.
+
+*Proof:* typechecking the pre-R66 version flags R69 (`.subarray` on a hex string), R70's missing `spawn` import and its undefined `outcome`, and two latent wrong-arity calls nobody had found. The pre-R59 version flags R59's missing network argument. It misses three bugs where values were `any`, so the fix is to type the harness, not just remove the comment.
+
+**E. Bounded chain I/O: rule `bounded-chain-io`.** A spawn of grpcurl, zcash-devtool or tle must go through `settle/bounded`.
+
+*Proof:* at the commit before R48 it flags exactly the 9 sites fixed later. That includes `cli/host-chain.ts`, Reviewer R's R48 P1, so the check would have caught it before review. At HEAD it flags one real remaining miss: an unbounded `tle -d` in `e2e/cli-auction.spec.ts`.
+
+**F. Redaction by construction.** `write()` in `e2e/lib/run.ts` redacts every address in any text. Writing raw needs `writeRaw(rel, content, reason)`.
+
+*Proof:* B37's two leaking RG files go from 3 full addresses to 0.
+
+**Also: `esm-no-require` and `evidence-through-write`** close R66 and keep evidence on the redacting path.
+
+## The plan
+
+| Step | When | Contents | Risk |
+|---|---|---|---|
+| 1 | right after RG is gold | merge the check script, the property test, redacting `write()` and the trust registry; add `npm run check` (typecheck, check:structure, the property test, check:bundle) and run it in the pre-commit hook; fix the one remaining unbounded `tle` | verify output gains a check, so the verify bundle is rebuilt |
+| 2 | before mainnet | subtract first: delete the nine withdrawn folds' code, type what remains, delete the `@ts-nocheck` files | harness only |
+| 3 | after submission | architecture: one `ChainView` module owns all chain and beacon I/O (bounds, multi-endpoint agreement, NotFound typed as unknown), and the lint forbids any other route; an opaque `Destination` type whose `toJSON` throws, so a destination can never be serialized into a public document or log | product refactor, so a full RG re-run |
+
+## The rule table (goes into `AGENTS.md`)
+
+| Rule | Enforced by |
+|---|---|
+| Chain/beacon I/O is bounded | `check:structure` bounded-chain-io; step 3: `ChainView` is the only route |
+| No `@ts-nocheck` | `check:structure` no-ts-nocheck |
+| ES modules use `import` | `check:structure` esm-no-require |
+| Evidence is redacted | `write()` by construction; `check:structure` evidence-through-write |
+| Every published settlement field is verified | `SETTLEMENT_TRUST` (type and runtime) |
+| Settlement is total and conserving | `tools/checks/settlement-invariants.ts` |
+| Pinned binaries are provenance-checked | `e2e/lib/pins.ts` (R49–R53) |
+| The head does live work; builders get offline, specified batches | prose (memory and AGENTS.md); judgment |
+
+The last row is the user's own steering, read from the transcripts: the head thinks and does the risky work, MiMo gets routine work, and nothing ever uses the cloud. It stays prose because it's a judgment call.
