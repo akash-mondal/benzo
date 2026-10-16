@@ -45,6 +45,10 @@ export type SettlementSummary = {
   // R33 item 3: the signer hosts' G-4 approval maps (each carrying the defaults list that host derived from its
   // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
   approval_maps?: import("../witness").ApprovalMap[];
+  // Published by cli/product.ts but never verified (found by the trust registry): informational only — a UI must not
+  // present them as checked facts.
+  batches?: unknown[];
+  offline_signer?: string;
 };
 // Agent-friendly (class B: "verify trusted a field nobody attested", 8 Reviewer R P0/P1 findings). Every published
 // settlement field declares where its trust comes from and which verify check enforces it. Adding a field to
@@ -61,6 +65,8 @@ export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: { trust: Trus
   balance_refunds: { trust: "host-attested", verifiedBy: "balance-refs" },
   delivery_defaults: { trust: "host-attested", verifiedBy: "delivery" },
   approval_maps: { trust: "host-attested", verifiedBy: "defaults" },
+  batches: { trust: "informational", verifiedBy: "receipts" },
+  offline_signer: { trust: "informational", verifiedBy: "receipts" },
 };
 
 export type PublicResult = ClearBody;
