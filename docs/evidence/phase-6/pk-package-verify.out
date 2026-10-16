@@ -1,11 +1,11 @@
-utc 2026-10-06T04:20:55Z
-commit 3ca5c9f tree; tarball sha256 ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9
-OK tarball matches docs/evidence/phase-6/pk-package.sha256 ab18336fd4d52889ebde12925a3e47195bca09c2db395709917c21a1bc4753f9
-clean extract in /tmp, offline (no --fetch-beacon), no .env and no state dir; the shipped Phase 4 evidence copied in as the published auction directory:
-$ rm -rf /tmp/benzo-pk-run && mkdir -p /tmp/benzo-pk-run && tar -xzf dist/benzo-0.1.0.tgz -C /tmp/benzo-pk-run
-$ cp -R docs/evidence/phase-4/cli /tmp/benzo-pk-run/benzo-0.1.0/auction
-$ cd /tmp/benzo-pk-run/benzo-0.1.0 && shasum -a 256 dist/benzo-verify.mjs
-807544459ea3f467dcd5c6e4312105e0ea2de68f7e1cccd03e3e3d9cbd1a9371  dist/benzo-verify.mjs
+utc 2026-10-16T09:00:58Z
+tree B36 item 2 refresh; tarball sha256 9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a
+OK tarball matches docs/evidence/phase-6/pk-package.sha256 9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a
+clean extract in /tmp with an empty HOME, offline (no --fetch-beacon), no .env and no state dir; the shipped Phase 4 evidence copied in as the published auction directory:
+$ rm -rf /tmp/benzo-pk-rg && mkdir -p /tmp/benzo-pk-rg && tar -xzf dist/benzo-0.1.0.tgz -C /tmp/benzo-pk-rg
+$ cp -R docs/evidence/phase-4/cli /tmp/benzo-pk-rg/benzo-0.1.0/auction
+$ env -i HOME=/tmp/benzo-pk-rg/home shasum -a 256 dist/benzo-verify.mjs   (from the extract)
+b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce  dist/benzo-verify.mjs
 $ ./bin/benzo --help | head -2   (the router starts with no .env and no state dir)
 benzo api serve --dir <public-auction-dir> [--host 127.0.0.1] [--port 8787] [--signer <ed25519-spki-der-hex>]
 benzo auction create --file unsigned-manifest.json
@@ -20,10 +20,12 @@ WARN no witness set (pre-Phase-5 manifest)
 OK witness
 OK receipts
 OK clear
+OK delivery-list
 OK envelope
 OK claims
 OK accounting
 OK balances
+OK balance-refs
 OK defaults
 OK accounting-strays
 exit=0
@@ -33,5 +35,5 @@ exit=2
 OK removed-command-absent auction balance-addresses refused by the packaged router (exit 2)
 $ tar -tzf dist/benzo-0.1.0.tgz | grep -c balance-addresses   (no stale module ships)
 tar exit=0 matches=0
-OK no balance-addresses entry among the 18321 tarball entries
+OK no balance-addresses entry among the 18323 tarball entries
 PASS clean-extract verify + removed-command absence
