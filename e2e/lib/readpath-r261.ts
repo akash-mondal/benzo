@@ -445,7 +445,7 @@ writeFileSync(path.join(STATE, "witness-alice.key"), "33".repeat(32), { mode: 0o
 const signerKey = generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }).toString();
 const now = Math.floor(Date.now() / 1000);
 const R = 2 + Math.floor((now + 30 * 86400 - schema.QUICKNET.genesis) / schema.QUICKNET.period);
-const manifest = {
+const manifest: schema.Manifest = {
   version: 1, network: "test", auction_id: ID, escrow_ua: "utest1r261fixtureescrow", frost_group_key: "ab".repeat(32),
   lot: "r26-1 fixture", supply: 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "30", q_max: 1,
   C_zats: "500000", fee_zats: "0", deposit_addresses: [D1, D2],
@@ -492,15 +492,15 @@ check("r26-1-two-refund-rows",
 
 // ---- verify's accounting over the same identities ----
 const zeroParty = `deposit:${TXID}:ironwood:2`;
-const basePub = {
+const basePub: Omit<api.PublicAuction, "settlement"> = {
   dir: ROOT, signer: packet.signer, legacy: true, state: "REFUNDING",
   manifestPacket: packet, manifest, manifest_hash: schema.hash(Buffer.from(packet.bytes, "base64")),
   frozen: null, opened: [], beacon: null, serialBeacon: null, launchInput: undefined,
   result: null, resultBytes: null, receipts: [], envelopes: [], witnessSet: null, witnessCerts: [],
-  claims: [], reserveOpening: null, deliveryList: null,
+  claims: [], reserveOpening: null, deliveryList: undefined,
 };
 const accountingStrays = (settlement: any) => {
-  const checks = api.checkPublicAuction({ ...basePub, settlement } as any, {}) /* test fixture */;
+  const checks = api.checkPublicAuction({ ...basePub, settlement }, {});
   return checks.find(c => c.id === "accounting-strays")?.error ?? null;
 };
 const paidZero = accountingStrays({

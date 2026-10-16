@@ -31,7 +31,7 @@ function shapeKeys(shape: { [k: string]: Shape }): { required: Set<string>; opti
 }
 
 function checkShape(id: string, where: string, observed: unknown, shape: Shape): void {
-  const err = (why: string) => failures.push(`ERROR ${id} ${where}: ${why}`);
+  const err = (why: string): void => { failures.push(`ERROR ${id} ${where}: ${why}`); };
   if (typeof shape === "string") {
     const kinds = shape.split("|");
     if (observed === null) return kinds.includes("null") ? undefined : err(`expected ${shape}, got null`);
@@ -43,7 +43,7 @@ function checkShape(id: string, where: string, observed: unknown, shape: Shape):
     if (shape.length !== 1) return err(`bad documented array shape`);
     return observed.forEach((v, i) => checkShape(id, `${where}[${i}]`, v, shape[0]));
   }
-  if (observed === null) return shape.$nullable === true ? undefined : err(`unexpected null`);
+  if (observed === null) return (shape as Record<string, unknown>).$nullable === true ? undefined : err(`unexpected null`);
   if (typeof observed !== "object" || Array.isArray(observed)) return err(`expected object, got ${Array.isArray(observed) ? "array" : typeof observed}`);
   const keys = Object.keys(observed as object);
   const { required, optional } = shapeKeys(shape);

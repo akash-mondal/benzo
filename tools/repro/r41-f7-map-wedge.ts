@@ -113,7 +113,7 @@ line("f7-pin-accepts", () => {
 // plan's row set is never compared to them (the F7 wedge point 1 — the reviewer's "WEDGED-AS-CODED worker").
 const plan: any = { defaults: [] as number[], balance_refunds: L1 };
 line("f7-finalize-accepts", () => {
-  const pair = agreedBatchMaps(b1maps, wkeys, txid1, plan);
+  const pair = agreedBatchMaps(b1maps, wkeys, txid1);
   return [pair.length === 2, "the mined batch's finalize accepts despite the plan's grown refund-row set"];
 });
 

@@ -149,7 +149,8 @@ async function buildFixture(name: string, mode: "uniform" | "buyback" | "otc", d
     public_key: schema.QUICKNET.public_key, period: schema.QUICKNET.period, genesis_time: schema.QUICKNET.genesis,
     hash: chainHash, groupHash: "", schemeID: schema.QUICKNET.scheme, metadata: { beaconID: "quicknet" },
   };
-  const pinnedClient = { chain: () => ({ info: async () => pinnedInfo }) };
+  // Only chain().info() is read by timelockEncrypt; the pinned info stands in for the network fetch.
+  const pinnedClient = { chain: () => ({ info: async () => pinnedInfo }) } as unknown as Parameters<typeof tlock.timelockEncrypt>[2];
   const records: any[] = [], openPlaintexts: string[] = [];
   const prices = opts.prices ?? deliverPlan.map(() => 250_000);
   const quantities = opts.quantities ?? deliverPlan.map(() => 1);
@@ -172,7 +173,7 @@ async function buildFixture(name: string, mode: "uniform" | "buyback" | "otc", d
   const beacon = await beaconRes.json();
   const leaves = records.map((r, i) => ({
     auction_id: id, manifest_hash: client.manifest_hash, ciphertext_hash: r.ciphertext_hash,
-    deposit: { txid: randomBytes(32).toString("hex"), pool: "ironwood", address: manifest.deposit_addresses[i], diversifier_index: String(i) },
+    deposit: { txid: randomBytes(32).toString("hex"), pool: "ironwood" as const, address: manifest.deposit_addresses[i], diversifier_index: String(i) },
     leaf_index: i, ciphertext_hex: r.ct_hex,
   }));
   const frozenTree = merkle.tree(leaves);

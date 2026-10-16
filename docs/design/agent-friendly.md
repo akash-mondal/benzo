@@ -95,7 +95,8 @@ The last row is the user's own steering, read from the transcripts: the head thi
   - On history it adds `cli/host-derive.ts`'s `devtool` (R48) and the harness `TLE` calls (R52): 15 flags before R48, 10 before R52, 0 at HEAD.
 - **P2: redaction coverage.** Added t2/t3 (P2SH) and zc (Sprout).
 - **P2: reproducible counts.** `python3 tools/af/mine-corpus.py ../benzo-sol/reports` re-derives them. Today: 31 reports, 152 findings (9 P0, 46 P1, 97 P2), 129 head rulings. The table above was written at 133 findings.
-- **Still open:**
-  - R-AF-5: `verifiedBy` proves only that the named check ran. The next step ties each field to an assertion inside its check.
-  - R-AF-3: `tools/` is not yet typechecked.
-  - The `as any` on the r261 fixture.
+- **R-AF-3, P2: `tools/` is now typechecked.** It is in `tsconfig.json`, so `npm run check` covers it. The first run gave 21 errors in 8 drivers. Most were missing annotations, but two were real:
+  - `tools/repro/r28-replay.ts` used `ROOT` without importing it. R43 added that line, so the driver has thrown a ReferenceError on start ever since. That is class C again.
+  - `r41-f7-map-wedge.ts` passed a fourth argument that `agreedBatchMaps` no longer takes.
+- **The r261 fixture's `as any` is gone.** It is typed as `PublicAuction` now. Typing it showed the fixture's `deliveryList: null` where the type says `undefined`. The folds still pass 10 of 10 offline.
+- **Still open:** R-AF-5. `verifiedBy` proves only that the named check ran. The next step ties each field to an assertion inside its check.

@@ -57,7 +57,7 @@ const mintStray = async (tag: string) => {
   Buffer.from(owner.public_hex, "hex").copy(pt, 61);
   pt[33] = tag.length; // vary the plaintext so the two ciphertexts differ
   const armored = await timelockEncrypt(beacon.round, pt, local as any);
-  const b64 = armored.split("\n").filter((l) => l && !l.startsWith("-----")).join("");
+  const b64 = armored.split("\n").filter((l: string) => l && !l.startsWith("-----")).join("");
   const ctHex = Buffer.from(b64, "base64").toString("hex");
   const memo = Buffer.alloc(512);
   Buffer.from("ff424e5a01", "hex").copy(memo, 0);

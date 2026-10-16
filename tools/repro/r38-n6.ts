@@ -46,7 +46,7 @@ const fail = (id: string, reason: string) => { failures++; console.log(`ERROR ${
 const lab = assertScratch(path.join(ROOT, "tmp", "r38-n6-lab")), wallet = path.join(lab, "wallet"), idFile = path.join(lab, "lab-n6.age"); // R43: tmp/ only
 const bidderAddr = () => sh(PCZT, ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim().split("\n").at(-1)!;
 const labAddr = () => sh(PCZT, ["address", wallet, "--network", "test"]).out.trim().split("\n").at(-1)!;
-const labNotes = () => sh(path.join(ROOT, "scan/target/release/benzo-scan"), ["scan", "test", wallet]).out.trim().split("\n").filter(Boolean).map(l => JSON.parse(l)).filter((n: any) => !n.spent_in_txid && n.value_zats > 0);
+const labNotes = () => sh(path.join(ROOT, "scan/target/release/benzo-scan"), ["scan", "test", wallet]).out.trim().split("\n").filter(Boolean).map((l: string) => JSON.parse(l)).filter((n: any) => !n.spent_in_txid && n.value_zats > 0);
 
 // 1. A fresh lab wallet (its own mnemonic under $BNZ_STATE_DIR/lab-n6.age), nothing reused across runs. Any
 // wallet left by an earlier run is swept back to the bidder before it is deleted — a funded run is recovered.
@@ -103,7 +103,7 @@ if (mk.code === 0) {
     provenBytes = readFileSync(proved).length;
     const ufvk = sh(DEVTOOL, ["wallet", "-w", wallet, "list-accounts"]).out.match(/UFVK: (\S+)/)?.[1] ?? "";
     const ufvkFile = path.join(lab, "ufvk.txt"); writeFileSync(ufvkFile, ufvk + "\n", { mode: 0o600 });
-    const info = JSON.parse(sh(PCZT, ["inspect", proved, ufvkFile, "--network", "test"]).out.trim().split("\n").filter(l => l.startsWith("{")).at(-1)!);
+    const info = JSON.parse(sh(PCZT, ["inspect", proved, ufvkFile, "--network", "test"]).out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!);
     const outs = (info.outputs ?? []).filter((o: any) => !o.is_change).length, spends = (info.randomizers ?? []).length;
     pass("n6-max-shape-counts", `spends ${spends}, non-change outputs ${outs}, change ${(info.outputs ?? []).length - outs} (largest allowed: 29 spends, 28 recipients + change = 29 actions)`);
     if (spends !== 29 || outs !== 28) fail("n6-max-shape-counts", `the shape is not the largest allowed one (${spends} spends, ${outs} outs)`);
