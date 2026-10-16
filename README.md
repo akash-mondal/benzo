@@ -137,6 +137,9 @@ hosts attest it over the identical signed start-block header (read from every co
 verify` recomputes it from that header, every deposit refunds C minus the auction fee (settlement requires a
 zero fee, so exactly C), every balance payment refunds in full, and the seller is paid nothing. A bond is a
 uniform/vickrey feature only, and `auction create` refuses a start that is already mined.
+- **Coordinator-local signing is dev-only** (R70): the `cli-auction` drill signs with local FROST signers, which
+publish no host-signed approval maps, so a paid stray claim cannot be attested there. Production settlement is
+host custody (R28), where every paid claim is attested by two signer hosts.
 - **Each signer host trusts its own lightwalletd endpoints** (R28/R64): a host reads notes, mined heights and the
 bond-window header from the endpoints in its own launcher config, and two distinct endpoints must agree
 (`BNZ_LWD_SINGLE=1` is testnet-only). In this testnet deployment one operator provisions all three hosts with the

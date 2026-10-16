@@ -4,7 +4,7 @@
 // argv becomes the auction-id parameter and each script's outcome/verdict becomes one minted ID whose
 // four AGENTS.md answers live in e2e/cli-auction.spec.ts's header. The live legs are unvalidated in
 // this offline batch by design: R35.3(b) proves every folded ID pass/red at the final regression.
-import { spawnSync, execFileSync } from "node:child_process";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, statSync, writeFileSync } from "node:fs";
 import { assertScratch } from "../../tools/repro/scratch.ts"; // R43/F17: only tmp/ or $TMPDIR targets may be deleted
 import { createCipheriv, createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
@@ -323,7 +323,7 @@ if (!existsSync(operatorKeyFile)) {
 const attacker = "utest1redacted";
 const fabricated = published.frozen.leaves.map((leaf) => {
   const owner = generateOwnerKey(), nonce = randomBytes(16).toString("hex");
-  const envelope_ct = sealEnvelope(attacker, sealToPub, "test");
+  const envelope_ct = sealEnvelope(attacker, [sealToPub], "test") /* R70: recipients are an array */;
   const pt = Buffer.alloc(128);
   Buffer.from(nonce, "hex").copy(pt, 45);
   Buffer.from(owner.public_hex, "hex").copy(pt, 61);
@@ -1100,7 +1100,7 @@ if (plan) {
     const party = `deposit:${note.txid}:${note.diversifier_index}`;
     const operatorOwner = env.generateOwnerKey();
     const operatorCt = env.sealEnvelope(sellerUa, signerKeys, "test");
-    const ctHash = sha256(Buffer.from(senv.memoSealedBid(note.memo_hex) ?? "", "hex"));
+    const ctHash = sha256(Buffer.from(senv.memoSealedBid(note.memo_hex)?.ciphertext_hex ?? "", "hex"));
     const rec = { ciphertext_hash: ctHash, envelope_ct: operatorCt, owner_sig: env.signEnvelope(operatorOwner, auction_id, ctHash, operatorCt) };
     const aliceKey = JSON.parse(readFileSync(path.join(STATE, "signers", "alice", "envelope-key.json"), "utf8")).private_hex;
     const resolved = senv.authenticatedMemoEnvelope
@@ -1172,10 +1172,10 @@ const notes = execFileSync(path.join(ROOT, "scan/target/release/benzo-scan"), ["
 const { DatabaseSync } = await import("node:sqlite");
 const owned = new Set(new DatabaseSync(scratch(`settle/${sourceAuction}/ledger.sqlite`), { readOnly: true }).prepare("SELECT txid FROM batches WHERE txid IS NOT NULL AND state!='exception'").all().map((b) => String(b.txid)));
 const target = notes.find((n) => manifest.deposit_addresses.includes(n.address) && (!n.spent_in_txid || owned.has(n.spent_in_txid))
-  && n.memo_hex && memoSealedBid(n.memo_hex) && existsSync(path.join(STATE, "bids", sourceAuction, sha256(Buffer.from(memoSealedBid(n.memo_hex), "hex")) + ".json")));
+  && n.memo_hex && memoSealedBid(n.memo_hex) && existsSync(path.join(STATE, "bids", sourceAuction, sha256(Buffer.from(memoSealedBid(n.memo_hex)!.ciphertext_hex, "hex")) + ".json")));
 if (!target) { console.error("no claimable bid deposit with an owner key"); process.exit(2); }
 const party = `deposit:${target.txid}:${target.diversifier_index}`;
-const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", sourceAuction, sha256(Buffer.from(memoSealedBid(target.memo_hex), "hex")) + ".json"), "utf8")).owner_private_hex;
+const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", sourceAuction, sha256(Buffer.from(memoSealedBid(target.memo_hex)!.ciphertext_hex, "hex")) + ".json"), "utf8")).owner_private_hex;
 const dest = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim();
 if (!dest.startsWith("utest1")) { console.error(`fresh bidder address unavailable: ${dest}`); process.exit(2); }
 
@@ -1278,10 +1278,10 @@ const notes = execFileSync(path.join(ROOT, "scan/target/release/benzo-scan"), ["
   db.close();
 }
 const target = notes.find((n) => manifest.deposit_addresses.includes(n.address) && (!n.spent_in_txid || owned.has(n.spent_in_txid))
-  && n.memo_hex && memoSealedBid(n.memo_hex) && existsSync(path.join(STATE, "bids", id, createHash("sha256").update(Buffer.from(memoSealedBid(n.memo_hex), "hex")).digest("hex") + ".json")));
+  && n.memo_hex && memoSealedBid(n.memo_hex) && existsSync(path.join(STATE, "bids", id, createHash("sha256").update(Buffer.from(memoSealedBid(n.memo_hex)!.ciphertext_hex, "hex")).digest("hex") + ".json")));
 if (!target) { console.error("no claimable bid deposit with an owner key"); process.exit(2); }
 const party = `deposit:${target.txid}:${target.diversifier_index}`;
-const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", id, createHash("sha256").update(Buffer.from(memoSealedBid(target.memo_hex), "hex")).digest("hex") + ".json"), "utf8")).owner_private_hex;
+const ownerPrivate = JSON.parse(readFileSync(path.join(STATE, "bids", id, createHash("sha256").update(Buffer.from(memoSealedBid(target.memo_hex)!.ciphertext_hex, "hex")).digest("hex") + ".json"), "utf8")).owner_private_hex;
 const dest = sh(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, "bidder"), "--network", "test"]).out.trim();
 if (!dest.startsWith("utest1")) { console.error(`fresh bidder address unavailable: ${dest}`); process.exit(2); }
 const request = JSON.parse(sh(path.join(ROOT, "bin/benzo"), ["claim-refund", "--id", id, "--party", party, "--destination", dest, "--owner-key-stdin"], ownerPrivate).out);

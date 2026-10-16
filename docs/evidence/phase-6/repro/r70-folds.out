@@ -1,0 +1,21 @@
+utc 2026-10-16T11:36:02Z commit (parent) b84832b
+command: node tmp/r70/folds.mjs <settled cli-auction id> (first pass, before the R70 fixes), then node tmp/r70/one.mjs <fold> <id> per fold
+--- first pass (tmp/r70/folds.out, setup lines) ---
+SETUP-FAIL foldR71: spawn is not defined
+SETUP-OK foldR72
+SETUP-FAIL foldR74: outcome is not defined
+SETUP-FAIL foldR76: Unexpected token 'E', "ERROR benz"... is not valid JSON
+SETUP-OK foldR7Claims
+SETUP-FAIL foldR102: refused: wrong-network address
+SETUP-FAIL foldR104: The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received an instance of Object
+SETUP-FAIL foldR153: The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received an instance of Object
+SETUP-FAIL foldR161: The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received an instance of Object
+--- after the R70 mechanical fixes (spawn import, memoSealedBid().ciphertext_hex, recipients array) ---
+foldR71: SETUP-OK; r7-1-ledger-redirect PASS; g1-tampered-ledger-redirect PASS
+foldR72: r7-2-envelope-keys FAIL 'the drill never reached its verdict'
+foldR7Claims: FAIL — clean and forged claims both refused by R42's host-map attestation (local signers publish no maps)
+foldR74: ReferenceError outcome is not defined (no pass rule was ever ported)
+foldR76 / foldR161: a benzo CLI ERROR parsed as JSON (fixture preconditions not met by this auction)
+foldR102: wrong-network address (pre-A15 repro library)
+foldR104 / foldR153: outcome INCONCLUSIVE (fixture preconditions not met)
+foldR164: 'the claim does not publish the scanned deposit's memo'
