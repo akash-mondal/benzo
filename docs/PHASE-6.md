@@ -282,3 +282,25 @@ Draft: +700 hand-written lines (Track B ~450 incl. generator/scan/packaging glue
    - (5) The SC row's repro now points at `tools/bench.ts` stage `batch-plan`; the R72 citation names the pinned run (1145b4a, code 975b4b1).
    - (6) `redactAddresses` covers t2/t3/zc.
    - (7) The cli-auction header marks the withdrawn group-B IDs.
+
+### R74 — Reviewer R on R73 (`pr-rg-r73.md`, FIX-FIRST): one P1, six P2s
+
+1. **P1 (R73's public binding cannot be satisfied): RESTATED. No public export is approved.**
+   - `leak-audit` exits 0 only on zero rows.
+   - Its allowlist suppresses only `address` rows, and the anvil dev-key `exact-value` rows cannot be suppressed.
+   - A history-free export of HEAD still carries 45 class-C rows in phase-1–5 evidence.
+   - **The release scrub, a Phase 7 item that is the only path to a public repo:**
+     - (a) The export omits or redacts every evidence file holding a real refund, output or delivery destination: the class-C/G rows in `leak-audit.md`, re-derived on the export.
+     - (b) The demos read the anvil key from the environment; no key literal is in the tree.
+     - (c) Any `exact-value` allowlist entry needs a written justification per value. **No allowlist entry may cover a file that holds a real destination.**
+     - (d) The owed `release_time` (bid plaintext before R) sensitive entries are added first.
+     - (e) One recorded dry run of `leak-audit --git` over the export exits 0, before any push.
+   - Until (a)–(e) are done, nothing is published.
+   - The GitHub remote `akash-mondal/benzo-zcash` was checked on 2026-10-17 with `gh repo view`: `PRIVATE`. That answers R's UNCONFIRMED premise.
+2. **P2s:**
+   - **P2-2.** auction-core's manifest now also guards E1's `manifest.json`/`cancel-manifest.json`/`signer.json` and the five `bid*.memo.hex` (under H1). `run.ts` describes the manifest truthfully, as a temporal bucket. The other five specs have no manifest yet: a residual. The `comment-swallowed-statement` rule on `agent-friendly` covers the mechanism in every spec.
+   - **P2-3.** The mutation is committed as `mutations/R73-open-taddr.patch`. Folding the repro into a gate-run spec ID is owed at the next cli-auction run: a residual.
+   - **P2-4.** The LA row's "missing" cell now records the decision. The `release_time` entries are owed (R74 1(d)).
+   - **P2-5.** The RG row names the all-FAIL markets run by its code `7b148b6`, and the tail is current.
+   - **P2-6.** `run.json` gains `fail_reasons`: the first assertion message of each FAIL. The offline probe records "B evidence r73/b.txt was not written".
+   - **P2-7.** The RG row discloses the six pins and states the rule as applied: one product-code tree, checked by equal built-artifact digests and the earliest-to-latest pin diff. The harness differs per run.

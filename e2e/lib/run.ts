@@ -18,13 +18,17 @@ const reason = (message: string) =>
 
 export class Run {
   results: Record<string, Result> = {};
-  // R73 (Reviewer R P1-1 on R72): the evidence files each ID cites. A check whose cited files were not written is a
-  // FAIL — a swallowed or skipped write() can no longer pass silently (R71 lost auction/signatures.json this way).
+  reasons: Record<string, string> = {}; // R74 (Reviewer R P2-6 on R73): a FAIL's first reason goes into run.json, not only the console
+  // R73 (Reviewer R P1-1 on R72): per ID, the evidence files that must exist when the ID closes (a temporal bucket —
+  // a file is listed under the first ID that closes after its write(), not under the ID whose claim cites it). A
+  // missing file FAILs that ID, so a swallowed or skipped write() cannot pass silently (R71 lost signatures.json).
   constructor(private spec: string, private evidence: Record<string, string[]> = {}) {}
 
   private save() {
     mkdirSync(path.join(E2E, "results"), { recursive: true });
     writeFileSync(path.join(E2E, "results", `${this.spec}.json`), JSON.stringify(this.results, null, 1));
+    mkdirSync(path.join(E2E, "fail-reasons"), { recursive: true });
+    writeFileSync(path.join(E2E, "fail-reasons", `${this.spec}.json`), JSON.stringify(this.reasons, null, 1));
   }
 
   // One assertion ID: a soft failure is recorded and printed as `ERROR <id> <reason>`, and the next step still runs.
@@ -39,7 +43,7 @@ export class Run {
       for (const rel of this.evidence[id] ?? []) expect.soft(existsSync(path.join(OUT, rel)), `${id} evidence ${rel} was not written`).toBe(true);
       const errors = test.info().errors.slice(before);
       this.results[id] = errors.length ? "FAIL" : "PASS";
-      if (errors.length) console.log(`ERROR ${id} ${reason(errors[0].message ?? "")}`);
+      if (errors.length) { this.reasons[id] = reason(errors[0].message ?? ""); console.log(`ERROR ${id} ${this.reasons[id]}`); }
       this.save();
     });
   }

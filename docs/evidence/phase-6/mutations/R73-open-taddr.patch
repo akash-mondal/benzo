@@ -1,0 +1,20 @@
+diff --git a/envelope/index.ts b/envelope/index.ts
+index 3f8e5d5..270dd79 100644
+--- a/envelope/index.ts
++++ b/envelope/index.ts
+@@ -210,7 +210,6 @@ function openPadded(envelopeCtHex: string, recipientPrivateHex: string): string
+ // `requireDeliver` (seal did already; a tampered sealer is refused at use, e.g. into the exception queue).
+ function parseEnvelopePayload(text: string, network: string): EnvelopePayload {
+   if (!text.startsWith("{")) {
+-    requireShieldedDestination(text, network);
+     return { refund: text };
+   }
+   let doc: any;
+@@ -221,7 +220,6 @@ function parseEnvelopePayload(text: string, network: string): EnvelopePayload {
+       (keys.join(",") === "refund,v" || (keys.join(",") === "deliver,refund,v" && doc.deliver !== null && typeof doc.deliver === "object" && !Array.isArray(doc.deliver))),
+     "envelope payload v2",
+   );
+-  requireShieldedDestination(doc.refund, network);
+   return doc.deliver === undefined ? { refund: doc.refund } : { refund: doc.refund, deliver: doc.deliver as DeliverInput };
+ }
+ export function openEnvelopePayload(envelopeCtHex: string, recipientPrivateHex: string, network: string): EnvelopePayload {

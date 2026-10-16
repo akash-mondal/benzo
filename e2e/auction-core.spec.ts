@@ -53,7 +53,8 @@ test("signed sealed auction on testnet",async({page})=> {
   test.setTimeout(75*60_000);
   // R73: the evidence files written by the time each ID closes; Run fails the ID when one is missing.
   const run=new Run("auction-core",{
-    H1:["auction/deposits.json","auction/receipts.json"],F1:["auction/frozen.json"],G1:["auction/clear-input.json","auction/opened.json","auction/result.json"],
+    E1:["auction/manifest.json","auction/cancel-manifest.json","auction/signer.json"],
+    H1:["auction/deposits.json","auction/receipts.json",...[0,1,2,3,4].map(i=>`auction/bid${i}.memo.hex`)],F1:["auction/frozen.json"],G1:["auction/clear-input.json","auction/opened.json","auction/result.json"],
     G3:["auction/vickrey.json"],H2:["auction/bad-amounts.json"],
     I1:["auction/cancel.json","auction/pczt-inspect.txt","auction/refund.json","auction/signatures.json"],
   }), pinned=pinsMismatch();

@@ -7,6 +7,7 @@ import { E2E, ROOT } from "./env";
 export default function globalSetup() {
   rmSync(path.join(E2E, "out"), { recursive: true, force: true });
   rmSync(path.join(E2E, "results"), { recursive: true, force: true });
+  rmSync(path.join(E2E, "fail-reasons"), { recursive: true, force: true }); // R74
   if (process.env.BNZ_EVIDENCE_DIR) {
     const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: ROOT }).toString();
     if (dirty.trim()) {

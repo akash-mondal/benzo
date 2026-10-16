@@ -38,6 +38,8 @@ export default function globalTeardown() {
     start_utc: readFileSync(path.join(E2E, "start.txt"), "utf8"),
     end_utc: new Date().toISOString(),
     results,
+    // R74: the first assertion message of each FAIL (empty when everything passed).
+    fail_reasons: Object.assign({}, ...files(path.join(E2E, "fail-reasons")).map((f) => JSON.parse(readFileSync(f, "utf8")))),
     sha256: Object.fromEntries([...hashed.map((f) => [path.relative(dest, f), sha256(f)]), ...built.map((p) => [p, sha256(path.join(ROOT, p))])]),
     tools,
     // R52 (Reviewer R S8 on R49): chain of custody for the NU7 path builds. The provenance record is attested by
