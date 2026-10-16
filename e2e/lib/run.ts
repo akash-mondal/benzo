@@ -43,7 +43,8 @@ export class Run {
       for (const rel of this.evidence[id] ?? []) expect.soft(existsSync(path.join(OUT, rel)), `${id} evidence ${rel} was not written`).toBe(true);
       const errors = test.info().errors.slice(before);
       this.results[id] = errors.length ? "FAIL" : "PASS";
-      if (errors.length) { this.reasons[id] = redactAddresses(reason(errors[0].message ?? "")); // committed: never a full address console.log(`ERROR ${id} ${this.reasons[id]}`); }
+      // R74: the reason is committed in run.json, so it is redacted like any evidence text.
+      if (errors.length) { this.reasons[id] = redactAddresses(reason(errors[0].message ?? "")); console.log(`ERROR ${id} ${this.reasons[id]}`); }
       this.save();
     });
   }
