@@ -46,6 +46,23 @@ export type SettlementSummary = {
   // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
   approval_maps?: import("../witness").ApprovalMap[];
 };
+// Agent-friendly (class B: "verify trusted a field nobody attested", 8 Reviewer R P0/P1 findings). Every published
+// settlement field declares where its trust comes from and which verify check enforces it. Adding a field to
+// SettlementSummary without an entry here is a type error (the mapped type has no optional keys), and verify refuses a
+// published field whose check did not run — so a new field can never ship unchecked.
+type Trust = "derived" | "chain-receipt" | "host-attested" | "informational";
+export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: { trust: Trust; verifiedBy: string } } = {
+  auction_id: { trust: "derived", verifiedBy: "accounting" },
+  rows: { trust: "derived", verifiedBy: "accounting" },
+  receipts: { trust: "chain-receipt", verifiedBy: "receipts" },
+  ignored: { trust: "derived", verifiedBy: "accounting" },
+  defaults: { trust: "host-attested", verifiedBy: "defaults" },
+  bond_void: { trust: "host-attested", verifiedBy: "defaults" },
+  balance_refunds: { trust: "host-attested", verifiedBy: "balance-refs" },
+  delivery_defaults: { trust: "host-attested", verifiedBy: "delivery" },
+  approval_maps: { trust: "host-attested", verifiedBy: "defaults" },
+};
+
 export type PublicResult = ClearBody;
 // Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
 // yet. Readers that must run past freeze (benzo verify) use loadCompletePublicAuction instead.
@@ -762,6 +779,15 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         `ignored zero-value note ${ig.party} paid`);
     }
   });
+  // Agent-friendly (class B): every present settlement field must have had its enforcing check run.
+  if (pub.settlement) {
+    const ran = new Set(checks.map((c) => c.id));
+    for (const k of Object.keys(pub.settlement)) {
+      const t = (SETTLEMENT_TRUST as Record<string, { verifiedBy: string }>)[k];
+      if (!t) checks.push({ id: "trust-registry", error: `settlement field ${k} has no trust entry (SETTLEMENT_TRUST)` });
+      else if (!ran.has(t.verifiedBy)) checks.push({ id: "trust-registry", error: `settlement field ${k}: its check ${t.verifiedBy} did not run` });
+    }
+  }
   return checks;
 }
 

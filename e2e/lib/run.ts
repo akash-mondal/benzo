@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DRAND, E2E, OUT } from "./env";
+import { redactAddresses } from "./redact";
+export { redactAddresses };
 
 type Result = "PASS" | `PASS (narrowed: ${string})` | "FAIL" | "NOT RUN";
 
@@ -56,7 +58,16 @@ export class Run {
   }
 }
 
+// Agent-friendly (class F): evidence is redacted by construction. write() abbreviates every address in any text it
+// is given (UTF-8 bytes included), so a new evidence file cannot leak a destination by forgetting a call. Writing raw
+// needs writeRaw() with a stated reason, which is greppable and reviewable.
 export function write(rel: string, content: string | Uint8Array) {
+  const text = typeof content === "string" ? content : Buffer.from(content).toString("utf8");
+  const isText = typeof content === "string" || Buffer.from(text, "utf8").equals(Buffer.from(content));
+  writeRaw(rel, isText ? redactAddresses(text) : content, "binary evidence: no text to redact");
+}
+export function writeRaw(rel: string, content: string | Uint8Array, reason: string) {
+  if (!reason.trim()) throw new Error(`writeRaw(${rel}) needs a reason`);
   const p = path.join(OUT, rel);
   mkdirSync(path.dirname(p), { recursive: true });
   writeFileSync(p, content);
@@ -90,9 +101,3 @@ export async function waitFor(what: { round: number } | { height: number; tip: (
     await new Promise((r) => setTimeout(r, "round" in what ? 1000 : 15000));
   }
 }
-
-// R71 (B37 leak audit, real findings 1–3): evidence never carries a full shielded or transparent destination — a
-// refund/output address in committed evidence links a payout to its recipient. Writers that capture raw tool output
-// pass it through here; the abbreviated form keeps enough to cross-reference within one evidence directory.
-const ADDRESS = /\b(?:utest1|u1|ztestsapling1|zs1|tm|t1|tex1)[0-9a-z]{30,}\b/gi;
-export const redactAddresses = (text: string): string => text.replace(ADDRESS, (a) => `${a.slice(0, 10)}…${a.slice(-6)}`);
