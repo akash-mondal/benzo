@@ -1,0 +1,14 @@
+mutation P3 (docs/evidence/phase-6/rg/mutations/P3.patch) on project settle-crash
+commit 91f0f0fbd9de1b83361d8dd5695ffef19ce60c3a (patch applied on top, then reverted)
+utc 2026-10-16T14:52:58Z
+expected red: M1
+ERROR ids: M1 
+RESULT RED (expected)
+--- last 30 lines ---
+main deposits broadcast 17ee98ee63991c741485f82d6915ac7f45e8349eb9956048f7bd71b059002705
+cancel deposits broadcast 42f2ec202796f6f193011039108b09371cb12f527894784162e8579e710d83e2
+ERROR M1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+development-only fund recovery c31a44328e65df6c8adea319c97987935fca6a0e0e21385d330ccc55eab5a9af
+run.json -> tmp/e2e/out
+FAILED settle-crash settlement survives a worker crash and drand outage with one signer not selected (2407 s)
+run failed; details in tmp/e2e/report.json
