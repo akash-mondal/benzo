@@ -1,0 +1,18 @@
+mutation N7 (docs/evidence/phase-2/mutations/N7.patch) on project auction-core
+commit f7321cfb784b650ed2f07d2247edebb2687cfce5 (patch applied on top, then reverted)
+utc 2026-10-16T14:12:49Z
+expected red: I1
+ERROR ids: I1 
+RESULT RED (expected)
+--- last 30 lines ---
+deposit 1/6 broadcast a98b67f96e95a5765317c46352f2872286d58598c280a029cbc5602ef1886a5d
+deposit 2/6 broadcast e008839ed66f6ac816f3deb0466822c7e48f32c8f425e34c47cafb96f72c22c6
+deposit 3/6 broadcast ac620f52080f74ec7fb2ec84306c04df9300fe2bb1601bfd1c21fb8dd1d02aef
+deposit 4/6 broadcast d312b083617b1d1ee91b8f4f13cd282d29916c001727b50a80a4a067da4fa000
+deposit 5/6 broadcast 7758b239343f087a2bf5123a5221597411b47d03b38cc88617e1579c58001881
+deposit 6/6 broadcast d7bae45be1090a5a301e28afffb3a750b6a1a6a37962dc4d86cf9602e73828fe
+refund broadcast eaba88623bff8e101362bcaef9735bc8b75d56d9192d93ad5a2c3efe742a8f37
+ERROR I1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+run.json -> tmp/e2e/out
+FAILED auction-core signed sealed auction on testnet (3136 s)
+run failed; details in tmp/e2e/report.json
