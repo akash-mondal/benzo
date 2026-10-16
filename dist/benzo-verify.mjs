@@ -16737,6 +16737,19 @@ function checkPublicAuction(pub, opts = {}) {
       );
     }
   });
+  run2("no-destinations", () => {
+    if (!pub.settlement) return;
+    const ADDRESS = /\b(?:utest1|u1|ztestsapling1|zs1|tm|t1|t3|tex1)[0-9a-z]{30,}\b/i;
+    const hits = [];
+    const walk = (v2, at2) => {
+      if (typeof v2 === "string") {
+        if (ADDRESS.test(v2)) hits.push(at2);
+      } else if (Array.isArray(v2)) v2.forEach((x2, i2) => walk(x2, `${at2}[${i2}]`));
+      else if (v2 && typeof v2 === "object") for (const [k2, x2] of Object.entries(v2)) walk(x2, `${at2}.${k2}`);
+    };
+    walk(pub.settlement, "settlement");
+    requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
+  });
   if (pub.settlement) {
     const ran = new Set(checks.map((c2) => c2.id));
     for (const k2 of Object.keys(pub.settlement)) {

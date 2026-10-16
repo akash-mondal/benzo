@@ -785,6 +785,21 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         `ignored zero-value note ${ig.party} paid`);
     }
   });
+  // Agent-friendly (Reviewer R on the branch: a destination nested in `rows` passed the registry). Structural leak
+  // guard: no address string may appear anywhere in the published settlement — at any depth, in any field. Receipts
+  // carry txids and output indexes; parties are leaf/deposit/row names; a destination has no business here.
+  run("no-destinations", () => {
+    if (!pub.settlement) return;
+    const ADDRESS = /\b(?:utest1|u1|ztestsapling1|zs1|tm|t1|t3|tex1)[0-9a-z]{30,}\b/i;
+    const hits: string[] = [];
+    const walk = (v: unknown, at: string): void => {
+      if (typeof v === "string") { if (ADDRESS.test(v)) hits.push(at); }
+      else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
+      else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, `${at}.${k}`);
+    };
+    walk(pub.settlement, "settlement");
+    requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
+  });
   // Agent-friendly (class B): every present settlement field must have had its enforcing check run.
   if (pub.settlement) {
     const ran = new Set(checks.map((c) => c.id));
