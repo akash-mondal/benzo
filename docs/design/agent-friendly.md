@@ -59,7 +59,7 @@ Every check below was run against a real past mistake. All of it is on branch `a
 |---|---|---|---|
 | 1 | right after RG is gold | merge the check script, the property test, redacting `write()` and the trust registry; add `npm run check` (typecheck, check:structure, the property test, check:bundle) and run it in the pre-commit hook; fix the one remaining unbounded `tle` | verify output gains a check, so the verify bundle is rebuilt |
 | 2 | before mainnet | subtract first: delete the nine withdrawn folds' code, type what remains, delete the `@ts-nocheck` files | harness only |
-| 3 | after submission | architecture: one `ChainView` module owns all chain and beacon I/O (bounds, multi-endpoint agreement, NotFound typed as unknown), and the lint forbids any other route; an opaque `Destination` type whose `toJSON` throws, so a destination can never be serialized into a public document or log | product refactor, so a full RG re-run |
+| 3 | after submission (Destination: before mainnet) | architecture: one `ChainView` module owns all chain and beacon I/O (bounds, multi-endpoint agreement, NotFound typed as unknown), and the lint forbids any other route; an opaque `Destination` type whose `toJSON` throws, so a destination can never be serialized into a public document or log | product refactor, so a full RG re-run |
 
 ## The rule table (goes into `AGENTS.md`)
 
@@ -75,3 +75,13 @@ Every check below was run against a real past mistake. All of it is on branch `a
 | The head does live work; builders get offline, specified batches | prose (memory and AGENTS.md); judgment |
 
 The last row is the user's own steering, read from the transcripts: the head thinks and does the risky work, MiMo gets routine work, and nothing ever uses the cloud. It stays prose because it's a judgment call.
+
+## Measured since the plan was written
+
+- **Step 2 is done on the branch.**
+  - The nine withdrawn folds are deleted: `readpath-live.ts` went from 1,433 lines to 418.
+  - All harness code is typed; `@ts-nocheck` is gone.
+  - Typing found one more latent bug: `failed++` on an undefined name in `readpath-r261.ts` would have turned a real FAIL into NOT RUN.
+  - The last unbounded harness `tle` is bounded.
+  - The typed R23.2/R26.1 folds still pass all 10 IDs, and `check:structure` is green over 181 files.
+- **The opaque `Destination` costs less than feared.** Destinations appear in 35 product files, but making `openDestination` return an opaque `Destination` (its `toJSON` throws; `reveal()` is explicit) gives only 5 type errors: 3 in `cli/host-derive.ts` and 1 each in `cli/product.ts` and `settle/cli.ts`. Each is a payment-construction point, exactly where `reveal()` belongs. Measured, then reverted. Being that cheap, it can land before mainnet, where a leak disqualifies.
