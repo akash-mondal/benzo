@@ -182,3 +182,87 @@ scratch `tmp/` dirs are gone). The 303 to-review rows:
 - **Envelope plaintext:** none.
 
 **No real finding in this range.** Nothing under Questions.
+
+---
+
+## RG final pass (gate LA, batch B37, 2026-10-16) — record `leak-findings-rg.json`
+
+The phase6-rg §4.2 closing pass: `tools/leak-audit.ts` over `docs/evidence/phase-6/rg/` (all six
+projects), every evidence file added since the B34 pass (record `leak-findings-2026-10-06-b34.json`
+at `72204b2`), and `git log -p 5475c60..HEAD`. Run at `4991761`, clean tree, 2026-10-16T13:2xZ.
+Record: `leak-findings-rg.json` (tool stdout unedited, **798 rows**, exit 1).
+
+Command (the run-2/31 recipe, unchanged):
+
+```
+npm run leak-audit -- --sensitive .benzo/leak-sensitive.json \
+  --allowlist docs/evidence/phase-6/leak-allowlist.json \
+  --paths docs/evidence $(find tmp -maxdepth 3 -type d -name "public*" | sort | tr '\n' ' ') --git
+```
+
+Surfaces, as the batch names them:
+
+1. `docs/evidence/phase-6/rg/` — scanned as working files and as blobs (six projects; the per-file
+   result is below). `run.json`, `memo/*`, `manifest.json`, `opened.json`, `receipts.json`,
+   `result.json`, `signer.json`, `signatures.json`, `summary.json`, `vickrey.json`, `beacon.json`,
+   `cancelled.json`, `clear-reference.json`, `drill.json`, `bad-amounts.json`, `cancel-manifest.json`,
+   `frost/{coordinator.txt,refund.json,settle.json}`, `settle/cancel/*`, `settle/main/{balances,crash,
+   manifest,result,routing-commitment,summary}.json` — **zero rows**.
+2. Every evidence file added since the last pass (368 added/modified paths under `docs/evidence`
+   since `72204b2`), including the four named repro outputs `repro/{r48-stall,r49-pins,r61-void,
+   r70-folds}.out` — **zero rows on all four** and on all of `phase-6/repro/`, `phase-5/mutations/`,
+   `phase-5/repro/`, `phase-5/xchain-live/`: the abbreviation rules (T2/recipient) held in every
+   evidence run since B34 except the four files reported under Questions.
+3. `git log -p 5475c60..HEAD` — **subsumed** by `--git`, which scans complete blobs of every commit
+   on every ref: every added line lives in a blob and every removed line in its old blob (classed at
+   runs 2/31/B33/B34).
+
+Sensitive values: the run-31 list, **106 entries, unchanged**. This batch forbids reading anything
+under `.benzo/` beyond the tool's own 0600 sensitive file, so the `test-ua-extra-*` refresh of runs
+2/31 was **not** re-run; only two state files changed since the list was built (`.benzo/bidder/
+{blockmeta,data}.sqlite`, names inspected only), and any address they carry is still caught by the
+`address` pattern. A raw key not in the list would not be caught by `exact-value` — stated limit,
+same category as the owed `release_time` entries below. Allowlist unchanged at 62 reviewed paths.
+
+### Accounting: 798 rows = 379 inherited + 419 new (0 rows gone since B34)
+
+The 379 inherited rows are byte-identical to the B34 record (rule + label + file + line/commit +
+value digest); their B33/B34/run-31/run-2 dispositions stand unchanged (classes A–G below).
+
+New rows (419) — every one classified:
+
+| Class | Rows | What |
+|---|---|---|
+| C — intended-public per-bid **deposit** addresses in published evidence | 346 | `leaves[].deposit.address` / `frozen.leaves[].deposit.address` / `notes[].address` / `deposits[].address` / `receipt.inclusion.deposit.address` in `phase-5/markets/drop-a{17,18,19,20,22,23,24}/drop-cold/`, `phase-5/markets/launch-a18/launch-cold/`, `phase-6/markets/launch-r34/launch-cold/`, `rg/auction-core/auction/{clear-input,frozen,deposits,refund}.json`, `rg/cli-auction/cli/{auction,frozen,api}.json`, `rg/settle-crash/settle/main/frozen.json`, and the per-bid deposit addresses of `rg/testnet-golden-path/scan/{addresses.json,operator-view.jsonl}` (`{bid,address}`, the scanned deposit notes) — same rationale as runs 2/31/B33/B34: they are in the signed manifest every bidder reads |
+| **REAL — full refund/delivery destinations in committed files (reported under Questions, not fixed)** | 31 | the four files below |
+| B — `age-armor` regex self-matches | 16 | `dist/benzo-verify.mjs`, one per new bundle blob since B34 (53 historical bundle versions checked in total): every match is the codec's marker-literal pair (87-char span, `var footer = "-----END AGE…`), **zero base64 payloads** |
+| G — fixture literals, re-keyed under new blobs | 26 | `e2e/lib/readpath{,-live}.ts` shape-test UAs / all-zeros Sapling vector / `attacker` UA (22 rows) and `tools/repro/xchain-demos.ts` anvil dev account 0 (4 `exact-value` rows) — **all 26 value digests already present in the B34 record** (the files changed; the literals did not) |
+
+### The real findings (4 files, 31 rows; full destinations, per this batch's rule — head decides)
+
+| file:line (HEAD) | Type | Rows / distinct values | Also in history |
+|---|---|---|---|
+| `docs/evidence/phase-6/rg/testnet-golden-path/frost/pczt-inspect.txt:5` (and `:17`) | full output destination of the FROST-signed refund/payout PCZT (`Output: 990000 zatoshis to <UA>`) | 9 rows / 7 values | 7 superseded revisions of the file (the RG re-runs) |
+| `docs/evidence/phase-6/rg/auction-core/auction/pczt-inspect.txt:4` | full output destination of the claim/refund PCZT (`Output: 2500000 zatoshis to <UA>`) | 7 rows / 6 values | 6 superseded revisions |
+| `docs/evidence/phase-6/rg/auction-core/auction/cancel.json:1` (`response.refunds[].address`) | full cancel refund addresses | 7 rows / 6 values | 6 superseded revisions |
+| `docs/evidence/phase-5/markets/drop-a20/recovery.out:13–16` | 4 full refund destinations ("the refunds landed at each bid's own envelope destination") | 8 rows / 4 values | 1 superseded revision (`3f4f44f`) |
+
+Shape-wise these are the historical class-C material (real refund/delivery destinations, as
+`phase-1/frost/pczt-inspect.txt` etc. at run 2); unlike that residue they are **new** evidence,
+committed after B34. Per this batch's rule they are reported under Questions with `file:line` and
+**not fixed**. The values themselves are not printed here or in any output of this pass.
+
+### Gate-LA verdict on this range
+
+- **Keys, mnemonics, UFVKs, PEM/age private key material:** none anywhere — zero `viewing-key`,
+  `mnemonic` or `pem-private-key` rows in the whole run; the only `exact-value` rows are the
+  publicly documented anvil dev-account-0 fixture constant (class G, re-keyed), and no sensitive
+  value of the 106 matched any evidence or blob outside that fixture.
+- **Refund/delivery addresses:** the 31 real rows above — otherwise none; residue classes A
+  (superseded `docs/STATUS-B.md` blobs), C (immutable pre-T2 evidence), D (`docs/STATUS.md`), E
+  (research), F (tmp scratch) unchanged from the B34 record.
+- **Bid plaintext before R:** still not covered (the owed `release_time` entries).
+- **Envelope plaintext:** none.
+
+A literally zero-findings `--git` run remains unreachable without rewriting history or editing
+committed evidence; the residue is the classified remainder plus the four reported files.
