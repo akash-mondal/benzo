@@ -85,3 +85,17 @@ The last row is the user's own steering, read from the transcripts: the head thi
   - The last unbounded harness `tle` is bounded.
   - The typed R23.2/R26.1 folds still pass all 10 IDs, and `check:structure` is green over 181 files.
 - **The opaque `Destination` costs less than feared.** Destinations appear in 35 product files, but making `openDestination` return an opaque `Destination` (its `toJSON` throws; `reveal()` is explicit) gives only 5 type errors: 3 in `cli/host-derive.ts` and 1 each in `cli/product.ts` and `settle/cli.ts`. Each is a payment-construction point, exactly where `reveal()` belongs. Measured, then reverted. Being that cheap, it can land before mainnet, where a leak disqualifies.
+
+## Reviewer R on this branch (`benzo-sol/reports/pr-agent-friendly.md`, REQUEST CHANGES), and what changed
+
+- **R-AF-6, P1: a duplicated scan note double-backed rows.** The property test could never see it, because its generator never produced duplicates. The test now injects duplicates and covers the void path (R-AF-7); on the old rule it fails 408 times on I2 and 414 on I4. The product fix: `balanceMatured` dedupes by note identity, the one gate every balance rule passes. All four invariants pass now.
+- **P1: a destination nested in `rows` passed the registry.** Verify gains a structural leak guard, `no-destinations`: no address string anywhere in a published settlement. It gives 0 false positives over 28 committed settled documents and refuses a planted `settlement.rows[0].note` destination.
+- **R-AF-2, P2: rule bypasses.**
+  - `bounded-chain-io` now covers async `spawn`/`execFile` and variable-held commands. A variable is flagged when it is assigned a chain-tool path.
+  - On history it adds `cli/host-derive.ts`'s `devtool` (R48) and the harness `TLE` calls (R52): 15 flags before R48, 10 before R52, 0 at HEAD.
+- **P2: redaction coverage.** Added t2/t3 (P2SH) and zc (Sprout).
+- **P2: reproducible counts.** `python3 tools/af/mine-corpus.py ../benzo-sol/reports` re-derives them. Today: 31 reports, 152 findings (9 P0, 46 P1, 97 P2), 129 head rulings. The table above was written at 133 findings.
+- **Still open:**
+  - R-AF-5: `verifiedBy` proves only that the named check ran. The next step ties each field to an assertion inside its check.
+  - R-AF-3: `tools/` is not yet typechecked.
+  - The `as any` on the r261 fixture.

@@ -13,7 +13,7 @@ const read = (f) => (ref ? git("show", `${ref}:${f}`) : execFileSync("cat", [f],
 const PRODUCT = /^(settle|cli|clear|api|witness|manifest|envelope|crosschain)\//;
 const HARNESS = /^(e2e\/|tools\/repro\/markets\.ts$)/;
 const CHAIN_TOOL = /grpcurl|zcash-devtool|["'/]tle["']|bin\/tle|bin\("tle"\)|bin\('tle'\)/;
-const SPAWN = /\b(spawnSync|execFileSync|execSync)\s*\(/;
+const SPAWN = /\b(spawnSync|execFileSync|execSync|spawn|execFile)\s*\(/; // R-AF-2: async forms too
 const errors = [];
 const err = (f, line, rule, msg) => errors.push(`${f}:${line} [${rule}] ${msg}`);
 
@@ -37,6 +37,16 @@ for (const f of files) {
     if (/["']pczt["']|["']inspect["']|["']prove["']|["']sign["']|init-fvk|list-tx|["']balance["']|redact|address|["']scan["']|version/.test(stmt) && !/["']-s["']|GetBlock|GetTransaction|SendTransaction|GetLatestBlock|["']sync["']|["']enhance["']|["']-d["']/.test(stmt)) return;
     err(f, i + 1, "bounded-chain-io", "chain/beacon I/O must go through settle/bounded (lwdBound / tleBound) or settle/io run(); an unbounded stream stalled RG for 51 min (R48)");
   });
+  // 3b. bounded-chain-io, variable-held commands (R-AF-2): spawn(cmd, …) where `cmd` is assigned a chain-tool path in
+  // this file is held to the same rule; a variable hides the tool from the line rule above.
+  if (inScope) {
+    const chainVars = new Set([...src.matchAll(/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=[^;\n]*(grpcurl|zcash-devtool|["'/]tle["'])/g)].map((m) => m[1]));
+    lines.forEach((l, i) => {
+      const m = l.match(/\b(?:spawnSync|spawn|execFileSync|execFile)\s*\(\s*([A-Za-z_$][\w$]*)\s*,/);
+      if (m && chainVars.has(m[1]) && !/lwdBound|tleBound|timeout\s*:/.test(l))
+        err(f, i + 1, "bounded-chain-io", `${m[1]} holds a chain tool; bound this call with lwdBound/tleBound (settle/bounded) or use settle/io run()`);
+    });
+  }
   // 4. evidence-through-write (R71): harness evidence files are written only through e2e/lib/run.ts write(), which redacts.
   if (HARNESS.test(f) && f !== "e2e/lib/run.ts") lines.forEach((l, i) => {
     if (/writeFileSync\([^)]*\b(OUT|EVIDENCE|evidence)\b/.test(l)) err(f, i + 1, "evidence-through-write", "write evidence with write() from e2e/lib/run.ts so destinations are redacted (B37 findings 1–3)");
