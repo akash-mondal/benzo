@@ -1,0 +1,12 @@
+mutation 5M5 (docs/evidence/phase-5/mutations/5M5.patch) on project buyback-mode
+commit e5efa8f8119076d8f7d76306504aaf76b95b4f6a (patch applied on top, then reverted)
+utc 2026-10-16T16:15:34Z
+expected red: Y1a
+ERROR ids: Y1a 
+RESULT RED (expected)
+--- last 30 lines ---
+auction cdf492454119bedb079dea0e443073642dbdf156af13c7c2e30f0eedd2643889
+ERROR Y1a Error: Y1a threw | Expected: "" | Received: "benzo auction keys --id cdf492454119bedb079dea0e443073642dbdf156af13c7c2e30f0eedd2643889 --group-keys exited 1: ERROR auction keys refused: group key reused from auction 00c658f3c45811ca2cc8c226be7f438d4e37f616dfab208fa0ba90f756f7cf42"
+run.json -> tmp/e2e/out
+FAILED buyback-mode Mode B buyback settles under host custody with the treasury leg (8 s)
+run failed; details in tmp/e2e/report.json
