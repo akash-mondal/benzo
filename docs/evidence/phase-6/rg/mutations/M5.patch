@@ -1,0 +1,13 @@
+diff --git a/scan/src/main.rs b/scan/src/main.rs
+index 34c2524..06d6c56 100644
+--- a/scan/src/main.rs
++++ b/scan/src/main.rs
+@@ -83,7 +83,7 @@ fn scan(params: Network, wallet_dir: &str) -> anyhow::Result<()> {
+                 "action_index": output_index,
+                 "diversifier_index": diversifier_index,
+                 "value_zats": row.get::<_, i64>(4)?,
+-                "memo_hex": hex::encode(MemoBytes::from(&memo).as_array()),
++                "memo_hex": hex::encode(MemoBytes::from(&memo).as_slice()),
+                 "spent_in_txid": spent_in,
+             })
+         );
