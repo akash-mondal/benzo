@@ -4,8 +4,13 @@
 // their first 10/last 6 characters (Solana 6/4) so a reader can cross-reference within one evidence directory.
 import { findSensitive } from "../../envelope/leak-patterns";
 
+// R78b: the harness's own vault (escrow) addresses are the deposit/escrow addresses every signed manifest publishes —
+// class C, public by design — and documents that carry them (frozen sets, clear inputs, auction.json) must stay
+// byte-verifiable. e2e/lib/zcash.ts generateAddress("vault") registers each one here; nothing else is ever kept.
+const PUBLIC = new Set<string>();
+export const markPublic = (address: string): void => { PUBLIC.add(address); };
 const redactShared = (text: string): string =>
-  findSensitive(text)
+  findSensitive(text).filter((m) => !PUBLIC.has(m.value))
     .sort((a, b) => b.index - a.index)
     .reduce((t, m, i, all) => {
       if (all.slice(0, i).some((o) => m.index + m.value.length > o.index && m.index < o.index + o.value.length)) return t; // overlap: already redacted

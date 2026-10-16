@@ -1,4 +1,5 @@
 // Glue for zcash-devtool, grpcurl and the scanner: spawns them by absolute path and parses what they print.
+import { markPublic } from "./redact";
 import { spawnSync } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
@@ -42,6 +43,7 @@ export function generateAddress(name: string): string {
   const net = env("BNZ_NETWORK");
   const ua = run(path.join(ROOT, "settle/target/release/benzo-pczt"), ["address", path.join(STATE, name), "--network", net]).trim();
   if (!(net === "main" ? /^u1[0-9a-z]+$/ : /^utest1[0-9a-z]+$/).test(ua)) throw new Error(`benzo-pczt address on ${name} printed no address`);
+  if (name === "vault") markPublic(ua); // R78b: an escrow/deposit address, published in the signed manifest (class C)
   return ua;
 }
 

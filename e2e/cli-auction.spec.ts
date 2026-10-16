@@ -114,7 +114,7 @@ const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=N
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
-const fresh=(name:string)=>z.run(path.join(ROOT,'settle/target/release/benzo-pczt'),['address',path.join(STATE,name),'--network','test']).trim();
+const fresh=(name:string)=>z.generateAddress(name); // R78b: one generator, which registers vault addresses as public
 function cli(args:string[],input?:any) {
   const p=spawnSync(path.join(ROOT,'bin/benzo'),args,{input:input===undefined?undefined:(typeof input==='string'?input:JSON.stringify(input)),encoding:'utf8',maxBuffer:64<<20});
   if(p.error)throw p.error;return {code:p.status,error:p.stderr,value:p.status===0?(p.stdout.trim().startsWith('{')||p.stdout.trim().startsWith('[')?JSON.parse(p.stdout):p.stdout):null};

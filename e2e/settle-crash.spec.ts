@@ -14,7 +14,7 @@ import {serveSealer,sealBid} from "./lib/sealer";
 import {pubkey,startFrostd,zcashSign} from "./lib/frost";
 import * as z from "./lib/zcash";
 const IDS=["J1","J2","K1","L1","M1","N1"],C=Number(env("BNZ_COLLATERAL_ZATS")),ALT=LWD_ALT,MINE=30*60_000;
-const freshAddress=(wallet:string)=>z.run(path.join(ROOT,"settle/target/release/benzo-pczt"),["address",path.join(STATE,wallet),"--network","test"]).trim();
+const freshAddress=(wallet:string)=>z.generateAddress(wallet); // R78b: one generator, which registers vault addresses as public
 // Wallet CLI total excludes uneconomic notes; measure all mined unspent notes through the shipped chain scanner.
 const observedBalance=(wallet:string)=> {
   z.enhance(wallet);
