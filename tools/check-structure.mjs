@@ -62,7 +62,8 @@ for (const f of files) {
   // comment whose text ends in a call statement `name(…);` (optionally then closing braces, as in 4feaa86) is flagged.
   if (/\.(ts|mjs)$/.test(f)) lines.forEach((l, i) => {
     const c = l.match(/(?:^|[^:"'`\\])\/\/(.*)$/);
-    if (c && /[A-Za-z_$][\w$.]*\([^()]*["'`][^()]*(\([^()]*\)[^()]*)*\)\s*;[\s}]*$/.test(c[1]) && !/["'`]/.test(l.slice(0, l.indexOf("//" + c[1])).replace(/(["'`])(?:\\.|(?!\1).)*\1/g, "")))
+    // R79 (fourth incident, clear/mode-b.ts): also a comment that carries a statement keyword after `;` and ends in code.
+    if (c && (/[A-Za-z_$][\w$.]*\([^()]*["'`][^()]*(\([^()]*\)[^()]*)*\)\s*;[\s}]*$/.test(c[1]) || /;\s*(?:if|return|const|let|for|await|throw)\b.*[;)}\]]\s*$/.test(c[1])) && !/["'`]/.test(l.slice(0, l.indexOf("//" + c[1])).replace(/(["'`])(?:\\.|(?!\1).)*\1/g, "")))
       err(f, i + 1, "comment-swallowed-statement", "this comment ends in a statement; a marker comment swallowed code (R57, R71) — move the comment after the code or onto its own line");
   });
   // 4. evidence-through-write (R71): harness evidence files are written only through e2e/lib/run.ts write(), which redacts.

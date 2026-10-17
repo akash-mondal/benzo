@@ -608,10 +608,19 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       `settlement receipt ${i} fields`);
     requireThat(new Set(receipts.map(r => `${r.txid}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
     // R78 (F-2): rows and batches carry exactly their documented keys, so no extra field can ride along.
-    for (const [i, r] of (pub.settlement.rows ?? []).entries())
+    // R79 (Reviewer R F-3 residual on R78): and their values have their documented shapes — no free-form field.
+    const word = (v: unknown) => typeof v === "string" && /^[a-z]{3,16}$/.test(v), hex64 = (v: unknown) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
+    const nat = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
+    for (const [i, r] of (pub.settlement.rows ?? []).entries() as IterableIterator<[number, any]>) {
       requireThat(r && typeof r === "object" && Object.keys(r).every(k => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid"].includes(k)), `settlement row ${i} keys`);
-    for (const [i, b] of ((pub.settlement.batches ?? []) as any[]).entries())
+      requireThat(typeof r.party === "string" && /^[0-9]+$/.test(String(r.amount_zats)) && word(r.state) && (r.kind === undefined || r.kind === "refund" || r.kind === "payout") &&
+        (r.pool == null || /^(sapling|orchard|ironwood)$/.test(r.pool)) && (r.txid == null || hex64(r.txid)) && (r.batch == null || nat(r.batch)) && (r.output_index == null || nat(r.output_index)),
+        `settlement row ${i} values`);
+    }
+    for (const [i, b] of ((pub.settlement.batches ?? []) as any[]).entries()) {
       requireThat(b && typeof b === "object" && Object.keys(b).every(k => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing"].includes(k)), `settlement batch ${i} keys`);
+      requireThat(nat(b.id) && hex64(b.pczt_hash) && (b.txid == null || hex64(b.txid)) && (b.height == null || nat(b.height)) && word(b.state), `settlement batch ${i} values`);
+    }
     const published = pub.settlement.approval_maps ?? [];
     if (published.length === 0) {
       // R78 (Reviewer R F-1 on R77): the publisher chooses whether maps appear, so their absence is never a pass.
@@ -853,7 +862,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const walk = (v: unknown, at: string): void => {
       if (typeof v === "string") { if (findSensitive(v).length) hits.push(at); }
       else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
-      else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) walk(x, `${at}.${k}`);
+      else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) {
+        if (findSensitive(k).length) hits.push(`${at}.<key>`); // R79 (Reviewer R N-2): an address as an object key
+        walk(x, `${at}.${k}`);
+      }
     };
     walk(pub.settlement, "settlement");
     requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);

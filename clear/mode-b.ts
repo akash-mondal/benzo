@@ -61,7 +61,7 @@ export function treasuryFunded(m: any, notes: { address: string; height: number 
   // never inflates the funded total (the same identity rule as balanceMatured).
   const seen = new Set<string>();
   return notes.filter(n => n.address === treasuryBlock(m)!.funding_ua && n.height && (confirmedAt === undefined || confirmedAt - n.height + 1 >= m.confirmations))
-    .filter(n => { const id = n as unknown as { txid?: string; pool?: string; action_index?: number }; if (id.txid === undefined) return true; const k = `${id.txid}:${id.pool}:${id.action_index}`; if (seen.has(k)) return false; seen.add(k); return true; })
+    .filter(n => { const id = n as unknown as { txid?: string; pool?: string; action_index?: number }; /* R79: identity-less lines collapse by content, never fail open */ const k = id.txid === undefined ? `bare:${JSON.stringify(n)}` : `${id.txid}:${id.pool}:${id.action_index}`; if (seen.has(k)) return false; seen.add(k); return true; })
     .reduce((s, n) => s + BigInt(n.value_zats), 0n);
 }
 export function treasuryReturn(m: any, result: ClearBody | null, funded: bigint): bigint {

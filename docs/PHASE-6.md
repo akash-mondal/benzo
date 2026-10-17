@@ -375,7 +375,7 @@ All proofs are offline, in `repro/r78-verify-hardening.out` (`tools/repro/r78-ve
      - `r15-phase2-4` re-verifies the Phase 2–4 evidence with the flag;
      - cli-auction's P2/R1 (local signing, no host maps) accept exactly the host-attestation class, the claims memo and the receipts, and nothing else.
    - Over the 26 committed settled documents (`tmp/r77` measurement): strict mode adds only this ERROR, on the 18 documents without maps; legacy mode only the WARN. drop-a17 still fails five checks.
-2. **F-2 (P1, FIXED): verify's leak guard had a narrower pattern than the redactor and the audit.**
+2. **F-2 (P1): verify's leak guard had a narrower pattern than the redactor and the audit.** Consolidated here; R79 closes the case and key gaps.
    - `envelope/leak-patterns.ts` is now the ONE definition, used by verify's `no-destinations`, the evidence redactor and `leak-audit`. It covers:
      - Zcash unified, Sapling, TEX, regtest, P2PKH/P2SH and Sprout addresses;
      - viewing keys;
@@ -394,3 +394,22 @@ All proofs are offline, in `repro/r78-verify-hardening.out` (`tools/repro/r78-ve
    - **F-6 FIXED.** `treasuryFunded` dedupes funding notes by `{txid, pool, action_index}`: a duplicated line gave 2000 before and gives 1000 now.
    - **F-7 FIXED.** `Destination[Symbol.toPrimitive]` throws for the default and number hints. `destA + ""`, `destA == "x"` and `+destA` all throw; template strings still print `[Destination]`.
 4. **The gate.** RG attempt 10 (code `73cf582`) was stopped after `testnet-golden-path` (9/9) and the in-flight `auction-core`, because R78 changes verify and the harness. Attempt 11 re-provisions the hosts and runs all six projects at the R78 commit.
+
+### R79 — Reviewer R on R78 (`pr-rg-r78.md`, BLOCK: N-1, N-2) and the attempt-11 auction-core failure
+
+R confirmed F-1, F-3, F-4, F-5, F-6 and F-7 closed. All proofs are offline, in `repro/r79-leak-guard.out` (`tools/repro/r79-leak-guard.ts`), before and after.
+
+1. **N-1 (P1, FIXED): the shared definition was case-sensitive.** bech32/bech32m is case-insensitive by spec, so `UTEST1…` is the same address.
+   - The Zcash address and viewing-key patterns in `envelope/leak-patterns.ts` now match any case. Solana stays exact: base58 is case-sensitive, and a candidate must decode to a key.
+   - Seeds are detected case-insensitively too.
+   - An uppercase UA or viewing key in `rows[0].state` was ACCEPTED before and is REFUSED now. The redactor redacts it, where before it kept it.
+2. **N-2 (P1, FIXED): verify's walk tested string values only.** It now tests every object key at any depth. `batches[0].inspect = {"<address>": "paid"}` and a nested uppercase key were ACCEPTED before and are REFUSED now.
+3. **Residuals, FIXED:**
+   - Row values are shape-checked: kind is refund or payout; pool is sapling, orchard, ironwood or null; txid is hex64 or null; batch and output_index are naturals or null; state is a lowercase word.
+   - Batch values are shape-checked: id, a hex64 `pczt_hash`, txid, height, and a word for state.
+   - `pool: "banana"`, `txid: "zz"`, `kind: "junk"` and `pczt_hash: "zz"` are all REFUSED now.
+   - `treasuryFunded` collapses identity-less lines by their content, so it no longer fails open: 2000 before, 1000 now.
+   - **Carried:** `String(destA) === String(destB)`, encoding renderings (base64, split strings, zero-width characters), and the `verifiedLocal` `code === 0` arm.
+4. **No false alarms.** Over the 26 committed settled documents (strict verify), there are 0 verdict changes from R78.
+5. **The attempt-11 auction-core FAIL was not a code fault.** It failed at deposit 6/6: the bidder wallet had 0 spendable, because attempt 10's auction-core refunds and change had not matured yet. The spec's finally-block recovery returned the five deposits. Attempt 11 was stopped after its in-flight settle-crash. The next attempt runs only once Reviewer R has approved R79 and the wallet's notes are mature.
+6. **A fourth comment-swallow (head, R79 edit, `clear/mode-b.ts`).** Typecheck caught it before commit, but `comment-swallowed-statement` did not, because the text ended in `})`. The rule now also flags a comment carrying a statement keyword after `;` that ends in code: it flags a probe of this shape plus the three earlier incidents, and HEAD is clean.

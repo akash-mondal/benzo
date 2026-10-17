@@ -18329,8 +18329,8 @@ var VIEWING_KEY = `(?:uviewtest1|uview1|uview|zxviewtestsapling1|zxviews1|zxview
 var EVM_ADDRESS = `0[xX][0-9a-fA-F]{40}`;
 var SOLANA_CANDIDATE = `[1-9A-HJ-NP-Za-km-z]{32,44}`;
 var patterns = {
-  address: new RegExp(`${B2}${ZCASH_ADDRESS}${E2}`, "g"),
-  "viewing-key": new RegExp(`${B2}${VIEWING_KEY}${E2}`, "g"),
+  address: new RegExp(`${B2}${ZCASH_ADDRESS}${E2}`, "gi"),
+  "viewing-key": new RegExp(`${B2}${VIEWING_KEY}${E2}`, "gi"),
   "evm-address": new RegExp(`${B2}${EVM_ADDRESS}${E2}`, "g"),
   "solana-address": new RegExp(`${B2}${SOLANA_CANDIDATE}${E2}`, "g")
   // a candidate; isSolanaKey decides
@@ -18345,7 +18345,7 @@ function isSolanaKey(token) {
 var WORD_RUN = /(?<![A-Za-z])(?:[a-z]{3,8}[ \t\r\n]+){11,}[a-z]{3,8}(?![A-Za-z])/g;
 function mnemonicSpans(text) {
   const spans = [];
-  for (const run2 of text.matchAll(WORD_RUN)) {
+  for (const run2 of text.toLowerCase().matchAll(WORD_RUN)) {
     const words = [...run2[0].matchAll(/[a-z]+/g)];
     for (let i2 = 0; i2 < words.length; i2++)
       for (const n2 of [24, 21, 18, 15, 12]) {
@@ -19057,10 +19057,19 @@ function checkPublicAuction(pub, opts = {}) {
       `settlement receipt ${i2} fields`
     );
     requireThat(new Set(receipts.map((r2) => `${r2.txid}:${r2.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
-    for (const [i2, r2] of (pub.settlement.rows ?? []).entries())
+    const word = (v2) => typeof v2 === "string" && /^[a-z]{3,16}$/.test(v2), hex64 = (v2) => typeof v2 === "string" && /^[0-9a-f]{64}$/.test(v2);
+    const nat = (v2) => Number.isSafeInteger(v2) && v2 >= 0;
+    for (const [i2, r2] of (pub.settlement.rows ?? []).entries()) {
       requireThat(r2 && typeof r2 === "object" && Object.keys(r2).every((k2) => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid"].includes(k2)), `settlement row ${i2} keys`);
-    for (const [i2, b2] of (pub.settlement.batches ?? []).entries())
+      requireThat(
+        typeof r2.party === "string" && /^[0-9]+$/.test(String(r2.amount_zats)) && word(r2.state) && (r2.kind === void 0 || r2.kind === "refund" || r2.kind === "payout") && (r2.pool == null || /^(sapling|orchard|ironwood)$/.test(r2.pool)) && (r2.txid == null || hex64(r2.txid)) && (r2.batch == null || nat(r2.batch)) && (r2.output_index == null || nat(r2.output_index)),
+        `settlement row ${i2} values`
+      );
+    }
+    for (const [i2, b2] of (pub.settlement.batches ?? []).entries()) {
       requireThat(b2 && typeof b2 === "object" && Object.keys(b2).every((k2) => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing"].includes(k2)), `settlement batch ${i2} keys`);
+      requireThat(nat(b2.id) && hex64(b2.pczt_hash) && (b2.txid == null || hex64(b2.txid)) && (b2.height == null || nat(b2.height)) && word(b2.state), `settlement batch ${i2} values`);
+    }
     const published = pub.settlement.approval_maps ?? [];
     if (published.length === 0) {
       requireThat(
@@ -19243,7 +19252,10 @@ function checkPublicAuction(pub, opts = {}) {
       if (typeof v2 === "string") {
         if (findSensitive(v2).length) hits.push(at2);
       } else if (Array.isArray(v2)) v2.forEach((x2, i2) => walk(x2, `${at2}[${i2}]`));
-      else if (v2 && typeof v2 === "object") for (const [k2, x2] of Object.entries(v2)) walk(x2, `${at2}.${k2}`);
+      else if (v2 && typeof v2 === "object") for (const [k2, x2] of Object.entries(v2)) {
+        if (findSensitive(k2).length) hits.push(`${at2}.<key>`);
+        walk(x2, `${at2}.${k2}`);
+      }
     };
     walk(pub.settlement, "settlement");
     requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
