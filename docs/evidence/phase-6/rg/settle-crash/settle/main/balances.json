@@ -1,1 +1,1 @@
-{"before":7509999,"after":9509999,"vault":500001,"deposit_txid":"a6a6904600452cda1459d4cf40320d58d19a5b8ca46edd98c09f8c968983eafb","collateral_zats":500000,"fee_reserve_zats":30000,"expected_output_zats":[499740,499740,500000,500000,520]}
+{"before":7665000,"after":9665000,"vault":0,"deposit_txid":"2a0772a446ddea89bf16248cccb9362a1d229c422a53d413c15c806862f046ba","collateral_zats":500000,"fee_reserve_zats":30000,"expected_output_zats":[499050,499050,500000,500000,1900]}
