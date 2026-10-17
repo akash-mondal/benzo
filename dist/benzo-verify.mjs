@@ -18670,7 +18670,8 @@ function readClient(packet, signer) {
   return clientForMode(packet, signer);
 }
 var SETTLEMENT_TRUST = {
-  auction_id: { trust: "derived", verifiedBy: ["accounting"] },
+  auction_id: { trust: "derived", verifiedBy: ["receipt-attestation"] },
+  // R82: bound to the manifest's auction_id
   rows: { trust: "derived", verifiedBy: ["accounting", "accounting-strays"] },
   // R81: a cancelled settlement has no result, so only accounting-strays reads its rows
   receipts: { trust: "chain-receipt", verifiedBy: ["accounting", "receipt-attestation"] },
@@ -18681,7 +18682,11 @@ var SETTLEMENT_TRUST = {
   delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
   approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
   batches: { trust: "informational", verifiedBy: [] },
-  offline_signer: { trust: "informational", verifiedBy: [] }
+  offline_signer: { trust: "informational", verifiedBy: [] },
+  // R82: the settlement worker's own summary (settle/cli.ts) also carries its plan and signoffs; informational, and the
+  // no-destinations guard still scans them at any depth.
+  plan: { trust: "informational", verifiedBy: [] },
+  signoffs: { trust: "informational", verifiedBy: [] }
 };
 var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "delivery_list", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
@@ -18791,8 +18796,9 @@ function readBeacon(raw2, manifest) {
 var settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
 function checkPublicAuction(pub, opts = {}) {
   const checks = [];
-  const preV5Legacy = pub.legacy && !pub.manifest.envelope_keys && !pub.manifest.witness_set_hash;
-  if (pub.legacy) checks.push(preV5Legacy ? { id: "format" } : { id: "format", error: "refused: legacy projections (no auction.json) are readable only for a pre-Phase-5 manifest" });
+  const m5 = pub.manifest;
+  const preV5 = !m5.envelope_keys && !m5.witness_set_hash && !m5.bond && !m5.lots && !m5.series && !m5.serials && !m5.sealed_reserve && (m5.clearing === void 0 || m5.clearing?.mode === void 0 || m5.clearing?.mode === "uniform");
+  if (pub.legacy) checks.push(preV5 ? { id: "format" } : { id: "format", error: "refused: legacy projections (no auction.json) are readable only for a manifest with no Phase-5+ feature" });
   let current = "";
   const readBy = /* @__PURE__ */ new Map();
   if (pub.settlement) {
@@ -19060,7 +19066,8 @@ function checkPublicAuction(pub, opts = {}) {
       `settlement receipt ${i2} fields`
     );
     requireThat(new Set(receipts.map((r2) => `${r2.txid}:${r2.pool}:${r2.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
-    if (!preV5Legacy) {
+    requireThat(pub.settlement.auction_id === void 0 || pub.settlement.auction_id === pub.manifest.auction_id, "settlement auction_id differs from the manifest");
+    {
       const word = (v2) => typeof v2 === "string" && /^[a-z]{3,16}$/.test(v2), hex64 = (v2) => typeof v2 === "string" && /^[0-9a-f]{64}$/.test(v2);
       const nat = (v2) => Number.isSafeInteger(v2) && v2 >= 0;
       for (const [i2, r2] of (pub.settlement.rows ?? []).entries()) {
@@ -19071,8 +19078,8 @@ function checkPublicAuction(pub, opts = {}) {
         );
       }
       for (const [i2, b2] of (pub.settlement.batches ?? []).entries()) {
-        requireThat(b2 && typeof b2 === "object" && Object.keys(b2).every((k2) => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing"].includes(k2)), `settlement batch ${i2} keys`);
-        requireThat(nat(b2.id) && (b2.pczt_hash == null || hex64(b2.pczt_hash)) && (b2.txid == null || hex64(b2.txid)) && (b2.height == null || nat(b2.height)) && word(b2.state), `settlement batch ${i2} values`);
+        requireThat(b2 && typeof b2 === "object" && Object.keys(b2).every((k2) => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing", "proofs"].includes(k2)), `settlement batch ${i2} keys`);
+        requireThat(nat(b2.id) && (b2.pczt_hash == null || hex64(b2.pczt_hash)) && (b2.txid == null || hex64(b2.txid)) && (b2.height == null || nat(b2.height)) && (b2.state === void 0 || word(b2.state)), `settlement batch ${i2} values`);
       }
     }
     const published = pub.settlement.approval_maps ?? [];
@@ -19265,7 +19272,7 @@ function checkPublicAuction(pub, opts = {}) {
     walk(pub.settlement, "settlement");
     requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
   });
-  if (pub.settlement && !preV5Legacy) {
+  if (pub.settlement) {
     const ran = new Set(checks.map((c2) => c2.id)), failed = new Set(checks.filter((c2) => c2.error).map((c2) => c2.id));
     for (const k2 of Object.keys(pub.settlement)) {
       const t2 = SETTLEMENT_TRUST[k2];

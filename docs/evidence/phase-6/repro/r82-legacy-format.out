@@ -1,0 +1,14 @@
+# R82 (Reviewer R R-3 on R81): the legacy projection format skips no settlement guard. Script: tools/repro/r82-legacy-format.ts (offline, real Phase 3 evidence)
+## before (4c7e4f1)
+phase-3 legacy, honest:  ACCEPTED
+phase-3 legacy, rows[0].note = "x" (smuggled field):  ACCEPTED
+phase-3 legacy, rows[0].state = "<UA>":  REFUSED no-destinations: refused: published settlement carries an address at settlement.rows[0].state
+phase-3 legacy, settlement.auction_id = another id:  ACCEPTED
+legacy dir with a Phase-5 feature (bond) in its manifest:  REFUSED accounting: refused: bond/balance fields | balances: refused: settled bond auction lacks the defaults list
+## after (R82)
+phase-3 legacy, honest:  ACCEPTED
+phase-3 legacy, rows[0].note = "x" (smuggled field):  REFUSED receipt-attestation: refused: settlement row 0 keys
+phase-3 legacy, rows[0].state = "<UA>":  REFUSED receipt-attestation: refused: settlement row 0 values | no-destinations: refused: published settlement carries an address at settlement.rows[0].state
+phase-3 legacy, settlement.auction_id = another id:  REFUSED receipt-attestation: refused: settlement auction_id differs from the manifest
+legacy dir with a Phase-5 feature (bond) in its manifest:  REFUSED format: refused: legacy projections (no auction.json) are readable only for a manifest with no Pha | accounting: refused: bond/balance fields | balances: refused: settled bond auction lacks the defaults list
+## regression: r79-leak-guard, r81-destination-rule, r73-open-taddr, r78-verify-hardening unchanged (all tampers REFUSED, honest ACCEPTED); 26 committed settled documents: 0 verdict changes vs R79; cli-auction offline folds via Playwright: 53/53 PASS (incl. r15-phase2-4, mr-verify-phase2-4, g-forged-claim-accepted with no excluded check)

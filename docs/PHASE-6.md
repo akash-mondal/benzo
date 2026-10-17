@@ -445,3 +445,26 @@ R confirmed N-3 FIXED.
 4. **Fixture updates.** The Sapling-only UA literal used as a "good" destination in the folds and the cross-chain demos (`e2e/lib/readpath*.ts`, `crosschain/*.mjs`, `tools/repro/xchain-demos.ts`) is replaced by Orchard-capable fixture UAs from `zcash-address-cases.json`. The envelope length test still compares two receiver sets of different lengths.
 5. **The gate.** Attempt 12 was stopped after golden-path (9/9) and the in-flight auction-core. Attempt 13 re-provisions the hosts at R81 and runs all six projects with the preflight.
 6. **Residual (P2).** An esbuild single-file bundle of the e2e folds deadlocks, because the envelope's top-level await meets the existing `api/public-auction` ↔ `adapters` cycle. The shipped bundles and Playwright are unaffected; the folds run under Playwright.
+
+### R82 — Reviewer R on R81 (`pr-rg-r81.md`, BLOCK: R-3)
+
+R confirmed R-1 (local), R-2 and the registry `rows` change.
+
+1. **R-3 (P1, FIXED): R81's legacy downgrade was keyed on optional, operator-signed manifest fields.** A manifest with Phase-5+ features that omitted `envelope_keys` and the witness set skipped the row/batch guards and the trust registry.
+   - **There is no downgrade any more.** Every settlement guard runs on every document, legacy or not:
+     - the key and value shapes;
+     - the trust registry;
+     - the leak guard;
+     - receipt attestation.
+   - **One shape set fits both the current and the worker-summary shapes.** Batches may carry `proofs`, and a Phase 3 batch may have no `state`. The worker summary's `plan` and `signoffs` are registered as informational, and the leak guard still scans them.
+   - **New:** `settlement.auction_id`, when present, must equal the manifest's.
+   - **The `format` gate is defense in depth only.** Legacy projections are readable only for a manifest with no Phase-5+ feature: no envelope_keys, witness set, bond, lots, series, serials, sealed_reserve, or non-uniform clearing.
+   - **Proof** (`repro/r82-legacy-format.out`, on the real Phase 3 evidence):
+     - a smuggled `rows[0].note` and a foreign `auction_id` were ACCEPTED before and are REFUSED now;
+     - a legacy dir whose manifest carries a bond is refused by `format`;
+     - the honest Phase 3 document is ACCEPTED.
+   - The 53 offline folds PASS, and the 26 committed settled documents show 0 verdict changes.
+2. **R-6 (P2, FIXED).** The `g-forged-claim` control now uses a current-format fixture (its own dir with a minimal `auction.json`) and excludes no check.
+3. **Carried (P2, Phase 7):**
+   - **R-4:** custody builds (`hostBuild`, `sign build`, `sign approve`) have no one-pool refusal; maps and receipts stay pool-blind; a local trip is untyped rather than a set-aside. R-2 makes every bidder destination Orchard-capable, so a mixed batch needs a non-Orchard seller UA.
+   - **R-5:** the seller UA is operator-configured and not checked for payability. Phase 7 checks it at manifest creation.

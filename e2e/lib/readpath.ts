@@ -333,8 +333,12 @@ export async function foldGForged(run: Run): Promise<void> {
   const memo_sha256 = sha256(Buffer.from(memo_hex, "hex"));
   const attestationBody = (s: { party: string; memo_sha256: string }) => ({ auction_id: auctionId, batch: 1, txid: sha256("attacker-tx"), outputs: [{ party, output_index: 0 }], defaults: [], balance_refunds: [], strays: [s] });
   const attestedSettlement = (s: { party: string; memo_sha256: string }, signers: any[]) => ({ ...settlement, approval_maps: signers.map((w) => witness.signApprovalMap(attestationBody(s) as any, w.private_hex)) });
+  // R82 (Reviewer R R-6): an in-memory, current-format document — its dir holds only a minimal auction.json, so the
+  // published-format and projection checks run for real and the control excludes nothing.
+  const fixtureDir = path.join(ROOT, "tmp", "g-forged-fixture");
+  rmSync(fixtureDir, { recursive: true, force: true }); mkdirSync(fixtureDir, { recursive: true }); writeFileSync(path.join(fixtureDir, "auction.json"), "{}");
   const basePub: any = {
-    dir: ROOT, signer: packet.signer, legacy: true, state: "REFUNDING",
+    dir: fixtureDir, signer: packet.signer, legacy: false, state: "REFUNDING",
     manifestPacket: packet, manifest, manifest_hash: schema.client(packet, packet.signer).manifest_hash,
     frozen: null, opened: [], beacon, serialBeacon: null, launchInput: undefined,
     result: null, resultBytes: null, receipts: [], envelopes: [], witnessSet: null, witnessCerts: [],
@@ -347,9 +351,7 @@ export async function foldGForged(run: Run): Promise<void> {
   const openings = await pb.deriveClaimOpenings(certified.claims, beacon);
   const claimErrors = (p: any) => api.checkPublicAuction(p, { claimOpenings: openings }).filter((c: any) => c.error && c.id === "claims");
   await run.check("g-forged-claim-accepted", "the self-consistent claim verifies end to end: owner key anchored in the beacon-opened memo and the memo attested per row by the paying batch's two agreeing maps", () => {
-    // R81: this fixture is an in-memory document (no published dir), so the published-format check `format` (legacy
-    // projections only for a pre-Phase-5 manifest) is not what this control is about; every other check must pass.
-    const e = api.checkPublicAuction(certified, { claimOpenings: openings }).filter((c: any) => c.error && c.id !== "format");
+    const e = api.checkPublicAuction(certified, { claimOpenings: openings }).filter((c: any) => c.error);
     need(e.length === 0, `errors with the forged claim: ${JSON.stringify(e.map((c: any) => `${c.id}: ${c.error}`))}`);
   });
   await run.check("g-forged-claim-control", "the same claim with a tampered owner_sig is refused exactly on the claims check", () => {
