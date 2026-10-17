@@ -1,21 +1,21 @@
 {
  "deposits": [
   {
-   "txid": "bc4e38b8629faead6ee6c5c19318436f09a2f9457a84971c345a6cb6299fae70",
+   "txid": "760ce4c217c965e916f5e2d23160da7f6a279e61a8cca9c010f0dd4fb33f7b33",
    "value_zats": 500000,
-   "spent_in_txid": "6592fbc341f791695093ab5a594ecb2b26fa24e74dd89a29b94d8a89a309076c"
+   "spent_in_txid": "12ecacaffbef9894b500f46a0f67bd00875c07a81cb11661df48e2e44002b6c8"
   },
   {
-   "txid": "7317836cef22f14776ce9f40ba7eb79cd2d47121db6eb8c411db62cac097cd42",
+   "txid": "a2cb289dfa914df4eedb5cec24b2abe03981cc1be96f3d1488d910c29044be93",
    "value_zats": 500000,
-   "spent_in_txid": "6592fbc341f791695093ab5a594ecb2b26fa24e74dd89a29b94d8a89a309076c"
+   "spent_in_txid": "12ecacaffbef9894b500f46a0f67bd00875c07a81cb11661df48e2e44002b6c8"
   }
  ],
  "spent_vault_notes_zats": 1000000,
  "fee_zats": 10000,
  "bidder_total": {
-  "before": 9245504,
-  "after": 10235504
+  "before": 9125504,
+  "after": 10115504
  },
  "vault_total": {
   "before": 1000000,
