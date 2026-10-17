@@ -121,7 +121,7 @@ export async function foldR73(run: Run, auctionId: string): Promise<void> {
   };
   const caseB = await drill((leaf: any) => {
     const wrongKey = envmod.generateEnvelopeKey();
-    return { ciphertext_hash: leaf.ciphertext_hash, envelope_ct: envmod.sealEnvelope("utest1redacted", [wrongKey.public_hex], "test"), owner_sig: "ab".repeat(64) };
+    return { ciphertext_hash: leaf.ciphertext_hash, envelope_ct: envmod.sealEnvelope("utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm", [wrongKey.public_hex], "test"), owner_sig: "ab".repeat(64) };
   });
   await run.check("g2-wrong-key-exception", "a record sealed to a key the signers do not hold goes to the exception queue, never an obligation", () => {
     need(caseB.out === "FIXED", `${caseB.out}: ${caseB.why}`);

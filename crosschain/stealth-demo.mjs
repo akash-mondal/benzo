@@ -30,7 +30,7 @@ const WORK = path.join(REPO, "tmp/stealth-demo");
 const PUBDIR = path.join(WORK, "public");
 const EVM_RPC = process.env.BNZ_EVM_RPC ?? "http://127.0.0.1:8546";
 const ANVIL_SK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"; // anvil dev account 0 (public)
-const UA = "utest1redacted";
+const UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
 const STIPEND = parseEther("0.001"); // design §4 lesson 6: a tiny native gas stipend per fresh destination
 const LOT = parseEther("1");
 

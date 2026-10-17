@@ -26,7 +26,7 @@ const KEYDIR = path.join(STATE, "xchain-live");
 const WORK = path.join(REPO, "tmp/stealth-live");
 const PUBDIR = path.join(WORK, "public");
 const EVM_RPC = process.argv[2] || process.env.BNZ_SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
-const UA = "utest1redacted";
+const UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
 const STIPEND = parseEther("0.0001"); // design §4 lesson 6: a tiny native gas stipend with the fresh payout
 const LOT = parseEther("0.01");
 

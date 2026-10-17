@@ -68,9 +68,12 @@ export function isUnifiedOn(destination: string, network: string): boolean {
   } catch { return false; }
 }
 
-// The envelope validator: only a Sapling address or a unified address with a shielded receiver is admissible,
-// and only on this auction's network — a wrong-network destination would burn the refund (threat #7). The
-// network comes from the signed manifest at every call site (G-7/R33 P2-1: never an env default or a literal).
+// The envelope validator: only a destination settlement can actually pay is admissible, and only on this auction's
+// network — a wrong-network destination would burn the refund (threat #7). The network comes from the signed manifest
+// at every call site (G-7/R33 P2-1: never an env default or a literal). R81 (Reviewer R R-2 on R80): settlement builds
+// Orchard/Ironwood outputs only (`benzo-pczt create`/`inspect` refuse Sapling), so a Sapling address or a UA without an
+// Orchard receiver is refused here — at seal time for the bidder, and at open time on the host, where a refused
+// destination becomes an exception row (claimable), never a batch that can never be built.
 export function requireShieldedDestination(destination: string, network: string): void {
   const { kind, shielded, network: net } = classifyDestination(destination);
   if (kind === "transparent") requireThat(false, "transparent address (t-addr)");
@@ -78,4 +81,5 @@ export function requireShieldedDestination(destination: string, network: string)
   if (kind === "unified") requireThat(shielded, "UA without a shielded receiver");
   requireThat(shielded, "not a shielded destination");
   requireThat(net === network, "wrong-network address");
+  requireThat(kind === "unified" && unifiedReceivers(destination).some((r) => r.typecode === 0x03), "settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver");
 }

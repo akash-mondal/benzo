@@ -422,3 +422,26 @@ R confirmed N-1 (case), N-2 (keys at any depth), the row/batch value shapes and 
 2. **N-4 (P2, carried).** `markPublic` keys on the vault wallet, not on the address's role. The specs also use vault addresses as `fee_reserve_ua`. That is the escrow's own reserve address, not a bidder destination, so linking it reveals no bidder, and it stays unredacted. Buyback's host-derived deposits are not registered, but buyback writes no evidence files, so nothing is redacted there.
 3. **N-5 (P2, carried).** The widened swallow-rule arm can false-flag English comments of the shape `…; for details see …]`, and still misses literal-free swallowed calls. HEAD is clean; the typecheck and pre-commit gate are the backstop.
 4. **The gate.** Attempt 12 re-provisions the hosts at R80 and runs all six projects with the R79 preflight: the vault empty and every bidder note spendable before each project.
+
+### R81 — Reviewer R on R80 (`pr-rg-r80.md`, BLOCK: R-1, R-2), plus three regressions the head found by running the folds offline
+
+R confirmed N-3 FIXED.
+
+1. **R-2 (P1, FIXED): the destination rule admitted Sapling, which settlement cannot pay.**
+   - `requireShieldedDestination` (`envelope/destination.ts`) now also requires a unified address with an Orchard receiver (typecode 0x03).
+     - At seal time, a bidder cannot seal a Sapling or Sapling-only-UA refund.
+     - At open time on a host, such a destination is refused, so `openDestination` gives null and the row is a claimable exception, never a batch that can never be built.
+   - `isUnifiedOn` (escrow and seller UAs, which are operator-configured) is unchanged. A Sapling-only seller UA remains a P2 residual.
+   - **Proof** (`repro/r81-destination-rule.out`): Sapling and Sapling-only-UA destinations were sealed and opened before; they are refused at seal and at open, and give null, now. A Sapling+Orchard UA still seals.
+2. **R-1 (P1, FIXED by construction): receipts and maps are keyed by a per-bundle action index without the pool.**
+   - The settlement worker refuses a batch whose payments span more than one pool, before any signature, so no funds move (`settle/cli.ts`, after `inspect(created)`). R-2 makes every payable destination Orchard-capable, so mixed batches are not expected.
+   - Verify's uniqueness key carries the pool.
+   - Carrying `pool` in the signed map body is deferred to Phase 7; it changes the signed format.
+3. **Found by the head, FIXED.** Running every cli-auction offline fold through Playwright on this tree surfaced three regressions from the agent-friendly merge and R77–R79, each of which would have failed cli-auction live:
+   - **Phase 2/3 legacy evidence** (`r15-phase2-4`, `mr-verify-phase2-4`). The R79 row/batch shape checks and the trust registry refused the pre-Phase-5 settlement shape. They now apply to every current document; the pre-Phase-5 legacy format is decided by SIGNED data (no `envelope_keys`, no witness set). A new `format` check refuses legacy projections for any later manifest, so an operator cannot choose the old format.
+   - **The trust registry** named only `accounting` for `rows`. On a settlement with no result, only `accounting-strays` reads rows (`r23-3-api-claims-with-beacon`). Both are now named.
+   - **The `g-forged-claim` control fixture** used `txid: "attacker-tx"`, which R77's field check rightly refuses. It now uses a 64-hex txid, and the in-memory fixture excludes only the new `format` check.
+   - All 53 offline fold IDs PASS. The 26 committed settled documents show 0 verdict changes against R79.
+4. **Fixture updates.** The Sapling-only UA literal used as a "good" destination in the folds and the cross-chain demos (`e2e/lib/readpath*.ts`, `crosschain/*.mjs`, `tools/repro/xchain-demos.ts`) is replaced by Orchard-capable fixture UAs from `zcash-address-cases.json`. The envelope length test still compares two receiver sets of different lengths.
+5. **The gate.** Attempt 12 was stopped after golden-path (9/9) and the in-flight auction-core. Attempt 13 re-provisions the hosts at R81 and runs all six projects with the preflight.
+6. **Residual (P2).** An esbuild single-file bundle of the e2e folds deadlocks, because the envelope's top-level await meets the existing `api/public-auction` ↔ `adapters` cycle. The shipped bundles and Playwright are unaffected; the folds run under Playwright.

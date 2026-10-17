@@ -318,7 +318,7 @@ export async function foldGForged(run: Run): Promise<void> {
   const owner_sig = env.signStatement(owner as any, body as any) as string;
   const settlement = {
     rows: [{ party, kind: "refund", amount_zats: "1000", state: "paid" }],
-    receipts: [{ auction_id: auctionId, party, txid: "attacker-tx", pool: "orchard", output_index: 0, amount_zats: "1000" }],
+    receipts: [{ auction_id: auctionId, party, txid: sha256("attacker-tx"), pool: "orchard", output_index: 0, amount_zats: "1000" }], // R81: a real 64-hex txid (R77 field check)
   };
   const claims = [{ party, claim_envelope_sha256: claimEnvelopeSha, owner_sig, memo_hex }];
   // Ruling R42 (F11) controls: the paying batch's PER-ROW attestation binds every stray claim's memo to
@@ -331,7 +331,7 @@ export async function foldGForged(run: Run): Promise<void> {
   const manifest2 = { ...manifest, witness_set_hash: schema.hash(schema.jsonBytes(witnessSet)) };
   const packet2 = schema.signRecord(manifest2, manifestSigner);
   const memo_sha256 = sha256(Buffer.from(memo_hex, "hex"));
-  const attestationBody = (s: { party: string; memo_sha256: string }) => ({ auction_id: auctionId, batch: 1, txid: "attacker-tx", outputs: [{ party, output_index: 0 }], defaults: [], balance_refunds: [], strays: [s] });
+  const attestationBody = (s: { party: string; memo_sha256: string }) => ({ auction_id: auctionId, batch: 1, txid: sha256("attacker-tx"), outputs: [{ party, output_index: 0 }], defaults: [], balance_refunds: [], strays: [s] });
   const attestedSettlement = (s: { party: string; memo_sha256: string }, signers: any[]) => ({ ...settlement, approval_maps: signers.map((w) => witness.signApprovalMap(attestationBody(s) as any, w.private_hex)) });
   const basePub: any = {
     dir: ROOT, signer: packet.signer, legacy: true, state: "REFUNDING",
@@ -347,7 +347,9 @@ export async function foldGForged(run: Run): Promise<void> {
   const openings = await pb.deriveClaimOpenings(certified.claims, beacon);
   const claimErrors = (p: any) => api.checkPublicAuction(p, { claimOpenings: openings }).filter((c: any) => c.error && c.id === "claims");
   await run.check("g-forged-claim-accepted", "the self-consistent claim verifies end to end: owner key anchored in the beacon-opened memo and the memo attested per row by the paying batch's two agreeing maps", () => {
-    const e = api.checkPublicAuction(certified, { claimOpenings: openings }).filter((c: any) => c.error);
+    // R81: this fixture is an in-memory document (no published dir), so the published-format check `format` (legacy
+    // projections only for a pre-Phase-5 manifest) is not what this control is about; every other check must pass.
+    const e = api.checkPublicAuction(certified, { claimOpenings: openings }).filter((c: any) => c.error && c.id !== "format");
     need(e.length === 0, `errors with the forged claim: ${JSON.stringify(e.map((c: any) => `${c.id}: ${c.error}`))}`);
   });
   await run.check("g-forged-claim-control", "the same claim with a tampered owner_sig is refused exactly on the claims check", () => {
@@ -388,7 +390,7 @@ export async function foldGForged(run: Run): Promise<void> {
 // ---------------------------------------------------------------------------
 export async function foldKC(run: Run): Promise<void> {
   await sodium.ready;
-  const UA = "utest1redacted";
+  const UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
   const KC_LABEL = Buffer.from("benzo-envelope-v2-kc");
   const KC_KEY = Buffer.concat([KC_LABEL, Buffer.alloc(sodium.crypto_generichash_KEYBYTES - KC_LABEL.length)]);
   const MAGIC = Buffer.from("benzo-envelope-v2");
@@ -499,8 +501,11 @@ export async function foldMR(run: Run): Promise<void> {
     }
     throw Error(`accepted, want refusal "${want}"`);
   };
-  const SAPLING = "ztestsapling1redacted";
-  const UA_SHIELDED = "utest1redacted";
+  // R81 (Reviewer R R-2 on R80): settlement pays Orchard/Ironwood only, so the two "good" destination shapes are two
+  // Orchard-capable UAs of different receiver sets (Sapling+Orchard, and transparent+Sapling+Orchard — different
+  // lengths, so the fixed-length envelope property is still exercised). The Sapling-only shapes are now refused.
+  const SAPLING = "utest1redacted";
+  const UA_SHIELDED = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
   const flip = (h: string, i = 3) => h.slice(0, i * 2) + (h[i * 2] === "0" ? "1" : "0") + h.slice(i * 2 + 1);
   const keys = [env.generateEnvelopeKey(), env.generateEnvelopeKey(), env.generateEnvelopeKey()];
   const recipients = keys.map((k) => k.public_hex);
