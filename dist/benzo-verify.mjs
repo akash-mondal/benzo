@@ -19068,7 +19068,7 @@ function checkPublicAuction(pub, opts = {}) {
     }
     for (const [i2, b2] of (pub.settlement.batches ?? []).entries()) {
       requireThat(b2 && typeof b2 === "object" && Object.keys(b2).every((k2) => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing"].includes(k2)), `settlement batch ${i2} keys`);
-      requireThat(nat(b2.id) && hex64(b2.pczt_hash) && (b2.txid == null || hex64(b2.txid)) && (b2.height == null || nat(b2.height)) && word(b2.state), `settlement batch ${i2} values`);
+      requireThat(nat(b2.id) && (b2.pczt_hash == null || hex64(b2.pczt_hash)) && (b2.txid == null || hex64(b2.txid)) && (b2.height == null || nat(b2.height)) && word(b2.state), `settlement batch ${i2} values`);
     }
     const published = pub.settlement.approval_maps ?? [];
     if (published.length === 0) {

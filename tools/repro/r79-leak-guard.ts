@@ -20,6 +20,7 @@ console.log(`values rows[0].pool = "banana":  ${verdict((s) => { s.rows[0].pool 
 console.log(`values rows[0].txid = "zz":  ${verdict((s) => { s.rows[0].txid = "zz"; })}`);
 console.log(`values rows[0].kind = "junk":  ${verdict((s) => { s.rows[0].kind = "junk"; })}`);
 console.log(`values batches[0].pczt_hash = "zz":  ${verdict((s) => { s.batches[0].pczt_hash = "zz"; })}`);
+console.log(`R80 N-3 honest set-aside batch (pczt_hash null, txid null, state exception):  ${verdict((s) => { s.batches.push({ id: 99, pczt_hash: null, txid: null, height: null, state: "exception", inspect: null, signing: null }); })}`);
 console.log(`redactor on uppercase UA: ${redactAddresses(`refund ${UA.toUpperCase()}`).includes(UA.toUpperCase()) ? "KEPT (leak)" : "redacted"}`);
 const m = { confirmations: 1, clearing: { mode: "buyback" }, buyback: { budget_zats: "1", treasury_ua: "utest1t", funding_ua: "utest1fund" } } as any;
 const bare = { address: "utest1fund", height: 10, value_zats: 1000 };

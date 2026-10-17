@@ -413,3 +413,12 @@ R confirmed F-1, F-3, F-4, F-5, F-6 and F-7 closed. All proofs are offline, in `
 4. **No false alarms.** Over the 26 committed settled documents (strict verify), there are 0 verdict changes from R78.
 5. **The attempt-11 auction-core FAIL was not a code fault.** It failed at deposit 6/6: the bidder wallet had 0 spendable, because attempt 10's auction-core refunds and change had not matured yet. The spec's finally-block recovery returned the five deposits. Attempt 11 was stopped after its in-flight settle-crash. The next attempt runs only once Reviewer R has approved R79 and the wallet's notes are mature.
 6. **A fourth comment-swallow (head, R79 edit, `clear/mode-b.ts`).** Typecheck caught it before commit, but `comment-swallowed-statement` did not, because the text ended in `})`. The rule now also flags a comment carrying a statement keyword after `;` that ends in code: it flags a probe of this shape plus the three earlier incidents, and HEAD is clean.
+
+### R80 — Reviewer R on R79 (`pr-rg-r79.md`, BLOCK: N-3)
+
+R confirmed N-1 (case), N-2 (keys at any depth), the row/batch value shapes and the treasury dedupe FIXED.
+
+1. **N-3 (P1, FIXED): the new batch value check demanded a `pczt_hash`.** The product publishes `pczt_hash: null` for a batch set aside before staging (R46, `ledger.expire`), so verify would have refused an honest settlement. `pczt_hash` may now be null or hex64. The proof (`repro/r79-leak-guard.out`) adds the honest set-aside batch (pczt_hash, txid and height null; state `exception`): ACCEPTED, while every R79 tamper stays REFUSED.
+2. **N-4 (P2, carried).** `markPublic` keys on the vault wallet, not on the address's role. The specs also use vault addresses as `fee_reserve_ua`. That is the escrow's own reserve address, not a bidder destination, so linking it reveals no bidder, and it stays unredacted. Buyback's host-derived deposits are not registered, but buyback writes no evidence files, so nothing is redacted there.
+3. **N-5 (P2, carried).** The widened swallow-rule arm can false-flag English comments of the shape `…; for details see …]`, and still misses literal-free swallowed calls. HEAD is clean; the typecheck and pre-commit gate are the backstop.
+4. **The gate.** Attempt 12 re-provisions the hosts at R80 and runs all six projects with the R79 preflight: the vault empty and every bidder note spendable before each project.

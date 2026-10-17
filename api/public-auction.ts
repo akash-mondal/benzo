@@ -619,7 +619,8 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     for (const [i, b] of ((pub.settlement.batches ?? []) as any[]).entries()) {
       requireThat(b && typeof b === "object" && Object.keys(b).every(k => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing"].includes(k)), `settlement batch ${i} keys`);
-      requireThat(nat(b.id) && hex64(b.pczt_hash) && (b.txid == null || hex64(b.txid)) && (b.height == null || nat(b.height)) && word(b.state), `settlement batch ${i} values`);
+      // R80 (Reviewer R N-3): a batch set aside before staging (R46, ledger.expire) has no PCZT yet — pczt_hash null.
+      requireThat(nat(b.id) && (b.pczt_hash == null || hex64(b.pczt_hash)) && (b.txid == null || hex64(b.txid)) && (b.height == null || nat(b.height)) && word(b.state), `settlement batch ${i} values`);
     }
     const published = pub.settlement.approval_maps ?? [];
     if (published.length === 0) {

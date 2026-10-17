@@ -1,4 +1,4 @@
-# R79 (Reviewer R N-1/N-2 and residuals on R78). Script: tools/repro/r79-leak-guard.ts (offline), on launch-r34 (host maps)
+# R79 + R80 (Reviewer R N-1/N-2 on R78, N-3 on R79). Script: tools/repro/r79-leak-guard.ts (offline), on launch-r34 (host maps)
 ## before (R78 code)
 honest:  ACCEPTED
 N-1 rows[0].state = UTEST1Q… (uppercase):  ACCEPTED
@@ -11,7 +11,7 @@ values rows[0].kind = "junk":  ACCEPTED
 values batches[0].pczt_hash = "zz":  ACCEPTED
 redactor on uppercase UA: KEPT (leak)
 F-6 treasuryFunded([bare, same bare]) = 2000 (one note is 1000)
-## after (R79)
+## after (R80)
 honest:  ACCEPTED
 N-1 rows[0].state = UTEST1Q… (uppercase):  REFUSED receipt-attestation: refused: settlement row 0 values | no-destinations: refused: published settlement carries an address at settlement.rows[0].state
 N-1 rows[0].state = UVIEWTEST1… (uppercase viewing key):  REFUSED receipt-attestation: refused: settlement row 0 values | no-destinations: refused: published settlement carries an address at settlement.rows[0].state
@@ -21,6 +21,7 @@ values rows[0].pool = "banana":  REFUSED receipt-attestation: refused: settlemen
 values rows[0].txid = "zz":  REFUSED receipt-attestation: refused: settlement row 0 values
 values rows[0].kind = "junk":  REFUSED receipt-attestation: refused: settlement row 0 values
 values batches[0].pczt_hash = "zz":  REFUSED receipt-attestation: refused: settlement batch 0 values
+R80 N-3 honest set-aside batch (pczt_hash null, txid null, state exception):  ACCEPTED
 redactor on uppercase UA: redacted
 F-6 treasuryFunded([bare, same bare]) = 1000 (one note is 1000)
 ## all 26 committed settled documents (strict verify): 0 verdict changes vs R78
