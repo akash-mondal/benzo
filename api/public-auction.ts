@@ -62,7 +62,7 @@ type Trust = "derived" | "chain-receipt" | "host-attested";
 type TrustEntry = { trust: Trust; verifiedBy: readonly string[] } | { trust: "informational"; verifiedBy: readonly [] };
 export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } = {
   auction_id: { trust: "derived", verifiedBy: ["accounting"] },
-  rows: { trust: "derived", verifiedBy: ["accounting"] },
+  rows: { trust: "derived", verifiedBy: ["accounting", "accounting-strays"] }, // R81: a cancelled settlement has no result, so only accounting-strays reads its rows
   receipts: { trust: "chain-receipt", verifiedBy: ["accounting", "receipt-attestation"] },
   ignored: { trust: "derived", verifiedBy: ["accounting-strays"] },
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
@@ -262,6 +262,11 @@ const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "
 // caller is strict, so an operator cannot downgrade receipt attestation by omitting the host maps.
 export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: Map<number, string | null>; allowUnattested?: boolean } = {}): Check[] {
   const checks: Check[] = [];
+  // R81: the Phase 2/3 evidence format — projections without auction.json — carries the pre-Phase-5 settlement shape
+  // (signoffs, plan, other batch keys). It is a format of the past, decided by SIGNED data: only a manifest that pins
+  // neither envelope_keys nor a witness set may be read that way, so an operator cannot choose it for a new auction.
+  const preV5Legacy = pub.legacy && !pub.manifest.envelope_keys && !pub.manifest.witness_set_hash;
+  if (pub.legacy) checks.push(preV5Legacy ? { id: "format" } : { id: "format", error: "refused: legacy projections (no auction.json) are readable only for a pre-Phase-5 manifest" });
   // R-AF-5: a settlement field counts as verified only if its registered check actually read it (not merely ran).
   let current = "";
   const readBy = new Map<string, Set<string>>();
@@ -606,8 +611,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       typeof r.party === "string" && r.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r.txid)) && /^(sapling|orchard|ironwood)$/.test(String(r.pool)) &&
         Number.isSafeInteger(r.output_index) && r.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r.amount_zats)),
       `settlement receipt ${i} fields`);
-    requireThat(new Set(receipts.map(r => `${r.txid}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
-    // R78 (F-2): rows and batches carry exactly their documented keys, so no extra field can ride along.
+    requireThat(new Set(receipts.map(r => `${r.txid}:${r.pool}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output"); // R81: per-pool action index
+    // R78 (F-2): rows and batches carry exactly their documented keys, so no extra field can ride along (R81: the
+    // pre-Phase-5 legacy format keeps its own shape; the leak guard and the receipt checks still apply to it).
+    if (!preV5Legacy) {
     // R79 (Reviewer R F-3 residual on R78): and their values have their documented shapes — no free-form field.
     const word = (v: unknown) => typeof v === "string" && /^[a-z]{3,16}$/.test(v), hex64 = (v: unknown) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
     const nat = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
@@ -621,6 +628,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(b && typeof b === "object" && Object.keys(b).every(k => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing"].includes(k)), `settlement batch ${i} keys`);
       // R80 (Reviewer R N-3): a batch set aside before staging (R46, ledger.expire) has no PCZT yet — pczt_hash null.
       requireThat(nat(b.id) && (b.pczt_hash == null || hex64(b.pczt_hash)) && (b.txid == null || hex64(b.txid)) && (b.height == null || nat(b.height)) && word(b.state), `settlement batch ${i} values`);
+    }
     }
     const published = pub.settlement.approval_maps ?? [];
     if (published.length === 0) {
@@ -872,7 +880,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
   });
   // Agent-friendly (class B): every present settlement field must have had its enforcing check run.
-  if (pub.settlement) {
+  if (pub.settlement && !preV5Legacy) { // R81: the registry describes the current settlement shape, not the pre-Phase-5 one
     const ran = new Set(checks.map((c) => c.id)), failed = new Set(checks.filter((c) => c.error).map((c) => c.id));
     for (const k of Object.keys(pub.settlement)) {
       const t = (SETTLEMENT_TRUST as Record<string, TrustEntry>)[k];

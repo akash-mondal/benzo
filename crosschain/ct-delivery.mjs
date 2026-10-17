@@ -29,7 +29,7 @@ const RPC = process.argv[2] || "https://api.devnet.solana.com";
 const SPL = process.env.BNZ_SPL_TOKEN ?? "spl-token";
 const SOL = process.env.BNZ_SOLANA ?? "solana";
 const TOKEN2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
-const UA = "utest1redacted";
+const UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
 const LOT = 100n; // the standard lot in whole tokens (decimals 0)
 
 mkdirSync(KEYDIR, { recursive: true, mode: 0o700 });

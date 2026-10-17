@@ -1,0 +1,21 @@
+# R81 (Reviewer R R-2 on R80): the destination rule admits only what settlement can pay. Script: tools/repro/r81-destination-rule.ts (offline)
+## before (6be9c22)
+FAIL seal-sapling-refused: sealEnvelope(Sapling) -> sealed
+FAIL seal-ua-sapling-only-refused: sealEnvelope(UA [Sapling]) -> sealed
+PASS seal-ua-orchard-accepted: sealEnvelope(UA [Sapling, Orchard]) -> sealed
+FAIL open-sapling-refused: openEnvelope(hostile sapling) -> accepted
+FAIL open-sapling-exception: openDestination -> a destination
+FAIL open-ua-sapling-only-refused: openEnvelope(hostile ua-sapling-only) -> accepted
+FAIL open-ua-sapling-only-exception: openDestination -> a destination
+RESULT FAIL (6)
+## after (R81)
+PASS seal-sapling-refused: sealEnvelope(Sapling) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS seal-ua-sapling-only-refused: sealEnvelope(UA [Sapling]) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS seal-ua-orchard-accepted: sealEnvelope(UA [Sapling, Orchard]) -> sealed
+PASS open-sapling-refused: openEnvelope(hostile sapling) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS open-sapling-exception: openDestination -> null (exception queue, claimable)
+PASS open-ua-sapling-only-refused: openEnvelope(hostile ua-sapling-only) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS open-ua-sapling-only-exception: openDestination -> null (exception queue, claimable)
+RESULT PASS
+## regression: tools/repro/r73-open-taddr.ts RESULT PASS; tools/repro/r79-leak-guard.ts all 8 tampers REFUSED, honest ACCEPTED; 26 committed settled documents: 0 verdict changes vs R79
+## cli-auction offline folds (kc, mr, r15, r26-3, r23-3, g-forged, r26-1, r23-2) via Playwright on R81: 53/53 PASS

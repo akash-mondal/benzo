@@ -336,6 +336,11 @@ async function worker(ledger:Ledger) {
         const payment=destinations(batch.outputs,settings().signers[0],plan).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
         run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks),"--network",manifestNet()],JSON.stringify(payment));
         const createdInfo=inspect(created,manifestNet());guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
+        // R81 (Reviewer R R-1 on R80): output_index is a per-bundle action index, and the host maps attribute outputs by
+        // {party, output_index}. A batch whose payments span two pools would make that attribution ambiguous, so it is
+        // refused here, before any signature (no funds move). R81's destination rule keeps every payable destination
+        // Orchard-capable, so a mixed batch is not expected.
+        requireThat(new Set(createdInfo.outputs.filter((o:any)=>!o.is_change).map((o:any)=>o.pool)).size<=1,"batch pays more than one pool; refusing before signing (R81)");
         await prove(created,proven);
       }
       const tSign=Date.now();

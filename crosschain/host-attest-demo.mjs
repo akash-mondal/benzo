@@ -42,7 +42,7 @@ const ZERO = "0x0000000000000000000000000000000000000000"; // both demo auctions
 const HOSTS = ["alice", "bob", "carol"];
 // a real shielded testnet UA (official zcash-test-vectors unified_address rows) — the mandatory refund
 // inside every winner's envelope payload
-const UA = "utest1redacted";
+const UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
 
 rmSync(WORK, { recursive: true, force: true }); // never read a stale artifact from an earlier run
 mkdirSync(WORK, { recursive: true });

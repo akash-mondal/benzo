@@ -56,7 +56,7 @@ const WORK = path.join(ROOT, "tmp/xchain-demos"); mkdirSync(WORK, { recursive: t
 const PUB = path.join(WORK, "public");
 const HOSTROOT = assertScratch(path.join(WORK, "xchain-hosts")); // the dry run's stand-in hosts: BNZ_STATE_DIR per signer (R43: tmp/ only)
 const HOSTS = ["alice", "bob", "carol"];
-const UA = "utest1redacted"; // a real testnet UA (zcash-test-vectors)
+const UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm"; // a real testnet UA (zcash-test-vectors)
 const sha256 = (b: Buffer | Uint8Array) => createHash("sha256").update(b).digest("hex");
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
