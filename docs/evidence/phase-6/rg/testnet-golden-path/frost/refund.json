@@ -1,7 +1,7 @@
 {
- "txid": "9ffa8d3ebff03e39dc1da199f0c3be2cea8d96ec880b4dfb2510321e0d84a6ad",
+ "txid": "6efcecaa798c9a7b939ca10f94418f810969505e87dae8e6ae85096363dc628c",
  "height": {
-  "testnet.zec.rocks:443": 4510148,
+  "testnet.zec.rocks:443": 4510516,
   "second_endpoint": "none (BNZ_LWD_SINGLE=1, R27/R47)"
  },
  "header_hex": "06000080",
