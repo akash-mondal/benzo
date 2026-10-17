@@ -13,6 +13,7 @@ Every item below was found by a reviewer during gate RG (R72–R83), confirmed, 
 | H5 | P2 | Batch `proofs`, `inspect` and `signing` values are not shape-checked. An encoded blob is seen only by the pattern leak guard. | `api/public-auction.ts` | Exact shapes for the three objects | R82-2, R83 P7-1 |
 | H6 | P2 | The receipt exact-key check runs only in `accounting`, which is skipped on result-less (cancelled) settlements. | `api/public-auction.ts` | Move the receipt key check into receipt-attestation | R83 P7-2 |
 | H7 | P2 | A bond auction whose every batch is set aside cannot publish a settlement (`pick === null`). | `cli/product.ts:90` | Publish a no-payment settlement with the set-aside reasons | R80 P2 |
+| H8 | harness | One `orb run … rm -f` on alice hung for 69 min during attempt 13 markets (drop DKG). `sh()` gives orb calls `timeout: 120_000`, but spawnSync's default SIGTERM did not stop the stuck `orb` client, so the timeout never fired. The head SIGKILLed it, the helper's retry ran on the responsive host, and the run continued. | `e2e/lib/hosts.ts` `sh` (orb branch) | `killSignal: "SIGKILL"` on orb spawnSync; the same for the async `spawn` in `dkgOnHosts` | head, 2026-10-17 |
 
 ## The release scrub (R74–R76)
 
