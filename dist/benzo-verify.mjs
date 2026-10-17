@@ -18686,7 +18686,9 @@ var SETTLEMENT_TRUST = {
   // R82: the settlement worker's own summary (settle/cli.ts) also carries its plan and signoffs; informational, and the
   // no-destinations guard still scans them at any depth.
   plan: { trust: "informational", verifiedBy: [] },
-  signoffs: { trust: "informational", verifiedBy: [] }
+  signoffs: { trust: "informational", verifiedBy: [] },
+  lwd_endpoints: { trust: "informational", verifiedBy: [] }
+  // R83 (Reviewer R R82-1): the worker's public lightwalletd hosts
 };
 var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "delivery_list", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
@@ -19065,6 +19067,7 @@ function checkPublicAuction(pub, opts = {}) {
       typeof r2.party === "string" && r2.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r2.txid)) && /^(sapling|orchard|ironwood)$/.test(String(r2.pool)) && Number.isSafeInteger(r2.output_index) && r2.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r2.amount_zats)),
       `settlement receipt ${i2} fields`
     );
+    requireThat(receipts.every((r2) => r2.auction_id === pub.manifest.auction_id), "a settlement receipt names another auction");
     requireThat(new Set(receipts.map((r2) => `${r2.txid}:${r2.pool}:${r2.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
     requireThat(pub.settlement.auction_id === void 0 || pub.settlement.auction_id === pub.manifest.auction_id, "settlement auction_id differs from the manifest");
     {

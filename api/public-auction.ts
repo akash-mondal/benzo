@@ -52,6 +52,7 @@ export type SettlementSummary = {
   offline_signer?: string;
   plan?: unknown; // R82: worker summary fields (informational)
   signoffs?: unknown;
+  lwd_endpoints?: unknown;
 };
 // Agent-friendly (class B: "verify trusted a field nobody attested", 8 Reviewer R P0/P1 findings). Every published
 // settlement field declares where its trust comes from and which verify check enforces it. Adding a field to
@@ -78,6 +79,7 @@ export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } 
   // no-destinations guard still scans them at any depth.
   plan: { trust: "informational", verifiedBy: [] },
   signoffs: { trust: "informational", verifiedBy: [] },
+  lwd_endpoints: { trust: "informational", verifiedBy: [] }, // R83 (Reviewer R R82-1): the worker's public lightwalletd hosts
 };
 
 export type PublicResult = ClearBody;
@@ -619,6 +621,8 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       typeof r.party === "string" && r.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r.txid)) && /^(sapling|orchard|ironwood)$/.test(String(r.pool)) &&
         Number.isSafeInteger(r.output_index) && r.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r.amount_zats)),
       `settlement receipt ${i} fields`);
+    // R83 (Reviewer R R82-3): each receipt names this auction.
+    requireThat(receipts.every(r => r.auction_id === pub.manifest.auction_id), "a settlement receipt names another auction");
     requireThat(new Set(receipts.map(r => `${r.txid}:${r.pool}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output"); // R81: per-pool action index
     // R78 (F-2): rows and batches carry exactly their documented keys, so no extra field can ride along (R81: the
     // pre-Phase-5 legacy format keeps its own shape; the leak guard and the receipt checks still apply to it).

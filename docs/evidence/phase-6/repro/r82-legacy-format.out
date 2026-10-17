@@ -12,3 +12,7 @@ phase-3 legacy, rows[0].state = "<UA>":  REFUSED receipt-attestation: refused: s
 phase-3 legacy, settlement.auction_id = another id:  REFUSED receipt-attestation: refused: settlement auction_id differs from the manifest
 legacy dir with a Phase-5 feature (bond) in its manifest:  REFUSED format: refused: legacy projections (no auction.json) are readable only for a manifest with no Pha | accounting: refused: bond/balance fields | balances: refused: settled bond auction lacks the defaults list
 ## regression: r79-leak-guard, r81-destination-rule, r73-open-taddr, r78-verify-hardening unchanged (all tampers REFUSED, honest ACCEPTED); 26 committed settled documents: 0 verdict changes vs R79; cli-auction offline folds via Playwright: 53/53 PASS (incl. r15-phase2-4, mr-verify-phase2-4, g-forged-claim-accepted with no excluded check)
+## R83 additions (after)
+R83 phase-3 legacy + lwd_endpoints (current worker-summary field):  ACCEPTED
+R83 receipts[0].auction_id = another id:  REFUSED receipt-attestation: refused: a settlement receipt names another auction
+## R83 regression: cli-auction offline folds 53/53 PASS; 26 committed settled documents 0 verdict changes vs R79

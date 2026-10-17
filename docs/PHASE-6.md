@@ -468,3 +468,17 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
 3. **Carried (P2, Phase 7):**
    - **R-4:** custody builds (`hostBuild`, `sign build`, `sign approve`) have no one-pool refusal; maps and receipts stay pool-blind; a local trip is untyped rather than a set-aside. R-2 makes every bidder destination Orchard-capable, so a mixed batch needs a non-Orchard seller UA.
    - **R-5:** the seller UA is operator-configured and not checked for payability. Phase 7 checks it at manifest creation.
+
+### R83 — Reviewer R on R82 (`pr-rg-r82.md`, BLOCK: R82-1), and the gate's scope from here
+
+1. **R82-1 (P1, FIXED): R82's shape set missed `lwd_endpoints`.** Every current worker `summary.json` carries it (`settle/cli.ts`), so the registry, which now runs on every document, refused an honest settlement. It is registered as informational: the worker's public lightwalletd hosts, still scanned by the leak guard. **Proof** (`repro/r82-legacy-format.out`, R83 lines): Phase 3 plus `lwd_endpoints` is ACCEPTED.
+2. **R82-3 (P2, FIXED).** Every settlement receipt's `auction_id` must equal the manifest's. A receipt naming another auction is REFUSED.
+3. **R82-2 (P2, carried).** Batch `proofs`/`inspect`/`signing` values are not shape-checked, so an encoded blob is seen only by the pattern leak guard. That is the standing encoding residual.
+4. **Regression.** The 53 offline fold IDs PASS, and the 26 committed settled documents show 0 verdict changes.
+5. **Scope freeze for gate RG (head ruling).**
+   - From attempt 13 on, a finding blocks gate RG only if it is a REGRESSION: behavior that worked at R65 or in an earlier green project and is broken now, or a defect in a change made during RG (R73–R83).
+   - A real but pre-existing product defect goes to the Phase 7 hardening list, with its fix and proof before mainnet.
+   - Reasons:
+     - R72–R82 converged on smaller and older edge cases (each real, each fixed);
+     - the gate is a regression gate;
+     - mainnet needs its own release regression (RG-M) anyway, at the release commit.
