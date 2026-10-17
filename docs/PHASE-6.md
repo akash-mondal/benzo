@@ -482,3 +482,4 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
      - R72–R82 converged on smaller and older edge cases (each real, each fixed);
      - the gate is a regression gate;
      - mainnet needs its own release regression (RG-M) anyway, at the release commit.
+6. **R83 review: APPROVE** (`benzo-sol/reports/pr-rg-r83.md`). Both fixes hold in the shipped bundle, and there is no regression in range. Its two Phase 7 items and every earlier carried P2 are in `docs/design/phase7-hardening.md` (H1–H7, the release scrub, the accepted residuals). The Codex `gpt-6.1-sol` smoke test (2026-10-17: 29 reproduced tests) added H1.
