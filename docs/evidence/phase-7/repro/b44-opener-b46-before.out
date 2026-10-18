@@ -1,11 +1,6 @@
-commit 5db821211e878c636e37b18572dd6c682cd4ab28 (working tree not clean at run time)
-utc 2026-10-18T22:42:43.411Z
+commit 2654616fbac36ff7e088a23b682d473ebd74faac
+utc 2026-10-18T23:07:56.448Z
 command node tmp/b44.mjs before (tools/repro/b44-opener.ts)
-tree M dist/benzo-verify.mjs
-tree  M docs/evidence/phase-7/repro/b44-opener-b46-before.out
-tree  M docs/evidence/phase-7/repro/h10-seller-binding-b46.out
-tree  M docs/verify-bundle.sha256
-tree  M tools/repro/h-fixtures.ts
 === fixtures: real tlock to quicknet round 32704232 (2 intact leaves + the two B44 bodies; 2 strays)
 === the B44 probe on the BASE commit's opener (the head's r100 probe, both P1s)
 OBSERVE probe-intact shape {"ok":true} open plaintext

@@ -1,11 +1,6 @@
-commit 5db821211e878c636e37b18572dd6c682cd4ab28 (working tree not clean at run time)
-utc 2026-10-18T22:42:43.411Z
+commit 2654616fbac36ff7e088a23b682d473ebd74faac
+utc 2026-10-18T22:58:44.219Z
 command node tmp/h10.mjs (tools/repro/h10-seller-binding.ts)
-tree M dist/benzo-verify.mjs
-tree  M docs/evidence/phase-7/repro/b44-opener-b46-before.out
-tree  M docs/evidence/phase-7/repro/h10-seller-binding-b46.out
-tree  M docs/verify-bundle.sha256
-tree  M tools/repro/h-fixtures.ts
 PASS unit-commitment-known-answer sellerUaCommitment = af44dfd8f3328b34de0d35ffd9fa3eb14e3a6f5ca51acc28436a0f00d3b5704b (independent sha256 over "benzo-seller-ua-v1\0" || utf8(ua) = af44dfd8f3328b34de0d35ffd9fa3eb14e3a6f5ca51acc28436a0f00d3b5704b)
 PASS unit-commitment-not-the-address the commitment is domain-separated, not a bare address hash
 PASS unit-shape-good accepted

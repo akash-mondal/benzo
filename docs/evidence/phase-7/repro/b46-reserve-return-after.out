@@ -1,11 +1,6 @@
-commit 8dad7709bafd0fc9a980a9b365fc721833baf1aa (working tree not clean at run time)
-utc 2026-10-18T21:19:53.202Z
+commit 2654616fbac36ff7e088a23b682d473ebd74faac
+utc 2026-10-18T23:08:33.561Z
 command node tmp/b46.mjs after (tools/repro/b46-reserve-return.ts)
-tree M api/public-auction.ts
-tree  M tools/repro/h-fixtures.ts
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-after.out
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-before.out
-tree ?? tools/repro/b46-reserve-return.ts
 PASS unit-commitment-known-answer reserveReturnUaCommitment = 7fb0f3abd90f8d58801619e2f8c65b6104bf536f58229f00fcbc4c2058957fa9 (independent sha256 over "benzo-reserve-return-ua-v1\0" || utf8(ua) = 7fb0f3abd90f8d58801619e2f8c65b6104bf536f58229f00fcbc4c2058957fa9)
 PASS unit-commitment-domain-separated the return commitment is its own domain, distinct from the seller commitment and a bare address hash
 PASS unit-shape-good accepted
@@ -13,42 +8,51 @@ PASS unit-shape-bad-length refused: refused: reserve_return_ua_commitment
 PASS unit-shape-uppercase-hex refused: refused: reserve_return_ua_commitment
 PASS unit-shape-extra-field refused: refused: unknown or missing manifest field
 PASS unit-shape-legacy-omits accepted
-PASS rule-eligible-exactly-reserve-and-change eligible = ["fee-reserve","change"] (the stray, late-balance, escrow, treasury, spent and zero notes are never sources)
-PASS rule-late-balance-never-a-source a balance-address note is never a source of the return (R42; owners may still claim it)
-PASS rule-stray-never-even-as-fee-reserve a lying fee_reserve_ua pointed at a deposit address never makes that deposit note eligible — the absolute exclusion wins (only the internal change remains)
-PASS rule-late-never-even-as-fee-reserve a lying fee_reserve_ua pointed at a balance address never makes that balance note eligible
-PASS rule-no-fee-reserve-internal-change-only with no fee_reserve_ua configured only the internal change is eligible
-PASS rule-fee-formula ZIP-317 fee of the one-row transaction: 5,000 x max(2, sources)
-=== green plan on the settled fixture: the one reserve-return row
+PASS rule-whole-unspent-value-minus-fee whole unspent value 55000 minus the ZIP-317 fee 10000 = 45000 (spent and zero-value notes stay behind: none exist — every unspent note is swept)
+PASS rule-amount-inputs-are-every-unspent-note the transaction must spend every unspent note: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:ironwood:0","bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb:ironwood:1"]
+PASS rule-fee-formula ZIP-317 fee of the one-row transaction: 5,000 x max(2, notes)
+PASS rule-no-row-below-the-fee a vault worth less than its fee plans no row
+PASS gate-clean-accounting-passes every owed row receipted, no exception rows, no pending balances: nothing outstanding
+PASS gate-unclaimed-stray-blocks an unpaid stray blocks the return whether claimed or not — outstanding: ["deposit:ffb1d8ff2228758bad59bb62fc191ed2b5fe8276d1738dffeb9d32954c3b069b:ironwood:0"]
+PASS gate-exception-row-blocks an unresolved exception row blocks the return
+PASS gate-pending-balance-blocks a published unpaid balance refund blocks the return
+PASS gate-unreceipted-row-blocks a row without its receipt blocks the return
+PASS gate-pending-batch-blocks a pending batch blocks the return
+=== green plan on the stray + unclaimed late-balance fixture: the return waits
+PASS plan-waits-no-row the unclaimed stray and the unclaimed late-balance note plan NO reserve-return row
+PASS plan-waits-line printed once: reserve return waits: 2 outstanding (strays/balances/exceptions)
+=== green plan: nothing owed → exactly one return of the whole unspent value minus the fee
 PASS plan-completes the plan completed (exit 0)
-PASS plan-one-reserve-return-row the plan has exactly one reserve-return row: {"party":"reserve-return","kind":"payout","amount_zats":"25000"}
-PASS plan-amount-is-sum-minus-fee sum 35000 minus the ZIP-317 fee 10000 = 25000 zats to the committed return UA
-PASS plan-sources-reserve-change-only sources = ["75c3d9a462a9a468ddbae35fa8cfb89f43c460ace4baa24003ab8dbe04102043:ironwood:0"] (the reserve change note only)
-PASS plan-stray-and-late-untouched the stray deposit (ffb1d8ff2228758bad59…) and the unclaimed late-balance note (d8042735dae546b30107…) are untouched
-OBSERVE plan-reserve-return {"amount_zats":"25000","eligible_zats":"35000","fee_zats":"10000","kind":"payout","party":"reserve-return","sources":["75c3d9a462a9a468ddbae35fa8cfb89f43c460ace4baa24003ab8dbe04102043:ironwood:0"]}
+PASS plan-one-reserve-return-row the plan has exactly one reserve-return row: {"party":"reserve-return","kind":"payout"}
+PASS plan-amount-whole-value-minus-fee whole remaining value 55000 minus the ZIP-317 fee 10000 = 45000 zats to the committed return UA (every unspent note, whatever its address)
+OBSERVE plan-reserve-return {"amount_zats":"45000","fee_zats":"10000","kind":"payout","party":"reserve-return","remaining_zats":"55000"}
+=== green plan: the stray's note swept into change is still an unpaid stray (R103's fungibility case)
+PASS plan-swept-stray-still-refused the return is still refused while the stray is unpaid, although its note is spent and its value sits in internal change
+PASS plan-swept-waits-line printed once: reserve return waits: 1 outstanding (strays/balances/exceptions)
 === green plan on the legacy manifest: the reserve stays in the vault
 PASS plan-legacy-no-row a legacy manifest (no reserve_return_ua_commitment) plans no reserve-return row
 PASS plan-legacy-line printed once: WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment
 === green hosts: approve the reserve-return row the plan derived
-PASS sign-build-honest-passes built the reserve-return row (25000 zats to the committed return UA)
+PASS sign-build-honest-passes built the reserve-return row (45000 zats to the committed return UA; inspect input_zats = the scanned 55000)
 PASS sign-derivable-honest-lists-row lists the reserve-return row at the plan's amount
-PASS sign-approve-honest-passes recorded the approval of the single output to the committed return UA
+PASS sign-approve-honest-passes recorded the approval of the single output to the committed return UA (input_zats = the scanned unspent total)
 === green hosts: typed refusals (exit 3, named rows)
 PASS sign-build-wrong-return-ua-refused typed refusal: ERROR sign build refused-rows ["reserve-return"]: reserve return address does not match the manifest reserve_return_ua_commitment (H15)
 PASS sign-approve-wrong-return-ua-refused typed refusal: ERROR sign approve refused-rows ["reserve-return"]: reserve return address does not match the manifest reserve_return_ua_commitment (H15)
 PASS sign-derivable-wrong-return-ua-refused typed refusal: ERROR sign derivable refused-rows ["reserve-return"]: reserve return address does not match the manifest reserve_return_ua_commitment (H15)
-PASS sign-build-stray-source-refused typed refusal naming the stray source: ERROR sign build refused-rows ["reserve-return"]: reserve-return source ffb1d8ff2228758bad59bb62fc191ed2b5fe8276d1738dffeb9d32954c3b069b:ironwood:0 is not an el
-PASS sign-approve-stray-source-refused typed refusal naming the stray source: ERROR sign approve refused-rows ["reserve-return"]: reserve-return source ffb1d8ff2228758bad59bb62fc191ed2b5fe8276d1738dffeb9d32954c3b069b:ironwood:0 is not an 
-PASS sign-build-return-before-receipts-refused typed refusal: an obligation row has no published receipt: ERROR sign build refused-rows ["reserve-return"]: obligation row seller has no published receipt; the reserve-return row is refused
+PASS sign-approve-input-below-scanned-total-refused typed refusal: input_zats below the scanned unspent total: ERROR sign approve refused-rows ["reserve-return"]: the reserve-return candidate must spend every unspent vault note: inspect input_zats 100 differs from this s
+PASS sign-approve-output-not-total-minus-fee-refused typed refusal: the output differs from the scanned total minus the fee: ERROR sign approve refused-rows ["reserve-return"]: the reserve-return candidate's output 0 (44999 zats) is not this signer's unspent total minus the fee (45000
+PASS sign-build-return-before-receipts-refused typed refusal: the auction still owes the unclaimed stray and late balance: ERROR sign build refused-rows ["reserve-return"]: the auction still owes 2 outstanding (strays/balances/exceptions): balance-late:d8042735dae546b30107ddaf44570f
 PASS sign-build-legacy-packet-refused typed refusal: a legacy manifest never plans the row: ERROR sign build refused-rows ["reserve-return"]: legacy manifest: no reserve_return_ua_commitment, the reserve-return row is never planned (H15)
 === green auction create: the commitment and the mainnet rule
 PASS create-sets-commitment-from-routing set reserve_return_ua_commitment 7fb0f3abd90f8d58801619e2f8c65b6104bf536f58229f00fcbc4c2058957fa9 ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","state":"DRAFT","ma)
 PASS create-refuses-sapling-only-reserve-return-ua refused a Sapling-only reserve_return_ua (H4): ERROR benzo refused: reserve_return_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver (H4)
 PASS create-mainnet-requires-reserve-commitment mainnet create without reserve_return_ua_commitment refused: ERROR benzo refused: mainnet manifest must carry reserve_return_ua_commitment (H15)
 PASS create-mainnet-with-commitment-passes-h15-rule passes the H15 rule, refused later by the network lock: ERROR benzo refused: manifest version/network
-=== green verify: the published result and the forged receipt
+=== green verify: the published result, the forged receipt and the premature return
 PASS verify-accepts-settled verify accepts the settled document (exit 0)
 PASS verify-accepts-returned verify accepts the published reserve-return result (exit 0); 19 OK lines
 PASS verify-refuses-forged-second-receipt a forged second reserve-return receipt is refused: ERROR accounting-strays refused: duplicate reserve-return receipt
+PASS verify-refuses-return-with-outstanding a return with the unclaimed stray and late balance still outstanding is refused: ERROR accounting-strays the reserve-return receipt while row deposit:ffb1d8ff2228758bad59bb62fc191ed2b5fe8276d1738dffeb9d32954c3b069b:ironwo
 PASS verify-refuses-receipt-without-accounting a reserve-return receipt without its published accounting is refused: ERROR accounting-strays refused: a reserve-return row or receipt without the published reserve_return accounting
 RESULT PASS
