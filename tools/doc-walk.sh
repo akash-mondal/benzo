@@ -65,13 +65,14 @@ for i in 0 1 2; do
   b bid seal --manifest "$PUB/manifest.json" --signer "$SIGNER" --file "$PRIV/private-bid-$i.json"
   echo "$J" > "$PRIV/sealed-$i.json"; chmod 600 "$PRIV/sealed-$i.json"
 done
+say "# GAP G10: bid seal does not print address (the guides say it does); the address comes from the bidder's own private-bid.json"
 say "## operator 5 / bidder 4 — one funding transaction: three deposits + the fee reserve (60,000 zats)"
-node -e 'const fs=require("fs"),[,dir,fee]=process.argv;const bids=[0,1,2].map(i=>{const s=JSON.parse(fs.readFileSync(`${dir}/sealed-${i}.json`));return {uri:s.uri,address:s.address,envelope_hex:s.envelope_hex}});fs.writeFileSync(`${dir}/deposit-pay.json`,JSON.stringify({bids,reserve:{address:fee,amount_zats:"60000"}}),{mode:0o600})' "$PRIV" "$FEE"
+node -e 'const fs=require("fs"),[,dir,fee]=process.argv;const bids=[0,1,2].map(i=>{const s=JSON.parse(fs.readFileSync(`${dir}/sealed-${i}.json`)),p=JSON.parse(fs.readFileSync(`${dir}/private-bid-${i}.json`));return {uri:s.uri,address:p.address,envelope_hex:s.envelope_hex}});fs.writeFileSync(`${dir}/deposit-pay.json`,JSON.stringify({bids,reserve:{address:fee,amount_zats:"60000"}}),{mode:0o600})' "$PRIV" "$FEE"
 b bid deposit --id "$ID" --file "$PRIV/deposit-pay.json" --pay; TXID="$(jget txid)"
 say "## bidder 4 → operator 6 — admission records (one per deposit)"
 say "# GAP G9: admission refuses until the deposit has 10 confirmations (clear/auction-cli.ts:69); the guide does not say so. Retrying each record every 30 s."
 for i in 0 1 2; do
-  node -e 'const fs=require("fs"),[,dir,i,txid]=process.argv;const s=JSON.parse(fs.readFileSync(`${dir}/sealed-${i}.json`));fs.writeFileSync(`${dir}/deposit-${i}.json`,JSON.stringify({txid,address:s.address,envelope_hex:s.envelope_hex,envelope_ct_hex:s.envelope_ct_hex,owner_sig_hex:s.owner_sig_hex}),{mode:0o600})' "$PRIV" "$i" "$TXID"
+  node -e 'const fs=require("fs"),[,dir,i,txid]=process.argv;const s=JSON.parse(fs.readFileSync(`${dir}/sealed-${i}.json`)),p=JSON.parse(fs.readFileSync(`${dir}/private-bid-${i}.json`));fs.writeFileSync(`${dir}/deposit-${i}.json`,JSON.stringify({txid,address:p.address,envelope_hex:s.envelope_hex,envelope_ct_hex:s.envelope_ct_hex,owner_sig_hex:s.owner_sig_hex}),{mode:0o600})' "$PRIV" "$i" "$TXID"
   for k in $(seq 1 60); do
     if o="$(bin/benzo bid deposit --id "$ID" --file "$PRIV/deposit-$i.json" 2>&1)"; then say "\$ benzo bid deposit --id $ID --file \$BNZ_STATE_DIR/run/doc-walk/deposit-$i.json"; echo "$o" | redact >> "$T"; break; fi
     [ "$k" = 1 ] && say "(attempt $k refused: $(echo "$o" | grep ERROR | tail -1))"
