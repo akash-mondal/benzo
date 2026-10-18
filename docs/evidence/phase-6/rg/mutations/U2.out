@@ -1,37 +1,37 @@
 mutation U2 (docs/evidence/phase-4/mutations/U2.patch) on project cli-auction
-commit 9c016d66f93ef0652cbdb8a6c832b12d144a827b (patch applied on top, then reverted)
-utc 2026-10-18T05:06:16Z
+commit e7f681458494393afaf2f4d21d0a10581da6f928 (patch applied on top, then reverted)
+utc 2026-10-18T06:54:20Z
 expected red: S1
-ERROR ids: T3 benzo settle 
-RESULT NOT RED AS EXPECTED
+ERROR ids: S1 benzo mr-verify 
+RESULT RED (expected)
 --- last 30 lines ---
+true   reserve opening (2000) -> leaf0:winner:pay=4000:refund=996000 leaf1:winner:pay=4000:refund=996000 leaf2:unfilled:pay=0:refund=1000000 clearing=4000
 forged reserve opening (5000) -> leaf0:winner:pay=5000:refund=995000 leaf1:below_reserve:pay=0:refund=1000000 leaf2:below_reserve:pay=0:refund=1000000 clearing=5000
 
 results differ: [33mtrue[39m
 
 signer-side binding refuses the forged opening: refused: reserve opening published differs from re-derived
 F2 FIXED: the signer re-derives the sealed reserve and refuses a forged published opening before any signature.
-CLI funding 000f4c9362d91e0f1dec6a00591a77b8acc6a5a607fea6cffb1352b44ca6e49e
-CLI stray funding 19b2acb756bbce47d4e8791f01ac0a8c022f8baba89038d9644e75f65284845c
-ERROR T3 worker expiry_height":4514081,"tip":4514104}
-{"auction_id":"57a498ba45de0e52acb278a4c3a38ad34a60fc56b8a0dd996dbeb89cb11aec9c","batch":2,"allocated":10}
-ERROR settle node exited 1: 2ba94600c84e971/info": dial tcp: lookup api3.drand.sh: no such host | https://drand.cloudflare.com: client: FetchChainInfo err: doing request: Get "https://drand.cloudflare.com/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/info": dial tcp: lookup drand.cloudflare.com: no such host
-ERROR benzo settle exit 1
-
-FATAL Error: zcash-devtool wallet -w /Users/akshmnd/Dev Projects/benzo/.benzo/bidder sync exited 1:     0: dns error |     1: dns error |     2: failed to lookup address information: nodename nor servname provided, or not known
-    at run (file:///Users/akshmnd/Dev%20Projects/benzo/e2e/lib/zcash.ts:18:29)
-    at wallet (file:///Users/akshmnd/Dev%20Projects/benzo/e2e/lib/zcash.ts:23:60)
-    at Module.sync (file:///Users/akshmnd/Dev%20Projects/benzo/e2e/lib/zcash.ts:30:18)
-    at file:///Users/akshmnd/Dev%20Projects/benzo/e2e/cli-auction.spec.ts:276:7
-    at processTicksAndRejections (node:internal/process/task_queues:104:5)
-    at /Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1655:9
-    at /Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1135:11
-    at TimeoutManager.withRunnable (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:403:14)
-    at TestInfoImpl._runWithTimeout (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1133:7)
-    at /Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1653:7
-    at WorkerMain._runTest (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1626:5)
-    at WorkerMain.runTestGroup (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1521:9)
-    at process.<anonymous> (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/common/index.js:1941:25)
+CLI funding 1284571dd9a49ef05f39e99398d4a85a2a0ada69a1202960f6682410a7d7c5cb
+CLI stray funding 698ec5fba8f45c07d0de1466882e02e66d8ec62a037caad22c1854d56276beb6
+shared rule, pinned keys, malformed ct: refused
+shared rule, pinned keys, this dir's own record: accepted
+shared rule, no pinned keys, the same record: refused
+shared rule, short owner_sig: refused
+plan exit 0
+obligations: ["deposit:698ec5fba8f45c07d0de1466882e02e66d8ec62a037caad22c1854d56276beb6:ironwood:0","leaf:1","leaf:2","leaf:3","leaf:4","leaf:5","leaf:6","leaf:7","seller"]
+exceptions: [{"party":"leaf:0","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:8","reason":"no valid owner-signed settlement envelope"},{"party":"leaf:9","reason":"no valid owner-signed settlement envelope"},{"party":"deposit:698ec5fba8f45c07d0de1466882e02e66d8ec62a037caad22c1854d56276beb6:ironwood:1","reason":"deposit memo is not an openable sealed bid; no owner key claims it"}]
+FIXED: the plan completed with leaf:0 in the exception queue (no valid owner-signed settlement envelope) while every other party stayed payable.
+restored both documents; outcome FIXED
+ERROR S1 Error: expect(received).not.toMatch(expected) | Expected pattern: not /price_zats|quantity|plaintext_hex/ | Received string:      "{\"auction_id\":\"3010c970b1a3450c5c4a7927c3aaba391ae0692f6821cf452a4941c7d743b535\",\"C_zats\":\"500000\",\"count\":10,\"total_collateral_zats\":\"5000000\",\"blobs\":[{\"leaf_index\":0,\"ciphertext_hash\":\"fbe3cacbe7bd6a52640451179cc7af070e1f20db3a9b8e133a2c8335c2e9
+CLI cancelled funding 0a1c0ef3d89cb505cf313630f067c64357e70cd3239b957c1412f50fe36c1a38
+F-1 FIXED: no operator-held envelope private key exists in product state
+allocated batch 1 rows: (none)
+sign inspect exit 1
+ERROR benzo node exited 1: ERROR settle node exited 1: ERROR settle refused: frozen deposit missing or spent; resume needs mined-batch reconciliation
+FIXED: the signer refused the redirected PCZT (ERROR benzo node exited 1: ERROR settle node exited 1: ERROR settle refused: frozen deposit missing or spent; resume needs mined-batch reconciliation).
+restored 3010c970b1a3450c5c4a7927c3aaba391ae0692f6821cf452a4941c7d743b535.json; outcome FIXED
+development cleanup 507717f6c5c9755a80c9cd01047c6f59c85d46f39adf4ce3c60a1d1729fc8cbe
 run.json -> tmp/e2e/out
-FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (2518 s)
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (5111 s)
 run failed; details in tmp/e2e/report.json
