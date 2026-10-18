@@ -1,7 +1,8 @@
 # Bidder guide
 
 Runbook for bidding in one Benzo auction. Commands checked against `bin/benzo --help` and each
-command's `--help` at commit `e28669b`, 2026-10-03. Testnet only. Keep your owner key and bid file
+command's `--help` at commit `96ce0f5` plus this commit's help fixes, 2026-10-18 (checked by
+`tools/repro/b42-hosts-cli.ts` section 7). Testnet only. Keep your owner key and bid file
 private; the commands store owner material under `$BNZ_STATE_DIR` and print only public values.
 
 1. **Fund your shielded wallet.** Get a real quote for funding your own shielded UA with a round
@@ -44,6 +45,26 @@ private; the commands store owner material under `$BNZ_STATE_DIR` and print only
    ```text
    $ benzo bid deposit --id ID --file deposit.json --pay
    ```
+
+   Its `deposit.json` is the **payment input**: your `bid seal` output (`uri`, `address`,
+   `envelope_hex`), or `{bids: [ … ], reserve: {address, amount_zats}}` when one transaction also
+   funds the auction's fee reserve (the operator's step 5). After paying, **send the operator the
+   admission record** — without it your deposit is never admitted:
+
+   ```json
+   {
+     "txid": "9f4c8a…",
+     "address": "utest1qxy…",
+     "envelope_hex": "4e425a…",
+     "envelope_ct_hex": "2b91…",
+     "owner_sig_hex": "88a1…"
+   }
+   ```
+
+   Each field: `address`, `envelope_hex`, `envelope_ct_hex` and `owner_sig_hex` are printed by your
+   `bid seal` run (step 3); `txid` is the transaction your wallet made paying the `uri` (its txid,
+   shown by the payment or your wallet's history). The operator admits it with
+   `benzo bid deposit --id ID --file deposit.json` (no `--pay`).
 
    Exchange withdrawals can miss `T_submit`; give them time. A deposit mined before `T_submit` that
    is missing from the frozen set is owed a refund (see step 5).

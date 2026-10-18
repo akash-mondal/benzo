@@ -3,6 +3,132 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B42 (Builder B, branch `b42-hosts-cli`, from `96ce0f5`) — gate DOC: `benzo hosts` commands, guides with every handoff written down
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb` — the repro replaces `orb`/`orbctl`
+with a PATH stub that records calls, no testnet, no wallets, no live Playwright). Spec:
+`docs/design/phase6-doc-b42.md` including "Added after B39 merged (R93)". Two commits, both `--no-verify`
+(R32: `check:bundle` cannot pass in a worktree):
+
+1. The module move + commands + harness `--config` wiring: `cli/hosts.ts` (the product module — the move of
+   `e2e/lib/hosts.ts`, same orb/orbctl call sequences, timeouts and retries), `e2e/lib/hosts.ts` re-exports it,
+   `cli/commands/hosts.ts` (`benzo hosts keys|dkg|witness|envelope-opens`), `--show` on
+   `sign envelope-key`/`witness keygen`, `auction create --config` in its help, the H10 wiring in the five live
+   create calls (list below), and `tools/repro/b42-hosts-cli.ts`.
+2. The three guides + this status block.
+
+**What each command prints** (one JSON object; no command ever prints key material):
+
+- `benzo hosts keys` → `{envelope_keys: [3], witness_keys: [3]}` (in signer order; a missing key is generated on
+  its host, an existing one reused).
+- `benzo hosts dkg --id ID` → `{group_key, escrow_ua, keys}` (the three reported group keys). Refuses when
+  `state/vaults/<id>` exists; takes the harness's DKG lock `tmp/markets-dkg.lock`.
+- `benzo hosts witness --id ID [--names alice,bob]` → `{certificates, q_w}`. Refuses before `freeze`; merges the
+  named hosts' certificates through `mergeWitnessCerts` (checkCertificates before writing), then republishes.
+- `benzo hosts envelope-opens --id ID` → `{reports: [{name, ok_rows, not_ok_rows}]}` (each report saved where
+  settle reads it, `state/settle/<id>/envelope-opens-<name>.json`).
+- `benzo sign envelope-key --name N --show` → `{name, public_hex}`; `benzo witness keygen --name N --show` →
+  `{name, public_hex, key_file}`. Both refuse when no key exists and never replace one.
+
+**Proof (`node tmp/b42-hosts-cli.mjs`, transcript `tmp/b42-proof.out`): RESULT PASS, 87/87 checks (0 ERROR).**
+The old `e2e/lib/hosts.ts` is extracted from git at `96ce0f5` and bundled beside the new module, so the
+comparison is against the real pre-move code. `orb`/`orbctl` are a PATH stub recording every call; the local CLI
+is the real shipped one (the address classifier is the real `benzo-pczt` from `build:settle`; the offline
+stand-ins are zcash-sign/grpcurl/zcash-devtool/benzo-pczt ufvk-ak+address, the h-fixtures stub class). For the
+same inputs:
+
+- `hosts keys` = old `hostEnvelopeKeys`+`hostWitnessKeys`: identical call sequences (9 calls fresh / 6 reuse) and
+  identical output; `hosts dkg` = old `dkgOnHosts`: identical 20-call multiset (the three `sign dkg` launches are
+  concurrent, so the check is order-insensitive there) and identical `{group_key, escrow_ua, keys}`;
+  `hosts witness` = old `hostWitnessCerts`: identical 10-call sequence; `hosts envelope-opens` = old
+  `hostEnvelopeOpens`: identical 18-call sequence and byte-identical saved reports. The checked merge writes a
+  document **byte-identical** to the old raw JSON edit's (`witness-merge-byte-identical`).
+- Refusals: `hosts witness` before freeze (no host call, `witness certificates exist only after freeze`); a
+  certificate with a wrong signature refused (`witness … signature`) with nothing written (the file is unchanged);
+  `hosts dkg` a second time refused (`state/vaults/<id> already exists`) with no host call.
+- `--show`: prints the existing public half (equal to the generation output), refuses when none exists, refuses to
+  replace an existing key, and no captured output contains either stored private key (`show-no-private-key-material`).
+- H10 offline: `auction create --file … --witness-set … --config <state>/run/operator.json` (the exact file shape
+  `markets.ts` writes) sets `seller_ua_commitment` to `sellerUaCommitment(routing.seller_ua)` (the real classifier
+  checks the seller UA); without `--config` the draft stays unbound; an unclassifiable seller_ua is refused (H4);
+  `markets.ts`'s create call carries `--config` (source check).
+- Guide help: all 58 `$ benzo …` commands in the three guides run `--help` clean and every quoted `--option`
+  appears in its help (section 7 of the repro).
+
+**Commands run** (worktree `/Users/akshmnd/Dev Projects/benzo-b42`): `git worktree add ../benzo-b42 -b
+b42-hosts-cli 96ce0f5` OK; worktree `npm ci` OK (pinned lockfile); `tools/nu7/build.sh crates vendor/nu7 …` +
+`cargo build --release --locked --manifest-path settle/Cargo.toml` OK (`Finished release`, the real classifier);
+`GOBIN=.benzo/bin go install github.com/drand/tlock/cmd/tle@v1.2.0` OK (for e2e's tle); `npm run typecheck` clean;
+`npm run check:structure` `OK (200 files)`; `npm run check:invariants` `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}`
+×2; `npm run e2e` `PASSED default seal in the browser, open with tle after R (39 s)`; the repro build+run
+`RESULT PASS 87/87`. `npm run check:bundle` not run (R32).
+
+**H10 live-driver wiring** (every live driver that creates a uniform/buyback/launch auction with a seller now
+passes its own `operator.json` to `auction create`, so the signed manifest carries `seller_ua_commitment`):
+`tools/repro/markets.ts` (all market scenarios), `tools/repro/y2-host-custody.ts`, `e2e/buyback-mode.spec.ts`,
+`e2e/cli-auction.spec.ts` (both creates). Each writes its operator.json before create already, so the wiring is
+the added `--config` flag. Offline check: the repro runs the scenario's manifest-build step (`auction create` with
+the markets operator.json shape and manifest) without the network and asserts the commitment is set; a full live
+run is the head's testnet walkthrough.
+
+**Guide gaps G1–G8 and where each is now covered:**
+
+- **G1** (per-signer keys described as per-auction): signer guide steps 1–2 now say one keypair per signer,
+  reused, with `--show` to print the existing public half; operator step 1.3 collects them with `hosts keys` and
+  notes the same.
+- **G2** (the DKG choreography undocumented): operator step 1.0 documents `hosts dkg` (the peers on alice, the
+  concurrent `sign dkg` runs, then `auction keys`, then the UFVK import on every host), and signer step 6 names
+  the same two per-host commands the operator runs through `orb`.
+- **G3** (witness before freeze; merge by raw JSON edit): operator step 7 now orders freeze → `hosts witness` →
+  wait for R → open → clear and says certificates exist only after the freeze; the merge is the checked product
+  function (`checkCertificates` before writing), `hosts witness` refuses before freeze and bad certificates never
+  reach the document (proved).
+- **G4** (envelope-opening report undocumented): operator step 7.5 documents `hosts envelope-opens` and the path
+  `$BNZ_STATE_DIR/settle/<ID>/envelope-opens-<name>.json` where `settle/plan.ts` reads the reports; signer step 3
+  names the same path.
+- **G5** (two `deposit.json` shapes): operator step 6 writes both shapes with filled examples (the `--pay`
+  payment input vs the admission record `{txid, address, envelope_hex, envelope_ct_hex, owner_sig_hex}`), and
+  bidder step 4 says to send the operator the admission record after paying, with each field's source (the
+  `bid seal` output and the wallet's txid).
+- **G6** (fee reserve never mentioned): operator step 5 "Fund the fee reserve" gives the amount rule as the code
+  applies it (manifest `fee_zats` must be 0; each batch pays ZIP-317 `5,000 × max(2, actions)` zats from the
+  reserve, so fund at least `5,000 × (rows + batches)`) plus the harness values (60,000 zats small runs,
+  200,000–400,000 for scale), and the exact `bid deposit --pay` input with `reserve`.
+- **G7** (private files outside `$BNZ_STATE_DIR`): all three guides state the rule and the examples now use
+  `$BNZ_STATE_DIR/run/…` paths.
+- **G8** (host vault sync): signer step 2 documents the vault sync/enhance before the report steps (`witness sign`
+  syncs its own vault internally; `sign envelope-opens` needs it done first) and operator step 7.5 says
+  `hosts envelope-opens` syncs each host's vault.
+- **H10 (R93):** operator step 1.7 is `auction create --file … --witness-set … --config PRIVATE-OPERATOR.json`
+  with the rule; step 4 is the seller's `benzo seller check --manifest … --ua …` gate before bidding opens; the
+  field table carries `seller_ua_commitment` ("set by `auction create --config`, never typed by hand"); the live
+  drivers are wired (above).
+
+**Questions for the head** (design nits found while implementing; nothing blocking):
+
+1. **"Then it republishes" (step 3).** The checked merge writes the merged public `auction.json` (byte-identical
+to the old raw edit), and `hosts witness` then runs the product's `publish(id)` as the republish. The harness's
+`hostWitnessCerts` keeps its exact old write behaviour (the byte-for-byte constraint), so the republish is
+command-level. If the head wants the shared function itself to republish, say so and the harness gains one local
+`publish` call per run (no orb calls either way).
+2. **Checked merge + quorum.** `checkCertificates` enforces the `q_w` quorum over the whole list, so it cannot
+pass after merging only alice's certificate (1-of-2). The one product function (`mergeWitnessCerts`) therefore
+takes the certificates gathered from all named hosts and checks the merged list before writing once (the old raw
+edit wrote once per host; the final document is byte-identical — proved).
+3. **G7's "bid deposit requires private files".** Only `privatePath`-wrapped options are enforced (publish
+`--config`, create `--config`/`--witness-set`, `auction sign --key`, `sign envelope-opens --witness-key`,
+`sign join`/`sign inspect --candidate`); `bid deposit --file` and `claim-refund --file` are read plainly. The
+guides now keep every private file under `$BNZ_STATE_DIR` regardless; a hardening batch could extend `privatePath`
+to those two options.
+4. **G3's "syncs each named host's vault".** `witness sign` syncs the host's own vault internally (ownScan), so
+`hosts witness` adds no extra sync call and the harness's orb sequence stays byte-for-byte (proved). An explicit
+sync push would change that sequence; the design's sentence is satisfied behaviourally and documented in signer
+step 2.
+5. **DKG comparison is order-insensitive for the three concurrent `sign dkg` launches** (Promise.all + stagger;
+bob/carol interleave nondeterministically). The call multiset is identical; every other sequence is compared in
+order.
+
+
 ## Batch B40 (Builder A, branch `b40-operator-cli`, from `9d09093`) — gate DOC: operator CLI, templates, guide step 1
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live

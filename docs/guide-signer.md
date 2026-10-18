@@ -1,32 +1,62 @@
 # Signer guide
 
 Runbook for one Benzo signer (alice, bob or carol) on its own host. Commands checked against
-`bin/benzo --help` and each command's `--help` at commit `37ac903`, 2026-10-05 (34 invocations,
-transcript `tmp/guide-help.txt`, scratch). Testnet only. Every
-key lives under your state dir (`--state DIR`, else `BNZ_STATE_DIR`, else `~/.benzo-signer`); the
-commands print public values only. Never print a private key.
+`bin/benzo --help` and each command's `--help` at commit `96ce0f5` plus this commit's help fixes,
+2026-10-18 (checked by `tools/repro/b42-hosts-cli.ts` section 7, transcript `tmp/guide-help.txt`,
+scratch). Testnet only. Every key lives under your state dir (`--state DIR`, else
+`BNZ_STATE_DIR`, else `~/.benzo-signer`); the commands print public values only. Never print a
+private key.
 
-1. **Generate your envelope keypair.** One X25519 keypair per auction, generated here, on your host.
-   Only the public half leaves this machine; the operator pins it in the signed manifest at your
-   index (alice 0, bob 1, carol 2).
+**How these commands run in this deployment.** The three signer hosts are OrbStack VMs on the
+operator's Mac (one operator provisions all three — README honest limits). The operator runs the
+custody steps on your VM for you, through `orb`, with the `benzo hosts …` commands: `hosts keys`
+collects the public halves below, `hosts dkg` runs your `sign dkg` and imports the operator's
+UFVK, `hosts witness` runs your `witness sign`, and `hosts envelope-opens` syncs your vault and
+runs your `sign envelope-opens`. **A signer on separate hardware runs the same `benzo` commands by
+hand** — the rest of this guide is written for that case. Your private keys never leave your host
+either way.
+
+1. **Generate your envelope keypair.** One X25519 keypair **per signer** (not per auction),
+   generated here, on your host, and reused for every auction. Only the public half leaves this
+   machine; the operator pins it in the signed manifest at your index (alice 0, bob 1, carol 2).
 
    ```text
    $ benzo sign envelope-key --name SIGNER [--state DIR]
+   $ benzo sign envelope-key --name SIGNER [--state DIR] --show
    ```
+
+   The first command refuses if your key already exists (`signer envelope key already exists;
+   refusing to replace it`) — a key is never replaced. `--show` prints the **existing** public
+   half (`{name, public_hex}`) and refuses when there is none.
 
    If the manifest does not pin your key at your index, every signing command refuses with
    `manifest does not pin this signer's envelope key`. If your key file is missing, the plan refuses
    with `signer envelope key missing` — it is never skipped.
 
 2. **Keep your witness key.** Your witness key is a member of the manifest's pinned witness set, in
-   a file under the state dir. It signs the frozen-root certificate and your envelope-opening report.
-   (Ruling R42: the strays statement is gone — a stray deposit is attested per row, at payment, in the
-   approval map you sign with `benzo sign approve` from your own vault scan.)
+   a file under the state dir. Like the envelope key it is **per signer and reused**; `keygen`
+   generates it once (refusing to replace it) and `--show` prints its existing public half. It
+   signs the frozen-root certificate and your envelope-opening report.
+   (Ruling R42: the strays statement is gone — a stray deposit is attested per row, at payment, in
+   the approval map you sign with `benzo sign approve` from your own vault scan.)
 
    ```text
+   $ benzo witness keygen --name SIGNER [--show]
    $ benzo witness sign --dir PUBLIC --signer HEX --key FILE
    $ benzo witness verify --dir PUBLIC --signer HEX
    ```
+
+   **Sync your auction vault before both report steps** (below and step 3): `witness sign` syncs
+   and enhances your own vault itself before it recomputes the frozen root from your own scan;
+   `sign envelope-opens` reads a scan of that vault, so sync it first (on the host deployment the
+   operator's `hosts envelope-opens` does this):
+
+   ```text
+   state/bin/zcash-devtool wallet -w <state>/vaults/<AUCTION_ID>/wallet sync -s <lightwalletd>
+   state/bin/zcash-devtool wallet -w <state>/vaults/<AUCTION_ID>/wallet enhance -s <lightwalletd>
+   ```
+
+   (`zcash-devtool wallet …` — the pinned tool in `state/bin`.)
 
 3. **Write your envelope-opening report before any batch is planned.** You open every refund
    envelope with your own key and record only `ok` and the destination hash — never the destination.
@@ -38,7 +68,8 @@ commands print public values only. Never print a private key.
    ```
 
    A refund is payable only when at least two signers report `ok` with the same destination hash.
-   Otherwise the row goes to the exception queue.
+   Otherwise the row goes to the exception queue. The operator's `hosts envelope-opens` saves each
+   host's report where settlement reads it (`state/settle/<ID>/envelope-opens-<name>.json`).
 
 4. **Inspect a batch before you approve it.** Recompute the batch from your own data: fresh tle
    openings, the sealed reserve, the published envelopes and claims, the two-signer agreement. A
@@ -62,7 +93,9 @@ commands print public values only. Never print a private key.
 6. **Host custody: your own per-auction DKG share and vault.** Under host custody every auction runs
    its own DKG. Your share never leaves this host. The three group keys must agree; the operator's
    tooling then derives the escrow UFVK and imports the SAME one on every host so your own vault
-   scan is independent of the coordinator.
+   scan is independent of the coordinator. In the host deployment `benzo hosts dkg` runs these two
+   commands on your VM for you (`sign dkg` with the other hosts' contact pubkeys as `--peers` on
+   alice; `auction keys --ufvk FILE` importing the operator's UFVK):
 
    ```text
    $ benzo sign dkg --id AUCTION_ID --name SIGNER --server HOST:PORT [--peers PUBKEY,PUBKEY]
