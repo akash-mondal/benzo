@@ -74,7 +74,7 @@ type Bid = { price: number; quantity?: number; owner?: { private_hex: string; pu
 type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
 type Ctx = { owners: Record<string, { private_hex: string; public_hex: string }>; treasuryUa: string; fundingUa: string; tip: number; id: string; R: number; series?: SeriesLink };
 type Post = { id: string; signer: string; cold: string; doc: () => any; check: (id: string, pass: boolean, d?: string) => void; at: (a: string) => number; sellerUa: string; late: { party: string; amount: number; leaf: number } | null };
-type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; lots?: string[]; marketplace?: any;
+type Scenario = { mode: string; supply?: number; treasury?: number; batch_cap?: number; reserve?: number; fundChunk?: number; windows?: [number, number, number]; lots?: string[]; marketplace?: any;
   // Part 2 collection drop (b): the winners that pay their balance in the window and the defaults the run expects;
   // part 2 buyback: the serial each winner takes in (one per winner, in leaf order).
   defaults?: number[]; balancePays?: number[]; balanceDust?: number[]; intakeSerials?: number[];
@@ -202,6 +202,10 @@ const SCENARIOS: Record<string, Scenario> = {
   // Phase 6 option B (R30): 27 bids + the seller = 28 outputs and 28 spends (27 deposits + the fee reserve) in ONE batch at
   // batch_cap 28, the largest batch under 100 KB; the reserve covers the 28-action fee (140,000 zats).
   "scale-27": { mode: "uniform", supply: 13, batch_cap: 28, reserve: 200_000, extra: () => ({ q_max: 1 }), bids: () => Array.from({ length: 27 }, (_, i) => ({ price: 400 - 5 * i })) },
+  // Gate SC live half (phase6-h/SC, R85): 55 bids + the seller settle in 4 batches of 14. One funding transaction with
+  // 55 deposit outputs would be ~190 KB, so the deposits are paid in 3 transactions of at most 19 (each well under
+  // 100 KB), back to back from the bidder's existing notes; the windows are longer so all 3 mature before T_freeze.
+  "scale-55": { mode: "uniform", supply: 27, batch_cap: 14, reserve: 400_000, fundChunk: 19, windows: [20, 42, 45], extra: () => ({ q_max: 1 }), bids: () => Array.from({ length: 55 }, (_, i) => ({ price: 600 - 10 * i })) },
   "revision": { mode: "uniform", owners: ["reviser"], extra: () => ({}),
     bids: o => [{ price: 200, owner: o.reviser }, { price: 250 }, { price: 300, owner: o.reviser }],
     outcomes: o => o[0] === "superseded" && o[2] === "winner" && o[1] !== "winner" },
@@ -267,8 +271,8 @@ async function run(name: string, link?: SeriesLink) {
   // taken BEFORE the manifest's deadlines are set and held until the funding matured.
   const lock = assertScratch(path.join(ROOT, "tmp", "markets-fund.lock")); // R43: the lock lives under tmp/
   await takeLock(lock, 2_400_000);
-  const now = Math.ceil(Date.now() / 1000), release = now + 33 * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
-  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, ...(sc.lots ? { lots: sc.lots } : { lot: `${sc.mode} round` }), supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + 4 * 60, T_freeze: now + 30 * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip(), id, R, series: link }) };
+  const now = Math.ceil(Date.now() / 1000), [wSubmit, wFreeze, wRelease] = sc.windows ?? [4, 30, 33], release = now + wRelease * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
+  const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, ...(sc.lots ? { lots: sc.lots } : { lot: `${sc.mode} round` }), supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + wSubmit * 60, T_freeze: now + wFreeze * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip(), id, R, series: link }) };
   benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
   const packet = benzo(["auction", "sign", "--id", id]);
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
@@ -287,22 +291,34 @@ async function run(name: string, link?: SeriesLink) {
   }
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
   writeFileSync(path.join(privateDir, "sealed.json"), JSON.stringify(sealed));
-  let paid: any; try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: sealed, reserve: { address: reserveUa, amount_zats: String(sc.reserve ?? 60000) }, ...(sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) });
-    say(`funding ${paid.txid}`);
+  const chunk = sc.fundChunk ?? sealed.length, txOf: Record<string, string> = {}, txids: string[] = [];
+  let paid: any; try {
+  for (let i = 0; i < sealed.length; i += chunk) {
+    const part = sealed.slice(i, i + chunk), first = i === 0;
+    // A later chunk may find the wallet's notes still pending from the previous one: wait and retry (bounded).
+    for (let tries = 0; ; tries++) {
+      try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: part, ...(first ? { reserve: { address: reserveUa, amount_zats: String(sc.reserve ?? 60000) } } : {}), ...(first && sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) }); break; }
+      catch (e) { if (first || tries >= 12) throw e; say(`WARN funding chunk ${i / chunk + 1}: ${String((e as Error)?.message ?? e).slice(-120)}; retry in 60 s`); await sleep(60_000); }
+    }
+    say(`funding ${paid.txid}${chunk < sealed.length ? ` (chunk ${i / chunk + 1}, ${part.length} deposits)` : ""}`);
+    txids.push(paid.txid); for (const s of part) txOf[s.address] = paid.txid;
+  }
   for (let h = 0; ; await sleep(30_000)) {
     // A transient endpoint error (live: "tls handshake eof") is retried on the next poll, never fatal.
     let t: any, tip = 0;
     try {
       for (const v of ["sync", "enhance"]) z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, v, "-s", env("BNZ_LWD_URL")]);
-      t = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "list-tx", "--json"])).find((t: any) => t.txid === paid.txid);
+      const all = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "list-tx", "--json"]));
+      const found = txids.map(x => all.find((t: any) => t.txid === x));
+      t = found.every((x: any) => x?.mined_height) ? { mined_height: Math.max(...found.map((x: any) => x.mined_height)) } : undefined;
       tip = JSON.parse(z.run(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", vault, "balance", "--json"])).chain_tip_height;
     } catch (e) { say(`WARN funding poll: ${String((e as Error)?.message ?? e).slice(-120)}`); }
     if (t?.mined_height && tip >= t.mined_height + 9) break;
     if (++h > 200) throw new Error("funding did not mature");
   }
   } finally { dropLock(lock); } // held until the funding matured, so the wallet's change is spendable
-  writeFileSync(path.join(privateDir, "funding.json"), JSON.stringify({ txid: paid.txid }));
-  for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: paid.txid, address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
+  writeFileSync(path.join(privateDir, "funding.json"), JSON.stringify({ txid: txids[0], txids, by_address: txOf }));
+  for (const s of sealed) benzo(["bid", "deposit", "--id", id], { txid: txOf[s.address], address: s.address, envelope_hex: s.envelope_hex, envelope_ct_hex: s.envelope_ct_hex, owner_sig_hex: s.owner_sig_hex });
   // A20 stray-claim leg, stage 2: the stray is paid in its OWN transaction to the deposit address (never
   // admitted) and matures beside the run's other notes.
   let strayBefore: Set<string> | null = null;
@@ -602,8 +618,8 @@ async function resume(id: string) {
   const priv = path.join(STATE, "run", `markets-${id}`);
   const scen = existsSync(path.join(priv, "scenario.json")) ? json(path.join(priv, "scenario.json")) : null;
   if (stateOf() === "OPEN" && existsSync(path.join(priv, "sealed.json")) && existsSync(path.join(priv, "funding.json"))) {
-    const txid = json(path.join(priv, "funding.json")).txid;
-    for (const b of json(path.join(priv, "sealed.json"))) { try { benzo(["bid", "deposit", "--id", id], { txid, address: b.address, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex }); } catch (e) { say(`WARN admit: ${String((e as Error).message).slice(-120)}`); } }
+    const fund = json(path.join(priv, "funding.json"));
+    for (const b of json(path.join(priv, "sealed.json"))) { const txid = fund.by_address?.[b.address] ?? fund.txid; try { benzo(["bid", "deposit", "--id", id], { txid, address: b.address, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex }); } catch (e) { say(`WARN admit: ${String((e as Error).message).slice(-120)}`); } }
     while (Date.now() / 1000 < m.T_submit + 2) await sleep(5_000);
     // A run dropped past the freeze cutoff is a CANCELLED auction (unfrozen after T_freeze): never force the
     // freeze — its deposits refund through their own memo-bound envelopes below.
