@@ -207,8 +207,10 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
 6. **Admit deposits (two different `deposit.json` shapes).** `--pay` and the admission record are
    two different inputs:
 
-   - **With `--pay`** the input is the `bid seal` output (or `{bids: […], reserve: {address,
-     amount_zats}}`, step 5): `uri`, `address` and `envelope_hex` per bid. It broadcasts from this
+   - **With `--pay`** the input is `{uri, address, envelope_hex}` per bid (or `{bids: […], reserve:
+     {address, amount_zats}}`, step 5): `uri` and `envelope_hex` come from the `bid seal` output and
+     `address` is the deposit address the bidder chose in `private-bid.json` (the seal output does not
+     repeat it). It broadcasts from this
      checkout's bidder wallet and prints the `txid`.
    - **Without `--pay`** the input is the **admission record** the bidder sends you after paying:
 
@@ -222,8 +224,13 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
      }
      ```
 
-     Every field except `txid` is in the bidder's `bid seal` output; `txid` is the transaction
-     their wallet made paying the `uri`. One record per payment:
+     `envelope_hex`, `envelope_ct_hex` and `owner_sig_hex` are in the bidder's `bid seal` output,
+     `address` is the deposit address from their `private-bid.json`, and `txid` is the transaction
+     their wallet made paying the `uri`. **Admission waits for 10 confirmations:** it reads the
+     deposit from this auction's vault and refuses it while unmined (`deposit not unique or absent`)
+     or under 10 confirmations (`deposit confirmation/pool/spent`). Retry until it is admitted;
+     every deposit must be admitted before `T_freeze`, so leave at least ~10 blocks (about 7
+     minutes on testnet) between the last payment and `T_freeze`. One record per payment:
 
      ```text
      $ benzo bid deposit --id ID --file $BNZ_STATE_DIR/run/deposit.json
@@ -294,7 +301,8 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
    ```
 
 9. **Publish the public view and serve it.** The read API serves one public directory and returns
-   the verifier's own ERROR lines on a bad document. The report is the per-window buyback report.
+   the verifier's own ERROR lines on a bad document. `benzo report` is the per-window report of a
+   **recurring buyback** only; it refuses any other auction (`report requires a recurring buyback`).
 
    ```text
    $ benzo operator view --dir public-dir

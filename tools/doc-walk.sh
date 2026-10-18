@@ -104,10 +104,12 @@ COLD="$ROOT/tmp/doc-walk/cold-$ID"; rm -rf "$COLD"; cp -R "$PUB" "$COLD"
 b verify --dir "$COLD" --signer "$SIGNER"
 say "## bidder 6 — settlement statements"
 for i in 0 1 2; do b receipt statement --dir "$PUB" --ciphertext-hash "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).ciphertext_hash)' "$PRIV/sealed-$i.json")"; done
-say "## operator 9 — public view and report"
+say "## operator 9 — public view (benzo report is buyback-only, G11)"
 b operator view --dir "$PUB"
-b report --dir "$PUB"
 say "## bidder 9 — anyone verifies"
 b verify --dir "$PUB" --signer "$SIGNER"
 cp -R "$PUB" "$OUT/public"
 say "RESULT PASS gate DOC walkthrough $ID"
+# Evidence hygiene: the seller's address appears only as the commitment in public files; shorten it here, and
+# make paths relative to the checkout.
+perl -pi -e 's/\Q'"$SELLER"'\E/'"${SELLER:0:20}"'…<seller UA redacted>/g; s#\Q'"$ROOT"'\E/#./#g; s#\Q'"$ROOT"'\E#.#g' "$T"

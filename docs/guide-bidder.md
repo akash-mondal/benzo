@@ -61,9 +61,16 @@ private; the commands store owner material under `$BNZ_STATE_DIR` and print only
    }
    ```
 
-   Each field: `address`, `envelope_hex`, `envelope_ct_hex` and `owner_sig_hex` are printed by your
-   `bid seal` run (step 3); `txid` is the transaction your wallet made paying the `uri` (its txid,
-   shown by the payment or your wallet's history). The operator admits it with
+   Each field: `envelope_hex`, `envelope_ct_hex` and `owner_sig_hex` are printed by your `bid seal`
+   run (step 3). `address` is the deposit address you chose in your `private-bid.json` (the seal
+   output does not repeat it; it is also the address in the `uri`). `txid` is the transaction your
+   wallet made paying the `uri` (shown by the payment or your wallet's history). The `--pay` input
+   needs the same `address` next to the seal's `uri` and `envelope_hex`.
+
+   **Send the record once your deposit has 10 confirmations.** Admission checks the deposit on
+   chain and refuses it before then (`deposit not unique or absent` while unmined, `deposit
+   confirmation/pool/spent` while it has fewer than 10 confirmations); simply send it again later.
+   It must be admitted before the manifest's `T_freeze`. The operator admits it with
    `benzo bid deposit --id ID --file deposit.json` (no `--pay`).
 
    Exchange withdrawals can miss `T_submit`; give them time. A deposit mined before `T_submit` that

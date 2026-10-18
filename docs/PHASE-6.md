@@ -589,3 +589,17 @@ On main its stub-orb proof passes again (RESULT PASS, 58 guide commands match `-
 4. and 5. Accepted.
 
 Next: provision the hosts again at this commit (`deploy/signers/up.sh`; B39 and B42 changed host code), then walk the three guides live on testnet.
+
+### R97 — Gate DOC PASSED: the three guides walked live on testnet (head, 2026-10-18)
+
+The hosts were provisioned at `5d4f91a`. `tools/doc-walk.sh` ran one uniform auction using only guide commands (EVIDENCE DOC row). Attempts 1–3 stopped before any payment:
+1. a driver bug (`node -e` argv);
+2. G10, `bid seal` does not print `address`;
+3. a transient lightwalletd dial timeout on bob during `hosts dkg`. `hosts dkg` cannot resume after a partial failure (the vault exists), so the retry used a fresh id. That is acceptable, because a failed DKG has nothing funded.
+
+Attempt 4 passed end to end: settle, cold verify and the on-chain landing of every row. That includes the seller payout at the committed address, which is **H10 proven live**. The run found and the guides now fix:
+- **G9:** admission refuses until 10 confirmations, so leave about 10 blocks before `T_freeze`.
+- **G10:** `address` comes from `private-bid.json`.
+- **G11:** `benzo report` is buyback-only.
+
+Leftover: the vault keeps the fee-reserve change (about 40,000 zats), swept back to the bidder wallet by the head.
