@@ -1,8 +1,8 @@
 {
  "command": "BNZ_LIVE=1 node node_modules/.bin/playwright test --project=buyback-mode",
- "commit": "9cce13463e49b3367b68815f0feac5a5ec8cf30f",
- "start_utc": "2026-10-17T07:17:51.487Z",
- "end_utc": "2026-10-17T07:55:39.364Z",
+ "commit": "5316757668470f53cedbc7202f2674a0029b93ce",
+ "start_utc": "2026-10-18T10:11:00.374Z",
+ "end_utc": "2026-10-18T10:50:31.095Z",
  "results": {
   "Y1a": "PASS",
   "V1a": "PASS",
