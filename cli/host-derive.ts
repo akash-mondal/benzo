@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { QUICKNET, requireThat } from "../manifest/schema";
+import { QUICKNET, requireThat, sellerUaCommitment } from "../manifest/schema";
 import { tleDecryptFailover } from "../manifest/reserve";
 import { pcztBin, scanBin, ufvkFile, vaultDir } from "../manifest/paths";
 import { loadPublicAuction } from "../api/public-auction";
@@ -60,7 +60,7 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean; bondStart: import("./host-chain").BlockHeader | null}> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string; seller_ua?: unknown }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean; bondStart: import("./host-chain").BlockHeader | null; sellerBinding: "bound" | "legacy" | "mismatch"}> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -211,7 +211,14 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
-    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart };
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart,
+      // H10 (docs/design/phase7-h10-h11.md): the packet's seller_ua checked against the SIGNED manifest this
+      // signer just verified — never against packet bytes alone. "bound" when the packet's address hashes to the
+      // manifest's seller_ua_commitment; "legacy" when the manifest predates H10 and carries no commitment (the
+      // amount-only behaviour stays, with one WARN line); "mismatch" when the manifest binds and the packet does
+      // not match — the caller then refuses the seller row typedly (never a silent pass).
+      sellerBinding: (pub.manifest as any).seller_ua_commitment === undefined ? "legacy"
+        : typeof meta.seller_ua === "string" && sellerUaCommitment(meta.seller_ua) === (pub.manifest as any).seller_ua_commitment ? "bound" : "mismatch" };
 }
 
 // §11 H7: the coordinator's copy of a candidate — every non-change output's recipient, rseed, ock, user address and

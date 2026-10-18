@@ -35,9 +35,15 @@ export async function run(argv: string[]): Promise<number | object> {
     requireThat(Number.isInteger(meta.expiry_blocks) && meta.expiry_blocks >= 1 && meta.expiry_blocks <= 10000, "packet expiry_blocks");
     const rows: { party: string; kind: string; amount_zats: string }[] = JSON.parse(readFileSync(path.join(packet, "rows.json"), "utf8"));
     requireThat(Array.isArray(rows) && rows.length >= 1 && rows.length <= 28, "rows (1-28)"); // R30: a 28-output batch stays under 100 KB
-    const { expected, payout, envelopeKeys, network } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
-    // Each allocated row gets the recipient THIS signer derived; the seller payout goes to the operator routing UA
-    // (stated limit: hosts check its amount against the result, not its address).
+    const { expected, payout, envelopeKeys, network, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
+    // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal like the other
+    // refused rows here (exit 3, named rows), never a silent pass. A manifest without the field predates H10:
+    // today's amount-only behaviour stays and one WARN line says so.
+    if (sellerBinding === "mismatch") { process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["seller"])}: seller payout address does not match the manifest seller_ua_commitment (H10)\n`); return 3; }
+    if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
+    // Each allocated row gets the recipient THIS signer derived; the seller payout goes to the operator routing UA,
+    // which H10 binds to the signed manifest (checked above) — its amount is checked against the result here.
     const pool = [...expected];
     // R45 (Reviewer R F20): a derivation refusal is TYPED — every row this signer cannot derive is listed and the
     // command exits 3, so the coordinator can tell "these rows are underivable" from a transient failure (exit 1).

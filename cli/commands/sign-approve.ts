@@ -6,7 +6,7 @@
 //      destinations through ITS OWN envelope key (claim envelopes first), strays from ITS OWN vault scan — and the
 //      seller payout amount from the result;
 //   3. every non-change output of the candidate must be one of those (recipient, amount) rows (change returns to
-//      the vault); the seller payout is checked by amount only (its destination is operator routing — stated limit);
+//      the vault); the seller payout is checked against the manifest-committed address (H10) and by amount;
 //   4. it computes the sighash itself with zcash-sign.
 // Only then it records approvals/<id>/batch-<n>.json {plan_version, sighash}; `benzo sign join` signs nothing else.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -70,7 +70,13 @@ export async function run(argv: string[]): Promise<number | object> {
 
     // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts) — including its own
     // defaults list from its own scan (R33 item 3), which joins the signed G-4 map and the approval record.
-    const { expected, payout, network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    const { expected, payout, network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
+    // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
+    // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
+    // exit 3), never a silent pass. A manifest without the field predates H10: the amount-only behaviour below
+    // stays and one WARN line says so.
+    if (sellerBinding === "mismatch") throw Object.assign(new Error("seller payout address does not match the manifest seller_ua_commitment (H10)"), { refusedRows: ["seller"] });
+    if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
     // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
@@ -85,7 +91,8 @@ export async function run(argv: string[]): Promise<number | object> {
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
       if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(e.source); mapped.push({ party: e.party, output_index: out.index }); continue; }
-      // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing; paid at most once by the ledger).
+      // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing), which H10 binds
+      // to the signed manifest (checked above); paid at most once by the ledger.
       // Part 2 (bond-then-pay): the balance notes backing that payout are sources too, so no second live candidate can
       // spend them again.
       if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller", ...balanceSources); mapped.push({ party: "seller", output_index: out.index }); continue; }
@@ -142,6 +149,10 @@ export async function run(argv: string[]): Promise<number | object> {
     return approval;
   } catch (e) {
     if (o.packet) for (const f of ["candidate.full.pczt", "candidate.recomputed.pczt"]) rmSync(path.join(path.resolve(o.packet), f), { force: true });
+    // H10: a typed row refusal (the refusedRows marker) is reported like sign build's refused rows — named and
+    // distinguishable from a transient failure.
+    const refusedRows = (e as any).refusedRows as string[] | undefined;
+    if (refusedRows) { process.stderr.write(`ERROR sign approve refused-rows ${JSON.stringify(refusedRows)}: ${(e as Error).message}\n`); return 3; }
     process.stderr.write(`ERROR sign approve ${(e as Error).message}\n`);
     return 1;
   }

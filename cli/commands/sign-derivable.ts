@@ -24,7 +24,13 @@ export async function run(argv: string[]): Promise<number | object> {
     process.env.BNZ_AUCTION_ID = o.id;
     const packet = path.resolve(o.packet), meta = JSON.parse(readFileSync(path.join(packet, "packet.json"), "utf8"));
     requireThat(meta.auction_id === o.id, "packet is for another auction");
-    const { expected, payout, balanceRefunds } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
+    const { expected, payout, balanceRefunds, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
+    // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
+    // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
+    // exit 3), never a silent pass. A manifest without the field predates H10: the row is listed as before and
+    // one WARN line says the address is not bound.
+    if (sellerBinding === "mismatch") { process.stderr.write(`ERROR sign derivable refused-rows ${JSON.stringify(["seller"])}: seller payout address does not match the manifest seller_ua_commitment (H10)\n`); return 3; }
+    if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     const rows = expected.map(e => ({ party: e.party, amount_zats: e.amount_zats }));
     if (payout !== "0" && typeof meta.seller_ua === "string") rows.push({ party: "seller", amount_zats: payout });
     // Ruling R40 item 2 (F2): this host's own per-note late-refund counts (party names and amounts, no

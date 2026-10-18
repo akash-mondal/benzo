@@ -53,6 +53,10 @@ export function modeEntry(packet: Signed): ModeEntry {
   return registry[mode]!;
 }
 export const clientForMode = (packet: Signed, signer: string) => modeEntry(packet).client(packet, signer);
+// H10 (docs/design/phase7-h10-h11.md item 4): the modes whose settlement obligations can include a `seller`
+// payout row — every mode using obligationsModeA above (uniform, vickrey, launch). Mainnet `auction create`
+// refuses such a manifest without seller_ua_commitment; the modes below (buyback, otc, rfq) never pay a seller row.
+export const modePaysSeller = (mode: string): boolean => ["uniform", "vickrey", "launch"].includes(mode);
 export const clearForMode = (input: ClearInput): ClearResult => modeEntry(input.manifest).clear(input);
 // Design §6.1: the product path (admission, freeze, open, settlement) reads only the fields every mode shares, through
 // the mode's own verifying client; the mode-specific fields stay behind the registry entry.

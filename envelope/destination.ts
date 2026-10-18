@@ -68,6 +68,14 @@ export function isUnifiedOn(destination: string, network: string): boolean {
   } catch { return false; }
 }
 
+// H10 (docs/design/phase7-h10-h11.md) + H4: the seller payout check at manifest creation — a unified address on
+// the manifest's OWN network with a shielded Orchard/Ironwood receiver (typecode 0x03). isUnifiedOn alone admits a
+// Sapling-only UA, which settlement outputs cannot pay, so the receiver check (the same rule requireShieldedDestination
+// applies to settlement outputs) is added here, in one place with the classifier.
+export function isUnifiedOrchardOn(destination: string, network: string): boolean {
+  return isUnifiedOn(destination, network) && unifiedReceivers(destination).some((r) => r.typecode === 0x03);
+}
+
 // The envelope validator: only a destination settlement can actually pay is admissible, and only on this auction's
 // network — a wrong-network destination would burn the refund (threat #7). The network comes from the signed manifest
 // at every call site (G-7/R33 P2-1: never an env default or a literal). R81 (Reviewer R R-2 on R80): settlement builds

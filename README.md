@@ -160,10 +160,9 @@ memo commits to it (memo framing v2) — so cancellation never needs a decryptio
 - **Witnesses are trusted to see deposits** (gate H, threat 066): the one-root rule stops a witness quorum from
 certifying two different frozen roots, but not from certifying one wrong root. Choose `q_w` so that no quorum can be
 built from witnesses you do not trust.
-- **A malicious coordinator can redirect the seller's proceeds** (gate H, threat 015; R28 item 8): signer hosts check the
-seller payout's amount against the result, not its address, and the published settlement does not name the
-recipient, so nobody can tell. This must be fixed before mainnet: the seller address goes into the signed manifest
-(Phase 7, H10).
+- The seller payout address is committed in the signed manifest and each signer host checks the settlement
+packet against it; a seller should check the commitment against their own address before bidding opens with
+`benzo seller check --manifest public-dir/manifest.json --ua <your address>`.
 - **An operator can refuse a funded bid** (gate H, threat 005): witnesses check that every frozen leaf is a real
 deposit, not that every deposit was admitted, and `benzo verify` checks omissions only against the operator's own
 published deposit list. A refused bidder gets no acceptance receipt, and the deposit stays claimable with the bid's

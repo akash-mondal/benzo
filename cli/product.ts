@@ -5,16 +5,16 @@ import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET} from '../manifest/schema';
+import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET,sellerUaCommitment} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid,sealDelivery} from '../envelope';
-import {requireShieldedDestination} from '../envelope/destination';
+import {requireShieldedDestination,isUnifiedOrchardOn} from '../envelope/destination';
 import {ROOT,STATE,bin,run as execute,inspect,chainTx,notes,syncRetry,wallet} from '../settle/io';
 import {pcztBin,vaultDir} from '../manifest/paths';
 // Design §6.1: manifests are read through the mode registry (its launch -> zilkroad -> public-auction cycle, which
 // deadlocked this lazily loaded bundle on envelope's top-level await, is broken by adapters/holders.ts).
 import {treasuryBlock,treasuryFunded,treasuryRequired} from '../clear/mode-b';
-import {clientCommon as client,modeEntry} from '../clear/registry';
+import {clientCommon as client,modeEntry,modePaysSeller} from '../clear/registry';
 import {isRefundRowParty,refundRowLeafIndex} from '../clear/features';
 import {launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
@@ -133,6 +133,23 @@ export async function runCommand(command:string,args:string[]) {
   if(id)process.env.BNZ_AUCTION_ID=id; // §11 H1: children use this auction's own vault when it ran its own DKG
   if(command==='auction create') {
     const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");
+    // H10 (docs/design/phase7-h10-h11.md): the signed manifest commits the seller payout ADDRESS (as a
+    // commitment — the manifest itself stays destination-free, R74). `--config` is the operator's private config,
+    // the same file `auction publish` takes: whenever its routing.seller_ua is set, create sets the commitment
+    // from it and holds that address to H4's rule — a unified address on the manifest's OWN network with a
+    // shielded Orchard/Ironwood receiver (a Sapling-only UA cannot receive a settlement output).
+    const createdFrom=o.config?read(privatePath(o.config)):undefined;
+    const sellerUa=createdFrom?.routing?.seller_ua;
+    if(sellerUa!==undefined){
+      requireThat(typeof sellerUa==='string'&&isUnifiedOrchardOn(sellerUa,m.network),'seller_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver (H4)');
+      const committed=sellerUaCommitment(sellerUa);
+      requireThat(m.seller_ua_commitment===undefined||m.seller_ua_commitment===committed,'manifest seller_ua_commitment differs from the operator routing seller_ua');
+      m.seller_ua_commitment=committed;
+    }
+    // H10 item 4: a mainnet manifest for a mode that pays the seller commits the seller payout address — without
+    // it the signer hosts could check only the payout's amount, which is exactly H10's defect. Checked here before
+    // every other rule so the refusal is this one even while the network lock below still refuses "main".
+    requireThat(m.network!=="main"||!modePaysSeller(m.clearing?.mode)||m.seller_ua_commitment!==undefined,'mainnet manifest must carry seller_ua_commitment (H10)');
     // R33 item 1: `auction create` generates the bond-then-pay balance addresses itself — fresh vault external
     // addresses aligned index-for-index with deposit_addresses, fixed in the signed manifest before bidding. They
     // are never operator input: a draft carrying its own balance_addresses is refused.
