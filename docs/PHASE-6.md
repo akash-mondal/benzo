@@ -602,4 +602,4 @@ Attempt 4 passed end to end: settle, cold verify and the on-chain landing of eve
 - **G10:** `address` comes from `private-bid.json`.
 - **G11:** `benzo report` is buyback-only.
 
-Leftover: the vault keeps the fee-reserve change (about 40,000 zats), swept back to the bidder wallet by the head.
+Leftover: the auction vault keeps the fee-reserve change, 35,000 testnet zats in one note. No command returns a host-custody vault's leftover after settlement, and the shared-vault sweep cannot sign for it. That is **H15** (`phase7-hardening.md`); the testnet note stays put.
