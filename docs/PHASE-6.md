@@ -621,3 +621,9 @@ The old dirs `launch-cold` and the gate DOC run still verify, 19 OK each. The ve
 5. Noted.
 
 Next: provision the hosts at this commit and re-run SC scale-55 live.
+
+### R99 — Live `auction publish` broken by B43's bundle imports; fixed with a load check (head, 2026-10-18)
+
+The first scale-55 run after B43 stopped at `auction publish`, before any funding: `settle/dist/cli.mjs` threw `Dynamic require of "node:crypto" is not supported`. B43 made `settle/envelopes` import the tlock opener (tlock-js, `@noble/curves`, which are CommonJS). B39 had given the createRequire banner only to `clear/dist/auction.mjs`, and the offline suites never load `settle/dist/cli.mjs`, so nothing caught it.
+
+Fix (head; the build script only): every ESM bundle in `build:core` and `build:settle` now gets the banner, and the new `npm run check:dist-require` (part of `npm run check`) refuses a build line or a built bundle without it. Main was broken for live publish from `ee9c5d7` to this commit; no live run happened in that window except this one. The scale-55 re-run follows.
