@@ -245,7 +245,15 @@ if (out) fs.writeFileSync(out, Buffer.from(pt, "hex")); else process.stdout.writ
 const state = path.dirname(path.dirname(process.argv[1]));
 const fix = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8"));
 const a = process.argv.slice(2), cmd = a[0];
-if (cmd === "classify-address") { process.stdout.write(cp.execFileSync(${JSON.stringify(realPczt)}, ["classify-address", a[1]])); process.exit(0); }
+if (process.env.BNZ_PCZT_TRACE) fs.appendFileSync(process.env.BNZ_PCZT_TRACE, a.join(" ") + "\\n");
+if (cmd === "classify-address") {
+  // B45: classify-address --stdin is the bulk form — stdin/stdout pass straight through to the real binary.
+  if (a.includes("--stdin")) {
+    const r = cp.spawnSync(${JSON.stringify(realPczt)}, ["classify-address", "--stdin"], { input: fs.readFileSync(0), maxBuffer: 1 << 28 });
+    process.stdout.write(r.stdout ?? ""); process.stderr.write(r.stderr ?? ""); process.exit(r.status ?? 1);
+  }
+  process.stdout.write(cp.execFileSync(${JSON.stringify(realPczt)}, ["classify-address", a[1]])); process.exit(0);
+}
 if (cmd === "ufvk-ak") { console.log(fix.groupKey); process.exit(0); }
 if (cmd === "owns") { console.log("external"); process.exit(0); }
 if (cmd === "create") {
