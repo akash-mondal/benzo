@@ -16,7 +16,7 @@ export const verb = "";
 // Ruling R42 (F11): the `witness strays` mode and its set-equality are deleted with the closed strays
 // statement — the witness set certifies the frozen root only, and strays are attested per row at payment
 // (the approval maps of the batch that pays them).
-export const help = "benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate after recomputing the root from this witness's own vault scan, or check the certificates";
+export const help = "benzo witness set --id AUCTION_ID --q N --keys HEX,HEX,HEX [--key private.pem] (operator: the signed witness-set record the manifest pins) | benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate after recomputing the root from this witness's own vault scan, or check the certificates";
 
 function argsOf(argv: string[]): { dir: string; signer: string; key: string; notes: string; name: string } {
   const out = { dir: "", signer: "", key: "", notes: "", name: "" };
