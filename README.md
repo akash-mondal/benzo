@@ -160,8 +160,14 @@ memo commits to it (memo framing v2) — so cancellation never needs a decryptio
 - **Witnesses are trusted to see deposits** (gate H, threat 066): the one-root rule stops a witness quorum from
 certifying two different frozen roots, but not from certifying one wrong root. Choose `q_w` so that no quorum can be
 built from witnesses you do not trust.
-- **The seller payout address is operator routing** (gate H, threat 015; R28 item 8): signer hosts check the seller
-payout's amount against the result, not its address. Binding it in the signed manifest is a Phase 7 fix (H10).
+- **A malicious coordinator can redirect the seller's proceeds** (gate H, threat 015; R28 item 8): signer hosts check the
+seller payout's amount against the result, not its address, and the published settlement does not name the
+recipient, so nobody can tell. This must be fixed before mainnet: the seller address goes into the signed manifest
+(Phase 7, H10).
+- **An operator can refuse a funded bid** (gate H, threat 005): witnesses check that every frozen leaf is a real
+deposit, not that every deposit was admitted, and `benzo verify` checks omissions only against the operator's own
+published deposit list. A refused bidder gets no acceptance receipt, and the deposit stays claimable with the bid's
+owner key as a stray. Witnesses publishing their own deposit lists is a Phase 7 fix (H12).
 - **Signer shares and envelope keys have no built-in backup** (gate H, threat 052): each signer operator backs up
 their own. A lost share can stall settlement; a stolen share counts toward the 2-of-3.
 - **A lost owner key cannot be recovered** (gate H, threat 067): a bidder who loses a bid's one-time owner key cannot

@@ -500,3 +500,10 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
 3. **H10 (Phase 7).** Rank 16: the seller payout address comes from the coordinator's packet, and hosts check only its amount (R28 item 8, already a stated limit). Fix before mainnet: bind `seller_ua` in the signed manifest.
 4. **Infra note.** T3's worktree isolation for this thread checks out the wrong repository (the `Dev Projects` root), so the builder made its own Benzo worktree (`../benzo-b38-h`, branch `t3/gate-h-closure-table`). Its commit was cherry-picked onto main. Future builder batches name the worktree explicitly.
 5. **Next.** Reviewer R on h-closure.md and the README patch.
+
+### R87 — Reviewer R on gate H (`pr-h-r86.md`, FIX-FIRST: 2 P2, 4 P3), all fixed
+
+1. **F1 (P2), rank 22 censorship over-claimed.** `benzo verify` checks omissions only against the operator's own `mined-deposits.json` (a withheld list passes, `api/missing-deposits.ts:41`), and witnesses check leaf validity, not completeness (`witness/recompute.ts:5`). Row 22 is now **closed + disclosed**; README gains "An operator can refuse a funded bid"; Phase 7 **H12** (witnesses publish their own deposit lists).
+2. **F2 (P2), seller payout understated.** One malicious coordinator can redirect the seller's proceeds and the published settlement cannot show it. **H10 is now P1, fix before mainnet**, and the README bullet says so plainly.
+3. **F3–F6 (P3).** Row 14 no longer claims backup rollback is safe (never restore a signer host from a snapshot); row 1 states the bond-then-pay C; row 13 cites who runs each share (README:143-147); line ranges and the six "README GAP" State cells are corrected.
+4. **Next.** Reviewer R round 2.
