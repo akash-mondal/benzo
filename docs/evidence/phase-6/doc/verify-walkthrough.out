@@ -1,0 +1,70 @@
+# gate DOC walkthrough of docs/verify-it-yourself.md — fresh clone of 83d9cde at /tmp/benzo-doc, 2026-10-18T13:11:43Z, v24.15.0
+$ shasum -a 256 dist/benzo-verify.mjs
+96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913  dist/benzo-verify.mjs
+exit=0
+$ cat docs/verify-bundle.sha256
+96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913  dist/benzo-verify.mjs
+exit=0
+
+## step 2 (npm run package in the clone, then from /tmp/doc-run)
+$ tar -xzf benzo-0.1.0.tgz && cp -R docs/evidence/phase-6/markets/launch-r34/launch-cold benzo-0.1.0/auction && cd benzo-0.1.0
+$ ./bin/benzo verify --dir auction --signer 302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891
+OK projection
+OK missing-deposits
+OK delivery
+OK report
+OK manifest
+OK freeze
+OK witness
+OK receipts
+OK clear
+OK delivery-list
+OK envelope
+OK claims
+OK receipt-attestation
+OK accounting
+OK balances
+OK balance-refs
+OK defaults
+OK accounting-strays
+OK no-destinations
+exit=0
+
+## step 4 (legacy directory docs/evidence/phase-2/auction)
+$ node benzo-verify.mjs --dir auction-old --signer 302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891
+WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs
+ERROR verify refused: no published beacon; rerun with --fetch-beacon
+exit=1
+$ node benzo-verify.mjs --dir auction-old --signer 302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891 --fetch-beacon
+WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs
+WARN beacon fetched (not published)
+OK format
+OK projection
+OK missing-deposits
+OK delivery
+OK report
+OK manifest
+OK freeze
+WARN no witness set (pre-Phase-5 manifest)
+OK witness
+OK receipts
+OK clear
+OK delivery-list
+OK envelope
+OK claims
+OK receipt-attestation
+OK accounting
+OK balances
+OK balance-refs
+OK defaults
+OK accounting-strays
+OK no-destinations
+exit=0
+
+## step 5 (tampering)
+$ node benzo-verify.mjs --dir tampered2 --signer 302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891
+ERROR verify refused: opening 0 published differs from re-derived
+exit=1
+$ node benzo-verify.mjs --dir tb --signer 302a300506032b65700321000ad232b8429de606bf4c437c476fff5b233023d1037e0c908adaf149badb7891
+ERROR verify refused: beacon BLS signature invalid
+exit=1

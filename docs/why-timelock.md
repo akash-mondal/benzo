@@ -27,7 +27,7 @@ R=32704232 -> 2026-10-02T04:41:00.000Z
 ```
 
 The live chain agrees with the formula. This run fetched quicknet's latest round and compared the formula's time with
-the wall clock at the fetch (`tmp/proof-logs/run13-time.out`, 2026-10-02):
+the wall clock at the fetch (2026-10-02; re-run on 2026-10-18 with the same result shape, `docs/evidence/phase-6/doc/timelock-clock.out`):
 
 ```text
 $ curl -s https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/latest | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);const genesis=1692803367,period=3;console.log('latest round',j.round,'formula time',new Date((genesis+(j.round-1)*period)*1000).toISOString(),'wall clock',new Date().toISOString())})"
@@ -58,7 +58,7 @@ Losing costs the fee; lying is not free.
 `benzo verify` does not take the round's signature on trust. It checks the published signature against the pinned
 quicknet public key before decrypting anything. Change one hex digit of the signature and verification refuses
 (the exact commands are in [`verify-it-yourself.md`](verify-it-yourself.md); output from
-`tmp/proof-logs/run13-tamper-beacon.out`):
+`docs/evidence/phase-6/doc/verify-walkthrough.out`):
 
 ```text
 ERROR verify refused: beacon BLS signature invalid
