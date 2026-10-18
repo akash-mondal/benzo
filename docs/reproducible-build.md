@@ -42,8 +42,8 @@ it is the toolchain the project's evidence runs against:
 
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
-| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913` (also in `docs/verify-bundle.sha256`) |
-| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `39d53458b3c0e897b9e88ab41bf793284d7b0ce2a058c0c352612ab9751dc8f2` |
+| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `7eda287168fa5a2cce10237d057aa1b6eb056edd3dd8c8539acf78b4d0aae554` (also in `docs/verify-bundle.sha256`) |
+| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `1aa2b0772ba8d446be5fac4730c0b6d482ffb29c0b3e11540ed7d7844c2ddc6e` |
 | `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` |
 
 ## 3. The commands (fresh clone)
@@ -57,12 +57,12 @@ npm ci                            # exact tree from package-lock.json
 
 npm run build:verify              # rebuilds the shipped verify bundle + its digest
 shasum -a 256 dist/benzo-verify.mjs
-# 96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913  dist/benzo-verify.mjs
+# 7eda287168fa5a2cce10237d057aa1b6eb056edd3dd8c8539acf78b4d0aae554  dist/benzo-verify.mjs
 shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
-# 39d53458b3c0e897b9e88ab41bf793284d7b0ce2a058c0c352612ab9751dc8f2  dist/benzo-0.1.0.tgz
+# 1aa2b0772ba8d446be5fac4730c0b6d482ffb29c0b3e11540ed7d7844c2ddc6e  dist/benzo-0.1.0.tgz
 
 npm run package:bidder            # build:seal, then the bidder tarball
 shasum -a 256 dist/benzo-bidder-0.1.0.tgz

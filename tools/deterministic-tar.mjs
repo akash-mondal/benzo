@@ -48,6 +48,29 @@ function pickBsdtar() {
   process.exit(1);
 }
 
+// Symlink permission bits follow the build system, not the files: Linux symlinks are always 0777,
+// while macOS symlinks carry their own mode (npm's node_modules/.bin links come out 0755). Readers
+// ignore a symlink's mode, so every symlink header is pinned to 0777 here, and its header checksum
+// is recomputed in the format bsdtar writes (six octal digits, NUL, space). Without this the npm
+// package differed between macOS and Linux in exactly these headers (R94).
+function pinSymlinkModes(tar) {
+  const out = Buffer.from(tar);
+  for (let o = 0; o + 512 <= out.length; ) {
+    const header = out.subarray(o, o + 512);
+    if (header.every((b) => b === 0)) break;
+    const size = parseInt(header.toString("latin1", 124, 136).replace(/[^0-7]/g, "") || "0", 8);
+    if (header[156] === 0x32) {
+      header.write("000777 \0", 100, "latin1");
+      header.fill(0x20, 148, 156);
+      let sum = 0;
+      for (const b of header) sum += b;
+      header.write(sum.toString(8).padStart(6, "0") + "\0 ", 148, "latin1");
+    }
+    o += 512 + Math.ceil(size / 512) * 512;
+  }
+  return out;
+}
+
 // tarGz(stageDir, outPath, opts?): opts.linkRoot — when a staged symlink points at an absolute path
 // under linkRoot (npm's node_modules/.bin can carry such links), rewrite it to the equivalent
 // archive-relative link. Left alone it would embed the builder's own directory in the tarball (and
@@ -77,12 +100,13 @@ export function tarGz(stageDir, outPath, opts = {}) {
   // gid 0 and Linux writes `root`, so one header field per entry differed across systems (measured
   // on the gate PK clean VM, R90). With --uname root --gname root both write byte-identical tars.
   execFileSync(pickBsdtar(), ["--format", "ustar", "--uid", "0", "--gid", "0", "--uname", "root", "--gname", "root", "-cf", tarPath, "-C", stageDir, "-T", listFile]);
+  const tar = pinSymlinkModes(readFileSync(tarPath));
   // gzip in Node, not the system gzip command: Apple gzip and GNU gzip emit different deflate
   // streams for the same tar, while Node's bundled zlib emits the same stream on macOS and Linux
   // (arm64 and x86-64 measured, R90). Only zlib's header OS byte follows the build platform
   // (19 on macOS, 3 on Linux), so it is pinned to 3 — Unix, what GNU `gzip -n` writes — or the
   // digest would still depend on where the build ran.
-  const gz = gzipSync(readFileSync(tarPath), { level: 9 });
+  const gz = gzipSync(tar, { level: 9 });
   gz[9] = 3;
   // Refuse anything but the pinned gzip header shape: magic 1f 8b, CM 08, FLG 0 (no name, comment
   // or extra fields) and MTIME 0 (no build timestamp), or the stream would not be rebuildable.

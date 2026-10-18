@@ -550,3 +550,18 @@ B39 is on main (`aa0229e` H10, `787fab6` H11). The verify bundle was rebuilt: `7
 4. and 5. Accepted.
 
 **H14 (P1, new; it predates B39):** a bidder can stop any open with a malformed-but-admitted ciphertext (`phase7-hardening.md` H14). It goes to the next builder batch after B42.
+
+### R94 — B41 merged; the last cross-OS difference was symlink modes (head, 2026-10-18)
+
+B41 is on main (`abfea23`). It uses bsdtar with the owner names pinned, and Node zlib with the OS byte pinned. On the clean VM the bidder bundle then rebuilt identical to macOS (`f6afad13…`). The npm package still differed in one tar header: macOS keeps a symlink's own mode (0755 for `node_modules/rpc-websockets/node_modules/.bin/uuid`), while Linux symlinks are always 0777. Both builder slots were busy and this blocked PK, so the head fixed it in `tools/deterministic-tar.mjs`: every symlink header is pinned to 0777 and its checksum recomputed. After the fix the macOS build equals the earlier Linux build exactly (`d5f8fa10…` at `abfea23`).
+
+Also fixed: the README's stale verify-bundle digest (`b122bf2b…` → `7eda2871…`, flagged by B41) and `reproducible-build.md`. Digests at this commit:
+- verify `7eda2871…`;
+- npm `1aa2b077…` (two macOS builds identical);
+- bidder `f6afad13…`.
+
+B41 questions:
+1. The Phase 4 example needs `--legacy-unattested`; the PK proof uses `launch-cold`.
+2. Fixed here.
+3. Noted.
+4. The VM rebuild at this commit is the record.
