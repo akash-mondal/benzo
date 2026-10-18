@@ -507,3 +507,10 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
 2. **F2 (P2), seller payout understated.** One malicious coordinator can redirect the seller's proceeds and the published settlement cannot show it. **H10 is now P1, fix before mainnet**, and the README bullet says so plainly.
 3. **F3–F6 (P3).** Row 14 no longer claims backup rollback is safe (never restore a signer host from a snapshot); row 1 states the bond-then-pay C; row 13 cites who runs each share (README:143-147); line ranges and the six "README GAP" State cells are corrected.
 4. **Next.** Reviewer R round 2.
+
+### R85 — Gate SC live half: scale-55 (head, 2026-10-18)
+
+1. **Run.** `tools/repro/markets.ts scale-55` (new scenario, `1b871d5`): 55 bids + the seller, `batch_cap` 14, funded in 3 transactions of at most 19 deposits (one 55-output funding transaction would be about 190 KB). The first `open` failed on a drand relay timeout; `resume` finished it: **RESULT PASS, verify exit 0, 4 batches mined** (`f5512693…`, `4ee0bb05…`, `ed82b349…`, `d1680726…`; 50,194 bytes and 75,000 zats each).
+2. **Measured.** About 5 minutes per batch, sequentially: host build about 100 s, two host approvals about 90 s, FROST 8.1 s (flat), mining 80–115 s. Table: `docs/evidence/phase-6/scale-measure.md`.
+3. **Finding (P1 for scale).** Host build and approval time grows with the auction's size, not the batch's: each host re-decrypts every frozen leaf per batch (`cli/host-derive.ts`). The offline projection of 20.9 h for 17,000 bids does not hold. README corrected; Phase 7 **H13** (decrypt once per host per auction, offline from the verified beacon, cache the openings). **H11** (one drand relay per leaf at `open`) recorded from the same run.
+4. **Gate SC** is READY FOR REVIEW: the live target (≥ 50 bids, ≥ 4 batches) is met, and the projection is honestly corrected.

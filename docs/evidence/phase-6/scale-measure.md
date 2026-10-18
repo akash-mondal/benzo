@@ -54,3 +54,24 @@ Run: `markets.ts scale-27`, auction 5e2091c9…: 27 bids + the seller in ONE bat
 
 **Projection for 17,000 bids:** ~630 batches of 27 bids × ~124 s (build + signing) ≈ **21.7 h** with mining overlapped with the next batch. That is inside the 24 h target, but only just. The cost now is host build and approval, which grow with rows (~2.3 s and ~1.8 s per row), not signing. Next lever: build batch n+1 while batch n is being approved and signed, which needs disjoint notes (rows already are).
 
+
+## Gate SC live half: scale-55 (head, 2026-10-18, R85, code `1b871d5`)
+
+Run: `tools/repro/markets.ts scale-55`, auction `754bb1c6…`: one uniform auction with **55 bids + the seller = 56 rows, settled in 4 batches of 14** (`batch_cap` 14), host custody (alice + bob), `BNZ_LWD_SINGLE=1`. Result: **`RESULT PASS` (verify exit 0)**. Raw data: `scale/scale-55.log`, `scale/scale-55-resume.log`, `scale/scale-55-timing.jsonl`.
+
+- **Funding in 3 transactions.** One funding transaction with 55 deposit outputs would be about 190 KB, so the harness pays at most 19 deposits per transaction, back to back: `0e057645…` (19 deposits + the 400,000 fee reserve, 69,130 bytes), `176af039…` (19, 65,974 bytes), `76b1cbc8…` (17, 59,662 bytes), mined at 4,515,049–4,515,050.
+- **One failure, then a resume.** The first `open` failed on a drand relay timeout (`api.drand.sh` i/o timeout during the per-leaf `tle -d`). `resume:754bb1c6…` opened all 55 leaves, cleared, settled and verified. Phase 7 item H11 removes the per-leaf relay dependency.
+- **Settlement:** 4 batches, each 15 actions (14 recipients + change), fee 75,000 zats (ZIP-317), raw transaction 50,194 bytes each.
+
+| Batch | txid | Mined | Host build | Host approvals (2, parallel) | FROST, all spends parallel | Whole signing step | Mining wait |
+|---|---|---|---|---|---|---|---|
+| 1 | `f5512693…` | 4,515,187 | 103.5 s | 87.8 s, 89.3 s | 8.1 s | 97.8 s | 82.9 s |
+| 2 | `4ee0bb05…` | 4,515,200 | 100.1 s | 91.0 s, 92.6 s | 8.1 s | 101.0 s | 82.7 s |
+| 3 | `ed82b349…` | 4,515,213 | 102.9 s | 88.9 s, 88.8 s | 8.1 s | 97.3 s | 115.5 s |
+| 4 | `d1680726…` | 4,515,228 | 104.5 s | 88.4 s, 88.9 s | 8.1 s | 97.4 s | 115.1 s |
+
+**What it shows.**
+- FROST signing stays flat at about 8.1 s per batch however many spends it signs (R29 parallel sessions), as at scale-8 and scale-27.
+- Each 14-row batch costs about 5 minutes end to end, sequentially: about 100 s host build, about 90 s host approvals, about 8 s FROST, and 80–115 s waiting for the block. The 4 batches settled in about 20 minutes (56 rows, about 170 rows per hour).
+- **Host build and approvals grow with the auction's total size, not the batch's.** A 14-row batch here took 100 s to build and about 90 s to approve, more than scale-27's single 28-row batch (65 s, about 50 s). Per batch, by auction size: 9 rows → 23 s build (scale-8), 28 → 65 s (scale-27), 56 → 100 s (scale-55). The cause is in `cli/host-derive.ts` `deriveRows`: every build and every approval re-decrypts EVERY frozen leaf with `tle` (one drand relay call each) before deriving its rows. So each batch costs O(N) and the whole settlement O(N²/batch_cap).
+- **Consequence: the offline projection does not hold.** `bench.json`'s 20.9 h for 17,000 bids models host time per batch as a function of the batch's rows. At the measured ~1.8 s per auction row per batch, a 17,000-bid auction would need months of host time. Phase 7 **H13**: each host decrypts the frozen set once per auction (offline, from the beacon signature it already verified) and caches its openings; with that, per-batch host time should fall back to the batch's own rows. Until then the README states the measured limit.

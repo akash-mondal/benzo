@@ -252,6 +252,12 @@ of ZIP-317 fees, and a projected **20.9 h** of settlement wall time (24.1 h at t
 scale-8/scale-27 points, with 2-of-3 FROST signing flat at 8.2 s per batch under R29's parallel single-message
 sessions (`bench.json`'s `projection` block).
 
+**Live scale correction (gate SC, scale-55):** a 55-bid auction settled live in 4 batches of 14 (about 5 minutes per
+batch, verify exit 0), but it showed that each signer host re-decrypts every bid of the auction for every batch. Host
+time per batch therefore grows with the auction's size, and the 20.9 h projection above does not hold today: a
+17,000-bid auction would not settle within 24 hours of R. Caching each host's openings (Phase 7, H13) is the fix.
+Measured: [`docs/evidence/phase-6/scale-measure.md`](docs/evidence/phase-6/scale-measure.md).
+
 ## Repository layout
 
 - `seal/` — the browser bidder: seals the order into the deposit memo with drand timelock.
