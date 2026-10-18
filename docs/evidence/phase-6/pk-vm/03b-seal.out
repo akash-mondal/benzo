@@ -1,0 +1,17 @@
+# step 3b — seal a bid with the bidder bundle in a fresh /tmp dir (empty HOME, host mounts hidden), open it after round R with tle
+Sun Oct 18 14:53:25 UTC 2026
+$ tar -xzf ~/in/benzo-bidder-0.1.0.tgz
+benzo-bidder-0.1.0/index.html benzo-bidder-0.1.0/main.js 
+OK manifest-inputs bid-manifest.json: auction=f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542 C=200000 address=utest13kvv3gfpr0… price=2890 quantity=1
+OK drand-round latest=33177280 sealing-to=33177285 opening=2026-10-18T14:53:39.000Z
+OK static-server http://127.0.0.1:41957/ serving /tmp/benzo-bidder-proof/benzo-bidder-0.1.0
+OK browser /home/stranger/.cache/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-linux-arm64/chrome-headless-shell cdp-port=43317
+OK page-seal round=33177285 envelope=512 bytes
+OK network-requests 2 request(s), all to the static origin ( main.js)
+OK ct.stanza -> tlock 33177285 52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971
+OK tle-before-R refused (exit 1): too early to decrypt: expected round 33177285 > 33177282 current round
+OK wait-round 33177285 published after 4 poll(s) of https://api.drand.sh/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/public/33177285
+OK tle-after-R exit=0 plaintext=128 bytes
+OK plaintext-equals-inputs 00f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b5420000000000000b4a00000001d798273a8f7034c4ceb9a8a878d57b7a0427a110703970625ed664f69c340d7ce29bec6049b00b3a3d6163bb487a2329168e35f76e6dfc083ca63aec1271bb6c85289408ace45ef667bb489ec576a8e1000000
+PASS bidder-bundle clean-machine proof
+exit=0
