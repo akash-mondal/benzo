@@ -514,3 +514,7 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
 2. **Measured.** About 5 minutes per batch, sequentially: host build about 100 s, two host approvals about 90 s, FROST 8.1 s (flat), mining 80–115 s. Table: `docs/evidence/phase-6/scale-measure.md`.
 3. **Finding (P1 for scale).** Host build and approval time grows with the auction's size, not the batch's: each host re-decrypts every frozen leaf per batch (`cli/host-derive.ts`). The offline projection of 20.9 h for 17,000 bids does not hold. README corrected; Phase 7 **H13** (decrypt once per host per auction, offline from the verified beacon, cache the openings). **H11** (one drand relay per leaf at `open`) recorded from the same run.
 4. **Gate SC** is READY FOR REVIEW: the live target (≥ 50 bids, ≥ 4 batches) is met, and the projection is honestly corrected.
+
+### R88 — Gate H PASSED (head, 2026-10-18)
+
+Reviewer R round 2 (`benzo-sol/reports/pr-h-r87.md`): **APPROVE**. F1–F5 fixed; it confirmed the refused-bid claim path (memo stray → owner-signed `claim-refund`). F6 and two new P3s (stale "README GAP" cells and provenance labels in `h-closure.md`) are fixed here. **Gate H is PASSED.** Its Phase 7 items: H10 (P1), H12.

@@ -2,7 +2,7 @@
 
 One row per P0 threat in `docs/research/threat-model.md` (34 rows, table lines 81–114),
 in threat-model rank order. Every pointer below was checked by opening the file at HEAD
-(`6a26d33`); every evidence ID was read out of the run record it names.
+(`6a26d33`, B38; re-checked by Reviewer R at `90ee518`, R87); every evidence ID was read out of the run record it names.
 
 States (the spec's seven values). Convention used here: where a row is enforced but its
 residual has no README honest-limits line yet, the State cell says **closed + disclosed —
@@ -106,7 +106,7 @@ unset, so production signing is unchanged.
 
 ## README honest-limits patch list (ready to paste)
 
-Every sentence below is owed by a "README GAP" in the table above, tagged by threat rank.
+History: each sentence below was a README GAP found by B38. All are now in README `## Honest limits` (R86; rank 16 and rank 22 reworded in R87), so no README GAP remains.
 Paste into `## Honest limits` ("Stated again for this build:", after line 139 or at the section
 end); the head applies them.
 
@@ -123,8 +123,9 @@ end); the head applies them.
    can link them to your bid. Fund your own shielded wallet first, wait for confirmations, then
    deposit the fixed C. Benzo cannot detect a direct bridge payment — a payer is unobservable on
    shielded Zcash.
-5. **Rank 16 (015):** The seller payout's destination comes from operator routing; the signer
-   hosts check its amount against the result, not its address.
+5. **Rank 16 (015), as reworded in R87:** A malicious coordinator can redirect the seller's proceeds: signer hosts
+   check the seller payout's amount, not its address, and the published settlement does not name the recipient.
+   Fix before mainnet (H10, P1).
 6. **Rank 19 (052):** Signer-share and envelope-key backups are each operator's own
    responsibility — Benzo ships no encrypted backup. A lost share can stall settlement; a stolen
    share counts toward the 2-of-3.
@@ -143,4 +144,4 @@ end); the head applies them.
 
 No row is a plain GAP: every P0 mitigation has an enforcing code path on the live path with a
 live evidence ID, or (rank 11) ships no feature to close. Where a residual trust boundary had no
-README line, the row is flagged README GAP and the sentence is in the patch list above.
+README line, the row was flagged README GAP; every such line has since been applied (R86/R87).
