@@ -1,10 +1,10 @@
 {
  "command": "BNZ_LIVE=1 node node_modules/.bin/playwright test --project=markets",
- "commit": "4dda56981e324704550c9c2e362729b407a06eae",
- "start_utc": "2026-10-17T08:01:57.179Z",
- "end_utc": "2026-10-17T15:39:51.643Z",
+ "commit": "910a5311db564cf0557874f13624e38b0357af6f",
+ "start_utc": "2026-10-17T18:02:23.641Z",
+ "end_utc": "2026-10-18T00:26:26.999Z",
  "results": {
-  "M-drop": "FAIL",
+  "M-drop": "PASS",
   "M-otc-match": "PASS",
   "M-launch-meet": "PASS",
   "M-rfq": "PASS",
@@ -13,9 +13,7 @@
   "M-rfq-cancel": "PASS",
   "M-revision": "PASS"
  },
- "fail_reasons": {
-  "M-drop": "Error: M-drop threw | Expected: \"\" | Received: \"[drop] FATAL Error: batch 1 was never signed by two hosts (settle exited 1): ERROR signer carol could not list derivable rows: rivable refused: lightwalletd GetBlock:  | ERROR settle refused: no signer host could list its derivable rows | ERROR benzo settle exit 1· | Expected: false | Received: true\""
- },
+ "fail_reasons": {},
  "sha256": {
   "cli/dist/benzo.mjs": "18a801acecf203968da4066ee9d3f128d449fc149607bc9366a63007bf32715c",
   "cli/dist/commands/api.mjs": "aee2f4c13a1662dabc82540303835597f161862372d91b5aeff883e149048470",
