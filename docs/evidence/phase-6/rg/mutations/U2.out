@@ -1,11 +1,37 @@
 mutation U2 (docs/evidence/phase-4/mutations/U2.patch) on project cli-auction
-commit d74fd2a280b706d999f365cf41f4dcf1434d6bb6 (patch applied on top, then reverted)
-utc 2026-10-18T02:20:17Z
+commit 9c016d66f93ef0652cbdb8a6c832b12d144a827b (patch applied on top, then reverted)
+utc 2026-10-18T05:06:16Z
 expected red: S1
-ERROR ids: 
+ERROR ids: T3 benzo settle 
 RESULT NOT RED AS EXPECTED
 --- last 30 lines ---
-NOT RUN drill would cross bidder floor; Needs user funds
+forged reserve opening (5000) -> leaf0:winner:pay=5000:refund=995000 leaf1:below_reserve:pay=0:refund=1000000 leaf2:below_reserve:pay=0:refund=1000000 clearing=5000
+
+results differ: [33mtrue[39m
+
+signer-side binding refuses the forged opening: refused: reserve opening published differs from re-derived
+F2 FIXED: the signer re-derives the sealed reserve and refuses a forged published opening before any signature.
+CLI funding 000f4c9362d91e0f1dec6a00591a77b8acc6a5a607fea6cffb1352b44ca6e49e
+CLI stray funding 19b2acb756bbce47d4e8791f01ac0a8c022f8baba89038d9644e75f65284845c
+ERROR T3 worker expiry_height":4514081,"tip":4514104}
+{"auction_id":"57a498ba45de0e52acb278a4c3a38ad34a60fc56b8a0dd996dbeb89cb11aec9c","batch":2,"allocated":10}
+ERROR settle node exited 1: 2ba94600c84e971/info": dial tcp: lookup api3.drand.sh: no such host | https://drand.cloudflare.com: client: FetchChainInfo err: doing request: Get "https://drand.cloudflare.com/52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971/info": dial tcp: lookup drand.cloudflare.com: no such host
+ERROR benzo settle exit 1
+
+FATAL Error: zcash-devtool wallet -w /Users/akshmnd/Dev Projects/benzo/.benzo/bidder sync exited 1:     0: dns error |     1: dns error |     2: failed to lookup address information: nodename nor servname provided, or not known
+    at run (file:///Users/akshmnd/Dev%20Projects/benzo/e2e/lib/zcash.ts:18:29)
+    at wallet (file:///Users/akshmnd/Dev%20Projects/benzo/e2e/lib/zcash.ts:23:60)
+    at Module.sync (file:///Users/akshmnd/Dev%20Projects/benzo/e2e/lib/zcash.ts:30:18)
+    at file:///Users/akshmnd/Dev%20Projects/benzo/e2e/cli-auction.spec.ts:276:7
+    at processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at /Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1655:9
+    at /Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1135:11
+    at TimeoutManager.withRunnable (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:403:14)
+    at TestInfoImpl._runWithTimeout (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1133:7)
+    at /Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1653:7
+    at WorkerMain._runTest (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1626:5)
+    at WorkerMain.runTestGroup (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/worker/workerProcessEntry.js:1521:9)
+    at process.<anonymous> (/Users/akshmnd/Dev Projects/benzo/node_modules/playwright/lib/common/index.js:1941:25)
 run.json -> tmp/e2e/out
-FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (5 s)
+FAILED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (2518 s)
 run failed; details in tmp/e2e/report.json
