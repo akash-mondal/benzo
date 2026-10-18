@@ -1,18 +1,18 @@
 mutation N7 (docs/evidence/phase-2/mutations/N7.patch) on project auction-core
-commit f7321cfb784b650ed2f07d2247edebb2687cfce5 (patch applied on top, then reverted)
-utc 2026-10-16T14:12:49Z
+commit 9446dfa9b68fac3e0bb75339c031676b9dac0f84 (patch applied on top, then reverted)
+utc 2026-10-18T01:38:43Z
 expected red: I1
 ERROR ids: I1 
 RESULT RED (expected)
 --- last 30 lines ---
-deposit 1/6 broadcast a98b67f96e95a5765317c46352f2872286d58598c280a029cbc5602ef1886a5d
-deposit 2/6 broadcast e008839ed66f6ac816f3deb0466822c7e48f32c8f425e34c47cafb96f72c22c6
-deposit 3/6 broadcast ac620f52080f74ec7fb2ec84306c04df9300fe2bb1601bfd1c21fb8dd1d02aef
-deposit 4/6 broadcast d312b083617b1d1ee91b8f4f13cd282d29916c001727b50a80a4a067da4fa000
-deposit 5/6 broadcast 7758b239343f087a2bf5123a5221597411b47d03b38cc88617e1579c58001881
-deposit 6/6 broadcast d7bae45be1090a5a301e28afffb3a750b6a1a6a37962dc4d86cf9602e73828fe
-refund broadcast eaba88623bff8e101362bcaef9735bc8b75d56d9192d93ad5a2c3efe742a8f37
+deposit 1/6 broadcast c5a2d856fb8443c09a16fd47248444db4b4b411fb031269e1b19201f606b61ab
+deposit 2/6 broadcast 5a3c43c21e49eb3b7bf5f7d79ce19af47a855eda487c152e741737b9077fa6b7
+deposit 3/6 broadcast b7f6df20d048b24124c781209d1e699d6a90e98a9af3ac78e8461a67ac262d74
+deposit 4/6 broadcast c6751563025a1529b310ce33e732eab44997f4463ee2cf869ebac50d4fc17303
+deposit 5/6 broadcast 4675a24c7225cc758ffb0c7a828c27906717b854f84793d2b860606dcf1305fc
+deposit 6/6 broadcast 10508f777f06d499cc48a5b55c50fecc1faed05dab1344dc34fc3b2947d3ee65
+refund broadcast cec7ba9245276d136aea77c709d79a7fda37033e8414980411ab69f3d6f24332
 ERROR I1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
 run.json -> tmp/e2e/out
-FAILED auction-core signed sealed auction on testnet (3136 s)
+FAILED auction-core signed sealed auction on testnet (2923 s)
 run failed; details in tmp/e2e/report.json
