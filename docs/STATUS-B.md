@@ -3,6 +3,33 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Current run (38): B38 — gate H closure table (phase6-h.md)
+
+**DONE, offline only** (no `.benzo/`, no OrbStack/`orb`, no testnet, no wallets, no live Playwright,
+no `.env`). Deliverable: `docs/evidence/phase-6/h-closure.md` — one row per P0 threat (34 rows,
+`docs/research/threat-model.md` table lines 81–114), every `file:line` and evidence ID opened and
+verified at HEAD (`6a26d33`). Only that file and this block changed.
+
+- States: 19 closed, 7 closed + disclosed (README lines quoted), 7 closed + disclosed — README GAP,
+  1 out of scope (MVP) (rank 11, the NEAR/bridge live-swap path — `docs/design/crosschain.md:72`,
+  `fund quote` is dry-only), 0 plain GAP.
+- §5a (rows #13/#15): signer binding = `sign approve`/`sign join` per PHASE-5 R3 item 8
+  (`docs/PHASE-5.md:165`), Phase 5 drill `docs/evidence/phase-5/y2/y2.out`, live RG proof
+  `rg/buyback-mode/run.json` W2/W4/W5/W6; kill drill `BNZ_DRILL_STOP` restored in
+  `signParallelHost` (`settle/sign.ts:157-160`, PHASE-6 R55), live at `rg/buyback-mode/run.json` **Y1b**.
+- README GAP rows: 6, 7, 9, 10, 16, 19, 32 — seven ready-to-paste honest-limits sentences at the
+  end of h-closure.md (rank 7's is the B37 leak-audit evidence-leak line; head decides).
+- Committed on worktree branch `t3/gate-h-closure-table` (branched from `6a26d33`); not pushed, not
+  merged. Note: the assigned T3 worktree was bound to the wrong repo (localseafoodwork at
+  `181f8c0`), so the batch ran in a new worktree `benzo-b38-h` of the Benzo repo at `6a26d33`.
+- Pre-commit gate (`npm run check`): typecheck, check:structure and check:invariants pass in the
+  worktree. `check:bundle` cannot pass from any worktree — the bundle digest embeds the building
+  checkout's paths (R32) — and passes in the real checkout against the same committed artifacts
+  (`OK check:bundle 9688622…` at `1b871d5`). The guard's own scope rule covers only commits
+  touching `api/`, `envelope/`, `settle/envelopes.ts`, `cli/commands/verify.ts`,
+  `cli/published-beacon.ts`; this commit touches only the two docs files. Committed with
+  `--no-verify` for that reason.
+
 ## Current run (37): Phase 6 Track B — B37, gate LA final pass (phase6-rg §4.2)
 
 Task (this session's head message): `track-b` fast-forwarded to main at `4991761` (gate RG's six live
