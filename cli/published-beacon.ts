@@ -24,6 +24,12 @@ export function publishedClient(beacon: { round: number; signature: string }): C
   };
 }
 
+// The exact failure contract every caller maps (H11, docs/design/phase7-h10-h11.md item 3): a null return is an
+// AUTHENTICATED-CIPHERTEXT failure — the header MAC ("The MAC did not validate for the fileKey and payload!") or a
+// payload-chunk MAC ("Error during decryption!") — the only bad-bid cases; every other failure (a bad beacon, the
+// wrong round/chain, a structural parse error) THROWS and stops the caller. tlock-js 0.9.0 raises exactly those two
+// messages at exactly its two MAC checks (age-encrypt-decrypt.js header MAC; stream-cipher.js ChaCha20Poly1305.open),
+// so the split is exact, and an unknown failure message can only fail closed (it throws).
 export async function decryptPublished(ciphertextHex: string, client: ChainClient): Promise<string | null> {
   const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
   // tlock-js 0.9.0 does not check the stanza chain hash; bind both stanza arguments here.

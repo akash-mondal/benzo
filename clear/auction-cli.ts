@@ -5,6 +5,7 @@ import path from "node:path";
 import {hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed} from "../manifest/schema";
 import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, type Receipt} from "./merkle";
 import type {ClearResult, Opened} from "./core";
+import {publishedClient, decryptPublished} from "../cli/published-beacon";
 import {clearForMode, clientCommon as client} from "./registry"; // design §6.1: every registry mode
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
@@ -12,7 +13,7 @@ import {drandUrls} from "../manifest/reserve";
 import {verifyStatement} from "../envelope";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
-import { DRAND_TIMEOUT_MS, LWD_STALLED, lwdBound, lwdTimedOut, tleBound } from "../settle/bounded";
+import { DRAND_TIMEOUT_MS, LWD_STALLED, lwdBound, lwdTimedOut } from "../settle/bounded";
 
 type Note = {txid:string; height:number|null; pool:string; address:string; diversifier_index:string; value_zats:number; memo_hex:string; spent_in_txid:string|null};
 type Ledger = {manifest:Signed; signer:string; state:string; leaves:Leaf[]; receipts:Signed[]; envelopes?:{ciphertext_hash:string; envelope_ct:string; owner_sig:string}[]; frozen?:Frozen; opened?:Opened[]; reserve_opening?:string; beacon?:{round:number;signature:string;chain_hash:string}; serial_beacon?:{round:number;signature:string}; result?:ClearResult; trace:{operation:string; time:number}[]};
@@ -110,33 +111,41 @@ try {
       requireThat(ledger.state==="SEALED-WAIT" && now>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"opening state/release");
       const {notes}=observed(m.network);
       requireThat(ledger.frozen,"no frozen set"); checkFrozen(ledger.frozen!,id,manifest_hash);
-      const beacon=await fetch(`${process.env.BNZ_DRAND_URLS!.split(",")[0]}/${QUICKNET.chain_hash}/public/${m.drand.R}`);
-      requireThat(beacon.ok,"drand unavailable at opening");
-      const b=await beacon.json() as {round:number;signature:string};requireThat(b.round===m.drand.R && /^[0-9a-f]{96}$/.test(b.signature),"drand opening beacon round/signature");ledger.beacon={round:b.round,signature:b.signature,chain_hash:QUICKNET.chain_hash};
-      ledger.opened=ledger.leaves.map(l=> {
-        if(!notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height))return {leaf_index:l.leaf_index,plaintext_hex:null,error:"reorg"};
-        const ct=path.join(dir,`${id}-${l.leaf_index}.age`), pt=path.join(dir,`${id}-${l.leaf_index}.bin`); writeFileSync(ct,Buffer.from(l.ciphertext_hex,"hex"),{mode:0o600});
-        ledger.trace.push({operation:"tle -d",time:now});
-        const opening=spawnSync(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash,"-o",pt,ct],{encoding:"utf8",...tleBound});
-        appendFileSync(path.join(state,"run","auction-cli.log"),`\ntle -d\n${opening.stderr??""}`);
-        if((opening.error as NodeJS.ErrnoException|undefined)?.code==="ETIMEDOUT")throw new Error(`tle opening timed out after ${DRAND_TIMEOUT_MS} ms: stalled drand relay`);
-        if(opening.error)throw opening.error;
-        if(opening.status!==0) {
-          // Only authenticated ciphertext failures are bad bids. Relay/beacon/tool failures remain errors.
-          if(/bad header MAC|failed to decrypt and authenticate payload chunk/.test(opening.stderr))return {leaf_index:l.leaf_index,plaintext_hex:null,error:"undecryptable"};
-          throw new Error(`tle opening failed: ${opening.stderr.trim().slice(-300)}`);
-        }
-        return {leaf_index:l.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
-      });
+      // H11 (docs/design/phase7-h10-h11.md): the round-R beacon is fetched from ANY endpoint in BNZ_DRAND_URLS,
+      // in order, each bounded by DRAND_TIMEOUT_MS; the first answer whose BLS signature verifies against the
+      // pinned quicknet key wins (publishedClient refuses every other). One dead relay no longer fails the open.
+      ledger.trace.push({operation:"beacon fetch",time:now});
+      let beacon:{round:number;signature:string}|null=null;
+      for(const url of drandUrls()) {
+        try {
+          const response=await fetch(`${url}/${QUICKNET.chain_hash}/public/${m.drand.R}`,{signal:AbortSignal.timeout(DRAND_TIMEOUT_MS)});
+          if(!response.ok)continue;
+          const b=await response.json() as {round:number;signature:string};
+          if(b.round!==m.drand.R||!/^[0-9a-f]{96}$/.test(b.signature))continue;
+          publishedClient({round:b.round,signature:b.signature});
+          beacon={round:b.round,signature:b.signature};break;
+        } catch {} // a dead, wrong or unverifiable answer is not the beacon; try the next endpoint
+      }
+      requireThat(beacon,"drand opening beacon unavailable or unverified on every endpoint");
+      ledger.beacon={round:beacon!.round,signature:beacon!.signature,chain_hash:QUICKNET.chain_hash};
+      // H11: every opening derives OFFLINE from that one verified beacon — no tle subprocess and no network
+      // per leaf. The exact pre-H11 semantics: a reorged leaf stays {error:"reorg"}; only an authenticated-
+      // ciphertext failure is {error:"undecryptable"} (cli/published-beacon decryptPublished returns null for
+      // exactly those two MAC failures and throws for everything else); any other failure (bad beacon, library
+      // error) throws here and stops the open — it is never a bad bid.
+      ledger.trace.push({operation:"offline decrypt",time:now});
+      const local=publishedClient(ledger.beacon),opened:Opened[]=[];
+      for(const l of ledger.leaves) {
+        if(!notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height)){opened.push({leaf_index:l.leaf_index,plaintext_hex:null,error:"reorg"});continue;}
+        const plaintext=await decryptPublished(l.ciphertext_hex,local);
+        opened.push(plaintext===null?{leaf_index:l.leaf_index,plaintext_hex:null,error:"undecryptable"}:{leaf_index:l.leaf_index,plaintext_hex:plaintext});
+      }
+      ledger.opened=opened;
       if(m.sealed_reserve!==undefined) {
         // Gate CF: the manifest's sealed price bound opens at R with the bids and feeds the clear below.
-        ledger.trace.push({operation:"tle -d reserve",time:now});
-        const reserveOpen=spawnSync(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash],{input:Buffer.from(m.sealed_reserve,"hex"),maxBuffer:1<<20,...tleBound});
-        appendFileSync(path.join(state,"run","auction-cli.log"),`\ntle -d reserve\n${reserveOpen.stderr??""}`);
-        if((reserveOpen.error as NodeJS.ErrnoException|undefined)?.code==="ETIMEDOUT")throw new Error(`tle reserve opening timed out after ${DRAND_TIMEOUT_MS} ms: stalled drand relay`);
-        if(reserveOpen.error)throw reserveOpen.error;
-        requireThat(reserveOpen.status===0,`tle reserve opening failed: ${(reserveOpen.stderr??Buffer.alloc(0)).toString().trim().slice(-300)}`);
-        ledger.reserve_opening=reserveOpen.stdout.toString("hex");
+        const reserve=await decryptPublished(m.sealed_reserve,local);
+        requireThat(reserve!==null,"sealed reserve opening failed");
+        ledger.reserve_opening=reserve!;
       }
       ledger.state="OPENED"; result={opened:ledger.opened,trace:ledger.trace};
     } else if(command==="clear") {

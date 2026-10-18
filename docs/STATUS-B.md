@@ -75,6 +75,83 @@ into the worktree's own `.benzo/bin` (module cache; `tools/bootstrap.sh`'s recip
 - **File ownership (FYI).** The header says only Builder B writes this file; the head's B40 task message
   asked Builder A for a block here — this one, clearly labelled. Fold or move it as you see fit.
 
+## Current run (39): B39 — Phase 7 H10 + H11 (`docs/design/phase7-h10-h11.md`)
+
+**DONE, offline only** (no main-checkout `.benzo/`/`.env`, no OrbStack/`orb`, no testnet, no wallets, no
+live Playwright; all fixture state under `tmp/` of my worktree `../benzo-b39`, branch `b39-h10-h11` from
+`83d9cde`). Two commits, one per item. Committed with `--no-verify` (R32: `check:bundle` cannot pass in a
+worktree); `npm run typecheck`, `npm run check:structure` and `npm run check:invariants` pass in the worktree.
+This batch touches `cli/published-beacon.ts`, so the head must rebuild the verify bundle
+(`npm run build:verify`) after merge, as planned.
+
+- **H10 (`06cb56b`)** — `seller_ua_commitment` in the signed manifest (`sha256("benzo-seller-ua-v1\0" ||
+  utf8(seller_ua))`, one shared function `sellerUaCommitment` in `manifest/schema.ts`): `auction create`
+  sets it from the operator routing and closes H4 (UA on the manifest's network with an Orchard/Ironwood
+  receiver); mainnet create for a seller-paying mode requires it; `sign build`/`sign approve`/`sign derivable`
+  refuse the seller row typedly (`refused-rows ["seller"]`, exit 3) when the packet's `seller_ua` does not
+  hash to the commitment (legacy manifests keep the amount-only behaviour + one WARN line); `verify` checks
+  the field shape only; new read-only `benzo seller check` + README line replaced.
+- **H11 (second commit)** — `open` fetches the round-R beacon across every `BNZ_DRAND_URLS` endpoint
+  (first BLS-verified answer wins) and decrypts every leaf OFFLINE with `decryptPublished` (no `tle`
+  subprocess, no per-leaf network). Exact semantics kept: reorged leaf → `{error:"reorg"}`, only an
+  authenticated-ciphertext failure → `{error:"undecryptable"}`, any other failure stops the open. Trace is
+  now one `beacon fetch` + one `offline decrypt` instead of one `tle -d` per leaf.
+
+Proof (all under `docs/evidence/phase-7/repro/`):
+
+- `h10-seller-binding-before.out` / `-after.out` — red-before at the base commit shows the host ACCEPTING the
+  substituted seller address (`OBSERVE legacy-packet-seller-accepted utest10c5k…`); green-after: all three
+  host paths refuse it typedly, the honest address passes, a legacy manifest settles with exactly one WARN,
+  22 PASS / RESULT PASS. Unit checks (known-answer, bad length, uppercase hex, extra field) and the create
+  rules (H4 refusal, mainnet rule) are in the same run.
+- `h11-open-offline-before.out` / `-after.out` — red-before: the base commit's open fails with a dead first
+  relay (`ERROR auction fetch failed`); baseline: base open with a working relay (4 `tle -d` runs) saved.
+  Green-after: fixed open succeeds offline with the dead first relay, opened set **byte-identical** to the
+  base commit's (incl. one body-tampered `undecryptable` leaf and one bad-MAC leaf), trace = 1 beacon fetch +
+  1 offline decrypt + 0 `tle -d`, `benzo verify` on the opened fixture passes, a forged beacon stops the open
+  (`refused: drand opening beacon unavailable or unverified on every endpoint`), and a reorged leaf stays
+  `{error:"reorg"}` byte-identically. RESULT PASS both parts.
+
+Commands run in the worktree: `npm run typecheck`, `npm run check:structure` (194 files),
+`npm run check:invariants`, `npm run e2e` (the offline seal suite, `BNZ_STATE_DIR=tmp/b39-e2e-state`;
+PASSED), and the repro folds that touch `sign-*` or the manifest schema: r45-f20, r46-f23,
+r78-verify-hardening, r82-legacy-format, r81-destination-rule, r73-open-taddr, r79-leak-guard (all PASS).
+`r42-f11-strays` FAILS identically at the base commit (pre-existing: its legacy-dir fixture predates the R82
+format gate `api/public-auction.ts:279`; not a B39 regression). Toolchain built locally: the audited
+`benzo-pczt` (`tools/nu7/build.sh crates vendor/nu7 …` + `cargo build --release --locked`), and the pinned Go
+`tle` v1.2.0 (`tools/pins.env`) at `tmp/b39-tools/bin/tle` for the base-commit baselines. One product build
+fix rode along: `build:core` now gives `clear/dist/auction.mjs` the same `createRequire` banner `cli/build.mjs`
+uses (H11's `@noble/*` import needs it in the ESM bundle; without it the bundle crashed at import).
+
+### Questions (for the head)
+
+1. **H10 red-before nuance.** The design's red fixture ("a packet carries a different seller_ua than the
+   committed one") cannot run on the base commit: its manifest schema refuses `seller_ua_commitment` outright
+   (`unknown or missing manifest field`), so a base host never reaches the seller row with a committed
+   manifest. The red-before therefore shows the acceptance on the pre-H10 LEGACY manifest (what every pre-H10
+   auction is) and also records that the base schema cannot represent the field. Same defect, same sentence
+   (`the host accepts the substituted address`), on the only manifest the base can read.
+2. **`auction create` plumbing.** The design says create "sets it from the operator's `routing.seller_ua`",
+   but create's input is only the manifest — routing arrives at `auction publish`, too late to be signed.
+   Implemented as an optional `--config` on `auction create` (the same private operator config publish takes).
+   The live drivers (`tools/repro/markets.ts`, e2e) are untouched and keep the legacy/WARN path; wiring
+   `--config` there is a head call (I cannot run live flows). A publish-time cross-check (draft commitment vs
+   routing) was NOT added — the host refusal is the designed backstop; say the word if you want it.
+3. **Refusal shape.** "The seller row is refused (a typed refusal like the others in sign-build.ts, never a
+   silent pass)" is implemented as a command-level typed refusal on all three host paths
+   (`ERROR sign <verb> refused-rows ["seller"]`, exit 3) whenever the manifest binds and the packet's
+   seller_ua does not hash to it — sign-build through its own refusedRows channel. The row-level reading
+   (set-aside just the seller row while other rows proceed, R46-style) is a one-line change if you prefer it.
+4. **H11 `decryptPublished`.** It already tells an authentication failure (null: exactly tlock-js 0.9.0's two
+   MAC checks — `age-encrypt-decrypt.js` header MAC, `stream-cipher.js` chunk MAC) from any other error
+   (throw), so no typed change was needed; the contract is now documented at the function and any unknown
+   failure message fails closed (it throws and stops the open). One boundary worth knowing: a
+   STRUCTURALLY-corrupted ciphertext (e.g. a header byte that breaks base64) is a parse error in Go age and
+   tlock-js alike — it stops the open in both worlds (never a bad bid); only MAC failures classify as
+   `undecryptable`, which is exactly the pre-H11 behaviour.
+5. **H11 trace.** One `beacon fetch` + one `offline decrypt` replaces both the per-leaf `tle -d` entries and
+   the `tle -d reserve` entry (the sealed reserve now opens inside the same offline-decrypt phase). No
+   separate reserve trace line remains; say if you want one.
 
 ## Current run (38): B38 — gate H closure table (phase6-h.md)
 

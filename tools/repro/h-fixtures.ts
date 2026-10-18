@@ -88,10 +88,11 @@ export async function buildAuction(opts: {
     let ct = Buffer.from(decodeArmor(armored), "binary");
     const tamper = (opts.tamper ?? []).find(t => t.index === i);
     if (tamper) {
-      // body: flip the ciphertext's last byte (payload-chunk MAC failure). mac: flip the first header-MAC
-      // character after the "--- " marker (the fileKey/payload MAC failure). Both keep the shape intact.
-      const at = tamper.kind === "body" ? ct.length - 1 : ct.toString("latin1").indexOf("--- ") + 4;
-      ct = Buffer.from(ct); ct[at] ^= 1;
+      // body: flip the ciphertext's last byte (payload-chunk MAC failure). mac: replace the first header-MAC
+      // character after the "--- " marker with a DIFFERENT valid base64 character — both Go age and tlock-js
+      // must parse the header and then fail its MAC check (a parse-breaking byte is a different error class).
+      if (tamper.kind === "body") { ct = Buffer.from(ct); ct[ct.length - 1] ^= 1; }
+      else { const at = ct.toString("latin1").indexOf("--- ") + 4; ct = Buffer.from(ct); ct[at] = ct[at] === 0x41 ? 0x42 : 0x41; }
     }
     if (ct.length > 505) throw new Error("ciphertext memo cap");
     const memo = Buffer.alloc(512); Buffer.from("ff424e5a01", "hex").copy(memo); memo.writeUInt16BE(ct.length, 5); ct.copy(memo, 7);

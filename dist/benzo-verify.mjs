@@ -7917,6 +7917,7 @@ function checkBalanceAddresses(m2) {
 }
 function validateManifest(m2) {
   requireThat(m2.witness_set_hash === void 0 || typeof m2.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m2.witness_set_hash), "witness_set_hash");
+  requireThat(m2.seller_ua_commitment === void 0 || typeof m2.seller_ua_commitment === "string" && /^[0-9a-f]{64}$/.test(m2.seller_ua_commitment), "seller_ua_commitment");
   requireThat(m2.envelope_keys === void 0 || Array.isArray(m2.envelope_keys) && m2.envelope_keys.length === 3 && m2.envelope_keys.every((k2) => typeof k2 === "string" && /^[0-9a-f]{64}$/.test(k2)) && new Set(m2.envelope_keys).size === 3, "envelope_keys");
   requireThat(m2.bond === void 0 || m2.bond && typeof m2.bond === "object" && !Array.isArray(m2.bond) && Object.keys(m2.bond).sort().join(",") === "balance_addresses,balance_window_blocks,balance_window_start_height,bond_bps" && Number.isSafeInteger(m2.bond.bond_bps) && m2.bond.bond_bps >= 1 && m2.bond.bond_bps <= 1e4 && Number.isSafeInteger(m2.bond.balance_window_blocks) && m2.bond.balance_window_blocks >= 40 && Number.isSafeInteger(m2.bond.balance_window_start_height) && m2.bond.balance_window_start_height >= 1, "bond");
   requireThat(m2.sealed_reserve === void 0 || typeof m2.sealed_reserve === "string" && /^[0-9a-f]+$/.test(m2.sealed_reserve) && m2.sealed_reserve.length % 2 === 0 && m2.sealed_reserve.length >= 96 && m2.sealed_reserve.length <= 4096, "sealed_reserve");
@@ -7938,6 +7939,7 @@ function validateManifest(m2) {
   delete base.lots;
   delete base.series;
   delete base.serials;
+  delete base.seller_ua_commitment;
   keys(base, ["version", "network", "auction_id", "escrow_ua", "frost_group_key", "supply", "reserve_zats", "tick_zats", "B_max_zats", "q_max", "C_zats", "fee_zats", "deposit_addresses", "drand", "T_submit", "T_freeze", "confirmations", "clearing", "refund", "freeze"].concat(m2.lots === void 0 ? ["lot"] : []).join(" "));
   requireThat(m2.version === 1 && m2.network === "test", "manifest version/network");
   requireThat(/^[0-9a-f]{64}$/.test(m2.auction_id) && /^[0-9a-f]{64}$/.test(m2.frost_group_key), "auction/group key");
