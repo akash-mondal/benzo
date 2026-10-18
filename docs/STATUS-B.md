@@ -3,6 +3,79 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B40 (Builder A, branch `b40-operator-cli`, from `9d09093`) — gate DOC: operator CLI, templates, guide step 1
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live
+Playwright). Spec: `docs/design/phase6-doc-b40.md`. Three commits, all `--no-verify` (R32: `check:bundle` cannot
+pass in a worktree — the bundle digest embeds the building checkout's paths):
+
+1. `79004a7` — the three commands: `benzo witness set --id --q --keys [--key]` (the signed witness-set
+   side-packet, byte-equal to the harness's `signRecord`, into `$BNZ_STATE_DIR/run/witness-set-<id>.json`,
+   `{file, witness_set_hash}`), `benzo auction addresses --id --count` (N fresh vault addresses via the
+   harness's generator `benzo-pczt address`, refusing a missing vault), `benzo drand round --at <ISO-8601
+   UTC>` (`{round, release_utc}`, pinned quicknet, no network). Router fix in `cli/benzo.ts`: an exact verb
+   match wins over a catch-all for the same noun (`witness set` vs the sign/verify command).
+2. `272e780` — `docs/examples/unsigned-manifest.json` (the harness's manifest object, every field in its
+   order — checked programmatically against `tools/repro/markets.ts`), `docs/examples/private-operator.json`,
+   and `docs/guide-operator.md` step 1 rewritten into ordered sub-steps (DKG -> `auction keys` ->
+   `auction addresses` -> collect envelope/witness keys -> `witness set` -> `drand round` -> fill the
+   template -> `auction create --witness-set`) with the field table (name / meaning / where the value comes
+   from), header commit line updated (40 `--help` invocations, `tmp/guide-help.txt`). Where the text differed
+   from `--help`, the text was fixed (claim-refund party formats, `xchain release` flags, routing fields) and
+   three helps were completed (`auction create --witness-set`; `sign envelope-opens --public/--claims`;
+   `witness keygen`).
+3. This commit — `tools/repro/b40-operator-cli.ts` + the offline fixture vault
+   (`tools/repro/fixtures/b40-vault/`: view-only wallet DB + generator source + README recipe).
+
+**Proof (`node tmp/b40-operator-cli.mjs`, full transcript `tmp/b40-operator-cli.out`): RESULT PASS.** In a
+scratch `BNZ_STATE_DIR` under `tmp/b40` (R43), the guide's step 1 run with CLI output only:
+`witness-set-q-refused` / `witness-set-duplicate-refused` / `witness-set-malformed-refused` PASS;
+`witness-set-record-equal` + `witness-set-hash-equal` PASS (record sha256 `0bd50e29…`, `witness_set_hash`
+`a3a817ff…` — identical to `signRecord({version:1, auction_id, q_w, keys}, manifest-signing.pem)` for the
+same inputs, the harness's own call); `auction-addresses-shape/-fresh` PASS; `drand-round-formula/-release`
+PASS (and round 33177973 ↔ `release_utc` self-consistent); `template-filled` PASS; `auction-create` /
+`auction-sign` / `auction-publish` PASS (`state OPEN`); `verify-level-manifest-checks` PASS (19 checks, 0
+errors through `loadPublicAuction` + `checkPublicAuction`, the `benzo verify` manifest layer) and
+`verify-lifecycle-gate-only` PASS (`benzo verify` stops only at its documented pre-freeze gate
+`ERROR verify refused: missing frozen`, R21 item 5).
+
+**Gates:** `npm run typecheck` PASS; `npm run check:structure` OK (195 files); `npm run check:invariants`
+clean (0 fails, I1–I4); `npm run e2e` PASS (seal-open 39 s, `tmp/e2e/report.json`). `check:bundle` not run
+(worktree, R32). Local setup for the offline e2e inside THIS worktree only: `cp .env.example .env`
+(gitignored; the main checkout's `.env` untouched) and `go install github.com/drand/tlock/cmd/tle@v1.2.0`
+into the worktree's own `.benzo/bin` (module cache; `tools/bootstrap.sh`'s recipe).
+
+## Questions (B40)
+
+- **`witness set --key` is restricted to the local manifest key, like `auction sign`.** The record must
+  verify against the manifest's signer (`verifyRecord(doc.witness_set, doc.signer)`), so a record signed by
+  any other key would fail every later check. The command therefore refuses a `--key` that does not resolve
+  to `$BNZ_STATE_DIR/auction/manifest-signing.pem`, and generates that key when missing (exactly
+  `auction sign`'s behaviour). If the design's `[--key private.pem]` meant a real alternate key, say so —
+  the downstream checks would need to change first.
+- **`drand round` before quicknet genesis.** The design's formula gives R < 1 for t < genesis (undefined
+  territory); the command clamps to round 1 (the first round, releasing at genesis) and prints its
+  `release_utc`. Also (design silent): a `witness set` re-run with identical inputs is idempotent, while a
+  DIFFERENT record for the same auction is refused rather than overwritten.
+- **Fixture group key vs fixture vault ak (design wording).** "Fixture group keys (reuse what `e2e` or
+  `tools/bench.ts` already uses)" — the proof uses bench's `bytes("group")` recipe for the group key and
+  bench's deterministic keys for the manifest/witness keys. The fixture vault is scaffold only (created
+  offline; `auction keys` itself needs lightwalletd) and its Orchard ak is its own fixture key, so F4
+  (ak == group key) is not held in the fixture — nothing in this proof's CLI path checks it. If you want the
+  fixture coherent, the one-line alternative is to use the fixture's recorded `ak_hex` as `frost_group_key`.
+- **markPublic (R78b).** The CLI process holds no evidence redactor (`e2e/lib/redact.ts` is harness-side),
+  so "registration" lives wherever evidence is written: the proof calls `markPublic` on the escrow UA and
+  every printed `auction addresses` output, mirroring `e2e/lib/zcash.ts:42-48`. Any future harness capture
+  of `auction addresses` output must register the addresses the same way.
+- **`seller_ua` sourcing.** Design item 2 lists "Deposit, fee-reserve and seller addresses" under
+  `fresh(vault)`; the harness actually draws `seller_ua` from the bidder wallet while deposits and the fee
+  reserve come from the vault. Implemented as designed: the field table sources all three from
+  `auction addresses`, and product-mode settle accepts any shielded `seller_ua`, so a seller-controlled
+  address from elsewhere also works.
+- **File ownership (FYI).** The header says only Builder B writes this file; the head's B40 task message
+  asked Builder A for a block here — this one, clearly labelled. Fold or move it as you see fit.
+
+
 ## Current run (38): B38 — gate H closure table (phase6-h.md)
 
 **DONE, offline only** (no `.benzo/`, no OrbStack/`orb`, no testnet, no wallets, no live Playwright,
