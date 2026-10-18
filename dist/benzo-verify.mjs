@@ -18644,9 +18644,9 @@ function isAnyDepositParty(party) {
 }
 
 // envelope/opening.ts
+import { appendFileSync } from "node:fs";
 var import_tlock_js = __toESM(require_tlock_js(), 1);
 var import_age_reader_writer = __toESM(require_age_reader_writer(), 1);
-import { appendFileSync } from "node:fs";
 var BID_BYTES = 128;
 var PAYLOAD_BYTES = 16 + 128 + 16;
 function sealedBidShape(ciphertextHex, R2) {
@@ -18665,6 +18665,11 @@ function sealedBidShape(ciphertextHex, R2) {
   if (stanza.args[1] !== QUICKNET.chain_hash) return fail(`stanza chain is ${stanza.args[1]}, not ${QUICKNET.chain_hash}`);
   if (stanza.args[0] !== String(R2)) return fail(`stanza round is ${stanza.args[0]}, not ${R2}`);
   if (stanza.body.length !== BID_BYTES) return fail(`stanza body is ${stanza.body.length} bytes, not ${BID_BYTES}`);
+  try {
+    bls12_381.G2.ProjectivePoint.fromHex(stanza.body.subarray(0, 96));
+  } catch (e) {
+    return fail(`stanza body is not a valid G2 point: ${e.message}`);
+  }
   if (parsed.header.mac.length !== 32) return fail(`header mac is ${parsed.header.mac.length} bytes, not 32`);
   if (parsed.body.length !== PAYLOAD_BYTES) return fail(`payload is ${parsed.body.length} bytes, not ${PAYLOAD_BYTES}`);
   return { ok: true };
@@ -18689,15 +18694,22 @@ async function decryptPublished(ciphertextHex, client2) {
 }
 async function openSealedBid(ciphertextHex, client2) {
   if (process.env.BNZ_OPENINGS_TRACE) appendFileSync(process.env.BNZ_OPENINGS_TRACE, JSON.stringify({ pid: process.pid, at: Date.now() }) + "\n");
+  const beacon = await client2.latest().catch(() => null);
+  const round = beacon && Number.isSafeInteger(beacon.round) && beacon.round > 0 ? beacon.round : 0;
+  requireThat(round > 0, "opener: the beacon client serves no round");
+  if (!sealedBidShape(ciphertextHex, round).ok) return null;
   const text = Buffer.from(ciphertextHex, "hex").toString("binary");
-  const stanza = text.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
-  const round = stanza ? Number(stanza[1]) : 0;
-  if (stanza) await client2.get(round);
-  const shape = sealedBidShape(ciphertextHex, round);
-  if (!shape.ok) return null;
-  const plaintext = await decryptPublished(ciphertextHex, client2);
-  if (plaintext === null || plaintext.length !== BID_BYTES * 2) return null;
-  return plaintext;
+  const log = console.log;
+  console.log = () => {
+  };
+  try {
+    const plaintext = await (0, import_tlock_js.timelockDecrypt)(text, client2);
+    return plaintext.length === BID_BYTES ? plaintext.toString("hex") : null;
+  } catch {
+    return null;
+  } finally {
+    console.log = log;
+  }
 }
 
 // settle/envelopes.ts

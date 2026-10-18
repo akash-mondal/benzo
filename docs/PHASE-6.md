@@ -652,3 +652,19 @@ Live scale-55 at `6a5c45a`, with the hosts provisioned at `f703a28`: **RESULT PA
 | total settle compute, 4 batches | 1,949 s | 645 s, most of it mined-wait |
 
 Each figure is flat across batches 1–4. At N = 1,000, B43's offline profile still puts 63 s in the second batch (`classify-address` once per row of the whole auction), so per-batch cost is still O(N) and **H16 is P1 (scale)**: batch B45 (`docs/design/phase7-b45-classify.md`). The README's 17,000-bid limit stays until B45 lands.
+
+### R102 — B44 merged: the opener never throws on a leaf or memo; H14 closed again (head, 2026-10-19)
+
+B44 is on main (`0bd5130`, `6e2398b`, `90e6861`). `openSealedBid` now reads the round from the verified beacon client, never from the ciphertext. Any shape failure, wrong round included, and any tlock/age/IBE exception now return `null` (`undecryptable`). The only throw left is a client that serves no round, which no ciphertext can cause. Admission also requires the stanza's 96-byte U to be a valid compressed G2 point.
+
+The head re-ran the R100 probe on main:
+- the junk body is refused at admission and opens `null`;
+- the wrong-round memo opens `null`;
+- the honest bid opens.
+
+`npm run check` and e2e pass. The old dirs verify (19 OK each). The verify bundle is now `ac5d68e9…`. Rulings on B44's questions:
+1. Accepted: one shape rule in admission and the opener. Old evidence verifies, as the folds prove.
+2. Not needed: a point-at-infinity U passes admission and opens undecryptable, refunded like any invalid bid.
+3. Noted.
+
+**H14 is closed.** Reviewer R's P1-1 and P1-2 are fixed. Reviewer R round 2 runs on B44 with B45.
