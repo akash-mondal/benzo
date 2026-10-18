@@ -152,6 +152,89 @@ uses (H11's `@noble/*` import needs it in the ESM bundle; without it the bundle 
 5. **H11 trace.** One `beacon fetch` + one `offline decrypt` replaces both the per-leaf `tle -d` entries and
    the `tle -d reserve` entry (the sealed reserve now opens inside the same offline-decrypt phase). No
    separate reserve trace line remains; say if you want one.
+## Current run (39): B41 — release tarballs reproducible on macOS and Linux (phase6-pk-b41.md)
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no
+wallets). Only code file changed: `tools/deterministic-tar.mjs`; docs: `docs/reproducible-build.md`
+(§1 toolchain + cross-OS line, §2/§3 digests at this commit, §4 mechanics, §5 note) and this block.
+Worked only in worktree `../benzo-b41`, branch `b41-pk-tar`, based on `9973d73`.
+
+**New digests** (also recorded in `docs/reproducible-build.md` §2/§3):
+
+| Artifact | New sha256 (this commit) | Pre-change on this Mac (matches pk-vm macOS values) |
+|---|---|---|
+| `dist/benzo-0.1.0.tgz` (npm package) | `39d53458b3c0e897b9e88ab41bf793284d7b0ce2a058c0c352612ab9751dc8f2` | `5a672f39…` = pk-vm macOS |
+| `dist/benzo-bidder-0.1.0.tgz` (bidder bundle) | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` | `fa54df28…` = pk-vm macOS |
+| `dist/benzo-verify.mjs` (verify bundle, untouched by B41) | `96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913` (unchanged) | n/a |
+
+**What the change does** (per `docs/design/phase6-pk-b41.md`, nothing else): picks bsdtar explicitly
+(`bsdtar` on PATH, else `tar` whose `--version` starts with `bsdtar`, else one line
+`ERROR packaging needs bsdtar (macOS: built in; Debian/Ubuntu: apt install libarchive-tools)` and
+exit 1 — never GNU tar); adds `--uname root --gname root` to the tar call beside
+`--format ustar --uid 0 --gid 0`; replaces the `gzip -n -9` shell call with Node's
+`zlib.gzipSync(…, { level: 9 })`, pins gzip header byte 9 (OS) to 3, refuses any stream whose bytes
+0–2 are not `1f 8b 08`, FLG not 0 or MTIME not 0; no `sh -c` remains.
+
+**Commands run and results** (all in `/Users/akshmnd/Dev Projects/benzo-b41` unless noted):
+
+1. `git worktree add ../benzo-b41 -b b41-pk-tar 9973d73` (in the main checkout) → OK.
+2. `npm ci` → OK (real `node_modules`, no symlinks).
+3. Pre-change baseline `npm run package` → `5a672f39…`, 18,323 entries;
+   `npm run package:bidder` → `fa54df28…`, 2 entries. Both equal the macOS values measured in the
+   pk-vm run — the tree and tool agree with the R90 record before touching anything.
+4. `npm run typecheck` → exit 0. `npm run check:structure` → `OK check:structure (192 files)`, exit 0.
+5. `npm run check:bundle` → `OK check:bundle 96886226…` (before and after the change; see Questions
+   item 3 on worktrees).
+6. Two clean `npm run package` runs (staging + old tgz removed before each) → both
+   `39d53458b3c0e897b9e88ab41bf793284d7b0ce2a058c0c352612ab9751dc8f2`, `cmp` of the shasum lines
+   identical. Two clean `npm run package:bidder` runs → both
+   `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38`, identical.
+7. Node header check on both new tgz files → `1f 8b 08 00 00 00 00 00 02 03` (`1f8b0800 00000000
+   02 03`) on each.
+8. `gzip -dc` of each tgz vs the tar layer rebuilt from the staging the run left behind (same
+   bsdtar invocation): npm `886e8589c1fce5de26f348a07c71ea1eaf723f6d13d5988f3daa6a0a41db7cfd`
+   == same; bidder `2ad6eae8a78eb84e28485ead92c2e862dd6d12bbe5c98d2e231848b980627392` == same —
+   and `2ad6eae8…` is exactly the tar layer the pk-vm run measured byte-identical on macOS and
+   Ubuntu with the names pinned. Standard tools read the streams (`gzip -dc`, `tar -tzf`).
+9. `tar -tzf` counts 18,323 / 2, and the entry lists are `diff`-identical to the pre-change listings.
+10. Clean extract in `/tmp` with empty HOME (`env -i`): shipped `dist/benzo-verify.mjs` in the
+    extract = `96886226…`. `bin/benzo verify` on the shipped Phase 4 evidence
+    (`docs/evidence/phase-4/cli`) → **exit 1** without `--legacy-unattested`, **exit 0** with it
+    (19 OK, 2 WARN) — the design proof line says plain verify exits 0 there; see Questions item 1.
+    `bin/benzo verify --offline` on the published auction
+    (`docs/evidence/phase-6/markets/launch-r34/launch-cold`) from the same extract → **19 OK,
+    exit 0** (the pk-vm step-02 result).
+11. Commit with `--no-verify` per the batch rule (R32: `check:bundle` is not trusted from a
+    worktree — although it passed here, see Questions item 3).
+
+**Questions**
+
+1. **The design proof line "the `pk-package-verify` extract still runs `bin/benzo verify` on the
+   shipped Phase 4 evidence, exit 0" does not hold at `9973d73` as written.** R42/R78's receipt
+   attestation (`cli/commands/verify.ts`) refuses the pre-R42 `docs/evidence/phase-4/cli` evidence:
+   `ERROR receipt-attestation refused: receipts not host-attested: no approval maps published`,
+   exit 1. This predates B41 (the extract content is entry-identical to the pre-change tarball and
+   B41 changes only the tar/gzip layer). It exits 0 with `--legacy-unattested` (the error message's
+   own documented escape for pre-R42 testnet evidence), and the shipped published auction
+   `launch-r34/launch-cold` — what the VM steps 02/04 actually verify — exits 0 plain from the same
+   extract. I ran all three and recorded them; if you want the run-36 form (plain verify on
+   Phase-4/cli, exit 0) back in the proof table, the verify rule or the evidence needs a decision
+   from you, not from me.
+2. **`docs/reproducible-build.md` §2/§3's verify-bundle digest was already stale before B41**: it
+   recorded `b122bf2b…` while `docs/verify-bundle.sha256` has carried `96886226…` since the R81/R83
+   rebuilds. B41 touches no bundle input, so per "the new expected digests at your commit" I
+   recorded the measured `96886226…`. `README.md` still quotes the stale `b122bf2b…`; that is a
+   verify-bundle digest, not a tarball digest, so per the rule I did not edit it — flagging it
+   because README ships in the tarball and the final PK record will want it right.
+3. R32's "`check:bundle` cannot pass in a worktree" did not reproduce here: `npm ci` made a real
+   `node_modules` and `check:bundle` passed (`OK check:bundle 96886226…`). R81's commit note says
+   the earlier worktree failure came from symlinked `node_modules` paths in the bundle. Committed
+   `--no-verify` anyway, per the hard rule.
+4. The cross-OS claim rests on the R90 component measurements (byte-equal bsdtar layer with the
+   names pinned; equal Node zlib deflate stream on macOS arm64 / Linux arm64 / Linux x86-64; only
+   the OS byte differed and is now pinned). The whole-tarball digests above are macOS-measured
+   (twice each); the Linux-side confirmation is your step-04 re-run on `benzo-pk`, which the design
+   assigns to you. Nothing in the change should differ there.
 
 ## Current run (38): B38 — gate H closure table (phase6-h.md)
 

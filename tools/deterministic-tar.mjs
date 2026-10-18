@@ -1,11 +1,13 @@
 // Deterministic tar+gzip for the release artifacts (gate PK): ustar headers (no atime records), the
-// staged files listed in sorted order, fixed mtime and normalized modes, uid/gid 0, then gzip -n
-// (no name/timestamp in the gzip header). Two builds of identical content produce byte-identical
-// .tgz files, on this machine and on a fresh clone.
+// staged files listed in sorted order, fixed mtime and normalized modes, uid/gid 0 with the owner
+// names pinned to root, then Node's own gzip with a pinned header. Two builds of identical content
+// produce byte-identical .tgz files — here, on a fresh clone, and on Linux (arm64 and x86-64
+// measured on the gate PK clean VM, R90).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, lstatSync, lutimesSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { gzipSync } from "node:zlib";
 
 const MTIME = new Date("2026-01-01T00:00:00Z");
 
@@ -23,6 +25,27 @@ export function stageFiles(dir) {
   };
   walk(dir);
   return out.sort();
+}
+
+// Pick bsdtar (libarchive) explicitly and never GNU tar: the archive bytes must not depend on which
+// tar the machine happens to have, and GNU tar does not even accept --uid/--uname (it failed exactly
+// that way on the gate PK clean VM). macOS ships bsdtar as `tar`; Debian/Ubuntu ship GNU tar as `tar`
+// and put bsdtar on PATH after `apt install libarchive-tools`.
+function pickBsdtar() {
+  try {
+    execFileSync("bsdtar", ["--version"], { stdio: "ignore" });
+    return "bsdtar";
+  } catch {
+    // No bsdtar under that name; try `tar` below.
+  }
+  try {
+    const version = execFileSync("tar", ["--version"], { encoding: "utf8" });
+    if (version.startsWith("bsdtar")) return "tar";
+  } catch {
+    // No readable tar version output either; refuse below.
+  }
+  console.error("ERROR packaging needs bsdtar (macOS: built in; Debian/Ubuntu: apt install libarchive-tools)");
+  process.exit(1);
 }
 
 // tarGz(stageDir, outPath, opts?): opts.linkRoot — when a staged symlink points at an absolute path
@@ -50,10 +73,27 @@ export function tarGz(stageDir, outPath, opts = {}) {
   }
   const listFile = `${outPath}.list`, tarPath = `${outPath}.tar`;
   writeFileSync(listFile, files.map((f) => f.split(path.sep).join("/")).join("\n") + "\n");
-  execFileSync("tar", ["--format", "ustar", "--uid", "0", "--gid", "0", "-cf", tarPath, "-C", stageDir, "-T", listFile]);
-  execFileSync("sh", ["-c", 'gzip -n -9 -c "$1" > "$2"', "sh", tarPath, outPath]);
+  // The owner names are pinned alongside uid/gid 0: macOS bsdtar writes the group name `wheel` for
+  // gid 0 and Linux writes `root`, so one header field per entry differed across systems (measured
+  // on the gate PK clean VM, R90). With --uname root --gname root both write byte-identical tars.
+  execFileSync(pickBsdtar(), ["--format", "ustar", "--uid", "0", "--gid", "0", "--uname", "root", "--gname", "root", "-cf", tarPath, "-C", stageDir, "-T", listFile]);
+  // gzip in Node, not the system gzip command: Apple gzip and GNU gzip emit different deflate
+  // streams for the same tar, while Node's bundled zlib emits the same stream on macOS and Linux
+  // (arm64 and x86-64 measured, R90). Only zlib's header OS byte follows the build platform
+  // (19 on macOS, 3 on Linux), so it is pinned to 3 — Unix, what GNU `gzip -n` writes — or the
+  // digest would still depend on where the build ran.
+  const gz = gzipSync(readFileSync(tarPath), { level: 9 });
+  gz[9] = 3;
+  // Refuse anything but the pinned gzip header shape: magic 1f 8b, CM 08, FLG 0 (no name, comment
+  // or extra fields) and MTIME 0 (no build timestamp), or the stream would not be rebuildable.
+  const bad = gz[0] !== 0x1f || gz[1] !== 0x8b || gz[2] !== 0x08 || gz[3] !== 0
+    || gz[4] !== 0 || gz[5] !== 0 || gz[6] !== 0 || gz[7] !== 0;
+  if (bad) {
+    const hex = [...gz.slice(0, 10)].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+    throw new Error(`ERROR gzip header is not the pinned 1f 8b 08 00 00 00 00 00 shape: ${hex}`);
+  }
+  writeFileSync(outPath, gz);
   rmSync(tarPath);
   rmSync(listFile);
-  const bytes = readFileSync(outPath);
-  return { sha256: createHash("sha256").update(bytes).digest("hex"), bytes: bytes.length, files: files.length };
+  return { sha256: createHash("sha256").update(gz).digest("hex"), bytes: gz.length, files: files.length };
 }

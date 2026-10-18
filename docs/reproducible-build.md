@@ -14,12 +14,14 @@ but are not what these digests were produced with):
 |---|---|---|
 | Node.js | v24.15.0 | build machine (`.nvm`); no engines field |
 | npm | 12.0.2 | build machine |
-| tar | bsdtar 3.5.3 (libarchive 3.7.4) | macOS system tar |
-| gzip | Apple gzip 475 (`gzip -n -9`) | macOS system gzip |
+| tar | bsdtar (any libarchive 3.5+ tested: macOS 3.5.3, Ubuntu 3.7.2) | `tools/deterministic-tar.mjs` picks bsdtar explicitly and refuses GNU tar |
+| gzip | Node's bundled zlib (no system gzip) | the pinned Node.js above |
 | esbuild | 0.28.2 | `package.json` + `package-lock.json` |
 | typescript | 5.9.3 | `package.json` + `package-lock.json` |
 | Playwright (Chromium pin) | `@playwright/test` 1.63.0 → `chromium_headless_shell-1243` | `package-lock.json` + `npx playwright install` |
 | tlock-js | 0.9.0 | `package.json` + `package-lock.json` |
+
+The tarballs now rebuild the same on macOS and Linux (arm64 and x86-64 measured, R90).
 
 The full npm dependency tree is pinned exactly in `package-lock.json` (committed; `npm ci` refuses
 anything else). The three artifacts build from these packages only.
@@ -40,9 +42,9 @@ it is the toolchain the project's evidence runs against:
 
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
-| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce` (also in `docs/verify-bundle.sha256`) |
-| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a` |
-| `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6` |
+| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913` (also in `docs/verify-bundle.sha256`) |
+| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `39d53458b3c0e897b9e88ab41bf793284d7b0ce2a058c0c352612ab9751dc8f2` |
+| `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` |
 
 ## 3. The commands (fresh clone)
 
@@ -55,16 +57,16 @@ npm ci                            # exact tree from package-lock.json
 
 npm run build:verify              # rebuilds the shipped verify bundle + its digest
 shasum -a 256 dist/benzo-verify.mjs
-# b122bf2b3503ee319f5d638c32b968ffe2fd03bd08875b5dc4648cfcce1451ce  dist/benzo-verify.mjs
+# 96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913  dist/benzo-verify.mjs
 shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
-# 9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a  dist/benzo-0.1.0.tgz
+# 39d53458b3c0e897b9e88ab41bf793284d7b0ce2a058c0c352612ab9751dc8f2  dist/benzo-0.1.0.tgz
 
 npm run package:bidder            # build:seal, then the bidder tarball
 shasum -a 256 dist/benzo-bidder-0.1.0.tgz
-# fa54df28e87c507336897f88cf0f831d8df7599f48e54ebeada98dc77cae88f6  dist/benzo-bidder-0.1.0.tgz
+# f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38  dist/benzo-bidder-0.1.0.tgz
 ```
 
 `npm run check:bundle` (run inside `npm run package`) refuses to package a tree whose
@@ -86,8 +88,13 @@ Both `.tgz` artifacts go through `tools/deterministic-tar.mjs`:
   tree (npm's `node_modules/.bin` can carry absolute links — they embedded the builder's own
   directory in the tarball and dangled on every other machine; found by the fresh-clone run);
 - **modes normalized** to 0644, or 0755 when the file has any execute bit (so umask never leaks in);
-- **uid/gid 0** (`--uid 0 --gid 0`), so the builder's account cannot leak in;
-- **`gzip -n -9`**, so no filename or timestamp enters the gzip header.
+- **uid/gid 0 with the owner names pinned** (`--uid 0 --gid 0 --uname root --gname root`), so
+  neither the builder's account nor the platform's name for gid 0 (macOS `wheel`, Linux `root`) can
+  leak in;
+- Node's **`zlib.gzipSync` at level 9 with the header pinned** (OS byte 3): Apple gzip and GNU gzip
+  emit different deflate streams for the same tar, while Node's bundled zlib emits the same stream
+  on macOS and Linux (arm64 and x86-64 measured, R90), and FLG 0 / MTIME 0 keep any filename or
+  build time out of the gzip header.
 
 The verify bundle is esbuild output of pinned inputs with a pinned esbuild: byte-stable by
 construction (`npm run build:verify` twice from absent output produces the same digest — see the
@@ -162,5 +169,17 @@ run-28 record in `docs/STATUS-B.md`).
     record `9693395b…` at the tree that carries the fix. Nothing this batch commits afterwards
     touches a tarball input, so the expected values hold at the commit that records them and after.
   - `pk-rebuild.out` stays the run-34 record; `pk-rebuild-rg.out` supersedes it.
+- **B41 (run 39, 2026-10-18).** The two tarball digests move to the values above because the
+  packager changed; the only code change is `tools/deterministic-tar.mjs`. It now picks bsdtar
+  explicitly (`bsdtar` on PATH, else a `tar` that reports `bsdtar`, else a one-line refusal — never
+  GNU tar), pins the owner names in the tar call (`--uname root --gname root`; macOS wrote `wheel`
+  for gid 0 where Linux writes `root`, measured in `docs/evidence/phase-6/pk-vm/`), and gzip's in
+  Node (`zlib.gzipSync`, header OS byte pinned to 3) instead of the system gzip. The tar layers are
+  unchanged in content (the bidder layer is byte-equal to the `2ad6eae8…` layer the Ubuntu VM
+  measured), `tar -tzf` lists the same 18,323 / 2 entries, and the shipped verify bundle is
+  untouched. The verify-bundle row above also corrects a staleness this refresh found: it recorded
+  `b122bf2b…` although `docs/verify-bundle.sha256` has carried `96886226…` since the R81/R83
+  rebuilds. macOS digests are re-proven twice each at this commit; the matching Linux digests come
+  with the head's re-run of the VM step 04.
 - Cargo (`settle/`, `npm run build:settle`) is not part of the three artifacts; the Rust toolchain
   is whatever `cargo build --release --locked` accepts from `settle/Cargo.lock`.
