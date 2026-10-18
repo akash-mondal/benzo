@@ -1,14 +1,14 @@
 mutation P3 (docs/evidence/phase-6/rg/mutations/P3.patch) on project settle-crash
-commit 91f0f0fbd9de1b83361d8dd5695ffef19ce60c3a (patch applied on top, then reverted)
-utc 2026-10-16T14:52:58Z
+commit f07d036c0de39faa33de88aa6d0666ddc4d0e913 (patch applied on top, then reverted)
+utc 2026-10-18T02:15:57Z
 expected red: M1
 ERROR ids: M1 
 RESULT RED (expected)
 --- last 30 lines ---
-main deposits broadcast 17ee98ee63991c741485f82d6915ac7f45e8349eb9956048f7bd71b059002705
-cancel deposits broadcast 42f2ec202796f6f193011039108b09371cb12f527894784162e8579e710d83e2
+main deposits broadcast 11c253344fbc6a2a72aa9845d31b4332109b931739a6286f317d039f800d88e2
+cancel deposits broadcast e37669818977f743527b6cd1e0dbd61caec918f2bb61bc8a13132931e01bf823
 ERROR M1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
-development-only fund recovery c31a44328e65df6c8adea319c97987935fca6a0e0e21385d330ccc55eab5a9af
+development-only fund recovery 58a9d71b6bbedcd58bcf0ef253b81cf731d6bd5a9f1462dd76150119e5668e4c
 run.json -> tmp/e2e/out
-FAILED settle-crash settlement survives a worker crash and drand outage with one signer not selected (2407 s)
+FAILED settle-crash settlement survives a worker crash and drand outage with one signer not selected (1980 s)
 run failed; details in tmp/e2e/report.json
