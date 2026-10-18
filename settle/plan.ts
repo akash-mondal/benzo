@@ -110,8 +110,9 @@ try {
       writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
       checks.push({operation:"tlock open",ciphertext_hash:hash(Buffer.from(leaf.ciphertext_hex,"hex"))});
       appendFileSync(path.join(state,"run","settle-tle.jsonl"),JSON.stringify({auction_id:id,operation:"tlock open",time:Date.now()})+"\n");
-      // The one opener's contract: bad shape, either MAC failure or a non-128-byte plaintext is this leaf's
-      // fault (undecryptable); anything beacon-level throws and stops the plan.
+      // The one opener's contract (B44): bad shape (a wrong round included), any tlock/age/IBE failure or a
+      // non-128-byte plaintext is this leaf's fault (undecryptable); only an unusable beacon client throws
+      // and stops the plan.
       const decrypted=await openSealedBid(leaf.ciphertext_hex,await beacon());
       if(decrypted===null){opened.push({leaf_index:leaf.leaf_index,plaintext_hex:null,error:"undecryptable"});continue}
       writeFileSync(pt,Buffer.from(decrypted,"hex"),{mode:0o600});
@@ -215,9 +216,10 @@ try {
     const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
     writeFileSync(memoCt,Buffer.from(ct,"hex"),{mode:0o600});
     checks.push({operation:"tlock open",ciphertext_hash:hash(Buffer.from(ct,"hex"))});
-    // B43 (H14 item 2): the one opener over the one verified beacon; a memo that does not open (bad shape,
-    // MAC failure, or not a 128-byte plaintext) holds no owner key, and a beacon failure still throws instead
-    // of silently classifying the stray as ownerless. R7 item 6: a memo that does not open to this auction's
+    // B43 (H14 item 2): the one opener over the one verified beacon; a memo that does not open (bad shape —
+    // a wrong round included — any tlock/age/IBE failure, or not a 128-byte plaintext) holds no owner key
+    // (B44: the opener never throws on a memo), and only an unusable beacon client throws instead of
+    // silently classifying the stray as ownerless. R7 item 6: a memo that does not open to this auction's
     // 128-byte sealed-bid layout holds no owner key.
     const memoOpened=await openSealedBid(ct,await beacon());
     if(memoOpened===null)return null;

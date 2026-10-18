@@ -454,7 +454,8 @@ export async function runCommand(command:string,args:string[]) {
       if(!memo)return null;
       // B43 (H14 item 2): the memo's owner key comes from the one opener, offline from the one BLS-verified
       // beacon — no Go tle per claim. A memo that does not open to the 128-byte sealed-bid layout holds no
-      // owner key; a beacon-level failure still stops this call.
+      // owner key and the claim is refused with a normal ERROR line (B44: the opener never throws on a memo);
+      // only an unusable beacon client still stops this call.
       const ptHex=await openSealedBid(memo.ciphertext_hex,await claimBeacon());
       return ptHex?Buffer.from(ptHex,'hex').subarray(61,93).toString('hex'):null;
     };

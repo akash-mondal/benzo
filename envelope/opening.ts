@@ -4,23 +4,31 @@
 // ciphertext of a 128-byte bid; the layout is fixed):
 //   - the version line `age-encryption.org/v1`;
 //   - ONE stanza `tlock <R> <chain_hash>` whose body is 128 bytes (the pinned tlock-js readAge decodes the
-//     171 base64 characters into it; they sit on 3 lines of 64, 64 and 43 characters);
+//     171 base64 characters into it; they sit on 3 lines of 64, 64 and 43 characters) and whose first 96
+//     bytes decode as a valid compressed BLS12-381 G2 point (the IBE point U — a real sealer always writes
+//     one);
 //   - a 32-byte header MAC after the `--- ` marker (43 unpadded base64 characters);
 //   - a payload of exactly 16 + 128 + 16 = 160 bytes (age's STREAM construction: one 16-byte chunk tag,
 //     the 128-byte plaintext, the 16-byte final-chunk tag).
 // Anything else is not a sealed bid of this auction: `bid seal` and `bid deposit` refuse it at admission so
 // the bidder sees it, and a frozen leaf carrying it opens as `undecryptable` — one malformed bid can no
-// longer stop every other bidder's open (H14). The rule is called at ADMISSION ONLY: never inside
-// memoTlockCiphertext or anything else an old published directory's verify goes through.
+// longer stop every other bidder's open (H14). The rule runs at ADMISSION (the two call sites above) and as
+// the one opener's own shape gate below — never inside memoTlockCiphertext or any other intake parse. Old
+// published directories were sealed honestly, so their ciphertexts keep passing it (the phase-7 folds replay
+// them; B44's G2 check is proven on the dirs r73/r77/r78/r81/r82 replay).
 //
-// openSealedBid is the only path that turns a sealed bid into a plaintext. It returns the plaintext as hex,
-// or null when the bid itself is at fault — the shape rule fails, either authenticated-ciphertext MAC
-// failure (the decryptPublished contract below), or a plaintext that is not exactly 128 bytes (tlock-js
-// happily returns an EMPTY plaintext for a payload cut short, where Go tle reported a MAC failure). It
-// THROWS only for problems that are not the leaf's — an unverified beacon client or a ciphertext naming a
-// round other than the beacon's (the publishedClient contract) — so a broken beacon or packet stops the
-// caller instead of being blamed on a bid.
+// openSealedBid is the only path that turns a sealed bid into a plaintext. B44 (Reviewer R P1-1, P1-2): every
+// caller hands it a client built from THIS auction's verified beacon (publishedClient BLS-checks it at
+// construction, and that is where a bad beacon throws), so everything about the ciphertext is the
+// ciphertext's fault. It reads the beacon round from the CLIENT itself, never from the ciphertext; returns
+// the plaintext as hex, or null when the shape rule fails (a wrong round included), when ANY exception comes
+// out of the tlock/age/IBE layers (either MAC failure, `invalid G2 point`, `rP check failed`, parse errors),
+// or when the plaintext is not exactly 128 bytes (tlock-js happily returns an EMPTY plaintext for a payload
+// cut short, where Go tle reported a MAC failure). It THROWS only when the client itself is unusable — it
+// serves no beacon round — checked before the shape rule, so no ciphertext can cause it. One junk-body bid
+// or one wrong-round memo can no longer stop `open`, `verify`, the plan or every host's derivation.
 import { appendFileSync } from "node:fs";
+import { bls12_381 } from "@noble/curves/bls12-381";
 import { timelockDecrypt, type ChainClient } from "tlock-js";
 import { readAge } from "tlock-js/age/age-reader-writer.js";
 import { QUICKNET, requireThat } from "../manifest/schema";
@@ -52,20 +60,30 @@ export function sealedBidShape(ciphertextHex: string, R: number): SealedBidShape
   if (stanza.args[1] !== QUICKNET.chain_hash) return fail(`stanza chain is ${stanza.args[1]}, not ${QUICKNET.chain_hash}`);
   if (stanza.args[0] !== String(R)) return fail(`stanza round is ${stanza.args[0]}, not ${R}`);
   if (stanza.body.length !== BID_BYTES) return fail(`stanza body is ${stanza.body.length} bytes, not ${BID_BYTES}`);
+  // B44 (Reviewer R P1-1): a 128-byte body can still be junk. Its first 96 bytes are the IBE point U — a
+  // compressed BLS12-381 G2 point that any real sealer writes — so they must decode as one. A griefing body
+  // is refused HERE, at admission, where the bidder sees the reason, instead of reaching the frozen set and
+  // the IBE decoder (where it used to THROW `invalid G2 point` and stop the open for everyone). The other 32
+  // bytes (V, W) cannot be checked before R; a forgery there opens as `undecryptable` (the opener below).
+  try {
+    bls12_381.G2.ProjectivePoint.fromHex(stanza.body.subarray(0, 96));
+  } catch (e) {
+    return fail(`stanza body is not a valid G2 point: ${(e as Error).message}`);
+  }
   if (parsed.header.mac.length !== 32) return fail(`header mac is ${parsed.header.mac.length} bytes, not 32`);
   if (parsed.body.length !== PAYLOAD_BYTES) return fail(`payload is ${parsed.body.length} bytes, not ${PAYLOAD_BYTES}`);
   return { ok: true };
 }
 
-// The exact failure contract every caller maps (H11, docs/design/phase7-h10-h11.md item 3): a null return is an
-// AUTHENTICATED-CIPHERTEXT failure — the header MAC ("The MAC did not validate for the fileKey and payload!") or a
-// payload-chunk MAC ("Error during decryption!") — the only bad-bid cases; every other failure (a bad beacon, the
-// wrong round/chain, a structural parse error) THROWS and stops the caller. tlock-js 0.9.0 raises exactly those two
-// messages at exactly its two MAC checks (age-encrypt-decrypt.js header MAC; stream-cipher.js ChaCha20Poly1305.open),
-// so the split is exact, and an unknown failure message can only fail closed (it throws). This function moved here
-// from cli/published-beacon.ts with B43 so the one opener and the contract it maps live in one module; the raw
-// decrypt stays the sealed-reserve path (a reserve is not a sealed bid, so the shape and 128-byte rules do not
-// apply to it).
+// The exact failure contract the sealed-RESERVE path maps (H11, docs/design/phase7-h10-h11.md item 3): a null
+// return is an AUTHENTICATED-CIPHERTEXT failure — the header MAC ("The MAC did not validate for the fileKey and
+// payload!") or a payload-chunk MAC ("Error during decryption!") — and every other failure throws. tlock-js
+// 0.9.0 raises exactly those two messages at exactly its two MAC checks (age-encrypt-decrypt.js header MAC;
+// stream-cipher.js ChaCha20Poly1305.open), so the split is exact, and an unknown failure message can only fail
+// closed (it throws). This raw decrypt is the SEALED-RESERVE path only (a reserve is a sealed price bound, not
+// a sealed bid, so the shape and 128-byte rules do not apply to it); every sealed bid goes through
+// openSealedBid below. For the reserve a manifest's own `sealed_reserve` failing to open is an OPERATOR fault
+// (nobody but the operator can put one in the signed manifest), so it may still stop the open — deliberately.
 export async function decryptPublished(ciphertextHex: string, client: ChainClient): Promise<string | null> {
   const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
   // tlock-js 0.9.0 does not check the stanza chain hash; bind both stanza arguments here.
@@ -83,24 +101,35 @@ export async function decryptPublished(ciphertextHex: string, client: ChainClien
   } finally { console.log = log; }
 }
 
-// The one opener (item 2). See the module header for the exact null/throw contract. Every path that turns a
-// sealed bid into a plaintext calls this: auction `open`, verify's re-derivation, the hosts' deriveRows and
-// memo openings, authenticatedMemoEnvelope, the settlement plan, sign delivery and xchain. No product path
-// spawns Go `tle` any more.
+// The one opener (item 2). See the module header for the exact null/throw contract (B44: it never throws on a
+// leaf or a memo). Every path that turns a sealed bid into a plaintext calls this: auction `open`, verify's
+// re-derivation, the hosts' deriveRows and memo openings, authenticatedMemoEnvelope, the settlement plan, sign
+// delivery and xchain. No product path spawns Go `tle` any more.
 export async function openSealedBid(ciphertextHex: string, client: ChainClient): Promise<string | null> {
   // B43 (H13 proof hook): with BNZ_OPENINGS_TRACE set to a file path, every call to the one opener is recorded
   // there (one JSON line per call), so tools/repro/h13-host-scale.ts can count calls and prove the host cache
   // re-decrypts nothing on a second batch. Unset in every product run, this is inert.
   if (process.env.BNZ_OPENINGS_TRACE) appendFileSync(process.env.BNZ_OPENINGS_TRACE, JSON.stringify({ pid: process.pid, at: Date.now() }) + "\n");
+  // B44 rule 1: the beacon round comes from the CLIENT (the one round it serves), never from the ciphertext.
+  // Only this check can throw: a client that serves no beacon round is unusable, and no ciphertext can cause
+  // that. A ciphertext naming another round is the ciphertext's fault and falls to the shape rule below.
+  const beacon = await client.latest().catch(() => null);
+  const round = beacon && Number.isSafeInteger(beacon.round) && beacon.round > 0 ? beacon.round : 0;
+  requireThat(round > 0, "opener: the beacon client serves no round");
+  // B44 rule 2: the shape rule runs against the BEACON's round, so a wrong-round ciphertext is the leaf's (or
+  // the stray memo's) fault and returns null here instead of throwing out of client.get.
+  if (!sealedBidShape(ciphertextHex, round).ok) return null;
+  // B44 rule 3: every exception the tlock/age/IBE layers raise on THIS ciphertext (either MAC failure, an
+  // invalid G2 point, an rP check failure, a parse error) is the ciphertext's fault — null. The plaintext must
+  // still be exactly one 128-byte bid.
   const text = Buffer.from(ciphertextHex, "hex").toString("binary");
-  const stanza = text.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
-  // A ciphertext naming a round other than the beacon's is a beacon/packet disagreement, not a bad bid: the
-  // client refuses the round (the publishedClient contract) and the refusal stops the caller here.
-  const round = stanza ? Number(stanza[1]) : 0;
-  if (stanza) await client.get(round);
-  const shape = sealedBidShape(ciphertextHex, round);
-  if (!shape.ok) return null;
-  const plaintext = await decryptPublished(ciphertextHex, client);
-  if (plaintext === null || plaintext.length !== BID_BYTES * 2) return null;
-  return plaintext;
+  // Pinned tlock-js prints each public beacon. Keep CLI output bounded while awaiting its decrypt call.
+  const log = console.log;
+  console.log = () => {};
+  try {
+    const plaintext = await timelockDecrypt(text, client);
+    return plaintext.length === BID_BYTES ? plaintext.toString("hex") : null;
+  } catch {
+    return null;
+  } finally { console.log = log; }
 }

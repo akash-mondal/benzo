@@ -127,10 +127,11 @@ try {
       ledger.beacon={round:beacon.round,signature:beacon.signature,chain_hash:QUICKNET.chain_hash};
       // B43 H14 item 2: every opening derives OFFLINE from that one verified beacon through the one opener
       // (envelope/opening.ts openSealedBid) — no tle subprocess and no network per leaf. A reorged leaf stays
-      // {error:"reorg"}; every leaf whose fault it is (bad shape, either authenticated-ciphertext MAC
-      // failure, or a plaintext that is not exactly 128 bytes) is {error:"undecryptable"} — one malformed
-      // bid can no longer stop the open for every other bidder; a beacon-level error (the wrong round) still
-      // throws and stops the open — it is never a bad bid.
+      // {error:"reorg"}; every leaf whose fault it is (bad shape — a wrong round included — either
+      // authenticated-ciphertext MAC failure, a bad IBE body, or a plaintext that is not exactly 128 bytes)
+      // is {error:"undecryptable"} (B44: the opener never throws on a leaf) — one malformed bid can no longer
+      // stop the open for every other bidder; only an unusable beacon client (no round to serve) throws and
+      // stops the open — that is never a bid's fault.
       ledger.trace.push({operation:"offline decrypt",time:now});
       const local=publishedClient(ledger.beacon),opened:Opened[]=[];
       for(const l of ledger.leaves) {

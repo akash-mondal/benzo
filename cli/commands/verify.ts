@@ -77,9 +77,10 @@ export async function run(argv: string[]): Promise<number> {
     }
     const derived: Opened[] = [];
     for (const leaf of pub.frozen.leaves) {
-      // B43 (H14 item 2): re-derive through the one opener — a leaf whose fault it is (bad shape, MAC
-      // failure, non-128-byte plaintext) re-derives as `undecryptable`, exactly what `open` publishes, so a
-      // griefing ciphertext can never stop the verify; beacon-level errors still stop it.
+      // B43 (H14 item 2): re-derive through the one opener — a leaf whose fault it is (bad shape — a wrong
+      // round included — any tlock/age/IBE failure, non-128-byte plaintext) re-derives as `undecryptable`,
+      // exactly what `open` publishes, so a griefing ciphertext can never stop the verify (B44: the opener
+      // never throws on a leaf); only an unusable beacon client still stops it.
       // B43 (H13 item 5): a leaf the host's cache covers takes its cached opening instead of re-decrypting.
       const covered = cache && Object.hasOwn(cache, String(leaf.leaf_index)) ? cache[String(leaf.leaf_index)] : undefined;
       const plaintext = covered !== undefined ? covered : await openSealedBid(leaf.ciphertext_hex, local);
