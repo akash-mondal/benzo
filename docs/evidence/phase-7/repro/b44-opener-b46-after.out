@@ -1,20 +1,12 @@
-commit 8dad7709bafd0fc9a980a9b365fc721833baf1aa (working tree not clean at run time)
-utc 2026-10-18T21:34:54.581Z
+commit 5db821211e878c636e37b18572dd6c682cd4ab28 (working tree not clean at run time)
+utc 2026-10-18T22:43:05.391Z
 command node tmp/b44.mjs after (tools/repro/b44-opener.ts)
-tree M api/public-auction.ts
-tree  M cli/product.ts
+tree M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-7/repro/b44-opener-b46-after.out
+tree  M docs/evidence/phase-7/repro/b44-opener-b46-before.out
+tree  M docs/evidence/phase-7/repro/h10-seller-binding-b46.out
+tree  M docs/verify-bundle.sha256
 tree  M tools/repro/h-fixtures.ts
-tree  M tools/repro/h10-seller-binding.ts
-tree ?? docs/evidence/phase-7/repro/b44-opener-b46-after.out
-tree ?? docs/evidence/phase-7/repro/b44-opener-b46-before.out
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-after.out
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-before.out
-tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b46.out
-tree ?? docs/evidence/phase-7/repro/h13-host-scale-b46-after.out
-tree ?? docs/evidence/phase-7/repro/h13-host-scale-b46-before.out
-tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b46-after.out
-tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b46-before.out
-tree ?? tools/repro/b46-reserve-return.ts
 === the B44 probe on the fixed opener: nothing throws, the junk body is refused at admission
 OBSERVE probe-intact shape {"ok":true} open plaintext
 PASS green-probe-intact-opens the fixed opener still opens an honest bid
@@ -33,7 +25,7 @@ PASS green-admit-accepts-junk-vw the junk-V/W body is still admitted (documented
 === green open/verify/deriveRows on the frozen fixture: both bodies open as undecryptable
 PASS green-open-succeeds the open completed with 4 openings (exit 0)
 PASS green-open-classification-exact 2 intact leaves open by plaintext; the junk-body and junk-V/W leaves are {error:"undecryptable"}, nothing else
-PASS case-e-honest-byte-identical the honest openings are byte-identical to the base commit's (sha 82f119e70972ad5c…)
+PASS case-e-honest-byte-identical the honest openings are byte-identical to the base commit's (sha 9a724fdac1775508…)
 PASS green-verify-agrees OK no-destinations
 PASS green-derive-rows-completes exit 0, 3 derivable rows (its internal benzo verify gate passed, so the host's re-derivation agrees)
 PASS green-derive-rows-skip-griefs rows ["leaf:0","leaf:1","seller"] carry nothing for the two undecryptable leaves

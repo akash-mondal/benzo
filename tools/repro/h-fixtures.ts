@@ -296,10 +296,10 @@ if (cmd === "inspect") {
   // fixture notes unless the candidate file pins its own, for the grief probes), so the hosts can refuse a
   // return candidate that leaves notes behind.
   const unspent = fix.notes.filter(n => (n.spent_in_txid ?? null) == null && Number(n.value_zats) > 0);
-  const input = file.input_zats ?? unspent.reduce((s, n) => s + Number(n.value_zats), 0);
+  const input = Number(file.input_zats ?? unspent.reduce((s, n) => s + Number(n.value_zats), 0));
   const output = file.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
   console.log(JSON.stringify({ outputs: file.rows.map((r, i) => ({ index: i, pool: "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) })),
-    input_zats: input, output_zats: String(output), fee_zats: String(Number(input) - output),
+    input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: 100500, txid: crypto.createHash("sha256").update(fs.readFileSync(a[1])).digest("hex"), randomizers: [] }));
   process.exit(0);
 }

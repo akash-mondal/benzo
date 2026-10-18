@@ -1,16 +1,15 @@
-commit 8dad7709bafd0fc9a980a9b365fc721833baf1aa (working tree not clean at run time)
-utc 2026-10-18T21:25:35.166Z
+commit 5db821211e878c636e37b18572dd6c682cd4ab28 (working tree not clean at run time)
+utc 2026-10-18T22:43:32.415Z
 command node tmp/h14.mjs after (tools/repro/h14-open-griefing.ts)
-tree M api/public-auction.ts
-tree  M cli/product.ts
+tree M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-7/repro/b44-opener-b46-after.out
+tree  M docs/evidence/phase-7/repro/b44-opener-b46-before.out
+tree  M docs/evidence/phase-7/repro/h10-seller-binding-b46.out
+tree  M docs/evidence/phase-7/repro/h13-host-scale-b46-before.out
+tree  M docs/evidence/phase-7/repro/h14-open-griefing-b46-after.out
+tree  M docs/evidence/phase-7/repro/h14-open-griefing-b46-before.out
+tree  M docs/verify-bundle.sha256
 tree  M tools/repro/h-fixtures.ts
-tree  M tools/repro/h10-seller-binding.ts
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-after.out
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-before.out
-tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b46.out
-tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b46-after.out
-tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b46-before.out
-tree ?? tools/repro/b46-reserve-return.ts
 === green admission: `bid seal`'s self-check and the real admit command refuse both griefs
 PASS green-bid-seal-self-check-accepts-honest the self-check expression passes the honest sealer output
 PASS green-bid-seal-self-check-refuses-stanza-body the self-check refuses it: sealed bid structure: age parse: Expected mac, but there were no more lines left!
@@ -21,7 +20,7 @@ PASS green-admit-refuses-payload-cut refused at admission: ERROR auction sealed 
 === green open: both griefs open as undecryptable; the honest leaves are byte-identical
 PASS green-open-succeeds the open completed with 4 openings (exit 0)
 PASS green-open-classification-exact 2 intact leaves open by plaintext; the stanza-body and payload-cut leaves are {error:"undecryptable"}, nothing else
-PASS honest-leaves-byte-identical the honest openings are byte-identical to the base commit's (sha c8a65fafdb3fe82e…)
+PASS honest-leaves-byte-identical the honest openings are byte-identical to the base commit's (sha 023c22b8afd68f11…)
 PASS green-open-no-tle trace: beacon fetch, offline decrypt, open (no tle subprocess)
 === green open on the lone payload-cut leaf: the empty-plaintext quirk is closed
 PASS green-open-quirk-undecryptable the payload-cut leaf is now {"error":"undecryptable","leaf_index":0,"plaintext_hex":null}

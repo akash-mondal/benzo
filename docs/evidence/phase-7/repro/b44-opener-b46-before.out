@@ -1,19 +1,11 @@
-commit 8dad7709bafd0fc9a980a9b365fc721833baf1aa (working tree not clean at run time)
-utc 2026-10-18T21:34:34.181Z
+commit 5db821211e878c636e37b18572dd6c682cd4ab28 (working tree not clean at run time)
+utc 2026-10-18T22:42:43.411Z
 command node tmp/b44.mjs before (tools/repro/b44-opener.ts)
-tree M api/public-auction.ts
-tree  M cli/product.ts
+tree M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-7/repro/b44-opener-b46-before.out
+tree  M docs/evidence/phase-7/repro/h10-seller-binding-b46.out
+tree  M docs/verify-bundle.sha256
 tree  M tools/repro/h-fixtures.ts
-tree  M tools/repro/h10-seller-binding.ts
-tree ?? docs/evidence/phase-7/repro/b44-opener-b46-before.out
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-after.out
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-before.out
-tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b46.out
-tree ?? docs/evidence/phase-7/repro/h13-host-scale-b46-after.out
-tree ?? docs/evidence/phase-7/repro/h13-host-scale-b46-before.out
-tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b46-after.out
-tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b46-before.out
-tree ?? tools/repro/b46-reserve-return.ts
 === fixtures: real tlock to quicknet round 32704232 (2 intact leaves + the two B44 bodies; 2 strays)
 === the B44 probe on the BASE commit's opener (the head's r100 probe, both P1s)
 OBSERVE probe-intact shape {"ok":true} open plaintext

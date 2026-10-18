@@ -7920,6 +7920,7 @@ function checkBalanceAddresses(m2) {
 function validateManifest(m2) {
   requireThat(m2.witness_set_hash === void 0 || typeof m2.witness_set_hash === "string" && /^[0-9a-f]{64}$/.test(m2.witness_set_hash), "witness_set_hash");
   requireThat(m2.seller_ua_commitment === void 0 || typeof m2.seller_ua_commitment === "string" && /^[0-9a-f]{64}$/.test(m2.seller_ua_commitment), "seller_ua_commitment");
+  requireThat(m2.reserve_return_ua_commitment === void 0 || typeof m2.reserve_return_ua_commitment === "string" && /^[0-9a-f]{64}$/.test(m2.reserve_return_ua_commitment), "reserve_return_ua_commitment");
   requireThat(m2.envelope_keys === void 0 || Array.isArray(m2.envelope_keys) && m2.envelope_keys.length === 3 && m2.envelope_keys.every((k2) => typeof k2 === "string" && /^[0-9a-f]{64}$/.test(k2)) && new Set(m2.envelope_keys).size === 3, "envelope_keys");
   requireThat(m2.bond === void 0 || m2.bond && typeof m2.bond === "object" && !Array.isArray(m2.bond) && Object.keys(m2.bond).sort().join(",") === "balance_addresses,balance_window_blocks,balance_window_start_height,bond_bps" && Number.isSafeInteger(m2.bond.bond_bps) && m2.bond.bond_bps >= 1 && m2.bond.bond_bps <= 1e4 && Number.isSafeInteger(m2.bond.balance_window_blocks) && m2.bond.balance_window_blocks >= 40 && Number.isSafeInteger(m2.bond.balance_window_start_height) && m2.bond.balance_window_start_height >= 1, "bond");
   requireThat(m2.sealed_reserve === void 0 || typeof m2.sealed_reserve === "string" && /^[0-9a-f]+$/.test(m2.sealed_reserve) && m2.sealed_reserve.length % 2 === 0 && m2.sealed_reserve.length >= 96 && m2.sealed_reserve.length <= 4096, "sealed_reserve");
@@ -7942,6 +7943,7 @@ function validateManifest(m2) {
   delete base.series;
   delete base.serials;
   delete base.seller_ua_commitment;
+  delete base.reserve_return_ua_commitment;
   keys(base, ["version", "network", "auction_id", "escrow_ua", "frost_group_key", "supply", "reserve_zats", "tick_zats", "B_max_zats", "q_max", "C_zats", "fee_zats", "deposit_addresses", "drand", "T_submit", "T_freeze", "confirmations", "clearing", "refund", "freeze"].concat(m2.lots === void 0 ? ["lot"] : []).join(" "));
   requireThat(m2.version === 1 && m2.network === "test", "manifest version/network");
   requireThat(/^[0-9a-f]{64}$/.test(m2.auction_id) && /^[0-9a-f]{64}$/.test(m2.frost_group_key), "auction/group key");
@@ -18752,6 +18754,10 @@ var SETTLEMENT_TRUST = {
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
   balance_refunds: { trust: "host-attested", verifiedBy: ["balance-refs"] },
+  // B46 (H15, Revision R103): the reserve-return accounting is value-based — the published remaining value
+  // minus the ZIP-317 fee (above). Re-derived from the published amounts; the source notes themselves are
+  // never published (vault value is fungible — the hosts checked the spent total when approving).
+  reserve_return: { trust: "derived", verifiedBy: ["accounting-strays"] },
   delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
   approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
   batches: { trust: "informational", verifiedBy: [] },
@@ -19285,10 +19291,33 @@ function checkPublicAuction(pub, opts = {}) {
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
+    const rr2 = pub.settlement.reserve_return;
+    const rrReceipts = receipts.filter((r2) => r2.party === "reserve-return"), rrRows = rows.filter((r2) => r2.party === "reserve-return");
+    requireThat(rrReceipts.length <= 1, "duplicate reserve-return receipt");
+    if (rr2 === void 0) requireThat(rrReceipts.length === 0 && rrRows.length === 0, "a reserve-return row or receipt without the published reserve_return accounting");
+    else {
+      requireThat(rr2 && typeof rr2 === "object" && Object.keys(rr2).sort().join(",") === "fee_zats,remaining_zats" && /^[1-9][0-9]*$/.test(String(rr2.remaining_zats)) && /^[1-9][0-9]*$/.test(String(rr2.fee_zats)), "reserve_return accounting shape");
+      requireThat(BigInt(rr2.fee_zats) >= 10000n && BigInt(rr2.fee_zats) % 5000n === 0n, "reserve_return fee is not a ZIP-317 fee");
+      requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
+      requireThat(BigInt(rr2.remaining_zats) > BigInt(rr2.fee_zats), "the reserve_return remaining value does not cover the fee");
+      const amount = (BigInt(rr2.remaining_zats) - BigInt(rr2.fee_zats)).toString();
+      requireThat(
+        rrRows[0].amount_zats === amount && rrReceipts[0].amount_zats === amount,
+        "the reserve-return amount differs from the published remaining value minus the fee"
+      );
+      for (const row of rows) if (row.party !== "reserve-return" && (row.state === "exception" || !receipts.some((r2) => r2.party === row.party && r2.amount_zats === row.amount_zats)))
+        throw new Error(`the reserve-return receipt while row ${row.party} is still outstanding`);
+      for (const b2 of pub.settlement.balance_refunds ?? []) if (b2.state !== "paid" || !receipts.some((r2) => r2.party === b2.party && r2.amount_zats === b2.amount_zats))
+        throw new Error(`the reserve-return receipt while balance refund ${b2.party} is still outstanding`);
+    }
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result, pub.settlement) : /* @__PURE__ */ new Map();
     const stray = (party) => {
       if (party === "treasury") {
         requireThat(treasuryBlock(pub.manifest) !== null, "treasury row outside a mode with a treasury block");
+        return;
+      }
+      if (party === "reserve-return") {
+        requireThat(rr2 !== void 0, "a reserve-return row outside the published reserve_return accounting");
         return;
       }
       requireThat(isAnyDepositParty(party), `party ${party} is neither a result obligation nor a stray deposit`);

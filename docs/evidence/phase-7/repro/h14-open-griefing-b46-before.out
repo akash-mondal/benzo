@@ -1,15 +1,14 @@
-commit 8dad7709bafd0fc9a980a9b365fc721833baf1aa (working tree not clean at run time)
-utc 2026-10-18T21:25:27.086Z
+commit 5db821211e878c636e37b18572dd6c682cd4ab28 (working tree not clean at run time)
+utc 2026-10-18T22:43:24.762Z
 command node tmp/h14.mjs before (tools/repro/h14-open-griefing.ts)
-tree M api/public-auction.ts
-tree  M cli/product.ts
+tree M dist/benzo-verify.mjs
+tree  M docs/evidence/phase-7/repro/b44-opener-b46-after.out
+tree  M docs/evidence/phase-7/repro/b44-opener-b46-before.out
+tree  M docs/evidence/phase-7/repro/h10-seller-binding-b46.out
+tree  M docs/evidence/phase-7/repro/h13-host-scale-b46-before.out
+tree  M docs/evidence/phase-7/repro/h14-open-griefing-b46-before.out
+tree  M docs/verify-bundle.sha256
 tree  M tools/repro/h-fixtures.ts
-tree  M tools/repro/h10-seller-binding.ts
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-after.out
-tree ?? docs/evidence/phase-7/repro/b46-reserve-return-before.out
-tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b46.out
-tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b46-before.out
-tree ?? tools/repro/b46-reserve-return.ts
 === fixtures: real tlock to quicknet round 32704232 (2 intact leaves + the two H14 griefs)
 OBSERVE honest-layout {"version":"age-encryption.org/v1","stanza":"-> tlock 32704232 52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971","body_line_lengths":[64,64,43],"body_bytes":128,"mac_bytes":32,"payload_bytes":160,"total_bytes":487}
 PASS honest-layout-exact one 128-byte stanza body (3 base64 lines of 64/64/43 chars), 32-byte mac, 160-byte payload (16 + 128 + 16), 487-byte ciphertext
