@@ -93,12 +93,13 @@ export function publish(id:string) {
       agreed=pick!.defaults;agreedVoid=pick!.bond_void;
     }
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
-      // B46 (H15): the reserve-return accounting — counts and amounts only, never the destination (the signed
-      // manifest carries only its commitment). Published only when the settlement actually paid the row, so
-      // `benzo verify` accepts exactly one reserve-return receipt only together with this accounting.
+      // B46 (H15, Revision R103): the reserve-return accounting — the vault's whole unspent value the return
+      // swept and the ZIP-317 fee, amounts only, never the destination (the signed manifest carries only its
+      // commitment). Published only when the settlement actually paid the row, so `benzo verify` accepts
+      // exactly one reserve-return receipt only together with this accounting.
       ...(()=>{const rec=(read(path.join(sd,'receipts.json')) as any[]).find((r:any)=>r.party==='reserve-return');if(!rec)return {};
         const rr=s.plan?.reserve_return;requireThat(rr&&rr.amount_zats===rec.amount_zats,'a reserve-return receipt without its planned accounting; refusing to publish');
-        return {reserve_return:{sources:rr.sources.length,eligible_zats:rr.eligible_zats,fee_zats:rr.fee_zats}}})(),
+        return {reserve_return:{remaining_zats:rr.remaining_zats,fee_zats:rr.fee_zats}}})(),
       // Part 2, collection drop (bond-then-pay): the defaults list co-signed by the signer hosts — the list
       // carried by two agreeing maps (above), never a fresh derivation.
       ...(agreed!==undefined?{defaults:agreed}:{}),...(agreedVoid?{bond_void:true}:{}),

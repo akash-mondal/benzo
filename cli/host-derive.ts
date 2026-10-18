@@ -16,7 +16,7 @@ import { loadPublicAuction } from "../api/public-auction";
 import { openEnvelopeRefundUnchecked, verifyStatement } from "../envelope/index";
 import { classifyAddresses, useClassifyCache, type Classified } from "../envelope/destination";
 import { Destination, authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
-import { depositParty, isSlotCollision, refundable, reserveReturnSources, reserveSourceId, reserveReturnFee, strayNotes } from "../settle/deposits";
+import { depositParty, isSlotCollision, refundable, reserveReturnAmount, reserveReturnOutstanding, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, bondVoidAt, isRefundRowParty, type BalanceRefund } from "../clear/features";
 import { blockHeader, chainTip } from "./host-chain";
@@ -309,27 +309,32 @@ export function redactCandidate(st: string, full: string, out: string, info: { o
   execFileSync(path.join(st, "bin", "zcash-devtool"), ["pczt", "redact", ...keys, full, "--output", out], { stdio: ["ignore", "ignore", "pipe"] });
 }
 
-// B46 (H15, docs/design/phase7-b46-reserve-return.md): the final `reserve-return` row, derived and checked by
-// THIS signer from its own data only. The one function behind `sign build`, `sign approve` and `sign derivable`'s
-// reserve-return handling; the callers turn a non-null `refusal` into the typed refusal (exit 3, named rows).
+// B46 (H15, docs/design/phase7-b46-reserve-return.md, Revision R103): the final `reserve-return` row, derived
+// and checked by THIS signer from its own data only. The one function behind `sign build`, `sign approve` and
+// `sign derivable`'s reserve-return handling; the callers turn a non-null `refusal` into the typed refusal
+// (exit 3, named rows) and check the candidate's `input_zats` against the returned `row.remaining_zats`.
 //
-// The checks, in the design's order:
+// Vault value is FUNGIBLE — the wallet picks every batch's inputs, so an ordinary batch can spend a bidder's
+// stray note and return its value as internal change — so the return is never about WHICH notes it spends.
+// The checks, in the design's order (R103):
 //   1. the packet's `reserve_return_ua` hashes to the SIGNED manifest's reserve_return_ua_commitment (H10's
 //      shape for the return address); a legacy manifest (no commitment) plans no row and refuses any packet
 //      that carries one;
-//   2. every source the packet names is — by THIS host's own vault scan and its own `benzo-pczt owns` scope
-//      checks — a note at the config's fee_reserve_ua or at an internal (change) address of this vault
-//      (settle/deposits.ts reserveReturnSources: a deposit or balance note is NEVER a source), and the sources
-//      are exactly the eligible notes;
-//   3. every obligation row has a receipt in the packet's published dir (a row parked in the exception queue
-//      is never paid by this row);
-//   4. the row pays sum − fee to that UA, where sum is this host's own eligible total and fee the ZIP-317 fee
-//      of the one-row transaction (5,000 × max(2, sources)).
+//   2. the auction owes NOTHING — settle/deposits.ts reserveReturnOutstanding, the one shared gate: every
+//      owed row has a published receipt, no published row is unresolved (an exception row or a missing
+//      receipt), no published balance refund is unpaid. The owed set is this signer's own derivation, run
+//      WITHOUT requiring a destination (a row is owed whether or not anyone claimed it): the money rules'
+//      obligations over the published result plus every stray deposit note and late/excess balance note of
+//      its own scan. An unclaimed stray therefore delays the return indefinitely (the conservative choice);
+//   3. the row pays the vault's WHOLE unspent value minus the ZIP-317 fee (settle/deposits.ts
+//      reserveReturnAmount) to the committed `reserve_return_ua` — and the candidate must spend every
+//      unspent note, so its `input_zats` (benzo-pczt inspect) must equal `row.remaining_zats`, this signer's
+//      own scanned unspent total. That leaves no note behind.
 // The destination itself is never published — only the manifest commitment.
 export async function deriveReserveReturn(o: { id: string; name: string }, st: string, root: string, packet: string,
-  meta: { signer: string; reserve_return_ua?: unknown; fee_reserve_ua?: unknown },
-  declared?: { amount_zats?: unknown; sources?: unknown } | null): Promise<{
-    row: { party: "reserve-return"; kind: "payout"; amount_zats: string; sources: string[] } | null;
+  meta: { signer: string; reserve_return_ua?: unknown },
+  declared?: { amount_zats?: unknown } | null): Promise<{
+    row: { party: "reserve-return"; kind: "payout"; amount_zats: string; remaining_zats: string; fee_zats: string; ids: string[] } | null;
     binding: "bound" | "legacy" | "mismatch" | "absent";
     refusal: string | null;
   }> {
@@ -345,35 +350,43 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
   if (binding === "mismatch") return refuse("reserve return address does not match the manifest reserve_return_ua_commitment (H15)");
   if (binding === "absent") return { row: null, binding, refusal: null };
   if (binding === "legacy") return declared ? refuse("legacy manifest: no reserve_return_ua_commitment, the reserve-return row is never planned (H15)") : { row: null, binding, refusal: null };
-  // Check 2 first, so a packet naming a stray or balance note as a source is refused with that source named.
+  // Check 2 — the "nothing is owed" gate (R103), judged from this signer's own scan and derivation, run
+  // without requiring a destination, plus the packet's published accounting.
   const notes = await ownScan(st, root, o.id, m.network);
-  const scopes = new Map<string, string>();
-  const owns = (address: string): string => {
-    const hit = scopes.get(address); if (hit !== undefined) return hit;
-    let verdict = "none";
-    try { verdict = execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, o.id), address, "--network", m.network], { encoding: "utf8" }).trim(); } catch { verdict = "none"; }
-    scopes.set(address, verdict); return verdict;
-  };
-  const eligible = reserveReturnSources(notes, m, typeof meta.fee_reserve_ua === "string" ? meta.fee_reserve_ua : null, a => owns(a) === "internal");
-  const own = new Set(eligible.map(n => reserveSourceId(n)));
-  if (declared) {
-    const named: string[] = Array.isArray(declared.sources) ? (declared.sources as unknown[]).map(String) : [];
-    for (const s of named) if (!own.has(s)) return refuse(`reserve-return source ${s} is not an eligible note (a fee-reserve note or internal change only; a deposit or balance note is never a source)`);
-    if (named.length !== own.size || !named.every(s => own.has(s))) return refuse("the reserve-return sources are not exactly this signer's eligible notes");
+  const cancelled = !pub.result;
+  const allDeposits = notes.filter((n: any) => m.deposit_addresses.includes(n.address));
+  // The same strayNotes/refundable rules deriveRows uses — over ALL scanned deposit notes, spent or not: a
+  // note a prior batch swept into change is still an unpaid stray until its receipt exists (R103's case).
+  const strayOwed = refundable((cancelled ? allDeposits : strayNotes(allDeposits, m, pub.frozen)) as any).payable
+    .map((n: any) => ({ party: depositParty(n), amount_zats: String(n.value_zats) }));
+  // The money rules' own obligations (leaves, seller, balance rows) over this signer's own balance
+  // derivation — the same clear/features.ts rules deriveRows uses — and its own treasury return.
+  let extras: any = null;
+  if (m.bond && pub.result) {
+    const { start } = balanceWindow(m);
+    const bondStart = blockHeader(st, start, m.network), tip = chainTip(st);
+    const bondVoid = bondVoidAt(m, bondStart.time);
+    const settled = balanceSettlement(m, pub.result as any, pub.frozen!.leaves as any, notes as any, tip, bondVoid);
+    extras = { defaults: bondVoid ? [] : balanceDefaults(m, pub.result as any, pub.frozen!.leaves as any, notes as any, tip),
+      balance_refunds: settled.refunds, ...(bondVoid ? { bond_void: true } : {}) };
   }
-  // Check 3: every obligation row has a receipt in the published dir (the packet's copy of the published doc).
-  const rows: any[] = pub.settlement?.rows ?? [], receipts: any[] = pub.settlement?.receipts ?? [];
-  for (const r of rows) if (r.state !== "exception" && !receipts.some(x => x.party === r.party))
-    return refuse(`obligation row ${r.party} has no published receipt; the reserve-return row is refused`);
-  const owed = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub as any).settlement ?? null) : new Map<string, string>();
-  for (const [party] of owed) if (!receipts.some(x => x.party === party) && !rows.some(r => r.party === party && r.state === "exception"))
-    return refuse(`obligation ${party} has neither a published receipt nor an exception row; the reserve-return row is refused`);
-  // Check 4's amount: this host's own eligible total minus the ZIP-317 fee of the one-row transaction.
-  const sum = eligible.reduce((s, n) => s + BigInt(n.value_zats), 0n), fee = reserveReturnFee(eligible.length);
-  const row = sum > fee ? { party: "reserve-return" as const, kind: "payout" as const, amount_zats: (sum - fee).toString(), sources: [...own].sort() } : null;
+  const owedBy: Map<string, string> = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, extras) : new Map();
+  const owed = [...owedBy].map(([party, amount_zats]) => ({ party, amount_zats })).concat(strayOwed);
+  if (treasuryBlock(m)) {
+    const back = treasuryReturn(m, cancelled ? null : pub.result as any, treasuryFunded(m, notes, chainTip(st)));
+    if (back > 0n) owed.push({ party: "treasury", amount_zats: back.toString() });
+  }
+  const outstanding = reserveReturnOutstanding({ owed, rows: pub.settlement?.rows ?? [], receipts: pub.settlement?.receipts ?? [],
+    balance_refunds: pub.settlement?.balance_refunds ?? [] });
+  if (outstanding.length > 0) return refuse(`the auction still owes ${outstanding.length} outstanding (strays/balances/exceptions): ${outstanding.slice(0, 4).join(", ")}; the reserve-return row waits until nothing is owed`);
+  // Check 3 — the amount: the vault's whole unspent value minus the ZIP-317 fee. `remaining_zats` is this
+  // signer's own scanned unspent total; the caller refuses a candidate whose inspect `input_zats` differs.
+  const amount = reserveReturnAmount(notes as any);
+  const row = amount.amount_zats === null ? null : { party: "reserve-return" as const, kind: "payout" as const,
+    amount_zats: amount.amount_zats, remaining_zats: amount.total_zats, fee_zats: amount.fee_zats, ids: amount.ids };
   if (declared) {
-    if (!row) return refuse("the eligible sources do not cover the ZIP-317 fee of a one-row transaction");
-    if (String(declared.amount_zats) !== row.amount_zats) return refuse(`the reserve-return amount differs from this signer's eligible notes minus the fee (${row.amount_zats})`);
+    if (!row) return refuse("the vault's unspent value does not cover the ZIP-317 fee of a one-row transaction");
+    if (String(declared.amount_zats) !== row.amount_zats) return refuse(`the reserve-return amount differs from this signer's unspent value minus the fee (${row.amount_zats})`);
   }
   return { row, binding, refusal: null };
 }

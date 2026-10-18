@@ -63,6 +63,10 @@ export type Fixture = {
 export async function buildAuction(opts: {
   beacon: { round: number; signature: string; chain_hash: string };
   commitment?: string; reserve_commitment?: string; tamper?: Tamper[]; hideDeposit?: number; count?: number; fee_zats?: string;
+  // B46 (H15, R103): a bond-then-pay fixture variant — `bond` is the manifest's bond block and `c_zats` the
+  // collateral (validateManifest requires C = bond_bps x B_max / 10000 for a bond auction). Without them the
+  // fixture is the plain uniform auction every earlier repro builds.
+  c_zats?: string; bond?: { bond_bps: number; balance_window_start_height: number; balance_window_blocks: number; balance_addresses: string[] };
 }): Promise<Fixture> {
   const count = opts.count ?? 3, R = opts.beacon.round, release = QUICKNET.genesis + (R - 1) * QUICKNET.period;
   const auction_id = bytes("auction").toString("hex"), signer = createPublicKey(ed("manifest")).export({ type: "spki", format: "der" }).toString("hex");
@@ -72,7 +76,7 @@ export async function buildAuction(opts: {
   const envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
   const manifest: Manifest = {
     version: 1, network: "test", auction_id, escrow_ua: address, frost_group_key: groupKey, lot: "phase7 repro",
-    supply: count, reserve_zats: "1000", tick_zats: "1000", B_max_zats: "100000", q_max: 10, C_zats: "1000100", fee_zats: opts.fee_zats ?? "100",
+    supply: count, reserve_zats: "1000", tick_zats: "1000", B_max_zats: "100000", q_max: 10, C_zats: opts.c_zats ?? "1000100", fee_zats: opts.fee_zats ?? "100",
     deposit_addresses: [address], drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
     clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
     refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
@@ -81,6 +85,9 @@ export async function buildAuction(opts: {
     ...(opts.commitment !== undefined ? { seller_ua_commitment: opts.commitment } : {}),
     // B46 (H15): the reserve-return address commitment (reserve_return_ua_commitment), when the caller binds one.
     ...(opts.reserve_commitment !== undefined ? { reserve_return_ua_commitment: opts.reserve_commitment } : {}),
+    // B46 (H15, R103): the bond-then-pay variant's manifest block (R33 items 1-2: the window and the balance
+    // addresses are manifest-fixed before bidding).
+    ...(opts.bond !== undefined ? { bond: opts.bond } : {}),
   } as Manifest;
   const manifestPacket = signRecord(manifest, pem("manifest")), manifestHash = manifestPacket.sha256;
   const client = publishedClient(opts.beacon);
@@ -216,6 +223,14 @@ for (const n of JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "ut
   stub("grpcurl", `const a = process.argv.slice(2), method = a[a.length - 1].split("/").pop();
 if (method === "GetLatestBlock") { console.log(JSON.stringify({ height: 100000 })); process.exit(0); }
 if (method === "GetTransaction") { process.stderr.write("NotFound\\n"); process.exit(1); }
+if (method === "GetBlock") {
+  // B46 (R103): a block header for the bond window's start (cli/host-chain.ts blockHeader hashes the base64
+  // hash). One fixed header from every endpoint, with a time after any pinned quicknet round's release, so a
+  // fixture's bond window is never void.
+  const body = JSON.parse(a[a.indexOf("-d") + 1]);
+  console.log(JSON.stringify({ height: body.height, hash: Buffer.alloc(32, 17).toString("base64"), time: 1793600000 }));
+  process.exit(0);
+}
 if (method === "GetBlockRange") {
   const body = JSON.parse(a[a.indexOf("-d") + 1]);
   for (let h = body.start.height; h <= body.end.height; h++) console.log(JSON.stringify({ height: h, vtx: [] }));
@@ -274,7 +289,14 @@ if (cmd === "create") {
 }
 if (cmd === "inspect") {
   const file = JSON.parse(fs.readFileSync(a[1], "utf8"));
+  // B46 (H10..R103): inspect reports the candidate's input_zats (the wallet's spent total — the unspent
+  // fixture notes unless the candidate file pins its own, for the grief probes), so the hosts can refuse a
+  // return candidate that leaves notes behind.
+  const unspent = fix.notes.filter(n => (n.spent_in_txid ?? null) == null && Number(n.value_zats) > 0);
+  const input = file.input_zats ?? unspent.reduce((s, n) => s + Number(n.value_zats), 0);
+  const output = file.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
   console.log(JSON.stringify({ outputs: file.rows.map((r, i) => ({ index: i, pool: "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) })),
+    input_zats: input, output_zats: String(output), fee_zats: String(Number(input) - output),
     expiry_height: 100500, txid: crypto.createHash("sha256").update(fs.readFileSync(a[1])).digest("hex"), randomizers: [] }));
   process.exit(0);
 }

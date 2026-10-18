@@ -15,7 +15,7 @@ import { balanceExcessLeafIndex, bondVoidAt, isBalanceExcessParty, isBalanceLate
 import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
-import { isAnyDepositParty, isDepositParty, reserveReturnFee } from "../settle/deposits";
+import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
 import { checkCertificates, earliestAgreedBond, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -42,11 +42,11 @@ export type SettlementSummary = {
   // immutable row per note (party `balance-late:<txid>:<pool>:<action_index>`), published as counts only,
   // never addresses.
   balance_refunds?: import("../clear/features").BalanceRefund[];
-  // B46 (H15): the reserve-return accounting — counts and amounts only, never the destination (the signed
-  // manifest carries only its commitment): how many eligible notes were swept (the fee-reserve notes and this
-  // vault's internal change — never a deposit or balance note), their total, and the ZIP-317 fee of the
-  // one-row transaction. The single `reserve-return` receipt must equal eligible_zats − fee_zats.
-  reserve_return?: { sources: number; eligible_zats: string; fee_zats: string };
+  // B46 (H15, Revision R103): the reserve-return accounting — the vault's whole unspent value the return
+  // swept and the ZIP-317 fee of its one-row transaction, amounts only, never the destination (the signed
+  // manifest carries only its commitment). The single `reserve-return` receipt must equal
+  // remaining_zats − fee_zats, and verify accepts it only while nothing else is outstanding.
+  reserve_return?: { remaining_zats: string; fee_zats: string };
   delivery_defaults?: Signed[];
   // R33 item 3: the signer hosts' G-4 approval maps (each carrying the defaults list that host derived from its
   // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
@@ -76,9 +76,9 @@ export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } 
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
   balance_refunds: { trust: "host-attested", verifiedBy: ["balance-refs"] },
-  // B46 (H15): re-derived from the published counts — the amount must equal the eligible notes minus the fee,
-  // and the fee must be the ZIP-317 fee of the published source count (the hosts checked the sources against
-  // their own vault scans when they approved the row).
+  // B46 (H15, Revision R103): the reserve-return accounting is value-based — the published remaining value
+  // minus the ZIP-317 fee (above). Re-derived from the published amounts; the source notes themselves are
+  // never published (vault value is fungible — the hosts checked the spent total when approving).
   reserve_return: { trust: "derived", verifiedBy: ["accounting-strays"] },
   delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
   approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
@@ -828,30 +828,34 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    // B46 (H15): the reserve-return accounting — exactly one `reserve-return` receipt, only after every
-    // obligation row's receipt, and only for the published accounting's eligible notes minus the fee. The
-    // destination itself is never published, only the manifest commitment.
-    const rr = (pub.settlement as any).reserve_return as { sources: number; eligible_zats: string; fee_zats: string } | undefined;
-    // B46 (H15): the published reserve_return accounting and its one receipt, checked FIRST against each other —
-    // its amount must equal the eligible notes minus the fee by this published accounting (the source
-    // eligibility itself is what the signer hosts checked against their own vault scans when approving). A
-    // forged second receipt is refused here with its own error, before the generic row rules.
+    // B46 (H15, Revision R103): the reserve-return accounting — exactly one `reserve-return` receipt, accepted
+    // only when the published accounting shows NOTHING outstanding at that point (no unreceipted row, no
+    // published unpaid stray or balance, no open exception) and its amount equals the published remaining
+    // value minus the ZIP-317 fee. Vault value is fungible, so the accounting is value-based: the published
+    // remaining value is the vault's whole unspent value the return swept (the signer hosts checked the
+    // candidate's input_zats against their own scans when approving it). The destination itself is never
+    // published, only the manifest commitment.
+    const rr = (pub.settlement as any).reserve_return as { remaining_zats: string; fee_zats: string } | undefined;
+    // A forged second receipt is refused here with its own error, before the generic row rules.
     const rrReceipts = receipts.filter(r => r.party === "reserve-return"), rrRows = rows.filter(r => r.party === "reserve-return");
     requireThat(rrReceipts.length <= 1, "duplicate reserve-return receipt");
     if (rr === undefined) requireThat(rrReceipts.length === 0 && rrRows.length === 0, "a reserve-return row or receipt without the published reserve_return accounting");
     else {
-      requireThat(rr && typeof rr === "object" && Object.keys(rr).sort().join(",") === "eligible_zats,fee_zats,sources" &&
-        Number.isSafeInteger(rr.sources) && (rr.sources as number) >= 1 &&
-        /^[1-9][0-9]*$/.test(String(rr.eligible_zats)) && /^[1-9][0-9]*$/.test(String(rr.fee_zats)), "reserve_return accounting shape");
-      requireThat(BigInt(rr.fee_zats) === reserveReturnFee(rr.sources as number), "reserve_return fee differs from the ZIP-317 fee of its one-row transaction");
-      requireThat(BigInt(rr.eligible_zats) > BigInt(rr.fee_zats), "reserve_return eligible total does not cover the fee");
+      requireThat(rr && typeof rr === "object" && Object.keys(rr).sort().join(",") === "fee_zats,remaining_zats" &&
+        /^[1-9][0-9]*$/.test(String(rr.remaining_zats)) && /^[1-9][0-9]*$/.test(String(rr.fee_zats)), "reserve_return accounting shape");
+      requireThat(BigInt(rr.fee_zats) >= 10000n && BigInt(rr.fee_zats) % 5000n === 0n, "reserve_return fee is not a ZIP-317 fee");
       requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
-      const amount = (BigInt(rr.eligible_zats) - BigInt(rr.fee_zats)).toString();
+      requireThat(BigInt(rr.remaining_zats) > BigInt(rr.fee_zats), "the reserve_return remaining value does not cover the fee");
+      const amount = (BigInt(rr.remaining_zats) - BigInt(rr.fee_zats)).toString();
       requireThat(rrRows[0].amount_zats === amount && rrReceipts[0].amount_zats === amount,
-        "the reserve-return amount differs from the eligible notes minus the fee by the published accounting");
-      // "only after all obligation receipts": nothing payable is left un-receipted beside it.
-      for (const row of rows) if (row.party !== "reserve-return" && row.state !== "exception" && !receipts.some(r => r.party === row.party))
-        throw new Error(`the reserve-return receipt precedes obligation row ${row.party}'s receipt`);
+        "the reserve-return amount differs from the published remaining value minus the fee");
+      // "nothing outstanding at that point": no unreceipted row, no open exception (an exception row is a
+      // row money never moved for), no published unpaid stray or balance. The return is the LAST row —
+      // anything still owed beside it means the sweep happened while the auction owed something.
+      for (const row of rows) if (row.party !== "reserve-return" && (row.state === "exception" || !receipts.some(r => r.party === row.party && r.amount_zats === row.amount_zats)))
+        throw new Error(`the reserve-return receipt while row ${row.party} is still outstanding`);
+      for (const b of (pub.settlement as any).balance_refunds ?? []) if (b.state !== "paid" || !receipts.some(r => r.party === b.party && r.amount_zats === b.amount_zats))
+        throw new Error(`the reserve-return receipt while balance refund ${b.party} is still outstanding`);
     }
     // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
     // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no

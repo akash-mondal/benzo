@@ -79,39 +79,67 @@ export function strayNotes<T extends { txid: string; address: string }>(
      collide.has(`${n.txid}:${n.address}`)));
 }
 
-// B46 (H15, docs/design/phase7-b46-reserve-return.md): the ONE eligible-source rule for the reserve-return row,
-// shared by the signer plan (settle/plan.ts), every signer host (cli/host-derive.ts) and the evidence tools. The
-// per-auction vault can also hold funds that belong to bidders — stray deposits and late or excess balance notes
-// their owners may still claim (R42; there is no claim deadline) — so the return may spend ONLY:
-//   - the fee-reserve note(s): notes received at the operator config's fee_reserve_ua; and
-//   - internal change of this auction's own settlement transactions: notes at the vault's internal (change)
-//     addresses — `benzo-pczt owns` reports "internal", the same scope rule settle/src/main.rs uses to mark
-//     change (a host refuses change that is not an internal vault address).
-// A note at any manifest deposit address, bond balance address, escrow or buyback treasury address is NEVER a
-// source of the return — even when nobody has claimed it. A fee_reserve_ua configured as one of those addresses
-// therefore has NO eligible note at all: the safety rule wins and the reserve stays in the vault.
-export function reserveReturnSources<T extends { address: string; value_zats: number | string; spent_in_txid?: string | null }>(
-  notes: T[],
-  m: { deposit_addresses: string[]; escrow_ua: string; bond?: { balance_addresses?: string[] } | undefined; buyback?: { funding_ua?: string; treasury_ua?: string } | undefined; rfq?: { funding_ua?: string; treasury_ua?: string } | undefined },
-  feeReserveUa: string | null | undefined,
-  isInternal: (address: string) => boolean,
-): T[] {
-  // The absolute exclusion: anything a bidder or a treasury can own. This comes first, so a lying packet's
-  // fee_reserve_ua can never make a deposit or balance note eligible.
-  const never = new Set<string>([m.escrow_ua, ...m.deposit_addresses, ...(m.bond?.balance_addresses ?? [])]);
-  for (const block of [m.buyback, m.rfq]) for (const f of [block?.funding_ua, block?.treasury_ua]) if (typeof f === "string") never.add(f);
-  return notes.filter(n =>
-    n.spent_in_txid == null && BigInt(n.value_zats) > 0n &&
-    (isInternal(n.address) || (typeof feeReserveUa === "string" && feeReserveUa.length > 0 && n.address === feeReserveUa && !never.has(n.address))));
+// B46 (H15, docs/design/phase7-b46-reserve-return.md, Revision R103): the reserve-return row's AMOUNT is
+// value-based. Vault value is FUNGIBLE — the wallet picks every batch's inputs, so an ordinary batch can spend
+// a bidder's stray note and return its value as internal change — so checking WHICH notes the return spends
+// cannot protect anyone. Only the amount can: once the auction owes NOTHING (the gate below), the return pays
+// the vault's WHOLE unspent value minus the ZIP-317 fee, spending every unspent note (nothing is left behind).
+//
+// B46 R103: the ONE "nothing is owed" gate, shared by the signer plan (settle/plan.ts) and every signer host
+// (cli/host-derive.ts deriveReserveReturn). The return is planned or approved only when EVERY one of these
+// holds, judged from our own derivation plus the published accounting:
+//   - every owed row has a published receipt — the owed set is the money rules' own obligations (result
+//     rows, balance rows, treasury) PLUS every stray deposit note and late/excess balance note our own scan
+//     derives (strayNotes/refundable/balanceSettlement, run WITHOUT requiring a destination: a row is owed
+//     whether or not anyone has claimed it, and whether or not we could pay it today);
+//   - no published row is unresolved (an exception row, or a row without its receipt);
+//   - no published balance refund is unpaid (a `pending` entry);
+//   - no batch is pending (the plan's own ledger).
+// An unclaimed stray therefore delays the return indefinitely. That is the conservative choice (R103).
+// The returned list is the outstanding items, deduplicated by identity — its length is the waits line's N.
+export function reserveReturnOutstanding(input: {
+  owed: Iterable<{ party: string; amount_zats: string }>;
+  rows: Iterable<{ party: string; amount_zats: string; state?: string }>;
+  receipts: Iterable<{ party: string; amount_zats: string }>;
+  balance_refunds?: Iterable<{ party: string; amount_zats: string; state?: string }> | undefined;
+  pending_batches?: number | undefined;
+}): string[] {
+  const out = new Set<string>();
+  const receipts = [...input.receipts];
+  const receipted = (party: string, amount_zats: string): boolean => receipts.some(r => r.party === party && r.amount_zats === amount_zats);
+  // Owning a row is not enough: the row must be PAID at its amount by a published receipt. This is what
+  // catches an unclaimed stray or balance note hidden from the published rows — our own scan derived it.
+  for (const o of input.owed) if (!receipted(o.party, o.amount_zats)) out.add(o.party);
+  for (const r of input.rows) {
+    const settled = (r.state === "paid" || r.state === "refunded") && receipted(r.party, r.amount_zats);
+    if (!settled) out.add(r.party); // an exception row, or a row without its receipt: unresolved
+  }
+  for (const b of input.balance_refunds ?? []) if (b.state !== "paid" || !receipted(b.party, b.amount_zats)) out.add(b.party);
+  for (let i = 0; i < (input.pending_batches ?? 0); i++) out.add(`pending batch ${i + 1}`);
+  return [...out].sort();
 }
-// B46: the one note identity for a reserve source (the same `<txid>:<pool>:<action_index>` the ledger's refund
-// backing uses), so plan, hosts and packets all name a source note the same way.
+// B46 R103: the return's amount — the vault's WHOLE unspent value minus the ZIP-317 fee of the one-row
+// transaction that spends every unspent note (5,000 x max(2, notes), settle/src/main.rs's standard_fee rule).
+// `amount_zats` is null while the value does not cover the fee (the return is never worth planning then).
+// `ids` names the notes the transaction must spend — the host approval ledger's source identities, so a
+// second live candidate can never spend them again (Ruling R28 item 3).
+export function reserveReturnAmount<T extends { txid: string; pool: string; action_index: number; value_zats: number | string; spent_in_txid?: string | null }>(
+  notes: T[],
+): { total_zats: string; fee_zats: string; amount_zats: string | null; ids: string[] } {
+  const unspent = notes.filter(n => (n.spent_in_txid ?? null) == null && BigInt(n.value_zats) > 0n);
+  const total = unspent.reduce((s, n) => s + BigInt(n.value_zats), 0n);
+  const fee = reserveReturnFee(unspent.length);
+  return { total_zats: total.toString(), fee_zats: fee.toString(), amount_zats: total > fee ? (total - fee).toString() : null,
+    ids: unspent.map(n => reserveSourceId(n)).sort() };
+}
+// B46: the one note identity for a vault note (the same `<txid>:<pool>:<action_index>` the ledger's refund
+// backing uses), so plan, hosts, the approval ledger and packets all name a note the same way.
 export function reserveSourceId(note: { txid: string; pool: string; action_index: number }): string {
   return `${note.txid}:${note.pool}:${note.action_index}`;
 }
-// B46: the ZIP-317 fee of the one-row return transaction — it spends the k eligible notes and pays one output,
+// B46: the ZIP-317 fee of the one-row return transaction — it spends k notes and pays one output,
 // so it carries k shielded actions and pays 5,000 x max(2, actions) zats (settle/src/main.rs's standard_fee rule).
-// The row pays sum − fee; the row is only worth planning while sum > fee.
+// The row pays total − fee; the row is only worth planning while total > fee.
 export function reserveReturnFee(sourceCount: number): bigint {
   return 5000n * BigInt(Math.max(2, sourceCount));
 }

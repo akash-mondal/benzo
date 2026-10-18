@@ -35,10 +35,10 @@ export async function run(argv: string[]): Promise<number | object> {
     requireThat(Number.isInteger(meta.expiry_blocks) && meta.expiry_blocks >= 1 && meta.expiry_blocks <= 10000, "packet expiry_blocks");
     const rows: { party: string; kind: string; amount_zats: string; sources?: string[] }[] = JSON.parse(readFileSync(path.join(packet, "rows.json"), "utf8"));
     requireThat(Array.isArray(rows) && rows.length >= 1 && rows.length <= 28, "rows (1-28)"); // R30: a 28-output batch stays under 100 KB
-    // B46 (H15): the reserve-return row is checked by this signer from its own data (cli/host-derive.ts
-    // deriveReserveReturn) BEFORE the other derivations, so a packet naming a different return UA, a
-    // non-eligible source (a stray or balance note) or a return before all obligation receipts exist is
-    // refused typedly — exit 3, named rows — exactly like H10's seller row.
+    // B46 (H15, Revision R103): the reserve-return row is checked by this signer from its own data
+    // (cli/host-derive.ts deriveReserveReturn) BEFORE the other derivations, so a packet naming a different
+    // return UA, a return while the auction still owes something, or a wrong amount is refused typedly —
+    // exit 3, named rows — exactly like H10's seller row.
     const declaredReserve = rows.find(r => r.party === "reserve-return") ?? null;
     const reserve = declaredReserve || (meta as any).reserve_row
       ? await deriveReserveReturn({ id: o.id, name: o.name }, st, root, packet, meta, (meta as any).reserve_row ?? declaredReserve) : null;
@@ -57,12 +57,11 @@ export async function run(argv: string[]): Promise<number | object> {
     // command exits 3, so the coordinator can tell "these rows are underivable" from a transient failure (exit 1).
     const refusedRows: string[] = [];
     const payment = rows.map(r => {
-      // B46 (H15): the reserve-return row pays sum − fee to the committed return UA from exactly this signer's
-      // eligible notes (the check above); the row the packet names must equal what this signer derived.
+      // B46 (H15, R103): the reserve-return row pays the whole unspent value minus the fee to the committed
+      // return UA (the check above); the row the packet names must equal what this signer derived.
       if (r.party === "reserve-return") {
         const rr = reserve?.row;
-        const same = !!rr && r.amount_zats === rr.amount_zats && Array.isArray(r.sources) &&
-          JSON.stringify([...r.sources].map(String).sort()) === JSON.stringify(rr.sources);
+        const same = !!rr && r.amount_zats === rr.amount_zats;
         if (!same || typeof meta.reserve_return_ua !== "string") { refusedRows.push(r.party); return null; }
         return { party: r.party, recipient: meta.reserve_return_ua, amount_zats: rr!.amount_zats };
       }
@@ -85,6 +84,12 @@ export async function run(argv: string[]): Promise<number | object> {
     requireThat(prove.status === 0, `prove failed: ${(prove.stderr ?? "").trim().slice(-200)}`);
     // Map each row to its output index by inspecting the proven candidate here (the builder may shuffle actions).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", proven, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
+    // B46 (H15, R103): the built return candidate must spend EVERY unspent vault note — inspect's
+    // `input_zats` must equal this signer's own scanned unspent total (deriveReserveReturn's remaining_zats).
+    if (reserve?.row && String(info.input_zats) !== reserve.row.remaining_zats) {
+      process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["reserve-return"])}: the built candidate spends ${String(info.input_zats)} zats; this signer's scanned unspent total is ${reserve.row.remaining_zats}\n`);
+      return 3;
+    }
     const avail = (info.outputs ?? []).filter((x: any) => !x.is_change);
     const outputs = paymentRows.map(p => {
       const k = avail.findIndex((x: any) => x.recipient === p.recipient && String(x.amount_zats) === p.amount_zats);

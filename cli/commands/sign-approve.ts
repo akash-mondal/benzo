@@ -84,6 +84,11 @@ export async function run(argv: string[]): Promise<number | object> {
     if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
+    // B46 (H15, Revision R103): the return candidate must spend EVERY unspent vault note — its inspect
+    // `input_zats` must equal this signer's own scanned unspent total (deriveReserveReturn's remaining_zats).
+    // A candidate below it leaves notes behind and is refused typedly.
+    if ((meta as any).reserve_row && reserve?.row && String(info.input_zats) !== reserve.row.remaining_zats)
+      throw Object.assign(new Error(`the reserve-return candidate must spend every unspent vault note: inspect input_zats ${String(info.input_zats)} differs from this signer's scanned unspent total ${reserve.row.remaining_zats}`), { refusedRows: ["reserve-return"] });
     // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
     const recomputed = path.join(packet, "candidate.recomputed.pczt");
     redactCandidate(st, candidate, recomputed, info);
@@ -96,21 +101,27 @@ export async function run(argv: string[]): Promise<number | object> {
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
       if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(e.source); mapped.push({ party: e.party, output_index: out.index }); continue; }
-      // B46 (H15): the reserve-return output pays sum − fee to the committed return UA (checked above) and its
-      // sources are this signer's own eligible notes, so a second live candidate cannot spend them again.
+      // B46 (H15): the reserve-return output pays the whole unspent value minus the fee to the committed
+      // return UA (checked above), and its spent notes join this host's approval ledger (Ruling R28 item 3),
+      // so a second live candidate can never spend them again.
       if (reserve?.row && typeof meta.reserve_return_ua === "string" && out.recipient === meta.reserve_return_ua && String(out.amount_zats) === reserve.row.amount_zats && !reserveSeen) {
-        reserveSeen = true; sources.push(...reserve.row.sources); mapped.push({ party: "reserve-return", output_index: out.index }); continue;
+        reserveSeen = true; sources.push(...reserve.row.ids); mapped.push({ party: "reserve-return", output_index: out.index }); continue;
       }
       // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing), which H10 binds
       // to the signed manifest (checked above); paid at most once by the ledger.
       // Part 2 (bond-then-pay): the balance notes backing that payout are sources too, so no second live candidate can
       // spend them again.
       if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller", ...balanceSources); mapped.push({ party: "seller", output_index: out.index }); continue; }
+      // B46 (H15, R103): a return candidate's every output must be the one return row — an output at any
+      // other amount (not the scanned total minus the fee) is a typed refusal, never a silent mismatch.
+      if ((meta as any).reserve_row)
+        throw Object.assign(new Error(`the reserve-return candidate's output ${out.index} (${String(out.amount_zats)} zats) is not this signer's unspent total minus the fee (${reserve?.row?.amount_zats ?? "not derivable"}) paid to the committed return UA`), { refusedRows: ["reserve-return"] });
       throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
     }
-    // B46 (H15): a reserve-return candidate pays exactly one output — the committed return UA for sum − fee.
+    // B46 (H15): a reserve-return candidate pays exactly one output — the committed return UA for the whole
+    // unspent value minus the fee.
     if ((meta as any).reserve_row && !(reserveSeen && outputs.length === 1))
-      throw Object.assign(new Error("the reserve-return candidate must pay exactly one output: the committed return UA for sum − fee"), { refusedRows: ["reserve-return"] });
+      throw Object.assign(new Error("the reserve-return candidate must pay exactly one output: the committed return UA for the unspent value minus the fee"), { refusedRows: ["reserve-return"] });
     // Ruling R28 item 3 (F2): this host's own approval ledger. A source (deposit note, seller, treasury) already in
     // another approved candidate is approved again only when this host sees from the chain that the earlier
     // transaction never mined and can no longer mine (past its expiry) — the legitimate expired-batch re-plan.

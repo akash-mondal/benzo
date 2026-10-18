@@ -14,7 +14,7 @@ import {openSealedBid} from "../envelope/opening";
 import {decryptPublished,publishedClient,fetchVerifiedBeacon} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
 import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
-import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnSources,reserveSourceId,reserveReturnFee} from "./deposits";
+import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnAmount,reserveReturnOutstanding} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -23,7 +23,7 @@ import {modeEntry,clientCommon as client} from "../clear/registry"; // design §
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
-import { vaultDir, scanBin, pcztBin, ufvkFile } from "../manifest/paths";
+import { vaultDir, scanBin } from "../manifest/paths";
 import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
 const root=repoRoot();
 for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
@@ -365,28 +365,36 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  // B46 (H15, docs/design/phase7-b46-reserve-return.md): the one final `reserve-return` row — planned as the
-  // last batch, alone, and ONLY when (1) the manifest commits the return address (a legacy manifest plans no
-  // row and says so with one line), (2) every obligation row of this plan has a published receipt, (3) no batch
-  // is pending, and (4) the eligible sources (settle/deposits.ts reserveReturnSources — the fee-reserve notes
-  // and this vault's internal change ONLY; a deposit or balance note is never a source) sum to more than the
-  // ZIP-317 fee of this one-row transaction. The row pays sum − fee; its sources are exactly the eligible notes.
-  let reserve_return:{party:string;kind:"payout";amount_zats:string;sources:string[];eligible_zats:string;fee_zats:string}|null=null;
+  // B46 (H15, docs/design/phase7-b46-reserve-return.md, Revision R103): the one final `reserve-return` row —
+  // planned as the last batch, alone, and ONLY when the auction owes NOTHING (settle/deposits.ts
+  // reserveReturnOutstanding — the one shared gate, judged from this signer's own derivation plus the published
+  // accounting). Vault value is FUNGIBLE (the wallet picks every batch's inputs), so the row's amount is
+  // value-based: it pays the vault's WHOLE unspent value minus the ZIP-317 fee of the one-row transaction that
+  // spends every unspent note (settle/deposits.ts reserveReturnAmount). A legacy manifest plans no row and says
+  // so with one line; while anything is owed, one waits line names the outstanding count — an unclaimed stray
+  // delays the return indefinitely (the conservative choice, disclosed in docs/guide-operator.md).
+  let reserve_return:{party:string;kind:"payout";amount_zats:string;remaining_zats:string;fee_zats:string}|null=null;
   const receipts:{party:string;amount_zats:string}[]=(published?.settlement?.receipts??[]) as any;
-  const allReceipted=obligations.every(o=>receipts.some(r=>r.party===o.party&&r.amount_zats===o.amount_zats));
+  // The owed set, from our own derivation, run WITHOUT requiring a destination (R103): every row this plan
+  // owes or parks is owed whether or not anyone claimed it, and every stray deposit note of our own scan is
+  // owed the same way — spent or not, since a note a batch swept into change is still an unpaid stray until
+  // its receipt exists (the fungibility case R103 was written for). The same strayNotes/refundable rules
+  // deriveRows uses; a zero-value note is never owed (refundable).
+  const allDepositNotes=notes.filter((n:any)=>m.deposit_addresses.includes(n.address));
+  const cancelledPlan=["CANCELLED","REFUNDING"].includes(src.state);
+  const strayOwed=refundable((cancelledPlan?allDepositNotes:strayNotes(allDepositNotes,m,src.frozen)) as any).payable
+    .map((n:any)=>({party:depositParty(n),amount_zats:String(n.value_zats)}));
+  const owed=[...obligations,...exceptions].map(r=>({party:r.party,amount_zats:r.amount_zats})).concat(strayOwed);
+  const outstanding=reserveReturnOutstanding({owed,rows:(published?.settlement?.rows??[]) as any,receipts,
+    balance_refunds:(published?.settlement?.balance_refunds??[]) as any,pending_batches:pendingBatches});
   if(m.reserve_return_ua_commitment===undefined) {
-    if(allReceipted&&pendingBatches===0)process.stderr.write("WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment\n");
-  } else if(allReceipted&&pendingBatches===0)try {
-    // The internal/external scope of each vault address comes from this coordinator's own `benzo-pczt owns` —
-    // the same rule the hosts apply to their own vaults. A missing UFVK or tool refuses the row, never the plan.
-    const scope=new Map<string,string>();
-    const owns=(address:string):string=>{const hit=scope.get(address);if(hit!==undefined)return hit;
-      let verdict="none";try{verdict=execute(pcztBin(root,state),["owns",ufvkFile(state,id),address,"--network",m.network]).trim()}catch{verdict="none"}
-      scope.set(address,verdict);return verdict};
-    const eligible=reserveReturnSources(notes as any,m as any,productConfig?.routing?.fee_reserve_ua??null,a=>owns(a)==="internal");
-    const sum=eligible.reduce((s,n)=>s+BigInt((n as any).value_zats),0n),fee=reserveReturnFee(eligible.length);
-    if(sum>fee)reserve_return={party:"reserve-return",kind:"payout",amount_zats:(sum-fee).toString(),
-      sources:eligible.map(n=>reserveSourceId(n as any)).sort(),eligible_zats:sum.toString(),fee_zats:fee.toString()};
+    process.stderr.write("WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment\n");
+  } else if(outstanding.length>0) {
+    process.stderr.write(`reserve return waits: ${outstanding.length} outstanding (strays/balances/exceptions)\n`);
+  } else try {
+    const amount=reserveReturnAmount(notes as any);
+    if(amount.amount_zats!==null)reserve_return={party:"reserve-return",kind:"payout",amount_zats:amount.amount_zats,
+      remaining_zats:amount.total_zats,fee_zats:amount.fee_zats};
   } catch(e) {process.stderr.write(`WARN reserve-return not planned: ${(e as Error).message}\n`)}
   process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(reserve_return?{reserve_return}:{}),...(m.bond!==undefined?{defaults,balance_refunds,...(bondVoid?{bond_void:true}:{})}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}
