@@ -30,6 +30,9 @@ export const pem = (tag: string) => ed(tag).export({ type: "pkcs8", format: "pem
 // B46 (H15): the fixture's witness private halves (the same `bytes("witness:i")` keys the witness set pins),
 // so a repro can sign envelope-opens reports and approval maps the fixture's checks accept.
 export const witnessPrivate = (tag: string) => bytes("witness:" + tag).toString("hex");
+// B46 (H15, R103): the fixture's owner private halves (the same `bytes("owner:i")` keys the bids' plaintexts
+// pin as their one-time owner keys), so a repro can sign owner claim bodies the published openings verify.
+export const ownerPrivate = (tag: string) => bytes("owner:" + tag).toString("hex");
 const rawPublic = (tag: string) => createPublicKey(ed(tag)).export({ type: "spki", format: "der" }).toString("hex").slice(24);
 
 // Freshly fetched authentic beacon for a fixed past quicknet round — never a recorded response (the tools/bench.ts rule).

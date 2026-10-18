@@ -40,9 +40,12 @@ import { depositParty, reserveReturnAmount, reserveReturnFee, reserveReturnOutst
 import { balanceLateParty } from "../../clear/features";
 import { modeEntry } from "../../clear/registry";
 import { Ledger } from "../../settle/ledger";
+import { ownerPublic, sealBlob, sealEnvelope, settlementCommitment, signStatement } from "../../envelope";
 import { signApprovalMap, signOpensReport } from "../../witness";
-import { sealBlob } from "../../envelope";
-import { buildAuction, fetchBeacon, needRealPczt, witnessPrivate, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, type Fixture } from "./h-fixtures";
+import { publishedClient } from "../../cli/published-beacon";
+import { timelockEncrypt } from "tlock-js";
+import { decodeArmor } from "tlock-js/age/armor.js";
+import { buildAuction, fetchBeacon, needRealPczt, ownerPrivate, witnessPrivate, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, type Fixture } from "./h-fixtures";
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 const part = process.argv[2];
@@ -91,6 +94,20 @@ const STRAY_VALUE = "500000", LATE_VALUE = "499999";
 const REMAINING = "55000", RESERVE_FEE = "10000", RESERVE_AMOUNT = "45000";
 const strayParty = () => depositParty({ txid: STRAY_TXID, pool: "ironwood", action_index: 0 });
 const lateParty = () => balanceLateParty({ txid: LATE_TXID, pool: "ironwood", action_index: 0 });
+// R13: a claim-paid row carries a published, owner-signed claim — checkable against the opening its owner key
+// lives in. The stray's claim publishes its own sealed-bid memo (a real tlock ciphertext to the pinned round,
+// its memo hash attested by the two agreeing maps of the paying batch — R42's per-row attestation); the late
+// row's claim signs with the deposit slot's own leaf owner key. Both bodies are what `benzo claim-refund`
+// records and `benzo verify` re-checks.
+const claimBody = (party: string, envelopeCt: string) => ({ kind: "claim-refund", auction_id: bound.id, party, claim_envelope_sha256: hash(Buffer.from(envelopeCt, "hex")) });
+const strayOwner = (privateHex: string) => ({ private_hex: privateHex, public_hex: ownerPublic(privateHex) });
+let STRAY_CLAIM: any = null, LATE_CLAIM: any = null, STRAY_MEMO = "";
+const claimsFor = (settlement: any) => [STRAY_CLAIM, LATE_CLAIM].filter(c => c && (settlement.rows ?? []).some((r: any) => r.party === c.party && r.state === "paid"));
+const claimFor = (party: string, owner: { private_hex: string; public_hex: string }, memoHex?: string) => {
+  const envelopeCt = sealEnvelope(UA_ORCHARD, bound.envelopeKeys.map(k => k.public_hex), "test");
+  const body = claimBody(party, envelopeCt);
+  return { party, claim_envelope_sha256: body.claim_envelope_sha256, owner_sig: signStatement(owner, body), ...(memoHex ? { memo_hex: memoHex } : {}) };
+};
 // The scan notes. The bid deposit is spent by the obligations batch (recorded in the plan's ledger); the
 // stray and late notes are unspent (case 1) or spent by their refund batches (case 2) or — the R103
 // fungibility case — the stray's note was swept into change by a prior batch while its row is still unpaid.
@@ -114,11 +131,11 @@ const settlementFor = (fx: Fixture, opts: { strayPaid?: boolean; latePaid?: bool
   const rows: any[] = obs.map((o, i) => ({ party: o.party, kind: o.party === "seller" ? "payout" : "refund", amount_zats: o.amount_zats, state: "paid", batch: 1, txid: TX_OBLIG, output_index: i, pool: "ironwood" }));
   const receipts: any[] = obs.map((o, i) => ({ auction_id: fx.id, party: o.party, txid: TX_OBLIG, pool: "ironwood", output_index: i, amount_zats: o.amount_zats }));
   const maps: any[] = [0, 1].map(w => signApprovalMap({ auction_id: fx.id, batch: 1, txid: TX_OBLIG, outputs: obs.map((o, i) => ({ party: o.party, output_index: i })), defaults: [], balance_refunds: [] }, witnessPrivate(String(w))));
-  const pair = (batch: number, txid: string, outputs: any[], balance_refunds: any[]) =>
-    maps.push(...[0, 1].map(w => signApprovalMap({ auction_id: fx.id, batch, txid, outputs, defaults: [], balance_refunds }, witnessPrivate(String(w)))));
+  const pair = (batch: number, txid: string, outputs: any[], balance_refunds: any[], strays?: any[]) =>
+    maps.push(...[0, 1].map(w => signApprovalMap({ auction_id: fx.id, batch, txid, outputs, defaults: [], balance_refunds, ...(strays ? { strays } : {}) }, witnessPrivate(String(w)))));
   if (!opts.hideStrayRow) {
     rows.push({ party: strayParty(), kind: "refund", amount_zats: STRAY_VALUE, state: opts.strayPaid ? "paid" : "exception", ...(opts.strayPaid ? { batch: 2, txid: TX_REFUND_S, output_index: 0 } : {}), pool: "ironwood" });
-    if (opts.strayPaid) { receipts.push({ auction_id: fx.id, party: strayParty(), txid: TX_REFUND_S, pool: "ironwood", output_index: 0, amount_zats: STRAY_VALUE }); pair(2, TX_REFUND_S, [{ party: strayParty(), output_index: 0 }], []); }
+    if (opts.strayPaid) { receipts.push({ auction_id: fx.id, party: strayParty(), txid: TX_REFUND_S, pool: "ironwood", output_index: 0, amount_zats: STRAY_VALUE }); pair(2, TX_REFUND_S, [{ party: strayParty(), output_index: 0 }], [], [{ party: strayParty(), memo_sha256: hash(Buffer.from(STRAY_MEMO, "hex")) }]); }
   }
   const balances: any[] = [];
   if (opts.latePaid) {
@@ -148,7 +165,11 @@ const writeSettledDir = (dir: string, fx: Fixture, settlement: any) => {
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
   writeFileSync(path.join(dir, "auction.json"), jsonBytes({ version: 1, auction_id: fx.id, signer: fx.signer, manifest: fx.manifestPacket, state: "SETTLED",
     receipts: fx.receipts, frozen: fx.frozen, result: fx.result, opened: fx.opened, beacon: fx.beacon,
-    witness_set: fx.witnessSet, witness_cert: fx.witnessCert, envelopes: fx.envelopes, settlement }));
+    witness_set: fx.witnessSet, witness_cert: fx.witnessCert, envelopes: fx.envelopes,
+    // R13: every claim-paid row carries its published claim (only the paid ones publish — the publisher
+    // never publishes a pending row's claim).
+    ...(() => { const claims = claimsFor(settlement); return claims.length ? { claims } : {}; })(),
+    settlement }));
   writeFileSync(path.join(dir, "manifest.json"), jsonBytes(fx.manifestPacket));
 };
 
@@ -227,6 +248,26 @@ const createdRows = (state: string) => existsSync(path.join(state, "create-log.j
 const beacon = await fetchBeacon(R);
 const bound: Fixture = await buildAuction({ beacon, count: 1, fee_zats: "0", c_zats: "10000", bond: BOND, commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
 const legacy: Fixture = await buildAuction({ beacon, count: 1, fee_zats: "0", c_zats: "10000", bond: BOND });
+// The no-bond variant `auction create` consumes (a draft carrying balance addresses is refused — create
+// generates them), for the commitment/create/mainnet rule cases only.
+const plain: Fixture = await buildAuction({ beacon, count: 1, fee_zats: "0" });
+// The stray deposit's own sealed-bid memo (a REAL tlock ciphertext to the pinned round) and the two owner-
+// signed claims the refund batches were paid from (see claimFor above).
+{
+  const owner = strayOwner(createHash("sha256").update("b46-stray-depositor").digest("hex"));
+  const envelopeCt = sealEnvelope(UA_ORCHARD, bound.envelopeKeys.map(k => k.public_hex), "test");
+  const nonce = createHash("sha256").update("b46-stray-nonce").digest().subarray(0, 16).toString("hex");
+  const pt = Buffer.alloc(128);
+  Buffer.from(bound.id, "hex").copy(pt, 1); pt.writeBigUInt64BE(4000n, 33); pt.writeUInt32BE(1, 41);
+  Buffer.from(nonce, "hex").copy(pt, 45); Buffer.from(owner.public_hex, "hex").copy(pt, 61);
+  Buffer.from(settlementCommitment(nonce, envelopeCt), "hex").copy(pt, 93);
+  const armored = await timelockEncrypt(R, pt, publishedClient(beacon));
+  const ct = Buffer.from(decodeArmor(armored), "binary");
+  const memo = Buffer.alloc(512); Buffer.from("ff424e5a01", "hex").copy(memo); memo.writeUInt16BE(ct.length, 5); ct.copy(memo, 7);
+  STRAY_MEMO = memo.toString("hex");
+  STRAY_CLAIM = claimFor(strayParty(), owner, STRAY_MEMO);
+  LATE_CLAIM = claimFor(lateParty(), strayOwner(ownerPrivate("0")));
+}
 
 if (part === "before") {
   console.log("=== red on the BASE commit: the unused fee reserve is stranded (no command returns it)");
@@ -474,17 +515,17 @@ if (part === "before") {
   };
   const draftOf = (state: string) => JSON.parse(readFileSync(path.join(state, "product", `${bound.id}.draft.json`), "utf8")).manifest;
   const unbound = (m: any) => { const x = { ...m }; delete x.reserve_return_ua_commitment; return x; };
-  const mainnet = (withCommitment: boolean) => ({ ...(withCommitment ? bound.manifest : unbound(bound.manifest)), network: "main",
+  const mainnet = (withCommitment: boolean) => ({ ...(withCommitment ? { ...plain.manifest, seller_ua_commitment: sellerUaCommitment(UA_ORCHARD), reserve_return_ua_commitment: reserveReturnUaCommitment(UA_ORCHARD) } : plain.manifest), network: "main",
     escrow_ua: "u1fixtureescrow000000000000000000000000000000000000000000000000000000",
     deposit_addresses: ["u1fixturedeposit00000000000000000000000000000000000000000000000000000"] });
   {
-    const { state, r } = createRun("routing", unbound(bound.manifest), { settlement: {}, routing: { seller_ua: UA_ORCHARD, reserve_return_ua: UA_ORCHARD } });
+    const { state, r } = createRun("routing", unbound(plain.manifest), { settlement: {}, routing: { seller_ua: UA_ORCHARD, reserve_return_ua: UA_ORCHARD } });
     const committed = r.code === 0 ? draftOf(state).reserve_return_ua_commitment : null;
     check("create-sets-commitment-from-routing", r.code === 0 && committed === reserveReturnUaCommitment(UA_ORCHARD),
       `${r.code === 0 ? "set" : "did not set"} reserve_return_ua_commitment ${committed ?? "(none)"} (${(r.err || r.out).trim().split("\n").at(-1)?.slice(0, 100)})`);
   }
   {
-    const { r } = createRun("sapling", unbound(bound.manifest), { settlement: {}, routing: { seller_ua: UA_ORCHARD, reserve_return_ua: UA_SAPLING_ONLY } });
+    const { r } = createRun("sapling", unbound(plain.manifest), { settlement: {}, routing: { seller_ua: UA_ORCHARD, reserve_return_ua: UA_SAPLING_ONLY } });
     check("create-refuses-sapling-only-reserve-return-ua", r.code !== 0 && /Orchard\/Ironwood receiver \(H4\)/.test(r.err),
       `refused a Sapling-only reserve_return_ua (H4): ${(r.err || r.out).trim().split("\n").at(-1)}`);
   }
