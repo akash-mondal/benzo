@@ -118,7 +118,7 @@ try {
 check("witness-set-validated", roundTrip === "", roundTrip || "record round-trips through verifyRecord + validateWitnessSet");
 console.log(`witness set file ${path.relative(ROOT, ws.file)}`);
 
-// ---- 2. auction addresses (the manifest's deposit/fee/seller addresses) -----
+// ---- 2. auction addresses (the manifest's deposit and fee-reserve addresses) -----
 const out = benzo(["auction", "addresses", "--id", auctionId, "--count", "4"]);
 const addresses: string[] = out.addresses;
 for (const a of addresses) markPublic(a);
@@ -168,6 +168,8 @@ const roundTripPacket: any = verifyRecord(signed, signed.signer);
 check("auction-sign", signed.signer === manifestSigner && roundTripPacket.auction_id === auctionId, `signer ${signed.signer.slice(0, 16)}…`);
 const config = JSON.parse(readFileSync(path.join(ROOT, "docs/examples/private-operator.json"), "utf8"));
 config.routing.bidders = manifest.deposit_addresses.map((deposit_ua: string) => ({ deposit_ua }));
+// Offline stand-in only: a live seller_ua is the seller's own wallet address, never a vault address
+// (docs/guide-operator.md step 1.2). Publish accepts any unified address on the network.
 config.routing.seller_ua = addresses[3];
 config.routing.fee_reserve_ua = addresses[2];
 // `auction publish` refuses a config outside BNZ_STATE_DIR (private routing), so the filled config

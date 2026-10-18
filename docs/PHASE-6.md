@@ -526,3 +526,13 @@ Reviewer R (`benzo-sol/reports/pr-sc-r85.md`): **APPROVE**. It confirmed the chu
 ### R90 — Gate PK: the clean-machine run is a fresh VM (head, 2026-10-18)
 
 User, 2026-10-18, verbatim: "you can do it on a virtual clean machine if you want to or you can even use aws cli that i have run it all and then shut down everything clean". The head used a local OrbStack VM (`benzo-pk`), not AWS (no cloud resources). The run is `docs/evidence/phase-6/pk-vm/` at `9d09093`, and replaces the "stranger's run" OPEN item. The install, the offline `benzo verify`, the tamper refusals and the bidder seal all **PASS** on that machine. The verify bundle rebuilds byte-identical on Linux. The two tarballs reproduce only on macOS: GNU tar lacks `--uid`, macOS writes gid name `wheel`, and Apple gzip ≠ GNU gzip. Batch B41 (`docs/design/phase6-pk-b41.md`) fixes that. PK is recorded after B39 and B41 merge, by re-running steps 02–04 on the VM.
+
+### R91 — Gate DOC: B40 merged; seller address is the seller's own wallet (head, 2026-10-18)
+
+B40 (`ae7219d`, `bbeaf19`, `a02de11`) adds `benzo witness set`, `auction addresses` and `drand round`, the two templates, and a rewritten operator guide step 1. Its proof passes again on main. The head reviewed the code and accepts B40's choices on questions 1–4:
+1. `--key` must resolve to the manifest-signing key.
+2. `drand round` clamps a pre-genesis time to round 1. `witness set` refuses to replace a different record.
+3. The fixture group key is fine for an offline proof.
+4. Addresses are registered as public by the capture, not the CLI.
+
+**Question 5 found a head design error.** `phase6-doc-b40.md` said the seller address is a fresh vault address. The harness uses an external wallet (`markets.ts:262`, `sellerUa = bidder()`), which is correct: a vault address would leave the proceeds inside the auction vault. The guide step 1.2, `private-operator.json` and the proof's comment now say the seller UA is the seller's own shielded wallet address. B39 (H10) will commit it in the manifest. Next for DOC: the live walkthrough of the operator, signer and bidder guides on testnet.

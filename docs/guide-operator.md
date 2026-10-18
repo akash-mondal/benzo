@@ -20,16 +20,19 @@ only. Private key material stays under `$BNZ_STATE_DIR`; never print it.
       It refuses disagreeing, reused or global group keys and prints `{group_key, escrow_ua}`.
 
    2. **The public addresses.** Deposit slot 0 is the escrow UA from the previous step; every other
-      deposit slot, the fee-reserve deposit address and the seller destination is a fresh address of
-      the same vault. These are public deposit/escrow addresses — the signed manifest publishes
-      them:
+      deposit slot and the fee-reserve deposit address is a fresh address of the same vault. These
+      are public deposit/escrow addresses — the signed manifest publishes them:
 
       ```text
       $ benzo auction addresses --id AUCTION_ID --count N
       ```
 
       Output: `{auction_id, addresses}` — N fresh shielded addresses. Count what you still need:
-      one per deposit slot beyond slot 0, plus the fee reserve and the seller address.
+      one per deposit slot beyond slot 0, plus the fee reserve.
+
+      The **seller address is not a vault address.** It is the seller's own shielded unified
+      address, from the seller's wallet: the sale proceeds leave the vault to it. A vault address
+      here would leave the proceeds inside the auction vault.
 
    3. **From the signers:** the three `envelope_keys` (each signer runs `benzo sign envelope-key
       --name SIGNER`, which prints its public half) and the three witness keys (each signer runs

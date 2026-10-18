@@ -10,7 +10,7 @@
       { "deposit_ua": "<DEPOSIT_UA_1: the manifest's deposit_addresses[1]>" },
       { "deposit_ua": "<DEPOSIT_UA_2: the manifest's deposit_addresses[2]>" }
     ],
-    "seller_ua": "<SELLER_UA: where sale proceeds go; auction addresses>",
+    "seller_ua": "<SELLER_UA: the seller's own shielded unified address, from the seller's wallet (not a vault address)>",
     "fee_reserve_ua": "<FEE_RESERVE_UA: the fee-reserve deposit address; auction addresses>"
   }
 }
