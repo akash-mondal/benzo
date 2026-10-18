@@ -7,6 +7,7 @@
 import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { bls12_381 } from "@noble/curves/bls12-381";
 import { timelockEncrypt } from "tlock-js";
 import { decodeArmor } from "tlock-js/age/armor.js";
 import { QUICKNET, hash, jsonBytes, signRecord, type Manifest, type Signed } from "../../manifest/schema";
@@ -37,7 +38,7 @@ export async function fetchBeacon(round: number): Promise<{ round: number; signa
   return { round: beacon.round, signature: beacon.signature, chain_hash: QUICKNET.chain_hash };
 }
 
-export type Tamper = { index: number; kind: "body" | "mac" | "stanza-body" | "payload-cut" };
+export type Tamper = { index: number; kind: "body" | "mac" | "stanza-body" | "payload-cut" | "junk-body" | "junk-vw" };
 export type Fixture = {
   id: string; signer: string; manifestPem: string; manifest: Manifest; manifestPacket: Signed; manifestHash: string;
   envelopeKeys: { public_hex: string; private_hex: string }[];
@@ -52,11 +53,13 @@ export type Fixture = {
 // legacy pre-H10 variant); `tamper` corrupts one ciphertext AFTER sealing (body = payload-chunk MAC failure,
 // mac = header MAC failure — the two authenticated-ciphertext classes tlock-js and Go tle both classify as
 // undecryptable; stanza-body and payload-cut are the two H14 griefing probes — a malformed stanza body and a
-// payload cut to 3 bytes, both of which pass the pre-H14 header rule); `hideDeposit` drops one deposit from the
-// scan notes (the reorg case).
+// payload cut to 3 bytes, both of which pass the pre-H14 header rule; junk-body and junk-vw are the two B44
+// griefing probes (Reviewer R P1-1) — a 128-byte stanza body of junk and a valid compressed G2 point followed
+// by 32 junk bytes, both of which pass the B43 length-only shape rule and used to THROW in the opener);
+// `hideDeposit` drops one deposit from the scan notes (the reorg case).
 export async function buildAuction(opts: {
   beacon: { round: number; signature: string; chain_hash: string };
-  commitment?: string; tamper?: Tamper[]; hideDeposit?: number; count?: number;
+  commitment?: string; tamper?: Tamper[]; hideDeposit?: number; count?: number; fee_zats?: string;
 }): Promise<Fixture> {
   const count = opts.count ?? 3, R = opts.beacon.round, release = QUICKNET.genesis + (R - 1) * QUICKNET.period;
   const auction_id = bytes("auction").toString("hex"), signer = createPublicKey(ed("manifest")).export({ type: "spki", format: "der" }).toString("hex");
@@ -66,7 +69,7 @@ export async function buildAuction(opts: {
   const envelopeKeys = [generateEnvelopeKey(), generateEnvelopeKey(), generateEnvelopeKey()];
   const manifest: Manifest = {
     version: 1, network: "test", auction_id, escrow_ua: address, frost_group_key: groupKey, lot: "phase7 repro",
-    supply: count, reserve_zats: "1000", tick_zats: "1000", B_max_zats: "100000", q_max: 10, C_zats: "1000100", fee_zats: "100",
+    supply: count, reserve_zats: "1000", tick_zats: "1000", B_max_zats: "100000", q_max: 10, C_zats: "1000100", fee_zats: opts.fee_zats ?? "100",
     deposit_addresses: [address], drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
     clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
     refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
@@ -95,9 +98,18 @@ export async function buildAuction(opts: {
       // must parse the header and then fail its MAC check (a parse-breaking byte is a different error class).
       // stanza-body: replace the stanza body's first line with "!!!!" (the H14 probe) — the header rule still
       // passes, but the age parse breaks at the MAC line. payload-cut: cut the payload to 3 bytes (the H14
-      // probe) — the header rule still passes and tlock-js returns an EMPTY plaintext for it.
+      // probe) — the header rule still passes and tlock-js returns an EMPTY plaintext for it. junk-body: the
+      // whole 128-byte stanza body becomes 128 bytes of 0x5a (the B44 P1-1 probe). junk-vw: the body becomes
+      // the compressed G2 generator (96 bytes, a valid point) followed by 32 bytes of junk (the B44 P1-1
+      // probe's second variant) — only the first 96 bytes can be checked before R.
       if (tamper.kind === "body") { ct = Buffer.from(ct); ct[ct.length - 1] ^= 1; }
-      else if (tamper.kind === "stanza-body") {
+      else if (tamper.kind === "junk-body" || tamper.kind === "junk-vw") {
+        const body = tamper.kind === "junk-body" ? Buffer.alloc(128, 0x5a)
+          : Buffer.concat([Buffer.from(bls12_381.G2.ProjectivePoint.BASE.toBytes(true)), Buffer.alloc(32, 0x5b)]);
+        const encoded = body.toString("base64").replace(/=+$/, "");
+        const lines = ct.toString("latin1").split("\n"), stanzaAt = lines.findIndex(l => l.startsWith("-> tlock "));
+        ct = Buffer.from([...lines.slice(0, stanzaAt + 1), encoded.slice(0, 64), encoded.slice(64, 128), encoded.slice(128), ...lines.slice(stanzaAt + 4)].join("\n"), "binary");
+      } else if (tamper.kind === "stanza-body") {
         const text = ct.toString("latin1"), stanzaAt = text.indexOf("\n-> tlock "), lineStart = text.indexOf("\n", stanzaAt + 1) + 1, lineEnd = text.indexOf("\n", lineStart);
         ct = Buffer.from(text.slice(0, lineStart) + "!!!!" + text.slice(lineEnd), "binary");
       } else if (tamper.kind === "payload-cut") {
