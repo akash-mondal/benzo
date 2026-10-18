@@ -16,7 +16,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { hash, jsonBytes, sellerUaCommitment, validateManifest } from "../../manifest/schema";
+import { hash, jsonBytes, sellerUaCommitment, reserveReturnUaCommitment, validateManifest } from "../../manifest/schema";
 import { sealBlob } from "../../envelope";
 import { buildAuction, fetchBeacon, needRealPczt, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, writePublicDir, type Fixture } from "./h-fixtures";
 
@@ -57,7 +57,9 @@ const sh = (args: string[], env: Record<string, string>) => {
 }
 
 const beacon = await fetchBeacon(32704232);
-const fixture: Fixture = await buildAuction({ beacon, commitment: sellerUaCommitment(UA_ORCHARD) });
+// B46 (H15): the bound fixture carries BOTH address commitments (a B46-era manifest does), so the mainnet
+// cases below still show each rule passing one at a time and refusing at the network lock.
+const fixture: Fixture = await buildAuction({ beacon, commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
 const legacy: Fixture = await buildAuction({ beacon });
 
 {

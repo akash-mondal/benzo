@@ -123,6 +123,7 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       | `envelope_keys` | the three signers' X25519 envelope public keys, in signer order | `benzo hosts keys` |
       | `witness_set_hash` | commitment to the signed witness set | `witness set` output |
       | `seller_ua_commitment` | commitment to the seller's payout address | **set by `auction create --config`**, never typed by hand (H10) |
+      | `reserve_return_ua_commitment` | commitment to the reserve-return address (the unused fee reserve returns there after settlement) | **set by `auction create --config`**, never typed by hand (H15) |
       | `drand.chain_hash`, `drand.public_key`, `drand.scheme`, `drand.genesis`, `drand.period` | the pinned quicknet parameters | fixed — `auction create` refuses any other value |
       | `drand.R` | the release round | `drand round` output |
       | `T_submit`, `T_freeze` | bid and freeze deadlines (unix seconds) | you choose them: `T_submit` < `T_freeze`, at least 750 s apart, and `T_freeze` before the round's `release_utc` |
@@ -135,7 +136,9 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       publish` takes (under `$BNZ_STATE_DIR`, with `routing.seller_ua` filled in): whenever that
       field is set, `create` commits it into the signed manifest as `seller_ua_commitment`, held
       to H4's rule (a unified address on the manifest's own network with a shielded
-      Orchard/Ironwood receiver):
+      Orchard/Ironwood receiver). The same applies to `routing.reserve_return_ua`, committed as
+      `reserve_return_ua_commitment` (H15); a mainnet manifest without it is refused — without
+      that commitment no host could check the reserve-return destination:
 
       ```text
       $ benzo auction create --file unsigned-manifest.json --witness-set FILE --config PRIVATE-OPERATOR.json
@@ -154,8 +157,9 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
 3. **Publish.** The private operator config (`docs/examples/private-operator.json`, copied under
    `$BNZ_STATE_DIR`) supplies `settlement` (`signers`, `batch_cap` 1–28, `pczt_expiry_blocks`
    1–10000) and `routing` (`bidders[].deposit_ua` — the manifest's deposit addresses in order,
-   `seller_ua`, `fee_reserve_ua`; there is no `stray_refund_ua` — stray refunds are never
-   operator-chosen).
+   `seller_ua`, `fee_reserve_ua`, `reserve_return_ua` (where the unused fee reserve returns
+   after settlement — H15, committed into the manifest by `create`); there is no
+   `stray_refund_ua` — stray refunds are never operator-chosen).
 
    ```text
    $ benzo auction publish --id ID --dir public-dir --config PRIVATE-OPERATOR.json
@@ -292,6 +296,17 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       $ benzo settle --id ID
       $ benzo cancel --id ID
       ```
+
+      **The unused fee reserve returns automatically (H15).** Once every obligation row has its
+      receipt and no batch is pending, `benzo settle` runs one final `reserve-return` batch: the
+      vault's eligible notes — the fee-reserve notes and this auction's own internal change ONLY;
+      a stray deposit or a balance note is never swept (their owners may still claim them) — pay
+      `sum − fee` to `routing.reserve_return_ua`, whose commitment is in the signed manifest and
+      whom every signer host checks against it. What you will see: one more `settlement broadcast
+      …` line for that batch (or, on a manifest created before H15, one line `WARN the reserve
+      stays in the vault (legacy, H15)`). The published settlement then carries a `reserve_return`
+      accounting block (source count and amounts only — the destination itself is never
+      published).
 
 8. **Record and settle refund claims.** A request carries `party` (`leaf:N`,
    `deposit:TXID:POOL:INDEX`, `balance-late:TXID:POOL:INDEX` or `balance-excess:LEAF`),

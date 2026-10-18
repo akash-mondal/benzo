@@ -832,6 +832,27 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // obligation row's receipt, and only for the published accounting's eligible notes minus the fee. The
     // destination itself is never published, only the manifest commitment.
     const rr = (pub.settlement as any).reserve_return as { sources: number; eligible_zats: string; fee_zats: string } | undefined;
+    // B46 (H15): the published reserve_return accounting and its one receipt, checked FIRST against each other —
+    // its amount must equal the eligible notes minus the fee by this published accounting (the source
+    // eligibility itself is what the signer hosts checked against their own vault scans when approving). A
+    // forged second receipt is refused here with its own error, before the generic row rules.
+    const rrReceipts = receipts.filter(r => r.party === "reserve-return"), rrRows = rows.filter(r => r.party === "reserve-return");
+    requireThat(rrReceipts.length <= 1, "duplicate reserve-return receipt");
+    if (rr === undefined) requireThat(rrReceipts.length === 0 && rrRows.length === 0, "a reserve-return row or receipt without the published reserve_return accounting");
+    else {
+      requireThat(rr && typeof rr === "object" && Object.keys(rr).sort().join(",") === "eligible_zats,fee_zats,sources" &&
+        Number.isSafeInteger(rr.sources) && (rr.sources as number) >= 1 &&
+        /^[1-9][0-9]*$/.test(String(rr.eligible_zats)) && /^[1-9][0-9]*$/.test(String(rr.fee_zats)), "reserve_return accounting shape");
+      requireThat(BigInt(rr.fee_zats) === reserveReturnFee(rr.sources as number), "reserve_return fee differs from the ZIP-317 fee of its one-row transaction");
+      requireThat(BigInt(rr.eligible_zats) > BigInt(rr.fee_zats), "reserve_return eligible total does not cover the fee");
+      requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
+      const amount = (BigInt(rr.eligible_zats) - BigInt(rr.fee_zats)).toString();
+      requireThat(rrRows[0].amount_zats === amount && rrReceipts[0].amount_zats === amount,
+        "the reserve-return amount differs from the eligible notes minus the fee by the published accounting");
+      // "only after all obligation receipts": nothing payable is left un-receipted beside it.
+      for (const row of rows) if (row.party !== "reserve-return" && row.state !== "exception" && !receipts.some(r => r.party === row.party))
+        throw new Error(`the reserve-return receipt precedes obligation row ${row.party}'s receipt`);
+    }
     // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
     // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
     // result exists and every party must therefore be a deposit refund.
@@ -888,26 +909,6 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     for (const ig of ignored) {
       requireThat(!rows.some(r => r.party === ig.party) && !receipts.some(r => r.party === ig.party),
         `ignored zero-value note ${ig.party} paid`);
-    }
-    // B46 (H15): the published reserve_return accounting and its one receipt, checked against each other —
-    // its amount must equal the eligible notes minus the fee by this published accounting (the source
-    // eligibility itself is what the signer hosts checked against their own vault scans when approving).
-    const rrReceipts = receipts.filter(r => r.party === "reserve-return"), rrRows = rows.filter(r => r.party === "reserve-return");
-    requireThat(rrReceipts.length <= 1, "duplicate reserve-return receipt");
-    if (rr === undefined) requireThat(rrReceipts.length === 0 && rrRows.length === 0, "a reserve-return row or receipt without the published reserve_return accounting");
-    else {
-      requireThat(rr && typeof rr === "object" && Object.keys(rr).sort().join(",") === "eligible_zats,fee_zats,sources" &&
-        Number.isSafeInteger(rr.sources) && (rr.sources as number) >= 1 &&
-        /^[1-9][0-9]*$/.test(String(rr.eligible_zats)) && /^[1-9][0-9]*$/.test(String(rr.fee_zats)), "reserve_return accounting shape");
-      requireThat(BigInt(rr.fee_zats) === reserveReturnFee(rr.sources as number), "reserve_return fee differs from the ZIP-317 fee of its one-row transaction");
-      requireThat(BigInt(rr.eligible_zats) > BigInt(rr.fee_zats), "reserve_return eligible total does not cover the fee");
-      requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
-      const amount = (BigInt(rr.eligible_zats) - BigInt(rr.fee_zats)).toString();
-      requireThat(rrRows[0].amount_zats === amount && rrReceipts[0].amount_zats === amount,
-        "the reserve-return amount differs from the eligible notes minus the fee by the published accounting");
-      // "only after all obligation receipts": nothing payable is left un-receipted beside it.
-      for (const row of rows) if (row.party !== "reserve-return" && row.state !== "exception" && !receipts.some(r => r.party === row.party))
-        throw new Error(`the reserve-return receipt precedes obligation row ${row.party}'s receipt`);
     }
   });
   // Agent-friendly (Reviewer R on the branch: a destination nested in `rows` passed the registry). Structural leak

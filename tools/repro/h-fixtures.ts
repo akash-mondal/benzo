@@ -27,6 +27,9 @@ const seed = "benzo-phase7-h10-h11";
 const bytes = (tag: string) => Buffer.from(hash(seed + ":" + tag), "hex");
 const ed = (tag: string) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), bytes(tag)]), type: "pkcs8", format: "der" });
 export const pem = (tag: string) => ed(tag).export({ type: "pkcs8", format: "pem" }).toString();
+// B46 (H15): the fixture's witness private halves (the same `bytes("witness:i")` keys the witness set pins),
+// so a repro can sign envelope-opens reports and approval maps the fixture's checks accept.
+export const witnessPrivate = (tag: string) => bytes("witness:" + tag).toString("hex");
 const rawPublic = (tag: string) => createPublicKey(ed(tag)).export({ type: "spki", format: "der" }).toString("hex").slice(24);
 
 // Freshly fetched authentic beacon for a fixed past quicknet round — never a recorded response (the tools/bench.ts rule).
@@ -59,7 +62,7 @@ export type Fixture = {
 // `hideDeposit` drops one deposit from the scan notes (the reorg case).
 export async function buildAuction(opts: {
   beacon: { round: number; signature: string; chain_hash: string };
-  commitment?: string; tamper?: Tamper[]; hideDeposit?: number; count?: number; fee_zats?: string;
+  commitment?: string; reserve_commitment?: string; tamper?: Tamper[]; hideDeposit?: number; count?: number; fee_zats?: string;
 }): Promise<Fixture> {
   const count = opts.count ?? 3, R = opts.beacon.round, release = QUICKNET.genesis + (R - 1) * QUICKNET.period;
   const auction_id = bytes("auction").toString("hex"), signer = createPublicKey(ed("manifest")).export({ type: "spki", format: "der" }).toString("hex");
@@ -76,6 +79,8 @@ export async function buildAuction(opts: {
     // The product rule (R7 item 2): the signed manifest pins the three envelope keys the bids are sealed to.
     envelope_keys: envelopeKeys.map(k => k.public_hex), witness_set_hash: witnessSetHash(witnessSet),
     ...(opts.commitment !== undefined ? { seller_ua_commitment: opts.commitment } : {}),
+    // B46 (H15): the reserve-return address commitment (reserve_return_ua_commitment), when the caller binds one.
+    ...(opts.reserve_commitment !== undefined ? { reserve_return_ua_commitment: opts.reserve_commitment } : {}),
   } as Manifest;
   const manifestPacket = signRecord(manifest, pem("manifest")), manifestHash = manifestPacket.sha256;
   const client = publishedClient(opts.beacon);
@@ -255,7 +260,12 @@ if (cmd === "classify-address") {
   process.stdout.write(cp.execFileSync(${JSON.stringify(realPczt)}, ["classify-address", a[1]])); process.exit(0);
 }
 if (cmd === "ufvk-ak") { console.log(fix.groupKey); process.exit(0); }
-if (cmd === "owns") { console.log("external"); process.exit(0); }
+if (cmd === "owns") {
+  // B46 (H15): the scope verdict the reserve-return source rule needs — a fixture may name its vault's
+  // internal (change) addresses in fixture.json under internal_addresses; every other address is external.
+  console.log(((fix.internal_addresses ?? []).includes(a[2])) ? "internal" : "external");
+  process.exit(0);
+}
 if (cmd === "create") {
   const rows = JSON.parse(fs.readFileSync(0, "utf8"));
   fs.writeFileSync(a[2], JSON.stringify({ rows }));

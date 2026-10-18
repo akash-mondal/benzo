@@ -92,6 +92,7 @@ Copied from `docs/research/DESIGN.md` §14:
 
 Stated again for this build:
 
+- **Leftover fee funds return, bidder funds never do** (H15): after settlement one final `reserve-return` batch sweeps the unused fee reserve — the fee-reserve notes and this vault's internal change only — to the manifest-committed return address; a stray deposit or balance note is never swept and stays claimable in the vault.
 - All orders open at R. Losing bids are not secret forever.
 - Two of three signers acting together can misbehave; `benzo verify` shows it after the fact.
 - **A colluding 2-of-3 quorum can misdirect a refund and the public cannot tell** (R16 F6): receipts

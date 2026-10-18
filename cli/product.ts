@@ -165,8 +165,8 @@ export async function runCommand(command:string,args:string[]) {
       m.reserve_return_ua_commitment=committed;
     }
     // B46 item 1: a mainnet manifest always commits the return address — without it the unused fee reserve
-    // would be stranded in every auction vault (H15, the mainnet blocker). Checked before every other rule so
-    // the refusal is this one even while the network lock still refuses "main".
+    // would be stranded in every auction vault (H15, the mainnet blocker). Checked before the seller and
+    // structural rules so the refusal is this one even while the network lock still refuses "main".
     requireThat(m.network!=="main"||m.reserve_return_ua_commitment!==undefined,'mainnet manifest must carry reserve_return_ua_commitment (H15)');
     // H10 item 4: a mainnet manifest for a mode that pays the seller commits the seller payout address — without
     // it the signer hosts could check only the payout's amount, which is exactly H10's defect. Checked here before

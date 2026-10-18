@@ -1,0 +1,11 @@
+commit 8dad7709bafd0fc9a980a9b365fc721833baf1aa (working tree not clean at run time)
+utc 2026-10-18T21:19:50.741Z
+command node tmp/b46.mjs before (tools/repro/b46-reserve-return.ts)
+tree M api/public-auction.ts
+tree  M tools/repro/h-fixtures.ts
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-before.out
+tree ?? tools/repro/b46-reserve-return.ts
+=== red on the BASE commit: the unused fee reserve is stranded (no command returns it)
+PASS red-plan-no-row-change-stranded the base plan settles everything and plans NO reserve-return row: 35000 zats of eligible notes (75c3d9a462a9a468ddbae35fa8cfb89f43c460ace4baa24003ab8dbe04102043:ironwood:0) stay in the vault
+PASS red-plan-bound-manifest-unreadable the base manifest schema cannot even represent reserve_return_ua_commitment: ERROR settle refused: unknown or missing manifest field
+RESULT PASS
