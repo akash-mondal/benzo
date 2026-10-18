@@ -1,0 +1,5 @@
+npm notice run benzo@0.1.0 e2e
+npm notice run playwright test --project=default
+run.json -> tmp/e2e/out
+PASSED default seal in the browser, open with tle after R (39 s)
+run passed; details in tmp/e2e/report.json

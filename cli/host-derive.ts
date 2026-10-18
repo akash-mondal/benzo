@@ -9,6 +9,7 @@ import path from "node:path";
 import { QUICKNET, requireThat, sellerUaCommitment } from "../manifest/schema";
 import { fetchVerifiedBeacon, publishedClient } from "../cli/published-beacon";
 import { openSealedBid } from "../envelope/opening";
+import { beaconSha256, loadOpenings, saveOpenings } from "./openings-cache";
 import type { ChainClient } from "tlock-js";
 import { pcztBin, scanBin, ufvkFile, vaultDir } from "../manifest/paths";
 import { loadPublicAuction } from "../api/public-auction";
@@ -70,8 +71,14 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     const pub = loadPublicAuction(publicDir, { signer: meta.signer }); // verifies the manifest signature
     requireThat(pub.manifest.auction_id === o.id, "packet is for another auction");
     custodyBinding(o.id, st, root, pub, meta.signer);
+    // B43 (H13 items 4-5): this host's own openings cache under its own per-auction state dir (written after
+    // every successful derivation below, and reused only when its frozen root AND beacon key match this
+    // packet — never packet input). The internal `benzo verify` gets the same file through its host-only
+    // --openings-cache flag, so a re-run skips re-decrypting the leaves this host already opened.
+    const cacheDir = path.join(st, "auctions", o.id);
+    const leafCacheFile = path.join(cacheDir, "openings.json"), memoCacheFile = path.join(cacheDir, "memo-openings.json");
     if (pub.frozen) {
-      const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer], { encoding: "utf8", env: process.env });
+      const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer, "--openings-cache", leafCacheFile], { encoding: "utf8", env: process.env });
       requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
     } else requireThat(Date.now() / 1000 > pub.manifest.T_freeze, "an unfrozen auction before T_freeze is not cancelled; refusing");
     // Ruling R28 item 2 (G-3): a frozen root this host has seen (as a witness, or in an earlier packet) is pinned; a packet
@@ -87,17 +94,26 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     const key = ownEnvelopePrivate(st, o.name);
     requireThat(key, "this signer's envelope key is missing");
     requireOwnEnvelopeKey(pub.manifest as any, o.name, st); // R10 item 3, checked here under host custody
-    // B43 (H13/H14 items 2-3): every opening derives OFFLINE from the ONE BLS-verified beacon through the one
+    // B43 (H13/H14 items 2-4): every opening derives OFFLINE from the ONE BLS-verified beacon through the one
     // opener (envelope/opening.ts openSealedBid) — the packet's published beacon when it carries one
     // (publishedClient checks it), else the round-R beacon fetched with the shared failover-plus-verify loop.
     // Built lazily so a cancelled-before-R packet with nothing to open never needs it.
     let beaconClient: ChainClient | null = null;
-    const opener = async (): Promise<ChainClient> => beaconClient ??= publishedClient(pub.beacon ?? await fetchVerifiedBeacon((pub.manifest as any).drand.R));
+    const beacon = async () => pub.beacon ?? await fetchVerifiedBeacon((pub.manifest as any).drand.R);
+    const opener = async (): Promise<ChainClient> => beaconClient ??= publishedClient(await beacon());
+    // H13 item 4: the frozen openings come from this host's own cache when its frozen root AND beacon key match
+    // this packet; everything freshly opened is written back after the successful open.
+    const cacheKeys = async (): Promise<[string, string]> => [pub.frozen?.root ?? "", beaconSha256(await beacon())];
+    const leafCache = pub.frozen ? loadOpenings(leafCacheFile, ...(await cacheKeys())) : null;
+    const freshLeaves: Record<string, string | null> = {};
     const opened: { leaf_index: number; plaintext_hex: string | null }[] = [];
     for (const l of pub.frozen?.leaves ?? []) {
-      const pt = await openSealedBid(l.ciphertext_hex, await opener());
+      const covered = leafCache && Object.hasOwn(leafCache, String(l.leaf_index)) ? leafCache[String(l.leaf_index)] : undefined;
+      const pt = covered !== undefined ? covered : await openSealedBid(l.ciphertext_hex, await opener());
+      if (covered === undefined) freshLeaves[String(l.leaf_index)] = pt;
       opened.push({ leaf_index: l.leaf_index, plaintext_hex: pt });
     }
+    if (Object.keys(freshLeaves).length) saveOpenings(leafCacheFile, ...(await cacheKeys()), { ...(leafCache ?? {}), ...freshLeaves });
     const ownerOf = (i: number) => { const p = opened.find(x => x.leaf_index === i)?.plaintext_hex; return p ? Buffer.from(p, "hex").subarray(61, 93).toString("hex") : null; };
     const view = { manifest: pub.manifestPacket, frozen: pub.frozen, opened, envelopes: pub.envelopes };
     const claims: any[] = existsSync(path.join(packet, "claims.json")) ? JSON.parse(readFileSync(path.join(packet, "claims.json"), "utf8")) : [];
@@ -188,9 +204,21 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
     // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN
     // memo's sealed bid, opened here with the published beacon (settle/plan.ts ownerKeyFor), never operator input.
+    // H13 item 4: memo openings cache the same way in memo-openings.json, keyed by sha256(ciphertext) since
+    // strays are per note. Lazy: a packet with no stray to open never touches the beacon or the cache.
+    let memoCache: Record<string, string | null> | null = null;
+    const freshMemos: Record<string, string | null> = {};
+    const openMemo = async (ctHex: string): Promise<string | null> => {
+      const key = sha(Buffer.from(ctHex, "hex"));
+      memoCache ??= loadOpenings(memoCacheFile, ...(await cacheKeys())) ?? {};
+      if (Object.hasOwn(memoCache, key)) return memoCache[key];
+      const pt = await openSealedBid(ctHex, await opener());
+      freshMemos[key] = pt;
+      return pt;
+    };
     const memoOwner = async (n: any): Promise<string | null> => {
       const ct = n.memo_hex ? memoSealedBid(n.memo_hex)?.ciphertext_hex ?? null : null;
-      const pt = ct ? await openSealedBid(ct, await opener()) : null;
+      const pt = ct ? await openMemo(ct) : null;
       return pt ? Buffer.from(pt, "hex").subarray(61, 93).toString("hex") : null;
     };
     // Ruling R42 (F11): every deposit row this host derives also derives its per-row attestation — the note
@@ -198,7 +226,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     const strays: import("../witness").StrayAttestation[] = [];
     for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
-      const rec = await authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, await opener());
+      const rec = await authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, await opener(), openMemo);
       // Ruling R40 item 1 (F1): a slot collision refunds through the owner-signed claim path only (the plan
       // never auto-pays it; its record belongs to the frozen leaf's ciphertext) — the same rule on this host.
       const dest = claimDest(party, await memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
@@ -208,6 +236,8 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
         strays.push({ party, memo_sha256: sha(Buffer.from(n.memo_hex, "hex")) });
       }
     }
+    // H13 item 4: write the memo cache back after the successful open of every fresh stray memo.
+    if (Object.keys(freshMemos).length) saveOpenings(memoCacheFile, ...(await cacheKeys()), { ...(memoCache ?? {}), ...freshMemos });
     // A buyback has no seller row (winners are paid on their leaves); its treasury return is derived here from the
     // signed treasury_ua/funding_ua and this signer's own scan.
     const payout = cancelled ? "0" : owedBy.get("seller") ?? "0";

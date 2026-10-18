@@ -20,6 +20,7 @@
 // THROWS only for problems that are not the leaf's — an unverified beacon client or a ciphertext naming a
 // round other than the beacon's (the publishedClient contract) — so a broken beacon or packet stops the
 // caller instead of being blamed on a bid.
+import { appendFileSync } from "node:fs";
 import { timelockDecrypt, type ChainClient } from "tlock-js";
 import { readAge } from "tlock-js/age/age-reader-writer.js";
 import { QUICKNET, requireThat } from "../manifest/schema";
@@ -87,6 +88,10 @@ export async function decryptPublished(ciphertextHex: string, client: ChainClien
 // memo openings, authenticatedMemoEnvelope, the settlement plan, sign delivery and xchain. No product path
 // spawns Go `tle` any more.
 export async function openSealedBid(ciphertextHex: string, client: ChainClient): Promise<string | null> {
+  // B43 (H13 proof hook): with BNZ_OPENINGS_TRACE set to a file path, every call to the one opener is recorded
+  // there (one JSON line per call), so tools/repro/h13-host-scale.ts can count calls and prove the host cache
+  // re-decrypts nothing on a second batch. Unset in every product run, this is inert.
+  if (process.env.BNZ_OPENINGS_TRACE) appendFileSync(process.env.BNZ_OPENINGS_TRACE, JSON.stringify({ pid: process.pid, at: Date.now() }) + "\n");
   const text = Buffer.from(ciphertextHex, "hex").toString("binary");
   const stanza = text.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
   // A ciphertext naming a round other than the beacon's is a beacon/packet disagreement, not a bad bid: the

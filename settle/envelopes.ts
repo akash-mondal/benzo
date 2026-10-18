@@ -171,12 +171,15 @@ export function envelopeRecipient(
 // Otherwise null — the row is an exception row, claimable through benzo claim-refund.
 // B43 (H14 item 2): the memo's opening comes from the one opener (envelope/opening.ts openSealedBid) against
 // the BLS-verified beacon client — a griefing memo yields null here instead of stopping every stray's row.
+// H13 item 4: `openMemo` lets a signer host route that opening through its own memo-openings.json cache (the
+// same openSealedBid result, read through cli/openings-cache.ts); the default is the plain opener.
 export async function authenticatedMemoEnvelope(
   observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
   client: ChainClient,
+  openMemo: (ciphertextHex: string) => Promise<string | null> = (ctHex) => openSealedBid(ctHex, client),
 ): Promise<EnvelopeRecord | null> {
   try {
     const note = partyNote(observed, party);
@@ -191,7 +194,7 @@ export async function authenticatedMemoEnvelope(
     // depositor sets the memo) authenticates it before R with no tlock opening; it must still satisfy the shared
     // format/recipient rule.
     if (memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) && envelopeRecordValid(rec, manifest.envelope_keys)) return rec;
-    const ptHex = await openSealedBid(ctHex, client);
+    const ptHex = await openMemo(ctHex);
     if (!ptHex) return null;
     const pt = Buffer.from(ptHex, "hex");
     if (!sealedBidPlaintext(pt, manifestPacket)) return null;
@@ -210,9 +213,10 @@ export async function memoEnvelopeRecipient(
   envelopes: EnvelopeRecord[] | undefined,
   client: ChainClient,
   envelopePrivateHex: string,
+  openMemo?: (ciphertextHex: string) => Promise<string | null>,
 ): Promise<Destination | null> {
   try {
-    const rec = await authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, client);
+    const rec = await authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, client, openMemo);
     return rec ? openDestination(rec, envelopePrivateHex, netOf(manifestPacket)) : null;
   } catch {
     return null;

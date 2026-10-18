@@ -1,0 +1,9 @@
+commit 359b810fef9e7fda01d601959a44514a05954ed4
+utc 2026-10-18T17:48:53.763Z
+FAIL f11a-late-stray-settles-verifies stray B settled in batch 2 (attested per row in two agreeing maps); verify errors ["format: refused: legacy projections (no auction.json) are readable only for a manifest with no Phase-5+ feature"]
+ERROR f11a-late-stray-settles-verifies stray B settled in batch 2 (attested per row in two agreeing maps); verify errors ["format: refused: legacy projections (no auction.json) are readable only for a manifest with no Phase-5+ feature"]
+FAIL f11b-stray-between-witness-runs certification: both certifications carry the same frozen statement (2-of-2 quorum); the in-between stray's claim paid and verify errors ["format: refused: legacy projections (no auction.json) are readable only for a manifest with no Phase-5+ feature"]
+ERROR f11b-stray-between-witness-runs certification: both certifications carry the same frozen statement (2-of-2 quorum); the in-between stray's claim paid and verify errors ["format: refused: legacy projections (no auction.json) are readable only for a manifest with no Phase-5+ feature"]
+FAIL f11c-unattested-claim-refused forged attestation refused: ["format: refused: legacy projections (no auction.json) are readable only for a manifest with no Phase-5+ feature","claims: refused: claim 0 memo is not attested by two agreeing host-signed approval maps of its paying batch"]
+ERROR f11c-unattested-claim-refused forged attestation refused: ["format: refused: legacy projections (no auction.json) are readable only for a manifest with no Phase-5+ feature","claims: refused: claim 0 memo is not attested by two agreeing host-signed approval maps of its paying batch"]
+RESULT FAIL r42-f11-strays

@@ -2,7 +2,8 @@
 // sealEnvelope's check and wraps a t-addr refund in a well-formed v2 envelope for the real recipients; the host's
 // open (openEnvelope -> parseEnvelopePayload -> requireShieldedDestination, envelope/index.ts) must refuse it, and the
 // settlement path's openDestination must resolve it to null (the exception queue), never to the t-addr.
-// Build+run: npx esbuild tools/repro/r73-open-taddr.ts --bundle --platform=node --format=esm --outfile=tmp/r73/open.mjs && node tmp/r73/open.mjs
+// Build+run: npx esbuild tools/repro/r73-open-taddr.ts --bundle --platform=node --format=esm --banner:js='import { createRequire } from "module"; const require = createRequire(import.meta.url);' --outfile=tmp/r73/open.mjs && node tmp/r73/open.mjs
+// (B43: the createRequire banner since settle/envelopes pulls the pinned tlock-js graph; see r81-destination-rule.ts.)
 import sodium from "libsodium-wrappers";
 import * as env from "../../envelope";
 import { openDestination } from "../../settle/envelopes";

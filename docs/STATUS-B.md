@@ -128,6 +128,110 @@ step 2.
 bob/carol interleave nondeterministically). The call multiset is identical; every other sequence is compared in
 order.
 
+## Current run (43): B43 — Phase 7 H14 open griefing + H13 settlement scale (one offline opener, host openings cache)
+
+**DONE, offline only** (no main-checkout `.benzo/`/`.env`, no OrbStack/`orb`, no testnet, no wallets, no live
+Playwright). Spec: `docs/design/phase7-h13-h14.md`. Worktree `../benzo-b43`, branch `b43-opener`, base `e821ba0`.
+Two commits, both `--no-verify` (R32): `824739e` `B43: H14 …` and `B43: H13 …` (this bookkeeping
+folded into the second). Round 1 of the batch died on a provider connection drop with uncommitted work; round 2
+reviewed that work critically (kept it all, one comment fix), re-ran every proof and finished H13.
+
+**The exact sealed-bid shape enforced** (`envelope/opening.ts` `sealedBidShape`, called at ADMISSION ONLY —
+`bid seal`'s self-check and `bid deposit` admit, never in `memoTlockCiphertext` or any old-dir verify path):
+version line `age-encryption.org/v1`; exactly ONE stanza `-> tlock <R> <quicknet chain-hash>` whose body is
+exactly 128 bytes (3 base64 lines of 64/64/43 chars); a 32-byte header MAC (43 base64 chars after `--- `);
+payload exactly 160 bytes (16 + 128 + 16 STREAM: chunk tag, the 128-byte plaintext, final tag) — a 487-byte
+ciphertext. Both real implementations produce this byte-layout (measured: tlock-js 0.9.0 and Go `tle` v1.2.0
+128-byte encryptions to quicknet round 32704232 are identical: `OBSERVE honest-layout` in
+`h14-open-griefing-before.out`), so old Go-tle-sealed evidence keeps verifying. A breach is refused
+`sealed bid structure: <reason>` at admission.
+
+**H14 proof** — `docs/evidence/phase-7/repro/h14-open-griefing-{before,after}.out`, both **RESULT PASS**
+(real tlock to past round 32704232; red = base commit bundles under `tmp/b43/base/`, green = this tree):
+red — both griefs (stanza body line -> `!!!!`; payload cut to 3 bytes) pass the old admission header rule AND
+the real admit command; the base `open` THROWS `Expected mac, but there were no more lines left!` on the first
+and stops every bidder; the base `open` accepts the payload-cut leaf with plaintext `""`; base `sign derivable`
+dies on the malformed leaf. Green — `bid seal` self-check and admit both refuse `sealed bid structure: …`;
+a frozen fixture built with those leaves (bypassing admission, as h-fixtures does) opens both
+`{error:"undecryptable"}`, `benzo verify` agrees, host `deriveRows` agrees (rows only for the 2 honest
+leaves), the honest openings are byte-identical to the base commit's, the empty-plaintext quirk is closed,
+and the open trace has no `tle -d`. One opener (`openSealedBid`) now serves `open`, verify re-derivation,
+`deriveRows`, `memoOwner`, `authenticatedMemoEnvelope`, `settle/plan.ts`, `sign delivery`, `xchain` and
+`deriveClaimOpenings`; it returns null only for the bid's own faults (bad shape, either MAC failure, non-128-byte
+plaintext) and throws only for beacon-level faults. `fetchVerifiedBeacon` is the one shared failover+verify
+beacon fetch. The sealed reserve keeps the raw `decryptPublished` (it is a price bound, not a sealed bid).
+
+**H13 proof** — `docs/evidence/phase-7/repro/h13-host-scale-{before,after}.out`, both **RESULT PASS**
+(tools/bench.ts fixture machinery: real tlock, N = 55 and N = 1,000 leaves + 2 stray notes each; the H13
+repro's numbers, `sign derivable` wall time = deriveRows + its internal `benzo verify` + vault stubs):
+
+| N | before first batch | before second batch | after first batch | after second batch | openSealedBid calls, 2nd batch after |
+|---|---|---|---|---|---|
+| 55 | 7.9 s | 6.7 s | 8.7 s | 4.1 s | **0** (own 0, verify 0) |
+| 1,000 | 116.2 s | 116.2 s | 118.8 s | 63.3 s | **0** (own 0, verify 0) |
+
+Call counts after: first batch own = N + 2 (each leaf once + 2 stray memos), internal verify = N; second batch
+0/0 (the BNZ_OPENINGS_TRACE proof hook, inert unless set). `benzo verify` cold: 2.21 s (55) / 26.70 s (1,000);
+warm with the host cache: 0.56 s / 0.90 s. **verify got `--openings-cache FILE`** because the measured
+1,000-leaf verify is 26.7 s — over the design's 5 s threshold; it is host-only (refuses any path that is not
+this host's own `$BNZ_STATE_DIR/auctions/<id>/openings.json`, help says so; the public verify never uses it) and
+skips re-decrypting exactly the covered leaves. Cache: `openings.json` `{frozen_root, beacon_sha256 (= sha256 of
+the beacon signature bytes), openings: {leaf_index: plaintext|null}}` + `memo-openings.json` keyed by
+sha256(ciphertext), mode 0600, atomic writes (`cli/openings-cache.ts`), reused only when BOTH keys match —
+proven: key mismatch rebuilds (112 opens at N=55) and a packet-supplied path is refused. Derived rows are
+byte-identical to the base commit's (same answers). The cache is this host's own computation, written by
+`deriveRows` after each successful open; memo openings flow through `authenticatedMemoEnvelope`'s optional
+opener (defaults to the plain `openSealedBid`).
+
+**Remaining 63 s at N=1,000 second batch is NOT re-decryption** (0 opens): CPU profile of the cached run shows
+98% blocked in `spawnSync` — the pre-existing per-row `benzo-pczt classify-address` spawn
+(`envelope/destination.ts`, ~60 ms × rows), identical in base (base 116.2 s = ~43 s tle spawns + 26.7 s verify
++ ~46 s classify). See Question 2.
+
+**Gates:** `npm run typecheck` PASS; `check:structure` OK (204 files); `check:invariants` 0 fails (I1–I4);
+`npm run e2e` PASS (default `seal-open`, 39 s; worktree-local `cp .env.example .env` + Go `tle` v1.2.0 copied
+from `tmp/b39-tools/bin/tle` into the worktree's own `.benzo/bin`). `check:bundle` not run (worktree, R32).
+
+**Folds re-run** (folds touching open, verify, host derive or plan; raw outputs under
+`docs/evidence/phase-7/repro/*-b43*.out`): `h11-open-offline` **both legs PASS** (the B39 H11 repro stays
+green; its base open bundle = `clear/auction-cli.ts` at `aa0229e` = the H11 fix reversed, extracted with
+`git archive` into `tmp/h11/base-tree`); `h10-seller-binding` PASS; `h14` PASS (+ re-run after H13:
+`h14-open-griefing-after-rerun.out`); `h13` PASS; `r78-verify-hardening` PASS;
+`r82-legacy-format` PASS (replays the real Phase-3 legacy dir `docs/evidence/phase-3/settle`);
+`r77-serial-beacon` PASS (replays `docs/evidence/phase-5/markets/drop-a17/drop-cold`);
+`r81-destination-rule` PASS and `r73-open-taddr` PASS (both needed the createRequire banner in their build
+command since `settle/envelopes` now pulls the pinned tlock-js graph — header lines updated; same banner
+`build:core` uses); `r40-f5-rows` PASS. **Pre-existing failures, unchanged by B43** (identical output at base
+`e821ba0`, proven by rebuilding each fold from a `git archive e821ba0` tree):
+`r42-f11-strays` (its fixture sets `legacy: true` on a manifest with `witness_set_hash`, which R82's later
+format gate refuses) and `r33-balance` (case1/case2 expect pre-R-ruling balance rows). Not run:
+`r28-replay` (needs a settled live auction's id/recipient/amount), `r42-f13-f14-tamper` (needs a corpus dir),
+`xchain-demos` (live Sepolia/Solana RPCs — offline rule). Old published evidence dirs replayed above keep
+verifying unchanged.
+
+## Questions (B43)
+
+1. **`verify --tle` kept — is that within “no product path spawns tle”?** Every DEFAULT path (open, verify,
+   deriveRows, memoOwner, authenticatedMemoEnvelope, plan, sign delivery, xchain) now opens through
+   `openSealedBid` and spawns no `tle`. The only remaining spawn is R89's opt-in independent cross-check
+   `benzo verify --tle` (default verify never spawns it; nothing in e2e/tools calls it), keeping
+   `tleDecryptFailover`/`tleOpening` in `manifest/reserve.ts` alive for it. If the rule is literal, deleting the
+   flag and those two functions is a small follow-up — say the word.
+2. **The remaining per-batch cost at scale is `classify-address`, not decryption.** With zero re-decryption,
+   N=1,000 second batch is still 63 s because `envelope/destination.ts` spawns `benzo-pczt classify-address`
+   per derived row (~60 ms × rows; pre-existing). A tiny in-process cache keyed by address would cut it to
+   ~verify-warm time (~1 s). Out of B43's design scope — worth a hardening row?
+3. **Two folds are red at base (pre-existing).** `r42-f11-strays` (stale fixture vs R82's format gate) and
+   `r33-balance` (stale expectations after a balance ruling) fail identically at `e821ba0` — evidence:
+   `r42-f11-strays-base-e821ba0.out`, `r33-balance-base-e821ba0.out`. Want them repaired in a later batch?
+4. **Cache write sites.** Item 4 says “after a successful open, the host writes”. Implemented where the host
+   re-opens per batch: `deriveRows` (leaf cache + memo cache). The one-shot coordinator `open` and the plan
+   still derive everything per call (now offline and cheap); `open`'s per-leaf map also carries `reorg`
+   labels that must not enter the decrypt cache. If `open`/the plan should read/write the same cache too, it is
+   a small follow-up.
+5. **Plan `checks` label.** `settle/plan.ts`'s `checks`/`settle-tle.jsonl` operation name changed `tle -d` ->
+   `tlock open` (there is no tle any more). e2e asserts only the entry count (`settle-crash.spec.ts:143`) and
+   zero-`tle -d`-ops, both unaffected — but any external consumer of the old label should know.
 
 ## Batch B40 (Builder A, branch `b40-operator-cli`, from `9d09093`) — gate DOC: operator CLI, templates, guide step 1
 
