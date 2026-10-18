@@ -57,7 +57,7 @@ Run: `markets.ts scale-27`, auction 5e2091c9…: 27 bids + the seller in ONE bat
 
 ## Gate SC live half: scale-55 (head, 2026-10-18, R85, code `1b871d5`)
 
-Run: `tools/repro/markets.ts scale-55`, auction `754bb1c6…`: one uniform auction with **55 bids + the seller = 56 rows, settled in 4 batches of 14** (`batch_cap` 14), host custody (alice + bob), `BNZ_LWD_SINGLE=1`. Result: **`RESULT PASS` (verify exit 0)**. Raw data: `scale/scale-55.log`, `scale/scale-55-resume.log`, `scale/scale-55-timing.jsonl`.
+Run: `tools/repro/markets.ts scale-55`, auction `754bb1c6…`: one uniform auction with **55 bids + the seller = 56 rows, settled in 4 batches of 14** (`batch_cap` 14), host custody (alice + bob), `BNZ_LWD_SINGLE=1`. Result: **`RESULT PASS` (verify exit 0)**. Raw data: `scale/scale-55.log`, `scale/scale-55-resume.log`, `scale/scale-55-timing.jsonl`, and `scale/scale-55-txs.json` (every funding and settlement txid with its mined height and raw size from lightwalletd, plus each batch's redacted inspect block).
 
 - **Funding in 3 transactions.** One funding transaction with 55 deposit outputs would be about 190 KB, so the harness pays at most 19 deposits per transaction, back to back: `0e057645…` (19 deposits + the 400,000 fee reserve, 69,130 bytes), `176af039…` (19, 65,974 bytes), `76b1cbc8…` (17, 59,662 bytes), mined at 4,515,049–4,515,050.
 - **One failure, then a resume.** The first `open` failed on a drand relay timeout (`api.drand.sh` i/o timeout during the per-leaf `tle -d`). `resume:754bb1c6…` opened all 55 leaves, cleared, settled and verified. Phase 7 item H11 removes the per-leaf relay dependency.

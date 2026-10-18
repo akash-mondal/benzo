@@ -296,12 +296,20 @@ async function run(name: string, link?: SeriesLink) {
   for (let i = 0; i < sealed.length; i += chunk) {
     const part = sealed.slice(i, i + chunk), first = i === 0;
     // A later chunk may find the wallet's notes still pending from the previous one: wait and retry (bounded).
+    // Only a refusal raised BEFORE any broadcast is retried (the bidder floor or the wallet finding too few
+    // spendable notes); any other error may have broadcast already, so it stops the run instead of paying twice.
     for (let tries = 0; ; tries++) {
       try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: part, ...(first ? { reserve: { address: reserveUa, amount_zats: String(sc.reserve ?? 60000) } } : {}), ...(first && sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) }); break; }
-      catch (e) { if (first || tries >= 12) throw e; say(`WARN funding chunk ${i / chunk + 1}: ${String((e as Error)?.message ?? e).slice(-120)}; retry in 60 s`); await sleep(60_000); }
+      catch (e) {
+        const msg = String((e as Error)?.message ?? e), preBroadcast = /bidder floor|Insufficient balance|InsufficientFunds|insufficient funds/i.test(msg);
+        if (first || !preBroadcast || tries >= 12) throw e;
+        say(`WARN funding chunk ${i / chunk + 1}: ${msg.slice(-120)}; retry in 60 s`); await sleep(60_000);
+      }
     }
     say(`funding ${paid.txid}${chunk < sealed.length ? ` (chunk ${i / chunk + 1}, ${part.length} deposits)` : ""}`);
     txids.push(paid.txid); for (const s of part) txOf[s.address] = paid.txid;
+    // Written after every chunk, so a crash between chunks still leaves `resume` the deposits paid so far.
+    writeFileSync(path.join(privateDir, "funding.json"), JSON.stringify({ txid: txids[0], txids, by_address: txOf }));
   }
   for (let h = 0; ; await sleep(30_000)) {
     // A transient endpoint error (live: "tls handshake eof") is retried on the next poll, never fatal.

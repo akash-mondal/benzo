@@ -518,3 +518,7 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
 ### R88 — Gate H PASSED (head, 2026-10-18)
 
 Reviewer R round 2 (`benzo-sol/reports/pr-h-r87.md`): **APPROVE**. F1–F5 fixed; it confirmed the refused-bid claim path (memo stray → owner-signed `claim-refund`). F6 and two new P3s (stale "README GAP" cells and provenance labels in `h-closure.md`) are fixed here. **Gate H is PASSED.** Its Phase 7 items: H10 (P1), H12.
+
+### R89 — Gate SC PASSED (head, 2026-10-18)
+
+Reviewer R (`benzo-sol/reports/pr-sc-r85.md`): **APPROVE**. It confirmed the chunked-funding harness, the run record (all 24 timing values, receipts for all 56 rows reconcile to the uniform clear at 340), the H13 scale finding and H11. Its three P3s are fixed: the chain-level numbers now have a raw file (`scale/scale-55-txs.json`); the harness retries a funding chunk only on a pre-broadcast refusal and writes `funding.json` after every chunk; H13's fix names its cache key (auction id + pinned frozen root) and the stray decrypts. **Gate SC is PASSED**, with the 17,000-bid limit stated in the README until H13 lands.
