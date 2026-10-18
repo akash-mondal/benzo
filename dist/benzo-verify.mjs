@@ -7446,7 +7446,7 @@ ${recipients(input.recipients)}---`;
 ` + chunkedEncodedBody;
     };
     var mac = (macStr) => (0, utils_1.unpaddedBase64)(macStr);
-    function readAge(input) {
+    function readAge2(input) {
       const [version, ...lines] = input.split("\n");
       const recipients2 = parseRecipients(lines);
       const macStartingTag = "--- ";
@@ -7461,7 +7461,7 @@ ${recipients(input.recipients)}---`;
         body: ciphertext
       };
     }
-    exports.readAge = readAge;
+    exports.readAge = readAge2;
     function validateArguments(args) {
       args.forEach((arg) => {
         for (let i2 = 0; i2 < arg.length; i2++) {
@@ -7871,6 +7871,8 @@ var require_tlock_js = __commonJS({
 
 // cli/commands/verify.ts
 var import_beacon_verification = __toESM(require_beacon_verification(), 1);
+import os from "node:os";
+import path5 from "node:path";
 
 // manifest/schema.ts
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
@@ -8051,19 +8053,19 @@ function tree(leaves) {
     levels.push(next);
   }
   const paths = leaves.map((_2, index) => {
-    const path5 = [];
+    const path6 = [];
     for (const level of levels.slice(0, -1)) {
-      path5.push({ side: index % 2 ? "left" : "right", hash: level[index ^ 1] ?? level[index] });
+      path6.push({ side: index % 2 ? "left" : "right", hash: level[index ^ 1] ?? level[index] });
       index = Math.floor(index / 2);
     }
-    return path5;
+    return path6;
   });
   return { root: levels[levels.length - 1][0] ?? hash(Buffer.from([2])), paths };
 }
-function member(ciphertextHash, deposit, index, count, path5, root) {
-  if (!/^[0-9a-f]{64}$/.test(ciphertextHash) || !Number.isInteger(index) || index < 0 || index >= count || path5.length !== Math.ceil(Math.log2(count))) return false;
+function member(ciphertextHash, deposit, index, count, path6, root) {
+  if (!/^[0-9a-f]{64}$/.test(ciphertextHash) || !Number.isInteger(index) || index < 0 || index >= count || path6.length !== Math.ceil(Math.log2(count))) return false;
   let node = leafHash(ciphertextHash, deposit);
-  for (const sibling of path5) {
+  for (const sibling of path6) {
     if (!/^[0-9a-f]{64}$/.test(sibling.hash) || sibling.side !== (index % 2 ? "left" : "right")) return false;
     node = sibling.side === "left" ? parent(sibling.hash, node) : parent(node, sibling.hash);
     index = Math.floor(index / 2);
@@ -18641,6 +18643,63 @@ function isAnyDepositParty(party) {
   return isDepositParty(party) || !!LEGACY_PARTY.exec(party);
 }
 
+// envelope/opening.ts
+var import_tlock_js = __toESM(require_tlock_js(), 1);
+var import_age_reader_writer = __toESM(require_age_reader_writer(), 1);
+import { appendFileSync } from "node:fs";
+var BID_BYTES = 128;
+var PAYLOAD_BYTES = 16 + 128 + 16;
+function sealedBidShape(ciphertextHex, R2) {
+  const fail = (reason) => ({ ok: false, reason });
+  if (typeof ciphertextHex !== "string" || !/^[0-9a-f]+$/.test(ciphertextHex) || ciphertextHex.length % 2 !== 0) return fail("ciphertext is not even-length hex");
+  let parsed;
+  try {
+    parsed = (0, import_age_reader_writer.readAge)(Buffer.from(ciphertextHex, "hex").toString("binary"));
+  } catch (e) {
+    return fail(`age parse: ${e.message}`);
+  }
+  if (parsed.header.version !== "age-encryption.org/v1") return fail(`version is ${JSON.stringify(parsed.header.version)}, not age-encryption.org/v1`);
+  if (parsed.header.recipients.length !== 1) return fail(`${parsed.header.recipients.length} stanzas, not exactly one tlock stanza`);
+  const stanza = parsed.header.recipients[0];
+  if (stanza.type !== "tlock" || stanza.args.length !== 2) return fail("stanza is not tlock <round> <chain>");
+  if (stanza.args[1] !== QUICKNET.chain_hash) return fail(`stanza chain is ${stanza.args[1]}, not ${QUICKNET.chain_hash}`);
+  if (stanza.args[0] !== String(R2)) return fail(`stanza round is ${stanza.args[0]}, not ${R2}`);
+  if (stanza.body.length !== BID_BYTES) return fail(`stanza body is ${stanza.body.length} bytes, not ${BID_BYTES}`);
+  if (parsed.header.mac.length !== 32) return fail(`header mac is ${parsed.header.mac.length} bytes, not 32`);
+  if (parsed.body.length !== PAYLOAD_BYTES) return fail(`payload is ${parsed.body.length} bytes, not ${PAYLOAD_BYTES}`);
+  return { ok: true };
+}
+async function decryptPublished(ciphertextHex, client2) {
+  const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
+  const info = await client2.chain().info();
+  const stanza = ciphertext.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
+  requireThat(stanza && stanza[2] === info.hash, "ciphertext tlock stanza/chain");
+  await client2.get(Number(stanza[1]));
+  const log = console.log;
+  console.log = () => {
+  };
+  try {
+    return (await (0, import_tlock_js.timelockDecrypt)(ciphertext, client2)).toString("hex");
+  } catch (e) {
+    if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test(e.message)) return null;
+    throw e;
+  } finally {
+    console.log = log;
+  }
+}
+async function openSealedBid(ciphertextHex, client2) {
+  if (process.env.BNZ_OPENINGS_TRACE) appendFileSync(process.env.BNZ_OPENINGS_TRACE, JSON.stringify({ pid: process.pid, at: Date.now() }) + "\n");
+  const text = Buffer.from(ciphertextHex, "hex").toString("binary");
+  const stanza = text.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
+  const round = stanza ? Number(stanza[1]) : 0;
+  if (stanza) await client2.get(round);
+  const shape = sealedBidShape(ciphertextHex, round);
+  if (!shape.ok) return null;
+  const plaintext = await decryptPublished(ciphertextHex, client2);
+  if (plaintext === null || plaintext.length !== BID_BYTES * 2) return null;
+  return plaintext;
+}
+
 // settle/envelopes.ts
 function sealedBidPlaintext(pt2, manifestPacket) {
   const m2 = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8")), l2 = modeEntry(manifestPacket).layout;
@@ -19334,7 +19393,6 @@ function checkSettlementStatement(pub, ciphertextHash, statement) {
 }
 
 // cli/published-beacon.ts
-var import_tlock_js = __toESM(require_tlock_js(), 1);
 function publishedClient(beacon) {
   requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
   const round = Buffer.alloc(8);
@@ -19370,24 +19428,6 @@ function publishedClient(beacon) {
     }
   };
 }
-async function decryptPublished(ciphertextHex, client2) {
-  const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
-  const info = await client2.chain().info();
-  const stanza = ciphertext.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
-  requireThat(stanza && stanza[2] === info.hash, "ciphertext tlock stanza/chain");
-  await client2.get(Number(stanza[1]));
-  const log = console.log;
-  console.log = () => {
-  };
-  try {
-    return (await (0, import_tlock_js.timelockDecrypt)(ciphertext, client2)).toString("hex");
-  } catch (e) {
-    if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test(e.message)) return null;
-    throw e;
-  } finally {
-    console.log = log;
-  }
-}
 async function deriveClaimOpenings(claims, beacon) {
   const openings = /* @__PURE__ */ new Map();
   if (!claims.length || !claims.some((c2) => c2.party?.startsWith("deposit:"))) return openings;
@@ -19396,26 +19436,43 @@ async function deriveClaimOpenings(claims, beacon) {
   for (const [i2, c2] of claims.entries()) {
     if (!c2.party.startsWith("deposit:")) continue;
     const ct2 = typeof c2.memo_hex === "string" ? memoSealedBid(c2.memo_hex)?.ciphertext_hex ?? null : null;
-    openings.set(i2, ct2 ? await decryptPublished(ct2, local) : null);
+    openings.set(i2, ct2 ? await openSealedBid(ct2, local) : null);
   }
   return openings;
 }
 
+// cli/openings-cache.ts
+import { createHash as createHash4 } from "node:crypto";
+import { mkdirSync, readFileSync as readFileSync5, renameSync, writeFileSync } from "node:fs";
+var beaconSha256 = (beacon) => createHash4("sha256").update(Buffer.from(beacon.signature, "hex")).digest("hex");
+function loadOpenings(file, frozenRoot, beaconSha) {
+  try {
+    const doc = JSON.parse(readFileSync5(file, "utf8"));
+    if (!doc || doc.frozen_root !== frozenRoot || doc.beacon_sha256 !== beaconSha) return null;
+    if (!doc.openings || typeof doc.openings !== "object" || Array.isArray(doc.openings)) return null;
+    for (const value of Object.values(doc.openings)) if (value !== null && !(typeof value === "string" && /^[0-9a-f]{256}$/.test(value))) return null;
+    return doc.openings;
+  } catch {
+    return null;
+  }
+}
+
 // cli/commands/verify.ts
-var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] \u2014 re-derive openings offline and reproduce clear + accounting";
+var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] \u2014 re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json (B43 H13) and only skips re-decrypting the openings that file covers; the public benzo verify never uses it and re-derives every opening.";
 var tleOpening2 = (ciphertext, chain2) => tleOpening("tle", chain2, ciphertext);
 async function run(argv) {
   if (argv.includes("--help")) {
     process.stdout.write(help + "\n");
     return 0;
   }
-  let dir = "", signerHex = "", fetchBeacon = false, crossCheck = false, previous = "", legacyUnattested = false;
+  let dir = "", signerHex = "", fetchBeacon = false, crossCheck = false, previous = "", legacyUnattested = false, openingsCache = "";
   for (let i2 = 0; i2 < argv.length; i2++) {
     if (argv[i2] === "--dir") dir = argv[++i2] ?? "";
     else if (argv[i2] === "--signer") signerHex = argv[++i2] ?? "";
     else if (argv[i2] === "--offline") {
     } else if (argv[i2] === "--fetch-beacon") fetchBeacon = true;
     else if (argv[i2] === "--tle") crossCheck = true;
+    else if (argv[i2] === "--openings-cache") openingsCache = argv[++i2] ?? "";
     else if (argv[i2] === "--previous") previous = argv[++i2] ?? "";
     else if (argv[i2] === "--legacy-unattested") legacyUnattested = true;
     else {
@@ -19446,9 +19503,17 @@ async function run(argv) {
     if (fetchBeacon) pub.beacon = await fetchPublished(pub.manifest.drand.R, published);
     const local = publishedClient(pub.beacon);
     if (!published) process.stderr.write("WARN beacon fetched (not published)\n");
+    let cache = null;
+    if (openingsCache) {
+      const state = process.env.BNZ_STATE_DIR ? path5.resolve(process.env.BNZ_STATE_DIR) : path5.join(os.homedir(), ".benzo");
+      const own = path5.join(state, "auctions", pub.manifest.auction_id, "openings.json");
+      requireThat(path5.resolve(openingsCache) === path5.resolve(own), "openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json");
+      cache = loadOpenings(own, pub.frozen.root, beaconSha256(pub.beacon));
+    }
     const derived = [];
     for (const leaf of pub.frozen.leaves) {
-      const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
+      const covered = cache && Object.hasOwn(cache, String(leaf.leaf_index)) ? cache[String(leaf.leaf_index)] : void 0;
+      const plaintext = covered !== void 0 ? covered : await openSealedBid(leaf.ciphertext_hex, local);
       if (crossCheck) requireThat(tleOpening2(leaf.ciphertext_hex, pub.manifest.drand.chain_hash) === plaintext, `opening ${leaf.leaf_index} tle differs`);
       derived.push(plaintext === null ? { leaf_index: leaf.leaf_index, plaintext_hex: null, error: "undecryptable" } : { leaf_index: leaf.leaf_index, plaintext_hex: plaintext });
     }

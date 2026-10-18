@@ -603,3 +603,21 @@ Attempt 4 passed end to end: settle, cold verify and the on-chain landing of eve
 - **G11:** `benzo report` is buyback-only.
 
 Leftover: the auction vault keeps the fee-reserve change, 35,000 testnet zats in one note. No command returns a host-custody vault's leftover after settlement, and the shared-vault sweep cannot sign for it. That is **H15** (`phase7-hardening.md`); the testnet note stays put.
+
+### R98 — Phase 7 B43 merged: H14 and H13 closed offline (head, 2026-10-18)
+
+B43 is on main (`ee9c5d7` H14, `0c5e018` H13; round 2 after a provider drop). It brings one sealed-bid shape rule at admission (`envelope/opening.ts`) and one offline opener everywhere. A host's openings cache is keyed by frozen root and beacon. `verify --openings-cache` is host-only: verify on 1,000 leaves took 26.7 s, over the 5 s design threshold.
+
+The head re-ran on main:
+- `npm run check`, e2e;
+- the H14 repro, red before (bundles built from `e821ba0`) and green after;
+- the H11 repro.
+
+The old dirs `launch-cold` and the gate DOC run still verify, 19 OK each. The verify bundle is now `598395fd…`, the npm package `835f053c…`, and the bidder `f6afad13…` is unchanged. Head rulings on its questions:
+1. Keep `verify --tle` (an opt-in cross-check that nothing calls).
+2. Yes: the remaining per-batch cost is `benzo-pczt classify-address` (about 60 ms per row). That is H16 (P3); `phase7-hardening.md` gets the row.
+3. The two folds that were already red at the base (r42-f11-strays, r33-balance) go to the fold-repair item.
+4. No: `open` runs once per auction and the plan is offline now.
+5. Noted.
+
+Next: provision the hosts at this commit and re-run SC scale-55 live.
