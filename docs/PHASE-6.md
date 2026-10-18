@@ -694,3 +694,18 @@ The verify bundle is unchanged at `ac5d68e9…`. Rulings on B45's questions:
 The hosts were provisioned at `24638e4`. Auction `58d60e90…` paid 3 of 4 batches, then stopped at batch 4: `InsufficientFunds {available 2,657,140, required 2,677,480}` from every host, before any broadcast. Fees are `5,000 × max(2, actions)` and the wallet chooses the spends, so batches 1–3 paid about 350,000 zats against the 225,000 expected. The head topped up the fee reserve (200,000 zats, `51c9c554…`) and re-ran `benzo settle`. Batch 4 broadcast (`1805fc1e…`), 56/56 rows settled, every batch-4 output landed (14 notes, 2,607,480 zats), and the cold verify printed 19 OK.
 
 Per-batch timing is flat (`scale-measure.md`). The README's scale paragraph now states the measured flat cost, settlement bounded by block inclusion, and a 17,000-bid projection marked as not measured. **H19** (fee reserve sizing and the settle preflight) is added. The operator guide's step 5 now has the doubled formula and the top-up recovery, which this run proved.
+
+### R106 — B46 merged: the unused fee reserve returns when nothing is owed (H15 closed offline) (head, 2026-10-19)
+
+B46 rounds 1 and 2 are on main (`5b0d97b`…`27962cf`; one import-line conflict with B45 in `cli/host-derive.ts`, resolved as the union). How it works:
+- The manifest commits `reserve_return_ua_commitment` (set by `auction create --config`; mainnet requires it).
+- The return is planned and approved only when nothing is owed (`settle/deposits.ts` `reserveReturnOutstanding`). That means every owed row receipted, and no stray or balance note unpaid, spent or not.
+- It pays the vault's whole unspent value minus the ZIP-317 fee. Hosts require `input_zats` equal to their own scanned total and that exact output.
+- Verify accepts exactly one return, only with nothing outstanding.
+
+On main the head re-ran:
+- `npm run check` and e2e;
+- the B46 green leg (RESULT PASS);
+- the R100 probe (B44 still holds).
+
+Three published dirs still verify, 19 OK each (launch-cold, the DOC run, scale-55 after B45). The verify bundle is now `f146a894…`. Rulings on its questions: Q2 is fine as is. Q3 and Q4 are noted. **Q5, the settle worker's reserve-return batch, has no offline end-to-end proof, so the head proves it live next**: provision the hosts and run one small auction through settle and the return.
