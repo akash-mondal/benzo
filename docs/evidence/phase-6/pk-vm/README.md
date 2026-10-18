@@ -36,3 +36,15 @@ The fix is batch B41 (`docs/design/phase6-pk-b41.md`).
 - **Closed by this run:** on a clean machine, a stranger installs the pinned CLI and runs `benzo verify` on a published auction offline, from outside any checkout. Tampering is refused. They seal a bid with the bidder bundle, and it opens only after R.
 - **Open (B41):** the two tarballs are reproducible only on macOS. After B41, re-run `04` on this VM; the digests must equal the macOS build.
 - **Re-record after merges:** B39 (H10 changes the manifest schema, so the verify bundle changes) and B41 both move the digests. The final PK record is a re-run of steps 02–04 here after they merge.
+
+## Re-run at `e1ddd69` (after B41 + R94): all three artifacts identical across macOS and Linux
+
+`at-e1ddd69/` holds the same VM, the same `clean-run` jail and the same steps, with the new tarballs:
+
+| Step | Result |
+|---|---|
+| `02-verify.out` (offline) | `sha256sum -c` OK; `benzo verify` 19 OK, exit 0; the bundle alone exit 0; tampered copy and wrong signer refused (exit 1) |
+| `03b-seal.out` | PASS: the bidder bundle sealed a bid in headless Chromium, `tle` refused before R and opened after, and the plaintext equals the inputs |
+| `04-rebuild.out` | Fresh clone of `e1ddd69` on Linux. Verify bundle `7eda2871…` = committed. **npm `1aa2b077…` = the macOS build, bidder `f6afad13…` = the macOS build**, `sha256sum -c` OK for both |
+
+Packaging on Linux needs `bsdtar` (`apt install libarchive-tools`). `docs/reproducible-build.md` says so, and packaging refuses GNU tar with that message.

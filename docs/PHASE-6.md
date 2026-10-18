@@ -565,3 +565,11 @@ B41 questions:
 2. Fixed here.
 3. Noted.
 4. The VM rebuild at this commit is the record.
+
+### R95 — Gate PK PASSED at `e1ddd69` (head, 2026-10-18)
+
+On the clean VM (R90), at `e1ddd69` (`pk-vm/at-e1ddd69/`):
+- install, offline verify, tamper refusals and the bidder seal all pass;
+- a fresh Linux clone rebuilds the verify bundle, the npm package and the bidder bundle byte-identical to the macOS build.
+
+The stranger requirement is met by the clean VM (R90). Batches merged after this move the digests, so the release commit gets one more run of steps 02–04 on `benzo-pk` (about 10 minutes), recorded the same way.
