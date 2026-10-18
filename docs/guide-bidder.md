@@ -46,7 +46,7 @@ private; the commands store owner material under `$BNZ_STATE_DIR` and print only
    ```
 
    Exchange withdrawals can miss `T_submit`; give them time. A deposit mined before `T_submit` that
-   is missing from the frozen set is owed a refund automatically (see step 5).
+   is missing from the frozen set is owed a refund (see step 5).
 
 5. **Prove your bid is in.** After `freeze`, check your `ciphertext_hash` against the frozen root
    and keep the proof. `--note-id` names your note as `txid:ironwood:index` when several deposits
@@ -57,8 +57,11 @@ private; the commands store owner material under `$BNZ_STATE_DIR` and print only
    $ benzo receipt prove --check <inclusion-proof.json>
    ```
 
-   A deposit mined before the cutoff but absent from the root is moved to the exception queue and
-   refunded automatically. Anything else missing: tell the operator, proof in hand.
+   A deposit mined before the cutoff but absent from the root is owed a refund of exactly C. If the
+   operator's published deposit list names it, `benzo verify` requires it in the exception queue.
+   If the operator left it out (README "An operator can refuse a funded bid"), claim it yourself
+   with your owner key as a stray (step 7): your funds stay yours, but your bid is not in the
+   auction.
 
 6. **Get your signed settlement statement.** After settlement, the statement names your leaf, fill,
    price and payout or refund txid, signed by your owner key. Check it against `result.json` and the
