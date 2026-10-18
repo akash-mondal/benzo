@@ -668,3 +668,7 @@ The head re-ran the R100 probe on main:
 3. Noted.
 
 **H14 is closed.** Reviewer R's P1-1 and P1-2 are fixed. Reviewer R round 2 runs on B44 with B45.
+
+### R103 — B46 round 1 not merged: vault value is fungible, so the reserve return must be value-based (head, 2026-10-19)
+
+B46 round 1 (`8dad770`, `2f582ca`, `76ecdf8`) implemented the design's "eligible notes" rule. Its question 1 shows the rule is wrong: the wallet picks the inputs of every batch, so a stray's value can sit in internal change, and an internal-change-is-the-operator's rule could return a bidder's unclaimed money to the operator. The head revised `phase7-b46-reserve-return.md`: return only when nothing is owed, the vault's whole value minus the fee, inputs equal to the scanned total. Round 2 goes to the same builder on the same branch.

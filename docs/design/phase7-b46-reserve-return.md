@@ -49,3 +49,20 @@ Also: `npm run typecheck`, `check:structure`, `check:invariants`, `check:dist-re
 - Do not override the git identity. Commit `--no-verify` (R32). Commit early.
 - No mid-line `//` after code in scripted edits. Plain English comments.
 - Outputs go under `docs/evidence/phase-7/repro/`, plus a status block in `docs/STATUS-B.md`, with Questions there for anything wrong here.
+
+## Revision (head, 2026-10-19, R103): the eligible amount is value-based; source notes do not matter
+
+B46 round 1, question 1, exposed a flaw in this design's "eligible notes" rule. Vault value is **fungible**. `benzo-pczt create` lets the wallet choose the inputs of **every** batch, and hosts check outputs only (`sign approve` maps outputs to rows; `inspect` reports inputs by action index, not by note identity). So an ordinary batch can spend a bidder's stray note and return its value as internal change. Treating internal change as the operator's would then let the reserve return sweep money that belongs to a bidder, with no one acting maliciously. Checking which notes the return spends cannot fix that. Only the amount can.
+
+**The revised rule:**
+1. The reserve return is planned, and approved by a host, **only when the auction owes nothing else**, judged by each host's own derivation:
+   - every obligation row has a published receipt;
+   - no stray deposit, late-balance or excess-balance note remains unpaid, whether claimed or not (the same `strayNotes` / `refundable` / balance rules `deriveRows` uses, run without requiring a destination);
+   - no exception row is unresolved;
+   - no batch is pending.
+2. When that holds, the return pays **the vault's whole unspent value − the ZIP-317 fee** to the committed `reserve_return_ua`. The host computes the amount from its own scan, and the candidate must spend every unspent vault note: inputs total = the host's scanned unspent total, checked through `inspect`'s `input_zats`. That leaves no note behind.
+3. If anything is still owed, no return is planned. Print one line: `reserve return waits: N outstanding (strays/balances/exceptions)`. An unclaimed stray can therefore delay the return indefinitely. That is the conservative choice; disclose it in the operator guide.
+4. Verify: exactly one `reserve-return` receipt. It is accepted only when the published accounting shows nothing outstanding at that point (no unreceipted row, no published unpaid stray or balance, no open exception), and its amount equals the published remaining value minus the fee. Drop the `sources`-based accounting from round 1.
+5. Everything else in round 1 stays as it is: the manifest commitment, the create/mainnet rules, the H10-style typed refusals, the legacy line, and the docs.
+
+**Proof changes.** The fixture with a stray deposit and an unclaimed late-balance note must plan **no** return (the waits line). After the stray is refunded and the late balance paid, it plans exactly one return of the whole remaining value minus the fee. Add a case where a prior batch spent the stray's note (its value now sits in internal change) and the return is still refused while the stray is unpaid. Hosts refuse a candidate whose `input_zats` is less than their scanned unspent total, and one whose output differs from total − fee.
