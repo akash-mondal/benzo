@@ -187,7 +187,8 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const witnessSet=signRecord({version:1,auction_id:id,q_w:2,keys:witnessKeys.map(k=>k.public_hex)},readFileSync(path.join(STATE,'auction','manifest-signing.pem'),'utf8'));
     const witnessSetFile=path.join(privateDir,'witness-set.json');writeFileSync(witnessSetFile,JSON.stringify(witnessSet));
     const manifest={version:1,network:'test',auction_id:id,escrow_ua:deposit[0],frost_group_key:readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim(),lot:'CLI testnet auction',supply:3,reserve_zats:'10',tick_zats:'10',B_max_zats:'3000',q_max:1,C_zats:String(C),fee_zats:'0',deposit_addresses:deposit,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet),drand:{chain_hash:env('BNZ_DRAND_CHAIN_HASH'),public_key:env('BNZ_DRAND_PUBLIC_KEY'),scheme:'bls-unchained-g1-rfc9380',genesis:Number(env('BNZ_DRAND_GENESIS')),period:3,R},T_submit:now+5*60,T_freeze:now+22*60,confirmations:10,clearing:{mode:'uniform',band:'floor_pro_rata_units',dust:'ascending_leaf_index',tie:'ascending_leaf_index',minimum_fill:1},refund:{invalid:'full_C',reorg:'C_minus_fee_remove_leaf',cancel:'full_C'},freeze:'merkle_root_v1'};
-    const draft=good(['auction','create','--witness-set',witnessSetFile],manifest),draftStatus=good(['auction','status','--id',id]),packet=good(['auction','sign','--id',id]);
+    // H10 (B42 gate DOC): operator.json (with routing.seller_ua) also goes to `auction create`, binding the seller payout commitment.
+    const draft=good(['auction','create','--witness-set',witnessSetFile,'--config',operatorFile],manifest),draftStatus=good(['auction','status','--id',id]),packet=good(['auction','sign','--id',id]);
     const published=good(['auction','publish','--id',id,'--dir',publicDir,'--config',operatorFile]),status=good(['auction','status','--id',id]);
     const manifestFile=path.join(publicDir,'manifest.json'),signer=packet.signer;
     await run.check('O1','CLI persists signed DRAFT to OPEN',()=>{expect.soft(draft.state).toBe('DRAFT');expect.soft(draftStatus.state).toBe('DRAFT');expect.soft(status.state).toBe('OPEN');expect.soft(published.manifest.sha256).toBe(packet.sha256);expect.soft(sha(Buffer.from(packet.bytes,'base64'))).toBe(packet.sha256)});
@@ -372,7 +373,8 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     // before T_freeze); the 13-minute window lost to slow testnet blocks ('admission cutoff', run 7).
     const now2=Math.ceil(Date.now()/1000),release2=now2+33*60,R2=1+Math.ceil((release2-Number(env('BNZ_DRAND_GENESIS')))/3);
     const manifest2={...manifest,auction_id:id2,escrow_ua:deposit2[0],lot:'CLI cancelled testnet auction',supply:1,deposit_addresses:deposit2,envelope_keys:envelopeKeys,witness_set_hash:witnessSetHash(witnessSet2),drand:{...manifest.drand,R:R2},T_submit:now2+3*60,T_freeze:now2+30*60};
-    good(['auction','create','--witness-set',witnessSetFile2],manifest2);good(['auction','sign','--id',id2]);
+    // H10 (B42 gate DOC): operator.json (with routing.seller_ua) also goes to `auction create`, binding the seller payout commitment.
+    good(['auction','create','--witness-set',witnessSetFile2,'--config',operatorFile2],manifest2);good(['auction','sign','--id',id2]);
     good(['auction','publish','--id',id2,'--dir',publicDir2,'--config',operatorFile2]);
     const manifestFile2=path.join(publicDir2,'manifest.json');
     const bids2=deposit2.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile2,'--signer',signer],{price_zats:String(price+100+i),quantity:1,address,refund_ua:refund2[i],envelope_pubkey:envelopeKeys[0]}),address}));

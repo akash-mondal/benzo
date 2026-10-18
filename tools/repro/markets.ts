@@ -273,7 +273,10 @@ async function run(name: string, link?: SeriesLink) {
   await takeLock(lock, 2_400_000);
   const now = Math.ceil(Date.now() / 1000), [wSubmit, wFreeze, wRelease] = sc.windows ?? [4, 30, 33], release = now + wRelease * 60, R = 1 + Math.ceil((release - Number(env("BNZ_DRAND_GENESIS"))) / 3);
   const manifest = { version: 1, network: "test", auction_id: id, escrow_ua: k.escrow_ua, frost_group_key: k.group_key, ...(sc.lots ? { lots: sc.lots } : { lot: `${sc.mode} round` }), supply: sc.supply ?? 1, reserve_zats: "10", tick_zats: "10", B_max_zats: "3000", q_max: 1, C_zats: String(C), fee_zats: "0", deposit_addresses: deposits, envelope_keys: envelopeKeys, witness_set_hash: witnessSetHash(witnessSet), drand: { chain_hash: env("BNZ_DRAND_CHAIN_HASH"), public_key: env("BNZ_DRAND_PUBLIC_KEY"), scheme: "bls-unchained-g1-rfc9380", genesis: Number(env("BNZ_DRAND_GENESIS")), period: 3, R }, T_submit: now + wSubmit * 60, T_freeze: now + wFreeze * 60, confirmations: 10, clearing: { mode: sc.mode, band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 }, refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1", ...sc.extra({ owners, treasuryUa, fundingUa, tip: z.tip(), id, R, series: link }) };
-  benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json")], manifest);
+  // H10 (B42 gate DOC, R93): the same operator.json `auction publish` takes is passed to `auction create`, so the
+  // signed manifest carries seller_ua_commitment (the commitment is set from the config's routing.seller_ua, never
+  // typed into the manifest) and every live run exercises H10's bound path.
+  benzo(["auction", "create", "--witness-set", path.join(privateDir, "witness-set.json"), "--config", path.join(privateDir, "operator.json")], manifest);
   const packet = benzo(["auction", "sign", "--id", id]);
   benzo(["auction", "publish", "--id", id, "--dir", publicDir, "--config", path.join(privateDir, "operator.json")]);
   // The buyback's marketplace.json collection is published with the round; the signed manifest's lot label

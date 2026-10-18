@@ -3,6 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import { hash, requireThat, verifyRecord } from "../../manifest/schema";
 import { loadPublicAuction } from "../../api/public-auction";
 import { checkCertificates, freezeStatement, generateWitnessKey, signStatement, validateWitnessSet, witnessSetHash, type WitnessCert, type WitnessSet } from "../../witness";
@@ -16,7 +17,7 @@ export const verb = "";
 // Ruling R42 (F11): the `witness strays` mode and its set-equality are deleted with the closed strays
 // statement — the witness set certifies the frozen root only, and strays are attested per row at payment
 // (the approval maps of the batch that pays them).
-export const help = "benzo witness set --id AUCTION_ID --q N --keys HEX,HEX,HEX [--key private.pem] (operator: the signed witness-set record the manifest pins) | benzo witness keygen --name SIGNER (a signer host generates its own witness key; prints its public_hex) | benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate after recomputing the root from this witness's own vault scan, or check the certificates";
+export const help = "benzo witness set --id AUCTION_ID --q N --keys HEX,HEX,HEX [--key private.pem] (operator: the signed witness-set record the manifest pins) | benzo witness keygen --name SIGNER [--show] (a signer host generates its own witness key; prints its public_hex; --show prints the EXISTING public half and refuses when there is none — a key is per signer and is never replaced) | benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate after recomputing the root from this witness's own vault scan, or check the certificates";
 
 function argsOf(argv: string[]): { dir: string; signer: string; key: string; notes: string; name: string } {
   const out = { dir: "", signer: "", key: "", notes: "", name: "" };
@@ -38,9 +39,20 @@ export async function run(argv: string[]): Promise<number> {
     // §11 H5: a signer host generates its own witness key here; only the public half is printed (it goes into the
     // signed witness set). The private half never leaves this machine's state dir.
     try {
-      const o = argsOf(argv.slice(1));
+      const show = argv.slice(1).includes("--show");
+      const o = argsOf(argv.slice(1).filter(a => a !== "--show"));
       requireThat(/^[a-z]{1,16}$/.test(o.name ?? ""), "--name");
       const st = path.resolve(repoRoot(), process.env.BNZ_STATE_DIR ?? ".benzo"), f = path.join(st, "witness", `${o.name}.key`);
+      if (show) {
+        // B42 (G1): print the existing key's public half again; never generate or replace one.
+        requireThat(existsSync(f), "witness key missing (generate it once with witness keygen)");
+        const privateHex = readFileSync(f, "utf8").trim();
+        requireThat(/^[0-9a-f]{64}$/.test(privateHex), "stored witness key");
+        const key = createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), Buffer.from(privateHex, "hex")]), type: "pkcs8", format: "der" });
+        const public_hex = createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex");
+        process.stdout.write(JSON.stringify({ name: o.name, public_hex, key_file: f }) + "\n");
+        return 0;
+      }
       requireThat(!existsSync(f), "witness key already exists; refusing to replace it");
       mkdirSync(path.dirname(f), { recursive: true, mode: 0o700 });
       const k = generateWitnessKey();
