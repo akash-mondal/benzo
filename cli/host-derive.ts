@@ -4,16 +4,17 @@
 // payout amount from the result. No recipient ever comes from the coordinator.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { QUICKNET, requireThat, sellerUaCommitment } from "../manifest/schema";
+import { QUICKNET, jsonBytes, requireThat, sellerUaCommitment } from "../manifest/schema";
 import { fetchVerifiedBeacon, publishedClient } from "../cli/published-beacon";
 import { openSealedBid } from "../envelope/opening";
 import { beaconSha256, loadOpenings, saveOpenings } from "./openings-cache";
 import type { ChainClient } from "tlock-js";
 import { pcztBin, scanBin, ufvkFile, vaultDir } from "../manifest/paths";
 import { loadPublicAuction } from "../api/public-auction";
-import { verifyStatement } from "../envelope/index";
+import { openEnvelopeRefundUnchecked, verifyStatement } from "../envelope/index";
+import { classifyAddresses, useClassifyCache, type Classified } from "../envelope/destination";
 import { Destination, authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
 import { depositParty, isSlotCollision, refundable, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
@@ -126,6 +127,41 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       }
       return null;
     };
+    // B45 (H16, docs/design/phase7-b45-classify.md): the classify cache and the prefetch. The cache is this
+    // host's own computation under its own per-auction state dir (next to openings.json): every address this
+    // host classified, keyed by sha256(address), with the classifier binary's own sha256 — a different binary
+    // discards the whole file, since classification is a pure function of the address string and the binary.
+    // A missing or malformed file is a rebuild, never an error (the openings cache rule).
+    const classifyFile = path.join(cacheDir, "classify-cache.json");
+    const binSha256 = sha(readFileSync(pcztBin(root, st)));
+    const wellFormed = (c: any): boolean => !!c && typeof c === "object" && typeof c.kind === "string" && Array.isArray(c.receivers);
+    let classified: Record<string, Classified> = {};
+    try {
+      const doc = JSON.parse(readFileSync(classifyFile, "utf8"));
+      if (doc && doc.bin_sha256 === binSha256 && doc.entries && typeof doc.entries === "object" && !Array.isArray(doc.entries))
+        classified = Object.fromEntries(Object.entries(doc.entries).filter(([, c]) => wellFormed(c))) as Record<string, Classified>;
+    } catch { classified = {}; }
+    useClassifyCache({
+      get: (address) => classified[sha(Buffer.from(address, "utf8"))],
+      set: (address, c) => { classified[sha(Buffer.from(address, "utf8"))] = c; },
+    });
+    // Before the per-row loop, collect every destination the host derived — each published envelope record's
+    // and each claim's refund, opened with this signer's own key (the same derivation openDestination runs per
+    // row), plus the buyback treasury return address — and classify them with ONE classifyAddresses call (one
+    // bulk classify-address per 2,000 addresses, or zero spawns when the cache covers them). The per-row
+    // verdicts are untouched: openDestination still runs the destination rule on every row, now served by the
+    // memo, so this prefetch cannot change an answer.
+    const derived: string[] = [];
+    for (const e of (pub.envelopes ?? []) as { envelope_ct: string }[]) {
+      const refund = openEnvelopeRefundUnchecked(e.envelope_ct, key!);
+      if (refund !== null) derived.push(refund);
+    }
+    for (const c of claims as { claim_envelope_ct?: unknown }[]) {
+      const refund = typeof c.claim_envelope_ct === "string" ? openEnvelopeRefundUnchecked(c.claim_envelope_ct, key!) : null;
+      if (refund !== null) derived.push(refund);
+    }
+    if (treasuryBlock(pub.manifest)) derived.push(treasuryBlock(pub.manifest)!.treasury_ua);
+    classifyAddresses(derived);
     const expected: DerivedRow[] = [];
     const notes = await ownScan(st, root, o.id, (pub.manifest as any).network);
     const deposits = notes.filter((n: any) => pub.manifest.deposit_addresses.includes(n.address));
@@ -249,6 +285,11 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
     }
 
+    // B45: write the classify cache back (mode 0600, atomic) with this run's verdicts and the classifier
+    // binary's own sha256 — the file is this host's own computation, never packet input.
+    mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
+    writeFileSync(classifyFile + ".new", jsonBytes({ bin_sha256: binSha256, entries: classified }), { mode: 0o600 });
+    renameSync(classifyFile + ".new", classifyFile);
     return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart,
       // H10 (docs/design/phase7-h10-h11.md): the packet's seller_ua checked against the SIGNED manifest this
       // signer just verified — never against packet bytes alone. "bound" when the packet's address hashes to the

@@ -208,11 +208,8 @@ function openPadded(envelopeCtHex: string, recipientPrivateHex: string): string 
 // R19 item 1: read the payload. A plain-UA plaintext (v1) is read as {refund}; a `{`-leading plaintext
 // must be exactly the v2 shape. `deliver` is returned unformat-validated — every use runs
 // `requireDeliver` (seal did already; a tampered sealer is refused at use, e.g. into the exception queue).
-function parseEnvelopePayload(text: string, network: string): EnvelopePayload {
-  if (!text.startsWith("{")) {
-    requireShieldedDestination(text, network);
-    return { refund: text };
-  }
+function envelopeRefund(text: string): EnvelopePayload {
+  if (!text.startsWith("{")) return { refund: text };
   let doc: any;
   try { doc = JSON.parse(text); } catch { requireThat(false, "envelope payload"); doc = null; }
   const keys = doc !== null && typeof doc === "object" && !Array.isArray(doc) ? Object.keys(doc).sort() : null;
@@ -221,8 +218,20 @@ function parseEnvelopePayload(text: string, network: string): EnvelopePayload {
       (keys.join(",") === "refund,v" || (keys.join(",") === "deliver,refund,v" && doc.deliver !== null && typeof doc.deliver === "object" && !Array.isArray(doc.deliver))),
     "envelope payload v2",
   );
-  requireShieldedDestination(doc.refund, network);
   return doc.deliver === undefined ? { refund: doc.refund } : { refund: doc.refund, deliver: doc.deliver as DeliverInput };
+}
+function parseEnvelopePayload(text: string, network: string): EnvelopePayload {
+  const payload = envelopeRefund(text);
+  requireShieldedDestination(payload.refund, network);
+  return payload;
+}
+// B45 (H16, docs/design/phase7-b45-classify.md): the host prefetch (cli/host-derive.ts) opens every
+// envelope record ahead of the per-row loop to collect the destinations it then classifies in ONE bulk
+// call. This is that prefetch-only opener: the envelope's own key check and payload shape, but NO
+// destination rule. It is total (null on anything unopenable) and decides nothing: every payment
+// verdict still comes from openDestination below, which runs the unchanged rule on the same plaintext.
+export function openEnvelopeRefundUnchecked(envelopeCtHex: string, recipientPrivateHex: string): string | null {
+  try { return envelopeRefund(openPadded(envelopeCtHex, recipientPrivateHex)).refund; } catch { return null; }
 }
 export function openEnvelopePayload(envelopeCtHex: string, recipientPrivateHex: string, network: string): EnvelopePayload {
   return parseEnvelopePayload(openPadded(envelopeCtHex, recipientPrivateHex), network);

@@ -15,7 +15,7 @@ import { repoRoot } from "../manifest/root";
 export type DestinationKind = "sapling" | "unified" | "transparent" | "tex" | "other";
 export type DestinationNetwork = "main" | "test" | "regtest";
 export type Destination = { kind: DestinationKind; shielded: boolean; network: DestinationNetwork | null };
-type Classified = {
+export type Classified = {
   kind: "unified" | "sapling" | "transparent" | "tex" | "sprout" | "other" | "invalid_unified";
   network: DestinationNetwork | null;
   receivers: { typecode: number; data_hex: string }[];
@@ -29,12 +29,65 @@ function pcztBin(): string {
   return path.join(root, "settle", "target", "release", "benzo-pczt");
 }
 
+// B45 (H16, docs/design/phase7-b45-classify.md): one classifier entry point with an in-process memo
+// keyed by the EXACT address string. classifyAddresses(list) answers every entry from the memo, and
+// sends only the misses to the tool — one bulk `classify-address --stdin` call per chunk of up to 2,000
+// addresses. classifyAddress(one) is a thin wrapper over it, so every caller (classifyDestination,
+// unifiedReceivers, isUnifiedOn, isUnifiedOrchardOn) gets identical answers.
+//
+// Under the memo a signer host can install its own disk cache (cli/host-derive.ts, classify-cache.json):
+// both are pure memos — a verdict is only ever the classifier's own output for that exact address string,
+// so serving one from a memo or cache can never change an answer (proven in tools/repro/b45-classify.ts).
+const memo = new Map<string, Classified>();
+export type ClassifyCache = {
+  get(address: string): Classified | undefined;
+  set(address: string, classified: Classified): void;
+};
+let classifyCache: ClassifyCache | null = null;
+export function useClassifyCache(cache: ClassifyCache | null): void {
+  classifyCache = cache;
+}
+
+// Addresses whose bytes the line protocol cannot carry (a newline or carriage return) are classified
+// through the single-address form, exactly as before this batch — the bulk input is line-based, so a
+// multi-line string would split into the wrong inputs and change its verdict.
+const BULK_CHUNK = 2000;
+export function classifyAddresses(list: string[]): Classified[] {
+  const out: (Classified | undefined)[] = new Array(list.length);
+  const misses = new Map<string, number[]>();
+  for (const [i, destination] of list.entries()) {
+    requireThat(typeof destination === "string" && destination.length > 0, "destination");
+    const known = memo.get(destination) ?? classifyCache?.get(destination);
+    if (known) { memo.set(destination, known); out[i] = known; continue; }
+    const at = misses.get(destination);
+    if (at) at.push(i);
+    else misses.set(destination, [i]);
+  }
+  const record = (destination: string, c: Classified): void => {
+    requireThat(c && typeof c === "object" && typeof c.kind === "string" && Array.isArray(c.receivers), "classify-address output");
+    memo.set(destination, c);
+    classifyCache?.set(destination, c);
+    for (const i of misses.get(destination) ?? []) out[i] = c;
+  };
+  const bulk: string[] = [], single: string[] = [];
+  for (const destination of misses.keys()) (/\r|\n/.test(destination) ? single : bulk).push(destination);
+  for (const destination of single) {
+    const text = execFileSync(pcztBin(), ["classify-address", destination], { encoding: "utf8" });
+    record(destination, JSON.parse(text) as Classified);
+  }
+  for (let at = 0; at < bulk.length; at += BULK_CHUNK) {
+    const chunk = bulk.slice(at, at + BULK_CHUNK);
+    const text = execFileSync(pcztBin(), ["classify-address", "--stdin"], { input: chunk.join("\n") + "\n", encoding: "utf8" });
+    const lines = text.split("\n");
+    if (lines.at(-1) === "") lines.pop();
+    requireThat(lines.length === chunk.length, "classify-address output");
+    chunk.forEach((destination, j) => record(destination, JSON.parse(lines[j]) as Classified));
+  }
+  return out as Classified[];
+}
+
 function classifyAddress(destination: string): Classified {
-  requireThat(typeof destination === "string" && destination.length > 0, "destination");
-  const out = execFileSync(pcztBin(), ["classify-address", destination], { encoding: "utf8" });
-  const c = JSON.parse(out) as Classified;
-  requireThat(c && typeof c === "object" && typeof c.kind === "string" && Array.isArray(c.receivers), "classify-address output");
-  return c;
+  return classifyAddresses([destination])[0];
 }
 
 // The UA container's receiver set (ZIP 316 items, in encoded order) — what the address actually names. The signer
