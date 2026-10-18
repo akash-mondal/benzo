@@ -136,6 +136,156 @@ to the base commit's (canonical JSON, both N); classify-cache shape
    code, so the merge should be clean; `cli/host-derive.ts` diff is confined to the prefetch block + cache
    load/save around the destination loops.
 
+## Batch B46 (Builder B, branch `b46-reserve-return`, from `8e39c14`) — H15: the unused fee reserve returns (mainnet blocker)
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live
+Playwright). Spec: `docs/design/phase7-b46-reserve-return.md`. Worktree `/Users/akshmnd/Dev Projects/benzo-b46`.
+Two commits, both `--no-verify` (R32: `check:bundle` cannot pass in a worktree): `8dad770` (the product change)
+and `2f582ca` (the proof, the folds, the docs; this bookkeeping block follows in the third).
+
+**The manifest field and the create rules.** New optional signed-manifest field
+`reserve_return_ua_commitment` — 64 hex chars, `sha256("benzo-reserve-return-ua-v1\0" || utf8(ua))`, computed
+by the one function `reserveReturnUaCommitment` next to `sellerUaCommitment` (`manifest/schema.ts:61`), added to
+`validateManifest` with the exact shape (64 lowercase hex) and to the template + field table. `auction create
+--config` sets it from `routing.reserve_return_ua` under H4's rule (a unified address on the manifest's own
+network with a shielded Orchard/Ironwood receiver; a Sapling-only UA is refused) and refuses a manifest whose
+field differs from the routing value (`cli/product.ts` create). **Mainnet `auction create` refuses a manifest
+without it** (`mainnet manifest must carry reserve_return_ua_commitment (H15)`) — without the commitment no host
+could check the return destination. `routing.reserve_return_ua` joins `docs/examples/private-operator.json` and
+the guide.
+
+**The eligible-source rule** (the safety rule, one shared function everyone calls):
+`settle/deposits.ts:93` `reserveReturnSources(notes, manifest, fee_reserve_ua, isInternal)` — a vault note is
+eligible only when it is unspent, of positive value, and **either** at an internal (change) address of this vault
+(`benzo-pczt owns` = `internal`, the same scope rule `settle/src/main.rs` uses to mark change) **or** at the
+config's `fee_reserve_ua` while not being one of the absolutely excluded addresses. A note at any manifest
+deposit address, bond balance address, escrow or buyback treasury address is **never** a source — even when a
+lying packet points `fee_reserve_ua` at one of them (`rule-stray-never-even-as-fee-reserve`,
+`rule-late-never-even-as-fee-reserve`), and even when nobody has claimed it. `reserveSourceId` (deposits.ts:109)
+and `reserveReturnFee` (deposits.ts:115, the ZIP-317 fee of the one-row transaction: `5,000 × max(2, sources)`,
+`settle/src/main.rs`'s standard_fee shape) sit beside it.
+
+**The row.** `settle/plan.ts` plans one final `reserve-return` row — the last batch, alone (`settle/cli.ts`
+refuses a batch that mixes it with any other row) — and only when (1) the manifest commits the return UA (a
+legacy manifest plans no row and prints one line, `WARN the reserve stays in the vault (legacy, H15)`), (2) every
+obligation row of the plan has a receipt in the published dir, (3) no batch is pending (the plan reads the local
+ledger's batches), and (4) the eligible sources sum to more than the one-row fee. The row pays `sum − fee` to
+`routing.reserve_return_ua` and its sources are exactly the eligible notes. `benzo settle` runs it automatically:
+the row needs **published** receipts, so the command runs one extra worker pass after its publish (the pass is
+best-effort: a failing return prints `ERROR reserve-return pass exited …; the reserve stays in the vault until
+the next benzo settle` and never fails the already-successful settlement).
+
+**The host checks** (one new function `deriveReserveReturn`, `cli/host-derive.ts:288`, called from `sign build`,
+`sign approve` and `sign derivable` before their other derivations — `deriveRows` itself is untouched, so this
+merges cleanly with B45; `envelope/destination.ts` untouched): 1) the packet's `reserve_return_ua` hashes to the
+manifest commitment, else the row is refused typedly (`exit 3`, `refused-rows ["reserve-return"]`, like H10);
+2) every source the packet names is, by **this host's own vault scan and its own `owns` scope verdicts**, a note
+at the config's `fee_reserve_ua` or an internal change address (the rule above), and the sources are exactly the
+eligible notes; 3) every obligation row has a receipt in the packet's published dir (a row parked in the
+exception queue is never paid by this row); 4) the single output is to that UA for `sum − fee` (the host's own
+sum and fee). A legacy manifest refuses any packet carrying the row. Refusals name the offending source
+(`… source ffb1d8ff… is not an eligible note …`).
+
+**The verify accounting change** (`api/public-auction.ts` `accounting-strays` + `SETTLEMENT_TRUST`): the
+published settlement may carry `reserve_return: {sources, eligible_zats, fee_zats}` — counts and amounts only,
+the destination itself is never published, only the manifest commitment. Verify accepts **exactly one**
+`reserve-return` receipt, only together with that accounting (a receipt without it is refused), only when every
+other non-exception row is receipted ("only after all obligation receipts"), and only for the published
+accounting's numbers: `fee_zats` must equal the ZIP-317 fee of the published source count and the amount must
+equal `eligible_zats − fee_zats` (`verify-refuses-forged-second-receipt`:
+`ERROR accounting-strays refused: duplicate reserve-return receipt`). The receipt is published like the others
+(party `reserve-return`) and rides the existing two-agreeing-host-maps attestation. New settlement field ⇒ its
+`SETTLEMENT_TRUST` entry (`derived`, enforced by `accounting-strays`), so the trust registry still forbids an
+unverified field.
+
+**Red/green per proof case** (`docs/evidence/phase-7/repro/b46-reserve-return-{before,after}.out`; red = base
+bundles built from pristine `8e39c14` sources BEFORE any B46 edit under `tmp/b46/base-src/`; green = this tree;
+fixture: a settled auction document with real tlock openings, its vault holding the fee-reserve change (35,000
+zats, internal), a stray deposit (500,000) and an unclaimed late-balance note (499,999)):
+
+- **red on base (no row; the change stranded)** — `red-plan-no-row-change-stranded`: the base plan settles
+  everything and plans NO row; 35,000 zats of eligible notes stay in the vault. `red-plan-bound-manifest-
+  unreadable`: the base manifest schema cannot even represent `reserve_return_ua_commitment`
+  (`ERROR settle refused: unknown or missing manifest field`). 2/2 PASS.
+- **green plan** — `plan-one-reserve-return-row` + `plan-amount-is-sum-minus-fee` (35,000 − 10,000 = 25,000) +
+  `plan-sources-reserve-change-only` (sources = exactly the reserve change note) + `plan-stray-and-late-
+  untouched`. `OBSERVE plan-reserve-return {"amount_zats":"25000","eligible_zats":"35000","fee_zats":"10000",
+  …,"sources":["75c3d9a4…:ironwood:0"]}`.
+- **green hosts approve** — `sign-build-honest-passes` (built to the committed return UA),
+  `sign-derivable-honest-lists-row`, `sign-approve-honest-passes` (approval recorded).
+- **green hosts refuse** — wrong return UA: `sign-{build,approve,derivable}-wrong-return-ua-refused`; the stray
+  added as a source: `sign-{build,approve}-stray-source-refused` (typed, naming the stray note); a return before
+  all receipts exist: `sign-build-return-before-receipts-refused` (`obligation row seller has no published
+  receipt`); a legacy packet: `sign-build-legacy-packet-refused`. All `exit 3`, `refused-rows ["reserve-return"]`.
+- **green legacy** — `plan-legacy-no-row` + `plan-legacy-line` (printed exactly once).
+- **green create** — `create-sets-commitment-from-routing`, `create-refuses-sapling-only-reserve-return-ua`
+  (H4), `create-mainnet-requires-reserve-commitment` (H15), `create-mainnet-with-commitment-passes-h15-rule`
+  (then refused by the network lock).
+- **green verify** — `verify-accepts-settled`, `verify-accepts-returned` (19 OK lines),
+  `verify-refuses-forged-second-receipt`, `verify-refuses-receipt-without-accounting`.
+- **units/rule** — `unit-commitment-known-answer` (independent recomputation over the `\0`-prefixed domain),
+  `unit-commitment-domain-separated`, five schema-shape cases, six `rule-*` cases (the absolute deposit/balance
+  exclusion incl. the lying `fee_reserve_ua` cases; `rule-eligible-exactly-reserve-and-change`; the fee formula).
+
+38/38 green, 2/2 red, 0 FAIL both sides.
+
+**Commands run** (worktree `/Users/akshmnd/Dev Projects/benzo-b46`): `git worktree add ../benzo-b46 -b
+b46-reserve-return 8e39c14` OK; worktree-local `cp .env.example .env` + `npm ci` OK (pinned lockfile);
+`tools/nu7/build.sh crates vendor/nu7 zcash_protocol-0.10.5 zcash_primitives-0.30.1 pczt-0.9.3` OK (sha256-
+checked); `cargo build --release --locked --manifest-path settle/Cargo.toml` OK (`Finished release`, the real
+classifier — unchanged by this batch); base bundles from `git archive 8e39c14` BEFORE any edit (`cli/build.mjs`,
+`settle/plan.mjs`, `clear/dist/{cli,auction}.mjs`); green bundles `npm run build:core && npm run build:settle &&
+npm run build:cli`; Go `tle` v1.2.0 + `grpcurl` v1.9.3 (tools/pins.env tags) built into the worktree's own
+`.benzo/bin` for e2e. Gates: `npm run typecheck` PASS; `check:structure` `OK (210 files)`; `check:invariants`
+`{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2; `check:dist-require` OK; `npm run e2e` `PASSED default seal in the
+browser, open with tle after R (39 s)`. `check:bundle` not run (worktree, R32). **Folds all green** (raw outputs
+`docs/evidence/phase-7/repro/*-b46*`): `h10-seller-binding` 22/22 (one fold-machinery line added — see Q4),
+`h13-host-scale` both legs PASS (8/27; its base leg replays the `e821ba0` bundles built via `git archive`),
+`h14-open-griefing` both legs PASS (12/14), `b44-opener` both legs PASS (25/29; base bundles from `d646ceb`).
+
+**Deviation note (fold machinery only):** `tools/repro/h-fixtures.ts` gained three additive helpers for this
+batch's fixtures — a `reserve_commitment` option on `buildAuction` (sets the new manifest field before signing),
+a `witnessPrivate(tag)` export (so a repro can sign the envelope-opens reports and approval maps the fixture's
+checks accept) and a fixture-driven `internal_addresses` verdict in the stubbed `benzo-pczt owns` (every fixture
+without it sees the old always-`external` behaviour). No existing case changed.
+
+## Questions (B46)
+
+1. **The row's sources do not bind the built transaction's inputs (design gap, wallets).** The four host checks
+   are implemented exactly as designed and bind the packet's declared sources and the single output; but
+   `benzo-pczt create`'s greedy input selection chooses the candidate's actual inputs, so a wallet that pulls a
+   stray note into an inputs set returns it as internal change (value preserved, but the stray's note identity is
+   spent and a later claim has no backing note). The design's eligible-source rule protects unspent strays
+   exactly; the mixing case is the one hole. Two possible tightenings, wanted? (a) have `benzo-pczt inspect`
+   report each input's note identity (the PCZT spend carries recipient/rseed/rho) and require inputs ≡ sources;
+   (b) a cheaper host-side `input_zats === sum(sources)` check, which catches the mixing case but also refuses an
+   honest build whose wallet happened to over-select. Implemented as designed, nothing speculative added.
+2. **A `fee_reserve_ua` configured as a deposit address has no eligible note at all.** The design's absolute
+   sentence ("A note at any deposit or balance address is never a source of the return") conflicts with the
+   phrase "the fee-reserve note(s), meaning notes received at `routing.fee_reserve_ua`, the deposit address the
+   manifest-signed config names" when those are the same address (the b40/b42 harness shapes use
+   `depositAddresses[1]` as `fee_reserve_ua`; the live flows — markets, y2, gate DOC — use a fresh vault address,
+   matching R97). I enforced the absolute rule: a deposit/balance-address note is never a source even when
+   `fee_reserve_ua` names it (the plan prints nothing and the reserve stays). If `fee_reserve_ua` is meant to be
+   an explicit exception to the deposit-address exclusion, say so and it becomes a one-line change in
+   `reserveReturnSources`.
+3. **Host-side "every obligation row has a published receipt" reads the published rows** (every non-exception
+   row must be receipted; every mode-obligation party needs a receipt or a published exception row — parked rows
+   like the proof's unclaimed stray/late notes must not block the return). The plan's own gate is stricter (its
+   exact obligation set must be receipted). Residual: a coordinator that parks a payable obligation row as an
+   `exception` row in the published document could get a return planned while that row is unpaid (the row's money
+   lives in deposit/balance notes the return cannot touch, so nothing is misdirected; only Q1's mixing case
+   couples them). A sharpening (the host compares only the rows *it* derives as payable) is possible if wanted.
+4. **One line of fold machinery changed (`tools/repro/h10-seller-binding.ts`).** Its bound fixture now carries
+   **both** address commitments (a B46-era manifest does), because its `create-mainnet-with-commitment-passes-
+   h10-rule` case would otherwise trip B46's new mainnet rule and no longer reach the network lock. No
+   expectation or check was changed (22/22 as before); confirm acceptable.
+5. **The settle worker's reserve-batch wiring is compiled and type-checked but has no offline end-to-end proof**
+   (the coordinator batch loop only runs live, with `orb`/frostd): the pin-alone path, the `hostBuild`/`hostSign`
+   packet fields and the non-custody `destinations`/`check` branch for the row. The row's planning, all host
+   checks and the verify accounting are proven offline above; a live testnet walkthrough (guide step 7.6) is the
+   head's run. Also recorded there: `dist/benzo-verify.mjs` + `docs/verify-bundle.sha256` are NOT rebuilt or
+   committed here (R32) — the head rebuilds at merge.
 
 ## Batch B42 (Builder B, branch `b42-hosts-cli`, from `96ce0f5`) — gate DOC: `benzo hosts` commands, guides with every handoff written down
 
