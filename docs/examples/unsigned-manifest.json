@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "network": "test",
+  "auction_id": "<AUCTION_ID: 64 hex chars, the --id of every command>",
+  "escrow_ua": "<ESCROW_UA: printed by auction keys>",
+  "frost_group_key": "<FROST_GROUP_KEY: printed by auction keys>",
+  "lot": "<LOT LABEL: free text, e.g. uniform round>",
+  "supply": "<SUPPLY: units on offer; the harness scenario uses 1>",
+  "reserve_zats": "<RESERVE_ZATS: decimal zatoshis; the harness scenario uses 10>",
+  "tick_zats": "<TICK_ZATS: decimal zatoshis; the harness scenario uses 10>",
+  "B_max_zats": "<B_MAX_ZATS: per-bid cap in decimal zatoshis; the harness scenario uses 3000>",
+  "q_max": "<Q_MAX: max quantity per bid; the harness scenario uses 1>",
+  "C_zats": "<C_ZATS: collateral per bid in decimal zatoshis; the harness scenario uses 200000>",
+  "fee_zats": "<FEE_ZATS: decimal zatoshis; the harness scenario uses 0>",
+  "deposit_addresses": [
+    "<ESCROW_UA again: deposit slot 0 is the escrow UA from auction keys>",
+    "<DEPOSIT_UA_1: auction addresses>",
+    "<DEPOSIT_UA_2: auction addresses>"
+  ],
+  "envelope_keys": [
+    "<ENVELOPE_KEY_ALICE: alice's sign envelope-key public half>",
+    "<ENVELOPE_KEY_BOB: bob's sign envelope-key public half>",
+    "<ENVELOPE_KEY_CAROL: carol's sign envelope-key public half>"
+  ],
+  "witness_set_hash": "<WITNESS_SET_HASH: printed by witness set>",
+  "drand": {
+    "chain_hash": "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971",
+    "public_key": "83cf0f2896adee7eb8b5f01fcad3912212c437e0073e911fb90022d3e760183c8c4b450b6a0a6c3ac6a5776a2d1064510d1fec758c921cc22b0e17e63aaf4bcb5ed66304de9cf809bd274ca73bab4af5a6e9c76a4bc09e76eae8991ef5ece45a",
+    "scheme": "bls-unchained-g1-rfc9380",
+    "genesis": 1692803367,
+    "period": 3,
+    "R": "<R: printed by drand round --at <release instant>>"
+  },
+  "T_submit": "<T_SUBMIT: unix seconds, the bid deadline>",
+  "T_freeze": "<T_FREEZE: unix seconds, the freeze deadline>",
+  "confirmations": 10,
+  "clearing": {
+    "mode": "uniform",
+    "band": "floor_pro_rata_units",
+    "dust": "ascending_leaf_index",
+    "tie": "ascending_leaf_index",
+    "minimum_fill": 1
+  },
+  "refund": {
+    "invalid": "full_C",
+    "reorg": "C_minus_fee_remove_leaf",
+    "cancel": "full_C"
+  },
+  "freeze": "merkle_root_v1"
+}

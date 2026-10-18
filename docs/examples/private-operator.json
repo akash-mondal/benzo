@@ -1,0 +1,16 @@
+{
+  "settlement": {
+    "signers": ["alice", "bob"],
+    "batch_cap": 13,
+    "pczt_expiry_blocks": 364
+  },
+  "routing": {
+    "bidders": [
+      { "deposit_ua": "<DEPOSIT_UA_0: the manifest's deposit_addresses[0]>" },
+      { "deposit_ua": "<DEPOSIT_UA_1: the manifest's deposit_addresses[1]>" },
+      { "deposit_ua": "<DEPOSIT_UA_2: the manifest's deposit_addresses[2]>" }
+    ],
+    "seller_ua": "<SELLER_UA: where sale proceeds go; auction addresses>",
+    "fee_reserve_ua": "<FEE_RESERVE_UA: the fee-reserve deposit address; auction addresses>"
+  }
+}

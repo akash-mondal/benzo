@@ -1,31 +1,93 @@
 # Operator guide
 
 Runbook for running one Benzo auction. Commands checked against `bin/benzo --help` and each
-command's `--help` at commit `37ac903`, 2026-10-05 (34 invocations, transcript `tmp/guide-help.txt`,
-scratch). `benzo` is `bin/benzo` in the checkout. Testnet
+command's `--help` at commit `79004a7` plus this commit's help fixes, 2026-10-18 (40 invocations,
+transcript `tmp/guide-help.txt`, scratch). `benzo` is `bin/benzo` in the checkout. Testnet
 only. Private key material stays under `$BNZ_STATE_DIR`; never print it.
 
-1. **Create the auction.** Under host custody, first run the auction's own DKG on the three signer
-   hosts (`benzo sign dkg` on each — see `docs/guide-signer.md`), then derive this auction's keys
-   from the three reported group keys. On signer hosts the same command imports the operator's UFVK
-   (`--ufvk FILE`) so every host keeps its own view-only vault:
+1. **Create the auction.** Every input below is produced by the CLI alone. Under host custody, first
+   run the auction's own DKG on the three signer hosts (`benzo sign dkg` on each — see
+   `docs/guide-signer.md`). Then, in order:
 
-   ```text
-   $ benzo auction keys --id AUCTION_ID --group-keys KEY,KEY,KEY [--ufvk FILE]
-   ```
+   1. **This auction's keys.** Derive them from the three reported group keys. On signer hosts the
+      same command imports the operator's UFVK (`--ufvk FILE`) so every host keeps its own view-only
+      vault:
 
-   It refuses disagreeing, reused or global group keys and prints `{group_key, escrow_ua}`. Pin
-   both in the manifest. Prepare the unsigned manifest (auction id, collateral C, deposit
-   addresses, deadlines, the drand quicknet round R, `envelope_keys` from the three signers, and
-   `witness_set_hash`), then create it. A manifest without the three pinned `envelope_keys` or
-   without `witness_set_hash` is refused.
+      ```text
+      $ benzo auction keys --id AUCTION_ID --group-keys KEY,KEY,KEY [--ufvk FILE]
+      ```
 
-   ```text
-   $ benzo auction create --file unsigned-manifest.json [--witness-set FILE]
-   ```
+      It refuses disagreeing, reused or global group keys and prints `{group_key, escrow_ua}`.
 
-   `--witness-set` is the signed witness-set side-packet the manifest's `witness_set_hash` commits
-   to. Output: the `auction_id` (64 hex chars) and `state: DRAFT`.
+   2. **The public addresses.** Deposit slot 0 is the escrow UA from the previous step; every other
+      deposit slot, the fee-reserve deposit address and the seller destination is a fresh address of
+      the same vault. These are public deposit/escrow addresses — the signed manifest publishes
+      them:
+
+      ```text
+      $ benzo auction addresses --id AUCTION_ID --count N
+      ```
+
+      Output: `{auction_id, addresses}` — N fresh shielded addresses. Count what you still need:
+      one per deposit slot beyond slot 0, plus the fee reserve and the seller address.
+
+   3. **From the signers:** the three `envelope_keys` (each signer runs `benzo sign envelope-key
+      --name SIGNER`, which prints its public half) and the three witness keys (each signer runs
+      `benzo witness keygen --name SIGNER`, which prints `public_hex`).
+
+   4. **The witness set.** Pin the q-of-n witness board in a signed side-packet:
+
+      ```text
+      $ benzo witness set --id AUCTION_ID --q N --keys HEX,HEX,HEX [--key private.pem]
+      ```
+
+      It builds and signs `{version: 1, auction_id, q_w, keys}` with the manifest-signing key (the
+      same key `auction sign` uses), writes the record to
+      `$BNZ_STATE_DIR/run/witness-set-<AUCTION_ID>.json` and prints `{file, witness_set_hash}`. It
+      refuses a `q` outside `1..keys.length`, duplicate keys and malformed keys.
+
+   5. **The drand round R.** Pick the release instant and ask for its quicknet round:
+
+      ```text
+      $ benzo drand round --at <ISO-8601 UTC>
+      ```
+
+      Output: `{round, release_utc}` — the first pinned-quicknet round releasing at or after that
+      instant (R = 1 + ceil((release − genesis) / 3)); `release_utc` is that round's exact release
+      instant. Put `round` into the manifest's `drand.R`, and place `T_submit`/`T_freeze` before it.
+
+   6. **Fill the template.** `docs/examples/unsigned-manifest.json` is exactly the object
+      `auction create` takes — every field, in the harness's order — with the per-auction values in
+      angle brackets:
+
+      | field | meaning | value comes from |
+      |---|---|---|
+      | `version` | manifest format | always `1` |
+      | `network` | chain family | always `"test"` (testnet) |
+      | `auction_id` | this auction's id | you choose 64 hex chars; it is the `--id` everywhere |
+      | `escrow_ua` | the auction vault's escrow address | `auction keys` output |
+      | `frost_group_key` | the 2-of-3 FROST group key | `auction keys` output |
+      | `lot` | round label (free text) | you choose it |
+      | `supply`, `reserve_zats`, `tick_zats`, `B_max_zats`, `q_max`, `C_zats`, `fee_zats` | units on offer; reserve price, tick, per-bid cap and quantity, collateral and fee (decimal zatoshis) | you choose them |
+      | `deposit_addresses` | one address per bid slot (slot 0 is the escrow UA) | slot 0 from `auction keys`; the rest from `auction addresses` |
+      | `envelope_keys` | the three signers' X25519 envelope public keys, in signer order | each signer's `benzo sign envelope-key` |
+      | `witness_set_hash` | commitment to the signed witness set | `witness set` output |
+      | `drand.chain_hash`, `drand.public_key`, `drand.scheme`, `drand.genesis`, `drand.period` | the pinned quicknet parameters | fixed — `auction create` refuses any other value |
+      | `drand.R` | the release round | `drand round` output |
+      | `T_submit`, `T_freeze` | bid and freeze deadlines (unix seconds) | you choose them: `T_submit` < `T_freeze`, at least 750 s apart, and `T_freeze` before the round's `release_utc` |
+      | `confirmations`, `freeze` | maturity confirmations and the freeze commitment | always `10` and `"merkle_root_v1"` |
+      | `clearing` | the uniform clearing rules | fixed — the uniform-mode rules |
+      | `refund` | the refund policies | fixed |
+
+   7. **Create it.** A manifest without the three pinned `envelope_keys` or without
+      `witness_set_hash` is refused:
+
+      ```text
+      $ benzo auction create --file unsigned-manifest.json [--witness-set FILE]
+      ```
+
+      `--witness-set` is the `file` printed by `witness set` — the signed side-packet the manifest's
+      `witness_set_hash` commits to. Output: the `auction_id` (64 hex chars) and `state: DRAFT`.
 
 2. **Sign the manifest.** The local receipt key signs the manifest. With no `--key` the key is
    generated and kept under `$BNZ_STATE_DIR`.
@@ -34,9 +96,10 @@ only. Private key material stays under `$BNZ_STATE_DIR`; never print it.
    $ benzo auction sign --id ID [--key private.pem]
    ```
 
-3. **Publish.** The private operator config supplies `settlement` (`batch_cap` 1–28,
-   `pczt_expiry_blocks` 1–10000) and `routing` (`seller_ua`, `fee_reserve_ua`; there is no
-   `stray_refund_ua` — stray refunds are never operator-chosen).
+3. **Publish.** The private operator config (`docs/examples/private-operator.json`) supplies
+   `settlement` (`signers`, `batch_cap` 1–28, `pczt_expiry_blocks` 1–10000) and `routing`
+   (`bidders[].deposit_ua` — the manifest's deposit addresses in order, `seller_ua`,
+   `fee_reserve_ua`; there is no `stray_refund_ua` — stray refunds are never operator-chosen).
 
    ```text
    $ benzo auction publish --id ID --dir public-dir --config private-operator.json
@@ -77,8 +140,9 @@ only. Private key material stays under `$BNZ_STATE_DIR`; never print it.
    $ benzo cancel --id ID
    ```
 
-8. **Record and settle refund claims.** A request carries `party` (`leaf:N` or
-   `deposit:TXID:DI`), `claim_envelope_ct` and `owner_sig`. Only the first claim whose owner
+8. **Record and settle refund claims.** A request carries `party` (`leaf:N`,
+   `deposit:TXID:POOL:INDEX`, `balance-late:TXID:POOL:INDEX` or `balance-excess:LEAF`),
+   `claim_envelope_ct` and `owner_sig`. Only the first claim whose owner
    signature verifies is paid; anything unresolvable becomes an exception row and the batch
    proceeds. `--defer` records without settling.
 
@@ -139,7 +203,7 @@ only. Private key material stays under `$BNZ_STATE_DIR`; never print it.
 
     ```text
     $ benzo xchain lock --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL --escrow ADDR [--asset 0xADDR]
-    $ benzo xchain release --chain evm|solana --attestation FILE --attestation FILE --key CRANK.key --rpc URL [--only 0,2] [--submit-only] [--stipend WAD] [--announcer ADDR]
+    $ benzo xchain release --chain evm|solana (--bundle FILE | --attestation FILE --attestation FILE ...) --key FILE --rpc URL [--only 0,2] [--submit-only] [--stipend WAD] [--announcer ADDR]
     $ benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR
     $ benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]
     ```
