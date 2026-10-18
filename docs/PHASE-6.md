@@ -540,3 +540,13 @@ B40 (`ae7219d`, `bbeaf19`, `a02de11`) adds `benzo witness set`, `auction address
 ### R92 — Gate DOC: paper walkthrough → batch B42 (head, 2026-10-18)
 
 The head mapped every operator, signer and bidder guide step to what the live harness does. It found eight gaps (G1–G8, `docs/design/phase6-doc-b42.md`). The worst is that two custody steps exist only in the harness, which edits JSON directly: merging the hosts' witness certificates and filing the hosts' envelope-opening reports. The others are a wrong step order (witness before freeze), the undocumented fee-reserve funding, the two `deposit.json` shapes, private files that must live under `$BNZ_STATE_DIR`, per-signer keys described as per-auction, and the host vault sync. B42 moves `e2e/lib/hosts.ts` into a `benzo hosts …` command group that the harness also uses, and fixes the guides. The live walkthrough runs after B39 and B42 merge. The hosts are provisioned again at that commit, because B39 changes host code.
+
+### R93 — Phase 7 B39 merged: H10 and H11 closed; H14 found (head, 2026-10-18)
+
+B39 is on main (`aa0229e` H10, `787fab6` H11). The verify bundle was rebuilt: `7eda2871…`. On main, the head re-ran the H10 repro (RESULT PASS), the H11 repro before and after (both RESULT PASS, including the byte-identical opened set), `npm run check` and `npm run e2e`. The verify guide's example still prints 19 OK lines. Head rulings on B39's questions:
+1. Accepted.
+2. `auction create --config` is the plumbing. The live harness and the operator guide wire it in B42, and the live proof runs after that.
+3. Exit 3 with named rows is accepted.
+4. and 5. Accepted.
+
+**H14 (P1, new; it predates B39):** a bidder can stop any open with a malformed-but-admitted ciphertext (`phase7-hardening.md` H14). It goes to the next builder batch after B42.

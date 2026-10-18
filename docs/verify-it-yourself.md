@@ -9,9 +9,9 @@ directory's own `signer.json` only says what it claims.
 
 ```text
 $ shasum -a 256 dist/benzo-verify.mjs
-96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913  dist/benzo-verify.mjs
+7eda287168fa5a2cce10237d057aa1b6eb056edd3dd8c8539acf78b4d0aae554  dist/benzo-verify.mjs
 $ cat docs/verify-bundle.sha256
-96886226676422890db98f87b30d4e65c25ba0b022b3e39c0353443dfb4e8913  dist/benzo-verify.mjs
+7eda287168fa5a2cce10237d057aa1b6eb056edd3dd8c8539acf78b4d0aae554  dist/benzo-verify.mjs
 ```
 
 They must match (the hash above is the one at this writing; the committed file is the reference). The build is reproducible: `npm run build:verify` regenerates the same bytes.
