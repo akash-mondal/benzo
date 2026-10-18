@@ -639,3 +639,16 @@ Report: `benzo-sol/reports/pr-p7-b39-b43.md`. It confirms H10 is solid on every 
 Each one stops open, verify or settlement for everyone. B43 did not meet its own contract ("throws only for problems that are not the leaf's"). The fix is batch B44 (`docs/design/phase7-b44-opener-fix.md`): the opener never throws on a leaf or memo, and admission checks the G2 point.
 
 The P2 (verify cannot reproduce a reorg row; pre-existing) is H17. The P3s are H18. **H14 is reopened until B44 merges.**
+
+### R101 — Gate SC re-measure after B43: per-batch host work about 7× faster and flat; H16 upgraded to P1 (head, 2026-10-19)
+
+Live scale-55 at `6a5c45a`, with the hosts provisioned at `f703a28`: **RESULT PASS** (`scale/scale-55-b43.log`, timings `scale/scale-55-b43-timing.jsonl`, auction `b3c1f541…`). That covers clearing equal to the pure clear, 55 receipts, every refund landed, and the cold verify. The first attempt stopped at publish (R99).
+
+| Per batch | R85 (before H13) | after B43 |
+|---|---|---|
+| host build | ~100 s | ~14 s |
+| each host approve | ~89 s | ~4–7 s |
+| sign | ~98 s | ~14 s |
+| total settle compute, 4 batches | 1,949 s | 645 s, most of it mined-wait |
+
+Each figure is flat across batches 1–4. At N = 1,000, B43's offline profile still puts 63 s in the second batch (`classify-address` once per row of the whole auction), so per-batch cost is still O(N) and **H16 is P1 (scale)**: batch B45 (`docs/design/phase7-b45-classify.md`). The README's 17,000-bid limit stays until B45 lands.
