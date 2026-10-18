@@ -627,3 +627,15 @@ Next: provision the hosts at this commit and re-run SC scale-55 live.
 The first scale-55 run after B43 stopped at `auction publish`, before any funding: `settle/dist/cli.mjs` threw `Dynamic require of "node:crypto" is not supported`. B43 made `settle/envelopes` import the tlock opener (tlock-js, `@noble/curves`, which are CommonJS). B39 had given the createRequire banner only to `clear/dist/auction.mjs`, and the offline suites never load `settle/dist/cli.mjs`, so nothing caught it.
 
 Fix (head; the build script only): every ESM bundle in `build:core` and `build:settle` now gets the banner, and the new `npm run check:dist-require` (part of `npm run check`) refuses a build line or a built bundle without it. Main was broken for live publish from `ee9c5d7` to this commit; no live run happened in that window except this one. The scale-55 re-run follows.
+
+### R100 — Reviewer R on B39–B43: REQUEST CHANGES (two P1s in B43's opener) → B44 (head, 2026-10-19)
+
+Report: `benzo-sol/reports/pr-p7-b39-b43.md`. It confirms H10 is solid on every host path. It also confirms the H13 cache cannot redirect funds, B42's checked merge is correct, and the B41/R94 tar rewrite matches bsdtar byte for byte.
+
+**P1-1 and P1-2, reproduced by the head** (`tmp/r100/probe.ts`):
+- an admitted bid with a junk 128-byte stanza body makes `openSealedBid` throw (`invalid G2 point`);
+- a stray memo naming another round throws (`ciphertext beacon round`).
+
+Each one stops open, verify or settlement for everyone. B43 did not meet its own contract ("throws only for problems that are not the leaf's"). The fix is batch B44 (`docs/design/phase7-b44-opener-fix.md`): the opener never throws on a leaf or memo, and admission checks the G2 point.
+
+The P2 (verify cannot reproduce a reorg row; pre-existing) is H17. The P3s are H18. **H14 is reopened until B44 merges.**
