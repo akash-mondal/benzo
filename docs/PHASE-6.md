@@ -573,3 +573,19 @@ On the clean VM (R90), at `e1ddd69` (`pk-vm/at-e1ddd69/`):
 - a fresh Linux clone rebuilds the verify bundle, the npm package and the bidder bundle byte-identical to the macOS build.
 
 The stranger requirement is met by the clean VM (R90). Batches merged after this move the digests, so the release commit gets one more run of steps 02–04 on `benzo-pk` (about 10 minutes), recorded the same way.
+
+### R96 — Gate DOC: B42 merged (head, 2026-10-18)
+
+B42 is on main (`27e35db`, `b793614`):
+- the `benzo hosts keys|dkg|witness|envelope-opens` commands, running the moved `cli/hosts.ts`, which the harness now re-exports;
+- a checked witness-certificate merge;
+- `--show` for both signer public keys;
+- H10's `--config` wired into the five live `auction create` calls;
+- the three guides, with G1–G8 covered.
+
+On main its stub-orb proof passes again (RESULT PASS, 58 guide commands match `--help`), and so does `npm run check`. Head rulings on its questions:
+1. and 2. Accepted.
+3. `bid deposit` does not enforce `privatePath` on `--file`. That is fine: a deposit file holds the bidder's own sealed bid, not operator secrets. The guides still keep it under `$BNZ_STATE_DIR`.
+4. and 5. Accepted.
+
+Next: provision the hosts again at this commit (`deploy/signers/up.sh`; B39 and B42 changed host code), then walk the three guides live on testnet.
