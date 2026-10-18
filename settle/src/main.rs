@@ -1,6 +1,6 @@
 // Multi-output PCZT construction and strict inspection using the pinned wallet/PCZT crates.
 // source: zcash/zcash-devtool@5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8:src/commands/pczt/create.rs
-use std::{io::{self, Read}, num::NonZeroUsize, path::Path, str::FromStr};
+use std::{io::{self, BufRead, Read}, num::NonZeroUsize, path::Path, str::FromStr};
 use anyhow::{anyhow, ensure, Context};
 use ff::PrimeField;
 use orchard::pczt::Bundle;
@@ -169,7 +169,12 @@ fn inspect(file: &str, ufvk: &str, allow_redacted: bool, net: Network) -> anyhow
 // refuses it as "invalid unified address"), or `other` when the string is not a Zcash address;
 // receivers are the unified container's items in encoded order (`items_as_parsed`, the order the
 // pre-swap parser reported).
-fn classify_address(addr: &str) -> anyhow::Result<()> {
+// B45 (H16, docs/design/phase7-b45-classify.md): `benzo-pczt classify-address --stdin` is the bulk
+// form — one address per line in, one JSON line per input out, in the same order. Each output line is
+// the exact object the single-address form prints for that address (one shared classifier below), and
+// one bad line never stops the batch: an unparseable address simply prints its `invalid_unified` or
+// `other` object. The single form stays as it was.
+fn classify_json(addr: &str) -> Value {
     use zcash_address::{ConversionError, ParseError, TryFromAddress, ZcashAddress, unified::{self, Container, Encoding, Receiver}};
     use zcash_protocol::consensus::NetworkType;
     fn net_str(net: NetworkType) -> &'static str {
@@ -212,21 +217,30 @@ fn classify_address(addr: &str) -> anyhow::Result<()> {
             let invalid_unified = matches!(e, ParseError::InvalidEncoding)
                 && matches!(unified::Address::decode(addr), Err(unified::ParseError::InvalidEncoding(_)));
             if invalid_unified {
-                println!("{}", json!({"kind": "invalid_unified", "network": Value::Null, "receivers": []}));
-                return Ok(());
+                return json!({"kind": "invalid_unified", "network": Value::Null, "receivers": []});
             }
             None
         }
     };
-    let out = match classified {
+    match classified {
         Some(c) => json!({
             "kind": c.kind,
             "network": c.network,
             "receivers": c.receivers.iter().map(|(t, d)| json!({"typecode": t, "data_hex": hex::encode(d)})).collect::<Vec<_>>(),
         }),
         None => json!({"kind": "other", "network": Value::Null, "receivers": []}),
-    };
-    println!("{}", out);
+    }
+}
+fn classify_address(addr: &str) -> anyhow::Result<()> {
+    if addr == "--stdin" {
+        // bulk: one address per line, one JSON line per input, in order; a bad line is just its
+        // invalid/other object (classify_json never fails on a bad address)
+        for line in io::stdin().lock().lines() {
+            println!("{}", classify_json(&line?));
+        }
+        return Ok(());
+    }
+    println!("{}", classify_json(addr));
     Ok(())
 }
 // Ruling R28 item 5 (F4): the vault's Orchard spend-validating key ak (the first 32 bytes of the Orchard FVK), so a
@@ -259,6 +273,6 @@ fn main() -> anyhow::Result<()> {
         Some("classify-address") if args.len()==2=>classify_address(&args[1]),
         Some("ufvk-ak") if args.len()==2=>ufvk_ak(&args[1],net()?),
         Some("owns") if args.len()==3=>owns(&args[1],&args[2],net()?),
-        _=>Err(anyhow!("usage: benzo-pczt address <wallet> --network test|main | create <wallet> <output.pczt> [expiry-blocks] --network test|main | inspect <pczt> <ufvk file> [--allow-redacted] --network test|main | classify-address <address> | ufvk-ak <ufvk file> --network test|main | owns <ufvk file> <address> --network test|main"))
+        _=>Err(anyhow!("usage: benzo-pczt address <wallet> --network test|main | create <wallet> <output.pczt> [expiry-blocks] --network test|main | inspect <pczt> <ufvk file> [--allow-redacted] --network test|main | classify-address <address> | classify-address --stdin | ufvk-ak <ufvk file> --network test|main | owns <ufvk file> <address> --network test|main"))
     }
 }
