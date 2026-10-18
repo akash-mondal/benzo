@@ -297,16 +297,26 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       $ benzo cancel --id ID
       ```
 
-      **The unused fee reserve returns automatically (H15).** Once every obligation row has its
-      receipt and no batch is pending, `benzo settle` runs one final `reserve-return` batch: the
-      vault's eligible notes — the fee-reserve notes and this auction's own internal change ONLY;
-      a stray deposit or a balance note is never swept (their owners may still claim them) — pay
-      `sum − fee` to `routing.reserve_return_ua`, whose commitment is in the signed manifest and
-      whom every signer host checks against it. What you will see: one more `settlement broadcast
-      …` line for that batch (or, on a manifest created before H15, one line `WARN the reserve
-      stays in the vault (legacy, H15)`). The published settlement then carries a `reserve_return`
-      accounting block (source count and amounts only — the destination itself is never
-      published).
+      **The unused fee reserve returns automatically (H15) — but only when the auction owes
+      nothing else.** Vault value is fungible (the wallet picks every batch's inputs), so the
+      return is value-based and gated on the whole auction being settled: once **every row has its
+      receipt, no stray deposit or late/excess balance note remains unpaid (claimed or not — the
+      same rules the signer hosts derive from their own scans), no exception row is unresolved and
+      no batch is pending**, `benzo settle` runs one final `reserve-return` batch that spends every
+      unspent vault note and pays the vault's **whole unspent value minus the ZIP-317 fee** to
+      `routing.reserve_return_ua`, whose commitment is in the signed manifest and whom every signer
+      host checks against it (the host also refuses any candidate that leaves notes behind — its
+      `input_zats` must equal the host's own scanned unspent total). What you will see: one more
+      `settlement broadcast …` line for that batch (or, on a manifest created before H15, one line
+      `WARN the reserve stays in the vault (legacy, H15)`). While anything is still owed, nothing is
+      returned and the plan prints one line
+      `reserve return waits: N outstanding (strays/balances/exceptions)`. **An unclaimed stray or
+      balance note therefore delays the return indefinitely** (there is no claim deadline): that is
+      the conservative choice — an earlier return could sweep a bidder's unclaimed money, because a
+      batch can spend their note and leave its value sitting in internal change. The published
+      settlement carries a `reserve_return` accounting block (remaining value and fee only — the
+      destination itself is never published), and `benzo verify` accepts the one `reserve-return`
+      receipt only while the published accounting shows nothing outstanding.
 
 8. **Record and settle refund claims.** A request carries `party` (`leaf:N`,
    `deposit:TXID:POOL:INDEX`, `balance-late:TXID:POOL:INDEX` or `balance-excess:LEAF`),

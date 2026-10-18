@@ -137,154 +137,166 @@ to the base commit's (canonical JSON, both N); classify-cache shape
    load/save around the destination loops.
 
 ## Batch B46 (Builder B, branch `b46-reserve-return`, from `8e39c14`) — H15: the unused fee reserve returns (mainnet blocker)
+## Batch B46 (Builder B, branch `b46-reserve-return`, from `a81e826`) — H15: the unused fee reserve returns (mainnet blocker), Revision R103
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live
-Playwright). Spec: `docs/design/phase7-b46-reserve-return.md`. Worktree `/Users/akshmnd/Dev Projects/benzo-b46`.
-Two commits, both `--no-verify` (R32: `check:bundle` cannot pass in a worktree): `8dad770` (the product change)
-and `2f582ca` (the proof, the folds, the docs; this bookkeeping block follows in the third).
+Playwright). Spec: `docs/design/phase7-b46-reserve-return.md` **including the end section "Revision (head,
+2026-10-19, R103)"** — this is ROUND 2 of the batch; round 1 (`8dad770`, `2f582ca`, `76ecdf8`) implemented the
+superseded "eligible notes" rule and is NOT merged (its question 1 exposed the flaw: vault value is fungible, so
+a source rule can return a bidder's unclaimed money once an ordinary batch swept their note into change). The
+branch was rebased onto `a81e826` and the implementation reworked to the revision. Worktree
+`/Users/akshmnd/Dev Projects/benzo-b46`. Commits `--no-verify` (R32): `c8bae1a` (the value-based rework),
+`5db8212` (the proof), `1ccabb6` (the verify bundle `f146a894…` + the additive fixture machinery); this
+bookkeeping block and the docs land next, and the evidence re-run at that clean tree follows them.
 
-**The manifest field and the create rules.** New optional signed-manifest field
-`reserve_return_ua_commitment` — 64 hex chars, `sha256("benzo-reserve-return-ua-v1\0" || utf8(ua))`, computed
-by the one function `reserveReturnUaCommitment` next to `sellerUaCommitment` (`manifest/schema.ts:61`), added to
-`validateManifest` with the exact shape (64 lowercase hex) and to the template + field table. `auction create
---config` sets it from `routing.reserve_return_ua` under H4's rule (a unified address on the manifest's own
-network with a shielded Orchard/Ironwood receiver; a Sapling-only UA is refused) and refuses a manifest whose
-field differs from the routing value (`cli/product.ts` create). **Mainnet `auction create` refuses a manifest
-without it** (`mainnet manifest must carry reserve_return_ua_commitment (H15)`) — without the commitment no host
-could check the return destination. `routing.reserve_return_ua` joins `docs/examples/private-operator.json` and
-the guide.
+**The rule as implemented (nothing is owed, then the whole value minus the fee).** The one shared gate is
+`settle/deposits.ts:100` `reserveReturnOutstanding(...)`: the return is planned and approved **only when the
+auction owes nothing** — every owed row has a published receipt (party **and** amount), no published row is
+unresolved (an exception row, or a row without its receipt), no published balance refund is unpaid (a `pending`
+entry), and (the plan only) no batch is pending. The owed set is **our own derivation, run without requiring a
+destination** — a row is owed whether or not anyone has claimed it: the money rules' obligations over the
+published result (`clear/registry` `obligations`, with this signer's own `balanceSettlement`/`balanceDefaults`
+rows and treasury return) **plus every stray deposit note and late/excess balance note of our own scan** (the
+same `strayNotes`/`refundable`/balance rules `deriveRows` uses, over **all** scanned deposit notes — spent or
+not, since a note a batch swept into change is still an unpaid stray until its receipt exists; that is exactly
+the fungibility case R103 was written for). The gate returns the outstanding items, deduplicated; its length is
+the waits line's N. `settle/plan.ts:388` runs it and prints exactly one line when anything is owed —
+`reserve return waits: N outstanding (strays/balances/exceptions)` (`settle/plan.ts:393`) — or, on a manifest
+without the commitment, the kept round-1 line `WARN the reserve stays in the vault (legacy, H15)` (plan.ts:391).
+**An unclaimed stray therefore delays the return indefinitely** — the conservative choice, disclosed in
+`docs/guide-operator.md` and `README.md`'s honest-limits list.
 
-**The eligible-source rule** (the safety rule, one shared function everyone calls):
-`settle/deposits.ts:93` `reserveReturnSources(notes, manifest, fee_reserve_ua, isInternal)` — a vault note is
-eligible only when it is unspent, of positive value, and **either** at an internal (change) address of this vault
-(`benzo-pczt owns` = `internal`, the same scope rule `settle/src/main.rs` uses to mark change) **or** at the
-config's `fee_reserve_ua` while not being one of the absolutely excluded addresses. A note at any manifest
-deposit address, bond balance address, escrow or buyback treasury address is **never** a source — even when a
-lying packet points `fee_reserve_ua` at one of them (`rule-stray-never-even-as-fee-reserve`,
-`rule-late-never-even-as-fee-reserve`), and even when nobody has claimed it. `reserveSourceId` (deposits.ts:109)
-and `reserveReturnFee` (deposits.ts:115, the ZIP-317 fee of the one-row transaction: `5,000 × max(2, sources)`,
-`settle/src/main.rs`'s standard_fee shape) sit beside it.
+**The amount and the input checks (value-based).** `settle/deposits.ts:126` `reserveReturnAmount(notes)` pays the
+vault's **whole unspent value minus the ZIP-317 fee** of the one-row transaction that spends **every** unspent
+note (`5,000 × max(2, notes)`, `reserveReturnFee`, deposits.ts:143 — `settle/src/main.rs`'s standard_fee shape);
+`amount_zats` is null while the value does not cover the fee, and `ids` names every note the transaction must
+spend (the host approval ledger's source identities — Ruling R28 item 3 — never published). The plan's row is
+`{party: "reserve-return", kind: "payout", amount_zats, remaining_zats, fee_zats}`; round 1's `sources`/
+`eligible_zats` accounting is **gone**. The candidate must spend every unspent vault note: the hosts check
+`inspect`'s `input_zats` against their own scanned unspent total — `cli/commands/sign-approve.ts:91` and
+`cli/commands/sign-build.ts:90` refuse typedly when it differs (`… inspect input_zats 100 differs from this
+signer's scanned unspent total 55000`), and the single output must be exactly that total minus the fee
+(`sign-approve.ts:118`, typed; `sign-approve.ts:124` keeps the one-output rule).
 
-**The row.** `settle/plan.ts` plans one final `reserve-return` row — the last batch, alone (`settle/cli.ts`
-refuses a batch that mixes it with any other row) — and only when (1) the manifest commits the return UA (a
-legacy manifest plans no row and prints one line, `WARN the reserve stays in the vault (legacy, H15)`), (2) every
-obligation row of the plan has a receipt in the published dir, (3) no batch is pending (the plan reads the local
-ledger's batches), and (4) the eligible sources sum to more than the one-row fee. The row pays `sum − fee` to
-`routing.reserve_return_ua` and its sources are exactly the eligible notes. `benzo settle` runs it automatically:
-the row needs **published** receipts, so the command runs one extra worker pass after its publish (the pass is
-best-effort: a failing return prints `ERROR reserve-return pass exited …; the reserve stays in the vault until
-the next benzo settle` and never fails the already-successful settlement).
+**The host checks** (still ONE function `deriveReserveReturn`, `cli/host-derive.ts:293`, called from `sign
+build`, `sign approve` and `sign derivable`; `deriveRows` untouched, so this merges cleanly with B45):
+1) the packet's `reserve_return_ua` hashes to the manifest commitment (H10's shape; legacy refuses any packet
+carrying the row); 2) the "nothing is owed" gate above, from **this host's own scan and derivation** plus the
+packet's published accounting — a return while the stray is unpaid is refused typedly
+(`… the auction still owes 2 outstanding (strays/balances/exceptions): …`); 3) the row pays the host's own
+whole unspent total minus the fee (`cli/host-derive.ts:343`). All refusals are typed (`exit 3`,
+`refused-rows ["reserve-return"]`), like H10's seller row.
 
-**The host checks** (one new function `deriveReserveReturn`, `cli/host-derive.ts:288`, called from `sign build`,
-`sign approve` and `sign derivable` before their other derivations — `deriveRows` itself is untouched, so this
-merges cleanly with B45; `envelope/destination.ts` untouched): 1) the packet's `reserve_return_ua` hashes to the
-manifest commitment, else the row is refused typedly (`exit 3`, `refused-rows ["reserve-return"]`, like H10);
-2) every source the packet names is, by **this host's own vault scan and its own `owns` scope verdicts**, a note
-at the config's `fee_reserve_ua` or an internal change address (the rule above), and the sources are exactly the
-eligible notes; 3) every obligation row has a receipt in the packet's published dir (a row parked in the
-exception queue is never paid by this row); 4) the single output is to that UA for `sum − fee` (the host's own
-sum and fee). A legacy manifest refuses any packet carrying the row. Refusals name the offending source
-(`… source ffb1d8ff… is not an eligible note …`).
+**The verify accounting change** (`api/public-auction.ts` `accounting-strays`, lines 831-858, +
+`SETTLEMENT_TRUST`): the published settlement may carry `reserve_return: {remaining_zats, fee_zats}` — the
+vault's whole unspent value the return swept and the fee, amounts only (the destination itself is never
+published, only the manifest commitment). Verify accepts **exactly one** `reserve-return` receipt, only together
+with that accounting, only while the published accounting shows **nothing outstanding at that point** (no
+unreceipted row, no published unpaid stray or balance, no open exception), and only at
+`amount = remaining_zats − fee_zats` with a ZIP-317-shaped fee (`≥ 10,000`, multiple of 5,000). A forged second
+receipt, a receipt without the accounting, or a return beside an outstanding row each fail with their own error.
 
-**The verify accounting change** (`api/public-auction.ts` `accounting-strays` + `SETTLEMENT_TRUST`): the
-published settlement may carry `reserve_return: {sources, eligible_zats, fee_zats}` — counts and amounts only,
-the destination itself is never published, only the manifest commitment. Verify accepts **exactly one**
-`reserve-return` receipt, only together with that accounting (a receipt without it is refused), only when every
-other non-exception row is receipted ("only after all obligation receipts"), and only for the published
-accounting's numbers: `fee_zats` must equal the ZIP-317 fee of the published source count and the amount must
-equal `eligible_zats − fee_zats` (`verify-refuses-forged-second-receipt`:
-`ERROR accounting-strays refused: duplicate reserve-return receipt`). The receipt is published like the others
-(party `reserve-return`) and rides the existing two-agreeing-host-maps attestation. New settlement field ⇒ its
-`SETTLEMENT_TRUST` entry (`derived`, enforced by `accounting-strays`), so the trust registry still forbids an
-unverified field.
+**Everything else kept from round 1:** the manifest commitment (`reserve_return_ua_commitment`,
+`reserveReturnUaCommitment` next to `sellerUaCommitment`, exact 64-lowercase-hex shape in `validateManifest`),
+the `auction create --config` rule (H4's receiver rule; a Sapling-only UA refused) and the mainnet rule (a
+manifest without the commitment is refused before the network lock), the typed refusals, the legacy line, the
+one-row-alone batch rule in `settle/cli.ts`, the automatic second settle pass in `cli/product.ts`, the docs
+(wording updated to the new rule), and the template/field-table entries.
+
+**Fixture (proof):** a settled **bond-then-pay** auction (so the late-balance note is a REAL
+`balance-late:` note the `clear/features.ts` rules derive — one bid, one deposit slot, one balance address, C =
+the bond) whose vault holds the fee-reserve note (20,000), internal change (35,000), a stray deposit (500,000)
+and an unclaimed late-balance note (499,999). The stray's claim publishes its own real tlock sealed-bid memo
+(R13/R42: a paid stray row needs a published owner-signed claim whose memo hash the paying batch's two agreeing
+maps attest). Settlement worlds: `outstanding` (stray + late unclaimed), `settled` (stray refunded, late paid —
+both notes spent), `swept` (a prior batch spent the stray's note, its 500,000 now in internal change; the stray
+row hidden and unpaid), `returned` (settled + the return row/receipt/accounting).
 
 **Red/green per proof case** (`docs/evidence/phase-7/repro/b46-reserve-return-{before,after}.out`; red = base
-bundles built from pristine `8e39c14` sources BEFORE any B46 edit under `tmp/b46/base-src/`; green = this tree;
-fixture: a settled auction document with real tlock openings, its vault holding the fee-reserve change (35,000
-zats, internal), a stray deposit (500,000) and an unclaimed late-balance note (499,999)):
+bundles built from pristine `a81e826` sources BEFORE any edit under `tmp/b46/base-src/`; green = this tree):
 
-- **red on base (no row; the change stranded)** — `red-plan-no-row-change-stranded`: the base plan settles
-  everything and plans NO row; 35,000 zats of eligible notes stay in the vault. `red-plan-bound-manifest-
-  unreadable`: the base manifest schema cannot even represent `reserve_return_ua_commitment`
-  (`ERROR settle refused: unknown or missing manifest field`). 2/2 PASS.
-- **green plan** — `plan-one-reserve-return-row` + `plan-amount-is-sum-minus-fee` (35,000 − 10,000 = 25,000) +
-  `plan-sources-reserve-change-only` (sources = exactly the reserve change note) + `plan-stray-and-late-
-  untouched`. `OBSERVE plan-reserve-return {"amount_zats":"25000","eligible_zats":"35000","fee_zats":"10000",
-  …,"sources":["75c3d9a4…:ironwood:0"]}`.
-- **green hosts approve** — `sign-build-honest-passes` (built to the committed return UA),
-  `sign-derivable-honest-lists-row`, `sign-approve-honest-passes` (approval recorded).
-- **green hosts refuse** — wrong return UA: `sign-{build,approve,derivable}-wrong-return-ua-refused`; the stray
-  added as a source: `sign-{build,approve}-stray-source-refused` (typed, naming the stray note); a return before
-  all receipts exist: `sign-build-return-before-receipts-refused` (`obligation row seller has no published
-  receipt`); a legacy packet: `sign-build-legacy-packet-refused`. All `exit 3`, `refused-rows ["reserve-return"]`.
+- **red on base (nothing owed, yet no row; the value stranded)** — `red-plan-no-row-change-stranded`: the base
+  plan settles everything and plans NO row; 55,000 zats of unspent vault value stay stranded.
+  `red-plan-bound-manifest-unreadable`: the base schema cannot even represent `reserve_return_ua_commitment`.
+  2/2 PASS.
+- **green plan, nothing owed** — `plan-completes`, `plan-one-reserve-return-row`,
+  `plan-amount-whole-value-minus-fee` (whole remaining value 55,000 − ZIP-317 fee 10,000 = 45,000 — every
+  unspent note, whatever its address). `OBSERVE plan-reserve-return {"amount_zats":"45000","fee_zats":"10000",
+  "kind":"payout","party":"reserve-return","remaining_zats":"55000"}`.
+- **green plan, the stray + unclaimed late-balance fixture plans NO return** — `plan-waits-no-row` +
+  `plan-waits-line` (`reserve return waits: 2 outstanding (strays/balances/exceptions)`, printed once).
+- **green plan, the fungibility case (R103's)** — `plan-swept-stray-still-refused` + `plan-swept-waits-line`
+  (`… 1 outstanding …`): a prior batch spent the stray's note and its value now sits in internal change, every
+  published row is receipted and the coordinator hid the stray row — the return is still refused while the
+  stray is unpaid (the own-scan stray rule, claimed or not).
+- **green hosts approve** — `sign-build-honest-passes` (45,000 to the committed return UA; inspect input_zats =
+  the scanned 55,000), `sign-derivable-honest-lists-row`, `sign-approve-honest-passes`.
+- **green hosts refuse typedly** — wrong return UA: `sign-{build,approve,derivable}-wrong-return-ua-refused`;
+  input_zats below the scanned total: `sign-approve-input-below-scanned-total-refused` (a candidate that leaves
+  notes behind); output ≠ total − fee: `sign-approve-output-not-total-minus-fee-refused`; a return while the
+  stray + late balance are outstanding: `sign-build-return-before-receipts-refused` (`the auction still owes 2
+  outstanding (strays/balances/exceptions)`); a legacy packet: `sign-build-legacy-packet-refused`. All `exit 3`,
+  `refused-rows ["reserve-return"]`.
 - **green legacy** — `plan-legacy-no-row` + `plan-legacy-line` (printed exactly once).
 - **green create** — `create-sets-commitment-from-routing`, `create-refuses-sapling-only-reserve-return-ua`
   (H4), `create-mainnet-requires-reserve-commitment` (H15), `create-mainnet-with-commitment-passes-h15-rule`
   (then refused by the network lock).
 - **green verify** — `verify-accepts-settled`, `verify-accepts-returned` (19 OK lines),
-  `verify-refuses-forged-second-receipt`, `verify-refuses-receipt-without-accounting`.
-- **units/rule** — `unit-commitment-known-answer` (independent recomputation over the `\0`-prefixed domain),
-  `unit-commitment-domain-separated`, five schema-shape cases, six `rule-*` cases (the absolute deposit/balance
-  exclusion incl. the lying `fee_reserve_ua` cases; `rule-eligible-exactly-reserve-and-change`; the fee formula).
+  `verify-refuses-forged-second-receipt` (`duplicate reserve-return receipt`),
+  `verify-refuses-return-with-outstanding` (`the reserve-return receipt while row deposit:… is still
+  outstanding`), `verify-refuses-receipt-without-accounting`.
+- **units/rule/gate** — the commitment known-answer + domain separation; five schema-shape cases;
+  `rule-whole-unspent-value-minus-fee` (55,000 − 10,000 = 45,000; spent and zero-value notes are never swept),
+  `rule-amount-inputs-are-every-unspent-note`, `rule-fee-formula`, `rule-no-row-below-the-fee`;
+  `gate-clean-accounting-passes`, `gate-unclaimed-stray-blocks` (an unpaid stray blocks the return even when the
+  published accounting is spotless), `gate-exception-row-blocks`, `gate-pending-balance-blocks`,
+  `gate-unreceipted-row-blocks`, `gate-pending-batch-blocks`.
 
-38/38 green, 2/2 red, 0 FAIL both sides.
+45/45 green, 2/2 red, 0 FAIL both sides.
 
-**Commands run** (worktree `/Users/akshmnd/Dev Projects/benzo-b46`): `git worktree add ../benzo-b46 -b
-b46-reserve-return 8e39c14` OK; worktree-local `cp .env.example .env` + `npm ci` OK (pinned lockfile);
-`tools/nu7/build.sh crates vendor/nu7 zcash_protocol-0.10.5 zcash_primitives-0.30.1 pczt-0.9.3` OK (sha256-
-checked); `cargo build --release --locked --manifest-path settle/Cargo.toml` OK (`Finished release`, the real
-classifier — unchanged by this batch); base bundles from `git archive 8e39c14` BEFORE any edit (`cli/build.mjs`,
-`settle/plan.mjs`, `clear/dist/{cli,auction}.mjs`); green bundles `npm run build:core && npm run build:settle &&
-npm run build:cli`; Go `tle` v1.2.0 + `grpcurl` v1.9.3 (tools/pins.env tags) built into the worktree's own
-`.benzo/bin` for e2e. Gates: `npm run typecheck` PASS; `check:structure` `OK (210 files)`; `check:invariants`
-`{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2; `check:dist-require` OK; `npm run e2e` `PASSED default seal in the
-browser, open with tle after R (39 s)`. `check:bundle` not run (worktree, R32). **Folds all green** (raw outputs
-`docs/evidence/phase-7/repro/*-b46*`): `h10-seller-binding` 22/22 (one fold-machinery line added — see Q4),
-`h13-host-scale` both legs PASS (8/27; its base leg replays the `e821ba0` bundles built via `git archive`),
-`h14-open-griefing` both legs PASS (12/14), `b44-opener` both legs PASS (25/29; base bundles from `d646ceb`).
+**Commands run** (worktree `/Users/akshmnd/Dev Projects/benzo-b46`): `git rebase a81e826` (clean; round-1's three
+commits reapplied, then reworked on top); base bundles from `git archive a81e826` BEFORE any edit
+(`cli/build.mjs`, `settle/plan.mjs`, `clear/dist/cli.mjs`); green bundles `npm run build:core && npm run
+build:settle && npm run build:cli`; `cargo build --release --locked --manifest-path settle/Cargo.toml` already
+built (unchanged this batch). Gates: `npm run typecheck` PASS; `check:structure` `OK (210 files)`;
+`check:invariants` `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2; `check:dist-require` OK; `check:bundle` OK —
+`dist/benzo-verify.mjs` + `docs/verify-bundle.sha256` rebuilt and committed as `f146a894…` (the verify code
+changed this batch, so unlike round 1 the bundle IS committed here); `npm run e2e` `PASSED default seal in the
+browser, open with tle after R (38 s)`. **Folds all green** (raw outputs
+`docs/evidence/phase-7/repro/*-b46*`): `h10-seller-binding` 22/22, `h13-host-scale` both legs PASS,
+`h14-open-griefing` both legs PASS, `b44-opener` both legs PASS.
 
-**Deviation note (fold machinery only):** `tools/repro/h-fixtures.ts` gained three additive helpers for this
-batch's fixtures — a `reserve_commitment` option on `buildAuction` (sets the new manifest field before signing),
-a `witnessPrivate(tag)` export (so a repro can sign the envelope-opens reports and approval maps the fixture's
-checks accept) and a fixture-driven `internal_addresses` verdict in the stubbed `benzo-pczt owns` (every fixture
-without it sees the old always-`external` behaviour). No existing case changed.
+**Deviation note (fold machinery):** `tools/repro/h-fixtures.ts` changes are additive only — `buildAuction`
+gained optional `c_zats`/`bond` knobs (the bond fixture; every existing caller's default shape is unchanged),
+the stubbed `grpcurl` answers `GetBlock` (a fixed header after any pinned round's release, for the bond window's
+start header) and the stubbed `benzo-pczt inspect` reports `input_zats`/`output_zats`/`fee_zats` (computed from
+the fixture's unspent notes unless a candidate pins its own); `ownerPrivate(tag)` joins `witnessPrivate`. No
+existing fold case or expectation changed.
 
-## Questions (B46)
+## Questions (B46, round 2)
 
-1. **The row's sources do not bind the built transaction's inputs (design gap, wallets).** The four host checks
-   are implemented exactly as designed and bind the packet's declared sources and the single output; but
-   `benzo-pczt create`'s greedy input selection chooses the candidate's actual inputs, so a wallet that pulls a
-   stray note into an inputs set returns it as internal change (value preserved, but the stray's note identity is
-   spent and a later claim has no backing note). The design's eligible-source rule protects unspent strays
-   exactly; the mixing case is the one hole. Two possible tightenings, wanted? (a) have `benzo-pczt inspect`
-   report each input's note identity (the PCZT spend carries recipient/rseed/rho) and require inputs ≡ sources;
-   (b) a cheaper host-side `input_zats === sum(sources)` check, which catches the mixing case but also refuses an
-   honest build whose wallet happened to over-select. Implemented as designed, nothing speculative added.
-2. **A `fee_reserve_ua` configured as a deposit address has no eligible note at all.** The design's absolute
-   sentence ("A note at any deposit or balance address is never a source of the return") conflicts with the
-   phrase "the fee-reserve note(s), meaning notes received at `routing.fee_reserve_ua`, the deposit address the
-   manifest-signed config names" when those are the same address (the b40/b42 harness shapes use
-   `depositAddresses[1]` as `fee_reserve_ua`; the live flows — markets, y2, gate DOC — use a fresh vault address,
-   matching R97). I enforced the absolute rule: a deposit/balance-address note is never a source even when
-   `fee_reserve_ua` names it (the plan prints nothing and the reserve stays). If `fee_reserve_ua` is meant to be
-   an explicit exception to the deposit-address exclusion, say so and it becomes a one-line change in
-   `reserveReturnSources`.
-3. **Host-side "every obligation row has a published receipt" reads the published rows** (every non-exception
-   row must be receipted; every mode-obligation party needs a receipt or a published exception row — parked rows
-   like the proof's unclaimed stray/late notes must not block the return). The plan's own gate is stricter (its
-   exact obligation set must be receipted). Residual: a coordinator that parks a payable obligation row as an
-   `exception` row in the published document could get a return planned while that row is unpaid (the row's money
-   lives in deposit/balance notes the return cannot touch, so nothing is misdirected; only Q1's mixing case
-   couples them). A sharpening (the host compares only the rows *it* derives as payable) is possible if wanted.
-4. **One line of fold machinery changed (`tools/repro/h10-seller-binding.ts`).** Its bound fixture now carries
-   **both** address commitments (a B46-era manifest does), because its `create-mainnet-with-commitment-passes-
-   h10-rule` case would otherwise trip B46's new mainnet rule and no longer reach the network lock. No
-   expectation or check was changed (22/22 as before); confirm acceptable.
-5. **The settle worker's reserve-batch wiring is compiled and type-checked but has no offline end-to-end proof**
-   (the coordinator batch loop only runs live, with `orb`/frostd): the pin-alone path, the `hostBuild`/`hostSign`
-   packet fields and the non-custody `destinations`/`check` branch for the row. The row's planning, all host
-   checks and the verify accounting are proven offline above; a live testnet walkthrough (guide step 7.6) is the
-   head's run. Also recorded there: `dist/benzo-verify.mjs` + `docs/verify-bundle.sha256` are NOT rebuilt or
+1. **Round 1's questions 1-3 are resolved by R103 itself** (the value-based rule replaces the source rule; the
+   `fee_reserve_ua`-as-deposit-address ambiguity is moot — sources no longer matter; the host-side receipt rule
+   is now the shared gate over the host's own derivation). Round 1's Q4 (the h10 fold fixture carries both
+   commitments) stands unchanged and re-confirmed: still 22/22. Round 1's Q5 (the settle worker's reserve-batch
+   wiring has no offline end-to-end proof — the coordinator batch loop only runs live) stands unchanged: the
+   planning, all host checks (incl. the input/output checks) and the verify accounting are proven offline; a
+   live testnet walkthrough (guide step 7.6) is the head's run.
+2. **The waits line's N counts owed items plus pending batches.** The literal line
+   `reserve return waits: N outstanding (strays/balances/exceptions)` is printed verbatim per the revision;
+   N is the gate's outstanding count (un-receipted owed parties + unresolved rows/entries, deduplicated, plus
+   one per pending batch). When ONLY a batch is pending the parenthetical names no such item — kept literal
+   rather than varying the text; say the word if the wording should change for that corner.
+3. **A paid stray row needs its claim in the fixture's settled worlds** (R13: `benzo verify` requires a
+   published owner-signed claim for every paid deposit/refund-class row). The proof therefore signs real claim
+   bodies over real tlock sealed-bid memos (the stray's own memo, attested by the paying batch's two maps).
+   This is product behaviour, not fixture sugar — noted because it makes "the stray is refunded" a heavier
+   fixture state than round 1's never-paid stray.
+4. **The plan's own fresh re-derivation may still park a paid row as an exception** (an unclaimed stray that was
+   later refunded by a claim re-derives as an OBLIGATION — fine — but a refund that arrived without a claim
+   record would re-park as an exception). The gate judges owedness by receipts over our own derivation, not by
+   fresh payability (per "run without requiring a destination"), so this never blocks an honest return; the
+   normal product path (rows pay only through envelope/claim derivations) keeps the two views aligned.
    committed here (R32) — the head rebuilds at merge.
 
 ## Batch B42 (Builder B, branch `b42-hosts-cli`, from `96ce0f5`) — gate DOC: `benzo hosts` commands, guides with every handoff written down
