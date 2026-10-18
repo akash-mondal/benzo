@@ -1,15 +1,18 @@
-// Signer-side monetary plan: fresh chain observations and Go tle, then the shipped pure clearing CLI (which
-// dispatches through clear/registry.ts). F8 (R28): in the product flow the signer recomputes from the PUBLISHED
-// auction.json (manifest, frozen, opened, beacon) and refuses if the coordinator's private result or batch plan
-// differs from that recomputation. Recipient authorization is a separate prerequisite; this entry point never
-// signs or broadcasts.
+// Signer-side monetary plan: fresh chain observations and offline tlock openings from the one verified beacon,
+// then the shipped pure clearing CLI (which dispatches through clear/registry.ts). F8 (R28): in the product
+// flow the signer recomputes from the PUBLISHED auction.json (manifest, frozen, opened, beacon) and refuses if
+// the coordinator's private result or batch plan differs from that recomputation. Recipient authorization is a
+// separate prerequisite; this entry point never signs or broadcasts.
 import {execFileSync,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
 import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
-import {requireReserveOpening,tleOpening,tleDecryptFailover} from "../manifest/reserve";
+import {requireReserveOpening} from "../manifest/reserve";
+import {openSealedBid} from "../envelope/opening";
+import {decryptPublished,publishedClient,fetchVerifiedBeacon} from "../cli/published-beacon";
+import type {ChainClient} from "tlock-js";
 import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
 import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
@@ -86,6 +89,13 @@ try {
   let result_hash:string|null=null,opened:any[]|null=null,result:any=null,defaults:number[]=[],balance_refunds:BalanceRefund[]=[],balNotes:any[]=[],bondVoid=false;
   const released=Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period;
   const dir=path.join(state,"settle",id,"check",String(process.pid));mkdirSync(dir,{recursive:true,mode:0o700});
+  // B43 (H13/H14 items 2-3): every opening derives OFFLINE from the ONE BLS-verified beacon through the one
+  // opener (envelope/opening.ts openSealedBid) — no Go tle and no drand call per leaf. The beacon is the
+  // published one (checked below when a product config exists) or the private ledger's; an auction carrying
+  // neither (cancelled before open) fetches it through the shared failover-plus-verify loop, lazily so a
+  // cancelled-before-R plan never touches the network.
+  let beaconClient:ChainClient|null=null;
+  const beacon=async():Promise<ChainClient>=>beaconClient??=publishedClient((src as any).beacon??await fetchVerifiedBeacon(m.drand.R));
   if(["CANCELLED","REFUNDING"].includes(src.state)) {
     requireThat(!src.opened,"cancelled plan has opened bids");
   } else {
@@ -93,18 +103,20 @@ try {
     if(published)requireThat(published.beacon&&published.beacon.round===m.drand.R&&published.beacon.chain_hash===m.drand.chain_hash,"published beacon missing or unbound");
     checkFrozen(src.frozen,id,manifest_hash);
     requireThat(released,"settlement before release");
-    opened=src.frozen.leaves.map((leaf:any)=> {
+    opened=[];
+    for(const leaf of src.frozen.leaves) {
       requireThat(depositNotes.some(n=>n.txid===leaf.deposit.txid&&n.address===leaf.deposit.address&&confirmed(n)&&String(n.value_zats)===m.C_zats),"frozen deposit missing or spent; resume needs mined-batch reconciliation");
       const ct=path.join(dir,`${leaf.leaf_index}.age`),pt=path.join(dir,`${leaf.leaf_index}.bin`);
       writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
-      checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(leaf.ciphertext_hex,"hex"))});
-      appendFileSync(path.join(state,"run","settle-tle.jsonl"),JSON.stringify({auction_id:id,operation:"tle -d",time:Date.now()})+"\n");
-      // Head: failover across every drand endpoint (manifest/reserve tleDecryptFailover); MAC failure = undecryptable.
-      const decrypted=tleDecryptFailover(path.join(state,"bin","tle"),QUICKNET.chain_hash,Buffer.from(leaf.ciphertext_hex,"hex"));
-      if(decrypted===null)return {leaf_index:leaf.leaf_index,plaintext_hex:null,error:"undecryptable"};
-      writeFileSync(pt,decrypted,{mode:0o600});
-      return {leaf_index:leaf.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")};
-    });
+      checks.push({operation:"tlock open",ciphertext_hash:hash(Buffer.from(leaf.ciphertext_hex,"hex"))});
+      appendFileSync(path.join(state,"run","settle-tle.jsonl"),JSON.stringify({auction_id:id,operation:"tlock open",time:Date.now()})+"\n");
+      // The one opener's contract: bad shape, either MAC failure or a non-128-byte plaintext is this leaf's
+      // fault (undecryptable); anything beacon-level throws and stops the plan.
+      const decrypted=await openSealedBid(leaf.ciphertext_hex,await beacon());
+      if(decrypted===null){opened.push({leaf_index:leaf.leaf_index,plaintext_hex:null,error:"undecryptable"});continue}
+      writeFileSync(pt,Buffer.from(decrypted,"hex"),{mode:0o600});
+      opened.push({leaf_index:leaf.leaf_index,plaintext_hex:readFileSync(pt).toString("hex")});
+    }
     if(published) {
       requireThat(jsonBytes(opened).equals(jsonBytes(published.opened)),"published opening differs from fresh decryption");
       // R7 (Reviewer R F-3 = Reviewer G G1): the coordinator's private ledger is never a source — it is only
@@ -113,10 +125,11 @@ try {
       requireThat(jsonBytes(auction.opened??null).equals(jsonBytes(opened)),"private ledger opening differs from signer-derived opening");
       requireThat(jsonBytes(auction.envelopes??[]).equals(jsonBytes(published.envelopes??[])),"private ledger envelope records differ from published records");
     }
-    // R6 (F2) + R7 item 5: the sealed reserve is re-derived here with the pinned Go tle and must equal the
-    // published opening; a forged opening is refused before any signature. (Live run correction: this call
-    // must take the DECODED manifest from client() — the signed packet has no manifest fields.)
-    const derivedReserve=m.sealed_reserve!==undefined?tleOpening(path.join(state,"bin","tle"),m.drand.chain_hash,m.sealed_reserve):null;
+    // R6 (F2) + R7 item 5: the sealed reserve is re-derived here from its own ciphertext and the one verified
+    // beacon and must equal the published opening; a forged opening is refused before any signature. (Live run
+    // correction: this call must take the DECODED manifest from client() — the signed packet has no manifest
+    // fields.) A reserve is not a sealed bid, so it keeps the raw tlock decrypt without the bid shape rule.
+    const derivedReserve=m.sealed_reserve!==undefined?await decryptPublished(m.sealed_reserve,await beacon()):null;
     const reserve_opening=requireReserveOpening(m,published?(published.reserve_opening?.plaintext_hex??null):(auction.reserve_opening??null),derivedReserve);
     result=JSON.parse(execute(process.execPath,[path.join(root,"clear/dist/cli.mjs")],JSON.stringify({manifest:src.manifest,signer:src.signer,frozen:src.frozen,opened,reserve_opening,serial_beacon:src.serial_beacon??null,launch:src.launch_input})));
     const fresh=jsonBytes(result);
@@ -182,7 +195,7 @@ try {
   // names a shielded destination and is checked here against the one-time owner key inside the signer's own
   // fresh tle opening (a leaf) or the stray deposit's memo opening (a stray) — never against the private
   // ledger or any operator input. The first recorded claim per party wins (cli/product.ts claim-refund).
-  const bidPlaintextFor=(party:string):Buffer|null=>{
+  const bidPlaintextFor=async(party:string):Promise<Buffer|null>=>{
     if(party.startsWith("leaf:")) {
       const o=opened?.find(x=>x.leaf_index===Number(party.slice(5)));
       return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,"hex"):null;
@@ -201,23 +214,24 @@ try {
     if(!ct)return null;
     const base=path.join(dir,party.replace(/[^a-z0-9]/gi,"_")),memoCt=base+".age",memoPt=base+".bin";
     writeFileSync(memoCt,Buffer.from(ct,"hex"),{mode:0o600});
-    checks.push({operation:"tle -d",ciphertext_hash:hash(Buffer.from(ct,"hex"))});
-    // Head: failover across drand endpoints; a network failure on every endpoint throws instead of silently
-    // classifying the stray as ownerless. R7 item 6: a memo that does not open to this auction's 128-byte
-    // sealed-bid layout holds no owner key.
-    const memoOpened=tleDecryptFailover(path.join(state,"bin","tle"),QUICKNET.chain_hash,readFileSync(memoCt));
+    checks.push({operation:"tlock open",ciphertext_hash:hash(Buffer.from(ct,"hex"))});
+    // B43 (H14 item 2): the one opener over the one verified beacon; a memo that does not open (bad shape,
+    // MAC failure, or not a 128-byte plaintext) holds no owner key, and a beacon failure still throws instead
+    // of silently classifying the stray as ownerless. R7 item 6: a memo that does not open to this auction's
+    // 128-byte sealed-bid layout holds no owner key.
+    const memoOpened=await openSealedBid(ct,await beacon());
     if(memoOpened===null)return null;
-    writeFileSync(memoPt,memoOpened,{mode:0o600});
-    const pt=memoOpened;
+    writeFileSync(memoPt,Buffer.from(memoOpened,"hex"),{mode:0o600});
+    const pt=Buffer.from(memoOpened,"hex");
     return sealedBidPlaintext(pt,src.manifest)?pt:null;
   };
-  const ownerKeyFor=(party:string):string|null=>{const pt=bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
+  const ownerKeyFor=async(party:string):Promise<string|null>=>{const pt=await bidPlaintextFor(party);return pt?pt.subarray(61,93).toString("hex"):null};
   // R7 item 6 + R20: a stray/cancelled deposit with a valid sealed-bid memo resolves through its own
   // owner-signed settlement envelope, keyed by its memo's ciphertext hash and AUTHENTICATED against the
   // memo's own tlock opening (R20 (b): owner signature plus settlement commitment over the record); an
   // operator-inserted record for a memo-less or v1 stray is never paid. Memo v2's tag binding (R20 (a))
   // lands with Track B's memo v2 merge.
-  const strayEnvelope=(party:string):boolean=>authenticatedMemoEnvelope(depositNotes,party,src.manifest,src.envelopes,path.join(state,"bin","tle"))!==null;
+  const strayEnvelope=async(party:string):Promise<boolean>=>(await authenticatedMemoEnvelope(depositNotes,party,src.manifest,src.envelopes,await beacon()))!==null;
   const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
   if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
     try {
@@ -226,7 +240,7 @@ try {
       // R15 item 3: the claim's destination is SEALED in its v2 envelope; the owner-signed body carries only
       // the envelope's hash — no plaintext destination and no destination hash an address could be matched to.
       const body={kind:"claim-refund",auction_id:id,party:request.party,claim_envelope_sha256:hash(Buffer.from(request.claim_envelope_ct,"hex"))};
-      const owner=ownerKeyFor(request.party);
+      const owner=await ownerKeyFor(request.party);
       requireThat(owner&&verifyStatement(owner!,body,request.owner_sig),"claim owner signature");
       // R11/R13/R15.3: the first claim whose owner signature verifies is the one used — its sealed
       // destination is opened per signer with R10 item 4's two-signer agreement (gateEnvelope below), and
@@ -276,9 +290,9 @@ try {
       const party=depositParty(n),row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
       if(claimEnvelopes[party]) {gateEnvelope(row);continue}
-      if(strayEnvelope(party)) {gateEnvelope(row);continue}
+      if(await strayEnvelope(party)) {gateEnvelope(row);continue}
       const reason=!released?"cancelled before release; refund is claimable after R":
-        !bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":
+        !(await bidPlaintextFor(party))?"deposit memo is not an openable sealed bid; no owner key claims it":
         "no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
@@ -328,9 +342,9 @@ try {
       // note's memo-to-record binding is not publicly checkable for a stray row (benzo verify requires a
       // published claim for every paid deposit row), so no auto-pay leg applies; the memo's own owner key claims
       // the refund and the depositor loses only the fee.
-      if(strayEnvelope(party)&&!isSlotCollision(n,m,src.frozen)) {gateEnvelope(row);continue}
+      if(await strayEnvelope(party)&&!isSlotCollision(n,m,src.frozen)) {gateEnvelope(row);continue}
       const reason=isSlotCollision(n,m,src.frozen)?"deposit slot collision with an earlier bid; the refund is claimable through benzo claim-refund":
-        !bidPlaintextFor(party)?"deposit memo is not an openable sealed bid; no owner key claims it":"no valid owner-signed settlement envelope";
+        !(await bidPlaintextFor(party))?"deposit memo is not an openable sealed bid; no owner key claims it":"no valid owner-signed settlement envelope";
       refusals.push({party,reason});process.stderr.write(`ERROR refund ${party} to the exception queue: ${reason}\n`);
       exceptions.push({...row,reason});
     }

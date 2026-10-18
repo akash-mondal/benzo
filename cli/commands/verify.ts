@@ -7,6 +7,7 @@ import { checkPublicAuction, loadCompletePublicAuction, loadPublicAuction } from
 import { checkSeriesLink } from "../../clear/features";
 import type { Opened } from "../../clear/core";
 import { publishedClient, decryptPublished, deriveClaimOpenings } from "../published-beacon";
+import { openSealedBid } from "../../envelope/opening";
 
 export const noun = "verify";
 export const verb = "";
@@ -59,7 +60,10 @@ export async function run(argv: string[]): Promise<number> {
     if (!published) process.stderr.write("WARN beacon fetched (not published)\n");
     const derived: Opened[] = [];
     for (const leaf of pub.frozen.leaves) {
-      const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
+      // B43 (H14 item 2): re-derive through the one opener — a leaf whose fault it is (bad shape, MAC
+      // failure, non-128-byte plaintext) re-derives as `undecryptable`, exactly what `open` publishes, so a
+      // griefing ciphertext can never stop the verify; beacon-level errors still stop it.
+      const plaintext = await openSealedBid(leaf.ciphertext_hex, local);
       if (crossCheck) requireThat(tleOpening(leaf.ciphertext_hex, pub.manifest.drand.chain_hash) === plaintext, `opening ${leaf.leaf_index} tle differs`);
       derived.push(plaintext === null ? { leaf_index: leaf.leaf_index, plaintext_hex: null, error: "undecryptable" }
         : { leaf_index: leaf.leaf_index, plaintext_hex: plaintext });

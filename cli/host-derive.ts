@@ -7,7 +7,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { QUICKNET, requireThat, sellerUaCommitment } from "../manifest/schema";
-import { tleDecryptFailover } from "../manifest/reserve";
+import { fetchVerifiedBeacon, publishedClient } from "../cli/published-beacon";
+import { openSealedBid } from "../envelope/opening";
+import type { ChainClient } from "tlock-js";
 import { pcztBin, scanBin, ufvkFile, vaultDir } from "../manifest/paths";
 import { loadPublicAuction } from "../api/public-auction";
 import { verifyStatement } from "../envelope/index";
@@ -85,11 +87,17 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     const key = ownEnvelopePrivate(st, o.name);
     requireThat(key, "this signer's envelope key is missing");
     requireOwnEnvelopeKey(pub.manifest as any, o.name, st); // R10 item 3, checked here under host custody
-    const tle = path.join(st, "bin", "tle");
-    const opened = (pub.frozen?.leaves ?? []).map((l: any) => {
-      const pt = tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(l.ciphertext_hex, "hex"));
-      return { leaf_index: l.leaf_index, plaintext_hex: pt ? pt.toString("hex") : null };
-    });
+    // B43 (H13/H14 items 2-3): every opening derives OFFLINE from the ONE BLS-verified beacon through the one
+    // opener (envelope/opening.ts openSealedBid) — the packet's published beacon when it carries one
+    // (publishedClient checks it), else the round-R beacon fetched with the shared failover-plus-verify loop.
+    // Built lazily so a cancelled-before-R packet with nothing to open never needs it.
+    let beaconClient: ChainClient | null = null;
+    const opener = async (): Promise<ChainClient> => beaconClient ??= publishedClient(pub.beacon ?? await fetchVerifiedBeacon((pub.manifest as any).drand.R));
+    const opened: { leaf_index: number; plaintext_hex: string | null }[] = [];
+    for (const l of pub.frozen?.leaves ?? []) {
+      const pt = await openSealedBid(l.ciphertext_hex, await opener());
+      opened.push({ leaf_index: l.leaf_index, plaintext_hex: pt });
+    }
     const ownerOf = (i: number) => { const p = opened.find(x => x.leaf_index === i)?.plaintext_hex; return p ? Buffer.from(p, "hex").subarray(61, 93).toString("hex") : null; };
     const view = { manifest: pub.manifestPacket, frozen: pub.frozen, opened, envelopes: pub.envelopes };
     const claims: any[] = existsSync(path.join(packet, "claims.json")) ? JSON.parse(readFileSync(path.join(packet, "claims.json"), "utf8")) : [];
@@ -180,20 +188,20 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // Strays come from this signer's own scan of its own per-auction vault (synced and enhanced above).
     // Cancelled: every deposit; cleared: the strays. A deposit's claim is checked against the owner key inside its OWN
     // memo's sealed bid, opened here with the published beacon (settle/plan.ts ownerKeyFor), never operator input.
-    const memoOwner = (n: any): string | null => {
+    const memoOwner = async (n: any): Promise<string | null> => {
       const ct = n.memo_hex ? memoSealedBid(n.memo_hex)?.ciphertext_hex ?? null : null;
-      const pt = ct ? tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(ct, "hex")) : null;
-      return pt ? pt.subarray(61, 93).toString("hex") : null;
+      const pt = ct ? await openSealedBid(ct, await opener()) : null;
+      return pt ? Buffer.from(pt, "hex").subarray(61, 93).toString("hex") : null;
     };
     // Ruling R42 (F11): every deposit row this host derives also derives its per-row attestation — the note
     // identity and the SHA-256 of its own scanned memo — for the map this host signs when the batch pays it.
     const strays: import("../witness").StrayAttestation[] = [];
     for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
-      const rec = authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, tle);
+      const rec = await authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, await opener());
       // Ruling R40 item 1 (F1): a slot collision refunds through the owner-signed claim path only (the plan
       // never auto-pays it; its record belongs to the frozen leaf's ciphertext) — the same rule on this host.
-      const dest = claimDest(party, memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
+      const dest = claimDest(party, await memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
       if (dest) {
         requireThat(typeof n.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(n.memo_hex), "stray note memo");
         expected.push({ party, recipient: dest.reveal(), amount_zats: String(n.value_zats), source: party });

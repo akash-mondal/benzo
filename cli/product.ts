@@ -21,7 +21,9 @@ import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,a
 import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
 import {checkCertificates,earliestAgreedBond,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,verifyDeliveryListSig,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
-import {tleBound} from '../settle/bounded';
+import {sealedBidShape,openSealedBid} from '../envelope/opening';
+import {fetchVerifiedBeacon,publishedClient} from '../cli/published-beacon';
+import type {ChainClient} from 'tlock-js';
 export const read=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const save=(p:string,v:any)=>{mkdirSync(path.dirname(p),{recursive:true,mode:0o700});writeFileSync(p+'.new',jsonBytes(v),{mode:0o600});renameSync(p+'.new',p)};
 const key=path.join(STATE,'auction/manifest-signing.pem');
@@ -289,6 +291,11 @@ export async function runCommand(command:string,args:string[]) {
       const sealed=memoSealedBid(envelope_hex);
       requireThat(sealed&&sealed.envelope_tag!==null,'memo framing v2 refused: ct_len must be <= 487');
       requireThat(sealed!.envelope_tag===(prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18)),'memo envelope tag mismatch');
+      // B43 H14 item 1: the bidder's own self-check with the one sealed-bid shape rule (envelope/opening.ts)
+      // — the same rule `bid deposit`'s admission applies, refused here with its reason so a broken sealer is
+      // caught before anyone pays C to deposit its ciphertext.
+      const shape=sealedBidShape(sealed!.ciphertext_hex,m.drand.R);
+      if(!shape.ok)throw new Error(`sealed bid structure: ${shape.reason}`);
       const bound=bindSealedBid(prep,m.auction_id,hash(Buffer.from(sealed!.ciphertext_hex,"hex")));
       save(path.join(STATE,'bids',m.auction_id,bound.ciphertext_hash_hex+'.json'),{owner_private_hex:prep.owner.private_hex,auction_id:m.auction_id,ciphertext_hash:bound.ciphertext_hash_hex});
       return {auction_id:m.auction_id,envelope_hex,uri:await page.locator('#uri').innerText(),round:Number(await page.locator('#round').innerText()),
@@ -363,6 +370,11 @@ export async function runCommand(command:string,args:string[]) {
     // R15 item 3: a claimed row pays through its claim envelope, so the claim's opening report supersedes any
     // bid-envelope entry for the same party (the plan's two-signer gate counts one entry class per row).
     const claimed=new Set<string>();
+    // B43 (item 3): the beacon for stray-memo openings — the doc's published beacon (BLS-checked by
+    // publishedClient), else the round-R beacon from the shared failover-plus-verify fetch. Built lazily so a
+    // report with no stray to open never needs it.
+    let beaconClient:ChainClient|null=null;
+    const memoBeacon=async():Promise<ChainClient>=>beaconClient??=publishedClient(doc.beacon??await fetchVerifiedBeacon(m.drand.R));
     const claimFile=o.claims?path.resolve(o.claims):path.join(STATE,'settle',id,'claims.json');
     if(existsSync(claimFile))for(const c of JSON.parse(readFileSync(claimFile,'utf8'))) {
       claimed.add(c.party);
@@ -383,7 +395,7 @@ export async function runCommand(command:string,args:string[]) {
       if(claimed.has(party)||(doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
       // R20: only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
       // for a memo-less or v1 stray is not something this signer reports ok for.
-      const dest=open(authenticatedMemoEnvelope(notes(m.network),party,doc.manifest,doc.envelopes,bin('tle')));
+      const dest=open(await authenticatedMemoEnvelope(notes(m.network),party,doc.manifest,doc.envelopes,await memoBeacon()));
       opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
     // R23 item 2 (Reviewer G G3): the report is signed by this signer's own witness key (a member of the
@@ -419,7 +431,10 @@ export async function runCommand(command:string,args:string[]) {
     // R17 item 2: the owner signature is verified at record time with the same rule as the signer plan, and
     // only valid claims are recorded (first valid per party) — an unsigned claim can neither block the owner's
     // claim nor linger (the R11 cap is dropped).
-    const ownerKeyFor=(party:string):string|null=>{
+    // B43 (item 3): the beacon for memo openings — the ledger's after open, else the shared fetch. Lazy.
+    let claimBeaconClient:ChainClient|null=null;
+    const claimBeacon=async():Promise<ChainClient>=>claimBeaconClient??=publishedClient(a.beacon??await fetchVerifiedBeacon(m.drand.R));
+    const ownerKeyFor=async(party:string):Promise<string|null>=>{
       if(party.startsWith('leaf:')) {
         const o=read(ledger(id)).opened?.find((x:any)=>x.leaf_index===Number(party.slice(5)));
         return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,'hex').subarray(61,93).toString('hex'):null;
@@ -437,11 +452,13 @@ export async function runCommand(command:string,args:string[]) {
       const note=party.startsWith('deposit:')?partyNote(notes(m.network),party):undefined;
       const memo=note?.memo_hex?memoSealedBid(note.memo_hex):null;
       if(!memo)return null;
-      const r=spawnSync(bin('tle'),['-d','-c',QUICKNET.chain_hash],{input:Buffer.from(memo.ciphertext_hex,'hex'),maxBuffer:1<<20,...tleBound}); // R49: a stalled relay derives nothing
-      if(r.status!==0)return null;
-      const pt=r.stdout;return Buffer.isBuffer(pt)&&pt.length===128?pt.subarray(61,93).toString('hex'):null;
+      // B43 (H14 item 2): the memo's owner key comes from the one opener, offline from the one BLS-verified
+      // beacon — no Go tle per claim. A memo that does not open to the 128-byte sealed-bid layout holds no
+      // owner key; a beacon-level failure still stops this call.
+      const ptHex=await openSealedBid(memo.ciphertext_hex,await claimBeacon());
+      return ptHex?Buffer.from(ptHex,'hex').subarray(61,93).toString('hex'):null;
     };
-    const owner=ownerKeyFor(request.party);
+    const owner=await ownerKeyFor(request.party);
     requireThat(owner&&verifyStatement(owner!,{kind:'claim-refund',auction_id:id,party:request.party,claim_envelope_sha256:hash(Buffer.from(request.claim_envelope_ct,'hex'))},request.owner_sig),'claim owner signature');
     const file=path.join(STATE,'settle',id,'claims.json'),claims=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):[];
     const old=claims.find((c:any)=>c.party===request.party);

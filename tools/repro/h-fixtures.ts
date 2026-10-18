@@ -37,7 +37,7 @@ export async function fetchBeacon(round: number): Promise<{ round: number; signa
   return { round: beacon.round, signature: beacon.signature, chain_hash: QUICKNET.chain_hash };
 }
 
-export type Tamper = { index: number; kind: "body" | "mac" };
+export type Tamper = { index: number; kind: "body" | "mac" | "stanza-body" | "payload-cut" };
 export type Fixture = {
   id: string; signer: string; manifestPem: string; manifest: Manifest; manifestPacket: Signed; manifestHash: string;
   envelopeKeys: { public_hex: string; private_hex: string }[];
@@ -51,7 +51,9 @@ export type Fixture = {
 // Build the fixture auction in memory. `commitment` is the manifest's seller_ua_commitment (undefined = the
 // legacy pre-H10 variant); `tamper` corrupts one ciphertext AFTER sealing (body = payload-chunk MAC failure,
 // mac = header MAC failure — the two authenticated-ciphertext classes tlock-js and Go tle both classify as
-// undecryptable); `hideDeposit` drops one deposit from the scan notes (the reorg case).
+// undecryptable; stanza-body and payload-cut are the two H14 griefing probes — a malformed stanza body and a
+// payload cut to 3 bytes, both of which pass the pre-H14 header rule); `hideDeposit` drops one deposit from the
+// scan notes (the reorg case).
 export async function buildAuction(opts: {
   beacon: { round: number; signature: string; chain_hash: string };
   commitment?: string; tamper?: Tamper[]; hideDeposit?: number; count?: number;
@@ -91,7 +93,17 @@ export async function buildAuction(opts: {
       // body: flip the ciphertext's last byte (payload-chunk MAC failure). mac: replace the first header-MAC
       // character after the "--- " marker with a DIFFERENT valid base64 character — both Go age and tlock-js
       // must parse the header and then fail its MAC check (a parse-breaking byte is a different error class).
+      // stanza-body: replace the stanza body's first line with "!!!!" (the H14 probe) — the header rule still
+      // passes, but the age parse breaks at the MAC line. payload-cut: cut the payload to 3 bytes (the H14
+      // probe) — the header rule still passes and tlock-js returns an EMPTY plaintext for it.
       if (tamper.kind === "body") { ct = Buffer.from(ct); ct[ct.length - 1] ^= 1; }
+      else if (tamper.kind === "stanza-body") {
+        const text = ct.toString("latin1"), stanzaAt = text.indexOf("\n-> tlock "), lineStart = text.indexOf("\n", stanzaAt + 1) + 1, lineEnd = text.indexOf("\n", lineStart);
+        ct = Buffer.from(text.slice(0, lineStart) + "!!!!" + text.slice(lineEnd), "binary");
+      } else if (tamper.kind === "payload-cut") {
+        const text = ct.toString("latin1"), macAt = text.indexOf("--- "), payloadStart = text.indexOf("\n", macAt) + 1;
+        ct = Buffer.from(text.slice(0, payloadStart + 3), "binary");
+      }
       else { const at = ct.toString("latin1").indexOf("--- ") + 4; ct = Buffer.from(ct); ct[at] = ct[at] === 0x41 ? 0x42 : 0x41; }
     }
     if (ct.length > 505) throw new Error("ciphertext memo cap");
@@ -205,9 +217,11 @@ const fix = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8")
 const ct = fs.readFileSync(0).toString("hex");
 const hit = fix.tampered.find(t => t.ct === ct);
 if (hit) {
-  // The two real Go-age stderr classes: a body tamper fails the payload chunk MAC, a header tamper fails the
-  // fileKey/payload MAC (settle/bounded MAC_FAILURE and clear/auction-cli.ts match these).
-  process.stderr.write(hit.kind === "body" ? "failed to decrypt and authenticate payload chunk\\n" : "bad header MAC\\n");
+  // The real Go-age failure classes: a body or payload-cut tamper fails the payload chunk MAC, a header tamper
+  // fails the fileKey/payload MAC (settle/bounded MAC_FAILURE and clear/auction-cli.ts match these), and the
+  // H14 stanza-body grief fails the age PARSE (non-MAC stderr — the failure class that made the open throw).
+  if (hit.kind === "stanza-body") { process.stderr.write("age: malformed stanza body\\n"); process.exit(1); }
+  process.stderr.write(hit.kind === "body" || hit.kind === "payload-cut" ? "failed to decrypt and authenticate payload chunk\\n" : "bad header MAC\\n");
   process.exit(1);
 }
 const pt = fix.plaintexts[ct];

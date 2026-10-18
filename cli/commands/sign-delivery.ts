@@ -11,7 +11,8 @@ import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { QUICKNET, hash, jsonBytes, requireThat } from "../../manifest/schema";
-import { tleDecryptFailover } from "../../manifest/reserve";
+import { fetchVerifiedBeacon, publishedClient } from "../published-beacon";
+import { openSealedBid } from "../../envelope/opening";
 import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { envelopeRecordValid, openDelivery, verifyStatement } from "../../envelope";
@@ -42,15 +43,17 @@ export async function run(argv: string[]): Promise<number | object> {
     const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", dir, "--signer", o.signer], { encoding: "utf8", env: process.env });
     requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
 
-    // This host's own data only: its envelope key and its own tlock openings of the frozen leaves.
+    // This host's own data only: its envelope key and its own tlock openings of the frozen leaves (B43: the
+    // one opener, offline from the one BLS-verified beacon — the published one, fetched when a packet lacks it).
     const key = ownEnvelopePrivate(st, o.name);
     requireThat(key, "this signer's envelope key is missing");
     requireOwnEnvelopeKey(pub.manifest as any, o.name, st);
-    const tle = path.join(st, "bin", "tle");
-    const opened = (pub.frozen?.leaves ?? []).map((l: any) => {
-      const pt = tleDecryptFailover(tle, QUICKNET.chain_hash, Buffer.from(l.ciphertext_hex, "hex"));
-      return { leaf_index: l.leaf_index, plaintext_hex: pt ? pt.toString("hex") : null };
-    });
+    const local = publishedClient(pub.beacon ?? await fetchVerifiedBeacon((pub.manifest as any).drand.R));
+    const opened: { leaf_index: number; plaintext_hex: string | null }[] = [];
+    for (const l of pub.frozen?.leaves ?? []) {
+      const pt = await openSealedBid(l.ciphertext_hex, local);
+      opened.push({ leaf_index: l.leaf_index, plaintext_hex: pt });
+    }
     const ownerOf = (i: number) => { const p = opened.find(x => x.leaf_index === i)?.plaintext_hex; return p && /^[0-9a-f]{256}$/.test(p) ? Buffer.from(p, "hex").subarray(61, 93).toString("hex") : null; };
 
     // Open every sealed record and check its owner signature against the opened order (R40 item 3).

@@ -1,8 +1,16 @@
 // Public quicknet client: no HTTP or checkout/state lookup. Validate before decryption.
 import { bls12_381 } from "@noble/curves/bls12-381";
-import { timelockDecrypt, type ChainClient } from "tlock-js";
+import type { ChainClient } from "tlock-js";
 import { QUICKNET, hash, requireThat } from "../manifest/schema";
 import { memoSealedBid } from "../settle/envelopes";
+import { drandUrls } from "../manifest/reserve";
+import { DRAND_TIMEOUT_MS } from "../settle/bounded";
+import { openSealedBid } from "../envelope/opening";
+
+// The raw tlock decrypt and its failure contract moved into envelope/opening.ts with B43 (the one opener and
+// the contract it maps live in one module). It stays re-exported here for the sealed-reserve paths — a
+// reserve is a sealed price bound, not a sealed bid, so it keeps the raw decrypt without the bid shape rule.
+export { decryptPublished } from "../envelope/opening";
 
 export function publishedClient(beacon: { round: number; signature: string }): ChainClient {
   requireThat(Number.isSafeInteger(beacon.round) && beacon.round > 0 && /^[0-9a-f]{96}$/.test(beacon.signature), "beacon round/signature");
@@ -24,34 +32,33 @@ export function publishedClient(beacon: { round: number; signature: string }): C
   };
 }
 
-// The exact failure contract every caller maps (H11, docs/design/phase7-h10-h11.md item 3): a null return is an
-// AUTHENTICATED-CIPHERTEXT failure — the header MAC ("The MAC did not validate for the fileKey and payload!") or a
-// payload-chunk MAC ("Error during decryption!") — the only bad-bid cases; every other failure (a bad beacon, the
-// wrong round/chain, a structural parse error) THROWS and stops the caller. tlock-js 0.9.0 raises exactly those two
-// messages at exactly its two MAC checks (age-encrypt-decrypt.js header MAC; stream-cipher.js ChaCha20Poly1305.open),
-// so the split is exact, and an unknown failure message can only fail closed (it throws).
-export async function decryptPublished(ciphertextHex: string, client: ChainClient): Promise<string | null> {
-  const ciphertext = Buffer.from(ciphertextHex, "hex").toString("binary");
-  // tlock-js 0.9.0 does not check the stanza chain hash; bind both stanza arguments here.
-  const info = await client.chain().info();
-  const stanza = ciphertext.match(/\n-> tlock ([1-9][0-9]*) ([0-9a-f]{64})\n/);
-  requireThat(stanza && stanza[2] === info.hash, "ciphertext tlock stanza/chain");
-  await client.get(Number(stanza![1]));
-  // Pinned tlock-js prints each public beacon. Keep CLI output bounded while awaiting its decrypt call.
-  const log = console.log;
-  console.log = () => {};
-  try { return (await timelockDecrypt(ciphertext, client)).toString("hex"); }
-  catch (e) {
-    if (/^(The MAC did not validate for the fileKey and payload!|Error during decryption!)$/.test((e as Error).message)) return null;
-    throw e;
-  } finally { console.log = log; }
+// H11's failover-plus-verify beacon fetch, in one shared place (B43 item 3): the round-R quicknet beacon from
+// ANY endpoint in BNZ_DRAND_URLS, in order, each bounded by DRAND_TIMEOUT_MS; the first answer whose BLS
+// signature verifies against the pinned quicknet key wins (publishedClient refuses every other). One dead
+// relay no longer fails the open. `open`, the signer hosts and the settlement plan use this for an auction
+// that carries no published beacon (cancelled before open, strays after R); when the packet publishes one,
+// pass that to publishedClient instead and never fetch.
+export async function fetchVerifiedBeacon(R: number): Promise<{ round: number; signature: string; chain_hash: string }> {
+  for (const url of drandUrls()) {
+    try {
+      const response = await fetch(`${url}/${QUICKNET.chain_hash}/public/${R}`, { signal: AbortSignal.timeout(DRAND_TIMEOUT_MS) });
+      if (!response.ok) continue;
+      const b = await response.json() as { round: number; signature: string };
+      if (b.round !== R || !/^[0-9a-f]{96}$/.test(b.signature)) continue;
+      publishedClient({ round: b.round, signature: b.signature }); // BLS-check the answer; anything else is not the beacon
+      return { round: b.round, signature: b.signature, chain_hash: QUICKNET.chain_hash };
+    } catch {} // a dead, wrong or unverifiable answer is not the beacon; try the next endpoint
+  }
+  throw new Error("refused: drand opening beacon unavailable or unverified on every endpoint");
 }
 
 // R16 item 4 (Reviewer R F3): the one derivation of every stray claim's owner-key source — the plaintext of
 // the memo the claim publishes (the scanned deposit's memo), opened against the published beacon. Returns
 // the derived plaintext hex per claim index (null when the memo does not open); checkPublicAuction consumes
-// this map and fails closed without it. Kept here, not in api/public-auction.ts, because that module is
-// bundled into settle/plan.mjs and must not drag the tlock runtime in with it.
+// this map and fails closed without it. Since B43 it goes through the one opener (envelope/opening.ts), so a
+// griefing memo yields null instead of stopping the verify. Kept here, not in api/public-auction.ts, because
+// that module is bundled into settle/plan.mjs and stays free of the tlock runtime (the plan itself now calls
+// the opener directly for its own openings).
 export async function deriveClaimOpenings(claims: { party: string; memo_hex?: string }[], beacon: { round: number; signature: string } | null): Promise<Map<number, string | null>> {
   const openings = new Map<number, string | null>();
   if (!claims.length || !claims.some(c => c.party?.startsWith("deposit:"))) return openings;
@@ -60,7 +67,7 @@ export async function deriveClaimOpenings(claims: { party: string; memo_hex?: st
   for (const [i, c] of claims.entries()) {
     if (!c.party.startsWith("deposit:")) continue;
     const ct = typeof c.memo_hex === "string" ? memoSealedBid(c.memo_hex)?.ciphertext_hex ?? null : null;
-    openings.set(i, ct ? await decryptPublished(ct, local) : null);
+    openings.set(i, ct ? await openSealedBid(ct, local) : null);
   }
   return openings;
 }

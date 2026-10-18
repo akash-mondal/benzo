@@ -21,6 +21,7 @@ import { readOrder } from "../../clear/layout";
 import { modeEntry } from "../../clear/registry";
 import { validEnvelope } from "../../settle/envelopes";
 import { decryptPublished, deriveClaimOpenings, publishedClient } from "../published-beacon";
+import { openSealedBid } from "../../envelope/opening";
 import { requireReserveOpening } from "../../manifest/reserve";
 import { verifyBeacon } from "drand-client/beacon-verification.js";
 import type { Opened } from "../../clear/core";
@@ -298,7 +299,7 @@ export async function run(argv: string[]): Promise<number> {
       // their published memos, the sealed reserve and serial beacon authenticated, then checkPublicAuction
       const derivedOpenings: Opened[] = [];
       for (const leaf of pub.frozen.leaves) {
-        const plaintext = await decryptPublished(leaf.ciphertext_hex, local);
+        const plaintext = await openSealedBid(leaf.ciphertext_hex, local);
         derivedOpenings.push(plaintext === null ? { leaf_index: leaf.leaf_index, plaintext_hex: null, error: "undecryptable" }
           : { leaf_index: leaf.leaf_index, plaintext_hex: plaintext });
       }
@@ -407,7 +408,7 @@ export async function run(argv: string[]): Promise<number> {
         if (!fl || typeof fl.ciphertext_hex !== "string" || typeof fl.ciphertext_hash !== "string") { ex("no frozen leaf"); continue; }
         if (hash(Buffer.from(fl.ciphertext_hex, "hex")) !== fl.ciphertext_hash) { ex("ciphertext hash mismatch"); continue; }
         let ptHex: string | null = null;
-        try { ptHex = await decryptPublished(fl.ciphertext_hex, local); } catch (e) { ex(`bid did not open: ${(e as Error).message}`); continue; }
+        try { ptHex = await openSealedBid(fl.ciphertext_hex, local); } catch (e) { ex(`bid did not open: ${(e as Error).message}`); continue; }
         if (!ptHex) { ex("bid did not open"); continue; }
         const opened = Buffer.from(ptHex, "hex");
         // gate EN: the opened order parses under the MANIFEST MODE's own plaintext layout (uniform/buyback

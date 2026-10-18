@@ -15,7 +15,6 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import os from "node:os";
 import path from "node:path";
 import { QUICKNET, requireThat } from "../../manifest/schema";
-import { tleDecryptFailover } from "../../manifest/reserve";
 import { pcztBin, scanBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";

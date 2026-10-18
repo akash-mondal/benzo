@@ -5,7 +5,8 @@ import path from "node:path";
 import {hash, jsonBytes, QUICKNET, requireThat, signRecord, type Signed} from "../manifest/schema";
 import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, type Receipt} from "./merkle";
 import type {ClearResult, Opened} from "./core";
-import {publishedClient, decryptPublished} from "../cli/published-beacon";
+import {publishedClient, decryptPublished, fetchVerifiedBeacon} from "../cli/published-beacon";
+import {openSealedBid, sealedBidShape} from "../envelope/opening";
 import {clearForMode, clientCommon as client} from "./registry"; // design §6.1: every registry mode
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
@@ -63,6 +64,12 @@ try {
       requireThat(now<m.T_freeze && ledger.state==="OPEN","admission cutoff");
       requireThat(now<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"round already passed");
       const {ct,memo_tag}=ciphertext(input.envelope_hex,m.drand.R);
+      // B43 H14 item 1 (docs/design/phase7-h13-h14.md): the one sealed-bid shape rule at admission — a memo
+      // whose tlock ciphertext is not the exact one-stanza / 128-byte body / 160-byte payload structure is
+      // refused here with the reason, so the bidder sees it and a griefing bid can never reach the frozen
+      // set (where it would at most open as `undecryptable`). The same rule runs in `bid seal`'s self-check.
+      const shape=sealedBidShape(ct,m.drand.R);
+      if(!shape.ok)throw new Error(`sealed bid structure: ${shape.reason}`);
       requireThat(/^[0-9a-f]{64}$/.test(input.txid) && m.deposit_addresses.includes(input.address),"deposit reference/address");
       const {notes,tip}=observed(m.network), matches=notes.filter(n=>n.txid===input.txid && n.address===input.address);
       requireThat(matches.length===1,"deposit not unique or absent"); const n=matches[0];
@@ -111,38 +118,30 @@ try {
       requireThat(ledger.state==="SEALED-WAIT" && now>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"opening state/release");
       const {notes}=observed(m.network);
       requireThat(ledger.frozen,"no frozen set"); checkFrozen(ledger.frozen!,id,manifest_hash);
-      // H11 (docs/design/phase7-h10-h11.md): the round-R beacon is fetched from ANY endpoint in BNZ_DRAND_URLS,
-      // in order, each bounded by DRAND_TIMEOUT_MS; the first answer whose BLS signature verifies against the
-      // pinned quicknet key wins (publishedClient refuses every other). One dead relay no longer fails the open.
+      // H11 (docs/design/phase7-h10-h11.md): the round-R beacon comes from the ONE shared failover-plus-
+      // verify fetch (cli/published-beacon.ts fetchVerifiedBeacon): ANY endpoint in BNZ_DRAND_URLS, in order,
+      // each bounded by DRAND_TIMEOUT_MS; the first answer whose BLS signature verifies against the pinned
+      // quicknet key wins (publishedClient refuses every other). One dead relay no longer fails the open.
       ledger.trace.push({operation:"beacon fetch",time:now});
-      let beacon:{round:number;signature:string}|null=null;
-      for(const url of drandUrls()) {
-        try {
-          const response=await fetch(`${url}/${QUICKNET.chain_hash}/public/${m.drand.R}`,{signal:AbortSignal.timeout(DRAND_TIMEOUT_MS)});
-          if(!response.ok)continue;
-          const b=await response.json() as {round:number;signature:string};
-          if(b.round!==m.drand.R||!/^[0-9a-f]{96}$/.test(b.signature))continue;
-          publishedClient({round:b.round,signature:b.signature});
-          beacon={round:b.round,signature:b.signature};break;
-        } catch {} // a dead, wrong or unverifiable answer is not the beacon; try the next endpoint
-      }
-      requireThat(beacon,"drand opening beacon unavailable or unverified on every endpoint");
-      ledger.beacon={round:beacon!.round,signature:beacon!.signature,chain_hash:QUICKNET.chain_hash};
-      // H11: every opening derives OFFLINE from that one verified beacon — no tle subprocess and no network
-      // per leaf. The exact pre-H11 semantics: a reorged leaf stays {error:"reorg"}; only an authenticated-
-      // ciphertext failure is {error:"undecryptable"} (cli/published-beacon decryptPublished returns null for
-      // exactly those two MAC failures and throws for everything else); any other failure (bad beacon, library
-      // error) throws here and stops the open — it is never a bad bid.
+      const beacon=await fetchVerifiedBeacon(m.drand.R);
+      ledger.beacon={round:beacon.round,signature:beacon.signature,chain_hash:QUICKNET.chain_hash};
+      // B43 H14 item 2: every opening derives OFFLINE from that one verified beacon through the one opener
+      // (envelope/opening.ts openSealedBid) — no tle subprocess and no network per leaf. A reorged leaf stays
+      // {error:"reorg"}; every leaf whose fault it is (bad shape, either authenticated-ciphertext MAC
+      // failure, or a plaintext that is not exactly 128 bytes) is {error:"undecryptable"} — one malformed
+      // bid can no longer stop the open for every other bidder; a beacon-level error (the wrong round) still
+      // throws and stops the open — it is never a bad bid.
       ledger.trace.push({operation:"offline decrypt",time:now});
       const local=publishedClient(ledger.beacon),opened:Opened[]=[];
       for(const l of ledger.leaves) {
         if(!notes.some(n=>n.txid===l.deposit.txid && n.address===l.deposit.address && n.height)){opened.push({leaf_index:l.leaf_index,plaintext_hex:null,error:"reorg"});continue;}
-        const plaintext=await decryptPublished(l.ciphertext_hex,local);
+        const plaintext=await openSealedBid(l.ciphertext_hex,local);
         opened.push(plaintext===null?{leaf_index:l.leaf_index,plaintext_hex:null,error:"undecryptable"}:{leaf_index:l.leaf_index,plaintext_hex:plaintext});
       }
       ledger.opened=opened;
       if(m.sealed_reserve!==undefined) {
         // Gate CF: the manifest's sealed price bound opens at R with the bids and feeds the clear below.
+        // It is not a sealed bid (no 128-byte shape rule), so it keeps the raw decrypt (B43).
         const reserve=await decryptPublished(m.sealed_reserve,local);
         requireThat(reserve!==null,"sealed reserve opening failed");
         ledger.reserve_opening=reserve!;

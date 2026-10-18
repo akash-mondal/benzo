@@ -12,7 +12,8 @@ import { envelopeRecordValid, openEnvelope, settlementCommitment, verifyEnvelope
 import { hash, QUICKNET, requireThat, type Signed } from "../manifest/schema";
 import { modeEntry } from "../clear/registry";
 import { partyNote, type DepositNote } from "./deposits";
-import { tleOpening } from "../manifest/reserve";
+import { openSealedBid } from "../envelope/opening";
+import type { ChainClient } from "tlock-js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
@@ -168,13 +169,15 @@ export function envelopeRecipient(
 //       signature plus its salted settlement commitment, with the memo opening to this auction's 128-byte
 //       sealed-bid layout.
 // Otherwise null — the row is an exception row, claimable through benzo claim-refund.
-export function authenticatedMemoEnvelope(
+// B43 (H14 item 2): the memo's opening comes from the one opener (envelope/opening.ts openSealedBid) against
+// the BLS-verified beacon client — a griefing memo yields null here instead of stopping every stray's row.
+export async function authenticatedMemoEnvelope(
   observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
-  tleBin: string,
-): EnvelopeRecord | null {
+  client: ChainClient,
+): Promise<EnvelopeRecord | null> {
   try {
     const note = partyNote(observed, party);
     const memo = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
@@ -188,7 +191,7 @@ export function authenticatedMemoEnvelope(
     // depositor sets the memo) authenticates it before R with no tlock opening; it must still satisfy the shared
     // format/recipient rule.
     if (memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) && envelopeRecordValid(rec, manifest.envelope_keys)) return rec;
-    const ptHex = tleOpening(tleBin, manifest.drand.chain_hash, ctHex);
+    const ptHex = await openSealedBid(ctHex, client);
     if (!ptHex) return null;
     const pt = Buffer.from(ptHex, "hex");
     if (!sealedBidPlaintext(pt, manifestPacket)) return null;
@@ -200,16 +203,16 @@ export function authenticatedMemoEnvelope(
 
 // R10 item 2 + R20: the deposit-party twin of envelopeRecipient — the AUTHENTICATED memo-bound record,
 // opened with the signer's own key. Total like the rest of this module: anything unresolvable is null.
-export function memoEnvelopeRecipient(
+export async function memoEnvelopeRecipient(
   observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
-  tleBin: string,
+  client: ChainClient,
   envelopePrivateHex: string,
-): Destination | null {
+): Promise<Destination | null> {
   try {
-    const rec = authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, tleBin);
+    const rec = await authenticatedMemoEnvelope(observed, party, manifestPacket, envelopes, client);
     return rec ? openDestination(rec, envelopePrivateHex, netOf(manifestPacket)) : null;
   } catch {
     return null;
