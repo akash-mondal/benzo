@@ -672,3 +672,19 @@ The head re-ran the R100 probe on main:
 ### R103 — B46 round 1 not merged: vault value is fungible, so the reserve return must be value-based (head, 2026-10-19)
 
 B46 round 1 (`8dad770`, `2f582ca`, `76ecdf8`) implemented the design's "eligible notes" rule. Its question 1 shows the rule is wrong: the wallet picks the inputs of every batch, so a stray's value can sit in internal change, and an internal-change-is-the-operator's rule could return a bidder's unclaimed money to the operator. The head revised `phase7-b46-reserve-return.md`: return only when nothing is owed, the vault's whole value minus the fee, inputs equal to the scanned total. Round 2 goes to the same builder on the same branch.
+
+### R104 — B45 merged: classification in bulk and cached; per-batch host work flat in N (head, 2026-10-19)
+
+B45 is on main (`3b64ec0`…`4c2a227`). It adds `benzo-pczt classify-address --stdin` (the same audited `zcash_address` calls), `classifyAddresses` with an in-process memo, and a host prefetch with `auctions/<id>/classify-cache.json`, which is keyed by sha256(address) and discarded when the classifier binary changes. The equivalence proof covers 643 R24 vectors plus invalid inputs, bulk equal to single byte for byte, and the old and new binaries are identical on 640 inputs.
+
+Offline h13: the second batch takes 1.2 s at N = 55 and 1.65 s at N = 1,000 (it was 4.0 / 61.0 s), with **zero** classifier spawns. The first batch keeps one decrypt per leaf, once per host per auction. On main the head re-ran:
+- `npm run check`, e2e;
+- the B45 repro;
+- the R100 probe, which still opens both griefs as `null`.
+
+The verify bundle is unchanged at `ac5d68e9…`. Rulings on B45's questions:
+1. Accepted: the prefetch opens the envelopes first.
+2. Same trust class as `openings.json`, the host's own state; no tamper evidence needed.
+3. Noted.
+4. **The README's scale wording is re-measured live first:** hosts provisioned again, then scale-55. The 17,000-bid line changes only on measured numbers.
+5. The B44 probe was re-run on main: green.
