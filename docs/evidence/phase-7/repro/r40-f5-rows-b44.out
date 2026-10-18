@@ -1,0 +1,24 @@
+commit 97d3487aca4efb16e1de11b7fd1cd5d25473621c (working tree not clean at run time)
+utc 2026-10-18T20:22:18.205Z
+command node tmp/r40-f5-rows.mjs (tools/repro/r40-f5-rows.ts)
+tree ?? docs/evidence/phase-7/repro/b44-gates.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-before.out
+tree ?? docs/evidence/phase-7/repro/b44-probe-r100-after.out
+tree ?? docs/evidence/phase-7/repro/b44-probe-r100-base.out
+tree ?? docs/evidence/phase-7/repro/h11-open-offline-b44-after.out
+tree ?? docs/evidence/phase-7/repro/h11-open-offline-b44-before.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b44-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b44-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b44-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b44-before.out
+tree ?? docs/evidence/phase-7/repro/r40-f5-rows-b44.out
+tree ?? docs/evidence/phase-7/repro/r73-open-taddr-b44.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-beacon-b44.out
+tree ?? docs/evidence/phase-7/repro/r78-verify-hardening-b44.out
+tree ?? docs/evidence/phase-7/repro/r81-destination-rule-b44.out
+tree ?? docs/evidence/phase-7/repro/r82-legacy-format-b44.out
+PASS f5-winner-matrix sources ["balance:a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0"]; refunds [{"party":"balance-late:a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2:ironwood:0","leaf_index":0,"amount_zats":"7","matured":true,"notes":["a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2:ironwood:0"]},{"party":"balance-late:b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1:ironwood:1","leaf_index":1,"amount_zats":"11","matured":true,"notes":["b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1:ironwood:1"]},{"party":"balance-late:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:2","leaf_index":1,"amount_zats":"13","matured":true,"notes":["b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:2"]}] (the winner's in-window note pays; its late note is its own row)
+PASS f5-losing-leaf losing-leaf rows [{"party":"balance-late:b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1:ironwood:1","leaf_index":1,"amount_zats":"11","matured":true,"notes":["b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1:ironwood:1"]},{"party":"balance-late:b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:2","leaf_index":1,"amount_zats":"13","matured":true,"notes":["b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2:ironwood:2"]}] (every note at a losing leaf's balance address refunds to that leaf, one immutable row per note)
+PASS f5-no-leaf-slot the note at the no-bid slot produced neither a row nor a source — unrecoverable (README honest limits)
+RESULT PASS r40-f5-rows

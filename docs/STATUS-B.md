@@ -128,7 +128,116 @@ step 2.
 bob/carol interleave nondeterministically). The call multiset is identical; every other sequence is compared in
 order.
 
-## Current run (43): B43 — Phase 7 H14 open griefing + H13 settlement scale (one offline opener, host openings cache)
+## Current run (44): B44 — the opener never throws on a leaf or memo (Reviewer R P1-1, P1-2 on B43)
+
+**DONE, offline only** (no main-checkout `.benzo/`/`.env`, no OrbStack/`orb`, no testnet, no wallets, no live
+Playwright; one past quicknet beacon fetched as `h-fixtures.ts` does). Spec:
+`docs/design/phase7-b44-opener-fix.md`. Worktree `../benzo-b44`, branch `b44-opener-fix`, base `d646ceb`
+(the design says `6a5c45a`; the head overrode to `d646ceb` — docs only). Three commits, all `--no-verify`
+(R32): `e6bf031` opener + admission G2 check, `97d3487` repro + h-fixtures kinds, and the final
+`B44: the opener never throws on a leaf or memo (R P1-1, P1-2)` (this bookkeeping).
+
+**The exact opener contract now** (`envelope/opening.ts` `openSealedBid(ciphertextHex, client)`). Every caller
+hands it a client built from this auction's verified beacon (`publishedClient` BLS-checks it at construction —
+that is where a bad beacon throws), so everything about the ciphertext is the ciphertext's fault:
+1. it reads the beacon round from the CLIENT (`client.latest()`), never `client.get` with a ciphertext round;
+   a client that serves no beacon round THROWS `refused: opener: the beacon client serves no round` — the ONLY
+   throw, checked first, never ciphertext-causable;
+2. `sealedBidShape(ciphertextHex, beaconRound)` runs against the beacon's round and any failure (a wrong round
+   included) returns **null**;
+3. it decrypts and returns **null** for ANY exception out of the tlock/age/IBE layers (either MAC failure,
+   `invalid G2 point`, `rP check failed`, parse errors) and for a plaintext that is not exactly 128 bytes;
+4. otherwise it returns the plaintext hex.
+
+`open`, `verify`, host `deriveRows`, `memoOwner`, `bidPlaintextFor`, `claim-refund`, the plan, `sign delivery`
+and `xchain` all use it unchanged, so they classify identically by construction. `decryptPublished` keeps its
+raw contract for the sealed-reserve path only (commented: a manifest's own `sealed_reserve` failing to open is
+an operator fault and may still stop the open).
+
+**The admission G2 check** (`sealedBidShape`, run at `bid seal`'s self-check and `bid deposit` admit): the
+stanza body's first 96 bytes must decode as a valid compressed BLS12-381 G2 point
+(`bls12_381.G2.ProjectivePoint.fromHex` — the IBE point U a real sealer always writes). A junk body is refused
+`sealed bid structure: stanza body is not a valid G2 point: invalid G2 point: expected 96/192 bytes` where the
+bidder sees it. The other 32 bytes (V, W) cannot be checked before R: a forgery there is still admitted and
+freezes in (it costs the griefer C) but opens `undecryptable` on every path. Old evidence was sealed honestly
+and keeps verifying — proven on the dirs the folds replay (`r82-legacy-format-b44.out`: "phase-3 legacy,
+honest: ACCEPTED"; `r73`/`r77`/`r78`/`r81` green).
+
+**Red/green per case** (`docs/evidence/phase-7/repro/b44-opener-{before,after}.out`; red = the base bundles
+built from pristine `d646ceb` before any B44 edit — auditable: `grep -c ProjectivePoint
+tmp/b44/base/opening.mjs` = 0; green = this tree):
+
+- **(a) junk 128-byte stanza body.** Red: the base (B43) shape rule ACCEPTS it (length-only), the base admit
+  command admits it, and the base opener THROWS `invalid G2 point: expected 96/192 bytes` — the base `open`
+  dies (`ERROR auction invalid G2 point: …`), base `benzo verify` dies, base `sign derivable` dies
+  (`ERROR sign derivable refused: public check failed: ERROR verify invalid G2 point: …`). Green: refused at
+  admission (`sealed bid structure: stanza body is not a valid G2 point: …`); built directly into a frozen
+  fixture it opens `{error:"undecryptable"}` with exactly the expected classification, `benzo verify` agrees
+  (`OK no-destinations`), host `deriveRows` completes with rows `leaf:0, leaf:1, seller` and nothing for the
+  griefed leaves.
+- **(b) valid G2 point + junk V/W.** Red: shape ACCEPTS and the base opener THROWS `invalid proof: rP check
+  failed`. Green: still passes admission (documented), opens `undecryptable` on every path (probe, open, verify,
+  deriveRows) and nothing throws.
+- **(c) stray memos: a genuine sealed bid of round R+1 and a junk-body sealed bid of R, in a cleared fixture
+  and a cancelled fixture.** Red per variant per fixture (8 runs): the base plan dies (`ERROR settle refused:
+  ciphertext beacon round` / `ERROR settle invalid G2 point: expected 96/192 bytes`) and the base deriveRows
+  dies (`ERROR sign derivable refused: ciphertext beacon round` / `… invalid G2 point: …`) — with both strays
+  present, one dust deposit stops settlement for everyone. Green: the plan completes in both fixtures and both
+  stray rows land in `exceptions` with `deposit memo is not an openable sealed bid; no owner key claims it`
+  (owner key null = claim-only, today's null path); deriveRows completes in both, derives no row for either
+  stray, and the host memo-openings cache records both stray openings as `null`.
+- **(d) `claim-refund` against such a memo.** Red: the raw opener error surfaces (`ERROR benzo refused:
+  ciphertext beacon round` / `ERROR benzo invalid G2 point: expected 96/192 bytes`) — wrong classification
+  (and in the plan/host loops it is a hard crash). Green: a normal ERROR line, refused as the claim's own
+  fault: `ERROR benzo refused: claim owner signature`, exit 1, for both memos.
+- **(e) honest leaves byte-identical to main.** The base opener's honest openings (saved at red time) equal the
+  green `open` run's byte for byte (`case-e-honest-byte-identical`, sha `1a92114132fab8c3…` this run), and the
+  probe's honest case opens `plaintext` on both sides.
+
+**Commands run** (worktree `/Users/akshmnd/Dev Projects/benzo-b44`): `git worktree add ../benzo-b44 -b
+b44-opener-fix d646ceb` OK (from the main checkout); worktree `npm ci` OK (pinned lockfile);
+`tools/nu7/build.sh crates vendor/nu7 pczt-0.9.3 zcash_primitives-0.30.1 zcash_protocol-0.10.5` OK (sha256-
+checked crates, extracted+patched); `cargo build --release --locked --manifest-path settle/Cargo.toml` OK
+(`Finished release`, the real classifier); worktree-local `cp .env.example .env` + Go `tle` v1.2.0 copied from
+the main checkout's `tmp/b39-tools/bin/tle` into the worktree's own `.benzo/bin` and `tmp/b39-tools/bin` (e2e
+and the h11 fold; no main-checkout state touched); base bundles built from pristine `d646ceb` sources BEFORE
+any edit (tmp/b44/base: opening, published-beacon, auction, plan, cli-dist + root/clear/dist/cli.mjs for the
+base plan's clear spawn; plus tmp/b43/base from `e821ba0` and tmp/h11/base-auction.mjs from `aa0229e` for the
+folds) with `git archive` extracts; green bundles `npm run build:core && npm run build:settle && npm run
+build:cli`. Gates (`docs/evidence/phase-7/repro/b44-gates.out`): `npm run typecheck` PASS; `check:structure`
+`OK (209 files)`; `check:invariants` `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2; `check:dist-require` OK;
+`npm run e2e` `PASSED default seal in the browser, open with tle after R (38 s)`. `check:bundle` not run
+(worktree, R32). Repro: `node tmp/b44.mjs before` **RESULT PASS** (25 red checks) and `node tmp/b44.mjs after`
+**RESULT PASS** (29 green checks); the head's r100 probe re-run on both sides
+(`b44-probe-r100-{base,after}.out`): base `intact plaintext / junk body THROW invalid G2 point: expected
+96/192 bytes / wrong round THROW refused: ciphertext beacon round`, after `plaintext / shape refuses the junk
+body, open null / shape refuses the wrong round, open null`. **Folds all green** (raw outputs
+`docs/evidence/phase-7/repro/*-b44*`): `h14-open-griefing` both legs PASS; `h13-host-scale` both legs PASS
+(its base leg replays against the e821ba0 bundles); `h11-open-offline` both legs PASS (base open = `aa0229e`);
+`r77-serial-beacon` forged/substituted serial beacon REFUSED; `r78-verify-hardening` 0 FAIL;
+`r81-destination-rule` RESULT PASS; `r82-legacy-format` 0 FAIL ("phase-3 legacy, honest: ACCEPTED");
+`r73-open-taddr` RESULT PASS; `r40-f5-rows` RESULT PASS.
+
+## Questions (B44)
+
+1. **The design says the G2 check is "Admission-only … never inside verify's old-dir path", but rule 2 of the
+   same design runs `sealedBidShape` inside the one opener — which verify's re-derivation goes through (it has
+   since B43).** Implemented as one rule in `sealedBidShape` (admission + the opener's shape gate), so the G2
+   check is in verify's re-derivation too. Old evidence keeps verifying (the folds replay it green), so the
+   operative requirement holds either way; and even if the check were admission-only, the opener's total
+   decrypt catch (rule 3) would still map a junk body to `undecryptable` instead of throwing. If the intent was
+   literally admission-only, say so and I will gate the G2 decode behind the admission call sites.
+2. **`fromHex` accepts the point-at-infinity encoding** (`0xc0 00…`), which an honest IBE U never is. Such a
+   body passes admission and opens `undecryptable` (harmless — the forger burns C), so the design's exact
+   wording is implemented. A one-line admission hardening (`!point.is0()`) would refuse it at admission too;
+   wanted?
+3. **On base, `claim-refund` did not literally crash with a stack trace** — `bin/benzo`'s top-level catch
+   printed `ERROR benzo <raw opener error>`. The P1-2 "uncaught throw" damage is in `settle/plan.ts`
+   (`ERROR settle`, no batch ever planned) and `sign derivable` (exit 1 for every host), both proven red in
+   case (c); the claim path's defect was the wrong classification, now `refused: claim owner signature`.
+   Noted for the record, no action expected.
+
+## Batch B43 — H14 open griefing + H13 settlement scale (one offline opener, host openings cache)
 
 **DONE, offline only** (no main-checkout `.benzo/`/`.env`, no OrbStack/`orb`, no testnet, no wallets, no live
 Playwright). Spec: `docs/design/phase7-h13-h14.md`. Worktree `../benzo-b43`, branch `b43-opener`, base `e821ba0`.
