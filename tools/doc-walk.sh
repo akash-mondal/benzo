@@ -38,13 +38,14 @@ b witness set --id "$ID" --q 2 --keys "$(node -e 'console.log(JSON.parse(process
 NOW=$(date +%s); TSUB=$((NOW + 15*60)); TFRZ=$((NOW + 40*60)); REL=$((NOW + 43*60))
 say "## operator 1.5 — the drand round R (release at $(date -u -r $REL +%FT%TZ))"
 b drand round --at "$(date -u -r $REL +%FT%TZ)"; R="$(jget round)"
+RETURN_UA="$(wallet_ua)"; export RETURN_UA; say "operator reserve_return_ua (the operator's own wallet): ${RETURN_UA:0:20}…"
 say "## operator 1.6 — fill the template (docs/examples/unsigned-manifest.json) and the operator config"
 node -e '
 const fs=require("fs"),[,tpl,cfg,out,cout,id,escrow,group,d1,d2,ek,wsh,R,tsub,tfrz,seller,fee]=process.argv;
 const m=JSON.parse(fs.readFileSync(tpl));
 Object.assign(m,{auction_id:id,escrow_ua:escrow,frost_group_key:group,lot:"gate DOC walkthrough",supply:2,reserve_zats:"10",tick_zats:"10",B_max_zats:"3000",q_max:1,C_zats:"200000",fee_zats:"0",deposit_addresses:[escrow,d1,d2],envelope_keys:JSON.parse(ek),witness_set_hash:wsh,T_submit:+tsub,T_freeze:+tfrz});
-m.drand.R=+R; fs.writeFileSync(out,JSON.stringify(m,null,2),{mode:0o600});
-const c=JSON.parse(fs.readFileSync(cfg)); c.routing.bidders=[escrow,d1,d2].map(deposit_ua=>({deposit_ua})); c.routing.seller_ua=seller; c.routing.fee_reserve_ua=fee;
+m.drand.R=+R; for(const k of Object.keys(m))if(/_commitment$/.test(k))delete m[k]; fs.writeFileSync(out,JSON.stringify(m,null,2),{mode:0o600});
+const c=JSON.parse(fs.readFileSync(cfg)); c.routing.bidders=[escrow,d1,d2].map(deposit_ua=>({deposit_ua})); c.routing.seller_ua=seller; c.routing.fee_reserve_ua=fee; c.routing.reserve_return_ua=process.env.RETURN_UA;
 fs.writeFileSync(cout,JSON.stringify(c,null,2),{mode:0o600});' docs/examples/unsigned-manifest.json docs/examples/private-operator.json "$PRIV/unsigned-manifest.json" "$PRIV/private-operator.json" "$ID" "$ESCROW" "$GROUP" "$D1" "$D2" "$EK" "$WSH" "$R" "$TSUB" "$TFRZ" "$SELLER" "$FEE"
 say "filled: supply 2, C 200000, R $R, T_submit $TSUB, T_freeze $TFRZ (files under \$BNZ_STATE_DIR/run/doc-walk)"
 say "## operator 1.7 — create"
@@ -99,6 +100,8 @@ say "## operator 7.5 — the hosts' envelope-opening reports"
 b hosts envelope-opens --id "$ID"
 say "## operator 7.6 — settle"
 b settle --id "$ID"
+say "## operator 7.6 (H15) — the reserve return: receipt published, value landed at the committed return address"
+node -e 'const d=JSON.parse(require("fs").readFileSync(process.argv[1]+"/auction.json"));const r=(d.settlement?.receipts??[]).filter(x=>x.party==="reserve-return");console.log(JSON.stringify({reserve_return_receipts:r.map(x=>({amount_zats:x.amount_zats,txid:x.txid})),accounting:d.settlement?.reserve_return??null}))' "$PUB" | tee -a "$T"
 say "## operator 10 — verify before announcing (cold copy)"
 COLD="$ROOT/tmp/doc-walk/cold-$ID"; rm -rf "$COLD"; cp -R "$PUB" "$COLD"
 b verify --dir "$COLD" --signer "$SIGNER"
@@ -112,4 +115,4 @@ cp -R "$PUB" "$OUT/public"
 say "RESULT PASS gate DOC walkthrough $ID"
 # Evidence hygiene: the seller's address appears only as the commitment in public files; shorten it here, and
 # make paths relative to the checkout.
-perl -pi -e 's/\Q'"$SELLER"'\E/'"${SELLER:0:20}"'…<seller UA redacted>/g; s#\Q'"$ROOT"'\E/#./#g; s#\Q'"$ROOT"'\E#.#g' "$T"
+perl -pi -e 's/\Q'"$SELLER"'\E/'"${SELLER:0:20}"'…<seller UA redacted>/g; s/\Q'"$RETURN_UA"'\E/'"${RETURN_UA:0:20}"'…<return UA redacted>/g; s#\Q'"$ROOT"'\E/#./#g; s#\Q'"$ROOT"'\E#.#g' "$T"
