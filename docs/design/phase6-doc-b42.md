@@ -38,6 +38,14 @@ Move the logic of `e2e/lib/hosts.ts` into a product module (for example `cli/hos
 - **Bidder guide** step 4: after paying, send the operator the admission record (G5 shape), and say how to get each field from your `bid seal` output and your wallet's txid.
 - Every command in the three guides must match its `--help`.
 
+## Added after B39 merged (R93)
+
+- **H10 plumbing in the guides.**
+  - Operator step 1.7 becomes `benzo auction create --file unsigned-manifest.json --witness-set FILE --config PRIVATE-OPERATOR.json` (the `--config` file is under `$BNZ_STATE_DIR`, with `routing.seller_ua` filled in). That puts `seller_ua_commitment` into the signed manifest.
+  - Add a seller step: before bidding opens, the seller runs `benzo seller check --manifest public-dir/manifest.json --ua <their address>`, which must exit 0.
+  - Add `seller_ua_commitment` to the field table: it is set by `auction create --config`, never typed by hand.
+- **The live harness wires it too.** `tools/repro/markets.ts` writes `operator.json` before `auction create` (line ~269). Pass `--config <that file>` to its `auction create` call, so every live run carries the commitment and exercises H10's bound path. Do the same in any other live driver that creates a uniform/vickrey/launch auction with a seller (list them in your status block). Offline-check it by running the scenario's manifest build without the network, or explain why that is not possible.
+
 ## Proof
 
 - **Offline:** `npm run typecheck`, `check:structure`, `check:invariants`, `npm run e2e`.
