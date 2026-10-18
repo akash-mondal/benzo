@@ -1,0 +1,24 @@
+commit c6de1e2f4b60df40363a9659fcd8495050a1ea3b (working tree not clean at run time)
+utc 2026-10-18T21:47:37.235Z
+command node tmp/h11.mjs before (tools/repro/h11-open-offline.ts)
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b45.out
+tree ?? docs/evidence/phase-7/repro/h11-open-offline-b45-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b45-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b45-before.out
+tree ?? docs/evidence/phase-7/repro/r40-f5-rows-b45.out
+tree ?? docs/evidence/phase-7/repro/r73-open-taddr-b45.out
+tree ?? docs/evidence/phase-7/repro/r77-receipt-b45.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-beacon-b45.out
+tree ?? docs/evidence/phase-7/repro/r78-verify-hardening-b45.out
+tree ?? docs/evidence/phase-7/repro/r81-destination-rule-b45.out
+tree ?? docs/evidence/phase-7/repro/r82-legacy-format-b45.out
+=== fixtures: real tlock to quicknet round 32704232 (2 intact leaves + one body-tampered + one bad-MAC)
+fixture-main leaves=4 payout=9000 fixture-reorg leaves=3 hidden=leaf 1
+=== red-before: base commit's open with the dead first relay (http://127.0.0.1:9/,https://api.drand.sh)
+PASS red-before-open-fails the base commit's open failed as expected (exit 1): ERROR auction fetch failed
+=== baseline: base commit's open with a working relay (https://api.drand.sh), one Go tle run per leaf
+PASS baseline-open-succeeds the base commit's open succeeded with a working relay (exit 0, 4 openings, 4 tle -d runs)
+OBSERVE baseline-opened W3sibGVhZl9pbmRleCI6MCwicGxhaW50ZXh0X2hleCI6IjAw… (saved to tmp/h11/opened-main-baseline.json)
+=== baseline-reorg: base commit's open on the reorg fixture (deposit of leaf 1 left the chain)
+PASS baseline-reorg-open-succeeds the base commit's open keeps the reorged leaf {error:"reorg"} (exit 0)
+RESULT PASS

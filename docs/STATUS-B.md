@@ -3,6 +3,140 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B45 (Builder B, branch `b45-classify`, from `cd19905`) — H16 P1 scale: bulk + cached address classification
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live
+Playwright runs; the h13/h14/h11/h10 fixture beacons are the established one-time past-quicknet fetch). Spec:
+`docs/design/phase7-b45-classify.md`. Worktree `../benzo-b45`, branch `b45-classify`, base `cd19905`. Four
+commits, all `--no-verify` (R32): `b276703` (Rust bulk mode), `5fb59d6` (classifier module + prefetch + cache),
+`c1a3af5` (b45-classify repro), `c6de1e2` (h13 re-run + spawn counts). `envelope/opening.ts` untouched (B44);
+`cli/host-derive.ts` changes limited to the classify prefetch + cache.
+
+**Outcome: the second batch now spawns `classify-address` ZERO times and host time per batch no longer grows
+with N** (H16 closed pending head review):
+
+| N | first batch before | first batch after | second batch before | second batch after | classify spawns before → after (1st / 2nd batch) |
+|---|---|---|---|---|---|
+| 55 | 8.4 s | 4.9 s | 4.0 s | 1.2 s | 110 → 1 / 110 → **0** |
+| 1,000 | 113.1 s | 55.1 s | 61.0 s | 1.65 s | 2,000 → 1 / 2,000 → **0** |
+
+(Second batch is flat in N: 1.2 s at 55 vs 1.65 s at 1,000 — the residual is O(N) pure row building, no
+spawns. The first batch is still O(N) from the 1,000 real tlock decryptions (inherent cold cost) plus one
+classifyAddresses call. Derived rows are byte-identical to the base commit's at both sizes. Sources:
+`docs/evidence/phase-7/repro/h13-host-scale-b45-{before,after}.out`.)
+
+**The bulk CLI contract.** `benzo-pczt classify-address --stdin` reads one address per line and prints one JSON
+line per input, in order; each line is the exact object the single-address form prints (one shared classifier,
+`classify_json`), and the bulk mode never stops on one bad line — an unparseable address prints its
+`invalid_unified`/`other` object. The single-address form `classify-address <address>` is unchanged
+(`b45-classify-oldnew.out`: the cd19905 binary and this binary print byte-identical single-form output on 640
+inputs, `RESULT PASS`).
+
+**The classifier module.** `envelope/destination.ts` `classifyAddresses(list)` answers from an in-process `Map`
+memo keyed by the exact address string and sends only the misses to the tool — one bulk call per chunk of up to
+2,000 addresses; `classifyAddress(one)` is a thin wrapper over it, so `classifyDestination`, `unifiedReceivers`,
+`isUnifiedOn` and `isUnifiedOrchardOn` are answer-identical. An address whose bytes the line protocol cannot
+carry (containing `\n` or `\r`) is classified through the single-address form, so its verdict is unchanged.
+
+**Host prefetch and the cache.** In `cli/host-derive.ts`: before the per-row loop, every destination the host
+derived — each published envelope record's and each claim's refund (opened with this signer's own key through
+`envelope/index.ts openEnvelopeRefundUnchecked`, the same derivation `openDestination` runs per row), plus the
+buyback treasury return address — is classified with ONE `classifyAddresses` call. Results persist in
+`$BNZ_STATE_DIR/auctions/<id>/classify-cache.json` (mode 0600, atomic write) as
+`{bin_sha256: <sha256 of the classifier binary>, entries: {"<sha256(address)>": {kind, network, receivers}}}`.
+A different binary's sha256 discards the file whole; a missing or malformed file is a rebuild, never an error
+(the openings-cache rule). The per-row verdicts are untouched — `openDestination` still runs the destination
+rule on every row, now served by the memo — and the cache is a pure memo of the classifier's own output, so it
+cannot change a verdict (proof below).
+
+**Proofs** (all offline, raw outputs under `docs/evidence/phase-7/repro/`):
+
+- `b45-classify.out` (**RESULT PASS**): bulk `--stdin` output is byte-identical to the single-address form on
+  643 inputs (633 R24 item 3 (i) reference vectors — every kind and every network — plus 10 invalid shapes),
+  in input order, never stopping on one bad line (re-checked reversed and with duplicates);
+  `classifyAddresses` answers byte-identically on the same set (642; the module refuses an empty destination
+  with `refused: destination` exactly as before); 2,500 unique misses → exactly 2 bulk calls (chunks of 2,000,
+  5,500 inputs with duplicates classified once each); 3 newline/CR addresses → 3 single-form calls, unchanged
+  verdicts. Cache purity (cold-memo child): 33 cache-served verdicts byte-identical to the classifier's own
+  output for those exact addresses, zero classifier spawns, entries served only under their own
+  `sha256(address)` key.
+- `b45-classify-oldnew.out` (**RESULT PASS**): old (cd19905) binary == new binary, byte-identical single form,
+  640 inputs.
+- `h13-host-scale-b45-{before,after}.out` (both **RESULT PASS**): the table above; derived rows byte-identical
+to the base commit's (canonical JSON, both N); classify-cache shape
+  `{bin_sha256, entries keyed by sha256(address)}`, mode 0600, host-state only (never in the packet); and at
+  N=55 a tampered `bin_sha256` discards the cache: 1 classify spawn re-derived the verdicts, the file was
+  rewritten with the binary's sha256 and a byte-identical entry (`classify-cache-discarded-on-binary-change`).
+- Verdict folds (byte-identical-to-main class, all PASS): `r81-destination-rule-b45.out` (seal + open +
+  exception-queue verdicts), `r73-open-taddr-b45.out`, `h10-seller-binding-b45.out` (seller UA binding),
+  `r40-f5-rows-b45.out`, `r78-verify-hardening-b45.out`, `r82-legacy-format-b45.out` (Phase-3 legacy dir
+  replays), `r77-serial-beacon-b45.out`, `r77-receipt-b45.out`, `h11-open-offline-b45-{before,after}.out`
+  (both legs; opened sets byte-identical to base), `h14-open-griefing-b45-{before,after}.out` (both legs;
+  honest openings byte-identical to base). B44's own fold does not exist in this tree (B44 merges in parallel);
+  nothing in this batch touches `envelope/opening.ts` or its call sites.
+- `b45-envelope-parity.out` (**RESULT PASS**): the envelope-open half of item 4, base-commit bundle vs this
+  tree side by side — v1 plain UA, v2 `{refund}`, v2 `{refund, deliver}`, a hostile t-addr refund, a junk
+  deliver, a `{`-leading non-JSON plaintext, a bad-shape v2 doc and a foreign-key envelope: every
+  `openEnvelopePayload`/`openEnvelope` result or thrown message is byte-identical (deliver included), and
+  `openEnvelopeRefundUnchecked` yields exactly the parse's refund (the t-addr string included — the verdict
+  path refuses it per row, unchanged) or null exactly when the key/shape layer would throw.
+- Claims: the claim path is `openDestination` over an ordinary v2 claim envelope (unchanged code), so the
+  parity proof above covers it; `r15-3-claim-envelope-repro.mjs` could NOT run here (`bidder UFVK unavailable`
+  — it needs a prepared bidder wallet state, outside this batch's offline/no-wallet rules and absent from the
+  B43 fold set): `r15-3-claim-envelope-b45.out` records the attempt.
+
+**Commands run** (each with result):
+
+- `cargo build --release --locked --manifest-path settle/Cargo.toml` — OK (also the bulk-mode smoke: 4 inputs →
+  4 ordered JSON lines identical to the single form).
+- `npm run typecheck` — OK. `npm run check:structure` — OK (209 files). `npm run check:invariants` — 0 fails
+  (I1–I4). `npm run check:dist-require` — OK. `check:bundle` not run (worktree, R32).
+- `npm run e2e` — PASSED `default seal in the browser, open with tle after R` (39 s; worktree-local
+  `cp .env.example .env`, Go tle v1.2.0 in the worktree's own `.benzo/bin`) — `e2e-seal-open-b45.out`.
+- `node tmp/b45-classify.mjs` — RESULT PASS. `node tmp/b45-envelope-parity.mjs` — RESULT PASS. `node
+  tmp/h13.mjs before` / `after` — RESULT PASS both. `node
+  tmp/h14.mjs before` / `after` — RESULT PASS both. `node tmp/h11.mjs before` / `after` — RESULT PASS both.
+  `node tmp/h10.mjs` — RESULT PASS. `tmp/r81.mjs`, `tmp/r73/open.mjs`, `tmp/r78.mjs`, `tmp/r82.mjs`,
+  `tmp/r40-f5-rows.mjs`, `tmp/r77-serial.mjs`, `tmp/r77-receipt.mjs` — all RESULT PASS (r78/r82: exit 0, no
+  FAIL lines). `node tools/repro/r15-3-claim-envelope-repro.mjs` — exit 2, `bidder UFVK unavailable` (see
+  the claims note above).
+- Fold base bundles built from `git archive` extractions with each tree's own build recipe: `tmp/b45/base-tree`
+  (cd19905, the h13 before leg + the old-new binary diff), `tmp/b43/base-tree` (e821ba0, the h14 red leg),
+  `tmp/h11/base-tree` (aa0229e, the h11 red leg). Untracked `vendor/nu7` copied into the worktree and the
+  cd19905 extraction for the two cargo builds (build input, like node_modules).
+- Pre-existing red folds unchanged and not touched (R98 item 3, fold-repair item): `r42-f11-strays`,
+  `r33-balance`.
+
+## Questions (B45)
+
+1. **The prefetch's "per-row loop" needed one reading decision.** Destinations only exist after each envelope
+   is opened with the signer's key, and `openEnvelope` classifies the refund inside `openDestination` at open
+   time — so "collect every destination the host derived" cannot precede the opens. Implemented as: before the
+   per-row loops, the host opens every published envelope record and claim envelope (the same derivation
+   `openDestination` runs, no verdicts — `openEnvelopeRefundUnchecked` is prefetch-only and decides nothing)
+   and classifies the collected refunds with one `classifyAddresses` call; the per-row loops then run unchanged
+   with memo-served classification. If the head instead meant deferring the classification out of
+   `openEnvelope` (changing `openDestination`'s open-time null contract), say so — every verdict here is proven
+   unchanged, so I kept the contract.
+2. **"The cache can never change a verdict" holds for what the code writes.** Proven: a cache-served verdict is
+   byte-identical to the classifier's output for that exact address (cold memo, zero spawns) and is served only
+   under its own `sha256(address)` key; the file is written only from classifier output. A HAND-TAMPERED entry
+   would be believed — same trust class as `openings.json` (host-owned 0600 state). If tamper-evidence is wanted
+   (e.g. storing the verdict's own hash), that is a small follow-up.
+3. **Line-protocol edges.** The bulk form is line-based: Rust `lines()` treats `\r\n` as the line ending, so a
+   raw-binary input line cannot end in a bare `\r` and be distinguished from one (documented); the module never
+   sends such strings — anything containing `\n` or `\r` goes through the single-address form with byte-equal
+   verdicts (proven). Also `classify-address --stdin` on empty stdin prints nothing (zero inputs, zero lines).
+4. **The first batch is still O(N)** — the tlock decryptions (openings) are inherent; only the classification
+   cost is gone. At 17,000 bids the README limit is about the O(N²) classification plus per-batch derivation;
+   with this batch the remaining per-batch cost is the O(N) cheap row building and one bulk classify. If the
+   README's 17,000-bid note should now change wording, that is the head's call.
+5. **B44's fold** (`tools/repro/b44-opener.ts` or the h14 extension) is not in this tree — it must be re-run at
+   the merge. Nothing in B45 touches `envelope/opening.ts`, `openSealedBid` call sites, or the memo-opening
+   code, so the merge should be clean; `cli/host-derive.ts` diff is confined to the prefetch block + cache
+   load/save around the destination loops.
+
+
 ## Batch B42 (Builder B, branch `b42-hosts-cli`, from `96ce0f5`) — gate DOC: `benzo hosts` commands, guides with every handoff written down
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb` — the repro replaces `orb`/`orbctl`
