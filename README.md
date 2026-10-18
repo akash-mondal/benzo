@@ -144,8 +144,7 @@ host custody (R28), where every paid claim is attested by two signer hosts.
 bond-window header from the endpoints in its own launcher config, and two distinct endpoints must agree
 (`BNZ_LWD_SINGLE=1` is testnet-only). In this testnet deployment one operator provisions all three hosts with the
 same endpoint pair, so the 2-of-3 rests on that one pair. On mainnet each signer's operator must choose its own
-independent endpoints. The
-sale fails rather than funds locking. Pick a conservative start.
+independent endpoints.
 - **Test-harness gates attest the machine under test** (R49/R52/R53): the NU7 tools are path builds, so
 the pinned-binary gate checks the build's provenance record against the committed source and patches, and each
 evidence `run.json` pins the record's digest. The gate cannot be independent of the machine that built the tools;
@@ -158,6 +157,20 @@ address); its salt is known only to envelope openers, so a guessed meta-address 
 memo commits to it (memo framing v2) — so cancellation never needs a decryption
 (`docs/evidence/phase-5/repro/r16-memo-bound.out`).
 - Delivery of off-chain assets relies on the marketplace adapter.
+- **Witnesses are trusted to see deposits** (gate H, threat 066): the one-root rule stops a witness quorum from
+certifying two different frozen roots, but not from certifying one wrong root. Choose `q_w` so that no quorum can be
+built from witnesses you do not trust.
+- **The seller payout address is operator routing** (gate H, threat 015; R28 item 8): signer hosts check the seller
+payout's amount against the result, not its address. Binding it in the signed manifest is a Phase 7 fix (H10).
+- **Signer shares and envelope keys have no built-in backup** (gate H, threat 052): each signer operator backs up
+their own. A lost share can stall settlement; a stolen share counts toward the 2-of-3.
+- **A lost owner key cannot be recovered** (gate H, threat 067): a bidder who loses a bid's one-time owner key cannot
+claim its refund. The row stays an exception, and nobody may redirect it.
+- **`benzo fund quote` talks to NEAR 1Click** (gate H, threat 037): it sends your quote fields (origin-chain refund
+address, your shielded UA, the amount). The auction never calls it; the default is shielded ZEC you already hold.
+- **Do not bridge straight to a deposit address** (gate H, threat 038): the source chain and the bridge can link that
+payment to your bid, and Benzo cannot detect it. Fund your own shielded wallet first, wait for confirmations, then
+deposit the fixed C.
 - Testnet only so far. No mainnet transaction has been made.
 
 ## Quick start

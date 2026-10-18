@@ -492,3 +492,11 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
 4. **Harness fixes.** `tmp/rg/mut2.sh` now checks out the manifest before its host revert, so a mutation's own `up.sh` rewrite cannot block the revert. `settle/cli.ts` `hostDerivable()` keeps only the last 200 chars of host stderr; this hid the 503 and is added to the Phase 7 list as H9.
 5. **Next.** Reviewer R on attempt 13. Then gates H and SC (live half) and the DOC walkthrough, while H1–H9 land.
 6. **Review and verdict.** Reviewer R: **APPROVE** (`benzo-sol/reports/pr-rg-r84.md`). It confirmed one product commit (`910a531`), all six run records, all five mutations and the superseded U2 records, and found no leak. Its two P3s: the RG row's commit-field wording (fixed), and the mutation runner's `ERROR ids:` line mixing check IDs with console tokens (harness only; the RED verdict cannot false-match; the runner will intersect with the run's ID set next time). **Gate RG is PASSED.**
+
+### R86 — Gate H closure table (head, 2026-10-18)
+
+1. **B38 (Builder B, MiMo) delivered `docs/evidence/phase-6/h-closure.md`** against `docs/design/phase6-h.md`: 34 P0 rows, 0 gaps. The head spot-checked the rows most likely to be over-claimed (2, 7, 11, 14, 16, 22, 23) against the code.
+2. **Head changes.** Rank 7's proposed README line (committed evidence files with past testnet destinations) is repo history, not a product limit: the release scrub (R74–R76) removes it before any public export, so it is dropped and the row is **closed**. The other six README lines are added to `## Honest limits`. A stray sentence fragment in the lightwalletd-endpoints bullet is removed.
+3. **H10 (Phase 7).** Rank 16: the seller payout address comes from the coordinator's packet, and hosts check only its amount (R28 item 8, already a stated limit). Fix before mainnet: bind `seller_ua` in the signed manifest.
+4. **Infra note.** T3's worktree isolation for this thread checks out the wrong repository (the `Dev Projects` root), so the builder made its own Benzo worktree (`../benzo-b38-h`, branch `t3/gate-h-closure-table`). Its commit was cherry-picked onto main. Future builder batches name the worktree explicitly.
+5. **Next.** Reviewer R on h-closure.md and the README patch.
