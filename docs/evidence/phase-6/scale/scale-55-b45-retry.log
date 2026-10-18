@@ -1,0 +1,7 @@
+== settle retry 2026-10-18T23:06:34Z
+{"auction_id":"58d60e9045d537400e6ef7f7798e22fa309374cf8728231783f91efea963f28a","batch":4,"allocated":14}
+settlement broadcast 1805fc1e7629656a3d8b779e51cd97f6ccd5b814b3b7aad5648028ce45601b0a
+{"auction_id":"58d60e9045d537400e6ef7f7798e22fa309374cf8728231783f91efea963f28a","settled":56}
+{"auction_id":"58d60e9045d537400e6ef7f7798e22fa309374cf8728231783f91efea963f28a","state":"SETTLED","settled":56}
+settle exit=
+verify exit= OK=19

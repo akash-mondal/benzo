@@ -688,3 +688,9 @@ The verify bundle is unchanged at `ac5d68e9…`. Rulings on B45's questions:
 3. Noted.
 4. **The README's scale wording is re-measured live first:** hosts provisioned again, then scale-55. The 17,000-bid line changes only on measured numbers.
 5. The B44 probe was re-run on main: green.
+
+### R105 — scale-55 after B45: settled after one fee-reserve top-up; per-batch flat; README scale line rewritten; H19 (head, 2026-10-19)
+
+The hosts were provisioned at `24638e4`. Auction `58d60e90…` paid 3 of 4 batches, then stopped at batch 4: `InsufficientFunds {available 2,657,140, required 2,677,480}` from every host, before any broadcast. Fees are `5,000 × max(2, actions)` and the wallet chooses the spends, so batches 1–3 paid about 350,000 zats against the 225,000 expected. The head topped up the fee reserve (200,000 zats, `51c9c554…`) and re-ran `benzo settle`. Batch 4 broadcast (`1805fc1e…`), 56/56 rows settled, every batch-4 output landed (14 notes, 2,607,480 zats), and the cold verify printed 19 OK.
+
+Per-batch timing is flat (`scale-measure.md`). The README's scale paragraph now states the measured flat cost, settlement bounded by block inclusion, and a 17,000-bid projection marked as not measured. **H19** (fee reserve sizing and the settle preflight) is added. The operator guide's step 5 now has the doubled formula and the top-up recovery, which this run proved.

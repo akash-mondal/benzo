@@ -75,3 +75,15 @@ Run: `tools/repro/markets.ts scale-55`, auction `754bb1c6…`: one uniform aucti
 - Each 14-row batch costs about 5 minutes end to end, sequentially: about 100 s host build, about 90 s host approvals, about 8 s FROST, and 80–115 s waiting for the block. The 4 batches settled in about 20 minutes (56 rows, about 170 rows per hour).
 - **Host build and approvals grow with the auction's total size, not the batch's.** A 14-row batch here took 100 s to build and about 90 s to approve, more than scale-27's single 28-row batch (65 s, about 50 s). Per batch, by auction size: 9 rows → 23 s build (scale-8), 28 → 65 s (scale-27), 56 → 100 s (scale-55). The cause is in `cli/host-derive.ts` `deriveRows`: every build and every approval re-decrypts EVERY frozen leaf with `tle` (one drand relay call each) before deriving its rows. So each batch costs O(N) and the whole settlement O(N²/batch_cap).
 - **Consequence: the offline projection does not hold.** `bench.json`'s 20.9 h for 17,000 bids models host time per batch as a function of the batch's rows. At the measured ~1.8 s per auction row per batch, a 17,000-bid auction would need months of host time. Phase 7 **H13**: each host decrypts the frozen set once per auction (offline, from the beacon signature it already verified) and caches its openings; with that, per-batch host time should fall back to the batch's own rows. Until then the README states the measured limit.
+
+## scale-55 after B43 and B45 (R101, R105)
+
+| Per 14-row batch | R85 (before H13) | R101 (after B43) | R105 (after B45) |
+|---|---|---|---|
+| host build | ~100 s | ~14 s | ~14 s |
+| each host approve | ~89 s | 4–7 s | 4–8 s |
+| sign | ~98 s | ~14 s | ~13–16 s |
+
+All figures are flat across batches. At 55 bids B45 changes nothing live, because classification costs only about 3 s there. Offline, at 1,000 bids, it cuts a host's second batch from 61 s to 1.65 s.
+
+R105 auction `58d60e90…` stopped at batch 4 with `InsufficientFunds` (the fee reserve was short by 20,340 zats; H19). The head topped up the reserve with 200,000 zats (`51c9c554…`) and re-ran `benzo settle`. Batch 4 then broadcast (`1805fc1e…`, 14 outputs, 2,607,480 zats landed at 4,516,710), all 56 rows settled, and the cold verify printed 19 OK lines. Logs: `scale/scale-55-b45{,-retry,-settle}.log`, timings `scale/scale-55-b45-timing.jsonl`.

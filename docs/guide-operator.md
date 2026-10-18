@@ -176,15 +176,18 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
    `routing.fee_reserve_ua` (the manifest's `fee_zats` must be `0`; `settle/plan.ts` refuses
    anything else). The amount rule as the code applies it: every settlement batch pays
    `5,000 × max(2, actions)` zats from the reserve (the ZIP-317 fee the batch builder enforces,
-   `settle/src/main.rs`), where `actions` counts the batch's shielded actions — for a batch paying
-   k rows that is k + 1 (the k deposits plus the reserve's own spend). So fund at least
+   `settle/src/main.rs`). `actions` is the larger of the batch's shielded spends and outputs, and the
+   **wallet chooses the spends**: a batch paying k rows can spend more than k notes. Live, the 55-bid
+   run paid about 117,000 zats per 14-row batch, not 75,000 (R105). Fund generously:
 
-   `5,000 × (payable rows + number of batches)` zats,
+   `10,000 × (payable rows + number of batches)` zats,
 
-   i.e. about `5,000 × (rows + ceil(rows / batch_cap))` plus slack for re-planned batches. The
-   harness funds **60,000 zats for small runs** (e.g. 3 bids + the seller at `batch_cap` 13) and
-   200,000–400,000 zats for the 27- and 55-bid scale runs (`tools/repro/markets.ts`). Pay it in
-   the same funding transaction as the deposits, through the `--pay` form of `bid deposit` with
+   that is, about `10,000 × (rows + ceil(rows / batch_cap))`, which is twice the per-row minimum. If the
+   reserve still runs short, `benzo settle` stops before broadcasting anything with `InsufficientFunds
+   { available, required }`. Pay the difference (plus slack) to `routing.fee_reserve_ua`, wait 10
+   confirmations and run `benzo settle --id ID` again: paid batches stay paid, and the plan continues.
+   The harness funds 60,000 zats for small runs and 400,000 for the 55-bid run, and the 55-bid run
+   needed a top-up once (R105). Pay the reserve in the same funding transaction as the deposits, through the `--pay` form of `bid deposit` with
    `reserve` (the address must equal `routing.fee_reserve_ua` exactly — the CLI refuses a
    mismatch):
 

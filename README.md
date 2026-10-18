@@ -251,11 +251,15 @@ of ZIP-317 fees, and a projected **20.9 h** of settlement wall time (24.1 h at t
 scale-8/scale-27 points, with 2-of-3 FROST signing flat at 8.2 s per batch under R29's parallel single-message
 sessions (`bench.json`'s `projection` block).
 
-**Live scale correction (gate SC, scale-55):** a 55-bid auction settled live in 4 batches of 14 (about 5 minutes per
-batch, verify exit 0), but it showed that each signer host re-decrypts every bid of the auction for every batch. Host
-time per batch therefore grows with the auction's size, and the 20.9 h projection above does not hold today: a
-17,000-bid auction would not settle within 24 hours of R. Caching each host's openings (Phase 7, H13) is the fix.
-Measured: [`docs/evidence/phase-6/scale-measure.md`](docs/evidence/phase-6/scale-measure.md).
+**Live scale (gate SC, scale-55; Phase 7 H13/H16):** the first live 55-bid run showed each signer host re-decrypting
+every bid for every batch, about 100 s of host time per batch, growing with the auction. Since H13 (openings cached per
+host) and H16 (address checks done in bulk and cached), a host's per-batch work no longer grows with the auction.
+- **Live, 55 bids:** about 45 s of compute per 14-row batch, flat across batches.
+- **Offline, 1,000 bids:** 1.65 s for a host's second batch.
+
+Settlement is now bounded by chain inclusion, about one batch per block. A 17,000-bid auction is about 600 batches at
+`batch_cap` 28. That projects to roughly a day on testnet, inside the 24 h window only with some margin, and it has
+**not been measured at that size**. Measured: [`docs/evidence/phase-6/scale-measure.md`](docs/evidence/phase-6/scale-measure.md).
 
 ## Repository layout
 
