@@ -5,7 +5,7 @@ import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET,sellerUaCommitment} from '../manifest/schema';
+import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET,sellerUaCommitment,reserveReturnUaCommitment} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid,sealDelivery} from '../envelope';
 import {requireShieldedDestination,isUnifiedOrchardOn} from '../envelope/destination';
@@ -93,6 +93,12 @@ export function publish(id:string) {
       agreed=pick!.defaults;agreedVoid=pick!.bond_void;
     }
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
+      // B46 (H15): the reserve-return accounting — counts and amounts only, never the destination (the signed
+      // manifest carries only its commitment). Published only when the settlement actually paid the row, so
+      // `benzo verify` accepts exactly one reserve-return receipt only together with this accounting.
+      ...(()=>{const rec=(read(path.join(sd,'receipts.json')) as any[]).find((r:any)=>r.party==='reserve-return');if(!rec)return {};
+        const rr=s.plan?.reserve_return;requireThat(rr&&rr.amount_zats===rec.amount_zats,'a reserve-return receipt without its planned accounting; refusing to publish');
+        return {reserve_return:{sources:rr.sources.length,eligible_zats:rr.eligible_zats,fee_zats:rr.fee_zats}}})(),
       // Part 2, collection drop (bond-then-pay): the defaults list co-signed by the signer hosts — the list
       // carried by two agreeing maps (above), never a fresh derivation.
       ...(agreed!==undefined?{defaults:agreed}:{}),...(agreedVoid?{bond_void:true}:{}),
@@ -148,6 +154,20 @@ export async function runCommand(command:string,args:string[]) {
       requireThat(m.seller_ua_commitment===undefined||m.seller_ua_commitment===committed,'manifest seller_ua_commitment differs from the operator routing seller_ua');
       m.seller_ua_commitment=committed;
     }
+    // B46 (H15, docs/design/phase7-b46-reserve-return.md): the same for the reserve-return address — the
+    // operator config's routing.reserve_return_ua is committed as reserve_return_ua_commitment (H4's rule: a
+    // unified address on the manifest's OWN network with a shielded Orchard/Ironwood receiver).
+    const reserveReturnUa=createdFrom?.routing?.reserve_return_ua;
+    if(reserveReturnUa!==undefined){
+      requireThat(typeof reserveReturnUa==='string'&&isUnifiedOrchardOn(reserveReturnUa,m.network),'reserve_return_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver (H4)');
+      const committed=reserveReturnUaCommitment(reserveReturnUa);
+      requireThat(m.reserve_return_ua_commitment===undefined||m.reserve_return_ua_commitment===committed,'manifest reserve_return_ua_commitment differs from the operator routing reserve_return_ua');
+      m.reserve_return_ua_commitment=committed;
+    }
+    // B46 item 1: a mainnet manifest always commits the return address — without it the unused fee reserve
+    // would be stranded in every auction vault (H15, the mainnet blocker). Checked before every other rule so
+    // the refusal is this one even while the network lock still refuses "main".
+    requireThat(m.network!=="main"||m.reserve_return_ua_commitment!==undefined,'mainnet manifest must carry reserve_return_ua_commitment (H15)');
     // H10 item 4: a mainnet manifest for a mode that pays the seller commits the seller payout address — without
     // it the signer hosts could check only the payout's amount, which is exactly H10's defect. Checked here before
     // every other rule so the refusal is this one even while the network lock below still refuses "main".
@@ -518,7 +538,26 @@ export async function runCommand(command:string,args:string[]) {
     // REFUNDING (claimable after R) and a fully paid cancelled auction is CANCELLED — so the CANCELLED/
     // REFUNDING branch keeps resolving it instead of falling into the cleared-path state machine.
     const cancelled=['CANCELLED','REFUNDING'].includes(a.state)||command==='cancel';
-    a.state=cancelled?(status.rows.some((r:any)=>r.state==='exception')?'REFUNDING':'CANCELLED'):status.rows.some((r:any)=>r.state==='exception')?'SETTLING':'SETTLED';save(ledger(id),a);const pub=publish(id);return {auction_id:id,state:pub.state,settled:pub.settlement.receipts.length};
+    a.state=cancelled?(status.rows.some((r:any)=>r.state==='exception')?'REFUNDING':'CANCELLED'):status.rows.some((r:any)=>r.state==='exception')?'SETTLING':'SETTLED';save(ledger(id),a);let pub=publish(id);
+    // B46 (H15): `benzo settle` runs the reserve-return automatically. The row is planned only once every
+    // obligation row has a PUBLISHED receipt, so when this pass settled them and published them, one more
+    // worker pass plans and runs the final `reserve-return` batch (alone). A legacy manifest plans no row; its
+    // plan prints the one "the reserve stays in the vault (legacy, H15)" line in that second pass.
+    const receipted=(rows:any[])=>rows.every((r:any)=>r.state==='exception'||['paid','refunded'].includes(r.state));
+    const reservePaid=(rows:any[])=>rows.some((r:any)=>r.party==='reserve-return'&&['paid','refunded'].includes(r.state));
+    if(status.rows.length>0&&receipted(status.rows)&&!reservePaid(status.rows)) {
+      const p2=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:['inherit',2,'inherit']});
+      // The settlement itself already succeeded; a failing return pass is reported loudly but never fails the
+      // command (another `benzo settle` re-runs it).
+      const code=await new Promise<number>((resolve,reject)=>{p2.on('error',reject);p2.on('close',c=>resolve(c??1))});
+      if(code!==0)process.stderr.write(`ERROR reserve-return pass exited ${code}; the reserve stays in the vault until the next benzo settle\n`);
+      else {
+        const a2=read(ledger(id)),status2=JSON.parse(sc('status',id));
+        a2.state=cancelled?(status2.rows.some((r:any)=>r.state==='exception')?'REFUNDING':'CANCELLED'):status2.rows.some((r:any)=>r.state==='exception')?'SETTLING':'SETTLED';save(ledger(id),a2);
+        pub=publish(id);
+      }
+    }
+    return {auction_id:id,state:pub.state,settled:pub.settlement.receipts.length};
   }
   if(command==='sign inspect') {requireThat(['alice','bob','carol'].includes(o.name)&&(!o.randomizer||/^[0-9a-f]{64}$/.test(o.randomizer)),'signer/randomizer');requireThat(id&&o.batch&&o.candidate&&o.name,'--id --batch --candidate --name required');const approved=JSON.parse(sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']));if(o.randomizer)save(path.join(STATE,'settle',id,'approvals',o.name+'-'+o.randomizer+'.json'),approved);return approved}
   throw Error('unknown Track A command');

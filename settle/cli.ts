@@ -83,7 +83,10 @@ async function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim
       if(recipient) {const ua=recipient.reveal();requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(ua,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient:ua}}
       return {...row,reason:`stray refund refused: no owner-signed settlement envelope or claim (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
     }
-    const recipient=row.party==="seller"?route.seller_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;
+    const recipient=row.party==="seller"?route.seller_ua:
+      // B46 (H15): the reserve-return row pays the routing config's reserve_return_ua (the signed manifest
+      // commits its hash; the hosts check it there). Non-host-custody routing pins it like the seller_ua.
+      row.party==="reserve-return"?(route as any).reserve_return_ua:route.bidders.find((b:any)=>b.deposit_ua===address)?.refund_ua;
     requireThat(recipient,"missing independently pinned settlement recipient");return {...row,recipient};
     } catch(e) {return {...row,reason:(e as Error).message}}
   }));
@@ -95,7 +98,9 @@ async function check(ledger:Ledger,batch:number,candidate:string,name:string,ran
   requireThat(["alice","bob","carol"].includes(name),"unknown signer");
   const plan=monetary(id),rows=ledger.rows().filter(o=>o.batch===batch);
   const independentlyExpected=rows.map(row=> {
-    const obligation=plan.obligations.find((p:any)=>p.party===row.party);
+    // B46 (H15): the reserve-return row is checked against the plan's own reserve_return derivation (the same
+    // fresh signer clearing as every obligation row).
+    const obligation=plan.obligations.find((p:any)=>p.party===row.party)??(row.party==="reserve-return"?plan.reserve_return??null:null);
     requireThat(obligation&&obligation.amount_zats===row.amount_zats&&obligation.kind===row.kind,"batch row differs from fresh signer clearing");
     return {...row,...obligation};
   });
@@ -131,7 +136,7 @@ function hostDerivable():Set<string>|null {
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file("derivable");run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
-  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600});
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,reserve_return_ua:cfg.routing?.reserve_return_ua??null,fee_reserve_ua:cfg.routing?.fee_reserve_ua??null}),{mode:0o600});
   const remote=`derivable-${id.slice(0,16)}`;
   for(const n of [...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))]) {
     if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
@@ -159,7 +164,11 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
   writeFileSync(path.join(packet,"rows.json"),jsonBytes(rows),{mode:0o600});
-  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,signer:doc.signer,seller_ua:cfg.routing?.seller_ua,expiry_blocks:settings().pczt_expiry_blocks}),{mode:0o600});
+  // B46 (H15): the reserve-return batch's packet names the row's sources and the return/fee-reserve UAs, so
+  // every host can check them against its own vault scan (cli/host-derive.ts deriveReserveReturn).
+  const rr=(rows as any[]).find((r:any)=>r.party==="reserve-return");
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,signer:doc.signer,seller_ua:cfg.routing?.seller_ua,expiry_blocks:settings().pczt_expiry_blocks,
+    reserve_return_ua:cfg.routing?.reserve_return_ua??null,fee_reserve_ua:cfg.routing?.fee_reserve_ua??null,...(rr?{reserve_row:{amount_zats:rr.amount_zats,sources:rr.sources}}:{})}),{mode:0o600});
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const remote=`build-${id.slice(0,16)}-${batchId}`;
   // R45 (F20): a host counts as refusing only on its TYPED refusal (sign build exit 3 with the rows it cannot derive);
@@ -197,8 +206,8 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   const {unbuildable,isolate,refusedRows}=classifyBuildAttempts(attempts,rows.map(r=>r.party));
   throw Object.assign(Error(`no signer host could build batch ${batchId}`),{unbuildable,isolate,refusedRows});
 }
-async function hostSign(batchId:number,proven:string,signed:string,groupKey:string) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey))}
-async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string) {
+async function hostSign(batchId:number,proven:string,signed:string,groupKey:string,reserveRow?:{amount_zats:string;sources:string[]}|null) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey,reserveRow))}
+async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string,reserveRow?:{amount_zats:string;sources:string[]}|null) {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file(`packet-${batchId}`);
@@ -206,7 +215,8 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   copyFileSync(proven,path.join(packet,"candidate.pczt"));
   for(const s of ["alice","bob","carol"])copyFileSync(file(`batch-${batchId}.sealed-${s}.bin`),path.join(packet,`sealed-${s}.bin`));
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
-  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null}),{mode:0o600}); // R28 item 8 (G-2): the seller output must pay this
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,
+    reserve_return_ua:cfg.routing?.reserve_return_ua??null,fee_reserve_ua:cfg.routing?.fee_reserve_ua??null,...(reserveRow?{reserve_row:reserveRow}:{})}),{mode:0o600}); // R28 item 8 (G-2): the seller output must pay this
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const failed=new Set<string>(),events:any[]=[],maps:Record<string,any>={};
@@ -281,18 +291,23 @@ async function worker(ledger:Ledger) {
   // R16 item 1 (Reviewer R F4): an unresolvable row becomes an exception row and the batch proceeds — the
   // rows that resolve are pinned payable, the rest wait in the queue with their reason.
   const custody=existsSync(path.join(STATE,"vaults",id,"keys.json"));
+  // B46 (H15): the plan's final `reserve-return` row — it exists only when every obligation row has a
+  // published receipt, no batch is pending and this vault's eligible notes (the fee-reserve notes and internal
+  // change ONLY) cover the ZIP-317 fee of the one-row transaction.
+  const reserve=plan.reserve_return??null;
+  const planRows:any[]=[...plan.obligations,...(reserve?[reserve]:[])];
   // §11 H6: under host custody the coordinator holds no envelope key; the plan already gated every envelope refund on
   // host-signed agreement reports, and the recipients are derived on the hosts (sign build / sign approve).
   // Nothing payable (every row already an exception, e.g. a cancel before R) needs no host derivation.
-  const derivable=custody&&plan.obligations.length?hostDerivable():new Set<string>();
-  if(custody&&plan.obligations.length)requireThat(derivable,"no signer host could list its derivable rows");
+  const derivable=custody&&(plan.obligations.length||reserve)?hostDerivable():new Set<string>();
+  if(custody&&(plan.obligations.length||reserve))requireThat(derivable,"no signer host could list its derivable rows");
   // R44 (F16): rows of a batch every reachable host refused to build stay exceptions (monotone, never re-promoted).
   // R46 (F20 claimability, F25): rows no reached host can build are set aside for THIS run only (never persisted).
   // Every run re-derives every row through the derivable gate, so an owner's claim pays a set-aside refund on the
   // next settle and a payout re-derives as soon as a host can build it.
   const setAside=new Set<string>();
   const asideReason="set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
-  const pinned:any[]=custody?plan.obligations.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):(await destinations(plan.obligations,settings().signers[0],plan));
+  const pinned:any[]=custody?planRows.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):(await destinations(planRows,settings().signers[0],plan));
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   // Ruling R42 (F15): each refund row carries its backing note identities into the ledger (keyed by note
   // identity: one note backs at most one refund row across all row classes) — the shared derivation's rows.
@@ -313,6 +328,8 @@ async function worker(ledger:Ledger) {
   while((batch=ledger.allocate(isolate>0?1:settings().batch_cap))) {
     if(isolate>0)isolate--;
     requireThat(batch.outputs.length>0,"allocated batch has no payable obligations");
+    // B46 (H15): the reserve-return row is planned as the last batch, alone — never with an obligation row.
+    if(batch.outputs.some(o=>o.party==="reserve-return"))requireThat(batch.outputs.length===1,"the reserve-return row must be its own batch, alone");
     console.log(JSON.stringify({auction_id:id,batch:batch.id,allocated:batch.outputs.length}));
     const base=file(`batch-${batch.id}`),created=base+".pczt",proven=base+".proven.pczt",signed=base+".signed.pczt";
     let staged=ledger.batch(batch.id)!;
@@ -321,7 +338,7 @@ async function worker(ledger:Ledger) {
       if(custody) {
         // §11 H6: a signer host builds and proves the candidate from its own derivations; only {party, output_index} returns.
         {const t0=Date.now();
-        try{await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>({party,kind,amount_zats})),proven);}
+        try{await hostBuild(batch.id,batch.outputs.map(({party,kind,amount_zats}:any)=>party==="reserve-return"?{party,kind,amount_zats,sources:reserve!.sources}:{party,kind,amount_zats}),proven);}
         catch(e){
           const ex=e as any;
           if(!ex.unbuildable&&!ex.isolate)throw e; // a timeout, kill or non-typed failure: retried, as before R44
@@ -351,7 +368,7 @@ async function worker(ledger:Ledger) {
         await prove(created,proven);
       }
       const tSign=Date.now();
-      const signing=custody?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
+      const signing=custody?await hostSign(batch.id,proven,signed,JSON.parse(readFileSync(custodyKeys,"utf8")).group_key,batch.outputs.some((o:any)=>o.party==="reserve-return")?{amount_zats:reserve!.amount_zats,sources:reserve!.sources}:null):await zcashSign(proven,signed,(name,randomizer,sighash)=> {
         const approved=JSON.parse(run(process.execPath,existsSync(path.join(STATE,"product",`${id}.json`))?[path.join(ROOT,"cli/dist/benzo.mjs"),"sign","inspect","--id",id,"--batch",String(batch!.id),"--candidate",proven,"--name",name,"--randomizer",randomizer,"--sighash",sighash]:[path.join(ROOT,"settle/dist/cli.mjs"),"check",id,String(batch!.id),proven,name,randomizer,sighash]));signoffs.push(approved);writeFileSync(file("signoffs.json"),jsonBytes(signoffs),{mode:0o600});
       },settings().signers,existsSync(path.join(STATE,"product",`${id}.json`))?id:undefined,batch.id,undefined,manifestNet()); // R38.7: the signed manifest's network
       timing({auction:id,batch:batch.id,phase:"sign",ms:Date.now()-tSign,spends:(signing as any).sessions?.length??null,custody});

@@ -14,7 +14,7 @@ import {openSealedBid} from "../envelope/opening";
 import {decryptPublished,publishedClient,fetchVerifiedBeacon} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
 import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
-import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision} from "./deposits";
+import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnSources,reserveSourceId,reserveReturnFee} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -23,7 +23,7 @@ import {modeEntry,clientCommon as client} from "../clear/registry"; // design §
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
-import { vaultDir, scanBin } from "../manifest/paths";
+import { vaultDir, scanBin, pcztBin, ufvkFile } from "../manifest/paths";
 import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
 const root=repoRoot();
 for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
@@ -43,7 +43,8 @@ try {
   // The published document is the signer's source of truth when a product config exists; the coordinator's
   // private copy is then only cross-checked against the recomputation, never trusted on its own.
   const config=path.join(state,"product",`${id}.json`);
-  const published=existsSync(config)?JSON.parse(readFileSync(path.join(path.resolve(JSON.parse(readFileSync(config,"utf8")).public_dir),"auction.json"),"utf8")):null;
+  const productConfig=existsSync(config)?JSON.parse(readFileSync(config,"utf8")):null;
+  const published=productConfig?JSON.parse(readFileSync(path.join(path.resolve(productConfig.public_dir),"auction.json"),"utf8")):null;
   const src=published??auction;
   const {manifest:m,manifest_hash}=client(src.manifest,src.signer);
   // R10 item 3: each signer requires the manifest to pin ITS OWN envelope key at its own index.
@@ -72,11 +73,16 @@ try {
   const notes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   let tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
   const ledgerFile=path.join(state,"settle",id,"ledger.sqlite"),owned=new Set<string>();
+  let pendingBatches=0;
   if(existsSync(ledgerFile)) {
     const db=new DatabaseSync(ledgerFile,{readOnly:true});
     try {for(const b of db.prepare("SELECT txid,pczt_path,pczt_hash FROM batches WHERE txid IS NOT NULL AND state!='exception'").all()) {
       requireThat(hash(readFileSync(String(b.pczt_path)))===b.pczt_hash,"staged PCZT changed on resume");owned.add(String(b.txid));
-    }} finally {db.close()}
+    }
+    // B46 (H15): the reserve-return row is planned only when no batch is pending (every staged transaction has
+    // mined), so its sources can never race a batch that still holds a note.
+    pendingBatches=Number((db.prepare("SELECT COUNT(*) AS c FROM batches WHERE txid IS NULL AND state!='exception'").get() as {c:number}).c);
+    } finally {db.close()}
   }
   const depositNotes=notes.filter(n=>m.deposit_addresses.includes(n.address)&&(!n.spent_in_txid||owned.has(n.spent_in_txid)));
   // R26 item 1: each note is its own party (`deposit:<txid>:<pool>:<action_index>`) and a zero-value note
@@ -359,5 +365,28 @@ try {
   }
   obligations.sort((a,b)=>a.party.localeCompare(b.party));
   requireThat(obligations.length+exceptions.length>0,"no confirmed settlement obligations");
-  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(m.bond!==undefined?{defaults,balance_refunds,...(bondVoid?{bond_void:true}:{})}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
+  // B46 (H15, docs/design/phase7-b46-reserve-return.md): the one final `reserve-return` row — planned as the
+  // last batch, alone, and ONLY when (1) the manifest commits the return address (a legacy manifest plans no
+  // row and says so with one line), (2) every obligation row of this plan has a published receipt, (3) no batch
+  // is pending, and (4) the eligible sources (settle/deposits.ts reserveReturnSources — the fee-reserve notes
+  // and this vault's internal change ONLY; a deposit or balance note is never a source) sum to more than the
+  // ZIP-317 fee of this one-row transaction. The row pays sum − fee; its sources are exactly the eligible notes.
+  let reserve_return:{party:string;kind:"payout";amount_zats:string;sources:string[];eligible_zats:string;fee_zats:string}|null=null;
+  const receipts:{party:string;amount_zats:string}[]=(published?.settlement?.receipts??[]) as any;
+  const allReceipted=obligations.every(o=>receipts.some(r=>r.party===o.party&&r.amount_zats===o.amount_zats));
+  if(m.reserve_return_ua_commitment===undefined) {
+    if(allReceipted&&pendingBatches===0)process.stderr.write("WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment\n");
+  } else if(allReceipted&&pendingBatches===0)try {
+    // The internal/external scope of each vault address comes from this coordinator's own `benzo-pczt owns` —
+    // the same rule the hosts apply to their own vaults. A missing UFVK or tool refuses the row, never the plan.
+    const scope=new Map<string,string>();
+    const owns=(address:string):string=>{const hit=scope.get(address);if(hit!==undefined)return hit;
+      let verdict="none";try{verdict=execute(pcztBin(root,state),["owns",ufvkFile(state,id),address,"--network",m.network]).trim()}catch{verdict="none"}
+      scope.set(address,verdict);return verdict};
+    const eligible=reserveReturnSources(notes as any,m as any,productConfig?.routing?.fee_reserve_ua??null,a=>owns(a)==="internal");
+    const sum=eligible.reduce((s,n)=>s+BigInt((n as any).value_zats),0n),fee=reserveReturnFee(eligible.length);
+    if(sum>fee)reserve_return={party:"reserve-return",kind:"payout",amount_zats:(sum-fee).toString(),
+      sources:eligible.map(n=>reserveSourceId(n as any)).sort(),eligible_zats:sum.toString(),fee_zats:fee.toString()};
+  } catch(e) {process.stderr.write(`WARN reserve-return not planned: ${(e as Error).message}\n`)}
+  process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(reserve_return?{reserve_return}:{}),...(m.bond!==undefined?{defaults,balance_refunds,...(bondVoid?{bond_void:true}:{})}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { requireThat } from "../../manifest/schema";
 import { repoRoot } from "../../manifest/root";
-import { deriveRows } from "../host-derive";
+import { deriveRows, deriveReserveReturn } from "../host-derive";
 
 export const noun = "sign", verb = "derivable";
 export const help = "benzo sign derivable --id AUCTION_ID --packet DIR --name SIGNER — on a signer host: list the {party, amount_zats} rows this signer derives from its own data (no recipients)";
@@ -24,6 +24,11 @@ export async function run(argv: string[]): Promise<number | object> {
     process.env.BNZ_AUCTION_ID = o.id;
     const packet = path.resolve(o.packet), meta = JSON.parse(readFileSync(path.join(packet, "packet.json"), "utf8"));
     requireThat(meta.auction_id === o.id, "packet is for another auction");
+    // B46 (H15): the reserve-return row this signer derives from its own eligible notes (planned alone, after
+    // every obligation receipt). Checked first: a packet whose return UA does not hash to the manifest
+    // commitment is refused typedly (exit 3, named rows) exactly like H10's seller row.
+    const reserve = await deriveReserveReturn({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta, null);
+    if (reserve.refusal) { process.stderr.write(`ERROR sign derivable refused-rows ${JSON.stringify(["reserve-return"])}: ${reserve.refusal}\n`); return 3; }
     const { expected, payout, balanceRefunds, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
     // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
     // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
@@ -33,6 +38,8 @@ export async function run(argv: string[]): Promise<number | object> {
     if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     const rows = expected.map(e => ({ party: e.party, amount_zats: e.amount_zats }));
     if (payout !== "0" && typeof meta.seller_ua === "string") rows.push({ party: "seller", amount_zats: payout });
+    // B46 (H15): list the reserve-return row when this signer derives one (party name and amount, no recipient).
+    if (reserve.row) rows.push({ party: reserve.row.party, amount_zats: reserve.row.amount_zats });
     // Ruling R40 item 2 (F2): this host's own per-note late-refund counts (party names and amounts, no
     // recipients and no addresses) — the same derivation the plan publishes as settlement.balance_refunds.
     return { auction_id: o.id, name: o.name, rows, balance_refunds: balanceRefunds };

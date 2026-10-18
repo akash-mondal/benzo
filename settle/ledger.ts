@@ -58,12 +58,15 @@ export class Ledger {
       const parties=new Set(plan.map(p=>p.party));
       for(const r of this.rows()) {
         if(parties.has(r.party))continue;
-        if(isRefundRowParty(r.party)) {
+        // B46 (H15): a `reserve-return` row the fresh derivation no longer produces (its eligible notes moved,
+        // or it is already paid) is history when money moved for it — kept quietly — and dropped when unpaid,
+        // so a later derivation can replace it. Same monotone rule as the refund rows.
+        if(isRefundRowParty(r.party)||r.party==="reserve-return") {
           if(unpaidRow(r)) {
             this.db.prepare("DELETE FROM obligations WHERE party=?").run(r.party);
             this.db.prepare("DELETE FROM refund_backing WHERE party=?").run(r.party);
           }
-          else console.error(`WARN pinned refund row ${r.party} vanished from the re-derivation after payment; keeping it`);
+          else if(r.party!=="reserve-return")console.error(`WARN pinned refund row ${r.party} vanished from the re-derivation after payment; keeping it`);
           continue;
         }
         console.error(`WARN settlement obligation ${r.party} vanished from the re-derivation; the pinned row stands`);

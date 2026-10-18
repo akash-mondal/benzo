@@ -11,7 +11,7 @@ import { requireThat } from "../../manifest/schema";
 import { isUnifiedOn } from "../../envelope/destination";
 import { pcztBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
-import { deriveRows, redactCandidate } from "../host-derive";
+import { deriveRows, deriveReserveReturn, redactCandidate } from "../host-derive";
 import { sealBlob } from "../../envelope/index";
 import { SIGNER_ENVELOPE_INDEX } from "../../settle/envelopes";
 
@@ -33,8 +33,16 @@ export async function run(argv: string[]): Promise<number | object> {
     const meta = JSON.parse(readFileSync(path.join(packet, "packet.json"), "utf8"));
     requireThat(meta.auction_id === o.id && String(meta.batch) === o.batch, "packet is for another auction or batch");
     requireThat(Number.isInteger(meta.expiry_blocks) && meta.expiry_blocks >= 1 && meta.expiry_blocks <= 10000, "packet expiry_blocks");
-    const rows: { party: string; kind: string; amount_zats: string }[] = JSON.parse(readFileSync(path.join(packet, "rows.json"), "utf8"));
+    const rows: { party: string; kind: string; amount_zats: string; sources?: string[] }[] = JSON.parse(readFileSync(path.join(packet, "rows.json"), "utf8"));
     requireThat(Array.isArray(rows) && rows.length >= 1 && rows.length <= 28, "rows (1-28)"); // R30: a 28-output batch stays under 100 KB
+    // B46 (H15): the reserve-return row is checked by this signer from its own data (cli/host-derive.ts
+    // deriveReserveReturn) BEFORE the other derivations, so a packet naming a different return UA, a
+    // non-eligible source (a stray or balance note) or a return before all obligation receipts exist is
+    // refused typedly — exit 3, named rows — exactly like H10's seller row.
+    const declaredReserve = rows.find(r => r.party === "reserve-return") ?? null;
+    const reserve = declaredReserve || (meta as any).reserve_row
+      ? await deriveReserveReturn({ id: o.id, name: o.name }, st, root, packet, meta, (meta as any).reserve_row ?? declaredReserve) : null;
+    if (reserve?.refusal) { process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["reserve-return"])}: ${reserve.refusal}\n`); return 3; }
     const { expected, payout, envelopeKeys, network, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
     // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal like the other
@@ -49,6 +57,15 @@ export async function run(argv: string[]): Promise<number | object> {
     // command exits 3, so the coordinator can tell "these rows are underivable" from a transient failure (exit 1).
     const refusedRows: string[] = [];
     const payment = rows.map(r => {
+      // B46 (H15): the reserve-return row pays sum − fee to the committed return UA from exactly this signer's
+      // eligible notes (the check above); the row the packet names must equal what this signer derived.
+      if (r.party === "reserve-return") {
+        const rr = reserve?.row;
+        const same = !!rr && r.amount_zats === rr.amount_zats && Array.isArray(r.sources) &&
+          JSON.stringify([...r.sources].map(String).sort()) === JSON.stringify(rr.sources);
+        if (!same || typeof meta.reserve_return_ua !== "string") { refusedRows.push(r.party); return null; }
+        return { party: r.party, recipient: meta.reserve_return_ua, amount_zats: rr!.amount_zats };
+      }
       if (r.party === "seller") {
         // G-7: the routing UA is checked through the audited classifier on the manifest's OWN network (never a
         // hardcoded testnet shape)

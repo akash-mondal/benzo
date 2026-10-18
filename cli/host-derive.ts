@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { QUICKNET, jsonBytes, requireThat, sellerUaCommitment } from "../manifest/schema";
+import { QUICKNET, jsonBytes, requireThat, sellerUaCommitment, reserveReturnUaCommitment } from "../manifest/schema";
 import { fetchVerifiedBeacon, publishedClient } from "../cli/published-beacon";
 import { openSealedBid } from "../envelope/opening";
 import { beaconSha256, loadOpenings, saveOpenings } from "./openings-cache";
@@ -16,7 +16,7 @@ import { loadPublicAuction } from "../api/public-auction";
 import { openEnvelopeRefundUnchecked, verifyStatement } from "../envelope/index";
 import { classifyAddresses, useClassifyCache, type Classified } from "../envelope/destination";
 import { Destination, authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
-import { depositParty, isSlotCollision, refundable, strayNotes } from "../settle/deposits";
+import { depositParty, isSlotCollision, refundable, reserveReturnSources, reserveSourceId, reserveReturnFee, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, bondVoidAt, isRefundRowParty, type BalanceRefund } from "../clear/features";
 import { blockHeader, chainTip } from "./host-chain";
@@ -307,4 +307,73 @@ export function redactCandidate(st: string, full: string, out: string, info: { o
   const keys = info.outputs.filter(x => !x.is_change).flatMap(x => ["recipient", "rseed", "ock", "user_address", "zip32_derivation"].flatMap(f => ["-k", `${x.pool}.action.${x.index}.output.${f}`]));
   requireThat(keys.length > 0, "candidate has no output to redact");
   execFileSync(path.join(st, "bin", "zcash-devtool"), ["pczt", "redact", ...keys, full, "--output", out], { stdio: ["ignore", "ignore", "pipe"] });
+}
+
+// B46 (H15, docs/design/phase7-b46-reserve-return.md): the final `reserve-return` row, derived and checked by
+// THIS signer from its own data only. The one function behind `sign build`, `sign approve` and `sign derivable`'s
+// reserve-return handling; the callers turn a non-null `refusal` into the typed refusal (exit 3, named rows).
+//
+// The checks, in the design's order:
+//   1. the packet's `reserve_return_ua` hashes to the SIGNED manifest's reserve_return_ua_commitment (H10's
+//      shape for the return address); a legacy manifest (no commitment) plans no row and refuses any packet
+//      that carries one;
+//   2. every source the packet names is — by THIS host's own vault scan and its own `benzo-pczt owns` scope
+//      checks — a note at the config's fee_reserve_ua or at an internal (change) address of this vault
+//      (settle/deposits.ts reserveReturnSources: a deposit or balance note is NEVER a source), and the sources
+//      are exactly the eligible notes;
+//   3. every obligation row has a receipt in the packet's published dir (a row parked in the exception queue
+//      is never paid by this row);
+//   4. the row pays sum − fee to that UA, where sum is this host's own eligible total and fee the ZIP-317 fee
+//      of the one-row transaction (5,000 × max(2, sources)).
+// The destination itself is never published — only the manifest commitment.
+export async function deriveReserveReturn(o: { id: string; name: string }, st: string, root: string, packet: string,
+  meta: { signer: string; reserve_return_ua?: unknown; fee_reserve_ua?: unknown },
+  declared?: { amount_zats?: unknown; sources?: unknown } | null): Promise<{
+    row: { party: "reserve-return"; kind: "payout"; amount_zats: string; sources: string[] } | null;
+    binding: "bound" | "legacy" | "mismatch" | "absent";
+    refusal: string | null;
+  }> {
+  const pub = loadPublicAuction(path.join(packet, "public"), { signer: meta.signer });
+  requireThat(pub.manifest.auction_id === o.id, "packet is for another auction");
+  const m = pub.manifest as any;
+  // "absent": the packet names no return address and no return row (an ordinary batch) — nothing to check.
+  const hasUa = typeof meta.reserve_return_ua === "string" && meta.reserve_return_ua.length > 0;
+  const binding: "bound" | "legacy" | "mismatch" | "absent" = m.reserve_return_ua_commitment === undefined ? "legacy"
+    : (!hasUa && !declared) ? "absent"
+    : hasUa && reserveReturnUaCommitment(meta.reserve_return_ua as string) === m.reserve_return_ua_commitment ? "bound" : "mismatch";
+  const refuse = (reason: string) => ({ row: null, binding, refusal: reason });
+  if (binding === "mismatch") return refuse("reserve return address does not match the manifest reserve_return_ua_commitment (H15)");
+  if (binding === "absent") return { row: null, binding, refusal: null };
+  if (binding === "legacy") return declared ? refuse("legacy manifest: no reserve_return_ua_commitment, the reserve-return row is never planned (H15)") : { row: null, binding, refusal: null };
+  // Check 2 first, so a packet naming a stray or balance note as a source is refused with that source named.
+  const notes = await ownScan(st, root, o.id, m.network);
+  const scopes = new Map<string, string>();
+  const owns = (address: string): string => {
+    const hit = scopes.get(address); if (hit !== undefined) return hit;
+    let verdict = "none";
+    try { verdict = execFileSync(pcztBin(root, st), ["owns", ufvkFile(st, o.id), address, "--network", m.network], { encoding: "utf8" }).trim(); } catch { verdict = "none"; }
+    scopes.set(address, verdict); return verdict;
+  };
+  const eligible = reserveReturnSources(notes, m, typeof meta.fee_reserve_ua === "string" ? meta.fee_reserve_ua : null, a => owns(a) === "internal");
+  const own = new Set(eligible.map(n => reserveSourceId(n)));
+  if (declared) {
+    const named: string[] = Array.isArray(declared.sources) ? (declared.sources as unknown[]).map(String) : [];
+    for (const s of named) if (!own.has(s)) return refuse(`reserve-return source ${s} is not an eligible note (a fee-reserve note or internal change only; a deposit or balance note is never a source)`);
+    if (named.length !== own.size || !named.every(s => own.has(s))) return refuse("the reserve-return sources are not exactly this signer's eligible notes");
+  }
+  // Check 3: every obligation row has a receipt in the published dir (the packet's copy of the published doc).
+  const rows: any[] = pub.settlement?.rows ?? [], receipts: any[] = pub.settlement?.receipts ?? [];
+  for (const r of rows) if (r.state !== "exception" && !receipts.some(x => x.party === r.party))
+    return refuse(`obligation row ${r.party} has no published receipt; the reserve-return row is refused`);
+  const owed = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as any, (pub as any).settlement ?? null) : new Map<string, string>();
+  for (const [party] of owed) if (!receipts.some(x => x.party === party) && !rows.some(r => r.party === party && r.state === "exception"))
+    return refuse(`obligation ${party} has neither a published receipt nor an exception row; the reserve-return row is refused`);
+  // Check 4's amount: this host's own eligible total minus the ZIP-317 fee of the one-row transaction.
+  const sum = eligible.reduce((s, n) => s + BigInt(n.value_zats), 0n), fee = reserveReturnFee(eligible.length);
+  const row = sum > fee ? { party: "reserve-return" as const, kind: "payout" as const, amount_zats: (sum - fee).toString(), sources: [...own].sort() } : null;
+  if (declared) {
+    if (!row) return refuse("the eligible sources do not cover the ZIP-317 fee of a one-row transaction");
+    if (String(declared.amount_zats) !== row.amount_zats) return refuse(`the reserve-return amount differs from this signer's eligible notes minus the fee (${row.amount_zats})`);
+  }
+  return { row, binding, refusal: null };
 }

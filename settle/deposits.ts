@@ -79,6 +79,43 @@ export function strayNotes<T extends { txid: string; address: string }>(
      collide.has(`${n.txid}:${n.address}`)));
 }
 
+// B46 (H15, docs/design/phase7-b46-reserve-return.md): the ONE eligible-source rule for the reserve-return row,
+// shared by the signer plan (settle/plan.ts), every signer host (cli/host-derive.ts) and the evidence tools. The
+// per-auction vault can also hold funds that belong to bidders — stray deposits and late or excess balance notes
+// their owners may still claim (R42; there is no claim deadline) — so the return may spend ONLY:
+//   - the fee-reserve note(s): notes received at the operator config's fee_reserve_ua; and
+//   - internal change of this auction's own settlement transactions: notes at the vault's internal (change)
+//     addresses — `benzo-pczt owns` reports "internal", the same scope rule settle/src/main.rs uses to mark
+//     change (a host refuses change that is not an internal vault address).
+// A note at any manifest deposit address, bond balance address, escrow or buyback treasury address is NEVER a
+// source of the return — even when nobody has claimed it. A fee_reserve_ua configured as one of those addresses
+// therefore has NO eligible note at all: the safety rule wins and the reserve stays in the vault.
+export function reserveReturnSources<T extends { address: string; value_zats: number | string; spent_in_txid?: string | null }>(
+  notes: T[],
+  m: { deposit_addresses: string[]; escrow_ua: string; bond?: { balance_addresses?: string[] } | undefined; buyback?: { funding_ua?: string; treasury_ua?: string } | undefined; rfq?: { funding_ua?: string; treasury_ua?: string } | undefined },
+  feeReserveUa: string | null | undefined,
+  isInternal: (address: string) => boolean,
+): T[] {
+  // The absolute exclusion: anything a bidder or a treasury can own. This comes first, so a lying packet's
+  // fee_reserve_ua can never make a deposit or balance note eligible.
+  const never = new Set<string>([m.escrow_ua, ...m.deposit_addresses, ...(m.bond?.balance_addresses ?? [])]);
+  for (const block of [m.buyback, m.rfq]) for (const f of [block?.funding_ua, block?.treasury_ua]) if (typeof f === "string") never.add(f);
+  return notes.filter(n =>
+    n.spent_in_txid == null && BigInt(n.value_zats) > 0n &&
+    (isInternal(n.address) || (typeof feeReserveUa === "string" && feeReserveUa.length > 0 && n.address === feeReserveUa && !never.has(n.address))));
+}
+// B46: the one note identity for a reserve source (the same `<txid>:<pool>:<action_index>` the ledger's refund
+// backing uses), so plan, hosts and packets all name a source note the same way.
+export function reserveSourceId(note: { txid: string; pool: string; action_index: number }): string {
+  return `${note.txid}:${note.pool}:${note.action_index}`;
+}
+// B46: the ZIP-317 fee of the one-row return transaction — it spends the k eligible notes and pays one output,
+// so it carries k shielded actions and pays 5,000 x max(2, actions) zats (settle/src/main.rs's standard_fee rule).
+// The row pays sum − fee; the row is only worth planning while sum > fee.
+export function reserveReturnFee(sourceCount: number): bigint {
+  return 5000n * BigInt(Math.max(2, sourceCount));
+}
+
 // The slot-collision notes among the strays (R40 item 1): their published envelope record belongs to the
 // frozen LEAF's ciphertext, so the memo-to-record binding is not publicly checkable for a stray row — the
 // plan and every host refund them through the owner-signed claim path only.

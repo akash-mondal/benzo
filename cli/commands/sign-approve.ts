@@ -19,7 +19,7 @@ import { pcztBin, scanBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
-import { deriveRows, redactCandidate } from "../host-derive";
+import { deriveRows, deriveReserveReturn, redactCandidate } from "../host-derive";
 import { chainTip, minedHeight, provenAbsent } from "../host-chain";
 import { openBlob } from "../../envelope/index";
 import { signApprovalMap } from "../../witness";
@@ -69,6 +69,12 @@ export async function run(argv: string[]): Promise<number | object> {
 
     // 1–2. Public check and every payable row, derived by this signer (cli/host-derive.ts) — including its own
     // defaults list from its own scan (R33 item 3), which joins the signed G-4 map and the approval record.
+    // B46 (H15): the reserve-return row is checked FIRST from this signer's own data (deriveReserveReturn), so a
+    // packet naming a different return UA, a non-eligible source or a return before all obligation receipts
+    // exist is refused typedly (exit 3, named rows) like H10's seller row.
+    const reserve = (meta as any).reserve_row
+      ? await deriveReserveReturn({ id: o.id, name: o.name }, st, root, packet, meta, (meta as any).reserve_row) : null;
+    if (reserve?.refusal) throw Object.assign(new Error(reserve.refusal), { refusedRows: ["reserve-return"] });
     const { expected, payout, network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, st, root, packet, meta);
     // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
     // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
@@ -83,13 +89,18 @@ export async function run(argv: string[]): Promise<number | object> {
     redactCandidate(st, candidate, recomputed, info);
     requireThat(sha(readFileSync(recomputed)) === planVersion, "coordinator candidate is not the redaction of the sealed candidate");
     const pool = [...expected];
-    let sellerSeen = false;
+    let sellerSeen = false, reserveSeen = false;
     const outputs = (info.outputs ?? []).filter((x: any) => !x.is_change);
     requireThat(outputs.length > 0, "candidate pays nobody");
     const sources: string[] = [], mapped: { party: string; output_index: number }[] = [];
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
       if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(e.source); mapped.push({ party: e.party, output_index: out.index }); continue; }
+      // B46 (H15): the reserve-return output pays sum − fee to the committed return UA (checked above) and its
+      // sources are this signer's own eligible notes, so a second live candidate cannot spend them again.
+      if (reserve?.row && typeof meta.reserve_return_ua === "string" && out.recipient === meta.reserve_return_ua && String(out.amount_zats) === reserve.row.amount_zats && !reserveSeen) {
+        reserveSeen = true; sources.push(...reserve.row.sources); mapped.push({ party: "reserve-return", output_index: out.index }); continue;
+      }
       // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing), which H10 binds
       // to the signed manifest (checked above); paid at most once by the ledger.
       // Part 2 (bond-then-pay): the balance notes backing that payout are sources too, so no second live candidate can
@@ -97,6 +108,9 @@ export async function run(argv: string[]): Promise<number | object> {
       if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller", ...balanceSources); mapped.push({ party: "seller", output_index: out.index }); continue; }
       throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
     }
+    // B46 (H15): a reserve-return candidate pays exactly one output — the committed return UA for sum − fee.
+    if ((meta as any).reserve_row && !(reserveSeen && outputs.length === 1))
+      throw Object.assign(new Error("the reserve-return candidate must pay exactly one output: the committed return UA for sum − fee"), { refusedRows: ["reserve-return"] });
     // Ruling R28 item 3 (F2): this host's own approval ledger. A source (deposit note, seller, treasury) already in
     // another approved candidate is approved again only when this host sees from the chain that the earlier
     // transaction never mined and can no longer mine (past its expiry) — the legitimate expired-batch re-plan.
