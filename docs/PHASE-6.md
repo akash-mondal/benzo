@@ -483,3 +483,11 @@ R confirmed R-1 (local), R-2 and the registry `rows` change.
      - the gate is a regression gate;
      - mainnet needs its own release regression (RG-M) anyway, at the release commit.
 6. **R83 review: APPROVE** (`benzo-sol/reports/pr-rg-r83.md`). Both fixes hold in the shipped bundle, and there is no regression in range. Its two Phase 7 items and every earlier carried P2 are in `docs/design/phase7-hardening.md` (H1–H7, the release scrub, the accepted residuals). The Codex `gpt-6.1-sol` smoke test (2026-10-17: 29 reproduced tests) added H1.
+
+### R84 — Gate RG attempt 13 complete (head, 2026-10-18)
+
+1. **Result.** All six live projects pass and all five §3 live mutations are red as expected, on one product commit, `910a531`. The full record is the RG row in `docs/evidence/phase-6/EVIDENCE.md`.
+2. **Why `910a531`, not `22d4424`.** The ALT lightwalletd endpoint (`zaino.testnet.unsafe.zec.rocks`) answered 503, so the hosts' window-start header read failed with an empty `lightwalletd GetBlock:` error. The hosts were re-provisioned with `BNZ_LWD_SINGLE=1`, which rewrote the signer manifest (`910a531`). Markets ran there, so the other five projects were re-run there too (user, 2026-10-18: "yes everything should be updated").
+3. **Not verdicts.** U2 commits `3658282` (the bidder-funds floor: NOT RUN until the user funded the bidder from the faucet) and `e7f6814` (a local DNS outage mid-settle) are superseded by `c6f2dd0`.
+4. **Harness fixes.** `tmp/rg/mut2.sh` now checks out the manifest before its host revert, so a mutation's own `up.sh` rewrite cannot block the revert. `settle/cli.ts` `hostDerivable()` keeps only the last 200 chars of host stderr; this hid the 503 and is added to the Phase 7 list as H9.
+5. **Next.** Reviewer R on attempt 13. Then gates H and SC (live half) and the DOC walkthrough, while H1–H9 land.
