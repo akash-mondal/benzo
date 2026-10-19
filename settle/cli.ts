@@ -322,6 +322,34 @@ async function worker(ledger:Ledger) {
   };
   pinRows();
   ledger.eligible();
+  // H19 (R105, docs/design/phase7-b47-settle-worker.md §1.3): the fee-reserve preflight. Before the first batch
+  // of a run, compare the vault's spendable value with the remaining unpaid obligations plus a fee upper bound
+  // of 5,000 x (spendable notes + remaining rows + remaining batches). Short: stop before any broadcast and
+  // before any host build with the exact top-up line — never fail inside a host build for this. Spendable is
+  // the wallet's own rule: an unspent, positive-value note with the manifest's confirmations. The
+  // reserve-return row never counts as an obligation (it pays itself out of the sweep), but its row and its
+  // own batch do count in the fee bound. The top-up N is the exact shortfall plus a 10% margin
+  // (shortfall + ceil(shortfall/10)).
+  {
+    const m=client(auction().manifest,auction().signer).manifest as any;
+    const tip=Number(JSON.parse(wallet("balance","--json")).chain_tip_height);
+    const spendableNotes=notes(manifestNet()).filter((n:any)=>(n.spent_in_txid??null)===null&&Number(n.value_zats)>0&&!!n.height&&tip-Number(n.height)+1>=m.confirmations);
+    const spendableValue=spendableNotes.reduce((s:number,n:any)=>s+Number(n.value_zats),0);
+    const unpaid=ledger.rows().filter(o=>["eligible","allocated"].includes(o.state));
+    const obligationZats=unpaid.filter(o=>o.party!=="reserve-return").reduce((s,o)=>s+Number(o.amount_zats),0);
+    const allocatedBatches=new Set(unpaid.filter(o=>o.batch!==null).map(o=>o.batch));
+    const eligibleRows=unpaid.filter(o=>o.batch===null).length;
+    const remainingBatches=allocatedBatches.size+Math.ceil(eligibleRows/settings().batch_cap);
+    const shortfall=obligationZats+5000*(spendableNotes.length+unpaid.length+remainingBatches)-spendableValue;
+    if(shortfall>0) {
+      const topUp=shortfall+Math.ceil(shortfall/10);
+      let feeUa="";
+      try {feeUa=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"))?.routing?.fee_reserve_ua??""} catch {}
+      if(!feeUa) try {feeUa=JSON.parse(readFileSync(file(`routing-${settings().signers[0]}.json`),"utf8")).fee_reserve_ua??""} catch {}
+      requireThat(typeof feeUa==="string"&&feeUa.length>0,"fee_reserve_ua is not pinned in the operator config or the signer routing");
+      throw Error(`fee reserve short: pay ${topUp} zats to ${feeUa} and run benzo settle again`);
+    }
+  }
   const signoffs:any[]=existsSync(file("signoffs.json"))?read("signoffs.json"):[];
   let batch;
   let isolate=0; // R46 (F25): after a disjoint-refusal batch, the next rows are allocated one per batch
@@ -407,7 +435,19 @@ async function worker(ledger:Ledger) {
       guard(metadata,tip);
       // Under host custody the candidate was built in a signer host's own vault, whose account id this operator vault
       // does not know (store fails AccountUnknown, live Y2); broadcast without storing (the vault still supplies the network config), the next sync records it.
-      const sent=(custody?pczt("send-without-storing","-s",env("BNZ_LWD_URL"),staged.pczt_path!):pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!)).trim().split("\n").at(-1);
+      // H20 item 1 (R108): a send that answers "transaction already exists in mempool" — the resend after a lost
+      // response, or a resend on a re-run — counts as broadcast, and so does a send whose transaction has already
+      // mined (checked against this worker's own wallet). The batch continues to the mined-wait. Any other send
+      // error stays an error.
+      let sent:string|null=null;
+      try {sent=(custody?pczt("send-without-storing","-s",env("BNZ_LWD_URL"),staged.pczt_path!):pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!)).trim().split("\n").at(-1)??null}
+      catch(e) {
+        const inMempool=/already exists in mempool/i.test(String((e as Error).message));
+        let alreadyMined=false;
+        try {alreadyMined=!!JSON.parse(wallet("list-tx","--json")).find((t:any)=>t.txid===staged.txid&&t.mined_height)} catch {}
+        if(!inMempool&&!alreadyMined)throw e;
+        sent=staged.txid!;
+      }
       requireThat(sent===staged.txid,"broadcast returned a different txid");console.log(`settlement broadcast ${sent}`);
     }
     const tMine=Date.now();
@@ -453,7 +493,29 @@ async function worker(ledger:Ledger) {
     }
   }
   writeFileSync(file("receipts.json"),jsonBytes(ledger.receipts()),{mode:0o600});
-  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
+  // H20 item 2 (R108): a re-run after the return has mined must republish idempotently. The emptied vault no
+  // longer derives the return, so the published reserve_return accounting is KEPT once its receipt exists —
+  // from the ledger's own record of the paid batch (its inspect: the candidate swept the whole unspent value,
+  // so input_zats is the recorded remaining and fee_zats the recorded fee), or failing that from the
+  // already-published doc. It is never re-derived from the emptied vault.
+  const summaryPlan:any=plan;
+  const paidReturn=ledger.rows().find(o=>o.party==="reserve-return"&&["paid","refunded"].includes(o.state))??null;
+  if(paidReturn) {
+    const kept=():{remaining_zats:string;fee_zats:string}|null=>{
+      try {const i=JSON.parse(readFileSync(file(`batch-${paidReturn.batch}.inspect.json`),"utf8"));
+        if(i&&i.input_zats!==undefined&&i.fee_zats!==undefined)return {remaining_zats:String(i.input_zats),fee_zats:String(i.fee_zats)}} catch {}
+      try {const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
+        const doc=JSON.parse(readFileSync(path.join(path.resolve(cfg.public_dir),"auction.json"),"utf8"));
+        const acc=doc?.settlement?.reserve_return;
+        if(acc&&acc.remaining_zats!==undefined&&acc.fee_zats!==undefined)return {remaining_zats:String(acc.remaining_zats),fee_zats:String(acc.fee_zats)}} catch {}
+      return null;
+    };
+    const accounting=kept();
+    requireThat(accounting,"a paid reserve-return receipt without its accounting in the ledger or the already-published doc");
+    requireThat(BigInt(accounting!.remaining_zats)-BigInt(accounting!.fee_zats)===BigInt(paidReturn.amount_zats),"the kept reserve_return accounting does not match the paid receipt");
+    summaryPlan.reserve_return={party:"reserve-return",kind:"payout",amount_zats:paidReturn.amount_zats,...accounting!};
+  }
+  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan:summaryPlan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));
 }
 try {
