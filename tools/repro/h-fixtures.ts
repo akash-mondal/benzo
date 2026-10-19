@@ -295,11 +295,12 @@ if (cmd === "inspect") {
   const file = JSON.parse(fs.readFileSync(a[1], "utf8"));
   // B46 (H10..R103): inspect reports the candidate's input_zats (the wallet's spent total — the unspent
   // fixture notes unless the candidate file pins its own, for the grief probes), so the hosts can refuse a
-  // return candidate that leaves notes behind.
+  // return candidate that leaves notes behind. H3 (B50, test-only knob): fixture.json may map an amount to
+  // another pool name (pool_by_amount), so a repro can build a candidate whose payments span two pools.
   const unspent = fix.notes.filter(n => (n.spent_in_txid ?? null) == null && Number(n.value_zats) > 0);
   const input = Number(file.input_zats ?? unspent.reduce((s, n) => s + Number(n.value_zats), 0));
   const output = file.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
-  console.log(JSON.stringify({ outputs: file.rows.map((r, i) => ({ index: i, pool: "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) })),
+  console.log(JSON.stringify({ outputs: file.rows.map((r, i) => ({ index: i, pool: (fix.pool_by_amount || {})[String(r.amount_zats)] || "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) })),
     input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: 100500, txid: crypto.createHash("sha256").update(fs.readFileSync(a[1])).digest("hex"), randomizers: [] }));
   process.exit(0);

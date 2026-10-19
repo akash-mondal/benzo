@@ -12,6 +12,7 @@ import { isUnifiedOn } from "../../envelope/destination";
 import { pcztBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
 import { deriveRows, deriveReserveReturn, redactCandidate } from "../host-derive";
+import { onePoolRefusal } from "../../settle/build-outcome";
 import { sealBlob } from "../../envelope/index";
 import { SIGNER_ENVELOPE_INDEX } from "../../settle/envelopes";
 
@@ -100,6 +101,15 @@ export async function run(argv: string[]): Promise<number | object> {
       const [x] = avail.splice(k, 1);
       return { party: p.party, output_index: x.index, pool: x.pool, amount_zats: p.amount_zats };
     });
+    // H3 (B50): the one-pool rule (R81) on the host build path as a typed refusal (exit 3, named rows) —
+    // exactly like H10's seller row. The named rows are the minority pool's: they wait in the exception
+    // queue and re-derive on the next settle, and the batch's other rows settle next. A batch whose
+    // payments span two pools cannot attribute receipts by {party, output_index} (a per-pool action index).
+    const namedPools = onePoolRefusal(outputs.map(o => ({ party: o.party, pool: String(o.pool) })));
+    if (namedPools.length) {
+      process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(namedPools)}: the candidate pays more than one pool (one-pool rule, R81); these rows wait in the exception queue and re-derive on the next settle\n`);
+      return 3;
+    }
     // §11 H7: the coordinator gets only the redacted candidate; the full one goes to each signer sealed to the envelope
     // key the verified manifest pins for it (the coordinator relays blobs it cannot open).
     const redacted = path.join(packet, "proven.redacted.pczt");

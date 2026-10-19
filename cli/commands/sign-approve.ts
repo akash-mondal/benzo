@@ -20,6 +20,7 @@ import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
 import { deriveRows, deriveReserveReturn, redactCandidate } from "../host-derive";
+import { onePoolRefusal } from "../../settle/build-outcome";
 import { canonicalSourceId } from "../../settle/deposits";
 import { chainTip, minedHeight, provenAbsent } from "../host-chain";
 import { openBlob } from "../../envelope/index";
@@ -137,6 +138,15 @@ export async function run(argv: string[]): Promise<number | object> {
     // unspent value minus the fee.
     if ((meta as any).reserve_row && !(reserveSeen && outputs.length === 1))
       throw Object.assign(new Error("the reserve-return candidate must pay exactly one output: the committed return UA for the unspent value minus the fee"), { refusedRows: ["reserve-return"] });
+    // H3 (B50): the one-pool rule (R81) on the approve path — typed like every other row refusal here
+    // (exit 3, named rows). The named rows are the minority pool's: they wait in the exception queue and
+    // re-derive on the next settle; the batch's other rows settle next.
+    {
+      const poolOfOut = new Map<number, string>(outputs.map((o: any) => [o.index, String(o.pool)]));
+      const namedPools = onePoolRefusal(mapped.map(m => ({ party: m.party, pool: poolOfOut.get(m.output_index) ?? "" })));
+      if (namedPools.length)
+        throw Object.assign(new Error(`the candidate pays more than one pool (one-pool rule, R81): ${namedPools.join(", ")} wait in the exception queue and re-derive on the next settle`), { refusedRows: namedPools });
+    }
     // Ruling R28 item 3 (F2): this host's own approval ledger. A source (deposit note, seller, treasury) already in
     // another approved candidate is approved again only when this host sees from the chain that the earlier
     // transaction never mined and can no longer mine (past its expiry) — the legitimate expired-batch re-plan.

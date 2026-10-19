@@ -183,6 +183,33 @@ build:verify`) and committed with `docs/verify-bundle.sha256`.
 - `node tmp/r77.mjs` (fold) → honest ACCEPTED; fabricated-txid / swapped-output-index / duplicate-output REFUSED.
 - `node tmp/r78.mjs` (fold) → every case as designed (honest ACCEPTED, each tamper REFUSED).
 
+### H3 — one pool per batch on every build path, as a typed set-aside
+
+The shared decision is `onePoolRefusal` (`settle/build-outcome.ts`): a candidate whose payment outputs span
+two pools names the MINORITY pool's rows (the kept pool is the one with the most payment outputs, ties to the
+earliest output's pool) — those rows wait in the exception queue with their reason and the batch's other
+rows settle next (an R46 set-aside; a one-row batch can never span two pools, so re-planning terminates).
+Applied on every build path: `cli/commands/sign-build.ts` (exit 3, `refused-rows` with exactly the minority
+rows — typed like H10's seller row), `cli/commands/sign-approve.ts` (the same typed refusal), custody
+`hostBuild` (`settle/cli.ts` — the built outputs' pools re-checked coordinator-side, typed through the
+R44/R45 `unbuildable/refusedRows` channel), and the local build (`settle/cli.ts` — the old untyped
+`requireThat` that wedged the run is now the same typed set-aside, with its own reason on the rows).
+Proof (`tools/repro/b50-p2-sweep.ts` section `h3`; red `docs/evidence/phase-7/repro/b50-h3-before.out` on
+pristine `503826b`, green `docs/evidence/phase-7/repro/b50-h3-after.out`): real `sign build` and `sign
+approve` refuse a two-pool candidate typed (`h3-build-two-pools-typed`, `h3-approve-two-pools-typed`: exit
+3, `refused-rows ["leaf:2"]` — the minority row only — nothing built/recorded; base: exit 0, built and
+approved), the one-pool controls build/approve on both legs. The real `bin/benzo settle` worker (the b47
+stub harness, shared copy `tools/repro/b47-world.ts`; custody world through real `sign build`, and the
+local build world) sets `leaf:2` aside and PAYS the batch's other rows (`h3-{custody,local}-other-rows-paid`,
+`-minority-set-aside`: the published settlement shows `leaf:2` as its exception row with no receipt, and the
+set-aside is reported with its reason and the named row). Base: the custody path PAYS the two-pool batch
+(`row refunded, receipt PAID` — the ambiguous-attribution defect) and the local path wedges the run
+(`ERROR settle refused: batch pays more than one pool; refusing before signing (R81)`, exit 1, nothing
+paid). Controls green on both legs.
+
+- `npx tsc -p tsconfig.json` → exit 0; `npm run build:settle` + `npm run build:cli` rebuilt (no api/ change,
+  so the verify bundle is untouched by this item).
+
 
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
 

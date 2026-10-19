@@ -7,7 +7,7 @@ import {clientCommon as client} from "../clear/registry"; // design §6.1: every
 import {agreedBatchMaps} from "../witness";
 import {treasuryBlock} from "../clear/mode-b";
 import {Ledger,type Row} from "./ledger";
-import {classifyBuildAttempts,setAsideRows,type BuildOutcome} from "./build-outcome";
+import {classifyBuildAttempts,onePoolRefusal,setAsideRows,type BuildOutcome} from "./build-outcome";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints,timing} from "./io";
 import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
@@ -200,6 +200,11 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     }
     copyFileSync(pulled,proven);
     writeFileSync(file(`batch-${batchId}.build.json`),jsonBytes(built),{mode:0o600});
+    // H3 (B50): the one-pool rule (R81) also on the coordinator side of the custody build, as the same typed
+    // set-aside the hosts give it (defense in depth — `sign build` refuses a two-pool candidate first): the
+    // minority pool's rows are named and wait in the exception queue; the batch's other rows settle next.
+    const namedPools=onePoolRefusal((built.outputs??[]).map((o:any)=>({party:String(o.party),pool:String(o.pool)})));
+    if(namedPools.length)throw Object.assign(Error(`the built batch ${batchId} pays more than one pool (one-pool rule, R81)`),{unbuildable:true,isolate:false,refusedRows:namedPools});
     return built;
   }
   // R44 (F16) + Ruling R45 (F20): unbuildable only when EVERY reached host gave a typed refusal; the rows to
@@ -307,6 +312,8 @@ async function worker(ledger:Ledger) {
   // next settle and a payout re-derives as soon as a host can build it.
   const setAside=new Set<string>();
   const asideReason="set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
+  // H3 (B50): a row set aside by the one-pool rule carries its own reason (the shared pinRows maps it).
+  const asideReasons=new Map<string,string>();
   const pinned:any[]=custody?planRows.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):(await destinations(planRows,settings().signers[0],plan));
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   // Ruling R42 (F15): each refund row carries its backing note identities into the ledger (keyed by note
@@ -316,7 +323,7 @@ async function worker(ledger:Ledger) {
   // R44 (F16): the first pin and every re-pin use these same arguments, so a re-pin can never promote a row the
   // derivable gate (G-5) or the unbuildable record parked.
   const pinRows=()=>{
-    for(const o of pinned)if(setAside.has(o.party)&&o.recipient){delete o.recipient;o.reason=asideReason;}
+    for(const o of pinned)if(setAside.has(o.party)&&o.recipient){delete o.recipient;o.reason=asideReasons.get(o.party)??asideReason;}
     ledger.pin(pinned.filter(o=>o.recipient).map(({party,kind,amount_zats})=>keyed({party,kind,amount_zats})),
       [...plan.exceptions,...pinned.filter(o=>!o.recipient).map(({party,kind,amount_zats,reason})=>keyed({party,kind,amount_zats,reason}))].map(keyed));
   };
@@ -401,14 +408,32 @@ async function worker(ledger:Ledger) {
         timing({auction:id,batch:batch.id,phase:"host-build",ms:Date.now()-t0});}
         guard(inspect(proven,manifestNet(),true),JSON.parse(wallet("balance","--json")).chain_tip_height);
       } else {
-        const payment=(await destinations(batch.outputs,settings().signers[0],plan)).filter(o=>o.recipient).map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
+        const resolved=(await destinations(batch.outputs,settings().signers[0],plan)).filter(o=>o.recipient);
+        const payment=resolved.map(o=>({recipient:o.recipient!,amount_zats:o.amount_zats}));
         run(pcztBin(ROOT,STATE),["create",vaultDir(STATE),created,String(settings().pczt_expiry_blocks),"--network",manifestNet()],JSON.stringify(payment));
         const createdInfo=inspect(created,manifestNet());guard(createdInfo,JSON.parse(wallet("balance","--json")).chain_tip_height);
         // R81 (Reviewer R R-1 on R80): output_index is a per-bundle action index, and the host maps attribute outputs by
-        // {party, output_index}. A batch whose payments span two pools would make that attribution ambiguous, so it is
-        // refused here, before any signature (no funds move). R81's destination rule keeps every payable destination
-        // Orchard-capable, so a mixed batch is not expected.
-        requireThat(new Set(createdInfo.outputs.filter((o:any)=>!o.is_change).map((o:any)=>o.pool)).size<=1,"batch pays more than one pool; refusing before signing (R81)");
+        // {party, output_index}. A batch whose payments span two pools would make that attribution ambiguous.
+        // H3 (B50): the same one-pool rule as the host paths, but as an R46-style typed set-aside instead of the old
+        // untyped throw that wedged the run — the minority pool's rows wait in the exception queue with their reason
+        // (no funds move: nothing was signed) and the batch's other rows settle next.
+        {
+          const outs=createdInfo.outputs.filter((o:any)=>!o.is_change);
+          const mappedPools:{party:string;pool:string}[]=[];
+          for(const o of outs) {
+            const row=resolved.find((p:any)=>p.recipient===o.recipient&&p.amount_zats===String(o.amount_zats)&&!mappedPools.some((m)=>m.party===p.party));
+            if(row)mappedPools.push({party:row.party,pool:String(o.pool)});
+          }
+          const namedPools=onePoolRefusal(mappedPools);
+          if(namedPools.length) {
+            for(const p of namedPools) {
+              setAside.add(p);
+              asideReasons.set(p,"set aside this run: this batch's payments would span two pools (one-pool rule, R81); re-derived on the next settle");
+            }
+            console.error(`ERROR batch ${batch.id}: the candidate would pay more than one pool; ${namedPools.join(",")} set aside this run (one-pool rule R81), the other rows settle next`);
+            ledger.expire(batch.id);pinRows();ledger.eligible();continue;
+          }
+        }
         await prove(created,proven);
       }
       const tSign=Date.now();

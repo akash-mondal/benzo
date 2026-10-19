@@ -34,3 +34,18 @@ export function setAsideRows(outputs: { party: string; kind: string }[], refused
   for (const o of outputs.filter((o) => named.has(o.party))) (o.kind === "refund" ? condemned : deferred).push(o.party);
   return { condemned, deferred };
 }
+// H3 (B50, docs/design/phase7-b50-p2-sweep.md): the one-pool rule (R81 R-1/R-4) as a typed set-aside
+// decision, shared by every build path (local build, custody hostBuild, sign build, sign approve). A batch
+// whose payments span two pools cannot attribute its receipts by {party, output_index} (the index is a
+// per-pool action index), so no such batch may be signed. The refusal NAMES the rows outside the kept pool
+// — the kept pool is the one with the most payment outputs, ties going to the pool of the earliest output —
+// and those rows wait in the exception queue with their reason while the batch's other rows settle next
+// (an R46-style set-aside). A one-row batch can never span two pools, so re-planning terminates.
+export function onePoolRefusal(outputs: { party: string; pool: string }[]): string[] {
+  const counts = new Map<string, number>();
+  for (const o of outputs) counts.set(o.pool, (counts.get(o.pool) ?? 0) + 1);
+  if (counts.size <= 1) return [];
+  let kept = outputs[0].pool;
+  for (const [pool, n] of counts) if (n > (counts.get(kept) ?? 0)) kept = pool;
+  return outputs.filter((o) => o.pool !== kept).map((o) => o.party);
+}

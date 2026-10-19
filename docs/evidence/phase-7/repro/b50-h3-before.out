@@ -1,0 +1,37 @@
+commit b07903eaf5f7cb76f1e0c9e8ab96f6b6396f25c6 (working tree not clean at run time)
+utc 2026-10-19T05:15:52.831Z
+command node tmp/b50.mjs before h3 (tools/repro/b50-p2-sweep.ts)
+tree M cli/commands/sign-approve.ts
+tree  M cli/commands/sign-build.ts
+tree  M settle/build-outcome.ts
+tree  M settle/cli.ts
+tree  M tools/repro/b50-p2-sweep.ts
+tree  M tools/repro/h-fixtures.ts
+tree ?? docs/evidence/phase-7/repro/b50-h3-after.out
+tree ?? docs/evidence/phase-7/repro/b50-h3-before.out
+tree ?? node_modules
+tree ?? tools/repro/b47-world.ts
+tree ?? vendor
+PASS fixture-seller-payout the fixture result owes the seller 15000 zats
+PASS fixture-obligations the fixture owes leaf:0:1000000, leaf:1:1000000, leaf:2:985000, seller:15000
+=== h3: a two-pool candidate is refused typed on every build path; the other rows pay
+FAIL h3-build-two-pools-typed a two-pool candidate: exit 0, no typed refusal ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"builder":"alice","plan_version":"36b254ec577bebc68c6b271005f49167067), nothing built
+PASS h3-build-one-pool-ok control, one pool: exit 0, built ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"builder":"alice","plan_version":"36b254ec577bebc68c6b271005f49167067)
+FAIL h3-approve-two-pools-typed a two-pool candidate: exit 0, no typed refusal ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"name":"alice","plan_version":"36b254ec577bebc68c6b271005f49167067faf), no approval recorded
+PASS h3-approve-one-pool-ok control, one pool: exit 0, approved ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"name":"alice","plan_version":"36b254ec577bebc68c6b271005f49167067faf)
+OBSERVE h3-custody exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":4}
+  | settlement broadcast 077e63fb8258af79422155b51e0665e85bec435689e27c121731e10d904848ef
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":4}
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":4}
+PASS h3-custody-other-rows-paid the batch's other rows paid: leaf:0, leaf:1, seller (receipts: leaf:0, leaf:1, leaf:2, seller)
+FAIL h3-custody-minority-set-aside leaf:2 waits in the exception queue: row refunded, receipt PAID
+FAIL h3-custody-set-aside-reason the set-aside is reported with its reason and the named row (the worker's batch line)
+OBSERVE h3-local exit=1
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":4}
+  | ERROR settle refused: batch pays more than one pool; refusing before signing (R81)
+  | ERROR benzo settle exit 1
+FAIL h3-local-other-rows-paid the batch's other rows paid: leaf:0, leaf:1, seller (receipts: none)
+FAIL h3-local-minority-set-aside leaf:2 waits in the exception queue: row missing, receipt none
+FAIL h3-local-set-aside-reason the set-aside is reported with its reason and the named row (the worker's batch line)
+RESULT FAIL (7)
