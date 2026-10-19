@@ -79,8 +79,12 @@ async function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim
       partyNote(observed,row.party)?.address;
     // R7 item 6 (Reviewer G G6) + R10 item 2: a product-mode stray or cancelled deposit resolves through its
     // own memo-bound owner-signed envelope (opened with this signer's key) or its owner-signed claim; there
-    // is no operator-chosen destination.
-    if(product&&row.party!=="seller") {
+    // is no operator-chosen destination. B54 (P3-2's proof): the `reserve-return` row is NOT a stray — like
+    // `seller` it carries its own pinned destination below (the routing config's reserve_return_ua, whose
+    // hash the signed manifest commits). Before this the product branch swallowed it and every return
+    // candidate failed `check()` with "PCZT recipient count differs from result", so the non-custody return
+    // path could never reach signing at all.
+    if(product&&row.party!=="seller"&&row.party!=="reserve-return") {
       const recipient=await memoEnvelopeRecipient(observed,row.party,(a as any).manifest,(a as any).envelopes,await memoBeacon(),ownEnvelopePrivate(STATE,name)??"");
       if(recipient) {const ua=recipient.reveal();requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(ua,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient:ua}}
       return {...row,reason:`stray refund refused: no owner-signed settlement envelope or claim (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
