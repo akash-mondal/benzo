@@ -764,3 +764,20 @@ B48 is on main (`e364ad4`…`ef396a8`; round 2 after a provider drop):
 3. `verify --openings-cache` reads only the host's own file at its own path.
 
 The head re-ran on main: `npm run check`, e2e, the B48 repro (RESULT PASS) and B47's settle e2e (RESULT PASS). The verify bundle is now `7bde8384…`. B48's Q2 and Q3 (derivable still refuses whole when a seller row exists; approve's untyped refusal) are **H21** (P3). Q1 is accepted as is.
+
+### R112 — B49 merged: "paid" means this host approved it and sees it mined 10 deep; H15 closed again (head, 2026-10-19)
+
+B49 is on main (`299907b`…`a6d46d2`; round 2 after a provider drop):
+- `settle/deposits.ts` `paidByOwnLedger`, used by both the plan's and the hosts' reserve-return gate: a receipt counts only if one's own ledger approved that txid with that row at that amount, and one's own scan shows it mined at least 10 deep. Packet receipts are an index only.
+- The classify prefetch never throws.
+- One canonical approval-ledger source namespace, with migrate-on-read.
+- Verify labels receipts `host-attested` and requires published mined batch txids when `settlement.batches` is present.
+
+Merge conflicts were only the bundle hash and the status file. The head rebuilt the verify bundle from the combined tree: `c93f1e19…`. On main the head re-ran:
+- `npm run check`, e2e;
+- the b46 (now holding B49's cases a–f), b47 and b48 repros, all RESULT PASS;
+- the R100 probe.
+
+Four published dirs still verify, 19 OK each, including the H15 live run.
+
+Rulings: Q1 (a zero-change batch cannot prove its own height, so its row stays outstanding) is accepted as conservative and noted in H15. Q2–Q6 are accepted. **Reviewer R round 2's P0-1, P1-1 and the P2s are fixed; H15 is closed.** The hosts need provisioning before the next live run.
