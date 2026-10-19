@@ -915,3 +915,24 @@ Rulings:
 - **Q3–Q5** noted.
 
 **Round-4 findings are all closed.** Next: provision the hosts at this commit (host code changed, Rust included), the release RG on testnet, the PK re-run, and a final Reviewer R pass on B52/B53 in parallel with RG.
+
+### R119 — Reviewer R round 5 on B52/B53: REQUEST CHANGES (one P2, no P0/P1) → B54 (head, 2026-10-19)
+
+Report `benzo-sol/reports/pr-p7-b52-b53.md`. Both round-4 walls are confirmed closed. Every scope item and all three R118 merge resolutions were verified, with these properties holding:
+- the return is never approvable while anything is owed;
+- quote-sweep and create agree when their note sets match;
+- the B53 park cannot be turned into a double pay;
+- the mined-wait records only the staged txid;
+- the `minedHeightOf` fallback does not widen the paid rule;
+- `backfillMapped` cannot attest a row that was never approved.
+
+**P2-1:** the wallet never selects a note of 5,000 zats or less (`MARGINAL_FEE`), but the hosts' swept total counts it. One dust deposit, which anyone can send, walls the custody return forever and strands silently on the non-custody path. Five P3s:
+- the H23 expiry lacks a txid guard;
+- the non-custody `check()` lacks the candidate pin;
+- the 29-action cap on large vaults;
+- `backfillMapped` heals from today's derivation;
+- `minedHeight` uses one endpoint.
+
+All go to B54 (`docs/design/phase7-b54-dust-and-sweep.md`). The cap becomes disclosed limit H25.
+
+The live release walkthrough started at `bd18eb6` before this report. It still exercises `quote-sweep` live, but B54 changes host code, so the hosts are provisioned again after B54 and the walkthrough is repeated with a dust note and a just-received note at a vault address (P3-5).
