@@ -318,6 +318,10 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       destination itself is never published), and `benzo verify` accepts the one `reserve-return`
       receipt only while the published accounting shows nothing outstanding.
 
+      The return needs the last batch's change to be spendable: if `benzo settle` prints `the reserve
+      stays in the vault until the next benzo settle`, run `benzo settle --id ID` again once that batch has
+      10 confirmations (R108).
+
 8. **Record and settle refund claims.** A request carries `party` (`leaf:N`,
    `deposit:TXID:POOL:INDEX`, `balance-late:TXID:POOL:INDEX` or `balance-excess:LEAF`),
    `claim_envelope_ct` and `owner_sig`. Only the first claim whose owner

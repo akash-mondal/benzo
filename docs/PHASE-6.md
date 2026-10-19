@@ -728,3 +728,7 @@ Fix (head):
 - the worker takes the amount from the allocated batch (`settle/cli.ts`).
 
 The B46 repro still passes green and `npm run check` passes (verify bundle unchanged). This is the third live-only wiring gap in this path (R99, R107, R107b), so **an offline end-to-end proof of the settle worker's reserve-return pass** goes to the next builder batch.
+
+### R108 — H15 proven live: the unused fee reserve returned to the committed address (head, 2026-10-19)
+
+Evidence `docs/evidence/phase-7/h15-live/`. After R107b, the hosts signed the return and it mined: `46b5a8ac…` at 4,516,884 paid **25,000 zats to the committed return address**, from 35,000 remaining minus the 10,000 fee, leaving the vault at 0 value. The published receipt and accounting are present, and the cold verify printed 19 OK. Two settle re-run gaps remain (a mempool resend exits 1; a re-run after the return refuses to republish). They are cosmetic for the outcome and recorded as **H20**, together with the missing offline end-to-end proof of the settle worker. **H15 is closed.** The operator guide gains one line: the return may need a second `benzo settle` once the last batch has confirmed.
