@@ -883,3 +883,35 @@ Rulings on its questions:
 - **Q7:** e2e passed on main.
 
 B52 (the return fee basis, H23, P3-4, P3-8c) is still running.
+
+### R118 — B52 merged: the reserve return uses the tool's own sweep quote (P2-1), H23, P3-4, P3-8c (head, 2026-10-19)
+
+B52 (`b52-return-fee`, ten commits) was cherry-picked onto R117 (B53).
+
+**What it does:**
+- `benzo-pczt quote-sweep` uses the pinned `propose_send_max_transfer`, so the plan's return amount is the wallet's own send-max.
+- The hosts check the built candidate (`reserveCandidateVerdict`): it must spend the scanned total and have one non-change output to the committed UA for input − inspect's fee.
+- Verify ties `fee_zats` to `inspect.actions` and `remaining_zats` to `inspect.input_zats`.
+- `reserveReturnFee` and `reserveReturnAmount` are gone.
+- No vault UA can receive Sapling (`UnifiedAddressRequest::ORCHARD`); `quote-sweep` refuses a Sapling note anyway.
+- H23: `allocate` never mixes the return with rows, and a pending mixed batch becomes an exception and its rows re-plan.
+- P3-4: `refused_rows` carries its reasons.
+
+**Merge:**
+- The conflicts unioned B53's `backfillMapped` with B52's `reserveCandidateVerdict`.
+- The allocate query keeps both rules: the return is allocated alone and last (B52), and a row parked with its batch binding is never re-allocated (B53). `expire` clears the binding for H23's re-plan; `park` keeps it.
+- B53's p37 case used the removed `reserveReturnAmount`. The head gave it a helper that mirrors the stub `quote-sweep` rule (test-only).
+- The b47 fold needs `tmp/b47-republish.mjs` built first.
+
+On main, with the verify bundle now `d234ba0b…` and `cargo build --release --locked` OK, the head re-ran:
+- `npm run check` and e2e;
+- the b44, b46 (66), b47 (49), b48, h10, h13, h14 and b53 (27, run section by section around transient drand socket drops) folds, all PASS;
+- the r73, r77, r77-serial, r78, r81 and r82 replays, exit 0;
+- the four published dirs, 19 OK each.
+
+Rulings:
+- **Q1:** 25,000 is right. Orchard-style bundles pad to at least 2 actions (`DEFAULT_MIN_ACTIONS`; the H15 live inspect shows 2 actions for a 1-in/1-out sweep). The design's 20,000 was unpadded arithmetic.
+- **Q2:** the real `quote-sweep` needs a synced wallet. Its end-to-end proof is the release RG's live reserve return.
+- **Q3–Q5** noted.
+
+**Round-4 findings are all closed.** Next: provision the hosts at this commit (host code changed, Rust included), the release RG on testnet, the PK re-run, and a final Reviewer R pass on B52/B53 in parallel with RG.

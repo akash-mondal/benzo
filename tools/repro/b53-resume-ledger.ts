@@ -50,9 +50,23 @@ import { sealBlob, sealEnvelope, signStatement, ownerPublic } from "../../envelo
 import { modeEntry } from "../../clear/registry";
 import { balanceSettlement } from "../../clear/features";
 import { Ledger } from "../../settle/ledger";
-import { paidByOwnLedger, reserveReturnAmount } from "../../settle/deposits";
+import { paidByOwnLedger } from "../../settle/deposits";
 import { buildAuction, fetchBeacon, needRealPczt, ownerPrivate, writeHostState, writePublicDir, witnessPrivate, UA_ORCHARD, type Fixture } from "./h-fixtures";
 import { makeStubs } from "./b47-world";
+
+// B52 removed the predicted reserve-return amount. The stub `quote-sweep` (tools/repro/h-fixtures.ts)
+// now prices the sweep from its real action shape: every unspent note, one output in the default ironwood
+// pool, each pool's bundle padded to at least 2 actions. This mirrors that rule for the p37 case.
+function stubSweepAmount(notes: { pool: string; value_zats: number | string; spent_in_txid?: string | null }[]): { amount_zats: string } {
+  const unspent = notes.filter(n => (n.spent_in_txid ?? null) == null && BigInt(n.value_zats) > 0n);
+  const counts = new Map<string, { s: number; o: number }>();
+  for (const n of unspent) { const c = counts.get(n.pool) ?? { s: 0, o: 0 }; c.s++; counts.set(n.pool, c); }
+  const out = counts.get("ironwood") ?? { s: 0, o: 0 }; out.o++; counts.set("ironwood", out);
+  let actions = 0;
+  for (const c of counts.values()) actions += Math.max(2, c.s, c.o);
+  const total = unspent.reduce((t, n) => t + BigInt(n.value_zats), 0n);
+  return { amount_zats: (total - 5000n * BigInt(Math.max(2, actions))).toString() };
+}
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 const part = process.argv[2], only = process.argv[3];
@@ -724,7 +738,7 @@ async function p37() {
   const src1: string[] = entry?.sources ?? [];
   // Candidate 2: the reserve-return sweep — its sources are the bare vault-note ids, including the excess
   // row's backing note (it really re-spends it).
-  const rr = reserveReturnAmount(scanNotes as any);
+  const rr = stubSweepAmount(scanNotes as any);
   const r2 = approve(2, [{ recipient: UA_ORCHARD, amount_zats: rr.amount_zats! }], { reserve_return_ua: UA_ORCHARD, reserve_row: { amount_zats: rr.amount_zats } });
   console.log(`OBSERVE p37-${part} batch1 exit=${r1.code} sources=[${src1.join(", ")}] backing=${backing} batch2 exit=${r2.code}`);
   console.log((r2.err || r2.out).trim().split("\n").filter(Boolean).slice(-3).map(l => "  | " + l).join("\n"));
