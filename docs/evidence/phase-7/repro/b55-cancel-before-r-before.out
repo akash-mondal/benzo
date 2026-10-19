@@ -1,7 +1,25 @@
-commit b3fa9903169983e2aaaf6103b964f42fff2002f6 (working tree not clean at run time)
-utc 2026-10-19T15:13:14.090Z
+commit cabfee8983abeed7a9f29dbdaa7aae8053881528 (working tree not clean at run time)
+utc 2026-10-19T15:53:48.655Z
 command node tmp/b55.mjs before (tools/repro/b55-cancel-before-r.ts)
-tree ?? tools/repro/b55-cancel-before-r.ts
+tree M tools/repro/b55-cancel-before-r.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b55-fold-red51.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b55-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b55.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b55-fold.out
+tree ?? docs/evidence/phase-7/repro/r78-b55-fold.out
+tree ?? docs/evidence/phase-7/repro/r82-b55-fold.out
 === red (a) on the BASE bundles: the cancelled-before-R plan dies on the drand fetch (M1)
 PASS red-a-cancel-before-r-throws exit 1, 1 beacon fetch(es): ERROR settle refused: drand opening beacon unavailable or unverified on every endpoint
 === red (b): the same with a frozen set (cancel after freeze)
@@ -9,6 +27,8 @@ PASS red-b-cancel-after-freeze-throws exit 1, 1 beacon fetch(es): ERROR settle r
 === red (c): the host derive throws on both packets
 PASS red-c-derive-throws exit 1, 1 beacon fetch(es): ERROR sign derivable refused: drand opening beacon unavailable or unverified on every endpoint
 PASS red-c-derive-frozen-throws exit 1, 0 beacon fetch(es): ERROR sign derivable refused: public check failed: ERROR verify refused: missing result
+=== red (a-claim): a claim submitted before R dies with the opaque drand error and stops the run
+PASS red-a-claim-fails-with-drand-error exit 1, 2 beacon fetch(es): ERROR claim deposit:6516cc9d903528e0dbe89b768b5c19e4659a6bc930ffd1fce4792c52ef98a355:ironwood:0 refused: refused: drand opening beacon unavailable or unverified on every endpoint | ERROR settle refuse
 === (d) baseline on the BASE bundles: the same world AFTER R resolves claim and envelope
 PASS base-d-post-r-claim-and-envelope-resolve plan exit 0 obligations ["deposit:3f52a326dfc04e51c92b1eca5913e9e49ed8f0cc5033b643b3fe0e234668b7d4:ironwood:1:1000100","deposit:6516cc9d903528e0dbe89b768b5c19e4659a6bc930ffd1fce4792c52ef98a355:ironwood:0:1000100"], derive exit 0 rows ["deposit:6516cc9d903528e0dbe89b768b5c19e4659a6bc930ffd1fce4792c52ef98a355:ironwood:0","deposit:3f52a326dfc04e51c92b1eca5913e9e49ed8f0cc5033b643b3fe0e234668b7d4:ironwood:1"], 1+3 beacon fetch(es); plan: WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment; derive: WARN legacy manifest: seller payout address not bound (H10)
 RESULT PASS

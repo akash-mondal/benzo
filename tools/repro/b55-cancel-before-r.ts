@@ -224,6 +224,10 @@ if (part === "before") {
   const cf = runDerivable("red-c-frozen", BASE_BENZO, future, path.join(WORK, "public-red-c-frozen"), DRAND_URL);
   check("red-c-derive-frozen-throws", cf.code !== 0 && !cf.parsed,
     `exit ${cf.code}, ${cf.fetches} beacon fetch(es): ${(cf.err || cf.out).trim().split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | ").slice(0, 160) || "(no ERROR line)"}`);
+  console.log("=== red (a-claim): a claim submitted before R dies with the opaque drand error and stops the run");
+  const ac = runPlan("red-a-claim", BASE_PLAN, future, BASE, DRAND_URL, { claims: claimsFor(future) });
+  check("red-a-claim-fails-with-drand-error", ac.code !== 0 && /refused: refused: drand opening beacon unavailable/.test(ac.err) && !ac.parsed,
+    `exit ${ac.code}, ${ac.fetches} beacon fetch(es): ${(ac.err || ac.out).trim().split("\n").filter(l => /^ERROR/.test(l)).slice(0, 2).join(" | ").slice(0, 200)}`);
   console.log("=== (d) baseline on the BASE bundles: the same world AFTER R resolves claim and envelope");
   const dp = runPlan("d-plan-base", BASE_PLAN, pristine, BASE, DRAND_URL, { claims: claimsFor(pristine), opens: true });
   const dd = runDerivable("d-derive-base", BASE_BENZO, pristine, path.join(WORK, "public-d-derive-base"), DRAND_URL, { claims: claimsFor(pristine) });
@@ -240,6 +244,12 @@ if (part === "before") {
   check("green-a-parks-2-with-reason", a.code === 0 && parked(a),
     `exit ${a.code}, exceptions ${JSON.stringify((a.parsed?.exceptions ?? []).map((e: any) => [e.kind, e.amount_zats, e.reason]))}`);
   check("green-a-no-beacon-fetch", a.fetches === 0, `${a.fetches} beacon fetch(es) on the counting stub`);
+  const ac2 = runPlan("green-a-claim", GREEN_PLAN, future, ROOT, DRAND_URL, { claims: claimsFor(future) });
+  const claimRefusal = (ac2.parsed?.refusals ?? []).find((r: any) => r.reason === "claim refused: refused: claim before release; the owner key is derivable only after R");
+  check("green-a-claim-refused-per-request", ac2.code === 0 && !!claimRefusal && (ac2.parsed.exceptions ?? []).length === 2
+    && (ac2.parsed.exceptions as any[]).every((e: any) => e.reason === REASON) && (ac2.parsed.claim_envelopes ?? {}) && Object.keys(ac2.parsed.claim_envelopes ?? {}).length === 0,
+    `exit ${ac2.code}; the claim fails per request (${JSON.stringify(claimRefusal?.party ?? null)}) inside the plan's try, both deposits still park with the exact reason`);
+  check("green-a-claim-no-beacon-fetch", ac2.fetches === 0, `${ac2.fetches} beacon fetch(es) with a claim recorded`);
   const ac = runPlan("green-a-closed", GREEN_PLAN, future, ROOT, CLOSED_URL);
   check("green-a-closed-port-exits-0", ac.code === 0 && parked(ac) && !/drand opening beacon/.test(ac.err),
     `exit ${ac.code} with BNZ_DRAND_URLS on a closed local port (${CLOSED_URL})`);
