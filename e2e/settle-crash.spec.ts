@@ -69,7 +69,14 @@ async function recovery() {
   z.sync("vault");if(!observedBalance("vault"))return;
   const dir=path.join(STATE,"run",`settle-recovery-${Date.now()}`);mkdirSync(dir,{recursive:true,mode:0o700});
   const created=path.join(dir,"created.pczt"),proven=path.join(dir,"proven.pczt"),signed=path.join(dir,"signed.pczt");
-  z.pczt("vault","create-max","--address",freshAddress("bidder"),"--output",created);z.pczt("vault","prove",created,"--output",proven);
+  // B55 follow-up (H19): the funded reserve now leaves the batch's change in the vault, and create-max refuses
+  // while that note is too young ("ineligible"). Re-sync and retry until it matures, as cli-auction does.
+  const to=freshAddress("bidder");
+  for(let by=Date.now()+15*60_000;;) {
+    try{z.pczt("vault","create-max","--address",to,"--output",created);break}
+    catch(e){if(!/ineligible/.test(String((e as Error)?.message??e))||Date.now()>by)throw e;await new Promise(r=>setTimeout(r,20_000));z.sync("vault")}
+  }
+  z.pczt("vault","prove",created,"--output",proven);
   await zcashSign(proven,signed);const txid=z.send(signed);
   await waitFor({height:1,tip:()=>{z.sync("vault");return JSON.parse(z.wallet("vault","list-tx","--json")).find((t:any)=>t.txid===txid)?.mined_height??0}},Date.now()+MINE);
   z.sync("bidder");z.sync("vault");console.log(`development-only fund recovery ${txid}`);
