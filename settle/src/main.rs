@@ -162,6 +162,67 @@ fn inspect(file: &str, ufvk: &str, allow_redacted: bool, net: Network) -> anyhow
     println!("{}",json!({"shielded_sighash":hex::encode(sighash),"txid":txid,"randomizers":randomizers,"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"actions":pczt.orchard().actions().len()+pczt.ironwood().actions().len(),"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
     Ok(())
 }
+// B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md): quote the reserve sweep with the
+// wallet's OWN proposal machinery instead of predicting its fee from the source count. The real fee is the
+// ZIP-317 fee of the transaction's actual action counts (per pool, max(spends, outputs), every bundle
+// padded to its 2-action floor), which `inspect` enforces below — a prediction from the note count is wrong
+// whenever the sweep's single output lands in a pool none of the sources is in.
+//
+// Method (the design's first choice): the pinned zcash_client_backend ships the send-max proposal
+// (`propose_send_max_transfer`), so no bounded propose_transfer loop is needed. It asks the same wallet,
+// the same fee rule (StandardFeeRule::Zip317) and the same confirmation policy as `create`, for the
+// largest payment to <to> that spends every spendable note with no change output. MaxSpendMode::Everything
+// refuses a partial sweep: a note the tool cannot spend (immature, or a pool `create` cannot build) is a
+// quoted failure, never a smaller sweep that would leave value behind. A Sapling or transparent note is
+// refused here too — `inspect` only sees Orchard/Ironwood spends, so the one-row sweep cannot spend one
+// (no vault address can receive Sapling: `address` derives UnifiedAddressRequest::ORCHARD addresses, which
+// carry an Orchard receiver and NO others).
+//
+// Prints {amount_zats, fee_zats, input_zats, spends, actions} — the payment the sweep can make, the fee
+// the wallet will charge for it, the total it spends, the number of value-carrying spends and the action
+// count that fee pays for (fee = 5,000 x max(2, actions), the enforced rule). Any failure is the tool's
+// own error: the plan turns it into the typed "reserve return waits" line and never crashes.
+fn quote_sweep(wallet: &str, to: &str, net: Network) -> anyhow::Result<()> {
+    use zcash_client_backend::data_api::wallet::propose_send_max_transfer;
+    use zcash_client_backend::data_api::MaxSpendMode;
+    use zcash_client_backend::data_api::wallet::input_selection::LockedInputPolicy;
+    let mut db=WalletDb::for_path(Path::new(wallet).join("data.sqlite"),net,SystemClock,OsRng)?;
+    let accounts=db.get_account_ids()?;
+    ensure!(accounts.len()==1,"wallet must have one account");
+    let recipient=ZcashAddress::from_str(to)?;
+    // Every pool is offered so an unspendable stray pool can never be silently left behind; the proposal
+    // is refused below unless every spend it selected is one `create`/`inspect` can build (Orchard/Ironwood).
+    let proposal=propose_send_max_transfer::<_,_,_,zcash_client_sqlite::wallet::commitment_tree::Error>(
+        &mut db,&net,accounts[0],&[ShieldedPool::Sapling,ShieldedPool::Orchard,ShieldedPool::Ironwood],
+        &StandardFeeRule::Zip317,recipient,None,MaxSpendMode::Everything,ConfirmationsPolicy::default(),
+        &LockedInputPolicy::Exclude,None).map_err(|e|anyhow!("the vault's value cannot be swept in one transaction: {e:?}"))?;
+    ensure!(proposal.steps().len()==1,"the vault's value cannot be swept in one transaction: the proposal needs more than one transaction");
+    let step=proposal.steps().first();
+    ensure!(step.balance().proposed_change().is_empty(),"the vault's value cannot be swept in one transaction: the proposal would leave change behind");
+    ensure!(!step.is_shielding() && step.transparent_inputs().is_empty(),"the vault's value cannot be swept in one transaction: the proposal carries transparent value");
+    let (mut input, mut spends, mut stray)=(0u64,0usize,"");
+    for notes in step.shielded_inputs().map(|s|s.notes().iter()).into_iter().flatten() {
+        let note=notes.note();
+        match note.pool() {
+            ShieldedPool::Orchard|ShieldedPool::Ironwood => {}
+            pool => { stray=match pool {ShieldedPool::Sapling=>"a Sapling note",_=>"a note of a pool the tool cannot spend"}; }
+        }
+        input+=u64::from(note.value()); spends+=1;
+    }
+    ensure!(stray.is_empty(),"the vault's value cannot be swept in one transaction: the vault holds {stray}");
+    ensure!(spends>0,"the vault's value cannot be swept in one transaction: no spendable note");
+    let fee=u64::from(step.balance().fee_required());
+    let amount=input.checked_sub(fee).context("the vault's value cannot be swept in one transaction: the value does not cover the fee")?;
+    ensure!(amount>0,"the vault's value cannot be swept in one transaction: the value does not cover the fee");
+    if let Some(p)=step.transaction_request().payments().values().next() {
+        if let Some(v)=p.amount() { ensure!(u64::from(v)==amount,"quote-sweep: the proposal's payment disagrees with input minus fee"); }
+    }
+    // The action count the fee pays for under the enforced rule (fee = 5,000 x max(2, actions)); the fee
+    // itself comes from the wallet's own proposal, so this is its shape, not a prediction.
+    let actions=fee/5000;
+    println!("{}",json!({"amount_zats":amount.to_string(),"fee_zats":fee.to_string(),"input_zats":input.to_string(),"spends":spends,"actions":actions}));
+    Ok(())
+}
 // R24 item 3 (i): classify a Zcash address with the pinned audited `zcash_address` (librustzcash) —
 // the single source of address classification, called from `envelope/destination.ts` (which keeps the
 // shielded-only rule). Returns `{kind, network, receivers[]}`: kind is unified|sapling|transparent|
@@ -267,12 +328,22 @@ fn main() -> anyhow::Result<()> {
     let net=|| net.context("missing --network test|main");
     match args.get(0).map(String::as_str) {
         Some("address") if args.len()==2=>address(&args[1],net()?),
+        Some("quote-sweep")=>{
+            // B52: `quote-sweep --wallet W --to UA` — the wallet's own quote of the one-row sweep.
+            let (mut w,mut to)=(None,None);let mut i=1;
+            while i<args.len() {match args[i].as_str() {
+                "--wallet"=>{w=args.get(i+1).cloned();i+=2}
+                "--to"=>{to=args.get(i+1).cloned();i+=2}
+                _=>return Err(anyhow!("quote-sweep usage: quote-sweep --wallet <dir> --to <ua> --network test|main"))
+            }}
+            quote_sweep(&w.context("--wallet missing")?,&to.context("--to missing")?,net()?)
+        }
         Some("create") if args.len()==3||args.len()==4=>create(&args[1],&args[2],if args.len()==4 {args[3].parse()?} else {364},net()?),
         Some("inspect") if args.len()==3=>inspect(&args[1],&args[2],false,net()?),
         Some("inspect") if args.len()==4 && args[3]=="--allow-redacted"=>inspect(&args[1],&args[2],true,net()?),
         Some("classify-address") if args.len()==2=>classify_address(&args[1]),
         Some("ufvk-ak") if args.len()==2=>ufvk_ak(&args[1],net()?),
         Some("owns") if args.len()==3=>owns(&args[1],&args[2],net()?),
-        _=>Err(anyhow!("usage: benzo-pczt address <wallet> --network test|main | create <wallet> <output.pczt> [expiry-blocks] --network test|main | inspect <pczt> <ufvk file> [--allow-redacted] --network test|main | classify-address <address> | classify-address --stdin | ufvk-ak <ufvk file> --network test|main | owns <ufvk file> <address> --network test|main"))
+        _=>Err(anyhow!("usage: benzo-pczt address <wallet> --network test|main | quote-sweep --wallet <dir> --to <ua> --network test|main | create <wallet> <output.pczt> [expiry-blocks] --network test|main | inspect <pczt> <ufvk file> [--allow-redacted] --network test|main | classify-address <address> | classify-address --stdin | ufvk-ak <ufvk file> --network test|main | owns <ufvk file> <address> --network test|main"))
     }
 }
