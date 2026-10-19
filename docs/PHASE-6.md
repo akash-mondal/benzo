@@ -980,3 +980,18 @@ Rulings on B55's questions:
 - **Q9.** drand relay flakiness: retry.
 
 The live settle-crash rerun at this commit is the gate for M1 and for H19 funding.
+
+### R124: the settle-crash canary is green; B56 merged (head, 2026-10-19)
+
+**The settle-crash canary at `62fcd2a` passed live** (`tmp/canary-62fcd2a/`): J1 (narrowed, single endpoint), L1, J2, K1, N1 and M1 all PASS.
+- M1 is B55's cancel-before-R fix, now proven live.
+- J1, L1, J2, K1 and N1 prove the H19 funding.
+- Before it, the canary at `e10749b` failed at the spec's development recovery: `create-max` refused the young change note that the H19 reserve now leaves behind. It was fixed at `62fcd2a` with the ineligible-retry loop that cli-auction and auction-core already use. The 35,000-zat residue was swept with `tools/repro/sweep-vault.ts`.
+- The offline e2e at `62fcd2a` passed.
+
+**B56 merged** as 6 commits with no conflicts. The verify bundle is unchanged (`ec044a12…`). `npm run check` and `tsc -p .` are green.
+- Folds: b56 heal 4, paid 4 and skew 5 (the first run hit a drand relay timeout; it passed per section). b44 29, b46 66, b47 49, h13 38, h14 14, b54 29, b48 23, h10 22, b53 28.
+- Replays r73, r77 ×2, r78, r81 and r82 exit 0. All 5 published dirs give 19 OK. The offline e2e passes on the first try.
+- B56's questions Q1–Q8 are accepted as reported. On Q2: the private summary may drop the unpaid row, because the ledger keeps the row and its state.
+
+Next: re-provision the hosts at this commit, run the dust-note walkthrough, then the final RG.
