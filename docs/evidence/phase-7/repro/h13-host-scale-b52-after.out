@@ -1,0 +1,74 @@
+commit 6e765ac5336d698fe14455768e733be3496199d3 (working tree not clean at run time)
+utc 2026-10-19T10:05:55.605Z
+command node tmp/h13.mjs after (tools/repro/h13-host-scale.ts)
+tree M tools/repro/b48-p3s.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b52-before.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-before.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b52.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b52-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b52-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b52-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b52-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b52.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-b52.out
+tree ?? docs/evidence/phase-7/repro/r78-b52.out
+tree ?? docs/evidence/phase-7/repro/r82-b52.out
+=== after verify: time benzo verify on the 55-leaf fixture
+PASS verify-55-cold-passes exit 0
+OBSERVE verify N=55 cold 2370 ms (after, no cache)
+=== after deriveRows: sign derivable for the first and the second batch (same host state)
+PASS derive-55-run1-passes exit 0, 56 rows
+PASS derive-55-run2-passes exit 0, 56 rows
+OBSERVE derive N=55 first-batch 5878 ms, second-batch 1240 ms (after)
+PASS derive-55-rows-identical the second batch derives the byte-identical rows
+OBSERVE opens N=55 first-batch own=57 verify=55 total=112 (after)
+OBSERVE opens N=55 second-batch own=0 verify=0 total=0 (after)
+OBSERVE pczt N=55 first-batch classify=1 other=3 total=4 (after)
+OBSERVE pczt N=55 second-batch classify=0 other=3 total=3 (after)
+PASS derive-55-second-batch-zero-opens the second batch re-decrypts nothing: own=0, verify=0
+PASS derive-55-first-batch-cached-structure the first batch opens each leaf once per computation (own deriveRows 57 = 55 leaves + 2 stray memos, verify 55 = 55 leaves)
+PASS derive-55-second-batch-zero-classify the second batch spawns classify-address zero times (other benzo-pczt calls: 3)
+PASS derive-55-first-batch-one-classify-call the first batch classifies every derived destination with one classifyAddresses call (spawns 1)
+PASS derive-55-rows-match-base same answers: the derived rows are byte-identical to the base commit's (canonical JSON)
+PASS cache-55-shape openings.json: {frozen_root: 2e287f7c8d9b…, beacon_sha256: 1643578e8ce6…, openings: 55}
+PASS cache-55-memo-shape memo-openings.json: 2 entries keyed by sha256(ciphertext)
+PASS cache-55-mode-0600 openings.json mode 600, memo-openings.json mode 600
+PASS cache-55-state-only the cache lives under this host's own BNZ_STATE_DIR, never in the packet
+PASS classify-cache-55-shape classify-cache.json: {bin_sha256: 0a977cd01b66…, entries: 1 keyed by sha256(address), ua verdict unified}
+PASS classify-cache-55-mode-0600 classify-cache.json mode 600
+PASS classify-cache-55-state-only the classify cache lives under this host's own BNZ_STATE_DIR, never in the packet
+PASS verify-55-warm-passes exit 0
+OBSERVE verify N=55 warm-with-cache 538 ms (after)
+PASS cache-rebuild-on-key-mismatch non-matching keys rebuilt the cache: 112 opens, both files rewritten with matching keys
+PASS classify-cache-discarded-on-binary-change bin_sha256 mismatch discarded the cache: 1 classify spawns re-derived the verdicts, file rewritten with the binary's sha256 and a byte-identical entry
+PASS verify-refuses-foreign-cache a packet-supplied cache path is refused: ERROR verify refused: openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json
+PASS verify-help-says-host-only benzo verify --help documents --openings-cache as host-only
+=== after verify: time benzo verify on the 1000-leaf fixture
+PASS verify-1000-cold-passes exit 0
+OBSERVE verify N=1000 cold 28531 ms (after, no cache)
+=== after deriveRows: sign derivable for the first and the second batch (same host state)
+PASS derive-1000-run1-passes exit 0, 1001 rows
+PASS derive-1000-run2-passes exit 0, 1001 rows
+OBSERVE derive N=1000 first-batch 64998 ms, second-batch 2325 ms (after)
+PASS derive-1000-rows-identical the second batch derives the byte-identical rows
+OBSERVE opens N=1000 first-batch own=1002 verify=1000 total=2002 (after)
+OBSERVE opens N=1000 second-batch own=0 verify=0 total=0 (after)
+OBSERVE pczt N=1000 first-batch classify=1 other=3 total=4 (after)
+OBSERVE pczt N=1000 second-batch classify=0 other=3 total=3 (after)
+PASS derive-1000-second-batch-zero-opens the second batch re-decrypts nothing: own=0, verify=0
+PASS derive-1000-first-batch-cached-structure the first batch opens each leaf once per computation (own deriveRows 1002 = 1000 leaves + 2 stray memos, verify 1000 = 1000 leaves)
+PASS derive-1000-second-batch-zero-classify the second batch spawns classify-address zero times (other benzo-pczt calls: 3)
+PASS derive-1000-first-batch-one-classify-call the first batch classifies every derived destination with one classifyAddresses call (spawns 1)
+PASS derive-1000-rows-match-base same answers: the derived rows are byte-identical to the base commit's (canonical JSON)
+PASS cache-1000-shape openings.json: {frozen_root: d5856f3c1be7…, beacon_sha256: 1643578e8ce6…, openings: 1000}
+PASS cache-1000-memo-shape memo-openings.json: 2 entries keyed by sha256(ciphertext)
+PASS cache-1000-mode-0600 openings.json mode 600, memo-openings.json mode 600
+PASS cache-1000-state-only the cache lives under this host's own BNZ_STATE_DIR, never in the packet
+PASS classify-cache-1000-shape classify-cache.json: {bin_sha256: 0a977cd01b66…, entries: 1 keyed by sha256(address), ua verdict unified}
+PASS classify-cache-1000-mode-0600 classify-cache.json mode 600
+PASS classify-cache-1000-state-only the classify cache lives under this host's own BNZ_STATE_DIR, never in the packet
+PASS verify-1000-warm-passes exit 0
+OBSERVE verify N=1000 warm-with-cache 1210 ms (after)
+RESULT PASS

@@ -1,0 +1,49 @@
+commit 6e765ac5336d698fe14455768e733be3496199d3 (working tree not clean at run time)
+utc 2026-10-19T09:59:48.322Z
+command node tmp/b44.mjs before (tools/repro/b44-opener.ts)
+tree M tools/repro/b48-p3s.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b52-before.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-before.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b52.out
+tree ?? docs/evidence/phase-7/repro/r77-b52.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-b52.out
+tree ?? docs/evidence/phase-7/repro/r78-b52.out
+tree ?? docs/evidence/phase-7/repro/r82-b52.out
+=== fixtures: real tlock to quicknet round 32704232 (2 intact leaves + the two B44 bodies; 2 strays)
+=== the B44 probe on the BASE commit's opener (the head's r100 probe, both P1s)
+OBSERVE probe-intact shape {"ok":true} open plaintext
+PASS red-probe-intact-opens the base opener opens an honest bid
+PASS red-probe-junk-body-shape-passes the base (B43) shape rule accepts the junk body — length-only
+OBSERVE probe-junk-body shape {"ok":true} open THROW invalid G2 point: expected 96/192 bytes
+PASS red-probe-junk-body-throws the base opener THROWS on the junk body and would stop the open for every bidder
+PASS red-probe-junk-vw-shape-passes the base shape rule accepts valid G2 + junk V/W
+OBSERVE probe-junk-vw shape {"ok":true} open THROW invalid proof: rP check failed
+PASS red-probe-junk-vw-throws the base opener THROWS on the junk V/W body
+PASS red-probe-wrong-round-shape-would-refuse the shape rule already calls it the bid's fault: {"ok":false,"reason":"stanza round is 32704233, not 32704232"}
+OBSERVE probe-wrong-round shape {"ok":false,"reason":"stanza round is 32704233, not 32704232"} open THROW refused: ciphertext beacon round
+PASS red-probe-wrong-round-throws the base opener throws OUT of client.get before the shape rule — a stray memo stops everyone
+=== red admission: the base admit command accepts both griefing bodies (the body rule is length-only)
+PASS red-admit-accepts-honest the base admit command admitted the honest bid
+PASS red-admit-accepts-junk-body the base admit command admitted the junk-body bid
+PASS red-admit-accepts-junk-vw the base admit command admitted the junk-vw bid
+=== red open/verify/deriveRows on the frozen fixture: the junk-body leaf stops everything
+PASS red-open-throws the base open died on the junk-body leaf (exit 1): ERROR auction invalid G2 point: expected 96/192 bytes
+PASS red-verify-throws the base benzo verify died re-deriving the junk-body leaf (exit 1)
+PASS red-derive-rows-throws the base sign derivable died (exit 1): ERROR sign derivable refused: public check failed: ERROR verify invalid G2 point: expected 96/192 bytes
+=== red plan/deriveRows/claim on the strays: one stray memo kills settlement and refunds
+PASS red-plan-cleared-wrong-round-dies the base plan died on the wrong-round stray (exit 1): ERROR settle refused: ciphertext beacon round
+PASS red-derive-cleared-wrong-round-dies the base deriveRows died on the wrong-round stray (exit 1): ERROR sign derivable refused: ciphertext beacon round
+PASS red-plan-cleared-junk-body-dies the base plan died on the junk-body stray (exit 1): ERROR settle invalid G2 point: expected 96/192 bytes
+PASS red-derive-cleared-junk-body-dies the base deriveRows died on the junk-body stray (exit 1): ERROR sign derivable invalid G2 point: expected 96/192 bytes
+PASS red-plan-cleared-both-dies the base plan died with both strays present (exit 1)
+PASS red-plan-cancelled-wrong-round-dies the base plan died on the wrong-round stray (exit 1): ERROR settle refused: ciphertext beacon round
+PASS red-derive-cancelled-wrong-round-dies the base deriveRows died on the wrong-round stray (exit 1): ERROR sign derivable refused: ciphertext beacon round
+PASS red-plan-cancelled-junk-body-dies the base plan died on the junk-body stray (exit 1): ERROR settle invalid G2 point: expected 96/192 bytes
+PASS red-derive-cancelled-junk-body-dies the base deriveRows died on the junk-body stray (exit 1): ERROR sign derivable invalid G2 point: expected 96/192 bytes
+PASS red-plan-cancelled-both-dies the base plan died with both strays present (exit 1)
+PASS red-claim-wrong-round-throws the base claim-refund surfaced the raw opener throw (exit 1): ERROR benzo refused: ciphertext beacon round
+PASS red-claim-junk-body-throws the base claim-refund surfaced the raw opener throw (exit 1): ERROR benzo invalid G2 point: expected 96/192 bytes
+=== baseline: the base commit's openings for the honest leaves (case (e) byte-identity reference)
+OBSERVE baseline-honest 128B,128B (saved to tmp/b44/run/opened-honest-baseline.json)
+RESULT PASS

@@ -151,6 +151,154 @@ committed sha; unchanged since item 5).
   binary that only the main checkout's `.benzo/` holds). If the fold gate requires it green, either allow
   provisioning `tle` into this worktree or run the seal-open spec on the head's machine; B53 changes no
   code the spec covers (settle/ledger, sign approve, witness maps and comments).
+## Batch B52 (Builder A, branch `b52-return-fee`, from `59c863c`) — the reserve return uses the tool's own fee, not a prediction
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no
+live Playwright; stubs and own tmp state/builds only). Spec: `docs/design/phase7-b52-return-fee.md`; source
+report `benzo-sol/reports/pr-p7-b49-b51.md` (P2-1, plus H23, P3-4, P3-8c). Worktree `../benzo-b52`, branch
+`b52-return-fee`, base `59c863c`. Commits `--no-verify` (R32): `4e0dc3a` (item 1, quote-sweep), `8c5262d`
+(item 1, the plan), `6ecb91b` (item 2, the hosts), `f67f3cd` (item 4, verify), `ecba003` (items 5+6, H23 +
+P3-4 — `settle/cli.ts` carries both edits), `8828060` (item 7, the stubs), `6e765ac` (the proof), plus the
+evidence/verify-bundle commit below. B53's regions untouched (`settle/cli.ts` confirm/broadcast,
+`paidByOwnLedger`'s call sites, `sign-approve.ts` :160-215, `witness/index.ts`); my `sign-approve.ts` edits
+sit above :160 (the reserve checks only).
+
+### The seven items, each with its proof
+
+1. **`benzo-pczt quote-sweep`** (`settle/src/main.rs:185` `quote_sweep`, `:331` the CLI arm; shared caller
+   `settle/quote.ts`): the wallet's OWN send-max proposal (`propose_send_max_transfer`, the pinned
+   `zcash_client_backend` has it — the design's first choice, so no bounded `propose_transfer` loop is
+   needed; the method is named in the code comment). Same wallet, `StandardFeeRule::Zip317` and
+   `ConfirmationsPolicy::default()` as `create`. `MaxSpendMode::Everything` refuses a partial sweep; a
+   Sapling/transparent/unknown-pool note is refused (`create`/`inspect` cannot build one); the output is
+   `{amount_zats, fee_zats, input_zats, spends, actions}` (the action count is derived from the proposal's
+   own fee under the enforced rule `fee = 5,000 x max(2, actions)`). Real-tool smoke: `b46 k5` (below).
+2. **The plan quotes the row** (`settle/plan.ts:405-427`): the row's amount/fee come from the quote, never
+   `reserveReturnAmount`; no quote (insufficient value, a note the tool cannot spend, no pinned return UA)
+   plans NO row and prints the typed waits line `reserve return waits: the vault's value cannot be swept in
+   one transaction (<tool error>)` — exit 0, nothing broadcast, never a crash. `settle/deposits.ts:139`
+   keeps only the scanned unspent total + note ids (`reserveUnspent`); `reserveReturnAmount` and
+   `reserveReturnFee` are removed from the product.
+3. **Sapling** (`settle/deposits.ts:127-135` comment; `docs/design/phase7-hardening.md` H15 row): NO vault
+   address can receive Sapling — deposit, fee-reserve, balance and change UAs are all `benzo-pczt address`'s
+   `UnifiedAddressRequest::ORCHARD` addresses (`settle/src/main.rs:132`), and zcash_keys' ORCHARD request is
+   `(Require, Omit, Omit)` — an Orchard receiver and NO others, so a sender has no Sapling receiver to pay.
+   A Sapling note is unreachable today; if one ever appeared, `quote-sweep` refuses it and the plan prints
+   the typed waits line (proof `b46 k3`).
+4. **The hosts check the built transaction** (`cli/host-derive.ts:418-427` quote-based row;
+   `:439-470` `reserveCandidateVerdict`, the one shared candidate check called from
+   `cli/commands/sign-build.ts:113` and `cli/commands/sign-approve.ts:107`): `input_zats` = the host's
+   scanned unspent total (kept), exactly one output not change to the committed return UA, that output =
+   `input_zats − fee_zats` (inspect's own figures), and the declared row amount equals it. The
+   `total − reserveReturnFee(k)` equality is gone. Anything else is a typed refusal (exit 3,
+   `["reserve-return"]`); `sign build`'s create/inspect failures on a return packet are typed too
+   (`sign-build.ts:90-108`), never an untyped crash.
+5. **Verify** (`api/public-auction.ts:960-977`): `fee_zats === 5,000 x max(2, paying.inspect.actions)`,
+   `remaining_zats === paying.inspect.input_zats`, receipt amount = `input_zats − fee_zats`, and
+   `inspect.inputs.length ≤ actions`. The `inputs.length` fee equality is removed.
+6. **H23** (`settle/ledger.ts` `allocate`: the return is allocated alone and LAST, before the batch is
+   committed; `settle/cli.ts:405-415`: a pending MIXED batch is set aside as an exception with the reason
+   `reserve-return mixed with rows (H23)` and its rows re-plan — exit 0). H23 row closed in
+   `docs/design/phase7-hardening.md`.
+7. **P3-4** (`settle/cli.ts:156-161,335-339`; `cli/commands/sign-derivable.ts:40-43`): `hostDerivable`
+   consumes `sign derivable`'s top-level `refused_rows` (plus a new `refused_reasons` map carrying the
+   host's true reason) into the same refused map keyed by party alone, so the reserve row parks with the
+   true reason — never "claimable through benzo claim-refund" (it is not claimable; the reserve-specific
+   generic reason now says so).
+8. **P3-8c stubs** (`tools/repro/h-fixtures.ts`, `b47-world.ts`, `b47-settle-e2e.ts`): the stub `inspect`
+   reports ONE INPUT PER SOURCE NOTE (with pools) and `actions` computed the real way — per pool,
+   `max(spends, outputs)`, each bundle padded to at least 2 — and the stub `quote-sweep` follows the same
+   rule; `create` now models the wallet's fee/change/InsufficientFunds exactly. The rule is pinned
+   independently in the repros (`feeRule` in b46/b47) and against reality: the H15 live inspect shows a
+   1-spend 1-output sweep at `actions: 2` (padded), and batch 1 at `actions: 5` for 4 spends + 5 outputs.
+
+### Proof (red on base `59c863c` bundles under `tmp/b52/base-src`, green after)
+
+- **(a) cross-pool vault** (`docs/evidence/phase-7/repro/b47-settle-e2e-b52-{before52,after}.out`, case
+  (a2)): 3 Orchard sources, Ironwood return UA. Red: the base plan predicts 15,000 (pays 80,000 of
+  95,000), every host's build dies UNYPED (`no signer host could build batch 2`), `benzo settle` exits 1
+  on every re-run (2/2), the return never completes. Green: the plan quotes 25,000 (3 + 2 padded actions
+  = 5), the hosts approve, `benzo settle` completes (70,000 returned), and `benzo verify` accepts the
+  published dir (19 OK).
+- **(b) a wallet proposal that would add change** (`b46-reserve-return-b52-{before52,after}.out`, k2):
+  the candidate carrying a change output is APPROVED by the base hosts (the reviewer's "nothing pins
+  fee_zats or no change output" class) and refused typedly (`["reserve-return"]`, "must pay exactly one
+  output, not change") before signing after B52 — via `sign approve` (change candidate) and via
+  `sign build` (a declared amount below the quote makes the wallet add change; refused before signing,
+  no `build.json`).
+- **(c) a vault the tool cannot sweep** (b46 k3): a Sapling note in the vault — the base plan PLANS the
+  return over it (its prediction counts the note; every build then dies), after B52 the plan prints the
+  typed waits line with the tool's own reason, plans no row, exit 0. A vault below the fee gets the same
+  line (`InsufficientFunds`).
+- **(d) doctored published accounting** (b46 k4): `((remaining, fee) +5,000` with a fifth "source")
+  VERIFIES on the base (B51's `inputs.length` tie locks in the wrong basis) and is refused after B52
+  (fee must be the ZIP-317 fee of the paying inspect's `actions`); fee-only and remaining-only doctorings
+  are each refused, and the honest published result still verifies.
+- **(e) a pending mixed return batch** (`b47-settle-e2e-b52-{before52,after}.out`, case (e)): the base
+  throws after `allocate` committed it (`the reserve-return row must be its own batch, alone`) and
+  crash-loops (2/2 runs, nothing paid); after B52 the batch is set aside as an exception with
+  `reserve-return mixed with rows (H23)`, its five rows re-plan and settle in the same run (exit 0), and
+  the next settle completes the return.
+- **Real-tool case** (b46 k5): the real `benzo-pczt quote-sweep` cannot run against a fixture wallet
+  offline (a `zcash_client_sqlite` wallet only holds notes after a lightwalletd sync — forbidden offline),
+  so the case pins what can be pinned: the shipped binary takes the design's flags and surfaces the tool's
+  own error (the waits line's reason source). See Questions.
+
+### Commands run (worktree `/Users/akshmnd/Dev Projects/benzo-b52`), each with result
+
+- Setup: `git worktree add ../benzo-b52 -b b52-return-fee 59c863c`; `node_modules` symlinked (identical
+  lockfile), `vendor/` COPIED (`cp -R ../benzo/vendor .`, never symlinked), own `.env` from
+  `.env.example`, own `.benzo/bin` (tle v1.2.0 + grpcurl v1.9.3 via `go install` at `tools/pins.env` tags)
+  and own `.benzo/proto` (both shas match `tools/pins.env`). No main-checkout `.benzo/` or `.env` used.
+  Before every commit: `git diff --cached --summary | grep 120000` printed nothing (no symlinks staged).
+- Bundles: `npm run build:core && build:settle && build:cli` OK (incl. `cargo build --release --locked` in
+  `settle/`); `npm run build:verify` → `dist/benzo-verify.mjs` sha256 `76a9f84c12b3…`, committed with
+  `docs/verify-bundle.sha256` (item 4 changed the verify code).
+- Gates: `npm run typecheck` 0 errors; `npm run check:structure` `OK check:structure (218 files)`;
+  `npm run check:invariants` `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2; `npm run check:dist-require`
+  OK; `npm run check:bundle` `OK check:bundle 76a9f84c…` (it PASSES in this worktree despite R32's note);
+  `npm run e2e` `PASSED default seal in the browser, open with tle after R (36 s)`; `cargo build --release
+  --locked` Finished.
+- Folds (all RESULT PASS): b44 before 25/after 29; b46 before 8 / before52 4 / after 66; b47 before 7 /
+  before51 7 / before52 5 / after 49; b48 before 23 / after 23; h10 22; h13 before 8 / after 38; h14
+  before 12 / after 14. Replays: r77, r77-serial, r78, r82 — all exit 0, every tamper refused. Raw output:
+  `docs/evidence/phase-7/repro/*b52*`. (Bonus regression: `b50-p2-sweep after` — 63 PASS with only the
+  same 12 `dir` FAILs the B50 baseline recorded (`b50-dirs-after.out`), byte-identical.)
+- Published dirs: every committed `auction.json` dir verified with BOTH the base verifier and this tree's
+  — verdicts IDENTICAL. Nine verify 19 OK each, including the H15 live dir (its `reserve_return` passes
+  the new ties: fee 10,000 = 5,000 x max(2, 2 actions), remaining 35,000 = `input_zats`, 1 source ≤ 2
+  actions): `phase-5/markets/drop-a19|a20|a22|a23|a24/drop-cold`, `phase-5/markets/launch-a18/launch-cold`,
+  `phase-6/markets/launch-r34/launch-cold`, `phase-6/doc/walk/public`, `phase-7/h15-live/public`. The
+  remaining 21 are the known historical snapshots (B50-Q1's ruling: pre-R41 drops, phase-3 layouts —
+  12 of them show the same `dirs` FAILs in `b50-dirs-after.out`).
+
+### Questions
+
+- **Q1 (numbers in the design's proof (a)):** the design says the cross-pool quote is **20,000** (3 + 1
+  actions). With P3-8c's own rule — "each bundle padded to at least 2" — it is **25,000** (3 + 2 = 5
+  actions). The padding is real: the pinned orchard builder pads every non-empty bundle to its 2-action
+  floor (`orchard-0.15.3` `DEFAULT_MIN_ACTIONS`), and the H15 live inspect proves it (`actions: 2` for a
+  1-spend 1-output sweep). The 20,000 comes from the reviewer's unpadded probe arithmetic (probe2 (c)).
+  The proof cases implement P3-8c's rule and say 25,000 (`b46 k1`, `b47 a2`); the P2-1 mismatch (prediction
+  15,000 vs the tool's fee) is unchanged. If the head wants 20,000, the stubs' per-bundle floor drops and
+  both cases flip — one line in each stub.
+- **Q2 (real-tool case):** `quote-sweep` cannot run against a fixture wallet offline (a
+  `zcash_client_sqlite` wallet holds notes only after a lightwalletd sync), so the proof pins the binary's
+  surface (b46 k5) and the quote logic is proven through the stubs, which follow the same fee rule the
+  real inspect enforces (P3-8c). A live quote-sweep against a testnet vault is the honest end-to-end.
+- **Q3 (test data):** the fee-aware stub `create` charges the real ZIP-317 fee, so the b48 and b50-h3
+  fixture worlds (which predate fees) each gained one fee-slack note at a NON-deposit address — never a
+  stray or an obligation, it only funds wallet fees, like the live fee reserve. Their checks are
+  unchanged and pass.
+- **Q4 (B53 overlap):** none found. My `sign-approve.ts` edits are the reserve checks above :160; the
+  `settle/cli.ts` confirm/broadcast region and `paidByOwnLedger`'s call sites are untouched (the plan's
+  `paid=` line and `host-derive.ts`'s `counted=` line are exactly where B53's P3-1 will land — my edits
+  sit in different blocks of those files).
+- **Q5 (h-fixtures `inspect` fee):** the stub reports `fee_zats = input − output` (as the real inspect
+  computes) and does not enforce the standard-fee refusal the real `inspect` adds (`fee {fee} differs from
+  ZIP-317 fee {standard_fee}`); the candidate checks (reserveCandidateVerdict rules 2-4) are what refuse
+  the divergent shapes, which is what the design asks the hosts to do. A stub that also refused unbalanced
+  fees would reroute those refusals through the typed create/inspect wrapper instead.
 
 ## Batch B51 (Builder B, branch `b51-review-fixes`, from `a107447`) — Reviewer R on B47/B48: the preflight re-run double-count, the reserve-address listing wall, four P3s
 

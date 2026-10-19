@@ -1,0 +1,39 @@
+commit 6e765ac5336d698fe14455768e733be3496199d3 (working tree not clean at run time)
+utc 2026-10-19T10:35:32.389Z
+command node tmp/b46.mjs before (tools/repro/b46-reserve-return.ts)
+tree M dist/benzo-verify.mjs
+tree  M docs/verify-bundle.sha256
+tree  M tools/repro/b46-reserve-return.ts
+tree  M tools/repro/b47-settle-e2e.ts
+tree  M tools/repro/b48-p3s.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b52-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b52-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b52-before52.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b52-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b52-before51.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b52-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-before.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b52.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b52-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b52-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b52-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b52-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b52.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-b52.out
+tree ?? docs/evidence/phase-7/repro/r78-b52.out
+tree ?? docs/evidence/phase-7/repro/r82-b52.out
+=== red on the BASE commit: the unused fee reserve is stranded (no command returns it)
+PASS red-plan-no-row-change-stranded the base plan settles everything and plans NO reserve-return row: 57000 zats of unspent vault value stay in the vault (45ca67002e666a794bd8be7c0cfd3797252176893aeb4641e71544984fe8619d:ironwood:0,4a6d27897a8f6cb38654b2cd44b6d115327298345b93696cee467291e20ea6ec:ironwood:0,7311b986ae997ccba503a2aec3935822782b19028610fff6df10313be2444846:ironwood:0,cd6e3da6237c9613c4174f3d130ee383383950904d6b30cb489eda60e6b30ae6:ironwood:0)
+PASS red-plan-bound-manifest-unreadable the base manifest schema cannot even represent reserve_return_ua_commitment: ERROR settle refused: unknown or missing manifest field
+=== B49 red on the base commit 7c4e661: a published receipt is trusted as paid (P0-1/P2-2), and the prefetch throws (P1-1)
+PASS a-red-fabricated-receipts-build-the-sweep the base hosts BUILD the return that sweeps the unclaimed strays (1009999 zats) on coordinator-fabricated receipts: exit 0, 
+PASS b-red-dead-batch-receipt-builds-the-sweep the base hosts BUILD the return on the never-broadcast batch's receipt (exit 0, 536000 zats)
+PASS b-red-dead-batch-receipt-plans-the-return the base plan PLANS the return on the dead batch's receipt ({"amount_zats":"536000","fee_zats":"20000","kind":"payout","party":"reserve-return","remaining_zats":"556000"})
+PASS c-red-reorged-receipt-builds-the-sweep the base hosts BUILD the return although the refund's transaction was reorged out (exit 0)
+PASS e-red-crafted-envelopes-freeze-derivable one crafted record freezes sign derivable for every host: exit 1, ERROR sign derivable refused: destination
+PASS f-red-cross-kind-respend-approved the base hosts approve the sweep that re-spends a note a live ordinary batch already sources (the two namespaces never collide): exit 0, approval recorded
+RESULT PASS

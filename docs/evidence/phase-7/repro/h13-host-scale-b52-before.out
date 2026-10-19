@@ -1,0 +1,43 @@
+commit 6e765ac5336d698fe14455768e733be3496199d3 (working tree not clean at run time)
+utc 2026-10-19T10:01:39.894Z
+command node tmp/h13.mjs before (tools/repro/h13-host-scale.ts)
+tree M tools/repro/b48-p3s.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b52-before.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b52-before.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b52.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b52-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b52-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b52-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b52.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-b52.out
+tree ?? docs/evidence/phase-7/repro/r78-b52.out
+tree ?? docs/evidence/phase-7/repro/r82-b52.out
+=== fixture: N=55 real tlock ciphertexts to quicknet round 32704232 + 2 stray notes
+=== before verify: time benzo verify on the 55-leaf fixture
+PASS verify-55-cold-passes exit 0
+OBSERVE verify N=55 cold 2466 ms (before)
+=== before deriveRows: sign derivable for the first and the second batch (same host state)
+PASS derive-55-run1-passes exit 0, 56 rows
+PASS derive-55-run2-passes exit 0, 56 rows
+OBSERVE derive N=55 first-batch 8430 ms, second-batch 4365 ms (before)
+PASS derive-55-rows-identical the second batch derives the byte-identical rows
+OBSERVE opens N=55 first-batch own=57 verify=55 total=112 (before)
+OBSERVE opens N=55 second-batch own=0 verify=0 total=0 (before)
+OBSERVE pczt N=55 first-batch classify=110 other=3 total=113 (before)
+OBSERVE pczt N=55 second-batch classify=110 other=3 total=113 (before)
+=== fixture: N=1000 real tlock ciphertexts to quicknet round 32704232 + 2 stray notes
+=== before verify: time benzo verify on the 1000-leaf fixture
+PASS verify-1000-cold-passes exit 0
+OBSERVE verify N=1000 cold 30054 ms (before)
+=== before deriveRows: sign derivable for the first and the second batch (same host state)
+PASS derive-1000-run1-passes exit 0, 1001 rows
+PASS derive-1000-run2-passes exit 0, 1001 rows
+OBSERVE derive N=1000 first-batch 116532 ms, second-batch 59945 ms (before)
+PASS derive-1000-rows-identical the second batch derives the byte-identical rows
+OBSERVE opens N=1000 first-batch own=1002 verify=1000 total=2002 (before)
+OBSERVE opens N=1000 second-batch own=0 verify=0 total=0 (before)
+OBSERVE pczt N=1000 first-batch classify=2000 other=3 total=2003 (before)
+OBSERVE pczt N=1000 second-batch classify=2000 other=3 total=2003 (before)
+RESULT PASS
