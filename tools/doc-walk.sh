@@ -81,6 +81,14 @@ for i in 0 1 2; do
     sleep 30
   done
 done
+if [ "${BNZ_WALK_DUST:-0}" = "1" ]; then
+  # B54 live leg (R120): a 4,000-zat dust note at the fee-reserve address. The wallet never spends notes of 5,000 zats
+  # or less, so the reserve return must still complete, and its published accounting reports the residue (1 note, 4,000).
+  say "## B54 — a stray 4,000-zat dust note to the fee-reserve address (not a guide step)"
+  DEV="$STATE/bin/zcash-devtool"; "$DEV" wallet -w "$STATE/bidder" sync -s "$BNZ_LWD_URL" >/dev/null 2>&1 || true
+  DUSTTX="$("$DEV" wallet -w "$STATE/bidder" pay -i "$STATE/bidder.age" --disable-confirmation -s "$BNZ_LWD_URL" --payment-uri "zcash:$FEE?amount=0.00004" 2>&1 | grep -oE '[0-9a-f]{64}' | tail -1)"
+  say "dust txid $DUSTTX"
+fi
 say "## operator 4 (watch) — status"
 b auction status --id "$ID"
 echo "$ID" > "$OUT/auction-id"; echo "$SIGNER" > "$OUT/signer"
