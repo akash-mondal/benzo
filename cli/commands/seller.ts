@@ -26,6 +26,11 @@ export async function run(argv: string[]): Promise<number | object> {
       process.stderr.write("ERROR seller check: pass the published manifest.json (the signed packet), not a raw manifest object\n");
       return 1;
     }
+    // B51 (P3-5): without --signer there is no trust anchor — the packet's own signer is accepted, so a
+    // doctored manifest signed by an attacker's key would self-consistently match its own committed UA.
+    // One WARN says exactly that (the output's printed `signer` is the key to compare out of band), and the
+    // commitment check below still runs and still answers.
+    if (o.signer === undefined) process.stderr.write("WARN no trust anchor: pass --signer HEX (the auction's published receipt key) to check who signed this manifest\n");
     const manifest = verifyRecord<Manifest>(packet, o.signer ?? packet.signer) as Manifest;
     requireThat(manifest && typeof manifest === "object" && typeof manifest.network === "string", "manifest");
     const committed = manifest.seller_ua_commitment;

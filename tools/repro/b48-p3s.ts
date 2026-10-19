@@ -15,6 +15,7 @@
 //   P2-1b a mismatched reserve_return_ua never walls the row listing: a packet that declares NO return row
 //        lists every other row and tags the reserve-return row refused (exit 0); a packet that DECLARES the
 //        return row with the mismatched address stays refused (typed, exit 3).
+//   P3-5  `seller check` without --signer prints one no-trust-anchor WARN and still checks the commitment.
 // Build+run: npx esbuild tools/repro/b48-p3s.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/b48.mjs && node tmp/b48.mjs
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -225,6 +226,20 @@ const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringi
   const wrong = sh(["seller", "check", "--manifest", path.join(dir, "manifest.json"), "--ua", UA_ORCHARD, "--signer", "ab".repeat(44)], env);
   check("p32-wrong-signer-refused", wrong.code !== 0 && /untrusted manifest\/receipt signer/.test(wrong.err),
     `signed packet, --signer a different key: exit ${wrong.code} (${lastLine(wrong)})`);
+}
+
+// ---- B51 P3-5: `seller check` without --signer names the missing trust anchor and still checks -----------
+{
+  const dir = path.join(WORK, "seller-signed-b51"); writePublicDir(dir, fixture);
+  const env = { BNZ_STATE_DIR: path.join(WORK, "seller-check-state") };
+  const r = sh(["seller", "check", "--manifest", path.join(dir, "manifest.json"), "--ua", UA_ORCHARD], env);
+  const anchor = "WARN no trust anchor: pass --signer HEX (the auction's published receipt key) to check who signed this manifest";
+  const warns = (r.err.match(/^WARN/gm) ?? []).length;
+  check("b51-seller-check-no-signer-warns", r.code === 0 && warns === 1 && r.err.includes(anchor) && /"matches":true/.test(r.out + r.err),
+    `without --signer: exit ${r.code}, exactly ${warns} WARN line naming the trust anchor, and the commitment is still checked ("matches":true printed) (${lastLine(r)})`);
+  const bad = sh(["seller", "check", "--manifest", path.join(dir, "manifest.json"), "--ua", UA_SAPLING_ONLY], env);
+  check("b51-seller-check-no-signer-still-checks", bad.code === 1 && /this address is not the manifest's committed seller payout address/.test(bad.err),
+    `without --signer a mismatched UA is still refused (exit ${bad.code}) — the commitment check runs regardless (${lastLine(bad)})`);
 }
 
 // ---- P3-3: `verify --openings-cache` reads only the host's own cache file ------------------------------------
