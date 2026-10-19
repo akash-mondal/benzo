@@ -393,8 +393,12 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
   // paidByOwnLedger — the one shared rule the plan runs too). Packet receipts are only an index; a row
   // without such a receipt is outstanding, including a row whose receipt's transaction a reorg un-mined.
   const ledgerFile = path.join(st, "approvals", o.id, "ledger.json");
-  const ownLedger = existsSync(ledgerFile) ? (JSON.parse(readFileSync(ledgerFile, "utf8")) as any[]).flatMap(e =>
-    Array.isArray(e.mapped) ? e.mapped.map((mm: any) => ({ txid: String(e.txid), party: String(mm.party), output_index: Number(mm.output_index), amount_zats: String(mm.amount_zats) })) : []) : [];
+  // B53 (P3-2): a pre-B49 entry carries no `mapped` — heal it on read (backfillMapped, from this host's own
+  // stored map of that batch plus the row amounts it just derived) so its receipts can count as paid.
+  const ledgerEntries: any[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
+  backfillMapped(ledgerEntries, path.join(st, "approvals", o.id), new Map(owed.map(x => [x.party, x.amount_zats])));
+  const ownLedger = ledgerEntries.flatMap(e =>
+    Array.isArray(e.mapped) ? e.mapped.map((mm: any) => ({ txid: String(e.txid), party: String(mm.party), output_index: Number(mm.output_index), amount_zats: String(mm.amount_zats) })) : []);
   // B53 (P3-1): the scan's own note is the mined-height evidence when it has one; a zero-change paying
   // batch leaves none, so this host's own chain lookup stands in at the same 10-deep rule (the predicate
   // stays pure — the lookup is injected, and an unreachable endpoint reads as not-yet-counted).
@@ -414,4 +418,27 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
     if (String(declared.amount_zats) !== row.amount_zats) return refuse(`the reserve-return amount differs from this signer's unspent value minus the fee (${row.amount_zats})`);
   }
   return { row, binding, refusal: null };
+}
+
+// B53 (P3-2, Reviewer R round 4): the one heal for pre-B49 approval entries. Entries written before B49
+// carry no `mapped`, so their receipts could never count as paid at the shared rule (paidByOwnLedger's
+// ledger half) and the reserve return waited forever — a re-approve did not heal them either. An entry's
+// missing `mapped` is filled from the HOST'S OWN stored approvals/<id>/batch-<n>.json map (the signed
+// {party, output_index} map of exactly that batch) plus this host's own derived row amounts — and only
+// when that map's txid matches the entry's, so a map of a different candidate can never attest this one.
+// Returns how many entries were healed (the sign-approve migration persists the fill).
+export function backfillMapped<T extends { batch: number; txid: string; mapped?: { party: string; output_index: number; amount_zats: string }[] }>(
+  entries: T[], dir: string, derivedAmounts: Map<string, string>): number {
+  let healed = 0;
+  for (const e of entries) {
+    if (Array.isArray(e.mapped)) continue;
+    let map: any = null;
+    try { map = JSON.parse(readFileSync(path.join(dir, `batch-${e.batch}.json`), "utf8")).map ?? null } catch { map = null }
+    if (!map || map.txid !== e.txid || !Array.isArray(map.outputs)) continue;
+    const mapped = map.outputs
+      .map((mm: any) => ({ party: String(mm.party), output_index: Number(mm.output_index), amount_zats: derivedAmounts.get(String(mm.party)) ?? "" }))
+      .filter((mm: any) => /^[1-9][0-9]*$/.test(mm.amount_zats) && Number.isInteger(mm.output_index) && mm.output_index >= 0);
+    if (mapped.length) { e.mapped = mapped; healed++ }
+  }
+  return healed;
 }

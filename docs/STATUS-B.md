@@ -45,6 +45,13 @@ Status block (every command and its result; updated per item):
   (green: 11 deep counts through the injected `minedHeightOf` lookup, 9 deep does not, reorged out does
   not, a scan note of the txid stays authoritative, the ordinary world is unchanged). Evidence:
   `docs/evidence/phase-7/repro/b53-p31-red.out`, `docs/evidence/phase-7/repro/b53-p31-green.out`.
+- Item 4 (P3-2, `cli/commands/sign-approve.ts` the migration + re-approve merge, `cli/host-derive.ts`
+  `backfillMapped` + the `deriveReserveReturn` read): `node tmp/b53.mjs before p32` — PASS (red: the base
+  keeps `mapped=undefined` both on read and on a re-approve — the reviewer's probe — and the entry's
+  receipts never count); `node tmp/b53.mjs after p32` — PASS (green: migration on read heals the pre-B49
+  entry from its own stored map plus the host's derived amounts `[leaf:0:1000100]` and the re-approve
+  merges 4 attested rows into the same-txid entry; both count as paid at the shared rule). Evidence:
+  `docs/evidence/phase-7/repro/b53-p32-red.out`, `docs/evidence/phase-7/repro/b53-p32-green.out`.
 
 ### Questions
 

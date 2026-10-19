@@ -46,9 +46,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { hash, jsonBytes, reserveReturnUaCommitment, sellerUaCommitment } from "../../manifest/schema";
 import { signApprovalMap, signOpensReport } from "../../witness";
+import { sealBlob } from "../../envelope";
 import { modeEntry } from "../../clear/registry";
 import { Ledger } from "../../settle/ledger";
-import { buildAuction, fetchBeacon, needRealPczt, writePublicDir, witnessPrivate, UA_ORCHARD, type Fixture } from "./h-fixtures";
+import { paidByOwnLedger } from "../../settle/deposits";
+import { buildAuction, fetchBeacon, needRealPczt, writeHostState, writePublicDir, witnessPrivate, UA_ORCHARD, type Fixture } from "./h-fixtures";
 import { makeStubs } from "./b47-world";
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
@@ -514,8 +516,92 @@ async function p31() {
   }
 }
 
+// ---- p32 (P3-2): the REAL `benzo sign approve` on a signer-host state dir (the b48/b50 harness shape:
+// every product decision runs the real shipped code, only the offline-impossible externals are stubbed
+// through h-fixtures.ts writeHostState). A pre-B49 approval entry with no `mapped` must heal after a
+// re-approve and after migration on read — and then count as paid at the shared rule.
+const hostEnv = (st: string) => ({ BNZ_STATE_DIR: st, BNZ_PCZT_BIN: path.join(st, "bin", "benzo-pczt"),
+  BNZ_SCAN_BIN: path.join(st, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
+function approveWorld(label: string, fx: Fixture, batch: number, candidateRows: { recipient: string; amount_zats: string }[]): { st: string; dir: string } {
+  const st = path.join(ROOT, "tmp", "b53", `${label}-state`);
+  rmSync(st, { recursive: true, force: true });
+  writeHostState(st, fx, REAL_PCZT);
+  const dir = path.join(ROOT, "tmp", "b53", `${label}-packet`);
+  rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writePublicDir(path.join(dir, "public"), fx);
+  const content = JSON.stringify({ rows: candidateRows });
+  writeFileSync(path.join(dir, "candidate.pczt"), content);
+  writeFileSync(path.join(dir, "sealed-alice.bin"), sealBlob(Buffer.from(content), fx.envelopeKeys[0].public_hex), { mode: 0o600 });
+  writeFileSync(path.join(dir, "packet.json"), jsonBytes({ auction_id: fx.id, signer: fx.signer, seller_ua: UA_ORCHARD, batch,
+    expiry_blocks: 100, plan_version: sha256(readFileSync(path.join(dir, "candidate.pczt"))) }));
+  return { st, dir };
+}
+const runApprove = (benzo: string, st: string, dir: string, fx: Fixture, batch: number) =>
+  sh(process.execPath, [benzo, "sign", "approve", "--id", fx.id, "--batch", String(batch), "--packet", dir, "--name", "alice"], hostEnv(st));
+const approvalLedger = (st: string, id: string) => JSON.parse(readFileSync(path.join(st, "approvals", id, "ledger.json"), "utf8")) as any[];
+// The shared rule's ledger half, read exactly as deriveReserveReturn reads it after the heal.
+const countsAsPaid = (entry: any, amount: string) => {
+  const ownLedger = (Array.isArray(entry?.mapped) ? entry.mapped : []).map((mm: any) => ({ txid: String(entry.txid), party: String(mm.party), output_index: Number(mm.output_index), amount_zats: String(mm.amount_zats) }));
+  const scan = [{ txid: "bb".repeat(32), height: 100, spent_in_txid: String(entry.txid) }, { txid: String(entry.txid), height: 100, spent_in_txid: null }];
+  return paidByOwnLedger([{ party: "leaf:0", amount_zats: amount, txid: String(entry.txid), output_index: 0 }], ownLedger, scan, 110).length;
+};
+
+async function p32() {
+  const beacon = await fetchBeacon(R);
+  const fx = await buildAuction({ beacon, count: 3, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+  const benzo = part === "before" ? BASE_BENZO : GREEN_BENZO;
+  const obs = obligationsOf(fx), leaf0 = obs.find(o => o.party === "leaf:0")!.amount_zats;
+  const candidateRows = obs.map(o => ({ recipient: UA_ORCHARD, amount_zats: o.amount_zats }));
+
+  // ---- (a) migration on read: a pre-B49 entry (no `mapped`) with its own stored batch map -----------
+  {
+    const { st, dir } = approveWorld(`p32-a-${part}`, fx, 1, candidateRows);
+    const adir = path.join(st, "approvals", fx.id); mkdirSync(adir, { recursive: true, mode: 0o700 });
+    const T_OLD = hash("b53-p32-pre-b49");
+    writeFileSync(path.join(adir, "batch-2.json"), JSON.stringify({ map: signApprovalMap({ auction_id: fx.id, batch: 2, txid: T_OLD,
+      outputs: [{ party: "leaf:0", output_index: 0 }], defaults: [], balance_refunds: [] }, witnessPrivate("0")) }));
+    writeFileSync(path.join(adir, "ledger.json"), JSON.stringify([{ batch: 2, txid: T_OLD, expiry_height: 100500, approved_tip: 100000, sources: [] }]) + "\n");
+    const r = runApprove(benzo, st, dir, fx, 1);
+    const entry = approvalLedger(st, fx.id).find(e => e.txid === T_OLD);
+    const mapped = Array.isArray(entry?.mapped) ? entry.mapped : [];
+    const got = mapped.map((m: any) => `${m.party}:${m.amount_zats}`).join(", ");
+    console.log(`OBSERVE p32-a-${part} approve exit=${r.code} mapped=[${got}] counts=${countsAsPaid(entry, leaf0)}`);
+    if (part === "after") {
+      check("p32-a-healed-on-read", r.code === 0 && mapped.length === 1 && mapped[0].party === "leaf:0" && mapped[0].amount_zats === leaf0 && mapped[0].output_index === 0,
+        `the pre-B49 entry's mapped is healed from its own stored map plus this host's derived amounts ([${got}])`);
+      check("p32-a-counts-as-paid", countsAsPaid(entry, leaf0) === 1,
+        "and its receipts count as paid at the shared rule after migration on read");
+    } else {
+      check("p32-a-red-never-heals", r.code === 0 && !Array.isArray(entry?.mapped) && countsAsPaid(entry, leaf0) === 0,
+        `the base keeps mapped=undefined on read — the entry's receipts can never count as paid (counts=${countsAsPaid(entry, leaf0)})`);
+    }
+  }
+
+  // ---- (b) re-approve: the same txid's entry gains the new `mapped` --------------------------------
+  {
+    const { st, dir } = approveWorld(`p32-b-${part}`, fx, 1, candidateRows);
+    const T_NEW = sha256(readFileSync(path.join(dir, "candidate.pczt")));
+    const adir = path.join(st, "approvals", fx.id); mkdirSync(adir, { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(adir, "ledger.json"), JSON.stringify([{ batch: 1, txid: T_NEW, expiry_height: 100500, approved_tip: 100000, sources: [] }]) + "\n");
+    const r = runApprove(benzo, st, dir, fx, 1);
+    const entry = approvalLedger(st, fx.id).find(e => e.txid === T_NEW);
+    const mapped = Array.isArray(entry?.mapped) ? entry.mapped : [];
+    console.log(`OBSERVE p32-b-${part} re-approve exit=${r.code} rows=${mapped.length} counts=${countsAsPaid(entry, leaf0)}`);
+    if (part === "after") {
+      check("p32-b-healed-on-reapprove", r.code === 0 && mapped.length === obs.length && mapped.some((m: any) => m.party === "leaf:0" && m.amount_zats === leaf0),
+        `the re-approve merges the new mapped into the existing same-txid entry (${mapped.length} attested rows)`);
+      check("p32-b-counts-as-paid", countsAsPaid(entry, leaf0) === 1,
+        "and its receipts count as paid at the shared rule after the re-approve");
+    } else {
+      check("p32-b-red-never-heals", r.code === 0 && !Array.isArray(entry?.mapped) && countsAsPaid(entry, leaf0) === 0,
+        `the base re-approve leaves the same-txid entry without mapped (the reviewer's probe: entry.mapped=undefined) — counts=${countsAsPaid(entry, leaf0)}`);
+    }
+  }
+}
+
 if (wants("p22")) await p22();
 if (wants("p33")) await p33();
 if (wants("p31")) await p31();
+if (wants("p32")) await p32();
 console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
 process.exitCode = failed ? 1 : 0;

@@ -19,7 +19,7 @@ import { pcztBin, scanBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
-import { deriveRows, deriveReserveReturn, redactCandidate } from "../host-derive";
+import { deriveRows, deriveReserveReturn, redactCandidate, backfillMapped } from "../host-derive";
 import { onePoolRefusal } from "../../settle/build-outcome";
 import { canonicalSourceId } from "../../settle/deposits";
 import { chainTip, minedHeight, provenAbsent } from "../host-chain";
@@ -171,6 +171,17 @@ export async function run(argv: string[]): Promise<number | object> {
       const normalized = e.sources.map(canonicalSourceId);
       if (normalized.some((x, i) => x !== e.sources[i])) { e.sources = normalized; migrated = true; }
     }
+    // B53 (P3-2, Reviewer R round 4): and heal a pre-B49 entry's missing `mapped` (persisted here) — the
+    // same fill the paid rule's readers run (cli/host-derive.ts backfillMapped): this host's own stored
+    // map of that batch plus this host's OWN derived row amounts, only when that map's txid matches the
+    // entry's. Before this, an entry written before B49 kept `mapped: undefined` forever: its receipts
+    // could never count as paid and the reserve return waited permanently, not even a re-approve healed it.
+    const derivedAmounts = new Map<string, string>([
+      ...expected.map(e => [e.party, e.amount_zats] as [string, string]),
+      ...(payout !== "0" ? [["seller", payout] as [string, string]] : []),
+      ...(reserve?.row ? [["reserve-return", reserve.row.amount_zats] as [string, string]] : []),
+    ]);
+    if (backfillMapped(ledger, dir, derivedAmounts) > 0) migrated = true;
     if (migrated) writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });
     // R60 (Reviewer R P2 on R58): never approve a candidate that has already mined (a late approver would otherwise
     // record an approval tip above its mining height).
@@ -210,6 +221,13 @@ export async function run(argv: string[]): Promise<number | object> {
     const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources, approved_tip: tip, mapped: attested });
+    else {
+      // B53 (P3-2): a re-approval of a txid that already has a ledger entry merges the new `mapped` into
+      // that entry when it has none (a pre-B49 entry) — the missing attestation half is exactly what kept
+      // its receipts from ever counting as paid.
+      const prior = ledger.find(e => e.txid === info.txid)!;
+      if (!Array.isArray(prior.mapped)) prior.mapped = attested;
+    }
     writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });
     return approval;
   } catch (e) {

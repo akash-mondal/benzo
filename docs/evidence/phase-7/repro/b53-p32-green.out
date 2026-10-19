@@ -1,0 +1,15 @@
+commit dea483e9bac7b882de8d5859614a98dcbdd20641 (working tree not clean at run time)
+utc 2026-10-19T09:02:45.387Z
+command node tmp/b53.mjs after p32 (tools/repro/b53-resume-ledger.ts)
+tree M cli/commands/sign-approve.ts
+tree  M cli/host-derive.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree ?? docs/evidence/phase-7/repro/b53-p32-green.out
+tree ?? docs/evidence/phase-7/repro/b53-p32-red.out
+OBSERVE p32-a-after approve exit=0 mapped=[leaf:0:1000100] counts=1
+PASS p32-a-healed-on-read the pre-B49 entry's mapped is healed from its own stored map plus this host's derived amounts ([leaf:0:1000100])
+PASS p32-a-counts-as-paid and its receipts count as paid at the shared rule after migration on read
+OBSERVE p32-b-after re-approve exit=0 rows=4 counts=1
+PASS p32-b-healed-on-reapprove the re-approve merges the new mapped into the existing same-txid entry (4 attested rows)
+PASS p32-b-counts-as-paid and its receipts count as paid at the shared rule after the re-approve
+RESULT PASS
