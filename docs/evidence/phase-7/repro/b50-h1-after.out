@@ -1,0 +1,19 @@
+commit 503826b498db808eb2e6b766abe148eb6cf0b2cb (working tree not clean at run time)
+utc 2026-10-19T04:55:02.441Z
+command node tmp/b50.mjs after h1 (tools/repro/b50-p2-sweep.ts)
+tree M api/public-auction.ts
+tree  M dist/benzo-verify.mjs
+tree  M docs/verify-bundle.sha256
+tree  M witness/index.ts
+tree ?? docs/evidence/phase-7/repro/b50-h1-after.out
+tree ?? node_modules
+tree ?? tools/repro/b50-p2-sweep.ts
+tree ?? vendor
+PASS fixture-seller-payout the fixture result owes the seller 15000 zats
+PASS fixture-obligations the fixture owes leaf:0:1000000, leaf:1:1000000, leaf:2:985000, seller:15000
+=== h1: the two attesting maps must agree on every signed field (mapPairAgrees)
+PASS h1-honest-pair-accepted two fully agreeing maps: ACCEPTED
+PASS h1-strays-differ-refused maps agreeing on txid+outputs but differing in strays: REFUSED receipt-attestation: refused: receipt leaf:0 (5a052a5c80b0…:0) is not attested by two agreeing host-signed appr
+PASS h1-defaults-differ-refused maps agreeing on txid+outputs but differing in defaults: REFUSED receipt-attestation: refused: receipt leaf:0 (5a052a5c80b0…:0) is not attested by two agreeing host-signed appr
+PASS h1-batch-differ-refused maps agreeing on txid+outputs but differing in batch: REFUSED receipt-attestation: refused: receipt leaf:0 (5a052a5c80b0…:0) is not attested by two agreeing host-signed appr
+RESULT PASS

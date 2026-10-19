@@ -16,7 +16,7 @@ import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
 import { isAnyDepositParty, isDepositParty, reserveReturnFee } from "../settle/deposits";
-import { checkCertificates, earliestAgreedBond, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
+import { checkCertificates, earliestAgreedBond, freezeStatement, mapPairAgrees, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
 // The witness set rides in a separate signed packet, not in the manifest.
@@ -684,7 +684,11 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const maps = published.filter((mp: any) => !!mp && mp.auction_id === pub.manifest.auction_id && verifyApprovalMap(mp as ApprovalMap, keys)) as ApprovalMap[];
     for (const r of receipts) {
       const attested = maps.filter(mp => mp.txid === r.txid && (mp.outputs ?? []).some(o => o.party === r.party && o.output_index === r.output_index));
-      requireThat(new Set(attested.map(mp => mp.witness)).size >= 2 && attested.every(mp => jsonBytes(mp.outputs).equals(jsonBytes(attested[0].outputs))),
+      // H1 (B50): the two attesting maps must FULLY agree — batch, outputs, defaults, balance_refunds, strays and
+      // the bond fields — through the same predicate the other checks use (witness/index.ts mapPairAgrees).
+      // Before this, two pinned maps that agreed only on the receipt's txid and outputs (differing in `strays`
+      // or `defaults`, say) jointly attested it; now only a fully agreeing pair does.
+      requireThat(attested.some(a => attested.some(b => mapPairAgrees(a, b))),
         `receipt ${r.party} (${r.txid.slice(0, 12)}…:${r.output_index}) is not attested by two agreeing host-signed approval maps of its batch`);
     }
   });

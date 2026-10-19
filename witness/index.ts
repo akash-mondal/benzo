@@ -146,10 +146,14 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
 // attest only the rows this batch pays, so nothing a third party adds to the chain can move this check.
 // Ruling R42 (F12): `defaults` is compared map-to-map only, never against a fresh derivation — the two host
 // signatures already rule out a coordinator-only list, and a fresh-vs-signed comparison is the F12 wedge.
-// Two maps of one batch agree when their signed bodies match (outputs, defaults, refund rows, strays) and
+// Two maps of one batch agree when their signed bodies match (batch, outputs, defaults, refund rows, strays) and
 // their witnesses are distinct pinned signers — the G-4 agreement `agreedBatchMaps` binds at finalize.
-const mapPairAgrees = (a: ApprovalMap, b: ApprovalMap): boolean =>
+// H1 (B50): exported, and the pair must agree on EVERY signed field, batch included — receipt-attestation
+// holds its two attesting maps to this same full agreement, so two maps that agree on the receipt's txid and
+// outputs but differ in defaults, strays or bond fields can never jointly attest anything.
+export const mapPairAgrees = (a: ApprovalMap, b: ApprovalMap): boolean =>
   a.witness !== b.witness &&
+  a.batch === b.batch &&
   jsonBytes(a.outputs).equals(jsonBytes(b.outputs)) &&
   jsonBytes(a.defaults ?? null).equals(jsonBytes(b.defaults ?? null)) &&
   jsonBytes(a.balance_refunds ?? null).equals(jsonBytes(b.balance_refunds ?? null)) &&

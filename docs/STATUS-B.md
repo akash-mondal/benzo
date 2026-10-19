@@ -159,6 +159,30 @@ verify at the B50 merge), **H24** (the lexical `--openings-cache` pin).
    and cannot recompute the sweep). The real binding is the reviewer's own suggestion — host-attested
    `input_zats`/`fee_zats` in the signed map or the reserve receipt — which needs a map format change
    (H2's territory). Not attempted here; flagged.
+## Batch B50 (Builder B, branch `b50-p2-sweep`, from `503826b`) — the remaining verify/settle P2s (H1, H3, H5, H6, H7, H21)
+
+**IN PROGRESS** (this block grows per item; finished items below are final). Offline only (no main-checkout
+`.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live Playwright; the worktree carries its
+own `.env` (from `.env.example`), `node_modules` and `vendor` links, and its own `settle/target` build).
+Spec: `docs/design/phase7-b50-p2-sweep.md`. Worktree `../benzo-b50`, branch `b50-p2-sweep`, base `503826b`.
+Commits `--no-verify` (R32), one per item.
+
+### H1 — receipt-attestation requires the two maps to agree fully (`witness/index.ts`, `api/public-auction.ts`)
+
+`mapPairAgrees` is exported and now also compares the maps' `batch` (it is in the signed body);
+receipt-attestation requires the pair attesting each receipt to FULLY agree through that predicate
+(`api/public-auction.ts` receipt-attestation), instead of only matching on the receipt's txid and outputs.
+Proof (`tools/repro/b50-p2-sweep.ts` section `h1`; red `docs/evidence/phase-7/repro/b50-h1-before.out` on
+pristine `503826b` code, green `docs/evidence/phase-7/repro/b50-h1-after.out`): two pinned maps that agree on
+the receipt's txid and outputs but differ in `strays`, `defaults` or `batch` are ACCEPTED on the base tree
+(the three red checks) and REFUSED by `receipt-attestation` after; the fully agreeing honest pair stays
+ACCEPTED on both. The verify bundle changed with `api/public-auction.ts` and was rebuilt (`npm run
+build:verify`) and committed with `docs/verify-bundle.sha256`.
+
+- `npx tsc -p tsconfig.json` → exit 0.
+- `node tmp/r77.mjs` (fold) → honest ACCEPTED; fabricated-txid / swapped-output-index / duplicate-output REFUSED.
+- `node tmp/r78.mjs` (fold) → every case as designed (honest ACCEPTED, each tamper REFUSED).
+
 
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
 
