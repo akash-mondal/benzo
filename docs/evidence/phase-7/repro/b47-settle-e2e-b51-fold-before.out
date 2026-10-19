@@ -1,0 +1,43 @@
+commit a69030a8a6300772739fa1a5ab5abcaa4d133ea8 (working tree not clean at run time)
+utc 2026-10-19T05:51:36.203Z
+command node tmp/b47.mjs before (tools/repro/b47-settle-e2e.ts)
+tree ?? docs/evidence/phase-7/repro/b44-opener-b51-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b51-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b51-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b51-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b51-fold-before.out
+tree ?? node_modules
+tree ?? vendor/
+=== red (a) on base bundles (8a9f638): the R107 wall — nothing can settle
+OBSERVE a-red exit=1
+  | ERROR signer alice could not list derivable rows: OR sign derivable refused-rows ["reserve-return"]: the auction still owes 5 outstanding (strays/balances/exceptions): leaf:0, leaf:1, leaf:2, leaf:3; the reserve-return row waits until nothing is owed
+  | ERROR signer bob could not list derivable rows: OR sign derivable refused-rows ["reserve-return"]: the auction still owes 5 outstanding (strays/balances/exceptions): leaf:0, leaf:1, leaf:2, leaf:3; the reserve-return row waits until nothing is owed
+  | ERROR signer carol could not list derivable rows: OR sign derivable refused-rows ["reserve-return"]: the auction still owes 5 outstanding (strays/balances/exceptions): leaf:0, leaf:1, leaf:2, leaf:3; the reserve-return row waits until nothing is owed
+  | ERROR settle refused: no signer host could list its derivable rows
+  | ERROR benzo settle exit 1
+PASS a-red-exit-1 the settle refuses (exit 1)
+PASS a-red-r107-signature the exact R107 signature of the h15-live transcript: 3 hosts refused with refused-rows ["reserve-return"], then "no signer host could list its derivable rows"
+PASS a-red-nothing-paid nothing was broadcast and no receipt recorded — the live run could not settle at all before R107's fix
+=== red (b) on base bundles (8a9f638): the R107b crash on the live post-R107 world
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:1 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:2 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:3 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation seller vanished from the re-derivation; the pinned row stands
+OBSERVE seeded return row 25000 zats allocated to batch 2 (the live state at the crash)
+OBSERVE b-red exit=1
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":2,"allocated":1}
+  | ERROR settle Cannot read properties of null (reading 'amount_zats')
+  | ERROR benzo settle exit 1
+PASS b-red-exit-1 the settle crashes (exit 1)
+PASS b-red-r107b-signature the exact R107b signature of the h15-live transcript: the plan no longer derives the return (its own batch is pending) and the worker reads its amount from the plan
+PASS b-red-return-not-recorded the base worker never records the return (it crashes before signing completes)
+=== green on the same seeded world: this tree completes the return (the red/green pair)
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:1 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:2 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:3 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation seller vanished from the re-derivation; the pinned row stands
+OBSERVE b-green-same-world exit=0
+PASS b-green-same-world the identical seeded world settles green on this tree (25000 zats returned, accounting published)
+RESULT PASS

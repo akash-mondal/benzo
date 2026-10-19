@@ -3,6 +3,163 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B51 (Builder B, branch `b51-review-fixes`, from `a107447`) — Reviewer R on B47/B48: the preflight re-run double-count, the reserve-address listing wall, four P3s
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no
+live Playwright; stubs and own tmp state/builds only). Spec:
+`docs/design/phase7-b51-review-fixes.md`; source report `benzo-sol/reports/pr-p7-b47-b48.md`. Worktree
+`../benzo-b51`, branch `b51-review-fixes`, base `a107447`. Commits `--no-verify` (R32): `1689b46` (item 1),
+`a7297c9` (item 2), `1502bc4` (item 3), `52816b6` (item 4), `a9c6798` (item 5 + the rebuilt verify bundle and
+its sha), `f41a3e9` (item 6), `a69030a` (the H22–H24 rows). B50's files untouched except the named narrow
+regions: `settle/cli.ts` (preflight, broadcast catch, kept accounting — `hostBuild` untouched),
+`api/public-auction.ts` (accounting-strays' reserve_return block only), `cli/commands/sign-derivable.ts`
+(reserve branch only — the seller branch untouched). `tools/repro/b46-reserve-return.ts` gained the
+`settlement.batches` fixture (the real product shape) and two verify cases.
+
+### The six fixes, each red on base a107447 bundles and green after
+
+1. **P2-2 — the H19 preflight double-counts an in-flight batch on a re-run** (`settle/cli.ts:347-350`, the
+   `owned` rule mirrored from `settle/plan.ts:75-87`; comment `:336-339`). Rows whose batch carries a txid
+   and is not an exception are no longer remaining obligations, and the notes that batch spent were already
+   excluded from both the spendable value and the fee bound. Red (`b47-settle-e2e-b51-j-red.out`, case
+   (g)-red, the reviewer's probe world seeded through the real `Ledger`): base reproduces the probe's exact
+   line `ERROR settle fee reserve short: pay 4400440 zats to utest1b47feereserveaddress…` — demanding the
+   total batch 1 ALREADY paid (4,000,400) plus the margin — and cannot even confirm the mined batch (no
+   receipts, every row still allocated). Green (`b47-settle-e2e-b51-j-after.out`, case (g), 5 checks): no
+   preflight line, batch 1 confirmed from its own mined height without ever re-sending (its txid broadcast
+   exactly once), and the same `benzo settle` continues to the completed return; a further re-run is clean.
+2. **P2-1b — a mismatched `reserve_return_ua` walled `sign derivable`** (`cli/commands/sign-derivable.ts:27-40,
+   60`). R107's rule reaches the listing: a packet that declares NO return row lists every other row and
+   leaves out only the reserve-return row, tagged `"refused_rows":["reserve-return"]` in the JSON output; a
+   packet that DECLARES the row with the mismatched address stays refused (typed, exit 3). Red
+   (`b48-p3s-b51-seller-before.out` `b51-mismatched-ua-without-row-lists`, `b46-reserve-return-b51-before.out`
+   `sign-derivable-wrong-return-ua-lists-without-row`): base exits 3 and lists nothing — the wholesale wall.
+   Green (`b48-p3s-b51-after.out`/`-seller-after.out`, `b46-reserve-return-b51-after.out`): the rowless
+   packet lists the rows minus the return with the tag; the declaring packet is refused typedly
+   (`b51-mismatched-ua-with-row-refused-typed`, green on base too — unchanged).
+3. **P3 — the fee bound and R109's margin** (`settle/cli.ts:355-359`): the bound now counts one extra spend
+   per remaining batch (each later batch re-spends the previous batch's change). Case (e) re-derives the
+   R109 top-up `shortfall + max(ceil(shortfall/10), 5000)` (the pre-R109 formula gap is closed) and case
+   (h) pins the margin: a 20,000-zat shortfall asks for exactly 25,000 and topping up exactly 25,000
+   completes (`b47-settle-e2e-b51-h-after.out` `h-shortfall-20000-asks-25000`, `h-margin-floor-pinned`,
+   `h-completes-after-exact-top-up`; reverting the +5,000 floor would ask 22,000 and fail the pin). Red
+   (`b47-settle-e2e-b51-j-red.out` `h-red-undercounted-bound`): the base bound demands 20,000 where the
+   pinned demand is 25,000.
+4. **P3 — the broadcast catch never trusts the error string alone** (`settle/cli.ts:457-476`). On a send
+   error the wallet's own `list-tx` must know the staged txid (the same read the mined-wait repeats when it
+   finds the transaction): known counts as broadcast; an `already exists in mempool` claim with the txid
+   unknown is treated as NOT broadcast and the send is retried once with the same bytes; any other error
+   stays an immediate error. The vacuous pair the reviewer named (`sent = staged.txid` then
+   `requireThat(sent === staged.txid)`) is gone — the txid check runs only on a send that returned one. Red
+   (`b47-settle-e2e-b51-j-red.out` `i-red-*`, the stub answers the phrase while recording nothing): base
+   prints `settlement broadcast <txid>` for the phantom transaction and sits in the 30-minute mined-wait
+   (the driver kills it at 45 s; nothing recorded). Green (`b47-settle-e2e-b51-i-after.out` `i-*`): the lie
+   is seen once and never accepted, the retry really broadcasts, the settlement completes.
+5. **P3 — reserve_return self-consistency + no doc self-feed** (`api/public-auction.ts:864-874`,
+   `settle/cli.ts:526-537`). verify requires `fee_zats` to be the ZIP-317 fee for the PUBLISHED source count
+   (the number of inputs in the paying batch's published inspect, `settlement.batches`) — the reviewer's
+   doctored pair (remaining and fee both +5,000: difference preserved, fee merely ZIP-317-shaped) no longer
+   verifies — and an accounting with no published source count is refused (fail-closed). `remaining − fee =`
+   the receipt's amount is unchanged. The kept accounting now comes only from the ledger's own record (the
+   paid batch's inspect): the H20.2 fallback to the already-published doc is gone, so a doc can never feed
+   its own accounting back. Red (`b46-reserve-return-b51-before.out`: base verifies BOTH the doctored and
+   the source-count-less accounting — the two new checks red; `b47-settle-e2e-b51-j-red.out`
+   `j-red-doc-feeds-itself`: with the paid batch's inspect record gone the base re-reads the accounting out
+   of the published doc and exits 0). Green (`b46-reserve-return-b51-after.out`
+   `verify-refuses-doctored-accounting` / `verify-refuses-return-without-source-count`;
+   `b47-settle-e2e-b51-j-after.out` `j-refuses-without-ledger-record` (exit 1,
+   `a paid reserve-return receipt without its accounting in the ledger`), `j-nothing-republished` — and the
+   same seeded world refuses on this tree (`j-green-same-world-refuses`, red/green pair in one run).
+   R32: the verify bundle changed and was rebuilt and committed with `docs/verify-bundle.sha256`
+   (`9a7536a0…`); `check:bundle` PASSES in this worktree. See Question 5 for the base-tree hash drift.
+6. **P3-5 — `seller check` without `--signer`** (`cli/commands/seller.ts:29-33`): exactly one
+   `WARN no trust anchor: pass --signer HEX (the auction's published receipt key) to check who signed this
+   manifest`, and the commitment check still runs (a mismatched UA is still refused at exit 1). Red
+   (`b48-p3s-b51-seller-before.out` `b51-seller-check-no-signer-warns`): base prints no WARN (the check is
+   red there; `b51-seller-check-no-signer-still-checks` green on base — unchanged). Green
+   (`b48-p3s-b51-seller-after.out`): both checks pass.
+
+Out of the batch, recorded as rows in `docs/design/phase7-hardening.md`: **H22** (the name-based rows-loop
+skip), **H23** (the mixed-batch crash wedge — noting B50's H3 typed one-pool rule as the likely cover, to
+verify at the B50 merge), **H24** (the lexical `--openings-cache` pin).
+
+### Commands run (worktree `/Users/akshmnd/Dev Projects/benzo-b51`), each with result
+
+- Setup: `node_modules` symlinked from the main checkout (identical `package-lock`), `vendor/nu7` copied
+  (sha-pinned crates), own `.env` from `.env.example`, own `.benzo/bin` (tle v1.2.0 + grpcurl v1.9.3 via
+  `go install` at `tools/pins.env` tags) and own `.benzo/proto` (fetched at `LWD_PROTO_REV`, both shas
+  match `tools/pins.env`). No main-checkout `.benzo/` or `.env` used.
+- Bundles: `npm run build:core && build:settle && build:cli` OK (incl. `cargo build --release --locked`);
+  `npm run build:verify` → `dist/benzo-verify.mjs` sha256 `9a7536a012d2…`, committed together with
+  `docs/verify-bundle.sha256` (item 5's commit).
+- Gates: `npm run typecheck` 0 errors; `npm run check:structure` `OK check:structure (215 files)`;
+  `npm run check:invariants` `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2;
+  `npm run check:dist-require` OK; `npm run check:bundle` `OK check:bundle 9a7536a0… dist/benzo-verify.mjs
+  and docs/verify-bundle.sha256 match a fresh rebuild of this tree`; `npm run e2e` `PASSED default seal in
+  the browser, open with tle after R (38 s)`.
+- Per-item proofs (raw `docs/evidence/phase-7/repro/*b51*`): b47 case (g) red 2/0 + green 33/0; case (h)
+  green 36/0; case (i) green 39/0; case (j) green 41/0 + red legs 7/0 (items 1/3/4/5's reds + the
+  same-world pair, one `before51` run per item — the cumulative file is `b47-settle-e2e-b51-j-red.out`);
+  b48 green 20/0 then 22/0 (item 6), red-on-base 19/1 then 20/2 (exactly the B51 changes red);
+  b46 green 56/0, red-on-base 53/3 (exactly the three B51 behaviours).
+- **Folds all green** (raw `docs/evidence/phase-7/repro/*-b51-fold*`, `h10-seller-binding-b51.out`):
+
+| fold | result |
+|---|---|
+| b44-opener | before 25/0, after 29/0, RESULT PASS both |
+| b46-reserve-return | before 8/0 (historical bases a81e826 + 7c4e661), after 56/0, RESULT PASS both |
+| b47-settle-e2e | before 7/0 (8a9f638 legs unchanged), after 41/0 (cases (a)–(j)), before51 7/0, RESULT PASS all |
+| b48-p3s | green 22/0, RESULT PASS (red legs above) |
+| h10-seller-binding | 22/0, RESULT PASS |
+| h13-host-scale | before 8/0, after 38/0, RESULT PASS both |
+| h14-open-griefing | before 12/0, after 14/0, RESULT PASS both |
+
+- Base trees built by each fold's own recipe (`git archive` + that recipe; no second worktree):
+  `tmp/b51/base-src` (`a107447`), `tmp/b44/base` (`d646ceb`), `tmp/h13/src` + `tmp/b45/base` (`cd19905`),
+  `tmp/h14/src` + `tmp/b43/base` (`5086be1`), `tmp/b46/base-src` (`a81e826`), `tmp/b46/base49-src`
+  (`7c4e661`), `tmp/b47/base-src` (`8a9f638`).
+- Harness notes: `tools/repro/b47-settle-e2e.ts` gained the `before51` part (B51's red legs on base
+  a107447 bundles), the case-(g)/(h)/(i)/(j) worlds and a stub `inputs` field (the real `benzo-pczt
+  inspect` publishes one input per spent note — the reserve_return source-count check reads it);
+  `tools/repro/b47-republish.ts` documents the previously undocumented `tmp/b47-republish.mjs` seeded-world
+  publish helper (built with the header's esbuild line).
+
+## Questions (B51)
+
+1. **Item 5's "published source count" is read from the paying batch's published inspect inputs**
+   (`settlement.batches`, the only source count the published doc already carries — the exact
+   `{remaining_zats, fee_zats}` keys and `cli/product.ts`'s two-key normalization stay untouched, and the
+   h15-live doc verifies unchanged: 1 source, fee 10,000 = 5,000 × max(2, 1)). If the head meant a source
+   count published INSIDE the `reserve_return` accounting (a third key), that needs a `cli/product.ts`
+   change (B50's file) plus a migration rule for the h15 doc — say the word and I will reshape.
+2. **The check is fail-closed on a missing source count** (a `reserve_return` accounting whose paying batch
+   publishes no inspect inputs is refused). No existing evidence breaks (only h15-live carries a
+   `reserve_return`, and its inspect publishes `inputs`), and the b46 fixture now publishes the honest
+   `settlement.batches` shape. If some legacy dir must keep verifying without batch inspects, the
+   alternative is a conditional check — which would let a doctored doc dodge the tie by omitting `batches`.
+3. **The b46 case `sign-derivable-wrong-return-ua-refused` was re-aimed** (P2-1b changes the behaviour it
+   pinned): the rowless packet now lists the rows minus the return with the refused tag
+   (`sign-derivable-wrong-return-ua-lists-without-row`) and the new `…-refused` case is the packet that
+   DECLARES the row (typed, exit 3). If the old wholesale-refusal assertion must literally survive, item
+   2's rule needs revisiting.
+4. **Item 4's reading of "or the next mined-wait finds it"**: the acceptance criterion is the wallet's own
+   knowledge of the staged txid — checked at the catch (`list-tx` sees it, mempool or mined) and repeated
+   by the mined-wait (the same read). With the txid unknown, an `already exists in mempool` claim is
+   retried once and then REFUSED immediately (the next `benzo settle` re-sends the same bytes) rather than
+   entering the 30-minute mined-wait — the reviewer's stall. If the head wants the mined-wait itself to be
+   the final confirmation (accept-then-wait, retry only after the deadline), that is a small change but it
+   reintroduces the 30-minute stall for a lying endpoint.
+5. **Verify-bundle hash drift across environments (R32, observed again).** A fresh rebuild of the
+   UNCHANGED tree in this worktree hashes `4799222f…` while the committed bundle at `a107447` is
+   `c93f1e19…` (deterministic here — three identical rebuilds). Item 5's rebuilt bundle + sha
+   (`9a7536a0…`) are committed together and `check:bundle` PASSES in this worktree; the head may want to
+   rebuild from the combined tree at merge as in R112.
+6. **The strict fee/source tie is still self-consistency** (the design's framing): a coordinator who
+   doctors the fee AND the published inspect's input list together still passes verify (verify is offline
+   and cannot recompute the sweep). The real binding is the reviewer's own suggestion — host-attested
+   `input_zats`/`fee_zats` in the signed map or the reserve receipt — which needs a map format change
+   (H2's territory). Not attempted here; flagged.
+
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no
