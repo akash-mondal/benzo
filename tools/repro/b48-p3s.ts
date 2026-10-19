@@ -31,7 +31,9 @@ for (const line of (existsSync(path.join(ROOT, ".env")) ? readFileSync(path.join
 }
 const REAL_PCZT = needRealPczt(ROOT);
 process.env.BNZ_PCZT_BIN = REAL_PCZT; // this process classifies through the real audited binary
-const BENZO = path.join(ROOT, "cli", "dist", "benzo.mjs");
+// The CLI under test. The red-before leg drives the pristine base commit's bundle instead (built from a
+// git-archive extraction into tmp/b48/base-src, the folds' recipe — never another worktree).
+const BENZO = process.env.BNZ_B48_BENZO ?? path.join(ROOT, "cli", "dist", "benzo.mjs");
 const WORK = path.join(ROOT, "tmp", "b48");
 rmSync(WORK, { recursive: true, force: true }); mkdirSync(WORK, { recursive: true });
 
