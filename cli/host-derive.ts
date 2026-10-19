@@ -295,7 +295,10 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       // signer just verified — never against packet bytes alone. "bound" when the packet's address hashes to the
       // manifest's seller_ua_commitment; "legacy" when the manifest predates H10 and carries no commitment (the
       // amount-only behaviour stays, with one WARN line); "mismatch" when the manifest binds and the packet does
-      // not match — the caller then refuses the seller row typedly (never a silent pass).
+      // not match — the caller then refuses the seller row typedly (never a silent pass). B48 (H18 P3-1): that
+      // refusal is the SELLER ROW's alone, and only when the batch has one — each caller knows its own batch
+      // (its rows.json, its candidate, its row listing) and a batch without a seller row ignores seller_ua
+      // entirely, so an inconsistent config can never stall the bidder refunds it does not name.
       sellerBinding: (pub.manifest as any).seller_ua_commitment === undefined ? "legacy"
         : typeof meta.seller_ua === "string" && sellerUaCommitment(meta.seller_ua) === (pub.manifest as any).seller_ua_commitment ? "bound" : "mismatch" };
 }

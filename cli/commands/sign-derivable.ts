@@ -35,7 +35,11 @@ export async function run(argv: string[]): Promise<number | object> {
     // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
     // exit 3), never a silent pass. A manifest without the field predates H10: the row is listed as before and
     // one WARN line says the address is not bound.
-    if (sellerBinding === "mismatch") { process.stderr.write(`ERROR sign derivable refused-rows ${JSON.stringify(["seller"])}: seller payout address does not match the manifest seller_ua_commitment (H10)\n`); return 3; }
+    // B48 (H18 P3-1): the mismatch refuses only the seller row, and only when this listing has one — the
+    // listing below carries a seller row exactly when the auction owes the seller and the packet names a
+    // seller_ua. A listing without a seller row ignores seller_ua entirely, so an inconsistent config can
+    // never stall the refund rows this signer does derive.
+    if (sellerBinding === "mismatch" && payout !== "0" && typeof meta.seller_ua === "string") { process.stderr.write(`ERROR sign derivable refused-rows ${JSON.stringify(["seller"])}: seller payout address does not match the manifest seller_ua_commitment (H10)\n`); return 3; }
     if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     const rows = expected.map(e => ({ party: e.party, amount_zats: e.amount_zats }));
     if (payout !== "0" && typeof meta.seller_ua === "string") rows.push({ party: "seller", amount_zats: payout });

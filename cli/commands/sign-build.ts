@@ -48,7 +48,10 @@ export async function run(argv: string[]): Promise<number | object> {
     // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal like the other
     // refused rows here (exit 3, named rows), never a silent pass. A manifest without the field predates H10:
     // today's amount-only behaviour stays and one WARN line says so.
-    if (sellerBinding === "mismatch") { process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["seller"])}: seller payout address does not match the manifest seller_ua_commitment (H10)\n`); return 3; }
+    // B48 (H18 P3-1): the mismatch refuses only the seller row, and only when THIS batch has one — this
+    // batch's own rows.json says so. A batch without a seller row ignores seller_ua entirely, so an
+    // inconsistent config can never stall the bidder refunds this batch actually pays.
+    if (sellerBinding === "mismatch" && rows.some(r => r.party === "seller")) { process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["seller"])}: seller payout address does not match the manifest seller_ua_commitment (H10)\n`); return 3; }
     if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     // Each allocated row gets the recipient THIS signer derived; the seller payout goes to the operator routing UA,
     // which H10 binds to the signed manifest (checked above) — its amount is checked against the result here.

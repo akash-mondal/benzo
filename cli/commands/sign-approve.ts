@@ -80,7 +80,9 @@ export async function run(argv: string[]): Promise<number | object> {
     // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
     // exit 3), never a silent pass. A manifest without the field predates H10: the amount-only behaviour below
     // stays and one WARN line says so.
-    if (sellerBinding === "mismatch") throw Object.assign(new Error("seller payout address does not match the manifest seller_ua_commitment (H10)"), { refusedRows: ["seller"] });
+    // B48 (H18 P3-1): the mismatch refuses only the seller row, and only when THIS batch's candidate has one
+    // (checked on the inspected outputs below). A batch without a seller row ignores seller_ua entirely, so an
+    // inconsistent config can never stall the bidder refunds this batch actually pays.
     if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
     const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
@@ -97,6 +99,14 @@ export async function run(argv: string[]): Promise<number | object> {
     let sellerSeen = false, reserveSeen = false;
     const outputs = (info.outputs ?? []).filter((x: any) => !x.is_change);
     requireThat(outputs.length > 0, "candidate pays nobody");
+    // B48 (H18 P3-1): the seller row of THIS batch's candidate is exactly the output the mapping below would
+    // accept as `seller` (the packet's seller_ua for the result's seller amount). When the batch has one and
+    // the manifest binds a different address, that row is refused typedly (exit 3, named rows), as before; a
+    // batch without a seller row never consults seller_ua.
+    const sellerInBatch = payout !== "0" && typeof meta.seller_ua === "string"
+      && outputs.some((x: any) => x.recipient === meta.seller_ua && String(x.amount_zats) === payout);
+    if (sellerBinding === "mismatch" && sellerInBatch)
+      throw Object.assign(new Error("seller payout address does not match the manifest seller_ua_commitment (H10)"), { refusedRows: ["seller"] });
     const sources: string[] = [], mapped: { party: string; output_index: number }[] = [];
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
