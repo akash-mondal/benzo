@@ -1,0 +1,16 @@
+commit a10744713ad723b385dbb97e854d487f98fe3115 (working tree not clean at run time)
+utc 2026-10-19T04:59:01.906Z
+command node tmp/b47.mjs before51 (tools/repro/b47-settle-e2e.ts)
+tree M settle/cli.ts
+tree  M tools/repro/b47-settle-e2e.ts
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b51-g-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b51-g-red.out
+tree ?? node_modules
+tree ?? vendor/
+=== red (g) on base bundles (a107447): the H19 preflight double-counts the in-flight batch (P2-2)
+OBSERVE g-red exit=1
+  | ERROR settle fee reserve short: pay 4400440 zats to utest1b47feereserveaddress00000000000000000000000000000000000000 and run benzo settle again
+  | ERROR benzo settle exit 1
+PASS g-red-preflight-refusal the preflight refuses demanding 4400440 zats — the total batch 1 ALREADY paid (4000400 zats) plus the margin (the reviewer's probe line was "pay 4400440 zats"): ERROR benzo settle exit 1
+PASS g-red-cannot-confirm the run cannot even CONFIRM the batch that is already mined: no receipts recorded, nothing new broadcast, every row still allocated
+RESULT PASS

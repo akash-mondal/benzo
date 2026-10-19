@@ -19,6 +19,9 @@
 //   (e) an under-funded reserve stops at the fee preflight with the exact top-up line and broadcasts nothing;
 //       after the stub is topped up with exactly that amount, it completes (H19);
 //   (f) a legacy manifest settles with no return and its one WARN line per plan run.
+//   (g) B51 (P2-2): a re-run after a crash with ONE batch already broadcast and mined on chain but not yet
+//       confirmed in the ledger (the reviewer's probe world) — the preflight must not demand the total that
+//       batch already paid; the run confirms it and continues to the return.
 //
 // Red (`node tmp/b47.mjs before`) against BASE bundles built from pristine 8a9f638 (pre-R107) sources:
 //   (a)-red: the first settle refuses before paying anything — the exact R107 signature of the h15-live
@@ -39,6 +42,10 @@
 //     mkdir -p tmp/b47/base-src && git archive 8a9f638 | tar -x -C tmp/b47/base-src && ln -s $PWD/node_modules tmp/b47/base-src/node_modules
 //     (cd tmp/b47/base-src && node cli/build.mjs && npx esbuild settle/plan.ts --bundle --packages=external --platform=node --format=esm --banner:js=... --outfile=settle/dist/plan.mjs && npx esbuild settle/cli.ts ... --outfile=settle/dist/cli.mjs && npx esbuild clear/cli.ts ... --outfile=clear/dist/cli.mjs)
 //   green bundles from this tree: npm run build:core && npm run build:settle && npm run build:cli
+//   B51's red legs (`node tmp/b47.mjs before51`) run the SAME cases against base bundles from the B51 base
+//   commit a107447 (the batch's own red base — B47's 8a9f638 legs above are untouched):
+//     mkdir -p tmp/b51/base-src && git archive a107447 | tar -x -C tmp/b51/base-src && ln -s $PWD/node_modules tmp/b51/base-src/node_modules
+//     (cd tmp/b51/base-src && node cli/build.mjs && the same three esbuild commands as above)
 //
 // Test-only seams: NONE in product code. The stubs read two driver-set variables, BNZ_TEST_CHAIN (the shared
 // fake chain-state file) and BNZ_TEST_STUBS (the orb stub's config); both are refused when BNZ_NETWORK=main
@@ -57,7 +64,7 @@ import { buildAuction, fetchBeacon, needRealPczt, witnessPrivate, UA_ORCHARD, wr
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 const part = process.argv[2];
-if (part !== "before" && part !== "after") { console.error("usage: node tmp/b47.mjs before|after"); process.exit(2); }
+if (part !== "before" && part !== "after" && part !== "before51") { console.error("usage: node tmp/b47.mjs before|after|before51"); process.exit(2); }
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim();
 console.log(`commit ${commit}${dirty ? " (working tree not clean at run time)" : ""}`);
@@ -70,6 +77,12 @@ const GREEN_BENZO = path.join(ROOT, "cli/dist/benzo.mjs");
 const BASE = path.join(ROOT, "tmp/b47/base-src");
 const BASE_BENZO = path.join(BASE, "cli/dist/benzo.mjs");
 if (part === "before") for (const f of [BASE_BENZO, path.join(BASE, "settle/dist/cli.mjs"), path.join(BASE, "settle/dist/plan.mjs"), path.join(BASE, "clear/dist/cli.mjs")])
+  if (!existsSync(f)) throw new Error(`${f} missing — build the base bundles first (see the header)`);
+// B51 (docs/design/phase7-b51-review-fixes.md): the batch's own red base — a107447 bundles (tmp/b51/base-src,
+// the same git-archive recipe), driven by the `before51` part so B47's own 8a9f638 red legs stay untouched.
+const BASE51 = path.join(ROOT, "tmp/b51/base-src");
+const BASE51_BENZO = path.join(BASE51, "cli/dist/benzo.mjs");
+if (part === "before51") for (const f of [BASE51_BENZO, path.join(BASE51, "settle/dist/cli.mjs"), path.join(BASE51, "settle/dist/plan.mjs"), path.join(BASE51, "clear/dist/cli.mjs")])
   if (!existsSync(f)) throw new Error(`${f} missing — build the base bundles first (see the header)`);
 if (part === "after") for (const f of [GREEN_BENZO, path.join(ROOT, "settle/dist/cli.mjs"), path.join(ROOT, "settle/dist/plan.mjs"), path.join(ROOT, "clear/dist/cli.mjs")])
   if (!existsSync(f)) throw new Error(`${f} missing — run npm run build:core && npm run build:settle && npm run build:cli first`);
@@ -584,6 +597,27 @@ async function green() {
   check("f-warn-line", warnCount >= 1 && warnCount === planRuns && !/reserve return waits/.test(fLog),
     `its one WARN line per plan run (${warnCount} lines for ${planRuns} plan runs), and no waits line`);
 
+  // ---- world W5: case (g) ----------------------------------------------------
+  console.log("=== case (g): a re-run with one batch broadcast and mined but unconfirmed confirms it and continues (B51 P2-2)");
+  const w5 = writeWorld("w5", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 60000 });
+  const g5 = seedBroadcastUnconfirmed(w5);
+  const g1 = runSettle(w5);
+  console.log(`OBSERVE case-g first re-run exit=${g1.code}`);
+  console.log(g1.err.trim().split("\n").map(l => "  | " + l).join("\n"));
+  const gReceipts = receiptsOf(w5);
+  check("g-no-preflight-refusal", !/fee reserve short/.test(g1.err) && g1.code === 0,
+    `the re-run never demands the total batch 1 already paid (exit ${g1.code}${g1.err ? `; stderr ${g1.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1)?.slice(0, 120) ?? ""}` : ""})`);
+  check("g-confirms-the-batch", w5.obligationRows.every(o => gReceipts.some((r: any) => r.party === o.party && r.amount_zats === o.amount_zats && r.txid === g5.tx1)),
+    `the resumed batch is confirmed from its own mined height (${gReceipts.length} receipts; the ${w5.obligationRows.length} rows at ${g5.tx1.slice(0, 16)}…)`);
+  check("g-never-rebroadcast", chain(w5).broadcasts.filter((t: string) => t === g5.tx1).length === 1 && chain(w5).broadcasts[0] === g5.tx1,
+    "batch 1 was never re-sent: its mined transaction was read and confirmed, not re-broadcast (the only other broadcast is the return)");
+  const gSettlement = settlementOf(w5);
+  check("g-continues-to-the-return", g1.out.includes('"settled":6') && !!gSettlement?.reserve_return && gReceipts.some((r: any) => r.party === "reserve-return"),
+    `the same benzo settle continues past the confirmation and completes the return (accounting ${JSON.stringify(gSettlement?.reserve_return ?? null)})`);
+  const g2 = runSettle(w5);
+  check("g-rerun-clean", g2.code === 0 && receiptsOf(w5).length === gReceipts.length,
+    `a further re-run is clean and changes nothing (exit ${g2.code}, ${receiptsOf(w5).length} receipts)`);
+
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
 }
@@ -645,6 +679,58 @@ function seedPostBatchOne(w: World) {
   return { tx1, returnAmount: sc.returnAmount };
 }
 
+// B51 (P2-2) — the reviewer's probe world: batch 1 is staged with its txid and that transaction has ALREADY
+// MINED on the stub chain (its funding notes spent, one mature change note) — but the ledger never confirmed
+// it (the process died between broadcast and `ledger.confirm`). The rows are still `allocated`. Written through
+// the REAL Ledger class; the staged PCZT is the stub's own JSON body, so the worker really resumes it, reads
+// its mined height and confirms it. Nothing is published and no receipts.json exists — the re-run does that.
+function seedBroadcastUnconfirmed(w: World) {
+  const id = w.id;
+  const sd = path.join(w.state, "settle", id);
+  const batchFee = feeOf(w.fx.notes.length + 1);
+  const change = w.feeReserve - batchFee;
+  const c = chain(w);
+  const spends = c.notes.map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`);
+  const pczt = path.join(sd, "batch-1.pczt");
+  // The stub create/inspect world: the batch pays the obligation rows and its change is one note. Its txid is
+  // exactly sha256 of the signed bytes, as `pczt extract` computes it.
+  writeFileSync(pczt, JSON.stringify({ rows: w.obligationRows.map(o => ({ recipient: UA_ORCHARD, amount_zats: o.amount_zats })),
+    input_zats: w.obligationZats + w.feeReserve, fee_zats: batchFee, change_zats: change, spends, expiry_height: 100364 }));
+  const tx1 = hash(readFileSync(pczt));
+  for (const n of c.notes) if (spends.includes(`${n.txid}:${n.pool}:${n.action_index}`)) n.spent_in_txid = tx1;
+  c.tip = 100012;
+  c.mined[tx1] = { height: 100001, rows: [] };
+  c.broadcasts.push(tx1);
+  // B49: the change note carries the transaction's own txid (the scan's mined-height evidence) at a mature
+  // height — the exact probe shape ("a mature 35,000-zat change note").
+  c.notes.push({ txid: tx1, height: 100001, pool: "ironwood", address: CHANGE_ADDR, diversifier_index: "99", action_index: 0,
+    value_zats: change, memo_hex: null, spent_in_txid: null });
+  writeFileSync(w.chainFile, JSON.stringify(c));
+  // Each host's own approval ledger records batch 1's rows at their amounts — what the real `sign approve`
+  // recorded before the crash (B49's "paid" rule's ledger half).
+  for (const n of signerNames) {
+    const adir = path.join(w.hosts[n], "approvals", id);
+    mkdirSync(adir, { recursive: true, mode: 0o700 });
+    const mapped = w.obligationRows.map((o, i) => ({ party: o.party, output_index: i, amount_zats: String(o.amount_zats) }));
+    const sources = [...new Set(w.obligationRows.map((o) => (o.party.startsWith("leaf:") ? `deposit:${w.fx.notes[Number(o.party.slice(5))].txid}:ironwood:${Number(o.party.slice(5))}` : o.party)))];
+    writeFileSync(path.join(adir, "ledger.json"), JSON.stringify([{ batch: 1, txid: tx1, expiry_height: 100364, approved_tip: 100000, sources, mapped }]) + "\n", { mode: 0o600 });
+  }
+  // The worker's own confirmation inputs: the hosts' signed {party, output_index} maps and the builder's
+  // build.json cross-check for batch 1.
+  writeFileSync(path.join(sd, "batch-1.build.json"), jsonBytes({ outputs: w.obligationRows.map((o, i) => ({ party: o.party, output_index: i })) }));
+  writeFileSync(path.join(sd, "batch-1.maps.json"), jsonBytes([0, 1].map(i => signApprovalMap({ auction_id: id, batch: 1, txid: tx1,
+    outputs: w.obligationRows.map((o, i2) => ({ party: o.party, output_index: i2 })), defaults: [], balance_refunds: [] }, witnessPrivate(String(i))))));
+  const ledger = new Ledger(w.state, id);
+  ledger.pin(w.obligationRows as any);
+  ledger.eligible();
+  const batch = ledger.allocate(13)!;
+  ledger.stage(batch.id, pczt, tx1);
+  // The crash: staged and mined, never confirmed — the rows stay `allocated`.
+  const rows = ledger.rows();
+  ledger.close();
+  return { tx1, change, rows };
+}
+
 async function red() {
   const beacon = await fetchBeacon(R);
   const fx = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
@@ -687,4 +773,29 @@ async function red() {
   process.exitCode = failed ? 1 : 0;
 }
 
-part === "after" ? await green() : await red();
+// ==============================================================================
+// B51 red legs (base bundles from a107447 — docs/design/phase7-b51-review-fixes.md)
+// ==============================================================================
+async function red51() {
+  const beacon = await fetchBeacon(R);
+  const fx = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+
+  console.log("=== red (g) on base bundles (a107447): the H19 preflight double-counts the in-flight batch (P2-2)");
+  const w = writeWorld("g-base", fx, { root: BASE51, benzo: BASE51_BENZO, feeReserve: 60000 });
+  const seeded = seedBroadcastUnconfirmed(w);
+  const demanded = w.obligationZats + Math.max(Math.ceil(w.obligationZats / 10), 5000);
+  const g = runSettle(w);
+  console.log(`OBSERVE g-red exit=${g.code}`);
+  console.log((g.err || g.out).trim().split("\n").map(l => "  | " + l).join("\n"));
+  const line = `ERROR settle fee reserve short: pay ${demanded} zats to ${FEE_RESERVE_UA} and run benzo settle again`;
+  check("g-red-preflight-refusal", g.code === 1 && g.err.includes(line),
+    `the preflight refuses demanding ${demanded} zats — the total batch 1 ALREADY paid (${w.obligationZats} zats) plus the margin (the reviewer's probe line was "pay 4400440 zats"): ${g.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1)?.slice(0, 160) ?? "(no ERROR line)"}`);
+  check("g-red-cannot-confirm", !existsSync(path.join(w.state, "settle", w.id, "receipts.json")) && chain(w).broadcasts.length === 1 &&
+    seeded.rows.every((r: any) => r.state === "allocated"),
+    "the run cannot even CONFIRM the batch that is already mined: no receipts recorded, nothing new broadcast, every row still allocated");
+
+  console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
+  process.exitCode = failed ? 1 : 0;
+}
+
+part === "after" ? await green() : part === "before51" ? await red51() : await red();

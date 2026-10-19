@@ -332,12 +332,22 @@ async function worker(ledger:Ledger) {
   // (shortfall + max(ceil(shortfall/10), 5,000), R109: one fee slot of slack so a small top-up never needs a second one). With only the self-funding return left there is nothing to reserve for:
   // the preflight is skipped and the return pass runs as before (its own failure is the spendable-change
   // case, not a fee shortfall).
+  // B51 (P2-2): rows in a staged or broadcast batch and the notes that batch spent are excluded from both
+  // sides (the `owned` rule below), so resuming an in-flight batch is never refused.
   {
     const m=client(auction().manifest,auction().signer).manifest as any;
     const tip=Number(JSON.parse(wallet("balance","--json")).chain_tip_height);
+    // B51 (P2-2, Reviewer R's probe): mirror settle/plan.ts's `owned` rule here. A row whose batch is already
+    // staged or broadcast is NOT a remaining obligation, and the notes that batch spent are excluded from
+    // both the spendable value and the fee bound — the whole in-flight batch leaves both sides of the
+    // comparison. Before this, a re-run whose only work was to confirm an in-flight batch counted its rows
+    // as unpaid at full value while their funding notes had already left spendable value, and refused
+    // "fee reserve short: pay N zats" demanding roughly the total that batch had already paid on chain.
+    const owned=new Set<number>();
+    for(const b of ledger.db.prepare("SELECT id FROM batches WHERE txid IS NOT NULL AND state!='exception'").all() as {id:number}[])owned.add(Number(b.id));
     const spendableNotes=notes(manifestNet()).filter((n:any)=>(n.spent_in_txid??null)===null&&Number(n.value_zats)>0&&!!n.height&&tip-Number(n.height)+1>=m.confirmations);
     const spendableValue=spendableNotes.reduce((s:number,n:any)=>s+Number(n.value_zats),0);
-    const unpaid=ledger.rows().filter(o=>["eligible","allocated"].includes(o.state));
+    const unpaid=ledger.rows().filter(o=>["eligible","allocated"].includes(o.state)&&!(o.batch!==null&&owned.has(o.batch)));
     const obligationZats=unpaid.filter(o=>o.party!=="reserve-return").reduce((s,o)=>s+Number(o.amount_zats),0);
     const allocatedBatches=new Set(unpaid.filter(o=>o.batch!==null).map(o=>o.batch));
     const eligibleRows=unpaid.filter(o=>o.batch===null).length;
