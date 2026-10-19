@@ -1,0 +1,45 @@
+commit b88ff450657dd632ddfe594678e4441931bed038 (working tree not clean at run time)
+utc 2026-10-19T16:15:26.223Z
+command node tmp/h14.mjs after (tools/repro/h14-open-griefing.ts)
+tree ?? docs/evidence/phase-7/repro/b44-opener-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-before51.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b56-fold.out
+tree ?? docs/evidence/phase-7/repro/b56-heal-green.out
+tree ?? docs/evidence/phase-7/repro/b56-heal-red.out
+tree ?? docs/evidence/phase-7/repro/b56-paid-green.out
+tree ?? docs/evidence/phase-7/repro/b56-paid-red.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-green.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b56.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b56-fold-before.out
+=== green admission: `bid seal`'s self-check and the real admit command refuse both griefs
+PASS green-bid-seal-self-check-accepts-honest the self-check expression passes the honest sealer output
+PASS green-bid-seal-self-check-refuses-stanza-body the self-check refuses it: sealed bid structure: age parse: Expected mac, but there were no more lines left!
+PASS green-bid-seal-self-check-refuses-payload-cut the self-check refuses it: sealed bid structure: payload is 3 bytes, not 160
+PASS green-admit-accepts-honest the admit command still admits an honest bid
+PASS green-admit-refuses-stanza-body refused at admission: ERROR auction sealed bid structure: age parse: Expected mac, but there were no more lines left!
+PASS green-admit-refuses-payload-cut refused at admission: ERROR auction sealed bid structure: payload is 3 bytes, not 160
+=== green open: both griefs open as undecryptable; the honest leaves are byte-identical
+PASS green-open-succeeds the open completed with 4 openings (exit 0)
+PASS green-open-classification-exact 2 intact leaves open by plaintext; the stanza-body and payload-cut leaves are {error:"undecryptable"}, nothing else
+PASS honest-leaves-byte-identical the honest openings are byte-identical to the base commit's (sha 4c572b731b73a811…)
+PASS green-open-no-tle trace: beacon fetch, offline decrypt, open (no tle subprocess)
+=== green open on the lone payload-cut leaf: the empty-plaintext quirk is closed
+PASS green-open-quirk-undecryptable the payload-cut leaf is now {"error":"undecryptable","leaf_index":0,"plaintext_hex":null}
+=== green verify: benzo verify agrees with the openings (griefs re-derive as undecryptable)
+PASS green-verify-agrees OK no-destinations
+=== green deriveRows: host derivation completes and agrees (its verify subprocess re-derives every opening)
+PASS green-derive-rows-completes exit 0, 3 derivable rows (the internal benzo verify gate passed, so the host's re-derivation agrees with the published openings)
+PASS green-derive-rows-skip-griefs rows ["leaf:0","leaf:1","seller"] carry nothing for the two undecryptable leaves
+OBSERVE green-derive-rows [{"party":"leaf:0","amount_zats":"997000"},{"party":"leaf:1","amount_zats":"994000"},{"party":"seller","amount_zats":"9000"}]
+RESULT PASS

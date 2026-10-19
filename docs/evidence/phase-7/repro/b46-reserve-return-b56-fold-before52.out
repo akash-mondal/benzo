@@ -1,0 +1,21 @@
+commit b88ff450657dd632ddfe594678e4441931bed038 (working tree not clean at run time)
+utc 2026-10-19T16:02:15.544Z
+command node tmp/b46.mjs before52 (tools/repro/b46-reserve-return.ts)
+tree ?? docs/evidence/phase-7/repro/b44-opener-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b56-fold.out
+tree ?? docs/evidence/phase-7/repro/b56-heal-green.out
+tree ?? docs/evidence/phase-7/repro/b56-heal-red.out
+tree ?? docs/evidence/phase-7/repro/b56-paid-green.out
+tree ?? docs/evidence/phase-7/repro/b56-paid-red.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-green.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b56.out
+=== B52 red on the base bundles (59c863c): the return's fee is PREDICTED, the hosts pin no shape, and the doc verifies on the wrong basis
+PASS k1-red-predicted-fee the base plan predicts the fee from the source count (5,000 x max(2, 3) = 15,000) and pays 80000 of 95000 — the tool's real fee for the cross-pool sweep is 25,000, so every host's build then dies untyped (P2-1's wall): {"amount_zats":"80000","fee_zats":"15000","kind":"payout","party":"reserve-return","remaining_zats":"95000"}
+PASS k2-red-change-candidate-approved the base hosts APPROVE the candidate that leaves 5,000 zats behind as change (the only shape check is input_zats) — the money would move and the kept accounting then throws post-broadcast: exit 0, approval recorded
+PASS k3-red-plans-the-unsweepable-sweep the base plan PLANS the return over the note the tool cannot spend (its prediction counts the Sapling note): {"amount_zats":"37000","fee_zats":"20000","kind":"payout","party":"reserve-return","remaining_zats":"57000"} — every host's build then dies untyped
+PASS k4-red-doctored-verifies the base verifies a doctored accounting ((remaining, fee) +5,000 with a fifth "source") — B51's inputs.length tie locks in the wrong basis: exit 0
+RESULT PASS

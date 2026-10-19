@@ -1,0 +1,18 @@
+commit b88ff450657dd632ddfe594678e4441931bed038 (working tree not clean at run time)
+utc 2026-10-19T15:57:46.453Z
+command node tmp/b56.mjs after skew (tools/repro/b56-unpaid-return.ts)
+tree ?? docs/evidence/phase-7/repro/b56-skew-green.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-red.out
+OBSERVE skew-after seeded batch 1 b76bc862db859d3b… change 30000 + the late 20000 note (the hosts' wallet scan omits it)
+OBSERVE skew-after settle run 1 exit=0
+  | ERROR refund reserve-return to the exception queue: the vault's value cannot be swept in one transaction (the tool's quote spends 50000 zats of this signer's scanned unspent total 30000)
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+  | ERROR refund reserve-return to the exception queue: the vault's value cannot be swept in one transaction (the tool's quote spends 50000 zats of this signer's scanned unspent total 30000)
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+PASS skew-no-row-published the doc publishes without the row (run 1 exit 0) — the hosts' public check never sees a bare return row, so the wall cannot form
+PASS skew-ledger-keeps-row the private ledger keeps the row and its state ({"party":"reserve-return","kind":"payout","amount_zats":"40000","state":"exception","batch":null,"txid":null}) — only the published rows leave it out
+PASS skew-waits-line-still-printed the run still prints the typed waits line — the pinned exception row's reason names why the return waits
+PASS skew-verify-accepts benzo verify accepts the published dir (exit 0); 19 OK lines
+OBSERVE skew-after settle run 2 exit=0
+PASS skew-second-run-exits-0 a second run exits 0 with the waits line and publishes nothing for the unpaid return (exit 0, 2 waits lines)
+RESULT PASS

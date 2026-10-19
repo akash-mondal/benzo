@@ -1,0 +1,43 @@
+commit b88ff450657dd632ddfe594678e4441931bed038 (working tree not clean at run time)
+utc 2026-10-19T16:32:52.588Z
+command node tmp/b53.mjs after p22 (tools/repro/b53-resume-ledger.ts)
+tree ?? docs/evidence/phase-7/repro/b44-opener-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b56-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-before51.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b56-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b56-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b56-fold-after-p22.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b56-heal-green.out
+tree ?? docs/evidence/phase-7/repro/b56-heal-red.out
+tree ?? docs/evidence/phase-7/repro/b56-paid-green.out
+tree ?? docs/evidence/phase-7/repro/b56-paid-red.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-green.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b56.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b56-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b56-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b56-fold-before.out
+OBSERVE p22-diff-green first run exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":5}
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+PASS p22-diff-attributed every receipt attributed to its own pool through (output_index, amount_zats): leaf:0->orchard:0, leaf:1->sapling:1, leaf:2->orchard:2, leaf:3->sapling:3, seller->orchard:3
+PASS p22-diff-rerun-0 a re-run exits 0 and changes nothing (exit 0)
+OBSERVE p22-equal-green first run exit=0
+  | ERROR refund deposit:b2b3617664dd907d34764994f2abf7fe839230a748067899ffe738fe53ea02d4:ironwood:0 to the exception queue: deposit memo is not an openable sealed bid; no owner key claims it
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":6}
+  | ERROR batch 1: manual reconciliation: pre-H3 two-pool batch (H2); the mined batch is parked as an exception and its rows wait for manual reconciliation
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":0}
+  | ERROR refund deposit:b2b3617664dd907d34764994f2abf7fe839230a748067899ffe738fe53ea02d4:ironwood:0 to the exception queue: deposit memo is not an openable sealed bid; no owner key claims it
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":0}
+PASS p22-equal-parked the ambiguous batch is parked as an exception with its reason (batch exception, 6 rows waiting for manual reconciliation)
+PASS p22-equal-nothing-paid nothing was attributed or paid — no receipt recorded and nothing re-broadcast
+PASS p22-equal-rerun-0 a re-run exits 0 and never re-allocates the parked rows (exit 0; the rows keep their batch binding)
+RESULT PASS

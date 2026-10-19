@@ -1,0 +1,22 @@
+commit b88ff450657dd632ddfe594678e4441931bed038 (working tree not clean at run time)
+utc 2026-10-19T15:58:15.252Z
+command node tmp/b56.mjs before heal (tools/repro/b56-unpaid-return.ts)
+tree ?? docs/evidence/phase-7/repro/b56-heal-red.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-green.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-red.out
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:1 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:2 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:3 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation seller vanished from the re-derivation; the pinned row stands
+OBSERVE heal-before seeded batch 1 f49f9490231015f5… and the pre-B56 bare row at 40000 zats
+PASS heal-pre-state-is-the-bare-row-dir the fabricated starting dir carries the bare row exactly as the base publish wrote it: {"amount_zats":"40000","batch":null,"kind":"payout","output_index":null,"party":"reserve-return","pool":null,"reason":"the vault's value cannot be swept in one 
+OBSERVE heal-before settle exit=1
+  | ERROR signer alice could not list derivable rows: ERROR sign derivable refused: public check failed: ERROR accounting-strays refused: a reserve-return row or receipt without the published reserve_return accounting
+  | ERROR signer bob could not list derivable rows: ERROR sign derivable refused: public check failed: ERROR accounting-strays refused: a reserve-return row or receipt without the published reserve_return accounting
+  | ERROR signer carol could not list derivable rows: ERROR sign derivable refused: public check failed: ERROR accounting-strays refused: a reserve-return row or receipt without the published reserve_return accounting
+  | ERROR settle refused: no signer host could list its derivable rows
+  | ERROR benzo settle exit 1
+PASS heal-red-no-heal the next run dies at the wall and the stale bare row stays (exit 1) — the pre-B56 dir is unhealable on base
+PASS heal-red-verify-refuses benzo verify still refuses the unhealed dir (exit 1)
+RESULT PASS

@@ -1,0 +1,23 @@
+commit b88ff450657dd632ddfe594678e4441931bed038 (working tree not clean at run time)
+utc 2026-10-19T15:58:26.068Z
+command node tmp/b56.mjs after heal (tools/repro/b56-unpaid-return.ts)
+tree ?? docs/evidence/phase-7/repro/b56-heal-green.out
+tree ?? docs/evidence/phase-7/repro/b56-heal-red.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-green.out
+tree ?? docs/evidence/phase-7/repro/b56-skew-red.out
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:1 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:2 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:3 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation seller vanished from the re-derivation; the pinned row stands
+OBSERVE heal-after seeded batch 1 a12f8764a5b6c5f1… and the pre-B56 bare row at 40000 zats
+PASS heal-pre-state-is-the-bare-row-dir the fabricated starting dir carries the bare row exactly as the base publish wrote it: {"amount_zats":"40000","batch":null,"kind":"payout","output_index":null,"party":"reserve-return","pool":null,"reason":"the vault's value cannot be swept in one 
+OBSERVE heal-after settle exit=0
+  | ERROR refund reserve-return to the exception queue: the vault's value cannot be swept in one transaction (the tool's quote spends 50000 zats of this signer's scanned unspent total 30000)
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+  | ERROR refund reserve-return to the exception queue: the vault's value cannot be swept in one transaction (the tool's quote spends 50000 zats of this signer's scanned unspent total 30000)
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+PASS heal-green-heals the next run heals the dir: the republish drops the unpaid row (exit 0, run proceeded past the derivable gate)
+PASS heal-green-ledger-keeps-row the row still waits in the private ledger ({"party":"reserve-return","kind":"payout","amount_zats":"40000","state":"exception","batch":null,"txid":null}) — the skew persists, so it stays unpublished
+PASS heal-green-verify-accepts benzo verify accepts the healed dir (exit 0); 19 OK lines
+RESULT PASS
