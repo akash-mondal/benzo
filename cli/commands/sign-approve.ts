@@ -196,9 +196,10 @@ export async function run(argv: string[]): Promise<number | object> {
     }
     // B53 (P3-2, Reviewer R round 4): and heal a pre-B49 entry's missing `mapped` (persisted here) — the
     // same fill the paid rule's readers run (cli/host-derive.ts backfillMapped): this host's own stored
-    // map of that batch plus this host's OWN derived row amounts, only when that map's txid matches the
-    // entry's. Before this, an entry written before B49 kept `mapped: undefined` forever: its receipts
-    // could never count as paid and the reserve return waited permanently, not even a re-approve healed it.
+    // map of that batch, only when that map's txid matches the entry's. B54 (P3-4): the amounts come
+    // from what this host STORED at approval (the `attested` record above, or a stored candidate
+    // inspect); this host's current derivation is a cross-check that must match — a drifted derivation
+    // never attests anything, and a record without stored amounts never heals.
     const derivedAmounts = new Map<string, string>([
       ...expected.map(e => [e.party, e.amount_zats] as [string, string]),
       ...(payout !== "0" ? [["seller", payout] as [string, string]] : []),
@@ -241,7 +242,17 @@ export async function run(argv: string[]): Promise<number | object> {
     const paidRefunds = balanceRefunds.filter(r => mapped.some(x => x.party === r.party)).map(({ notes, ...row }) => row);
     const paidStrays = strays.filter(s => mapped.some(x => x.party === s.party));
     const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds as any, strays: paidStrays, ...(bondVoid ? { bond_void: true } : {}), ...(bondStart ? { bond_start: bondStart } : {}) }, readFileSync(wkey, "utf8").trim()) : null;
-    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
+    const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000),
+      // B54 (P3-4, Reviewer R round 5): the LOCAL attestation record, next to the signed map (the signed
+      // map stays {party, output_index} as before; this is stored, not signed): what THIS host approved —
+      // each mapped output at the amount the candidate paid. backfillMapped (cli/host-derive.ts) heals a
+      // pre-B49 entry only from this record (or the stored candidate inspect below), with the host's
+      // current derivation as a cross-check that must match — a drifted derivation never attests anything.
+      attested,
+      // The host's own stored candidate inspect, reduced to what the record is for: each output's index,
+      // change bit and amount (never a recipient — redaction's rule). backfillMapped falls back to it
+      // when a record predates the `attested` field but carries an inspect.
+      inspect: (info.outputs ?? []).map((x: any) => ({ index: x.index, is_change: !!x.is_change, amount_zats: String(x.amount_zats) })) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
     if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources, approved_tip: tip, mapped: attested });
     else {

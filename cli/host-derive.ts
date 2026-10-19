@@ -401,7 +401,8 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
   // without such a receipt is outstanding, including a row whose receipt's transaction a reorg un-mined.
   const ledgerFile = path.join(st, "approvals", o.id, "ledger.json");
   // B53 (P3-2): a pre-B49 entry carries no `mapped` — heal it on read (backfillMapped, from this host's own
-  // stored map of that batch plus the row amounts it just derived) so its receipts can count as paid.
+  // stored map of that batch and the amounts this host stored at approval, cross-checked against the row
+  // amounts it derives right now — B54, P3-4) so its receipts can count as paid.
   const ledgerEntries: any[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
   backfillMapped(ledgerEntries, path.join(st, "approvals", o.id), new Map(owed.map(x => [x.party, x.amount_zats])));
   const ownLedger = ledgerEntries.flatMap(e =>
@@ -445,20 +446,41 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
 // carry no `mapped`, so their receipts could never count as paid at the shared rule (paidByOwnLedger's
 // ledger half) and the reserve return waited forever — a re-approve did not heal them either. An entry's
 // missing `mapped` is filled from the HOST'S OWN stored approvals/<id>/batch-<n>.json map (the signed
-// {party, output_index} map of exactly that batch) plus this host's own derived row amounts — and only
-// when that map's txid matches the entry's, so a map of a different candidate can never attest this one.
+// {party, output_index} map of exactly that batch) — and only when that map's txid matches the entry's,
+// so a map of a different candidate can never attest this one.
+//
+// B54 (P3-4, Reviewer R round 5): the healed AMOUNTS come only from what this host stored when it
+// approved — the attested {party, output_index, amount_zats} record `sign approve` keeps next to the
+// signed map (cli/commands/sign-approve.ts), or the host's own stored candidate inspect matched to the
+// map by output index when one exists. The amount this host DERIVES today is a cross-check that must
+// match exactly — never the source: derivation can drift after the batch paid, and the old fill then
+// attested an amount the transaction never paid (a doctored receipt at the new amount counted). With
+// drift nothing heals (fail closed in both directions: neither the paid amount nor the drifted one ever
+// counts), and with no stored amounts (a pre-B54 approval record) there is no heal at all — pre-B49
+// test state may therefore stay unhealed; mainnet starts fresh (H26).
 // Returns how many entries were healed (the sign-approve migration persists the fill).
 export function backfillMapped<T extends { batch: number; txid: string; mapped?: { party: string; output_index: number; amount_zats: string }[] }>(
   entries: T[], dir: string, derivedAmounts: Map<string, string>): number {
   let healed = 0;
   for (const e of entries) {
     if (Array.isArray(e.mapped)) continue;
-    let map: any = null;
-    try { map = JSON.parse(readFileSync(path.join(dir, `batch-${e.batch}.json`), "utf8")).map ?? null } catch { map = null }
+    let rec: any = null;
+    try { rec = JSON.parse(readFileSync(path.join(dir, `batch-${e.batch}.json`), "utf8")) } catch { rec = null }
+    const map = rec?.map ?? null;
     if (!map || map.txid !== e.txid || !Array.isArray(map.outputs)) continue;
+    // What this host stored at approval time: the attested record first, else its own stored candidate
+    // inspect's amount for that output index. Nothing stored, no amount, no heal for that row.
+    const storedAmount = (party: string, output_index: number): string | null => {
+      const attested = Array.isArray(rec.attested) ? rec.attested.find((x: any) => String(x.party) === party && Number(x.output_index) === output_index) : null;
+      const fromRecord = attested ? String(attested.amount_zats) : "";
+      if (/^[1-9][0-9]*$/.test(fromRecord)) return fromRecord;
+      const inspected = Array.isArray(rec.inspect) ? rec.inspect.find((x: any) => !x.is_change && Number(x.index) === output_index) : null;
+      const fromInspect = inspected ? String(inspected.amount_zats) : "";
+      return /^[1-9][0-9]*$/.test(fromInspect) ? fromInspect : null;
+    };
     const mapped = map.outputs
-      .map((mm: any) => ({ party: String(mm.party), output_index: Number(mm.output_index), amount_zats: derivedAmounts.get(String(mm.party)) ?? "" }))
-      .filter((mm: any) => /^[1-9][0-9]*$/.test(mm.amount_zats) && Number.isInteger(mm.output_index) && mm.output_index >= 0);
+      .map((mm: any) => ({ party: String(mm.party), output_index: Number(mm.output_index), amount_zats: storedAmount(String(mm.party), Number(mm.output_index)) ?? "" }))
+      .filter((mm: any) => /^[1-9][0-9]*$/.test(mm.amount_zats) && mm.amount_zats === (derivedAmounts.get(mm.party) ?? null) && Number.isInteger(mm.output_index) && mm.output_index >= 0);
     if (mapped.length) { e.mapped = mapped; healed++ }
   }
   return healed;

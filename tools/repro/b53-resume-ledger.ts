@@ -25,9 +25,11 @@
 //        only picks a list carried by a FULLY agreeing pair (two map versions, each carried by two
 //        witnesses, that disagree on outputs can never bless a defaults list).
 //   p32  P3-2: a pre-B49 approval entry with no `mapped` heals after a re-approve (sign approve merges the
-//        new mapped into the existing same-txid entry) and after migration on read (the stored
-//        approvals/<id>/batch-<n>.json map plus this host's own derived row amounts) — and then counts as
-//        paid at the shared rule.
+//        new mapped into the existing same-txid entry) and, after migration on read, only when its stored
+//        record carries the amounts this host approved (B54, P3-4: the stored attestation — or the stored
+//        candidate inspect — with the derived amount as a cross-check that must match; no stored amounts,
+//        no heal, and a drifted derivation never counts in either direction). A healed entry's receipts
+//        then count as paid at the shared rule.
 //   p37  P3-7: a `balance-excess:` row's backing notes join the candidate's approval-ledger `sources`, so a
 //        second live candidate that re-spends one is refused (base: both candidates are approved).
 //
@@ -570,7 +572,10 @@ async function p32() {
   const obs = obligationsOf(fx), leaf0 = obs.find(o => o.party === "leaf:0")!.amount_zats;
   const candidateRows = obs.map(o => ({ recipient: UA_ORCHARD, amount_zats: o.amount_zats }));
 
-  // ---- (a) migration on read: a pre-B49 entry (no `mapped`) with its own stored batch map -----------
+  // ---- (a1) migration on read: a pre-B54 record (map only, NO stored amounts) never heals -----------
+  // B54 (P3-4): the heal takes its amounts only from what this host stored at approval time. A record
+  // with just the signed map has none — pre-B49 test state may therefore stay unhealed (H26); mainnet
+  // starts fresh. Neither leg heals it: the base has no heal at all, and the green heal fails closed.
   {
     const { st, dir } = approveWorld(`p32-a-${part}`, fx, 1, candidateRows);
     const adir = path.join(st, "approvals", fx.id); mkdirSync(adir, { recursive: true, mode: 0o700 });
@@ -581,16 +586,33 @@ async function p32() {
     const r = runApprove(benzo, st, dir, fx, 1);
     const entry = approvalLedger(st, fx.id).find(e => e.txid === T_OLD);
     const mapped = Array.isArray(entry?.mapped) ? entry.mapped : [];
+    console.log(`OBSERVE p32-a-${part} approve exit=${r.code} mapped=[${mapped.map((m: any) => `${m.party}:${m.amount_zats}`).join(", ")}] counts=${countsAsPaid(entry, leaf0)}`);
+    check("p32-a-no-stored-amounts-no-heal", r.code === 0 && !Array.isArray(entry?.mapped) && countsAsPaid(entry, leaf0) === 0,
+      `a record with no stored amounts never heals on either leg (B54's fail-closed residual, H26) — mapped=undefined, counts=${countsAsPaid(entry, leaf0)}`);
+  }
+
+  // ---- (a2) migration on read: a record WITH the stored attestation heals at the stored amounts -------
+  {
+    const { st, dir } = approveWorld(`p32-a2-${part}`, fx, 1, candidateRows);
+    const adir = path.join(st, "approvals", fx.id); mkdirSync(adir, { recursive: true, mode: 0o700 });
+    const T_OLD = hash("b53-p32-pre-b49-stored");
+    writeFileSync(path.join(adir, "batch-2.json"), JSON.stringify({ map: signApprovalMap({ auction_id: fx.id, batch: 2, txid: T_OLD,
+      outputs: [{ party: "leaf:0", output_index: 0 }], defaults: [], balance_refunds: [] }, witnessPrivate("0")),
+      attested: [{ party: "leaf:0", output_index: 0, amount_zats: leaf0 }] }));
+    writeFileSync(path.join(adir, "ledger.json"), JSON.stringify([{ batch: 2, txid: T_OLD, expiry_height: 100500, approved_tip: 100000, sources: [] }]) + "\n");
+    const r = runApprove(benzo, st, dir, fx, 1);
+    const entry = approvalLedger(st, fx.id).find(e => e.txid === T_OLD);
+    const mapped = Array.isArray(entry?.mapped) ? entry.mapped : [];
     const got = mapped.map((m: any) => `${m.party}:${m.amount_zats}`).join(", ");
-    console.log(`OBSERVE p32-a-${part} approve exit=${r.code} mapped=[${got}] counts=${countsAsPaid(entry, leaf0)}`);
+    console.log(`OBSERVE p32-a2-${part} approve exit=${r.code} mapped=[${got}] counts=${countsAsPaid(entry, leaf0)}`);
     if (part === "after") {
-      check("p32-a-healed-on-read", r.code === 0 && mapped.length === 1 && mapped[0].party === "leaf:0" && mapped[0].amount_zats === leaf0 && mapped[0].output_index === 0,
-        `the pre-B49 entry's mapped is healed from its own stored map plus this host's derived amounts ([${got}])`);
-      check("p32-a-counts-as-paid", countsAsPaid(entry, leaf0) === 1,
+      check("p32-a2-healed-from-stored", r.code === 0 && mapped.length === 1 && mapped[0].party === "leaf:0" && mapped[0].amount_zats === leaf0 && mapped[0].output_index === 0,
+        `the entry's mapped is healed from its own stored attestation, cross-checked against this host's derivation ([${got}])`);
+      check("p32-a2-counts-as-paid", countsAsPaid(entry, leaf0) === 1,
         "and its receipts count as paid at the shared rule after migration on read");
     } else {
-      check("p32-a-red-never-heals", r.code === 0 && !Array.isArray(entry?.mapped) && countsAsPaid(entry, leaf0) === 0,
-        `the base keeps mapped=undefined on read — the entry's receipts can never count as paid (counts=${countsAsPaid(entry, leaf0)})`);
+      check("p32-a2-red-never-heals", r.code === 0 && !Array.isArray(entry?.mapped) && countsAsPaid(entry, leaf0) === 0,
+        `the base heals nothing at all, stored or not — mapped=undefined (counts=${countsAsPaid(entry, leaf0)})`);
     }
   }
 
