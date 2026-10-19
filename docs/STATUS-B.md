@@ -3,6 +3,157 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B56 (Builder A, branch `b56-unpaid-return`, from `92fc8da`) — R121: an unpaid `reserve-return` row is never published (ruling on B54's Q4)
+
+**DONE, offline only** (no testnet, no wallets, no VMs, no funds, no live Playwright; stubs and own tmp
+state/builds only — the folds' one drand beacon fetch is the h-fixtures rule, Q6). Spec:
+`docs/design/phase7-b56-unpaid-return-row.md`; source report B54's Q4 below. Worktree `../benzo-b56`,
+branch `b56-unpaid-return`, base `92fc8da`. Commits `--no-verify` (R32): `a035e1e` (item 1, Publish),
+`5fea7dc` (item 3, Recovery), `028ce0d` (item 4, Docs), `b88ff45` (the proof fold
+`tools/repro/b56-unpaid-return.ts`), `4c0f90d` (the evidence, run at `b88ff45`); this status commit closes
+the batch. Item 2 (Hosts) is a check, not a code change — its result is below. Setup:
+`git worktree add ../benzo-b56 -b b56-unpaid-return 92fc8da`; `vendor/` copied (`cp -R ../benzo/vendor .`,
+never symlinked); `node_modules` COPIED, not symlinked (`cp -Rc ../benzo/node_modules .` — Q8); green
+bundles `npm run build:core && npm run build:settle && npm run build:cli` (the last includes `cargo build
+--release --locked`, offline/vendored); `tmp/b47-republish.mjs` built first (R118). B55 (`b55-cancel-rg`)
+was editing `settle/plan.ts` ~:303-320, `cli/host-derive.ts` ~:100-290 and `e2e/*` in parallel — B56
+touches none of them (its files: `settle/deposits.ts`, `settle/cli.ts` ~:694, `cli/product.ts`,
+`docs/guide-operator.md`, `tools/repro/b56-unpaid-return.ts`). Before every commit
+`git diff --cached --summary | grep 120000` printed nothing (no symlinks staged; `vendor`, `node_modules`,
+`tmp` and `.env` are gitignored).
+
+Status block (every command and its result):
+
+- `npm run typecheck` — OK (clean at every commit). `check:structure` — OK (221 files).
+  `check:invariants` — OK (`{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}`, both runs). `check:dist-require` —
+  OK. `check:bundle` — OK (`ec044a12…` matches both the committed sha and a fresh rebuild): the verify
+  bundle does NOT change — the new `rowPublishes` export in `settle/deposits.ts` tree-shakes out of
+  `cli/verify-standalone.ts`'s import graph, so the design's "if the verify bundle changes" did not fire
+  (no rebuild, no new sha file).
+- **Item 1 (Publish)** — `settle/deposits.ts:122-131` `rowPublishes` (the one rule: a `reserve-return` row
+  publishes only once its state is in the paid set `receipts()` uses — Q3); `cli/product.ts:104-112` (the
+  published settlement rows filter through it — `doc.settlement.rows`, which :151 also writes as the
+  public `summary.json`); `settle/cli.ts:694-700` (the summary writer's rows filter through it too — the
+  design's "every place that writes published or summary rows"). The private `settle/ledger.ts` keeps the
+  row and its state unchanged (its reason — Q2). Red/green: the b56 fold's `skew` case (below) and the
+  `heal` red (the base's own publish writes the bare row the red asserts).
+- **Item 2 (Hosts)** — checked, no code change needed. The listing/derive paths read the row only from the
+  published doc, directly or as the packet's copy of it: `sign derivable` → `deriveRows`
+  (`cli/host-derive.ts:83-90`) runs the full public check on `packet/public` — the copy `hostDerivable`
+  (`settle/cli.ts:141-146`) makes of the PUBLISHED dir — and `deriveReserveReturn`
+  (`cli/host-derive.ts:337`) reads `pub.settlement.rows` from that same copy for its owed gate;
+  `sign build`/`sign approve` read their packet's `rows.json`/`reserve_row` (the row being PAID, never an
+  unpaid published row) and their own approval ledgers. No host-side check reads an unpaid
+  `reserve-return` row from anywhere else (design item 2's "if a host-side check also reads the row from
+  somewhere else, name it" — none does; Q5), so with the row unpublished the wall
+  (`no signer host could list its derivable rows`) cannot form — proven by the `skew` green.
+- **Item 3 (Recovery)** — `cli/product.ts:556-565`: `benzo settle` republishes a directory that already
+  carries a bare `reserve-return` row BEFORE the worker sends the hosts its packet — the republish drops
+  it (item 1's filter), the hosts' public check accepts, and the run proceeds. That ordering is forced:
+  the worker dies at the wall before any end-of-run publish could run (the `heal` red shows exactly
+  that). Do-not-edit-evidence respected: no committed published dir was touched, and the four historical
+  dirs still verify (below). Q4 on the mechanism.
+- **Item 4 (Docs)** — `docs/guide-operator.md:338-339`, one line in the reserve-return paragraph: "A
+  reserve return that is waiting does not appear in the public directory until it is paid; `benzo settle`
+  prints why it waits."
+- **Proof** — `tools/repro/b56-unpaid-return.ts` (commit `b88ff45`), reusing the b54 worlds
+  (writeWorld/seedBatchOne, kept as a shared copy) and the b47 stub harness, with one new knob: this
+  fold's own host `benzo-scan` stub omits the notes the HOSTS' fixture.json `host_scan_omit_txid` names —
+  the one-note-behind plan/host skew of B54's Q4 (inert without it; the coordinator's scan is whole).
+  Each case red on base `92fc8da` bundles (`tmp/b56/base-src`, built once from the pristine base) and
+  green after (`docs/evidence/phase-7/repro/b56-*.out`, each run recorded at `b88ff45`):
+
+| case | red on base (`b56-*-red.out`) | green after (`b56-*-green.out`) |
+|---|---|---|
+| (a) skew | 4/0 — run 1 publishes the bare row with the typed reason naming the wall; its own verify refuses the doc (`a reserve-return row or receipt without the published reserve_return accounting`); every later `benzo settle` dies before pinning (`no signer host could list its derivable rows`, exit 1) | 5/0 — the doc publishes without the row; the private ledger keeps the row (state `exception`); the run prints the typed waits line; verify accepts (19 OK); a second run exits 0 |
+| (b) heal | 3/0 — the fabricated pre-B56 dir (bare row + its reason, the summary rows verbatim) stays walled: exit 1, the row stays, verify refuses | 4/0 — the next `benzo settle` drops the row (the pre-run republish), proceeds past the derivable gate (the skew persists: the row re-pins as its exception row and stays unpublished), verify accepts |
+| (c) paid | 1/0 — the same pre-B56 dir with the skew healed is still walled on base: the return can never be paid (no receipt, no accounting) | 4/0 — the run heals AND pays: the `paid` row, its receipt and the accounting `{remaining_zats 50000, fee_zats 10000, dust 0/"0"}` publish, verify accepts, a re-run is byte-clean |
+
+- **Folds all green** on the final tree (`docs/evidence/phase-7/repro/*-b56-fold*`, `r*-b56.out`) — every
+  leg's counts equal B54's recorded counts, so nothing here moved them:
+
+| fold | result |
+|---|---|
+| b44-opener | before 25/0, after 29/0, RESULT PASS both |
+| b46-reserve-return | before 8/0, before52 4/0, after 66/0, RESULT PASS all |
+| b47-settle-e2e | before 7/0, before51 7/0, before52 5/0, after 49/0, RESULT PASS all |
+| b48-p3s | 23/0, RESULT PASS |
+| h10-seller-binding | 22/0, RESULT PASS |
+| h13-host-scale | before 8/0, after 38/0, RESULT PASS both |
+| h14-open-griefing | before 12/0, after 14/0, RESULT PASS both |
+| b53-resume-ledger | before 19/0; after 28/0 across 7 sections (run per section — `run-folds.sh`'s own shape, Q6) |
+| b54-dust-and-sweep | before 16/0, after 29/0, RESULT PASS both |
+| replays r77, r78, r82 | each exit 0 — honest ACCEPTED, each tamper REFUSED (`r77-b56.out`, `r78-b56.out`, `r82-b56.out`) |
+
+- Base trees built by each fold's own recipe into this worktree's `tmp/` (`tmp/build-b56-bases.sh`):
+  `tmp/b56/base-src` (`92fc8da`), `tmp/b54/base-src` (`9324d02`), `tmp/b44/base-src` + `tmp/b44/base`
+  (`d646ceb`), `tmp/b45/base-tree` + `tmp/b45/base` (`cd19905`), `tmp/b43/base-tree` + `tmp/b43/base`
+  (`5086be1`), `tmp/b46/base-src` (`a81e826`), `tmp/b46/base49-src` (`7c4e661`), `tmp/b47/base-src`
+  (`8a9f638`), `tmp/b51/base-src` (`a107447`), `tmp/b52/base-src` + `tmp/b53/base-src` (`59c863c`).
+- The committed published dirs still verify (the `run-folds.sh` dir loop,
+  `node dist/benzo-verify.mjs --dir <copy> --signer <S>`): `launch-r34/launch-cold`, `doc/walk/public`,
+  `phase-7/h15-live/public`, `rel-walk-ca34e2a/public` — each exit 0 with 19 OK lines (`tmp/sc55-cold` is
+  a main-checkout tmp artifact absent from this worktree). Nothing in B56 touches verify.
+- `npm run e2e` — **blocked in this worktree, unverified**: `NOT RUN tle missing at
+  …/.benzo-b56/.benzo/bin/tle` (captured after a B54-shape own `.env` from `.env.example`) — the Go
+  `tle` binary lives only in the main checkout's `.benzo/` (forbidden) or a network fetch (forbidden).
+  Nothing in B56 touches the seal/open paths.
+
+### Questions
+
+- **Q1 (the "typed waits line" wording):** rule 1 says "The run still prints the typed waits line" and
+  case (a) says "a second run exits 0 with the waits line". Implemented/observed as the line the run
+  already prints for the pinned row — `ERROR refund reserve-return to the exception queue: <reason>`, the
+  row's typed reason (`the vault's value cannot be swept in one transaction (the tool's quote spends
+  50000 zats of this signer's scanned unspent total 30000)` in the fold's world — the host's typed
+  refusal). The plan's literal `reserve return waits: …` lines are unchanged and still print whenever the
+  plan does NOT derive the row (the b54 fold's p33 green shows one). In the skew case the plan DOES
+  derive the row (that is the case's premise), so there is no plan-side waits line there without moving
+  the plan's gate — not in the design's list of places. If the head meant a literal `reserve return
+  waits:` line in case (a), say and I add a print at the drop point.
+- **Q2 ("the private ledger keeps … its reason"):** `settle/ledger.ts`'s obligations table has no reason
+  column (`Row` — "stored rows carry no derivation notes"); the row and its state persist there, while the
+  reason lives in the summary rows the run re-derives every time. Rule 1 says to leave the row out of
+  every writer of "published or summary rows", so the summary writer filters it too
+  (`settle/cli.ts:694-700`) and the reason is then kept as the run's printed line (Q1) rather than a
+  stored field. If the head wants the private summary to keep the row + reason (filtering only at the
+  publish boundary, `cli/product.ts:112`), it is one line: drop the `.filter(rowPublishes)` at
+  `settle/cli.ts:700`.
+- **Q3 (the paid set):** the design says "whose state is not `paid`"; the filter uses the codebase's own
+  paid set `["paid","refunded"]` (the set `reservePaid`, `paidReturn` and `receipts()` all use). A
+  `reserve-return` row is kind `payout` and confirms as `paid` (`settle/ledger.ts` confirm), so the sets
+  coincide for it in practice, and keeping a hypothetical `refunded` row published avoids a
+  receipt-without-row at verify's accounting (`exactly one row and one receipt`). Say if the head wants
+  the literal `state === 'paid'`.
+- **Q4 (the recovery mechanism):** ruling item 3 — "the republish drops it, verify accepts, and the run
+  proceeds" — needs the republish BEFORE the hosts see the doc: the worker dies at the wall
+  (`no signer host could list its derivable rows`, exit 1) before any end-of-run publish could run.
+  Implemented as `benzo settle` republishing at command start when the published dir carries a bare
+  unpaid return row (`cli/product.ts:556-565`). The alternative — filtering the bare row out of the
+  packet's copy of the public dir in `hostDerivable` — would also heal, but then the hosts check a doc
+  that differs from the published one; the chosen mechanism heals the PUBLISHED doc itself. If the head
+  pictured the other one, say.
+- **Q5 (item 2's "name it"):** named in the status block above — the only host-side readers of the row
+  are the packet's copy of the published doc (`sign derivable`'s full public check and
+  `deriveReserveReturn`'s owed gate) and the `sign build`/`sign approve` packets' `reserve_row`/`rows.json`
+  (the row being paid). No other host-side source exists.
+- **Q6 (the b53 green run's shape):** the fold's full-sequence `after` run dies deterministically at its
+  4th in-process drand beacon fetch (`fetch failed … UND_ERR_SOCKET other side closed`) while the same
+  fetch succeeds standalone, per-section, and in the full `before` run — undici's pooled keep-alive
+  socket goes stale between the long green sections and `fetch` does not retry it.
+  `tmp/run-folds.sh` runs b53 per section with retries for exactly this; the per-section runs are all
+  green (28/0, `b53-resume-ledger-b56-fold-after-<section>.out`). Not a product-code failure (the same
+  fetch works in every shorter run), flagged since the evidence is per-section.
+- **Q7 (e2e):** blocked exactly as B53/B54's Q7 (the Go `tle` binary is main-checkout `.benzo/` or a
+  network fetch, both forbidden). B56 touches no seal/open code.
+- **Q8 (setup deviation — `node_modules` copied, not symlinked):** B54's setup symlinked `node_modules`
+  to the main checkout's; through a symlink esbuild records `../benzo/node_modules/…` module paths in the
+  verify bundle, so `check:bundle` reports the main checkout's committed `ec044a12…` stale at
+  `2b642a14…` even on a PRISTINE tree (the hash B54 committed — the head's R120 merge rebuilt it as
+  `ec044a12…` in the main checkout). This worktree copies `node_modules` (`cp -Rc`, APFS clone) so a
+  fresh rebuild is byte-identical to the main checkout's and `check:bundle` is meaningful here. Nothing
+  is staged (`node_modules` is gitignored).
+
 ## Batch B54 (Builder A, branch `b54-dust-sweep`, from `9324d02`) — Reviewer R round 5: the sweep spends what the wallet can spend (P2-1 dust; P3-1 to P3-6)
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets,
