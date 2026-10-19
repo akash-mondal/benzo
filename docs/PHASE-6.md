@@ -969,7 +969,8 @@ Both go to B55 (`docs/design/phase7-b55-cancel-before-r-and-rg-harness.md`). The
 B55 is cherry-picked onto main as 5 commits. The only conflict was the STATUS-B markers.
 - The verify bundle is unchanged (`ec044a12…`; B55's files are not in its graph). `npm run check` and `tsc -p .` (which covers the specs) are green.
 - Folds: b55-cancel-before-r before PASS and after PASS (it needs the builder's base bundles in `tmp/b55/`), b55-h19-bound PASS, b44 29, b46 66, b47 49, h13 38, h14 14, b54 29 (one retry after a drand relay timeout), b48 23, h10 22, and b53 28 across 7 sections.
-- Replays r73, r77 ×2, r78, r81 and r82 exit 0. All 5 published dirs give 19 OK. The offline e2e passes.
+- Replays r73, r77 ×2, r78, r81 and r82 exit 0. All 5 published dirs give 19 OK.
+- **Correction:** the offline e2e did NOT pass at this commit. It failed on a drand relay connect timeout (`13.56.55.21:443`, the same timeout as the b54 fold's first try). The head also ran it during the live settle-crash canary. The e2e's global setup clears `tmp/e2e/out`, which deleted three of the canary's early record files (`manifest.json`, `routing-commitment.json`, `signer.json`) and overwrote `tmp/e2e/command.txt`. The canary's pass/fail still stands as a code canary, but its evidence dir is not an RG artifact. The e2e reruns after the canary. Rule: never run two Playwright runs at once in one checkout.
 
 Rulings on B55's questions:
 - **Q1.** Accepted. A frozen-but-cancelled packet skips the internal `benzo verify`, which needs a result. The host still checks the manifest signature, recomputes the frozen root from its own scan (`recomputeFrozen`) and checks the pinned root. On base, such a packet could never settle under host custody.
