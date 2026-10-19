@@ -16,7 +16,7 @@ import { loadPublicAuction } from "../api/public-auction";
 import { openEnvelopeRefundUnchecked, verifyStatement } from "../envelope/index";
 import { classifyAddresses, useClassifyCache, type Classified } from "../envelope/destination";
 import { Destination, authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
-import { depositParty, isSlotCollision, refundable, reserveReturnAmount, reserveReturnOutstanding, strayNotes } from "../settle/deposits";
+import { depositParty, isSlotCollision, paidByOwnLedger, refundable, reserveReturnAmount, reserveReturnOutstanding, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, bondVoidAt, isRefundRowParty, type BalanceRefund } from "../clear/features";
 import { blockHeader, chainTip } from "./host-chain";
@@ -151,17 +151,25 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // bulk classify-address per 2,000 addresses, or zero spawns when the cache covers them). The per-row
     // verdicts are untouched: openDestination still runs the destination rule on every row, now served by the
     // memo, so this prefetch cannot change an answer.
+    // B49 (P1-1): the prefetch passes the classifier ONLY candidate strings that are non-empty and carry no
+    // control character. A crafted refund of "" or one with a NUL or newline would make classifyAddresses
+    // throw and freeze every host's sign build/approve/derivable — one bad record must never stop settlement.
+    // The per-row verdicts are unchanged: openDestination runs the unchanged destination rule per row and
+    // refuses such a destination itself (its null contract), so that row is underivable exactly as before.
+    const classifiable = (refund: string): boolean => refund.length > 0 && !/[\x00-\x1f\x7f]/.test(refund);
     const derived: string[] = [];
     for (const e of (pub.envelopes ?? []) as { envelope_ct: string }[]) {
       const refund = openEnvelopeRefundUnchecked(e.envelope_ct, key!);
-      if (refund !== null) derived.push(refund);
+      if (refund !== null && classifiable(refund)) derived.push(refund);
     }
     for (const c of claims as { claim_envelope_ct?: unknown }[]) {
       const refund = typeof c.claim_envelope_ct === "string" ? openEnvelopeRefundUnchecked(c.claim_envelope_ct, key!) : null;
-      if (refund !== null) derived.push(refund);
+      if (refund !== null && classifiable(refund)) derived.push(refund);
     }
     if (treasuryBlock(pub.manifest)) derived.push(treasuryBlock(pub.manifest)!.treasury_ua);
-    classifyAddresses(derived);
+    // B49 (P1-1): the prefetch is an optimization and decides nothing, so a classifier error here is never
+    // fatal — the per-row path classifies or refuses that one row exactly as before.
+    try { classifyAddresses(derived); } catch { /* warm the cache only */ }
     const expected: DerivedRow[] = [];
     const notes = await ownScan(st, root, o.id, (pub.manifest as any).network);
     const deposits = notes.filter((n: any) => pub.manifest.deposit_addresses.includes(n.address));
@@ -379,7 +387,16 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
     const back = treasuryReturn(m, cancelled ? null : pub.result as any, treasuryFunded(m, notes, chainTip(st)));
     if (back > 0n) owed.push({ party: "treasury", amount_zats: back.toString() });
   }
-  const outstanding = reserveReturnOutstanding({ owed, rows: pub.settlement?.rows ?? [], receipts: pub.settlement?.receipts ?? [],
+  // B49 (P0-1/P2-2, docs/design/phase7-b49-paid-means-mined.md): a published receipt counts as paid only
+  // when THIS host's own approval ledger approved that txid with the row among its mapped outputs at that
+  // amount, and THIS host's own scan shows the paying transaction mined 10 deep (settle/deposits.ts
+  // paidByOwnLedger — the one shared rule the plan runs too). Packet receipts are only an index; a row
+  // without such a receipt is outstanding, including a row whose receipt's transaction a reorg un-mined.
+  const ledgerFile = path.join(st, "approvals", o.id, "ledger.json");
+  const ownLedger = existsSync(ledgerFile) ? (JSON.parse(readFileSync(ledgerFile, "utf8")) as any[]).flatMap(e =>
+    Array.isArray(e.mapped) ? e.mapped.map((mm: any) => ({ txid: String(e.txid), party: String(mm.party), output_index: Number(mm.output_index), amount_zats: String(mm.amount_zats) })) : []) : [];
+  const counted = paidByOwnLedger((pub.settlement?.receipts ?? []) as any, ownLedger, notes as any, chainTip(st));
+  const outstanding = reserveReturnOutstanding({ owed, rows: pub.settlement?.rows ?? [], receipts: counted,
     balance_refunds: pub.settlement?.balance_refunds ?? [] });
   // R107: an ordinary batch's packet carries reserve_return_ua too, so only a packet that DECLARES the return row
   // is refused while something is owed; for any other packet the answer is simply "no return row yet".

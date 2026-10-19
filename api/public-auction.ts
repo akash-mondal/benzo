@@ -71,7 +71,12 @@ type TrustEntry = { trust: Trust; verifiedBy: readonly string[] } | { trust: "in
 export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } = {
   auction_id: { trust: "derived", verifiedBy: ["receipt-attestation"] }, // R82: bound to the manifest's auction_id
   rows: { trust: "derived", verifiedBy: ["accounting", "accounting-strays"] }, // R81: a cancelled settlement has no result, so only accounting-strays reads its rows
-  receipts: { trust: "chain-receipt", verifiedBy: ["accounting", "receipt-attestation"] },
+  // B49 (Reviewer R round 2 P0-1/P3-6): `benzo verify` checks receipt attestation, NOT on-chain inclusion —
+  // verify is offline by design. Inclusion is checked by the signer hosts before any reserve return ("paid"
+  // means this host approved the row and its own scan shows the paying transaction mined 10 deep —
+  // settle/deposits.ts paidByOwnLedger). What verify does check is that every receipt's txid is one of the
+  // published mined batch txids (receipt-attestation).
+  receipts: { trust: "host-attested", verifiedBy: ["accounting", "receipt-attestation"] },
   ignored: { trust: "derived", verifiedBy: ["accounting-strays"] },
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
@@ -633,6 +638,17 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // R83 (Reviewer R R82-3): each receipt names this auction.
     requireThat(receipts.every(r => r.auction_id === pub.manifest.auction_id), "a settlement receipt names another auction");
     requireThat(new Set(receipts.map(r => `${r.txid}:${r.pool}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output"); // R81: per-pool action index
+    // B49 (design item 3): when the published doc carries the batch txids and their heights, every receipt's
+    // txid must be one of the published MINED batch txids — a receipt naming a transaction the settlement
+    // never published as mined is refused here. On-chain inclusion itself stays outside verify (offline by
+    // design; the hosts check it before any reserve return).
+    {
+      const batches = (pub.settlement.batches ?? []) as { txid?: string | null; height?: number | null }[];
+      if (batches.length > 0) {
+        const mined = new Set(batches.filter(b => b && typeof b.txid === "string" && b.height != null).map(b => String(b.txid)));
+        for (const r of receipts) requireThat(mined.has(String(r.txid)), `receipt ${r.party} names a transaction that is not a published mined batch`);
+      }
+    }
     // R78 (F-2): rows and batches carry exactly their documented keys, so no extra field can ride along (R81: the
     // pre-Phase-5 legacy format keeps its own shape; the leak guard and the receipt checks still apply to it).
     // R82: one key/value set for every document; it includes the worker summary's batch `proofs` and allows a batch

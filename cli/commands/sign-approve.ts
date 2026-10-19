@@ -20,6 +20,7 @@ import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
 import { deriveRows, deriveReserveReturn, redactCandidate } from "../host-derive";
+import { canonicalSourceId } from "../../settle/deposits";
 import { chainTip, minedHeight, provenAbsent } from "../host-chain";
 import { openBlob } from "../../envelope/index";
 import { signApprovalMap } from "../../witness";
@@ -108,20 +109,24 @@ export async function run(argv: string[]): Promise<number | object> {
     if (sellerBinding === "mismatch" && sellerInBatch)
       throw Object.assign(new Error("seller payout address does not match the manifest seller_ua_commitment (H10)"), { refusedRows: ["seller"] });
     const sources: string[] = [], mapped: { party: string; output_index: number }[] = [];
+    // B49 (P0-1): this host's own approval record keeps each mapped output at its amount, so the reserve
+    // gate (and any later one) can check "this host approved that txid with that row at that amount"
+    // against its own ledger — the signed map stays {party, output_index} as before.
+    const attested: { party: string; output_index: number; amount_zats: string }[] = [];
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
-      if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(e.source); mapped.push({ party: e.party, output_index: out.index }); continue; }
+      if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(canonicalSourceId(e.source)); mapped.push({ party: e.party, output_index: out.index }); attested.push({ party: e.party, output_index: out.index, amount_zats: String(out.amount_zats) }); continue; }
       // B46 (H15): the reserve-return output pays the whole unspent value minus the fee to the committed
       // return UA (checked above), and its spent notes join this host's approval ledger (Ruling R28 item 3),
       // so a second live candidate can never spend them again.
       if (reserve?.row && typeof meta.reserve_return_ua === "string" && out.recipient === meta.reserve_return_ua && String(out.amount_zats) === reserve.row.amount_zats && !reserveSeen) {
-        reserveSeen = true; sources.push(...reserve.row.ids); mapped.push({ party: "reserve-return", output_index: out.index }); continue;
+        reserveSeen = true; sources.push(...reserve.row.ids.map(canonicalSourceId)); mapped.push({ party: "reserve-return", output_index: out.index }); attested.push({ party: "reserve-return", output_index: out.index, amount_zats: String(out.amount_zats) }); continue;
       }
       // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing), which H10 binds
       // to the signed manifest (checked above); paid at most once by the ledger.
       // Part 2 (bond-then-pay): the balance notes backing that payout are sources too, so no second live candidate can
       // spend them again.
-      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller", ...balanceSources); mapped.push({ party: "seller", output_index: out.index }); continue; }
+      if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller", ...balanceSources.map(canonicalSourceId)); mapped.push({ party: "seller", output_index: out.index }); attested.push({ party: "seller", output_index: out.index, amount_zats: String(out.amount_zats) }); continue; }
       // B46 (H15, R103): a return candidate's every output must be the one return row — an output at any
       // other amount (not the scanned total minus the fee) is a typed refusal, never a silent mismatch.
       if ((meta as any).reserve_row)
@@ -135,12 +140,23 @@ export async function run(argv: string[]): Promise<number | object> {
     // Ruling R28 item 3 (F2): this host's own approval ledger. A source (deposit note, seller, treasury) already in
     // another approved candidate is approved again only when this host sees from the chain that the earlier
     // transaction never mined and can no longer mine (past its expiry) — the legitimate expired-batch re-plan.
+    // B49 (P2-a): every source — ordinary rows and the reserve-return row alike — is the one canonical note
+    // identity, so a reserve-return candidate collision-checks against ordinary batches and vice versa.
     // R28 item 9 (F9): the candidate must expire after the tip and within 10,000 blocks.
     const tip = chainTip(st);
     requireThat(info.expiry_height > tip && info.expiry_height <= tip + 10000, `candidate expiry ${info.expiry_height} outside (tip, tip + 10000]`);
     const dir = path.join(st, "approvals", o.id), ledgerFile = path.join(dir, "ledger.json");
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const ledger: { batch: number; txid: string; expiry_height: number; sources: string[]; approved_tip?: number }[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
+    const ledger: { batch: number; txid: string; expiry_height: number; sources: string[]; approved_tip?: number; mapped?: { party: string; output_index: number; amount_zats: string }[] }[] = existsSync(ledgerFile) ? JSON.parse(readFileSync(ledgerFile, "utf8")) : [];
+    // B49 (P2-a): migrate on read — every recorded source is normalized to the one canonical note identity
+    // (settle/deposits.ts canonicalSourceId) and the file is rewritten once, so an old mixed-namespace
+    // entry collision-checks against candidates of every row kind.
+    let migrated = false;
+    for (const e of ledger) {
+      const normalized = e.sources.map(canonicalSourceId);
+      if (normalized.some((x, i) => x !== e.sources[i])) { e.sources = normalized; migrated = true; }
+    }
+    if (migrated) writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });
     // R60 (Reviewer R P2 on R58): never approve a candidate that has already mined (a late approver would otherwise
     // record an approval tip above its mining height).
     requireThat(minedHeight(st, info.txid) === 0, `candidate ${info.txid} has already mined; refusing a late approval`);
@@ -178,7 +194,7 @@ export async function run(argv: string[]): Promise<number | object> {
     const map = existsSync(wkey) ? signApprovalMap({ auction_id: o.id, batch: Number(o.batch), txid: info.txid, outputs: mapped.sort((a, b) => a.output_index - b.output_index), defaults, balance_refunds: paidRefunds as any, strays: paidStrays, ...(bondVoid ? { bond_void: true } : {}), ...(bondStart ? { bond_start: bondStart } : {}) }, readFileSync(wkey, "utf8").trim()) : null;
     const approval = { auction_id: o.id, batch: Number(o.batch), name: o.name, plan_version: planVersion, sighash, txid: info.txid, map, outputs: outputs.length, spends: (info.randomizers ?? []).length, randomizers: info.randomizers ?? [], defaults, approved_at: Math.floor(Date.now() / 1000) };
     writeFileSync(path.join(dir, `batch-${o.batch}.json`), JSON.stringify(approval) + "\n", { mode: 0o600 });
-    if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources, approved_tip: tip });
+    if (!ledger.some(e => e.txid === info.txid)) ledger.push({ batch: Number(o.batch), txid: info.txid, expiry_height: info.expiry_height, sources, approved_tip: tip, mapped: attested });
     writeFileSync(ledgerFile, JSON.stringify(ledger) + "\n", { mode: 0o600 });
     return approval;
   } catch (e) {

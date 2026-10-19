@@ -14,7 +14,7 @@ import {openSealedBid} from "../envelope/opening";
 import {decryptPublished,publishedClient,fetchVerifiedBeacon} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
 import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
-import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnAmount,reserveReturnOutstanding} from "./deposits";
+import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnAmount,reserveReturnOutstanding,paidByOwnLedger} from "./deposits";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -74,11 +74,17 @@ try {
   let tip=JSON.parse(wallet("balance","--json")).chain_tip_height;
   const ledgerFile=path.join(state,"settle",id,"ledger.sqlite"),owned=new Set<string>();
   let pendingBatches=0;
+  // B49 (P0-1, docs/design/phase7-b49-paid-means-mined.md): this coordinator's own ledger of PAID rows —
+  // the batches it staged and confirmed — is what a published receipt must match before it counts as paid
+  // (settle/deposits.ts paidByOwnLedger, the one shared rule the hosts run too).
+  const ownPaid:{txid:string;party:string;output_index:number;amount_zats:string}[]=[];
   if(existsSync(ledgerFile)) {
     const db=new DatabaseSync(ledgerFile,{readOnly:true});
     try {for(const b of db.prepare("SELECT txid,pczt_path,pczt_hash FROM batches WHERE txid IS NOT NULL AND state!='exception'").all()) {
       requireThat(hash(readFileSync(String(b.pczt_path)))===b.pczt_hash,"staged PCZT changed on resume");owned.add(String(b.txid));
     }
+    for(const r of db.prepare("SELECT party,amount_zats,txid,output_index FROM obligations WHERE state IN ('paid','refunded') AND txid IS NOT NULL AND output_index IS NOT NULL").all() as any[])
+      ownPaid.push({txid:String(r.txid),party:String(r.party),output_index:Number(r.output_index),amount_zats:String(r.amount_zats)});
     // B46 (H15): the reserve-return row is planned only when no batch is pending (every staged transaction has
     // mined), so its sources can never race a batch that still holds a note.
     // R107b: the return's own batch is not a pending batch for the return's gate, or allocating it would cancel it.
@@ -375,7 +381,7 @@ try {
   // so with one line; while anything is owed, one waits line names the outstanding count — an unclaimed stray
   // delays the return indefinitely (the conservative choice, disclosed in docs/guide-operator.md).
   let reserve_return:{party:string;kind:"payout";amount_zats:string;remaining_zats:string;fee_zats:string}|null=null;
-  const receipts:{party:string;amount_zats:string}[]=(published?.settlement?.receipts??[]) as any;
+  const receipts:{party:string;amount_zats:string;txid:string;output_index:number}[]=(published?.settlement?.receipts??[]) as any;
   // The owed set, from our own derivation, run WITHOUT requiring a destination (R103): every row this plan
   // owes or parks is owed whether or not anyone claimed it, and every stray deposit note of our own scan is
   // owed the same way — spent or not, since a note a batch swept into change is still an unpaid stray until
@@ -386,7 +392,11 @@ try {
   const strayOwed=refundable((cancelledPlan?allDepositNotes:strayNotes(allDepositNotes,m,src.frozen)) as any).payable
     .map((n:any)=>({party:depositParty(n),amount_zats:String(n.value_zats)}));
   const owed=[...obligations,...exceptions].map(r=>({party:r.party,amount_zats:r.amount_zats})).concat(strayOwed);
-  const outstanding=reserveReturnOutstanding({owed,rows:(published?.settlement?.rows??[]) as any,receipts,
+  // B49 (P0-1/P2-2): a published receipt counts only when THIS coordinator's own ledger approved the row at
+  // that amount AND its own scan shows the paying transaction mined 10 deep (the one shared rule) — packet
+  // receipts alone are never trusted. The scan is the freshest one (the post-window scan when a bond ran).
+  const paid=paidByOwnLedger(receipts,ownPaid,balNotes.length?balNotes:notes,tip);
+  const outstanding=reserveReturnOutstanding({owed,rows:(published?.settlement?.rows??[]) as any,receipts:paid,
     balance_refunds:(published?.settlement?.balance_refunds??[]) as any,pending_batches:pendingBatches});
   if(m.reserve_return_ua_commitment===undefined) {
     process.stderr.write("WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment\n");

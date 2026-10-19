@@ -147,6 +147,47 @@ export function reserveReturnFee(sourceCount: number): bigint {
   return 5000n * BigInt(Math.max(2, sourceCount));
 }
 
+// B49 (Reviewer R round 2, P0-1/P2-2, docs/design/phase7-b49-paid-means-mined.md): the ONE rule for "paid",
+// judged from our own data only. A published receipt counts ONLY when both hold:
+//   - our own ledger approved a candidate with that txid and that row among its mapped outputs at that
+//     amount (a signer host's approval ledger approvals/<id>/ledger.json, or the plan's own settle ledger);
+//   - our own vault scan shows that txid mined and deep: a vault note with spent_in_txid = txid (the
+//     transaction spent one of this vault's notes) AND a vault note of that txid carrying a height at or
+//     below our own tip and at least 10 confirmations deep (the transaction's own note in our scan is the
+//     scan's evidence of its mined height).
+// Packet receipts are only an index — never trusted on their own. A row without such a receipt is
+// outstanding. A transaction a reorg un-mines loses both scan traces, so its row is owed again (P2-2).
+export type PaidReceipt = { party: string; amount_zats: string; txid: string; output_index: number };
+export type PaidAttestation = { txid: string; party: string; output_index: number; amount_zats: string };
+export type PaidScanNote = { txid: string; height: number | null; spent_in_txid: string | null };
+// The ZIP-315 depth a paying transaction must reach before its receipt counts (the design's 10).
+export const PAID_CONFIRMATIONS = 10;
+export function paidByOwnLedger<T extends PaidReceipt>(receipts: Iterable<T>, ownLedger: Iterable<PaidAttestation>, ownScan: Iterable<PaidScanNote>, tip: number): T[] {
+  const ledger = [...ownLedger], scan = [...ownScan];
+  const counted: T[] = [];
+  for (const r of receipts) {
+    const approved = ledger.some(l => l.txid === r.txid && l.party === r.party && l.output_index === r.output_index && l.amount_zats === r.amount_zats);
+    if (!approved) continue;
+    const funded = scan.some(n => n.spent_in_txid === r.txid);
+    const mined = scan.some(n => n.txid === r.txid && n.height != null && n.height <= tip && tip - n.height + 1 >= PAID_CONFIRMATIONS);
+    if (funded && mined) counted.push(r);
+  }
+  return counted;
+}
+
+// B49 (P2-a): ONE note identity for every approval-ledger source. Ordinary rows used to push
+// `deposit:<txid>:<pool>:<idx>` (or `balance-late:…`) while the reserve-return row pushed the bare
+// `<txid>:<pool>:<idx>`, so a reserve-return candidate never collision-checked against ordinary batches.
+// Every source is normalized to the bare note identity `<txid>:<pool>:<action_index>` — the settle ledger's
+// own refund-backing identity — so the same note is the same source under every row kind. Sources that are
+// not note identities (seller, treasury, leaf-deposit:…, balance-excess:…) are left alone. Old approval
+// ledgers are migrated on read (cli/commands/sign-approve.ts normalizes and rewrites them).
+const LEDGER_NOTE_SOURCE = /^(?:deposit|balance-late):([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
+export function canonicalSourceId(source: string): string {
+  const m = LEDGER_NOTE_SOURCE.exec(source);
+  return m && Number(m[3]) <= 65535 ? `${m[1]}:${m[2]}:${m[3]}` : source;
+}
+
 // The slot-collision notes among the strays (R40 item 1): their published envelope record belongs to the
 // frozen LEAF's ciphertext, so the memo-to-record binding is not publicly checkable for a stray row — the
 // plan and every host refund them through the owner-signed claim path only.

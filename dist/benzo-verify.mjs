@@ -35,9 +35,9 @@ var __toESM = (mod2, isNodeMode, target) => (target = mod2 != null ? __create(__
   mod2
 ));
 
-// node_modules/@noble/hashes/cryptoNode.js
+// ../benzo/node_modules/@noble/hashes/cryptoNode.js
 var require_cryptoNode = __commonJS({
-  "node_modules/@noble/hashes/cryptoNode.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/cryptoNode.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.crypto = void 0;
@@ -46,9 +46,9 @@ var require_cryptoNode = __commonJS({
   }
 });
 
-// node_modules/@noble/hashes/utils.js
+// ../benzo/node_modules/@noble/hashes/utils.js
 var require_utils = __commonJS({
-  "node_modules/@noble/hashes/utils.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/utils.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.wrapXOFConstructorWithOpts = exports.wrapConstructorWithOpts = exports.wrapConstructor = exports.Hash = exports.nextTick = exports.swap32IfBE = exports.byteSwapIfBE = exports.swap8IfBE = exports.isLE = void 0;
@@ -288,9 +288,9 @@ var require_utils = __commonJS({
   }
 });
 
-// node_modules/@noble/hashes/_md.js
+// ../benzo/node_modules/@noble/hashes/_md.js
 var require_md = __commonJS({
-  "node_modules/@noble/hashes/_md.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/_md.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.SHA512_IV = exports.SHA384_IV = exports.SHA224_IV = exports.SHA256_IV = exports.HashMD = void 0;
@@ -466,9 +466,9 @@ var require_md = __commonJS({
   }
 });
 
-// node_modules/@noble/hashes/_u64.js
+// ../benzo/node_modules/@noble/hashes/_u64.js
 var require_u64 = __commonJS({
-  "node_modules/@noble/hashes/_u64.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/_u64.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.toBig = exports.shrSL = exports.shrSH = exports.rotrSL = exports.rotrSH = exports.rotrBL = exports.rotrBH = exports.rotr32L = exports.rotr32H = exports.rotlSL = exports.rotlSH = exports.rotlBL = exports.rotlBH = exports.add5L = exports.add5H = exports.add4L = exports.add4H = exports.add3L = exports.add3H = void 0;
@@ -562,9 +562,9 @@ var require_u64 = __commonJS({
   }
 });
 
-// node_modules/@noble/hashes/sha2.js
+// ../benzo/node_modules/@noble/hashes/sha2.js
 var require_sha2 = __commonJS({
-  "node_modules/@noble/hashes/sha2.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/sha2.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.sha512_224 = exports.sha512_256 = exports.sha384 = exports.sha512 = exports.sha224 = exports.sha256 = exports.SHA512_256 = exports.SHA512_224 = exports.SHA384 = exports.SHA512 = exports.SHA224 = exports.SHA256 = void 0;
@@ -1032,9 +1032,9 @@ var require_sha2 = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/utils.js
+// ../benzo/node_modules/@noble/curves/utils.js
 var require_utils2 = __commonJS({
-  "node_modules/@noble/curves/utils.js"(exports) {
+  "../benzo/node_modules/@noble/curves/utils.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.notImplemented = exports.bitMask = exports.utf8ToBytes = exports.randomBytes = exports.isBytes = exports.hexToBytes = exports.concatBytes = exports.bytesToUtf8 = exports.bytesToHex = exports.anumber = exports.abytes = void 0;
@@ -1315,9 +1315,9 @@ var require_utils2 = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/abstract/modular.js
+// ../benzo/node_modules/@noble/curves/abstract/modular.js
 var require_modular = __commonJS({
-  "node_modules/@noble/curves/abstract/modular.js"(exports) {
+  "../benzo/node_modules/@noble/curves/abstract/modular.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.isNegativeLE = void 0;
@@ -1721,9 +1721,9 @@ var require_modular = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/abstract/curve.js
+// ../benzo/node_modules/@noble/curves/abstract/curve.js
 var require_curve = __commonJS({
-  "node_modules/@noble/curves/abstract/curve.js"(exports) {
+  "../benzo/node_modules/@noble/curves/abstract/curve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.wNAF = void 0;
@@ -2069,9 +2069,9 @@ var require_curve = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/abstract/hash-to-curve.js
+// ../benzo/node_modules/@noble/curves/abstract/hash-to-curve.js
 var require_hash_to_curve = __commonJS({
-  "node_modules/@noble/curves/abstract/hash-to-curve.js"(exports) {
+  "../benzo/node_modules/@noble/curves/abstract/hash-to-curve.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports._DST_scalar = void 0;
@@ -2244,9 +2244,9 @@ var require_hash_to_curve = __commonJS({
   }
 });
 
-// node_modules/@noble/hashes/hmac.js
+// ../benzo/node_modules/@noble/hashes/hmac.js
 var require_hmac = __commonJS({
-  "node_modules/@noble/hashes/hmac.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/hmac.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.hmac = exports.HMAC = void 0;
@@ -2322,9 +2322,9 @@ var require_hmac = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/abstract/weierstrass.js
+// ../benzo/node_modules/@noble/curves/abstract/weierstrass.js
 var require_weierstrass = __commonJS({
-  "node_modules/@noble/curves/abstract/weierstrass.js"(exports) {
+  "../benzo/node_modules/@noble/curves/abstract/weierstrass.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.DER = exports.DERErr = void 0;
@@ -3488,9 +3488,9 @@ var require_weierstrass = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/abstract/bls.js
+// ../benzo/node_modules/@noble/curves/abstract/bls.js
 var require_bls = __commonJS({
-  "node_modules/@noble/curves/abstract/bls.js"(exports) {
+  "../benzo/node_modules/@noble/curves/abstract/bls.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.bls = bls2;
@@ -3847,9 +3847,9 @@ var require_bls = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/abstract/tower.js
+// ../benzo/node_modules/@noble/curves/abstract/tower.js
 var require_tower = __commonJS({
-  "node_modules/@noble/curves/abstract/tower.js"(exports) {
+  "../benzo/node_modules/@noble/curves/abstract/tower.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.psiFrobenius = psiFrobenius2;
@@ -4541,9 +4541,9 @@ var require_tower = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/bls12-381.js
+// ../benzo/node_modules/@noble/curves/bls12-381.js
 var require_bls12_381 = __commonJS({
-  "node_modules/@noble/curves/bls12-381.js"(exports) {
+  "../benzo/node_modules/@noble/curves/bls12-381.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.bls12_381 = exports.bls12_381_Fr = void 0;
@@ -5109,9 +5109,9 @@ var require_bls12_381 = __commonJS({
   }
 });
 
-// node_modules/@noble/hashes/sha256.js
+// ../benzo/node_modules/@noble/hashes/sha256.js
 var require_sha256 = __commonJS({
-  "node_modules/@noble/hashes/sha256.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/sha256.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.sha224 = exports.SHA224 = exports.sha256 = exports.SHA256 = void 0;
@@ -5123,9 +5123,9 @@ var require_sha256 = __commonJS({
   }
 });
 
-// node_modules/@noble/curves/abstract/utils.js
+// ../benzo/node_modules/@noble/curves/abstract/utils.js
 var require_utils3 = __commonJS({
-  "node_modules/@noble/curves/abstract/utils.js"(exports) {
+  "../benzo/node_modules/@noble/curves/abstract/utils.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.isHash = exports.validateObject = exports.memoized = exports.notImplemented = exports.createHmacDrbg = exports.bitMask = exports.bitSet = exports.bitGet = exports.bitLen = exports.aInRange = exports.inRange = exports.asciiToBytes = exports.copyBytes = exports.equalBytes = exports.ensureBytes = exports.numberToVarBytesBE = exports.numberToBytesLE = exports.numberToBytesBE = exports.bytesToNumberLE = exports.bytesToNumberBE = exports.hexToNumber = exports.numberToHexUnpadded = exports.abool = exports.utf8ToBytes = exports.randomBytes = exports.isBytes = exports.hexToBytes = exports.concatBytes = exports.bytesToUtf8 = exports.bytesToHex = exports.anumber = exports.abytes = void 0;
@@ -5165,9 +5165,9 @@ var require_utils3 = __commonJS({
   }
 });
 
-// node_modules/drand-client/version.js
+// ../benzo/node_modules/drand-client/version.js
 var require_version = __commonJS({
-  "node_modules/drand-client/version.js"(exports) {
+  "../benzo/node_modules/drand-client/version.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LIB_VERSION = void 0;
@@ -5175,9 +5175,9 @@ var require_version = __commonJS({
   }
 });
 
-// node_modules/drand-client/util.js
+// ../benzo/node_modules/drand-client/util.js
 var require_util = __commonJS({
-  "node_modules/drand-client/util.js"(exports) {
+  "../benzo/node_modules/drand-client/util.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.retryOnError = exports.jsonOrError = exports.defaultHttpOptions = exports.roundTime = exports.roundAt = exports.sleep = void 0;
@@ -5238,9 +5238,9 @@ var require_util = __commonJS({
   }
 });
 
-// node_modules/drand-client/http-caching-chain.js
+// ../benzo/node_modules/drand-client/http-caching-chain.js
 var require_http_caching_chain = __commonJS({
-  "node_modules/drand-client/http-caching-chain.js"(exports) {
+  "../benzo/node_modules/drand-client/http-caching-chain.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.HttpChain = void 0;
@@ -5288,9 +5288,9 @@ var require_http_caching_chain = __commonJS({
   }
 });
 
-// node_modules/drand-client/http-chain-client.js
+// ../benzo/node_modules/drand-client/http-chain-client.js
 var require_http_chain_client = __commonJS({
-  "node_modules/drand-client/http-chain-client.js"(exports) {
+  "../benzo/node_modules/drand-client/http-chain-client.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var index_1 = require_drand_client();
@@ -5326,9 +5326,9 @@ var require_http_chain_client = __commonJS({
   }
 });
 
-// node_modules/drand-client/speedtest.js
+// ../benzo/node_modules/drand-client/speedtest.js
 var require_speedtest = __commonJS({
-  "node_modules/drand-client/speedtest.js"(exports) {
+  "../benzo/node_modules/drand-client/speedtest.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.createSpeedTest = void 0;
@@ -5389,9 +5389,9 @@ var require_speedtest = __commonJS({
   }
 });
 
-// node_modules/drand-client/fastest-node-client.js
+// ../benzo/node_modules/drand-client/fastest-node-client.js
 var require_fastest_node_client = __commonJS({
-  "node_modules/drand-client/fastest-node-client.js"(exports) {
+  "../benzo/node_modules/drand-client/fastest-node-client.js"(exports) {
     "use strict";
     var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o2, m2, k2, k22) {
       if (k22 === void 0) k22 = k2;
@@ -5486,9 +5486,9 @@ var require_fastest_node_client = __commonJS({
   }
 });
 
-// node_modules/drand-client/multi-beacon-node.js
+// ../benzo/node_modules/drand-client/multi-beacon-node.js
 var require_multi_beacon_node = __commonJS({
-  "node_modules/drand-client/multi-beacon-node.js"(exports) {
+  "../benzo/node_modules/drand-client/multi-beacon-node.js"(exports) {
     "use strict";
     var __importDefault = exports && exports.__importDefault || function(mod2) {
       return mod2 && mod2.__esModule ? mod2 : { "default": mod2 };
@@ -5532,9 +5532,9 @@ var require_multi_beacon_node = __commonJS({
   }
 });
 
-// node_modules/drand-client/index.js
+// ../benzo/node_modules/drand-client/index.js
 var require_drand_client = __commonJS({
-  "node_modules/drand-client/index.js"(exports) {
+  "../benzo/node_modules/drand-client/index.js"(exports) {
     "use strict";
     var __importDefault = exports && exports.__importDefault || function(mod2) {
       return mod2 && mod2.__esModule ? mod2 : { "default": mod2 };
@@ -5626,9 +5626,9 @@ var require_drand_client = __commonJS({
   }
 });
 
-// node_modules/drand-client/beacon-verification.js
+// ../benzo/node_modules/drand-client/beacon-verification.js
 var require_beacon_verification = __commonJS({
-  "node_modules/drand-client/beacon-verification.js"(exports) {
+  "../benzo/node_modules/drand-client/beacon-verification.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.roundBuffer = exports.verifyBeacon = exports.verifySigOnG1 = void 0;
@@ -5709,9 +5709,9 @@ var require_beacon_verification = __commonJS({
   }
 });
 
-// node_modules/tlock-js/crypto/utils.js
+// ../benzo/node_modules/tlock-js/crypto/utils.js
 var require_utils4 = __commonJS({
-  "node_modules/tlock-js/crypto/utils.js"(exports) {
+  "../benzo/node_modules/tlock-js/crypto/utils.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.fp12ToBytes = exports.fp6ToBytes = exports.fp2ToBytes = exports.fpToBytes = exports.bytesToHex = exports.bytesToNumberBE = exports.xor = void 0;
@@ -5762,9 +5762,9 @@ var require_utils4 = __commonJS({
   }
 });
 
-// node_modules/tlock-js/crypto/ibe.js
+// ../benzo/node_modules/tlock-js/crypto/ibe.js
 var require_ibe = __commonJS({
-  "node_modules/tlock-js/crypto/ibe.js"(exports) {
+  "../benzo/node_modules/tlock-js/crypto/ibe.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.gtToHash = exports.decryptOnG2 = exports.decryptOnG1 = exports.encryptOnG2RFC9380 = exports.encryptOnG2 = exports.encryptOnG1 = void 0;
@@ -5900,9 +5900,9 @@ var require_ibe = __commonJS({
   }
 });
 
-// node_modules/tlock-js/drand/timelock-encrypter.js
+// ../benzo/node_modules/tlock-js/drand/timelock-encrypter.js
 var require_timelock_encrypter = __commonJS({
-  "node_modules/tlock-js/drand/timelock-encrypter.js"(exports) {
+  "../benzo/node_modules/tlock-js/drand/timelock-encrypter.js"(exports) {
     "use strict";
     var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o2, m2, k2, k22) {
       if (k22 === void 0) k22 = k2;
@@ -5984,9 +5984,9 @@ var require_timelock_encrypter = __commonJS({
   }
 });
 
-// node_modules/@noble/hashes/hkdf.js
+// ../benzo/node_modules/@noble/hashes/hkdf.js
 var require_hkdf = __commonJS({
-  "node_modules/@noble/hashes/hkdf.js"(exports) {
+  "../benzo/node_modules/@noble/hashes/hkdf.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.hkdf = void 0;
@@ -6031,9 +6031,9 @@ var require_hkdf = __commonJS({
   }
 });
 
-// node_modules/@stablelib/int/lib/int.js
+// ../benzo/node_modules/@stablelib/int/lib/int.js
 var require_int = __commonJS({
-  "node_modules/@stablelib/int/lib/int.js"(exports) {
+  "../benzo/node_modules/@stablelib/int/lib/int.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function imulShim(a2, b2) {
@@ -6069,9 +6069,9 @@ var require_int = __commonJS({
   }
 });
 
-// node_modules/@stablelib/binary/lib/binary.js
+// ../benzo/node_modules/@stablelib/binary/lib/binary.js
 var require_binary = __commonJS({
-  "node_modules/@stablelib/binary/lib/binary.js"(exports) {
+  "../benzo/node_modules/@stablelib/binary/lib/binary.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var int_1 = require_int();
@@ -6412,9 +6412,9 @@ var require_binary = __commonJS({
   }
 });
 
-// node_modules/@stablelib/wipe/lib/wipe.js
+// ../benzo/node_modules/@stablelib/wipe/lib/wipe.js
 var require_wipe = __commonJS({
-  "node_modules/@stablelib/wipe/lib/wipe.js"(exports) {
+  "../benzo/node_modules/@stablelib/wipe/lib/wipe.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function wipe(array) {
@@ -6427,9 +6427,9 @@ var require_wipe = __commonJS({
   }
 });
 
-// node_modules/@stablelib/chacha/lib/chacha.js
+// ../benzo/node_modules/@stablelib/chacha/lib/chacha.js
 var require_chacha = __commonJS({
-  "node_modules/@stablelib/chacha/lib/chacha.js"(exports) {
+  "../benzo/node_modules/@stablelib/chacha/lib/chacha.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var binary_1 = require_binary();
@@ -6647,9 +6647,9 @@ var require_chacha = __commonJS({
   }
 });
 
-// node_modules/@stablelib/constant-time/lib/constant-time.js
+// ../benzo/node_modules/@stablelib/constant-time/lib/constant-time.js
 var require_constant_time = __commonJS({
-  "node_modules/@stablelib/constant-time/lib/constant-time.js"(exports) {
+  "../benzo/node_modules/@stablelib/constant-time/lib/constant-time.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     function select(subject, resultIfOne, resultIfZero) {
@@ -6681,9 +6681,9 @@ var require_constant_time = __commonJS({
   }
 });
 
-// node_modules/@stablelib/poly1305/lib/poly1305.js
+// ../benzo/node_modules/@stablelib/poly1305/lib/poly1305.js
 var require_poly1305 = __commonJS({
-  "node_modules/@stablelib/poly1305/lib/poly1305.js"(exports) {
+  "../benzo/node_modules/@stablelib/poly1305/lib/poly1305.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var constant_time_1 = require_constant_time();
@@ -7088,9 +7088,9 @@ var require_poly1305 = __commonJS({
   }
 });
 
-// node_modules/@stablelib/chacha20poly1305/lib/chacha20poly1305.js
+// ../benzo/node_modules/@stablelib/chacha20poly1305/lib/chacha20poly1305.js
 var require_chacha20poly1305 = __commonJS({
-  "node_modules/@stablelib/chacha20poly1305/lib/chacha20poly1305.js"(exports) {
+  "../benzo/node_modules/@stablelib/chacha20poly1305/lib/chacha20poly1305.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var chacha_1 = require_chacha();
@@ -7204,9 +7204,9 @@ var require_chacha20poly1305 = __commonJS({
   }
 });
 
-// node_modules/tlock-js/age/stream-cipher.js
+// ../benzo/node_modules/tlock-js/age/stream-cipher.js
 var require_stream_cipher = __commonJS({
-  "node_modules/tlock-js/age/stream-cipher.js"(exports) {
+  "../benzo/node_modules/tlock-js/age/stream-cipher.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.STREAM = void 0;
@@ -7302,9 +7302,9 @@ var require_stream_cipher = __commonJS({
   }
 });
 
-// node_modules/tlock-js/age/no-op-encdec.js
+// ../benzo/node_modules/tlock-js/age/no-op-encdec.js
 var require_no_op_encdec = __commonJS({
-  "node_modules/tlock-js/age/no-op-encdec.js"(exports) {
+  "../benzo/node_modules/tlock-js/age/no-op-encdec.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.NoOpEncDec = void 0;
@@ -7331,9 +7331,9 @@ var require_no_op_encdec = __commonJS({
   }
 });
 
-// node_modules/tlock-js/age/utils.js
+// ../benzo/node_modules/tlock-js/age/utils.js
 var require_utils5 = __commonJS({
-  "node_modules/tlock-js/age/utils.js"(exports) {
+  "../benzo/node_modules/tlock-js/age/utils.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.sliceUntil = exports.chunked = exports.unpaddedBase64Buffer = exports.unpaddedBase64 = void 0;
@@ -7387,9 +7387,9 @@ var require_utils5 = __commonJS({
   }
 });
 
-// node_modules/tlock-js/age/utils-crypto.js
+// ../benzo/node_modules/tlock-js/age/utils-crypto.js
 var require_utils_crypto = __commonJS({
-  "node_modules/tlock-js/age/utils-crypto.js"(exports) {
+  "../benzo/node_modules/tlock-js/age/utils-crypto.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.random = exports.createMacKey = void 0;
@@ -7414,9 +7414,9 @@ var require_utils_crypto = __commonJS({
   }
 });
 
-// node_modules/tlock-js/age/age-reader-writer.js
+// ../benzo/node_modules/tlock-js/age/age-reader-writer.js
 var require_age_reader_writer = __commonJS({
-  "node_modules/tlock-js/age/age-reader-writer.js"(exports) {
+  "../benzo/node_modules/tlock-js/age/age-reader-writer.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.readAge = exports.header = exports.writeAge = void 0;
@@ -7505,9 +7505,9 @@ ${recipients(input.recipients)}---`;
   }
 });
 
-// node_modules/tlock-js/age/age-encrypt-decrypt.js
+// ../benzo/node_modules/tlock-js/age/age-encrypt-decrypt.js
 var require_age_encrypt_decrypt = __commonJS({
-  "node_modules/tlock-js/age/age-encrypt-decrypt.js"(exports) {
+  "../benzo/node_modules/tlock-js/age/age-encrypt-decrypt.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.decryptAge = exports.encryptAge = void 0;
@@ -7567,9 +7567,9 @@ var require_age_encrypt_decrypt = __commonJS({
   }
 });
 
-// node_modules/tlock-js/age/armor.js
+// ../benzo/node_modules/tlock-js/age/armor.js
 var require_armor = __commonJS({
-  "node_modules/tlock-js/age/armor.js"(exports) {
+  "../benzo/node_modules/tlock-js/age/armor.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.isProbablyArmored = exports.decodeArmor = exports.encodeArmor = void 0;
@@ -7623,9 +7623,9 @@ ${paddedFooter}
   }
 });
 
-// node_modules/tlock-js/drand/timelock-decrypter.js
+// ../benzo/node_modules/tlock-js/drand/timelock-decrypter.js
 var require_timelock_decrypter = __commonJS({
-  "node_modules/tlock-js/drand/timelock-decrypter.js"(exports) {
+  "../benzo/node_modules/tlock-js/drand/timelock-decrypter.js"(exports) {
     "use strict";
     var __createBinding = exports && exports.__createBinding || (Object.create ? (function(o2, m2, k2, k22) {
       if (k22 === void 0) k22 = k2;
@@ -7720,9 +7720,9 @@ var require_timelock_decrypter = __commonJS({
   }
 });
 
-// node_modules/tlock-js/drand/defaults.js
+// ../benzo/node_modules/tlock-js/drand/defaults.js
 var require_defaults = __commonJS({
-  "node_modules/tlock-js/drand/defaults.js"(exports) {
+  "../benzo/node_modules/tlock-js/drand/defaults.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.TESTNET_CHAIN_INFO = exports.TESTNET_CHAIN_URL = exports.defaultChainInfo = exports.defaultChainUrl = exports.MAINNET_CHAIN_INFO_NON_RFC = exports.MAINNET_CHAIN_URL_NON_RFC = exports.MAINNET_CHAIN_INFO = exports.MAINNET_CHAIN_URL = void 0;
@@ -7767,9 +7767,9 @@ var require_defaults = __commonJS({
   }
 });
 
-// node_modules/tlock-js/version.js
+// ../benzo/node_modules/tlock-js/version.js
 var require_version2 = __commonJS({
-  "node_modules/tlock-js/version.js"(exports) {
+  "../benzo/node_modules/tlock-js/version.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.LIB_VERSION = void 0;
@@ -7777,9 +7777,9 @@ var require_version2 = __commonJS({
   }
 });
 
-// node_modules/tlock-js/index.js
+// ../benzo/node_modules/tlock-js/index.js
 var require_tlock_js = __commonJS({
-  "node_modules/tlock-js/index.js"(exports) {
+  "../benzo/node_modules/tlock-js/index.js"(exports) {
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     exports.Buffer = exports.roundAt = exports.roundTime = exports.defaultChainUrl = exports.defaultChainInfo = exports.HttpCachingChain = exports.HttpChainClient = exports.nonRFCMainnetClient = exports.mainnetClient = exports.testnetClient = exports.timelockDecrypt = exports.timelockEncrypt = void 0;
@@ -8702,7 +8702,7 @@ function holderOwners(receipts, auctionId, collection, signer) {
 // envelope/index.ts
 import { createHash as createHash2, createPrivateKey as createPrivateKey2, createPublicKey as createPublicKey2, generateKeyPairSync, randomBytes, sign as sign2, verify as verify2 } from "node:crypto";
 
-// node_modules/libsodium/dist/modules-esm/libsodium.mjs
+// ../benzo/node_modules/libsodium/dist/modules-esm/libsodium.mjs
 async function A(A3 = {}) {
   var I2, g2 = A3, C2 = !!globalThis.window, B3 = !!globalThis.WorkerGlobalScope, Q2 = (globalThis.process?.versions?.node && globalThis.process, import.meta.url);
   if (C2 || B3) {
@@ -8899,7 +8899,7 @@ async function A(A3 = {}) {
 }
 var libsodium_default = A;
 
-// node_modules/libsodium-wrappers/dist/modules-esm/libsodium-wrappers.mjs
+// ../benzo/node_modules/libsodium-wrappers/dist/modules-esm/libsodium-wrappers.mjs
 var r;
 var t = {};
 if (void 0 === globalThis.crypto || "function" != typeof globalThis.crypto.getRandomValues) throw new Error("globalThis.crypto.getRandomValues is not available. The ESM build of libsodium requires a secure random source (available in all browsers and Node.js 19+).");
@@ -12128,7 +12128,7 @@ B.prototype.to_Uint8Array = function() {
 }, t.add = o, t.base64_variants = m, t.compare = l, t.from_base64 = x, t.from_hex = b, t.from_string = v, t.increment = p, t.is_zero = h, t.memcmp = i, t.memzero = y, t.output_formats = T, t.pad = u, t.unpad = d, t.ready = s, t.symbols = c, t.to_base64 = E, t.to_hex = f, t.to_string = g;
 var libsodium_wrappers_default = t;
 
-// node_modules/@scure/base/lib/esm/index.js
+// ../benzo/node_modules/@scure/base/lib/esm/index.js
 function isBytes(a2) {
   return a2 instanceof Uint8Array || ArrayBuffer.isView(a2) && a2.constructor.name === "Uint8Array";
 }
@@ -12597,11 +12597,11 @@ function checkResultLaunch(m2, r2) {
   requireThat(r2.cancelled ? r2.allocations.every((a2) => a2.fill === 0 && a2.refund_zats === m2.C_zats) : BigInt(r2.conservation.payout_zats) >= zats(m2.launch.minimum_raise_zats, "minimum raise"), "launch minimum raise");
 }
 
-// node_modules/@noble/hashes/esm/cryptoNode.js
+// ../benzo/node_modules/@noble/hashes/esm/cryptoNode.js
 import * as nc from "node:crypto";
 var crypto = nc && typeof nc === "object" && "webcrypto" in nc ? nc.webcrypto : nc && typeof nc === "object" && "randomBytes" in nc ? nc : void 0;
 
-// node_modules/@noble/hashes/esm/utils.js
+// ../benzo/node_modules/@noble/hashes/esm/utils.js
 function isBytes2(a2) {
   return a2 instanceof Uint8Array || ArrayBuffer.isView(a2) && a2.constructor.name === "Uint8Array";
 }
@@ -12731,7 +12731,7 @@ function randomBytes2(bytesLength = 32) {
   throw new Error("crypto.getRandomValues must be defined");
 }
 
-// node_modules/@noble/hashes/esm/_md.js
+// ../benzo/node_modules/@noble/hashes/esm/_md.js
 function setBigUint64(view, byteOffset, value, isLE) {
   if (typeof view.setBigUint64 === "function")
     return view.setBigUint64(byteOffset, value, isLE);
@@ -12851,7 +12851,7 @@ var SHA256_IV = /* @__PURE__ */ Uint32Array.from([
   1541459225
 ]);
 
-// node_modules/@noble/hashes/esm/sha2.js
+// ../benzo/node_modules/@noble/hashes/esm/sha2.js
 var SHA256_K = /* @__PURE__ */ Uint32Array.from([
   1116352408,
   1899447441,
@@ -12991,7 +12991,7 @@ var SHA256 = class extends HashMD {
 };
 var sha256 = /* @__PURE__ */ createHasher(() => new SHA256());
 
-// node_modules/@noble/curves/esm/utils.js
+// ../benzo/node_modules/@noble/curves/esm/utils.js
 var _0n = /* @__PURE__ */ BigInt(0);
 var _1n = /* @__PURE__ */ BigInt(1);
 function _abool2(value, title = "") {
@@ -13095,7 +13095,7 @@ function memoized(fn) {
   };
 }
 
-// node_modules/@noble/curves/esm/abstract/modular.js
+// ../benzo/node_modules/@noble/curves/esm/abstract/modular.js
 var _0n2 = BigInt(0);
 var _1n2 = BigInt(1);
 var _2n = /* @__PURE__ */ BigInt(2);
@@ -13432,7 +13432,7 @@ function mapHashToField(key, fieldOrder, isLE = false) {
   return isLE ? numberToBytesLE(reduced, fieldLen) : numberToBytesBE(reduced, fieldLen);
 }
 
-// node_modules/@noble/curves/esm/abstract/curve.js
+// ../benzo/node_modules/@noble/curves/esm/abstract/curve.js
 var _0n3 = BigInt(0);
 var _1n3 = BigInt(1);
 function negateCt(condition, item) {
@@ -13710,7 +13710,7 @@ function _createCurveFields(type, CURVE, curveOpts = {}, FpFnLE) {
   return { CURVE, Fp: Fp3, Fn };
 }
 
-// node_modules/@noble/curves/esm/abstract/hash-to-curve.js
+// ../benzo/node_modules/@noble/curves/esm/abstract/hash-to-curve.js
 var os2ip = bytesToNumberBE;
 function i2osp(value, length) {
   anum(value);
@@ -13871,7 +13871,7 @@ function createHasher2(Point, mapToCurve, defaults) {
   };
 }
 
-// node_modules/@noble/curves/esm/abstract/weierstrass.js
+// ../benzo/node_modules/@noble/curves/esm/abstract/weierstrass.js
 var divNearest = (num, den) => (num + (num >= 0 ? den : -den) / _2n2) / den;
 function _splitEndoScalar(k2, basis, n2) {
   const [[a1, b1], [a2, b2]] = basis;
@@ -14530,7 +14530,7 @@ function _weierstrass_new_output_to_legacy(c2, Point) {
   });
 }
 
-// node_modules/@noble/curves/esm/abstract/bls.js
+// ../benzo/node_modules/@noble/curves/esm/abstract/bls.js
 var _0n5 = BigInt(0);
 var _1n5 = BigInt(1);
 var _2n3 = BigInt(2);
@@ -14877,7 +14877,7 @@ function bls(CURVE) {
   };
 }
 
-// node_modules/@noble/curves/esm/abstract/tower.js
+// ../benzo/node_modules/@noble/curves/esm/abstract/tower.js
 var _0n6 = BigInt(0);
 var _1n6 = BigInt(1);
 var _2n4 = BigInt(2);
@@ -15561,7 +15561,7 @@ function tower12(opts) {
   return { Fp: Fp3, Fp2: Fp22, Fp6: Fp62, Fp12: Fp122 };
 }
 
-// node_modules/@noble/curves/esm/bls12-381.js
+// ../benzo/node_modules/@noble/curves/esm/bls12-381.js
 var _0n7 = BigInt(0);
 var _1n7 = BigInt(1);
 var _2n5 = BigInt(2);
@@ -16234,7 +16234,7 @@ function checkMissingDeposits(pub) {
   if (expected.length) return `${expected.length} not included; refund owed (exact C); chain observations supplied by publisher`;
 }
 
-// node_modules/@scure/bip39/esm/index.js
+// ../benzo/node_modules/@scure/bip39/esm/index.js
 function nfkd(str) {
   if (typeof str !== "string")
     throw new TypeError("invalid mnemonic type: " + typeof str);
@@ -16278,7 +16278,7 @@ function validateMnemonic(mnemonic, wordlist2) {
   return true;
 }
 
-// node_modules/@scure/bip39/esm/wordlists/english.js
+// ../benzo/node_modules/@scure/bip39/esm/wordlists/english.js
 var wordlist = `abandon
 ability
 able
@@ -18750,7 +18750,12 @@ var SETTLEMENT_TRUST = {
   // R82: bound to the manifest's auction_id
   rows: { trust: "derived", verifiedBy: ["accounting", "accounting-strays"] },
   // R81: a cancelled settlement has no result, so only accounting-strays reads its rows
-  receipts: { trust: "chain-receipt", verifiedBy: ["accounting", "receipt-attestation"] },
+  // B49 (Reviewer R round 2 P0-1/P3-6): `benzo verify` checks receipt attestation, NOT on-chain inclusion —
+  // verify is offline by design. Inclusion is checked by the signer hosts before any reserve return ("paid"
+  // means this host approved the row and its own scan shows the paying transaction mined 10 deep —
+  // settle/deposits.ts paidByOwnLedger). What verify does check is that every receipt's txid is one of the
+  // published mined batch txids (receipt-attestation).
+  receipts: { trust: "host-attested", verifiedBy: ["accounting", "receipt-attestation"] },
   ignored: { trust: "derived", verifiedBy: ["accounting-strays"] },
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
@@ -19149,6 +19154,13 @@ function checkPublicAuction(pub, opts = {}) {
     );
     requireThat(receipts.every((r2) => r2.auction_id === pub.manifest.auction_id), "a settlement receipt names another auction");
     requireThat(new Set(receipts.map((r2) => `${r2.txid}:${r2.pool}:${r2.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
+    {
+      const batches = pub.settlement.batches ?? [];
+      if (batches.length > 0) {
+        const mined = new Set(batches.filter((b2) => b2 && typeof b2.txid === "string" && b2.height != null).map((b2) => String(b2.txid)));
+        for (const r2 of receipts) requireThat(mined.has(String(r2.txid)), `receipt ${r2.party} names a transaction that is not a published mined batch`);
+      }
+    }
     requireThat(pub.settlement.auction_id === void 0 || pub.settlement.auction_id === pub.manifest.auction_id, "settlement auction_id differs from the manifest");
     {
       const word = (v2) => typeof v2 === "string" && /^[a-z]{3,16}$/.test(v2), hex64 = (v2) => typeof v2 === "string" && /^[0-9a-f]{64}$/.test(v2);
