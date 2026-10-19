@@ -12,6 +12,7 @@ import {spawn,spawnSync} from 'node:child_process';
 import {cpSync,existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} from 'node:fs';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND} from './lib/env';
+import {h19FeeBound} from './lib/h19';
 import {jsonBytes,signRecord} from '../manifest/schema';
 import {generateKeyPairSync} from 'node:crypto';
 import {witnessSetHash} from '../witness';
@@ -23,6 +24,11 @@ import {H,NAMES,benzoBin,dkgOnHosts,hostEnvelopeKeys,hostEnvelopeOpens,hostTry,h
 import * as z from './lib/zcash';
 
 const IDS=['Y1a','V1a','X1a','V1b','W2','W3','W4','W5','Y1b','V2','W6','W1','X1b','Y1c'],C=Number(env('BNZ_COLLATERAL_ZATS'));
+// B55 (H19, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §2): the fee reserve funds the settle
+// preflight's worst-case bound + one fee slot (max(old reserve, bound + 5000)). This world: 5 spendable
+// notes (3 deposits + the reserve note + the 430 treasury leg) and 4 rows (3 leaf refunds + the treasury
+// return), 1 remaining batch — bound 55,000, so the 600,000 floor is unchanged (it already over-funds).
+const BB_RESERVE=Math.max(600_000,h19FeeBound({notes:5,rows:4,batchCap:13})+5_000);
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
 const json=(p:string)=>JSON.parse(readFileSync(p,'utf8'));
 const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
@@ -36,7 +42,9 @@ const fresh=(wallet:string)=>sh(pcztBin,['address',wallet,'--network','test']).s
 test('Mode B buyback settles under host custody with the treasury leg',async()=> {
   test.setTimeout(110*60_000);const run=new Run('buyback-mode');
   for(const n of NAMES)if(spawnSync('orb',['start',`benzo-${n}`]).status!==0)run.notRun(IDS,`signer host benzo-${n} not available`);
-  z.sync('bidder');if(z.spendable(z.balance('bidder'))-3*C-200000<3*C+40000)run.notRun(IDS,'bidder floor; Needs user funds');
+  // B55 (H19): the guard now names the funded reserve and the treasury leg it is about to spend (the old
+  // 200,000 lump undercounted both — stricter, and it can only refuse earlier, never spend past the floor).
+  z.sync('bidder');if(z.spendable(z.balance('bidder'))-3*C-BB_RESERVE-430<3*C+40000)run.notRun(IDS,'bidder floor; Needs user funds');
   const frostd=spawn(path.join(STATE,'bin/frostd'),['-i','127.0.0.1','-p',env('BNZ_FROSTD_ADDR').split(':').at(-1)!,'-c',path.join(STATE,'tls/frostd.pem'),'-k',path.join(STATE,'tls/frostd.key')],{stdio:'ignore'});
   await sleep(2000);
   try {
@@ -75,7 +83,7 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     });
     // Three sealed asks, the fee reserve and the treasury leg (to the signed funding_ua) in one funding transaction.
     const asks=deposits.map((address,i)=>({...benzo(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(200+10*i),quantity:1,address,refund_ua:refunds[i]}),address}));
-    const paid=benzo(['bid','deposit','--id',id,'--pay'],{bids:asks,reserve:{address:reserveUa,amount_zats:'600000'},treasury:{amount_zats:manifest.buyback.budget_zats}});
+    const paid=benzo(['bid','deposit','--id',id,'--pay'],{bids:asks,reserve:{address:reserveUa,amount_zats:String(BB_RESERVE)},treasury:{amount_zats:manifest.buyback.budget_zats}});
     console.log(`funding ${paid.txid}`);
     for(let h=0;;await sleep(30_000)) {
       for(const v of ['sync','enhance'])z.run(path.join(STATE,'bin/zcash-devtool'),['wallet','-w',vault,v,'-s',env('BNZ_LWD_URL')]);
@@ -175,6 +183,8 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
       expect(custody.pair).toEqual(['alice','carol']);
     });
     await run.check('V2','winners get C + the uniform price, the loser exact C, the treasury the unspent budget',()=> {
+      // B55 (H15): the counts cover exactly these rows — the plan adds no reserve-return row here (the
+      // manifest commits no reserve_return_ua_commitment; settle/plan.ts's legacy branch).
       const receipts=Object.fromEntries((doc().settlement?.receipts??[]).map((r:any)=>[r.party,r.amount_zats]));
       expect(receipts).toEqual({'leaf:0':String(C+210),'leaf:1':String(C+210),'leaf:2':String(C),treasury:'10'});
       z.sync('bidder');z.enhance('bidder');

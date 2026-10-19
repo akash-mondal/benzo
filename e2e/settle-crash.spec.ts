@@ -9,11 +9,21 @@ import {appendFileSync,existsSync,mkdirSync,readFileSync,rmSync,writeFileSync} f
 import http from "node:http";
 import path from "node:path";
 import {bin,DRAND,E2E,ROOT,STATE,env,LWD,LWD_ALT} from "./lib/env";
+import {h19FeeBound} from "./lib/h19";
 import {Run,waitFor,write} from "./lib/run";
 import {serveSealer,sealBid} from "./lib/sealer";
 import {pubkey,startFrostd,zcashSign} from "./lib/frost";
 import * as z from "./lib/zcash";
 const IDS=["J1","J2","K1","L1","M1","N1"],C=Number(env("BNZ_COLLATERAL_ZATS")),ALT=LWD_ALT,MINE=30*60_000;
+// B55 (H19, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §2): the fee reserve funds the settle
+// worker's H19 preflight worst case (bound + one fee slot), never the real ZIP-317 fee. Main drill's settle
+// world: 5 spendable notes (4 deposits + the reserve note) and the 5-row batch in 1 remaining batch
+// (batch_cap 13) — bound 60,000, fund 65,000 (was 30,000, whose exact-fee assumption made the first worker
+// exit before allocating: the canary's L1/J1/J2/K1/N1 cascade).
+const MAIN_RESERVE=Math.max(30_000,h19FeeBound({notes:5,rows:5,batchCap:13})+5_000);
+// B55 (H19): the cancel leg settles nothing (both deposits park pre-R; 0 unpaid rows), but the same rule
+// funds its reserve: 3 spendable notes, 0 rows, 0 remaining batches — bound 15,000, fund 20,000 (was 15,000).
+const CANCEL_RESERVE=Math.max(15_000,h19FeeBound({notes:3,rows:0,batchCap:13})+5_000);
 const freshAddress=(wallet:string)=>z.generateAddress(wallet); // R78b: one generator, which registers vault addresses as public
 // Wallet CLI total excludes uneconomic notes; measure all mined unspent notes through the shipped chain scanner.
 const observedBalance=(wallet:string)=> {
@@ -85,7 +95,9 @@ test("settlement survives a worker crash and drand outage with one signer not se
   try{await fetch(`${DRAND}/info`).then(r=>{if(!r.ok)throw Error(`drand HTTP ${r.status}`)});for(const e of LWD)if(Math.abs(z.tip(e)-4465026)<=40)throw Error("NU7 window")}catch(e){run.notRun(IDS,(e as Error).message)}
   z.sync("bidder");z.sync("vault");z.enhance("vault");
   if(observedBalance("vault")!==0)run.notRun(IDS,"vault not empty; reconcile before new deposits");
-  if(z.spendable(z.balance("bidder"))-4*C-100_000<3*C+40_000)run.notRun(IDS,"main drill would cross bidder floor; ask before spending");
+  // B55 (H19): the guard names the funded reserve it is about to spend (the old 100,000 lump covered the
+  // 30,000 reserve + a 70,000 margin; the margin is unchanged and the reserve tracks the helper's amount).
+  if(z.spendable(z.balance("bidder"))-4*C-MAIN_RESERVE-70_000<3*C+40_000)run.notRun(IDS,"main drill would cross bidder floor; ask before spending");
   const stop=await startFrostd();
   try {
     const now=Math.ceil(Date.now()/1000),release=now+22*60,R=1+Math.ceil((release-Number(env("BNZ_DRAND_GENESIS")))/3);
@@ -107,7 +119,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
     const server=await serveSealer(),sealed:any[]=[];
     try{await page.goto(server.url);for(let i=0;i<6;i++)sealed.push(await sealBid(page,{opening:new Date((i<4?release:release+5880)*1000).toISOString(),auction:i<4?id:cancel,price:String(i<4?[price+20,price+10,price,3010][i]:price),quantity:"1",collateral:String(C),address:addresses[i]}))}finally{server.close()}
     if(sealed.some(s=>!s.envelope))throw Error(sealed.find(s=>!s.envelope).error);
-    const mainTx=z.pay(batchUri(addresses.slice(0,4),sealed.slice(0,4).map(s=>s.envelope),addresses[6],30000));console.log(`main deposits broadcast ${mainTx}`);await mature(mainTx);
+    const mainTx=z.pay(batchUri(addresses.slice(0,4),sealed.slice(0,4).map(s=>s.envelope),addresses[6],MAIN_RESERVE));console.log(`main deposits broadcast ${mainTx}`);await mature(mainTx);
     for(let i=0;i<4;i++){const r=ac("admit",id,{txid:mainTx,address:addresses[i],envelope_hex:sealed[i].envelope});if(r.code)throw Error(r.error)}
     await waitFor({round:1+Math.ceil((now+4*60-Number(env("BNZ_DRAND_GENESIS")))/3)},(now+5*60)*1000);
     const freeze=ac("freeze",id);if(freeze.code)throw Error(freeze.error);write("settle/main/frozen.json",bytes(freeze.value));
@@ -124,9 +136,19 @@ test("settlement survives a worker crash and drand outage with one signer not se
       expect.soft(resumed.code).toBe(0);expect.soft(main.receipts.map((r:any)=>Number(r.amount_zats)).sort((a:number,b:number)=>a-b)).toEqual([...expected].sort((a,b)=>a-b));
       const got=z.run(z.scanner,["scan","test",path.join(STATE,"bidder")]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
       [refunds[0],refunds[1],refunds[2],refunds[3],refunds[6]].forEach((address,i)=>expect.soft(got.filter(n=>n.address===address).reduce((n,l)=>n+l.value_zats,0)).toBe(expected[i]));
-      for(const b of main.batches){expect.soft(b.inspect?.input_zats).toBe(4*C+30000);expect.soft(b.inspect?.output_zats).toBe(4*C);expect.soft(b.inspect?.fee_zats).toBe(30000);expect.soft(b.proofs.length).toBe(LWD.length);if(ALT)expect.soft(b.proofs[0]).toEqual(b.proofs[1])}
-      expect.soft(after-before).toBe(4*C);expect.soft(observedBalance("vault")).toBe(0);
-      write("settle/main/balances.json",bytes({before,after,vault:observedBalance("vault"),deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:30000,expected_output_zats:expected}));
+      for(const b of main.batches){
+        // B55 (H19): the funded reserve can exceed the real fee now, so the batch carries change and the old
+        // exact figures (input 4C+30000, output 4C, fee 30000) are gone; check the transaction from its own
+        // `benzo-pczt inspect` figures instead. output_zats INCLUDES change (inspect sums every output with
+        // value > 0 — settle/src/main.rs); the fee is the ZIP-317 fee of the real action count.
+        expect.soft(b.inspect?.fee_zats).toBe(5000*Math.max(2,b.inspect?.actions??0));
+        expect.soft(b.inspect?.input_zats).toBe(b.inspect?.output_zats+b.inspect?.fee_zats);
+        expect.soft(b.inspect?.outputs.filter((o:any)=>!o.is_change).map((o:any)=>Number(o.amount_zats)).sort((x:number,y:number)=>x-y)).toEqual([...expected].sort((x:number,y:number)=>x-y));
+        expect.soft(b.proofs.length).toBe(LWD.length);if(ALT)expect.soft(b.proofs[0]).toEqual(b.proofs[1])
+      }
+      const feeTotal=main.batches.reduce((n:number,b:any)=>n+Number(b.inspect?.fee_zats??0),0);
+      expect.soft(after-before).toBe(4*C);expect.soft(observedBalance("vault")).toBe(MAIN_RESERVE-feeTotal); // B55 (H19): the vault keeps exactly reserve − fee after the batch, before recovery
+      write("settle/main/balances.json",bytes({before,after,vault:observedBalance("vault"),deposit_txid:mainTx,collateral_zats:C,fee_reserve_zats:MAIN_RESERVE,fee_zats:feeTotal,expected_output_zats:expected}));
     });
     if(!ALT)run.narrowed("J1","single lightwalletd endpoint; second-endpoint agreement not checked (BNZ_LWD_SINGLE=1, R27/R47)");
     await run.check("L1","real kill and resume produce one final receipt per obligation",()=> {
@@ -144,8 +166,10 @@ test("settlement survives a worker crash and drand outage with one signer not se
     });
     await run.check("N1","Alice and Bob are the configured pair; Carol is not selected (not an offline drill)",()=> {expect.soft(main.batches.flatMap((b:any)=>b.signing?.sessions??[]).length).toBeGreaterThan(0);for(const b of main.batches)for(const s of b.signing?.sessions??[]){expect.soft(s.signers).toEqual([pubkey("alice"),pubkey("bob")]);expect.soft(s.signers).not.toContain(pubkey("carol"));expect.soft(s.participantsSaw).toEqual([s.sighash,s.sighash])}expect.soft(main.offline_signer).toBe("carol")});
     await recovery();
-    z.sync("bidder");if(z.spendable(z.balance("bidder"))-2*C-100000<3*C+40000)throw Error("ask before cancel spend below bidder floor");
-    const cancelTx=z.pay(batchUri(addresses.slice(4,6),sealed.slice(4,6).map(s=>s.envelope),addresses[7],15000));console.log(`cancel deposits broadcast ${cancelTx}`);await mature(cancelTx);
+    z.sync("bidder");
+    // B55 (H19): as above — the guard names the funded reserve (the old lump = 15,000 reserve + 85,000 margin).
+    if(z.spendable(z.balance("bidder"))-2*C-CANCEL_RESERVE-85_000<3*C+40000)throw Error("ask before cancel spend below bidder floor");
+    const cancelTx=z.pay(batchUri(addresses.slice(4,6),sealed.slice(4,6).map(s=>s.envelope),addresses[7],CANCEL_RESERVE));console.log(`cancel deposits broadcast ${cancelTx}`);await mature(cancelTx);
     for(let i=4;i<6;i++){const r=ac("admit",cancel,{txid:cancelTx,address:addresses[i],envelope_hex:sealed[i].envelope});if(r.code)throw Error(r.error)}
     const cancelled=ac("cancel",cancel);if(cancelled.code)throw Error(cancelled.error);
     const closed=http.createServer();await new Promise<void>(r=>closed.listen(0,"127.0.0.1",r));const port=(closed.address() as any).port;await new Promise<void>(r=>closed.close(()=>r()));
@@ -153,7 +177,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
     const outage=await fetch(dead).then(()=>"unexpected response").catch((e:any)=>e.cause?.code);
     const cancelledRun=await worker(cancel,false,{BNZ_DRAND_URLS:dead});z.sync("bidder");z.sync("vault");const c=capture(cancel,"cancel"),cancelAfter=observedBalance("bidder");
     const trace=existsSync(path.join(STATE,"run","settle-tle.jsonl"))?readFileSync(path.join(STATE,"run","settle-tle.jsonl"),"utf8").trim().split("\n").filter(Boolean).map(l=>JSON.parse(l)).filter(l=>l.auction_id===cancel):[];
-    write("settle/cancel/outage.json",bytes({outage,opening_calls:trace.length,worker_code:cancelledRun.code,worker_error:cancelledRun.error,deposit_txid:cancelTx,before:cancelBefore,after:cancelAfter,collateral_zats:C,fee_reserve_zats:15000}));
+    write("settle/cancel/outage.json",bytes({outage,opening_calls:trace.length,worker_code:cancelledRun.code,worker_error:cancelledRun.error,deposit_txid:cancelTx,before:cancelBefore,after:cancelAfter,collateral_zats:C,fee_reserve_zats:CANCEL_RESERVE}));
     // R56: since R16 item 1 a cancelled-before-R deposit refunds only through its owner's claim or an envelope two
     // signers' envelope-opens reports agree on (R23); neither exists before R in this low-level drill, so the outage
     // must leave every deposit waiting at exact C in the claim queue — no opening, no wedge, nothing paid anywhere.
@@ -163,7 +187,7 @@ test("settlement survives a worker crash and drand outage with one signer not se
       const refunds=c.rows.filter((r:any)=>r.kind==="refund");
       expect.soft(refunds.map((r:any)=>[r.state,r.amount_zats])).toEqual([["exception",String(C)],["exception",String(C)]]);
       expect.soft((cancelledRun.error.match(/to the exception queue: cancelled before release; refund is claimable after R/g)??[]).length).toBe(2);
-      expect.soft(c.receipts).toEqual([]);expect.soft(c.batches).toEqual([]);expect.soft(cancelAfter-cancelBefore).toBe(0);expect.soft(observedBalance("vault")).toBe(2*C+15000);
+      expect.soft(c.receipts).toEqual([]);expect.soft(c.batches).toEqual([]);expect.soft(cancelAfter-cancelBefore).toBe(0);expect.soft(observedBalance("vault")).toBe(2*C+CANCEL_RESERVE); // B55 (H19): the vault keeps the deposits plus the funded reserve (20,000 now)
     });
   } finally {try{await recovery()}finally{stop()}}
 });

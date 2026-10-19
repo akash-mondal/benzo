@@ -94,6 +94,7 @@ import {existsSync,mkdirSync,readFileSync,writeFileSync,rmSync,cpSync} from 'nod
 import {DatabaseSync} from 'node:sqlite';
 import path from 'node:path';
 import {ROOT,STATE,env,DRAND,E2E} from './lib/env';
+import {h19FeeBound} from './lib/h19';
 import {pinsMismatch} from './lib/pins';
 import {tleBound} from '../settle/bounded';
 import {jsonBytes,signRecord} from '../manifest/schema';
@@ -110,6 +111,16 @@ import {foldReserve,foldR73,foldR71} from './lib/readpath-live';
 // R70/R71: tranche-3 group B (r7-2, r7-4, r7-6, r7-claims, r10-2, r10-4 x2, r15-3, r16-1, r16-4) is withdrawn from this spec;
 // only r7-1 / g1-tampered-ledger-redirect remain. Their originals stay in tools/repro/ with Phase-5 evidence.
 const IDS=['O1','O2','P1','P2','Q1','R1','S1','T1','T2','T3','T4','T5','T6'],C=Number(env('BNZ_COLLATERAL_ZATS')),MINE=30*60_000,NORMAL_EXPIRY=364;
+// B55 (H19, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §2): the fee reserve funds the settle
+// preflight's worst-case bound + one fee slot (max(old reserve, bound + 5000)), never the real fee. Main
+// drill's settle world: 13 spendable notes (10 deposits + 2 strays + the reserve note), 10 payable rows
+// (8 leaf refunds + seller + the memo stray), 1 remaining batch (batch_cap 13) — bound 125,000, fund
+// 130,000 (was 70,000).
+const MAIN_RESERVE=Math.max(70_000,h19FeeBound({notes:13,rows:10,batchCap:13})+5_000);
+// B55 (H19): the second (cancelled) auction settles its 2 refunds after R from 3 notes — bound 35,000,
+// fund 40,000. It funded NO fee reserve before (its post-R settle would hit the same preflight refusal
+// settle-crash's canary showed).
+const ID2_RESERVE=Math.max(0,h19FeeBound({notes:3,rows:2,batchCap:13})+5_000);
 // BNZ_LWD_SINGLE=1 (testnet, while one public NU7 endpoint serves): the settlement's own lwdEndpoints() rule.
 const ENDPOINTS=process.env.BNZ_LWD_SINGLE==='1'?[env('BNZ_LWD_URL')]:[env('BNZ_LWD_URL'),env('BNZ_LWD_URL_ALT')];
 const sha=(v:Buffer|string)=>createHash('sha256').update(v).digest('hex');
@@ -159,7 +170,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
   for(const file of ['vault/data.sqlite','frost/alice.toml','frost/bob.toml','frost/carol.toml','ufvk.txt'])if(!existsSync(path.join(STATE,file)))run.notRun(IDS,`missing ${file}`);
   try {const info=await fetch(`${DRAND}/info`);if(!info.ok)throw Error(`drand HTTP ${info.status}`);for(const e of ENDPOINTS)z.tip(e)}catch(e){run.notRun(IDS,String(e))}
   z.sync('vault');z.enhance('vault');z.sync('bidder');if(z.scanVault().some(n=>n.height&&!n.spent_in_txid&&n.value_zats>0))run.notRun(IDS,'vault not empty; reconcile before funding');
-  if(z.spendable(z.balance('bidder'))-12*C-200000<3*C+40000)run.notRun(IDS,'drill would cross bidder floor; Needs user funds');
+  // B55 (H19): the guard names the funded reserves it is about to spend (the old 200,000 lump covered the
+  // 70,000 reserve + a 130,000 margin; the margin is unchanged and both reserves track the helper's amounts).
+  if(z.spendable(z.balance('bidder'))-12*C-MAIN_RESERVE-ID2_RESERVE-130_000<3*C+40000)run.notRun(IDS,'drill would cross bidder floor; Needs user funds');
   // ---- R35 folds (tranche 1): read-path corpora and verifier rules (see the header) ----
   const FOLD1=['r15-machine-runs-without-records','r15-zero-refund-needs-no-row','r15-strangers-refused','r15-phase2-4','r26-3-projections-match','r26-3-opened-diverges','r26-3-beacon-diverges','r26-3-receipts-diverges','r26-3-summary-diverges','r26-3-projection-without-field','r23-3-api-claims-no-beacon','r23-3-api-claims-with-beacon','r23-3-api-never-500','g-forged-claim-accepted','g-forged-claim-control','r23-1-attested-claim-accepted','r23-1-wrong-party-refused','r23-1-quorum-refused','r23-1-tampered-sig-attested','r23-1-forged-attestation-refused','kc-api-exports','kc-key-32-interop','kc-recipients-order','kc-split-key-recipient1-opens','kc-split-key-recipient2-commitment','kc-3of3-accepted','kc-1of3-refused','kc-2of3-refused','kc-reorder-refused','kc-wrongset-refused'];
   for(const fold of [foldR15,foldR263,foldR233,foldGForged,foldKC])try{await fold(run)}catch(e){run.notRun(FOLD1,`fold setup: ${(e as Error).message}`)}
@@ -201,7 +214,7 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     const price=100+10*randomBytes(1)[0],bids=deposit.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile,'--signer',signer],i<8?{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address,refund_ua:refund[i],envelope_pubkey:envelopeKeys[0]}:{price_zats:String(price+(i<4?20:i<6?10:0)),quantity:1,address}),address}));
     // A stray whose memo holds a valid sealed bid (claimable through its owner key) plus a memo-less stray.
     const strayMemoBid=good(['bid','seal','--manifest',manifestFile,'--signer',signer],{price_zats:String(price+5),quantity:1,address:deposit[0]});
-    const paid=good(['bid','deposit','--id',id,'--pay'],{bids,reserve:{address:reserve,amount_zats:'70000'}});console.log(`CLI funding ${paid.txid}`);
+    const paid=good(['bid','deposit','--id',id,'--pay'],{bids,reserve:{address:reserve,amount_zats:String(MAIN_RESERVE)}});console.log(`CLI funding ${paid.txid}`);
     await waitFor({round:1+Math.ceil((manifest.T_submit+1-Number(env('BNZ_DRAND_GENESIS')))/3)},(manifest.T_submit+60)*1000);
     // Real boundary fault: a non-C deposit carrying a sealed-bid memo and a late unadmitted memo-less transfer.
     const strayUri='zcash:?'+new URLSearchParams({address:deposit[0],amount:((C+1)/1e8).toFixed(8),memo:Buffer.from(strayMemoBid.envelope_hex,'hex').toString('base64url'),'address.1':deposit[1],'amount.1':(C/1e8).toFixed(8)});
@@ -297,7 +310,8 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
       expect.soft(rowsByParty.get(garbageStrayParty)?.state).toBe('exception');
       expect.soft(settlement.receipts.some((r:any)=>r.party==='leaf:8'||r.party==='leaf:9'||r.party===garbageStrayParty)).toBe(false);
     });
-    await run.check('T3','expired staged batch becomes exception and replans without duplicate receipts',()=>{expect.soft(delay.resumed_height).toBeGreaterThan(delay.expiry_height);expect.soft(settlement.batches.filter((b:any)=>b.state==='exception').length).toBe(1);expect.soft(settlement.batches.filter((b:any)=>b.state==='mined').length).toBe(1);expect.soft(new Set(settlement.receipts.map((r:any)=>r.party)).size).toBe(expected.length);expect.soft(settlement.receipts.reduce((n:number,r:any)=>n+Number(r.amount_zats),0)).toBe(expected.reduce((n:number,r:any)=>n+Number(r.amount_zats),0));expect.soft(killed.signal).toBe('SIGKILL')});
+    await run.check('T3','expired staged batch becomes exception and replans without duplicate receipts',()=>{expect.soft(delay.resumed_height).toBeGreaterThan(delay.expiry_height);expect.soft(settlement.batches.filter((b:any)=>b.state==='exception').length).toBe(1);expect.soft(settlement.batches.filter((b:any)=>b.state==='mined').length).toBe(1);expect.soft(new Set(settlement.receipts.map((r:any)=>r.party)).size).toBe(expected.length); // B55 (H15): the plan adds no reserve-return row here — the manifest commits no reserve_return_ua_commitment (settle/plan.ts's legacy branch), so the counts cover exactly the expected rows
+      expect.soft(settlement.receipts.reduce((n:number,r:any)=>n+Number(r.amount_zats),0)).toBe(expected.reduce((n:number,r:any)=>n+Number(r.amount_zats),0));expect.soft(killed.signal).toBe('SIGKILL')});
     const sessions=settlement.batches.filter((b:any)=>b.state==='mined').flatMap((b:any)=>b.signing.sessions);
     await run.check('Q1','two inspected signers join through CLI and complete FROST',()=>{expect.soft(sessions.length).toBeGreaterThan(0);for(const s of sessions){expect.soft(s.signature).toMatch(/^[0-9a-f]{128}$/);expect.soft(s.participantsSaw).toEqual([s.sighash,s.sighash]);expect.soft(s.signers).toHaveLength(2)}});
     await run.check('T5','Bob and Carol are the configured pair; Alice is not selected (not an offline drill)',()=>{expect.soft(settlement.offline_signer).toBe('alice');for(const s of sessions){expect.soft(s.signers).toEqual([pubkey('bob'),pubkey('carol')]);expect.soft(s.signers).not.toContain(pubkey('alice'))}});
@@ -378,7 +392,9 @@ test('CLI auction settles with stray deposits, signer-derived amounts and expire
     good(['auction','publish','--id',id2,'--dir',publicDir2,'--config',operatorFile2]);
     const manifestFile2=path.join(publicDir2,'manifest.json');
     const bids2=deposit2.map((address,i)=>({...good(['bid','seal','--manifest',manifestFile2,'--signer',signer],{price_zats:String(price+100+i),quantity:1,address,refund_ua:refund2[i],envelope_pubkey:envelopeKeys[0]}),address}));
-    const paid2=good(['bid','deposit','--id',id2,'--pay'],{bids:bids2});console.log(`CLI cancelled funding ${paid2.txid}`);
+    // B55 (H19): the second auction now funds its own fee reserve (its post-R settle pays the 2 refunds from
+    // 3 spendable notes; the preflight needs bound + one fee slot = 40,000, was 0).
+    const paid2=good(['bid','deposit','--id',id2,'--pay'],{bids:bids2,reserve:{address:reserve,amount_zats:String(ID2_RESERVE)}});console.log(`CLI cancelled funding ${paid2.txid}`);
     await mature(paid2.txid);
     for(const b of bids2)good(['bid','deposit','--id',id2],{txid:paid2.txid,address:b.address,envelope_hex:b.envelope_hex,envelope_ct_hex:b.envelope_ct_hex,owner_sig_hex:b.owner_sig_hex});
     // `benzo cancel` records the cancel and runs the settlement: pre-R every deposit waits in the exception

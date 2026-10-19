@@ -11,6 +11,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT, STATE, env, DRAND } from "../../e2e/lib/env";
+import { h19FeeBound } from "../../e2e/lib/h19";
 import { hash, jsonBytes, signRecord, verifyRecord } from "../../manifest/schema";
 import { validateWitnessSet, verifyApprovalMap, witnessSetHash } from "../../witness";
 import { clearForMode } from "../../clear/registry";
@@ -200,7 +201,8 @@ const SCENARIOS: Record<string, Scenario> = {
   // Phase 6 measure-first: one uniform auction with 8 bids (8 deposit spends in the batch), for per-session timing.
   "scale-8": { mode: "uniform", supply: 4, extra: () => ({ q_max: 1 }), bids: () => [300, 290, 280, 270, 260, 250, 240, 230].map(price => ({ price })) },
   // Phase 6 option B (R30): 27 bids + the seller = 28 outputs and 28 spends (27 deposits + the fee reserve) in ONE batch at
-  // batch_cap 28, the largest batch under 100 KB; the reserve covers the 28-action fee (140,000 zats).
+  // batch_cap 28, the largest batch under 100 KB; the reserve floor covers the 28-action real fee (140,000 zats) and B55
+  // (H19) tops the live funding up to the preflight's worst-case bound + one fee slot (28 notes x 28 rows -> 295,000).
   "scale-27": { mode: "uniform", supply: 13, batch_cap: 28, reserve: 200_000, extra: () => ({ q_max: 1 }), bids: () => Array.from({ length: 27 }, (_, i) => ({ price: 400 - 5 * i })) },
   // Gate SC live half (phase6-h/SC, R85): 55 bids + the seller settle in 4 batches of 14. One funding transaction with
   // 55 deposit outputs would be ~190 KB, so the deposits are paid in 3 transactions of at most 19 (each well under
@@ -294,6 +296,17 @@ async function run(name: string, link?: SeriesLink) {
   }
   // The sealed bids are kept with the run's private state, so `resume` can admit them if the run stops after funding.
   writeFileSync(path.join(privateDir, "sealed.json"), JSON.stringify(sealed));
+  // B55 (H19, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §2): each leg's fee reserve funds the
+  // settle preflight's worst-case bound + one fee slot (the design's max(old reserve, bound + 5000)) — never
+  // the real ZIP-317 fee. notes = every spendable vault note at settle (the deposits, the reserve note, the
+  // treasury leg, the balance/late/stray notes); rows = the rows the batch pays. Counts round UP where the
+  // leg's exact row set depends on its outcomes (a larger bound only over-funds — the preflight refuses only
+  // when underfunded), so every leg's run passes the H19 preflight however its outcomes land.
+  const notesAtSettle = sealed.length + 1 + (sc.treasury ? 1 : 0) + (sc.balancePays?.length ?? 0) + (sc.lateDust ? 1 : 0) + (sc.strayClaim ? 1 : 0);
+  const rowsAtSettle = sealed.length + (sc.mode === "otc" ? 0 : 1) + (sc.lateDust ? 1 : 0) + (sc.strayClaim ? 1 : 0);
+  const h19 = h19FeeBound({ notes: notesAtSettle, rows: rowsAtSettle, batchCap: sc.batch_cap ?? 13 });
+  const reserveZats = Math.max(sc.reserve ?? 60_000, h19 + 5_000);
+  say(`H19 fee reserve ${reserveZats} zats (bound ${h19} + 5000 over ${notesAtSettle} notes x ${rowsAtSettle} rows, floor ${sc.reserve ?? 60_000})`);
   const chunk = sc.fundChunk ?? sealed.length, txOf: Record<string, string> = {}, txids: string[] = [];
   let paid: any; try {
   for (let i = 0; i < sealed.length; i += chunk) {
@@ -302,7 +315,7 @@ async function run(name: string, link?: SeriesLink) {
     // Only a refusal raised BEFORE any broadcast is retried (the bidder floor or the wallet finding too few
     // spendable notes); any other error may have broadcast already, so it stops the run instead of paying twice.
     for (let tries = 0; ; tries++) {
-      try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: part, ...(first ? { reserve: { address: reserveUa, amount_zats: String(sc.reserve ?? 60000) } } : {}), ...(first && sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) }); break; }
+      try { paid = benzo(["bid", "deposit", "--id", id, "--pay"], { bids: part, ...(first ? { reserve: { address: reserveUa, amount_zats: String(reserveZats) } } : {}), ...(first && sc.treasury ? { treasury: { amount_zats: String(sc.treasury) } } : {}) }); break; }
       catch (e) {
         const msg = String((e as Error)?.message ?? e), preBroadcast = /bidder floor|Insufficient balance|InsufficientFunds|insufficient funds/i.test(msg);
         if (first || !preBroadcast || tries >= 12) throw e;
