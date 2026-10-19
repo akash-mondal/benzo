@@ -709,3 +709,9 @@ On main the head re-ran:
 - the R100 probe (B44 still holds).
 
 Three published dirs still verify, 19 OK each (launch-cold, the DOC run, scale-55 after B45). The verify bundle is now `f146a894…`. Rulings on its questions: Q2 is fine as is. Q3 and Q4 are noted. **Q5, the settle worker's reserve-return batch, has no offline end-to-end proof, so the head proves it live next**: provision the hosts and run one small auction through settle and the return.
+
+### R107 — B46 blocked all settlement on a committed manifest; fixed (head, 2026-10-19)
+
+The live H15 walkthrough (auction `426b8585…`, hosts at `8a9f638`) stopped at `benzo settle`: every host's `sign derivable` exited 3 with `refused-rows ["reserve-return"]: the auction still owes 4 outstanding`, so **no** row could be listed and nothing paid. Every settlement packet carries `routing.reserve_return_ua`, so `deriveReserveReturn` bound the address on ordinary batches and refused while anything was owed. B46's offline proof never built an ordinary-batch packet with the address set; this is exactly its open question 5.
+
+Fix (head, `cli/host-derive.ts`, one line): while something is owed, only a packet that **declares** the return row is refused; any other packet gets "no return row yet". The B46 repro still passes green and `npm run check` passes. Hosts are provisioned again, and the walkthrough resumes at `benzo settle` for the same auction. Deposits are safe in the vault meanwhile.

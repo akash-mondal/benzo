@@ -378,7 +378,9 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
   }
   const outstanding = reserveReturnOutstanding({ owed, rows: pub.settlement?.rows ?? [], receipts: pub.settlement?.receipts ?? [],
     balance_refunds: pub.settlement?.balance_refunds ?? [] });
-  if (outstanding.length > 0) return refuse(`the auction still owes ${outstanding.length} outstanding (strays/balances/exceptions): ${outstanding.slice(0, 4).join(", ")}; the reserve-return row waits until nothing is owed`);
+  // R107: an ordinary batch's packet carries reserve_return_ua too, so only a packet that DECLARES the return row
+  // is refused while something is owed; for any other packet the answer is simply "no return row yet".
+  if (outstanding.length > 0) return declared ? refuse(`the auction still owes ${outstanding.length} outstanding (strays/balances/exceptions): ${outstanding.slice(0, 4).join(", ")}; the reserve-return row waits until nothing is owed`) : { row: null, binding, refusal: null };
   // Check 3 — the amount: the vault's whole unspent value minus the ZIP-317 fee. `remaining_zats` is this
   // signer's own scanned unspent total; the caller refuses a candidate whose inspect `input_zats` differs.
   const amount = reserveReturnAmount(notes as any);
