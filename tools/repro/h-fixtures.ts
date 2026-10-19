@@ -318,8 +318,10 @@ if (cmd === "quote-sweep") {
   if (!spendable.length) { process.stderr.write("the vault's value cannot be swept in one transaction: no spendable note\\n"); process.exit(1); }
   const shape = shapeOf(spendable.map(n => String(n.pool)), [outPoolOf(to, 0)]);
   // B54 (P3-3, H25): the sweep must fit what create can build (at most 29 spends and 29 actions —
-  // create's own bounds); the typed reason names it so the plan's waits line carries it.
-  if (spendable.length > 29 || shape.actions > 29) { process.stderr.write("the vault's value cannot be swept in one transaction: the sweep has " + spendable.length + " spends and " + shape.actions + " actions, beyond create's 29 bound (H25)\\n"); process.exit(1); }
+  // create's own bounds); the typed reason names it so the plan's waits line carries it. The knob
+  // quote_sweep_h25_bound:false in fixture.json emulates the PRE-B54 quote-sweep (the real tool before
+  // this bound) for the red legs only.
+  if (fix.quote_sweep_h25_bound !== false && (spendable.length > 29 || shape.actions > 29)) { process.stderr.write("the vault's value cannot be swept in one transaction: the sweep has " + spendable.length + " spends and " + shape.actions + " actions, beyond create's 29 bound (H25)\\n"); process.exit(1); }
   const total = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
   const amount = total - shape.fee;
   if (amount <= 0) { process.stderr.write("the vault's value cannot be swept in one transaction: proposal: InsufficientFunds { available: Zatoshis(" + total + "), required: Zatoshis(" + (total + shape.fee) + ") }\\n"); process.exit(1); }
@@ -336,6 +338,11 @@ if (cmd === "create") {
   const available = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
   const rowZats = rows.reduce((s, r) => s + Number(r.amount_zats), 0);
   const outPools = rows.map(r => outPoolOf(r.recipient, r.amount_zats));
+  // B54 (P3-3, H25): the real create's standing bounds (settle/src/main.rs) — at most 29 value-carrying
+  // spends/outputs and 29 actions across both bundles — modeled always, like the fee rule.
+  const builtShape = shapeOf(spendable.map(n => String(n.pool)), outPools);
+  if (Math.max(spendable.length, rows.length) > 29) { process.stderr.write("Error: batch must have at most 29 spends and 29 outputs\\n"); process.exit(1); }
+  if (builtShape.actions > 29) { process.stderr.write("Error: batch must have at most 29 actions across both bundles\\n"); process.exit(1); }
   let fee = shapeOf(spendable.map(n => String(n.pool)), outPools).fee;
   if (rowZats + fee <= available) fee = shapeOf(spendable.map(n => String(n.pool)), outPools.concat([fix.change_pool || "ironwood"])).fee;
   const required = rowZats + fee;

@@ -1,0 +1,52 @@
+commit c7088f0843ad7eef793865dfdaaba70698c1ff15 (working tree not clean at run time)
+utc 2026-10-19T14:36:38.679Z
+command node tmp/b54.mjs after p21n (tools/repro/b54-dust-and-sweep.ts)
+tree M tools/repro/b46-reserve-return.ts
+tree  M tools/repro/b47-settle-e2e.ts
+tree  M tools/repro/b47-world.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree  M tools/repro/h-fixtures.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before51.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b54-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p34-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p34-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p36-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p36-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b54.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b54.out
+tree ?? docs/evidence/phase-7/repro/r78-b54.out
+tree ?? docs/evidence/phase-7/repro/r82-b54.out
+tree ?? tools/repro/b54-dust-and-sweep.ts
+OBSERVE p21n-after plan exit=0 reserve_return={"amount_zats":"20000","dust_notes":1,"dust_zats":"4000","fee_zats":"10000","kind":"payout","party":"reserve-return","remaining_zats":"30000"}
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:1 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:2 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:3 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation seller vanished from the re-derivation; the pinned row stands
+OBSERVE p21n-after check correct exit=0 changed exit=1
+PASS p21n-correct-sweep-accepted the correct one-row sweep still signs (exit 0)
+PASS p21n-change-candidate-refused a change-carrying return candidate is refused BEFORE signing (exit 1): ERROR settle the reserve-return candidate must pay exactly one output, not change: the committed return UA for the unspent value minus the f
+PASS p21n-accounting-carries-residue the non-custody plan's accounting carries the residue too (dust_notes/dust_zats) — nothing is stranded silently
+RESULT PASS

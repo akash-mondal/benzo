@@ -1,0 +1,4 @@
+honest: ACCEPTED
+fabricated-txid: REFUSED receipt-attestation: refused: receipt leaf:0 names a transaction that is not a published mined batch
+swapped-output-index: REFUSED receipt-attestation: refused: receipt leaf:0 (4da8f58578e0…:1) is not attested by two agreeing host-signed approval maps of its bat
+duplicate-output: REFUSED receipt-attestation: refused: two settlement receipts name the same output

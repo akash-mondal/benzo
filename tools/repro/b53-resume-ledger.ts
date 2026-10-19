@@ -691,11 +691,13 @@ async function p37() {
   const fx0 = await buildAuction({ beacon, count: 1, fee_zats: "0", c_zats: "10000", bond: BOND,
     commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
   const benzo = part === "before" ? BASE_BENZO : GREEN_BENZO;
-  // The in-window balance payment: the winner pays its due plus 5,000 — its `balance-excess:0` row of
-  // 5,000, backed by this one in-window note.
+  // The in-window balance payment: the winner pays its due plus 15,000 — its `balance-excess:0` row of
+  // 15,000, backed by this one in-window note. B54 (P2-1): the note must be WALLET-SPENDABLE (more than
+  // 5,000 zats — settle/deposits.ts walletSpendable): a note of 5,000 zats or less is dust the wallet can
+  // never select, so no sweep can ever re-spend one and this collision case cannot exist for it.
   const due = (leaf: number) => BigInt(fx0.result.allocations.find((a: any) => a.leaf_index === leaf)?.balance_due_zats ?? "0");
   const balNotes = [
-    { txid: hash("b53-bal-0"), height: 95500, pool: "ironwood", address: BAL0, diversifier_index: "20", action_index: 0, value_zats: Number(due(0) + 5000n), memo_hex: null, spent_in_txid: null },
+    { txid: hash("b53-bal-0"), height: 95500, pool: "ironwood", address: BAL0, diversifier_index: "20", action_index: 0, value_zats: Number(due(0) + 15000n), memo_hex: null, spent_in_txid: null },
   ];
   const TX1 = hash("b53-p37-settling-batch");
   const scanNotes = [...fx0.notes.map(n => ({ ...n, spent_in_txid: TX1 })), ...balNotes,

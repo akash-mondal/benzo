@@ -173,6 +173,14 @@ const STRAY_VALUE = "500000", LATE_VALUE = "499999";
 // the obligations batch's change (35,000) and the two refund batches' change (1,000 + 1,000). The return
 // sweeps 4 notes, so its ZIP-317 fee is 5,000 x 4 = 20,000 and it pays 57,000 − 20,000.
 const REMAINING = "57000", RESERVE_FEE = "20000", RESERVE_AMOUNT = "37000";
+// B54 (Reviewer R round 5, P2-1): the wallet's note-selection rule. The vault's two 1,000-zat change
+// notes are DUST — the pinned wallet never selects a note of 5,000 zats or less — so the sweep spends
+// only the two spendable notes (20,000 + 35,000) and the residue (2 notes / 2,000 zats) stays in the
+// vault, reported as dust_notes/dust_zats. The sweep's own figures: 55,000 swept at the 10,000 fee of
+// its real shape (2 spends + 1 output, one pool = 2 actions) = 45,000 returned. The four-source figures
+// above stay as the historical published accounting the verify cases replay (its pre-B54 two-key shape
+// is still accepted, the R26 legacy rule).
+const SPENDABLE = "55000", SWEEP_FEE = "10000", SWEEP_AMOUNT = "45000", DUST_NOTES = 2, DUST_ZATS = "2000";
 const strayParty = () => depositParty({ txid: STRAY_TXID, pool: "ironwood", action_index: 0 });
 const lateParty = () => balanceLateParty({ txid: LATE_TXID, pool: "ironwood", action_index: 0 });
 // R13: a claim-paid row carries a published, owner-signed claim — checkable against the opening its owner key
@@ -496,7 +504,10 @@ if (part === "before") {
   // the base plan plans the return on the dead batch's receipt.
   {
     const deadSettlement = settlementFor(bound, { strayPaid: true, strayTxid: DEAD_TXID, latePaid: true });
-    const deadNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG, TX_REFUND_L] });
+    // B54 (P2-1's stub rule): no dust note in this red world — the 1,000-zat change notes are never
+    // wallet-selectable, and a dust note walls even the base toolchain on the total mismatch (the P2-1
+    // wall, proven in tools/repro/b54-dust-and-sweep.ts). This leg is about the receipt hole.
+    const deadNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG] });
     const { r, out, amount } = buildReturn("b-dead-base", BASE49_BENZO, deadSettlement, deadNotes);
     check("b-red-dead-batch-receipt-builds-the-sweep", r.code === 0 && !!out && out.amount_zats === amount.amount_zats,
       `the base hosts BUILD the return on the never-broadcast batch's receipt (exit ${r.code}, ${out?.amount_zats} zats)`);
@@ -509,7 +520,8 @@ if (part === "before") {
   // base hosts still treat the row as paid and build the return.
   {
     const reorgSettlement = settlementFor(bound, { strayPaid: true, latePaid: true });
-    const reorgNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG, TX_REFUND_L] });
+    // B54: no dust note in this red world either (see (b)'s note).
+    const reorgNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG] });
     const { r, out } = buildReturn("c-reorg-base", BASE49_BENZO, reorgSettlement, reorgNotes);
     check("c-red-reorged-receipt-builds-the-sweep", r.code === 0 && !!out,
       `the base hosts BUILD the return although the refund's transaction was reorged out (exit ${r.code})`);
@@ -531,7 +543,8 @@ if (part === "before") {
   // (f) a cross-kind re-spend: the reserve sweep re-spends a note a live approved ordinary batch already
   // sources — the two source namespaces never collide on the base, so both candidates are approved.
   {
-    const fNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, strayInput: true });
+    // B54: no dust note in this red world either (see (b)'s note).
+    const fNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, strayInput: true, changes: [TX_OBLIG] });
     const fSettlement = settlementFor(bound, { strayPaid: true, latePaid: true });
     const amount = reserveBase(fNotes as any);
     const state = writeHostFixture("f-cross-base", bound, fNotes, { settlement: fSettlement });
@@ -674,8 +687,8 @@ if (part === "before") {
   check("plan-completes", p2.code === 0 && !!p2.parsed, `the plan completed (exit ${p2.code})`);
   check("plan-one-reserve-return-row", !!rr && rr.party === "reserve-return" && rr.kind === "payout",
     `the plan has exactly one reserve-return row: ${rr ? JSON.stringify({ party: rr.party, kind: rr.kind }) : "(none)"}`);
-  check("plan-amount-whole-value-minus-fee", !!rr && rr.amount_zats === RESERVE_AMOUNT && rr.remaining_zats === REMAINING && rr.fee_zats === RESERVE_FEE,
-    `whole remaining value ${rr?.remaining_zats} minus the ZIP-317 fee ${rr?.fee_zats} = ${rr?.amount_zats} zats to the committed return UA (every unspent note, whatever its address)`);
+  check("plan-amount-whole-value-minus-fee", !!rr && rr.amount_zats === SWEEP_AMOUNT && rr.remaining_zats === SPENDABLE && rr.fee_zats === SWEEP_FEE && rr.dust_notes === DUST_NOTES && rr.dust_zats === DUST_ZATS,
+    `whole SPENDABLE value ${rr?.remaining_zats} minus the ZIP-317 fee ${rr?.fee_zats} = ${rr?.amount_zats} zats to the committed return UA (every note the wallet can spend; the ${rr?.dust_notes} dust notes / ${rr?.dust_zats} zats stay in the vault and are reported as the residue)`);
   console.log(`OBSERVE plan-reserve-return ${JSON.stringify(rr)}`);
 
   // ---- D. green plan: a prior batch spent the stray's note (value in internal change) — still refused -----
@@ -704,8 +717,8 @@ if (part === "before") {
 
   // ---- F. green: the hosts approve the planned row ----------------------------------------------------------
   console.log("=== green hosts: approve the reserve-return row the plan derived");
-  const reserveRow = { party: "reserve-return", kind: "payout", amount_zats: RESERVE_AMOUNT };
-  const reserveMeta = { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: RESERVE_AMOUNT } };
+  const reserveRow = { party: "reserve-return", kind: "payout", amount_zats: SWEEP_AMOUNT };
+  const reserveMeta = { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: SWEEP_AMOUNT } };
   {
     const state = writeHostFixture("honest-build", bound, settledNotes, { settlement: settled });
     const dir = writePacket("honest-build", bound, settled, reserveMeta, [reserveRow]);
@@ -713,21 +726,21 @@ if (part === "before") {
     const built = existsSync(path.join(dir, "build.json")) ? JSON.parse(readFileSync(path.join(dir, "build.json"), "utf8")) : null;
     const out = (built?.outputs ?? []).find((o: any) => o.party === "reserve-return");
     const paid = createdRows(state).map(x => x.recipient);
-    check("sign-build-honest-passes", r.code === 0 && out && out.amount_zats === RESERVE_AMOUNT && paid.includes(UA_ORCHARD),
-      `${r.code === 0 ? `built the reserve-return row (${out?.amount_zats} zats to the committed return UA; inspect input_zats = the scanned ${REMAINING})` : `exit ${r.code}: ${(r.err || r.out).trim().split("\n").at(-1)?.slice(0, 160)}`}`);
+    check("sign-build-honest-passes", r.code === 0 && out && out.amount_zats === SWEEP_AMOUNT && paid.includes(UA_ORCHARD),
+      `${r.code === 0 ? `built the reserve-return row (${out?.amount_zats} zats to the committed return UA; inspect input_zats = the scanned spendable ${SPENDABLE})` : `exit ${r.code}: ${(r.err || r.out).trim().split("\n").at(-1)?.slice(0, 160)}`}`);
   }
   {
     const state = writeHostFixture("honest-derivable", bound, settledNotes, { settlement: settled });
     const dir = writePacket("honest-derivable", bound, settled, {});
     const r = sh(GREEN_BENZO, ["sign", "derivable", "--id", bound.id, "--packet", dir, "--name", "alice"], hostEnv(state));
     let listed = false;
-    try { listed = (JSON.parse(r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!).rows ?? []).some((x: any) => x.party === "reserve-return" && x.amount_zats === RESERVE_AMOUNT); } catch {}
+    try { listed = (JSON.parse(r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!).rows ?? []).some((x: any) => x.party === "reserve-return" && x.amount_zats === SWEEP_AMOUNT); } catch {}
     check("sign-derivable-honest-lists-row", r.code === 0 && listed,
       `${r.code === 0 && listed ? "lists the reserve-return row at the plan's amount" : `exit ${r.code}: ${(r.err || r.out).trim().split("\n").at(-1)?.slice(0, 160)}`}`);
   }
   {
     const state = writeHostFixture("honest-approve", bound, settledNotes, { settlement: settled });
-    const dir = writePacket("honest-approve", bound, settled, { reserve_row: { amount_zats: RESERVE_AMOUNT } }, undefined, { pays: UA_ORCHARD, amount: RESERVE_AMOUNT });
+    const dir = writePacket("honest-approve", bound, settled, { reserve_row: { amount_zats: SWEEP_AMOUNT } }, undefined, { pays: UA_ORCHARD, amount: SWEEP_AMOUNT });
     const r = sh(GREEN_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
     const recorded = existsSync(path.join(state, "approvals", bound.id, "batch-1.json"));
     check("sign-approve-honest-passes", r.code === 0 && recorded,
@@ -740,7 +753,7 @@ if (part === "before") {
     ["approve", ["sign", "approve", "--id", bound.id, "--batch", "1"], true]] as [string, string[], boolean][]) {
     const state = writeHostFixture(`wrong-ua-${name}`, bound, settledNotes, { settlement: settled });
     const dir = writePacket(`wrong-ua-${name}`, bound, settled, reserveMeta, name === "build" ? [reserveRow] : undefined,
-      candidate ? { pays: UA_SAPLING_ONLY, amount: RESERVE_AMOUNT } : undefined);
+      candidate ? { pays: UA_SAPLING_ONLY, amount: SWEEP_AMOUNT } : undefined);
     const meta = JSON.parse(readFileSync(path.join(dir, "packet.json"), "utf8"));
     meta.reserve_return_ua = UA_SAPLING_ONLY;
     writeFileSync(path.join(dir, "packet.json"), jsonBytes(meta));
@@ -776,9 +789,9 @@ if (part === "before") {
     // R103's input check: a candidate whose inspect input_zats is below this signer's scanned unspent total
     // leaves notes behind (someone else can sweep them) — refused typedly.
     const state = writeHostFixture("low-input", bound, settledNotes, { settlement: settled });
-    const dir = writePacket("low-input", bound, settled, { reserve_row: { amount_zats: RESERVE_AMOUNT } }, undefined, { pays: UA_ORCHARD, amount: RESERVE_AMOUNT, input_zats: "100" });
+    const dir = writePacket("low-input", bound, settled, { reserve_row: { amount_zats: SWEEP_AMOUNT } }, undefined, { pays: UA_ORCHARD, amount: SWEEP_AMOUNT, input_zats: "100" });
     const r = sh(GREEN_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
-    const named = /input_zats 100 differs from this signer's scanned unspent total 57000/.test(r.err);
+    const named = /input_zats 100 differs from this signer's scanned unspent total 55000/.test(r.err);
     check("sign-approve-input-below-scanned-total-refused", r.code === 3 && typedRefusal(r.err) && named,
       `${r.code === 3 && typedRefusal(r.err) && named ? "typed refusal: input_zats below the scanned unspent total" : `exit ${r.code}`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 160) ?? ""}`);
   }
@@ -1012,8 +1025,8 @@ if (part === "before") {
     // change output" class (the base hosts approve it; the before52 leg shows that). The change output
     // reports is_change true with no recipient, exactly like the real inspect's owned-change shape.
     const state = writeHostFixture("k2-change", bound, settledNotes, { settlement: settled });
-    const dir = writePacket("k2-change", bound, settled, { reserve_row: { amount_zats: RESERVE_AMOUNT } }, undefined,
-      { pays: UA_ORCHARD, amount: RESERVE_AMOUNT, change_zats: "5000", input_zats: REMAINING });
+    const dir = writePacket("k2-change", bound, settled, { reserve_row: { amount_zats: SWEEP_AMOUNT } }, undefined,
+      { pays: UA_ORCHARD, amount: SWEEP_AMOUNT, change_zats: "5000", input_zats: SPENDABLE });
     const r = sh(GREEN_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
     const named = /must pay exactly one output, not change/.test(r.err);
     check("k2-change-candidate-refused", r.code === 3 && typedRefusal(r.err) && named && !existsSync(path.join(state, "approvals", bound.id, "batch-1.json")),
@@ -1037,7 +1050,10 @@ if (part === "before") {
     const waits = (p.err.match(/^reserve return waits: the vault's value cannot be swept in one transaction \(.*\)$/m) ?? []);
     check("k3-unsweepable-waits-line", p.code === 0 && !!p.parsed && p.parsed.reserve_return === undefined && waits.length === 1 && /sapling note/.test(waits[0]),
       `the tool refuses the note it cannot spend and the plan prints the typed waits line — no row, exit 0: ${waits[0] ?? "(nothing)"}`);
-    const tinyNotes = settledNotes.map(n => (n.spent_in_txid ?? null) === null ? { ...n, value_zats: n.txid === RES_TXID ? 5000 : 0 } : n);
+    // B54 (P2-1): the tiny world's one note is 6,000 zats — spendable (> 5,000) but below its 10,000 fee,
+    // so the tool's own InsufficientFunds class is what the waits line carries (a note of 5,000 zats or
+    // less would read "no spendable note" instead: it is dust, never selected).
+    const tinyNotes = settledNotes.map(n => (n.spent_in_txid ?? null) === null ? { ...n, value_zats: n.txid === RES_TXID ? 6000 : 0 } : n);
     const t = runPlan("tiny", GREEN_PLAN, bound, tinyNotes, pubSettled, ROOT);
     const waits2 = (t.err.match(/^reserve return waits: the vault's value cannot be swept in one transaction \(.*\)$/m) ?? []);
     check("k3-below-fee-waits-line", t.code === 0 && !!t.parsed && t.parsed.reserve_return === undefined && waits2.length === 1 && /InsufficientFunds/.test(waits2[0]),

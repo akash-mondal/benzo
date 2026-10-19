@@ -3,6 +3,198 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B54 (Builder A, branch `b54-dust-sweep`, from `9324d02`) — Reviewer R round 5: the sweep spends what the wallet can spend (P2-1 dust; P3-1 to P3-6)
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets,
+no live Playwright; stubs and own tmp state/builds only). Spec:
+`docs/design/phase7-b54-dust-and-sweep.md`; source report `benzo-sol/reports/pr-p7-b52-b53.md`. Worktree
+`../benzo-b54`, branch `b54-dust-sweep`, base `9324d02`. Commits `--no-verify` (R32): `b13fdd4`
+(item 1, P2-1 — with the REBUILT verify bundle `2b642a14…` committed together with
+`docs/verify-bundle.sha256`), `ad2852b` (item 2, P3-2), `b8c53f6` (item 3, P3-1), `9c2ea91`
+(item 4, P3-3 + H25), `3b4be21` (item 5, P3-4 + H26), `8b7ed57` (item 6, P3-6), `c7088f0`
+(the `destinations()` blocker the P3-2 proof needed — see Q3); this folds/status commit closes the batch.
+Setup: `git worktree add ../benzo-b54 -b b54-dust-sweep 9324d02`; `vendor/` copied
+(`cp -R ../benzo/vendor .`, never symlinked), `node_modules` symlinked to the main checkout's; own
+`.env` from `.env.example` for the e2e attempt only; `cargo build --release --locked --manifest-path
+settle/Cargo.toml` in the worktree (offline, vendored) rebuilt `settle/target`. Before every commit
+`git diff --cached --summary | grep 120000` printed nothing (no symlinks staged; `vendor` and
+`node_modules` are gitignored).
+
+Status block (every command and its result):
+
+- `npm run typecheck` — OK (clean at every commit). `check:structure` — OK (219 files).
+  `check:invariants` — OK (`{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}`, both runs).
+  `check:dist-require` — OK. `check:bundle` — OK (verify bundle `2b642a14…` matches the committed sha;
+  it changed only at item 1, which touched `api/public-auction.ts`).
+- Base bundles (once, from the pristine base, never another worktree):
+  `mkdir -p tmp/b54/base-src && git archive 9324d02 | tar -x -C tmp/b54/base-src && ln -s $PWD/node_modules tmp/b54/base-src/node_modules`,
+  then `(cd tmp/b54/base-src && node cli/build.mjs)` + esbuild of `settle/plan.ts`, `settle/cli.ts`,
+  `clear/cli.ts`, `settle/deposits.ts`, `witness/index.ts`, `cli/host-derive.ts`, `cli/host-chain.ts`
+  (the b53 recipe, `tmp/build-b54-bases.sh`) — OK. Green bundles from this tree:
+  `npm run build:core && npm run build:settle && npm run build:cli` — OK. `tmp/b47-republish.mjs` built
+  first (R118) — OK.
+- **Item 1 (P2-1 dust)** — `settle/deposits.ts:133-136` (`walletSpendable` = `value_zats > 5000`, the
+  constant named after ZIP-317 `MARGINAL_FEE`, with the pinned-crate lines cited) and `:164-173`
+  (`reserveUnspent` counts only spendable notes; the residue is `dust_notes`/`dust_zats`; the OWED side
+  keeps counting dust strays in full — the code states the rule: a stray of ≤5,000 zats is refunded from
+  OTHER notes and never keeps the return waiting once receipted); `settle/plan.ts:432-447` (the plan's
+  swept total is the spendable sum; the quote must spend exactly it or the typed waits line names the
+  divergence; the accounting carries the residue); `cli/host-derive.ts:425-432` (the hosts' comparison
+  is spendable-only by construction); `settle/cli.ts:452-472` (`writeInspect`: the return batch's
+  inspect record carries the residue, first write wins) and `:674-685` (the kept accounting reads it —
+  never re-derived from the emptied vault, H20 item 2) and `:390` (the fee preflight's spendable value
+  uses the wallet's rule too); `cli/product.ts:110-118` (publish the residue; the batch inspect keeps
+  its closed published shape — the annotations are stripped like `recipient`); `api/public-auction.ts:53`
+  and `:950-970` (verify shape-checks the residue — each dust note 1..5,000 zats, both zero together —
+  and keeps `remaining_zats === inspect.input_zats`; the pre-B54 two-key accounting stays accepted for
+  the historical published dirs, the R26 legacy rule — the committed H15 live dir still verifies).
+  Stubs (`h-fixtures`, `b47-world`, `b47-settle-e2e`, `b53-resume-ledger`): `quote-sweep` and `create`
+  apply the same note-selection rule. Disclosed in README honest-limits and the operator guide.
+  Red/green: `node tmp/b54.mjs before p21` — PASS (red: the base counts every positive note
+  (104,000 vs the quote's 100,000), run 1 parks the return with the typed
+  `the tool's quote spends 30000 zats of the scanned unspent total 34000` and exits 0, and every
+  re-run then dies at the published bare row's own verify — the wall no honest re-run can pass);
+  `node tmp/b54.mjs after p21` — PASS (green: the custody return completes at 20,000 = 30,000 − 10,000,
+  the published accounting carries `dust_notes: 1, dust_zats: "4000"`, `benzo verify` ACCEPTS the
+  published dir, and a re-run is clean and byte-equal). The reviewer's D1–D5 units ride along (the
+  spendable total, the residue, the 5,000/5,001 boundary, and the gate clearing for a receipted dust
+  stray). Non-custody: `node tmp/b54.mjs before|after p21n` — red 2/0 (the base plan reports no
+  residue — the 4,000 zats stranded silently — and its `check()` pins no shape), green 3/0 (the
+  accounting carries the residue). Evidence: `docs/evidence/phase-7/repro/b54-p21-{red,green}.out`,
+  `b54-p21n-{red,green}.out`.
+- **Item 2 (P3-2)** — `settle/cli.ts:114-124`: `check()` runs the same `reserveCandidateVerdict` the
+  signer hosts run when the batch carries the reserve-return row, BEFORE anything is signed. Green proof
+  in the p21n run: a change-carrying candidate is refused `must pay exactly one output, not change`
+  before signing, and the correct one-row sweep still reaches signing (`b54-p21n-green.out`). Red: the
+  base pins no shape at all — see Q3 for why the base fails even the correct candidate earlier
+  (`b54-p21n-red.out`).
+- **Item 3 (P3-1)** — `settle/cli.ts:435-445`: the H23 expiry fires only on a mixed batch with NO staged
+  transaction. `node tmp/b54.mjs before p31` — PASS (red: the base expires the STAGED mixed batch and
+  re-allocates its rows into a fresh batch — the reviewer's C2/C3 double-pay shape). `node tmp/b54.mjs
+  after p31` — PASS (green: nothing is released; the attributable variant goes through the normal
+  broadcast/mined-wait/confirm and every row is attributed ONCE at the staged txid; the unattributable
+  variant is parked with its binding kept, exit 0). Evidence: `b54-p31-{red,green}.out`; the
+  confirm-success variant's terminal kept-accounting refusal is the disclosed residual (Q5).
+- **Item 4 (P3-3, H25)** — `settle/src/main.rs:223-229`: `quote_sweep` refuses when the sweep's spends
+  or actions exceed `create`'s 29 bound, with the typed reason (`cargo build --release --locked` OK).
+  Stubs model the same bound and the same reason (their `create` models the real create's standing
+  bounds too; a `quote_sweep_h25_bound:false` knob emulates the pre-B54 quote for red legs — Q2).
+  `docs/design/phase7-hardening.md` H25 recorded and one line in the operator guide. `node tmp/b54.mjs
+  before|after p33` — red 2/0 (the pre-B54 quote prices the 31-note sweep, the row is planned, every
+  build dies on `batch must have at most 29 spends`, set aside and re-planned forever — no H25 reason
+  anywhere), green 1/0 (the plan prints `reserve return waits: … the sweep has 31 spends and 31
+  actions, beyond create's 29 bound (H25)`, no row, exit 0). Evidence: `b54-p33-{red,green}.out`.
+- **Item 5 (P3-4)** — `cli/commands/sign-approve.ts:246-255`: the approval record stores the attested
+  `{party, output_index, amount_zats}` (and the host's own candidate inspect, outputs only — never a
+  recipient) next to the signed map; `cli/host-derive.ts:452-490` `backfillMapped` heals only from those
+  stored amounts, with the derived amount as a cross-check that must match — drift fails closed in both
+  directions, and no stored amounts means no heal (H26: pre-B49 test state may stay unhealed; mainnet
+  starts fresh). `node tmp/b54.mjs before|after p34` — red 5/0 (the base heals at TODAY's derived
+  amounts from the map alone, and a drifted derivation IS attested: a receipt at 100 counts although
+  the transaction paid 150), green 7/0 (the reviewer's B1–B7: stored-amount heal, no-stored no-heal,
+  drift counts in neither direction, never overwrites — plus a real `sign approve` run whose record
+  carries the attestation). Evidence: `b54-p34-{red,green}.out`.
+- **Item 6 (P3-6)** — `cli/host-chain.ts:27-50`: `minedHeight` cross-checks every configured endpoint
+  like `blockHeader` (one only under `BNZ_LWD_SINGLE=1`, R64's rule included); endpoints that disagree
+  mean no height and fail closed. `node tmp/b54.mjs before|after p36` — red 1/0 (the base reads
+  `BNZ_LWD_URL` alone — a lying or lagging primary is unchallenged), green 5/0 (agree → 500; disagree
+  and half-knowledge → no height; single mode unchanged; same-endpoint-twice and missing second
+  endpoint refused). The offline host envs that drive `sign approve` (b48, b50, b53, h10) now configure
+  the second stub endpoint as b46's already did. Evidence: `b54-p36-{red,green}.out`.
+- **Folds all green** on the final tree (raw `docs/evidence/phase-7/repro/*-b54-fold*`,
+  `h10-seller-binding-b54.out`, `r*-b54.out`):
+
+| fold | result |
+|---|---|
+| b44-opener | before 25/0, after 29/0, RESULT PASS both |
+| b46-reserve-return | before 8/0, before52 4/0, after 66/0, RESULT PASS all (its green arithmetic now wallet-rule; Q6) |
+| b47-settle-e2e | before 7/0, before51 7/0, before52 5/0, after 49/0, RESULT PASS all |
+| b48-p3s | 23/0, RESULT PASS |
+| h10-seller-binding | 22/0, RESULT PASS |
+| h13-host-scale | before 8/0, after 38/0, RESULT PASS both |
+| h14-open-griefing | before 12/0, after 14/0, RESULT PASS both |
+| b53-resume-ledger | before 19/0, after 28/0 across 7 sections, RESULT PASS (p32's expectations updated per H26, Q6) |
+| replays r77, r78, r82 | each exit 0 — honest ACCEPTED, each tamper REFUSED (`r*-b54.out`) |
+| b54-dust-and-sweep (own) | before 16/0, after 29/0, RESULT PASS both (`node tmp/b54.mjs before|after`) |
+
+- Base trees built by each fold's own recipe into this worktree's `tmp/` (`tmp/build-b54-bases.sh`):
+  `tmp/b44/base-src` + `tmp/b44/base` (`d646ceb`), `tmp/b45/base-tree` + `tmp/b45/base` (`cd19905`),
+  `tmp/b43/base-tree` + `tmp/b43/base` (`5086be1`), `tmp/b46/base-src` (`a81e826`),
+  `tmp/b46/base49-src` (`7c4e661`), `tmp/b47/base-src` (`8a9f638`), `tmp/b51/base-src` (`a107447`),
+  `tmp/b52/base-src` (`59c863c`), `tmp/b53/base-src` (`59c863c`), `tmp/b54/base-src` (`9324d02`).
+- `npm run e2e` — **blocked in this worktree, unverified**: `NOT RUN tle missing at
+  …/.benzo-b54/.benzo/bin/tle` — the `default` (seal-open) spec needs the Go `tle` binary, which lives
+  only in the main checkout's `.benzo/` (forbidden) or a network fetch (forbidden). Nothing in B54
+  touches the seal/open paths (Q7).
+
+### Questions
+
+- **Q1 (H25's boundary number):** the design says "a vault with more than 28 spendable notes cannot
+  return its reserve in one transaction", but `create`'s real bounds (`settle/src/main.rs:66-67`) allow
+  29 spends AND 29 padded actions — a 29-note single-pool vault DOES fit (its sweep is 29 actions), and
+  a cross-pool vault can hit the action bound EARLIER than 28 (28 notes in one pool with the return
+  output in the other is 30 padded actions). The enforced rule is the design's operative sentence —
+  `quote-sweep` refuses when the sweep's spends or actions exceed `create`'s 29 bound — and H25 records
+  the design's sentence as the disclosed limit with the precise mechanics beside it. If the head wants
+  the disclosure number exact, the sentence becomes "a vault whose sweep exceeds 29 spends or 29 padded
+  actions cannot return its reserve in one transaction (28 spendable notes always fit a single-pool
+  vault; a cross-pool vault can reach the action bound earlier)". Say which and I reword.
+- **Q2 (the P3-3 red's tool emulation):** the stubs model the REAL toolchain, and the real
+  `quote-sweep` changed in this batch. The three stub `quote-sweep`s therefore carry one knob,
+  `quote_sweep_h25_bound: false` in `fixture.json`, which emulates the PRE-B54 quote (no bound) for the
+  P3-3 red leg only; default is the tool as shipped. The stub `create` now models the real create's
+  standing bounds (≤29 spends/outputs, ≤29 actions) in all three stubs — like the fee rule, it is
+  tool behaviour that never changed.
+- **Q3 (a blocker the P3-2 proof hit — fixed, one line):** `settle/cli.ts destinations()` sent every
+  row except `seller` through the product-mode stray-envelope branch — including `reserve-return` — so
+  on the non-custody product path the return row never reached its own pinned destination
+  (`route.reserve_return_ua`) and EVERY return candidate failed `check()` with the untyped
+  `PCZT recipient count differs from result`, correct or not: the non-custody return path could never
+  reach signing at all (and P3-2's hole was shadowed by it — the base red can only show that shadow).
+  Fixed at `settle/cli.ts:82` by excluding `reserve-return` exactly like `seller` (commit `c7088f0`).
+  Not in the design's list — flagging it so the head can fold it into the batch's accounting.
+- **Q4 (observed on base, not fixed — a green residual to rule on):** when the plan DERIVES the return
+  row but nothing pays it (base: the dust wall, the H25 wall, or any host-side refusal), the row pins
+  as an exception and the settlement PUBLISHES a bare `reserve-return` row — which the product's own
+  verify refuses (`a reserve-return row or receipt without the published reserve_return accounting`,
+  `api/public-auction.ts:954`). Every later run then dies before pinning (`no signer host could list
+  its derivable rows`, exit 1) — a harder wall than the reviewer's probe showed (both p21 and p33 reds
+  record it). Post-B54 the plan derives the row only when its own quote matches its own scan, so the
+  green-side trigger narrows to plan/host scan skew (e.g. a host wallet one note behind at approve
+  time): the row publishes bare and the same wall follows. Options: never publish an UNPAID
+  `reserve-return` row (drop it from the summary), or let verify accept an exception `reserve-return`
+  row without the accounting. The design does not cover this; say which and it is a small follow-up.
+- **Q5 (the p31 residual):** a pre-B52 staged MIXED batch that pays the return row now confirms its
+  rows exactly once (the double-pay shape is gone — that is the design's proof bar), but the run then
+  stops at the kept-accounting check (`the kept reserve_return accounting does not match the paid
+  receipt`, exit 1): the accounting presumes the one-row sweep, and a mixed-batch-paid return row can
+  never publish verify-accepted accounting (its amount is not input − fee). The rows are confirmed and
+  receipted before the stop; the unattributable variant parks cleanly (exit 0). Zero reachability (no
+  shipped worker ever staged a mixed batch) — recorded as the state's disclosed residual rather than
+  new behaviour the design does not ask for.
+- **Q6 (fold expectation updates, all sanctioned by the design's rules):** (a) `b53` p32's map-only
+  world no longer heals on either leg (the H26 residual) and a new stored-attestation world carries the
+  heal; (b) `b46`'s green arithmetic is now wallet-rule — its fixture's two 1,000-zat change notes are
+  DUST, so the sweep is 55,000/10,000/45,000 with the residue 2/2,000 published (its published-fixture
+  figures stay as the historical four-source accounting the verify cases replay); (c) three `b46` RED
+  worlds dropped their 1,000-zat notes — a dust note walls even the BASE toolchain on the total
+  mismatch and would hide the receipt/re-spend holes those legs demonstrate; (d) `b53` p37's backing
+  note is 15,000 (was exactly 5,000): a note of 5,000 zats or less is never wallet-selectable, so no
+  sweep can ever re-spend one and the collision case cannot exist for it.
+- **Q7 (e2e):** `npm run e2e` is blocked in the worktree exactly as B53's Q7 (the Go `tle` binary is
+  main-checkout `.benzo/` or a network fetch, both forbidden). B54 touches no seal/open code.
+- **Q8 (minedHeight's disagreement semantics):** implemented as a REFUSAL like `blockHeader`
+  (the reviewer's words: "refused when the second endpoint disagrees, like blockHeader does"), whose
+  message ends "; no height" — the gate callers read it as not-yet-counted (their `catch → 0`), and a
+  signer host never approves on a height its own endpoints dispute. If the head prefers a silent 0
+  return (no refusal) the sign-approve mined guards weaken to today's single-endpoint behaviour; say.
+- **Q9 (crate citation):** the reviewer attributed the note-selection doc line to
+  `zcash_client_backend-0.24.0 input_selection.rs`; it actually lives in
+  `zcash_client_sqlite-0.22.0 wallet/common.rs` (both `select_unspent_notes` — the SQL is
+  `AND rn.value > :min_value` with `min_value = u64::from(zip317::MARGINAL_FEE)` — and
+  `select_spendable_notes_matching_value`, "Notes with individual value *below* the ``MARGINAL_FEE``
+  will be ignored"). `settle/deposits.ts:122-132` cites the real lines.
+
 ## Batch B53 (Builder B, branch `b53-resume-ledger`, from `59c863c`) — Reviewer R round 4: the resume, re-send and ledger gaps (P2-2, P3-1, P3-2, P3-3, P3-5, P3-6, P3-7, P3-8)
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets,

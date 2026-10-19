@@ -1,0 +1,57 @@
+commit c7088f0843ad7eef793865dfdaaba70698c1ff15 (working tree not clean at run time)
+utc 2026-10-19T14:36:17.023Z
+command node tmp/b54.mjs after p21 (tools/repro/b54-dust-and-sweep.ts)
+tree M tools/repro/b46-reserve-return.ts
+tree  M tools/repro/b47-settle-e2e.ts
+tree  M tools/repro/b47-world.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree  M tools/repro/h-fixtures.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before51.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b54-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p34-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p34-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p36-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p36-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b54.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b54.out
+tree ?? docs/evidence/phase-7/repro/r78-b54.out
+tree ?? docs/evidence/phase-7/repro/r82-b54.out
+tree ?? tools/repro/b54-dust-and-sweep.ts
+OBSERVE p21-after reserveUnspent total=100000 dust=1/4000
+PASS p21-spendable-total the swept total counts only the notes the wallet can spend (100000)
+PASS p21-residue-reported the unspendable residue is reported (1 notes / 4000 zats)
+PASS p21-ids-spendable-only the sweep's source ids are the spendable notes only (["1111111111111111111111111111111111111111111111111111111111111111:orchard:0"])
+PASS p21-boundary the rule is value_zats > 5,000 (ZIP-317 MARGINAL_FEE): 5,000 itself is dust, 5,001 is spendable
+PASS p21-d5-gate-clears-for-a-receipted-dust-stray a refunded 4,000-zat stray (paid from other notes) never keeps the return waiting — the dust note is residue, not debt
+OBSERVE p21-after seeded batch 1 7e4b73bfeef08adb… change 30000 + dust note 4000
+OBSERVE p21-after settle exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":2,"allocated":1}
+  | settlement broadcast c6e673f8f2dcca39ecdf2ad7b8b5c41b51577ae5c64f677b2f186d34a2ccbddf
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":6}
+PASS p21-return-completes the custody return completes: the sweep spends the 30,000 spendable note at the 10,000 fee and returns 20,000 (exit 0, 6 receipts)
+PASS p21-residue-published the published accounting carries the residue: {"dust_notes":1,"dust_zats":"4000","fee_zats":"10000","remaining_zats":"30000"}
+PASS p21-verify-accepts benzo verify accepts the published dir with the residue (exit 0); 19 OK lines
+PASS p21-rerun-idempotent a re-run is clean and republishes byte-equal accounting (exit 0)
+RESULT PASS

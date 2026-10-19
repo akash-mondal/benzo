@@ -1,0 +1,47 @@
+commit c7088f0843ad7eef793865dfdaaba70698c1ff15 (working tree not clean at run time)
+utc 2026-10-19T14:15:31.930Z
+command node tmp/b54.mjs before p34 (tools/repro/b54-dust-and-sweep.ts)
+tree M tools/repro/b46-reserve-return.ts
+tree  M tools/repro/b47-settle-e2e.ts
+tree  M tools/repro/b47-world.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree  M tools/repro/h-fixtures.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before51.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b54-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p34-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p34-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b54.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b54.out
+tree ?? docs/evidence/phase-7/repro/r78-b54.out
+tree ?? docs/evidence/phase-7/repro/r82-b54.out
+tree ?? tools/repro/b54-dust-and-sweep.ts
+PASS p34-b1-no-map-no-heal no stored map: no heal
+PASS p34-b2-txid-mismatch-no-heal a map of a different candidate: no heal
+OBSERVE p34-before stored=[[{"party":"alice-row","output_index":0,"amount_zats":"100"}]] map-only=[[{"party":"alice-row","output_index":0,"amount_zats":"100"}]]
+PASS p34-red-heals-from-derived the base heals at TODAY's derived amounts from the map alone (stored=[[{"party":"alice-row","output_index":0,"amount_zats":"100"}]], map-only=[[{"party":"alice-row","output_index":0,"amount_zats":"100"}]]) — an attestation of what the host would derive now, not what it approved
+OBSERVE p34-before drift mapped=[{"party":"alice-row","output_index":0,"amount_zats":"100"}] paid-at-150=0 paid-at-100=1
+PASS p34-red-drift-attests-the-drift the base attests the DRIFTED amount (a receipt at 100 counts although the transaction paid 150) — the residual P3-4 removes
+PASS p34-b6-never-overwrites an existing mapped is never overwritten
+RESULT PASS

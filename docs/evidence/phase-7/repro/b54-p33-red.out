@@ -1,0 +1,47 @@
+commit c7088f0843ad7eef793865dfdaaba70698c1ff15 (working tree not clean at run time)
+utc 2026-10-19T14:14:47.154Z
+command node tmp/b54.mjs before p33 (tools/repro/b54-dust-and-sweep.ts)
+tree M tools/repro/b46-reserve-return.ts
+tree  M tools/repro/b47-settle-e2e.ts
+tree  M tools/repro/b47-world.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree  M tools/repro/h-fixtures.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before51.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b54-fold-before52.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b54-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p21n-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p31-red.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-green.out
+tree ?? docs/evidence/phase-7/repro/b54-p33-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b54.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b54-fold-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b54.out
+tree ?? docs/evidence/phase-7/repro/r78-b54.out
+tree ?? docs/evidence/phase-7/repro/r82-b54.out
+tree ?? tools/repro/b54-dust-and-sweep.ts
+OBSERVE p33-before settle exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+  | ERROR signer alice could not list derivable rows: ERROR sign derivable refused: public check failed: ERROR accounting-strays refused: a reserve-return row or receipt without the published reserve_return accounting
+  | ERROR signer bob could not list derivable rows: ERROR sign derivable refused: public check failed: ERROR accounting-strays refused: a reserve-return row or receipt without the published reserve_return accounting
+  | ERROR signer carol could not list derivable rows: ERROR sign derivable refused: public check failed: ERROR accounting-strays refused: a reserve-return row or receipt without the published reserve_return accounting
+  | ERROR settle refused: no signer host could list its derivable rows
+  | ERROR reserve-return pass exited 1; the reserve stays in the vault until the next benzo settle
+PASS p33-red-planned-unbuildable-forever the pre-B54 quote prices the 31-note sweep and the row is planned — then every build dies on create's 29 bound ("batch must have at most 29 spends"), set aside and re-planned forever; no receipt, no H25 reason anywhere
+PASS p33-red-every-rerun every re-run stays at the wall (exit 1 — the set-aside row publishes bare and its own verify then refuses the doc, like the p21 red): no return is ever paid, no H25 reason appears anywhere
+RESULT PASS
