@@ -144,6 +144,13 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       $ benzo auction create --file unsigned-manifest.json --witness-set FILE --config PRIVATE-OPERATOR.json
       ```
 
+      B49 disclosure: `benzo verify` checks receipt attestation, NOT on-chain inclusion (verify is
+      offline by design). Inclusion is checked by the signer hosts before any reserve return: a
+      receipt counts as paid only when this host's own approval ledger approved that transaction
+      with the row at its amount AND this host's own vault scan shows the transaction mined 10
+      confirmations deep (`settle/deposits.ts` `paidByOwnLedger`). A row without such a receipt is
+      outstanding and the return waits.
+
       `--witness-set` is the `file` printed by `witness set` — the signed side-packet the manifest's
       `witness_set_hash` commits to. Output: the `auction_id` (64 hex chars) and `state: DRAFT`.
 

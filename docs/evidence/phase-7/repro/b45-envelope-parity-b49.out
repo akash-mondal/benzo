@@ -1,0 +1,25 @@
+PASS open-v1-plain-ua-identical: base OK {"refund":"[redacted address 86364ce26e] | this tree OK {"refund":"[redacted address 86364ce26e]
+PASS open-envelope-v1-plain-ua-identical: base OK "[redacted address 3042d153cc] | this tree OK "[redacted address 3042d153cc]
+PASS open-v2-refund-identical: base OK {"refund":"[redacted address 86364ce26e] | this tree OK {"refund":"[redacted address 86364ce26e]
+PASS open-envelope-v2-refund-identical: base OK "[redacted address 3042d153cc] | this tree OK "[redacted address 3042d153cc]
+PASS open-v2-refund-deliver-identical: base OK {"refund":"[redacted address 86364ce26e] | this tree OK {"refund":"[redacted address 86364ce26e]
+PASS open-envelope-v2-refund-deliver-identical: base OK "[redacted address 3042d153cc] | this tree OK "[redacted address 3042d153cc]
+PASS open-hostile-taddr-refund-identical: base THROW refused: transparent address (t-addr) | this tree THROW refused: transparent address (t-addr)
+PASS open-envelope-hostile-taddr-refund-identical: base THROW refused: transparent address (t-addr) | this tree THROW refused: transparent address (t-addr)
+PASS open-hostile-junk-deliver-identical: base OK {"refund":"[redacted address 86364ce26e] | this tree OK {"refund":"[redacted address 86364ce26e]
+PASS open-envelope-hostile-junk-deliver-identical: base OK "[redacted address 3042d153cc] | this tree OK "[redacted address 3042d153cc]
+PASS open-hostile-json-garbage-identical: base THROW refused: envelope payload | this tree THROW refused: envelope payload
+PASS open-envelope-hostile-json-garbage-identical: base THROW refused: envelope payload | this tree THROW refused: envelope payload
+PASS open-hostile-v2-bad-shape-identical: base THROW refused: envelope payload v2 | this tree THROW refused: envelope payload v2
+PASS open-envelope-hostile-v2-bad-shape-identical: base THROW refused: envelope payload v2 | this tree THROW refused: envelope payload v2
+PASS open-hostile-not-our-key-identical: base THROW refused: envelope recipient | this tree THROW refused: envelope recipient
+PASS open-envelope-hostile-not-our-key-identical: base THROW refused: envelope recipient | this tree THROW refused: envelope recipient
+PASS prefetch-v1-plain-ua: openEnvelopeRefundUnchecked -> "utest1redacted, expected "utest1redacted
+PASS prefetch-v2-refund: openEnvelopeRefundUnchecked -> "utest1redacted, expected "utest1redacted
+PASS prefetch-v2-refund-deliver: openEnvelopeRefundUnchecked -> "utest1redacted, expected "utest1redacted
+PASS prefetch-hostile-taddr-refund: openEnvelopeRefundUnchecked -> "tmredacted", expected "tmredacted"
+PASS prefetch-hostile-junk-deliver: openEnvelopeRefundUnchecked -> "utest1redacted, expected "utest1redacted
+PASS prefetch-hostile-json-garbage: openEnvelopeRefundUnchecked -> null, expected null
+PASS prefetch-hostile-v2-bad-shape: openEnvelopeRefundUnchecked -> null, expected null
+PASS prefetch-hostile-not-our-key: openEnvelopeRefundUnchecked -> null, expected null
+RESULT PASS

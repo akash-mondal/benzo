@@ -127,6 +127,170 @@ the five behaviour changes red and every unchanged refusal green
    exit 1) rather than typed `refused-rows ["seller"]` — still a refusal, but the coordinator would retry
    rather than set the row aside. Say if the typed refusal is wanted there too (the detection would need
    the committed address surfaced from `deriveRows`).
+## Batch B49 (Builder B, branch `b49-paid-mined`, from `7c4e661`) — "paid" means this host approved it and sees it mined (Reviewer R round 2: P0-1, P1-1, P2-a, P2-b)
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no
+live Playwright; stubs as b47, own tmp state and builds only). Spec:
+`docs/design/phase7-b49-paid-means-mined.md`. Worktree `../benzo-b49`, branch `b49-paid-mined`, base
+`7c4e661`. Commits `--no-verify` (R32): `cbf5e6b` (product + rebuilt verify bundle and its sha), `7d2778d`
+(the (a)–(f) proof cases), plus the b47/folds/status commit. The verify bundle changed and was rebuilt and
+committed with `docs/verify-bundle.sha256` (`edaefec7…`, was `f146a894…`); `check:bundle` PASSES in this
+worktree (`OK check:bundle edaefec7… dist/benzo-verify.mjs and docs/verify-bundle.sha256 match a fresh
+rebuild of this tree`).
+
+### The "paid" predicate (design items 1–2)
+
+One shared function, `settle/deposits.ts:165` `paidByOwnLedger(receipts, ownLedger, ownScan, tip)`
+(`PAID_CONFIRMATIONS = 10` at `:164`). A published receipt counts ONLY when both hold:
+
+1. **approved here:** our own ledger holds that `txid` with that row among its mapped outputs **at that
+   amount** (a signer host's `approvals/<id>/ledger.json` `mapped`, or the plan's settle ledger's confirmed
+   obligations); and
+2. **mined here:** our own vault scan shows the txid mined and deep — a note with `spent_in_txid = txid`
+   (the transaction spent one of this vault's notes) AND a note of that txid at a height ≤ our own tip and
+   ≥ 10 confirmations deep (the transaction's own note in our scan is the scan's evidence of its mined
+   height; see Question 1).
+
+Packet receipts are only an index and are never trusted on their own. It is used by both gates:
+
+- `settle/plan.ts:398` — the plan's reserve gate, over the coordinator's own settle ledger
+  (`ownPaid` collected at `:82-86`) and its freshest scan;
+- `cli/host-derive.ts:395` — `deriveReserveReturn`'s gate, over this host's own approval ledger and its own
+  `ownScan`, with its own `chainTip`.
+
+`reserveReturnOutstanding` is unchanged; both callers pass it the filtered list. P2-b falls out of the
+rule: a transaction a reorg un-mines loses both scan traces, so its row is outstanding again (case (c)).
+
+### Prefetch hardening (design item 4, P1-1)
+
+`cli/host-derive.ts:159` — the classify prefetch passes the classifier only candidate strings that are
+non-empty and carry no control character, and `:172` wraps the whole prefetch in a catch (it is an
+optimization and decides nothing). Per-row verdicts are unchanged: `openDestination`'s null contract
+refuses such a destination exactly as before, so the row is underivable/refused and the batch proceeds
+(case (e) proves both halves). `classifyAddresses` itself is untouched (the reviewer's P3-1 alternative
+would change the wrapper's contract — see Question 5).
+
+### Ledger namespace change and migration (design item 5, P2-a)
+
+`settle/deposits.ts:186` `canonicalSourceId` — every approval-ledger source is one canonical note identity
+`<txid>:<pool>:<action_index>` (the settle ledger's refund-backing identity): `deposit:…` and
+`balance-late:…` forms normalize to it, non-note sources (`seller`, `treasury`, `leaf-deposit:…`,
+`balance-excess:…`) pass through. `cli/commands/sign-approve.ts` writes every source canonical (`:108,
+:113, :119`) and **migrates old entries on read** (`:142-149`, normalized and rewritten once), so a
+reserve-return candidate collision-checks against ordinary batches and vice versa. The same ledger entry
+now records `mapped` — each mapped output at its amount (`:105`) — which is what the paid rule's ledger
+half reads (the signed map stays `{party, output_index}` as before).
+
+### Verify: change + disclosure (design item 3)
+
+`benzo verify`'s rule is unchanged and **disclosed**: `api/public-auction.ts:74-79` — the receipts trust
+label is now `host-attested` (was `chain-receipt`) with the disclosure that verify checks receipt
+attestation, not on-chain inclusion; inclusion is checked by the signer hosts before any reserve return.
+The same disclosure is in `docs/guide-operator.md`. Cheap check added (`:641-650`): when the published doc
+carries the batch txids and their heights, every receipt's txid must be one of the published MINED batch
+txids. Docs without `settlement.batches` (legacy summaries, the repro fixtures) skip it — see Question 4.
+
+### Red/green per case (a)–(f) (`tools/repro/b46-reserve-return.ts`, `tools/repro/h-fixtures.ts`)
+
+Red on the base `7c4e661` bundles (tmp/b46/base49-src), green after. Raw:
+`docs/evidence/phase-7/repro/b46-reserve-return-b49-before.out` (8 checks) and
+`…-b49-after.out` (53 checks), 0 FAIL each.
+
+| case | red on `7c4e661` | green after |
+|---|---|---|
+| (a) cancelled auction, unclaimed strays, fabricated packet receipts | PASS `a-red-fabricated-receipts-build-the-sweep` — the hosts BUILD the 1,009,999-zat sweep on receipts with no rows, no maps, no chain reality | PASS `a-fabricated-receipts-refused` — typed refusal naming both strays (`still owes 2 outstanding`), no build.json |
+| (b) receipts of an approved but never-broadcast batch | PASS `b-red-dead-batch-receipt-builds-the-sweep` + `b-red-dead-batch-receipt-plans-the-return` — hosts and plan proceed on the dead batch's receipt | PASS `b-dead-batch-receipt-refused` (host, stray named) + `b-dead-batch-plan-waits` (`reserve return waits: 1 outstanding`) |
+| (c) receipt whose transaction was mined then reorged out | PASS `c-red-reorged-receipt-builds-the-sweep` — the base still treats the row as paid | PASS `c-reorged-receipt-refused` — the row is outstanding again, the return refused |
+| (d) honest: approved, mined and 10 deep | (no hole to show) | PASS the F section (`sign-build/derivable/approve-honest-passes`, 37,000 = 57,000 − 20,000) + `d-nine-deep-refused` (9 deep does not count yet) |
+| (e) the two crafted envelopes (empty refund; NUL and newline) | PASS `e-red-crafted-envelopes-freeze-derivable` — `sign derivable` exits 1 `refused: destination` for every host | PASS `e-crafted-envelopes-never-crash` + `e-crafted-rows-underivable-batch-proceeds` — completes like the clean packet, each crafted row underivable (its claim opens to a garbage refund), the batch proceeds |
+| (f) cross-kind re-spend (the sweep vs a live ordinary batch's source note) | PASS `f-red-cross-kind-respend-approved` — both approved (two source namespaces) | PASS `f-cross-kind-respend-refused` — refused via the migrated pre-B49 entry (`<txid>:ironwood:0 is in batch 2, which can still mine until 100500`); this is the migrate-on-read proof too |
+
+### `bin/benzo settle` end to end (`tools/repro/b47-settle-e2e.ts`) — every b47 case green
+
+`docs/evidence/phase-7/repro/b47-settle-e2e-b49-after.out` (28 checks, 0 FAIL) and `…-b49-before.out`
+(7 checks, 0 FAIL — the exact R107/R107b live signatures on pristine `8a9f638`, plus the same-world
+red/green pair). Harness: the stub chain's change note now carries the transaction's own txid (the scan's
+mined-height evidence) and the seeded world records each host's batch-1 approval as the real `sign
+approve` does. **Case (a)'s wait moved one gate earlier** (Question 2): the return now waits at the shared
+paid gate (`reserve return waits: 5 outstanding`, no return batch allocated) instead of reaching the live
+`InsufficientFunds` build failure at 0-conf — the case's own headline ("ordinary batches pay every row
+while the return waits") holds; cases (b)–(f) unchanged and green.
+
+### Folds and checks
+
+| command | result |
+|---|---|
+| `npx tsc -p tsconfig.json` | 0 errors |
+| `npm run -s check:structure` | `OK check:structure (213 files)` |
+| `npm run -s check:invariants` | `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2 |
+| `npm run -s check:dist-require` | OK |
+| `npm run -s check:bundle` | OK `edaefec7…` (bundle + sha committed) |
+| `npm run -s e2e` | `PASSED default seal in the browser, open with tle after R (41 s)` |
+| b44-opener fold | before 25/0, after 29/0, RESULT PASS both (`*-b49-*.out`) |
+| b45-classify fold | 14/0, RESULT PASS |
+| b45-envelope-parity fold | 24/0, RESULT PASS |
+| b46-reserve-return fold | before 8/0, after 53/0, RESULT PASS both |
+| b47-settle-e2e fold | before 7/0, after 28/0, RESULT PASS both |
+| h10-seller-binding fold | 22/0, RESULT PASS |
+| h13-host-scale fold | before 8/0, after 38/0, RESULT PASS both |
+| h14-open-griefing fold | before 12/0, after 14/0, RESULT PASS both |
+
+### Commands run (worktree `/Users/akshmnd/Dev Projects/benzo-b49`)
+
+- Setup: `node_modules` symlinked from the main checkout (identical `package-lock`), `vendor/nu7` copied
+  (sha256-pinned crates), `npm run build:core && npm run build:settle && npm run build:cli` (includes
+  `cargo build --release --locked`) and `npm run build:verify`; base trees `git archive` + each fold's own
+  recipe: `tmp/b46/base-src` (`a81e826`), `tmp/b46/base49-src` (`7c4e661`), `tmp/b47/base-src` (`8a9f638`),
+  `tmp/b44/base` (`d646ceb`), `tmp/b45/base` + `tmp/h13/src` (`cd19905`), `tmp/b43/base` + `tmp/h14/src`
+  (`5086be1`). All OK.
+- Repros: `node tmp/b46.mjs before|after`, `node tmp/b47.mjs before|after`, `node tmp/h10.mjs`,
+  `node tmp/b45-classify.mjs`, `node tmp/b45-envelope-parity.mjs`, `node tmp/b44.mjs before|after`,
+  `node tmp/h13.mjs before|after`, `node tmp/h14.mjs before|after` — every one `RESULT PASS` (counts
+  above; raw outputs `docs/evidence/phase-7/repro/*b49*`).
+- Gates: `typecheck`, `check:structure`, `check:invariants`, `check:dist-require`, `check:bundle`,
+  `npm run e2e` (the worktree's own `.env` from `.env.example` and its own pinned `tle`/`grpcurl` built
+  into its own `.benzo/bin` via `go install` at `tools/pins.env` tags) — all pass (table above).
+- Offline only throughout: stubs and own tmp state/bundles; one drand beacon fetch per repro run (the
+  established h-fixtures machinery, past quicknet round 32704232).
+
+## Questions (B49)
+
+1. **The scan carries no spend height, so the mined height is read from the transaction's own note (its
+   change back to the vault).** The design says "a vault note with `spent_in_txid = txid` and a height";
+   benzo-scan's rows carry only the NOTE's height, never the spend's, and a staged (unmined) spend still
+   shows `spent_in_txid` (the wallet records proposals), so the literal reading would leave P0-1's
+   scenario B open. I implemented the secure reading: `spent_in_txid = txid` on some vault note AND a
+   vault note of `txid` itself at a height ≤ tip and ≥ 10 deep (`settle/deposits.ts:165-183`). One
+   consequence: a refund batch that spends exact inputs and leaves NO change has no scan-visible mined
+   height, so its receipt never counts and the return waits (the conservative direction — nothing is at
+   risk, and the wallet nearly always makes change). If you want that case unblocked, the clean fixes are
+   (a) benzo-scan emits the spending transaction's `mined_height` next to `spent_in_txid`, or (b) the gate
+   also accepts this host's own `minedHeight()`/`GetTransaction` evidence; say which and I will make it.
+2. **b47 case (a)'s manifestation changed by design.** The 10-confirmation rule means the return pass now
+   waits at the paid gate at 0-conf (no batch 2 allocated, no `InsufficientFunds` line) instead of dying
+   in the host build. The case's headline holds and its checks were re-aimed (`a-return-waits-at-the-paid-gate`,
+   `a-no-return-attempt`, `a-no-return-batch`). The R107b red leg still seeds the exact old crash world.
+   If the old assertions must literally survive, the only way is to weaken the depth rule — not recommended.
+3. **Approval entries recorded before B49 carry no mapped amounts.** The ledger half of "paid" needs
+   "that row at that amount"; an old entry attests only `{party, output_index}`, so a receipt whose only
+   approvals predate B49 counts as unpaid and the return waits until the batches are re-approved or the
+   rows re-paid. That is the conservative direction and no live funds are exposed; if a smoother upgrade
+   matters, one option is to accept `{party, output_index}`-only entries for a bounded window.
+4. **Verify's mined-batch check is conditional on the doc publishing `settlement.batches`.** The design's
+   "if the published doc already carries the batch txids and their heights" reads as conditional, so docs
+   without a `batches` array (legacy Phase 2/3 summaries, the repro fixtures) skip it. Making it
+   unconditional would break the legacy folds unless their batch lists are backfilled. Say the word if
+   you want it strict everywhere.
+5. **P3-1 is deliberately not fixed inside `classifyAddresses`.** The reviewer's alternative (classify
+   `""` exactly as the raw tool: `kind:"other"`) would change the wrapper's stated contract and the
+   per-row path; the design said the prefetch must pass only clean strings and verdicts must be unchanged,
+   so `classifyAddresses` still throws on `""` internally while every caller is now total around it
+   (prefetch filters + catches; `openDestination` catches). If you want the wrapper made total with the
+   raw tool's verdicts, that is a small follow-up in `envelope/destination.ts`.
+6. **`settlement.batches` stays `informational` in the trust registry** although the new receipt check now
+   reads it (the check constrains receipts; the batch heights themselves are still coordinator-published
+   and unverified). Promoting it to `host-attested` would need the hosts to sign heights — not in this
+   design. Noted, nothing blocked.
 
 ## Batch B47 (Builder B, branch `b47-settle-worker`, from `32101ec`) — H20 + H19: settle worker robustness + the first offline end-to-end proof of `benzo settle`
 
