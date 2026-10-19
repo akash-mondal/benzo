@@ -322,6 +322,9 @@ async function worker(ledger:Ledger) {
   const asideReason="set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
   // H3 (B50): a row set aside by the one-pool rule carries its own reason (the shared pinRows maps it).
   const asideReasons=new Map<string,string>();
+  // B53 (P2-2): the rows of a mined batch parked for manual reconciliation carry its reason into the summary.
+  const manualReason="manual reconciliation: pre-H3 two-pool batch (H2)";
+  const manualReasons=new Map<string,string>();
   const pinned:any[]=custody?planRows.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:listing!.rows.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:listing!.refused.get(`${o.party}:${o.amount_zats}`)??"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):(await destinations(planRows,settings().signers[0],plan));
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   // Ruling R42 (F15): each refund row carries its backing note identities into the ledger (keyed by note
@@ -540,7 +543,30 @@ async function worker(ledger:Ledger) {
       const pair=agreedBatchMaps(maps,wkeys,staged.txid!);
       const built={outputs:pair[0].outputs},relayed=JSON.parse(readFileSync(base+".build.json","utf8"));
       for(const x of built.outputs)if(!relayed.outputs.some((y:any)=>y.party===x.party&&y.output_index===x.output_index))console.error(`ERROR build.json differs from the hosts' signed map for ${x.party}; using the hosts' map`);
-      const receipt=batch.outputs.map((row:any)=>{const m:any=built.outputs.find((x:any)=>x.party===row.party);requireThat(m,`no built output for ${row.party}`);const o=i.outputs.find((x:any)=>x.index===m.output_index&&!x.is_change);requireThat(o&&o.amount_zats===row.amount_zats,"mined amount differs from result.json");return {party:row.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
+      // B53 (P2-2, Reviewer R round 4): receipts resolve by (output_index, amount_zats), each match UNIQUE
+      // among the mined non-change outputs — `output_index` is a per-pool action index, so a pre-H3 two-pool
+      // batch's signed maps carry colliding indexes and the old index-only `find` either threw "mined amount
+      // differs" on every re-run (a permanent wedge) or attributed a receipt to the wrong pool. A row that
+      // matches zero or several outputs, a row the maps do not cover, or two rows claiming one output cannot
+      // be attributed: the batch is parked for manual reconciliation (settle/ledger.ts park — its rows keep
+      // their batch binding and can never be paid again), the run continues and exits 0. Nothing throws
+      // inside the loop.
+      const minedOutputs=i.outputs.filter((x:any)=>!x.is_change);
+      const receipt:{party:string;amount_zats:string;index:number;pool:string}[]=[];
+      let unattributable=false;
+      for(const row of batch.outputs) {
+        const m:any=built.outputs.find((x:any)=>x.party===row.party);
+        const hits=m?minedOutputs.filter((x:any)=>x.index===m.output_index&&String(x.amount_zats)===row.amount_zats):[];
+        if(hits.length!==1){unattributable=true;break}
+        receipt.push({party:row.party,amount_zats:String(hits[0].amount_zats),index:hits[0].index,pool:String(hits[0].pool)});
+      }
+      if(!unattributable&&new Set(receipt.map(o=>`${o.pool}:${o.index}`)).size!==receipt.length)unattributable=true;
+      if(unattributable) {
+        ledger.park(batch.id,height);
+        console.error(`ERROR batch ${batch.id}: ${manualReason}; the mined batch is parked as an exception and its rows wait for manual reconciliation`);
+        writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
+        continue;
+      }
       ledger.confirm(batch.id,staged.txid!,height,receipt);
       writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
     } else {
@@ -573,7 +599,12 @@ async function worker(ledger:Ledger) {
   }
   // H7 (B50): the set-aside reasons travel with their exception rows into the summary — and from there into
   // the published no-payment settlement — so a reader sees WHY each row waits, not just that it does.
-  const reasonOf=new Map<string,string>([...(plan.exceptions??[]),...pinned.filter((o:any)=>o.reason)].map((o:any)=>[o.party,String(o.reason)]));
+  // B53 (P2-2): the manual-reconciliation reason rides on the parked rows on EVERY run — it is re-derived
+  // from the parked batch (settle/ledger.ts park) here, not carried in memory, so a re-run republishes it.
+  for(const b of ledger.db.prepare("SELECT id FROM batches WHERE state='exception' AND height IS NOT NULL").all() as {id:number}[])
+    for(const r of ledger.rows().filter(o=>o.batch===Number(b.id)))manualReasons.set(r.party,manualReason);
+  const reasonOf=new Map<string,string>([...(plan.exceptions??[]),...pinned.filter((o:any)=>o.reason)].map((o:any)=>[o.party,String(o.reason)] as [string,string]));
+  for(const [party,reason] of manualReasons)reasonOf.set(party,reason);
   const summaryRows=ledger.rows().map(r=>r.state==="exception"&&reasonOf.get(r.party)?{...r,reason:reasonOf.get(r.party)}:r);
   writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:summaryRows,batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan:summaryPlan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));

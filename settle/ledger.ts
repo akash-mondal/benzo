@@ -167,10 +167,12 @@ export class Ledger {
           if(["paid","refunded"].includes(old.state)||old.batch!==null||old.kind==="payout")history.add(o.party);
           else want.set(o.party,BigInt(o2.amount_zats));
         }
-        if(old&&old.state==="exception"&&ready.has(o.party)) {
+        if(old&&old.state==="exception"&&old.batch===null&&ready.has(o.party)) {
           // A row whose re-derived amount differs from its pinned one is never made payable at the stale
           // amount (every host derives the fresh amount and would refuse the candidate): it waits until a
-          // derivation agrees with the pinned row again, and nothing else is held up by it.
+          // derivation agrees with the pinned row again, and nothing else is held up by it. B53 (P2-2): a
+          // row still bound to a parked batch (its money already moved) is never re-promoted here — with the
+          // allocate guard below it can never be allocated and paid a second time.
           const now=this.rows().find(r=>r.party===o.party)!;
           if(now.amount_zats===o2.amount_zats)this.db.prepare("UPDATE obligations SET state='eligible' WHERE party=?").run(o.party);
           else console.error(`WARN settlement obligation ${o.party} pinned at ${now.amount_zats} but re-derived ${o2.amount_zats}; not payable until a derivation agrees`);
@@ -205,7 +207,7 @@ export class Ledger {
     return this.atomic(()=> {
       const pending=this.db.prepare("SELECT id FROM batches WHERE height IS NULL AND state!='exception' ORDER BY id LIMIT 1").get() as {id:number}|undefined;
       if(pending)return {id:pending.id,outputs:this.rows().filter(o=>o.batch===pending.id&&o.state==="allocated")};
-      const outputs=this.db.prepare("SELECT * FROM obligations WHERE state='eligible' ORDER BY party LIMIT ?").all(cap) as Row[];
+      const outputs=this.db.prepare("SELECT * FROM obligations WHERE state='eligible' AND batch IS NULL ORDER BY party LIMIT ?").all(cap) as Row[];
       if(!outputs.length)return null;
       const id=Number(this.db.prepare("SELECT COALESCE(MAX(id),0)+1 AS id FROM batches").get()!.id);
       this.db.prepare("INSERT INTO batches(id) VALUES(?)").run(id);
@@ -227,6 +229,21 @@ export class Ledger {
       requireThat(!this.batch(id)?.height,"cannot expire a mined batch");
       this.db.prepare("UPDATE obligations SET state='exception',batch=NULL WHERE batch=? AND state='allocated'").run(id);
       this.db.prepare("UPDATE batches SET state='exception' WHERE id=?").run(id);
+    });
+  }
+  // B53 (P2-2, Reviewer R round 4): park a MINED batch whose receipts cannot be attributed (a pre-H3
+  // two-pool batch — manual reconciliation). Unlike expire, nothing is released: the rows keep their batch
+  // binding and stay unallocatable (the pin/allocate guards), so the money the batch already moved can never
+  // be paid twice. The batch becomes the published `exception` state with its mined height, its rows wait as
+  // exception rows, and the run continues.
+  park(id:number,height:number) {
+    this.atomic(()=> {
+      const batch=this.batch(id);
+      requireThat(batch?.txid,"cannot park a batch without a staged transaction");
+      requireThat(Number.isInteger(height)&&height>0,"settlement is not mined");
+      requireThat(!batch!.height||batch!.height===height,"parked batch was already mined at a different height");
+      this.db.prepare("UPDATE obligations SET state='exception' WHERE batch=? AND state='allocated'").run(id);
+      this.db.prepare("UPDATE batches SET height=?,state='exception' WHERE id=?").run(height,id);
     });
   }
   confirm(id:number,txid:string,height:number,outputs:{party:string;amount_zats:string;index:number;pool:string}[]) {

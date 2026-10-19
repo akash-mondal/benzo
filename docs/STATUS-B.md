@@ -3,6 +3,53 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B53 (Builder B, branch `b53-resume-ledger`, from `59c863c`) — Reviewer R round 4: the resume, re-send and ledger gaps (P2-2, P3-1, P3-2, P3-3, P3-5, P3-6, P3-7, P3-8)
+
+**IN PROGRESS, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets,
+no live Playwright; stubs and own tmp state/builds only). Spec:
+`docs/design/phase7-b53-resume-and-ledger.md`; source report `benzo-sol/reports/pr-p7-b49-b51.md`. Worktree
+`../benzo-b53`, branch `b53-resume-ledger`, base `59c863c`. Commits `--no-verify` (R32). Setup: `vendor/`
+copied (`cp -R ../benzo/vendor .`), `node_modules` symlinked to the main checkout's; `cargo build --release
+--locked --manifest-path settle/Cargo.toml` in the worktree (offline, vendored) rebuilt `settle/target`.
+
+Status block (every command and its result; updated per item):
+
+- `git worktree add ../benzo-b53 -b b53-resume-ledger 59c863c` — OK; work only in `../benzo-b53`.
+- `npm run typecheck` — OK (clean at every commit below).
+- `npm run check:structure` — OK (217 files).
+- `npm run check:invariants` — OK (`{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}`, both runs).
+- `npm run check:dist-require` — OK.
+- Base red bundles (once, from the pristine base, never another worktree):
+  `mkdir -p tmp/b53/base-src && git archive 59c863c | tar -x -C tmp/b53/base-src && ln -s $PWD/node_modules tmp/b53/base-src/node_modules`,
+  then `(cd tmp/b53/base-src && node cli/build.mjs)` + esbuild of `settle/plan.ts`, `settle/cli.ts`,
+  `clear/cli.ts`, `settle/deposits.ts`, `witness/index.ts` (the b47 recipe) — OK.
+- Green bundles from this tree: `npm run build:core && npm run build:settle && npm run build:cli` — OK.
+- Item 1 (P2-2, `settle/cli.ts:543-571` confirm attribution, `settle/ledger.ts` `park` + the pin/allocate
+  guards, `settle/plan.ts:83` `owned`): `node tmp/b53.mjs before p22` — PASS (red: the base confirm throws
+  `mined amount differs from result.json` on the resolvable world and `one receipt per allocated output` on
+  the ambiguous one, on every re-run); `node tmp/b53.mjs after p22` — PASS (green: the resolvable world's
+  receipts attribute to their own pools `leaf:0->orchard:0, leaf:1->sapling:1, leaf:2->orchard:2,
+  leaf:3->sapling:3, seller->orchard:3`; the ambiguous world parks batch 1 as `exception` with the reason
+  `manual reconciliation: pre-H3 two-pool batch (H2)` on all 6 rows, records nothing, and a re-run exits 0
+  without re-allocating them). Evidence:
+  `docs/evidence/phase-7/repro/b53-p22-red.out`, `docs/evidence/phase-7/repro/b53-p22-green.out`.
+
+### Questions
+
+- Q1 (item 1, park semantics): the design says "mark the batch `exception` with the reason". A MINED batch
+  cannot use `Ledger.expire` (it refuses mined batches and would RELEASE the rows for re-payment). B53 adds
+  `Ledger.park(id, height)`: the batch becomes `state='exception'` WITH its mined height and its rows become
+  `exception` rows that KEEP their batch binding (plus two guards: `pin` never re-promotes a batch-bound row
+  and `allocate` only takes `batch IS NULL` rows), so the money the batch already moved can never be paid
+  again. `settle/plan.ts`'s `owned` rule now also counts a mined exception batch as owned (its rows and its
+  spent notes stay out of both sides) or a re-run would refuse at the frozen-deposit check. The reason is
+  re-derived every run from the parked batch (it rides on the exception rows into the summary, the only place
+  verify's row shape allows it — published batch objects carry no `reason` key). Flag anything that should
+  differ.
+- Q2 (item 1, row states): the parked rows are published as `state="exception"` rows, which verify's
+  accounting requires for an unpaid obligation (an `allocated` published row would fail verify). Confirm that
+  is the intended published shape for a manually reconciled batch.
+
 ## Batch B51 (Builder B, branch `b51-review-fixes`, from `a107447`) — Reviewer R on B47/B48: the preflight re-run double-count, the reserve-address listing wall, four P3s
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no

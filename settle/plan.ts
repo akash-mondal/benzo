@@ -80,7 +80,10 @@ try {
   const ownPaid:{txid:string;party:string;output_index:number;amount_zats:string}[]=[];
   if(existsSync(ledgerFile)) {
     const db=new DatabaseSync(ledgerFile,{readOnly:true});
-    try {for(const b of db.prepare("SELECT txid,pczt_path,pczt_hash FROM batches WHERE txid IS NOT NULL AND state!='exception'").all()) {
+    // B53 (P2-2): a mined batch parked for manual reconciliation (state 'exception' WITH its height) still
+    // holds its rows and its spent notes are still spent by a real transaction — it counts as `owned` here.
+    // An expired batch (never mined, height null) does not: its rows were released and re-derive.
+    try {for(const b of db.prepare("SELECT txid,pczt_path,pczt_hash FROM batches WHERE txid IS NOT NULL AND (state!='exception' OR height IS NOT NULL)").all()) {
       requireThat(hash(readFileSync(String(b.pczt_path)))===b.pczt_hash,"staged PCZT changed on resume");owned.add(String(b.txid));
     }
     for(const r of db.prepare("SELECT party,amount_zats,txid,output_index FROM obligations WHERE state IN ('paid','refunded') AND txid IS NOT NULL AND output_index IS NOT NULL").all() as any[])
