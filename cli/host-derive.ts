@@ -16,7 +16,8 @@ import { loadPublicAuction } from "../api/public-auction";
 import { openEnvelopeRefundUnchecked, verifyStatement } from "../envelope/index";
 import { classifyAddresses, useClassifyCache, type Classified } from "../envelope/destination";
 import { Destination, authenticatedMemoEnvelope, memoSealedBid, openDestination, ownEnvelopePrivate, requireOwnEnvelopeKey, validEnvelope } from "../settle/envelopes";
-import { depositParty, isSlotCollision, paidByOwnLedger, refundable, reserveReturnAmount, reserveReturnOutstanding, strayNotes } from "../settle/deposits";
+import { depositParty, isSlotCollision, paidByOwnLedger, refundable, reserveUnspent, reserveReturnOutstanding, strayNotes } from "../settle/deposits";
+import { quoteSweep } from "../settle/quote";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, bondVoidAt, isRefundRowParty, type BalanceRefund } from "../clear/features";
 import { blockHeader, chainTip, minedHeight } from "./host-chain";
@@ -337,10 +338,16 @@ export function redactCandidate(st: string, full: string, out: string, info: { o
 //      WITHOUT requiring a destination (a row is owed whether or not anyone claimed it): the money rules'
 //      obligations over the published result plus every stray deposit note and late/excess balance note of
 //      its own scan. An unclaimed stray therefore delays the return indefinitely (the conservative choice);
-//   3. the row pays the vault's WHOLE unspent value minus the ZIP-317 fee (settle/deposits.ts
-//      reserveReturnAmount) to the committed `reserve_return_ua` — and the candidate must spend every
-//      unspent note, so its `input_zats` (benzo-pczt inspect) must equal `row.remaining_zats`, this signer's
-//      own scanned unspent total. That leaves no note behind.
+//   3. the row pays the vault's WHOLE unspent value minus the TOOL'S OWN fee — `benzo-pczt quote-sweep`
+//      (settle/quote.ts) quotes the sweep on this signer's own vault with the same wallet and fee rule the
+//      build uses (B52, Reviewer R round 4, P2-1: the fee is the ZIP-317 fee of the transaction's real
+//      per-pool action counts, never a prediction from the source count) to the committed
+//      `reserve_return_ua`. The built candidate is then checked as the TRANSACTION it is (sign build /
+//      sign approve, from `benzo-pczt inspect`'s own figures): its `input_zats` equals `row.remaining_zats`
+//      (this signer's own scanned unspent total — nothing left behind), it carries exactly ONE output, not
+//      change, to the committed `reserve_return_ua`, that output is `input_zats − fee_zats`, and the
+//      packet's declared amount equals it (reserveCandidateVerdict below). Anything else is a typed
+//      refusal (exit 3, named rows), never an untyped crash.
 // The destination itself is never published — only the manifest commitment.
 export async function deriveReserveReturn(o: { id: string; name: string }, st: string, root: string, packet: string,
   meta: { signer: string; reserve_return_ua?: unknown },
@@ -408,15 +415,23 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
   // R107: an ordinary batch's packet carries reserve_return_ua too, so only a packet that DECLARES the return row
   // is refused while something is owed; for any other packet the answer is simply "no return row yet".
   if (outstanding.length > 0) return declared ? refuse(`the auction still owes ${outstanding.length} outstanding (strays/balances/exceptions): ${outstanding.slice(0, 4).join(", ")}; the reserve-return row waits until nothing is owed`) : { row: null, binding, refusal: null };
-  // Check 3 — the amount: the vault's whole unspent value minus the ZIP-317 fee. `remaining_zats` is this
-  // signer's own scanned unspent total; the caller refuses a candidate whose inspect `input_zats` differs.
-  const amount = reserveReturnAmount(notes as any);
-  const row = amount.amount_zats === null ? null : { party: "reserve-return" as const, kind: "payout" as const,
-    amount_zats: amount.amount_zats, remaining_zats: amount.total_zats, fee_zats: amount.fee_zats, ids: amount.ids };
-  if (declared) {
-    if (!row) return refuse("the vault's unspent value does not cover the ZIP-317 fee of a one-row transaction");
-    if (String(declared.amount_zats) !== row.amount_zats) return refuse(`the reserve-return amount differs from this signer's unspent value minus the fee (${row.amount_zats})`);
-  }
+  // Check 3 (B52, Reviewer R round 4, P2-1) — the amount and fee are the TOOL's own quote, never a
+  // formula. This signer runs `benzo-pczt quote-sweep` against its own vault (the same wallet, fee rule
+  // and confirmation policy `create` uses) and the row carries the quoted sweep amount at the quoted fee.
+  // `remaining_zats` stays this signer's own scanned unspent total — the callers check the BUILT candidate
+  // against it (reserveCandidateVerdict). A vault the tool cannot sweep in one transaction (insufficient
+  // value, or a note it cannot spend) derives no row: declared, that is a typed refusal carrying the
+  // tool's own reason.
+  const scanned = reserveUnspent(notes as any);
+  const quote = quoteSweep(pcztBin(root, st), vaultDir(st, o.id), meta.reserve_return_ua as string, m.network);
+  if ("error" in quote) return refuse(`the vault's value cannot be swept in one transaction (${quote.error})`);
+  if (quote.input_zats !== scanned.total_zats)
+    return refuse(`the vault's value cannot be swept in one transaction (the tool's quote spends ${quote.input_zats} zats of this signer's scanned unspent total ${scanned.total_zats})`);
+  const row = { party: "reserve-return" as const, kind: "payout" as const,
+    amount_zats: quote.amount_zats, remaining_zats: scanned.total_zats, fee_zats: quote.fee_zats, ids: scanned.ids };
+  // B52: the declared amount is checked against the BUILT candidate — "the declared row amount equals the
+  // candidate's single output, which equals input − fee" (reserveCandidateVerdict) — never against a
+  // prediction here.
   return { row, binding, refusal: null };
 }
 
@@ -441,4 +456,30 @@ export function backfillMapped<T extends { batch: number; txid: string; mapped?:
     if (mapped.length) { e.mapped = mapped; healed++ }
   }
   return healed;
+}
+
+// B52 (Reviewer R round 4, P2-1): the ONE check on the built return candidate, shared by `sign build` and
+// `sign approve` (docs/design/phase7-b52-return-fee.md item 2) — the candidate must be the one-row sweep
+// the row describes, judged from `benzo-pczt inspect`'s own figures and never from a predicted fee:
+//   - `input_zats` equals this signer's scanned unspent total (the kept B46 check) — nothing left behind;
+//   - exactly ONE output, not change, to the committed return UA;
+//   - that output's amount is `input_zats − fee_zats` (inspect already refuses a fee that differs from
+//     ZIP-317 for the real action count, so this is the tool's own fee);
+//   - the packet's declared row amount equals that output.
+// Returns null when the candidate is exactly right, otherwise the typed refusal's reason (exit 3, named
+// rows at the callers) — an unbuildable or doctored candidate never crashes a run.
+export function reserveCandidateVerdict(info: { input_zats: unknown; fee_zats: unknown; outputs?: unknown }, returnUa: unknown, scannedTotal: string | undefined, declaredAmount: unknown): string | null {
+  if (scannedTotal === undefined) return "the reserve-return row is not derivable on this signer";
+  if (String(info.input_zats) !== scannedTotal)
+    return `the reserve-return candidate must spend every unspent vault note: inspect input_zats ${String(info.input_zats)} differs from this signer's scanned unspent total ${scannedTotal}`;
+  const outs = (info.outputs ?? []) as { is_change?: unknown; recipient?: unknown; amount_zats?: unknown }[];
+  const single = outs.length === 1 ? outs[0] : null;
+  if (!single || single.is_change) return "the reserve-return candidate must pay exactly one output, not change: the committed return UA for the unspent value minus the fee";
+  if (typeof returnUa !== "string" || single.recipient !== returnUa) return "the reserve-return candidate's output is not paid to the committed return UA";
+  const swept = BigInt(String(info.input_zats)) - BigInt(String(info.fee_zats));
+  if (BigInt(String(single.amount_zats)) !== swept)
+    return `the reserve-return candidate's output ${String(single.amount_zats)} zats is not the unspent value minus the fee (inspect: ${String(info.input_zats)} − ${String(info.fee_zats)} = ${swept})`;
+  if (String(declaredAmount) !== String(single.amount_zats))
+    return `the declared reserve-return amount ${String(declaredAmount)} differs from the candidate's single output ${String(single.amount_zats)}`;
+  return null;
 }

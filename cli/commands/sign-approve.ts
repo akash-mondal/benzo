@@ -19,7 +19,7 @@ import { pcztBin, scanBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
 import { loadPublicAuction } from "../../api/public-auction";
 import { verifyStatement } from "../../envelope/index";
-import { deriveRows, deriveReserveReturn, redactCandidate, backfillMapped } from "../host-derive";
+import { deriveRows, deriveReserveReturn, redactCandidate, backfillMapped, reserveCandidateVerdict } from "../host-derive";
 import { onePoolRefusal } from "../../settle/build-outcome";
 import { canonicalSourceId } from "../../settle/deposits";
 import { chainTip, minedHeight, provenAbsent } from "../host-chain";
@@ -87,12 +87,26 @@ export async function run(argv: string[]): Promise<number | object> {
     // inconsistent config can never stall the bidder refunds this batch actually pays.
     if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
     // 3. The candidate's outputs must be exactly rows this signer derived (change returns to the vault).
-    const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
-    // B46 (H15, Revision R103): the return candidate must spend EVERY unspent vault note — its inspect
-    // `input_zats` must equal this signer's own scanned unspent total (deriveReserveReturn's remaining_zats).
-    // A candidate below it leaves notes behind and is refused typedly.
-    if ((meta as any).reserve_row && reserve?.row && String(info.input_zats) !== reserve.row.remaining_zats)
-      throw Object.assign(new Error(`the reserve-return candidate must spend every unspent vault note: inspect input_zats ${String(info.input_zats)} differs from this signer's scanned unspent total ${reserve.row.remaining_zats}`), { refusedRows: ["reserve-return"] });
+    // B52 (Reviewer R round 4, P2-1): for the return batch, inspect's own failure (a fee that differs from
+    // ZIP-317 for the real action count) is a TYPED refusal too — never an untyped crash.
+    let info: any;
+    try {
+      info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", candidate, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
+    } catch (e) {
+      if (!(meta as any).reserve_row) throw e;
+      const tail = String((e as { stderr?: string | Buffer }).stderr ?? "").trim() || String((e as Error).message);
+      throw Object.assign(new Error(`the vault's value cannot be swept in one transaction (${tail.split("\n").at(-1)?.slice(0, 200)})`), { refusedRows: ["reserve-return"] });
+    }
+    // B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md item 2): the return candidate is
+    // checked as the TRANSACTION it is, never against a predicted fee — from inspect's own figures:
+    // input_zats is this signer's scanned unspent total (the kept B46 check), exactly one output, not
+    // change, to the committed return UA, that output is input_zats minus fee_zats, and the declared row
+    // amount equals it (cli/host-derive.ts reserveCandidateVerdict). A wallet proposal that would add
+    // change is refused typedly here, before anything is signed.
+    if ((meta as any).reserve_row) {
+      const why = reserveCandidateVerdict(info, meta.reserve_return_ua, reserve?.row?.remaining_zats, (meta as any).reserve_row.amount_zats);
+      if (why) throw Object.assign(new Error(why), { refusedRows: ["reserve-return"] });
+    }
     // ...and the coordinator's copy must be exactly its redaction (so the coordinator signs this transaction).
     const recomputed = path.join(packet, "candidate.recomputed.pczt");
     redactCandidate(st, candidate, recomputed, info);
@@ -127,9 +141,9 @@ export async function run(argv: string[]): Promise<number | object> {
         mapped.push({ party: e.party, output_index: out.index }); attested.push({ party: e.party, output_index: out.index, amount_zats: String(out.amount_zats) }); continue;
       }
       // B46 (H15): the reserve-return output pays the whole unspent value minus the fee to the committed
-      // return UA (checked above), and its spent notes join this host's approval ledger (Ruling R28 item 3),
-      // so a second live candidate can never spend them again.
-      if (reserve?.row && typeof meta.reserve_return_ua === "string" && out.recipient === meta.reserve_return_ua && String(out.amount_zats) === reserve.row.amount_zats && !reserveSeen) {
+      // return UA (checked above by reserveCandidateVerdict), and its spent notes join this host's approval
+      // ledger (Ruling R28 item 3), so a second live candidate can never spend them again.
+      if (reserve?.row && typeof meta.reserve_return_ua === "string" && out.recipient === meta.reserve_return_ua && String(out.amount_zats) === String((meta as any).reserve_row.amount_zats) && !reserveSeen) {
         reserveSeen = true; sources.push(...reserve.row.ids.map(canonicalSourceId)); mapped.push({ party: "reserve-return", output_index: out.index }); attested.push({ party: "reserve-return", output_index: out.index, amount_zats: String(out.amount_zats) }); continue;
       }
       // R28 item 8 (G-2): the seller payout must pay the packet's seller_ua (operator routing), which H10 binds
@@ -138,9 +152,9 @@ export async function run(argv: string[]): Promise<number | object> {
       // spend them again.
       if (!sellerSeen && payout !== "0" && String(out.amount_zats) === payout && typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua) { sellerSeen = true; sources.push("seller", ...balanceSources.map(canonicalSourceId)); mapped.push({ party: "seller", output_index: out.index }); attested.push({ party: "seller", output_index: out.index, amount_zats: String(out.amount_zats) }); continue; }
       // B46 (H15, R103): a return candidate's every output must be the one return row — an output at any
-      // other amount (not the scanned total minus the fee) is a typed refusal, never a silent mismatch.
+      // other amount is a typed refusal, never a silent mismatch.
       if ((meta as any).reserve_row)
-        throw Object.assign(new Error(`the reserve-return candidate's output ${out.index} (${String(out.amount_zats)} zats) is not this signer's unspent total minus the fee (${reserve?.row?.amount_zats ?? "not derivable"}) paid to the committed return UA`), { refusedRows: ["reserve-return"] });
+        throw Object.assign(new Error(`the reserve-return candidate's output ${out.index} (${String(out.amount_zats)} zats) is not the single sweep output the row describes (${(meta as any).reserve_row.amount_zats} zats) paid to the committed return UA`), { refusedRows: ["reserve-return"] });
       // H21 (B50): an output paying the packet's seller_ua that is NOT the one valid seller payout (the
       // result's seller amount, paid at most once) is a mis-shaped seller output — refused typedly
       // (exit 3, ["seller"]), never an untyped exit 1 (B48 Q3).
@@ -149,7 +163,7 @@ export async function run(argv: string[]): Promise<number | object> {
       throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
     }
     // B46 (H15): a reserve-return candidate pays exactly one output — the committed return UA for the whole
-    // unspent value minus the fee.
+    // unspent value minus the fee (reserveCandidateVerdict already pinned this; kept as defence in depth).
     if ((meta as any).reserve_row && !(reserveSeen && outputs.length === 1))
       throw Object.assign(new Error("the reserve-return candidate must pay exactly one output: the committed return UA for the unspent value minus the fee"), { refusedRows: ["reserve-return"] });
     // H3 (B50): the one-pool rule (R81) on the approve path — typed like every other row refusal here

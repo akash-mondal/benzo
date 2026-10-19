@@ -11,7 +11,7 @@ import { requireThat } from "../../manifest/schema";
 import { isUnifiedOn } from "../../envelope/destination";
 import { pcztBin, ufvkFile, vaultDir } from "../../manifest/paths";
 import { repoRoot } from "../../manifest/root";
-import { deriveRows, deriveReserveReturn, redactCandidate } from "../host-derive";
+import { deriveRows, deriveReserveReturn, redactCandidate, reserveCandidateVerdict } from "../host-derive";
 import { onePoolRefusal } from "../../settle/build-outcome";
 import { sealBlob } from "../../envelope/index";
 import { SIGNER_ENVELOPE_INDEX } from "../../settle/envelopes";
@@ -62,12 +62,12 @@ export async function run(argv: string[]): Promise<number | object> {
     const refusedRows: string[] = [];
     const payment = rows.map(r => {
       // B46 (H15, R103): the reserve-return row pays the whole unspent value minus the fee to the committed
-      // return UA (the check above); the row the packet names must equal what this signer derived.
+      // return UA (the check above). B52 (P2-1): it pays the DECLARED amount — the plan's own quote of the
+      // sweep — and the wallet's proposal is then checked as the transaction it is (below): a proposal that
+      // would add change or pay anything but input minus the tool's fee is refused typedly before signing.
       if (r.party === "reserve-return") {
-        const rr = reserve?.row;
-        const same = !!rr && r.amount_zats === rr.amount_zats;
-        if (!same || typeof meta.reserve_return_ua !== "string") { refusedRows.push(r.party); return null; }
-        return { party: r.party, recipient: meta.reserve_return_ua, amount_zats: rr!.amount_zats };
+        if (!reserve?.row || typeof meta.reserve_return_ua !== "string") { refusedRows.push(r.party); return null; }
+        return { party: r.party, recipient: meta.reserve_return_ua, amount_zats: r.amount_zats };
       }
       if (r.party === "seller") {
         // G-7: the routing UA is checked through the audited classifier on the manifest's OWN network (never a
@@ -83,16 +83,36 @@ export async function run(argv: string[]): Promise<number | object> {
     if (refusedRows.length) { process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(refusedRows)}\n`); return 3; }
     const paymentRows = payment as { party: string; recipient: string; amount_zats: string }[];
     const created = path.join(packet, "created.pczt"), proven = path.join(packet, "proven.pczt");
-    execFileSync(pcztBin(root, st), ["create", vaultDir(st, o.id), created, String(meta.expiry_blocks), "--network", network], { input: JSON.stringify(paymentRows.map(p => ({ recipient: p.recipient, amount_zats: p.amount_zats }))), encoding: "utf8" });
+    // B52 (Reviewer R round 4, P2-1): for the return batch the wallet's own proposal is part of the check —
+    // a proposal that cannot sweep the vault (the tool's own error) or cannot balance is a TYPED refusal
+    // (exit 3, ["reserve-return"]), never an untyped crash at create/inspect. Ordinary batches keep the
+    // transient-error behaviour (exit 1).
+    const toolTail = (e: unknown) => String((e as { stderr?: string | Buffer }).stderr ?? "").trim() || String((e as Error).message);
+    try {
+      execFileSync(pcztBin(root, st), ["create", vaultDir(st, o.id), created, String(meta.expiry_blocks), "--network", network], { input: JSON.stringify(paymentRows.map(p => ({ recipient: p.recipient, amount_zats: p.amount_zats }))), encoding: "utf8" });
+    } catch (e) {
+      if (!declaredReserve) throw e;
+      process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["reserve-return"])}: the vault's value cannot be swept in one transaction (${toolTail(e).split("\n").at(-1)?.slice(0, 200)})\n`);
+      return 3;
+    }
     const prove = spawnSync(path.join(st, "bin", "zcash-devtool"), ["pczt", "-w", vaultDir(st, o.id), "prove", created, "--output", proven], { encoding: "utf8", maxBuffer: 64 << 20 });
     requireThat(prove.status === 0, `prove failed: ${(prove.stderr ?? "").trim().slice(-200)}`);
     // Map each row to its output index by inspecting the proven candidate here (the builder may shuffle actions).
-    const info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", proven, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
-    // B46 (H15, R103): the built return candidate must spend EVERY unspent vault note — inspect's
-    // `input_zats` must equal this signer's own scanned unspent total (deriveReserveReturn's remaining_zats).
-    if (reserve?.row && String(info.input_zats) !== reserve.row.remaining_zats) {
-      process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["reserve-return"])}: the built candidate spends ${String(info.input_zats)} zats; this signer's scanned unspent total is ${reserve.row.remaining_zats}\n`);
+    let info: any;
+    try {
+      info = JSON.parse(execFileSync(pcztBin(root, st), ["inspect", proven, ufvkFile(st, o.id), "--network", network], { encoding: "utf8" }));
+    } catch (e) {
+      if (!declaredReserve) throw e;
+      process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["reserve-return"])}: the vault's value cannot be swept in one transaction (${toolTail(e).split("\n").at(-1)?.slice(0, 200)})\n`);
       return 3;
+    }
+    // B52 (Reviewer R round 4, P2-1): the return candidate is checked as the TRANSACTION it is, never
+    // against a predicted fee — input_zats is this signer's scanned unspent total, exactly one output, not
+    // change, to the committed return UA, that output is input_zats minus fee_zats (inspect's own figures),
+    // and the declared row amount equals it (cli/host-derive.ts reserveCandidateVerdict).
+    if (declaredReserve) {
+      const why = reserveCandidateVerdict(info, meta.reserve_return_ua, reserve?.row?.remaining_zats, declaredReserve.amount_zats);
+      if (why) { process.stderr.write(`ERROR sign build refused-rows ${JSON.stringify(["reserve-return"])}: ${why}\n`); return 3; }
     }
     const avail = (info.outputs ?? []).filter((x: any) => !x.is_change);
     const outputs = paymentRows.map(p => {
