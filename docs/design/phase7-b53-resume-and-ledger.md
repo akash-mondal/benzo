@@ -30,7 +30,7 @@ Head design, 2026-10-19. Source: `benzo-sol/reports/pr-p7-b49-b51.md`. Each item
 
 ## Rules
 
-- Work only in your own worktree: `git worktree add ../benzo-b53 -b b53-resume-ledger e4efc29`. Copy `vendor/` from the main checkout. Do not symlink it. Never `git add` `node_modules` or `vendor`.
+- Work only in your own worktree: `git worktree add ../benzo-b53 -b b53-resume-ledger ca3220b`. Copy `vendor/` from the main checkout. Do not symlink it. Never `git add` `node_modules` or `vendor`.
 - Offline only. Do not override the git identity. Commit `--no-verify` (R32). If the verify bundle changes, rebuild it and commit it with its sha file. Commit after each item.
 - B52 is editing in parallel:
   - the reserve-return fee path (`settle/plan.ts` return planning, `cli/host-derive.ts` `deriveReserveReturn`, the return checks in `sign-build`/`sign-approve`);

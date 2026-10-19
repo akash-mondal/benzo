@@ -54,7 +54,7 @@ Also run `npm run typecheck`, `check:structure`, `check:invariants`, `check:dist
 
 ## Rules
 
-- Work only in your own worktree: `git worktree add ../benzo-b52 -b b52-return-fee e4efc29`. Copy `vendor/` from the main checkout. Do not symlink it. Never `git add` `node_modules` or `vendor`.
+- Work only in your own worktree: `git worktree add ../benzo-b52 -b b52-return-fee ca3220b`. Copy `vendor/` from the main checkout. Do not symlink it. Never `git add` `node_modules` or `vendor`.
 - Offline only. Do not override the git identity. Commit `--no-verify` (R32). If the verify bundle changes, rebuild it and commit it with its sha file. Commit after each item.
 - B53 is editing in parallel: the `settle/cli.ts` confirm and broadcast code (about :480-560), `settle/deposits.ts` `paidByOwnLedger`'s callers, `cli/commands/sign-approve.ts` around the ledger write (:160-215), and `witness/index.ts`. Keep your edits away from those regions.
 - No mid-line `//` after code.
