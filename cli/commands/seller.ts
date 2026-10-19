@@ -2,11 +2,13 @@
 // The signed manifest commits the seller payout address as seller_ua_commitment; this read-only command verifies the
 // manifest signature, recomputes the one commitment (manifest/schema.ts sellerUaCommitment) from the address the
 // seller passes, and answers whether they match. It touches no state and never prints any other party's data.
+// B48 (H18 P3-2): only the PUBLISHED signed manifest.json (the signed packet) is accepted — a raw manifest
+// object is refused with one ERROR line, so a seller pointed at a doctored manifest never gets a false all-clear.
 import { readFileSync } from "node:fs";
 import { requireThat, sellerUaCommitment, verifyRecord, type Manifest, type Signed } from "../../manifest/schema";
 
 export const noun = "seller", verb = "check";
-export const help = "benzo seller check --manifest manifest.json --ua UA [--signer HEX] — read-only: check the signed manifest's seller_ua_commitment against the payout address you pass (the seller's pre-open check)";
+export const help = "benzo seller check --manifest manifest.json --ua UA [--signer HEX] — read-only: check the published signed manifest.json's seller_ua_commitment against the payout address you pass (the seller's pre-open check); a raw manifest object is refused";
 
 export async function run(argv: string[]): Promise<number | object> {
   const o: Record<string, string> = {};
@@ -17,10 +19,14 @@ export async function run(argv: string[]): Promise<number | object> {
   try {
     requireThat(o.manifest !== undefined && o.ua !== undefined, "usage");
     const file = JSON.parse(readFileSync(o.manifest, "utf8"));
-    // The public dir's manifest.json is the signed packet; a raw manifest object is accepted too (the signer is
-    // then reported as given). With --signer the packet must be signed by exactly that key.
+    // The public dir's manifest.json is the signed packet, and only it is accepted (B48, H18 P3-2). With
+    // --signer the packet must be signed by exactly that key.
     const packet = typeof file?.bytes === "string" ? (file as Signed) : null;
-    const manifest = (packet ? verifyRecord<Manifest>(packet, o.signer ?? packet.signer) : file) as Manifest;
+    if (!packet) {
+      process.stderr.write("ERROR seller check: pass the published manifest.json (the signed packet), not a raw manifest object\n");
+      return 1;
+    }
+    const manifest = verifyRecord<Manifest>(packet, o.signer ?? packet.signer) as Manifest;
     requireThat(manifest && typeof manifest === "object" && typeof manifest.network === "string", "manifest");
     const committed = manifest.seller_ua_commitment;
     requireThat(committed === undefined || (typeof committed === "string" && /^[0-9a-f]{64}$/.test(committed)), "seller_ua_commitment shape");
