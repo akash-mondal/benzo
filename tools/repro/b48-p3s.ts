@@ -75,7 +75,10 @@ const packetDir = (name: string, fx: Fixture, sellerUa: string | null, rows: any
 };
 const createdRows = (state: string) => existsSync(path.join(state, "create-log.jsonl"))
   ? readFileSync(path.join(state, "create-log.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l)) : [];
-const listedRows = (r: { out: string }) => JSON.parse(r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!).rows ?? [];
+const listedRows = (r: { out: string }) => {
+  const line = r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1);
+  return line ? (JSON.parse(line).rows ?? []) : []; // a refusal prints no JSON row list
+};
 const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringify([...rows].map(x => `${x.party}:${x.amount_zats}`).sort());
 
 // ---- P3-1: the mismatch refuses only the seller row, and only when the batch has one -------------------------
