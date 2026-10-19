@@ -7,7 +7,7 @@ import {clientCommon as client} from "../clear/registry"; // design §6.1: every
 import {agreedBatchMaps} from "../witness";
 import {treasuryBlock} from "../clear/mode-b";
 import {Ledger,type Row} from "./ledger";
-import {classifyBuildAttempts,onePoolRefusal,setAsideRows,type BuildOutcome} from "./build-outcome";
+import {classifyBuildAttempts,onePoolRefusal,type BuildOutcome} from "./build-outcome";
 import {ROOT,STATE,bin,env,run,wallet,pczt,inspect,monetary,notes,prove,mined,chainTx,isTransientGrpc,lwdEndpoints,timing} from "./io";
 import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
@@ -212,13 +212,16 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     // set-aside the hosts give it (defense in depth — `sign build` refuses a two-pool candidate first): the
     // minority pool's rows are named and wait in the exception queue; the batch's other rows settle next.
     const namedPools=onePoolRefusal((built.outputs??[]).map((o:any)=>({party:String(o.party),pool:String(o.pool)})));
-    if(namedPools.length)throw Object.assign(Error(`the built batch ${batchId} pays more than one pool (one-pool rule, R81)`),{unbuildable:true,isolate:false,refusedRows:namedPools});
+    if(namedPools.length)throw Object.assign(Error(`the built batch ${batchId} pays more than one pool (one-pool rule, R81)`),{unbuildable:true,isolate:false,refusedRows:namedPools,onePool:true});
     return built;
   }
   // R44 (F16) + Ruling R45 (F20): unbuildable only when EVERY reached host gave a typed refusal; the rows to
   // set aside are the ones no reached host derives (the intersection).
   const {unbuildable,isolate,refusedRows}=classifyBuildAttempts(attempts,rows.map(r=>r.party));
-  throw Object.assign(Error(`no signer host could build batch ${batchId}`),{unbuildable,isolate,refusedRows});
+  // P3-8a: when every typed refusal IS the one-pool rule, the set-aside carries the local build's one-pool
+  // reason (the catch below maps it) instead of the generic "no reachable signer host builds it" one.
+  const onePool=unbuildable&&attempts.every(a=>a.status!==3||/more than one pool/.test(a.stderr||""));
+  throw Object.assign(Error(`no signer host could build batch ${batchId}`),{unbuildable,isolate,refusedRows,onePool});
 }
 async function hostSign(batchId:number,proven:string,signed:string,groupKey:string,reserveRow?:{amount_zats:string}|null) {return withSigningLock(()=>hostSignLocked(batchId,proven,signed,groupKey,reserveRow))}
 async function hostSignLocked(batchId:number,proven:string,signed:string,groupKey:string,reserveRow?:{amount_zats:string}|null) {
@@ -320,7 +323,9 @@ async function worker(ledger:Ledger) {
   // next settle and a payout re-derives as soon as a host can build it.
   const setAside=new Set<string>();
   const asideReason="set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
-  // H3 (B50): a row set aside by the one-pool rule carries its own reason (the shared pinRows maps it).
+  // H3 (B50): a row set aside by the one-pool rule carries its own reason (the shared pinRows maps it) —
+  // the SAME text on every build path (P3-8a: the custody path used to publish the generic reason).
+  const onePoolReason="set aside this run: this batch's payments would span two pools (one-pool rule, R81); re-derived on the next settle";
   const asideReasons=new Map<string,string>();
   // B53 (P2-2): the rows of a mined batch parked for manual reconciliation carry its reason into the summary.
   const manualReason="manual reconciliation: pre-H3 two-pool batch (H2)";
@@ -408,6 +413,8 @@ async function worker(ledger:Ledger) {
             // R46: the rows NO reached host builds (or the lone row of a singleton batch) are set aside for this run.
             const aside=ex.unbuildable?ex.refusedRows as string[]:[batch.outputs[0].party];
             for(const p of aside)setAside.add(p);
+            // P3-8a: a set-aside the one-pool rule caused carries the local build's one-pool reason.
+            if(ex.onePool)for(const p of aside)asideReasons.set(p,onePoolReason);
             console.error(`ERROR batch ${batch.id}: every reachable signer host refused ${aside.join(",")}; set aside this run (re-derived on the next settle), the other rows settle next`);
           } else {
             // R46 (F25): disjoint typed refusals — split the batch: its rows are retried one per batch.
@@ -439,7 +446,7 @@ async function worker(ledger:Ledger) {
           if(namedPools.length) {
             for(const p of namedPools) {
               setAside.add(p);
-              asideReasons.set(p,"set aside this run: this batch's payments would span two pools (one-pool rule, R81); re-derived on the next settle");
+              asideReasons.set(p,onePoolReason);
             }
             console.error(`ERROR batch ${batch.id}: the candidate would pay more than one pool; ${namedPools.join(",")} set aside this run (one-pool rule R81), the other rows settle next`);
             ledger.expire(batch.id);pinRows();ledger.eligible();continue;

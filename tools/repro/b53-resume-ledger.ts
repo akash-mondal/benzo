@@ -743,11 +743,58 @@ async function p37() {
   }
 }
 
+// ---- p38 (P3-8a/b): the custody H3 set-aside carries the LOCAL build's one-pool reason (the same text),
+// not the generic "no reachable signer host builds it" one — through the real `benzo settle` worker and the
+// real `sign build` typed refusals (the b50 h3 world's shape; the stub case lives here, in its own function).
+const ONE_POOL_TEXT = "set aside this run: this batch's payments would span two pools (one-pool rule, R81); re-derived on the next settle";
+const GENERIC_TEXT = "set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
+async function p38() {
+  const beacon = await fetchBeacon(R);
+  const fx = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+  const run = part === "before" ? { root: BASE, benzo: BASE_BENZO } : { root: ROOT, benzo: GREEN_BENZO };
+  const tag = part === "before" ? "red" : "green";
+  const w = writeWorld(`p38-${tag}`, fx, run);
+  // The two-pool candidate knob (b50's h-fixtures test seam): one row's amount pays in `orchard`, the rest
+  // in `ironwood`, so the hosts' real `sign build` refuses the minority row typed (the one-pool rule) and
+  // the custody catch sets it aside.
+  const counts = new Map<string, number>();
+  for (const r of w.rows) counts.set(r.amount_zats, (counts.get(r.amount_zats) ?? 0) + 1);
+  const minority = w.rows.find(r => counts.get(r.amount_zats) === 1)!;
+  const fixtureJson = JSON.stringify({ groupKey: fx.groupKey, internal_addresses: [CHANGE_ADDR, FEE_RESERVE_UA], pool_by_amount: { [minority.amount_zats]: "orchard" } });
+  writeFileSync(path.join(w.state, "fixture.json"), fixtureJson);
+  for (const hs of Object.values(w.hosts)) writeFileSync(path.join(hs, "fixture.json"), fixtureJson);
+  const r = runSettle(w);
+  console.log(`OBSERVE p38-${tag} exit=${r.code}`);
+  console.log((r.err || r.out).trim().split("\n").filter(Boolean).slice(-8).map(l => "  | " + l).join("\n"));
+  const summary = summaryOf(w);
+  const row = (summary.rows ?? []).find((x: any) => x.party === minority.party);
+  const others = (summary.rows ?? []).filter((x: any) => x.party !== minority.party);
+  const receipts = existsSync(path.join(w.state, "settle", w.id, "receipts.json")) ? receiptsOf(w) : [];
+  console.log(`OBSERVE p38-${tag} ${minority.party} reason=${JSON.stringify(row?.reason)}`);
+  if (part === "after") {
+    check("p38-one-pool-reason", r.code === 0 && !!row && row.state === "exception" && row.reason === ONE_POOL_TEXT,
+      `the custody set-aside publishes the local build's one-pool reason (same text: ${JSON.stringify(row?.reason)})`);
+    check("p38-others-paid", receipts.length === w.rows.length - 1 && others.every((x: any) => receipts.some((y: any) => y.party === x.party)),
+      `the batch's other rows settle next (${receipts.length} receipts; ${minority.party} waits in the exception queue)`);
+    // The set-aside is THIS run only (R46): the next run re-derives the row into its own one-pool batch
+    // (a one-row batch cannot span pools) and pays it — the set-aside never stalls the run.
+    { const c = chain(w); c.tip += 12; writeFileSync(w.chainFile, JSON.stringify(c)); }
+    const r2 = runSettle(w);
+    const receipts2 = receiptsOf(w);
+    check("p38-rerun-pays-the-row", r2.code === 0 && receipts2.some((y: any) => y.party === minority.party),
+      `a re-run re-derives ${minority.party} as its own one-pool batch and pays it (exit ${r2.code}; ${receipts2.length} receipts)`);
+  } else {
+    check("p38-red-generic-reason", r.code === 0 && !!row && row.state === "exception" && row.reason === GENERIC_TEXT,
+      `the base custody set-aside publishes the GENERIC reason (the H7 summary is less precise on the custody path): ${JSON.stringify(row?.reason)}`);
+  }
+}
+
 if (wants("p22")) await p22();
 if (wants("p33")) await p33();
 if (wants("p31")) await p31();
 if (wants("p32")) await p32();
 if (wants("p35")) await p35();
 if (wants("p37")) await p37();
+if (wants("p38")) await p38();
 console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
 process.exitCode = failed ? 1 : 0;
