@@ -127,4 +127,4 @@ private; the commands store owner material under `$BNZ_STATE_DIR` and print only
    ```
 
    Remember the honest limit: all bids open at R, anonymised. Losing bids are not secret forever
-   (`README.md` "Honest limits").
+   ([`docs/honest-limits.md`](honest-limits.md)).
