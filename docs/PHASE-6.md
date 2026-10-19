@@ -781,3 +781,13 @@ Merge conflicts were only the bundle hash and the status file. The head rebuilt 
 Four published dirs still verify, 19 OK each, including the H15 live run.
 
 Rulings: Q1 (a zero-change batch cannot prove its own height, so its row stays outstanding) is accepted as conservative and noted in H15. Q2–Q6 are accepted. **Reviewer R round 2's P0-1, P1-1 and the P2s are fixed; H15 is closed.** The hosts need provisioning before the next live run.
+
+### R113 — Reviewer R on R107/R107b/B47/B48: REQUEST CHANGES (two P2s, no P0/P1) → B51 (head, 2026-10-19)
+
+Report `benzo-sol/reports/pr-p7-b47-b48.md`. Checked clean:
+- no wrong receipt and no double-pay (receipts are bound to the staged txid at four layers);
+- the owed set stays host-derived (the R107/R107b exclusions cannot hide debt).
+
+**P2-1:** `sign derivable` still walls on a seller mismatch (H21, in B50) and on a mismatched reserve-return address. **P2-2:** the H19 preflight double-counts a broadcast-but-unconfirmed batch on a re-run; the reviewer's probe confirmed it. Plus six P3s.
+
+Batch B51 (`docs/design/phase7-b51-review-fixes.md`) takes P2-2, the reserve-address wall and four of the P3s. The other P3s become rows. B49 is still unreviewed: the next Reviewer R pass covers B49 to B51.
