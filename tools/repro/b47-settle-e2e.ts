@@ -22,6 +22,9 @@
 //   (g) B51 (P2-2): a re-run after a crash with ONE batch already broadcast and mined on chain but not yet
 //       confirmed in the ledger (the reviewer's probe world) — the preflight must not demand the total that
 //       batch already paid; the run confirms it and continues to the return.
+//   (h) B51 (P3): the R109 margin is pinned — a 20,000-zat shortfall asks for exactly 25,000 (the fee bound
+//       counts one extra spend per remaining batch; reverting max(ceil(shortfall/10), 5000) to the pre-R109
+//       ceil/10 would ask 22,000 and fail the pin), and topping up exactly 25,000 completes.
 //
 // Red (`node tmp/b47.mjs before`) against BASE bundles built from pristine 8a9f638 (pre-R107) sources:
 //   (a)-red: the first settle refuses before paying anything — the exact R107 signature of the h15-live
@@ -561,9 +564,12 @@ async function green() {
   console.log("=== case (e): an under-funded reserve stops at the preflight with the exact top-up line (H19)");
   const w3 = writeWorld("w3", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 5000 });
   const eSpendable = w3.obligationZats + 5000;
-  const eFeeBound = 5000 * (w3.fx.notes.length + 1 + w3.obligationRows.length + 1);
+  // B51 (P3): the bound counts one extra spend per remaining batch (the change re-spend) and the top-up
+  // uses R109's margin (shortfall + max(ceil(shortfall/10), 5000)) — the pre-R109 formula this case used
+  // to re-derive would not fail the suite if the +5000 floor were reverted (Reviewer R P3-1's test gap).
+  const eFeeBound = 5000 * (w3.fx.notes.length + 1 + w3.obligationRows.length + 2);
   const eShortfall = w3.obligationZats + eFeeBound - eSpendable;
-  const eTopUp = eShortfall + Math.ceil(eShortfall / 10);
+  const eTopUp = eShortfall + Math.max(Math.ceil(eShortfall / 10), 5000);
   const e1 = runSettle(w3);
   console.log(`OBSERVE case-e preflight exit=${e1.code}`);
   const eLine = `ERROR settle fee reserve short: pay ${eTopUp} zats to ${FEE_RESERVE_UA} and run benzo settle again`;
@@ -617,6 +623,27 @@ async function green() {
   const g2 = runSettle(w5);
   check("g-rerun-clean", g2.code === 0 && receiptsOf(w5).length === gReceipts.length,
     `a further re-run is clean and changes nothing (exit ${g2.code}, ${receiptsOf(w5).length} receipts)`);
+
+  // ---- world W6: case (h) ----------------------------------------------------
+  console.log("=== case (h): the R109 margin pinned — a 20,000-zat shortfall asks for exactly 25,000 (B51 P3)");
+  const w6 = writeWorld("w6", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 40000 });
+  const hShortfall = 5000 * (w6.fx.notes.length + 1 + w6.obligationRows.length + 2) - w6.feeReserve;
+  const hTopUp = hShortfall + Math.max(Math.ceil(hShortfall / 10), 5000);
+  const h1 = runSettle(w6);
+  console.log(`OBSERVE case-h preflight exit=${h1.code}`);
+  const hLine = `ERROR settle fee reserve short: pay ${hTopUp} zats to ${FEE_RESERVE_UA} and run benzo settle again`;
+  check("h-shortfall-20000-asks-25000", hShortfall === 20000 && hTopUp === 25000 && h1.err.includes(hLine),
+    `a ${hShortfall}-zat shortfall asks for exactly ${hTopUp} zats (the change re-spend per remaining batch counted): ${h1.err.includes(hLine) ? "the exact line is printed" : `got: ${h1.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1) ?? "(no line)"}`}`);
+  check("h-margin-floor-pinned", hTopUp - hShortfall === 5000,
+    "the margin is max(ceil(20000/10), 5000) = 5000 — reverting to the pre-R109 ceil/10 would ask 22000 and fail this pin");
+  addTopUp(w6, hTopUp);
+  const h2 = runSettle(w6);
+  bumpTip(w6, 12);
+  const h3 = runSettle(w6);
+  const hSettlement = settlementOf(w6);
+  console.log(`OBSERVE case-h completes exits=${h2.code},${h3.code}`);
+  check("h-completes-after-exact-top-up", h2.code === 0 && h3.code === 0 && !!hSettlement?.reserve_return && receiptsOf(w6).length === w6.obligationRows.length + 1,
+    `topping up exactly ${hTopUp} zats suffices (the equality case passes at zero): the settlement completes (return accounting ${JSON.stringify(hSettlement?.reserve_return ?? null)})`);
 
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
@@ -793,6 +820,14 @@ async function red51() {
   check("g-red-cannot-confirm", !existsSync(path.join(w.state, "settle", w.id, "receipts.json")) && chain(w).broadcasts.length === 1 &&
     seeded.rows.every((r: any) => r.state === "allocated"),
     "the run cannot even CONFIRM the batch that is already mined: no receipts recorded, nothing new broadcast, every row still allocated");
+
+  console.log("=== red (h) on base bundles (a107447): the fee bound omits the change re-spend per remaining batch (P3)");
+  const wh = writeWorld("h-base", fx, { root: BASE51, benzo: BASE51_BENZO, feeReserve: 40000 });
+  const h = runSettle(wh);
+  console.log(`OBSERVE h-red exit=${h.code}`);
+  console.log((h.err || h.out).trim().split("\n").map(l => "  | " + l).join("\n"));
+  check("h-red-undercounted-bound", h.code === 1 && h.err.includes("pay 20000 zats") && !h.err.includes("pay 25000 zats"),
+    `the base bound is short one spend per remaining batch: it demands 20000 zats where the pinned demand is 25000 (${h.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1)?.slice(0, 160) ?? "(no ERROR line)"})`);
 
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;

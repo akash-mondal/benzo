@@ -324,7 +324,8 @@ async function worker(ledger:Ledger) {
   ledger.eligible();
   // H19 (R105, docs/design/phase7-b47-settle-worker.md §1.3): the fee-reserve preflight. Before the first batch
   // of a run, compare the vault's spendable value with the remaining unpaid obligations plus a fee upper bound
-  // of 5,000 x (spendable notes + remaining rows + remaining batches). Short: stop before any broadcast and
+  // of 5,000 x (spendable notes + remaining rows + 2 x remaining batches — each batch and the change re-spend
+  // it adds). Short: stop before any broadcast and
   // before any host build with the exact top-up line — never fail inside a host build for this. Spendable is
   // the wallet's own rule: an unspent, positive-value note with the manifest's confirmations. The
   // reserve-return row never counts as an obligation (it pays itself out of the sweep), but its row and its
@@ -352,7 +353,10 @@ async function worker(ledger:Ledger) {
     const allocatedBatches=new Set(unpaid.filter(o=>o.batch!==null).map(o=>o.batch));
     const eligibleRows=unpaid.filter(o=>o.batch===null).length;
     const remainingBatches=allocatedBatches.size+Math.ceil(eligibleRows/settings().batch_cap);
-    const shortfall=obligationZats+5000*(spendableNotes.length+unpaid.length+remainingBatches)-spendableValue;
+    // B51 (P3, Reviewer R P3-1): the bound also counts ONE extra spend per remaining batch — each later
+    // batch re-spends the previous batch's change note (an extra input is an extra action), which the old
+    // bound never counted and could under-shoot by 5,000 x (batches-1) on a large run.
+    const shortfall=obligationZats+5000*(spendableNotes.length+unpaid.length+remainingBatches*2)-spendableValue;
     if(shortfall>0&&unpaid.some(o=>o.party!=="reserve-return")) {
       const topUp=shortfall+Math.max(Math.ceil(shortfall/10),5000);
       let feeUa="";
