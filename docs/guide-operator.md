@@ -335,6 +335,8 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       settlement carries a `reserve_return` accounting block (remaining value and fee only — the
       destination itself is never published), and `benzo verify` accepts the one `reserve-return`
       receipt only while the published accounting shows nothing outstanding.
+      A reserve return that is waiting does not appear in the public directory until it is paid;
+      `benzo settle` prints why it waits.
 
       The return needs the last batch's change to be spendable: if `benzo settle` prints `the reserve
       stays in the vault until the next benzo settle`, run `benzo settle --id ID` again once that batch has
