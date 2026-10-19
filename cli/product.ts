@@ -559,6 +559,15 @@ export async function runCommand(command:string,args:string[]) {
       await new Promise<void>((resolve,reject)=>{const p=spawn(bin('frost-client'),['participant','-c',path.join(STATE,'frost',o.name+'.toml'),'-s',process.env.BNZ_FROSTD_ADDR!,'-g',readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim()],{stdio:'inherit',env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});return;
     }
     if(command==='cancel'){ac('cancel',id);publish(id)}
+    // B56 (R121, item 3 — Recovery): a public directory that already published a bare `reserve-return` row
+    // (pre-B56 state) heals here, before the worker sends the hosts its packet: the republish drops the
+    // unpaid row (publish's own filter above), so the hosts' public check accepts and the run proceeds.
+    // Without it the stale row walls this run at `no signer host could list its derivable rows` before
+    // anything could republish — the permanent wall ruling R121 removes.
+    {
+      const pubDir=path.resolve(read(config(id)).public_dir),doc=existsSync(path.join(pubDir,'auction.json'))?read(path.join(pubDir,'auction.json')):{};
+      if(((doc.settlement?.rows??[]) as any[]).some((r:any)=>r.party==='reserve-return'&&!rowPublishes(r)))publish(id);
+    }
     // Head (2026-10-03): the worker's progress goes to stderr so every command prints exactly one JSON document on
     // stdout (`benzo cancel` printed the worker's JSON plus its own, which broke JSON callers: run 8 FATAL).
     const p=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:['inherit',2,'inherit']});
