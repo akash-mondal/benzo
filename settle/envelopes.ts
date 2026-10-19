@@ -173,20 +173,27 @@ export function envelopeRecipient(
 // the BLS-verified beacon client — a griefing memo yields null here instead of stopping every stray's row.
 // H13 item 4: `openMemo` lets a signer host route that opening through its own memo-openings.json cache (the
 // same openSealedBid result, read through cli/openings-cache.ts); the default is the plain opener.
+// R127 (B43 regression fix): `client` may be a beacon client, a LAZY getter, or null. The framing-v2 tag
+// path (a) authenticates before R with no tlock opening, so the beacon is fetched only when path (b) must
+// open the memo. Null means "no beacon yet" (before R): path (b) cannot open, so the answer is null. After R
+// a getter that cannot produce a verified beacon throws to the caller, as B43/H14 require: an unusable
+// beacon stops the run instead of quietly classifying the stray as ownerless.
+export type BeaconSource = ChainClient | (() => Promise<ChainClient>) | null;
 export async function authenticatedMemoEnvelope(
   observed: DepositNote[],
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
-  client: ChainClient,
-  openMemo: (ciphertextHex: string) => Promise<string | null> = (ctHex) => openSealedBid(ctHex, client),
+  client: BeaconSource,
+  openMemo?: (ciphertextHex: string) => Promise<string | null>,
 ): Promise<EnvelopeRecord | null> {
+  let ctHex: string, ctHash: string;
   try {
     const note = partyNote(observed, party);
     const memo = note?.memo_hex ? memoSealedBid(note.memo_hex) : null;
     if (!memo) return null;
-    const ctHex = memo.ciphertext_hex;
-    const ctHash = hash(Buffer.from(ctHex, "hex"));
+    ctHex = memo.ciphertext_hex;
+    ctHash = hash(Buffer.from(ctHex, "hex"));
     const rec = (envelopes ?? []).find(e => e.ciphertext_hash === ctHash);
     if (!rec) return null;
     const manifest = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8"));
@@ -194,7 +201,15 @@ export async function authenticatedMemoEnvelope(
     // depositor sets the memo) authenticates it before R with no tlock opening; it must still satisfy the shared
     // format/recipient rule.
     if (memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) && envelopeRecordValid(rec, manifest.envelope_keys)) return rec;
-    const ptHex = await openMemo(ctHex);
+  } catch {
+    return null;
+  }
+  // (b) the memo's own tlock opening, which needs the round-R beacon.
+  const opener = openMemo ?? (client === null ? null
+    : async (ct: string) => openSealedBid(ct, typeof client === "function" ? await client() : client));
+  if (!opener) return null;
+  const ptHex = await opener(ctHex);
+  try {
     if (!ptHex) return null;
     const pt = Buffer.from(ptHex, "hex");
     if (!sealedBidPlaintext(pt, manifestPacket)) return null;
@@ -211,7 +226,7 @@ export async function memoEnvelopeRecipient(
   party: string,
   manifestPacket: any,
   envelopes: EnvelopeRecord[] | undefined,
-  client: ChainClient,
+  client: BeaconSource,
   envelopePrivateHex: string,
   openMemo?: (ciphertextHex: string) => Promise<string | null>,
 ): Promise<Destination | null> {

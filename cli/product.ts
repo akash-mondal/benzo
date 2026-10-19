@@ -440,7 +440,8 @@ export async function runCommand(command:string,args:string[]) {
       if(claimed.has(party)||(doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
       // R20: only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
       // for a memo-less or v1 stray is not something this signer reports ok for.
-      const dest=open(await authenticatedMemoEnvelope(notes(m.network),party,doc.manifest,doc.envelopes,await memoBeacon()));
+      // R127: lazily, and null before R — a framing-v2 tag-bound record needs no beacon (B43 had made it fetch one).
+      const dest=open(await authenticatedMemoEnvelope(notes(m.network),party,doc.manifest,doc.envelopes,(doc.beacon||Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period)?memoBeacon:null));
       opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
     // R23 item 2 (Reviewer G G3): the report is signed by this signer's own witness key (a member of the

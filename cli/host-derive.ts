@@ -286,16 +286,17 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     const refusedRows: { party: string; amount_zats: string; reason: string }[] = [];
     for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
-      if (preRelease) { refusedRows.push({ party, amount_zats: String(n.value_zats), reason: "cancelled before release; refund is claimable after R" }); continue }
-      const rec = await authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, await opener(), openMemo);
+      // R127: before R nothing is opened (no beacon), but a framing-v2 tag-bound record still authenticates;
+      // every other pre-R deposit waits with the plan's reason.
+      const rec = await authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, preRelease ? null : opener, preRelease ? undefined : openMemo);
       // Ruling R40 item 1 (F1): a slot collision refunds through the owner-signed claim path only (the plan
       // never auto-pays it; its record belongs to the frozen leaf's ciphertext) — the same rule on this host.
-      const dest = claimDest(party, await memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
+      const dest = claimDest(party, preRelease ? null : await memoOwner(n)) ?? (!cancelled && isSlotCollision(n, pub.manifest, pub.frozen) ? null : rec ? openDestination(rec, key!, (pub.manifest as any).network) : null);
       if (dest) {
         requireThat(typeof n.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(n.memo_hex), "stray note memo");
         expected.push({ party, recipient: dest.reveal(), amount_zats: String(n.value_zats), source: party });
         strays.push({ party, memo_sha256: sha(Buffer.from(n.memo_hex, "hex")) });
-      }
+      } else if (preRelease) refusedRows.push({ party, amount_zats: String(n.value_zats), reason: "cancelled before release; refund is claimable after R" });
     }
     // H13 item 4: write the memo cache back after the successful open of every fresh stray memo.
     if (Object.keys(freshMemos).length) saveOpenings(memoCacheFile, ...(await cacheKeys()), { ...(memoCache ?? {}), ...freshMemos });

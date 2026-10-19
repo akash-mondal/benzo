@@ -251,7 +251,9 @@ try {
   // memo's own tlock opening (R20 (b): owner signature plus settlement commitment over the record); an
   // operator-inserted record for a memo-less or v1 stray is never paid. Memo v2's tag binding (R20 (a))
   // lands with Track B's memo v2 merge.
-  const strayEnvelope=async(party:string):Promise<boolean>=>(await authenticatedMemoEnvelope(depositNotes,party,src.manifest,src.envelopes,await beacon()))!==null;
+  // R127: the beacon is passed lazily (null before R), so a framing-v2 memo whose tag binds its record
+  // authenticates before R with no beacon, as it did before B43; a memo that must be opened waits for R.
+  const strayEnvelope=async(party:string):Promise<boolean>=>(await authenticatedMemoEnvelope(depositNotes,party,src.manifest,src.envelopes,released?beacon:null))!==null;
   const claimFile=path.join(state,"settle",id,"claims.json"),claimFailures:Record<string,string>={};
   if(existsSync(claimFile))for(const request of JSON.parse(readFileSync(claimFile,"utf8"))) {
     try {
@@ -316,11 +318,9 @@ try {
       const party=depositParty(n),row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
       if(claimEnvelopes[party]) {gateEnvelope(row);continue}
-      // B55 (M1): before R the memo/envelope leg cannot run — strayEnvelope opens the memo with the round-R
-      // beacon, which does not exist yet — so it is skipped and the deposit parks with the reason below,
-      // exit 0 (the rule: before R no path fetches the beacon; the reason ternary below short-circuits the
-      // same way). After R nothing changes: the envelope resolves exactly as before.
-      if(released&&await strayEnvelope(party)) {gateEnvelope(row);continue}
+      // R127 (replaces B55's gate): strayEnvelope passes no beacon before R, so only a framing-v2 tag-bound
+      // record can authenticate then; every other deposit parks with the reason below, and nothing fetches drand.
+      if(await strayEnvelope(party)) {gateEnvelope(row);continue}
       const reason=!released?"cancelled before release; refund is claimable after R":
         !(await bidPlaintextFor(party))?"deposit memo is not an openable sealed bid; no owner key claims it":
         "no valid owner-signed settlement envelope";

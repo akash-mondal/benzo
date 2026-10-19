@@ -1,0 +1,12 @@
+commit cb84419 + working tree (R128 fix), 2026-10-19T22:52:34Z
+PASS r26-1-scanner-action-index
+PASS r26-1-report-parties
+PASS r26-1-two-refund-rows
+PASS r26-1-zero-paid-refused
+PASS r26-1-zero-counted
+PASS r23-2-report-signed
+PASS r23-2-forged-report-ignored
+PASS r23-2-two-signed-agree
+PASS r23-2-one-key-twice
+PASS r23-2-foreign-key
+RESULT PASS

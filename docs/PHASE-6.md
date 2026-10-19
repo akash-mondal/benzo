@@ -1036,3 +1036,32 @@ So an operator's `benzo settle` or a signer host stopped on one OS-level reset i
 **Fix.** The patterns are now case-insensitive and add `timed out|os error (54|60)`, with the same 4-attempt cap. Every retried call is read-only (wallet sync and enhance; GetTransaction, GetLatestBlock, GetBlock, GetBlockRange), so a retry cannot repeat a broadcast.
 
 **Gate.** Every fold, replay and published dir is green, and the offline e2e passes on the first try. The hosts are re-provisioned at this commit, and the final RG restarts from the first project so all six run on one code commit.
+
+### R128: cancel-path envelopes authenticate before R again; B55's gates are replaced (head, 2026-10-20)
+
+**Finding.** The final RG's cli-auction run at `7526940` had rc=1, failing 3 of 56 checks:
+- r26-1-report-parties;
+- r26-1-two-refund-rows;
+- r23-2-report-signed (`sign envelope-opens` refused: "drand opening beacon unavailable").
+
+These folds cancel an auction whose R is 30 days out. They expect each signer's report to authenticate framing-v2 tag-bound records. That path (R20(a), R16.2/R18) needs no tlock opening: the README's "cancellation never needs a decryption".
+
+**Root cause.** B43 made every caller of `authenticatedMemoEnvelope` fetch the round-R beacon before the call (`await beacon()`). Before B43 the callers passed a lazy `tle` path. So before R the tag path could not be reached:
+- `sign envelope-opens` exited 1;
+- the plan threw, which is the M1 symptom.
+
+B55 treated the symptom with blanket `released` gates in `settle/plan.ts` and `cli/host-derive.ts`, which also disabled the tag path.
+
+**Fix.**
+- `authenticatedMemoEnvelope` and `memoEnvelopeRecipient` take a `BeaconSource`: a client, a lazy getter, or null before R.
+- Path (a), the tag binding, needs none. Path (b), the memo opening, uses the beacon and returns null when there is none.
+- After R, a getter that cannot produce a verified beacon throws to the caller, as B43/H14 require.
+- Callers pass `released ? getter : null`: the plan's `strayEnvelope`, `sign envelope-opens`, the settle worker's `destinations()` and the host derive.
+- B55's blanket gates are removed. The host derive still lists every pre-R deposit that does not authenticate in `refused_rows`, with the plan's reason.
+
+**Proof.**
+- `tools/repro/r128-cancel-tag-folds.ts` runs the two cli-auction folds standalone: 10/10 PASS (`docs/evidence/phase-7/repro/r128-cancel-tag-after.out`). The red is the live RG at `7526940`.
+- The b55-cancel-before-r fold still passes before and after: the plan parks with the exact reason and makes 0 fetches.
+- Every other fold, replay and published dir passes. The offline e2e passes on the first try.
+
+Hosts are re-provisioned, and the final RG restarts from its first project at this commit.

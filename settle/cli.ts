@@ -2,7 +2,7 @@
 import {copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,renameSync,writeFileSync} from "node:fs";
 import {spawn,spawnSync} from "node:child_process";
 import path from "node:path";
-import {hash,jsonBytes,requireThat,verifyRecord} from "../manifest/schema";
+import {hash,jsonBytes,requireThat,verifyRecord,QUICKNET} from "../manifest/schema";
 import {clientCommon as client} from "../clear/registry"; // design §6.1: every registry mode
 import {agreedBatchMaps} from "../witness";
 import {treasuryBlock} from "../clear/mode-b";
@@ -50,6 +50,8 @@ async function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim
   // fetch. Built per row inside its own try, so a beacon outage parks that row, never the batch.
   let beaconClient:ChainClient|null=null;
   const memoBeacon=async():Promise<ChainClient>=>beaconClient??=publishedClient((a as any).beacon??await fetchVerifiedBeacon(client(auction().manifest,auction().signer).manifest.drand.R));
+  // R127: before R no beacon exists; a framing-v2 tag-bound record still resolves without one.
+  const memoReleased=()=>!!(a as any).beacon||Date.now()/1000>=QUICKNET.genesis+(client(auction().manifest,auction().signer).manifest.drand.R-1)*QUICKNET.period;
   return Promise.all(rows.map(async (row):Promise<ResolvedRow>=> {
     // R16 item 1 (Reviewer R F4): destinations() never throws for a single row. An unresolvable row comes
     // back with its reason and no recipient; the worker turns it into an exception row and the batch
@@ -85,7 +87,7 @@ async function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim
     // candidate failed `check()` with "PCZT recipient count differs from result", so the non-custody return
     // path could never reach signing at all.
     if(product&&row.party!=="seller"&&row.party!=="reserve-return") {
-      const recipient=await memoEnvelopeRecipient(observed,row.party,(a as any).manifest,(a as any).envelopes,await memoBeacon(),ownEnvelopePrivate(STATE,name)??"");
+      const recipient=await memoEnvelopeRecipient(observed,row.party,(a as any).manifest,(a as any).envelopes,memoReleased()?memoBeacon:null,ownEnvelopePrivate(STATE,name)??"");
       if(recipient) {const ua=recipient.reveal();requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(ua,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient:ua}}
       return {...row,reason:`stray refund refused: no owner-signed settlement envelope or claim (party ${row.party}; claim it with benzo claim-refund or leave it in the exception queue)`};
     }
