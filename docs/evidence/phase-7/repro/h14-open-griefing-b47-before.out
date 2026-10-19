@@ -1,0 +1,30 @@
+commit 0eb063976ca45e1f3efafd90ed4b9dac4ed81ab2 (working tree not clean at run time)
+utc 2026-10-19T01:56:40.794Z
+command node tmp/h14.mjs before (tools/repro/h14-open-griefing.ts)
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b47-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b47-before.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b47.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b47-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b47-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b47-before.out
+=== fixtures: real tlock to quicknet round 32704232 (2 intact leaves + the two H14 griefs)
+OBSERVE honest-layout {"version":"age-encryption.org/v1","stanza":"-> tlock 32704232 52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971","body_line_lengths":[64,64,43],"body_bytes":128,"mac_bytes":32,"payload_bytes":160,"total_bytes":487}
+PASS honest-layout-exact one 128-byte stanza body (3 base64 lines of 64/64/43 chars), 32-byte mac, 160-byte payload (16 + 128 + 16), 487-byte ciphertext
+=== the H14 probe on the base commit's decryptPublished (re-created)
+PASS red-probe-stanza-body-throws base decryptPublished threw "Expected mac, but there were no more lines left!" (it stops the open for every bidder)
+PASS red-probe-payload-cut-empty base decryptPublished returned "" (the empty-plaintext quirk; Go tle said MAC failure)
+=== red admission: the base header rule and the real admit command accept both griefs
+PASS red-rule-admits-honest base memoTlockCiphertext accepted the honest memo (the admission header rule)
+PASS red-rule-admits-stanza-body base memoTlockCiphertext accepted the stanza-body memo (the admission header rule)
+PASS red-rule-admits-payload-cut base memoTlockCiphertext accepted the payload-cut memo (the admission header rule)
+PASS red-admit-accepts-honest the base admit command admitted the honest bid
+PASS red-admit-accepts-stanza-body the base admit command admitted the stanza-body bid
+PASS red-admit-accepts-payload-cut the base admit command admitted the payload-cut bid
+=== red open: the base open throws on the first grief and stops every other opening
+PASS red-open-throws the base open died on the malformed stanza body (exit 1): ERROR auction Expected mac, but there were no more lines left!
+PASS red-open-empty-plaintext the base open accepted the payload-cut leaf with plaintext_hex "" (an invalid bid labelled as opened)
+=== red deriveRows: host derivation stops on the malformed leaf
+PASS red-derive-rows-stops the base sign derivable died (exit 1): ERROR sign derivable refused: public check failed: ERROR verify Expected mac, but there were no more lines left!
+=== baseline: the base commit's openings for the honest leaves (byte-identity reference)
+OBSERVE baseline-honest 128B,128B (saved to tmp/h14/opened-honest-baseline.json)
+RESULT PASS

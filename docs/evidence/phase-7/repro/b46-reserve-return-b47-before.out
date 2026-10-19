@@ -1,0 +1,8 @@
+commit 0eb063976ca45e1f3efafd90ed4b9dac4ed81ab2 (working tree not clean at run time)
+utc 2026-10-19T01:49:46.777Z
+command node tmp/b46.mjs before (tools/repro/b46-reserve-return.ts)
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b47-before.out
+=== red on the BASE commit: the unused fee reserve is stranded (no command returns it)
+PASS red-plan-no-row-change-stranded the base plan settles everything and plans NO reserve-return row: 55000 zats of unspent vault value stay in the vault (45ca67002e666a794bd8be7c0cfd3797252176893aeb4641e71544984fe8619d:ironwood:0,75c3d9a462a9a468ddbae35fa8cfb89f43c460ace4baa24003ab8dbe04102043:ironwood:0)
+PASS red-plan-bound-manifest-unreadable the base manifest schema cannot even represent reserve_return_ua_commitment: ERROR settle refused: unknown or missing manifest field
+RESULT PASS

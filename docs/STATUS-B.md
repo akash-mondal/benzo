@@ -3,6 +3,148 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B47 (Builder B, branch `b47-settle-worker`, from `32101ec`) — H20 + H19: settle worker robustness + the first offline end-to-end proof of `benzo settle`
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env` read or used — the worktree carries its own
+`.env` copied from `.env.example` and its own `.benzo` tool dir for the e2e gate; no OrbStack/`orb`, no testnet,
+no wallets, no live Playwright). Spec: `docs/design/phase7-b47-settle-worker.md`. Worktree
+`../benzo-b47`, branch `b47-settle-worker`, base `32101ec`. Commits `--no-verify` (R32): `6e5b299` (the
+three worker fixes), `0eb0639` (the offline end-to-end proof + evidence), plus the folds/status commit.
+Only `settle/cli.ts` (product) changed; `tools/repro/b47-settle-e2e.ts` is new test machinery.
+
+### The three fixes (all in `settle/cli.ts`, unmodified product code proven by the e2e)
+
+1. **Broadcast idempotence (H20 item 1)** — `settle/cli.ts:440-453`. A send that answers
+   `transaction already exists in mempool` — the resend after a lost response, or a resend on a re-run —
+   counts as broadcast: the worker keeps the staged txid and continues to the mined-wait. So does a send
+   whose transaction has already mined (checked against this worker's own wallet `list-tx`). Any other send
+   error still throws.
+2. **The kept reserve_return accounting (H20 item 2)** — `settle/cli.ts:498-521`. Once the `reserve-return`
+   row has a receipt, the summary keeps the published accounting instead of re-deriving it from the emptied
+   vault: the paid batch's own ledger record (`batch-N.inspect.json` — the candidate swept the whole unspent
+   value, so `input_zats` is the recorded remaining and `fee_zats` the recorded fee; sanity-checked
+   `remaining − fee = amount` against the paid receipt), falling back to the already-published doc's
+   `settlement.reserve_return`. `benzo settle`'s republish then succeeds and produces the identical public
+   dir; a re-run of a fully settled auction exits 0 and changes nothing.
+3. **Fee-reserve preflight (H19)** — `settle/cli.ts:325-355`. Before the first batch of a run (after the
+   pin, before any allocate/build/broadcast): spendable value (unspent positive notes with the manifest's
+   confirmations — the wallet's rule) versus the remaining unpaid obligations plus the fee upper bound
+   `5,000 × (spendable notes + remaining rows + remaining batches)`. Short: `ERROR settle fee reserve short:
+   pay N zats to <fee_reserve_ua> and run benzo settle again` with N = shortfall + ceil(shortfall/10),
+   before any broadcast and never inside a host build. The reserve-return row never counts as an obligation
+   (it pays itself out of the sweep) but its row and batch count in the fee bound; with ONLY the
+   self-funding return left the preflight is skipped, so the return pass keeps its own live failure mode
+   (the change-not-spendable case, case (a) below).
+
+**No new product test seam.** The driver's fake chain and its stub config are passed to the stubs through
+`BNZ_TEST_CHAIN` and `BNZ_TEST_STUBS`, read ONLY by test stub code and refused by those stubs when
+`BNZ_NETWORK=main`; shipped code never reads either. Everything product-side runs through existing seams:
+`BNZ_STATE_DIR`, `BNZ_PCZT_BIN`, `BNZ_SCAN_BIN`, `BNZ_LWD_URL`/`BNZ_LWD_URL_ALT`, `BNZ_DRAND_URLS`,
+`BNZ_FROSTD_HOST`, `PATH` (the orb/orbctl stubs).
+
+### The offline end-to-end proof (`tools/repro/b47-settle-e2e.ts`)
+
+The REAL `bin/benzo settle --id ID` worker — wrapper, plan, worker, publish, host commands, ledger — runs
+unmodified end to end against stubs (fixture world per case, all under `tmp/`):
+
+- **a small REAL auction fixture** (`tools/repro/h-fixtures.ts buildAuction`): 4 real tlock ciphertexts to a
+  past quicknet round (the authentic beacon fetched once, as every h-fold does), a signed manifest with the
+  H10 `seller_ua_commitment` and the B46 `reserve_return_ua_commitment`, the frozen set, envelope records
+  and a cleared result `benzo verify` re-derives; plus the two agreeing signed `envelope-opens` reports the
+  plan gates the leaf refunds on;
+- **a stub chain/wallet** (one shared chain-state file the driver controls): stub `benzo-scan`,
+  `zcash-devtool` (wallet sync/balance/list-tx, `pczt extract/prove/redact/send[-without-storing]`),
+  `grpcurl` (GetLatestBlock/GetTransaction/GetBlock/GetBlockRange) and `benzo-pczt` (create/inspect/
+  ufvk-ak/owns/address; `classify-address` delegates to the REAL audited binary). Every candidate is a
+  small JSON body whose sha256 IS the txid everywhere (extract, inspect, maps), so the receipts, the two
+  agreeing host maps and the chain agree exactly. The create stub refuses with the real wallet's
+  `InsufficientFunds { available…, required… }` line when the rows plus the ZIP-317 fee exceed the MATURE
+  spendable notes (the live change-needs-10-confirmations case), and `send_mode: "mempool"` makes the next
+  send answer the live resend error while recording the transaction, which the next wallet sync mines —
+  the stub records broadcasts, answers "already in mempool" and mines on command (list-tx);
+- **a stub `orb`/`orbctl` on PATH**: push/pull map `/home/benzo/<x>` onto each host's own world dir and the
+  three host `benzo sign build|approve|derivable` commands (and `sign join`) run the REAL shipped
+  `cli/dist/benzo.mjs` locally against three per-host state dirs (each with its own envelope key, witness
+  key, DKG group and stub toolchain, the `tools/repro/b42-hosts-cli.ts`/`h-fixtures.ts` machinery). The
+  FROST layer is stubbed at the `frost-client`/`zcash-sign` boundary (the documented h-fixtures stub class):
+  the coordinator prints the session signature once both participants joined and the participant prints the
+  approved sighash on the prompts the REAL `benzo sign join` (approval check included) answers.
+
+**Green — cases (a)–(f), each one `bin/benzo settle` invocation or a sequence**
+(`docs/evidence/phase-7/repro/b47-settle-e2e.out`, `RESULT PASS`, 33 checks):
+
+| case | result |
+|---|---|
+| (a) ordinary batches pay every row while the return waits | PASS — exit 0, all 5 rows receipted (4 leaf refunds + seller, 4,000,400 zats), one broadcast; the return pass fails in the host build with `InsufficientFunds { available: Zatoshis(0), required: Zatoshis(35000) }` and prints the live line `ERROR reserve-return pass exited 1; the reserve stays in the vault until the next benzo settle`; batch 2 is left allocated and unmined |
+| (b) the return is planned after the last batch mines | PASS — after the change matures (one `settle` re-run): built, approved by both hosts, broadcast and mined (`25,000 = 35,000 − 10,000 fee` — the exact live amounts), the receipt recorded, the published accounting `{remaining_zats:35000, fee_zats:10000}`, the vault swept to zero |
+| (c) the broadcast answers "already exists in mempool" | PASS — both armed sends (the ordinary batch and the return) error with the live `Send failed: (-1) transaction already exists in mempool`, the worker counts each as broadcast, continues to the mined-wait and records every receipt (6/6); both settles exit 0 |
+| (d) a re-run after the return | PASS — exit 0, the published dir byte-identical (all 10 files, sha256-compared), the same 6 receipts |
+| (e) an under-funded reserve | PASS — the preflight stops the run with exactly `ERROR settle fee reserve short: pay 55000 zats to <fee_reserve_ua> and run benzo settle again` (N computed independently in-test: shortfall 50,000 + 10%), nothing broadcast and no host build; topping the stub up with exactly 55,000 zats completes the settlement (return accounting published) |
+| (f) a legacy manifest | PASS — settles (exit 0) with no return row/receipt/accounting and its one `WARN the reserve stays in the vault (legacy, H15)` line per plan run (2 lines for 2 plan runs), no waits line |
+
+**Red on the base bundles built from pristine `8a9f638` (pre-R107), same driver**
+(`docs/evidence/phase-7/repro/b47-settle-e2e-red.out`, `RESULT PASS`, 7 checks). The e2e would have caught
+R107 and R107b had it existed:
+
+- **(a)-red (R107):** the first `benzo settle` refuses before paying anything — the exact h15-live
+  signature, three hosts × `sign derivable refused-rows ["reserve-return"]: the auction still owes 5
+  outstanding (strays/balances/exceptions)…`, then `ERROR settle refused: no signer host could list its
+  derivable rows`, exit 1, nothing broadcast, no receipt. (Same fixture as green (a).)
+- **(b)-red (R107b):** the return pass on the exact world the live run was in at the crash — batch 1 paid
+  and its settlement published (5 receipts), the return row allocated to batch 2 after its failed build
+  attempt (seeded through the REAL `settle/ledger.ts` Ledger class, published through the REAL
+  `publish()`), the change now spendable — crashes with the exact live line
+  `ERROR settle Cannot read properties of null (reading 'amount_zats')`, exit 1. The identical seeded
+  world settles green on this tree (the same-world red/green pair, `b-green-same-world` PASS).
+
+### Commands run (worktree `/Users/akshmnd/Dev Projects/benzo-b47`)
+
+- `tools/nu7/build.sh crates vendor/nu7 pczt-0.9.3 zcash_primitives-0.30.1 zcash_protocol-0.10.5` (the
+  sha256-pinned crates materialize in every fresh worktree) and `npm ci`; green bundles
+  `npm run build:core && npm run build:settle && npm run build:cli` (includes
+  `cargo build --release --locked`); base bundles `git archive 8a9f638` + `cli/build.mjs` + the three
+  esbuild bundles (the `before` leg) — all OK.
+- `node tmp/b47.mjs after` → `RESULT PASS` (cases a–f, 33 checks, 0 FAIL);
+  `node tmp/b47.mjs before` → `RESULT PASS` (2 red legs + the same-world pair, 7 checks, 0 FAIL).
+- Gates: `npm run typecheck` PASS; `check:structure` `OK (213 files)`; `check:invariants`
+  `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2; `check:dist-require` OK; `npm run e2e` `PASSED default
+  seal in the browser, open with tle after R (37 s)` (the worktree's own `.env` from `.env.example` and its
+  own pinned `tle`/`grpcurl` built into its own `.benzo/bin` via `go install` at `tools/pins.env` tags).
+- **Folds all green** (raw outputs `docs/evidence/phase-7/repro/*-b47*`, each `RESULT PASS`):
+  `b46-reserve-return` both legs (base bundles from pristine `a81e826`), `h10-seller-binding` 22/22,
+  `h13-host-scale` both legs (base bundles from pristine `cd19905`), `h14-open-griefing` both legs (base
+  from `5086be1`), `b44-opener` both legs (base from `d646ceb`), `npm run e2e` above.
+- `check:bundle` not run: this batch touches none of `api/`, `envelope/`, `settle/envelopes.ts`,
+  `cli/commands/verify.ts`, `cli/published-beacon.ts` (the guard's trigger set).
+
+## Questions (B47)
+
+1. **The fee preflight's 10% margin can be one fee slot short after the top-up (H19's line).** The design
+   fixes N at "the exact shortfall plus a 10% margin"; a top-up note itself adds one `5,000`-zat fee slot
+   to the next run's bound, so a shortfall below ~50,000 can leave the follow-up run short by up to one
+   slot (it then prints a second, smaller line). Case (e) is sized (shortfall 50,000) so exactly N
+   completes; a real operator may see one extra tiny top-up line. Suggest a future ruling either keep this
+   (two lines worst case, no funds at risk) or make N `shortfall + max(ceil(shortfall/10), 5,000)`.
+2. **The preflight scope: obligation rows only.** The design's formula counts "the remaining unpaid
+   obligations"; the reserve-return row is not an obligation (it pays itself out of the sweep — counting
+   it would make the preflight permanently short). With ONLY the return left, the preflight is skipped so
+   the return pass keeps its live failure mode (case (a): the change-not-spendable wait line, not a
+   misleading top-up line). If the head wants the preflight to also guard the return pass's fee, say so —
+   the current rule is in `settle/cli.ts:346` (`shortfall>0 && unpaid.some(non-return)`).
+3. **The kept accounting's two sources are as designed ("from the ledger or from the already-published
+   doc")**; I read "the ledger" as the settled batch's own ledger record (`batch-N.inspect.json`:
+   `input_zats`/`fee_zats`, sanity-checked `remaining − fee = amount`), falling back to the published doc's
+   `settlement.reserve_return`. If the head meant a new persisted field instead, it is a small change.
+4. **Case (f)'s "one WARN line" is asserted per plan run** (the plan runs twice inside one `benzo settle`
+   that finishes everything: the worker pass and the automatic reserve-return pass, so the log carries two
+   lines for two plan runs). If the head wants exactly one line per `benzo settle` invocation, the plan
+   would have to print it only on the first pass — a product change I did not make.
+5. **The red legs' base code is exactly `8a9f638`** as the task states. Note that the live R107b crash
+   happened on the R107-FIXED hosts (66d511a); on pure `8a9f638` it needs the post-batch-1 world (case
+   (b)-red) because the R107 wall otherwise masks it (case (a)-red). Both legs therefore run on `8a9f638`
+   bundles: (a)-red shows the wall, (b)-red shows the crash on the seeded live state — together exactly
+   what the h15-live transcript recorded at each failure.
+
 ## Batch B45 (Builder B, branch `b45-classify`, from `cd19905`) — H16 P1 scale: bulk + cached address classification
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live
