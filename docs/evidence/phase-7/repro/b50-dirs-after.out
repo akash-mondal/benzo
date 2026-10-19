@@ -1,0 +1,58 @@
+=== node tmp/b50.mjs after dirs (every committed published dir; the walker's per-dir verdict)
+commit bd72c6f738db0443f5e5da7b5d5ee8fd8d4466b8 (working tree not clean at run time)
+utc 2026-10-19T05:54:30.571Z
+command node tmp/b50.mjs after dirs (tools/repro/b50-p2-sweep.ts)
+tree M docs/design/phase7-hardening.md
+tree  M tools/repro/h10-seller-binding.ts
+tree ?? docs/evidence/phase-7/repro/b50-checks.out
+tree ?? docs/evidence/phase-7/repro/b50-dirs-after.out
+tree ?? docs/evidence/phase-7/repro/e2e-seal-open-b50.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b50.out
+tree ?? docs/evidence/phase-7/repro/r73-b50.out
+tree ?? docs/evidence/phase-7/repro/r77-b50.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-b50.out
+tree ?? docs/evidence/phase-7/repro/r78-b50.out
+tree ?? docs/evidence/phase-7/repro/r81-b50.out
+tree ?? docs/evidence/phase-7/repro/r82-b50.out
+tree ?? node_modules
+tree ?? vendor
+PASS fixture-seller-payout the fixture result owes the seller 15000 zats
+PASS fixture-obligations the fixture owes leaf:0:1000000, leaf:1:1000000, leaf:2:985000, seller:15000
+=== dirs: every committed published dir still verifies
+PASS dir ./phase-2/auction ACCEPTED
+FAIL dir ./phase-3/settle/cancel threw refused: missing frozen.json
+FAIL dir ./phase-3/settle/main REFUSED clear: refused: one opening per frozen leaf
+PASS dir ./phase-4/cli ACCEPTED
+PASS dir ./phase-5/buyback-run3/cold ACCEPTED
+PASS dir ./phase-5/buyback-run4/cold ACCEPTED
+FAIL dir ./phase-5/live-regression-4876156/cli REFUSED claims: refused: claim 0 memo is not attested by two agreeing host-signed approval maps of its pay
+FAIL dir ./phase-5/live-regression-7b4b0f9/cli REFUSED claims: refused: claim 0 memo is not attested by two agreeing host-signed approval maps of its pay
+PASS dir ./phase-5/markets/buyback/buyback-r1-cold ACCEPTED
+PASS dir ./phase-5/markets/buyback/buyback-r2-cold ACCEPTED
+FAIL dir ./phase-5/markets/drop-a17/drop-cold REFUSED envelope: refused: balance refunds | accounting: refused: balance refunds | balances: refused: balance refunds shape | balance-refs: refused: paid refund row undefined lacks its receipt | accounting-strays: refused: balance refunds
+FAIL dir ./phase-5/markets/drop-a18/drop-cold REFUSED balances: refused: balance refunds shape | balance-refs: refused: paid refund row balance-late:740a18632fdc5a1bdff771122a953ab9a7da478b2a85b905c36c
+PASS dir ./phase-5/markets/drop-a19/drop-cold ACCEPTED
+PASS dir ./phase-5/markets/drop-a20/drop-cold ACCEPTED
+PASS dir ./phase-5/markets/drop-a22/drop-cold ACCEPTED
+PASS dir ./phase-5/markets/drop-a23/drop-cold ACCEPTED
+PASS dir ./phase-5/markets/drop-a24/drop-cold ACCEPTED
+FAIL dir ./phase-5/markets/drop-r33/drop-cold threw refused: bond
+FAIL dir ./phase-5/markets/drop/drop-cold threw refused: auction.json schema
+PASS dir ./phase-5/markets/launch-a18/launch-cold ACCEPTED
+FAIL dir ./phase-5/markets/launch/cold-269ad3b0 REFUSED clear: refused: canonical result differs
+PASS dir ./phase-5/markets/launch/cold-f1170469 ACCEPTED
+PASS dir ./phase-5/markets/otc/otc-match-cold ACCEPTED
+PASS dir ./phase-5/markets/otc/otc-nomatch-cold ACCEPTED
+PASS dir ./phase-5/markets/revision/revision-cold ACCEPTED
+PASS dir ./phase-5/markets/rfq/rfq-cold ACCEPTED
+PASS dir ./phase-5/y2-h7/cold ACCEPTED
+PASS dir ./phase-5/y2-r28/cold ACCEPTED
+PASS dir ./phase-5/y2/cold ACCEPTED
+PASS dir ./phase-6/doc/walk/public ACCEPTED
+PASS dir ./phase-6/markets/launch-r34/launch-cold ACCEPTED
+PASS dir ./phase-6/rg/auction-core/auction ACCEPTED
+FAIL dir ./phase-6/rg/cli-auction/cli REFUSED claims: refused: claim 0 memo is not attested by two agreeing host-signed approval maps of its pay
+FAIL dir ./phase-6/rg/settle-crash/settle/cancel threw refused: missing frozen.json
+FAIL dir ./phase-6/rg/settle-crash/settle/main REFUSED format: refused: legacy projections (no auction.json) are readable only for a manifest with no Pha | clear: refused: one opening per frozen leaf | claims: refused: claim-paid row leaf:0 without a published claim
+PASS dir ./phase-7/h15-live/public ACCEPTED
+RESULT FAIL (12)

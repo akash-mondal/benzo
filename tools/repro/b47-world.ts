@@ -136,7 +136,10 @@ if (cmd === "inspect") {
   const outputs = body.rows.map((r, i) => ({ index: i, pool: (fix.pool_by_amount || {})[String(r.amount_zats)] || "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
   const output = body.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
   const input = Number(body.input_zats ?? output);
-  console.log(JSON.stringify({ outputs, input_zats: input, output_zats: output, fee_zats: input - output,
+  // B50 (H5): the real benzo-pczt inspect's full shape (settle/src/main.rs) — the published inspect is
+  // shape-checked against it now, so the stub models the real tool's fields exactly.
+  console.log(JSON.stringify({ outputs, consensus_branch_id: "37a5165b", tx_version: 6, actions: body.rows.length,
+    inputs: [{ index: 0, pool: "ironwood", value_zats: input }], input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: Number(body.expiry_height ?? chain().tip + 364), txid: txidOf(buf),
     shielded_sighash: txidOf(buf),
     randomizers: [{ pool: "ironwood", index: 0, alpha: crypto.createHash("sha256").update(Buffer.concat([buf, Buffer.from("alpha")])).digest("hex") }] }));

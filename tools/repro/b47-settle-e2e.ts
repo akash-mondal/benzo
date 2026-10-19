@@ -242,10 +242,11 @@ if (cmd === "inspect") {
   const outputs = body.rows.map((r, i) => ({ index: i, pool: "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
   const output = body.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
   const input = Number(body.input_zats ?? output);
-  // The real benzo-pczt inspect publishes one input per spent note (the "inputs" field); the reserve_return
-  // fee check reads its count as the published source count (B51 P3-3).
+  // B50 (H5): the stub models the real benzo-pczt inspect's full shape (settle/src/main.rs), which verify
+  // now shape-checks. B51 P3-3: it publishes one input per spent note, read as the published source count.
   const inputs = (body.spends ?? []).map((s, i) => ({ index: i, pool: "ironwood", value_zats: Number((body.spend_values ?? [])[i] ?? 0) }));
-  console.log(JSON.stringify({ outputs, inputs, input_zats: input, output_zats: output, fee_zats: input - output,
+  console.log(JSON.stringify({ outputs, consensus_branch_id: "37a5165b", tx_version: 6, actions: body.rows.length,
+    inputs, input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: Number(body.expiry_height ?? chain().tip + 364), txid: txidOf(buf),
     shielded_sighash: txidOf(buf),
     randomizers: [{ pool: "ironwood", index: 0, alpha: crypto.createHash("sha256").update(Buffer.concat([buf, Buffer.from("alpha")])).digest("hex") }] }));

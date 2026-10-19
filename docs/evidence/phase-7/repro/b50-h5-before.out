@@ -1,10 +1,44 @@
-commit 167550c35f7aaecfe545d94d8809fec84b6caee1 (working tree not clean at run time)
-utc 2026-10-19T05:19:07.839Z
+=== node tmp/b50-base.mjs before h5 (base 503826b)
+commit bd72c6f738db0443f5e5da7b5d5ee8fd8d4466b8 (working tree not clean at run time)
+utc 2026-10-19T06:24:28.506Z
 command node tmp/b50.mjs before h5 (tools/repro/b50-p2-sweep.ts)
-tree M api/public-auction.ts
-tree  M tools/repro/b50-p2-sweep.ts
-tree ?? docs/evidence/phase-7/repro/b50-h5-after.out
-tree ?? docs/evidence/phase-7/repro/b50-h5-before.out
+tree M docs/design/phase7-hardening.md
+tree  M docs/evidence/phase-7/repro/b48-p3s-b50-after.out
+tree  M docs/evidence/phase-7/repro/b48-p3s-b50-before.out
+tree  M docs/evidence/phase-7/repro/b50-h1-after.out
+tree  M docs/evidence/phase-7/repro/b50-h1-before.out
+tree  M docs/evidence/phase-7/repro/b50-h21-after.out
+tree  M docs/evidence/phase-7/repro/b50-h21-before.out
+tree  M docs/evidence/phase-7/repro/b50-h3-after.out
+tree  M docs/evidence/phase-7/repro/b50-h3-before.out
+tree  M docs/evidence/phase-7/repro/b50-h5-after.out
+tree  M docs/evidence/phase-7/repro/b50-h5-before.out
+tree  M docs/evidence/phase-7/repro/b50-h7-after.out
+tree  M docs/evidence/phase-7/repro/b50-h7-before.out
+tree  M tools/repro/b47-settle-e2e.ts
+tree  M tools/repro/b47-world.ts
+tree  M tools/repro/h-fixtures.ts
+tree  M tools/repro/h10-seller-binding.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b50-checks.out
+tree ?? docs/evidence/phase-7/repro/b50-dirs-after.out
+tree ?? docs/evidence/phase-7/repro/e2e-seal-open-b50.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b50.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b50-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b50-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b50-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b50-before.out
+tree ?? docs/evidence/phase-7/repro/r73-b50.out
+tree ?? docs/evidence/phase-7/repro/r77-b50.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-b50.out
+tree ?? docs/evidence/phase-7/repro/r78-b50.out
+tree ?? docs/evidence/phase-7/repro/r81-b50.out
+tree ?? docs/evidence/phase-7/repro/r82-b50.out
 tree ?? node_modules
 tree ?? vendor
 PASS fixture-seller-payout the fixture result owes the seller 15000 zats
@@ -23,3 +57,4 @@ FAIL h5-inspect-output-extra-key-refused an extra key in an inspect output: ACCE
 FAIL h5-proofs-blob-refused a blob in place of the proofs list: ACCEPTED
 FAIL h5-proofs-entry-blob-refused a blob in place of proofs[0].height: ACCEPTED
 RESULT FAIL (10)
+exit 1

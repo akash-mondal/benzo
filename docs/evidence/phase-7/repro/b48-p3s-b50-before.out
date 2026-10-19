@@ -1,14 +1,36 @@
-commit 7f0bd721c32c118ad4243c4ef5bcfb5b33a766f5 (working tree not clean at run time)
-utc 2026-10-19T05:43:35.673Z
+=== BNZ_B48_BENZO=base(503826b) node tmp/b48.mjs (the H21 red leg)
+commit bd72c6f738db0443f5e5da7b5d5ee8fd8d4466b8 (working tree not clean at run time)
+utc 2026-10-19T06:15:40.735Z
 command node tmp/b48.mjs (tools/repro/b48-p3s.ts)
-tree M cli/commands/sign-approve.ts
-tree  M cli/commands/sign-derivable.ts
-tree  M settle/cli.ts
-tree  M tools/repro/b48-p3s.ts
-tree  M tools/repro/b50-p2-sweep.ts
-tree ?? docs/evidence/phase-7/repro/b48-p3s-b50-after.out
-tree ?? docs/evidence/phase-7/repro/b48-p3s-b50-before.out
-tree ?? docs/evidence/phase-7/repro/b50-h21-after.out
+tree M docs/design/phase7-hardening.md
+tree  M docs/evidence/phase-7/repro/b48-p3s-b50-after.out
+tree  M docs/evidence/phase-7/repro/b48-p3s-b50-before.out
+tree  M docs/evidence/phase-7/repro/b50-h21-after.out
+tree  M docs/evidence/phase-7/repro/b50-h21-before.out
+tree  M docs/evidence/phase-7/repro/b50-h3-after.out
+tree  M docs/evidence/phase-7/repro/b50-h3-before.out
+tree  M docs/evidence/phase-7/repro/b50-h7-after.out
+tree  M docs/evidence/phase-7/repro/b50-h7-before.out
+tree  M tools/repro/b47-settle-e2e.ts
+tree  M tools/repro/b47-world.ts
+tree  M tools/repro/h-fixtures.ts
+tree  M tools/repro/h10-seller-binding.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b50-checks.out
+tree ?? docs/evidence/phase-7/repro/b50-dirs-after.out
+tree ?? docs/evidence/phase-7/repro/e2e-seal-open-b50.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b50.out
+tree ?? docs/evidence/phase-7/repro/r73-b50.out
+tree ?? docs/evidence/phase-7/repro/r77-b50.out
+tree ?? docs/evidence/phase-7/repro/r77-serial-b50.out
+tree ?? docs/evidence/phase-7/repro/r78-b50.out
+tree ?? docs/evidence/phase-7/repro/r81-b50.out
+tree ?? docs/evidence/phase-7/repro/r82-b50.out
 tree ?? node_modules
 tree ?? vendor
 PASS fixture-seller-payout the fixture result owes the seller 15000 zats, so the seller-row cases are not vacuous
@@ -30,3 +52,4 @@ PASS p33-copied-cache-refused a cache copied elsewhere named directly: exit 1 (E
 PASS p33-link-standing-in-refused the host's own name standing in for the copied file (a link): exit 1 (ERROR verify refused: openings cache must be the host's own file at that path, not a link to a cache copied elsewhere)
 PASS p33-restored-own-cache-works the restored host's own file works again: exit 0 (OK no-destinations)
 RESULT FAIL (2)
+exit 1

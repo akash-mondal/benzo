@@ -301,7 +301,8 @@ if (cmd === "inspect") {
   const input = Number(file.input_zats ?? unspent.reduce((s, n) => s + Number(n.value_zats), 0));
   const output = file.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
   console.log(JSON.stringify({ outputs: file.rows.map((r, i) => ({ index: i, pool: (fix.pool_by_amount || {})[String(r.amount_zats)] || "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) })),
-    input_zats: input, output_zats: output, fee_zats: input - output,
+    consensus_branch_id: "37a5165b", tx_version: 6, actions: file.rows.length,
+    inputs: [{ index: 0, pool: "ironwood", value_zats: input }], input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: 100500, txid: crypto.createHash("sha256").update(fs.readFileSync(a[1])).digest("hex"), randomizers: [] }));
   process.exit(0);
 }

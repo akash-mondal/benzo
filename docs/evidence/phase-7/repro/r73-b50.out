@@ -1,0 +1,9 @@
+=== node tmp/r73/open.mjs (replay fold r73)
+PASS v2-format-valid: hostile envelope is 926 bytes (n=3 is 926)
+PASS v2-open-refuses-taddr: openEnvelope -> refused: transparent address (t-addr)
+PASS v2-settle-exception: openDestination -> null (exception queue)
+PASS v1-format-valid: hostile envelope is 926 bytes (n=3 is 926)
+PASS v1-open-refuses-taddr: openEnvelope -> refused: transparent address (t-addr)
+PASS v1-settle-exception: openDestination -> null (exception queue)
+RESULT PASS
+exit 0

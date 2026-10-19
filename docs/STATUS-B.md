@@ -161,11 +161,14 @@ verify at the B50 merge), **H24** (the lexical `--openings-cache` pin).
    (H2's territory). Not attempted here; flagged.
 ## Batch B50 (Builder B, branch `b50-p2-sweep`, from `503826b`) — the remaining verify/settle P2s (H1, H3, H5, H6, H7, H21)
 
-**IN PROGRESS** (this block grows per item; finished items below are final). Offline only (no main-checkout
-`.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no live Playwright; the worktree carries its
-own `.env` (from `.env.example`), `node_modules` and `vendor` links, and its own `settle/target` build).
-Spec: `docs/design/phase7-b50-p2-sweep.md`. Worktree `../benzo-b50`, branch `b50-p2-sweep`, base `503826b`.
-Commits `--no-verify` (R32), one per item.
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no
+live Playwright; the worktree carries its own `.env` (from `.env.example`), its own `.benzo/bin` tool dir
+(the pinned `tle` v1.2.0 installed with `go install`, for `npm run e2e`), `node_modules`/`vendor` links, and
+its own `settle/target` build). Spec: `docs/design/phase7-b50-p2-sweep.md`. Worktree `../benzo-b50`, branch
+`b50-p2-sweep`, base `503826b`. Commits `--no-verify` (R32), one per item: `b07903e` (H1), `167550c` (H3),
+`31ffe18` (H5), `c5b076f` (H6), `7f0bd72` (H7), `bd72c6f` (H21), then the sweep/status commit. The verify
+bundle changed with H1/H5/H6/H7 and was rebuilt (`npm run build:verify`) and committed with
+`docs/verify-bundle.sha256` each time.
 
 ### H1 — receipt-attestation requires the two maps to agree fully (`witness/index.ts`, `api/public-auction.ts`)
 
@@ -291,6 +294,83 @@ All the unchanged b48 checks stay green on both legs.
 
 - `npx tsc -p tsconfig.json` → exit 0; `npm run build:settle` + `npm run build:cli` rebuilt (no api/ change
   this item).
+
+### Batch sweep — every command and result (worktree `/Users/akshmnd/Dev Projects/benzo-b50`)
+
+- `npx tsc -p tsconfig.json` → exit 0. `npm run check:structure` → `OK check:structure (216 files)`.
+  `npm run check:invariants` → both runs `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}`. `npm run
+  check:dist-require` → `OK`. (`docs/evidence/phase-7/repro/b50-checks.out`.) `check:bundle` cannot pass in a
+  worktree (R32); every commit that touched `api/` rebuilt and committed the verify bundle with its sha file.
+- `npm run e2e` (Playwright default project) → `PASSED default seal in the browser, open with tle after R
+  (38 s)` (`docs/evidence/phase-7/repro/e2e-seal-open-b50.out`).
+- **Folds all green** (raw outputs `docs/evidence/phase-7/repro/*-b50*`):
+
+  | fold | result |
+  |---|---|
+  | b44-opener | before 25/0, after 29/0, `RESULT PASS` both (`b44-opener-b50-{before,after}.out`) |
+  | b46-reserve-return (incl. the B49 red legs) | before 8/0, after 53/0, `RESULT PASS` both (`b46-reserve-return-b50-{before,after}.out`) |
+  | b47-settle-e2e | before 7/0, after 28/0, `RESULT PASS` both (`b47-settle-e2e-b50-{before,after}.out`) |
+  | b48-p3s (with the H21 extension) | after 18/0 `RESULT PASS`; the H21 red leg (base `503826b`) `RESULT FAIL (2)` = exactly the two H21 changes (`b48-p3s-b50-{before,after}.out`) |
+  | h10-seller-binding | 22/0 `RESULT PASS` (`h10-seller-binding-b50.out`) |
+  | h13-host-scale | before 8/0, after 38/0, `RESULT PASS` both (`h13-host-scale-b50-{before,after}.out`) |
+  | h14-open-griefing | before 12/0, after 14/0, `RESULT PASS` both (`h14-open-griefing-b50-{before,after}.out`) |
+  | replay folds r78, r82, r77, r77-serial, r81, r73 | each exit 0, every case as designed — honest ACCEPTED, each tamper REFUSED (`r{78,82,77,77-serial,81,73}-b50.out`) |
+
+  Base trees, each a `git archive` extraction + the fold's own recipe: B50 red `tmp/b50/base-src` (`503826b`),
+  b44 `tmp/b44/base-src` (`d646ceb`), h14 `tmp/h14/src` (`5086be1`), h13 `tmp/h13/src` (`cd19905`), b46
+  `tmp/b46/base-src` (`a81e826`) + `tmp/b46/base49-src` (`7c4e661`), b47 `tmp/b47/base-src` (`8a9f638`).
+- **Every committed published dir, listed one by one** (`docs/evidence/phase-7/repro/b50-dirs-after.out`):
+  36 dirs; 24 ACCEPTED one by one (`phase-2/auction`, `phase-4/cli`, `phase-5/buyback-run3/cold`,
+  `phase-5/buyback-run4/cold`, `phase-5/markets/buyback/{buyback-r1,buyback-r2}-cold`,
+  `phase-5/markets/drop-a19/drop-cold`, `drop-a20`, `drop-a22`, `drop-a23`, `drop-a24`,
+  `phase-5/markets/launch-a18/launch-cold`, `phase-5/markets/launch/cold-f1170469`,
+  `phase-5/markets/otc/{otc-match,otc-nomatch}-cold`, `phase-5/markets/revision/revision-cold`,
+  `phase-5/markets/rfq/rfq-cold`, `phase-5/y2/cold`, `y2-h7/cold`, `y2-r28/cold` (its documented
+  `--legacy-unattested` re-verification), `phase-6/doc/walk/public`, `phase-6/markets/launch-r34/launch-cold`,
+  `phase-6/rg/auction-core/auction`, `phase-7/h15-live/public`). The other 12 carry pre-existing
+  standalone gaps and are byte-identical to the pristine `503826b` run (the per-dir verdict diff before/after
+  is empty — B50 changed no committed dir's verdict): `phase-3/settle/{cancel,main}` and
+  `phase-6/rg/settle-crash/settle/{cancel,main}` (legacy snapshots whose `signer.json` lives one level up;
+  `settle-crash/main` is legacy-format under a Phase-5 manifest, refused by the R82 `format` gate), the three
+  live-regression/cli + `phase-6/rg/cli-auction/cli` docs (stray claims whose per-row map attestation is not
+  in their own docs — they publish no custody maps), `drop-a17`/`drop-a18` (balance-refund rows of the
+  pre-R41 shape), `drop-r33` (its pre-floor bond block refuses at manifest read) and `drop/drop-cold`
+  (pre-v5 auction.json schema at load).
+
+### Disclosures (the degrees of freedom the design left open)
+
+1. **H3's named rows are the minority pool's.** The typed refusal names the rows in the pool with FEWER
+   payment outputs (kept pool: the most outputs, ties to the earliest output's pool,
+   `settle/build-outcome.ts` `onePoolRefusal`) — those wait in the exception queue with their reason and
+   "the batch's other rows" settle next, exactly the design's proof sentence. When two hosts' candidates
+   split differently the refusals are disjoint, and the existing R46 machinery isolates the batch (one row
+   per batch — a one-row batch can never span two pools — so every row still pays).
+2. **H7's no-payment defaults/bond_void publish unattested.** With zero receipts nothing was paid under the
+   list (the equal-balance swap needs paid rows and receipts), the map tie-break has no paying batch to bind
+   to, and the next settle re-derives and re-pins the unpaid rows. Any settlement WITH a receipt still
+   refuses an unattested list (`h7-paid-unattested-defaults-refused` green on both legs). Residual: the
+   published no-payment record can mis-state which leaf defaulted until the next settle corrects it; money
+   never moves under it.
+3. **The b47 stub's `benzo-pczt inspect` did not model the real tool** (it omitted `consensus_branch_id`,
+   `tx_version`, `actions`, `inputs`); H5's shapes caught it. The stubs (`b47-settle-e2e.ts`'s own, the B50
+   shared copy `b47-world.ts`, and `h-fixtures.ts`) now emit exactly `settle/src/main.rs`'s inspect shape,
+   and every fold was re-run green after (the b47 fold's own file changed only in its stub source).
+4. **The h10 fold's `sign-derivable-substituted-refused` check was updated to H21's contract** (the tagged
+   refusal replaces the exit-3 whole-listing refusal), the same intentional-contract update as one b48 check.
+
+### Questions
+
+1. **Twelve committed dirs do not verify standalone today (pre-existing, unchanged by B50).** The listing
+   above names each and its refusal. None is a B50 regression (identical verdicts on pristine `503826b`),
+   but if the head wants them to verify standalone I can give each the r82-style assembly (parent
+   `signer.json`), republish the stale balance-refund/claims snapshots, or document them as historical
+   snapshots the replay folds cover — say which.
+2. **H3's naming rule is a reading.** "exit 3 with the named rows, and the rows wait in the exception queue" plus "the batch's other rows still pay" pins a SUBSET naming; I chose the minority pool's rows (disclosure 1).
+   If the head meant "name every row and let the run's other batches pay", the worker would set the whole
+   batch aside — but then the same rows re-derive into the same batch forever, so I read it the other way.
+3. **H7's unattested no-payment defaults** (disclosure 2): acceptable as a disclosed residual, or should a
+   no-payment settlement publish NO defaults at all (with `balances`/`accounting` relaxed to compute the
+   exception rows against the plan's list instead)?
 
 
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s

@@ -3,7 +3,7 @@
 !.env.example
 .benzo/
 tmp/
-node_modules/
+node_modules
 target/
 seal/dist/
 test-results/
@@ -27,4 +27,4 @@ api/dist/
 contracts/evm/out/
 contracts/evm/cache/
 envelope/dist/
-vendor/nu7/
+vendor

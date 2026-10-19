@@ -149,9 +149,11 @@ const createdRows = (state: string) => existsSync(path.join(state, "create-log.j
   ? readFileSync(path.join(state, "create-log.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l)) : [];
 
 // C1. The substituted packet against the committed manifest: every host path refuses the seller row typedly.
+// H21 (B50): `sign derivable` now lists the refund rows and tags only the seller row refused (typed in its
+// own way — the named row carries `refused: true` with its reason), so the loop holds build/approve to the
+// exit-3 contract and the derivable case below to the tagged-listing contract.
 for (const [name, args] of [["build", ["sign", "build", "--id", fixture.id, "--batch", "1"]],
-  ["approve", ["sign", "approve", "--id", fixture.id, "--batch", "1"]],
-  ["derivable", ["sign", "derivable", "--id", fixture.id]]] as [string, string[]][]) {
+  ["approve", ["sign", "approve", "--id", fixture.id, "--batch", "1"]]] as [string, string[]][]) {
   const dir = packetDir(`substituted-${name}`, fixture, UA_SAPLING_ONLY, name === "build" ? rowsSeller(fixture) : [],
     name === "approve" ? { pays: UA_SAPLING_ONLY, amount: fixture.payout } : undefined);
   const state = path.join(WORK, `state-substituted-${name}`);
@@ -163,6 +165,19 @@ for (const [name, args] of [["build", ["sign", "build", "--id", fixture.id, "--b
   const built = createdRows(state);
   if (built.length) { console.log(`OBSERVE substituted-seller-accepted ${built.map(b => b.recipient).join(",")} (the base commit pays this address)`); fail(`sign-${name}-substituted-not-built`, "the host commanded a payment to the substituted address"); }
   if (existsSync(path.join(dir, "build.json"))) fail(`sign-${name}-substituted-no-build`, "build.json was written for a refused packet");
+}
+{
+  const dir = packetDir("substituted-derivable", fixture, UA_SAPLING_ONLY, []);
+  const state = path.join(WORK, "state-substituted-derivable");
+  writeHostState(state, fixture, REAL_PCZT);
+  const r = sh(["sign", "derivable", "--id", fixture.id, "--packet", dir, "--name", "alice"], hostEnv(state));
+  const line = r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1);
+  const rows: any[] = line ? (JSON.parse(line).rows ?? []) : [];
+  const seller = rows.find((x: any) => x.party === "seller");
+  const tagged = r.code === 0 && !!seller && seller.refused === true && /seller_ua_commitment/.test(String(seller.reason ?? ""))
+    && rows.some((x: any) => x.party !== "seller" && x.refused === undefined);
+  check("sign-derivable-substituted-refused", tagged,
+    `${tagged ? "typed tag (the seller row refused, the refunds listed)" : `exit ${r.code}, no typed tag`}: ${(r.err || r.out).trim().split("\n").slice(-2).join(" | ").slice(0, 200)}`);
 }
 
 // C2. The honest packet: every host path passes.

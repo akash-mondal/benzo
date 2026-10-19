@@ -1,0 +1,10 @@
+=== node tmp/r81.mjs (replay fold r81)
+PASS seal-sapling-refused: sealEnvelope(Sapling) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS seal-ua-sapling-only-refused: sealEnvelope(UA [Sapling]) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS seal-ua-orchard-accepted: sealEnvelope(UA [Sapling, Orchard]) -> sealed
+PASS open-sapling-refused: openEnvelope(hostile sapling) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS open-sapling-exception: openDestination -> null (exception queue, claimable)
+PASS open-ua-sapling-only-refused: openEnvelope(hostile ua-sapling-only) -> refused: settlement pays Orchard/Ironwood only: the destination needs a unified address with an Orchard receiver
+PASS open-ua-sapling-only-exception: openDestination -> null (exception queue, claimable)
+RESULT PASS
+exit 0
