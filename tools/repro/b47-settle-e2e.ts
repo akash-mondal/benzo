@@ -1,0 +1,672 @@
+// Batch B47 proof (offline): the REAL `bin/benzo settle --id ID` worker, unmodified product code, run end to
+// end against stub chain/wallet tools and a stub orb/orbctl — the missing test layer behind the four live-only
+// settle failures (R99, R107, R107b, R108). One small REAL auction fixture (real tlock ciphertexts, signed
+// manifest with the H10 seller and B46 reserve-return commitments, frozen set, envelope records, cleared
+// result — tools/repro/h-fixtures.ts), three per-host state dirs whose `benzo sign build|approve|derivable|join`
+// run the REAL shipped commands through the PATH orb stub, and a fake lightwalletd (zcash-devtool/grpcurl/
+// benzo-scan stubs over one shared chain-state file the driver controls: it records broadcasts, answers
+// "already exists in mempool" and mines on command).
+//
+// Green cases (this tree, `node tmp/b47.mjs after`), each one `bin/benzo settle` invocation or a sequence,
+// asserting exit codes and the published dir:
+//   (a) ordinary batches pay every row while the return waits (this catches R107);
+//   (b) the return is planned after the last batch mines, built, approved, broadcast and recorded (R107b);
+//   (c) the broadcast answers "already exists in mempool" and the worker continues and records the receipt
+//       (H20 item 1);
+//   (d) a re-run after the return exits 0 and leaves the published dir byte-identical (H20 item 2);
+//   (e) an under-funded reserve stops at the fee preflight with the exact top-up line and broadcasts nothing;
+//       after the stub is topped up with exactly that amount, it completes (H19);
+//   (f) a legacy manifest settles with no return and its one WARN line per plan run.
+//
+// Red (`node tmp/b47.mjs before`) against BASE bundles built from pristine 8a9f638 (pre-R107) sources:
+//   (a)-red: the first settle refuses before paying anything — the exact R107 signature of the h15-live
+//     transcript (`refused-rows ["reserve-return"]` on every host, `no signer host could list its derivable
+//     rows`);
+//   (b)-red: the return pass on the world the live run was in at the R107b crash (batch 1 paid and published,
+//     the return batch left allocated after its failed build attempt — seeded through the real Ledger class)
+//     crashes with the exact live line `Cannot read properties of null (reading 'amount_zats')`.
+// The green tree must turn both red legs green: (a) green on the same fixture, (b) green on the same seeded
+// world shape (the case-(b) run continues the case-(a) world, whose failed return pass leaves exactly that
+// state).
+//
+// Build+run:
+//   npx esbuild tools/repro/b47-settle-e2e.ts --bundle --packages=external --platform=node --format=esm --banner:js='import { createRequire } from "module"; const require = createRequire(import.meta.url);' --outfile=tmp/b47.mjs
+//   node tmp/b47.mjs after        (green cases)
+//   node tmp/b47.mjs before       (red legs; needs the base bundles below)
+//   base bundles, built ONCE from the pristine base commit (like tools/repro/b46-reserve-return.ts):
+//     mkdir -p tmp/b47/base-src && git archive 8a9f638 | tar -x -C tmp/b47/base-src && ln -s $PWD/node_modules tmp/b47/base-src/node_modules
+//     (cd tmp/b47/base-src && node cli/build.mjs && npx esbuild settle/plan.ts --bundle --packages=external --platform=node --format=esm --banner:js=... --outfile=settle/dist/plan.mjs && npx esbuild settle/cli.ts ... --outfile=settle/dist/cli.mjs && npx esbuild clear/cli.ts ... --outfile=clear/dist/cli.mjs)
+//   green bundles from this tree: npm run build:core && npm run build:settle && npm run build:cli
+//
+// Test-only seams: NONE in product code. The stubs read two driver-set variables, BNZ_TEST_CHAIN (the shared
+// fake chain-state file) and BNZ_TEST_STUBS (the orb stub's config); both are refused when BNZ_NETWORK=main
+// and are never read by shipped code. Every product path runs through the existing seams (BNZ_STATE_DIR,
+// BNZ_PCZT_BIN, BNZ_SCAN_BIN, BNZ_LWD_URL(_ALT), BNZ_DRAND_URLS, BNZ_FROSTD_HOST, PATH).
+import { DatabaseSync } from "node:sqlite";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, cpSync, copyFileSync } from "node:fs";
+import path from "node:path";
+import { hash, jsonBytes, reserveReturnUaCommitment, sellerUaCommitment } from "../../manifest/schema";
+import { signApprovalMap, signOpensReport } from "../../witness";
+import { modeEntry } from "../../clear/registry";
+import { Ledger } from "../../settle/ledger";
+import { buildAuction, fetchBeacon, needRealPczt, witnessPrivate, UA_ORCHARD, writePublicDir, type Fixture } from "./h-fixtures";
+
+const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+const part = process.argv[2];
+if (part !== "before" && part !== "after") { console.error("usage: node tmp/b47.mjs before|after"); process.exit(2); }
+const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim();
+console.log(`commit ${commit}${dirty ? " (working tree not clean at run time)" : ""}`);
+console.log(`utc ${new Date().toISOString()}`);
+console.log(`command node tmp/b47.mjs ${part} (tools/repro/b47-settle-e2e.ts)`);
+for (const l of dirty.split("\n").filter(Boolean)) console.log(`tree ${l}`);
+
+const REAL_PCZT = needRealPczt(ROOT);
+const GREEN_BENZO = path.join(ROOT, "cli/dist/benzo.mjs");
+const BASE = path.join(ROOT, "tmp/b47/base-src");
+const BASE_BENZO = path.join(BASE, "cli/dist/benzo.mjs");
+if (part === "before") for (const f of [BASE_BENZO, path.join(BASE, "settle/dist/cli.mjs"), path.join(BASE, "settle/dist/plan.mjs"), path.join(BASE, "clear/dist/cli.mjs")])
+  if (!existsSync(f)) throw new Error(`${f} missing — build the base bundles first (see the header)`);
+if (part === "after") for (const f of [GREEN_BENZO, path.join(ROOT, "settle/dist/cli.mjs"), path.join(ROOT, "settle/dist/plan.mjs"), path.join(ROOT, "clear/dist/cli.mjs")])
+  if (!existsSync(f)) throw new Error(`${f} missing — run npm run build:core && npm run build:settle && npm run build:cli first`);
+
+let failed = 0;
+const pass = (id: string, detail = "") => console.log(`PASS ${id}${detail ? " " + detail : ""}`);
+const fail = (id: string, detail: string) => { failed++; console.log(`FAIL ${id} ${detail}`); };
+const check = (id: string, ok: boolean, detail: string) => ok ? pass(id, detail) : fail(id, detail);
+
+// ---- fixture constants ------------------------------------------------------
+const R = 32704232; // a past quicknet round (the h-fixtures machinery fetches its authentic beacon once)
+const FEE_RESERVE_UA = "utest1b47feereserveaddress00000000000000000000000000000000000000";
+const CHANGE_ADDR = "utest1b47internalchangeaddress000000000000000000000000000000000000";
+const CONFIRMATIONS = 10; // the wallet's spendability rule the stubs and the preflight share
+
+// ---- the shared stub sources ----------------------------------------------
+// One chain-state file drives every stub: {tip, send_mode, notes, pending, mined, broadcasts}. The create
+// stub refuses with the real wallet's InsufficientFunds line when the requested rows plus the ZIP-317 fee
+// exceed the MATURE spendable notes — exactly the live "the return needs the last batch's change to be
+// spendable" case. `send_mode: "mempool"` makes the NEXT send answer the live resend error
+// ("transaction already exists in mempool") while recording the transaction, which the next wallet sync
+// mines — the H20 item 1 case.
+const CHAIN_GUARD = `if (process.env.BNZ_NETWORK === "main") { process.stderr.write("test stubs refuse BNZ_NETWORK=main\\n"); process.exit(1); }
+if (!process.env.BNZ_TEST_CHAIN) { process.stderr.write("test stubs need BNZ_TEST_CHAIN\\n"); process.exit(1); }
+`;
+const STUB_SCAN = `${CHAIN_GUARD}const fs = require("fs");
+const chain = JSON.parse(fs.readFileSync(process.env.BNZ_TEST_CHAIN, "utf8"));
+for (const n of chain.notes) console.log(JSON.stringify(n));
+`;
+const STUB_DEVTOOL = `${CHAIN_GUARD}const fs = require("fs"), crypto = require("crypto");
+const chainFile = process.env.BNZ_TEST_CHAIN, a = process.argv.slice(2);
+const txidOf = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+function mine(c, txid) {
+  const p = c.pending.find(x => x.txid === txid);
+  if (!p) return;
+  c.pending = c.pending.filter(x => x.txid !== txid);
+  c.tip += 1;
+  for (const s of p.spends) { const n = c.notes.find(n => n.txid + ":" + n.pool + ":" + n.action_index === s); if (n) n.spent_in_txid = txid; }
+  if (p.change_zats > 0) c.notes.push({ txid: txidOf(Buffer.from("change " + txid)), height: c.tip, pool: "ironwood",
+    address: p.change_address, diversifier_index: "99", action_index: 0, value_zats: p.change_zats, memo_hex: null, spent_in_txid: null });
+  c.mined[txid] = { height: c.tip, rows: p.rows };
+}
+if (a[0] === "wallet") {
+  const verb = a[3];
+  if (verb === "sync" || verb === "enhance") process.exit(0);
+  const c = JSON.parse(fs.readFileSync(chainFile, "utf8"));
+  if (verb === "balance") { console.log(JSON.stringify({ chain_tip_height: c.tip })); process.exit(0); }
+  if (verb === "list-tx") {
+    for (const t of [...c.pending]) mine(c, t.txid);
+    fs.writeFileSync(chainFile, JSON.stringify(c));
+    console.log(JSON.stringify(Object.entries(c.mined).map(([txid, m]) => ({ txid, mined_height: m.height }))));
+    process.exit(0);
+  }
+  process.stderr.write("zcash-devtool stub: unknown wallet verb " + verb + "\\n"); process.exit(1);
+}
+if (a[0] === "pczt") {
+  const verb = ["extract", "prove", "redact", "send-without-storing", "send"].find(v => a.includes(v));
+  if (verb === "extract") { process.stdout.write(txidOf(fs.readFileSync(0)) + "\\n"); process.exit(0); }
+  if (verb === "prove") { fs.copyFileSync(a[a.indexOf("prove") + 1], a[a.indexOf("--output") + 1]); process.exit(0); }
+  if (verb === "redact") { fs.copyFileSync(a[a.indexOf("--output") - 1], a[a.indexOf("--output") + 1]); process.exit(0); }
+  if (verb === "send" || verb === "send-without-storing") {
+    const file = a[a.length - 1], buf = fs.readFileSync(file), txid = txidOf(buf), body = JSON.parse(buf.toString("utf8"));
+    const c = JSON.parse(fs.readFileSync(chainFile, "utf8"));
+    const record = { txid, spends: body.spends, change_zats: body.change_zats, change_address: ${JSON.stringify(CHANGE_ADDR)}, rows: body.rows };
+    if (c.send_mode === "mempool") {
+      c.send_mode = "ok";
+      c.pending.push(record);
+      fs.writeFileSync(chainFile, JSON.stringify(c));
+      process.stderr.write("Error: Send failed: (-1) transaction already exists in mempool\\n");
+      process.exit(1);
+    }
+    if (c.send_mode === "fail") { process.stderr.write("Error: Send failed: (-1) mock node rejection\\n"); process.exit(1); }
+    c.broadcasts.push(txid);
+    c.pending.push(record);
+    mine(c, txid);
+    fs.writeFileSync(chainFile, JSON.stringify(c));
+    process.stdout.write(txid + "\\n");
+    process.exit(0);
+  }
+  process.stderr.write("zcash-devtool stub: unknown pczt verb " + verb + "\\n"); process.exit(1);
+}
+process.stderr.write("zcash-devtool stub: unknown " + a.join(" ") + "\\n"); process.exit(1);
+`;
+const STUB_GRPCURL = `${CHAIN_GUARD}const fs = require("fs");
+const a = process.argv.slice(2), method = a[a.length - 1].split("/").pop();
+const c = JSON.parse(fs.readFileSync(process.env.BNZ_TEST_CHAIN, "utf8"));
+const body = a.includes("-d") ? JSON.parse(a[a.indexOf("-d") + 1]) : {};
+if (method === "GetLatestBlock") { console.log(JSON.stringify({ height: c.tip })); process.exit(0); }
+if (method === "GetTransaction") {
+  const txid = Buffer.from(body.hash, "base64").reverse().toString("hex");
+  const m = c.mined[txid];
+  if (!m) { process.stderr.write("NotFound\\n"); process.exit(1); }
+  console.log(JSON.stringify({ height: m.height })); process.exit(0);
+}
+if (method === "GetBlock") { console.log(JSON.stringify({ height: body.height, hash: Buffer.alloc(32, 17).toString("base64"), time: 1793600000 })); process.exit(0); }
+if (method === "GetBlockRange") {
+  for (let h = body.start.height; h <= body.end.height; h++) {
+    const vtx = Object.entries(c.mined).filter(([, m]) => m.height === h).map(([txid]) => ({ txid: Buffer.from(txid, "hex").reverse().toString("base64") }));
+    console.log(JSON.stringify({ height: h, vtx }));
+  }
+  process.exit(0);
+}
+process.stderr.write("NotFound\\n"); process.exit(1);
+`;
+const STUB_PCZT = `${CHAIN_GUARD}const fs = require("fs"), path = require("path"), crypto = require("crypto"), cp = require("child_process");
+const state = path.dirname(path.dirname(process.argv[1]));
+const fix = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8"));
+const a = process.argv.slice(2), cmd = a[0];
+const chain = () => JSON.parse(fs.readFileSync(process.env.BNZ_TEST_CHAIN, "utf8"));
+const txidOf = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+if (cmd === "classify-address") {
+  if (a.includes("--stdin")) {
+    const r = cp.spawnSync(${JSON.stringify(REAL_PCZT)}, ["classify-address", "--stdin"], { input: fs.readFileSync(0), maxBuffer: 1 << 28 });
+    process.stdout.write(r.stdout ?? ""); process.stderr.write(r.stderr ?? ""); process.exit(r.status ?? 1);
+  }
+  process.stdout.write(cp.execFileSync(${JSON.stringify(REAL_PCZT)}, ["classify-address", a[1]])); process.exit(0);
+}
+if (cmd === "ufvk-ak") { console.log(fix.groupKey); process.exit(0); }
+if (cmd === "owns") { console.log((fix.internal_addresses ?? []).includes(a[2]) ? "internal" : "external"); process.exit(0); }
+if (cmd === "address") { console.log(${JSON.stringify(UA_ORCHARD)}); process.exit(0); }
+if (cmd === "create") {
+  const rows = JSON.parse(fs.readFileSync(0, "utf8")), c = chain();
+  const confirmed = (n) => n.height && c.tip - n.height + 1 >= ${CONFIRMATIONS};
+  const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 0 && confirmed(n));
+  const available = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
+  const fee = 5000 * Math.max(2, spendable.length);
+  const required = rows.reduce((s, r) => s + Number(r.amount_zats), 0) + fee;
+  if (required > available) {
+    process.stderr.write("Error: proposal: InsufficientFunds { available: Zatoshis(" + available + "), required: Zatoshis(" + required + ") }\\n");
+    process.exit(1);
+  }
+  fs.writeFileSync(a[2], JSON.stringify({ rows, input_zats: available, fee_zats: fee, change_zats: available - required,
+    spends: spendable.map(n => n.txid + ":" + n.pool + ":" + n.action_index).sort(), expiry_height: c.tip + 364 }));
+  process.exit(0);
+}
+if (cmd === "inspect") {
+  const buf = fs.readFileSync(a[1]), body = JSON.parse(buf.toString("utf8"));
+  const outputs = body.rows.map((r, i) => ({ index: i, pool: "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
+  const output = body.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
+  const input = Number(body.input_zats ?? output);
+  console.log(JSON.stringify({ outputs, input_zats: input, output_zats: output, fee_zats: input - output,
+    expiry_height: Number(body.expiry_height ?? chain().tip + 364), txid: txidOf(buf),
+    shielded_sighash: txidOf(buf),
+    randomizers: [{ pool: "ironwood", index: 0, alpha: crypto.createHash("sha256").update(Buffer.concat([buf, Buffer.from("alpha")])).digest("hex") }] }));
+  process.exit(0);
+}
+process.stderr.write("benzo-pczt stub: unknown command " + cmd + "\\n"); process.exit(1);
+`;
+const STUB_SIGN = `${CHAIN_GUARD}const fs = require("fs"), path = require("path"), crypto = require("crypto");
+const a = process.argv.slice(2);
+const input = a[a.indexOf("-i") + 1], output = a[a.indexOf("-o") + 1];
+const buf = fs.readFileSync(input);
+const sighash = crypto.createHash("sha256").update(buf).digest("hex");
+const alpha = crypto.createHash("sha256").update(Buffer.concat([buf, Buffer.from("alpha")])).digest("hex");
+const shared = path.dirname(process.env.BNZ_TEST_CHAIN);
+fs.writeFileSync(path.join(shared, "current-sign.json"), JSON.stringify({ sighash }));
+console.log("SIGHASH: " + sighash);
+console.log("Randomizer #0 (ironwood): " + alpha);
+let acc = "";
+process.stdin.on("data", (d) => {
+  acc += d;
+  if (/^[0-9a-f]{128}$/m.test(acc)) { fs.writeFileSync(output, buf); process.exit(0); }
+});
+`;
+// The FROST layer is stubbed at the frost-client boundary (the h-fixtures stub class): the coordinator prints
+// the session's signature once both participants joined, the participant prints the approved sighash on the
+// prompts the real `benzo sign join` answers. The real join code (approval check included) runs.
+const STUB_FROST = `${CHAIN_GUARD}const fs = require("fs"), path = require("path"), crypto = require("crypto");
+const a = process.argv.slice(2), cmd = a[0];
+const shared = path.dirname(process.env.BNZ_TEST_CHAIN);
+if (cmd === "sessions") {
+  if (a.includes("--close-all")) { console.log("closed"); process.exit(0); }
+  process.stderr.write("Session with ID 00000000-0000-4000-8000-000000000001\\n");
+  process.exit(0);
+}
+if (cmd === "coordinator") {
+  const chunks = [];
+  process.stdin.on("data", (d) => chunks.push(d));
+  process.stdin.on("end", () => {
+    process.stdout.write("Waiting for participants to send their commitments\\n");
+    const joins = path.join(shared, "joins.log");
+    fs.writeFileSync(joins, "");
+    const deadline = Date.now() + 120000;
+    const poll = setInterval(() => {
+      let n = 0;
+      try { n = fs.readFileSync(joins, "utf8").split("\\n").filter(Boolean).length; } catch {}
+      if (n >= 2 || Date.now() > deadline) {
+        clearInterval(poll);
+        const body = Buffer.concat(chunks);
+        process.stdout.write(crypto.createHash("sha256").update(body).digest("hex") + crypto.createHash("sha256").update("b47-signature").digest("hex") + "\\n");
+        process.exit(0);
+      }
+    }, 50);
+  });
+  process.stdin.resume();
+} else if (cmd === "participant") {
+  const sign = JSON.parse(fs.readFileSync(path.join(shared, "current-sign.json"), "utf8"));
+  process.stdout.write("Joining signing session...\\n");
+  process.stdout.write("Message to be signed (hex-encoded):\\n" + sign.sighash + "\\n");
+  process.stdout.write("Do you want to sign it? (y/n)\\n");
+  fs.appendFileSync(path.join(shared, "joins.log"), (process.env.BNZ_TEST_HOST ?? "host") + "\\n");
+  process.stdin.on("data", () => process.exit(0));
+  setTimeout(() => process.exit(0), 60000);
+} else { process.stderr.write("frost-client stub: unknown " + cmd + "\\n"); process.exit(1); }
+`;
+// The orb/orbctl PATH stub: it records nothing exotic — it maps /home/benzo/<x> onto the host's own world
+// directory and runs the REAL `benzo sign …` commands (and the frost stub) against that host's state dir.
+const STUB_ORB = `${CHAIN_GUARD}const fs = require("fs"), path = require("path"), cp = require("child_process");
+const cmd = path.basename(process.argv[1]).replace(/\\.cjs$/, "");
+const args = process.argv.slice(2);
+const cfg = JSON.parse(fs.readFileSync(process.env.BNZ_TEST_STUBS, "utf8"));
+const hostOf = (m) => m.replace(/^benzo-/, "");
+const mapPath = (host, p) => p.startsWith("/home/benzo/") ? path.join(cfg.shared, "hosts", host, p.slice("/home/benzo/".length)) : p;
+if (cmd === "orbctl") {
+  const at = args.indexOf("-m") + 1, host = hostOf(args[at]);
+  if (args[0] === "push") {
+    const dst = mapPath(host, "/home/benzo/" + args[at + 2]);
+    fs.rmSync(dst, { recursive: true, force: true });
+    fs.cpSync(args[at + 1], dst, { recursive: true });
+    process.exit(0);
+  }
+  if (args[0] === "pull") {
+    fs.copyFileSync(mapPath(host, "/home/benzo/" + args[at + 1]), args[at + 2]);
+    process.exit(0);
+  }
+  process.stderr.write("orbctl stub: unknown " + args.join(" ") + "\\n"); process.exit(1);
+}
+if (args[0] !== "run") { process.stderr.write("orb stub: unknown " + args.join(" ") + "\\n"); process.exit(1); }
+const at = args.indexOf("-m") + 1, host = hostOf(args[at]);
+let rest = args.slice(args.indexOf("-u") + 2);
+if (rest[0] === "env") {
+  rest = rest.slice(1);
+  while (rest.length && rest[0].includes("=") && !rest[0].startsWith("/")) rest = rest.slice(1);
+}
+const env = { ...process.env, BNZ_STATE_DIR: cfg.hosts[host], BNZ_TEST_HOST: host,
+  BNZ_PCZT_BIN: path.join(cfg.hosts[host], "bin", "benzo-pczt"), BNZ_SCAN_BIN: path.join(cfg.hosts[host], "bin", "benzo-scan") };
+const verb = rest[0].split("/").pop();
+if (verb === "rm" || verb === "chown") process.exit(0);
+if (verb === "cat") {
+  const name = path.basename(rest[rest.length - 1]).replace(/\\.pubkey$/, "");
+  console.log(require("crypto").createHash("sha256").update("b47-contact-" + name).digest("hex"));
+  process.exit(0);
+}
+if (verb === "frost-client") {
+  const argv = rest.slice(1);
+  if (argv[0] === "sessions" && argv.includes("--close-all")) { console.log("closed"); process.exit(0); }
+  const r = cp.spawnSync(path.join(cfg.hosts[host], "bin", "frost-client"), argv, { stdio: "inherit", env });
+  process.exit(r.status ?? 1);
+}
+if (verb === "benzo") {
+  const argv = rest.slice(1).map(x => mapPath(host, x));
+  const r = cp.spawnSync(process.execPath, [cfg.benzo, ...argv], { encoding: "utf8", maxBuffer: 64 << 20, env });
+  process.stdout.write(r.stdout ?? ""); process.stderr.write(r.stderr ?? "");
+  process.exit(r.status ?? 1);
+}
+process.stderr.write("orb stub: unknown remote command " + rest.join(" ") + "\\n"); process.exit(1);
+`;
+
+const stub = (bin: string, name: string, source: string) => {
+  const impl = path.join(bin, name + ".cjs");
+  writeFileSync(impl, source); chmodSync(impl, 0o755);
+  writeFileSync(path.join(bin, name), `#!/bin/sh\nexec node "$(dirname "$0")/${name}.cjs" "$@"\n`); chmodSync(path.join(bin, name), 0o755);
+};
+const writeStateBin = (bin: string) => {
+  mkdirSync(bin, { recursive: true, mode: 0o700 });
+  stub(bin, "benzo-scan", STUB_SCAN);
+  stub(bin, "zcash-devtool", STUB_DEVTOOL);
+  stub(bin, "grpcurl", STUB_GRPCURL);
+  stub(bin, "benzo-pczt", STUB_PCZT);
+  stub(bin, "zcash-sign", STUB_SIGN);
+  stub(bin, "frost-client", STUB_FROST);
+};
+
+// ---- world construction -----------------------------------------------------
+type World = {
+  label: string; id: string; fx: Fixture; root: string; state: string; publicDir: string; shared: string;
+  chainFile: string; stubBin: string; benzo: string; hosts: Record<string, string>;
+  obligationRows: { party: string; kind: string; amount_zats: string }[]; obligationZats: number;
+  C: number; feeReserve: number;
+};
+const signerNames = ["alice", "bob", "carol"];
+
+function writeWorld(label: string, fx: Fixture, opts: { root: string; benzo: string; feeReserve: number; topUp?: number }): World {
+  const id = fx.id;
+  const base = path.join(opts.root, "tmp/b47-worlds", label);
+  rmSync(base, { recursive: true, force: true });
+  const state = path.join(base, "state"), publicDir = path.join(base, "public"), shared = path.join(base, "shared");
+  const chainFile = path.join(shared, "chain-state.json"), stubBin = path.join(base, "stub-bin");
+  const obligationRows = [...modeEntry(fx.manifestPacket).obligations(fx.result as any, null)].map(([party, amount_zats]) => ({ party, kind: party === "seller" ? "payout" : "refund", amount_zats }));
+  const obligationZats = obligationRows.reduce((s, o) => s + Number(o.amount_zats), 0);
+  for (const d of [state, path.join(state, "run"), path.join(state, "auction"), path.join(state, "product"), path.join(state, "vaults", id, "wallet"), shared, stubBin])
+    mkdirSync(d, { recursive: true, mode: 0o700 });
+  writeStateBin(path.join(state, "bin"));
+  writeFileSync(path.join(state, "fixture.json"), JSON.stringify({ groupKey: fx.groupKey, internal_addresses: [CHANGE_ADDR, FEE_RESERVE_UA] }));
+  // The fake chain: the fixture's deposit notes plus the fee-reserve note (and the optional top-up of case (e)).
+  const notes: any[] = fx.notes.map(n => ({ ...n }));
+  notes.push({ txid: hash("b47-fee-reserve-" + label), height: 90100, pool: "ironwood", address: FEE_RESERVE_UA, diversifier_index: "9", action_index: 0, value_zats: opts.feeReserve, memo_hex: null, spent_in_txid: null });
+  if (opts.topUp) notes.push({ txid: hash("b47-top-up-" + label), height: 90200, pool: "ironwood", address: FEE_RESERVE_UA, diversifier_index: "10", action_index: 0, value_zats: opts.topUp, memo_hex: null, spent_in_txid: null });
+  writeFileSync(chainFile, JSON.stringify({ tip: 100000, send_mode: "ok", notes, pending: [], mined: {}, broadcasts: [] }));
+  // The operator's world: private auction ledger, product config, per-auction custody keys, the two
+  // agreeing signed envelope-opens reports the plan gates the leaf refunds on (exactly the live shapes).
+  writeFileSync(path.join(state, "auction", "manifest-signing.pem"), fx.manifestPem, { mode: 0o600 });
+  writeFileSync(path.join(state, "auction", `${id}.json`), jsonBytes({ manifest: fx.manifestPacket, signer: fx.signer, state: "CLEARED",
+    leaves: fx.leaves, receipts: fx.receipts, frozen: fx.frozen, opened: fx.opened, result: fx.result, trace: [], beacon: fx.beacon,
+    envelopes: fx.envelopes, witness_set: fx.witnessSet }));
+  writeFileSync(path.join(state, "product", `${id}.json`), jsonBytes({ settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 },
+    routing: { bidders: [], seller_ua: UA_ORCHARD, fee_reserve_ua: FEE_RESERVE_UA, reserve_return_ua: UA_ORCHARD }, public_dir: publicDir }));
+  writeFileSync(path.join(state, "vaults", id, "keys.json"), jsonBytes({ group_key: fx.groupKey }));
+  mkdirSync(path.join(state, "settle", id), { recursive: true, mode: 0o700 });
+  const dest = hash(Buffer.from(UA_ORCHARD, "utf8"));
+  for (const [n, w] of [["alice", "0"], ["bob", "1"]] as const) {
+    const body = { signer: n, opens: fx.leaves.map((l: any) => ({ leaf: l.leaf_index, party: `leaf:${l.leaf_index}`, ok: true, dest_sha256: dest })) };
+    writeFileSync(path.join(state, "settle", id, `envelope-opens-${n}.json`), jsonBytes({ ...body, ...signOpensReport(body, witnessPrivate(w)) }));
+  }
+  // The three signer hosts: their own state dirs (the real `benzo sign …` commands run against these), each
+  // holding its own envelope key and witness key and the same stub toolchain.
+  const hosts: Record<string, string> = {};
+  for (const [i, n] of signerNames.entries()) {
+    const hs = path.join(base, "host-" + n);
+    hosts[n] = hs;
+    writeStateBin(path.join(hs, "bin"));
+    writeFileSync(path.join(hs, "fixture.json"), JSON.stringify({ groupKey: fx.groupKey, internal_addresses: [CHANGE_ADDR, FEE_RESERVE_UA] }));
+    for (const d of [hs, path.join(hs, "run"), path.join(hs, "auction"), path.join(hs, "auctions", id), path.join(hs, "signers", n), path.join(hs, "witness")]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(hs, "auctions", id, "group-key.txt"), fx.groupKey + "\n");
+    writeFileSync(path.join(hs, "auctions", id, "frost.toml"), "group = 0\n");
+    writeFileSync(path.join(hs, "operator-signer.txt"), fx.signer + "\n");
+    writeFileSync(path.join(hs, "ufvk.txt"), "uviewtest1fixture\n");
+    writeFileSync(path.join(hs, "signers", n, "envelope-key.json"), JSON.stringify(fx.envelopeKeys[i]));
+    writeFileSync(path.join(hs, "witness", `${n}.key`), witnessPrivate(String(i)), { mode: 0o600 });
+  }
+  stub(stubBin, "orb", STUB_ORB);
+  stub(stubBin, "orbctl", STUB_ORB);
+  writeFileSync(path.join(shared, "stub-config.json"), JSON.stringify({ shared, benzo: opts.benzo, hosts }));
+  writePublicDir(publicDir, fx);
+  return { label, id, fx, root: opts.root, state, publicDir, shared, chainFile, stubBin, benzo: opts.benzo, hosts,
+    obligationRows, obligationZats, C: Number(fx.manifest.C_zats), feeReserve: opts.feeReserve };
+}
+
+const sh = (cmd: string, args: string[], env: Record<string, string>) => {
+  const r = spawnSync(cmd, args, { input: "", encoding: "utf8", maxBuffer: 64 << 20, env: { ...process.env, ...env } });
+  return { code: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
+};
+const worldEnv = (w: World): Record<string, string> => ({
+  BNZ_STATE_DIR: w.state, BNZ_TEST_CHAIN: w.chainFile, BNZ_TEST_STUBS: path.join(w.shared, "stub-config.json"),
+  BNZ_PCZT_BIN: path.join(w.state, "bin", "benzo-pczt"), BNZ_SCAN_BIN: path.join(w.state, "bin", "benzo-scan"),
+  BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/",
+  BNZ_FROSTD_HOST: "stub-frostd:2744", BNZ_ROOT: w.root,
+  PATH: `${w.stubBin}${path.delimiter}${process.env.PATH ?? ""}`,
+});
+// The real `bin/benzo settle --id ID` on this tree; the base runs take the same argv through the base bundle.
+const runSettle = (w: World) => w.benzo === GREEN_BENZO
+  ? sh(path.join(ROOT, "bin/benzo"), ["settle", "--id", w.id], worldEnv(w))
+  : sh(process.execPath, [w.benzo, "settle", "--id", w.id], worldEnv(w));
+
+const chain = (w: World) => JSON.parse(readFileSync(w.chainFile, "utf8"));
+const receiptsOf = (w: World) => JSON.parse(readFileSync(path.join(w.state, "settle", w.id, "receipts.json"), "utf8"));
+const settlementOf = (w: World) => {
+  const doc = JSON.parse(readFileSync(path.join(w.publicDir, "auction.json"), "utf8"));
+  return doc.settlement ?? null;
+};
+const dirDigest = (dir: string) => Object.fromEntries(readdirSyncSorted(dir).map(n => [n, hash(readFileSync(path.join(dir, n)))]));
+const readdirSyncSorted = (dir: string) => (execFileSync("ls", ["-1", dir], { encoding: "utf8" })).split("\n").filter(Boolean).sort();
+const settleLog = (w: World) => { try { return readFileSync(path.join(w.state, "run", "settle-cli.log"), "utf8"); } catch { return ""; } };
+const bumpTip = (w: World, n: number) => { const c = chain(w); c.tip += n; writeFileSync(w.chainFile, JSON.stringify(c)); };
+const armMempool = (w: World) => { const c = chain(w); c.send_mode = "mempool"; writeFileSync(w.chainFile, JSON.stringify(c)); };
+const addTopUp = (w: World, zats: number) => {
+  const c = chain(w);
+  c.notes.push({ txid: hash("b47-topup-run-" + w.label), height: 90300, pool: "ironwood", address: FEE_RESERVE_UA, diversifier_index: "11", action_index: 0, value_zats: zats, memo_hex: null, spent_in_txid: null });
+  writeFileSync(w.chainFile, JSON.stringify(c));
+};
+
+// ---- the expected arithmetic (independent of the worker's own computation) ---
+const feeOf = (noteCount: number) => 5000 * Math.max(2, noteCount);
+const scenario = (w: World) => {
+  const spendable0 = w.obligationZats + w.feeReserve;
+  const batchFee = feeOf(w.fx.notes.length + 1);
+  const change = spendable0 - w.obligationZats - batchFee;
+  const returnFee = feeOf(1);
+  return { batchFee, change, returnFee, returnAmount: change - returnFee };
+};
+
+// ==============================================================================
+// GREEN cases
+// ==============================================================================
+async function green() {
+  const beacon = await fetchBeacon(R);
+  const fx = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+  const legacy = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD) });
+
+  // ---- world W1: cases (a), (b), (d) ----------------------------------------
+  const w1 = writeWorld("w1", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 60000 });
+  const sc1 = scenario(w1);
+
+  console.log("=== case (a): ordinary batches pay every row while the return waits (catches R107)");
+  const a = runSettle(w1);
+  console.log(`OBSERVE case-a exit=${a.code}`);
+  console.log(a.err.trim().split("\n").map(l => "  | " + l).join("\n"));
+  const aReceipts = existsSync(path.join(w1.state, "settle", w1.id, "receipts.json")) ? receiptsOf(w1) : [];
+  check("a-exit-0", a.code === 0, `benzo settle exits 0 (exit ${a.code}${a.err ? `; stderr ${a.err.trim().split("\n").at(-1)?.slice(0, 120)}` : ""})`);
+  check("a-rows-paid", aReceipts.length === w1.obligationRows.length && w1.obligationRows.every(o => aReceipts.some((r: any) => r.party === o.party && r.amount_zats === o.amount_zats)),
+    `all ${w1.obligationRows.length} ordinary rows paid (receipts: ${aReceipts.length} — ${aReceipts.map((r: any) => r.party).join(", ")})`);
+  const aSettlement = settlementOf(w1);
+  check("a-return-waits", !!aSettlement && (aSettlement.reserve_return === undefined) && !aReceipts.some((r: any) => r.party === "reserve-return"),
+    "the return is not paid in this run (no reserve_return accounting, no receipt)");
+  check("a-return-waits-line", /ERROR reserve-return pass exited 1; the reserve stays in the vault until the next benzo settle/.test(a.err),
+    "the return pass tried and waited: the change is not spendable yet (the live line)");
+  check("a-insufficient-funds", /InsufficientFunds/.test(a.err) && /no signer host could build batch 2/.test(a.err),
+    "the return pass failed inside the host build with InsufficientFunds, exactly the live failure");
+  const c1 = chain(w1);
+  check("a-one-broadcast", c1.broadcasts.length === 1 && a.err.includes(`settlement broadcast ${c1.broadcasts[0]}`) && (a.err.match(/settlement broadcast /g) ?? []).length === 1,
+    `exactly one transaction broadcast and mined (${c1.broadcasts[0]?.slice(0, 16)}…), the ordinary batch`);
+  check("a-amounts", aReceipts.reduce((s: number, r: any) => s + Number(r.amount_zats), 0) === w1.obligationZats,
+    `the rows total the obligations total (${w1.obligationZats} zats)`);
+  const w1ledger = () => {
+    const db = new DatabaseSync(path.join(w1.state, "settle", w1.id, "ledger.sqlite"), { readOnly: true });
+    try { return db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all() as any[]; } finally { db.close(); }
+  };
+  const batchesAfterA = w1ledger();
+  check("a-return-batch-left-allocated", batchesAfterA.length === 2 && batchesAfterA[1].id === 2 && batchesAfterA[1].txid === null,
+    `the failed return pass left batch 2 allocated and unmined (${JSON.stringify(batchesAfterA[1])}) — the exact state the live R107b crash needed`);
+
+  console.log("=== case (b): the return is planned after the last batch mines, built, approved, broadcast, recorded (catches R107b)");
+  bumpTip(w1, 12); // the last batch's change is now spendable (the wallet's 10-confirmation rule)
+  const b = runSettle(w1);
+  console.log(`OBSERVE case-b exit=${b.code}`);
+  console.log(b.err.trim().split("\n").map(l => "  | " + l).join("\n"));
+  const bReceipts = receiptsOf(w1), bSettlement = settlementOf(w1);
+  check("b-exit-0", b.code === 0, `benzo settle exits 0 (exit ${b.code}${b.err ? `; stderr ${b.err.trim().split("\n").at(-1)?.slice(0, 120)}` : ""})`);
+  check("b-return-paid", bReceipts.length === w1.obligationRows.length + 1 && bReceipts.some((r: any) => r.party === "reserve-return" && r.amount_zats === String(sc1.returnAmount)),
+    `the reserve-return receipt is recorded (${sc1.returnAmount} zats = ${sc1.change} − ${sc1.returnFee} fee)`);
+  check("b-accounting", !!bSettlement && bSettlement.reserve_return && bSettlement.reserve_return.remaining_zats === String(sc1.change) && bSettlement.reserve_return.fee_zats === String(sc1.returnFee),
+    `the published accounting {remaining_zats:${bSettlement?.reserve_return?.remaining_zats}, fee_zats:${bSettlement?.reserve_return?.fee_zats}} matches the sweep`);
+  const cAfterB = chain(w1);
+  check("b-broadcast", cAfterB.broadcasts.length === 2 && b.err.includes(`settlement broadcast ${cAfterB.broadcasts[1]}`),
+    `the return batch was broadcast and mined (${cAfterB.broadcasts[1]?.slice(0, 16)}…)`);
+  check("b-hosts-approved", signerNames.slice(0, 2).every(n => existsSync(path.join(w1.hosts[n], "approvals", w1.id, "batch-2.json"))),
+    "both signing hosts recorded their approval of the return batch");
+  check("b-vault-swept", chain(w1).notes.every((n: any) => (n.spent_in_txid ?? null) !== null || Number(n.value_zats) === 0),
+    "the vault holds no unspent value after the sweep");
+
+  console.log("=== case (d): a re-run after the return exits 0 and leaves the published dir byte-identical (H20 item 2)");
+  const before = dirDigest(w1.publicDir);
+  const d = runSettle(w1);
+  const after = dirDigest(w1.publicDir);
+  console.log(`OBSERVE case-d exit=${d.code}`);
+  check("d-exit-0", d.code === 0, `the re-run exits 0 (exit ${d.code}${d.err ? `; stderr ${d.err.trim().split("\n").at(-1)?.slice(0, 120)}` : ""})`);
+  check("d-byte-identical", JSON.stringify(before) === JSON.stringify(after),
+    `the published dir is byte-identical (${Object.keys(before).length} files, unchanged: ${Object.keys(before).join(", ")})`);
+  check("d-settled-unchanged", d.out.includes(`"settled":${w1.obligationRows.length + 1}`) && receiptsOf(w1).length === w1.obligationRows.length + 1,
+    "the re-run changes nothing: the same receipts are recorded");
+
+  // ---- world W2: case (c) ----------------------------------------------------
+  console.log("=== case (c): the broadcast answers 'already exists in mempool' and the worker continues (H20 item 1)");
+  const w2 = writeWorld("w2", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 60000 });
+  armMempool(w2);
+  const c1r = runSettle(w2);
+  bumpTip(w2, 12);
+  armMempool(w2);
+  const c2r = runSettle(w2);
+  console.log(`OBSERVE case-c exits=${c1r.code},${c2r.code}`);
+  const cReceipts = receiptsOf(w2);
+  const mempoolErrors = (settleLog(w2).match(/transaction already exists in mempool/g) ?? []).length;
+  check("c-exit-0", c1r.code === 0 && c2r.code === 0, `both settles exit 0 despite the send errors (${c1r.code}, ${c2r.code})`);
+  check("c-send-errors-seen", mempoolErrors >= 2, `the stub answered "already exists in mempool" ${mempoolErrors} times (once per armed send)`);
+  check("c-continues-records", cReceipts.length === w2.obligationRows.length + 1 && c1r.err.includes("settlement broadcast") && c2r.err.includes("settlement broadcast"),
+    `the worker counted each resend as broadcast and recorded every receipt (${cReceipts.length})`);
+  check("c-settlement-complete", !!settlementOf(w2)?.reserve_return, "the published settlement is complete (rows, receipts and the return accounting)");
+
+  // ---- world W3: case (e) ----------------------------------------------------
+  console.log("=== case (e): an under-funded reserve stops at the preflight with the exact top-up line (H19)");
+  const w3 = writeWorld("w3", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 5000 });
+  const eSpendable = w3.obligationZats + 5000;
+  const eFeeBound = 5000 * (w3.fx.notes.length + 1 + w3.obligationRows.length + 1);
+  const eShortfall = w3.obligationZats + eFeeBound - eSpendable;
+  const eTopUp = eShortfall + Math.ceil(eShortfall / 10);
+  const e1 = runSettle(w3);
+  console.log(`OBSERVE case-e preflight exit=${e1.code}`);
+  const eLine = `ERROR settle fee reserve short: pay ${eTopUp} zats to ${FEE_RESERVE_UA} and run benzo settle again`;
+  check("e-preflight-line", e1.err.includes(eLine), `the exact top-up line is printed: "${eLine}"`);
+  check("e-nothing-broadcast", chain(w3).broadcasts.length === 0 && chain(w3).pending.length === 0, "nothing was broadcast (the stop is before the first batch)");
+  const hostStubs = signerNames.map(n => {
+    const dir = path.join(w3.shared, "hosts", n);
+    return existsSync(dir) ? execFileSync("ls", ["-1", dir], { encoding: "utf8" }) : "";
+  }).join("\n");
+  check("e-no-host-build", !/build-|approvals|created\.pczt/.test(hostStubs), "no host build ran (the stop is before any host build)");
+  addTopUp(w3, eTopUp);
+  const e2 = runSettle(w3);
+  bumpTip(w3, 12);
+  const e3 = runSettle(w3);
+  console.log(`OBSERVE case-e completes exits=${e2.code},${e3.code}`);
+  const eSettlement = settlementOf(w3);
+  check("e-completes", e2.code === 0 && e3.code === 0 && !!eSettlement?.reserve_return && receiptsOf(w3).length === w3.obligationRows.length + 1,
+    `after the top-up of exactly ${eTopUp} zats the settlement completes (return accounting ${JSON.stringify(eSettlement?.reserve_return ?? null)})`);
+
+  // ---- world W4: case (f) ----------------------------------------------------
+  console.log("=== case (f): a legacy manifest settles with no return and its one WARN line");
+  const w4 = writeWorld("w4", legacy, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 60000 });
+  const f = runSettle(w4);
+  console.log(`OBSERVE case-f exit=${f.code}`);
+  const fSettlement = settlementOf(w4), fLog = settleLog(w4);
+  const warnCount = (fLog.match(/^WARN the reserve stays in the vault \(legacy, H15\)/gm) ?? []).length;
+  const planRuns = (fLog.match(/"manifest_hash":"/g) ?? []).length;
+  check("f-exit-0", f.code === 0, `benzo settle exits 0 on the legacy manifest (exit ${f.code})`);
+  check("f-no-return", !fSettlement?.reserve_return && !receiptsOf(w4).some((r: any) => r.party === "reserve-return") && chain(w4).broadcasts.length === 1,
+    "no reserve-return row is planned, built or paid (one broadcast: the ordinary batch)");
+  check("f-warn-line", warnCount >= 1 && warnCount === planRuns && !/reserve return waits/.test(fLog),
+    `its one WARN line per plan run (${warnCount} lines for ${planRuns} plan runs), and no waits line`);
+
+  console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
+  process.exitCode = failed ? 1 : 0;
+}
+
+// ==============================================================================
+// RED legs (base bundles from pristine 8a9f638)
+// ==============================================================================
+function seedPostBatchOne(w: World) {
+  // The exact world the live run was in at the R107b crash, written through the REAL Ledger class: batch 1
+  // mined with every ordinary row receipted, the published settlement carrying those five receipts (published
+  // after pass 1 — the return batch was allocated only in the failed pass 2), and the return row allocated to
+  // batch 2 with no transaction. The chain shows the batch's change as spendable.
+  const id = w.id;
+  const tx1 = hash("b47-seed-batch1-" + w.label);
+  const c = chain(w);
+  const spends = c.notes.filter((n: any) => w.fx.notes.some((f: any) => f.txid === n.txid) || n.address === FEE_RESERVE_UA).map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`);
+  for (const n of c.notes) if (spends.includes(`${n.txid}:${n.pool}:${n.action_index}`)) n.spent_in_txid = tx1;
+  c.tip = 100012;
+  c.mined[tx1] = { height: 100001, rows: [] };
+  c.broadcasts.push(tx1);
+  c.notes.push({ txid: hash("b47-seed-change-" + w.label), height: 100001, pool: "ironwood", address: CHANGE_ADDR, diversifier_index: "99", action_index: 0,
+    value_zats: w.obligationZats + w.feeReserve - w.obligationZats - feeOf(w.fx.notes.length + 1), memo_hex: null, spent_in_txid: null });
+  writeFileSync(w.chainFile, JSON.stringify(c));
+  const sc = scenario(w);
+  const ledger = new Ledger(w.state, id);
+  ledger.pin(w.obligationRows as any);
+  ledger.eligible();
+  const batch = ledger.allocate(13)!;
+  const pczt = path.join(w.state, "settle", id, "batch-1.pczt");
+  writeFileSync(pczt, `b47 seeded batch 1 ${tx1}\n`);
+  ledger.stage(batch.id, pczt, tx1);
+  ledger.confirm(batch.id, tx1, 100001, w.obligationRows.map((o, i) => ({ party: o.party, amount_zats: o.amount_zats, index: i, pool: "ironwood" })));
+  ledger.pin([{ party: "reserve-return", kind: "payout", amount_zats: String(sc.returnAmount) }] as any);
+  ledger.eligible();
+  ledger.allocate(13);
+  const rows = ledger.rows();
+  const receipts = ledger.receipts();
+  ledger.close();
+  const sd = path.join(w.state, "settle", id);
+  const maps = [0, 1].map(i => signApprovalMap({ auction_id: id, batch: 1, txid: tx1, outputs: w.obligationRows.map((o, i2) => ({ party: o.party, output_index: i2 })), defaults: [], balance_refunds: [] }, witnessPrivate(String(i))));
+  writeFileSync(path.join(sd, "batch-1.maps.json"), jsonBytes(maps));
+  writeFileSync(path.join(sd, "receipts.json"), jsonBytes(receipts));
+  writeFileSync(path.join(sd, "summary.json"), jsonBytes({ auction_id: id, lwd_endpoints: ["127.0.0.1:9", "127.0.0.1:10"], rows: rows.filter((r: any) => r.party !== "reserve-return"),
+    batches: [{ id: 1, pczt_hash: hash(readFileSync(pczt)), txid: tx1, height: 100001, state: "mined" }], signoffs: [], plan: {}, offline_signer: "alice" }));
+  // The real publish writes the public dir from exactly these state files.
+  const republish = path.join(ROOT, "tmp/b47-republish.mjs");
+  const r = spawnSync(process.execPath, [republish, id], { encoding: "utf8", env: { ...process.env, ...worldEnv(w) } });
+  if (r.status !== 0) throw new Error(`republish failed: ${(r.stderr || r.stdout).trim().slice(-300)}`);
+  return { tx1, returnAmount: sc.returnAmount };
+}
+
+async function red() {
+  const beacon = await fetchBeacon(R);
+  const fx = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+
+  console.log("=== red (a) on base bundles (8a9f638): the R107 wall — nothing can settle");
+  const w = writeWorld("w1-base", fx, { root: BASE, benzo: BASE_BENZO, feeReserve: 60000 });
+  const a = runSettle(w);
+  console.log(`OBSERVE a-red exit=${a.code}`);
+  console.log((a.err || a.out).trim().split("\n").map(l => "  | " + l).join("\n"));
+  const refused = (a.err.match(/refused-rows \["reserve-return"\]/g) ?? []).length;
+  check("a-red-exit-1", a.code !== 0, `the settle refuses (exit ${a.code})`);
+  check("a-red-r107-signature", refused === 3 && /no signer host could list its derivable rows/.test(a.err) && /the auction still owes 5 outstanding/.test(a.err),
+    `the exact R107 signature of the h15-live transcript: ${refused} hosts refused with refused-rows ["reserve-return"], then "no signer host could list its derivable rows"`);
+  check("a-red-nothing-paid", chain(w).broadcasts.length === 0 && !existsSync(path.join(w.state, "settle", w.id, "receipts.json")),
+    "nothing was broadcast and no receipt recorded — the live run could not settle at all before R107's fix");
+
+  console.log("=== red (b) on base bundles (8a9f638): the R107b crash on the live post-R107 world");
+  const w2 = writeWorld("w2-base", fx, { root: BASE, benzo: BASE_BENZO, feeReserve: 60000 });
+  const seeded = seedPostBatchOne(w2);
+  console.log(`OBSERVE seeded return row ${seeded.returnAmount} zats allocated to batch 2 (the live state at the crash)`);
+  const b = runSettle(w2);
+  console.log(`OBSERVE b-red exit=${b.code}`);
+  console.log((b.err || b.out).trim().split("\n").map(l => "  | " + l).join("\n"));
+  check("b-red-exit-1", b.code !== 0, `the settle crashes (exit ${b.code})`);
+  check("b-red-r107b-signature", /ERROR settle Cannot read properties of null \(reading 'amount_zats'\)/.test(b.err),
+    "the exact R107b signature of the h15-live transcript: the plan no longer derives the return (its own batch is pending) and the worker reads its amount from the plan");
+  const after = chain(w2);
+  check("b-red-return-not-recorded", after.broadcasts.length === 1 && receiptsOf(w2).length === 5 && !settlementOf(w2)?.reserve_return,
+    "the base worker never records the return (it crashes before signing completes)");
+
+  console.log("=== green on the same seeded world: this tree completes the return (the red/green pair)");
+  const wg = writeWorld("w2-green-seed", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 60000 });
+  const seededGreen = seedPostBatchOne(wg);
+  const g = runSettle(wg);
+  console.log(`OBSERVE b-green-same-world exit=${g.code}`);
+  check("b-green-same-world", g.code === 0 && receiptsOf(wg).some((r: any) => r.party === "reserve-return" && r.amount_zats === String(seededGreen.returnAmount)) && !!settlementOf(wg)?.reserve_return,
+    `the identical seeded world settles green on this tree (${seededGreen.returnAmount} zats returned, accounting published)`);
+
+  console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
+  process.exitCode = failed ? 1 : 0;
+}
+
+part === "after" ? await green() : await red();
