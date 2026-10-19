@@ -27,6 +27,8 @@
 //       ceil/10 would ask 22,000 and fail the pin), and topping up exactly 25,000 completes.
 //   (i) B51 (P3): a send that lies "already exists in mempool" without recording anything is never trusted —
 //       the staged txid must be known to the wallet (or the retry's real send stands), and the batch completes.
+//   (j) B51 (P3): with the paid batch's inspect record gone, a re-run REFUSES — the already-published doc can
+//       never feed its own accounting back (the H20.2 kept-doc fallback is gone).
 //
 // Red (`node tmp/b47.mjs before`) against BASE bundles built from pristine 8a9f638 (pre-R107) sources:
 //   (a)-red: the first settle refuses before paying anything — the exact R107 signature of the h15-live
@@ -41,6 +43,7 @@
 //
 // Build+run:
 //   npx esbuild tools/repro/b47-settle-e2e.ts --bundle --packages=external --platform=node --format=esm --banner:js='import { createRequire } from "module"; const require = createRequire(import.meta.url);' --outfile=tmp/b47.mjs
+//   npx esbuild tools/repro/b47-republish.ts --bundle --packages=external --platform=node --format=esm --banner:js='import { createRequire } from "module"; const require = createRequire(import.meta.url);' --outfile=tmp/b47-republish.mjs
 //   node tmp/b47.mjs after        (green cases)
 //   node tmp/b47.mjs before       (red legs; needs the base bundles below)
 //   base bundles, built ONCE from the pristine base commit (like tools/repro/b46-reserve-return.ts):
@@ -229,7 +232,9 @@ if (cmd === "create") {
     process.exit(1);
   }
   fs.writeFileSync(a[2], JSON.stringify({ rows, input_zats: available, fee_zats: fee, change_zats: available - required,
-    spends: spendable.map(n => n.txid + ":" + n.pool + ":" + n.action_index).sort(), expiry_height: c.tip + 364 }));
+    spends: spendable.map(n => ({ id: n.txid + ":" + n.pool + ":" + n.action_index, value: Number(n.value_zats) })).sort((x, y) => x.id < y.id ? -1 : 1).map(p => p.id),
+    spend_values: spendable.map(n => ({ id: n.txid + ":" + n.pool + ":" + n.action_index, value: Number(n.value_zats) })).sort((x, y) => x.id < y.id ? -1 : 1).map(p => p.value),
+    expiry_height: c.tip + 364 }));
   process.exit(0);
 }
 if (cmd === "inspect") {
@@ -237,7 +242,10 @@ if (cmd === "inspect") {
   const outputs = body.rows.map((r, i) => ({ index: i, pool: "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
   const output = body.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
   const input = Number(body.input_zats ?? output);
-  console.log(JSON.stringify({ outputs, input_zats: input, output_zats: output, fee_zats: input - output,
+  // The real benzo-pczt inspect publishes one input per spent note (the "inputs" field); the reserve_return
+  // fee check reads its count as the published source count (B51 P3-3).
+  const inputs = (body.spends ?? []).map((s, i) => ({ index: i, pool: "ironwood", value_zats: Number((body.spend_values ?? [])[i] ?? 0) }));
+  console.log(JSON.stringify({ outputs, inputs, input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: Number(body.expiry_height ?? chain().tip + 364), txid: txidOf(buf),
     shielded_sighash: txidOf(buf),
     randomizers: [{ pool: "ironwood", index: 0, alpha: crypto.createHash("sha256").update(Buffer.concat([buf, Buffer.from("alpha")])).digest("hex") }] }));
@@ -460,6 +468,7 @@ const settlementOf = (w: World) => {
   return doc.settlement ?? null;
 };
 const dirDigest = (dir: string) => Object.fromEntries(readdirSyncSorted(dir).map(n => [n, hash(readFileSync(path.join(dir, n)))]));
+const digestDiff = (a: Record<string, string>, b: Record<string, string>) => Object.keys({ ...a, ...b }).filter(k => a[k] !== b[k]);
 const readdirSyncSorted = (dir: string) => (execFileSync("ls", ["-1", dir], { encoding: "utf8" })).split("\n").filter(Boolean).sort();
 const settleLog = (w: World) => { try { return readFileSync(path.join(w.state, "run", "settle-cli.log"), "utf8"); } catch { return ""; } };
 const bumpTip = (w: World, n: number) => { const c = chain(w); c.tip += n; writeFileSync(w.chainFile, JSON.stringify(c)); };
@@ -675,6 +684,21 @@ async function green() {
   check("i-completes", i2.code === 0 && !!settlementOf(w7)?.reserve_return,
     `the settlement completes after the retry (exit ${i2.code}, accounting ${JSON.stringify(settlementOf(w7)?.reserve_return ?? null)})`);
 
+  // ---- case (j): the kept accounting comes only from the ledger's own record (B51 P3-3) --------------------
+  console.log("=== case (j): with the paid batch's inspect record gone, a re-run refuses — a doc never feeds its own accounting back (B51 P3)");
+  const jBefore = dirDigest(w1.publicDir);
+  const jInspect = path.join(w1.state, "settle", w1.id, "batch-2.inspect.json");
+  const jHadInspect = existsSync(jInspect);
+  rmSync(jInspect, { force: true });
+  const j1 = runSettle(w1);
+  const jAfter = dirDigest(w1.publicDir);
+  console.log(`OBSERVE case-j exit=${j1.code}`);
+  console.log(j1.err.trim().split("\n").map(l => "  | " + l).join("\n"));
+  check("j-refuses-without-ledger-record", jHadInspect && j1.code === 1 && /a paid reserve-return receipt without its accounting in the ledger/.test(j1.err),
+    `the re-run refuses instead of reading the accounting back out of the published doc (exit ${j1.code}; ${j1.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1)?.slice(0, 140) ?? "(no ERROR line)"})`);
+  check("j-nothing-republished", JSON.stringify(jBefore) === JSON.stringify(jAfter),
+    "the published dir is untouched — nothing was re-derived and nothing was re-fed from the doc");
+
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
 }
@@ -752,7 +776,7 @@ function seedBroadcastUnconfirmed(w: World) {
   // The stub create/inspect world: the batch pays the obligation rows and its change is one note. Its txid is
   // exactly sha256 of the signed bytes, as `pczt extract` computes it.
   writeFileSync(pczt, JSON.stringify({ rows: w.obligationRows.map(o => ({ recipient: UA_ORCHARD, amount_zats: o.amount_zats })),
-    input_zats: w.obligationZats + w.feeReserve, fee_zats: batchFee, change_zats: change, spends, expiry_height: 100364 }));
+    input_zats: w.obligationZats + w.feeReserve, fee_zats: batchFee, change_zats: change, spends, spend_values: c.notes.map((n: any) => Number(n.value_zats)), expiry_height: 100364 }));
   const tx1 = hash(readFileSync(pczt));
   for (const n of c.notes) if (spends.includes(`${n.txid}:${n.pool}:${n.action_index}`)) n.spent_in_txid = tx1;
   c.tip = 100012;
@@ -870,6 +894,31 @@ async function red51() {
     `the base trusted the error string alone — ${lied} — for a transaction nothing recorded, then sat in the 30-minute mined-wait (the reviewer's stall; the driver killed it at 45 s)`);
   check("i-red-nothing-recorded", chain(wi).broadcasts.length === 0 && chain(wi).pending.length === 0 && !existsSync(path.join(wi.state, "settle", wi.id, "receipts.json")),
     "nothing was broadcast, nothing is pending or mined, and no receipt was recorded");
+
+  console.log("=== red (j) on base bundles (a107447): the kept fallback lets the published doc feed its own accounting back (P3-3)");
+  const wj = writeWorld("j-base", fx, { root: BASE51, benzo: BASE51_BENZO, feeReserve: 60000 });
+  seedPostBatchOne(wj);
+  const j0 = runSettle(wj);
+  const jInspect = path.join(wj.state, "settle", wj.id, "batch-2.inspect.json");
+  const jHad = existsSync(jInspect) && !!settlementOf(wj)?.reserve_return;
+  rmSync(jInspect, { force: true });
+  const jRedBefore = dirDigest(wj.publicDir);
+  const jAccBefore = JSON.stringify(settlementOf(wj)?.reserve_return ?? null);
+  const j = runSettle(wj);
+  const jRedAfter = dirDigest(wj.publicDir);
+  const jAccAfter = JSON.stringify(settlementOf(wj)?.reserve_return ?? null);
+  console.log(`OBSERVE j-red exits=${j0.code},${j.code} accounting ${jAccBefore} -> ${jAccAfter} changed=${JSON.stringify(digestDiff(jRedBefore, jRedAfter))}`);
+  check("j-red-doc-feeds-itself", jHad && j0.code === 0 && j.code === 0 && jAccBefore !== "null" && jAccBefore === jAccAfter,
+    `with the paid batch's own record gone the base re-reads the accounting out of the already-published doc (${jAccAfter}) and exits 0 — the doc feeds its own accounting back (the republication then drops the deleted batch inspect: ${JSON.stringify(digestDiff(jRedBefore, jRedAfter))})`);
+
+  console.log("=== green on the same seeded world: this tree refuses instead of re-reading the published doc");
+  const wjg = writeWorld("j-green", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 60000 });
+  seedPostBatchOne(wjg);
+  const jg0 = runSettle(wjg);
+  rmSync(path.join(wjg.state, "settle", wjg.id, "batch-2.inspect.json"), { force: true });
+  const jg = runSettle(wjg);
+  check("j-green-same-world-refuses", jg0.code === 0 && jg.code === 1 && /without its accounting in the ledger/.test(jg.err),
+    `the same seeded world refuses on this tree (exits ${jg0.code}, ${jg.code}) — the published doc can never feed its own accounting back`);
 
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;

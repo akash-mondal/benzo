@@ -522,22 +522,19 @@ async function worker(ledger:Ledger) {
   // H20 item 2 (R108): a re-run after the return has mined must republish idempotently. The emptied vault no
   // longer derives the return, so the published reserve_return accounting is KEPT once its receipt exists —
   // from the ledger's own record of the paid batch (its inspect: the candidate swept the whole unspent value,
-  // so input_zats is the recorded remaining and fee_zats the recorded fee), or failing that from the
-  // already-published doc. It is never re-derived from the emptied vault.
+  // so input_zats is the recorded remaining and fee_zats the recorded fee). It is never re-derived from the
+  // emptied vault. B51 (P3-3): the old second source — the already-published doc — is gone: a doc can never
+  // feed its own accounting back (a doctored accounting would survive every re-run that way).
   const summaryPlan:any=plan;
   const paidReturn=ledger.rows().find(o=>o.party==="reserve-return"&&["paid","refunded"].includes(o.state))??null;
   if(paidReturn) {
     const kept=():{remaining_zats:string;fee_zats:string}|null=>{
       try {const i=JSON.parse(readFileSync(file(`batch-${paidReturn.batch}.inspect.json`),"utf8"));
         if(i&&i.input_zats!==undefined&&i.fee_zats!==undefined)return {remaining_zats:String(i.input_zats),fee_zats:String(i.fee_zats)}} catch {}
-      try {const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
-        const doc=JSON.parse(readFileSync(path.join(path.resolve(cfg.public_dir),"auction.json"),"utf8"));
-        const acc=doc?.settlement?.reserve_return;
-        if(acc&&acc.remaining_zats!==undefined&&acc.fee_zats!==undefined)return {remaining_zats:String(acc.remaining_zats),fee_zats:String(acc.fee_zats)}} catch {}
       return null;
     };
     const accounting=kept();
-    requireThat(accounting,"a paid reserve-return receipt without its accounting in the ledger or the already-published doc");
+    requireThat(accounting,"a paid reserve-return receipt without its accounting in the ledger (the paid batch's own inspect record)");
     requireThat(BigInt(accounting!.remaining_zats)-BigInt(accounting!.fee_zats)===BigInt(paidReturn.amount_zats),"the kept reserve_return accounting does not match the paid receipt");
     summaryPlan.reserve_return={party:"reserve-return",kind:"payout",amount_zats:paidReturn.amount_zats,...accounting!};
   }

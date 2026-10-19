@@ -15,7 +15,7 @@ import { balanceExcessLeafIndex, bondVoidAt, isBalanceExcessParty, isBalanceLate
 import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
-import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
+import { isAnyDepositParty, isDepositParty, reserveReturnFee } from "../settle/deposits";
 import { checkCertificates, earliestAgreedBond, freezeStatement, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -83,7 +83,8 @@ export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } 
   balance_refunds: { trust: "host-attested", verifiedBy: ["balance-refs"] },
   // B46 (H15, Revision R103): the reserve-return accounting is value-based — the published remaining value
   // minus the ZIP-317 fee (above). Re-derived from the published amounts; the source notes themselves are
-  // never published (vault value is fungible — the hosts checked the spent total when approving).
+  // never published (vault value is fungible — the hosts checked the spent total when approving). B51
+  // (P3-3): its fee is additionally tied to the paying batch's published source count (accounting-strays).
   reserve_return: { trust: "derived", verifiedBy: ["accounting-strays"] },
   delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
   approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
@@ -859,8 +860,17 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     else {
       requireThat(rr && typeof rr === "object" && Object.keys(rr).sort().join(",") === "fee_zats,remaining_zats" &&
         /^[1-9][0-9]*$/.test(String(rr.remaining_zats)) && /^[1-9][0-9]*$/.test(String(rr.fee_zats)), "reserve_return accounting shape");
-      requireThat(BigInt(rr.fee_zats) >= 10000n && BigInt(rr.fee_zats) % 5000n === 0n, "reserve_return fee is not a ZIP-317 fee");
       requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
+      // B51 (P3-3): `fee_zats` must be the ZIP-317 fee FOR THE PUBLISHED SOURCE COUNT — the number of
+      // sources in the paying batch's published inspect (settlement.batches). A coordinator that bumps
+      // (remaining, fee) by the same 5,000 keeps the difference and merely looks ZIP-317-shaped; against
+      // the published source count the fee no longer adds up. A published accounting with no source count
+      // is refused (fail-closed — the product's publish always carries the paying batch's inspect).
+      const paying = ((pub.settlement as any).batches ?? []).find((b: any) => b && typeof b === "object" && b.txid === rrReceipts[0].txid) as { inspect?: { inputs?: unknown[] } } | undefined;
+      requireThat(paying && paying.inspect && Array.isArray(paying.inspect.inputs) && paying.inspect.inputs.length > 0,
+        "the reserve_return accounting has no published source count (the paying batch's inspect inputs)");
+      requireThat(BigInt(rr.fee_zats) === reserveReturnFee(paying!.inspect!.inputs!.length),
+        "reserve_return fee is not the ZIP-317 fee for the published source count");
       requireThat(BigInt(rr.remaining_zats) > BigInt(rr.fee_zats), "the reserve_return remaining value does not cover the fee");
       const amount = (BigInt(rr.remaining_zats) - BigInt(rr.fee_zats)).toString();
       requireThat(rrRows[0].amount_zats === amount && rrReceipts[0].amount_zats === amount,

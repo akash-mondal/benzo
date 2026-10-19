@@ -41,6 +41,12 @@
 //     approved ordinary batch already sources (and whose ledger entry is pre-B49 namespaced) is refused
 //     after the namespace migration; on the base both candidates are approved.
 //
+// Batch B51 (docs/design/phase7-b51-review-fixes.md, P3-3) extends section I with the reserve_return
+// self-consistency tie (the fee must be the ZIP-317 fee for the PUBLISHED source count — the paying batch's
+// published inspect inputs), red on the B51 base commit a107447 bundles via
+// BNZ_B46_BENZO=tmp/b51/base-src/cli/dist/benzo.mjs BNZ_B46_PLAN=tmp/b51/base-src/settle/dist/plan.mjs
+// (the whole green suite then runs against base: its only reds are the behaviour B51 changes) and green after.
+//
 // Build+run:
 //   npx esbuild tools/repro/b46-reserve-return.ts --bundle --packages=external --platform=node --format=esm --banner:js='import { createRequire } from "module"; const require = createRequire(import.meta.url);' --outfile=tmp/b46.mjs
 //   (base bundles under tmp/b46/base-src/, built ONCE from the pristine base commit before any B46 edit:
@@ -88,7 +94,8 @@ const BASE_PLAN = path.join(BASE, "settle", "dist", "plan.mjs"), BASE_BENZO = pa
 // B49: the B49 base commit's bundles (7c4e661 — the P0/P1 holes present) for the B49 red legs.
 const BASE49 = path.join(ROOT, "tmp", "b46", "base49-src");
 const BASE49_PLAN = path.join(BASE49, "settle", "dist", "plan.mjs"), BASE49_BENZO = path.join(BASE49, "cli", "dist", "benzo.mjs");
-const GREEN_PLAN = path.join(ROOT, "settle", "dist", "plan.mjs"), GREEN_BENZO = path.join(ROOT, "cli", "dist", "benzo.mjs");
+const GREEN_PLAN = process.env.BNZ_B46_PLAN ?? path.join(ROOT, "settle", "dist", "plan.mjs"),
+  GREEN_BENZO = process.env.BNZ_B46_BENZO ?? path.join(ROOT, "cli", "dist", "benzo.mjs"); // B51: the red leg overrides these with the base a107447 bundles
 for (const f of [BASE_PLAN, BASE_BENZO, path.join(BASE, "clear", "dist", "cli.mjs")]) if (part === "before" && !existsSync(f)) throw new Error(`${f} missing — build the base bundles first (see the header)`);
 for (const f of [BASE49_PLAN, BASE49_BENZO, path.join(BASE49, "clear", "dist", "cli.mjs")]) if (part === "before" && !existsSync(f)) throw new Error(`${f} missing — build the B49 base bundles first (see the header)`);
 for (const f of [GREEN_PLAN, GREEN_BENZO]) if (part === "after" && !existsSync(f)) throw new Error(`${f} missing — run npm run build:core && npm run build:settle && npm run build:cli first`);
@@ -204,6 +211,15 @@ const settlementFor = (fx: Fixture, opts: { strayPaid?: boolean; latePaid?: bool
     pair(5, TX_FORGED, [{ party: "reserve-return", output_index: 0 }], []);
   }
   if (opts.dropReceiptOf) { const at = receipts.findIndex(r => r.party === opts.dropReceiptOf); if (at >= 0) receipts.splice(at, 1); }
+  // B51 (P3-3): every receipt's paying batch publishes its inspect — the real product's `settlement.batches`
+  // shape — so `benzo verify` can tie the reserve_return fee to the published source count. The return
+  // sweeps the vault's four unspent notes (20,000 + 35,000 + 1,000 + 1,000 = 57,000) and pays the ZIP-317
+  // fee of a four-source transaction (5,000 x 4 = 20,000) — exactly the honest REMAINING/RESERVE_FEE.
+  const swept = [{ index: 0, pool: "ironwood", value_zats: 20000 }, { index: 1, pool: "ironwood", value_zats: 35000 },
+    { index: 2, pool: "ironwood", value_zats: 1000 }, { index: 3, pool: "ironwood", value_zats: 1000 }];
+  settlement.batches = [...new Set(receipts.map((r: any) => String(r.txid)))].map((txid, i) => ({ id: i + 1, pczt_hash: hash(jsonBytes(txid)), txid, height: 99500, state: "mined",
+    inspect: txid === TX_RESERVE ? { inputs: swept, input_zats: 57000, output_zats: 37000, fee_zats: 20000, outputs: [{ index: 0, pool: "ironwood", amount_zats: RESERVE_AMOUNT }] }
+      : { inputs: [{ index: 0, pool: "ironwood", value_zats: 100000 }], input_zats: 100000, output_zats: 95000, fee_zats: 5000, outputs: [] } }));
   return settlement;
 };
 const writeSettledDir = (dir: string, fx: Fixture, settlement: any, opts: { claims?: any[]; cancelled?: boolean } = {}) => {
@@ -619,14 +635,27 @@ if (part === "before") {
     if (name === "build" && existsSync(path.join(dir, "build.json"))) fail(`sign-${name}-wrong-return-ua-no-build`, "build.json was written for a refused packet");
   }
   {
+    // B51 (P2-1b, R107's rule re-aims this case): a derivable packet WITHOUT the declared return row is
+    // never walled by the mismatch — every row is listed minus the return row, tagged refused_rows (before
+    // B51 this case expected the wholesale refusal the P2-1b removed). A packet that DECLARES the return
+    // row with the mismatched UA is still refused typedly.
     const state = writeHostFixture("wrong-ua-derivable", bound, settledNotes, { settlement: settled });
     const dir = writePacket("wrong-ua-derivable", bound, settled, {});
     const meta = JSON.parse(readFileSync(path.join(dir, "packet.json"), "utf8"));
     meta.reserve_return_ua = UA_SAPLING_ONLY;
     writeFileSync(path.join(dir, "packet.json"), jsonBytes(meta));
     const r = sh(GREEN_BENZO, ["sign", "derivable", "--id", bound.id, "--packet", dir, "--name", "alice"], hostEnv(state));
-    check("sign-derivable-wrong-return-ua-refused", r.code === 3 && typedRefusal(r.err),
-      `${r.code === 3 && typedRefusal(r.err) ? "typed refusal" : `exit ${r.code}, no typed refusal`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 160) ?? ""}`);
+    let listed: any[] = [], refused: string[] = [];
+    try { const doc = JSON.parse(r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!); listed = doc.rows ?? []; refused = doc.refused_rows ?? []; } catch {}
+    check("sign-derivable-wrong-return-ua-lists-without-row", r.code === 0 && listed.length > 0 && !listed.some((x: any) => x.party === "reserve-return") && refused.includes("reserve-return"),
+      `${r.code === 0 ? `lists ${listed.length} rows minus the reserve-return row, tagged refused_rows ${JSON.stringify(refused)}` : `exit ${r.code}`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 160) ?? ""}`);
+    const dir2 = writePacket("wrong-ua-derivable-row", bound, settled, { reserve_row: { amount_zats: RESERVE_AMOUNT } });
+    const meta2 = JSON.parse(readFileSync(path.join(dir2, "packet.json"), "utf8"));
+    meta2.reserve_return_ua = UA_SAPLING_ONLY;
+    writeFileSync(path.join(dir2, "packet.json"), jsonBytes(meta2));
+    const r2 = sh(GREEN_BENZO, ["sign", "derivable", "--id", bound.id, "--packet", dir2, "--name", "alice"], hostEnv(state));
+    check("sign-derivable-wrong-return-ua-refused", r2.code === 3 && typedRefusal(r2.err),
+      `the packet that DECLARES the return row: ${r2.code === 3 && typedRefusal(r2.err) ? "typed refusal" : `exit ${r2.code}, no typed refusal`}: ${(r2.err || r2.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 160) ?? ""}`);
   }
   {
     // R103's input check: a candidate whose inspect input_zats is below this signer's scanned unspent total
@@ -732,6 +761,18 @@ if (part === "before") {
     const miss = verifyRun("missing-accounting", bound, (() => { const s = settlementFor(bound, { strayPaid: true, latePaid: true, returned: true }); delete s.reserve_return; return s; })());
     check("verify-refuses-receipt-without-accounting", miss.code !== 0 && /reserve-return row or receipt without the published reserve_return accounting/.test(miss.err),
       `a reserve-return receipt without its published accounting is refused: ${(miss.err || miss.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 140)}`);
+  }
+  {
+    // B51 (P3-3): the self-consistency tie — fee_zats must be the ZIP-317 fee for the PUBLISHED source count
+    // (the paying batch's inspect inputs). The reviewer's doctored pair (remaining and fee both +5,000: the
+    // difference preserved, the fee still merely ZIP-317-shaped) is refused; on base a107447 it verifies.
+    const doctored = verifyRun("doctored", bound, (() => { const s = settlementFor(bound, { strayPaid: true, latePaid: true, returned: true });
+      s.reserve_return = { remaining_zats: String(BigInt(REMAINING) + 5000n), fee_zats: String(BigInt(RESERVE_FEE) + 5000n) }; return s; })());
+    check("verify-refuses-doctored-accounting", doctored.code !== 0 && /reserve_return fee is not the ZIP-317 fee for the published source count/.test(doctored.err),
+      `a (remaining+5000, fee+5000) accounting is refused against the published source count (4 sources, fee ${RESERVE_FEE}): ${(doctored.err || doctored.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 140)}`);
+    const noCount = verifyRun("no-source-count", bound, (() => { const s = settlementFor(bound, { strayPaid: true, latePaid: true, returned: true }); delete s.batches; return s; })());
+    check("verify-refuses-return-without-source-count", noCount.code !== 0 && /no published source count/.test(noCount.err),
+      `a reserve_return accounting with no published source count is refused (fail-closed): ${(noCount.err || noCount.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 140)}`);
   }
 
   // ---- J. B49: "paid" means this host approved it AND its own scan shows it mined 10 deep -----------
