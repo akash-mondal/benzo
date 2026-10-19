@@ -1,0 +1,13 @@
+commit 7b23e5861c3fca2f4e558e875b9279cad72bbad3 (working tree not clean at run time)
+utc 2026-10-19T09:23:30.735Z
+command node tmp/b53.mjs after p37 (tools/repro/b53-resume-ledger.ts)
+tree M cli/commands/sign-approve.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree ?? docs/evidence/phase-7/repro/b53-p37-green.out
+tree ?? docs/evidence/phase-7/repro/b53-p37-red.out
+OBSERVE p37-after batch1 exit=0 sources=[balance-excess:0, 57f3013325646396230a067823df434a7c0eb615048f76fb42fd36f2a08db20a:ironwood:0] backing=57f3013325646396230a067823df434a7c0eb615048f76fb42fd36f2a08db20a:ironwood:0 batch2 exit=1
+  | ERROR sign approve refused: 57f3013325646396230a067823df434a7c0eb615048f76fb42fd36f2a08db20a:ironwood:0 is in batch 1, which can still mine until 100500
+PASS p37-first-approved the excess-paying candidate is approved and its sources carry the backing note (57f3013325646396230a067823df434a7c0eb615048f76fb42fd36f2a08db20a:ironwood:0)
+PASS p37-respend-refused the second live candidate re-spending 57f3013325646396230a067823df434a7c0eb615048f76fb42fd36f2a08db20a:ironwood:0 is refused (ERROR sign approve refused: 57f3013325646396230a067823df434a7c0eb615048f76fb42fd36f2a08db20a:ironwood:0 is in batch 1, which can s)
+PASS p37-second-not-recorded nothing is recorded for the refused candidate
+RESULT PASS

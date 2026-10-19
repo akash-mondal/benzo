@@ -116,7 +116,16 @@ export async function run(argv: string[]): Promise<number | object> {
     const attested: { party: string; output_index: number; amount_zats: string }[] = [];
     for (const out of outputs) {
       const i = pool.findIndex(e => e.recipient === out.recipient && e.amount_zats === String(out.amount_zats));
-      if (i >= 0) { const [e] = pool.splice(i, 1); sources.push(canonicalSourceId(e.source)); mapped.push({ party: e.party, output_index: out.index }); attested.push({ party: e.party, output_index: out.index, amount_zats: String(out.amount_zats) }); continue; }
+      if (i >= 0) {
+        const [e] = pool.splice(i, 1);
+        // B53 (P3-7, Reviewer R round 4): a `balance-excess:` row's `source` is its party name, so its
+        // in-window backing notes (cli/host-derive.ts balanceRefunds) never joined `sources` and a second
+        // live candidate (the reserve-return sweep, whose sources are the bare vault-note ids) could
+        // re-spend them without the R28-3 refusal. The backing notes join the candidate's sources now —
+        // the one canonical note identity, so they collision-check against candidates of every row kind.
+        sources.push(canonicalSourceId(e.source), ...(balanceRefunds.find(r => r.party === e.party)?.notes ?? []).map(canonicalSourceId));
+        mapped.push({ party: e.party, output_index: out.index }); attested.push({ party: e.party, output_index: out.index, amount_zats: String(out.amount_zats) }); continue;
+      }
       // B46 (H15): the reserve-return output pays the whole unspent value minus the fee to the committed
       // return UA (checked above), and its spent notes join this host's approval ledger (Ruling R28 item 3),
       // so a second live candidate can never spend them again.

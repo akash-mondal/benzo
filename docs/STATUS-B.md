@@ -66,6 +66,14 @@ Status block (every command and its result; updated per item):
   changed; the comment names the published-receipt requirement in `claimBody` as the load-bearing guard for
   H7's unattested zero-receipt defaults. `npm run typecheck` — OK. No red/green (documentation only; the
   guard it names is unchanged code, pinned by the existing claim-path folds).
+- Item 7 (P3-7, `cli/commands/sign-approve.ts` the sources collection): `node tmp/b53.mjs before p37` —
+  PASS (red: the base records only `balance-excess:0` as the row's source and then APPROVES the reserve-
+  return sweep that re-spends the row's backing note — two live candidates over one note); `node tmp/b53.mjs
+  after p37` — PASS (green: the excess-paying candidate's sources carry the backing note and the second
+  live candidate is refused `…:ironwood:0 is in batch 1, which can still mine until 100500`, nothing
+  recorded for it). Evidence: `docs/evidence/phase-7/repro/b53-p37-red.out`,
+  `docs/evidence/phase-7/repro/b53-p37-green.out`.
+- Item 8 (P3-8a/b, `settle/cli.ts`):
 
 ### Questions
 

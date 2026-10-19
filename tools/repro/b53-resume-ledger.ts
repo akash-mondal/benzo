@@ -41,16 +41,17 @@
 //   green bundles from this tree: npm run build:core && npm run build:settle && npm run build:cli
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { hash, jsonBytes, reserveReturnUaCommitment, sellerUaCommitment } from "../../manifest/schema";
 import { signApprovalMap, signOpensReport } from "../../witness";
-import { sealBlob } from "../../envelope";
+import { sealBlob, sealEnvelope, signStatement, ownerPublic } from "../../envelope";
 import { modeEntry } from "../../clear/registry";
+import { balanceSettlement } from "../../clear/features";
 import { Ledger } from "../../settle/ledger";
-import { paidByOwnLedger } from "../../settle/deposits";
-import { buildAuction, fetchBeacon, needRealPczt, writeHostState, writePublicDir, witnessPrivate, UA_ORCHARD, type Fixture } from "./h-fixtures";
+import { paidByOwnLedger, reserveReturnAmount } from "../../settle/deposits";
+import { buildAuction, fetchBeacon, needRealPczt, ownerPrivate, writeHostState, writePublicDir, witnessPrivate, UA_ORCHARD, type Fixture } from "./h-fixtures";
 import { makeStubs } from "./b47-world";
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
@@ -642,10 +643,111 @@ async function p35() {
   }
 }
 
+// ---- p37 (P3-7): a `balance-excess:` row's backing notes join the candidate's approval-ledger `sources`,
+// so a second live candidate that re-spends one (the reserve-return sweep — its sources are the bare vault
+// note ids) is refused by the R28-3 collision check (base: both candidates are approved — the hole).
+async function p37() {
+  const beacon = await fetchBeacon(R);
+  const BAL0 = "utest1b53balanceaddresszero000000000000000000000000000000000000";
+  const BOND = { bond_bps: 1000, balance_window_start_height: 95000, balance_window_blocks: 1000, balance_addresses: [BAL0] };
+  const fx0 = await buildAuction({ beacon, count: 1, fee_zats: "0", c_zats: "10000", bond: BOND,
+    commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+  const benzo = part === "before" ? BASE_BENZO : GREEN_BENZO;
+  // The in-window balance payment: the winner pays its due plus 5,000 — its `balance-excess:0` row of
+  // 5,000, backed by this one in-window note.
+  const due = (leaf: number) => BigInt(fx0.result.allocations.find((a: any) => a.leaf_index === leaf)?.balance_due_zats ?? "0");
+  const balNotes = [
+    { txid: hash("b53-bal-0"), height: 95500, pool: "ironwood", address: BAL0, diversifier_index: "20", action_index: 0, value_zats: Number(due(0) + 5000n), memo_hex: null, spent_in_txid: null },
+  ];
+  const TX1 = hash("b53-p37-settling-batch");
+  const scanNotes = [...fx0.notes.map(n => ({ ...n, spent_in_txid: TX1 })), ...balNotes,
+    { txid: TX1, height: 99000, pool: "ironwood", address: "utest1b53p37changeaddress00000000000000000000000000000000000000", diversifier_index: "8", action_index: 0, value_zats: 30000, memo_hex: null, spent_in_txid: null }];
+  const fx: Fixture = { ...fx0, notes: scanNotes };
+  // The host's own derivation (the shipped rules) of the excess row and the owed map — the same inputs
+  // deriveRows feeds balanceSettlement with.
+  const settled = balanceSettlement(fx0.manifest as any, fx.result as any, fx.leaves as any, scanNotes as any, 100000, false);
+  const owed = new Map(modeEntry(fx.manifestPacket).obligations(fx.result as any, { defaults: [], balance_refunds: settled.refunds } as any));
+  const excess = settled.refunds.find(r => r.party.startsWith("balance-excess:"))!;
+  const backing = excess.notes![0]; // the in-window note that backs the excess row (bare note identity)
+  const candidateRows = (parties: string[]) => parties.map(p => ({ recipient: UA_ORCHARD, amount_zats: owed.get(p)! }));
+  // The claim that makes the excess row derivable: the leaf's own owner-signed claim, its destination
+  // sealed to the hosts' envelope keys (exactly what `benzo claim-refund` records).
+  const owner = { private_hex: ownerPrivate(String(excess.leaf_index)), public_hex: ownerPublic(ownerPrivate(String(excess.leaf_index))) };
+  const envelopeCt = sealEnvelope(UA_ORCHARD, fx.envelopeKeys.map(k => k.public_hex), "test");
+  const claimBody = { kind: "claim-refund", auction_id: fx.id, party: excess.party, claim_envelope_sha256: hash(Buffer.from(envelopeCt, "hex")) };
+  const claims = [{ party: excess.party, claim_envelope_sha256: claimBody.claim_envelope_sha256, claim_envelope_ct: envelopeCt, owner_sig: signStatement(owner, claimBody) }];
+  // The settled public dir the reserve-return gate reads: every owed row paid and receipted at TX1, the
+  // excess's balance_refunds entry paid (the gate's rows/receipts/balance_refunds halves) — and
+  // verify-clean (sign approve runs the full public check): the owner-signed claim published without its
+  // sealed box, and the two agreeing host-signed maps of the paying batch (receipt attestation + the
+  // balance-refunds per-row attestation).
+  const rows = [...owed].map(([party, amount_zats], i) => ({ party, kind: party === "seller" ? "payout" : "refund", amount_zats, state: "paid", batch: 1, txid: TX1, output_index: i, pool: "ironwood" }));
+  const receipts = rows.map(r => ({ auction_id: fx.id, party: r.party, txid: TX1, pool: "ironwood", output_index: r.output_index, amount_zats: r.amount_zats }));
+  const mapBody = { auction_id: fx.id, batch: 1, txid: TX1, outputs: rows.map(r => ({ party: r.party, output_index: r.output_index })),
+    defaults: [], balance_refunds: [{ party: excess.party, leaf_index: excess.leaf_index, amount_zats: excess.amount_zats }] };
+  const maps = [0, 1].map(i => signApprovalMap(mapBody as any, witnessPrivate(String(i))));
+  const settlement = { rows, receipts, ignored: [], defaults: [],
+    balance_refunds: settled.refunds.map(r => ({ party: r.party, leaf_index: r.leaf_index, amount_zats: r.amount_zats, state: "paid" })), approval_maps: maps };
+  const publishedClaims = claims.map(({ claim_envelope_ct: _ct, ...rest }) => rest);
+
+  // The host state + packet (the b48/b50 harness shape).
+  const st = path.join(ROOT, "tmp", "b53", `p37-${part}-state`);
+  rmSync(st, { recursive: true, force: true });
+  writeHostState(st, fx, REAL_PCZT);
+  const packet = path.join(ROOT, "tmp", "b53", `p37-${part}-packet`);
+  rmSync(packet, { recursive: true, force: true }); mkdirSync(path.join(packet, "public"), { recursive: true, mode: 0o700 });
+  writePublicDir(path.join(packet, "public"), fx);
+  writeFileSync(path.join(packet, "claims.json"), jsonBytes(claims));
+  { const doc = JSON.parse(readFileSync(path.join(packet, "public", "auction.json"), "utf8"));
+    writeFileSync(path.join(packet, "public", "auction.json"), jsonBytes({ ...doc, settlement, claims: publishedClaims })); }
+  // The host's own approval ledger already attests the settled batch (B49's "paid" rule's ledger half).
+  { const adir = path.join(st, "approvals", fx.id); mkdirSync(adir, { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(adir, "ledger.json"), JSON.stringify([{ batch: 9, txid: TX1, expiry_height: 100500, approved_tip: 100000, sources: [],
+      mapped: rows.map(r => ({ party: r.party, output_index: r.output_index, amount_zats: r.amount_zats })) }]) + "\n"); }
+  const env = { BNZ_STATE_DIR: st, BNZ_PCZT_BIN: path.join(st, "bin", "benzo-pczt"), BNZ_SCAN_BIN: path.join(st, "bin", "benzo-scan"),
+    BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/" };
+  const approve = (batch: number, rowsForBatch: { recipient: string; amount_zats: string }[], meta: any) => {
+    const dir = path.join(packet, `batch-${batch}`);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    execFileSync("cp", ["-R", path.join(packet, "public"), path.join(dir, "public")]);
+    copyFileSync(path.join(packet, "claims.json"), path.join(dir, "claims.json"));
+    const content = JSON.stringify({ rows: rowsForBatch });
+    writeFileSync(path.join(dir, "candidate.pczt"), content);
+    writeFileSync(path.join(dir, `sealed-alice.bin`), sealBlob(Buffer.from(content), fx.envelopeKeys[0].public_hex), { mode: 0o600 });
+    writeFileSync(path.join(dir, "packet.json"), jsonBytes({ auction_id: fx.id, signer: fx.signer, seller_ua: UA_ORCHARD, batch, expiry_blocks: 100,
+      plan_version: sha256(readFileSync(path.join(dir, "candidate.pczt"))), ...meta }));
+    return sh(process.execPath, [benzo, "sign", "approve", "--id", fx.id, "--batch", String(batch), "--packet", dir, "--name", "alice"], env);
+  };
+  // Candidate 1: the ordinary batch pays the excess row (claim-paid).
+  const r1 = approve(1, candidateRows([excess.party]), {});
+  const entry = approvalLedger(st, fx.id).find(e => e.txid === sha256(readFileSync(path.join(packet, "batch-1", "candidate.pczt"))));
+  const src1: string[] = entry?.sources ?? [];
+  // Candidate 2: the reserve-return sweep — its sources are the bare vault-note ids, including the excess
+  // row's backing note (it really re-spends it).
+  const rr = reserveReturnAmount(scanNotes as any);
+  const r2 = approve(2, [{ recipient: UA_ORCHARD, amount_zats: rr.amount_zats! }], { reserve_return_ua: UA_ORCHARD, reserve_row: { amount_zats: rr.amount_zats } });
+  console.log(`OBSERVE p37-${part} batch1 exit=${r1.code} sources=[${src1.join(", ")}] backing=${backing} batch2 exit=${r2.code}`);
+  console.log((r2.err || r2.out).trim().split("\n").filter(Boolean).slice(-3).map(l => "  | " + l).join("\n"));
+  if (part === "after") {
+    check("p37-first-approved", r1.code === 0 && src1.includes(excess.party) && src1.includes(backing),
+      `the excess-paying candidate is approved and its sources carry the backing note (${backing})`);
+    check("p37-respend-refused", r2.code !== 0 && /is in batch 1, which can still mine until/.test(r2.err) && r2.err.includes(backing),
+      `the second live candidate re-spending ${backing} is refused (${(r2.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1) ?? "").slice(0, 130)})`);
+    check("p37-second-not-recorded", !existsSync(path.join(st, "approvals", fx.id, "batch-2.json")),
+      "nothing is recorded for the refused candidate");
+  } else {
+    check("p37-red-sources-lack-backing", r1.code === 0 && src1.includes(excess.party) && !src1.includes(backing),
+      `the base records only the party name as the excess row's source ([${src1.join(", ")}]) — the backing notes never join sources`);
+    check("p37-red-respend-approved", r2.code === 0 && existsSync(path.join(st, "approvals", fx.id, "batch-2.json")),
+      "and the second live candidate re-spending the backing note is APPROVED — two live candidates can spend the same note (the P3-7 hole)");
+  }
+}
+
 if (wants("p22")) await p22();
 if (wants("p33")) await p33();
 if (wants("p31")) await p31();
 if (wants("p32")) await p32();
 if (wants("p35")) await p35();
+if (wants("p37")) await p37();
 console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
 process.exitCode = failed ? 1 : 0;
