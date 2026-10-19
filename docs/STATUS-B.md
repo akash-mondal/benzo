@@ -269,6 +269,29 @@ reason` — base: the row is paid, no reason).
 - `npx tsc -p tsconfig.json` → exit 0. The verify bundle was rebuilt again (`npm run build:verify`) and
   committed with `docs/verify-bundle.sha256`.
 
+### H21 — `sign derivable` lists the refunds and tags only the seller row refused; approve is typed
+
+`cli/commands/sign-derivable.ts`: a mismatched `seller_ua` on a cleared auction no longer refuses the
+listing — the refund rows list and pay at settle while only the seller row is tagged refused (typed: the
+named row carries `refused: true` and its reason). `settle/cli.ts` `hostDerivable` routes the tag: the
+tagged rows do not derive and their reason rides to the exception queue. `cli/commands/sign-approve.ts`: a
+mis-shaped seller output (an output paying the packet's `seller_ua` that is not the result's seller payout
+paid at most once) is refused typed (exit 3, `["seller"]`), never the untyped exit 1. Proof (the design's
+extension of `tools/repro/b48-p3s.ts`, red `docs/evidence/phase-7/repro/b48-p3s-b50-before.out` on pristine
+`503826b`, green `docs/evidence/phase-7/repro/b48-p3s-b50-after.out`, 18 checks `RESULT PASS`):
+`h21-derivable-mismatch-lists-refunds-tags-seller` (exit 0, `leaf:0, leaf:1, leaf:2, seller(refused)` —
+base: the whole listing refused, exit 3 — the B48 Q2 stall), `h21-approve-mis-shaped-seller-typed` (a
+seller_ua output at 15001 zats: exit 3 `refused-rows ["seller"]` — base: the untyped `output 3 … is not a
+row this signer derived`, exit 1 — B48 Q3), and the worker-level claim through the b47 stub harness
+(`tools/repro/b50-p2-sweep.ts` section `h21`, red `docs/evidence/phase-7/repro/b50-h21-before.out`, green
+`docs/evidence/phase-7/repro/b50-h21-after.out`): `h21-refunds-paid` + `h21-seller-waits-with-reason` — the
+real `bin/benzo settle` pays the three refund rows and leaves only the seller row as its exception row with
+the H10 reason (base: the run wedges at `no signer host could list its derivable rows`, nothing paid).
+All the unchanged b48 checks stay green on both legs.
+
+- `npx tsc -p tsconfig.json` → exit 0; `npm run build:settle` + `npm run build:cli` rebuilt (no api/ change
+  this item).
+
 
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
 

@@ -40,17 +40,21 @@ export async function run(argv: string[]): Promise<number | object> {
     }
     const { expected, payout, balanceRefunds, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
     // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
-    // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
-    // exit 3), never a silent pass. A manifest without the field predates H10: the row is listed as before and
-    // one WARN line says the address is not bound.
-    // B48 (H18 P3-1): the mismatch refuses only the seller row, and only when this listing has one — the
-    // listing below carries a seller row exactly when the auction owes the seller and the packet names a
-    // seller_ua. A listing without a seller row ignores seller_ua entirely, so an inconsistent config can
-    // never stall the refund rows this signer does derive.
-    if (sellerBinding === "mismatch" && payout !== "0" && typeof meta.seller_ua === "string") { process.stderr.write(`ERROR sign derivable refused-rows ${JSON.stringify(["seller"])}: seller payout address does not match the manifest seller_ua_commitment (H10)\n`); return 3; }
+    // packet's seller_ua must hash to it — otherwise the seller row is refused, never a silent pass. A
+    // manifest without the field predates H10: the row is listed as before and one WARN line says the
+    // address is not bound.
+    // B48 (H18 P3-1): the mismatch refuses only the seller row, and only when this listing has one.
+    // H21 (B50): it no longer refuses the LISTING — the refund rows list (and pay at settle) while only the
+    // seller row is tagged refused (typed: the named row carries `refused: true` and its reason), so an
+    // inconsistent seller config can never stall the refunds at settle again (B48 Q2).
+    const sellerRefused = sellerBinding === "mismatch" && payout !== "0" && typeof meta.seller_ua === "string";
+    if (sellerRefused) process.stderr.write("WARN sign derivable seller row refused (H10): seller payout address does not match the manifest seller_ua_commitment; the refund rows still list\n");
     if (sellerBinding === "legacy") process.stderr.write("WARN legacy manifest: seller payout address not bound (H10)\n");
-    const rows = expected.map(e => ({ party: e.party, amount_zats: e.amount_zats }));
-    if (payout !== "0" && typeof meta.seller_ua === "string") rows.push({ party: "seller", amount_zats: payout });
+    const rows: any[] = expected.map(e => ({ party: e.party, amount_zats: e.amount_zats }));
+    if (payout !== "0" && typeof meta.seller_ua === "string")
+      rows.push(sellerRefused
+        ? { party: "seller", amount_zats: payout, refused: true, reason: "seller payout address does not match the manifest seller_ua_commitment (H10)" }
+        : { party: "seller", amount_zats: payout });
     // B46 (H15): list the reserve-return row when this signer derives one (party name and amount, no
     // recipient).
     if (reserve.row) rows.push({ party: reserve.row.party, amount_zats: reserve.row.amount_zats });

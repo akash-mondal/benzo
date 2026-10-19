@@ -143,7 +143,7 @@ type World = {
   chainFile: string; stubBin: string; benzo: string; hosts: Record<string, string>; custody: boolean;
 };
 
-function writeWorkerWorld(label: string, fx: Fixture, opts: { root: string; benzo: string; custody: boolean; poolByAmount?: Record<string, string> }): World {
+function writeWorkerWorld(label: string, fx: Fixture, opts: { root: string; benzo: string; custody: boolean; poolByAmount?: Record<string, string>; sellerUa?: string }): World {
   const stubs = makeStubs({ realPczt: REAL_PCZT, confirmations: CONFIRMATIONS, changeAddr: CHANGE_ADDR, uaOrchard: UA_ORCHARD });
   const id = fx.id;
   const base = path.join(opts.root, "tmp", "b50-worlds", label);
@@ -162,7 +162,7 @@ function writeWorkerWorld(label: string, fx: Fixture, opts: { root: string; benz
   writeFileSync(path.join(state, "auction", `${id}.json`), jsonBytes({ manifest: fx.manifestPacket, signer: fx.signer, state: "CLEARED",
     leaves: fx.leaves, receipts: fx.receipts, frozen: fx.frozen, opened: fx.opened, result: fx.result, trace: [], beacon: fx.beacon,
     envelopes: fx.envelopes, witness_set: fx.witnessSet }));
-  const routing = { bidders: [], seller_ua: UA_ORCHARD, fee_reserve_ua: FEE_RESERVE_UA, reserve_return_ua: UA_ORCHARD };
+  const routing = { bidders: [], seller_ua: opts.sellerUa ?? UA_ORCHARD, fee_reserve_ua: FEE_RESERVE_UA, reserve_return_ua: UA_ORCHARD };
   writeFileSync(path.join(state, "product", `${id}.json`), jsonBytes({ settlement: { signers: ["alice", "bob"], batch_cap: 13, pczt_expiry_blocks: 364 }, routing, public_dir: publicDir }));
   if (opts.custody) writeFileSync(path.join(state, "vaults", id, "keys.json"), jsonBytes({ group_key: fx.groupKey }));
   mkdirSync(path.join(state, "settle", id), { recursive: true, mode: 0o700 });
@@ -537,6 +537,30 @@ const run = async () => {
       check("h7-worker-row-carries-reason", r.code === 0 && !!row && row.state === "exception" && typeof row.reason === "string" && /set aside this run/.test(row.reason),
         `the real worker's published set-aside row ${minority[0]}: ${row ? `state ${row.state}, reason ${JSON.stringify(row.reason ?? null)}` : "missing"} (exit ${r.code})`);
     }
+  }
+
+  // ---- H21: a mismatched seller_ua lists and pays refunds while the seller row waits ----------------
+  if (wants("h21")) {
+    console.log("=== h21: a mismatched seller_ua pays the refunds and parks only the seller row");
+    const fxW: Fixture = await buildAuction({ beacon, count: 3, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+    const obsW = obligationsOf(fxW);
+    const sellerRow = obsW.find(([p]) => p === "seller");
+    const w = writeWorkerWorld("h21-mismatch", fxW, { root: part === "before" ? BASE : ROOT, benzo: BENZO, custody: true, sellerUa: UA_SAPLING_ONLY });
+    const greenBenzo = path.join(ROOT, "cli", "dist", "benzo.mjs");
+    const r = runCmd(w.benzo === greenBenzo ? path.join(ROOT, "bin", "benzo") : process.execPath,
+      w.benzo === greenBenzo ? ["settle", "--id", w.id] : [w.benzo, "settle", "--id", w.id], worldEnv(w));
+    console.log(`OBSERVE h21-mismatch exit=${r.code}`);
+    console.log(r.err.trim().split("\n").filter(Boolean).slice(-10).map(l => "  | " + l).join("\n"));
+    const doc = existsSync(path.join(w.publicDir, "auction.json")) ? JSON.parse(readFileSync(path.join(w.publicDir, "auction.json"), "utf8")) : null;
+    const rows: any[] = doc?.settlement?.rows ?? [];
+    const receipts: any[] = doc?.settlement?.receipts ?? [];
+    const refunds = obsW.filter(([p]) => p !== "seller");
+    check("h21-refunds-paid", r.code === 0 && refunds.every(([p, a]) => receipts.some((x) => x.party === p && x.amount_zats === a)),
+      `the refund rows pay despite the mismatched seller_ua: ${refunds.map(([p]) => p).join(", ")} (receipts: ${receipts.map((x) => x.party).join(", ") || "none"})`);
+    const seller = rows.find((x) => x.party === "seller");
+    check("h21-seller-waits-with-reason", !!sellerRow && !!seller && seller.state === "exception" && !receipts.some((x) => x.party === "seller")
+      && typeof seller.reason === "string" && /seller_ua_commitment/.test(seller.reason),
+      `the seller row waits: ${seller ? `state ${seller.state}, reason ${JSON.stringify(seller.reason ?? null)}` : "missing"}`);
   }
 
   // ---- control: every committed published dir still verifies (listed one by one) ---------------------

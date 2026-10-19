@@ -1,0 +1,32 @@
+commit 7f0bd721c32c118ad4243c4ef5bcfb5b33a766f5 (working tree not clean at run time)
+utc 2026-10-19T05:43:35.673Z
+command node tmp/b48.mjs (tools/repro/b48-p3s.ts)
+tree M cli/commands/sign-approve.ts
+tree  M cli/commands/sign-derivable.ts
+tree  M settle/cli.ts
+tree  M tools/repro/b48-p3s.ts
+tree  M tools/repro/b50-p2-sweep.ts
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b50-h21-after.out
+tree ?? node_modules
+tree ?? vendor
+PASS fixture-seller-payout the fixture result owes the seller 15000 zats, so the seller-row cases are not vacuous
+PASS p31-fixture-rows the honest listing derives 4 rows: 3 refund rows and the seller row
+PASS p31-build-refund-rows-built mismatched seller_ua, no seller row in the batch: exit 0, built leaf:0,leaf:1,leaf:2, paid utest1dzh6avyyspadzv6g63fra4clxe… ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"builder":"alice","plan_version":"5862cc4c5dd7efa498b24f5531e76902b9735f4a34a6f4bdcff3062)
+PASS p31-approve-refund-rows-approved mismatched seller_ua, no seller row in the candidate: exit 0, approval recorded ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"name":"alice","plan_version":"5862cc4c5dd7efa498b24f5531e76902b9735f4a34a6f4bdcff3062495)
+PASS p31-build-seller-row-refused-typed same packet plus the seller row: exit 3, refused-rows ["seller"], nothing built
+PASS p31-approve-seller-row-refused-typed same packet plus the seller row: exit 3, refused-rows ["seller"], no approval recorded
+FAIL h21-derivable-mismatch-lists-refunds-tags-seller mismatched packet with a seller row: exit 3, listed (nothing) (ERROR sign derivable refused-rows ["seller"]: seller payout address does not match the manifest seller_ua_commitment (H10))
+PASS p31-derivable-no-seller-row-lists-refunds listing has no seller row (no seller_ua named): exit 0, listed leaf:0,leaf:1,leaf:2 ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","name":"alice","rows":[{"party":"leaf:0","amount_zats":"1000000"},{"party":"leaf:1","amount_zats":")
+FAIL h21-approve-mis-shaped-seller-typed a seller_ua output at 15001 zats (not the 15000-zat payout): exit 1, no typed refusal (ERROR sign approve output 3 (15001 zats) is not a row this signer derived), no approval recorded
+PASS p32-raw-manifest-refused raw manifest object: exit 1, 1 ERROR line(s): ERROR seller check: pass the published manifest.json (the signed packet), not a raw manifest object
+PASS p32-signed-packet-passes signed packet, committed address: exit 0 ({"signer":"302a300506032b6570032100ed4f9c95e52a05d8f62fc2bd78ef2a45f6fb516fc45e913901198bb46bc0aa57","network":"test","seller_ua_commitment":"af44dfd8f3328b34de0d35ffd9fa3eb14e3a6f)
+PASS p32-right-signer-passes signed packet, --signer the signing key: exit 0 ({"signer":"302a300506032b6570032100ed4f9c95e52a05d8f62fc2bd78ef2a45f6fb516fc45e913901198bb46bc0aa57","network":"test","seller_ua_commitment":"af44dfd8f3328b34de0d35ffd9fa3eb14e3a6f)
+PASS p32-wrong-signer-refused signed packet, --signer a different key: exit 1 (ERROR seller check refused: untrusted manifest/receipt signer)
+PASS p33-host-cache-written the host's own derivation wrote tmp/b48/state-p33/auctions/ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426/openings.json (exit 0)
+PASS p33-own-cache-works --openings-cache on the host's own file: exit 0 (OK no-destinations)
+PASS p33-copied-cache-refused a cache copied elsewhere named directly: exit 1 (ERROR verify refused: openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json)
+PASS p33-link-standing-in-refused the host's own name standing in for the copied file (a link): exit 1 (ERROR verify refused: openings cache must be the host's own file at that path, not a link to a cache copied elsewhere)
+PASS p33-restored-own-cache-works the restored host's own file works again: exit 0 (OK no-destinations)
+RESULT FAIL (2)

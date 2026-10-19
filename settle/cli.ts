@@ -131,7 +131,7 @@ function guard(metadata:any,tip:number) {
 // Reviewer G's G-5: before allocation, the first preferred host that answers lists the {party, amount} rows it derives
 // from its own data (`sign derivable`, no recipients). A row no host derives is pinned to the exception queue with its
 // reason instead of being allocated into a batch no host could build.
-function hostDerivable():Set<string>|null {
+function hostDerivable():{rows:Set<string>;refused:Map<string,string>}|null {
   const cfg=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"));
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file("derivable");run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
@@ -145,7 +145,15 @@ function hostDerivable():Set<string>|null {
     const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
     if(r.status!==0){console.error(`ERROR signer ${n} could not list derivable rows: ${(r.stderr||"").trim().slice(-200)}`);continue}
     const out=JSON.parse(r.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
-    return new Set(out.rows.map((x:any)=>`${x.party}:${x.amount_zats}`));
+    // H21 (B50): a listing may tag a row refused (typed — `refused: true` with its reason, e.g. the H10
+    // seller mismatch): the tagged rows do NOT derive, and their reason rides to the exception queue so
+    // the refunds still pay while the refused row waits.
+    const rows=new Set<string>(),refused=new Map<string,string>();
+    for(const x of out.rows as any[]) {
+      if(x.refused)refused.set(`${x.party}:${x.amount_zats}`,String(x.reason??"refused by the signer host"));
+      else rows.add(`${x.party}:${x.amount_zats}`);
+    }
+    return {rows,refused};
   }
   return null;
 }
@@ -304,8 +312,8 @@ async function worker(ledger:Ledger) {
   // §11 H6: under host custody the coordinator holds no envelope key; the plan already gated every envelope refund on
   // host-signed agreement reports, and the recipients are derived on the hosts (sign build / sign approve).
   // Nothing payable (every row already an exception, e.g. a cancel before R) needs no host derivation.
-  const derivable=custody&&(plan.obligations.length||reserve)?hostDerivable():new Set<string>();
-  if(custody&&(plan.obligations.length||reserve))requireThat(derivable,"no signer host could list its derivable rows");
+  const listing=custody&&(plan.obligations.length||reserve)?hostDerivable():{rows:new Set<string>(),refused:new Map<string,string>()};
+  if(custody&&(plan.obligations.length||reserve))requireThat(listing,"no signer host could list its derivable rows");
   // R44 (F16): rows of a batch every reachable host refused to build stay exceptions (monotone, never re-promoted).
   // R46 (F20 claimability, F25): rows no reached host can build are set aside for THIS run only (never persisted).
   // Every run re-derives every row through the derivable gate, so an owner's claim pays a set-aside refund on the
@@ -314,7 +322,7 @@ async function worker(ledger:Ledger) {
   const asideReason="set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
   // H3 (B50): a row set aside by the one-pool rule carries its own reason (the shared pinRows maps it).
   const asideReasons=new Map<string,string>();
-  const pinned:any[]=custody?planRows.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:derivable!.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):(await destinations(planRows,settings().signers[0],plan));
+  const pinned:any[]=custody?planRows.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:listing!.rows.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:listing!.refused.get(`${o.party}:${o.amount_zats}`)??"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):(await destinations(planRows,settings().signers[0],plan));
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   // Ruling R42 (F15): each refund row carries its backing note identities into the ledger (keyed by note
   // identity: one note backs at most one refund row across all row classes) — the shared derivation's rows.

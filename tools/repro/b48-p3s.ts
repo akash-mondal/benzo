@@ -1,6 +1,9 @@
 // B48 (docs/design/phase7-b48-p3s.md, H18): the three Reviewer R P3s, each with its own proof on the REAL
 // shipped host paths offline (tools/repro/h10-seller-binding.ts's shape: every product decision runs the real
-// code, only the offline-impossible externals are stubbed through h-fixtures.ts writeHostState):
+// code, only the offline-impossible externals are stubbed through h-fixtures.ts writeHostState).
+// H21 (B50, docs/design/phase7-b50-p2-sweep.md item 6) extends this driver: `sign derivable` lists the refund
+// rows and tags only the seller row refused (typed) on a mismatched seller_ua, and `sign approve` refuses a
+// mis-shaped seller output typed (exit 3, ["seller"]).
 //   P3-1 a seller-commitment mismatch refuses only the seller row, and only when the batch has one. A
 //        mismatched-seller_ua packet whose batch has NO seller row builds and approves its refund rows; the
 //        same packet with the seller row is refused for that row (typed, exit 3, refused-rows ["seller"]).
@@ -152,16 +155,22 @@ const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringi
       `same packet plus the seller row: exit ${a.code}, ${typed ? 'refused-rows ["seller"]' : `no typed refusal (${lastLine(a)})`}, no approval recorded`);
   }
 
-  // `sign derivable` follows the same rule on its own row listing: a listing WITH a seller row and a
-  // mismatched packet is refused typedly (as today); a listing with NO seller row (the packet names no
-  // seller_ua) ignores seller_ua and lists the refund rows.
+  // `sign derivable` follows the same rule on its own row listing: a listing with NO seller row (the
+  // packet names no seller_ua) ignores seller_ua and lists the refund rows. H21 (B50): a listing WITH a
+  // seller row and a mismatched packet no longer refuses the listing — it lists the refund rows and tags
+  // only the seller row refused (typed: `refused: true` with its reason), so an inconsistent seller config
+  // can never stall the refunds at settle (B48 Q2).
   {
     const pdir = packetDir("derivable-mismatch", fixture, UA_SAPLING_ONLY, []);
     const st = path.join(WORK, "state-derivable-mismatch"); writeHostState(st, fixture, REAL_PCZT);
     const d = sh(["sign", "derivable", "--id", fixture.id, "--packet", pdir, "--name", "alice"], hostEnv(st));
-    const typed = /ERROR sign derivable refused-rows \["seller"\]/.test(d.err);
-    check("p31-derivable-seller-row-refused-typed", d.code === 3 && typed,
-      `listing has a seller row, mismatched packet: exit ${d.code}, ${typed ? 'refused-rows ["seller"]' : `no typed refusal (${lastLine(d)})`}`);
+    const rows = listedRows(d) as any[];
+    const sellerRow = rows.find((x: any) => x.party === "seller");
+    const refunds = rows.filter((x: any) => x.party !== "seller");
+    const tagged = !!sellerRow && sellerRow.refused === true && /seller_ua_commitment/.test(String(sellerRow.reason ?? ""))
+      && refunds.length >= 1 && refunds.every((x: any) => x.refused === undefined);
+    check("h21-derivable-mismatch-lists-refunds-tags-seller", d.code === 0 && tagged && parties(refunds.map((x: any) => ({ party: x.party, amount_zats: x.amount_zats }))) === parties(refundRows),
+      `mismatched packet with a seller row: exit ${d.code}, listed ${rows.map((x: any) => `${x.party}${x.refused ? "(refused)" : ""}`).join(", ") || "(nothing)"} (${lastLine(d)})`);
   }
   {
     const pdir = packetDir("derivable-no-seller-ua", fixture, null, []);
@@ -170,6 +179,20 @@ const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringi
     const rows = listedRows(d) as { party: string; amount_zats: string }[];
     check("p31-derivable-no-seller-row-lists-refunds", d.code === 0 && !rows.some(x => x.party === "seller") && parties(rows) === parties(refundRows),
       `listing has no seller row (no seller_ua named): exit ${d.code}, listed ${rows.map(x => x.party).join(",") || "(nothing)"} (${lastLine(d)})`);
+  }
+
+  // H21 (B50): a mis-shaped seller output in `sign approve` — an output paying the packet's seller_ua that
+  // is not the result's seller payout — is refused TYPED (exit 3, refused-rows ["seller"]), never an untyped
+  // exit 1 (B48 Q3).
+  {
+    const wrongAmount = String(Number(fixture.payout) + 1);
+    const pdir = packetDir("approve-mis-shaped-seller", fixture, UA_ORCHARD, [],
+      { rows: [...refundCandidateRows, { recipient: UA_ORCHARD, amount_zats: wrongAmount }] });
+    const st = path.join(WORK, "state-approve-mis-shaped-seller"); writeHostState(st, fixture, REAL_PCZT);
+    const a = sh(["sign", "approve", "--id", fixture.id, "--batch", "1", "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const typed = /ERROR sign approve refused-rows \["seller"\]/.test(a.err);
+    check("h21-approve-mis-shaped-seller-typed", a.code === 3 && typed && !existsSync(path.join(st, "approvals", fixture.id, "batch-1.json")),
+      `a seller_ua output at ${wrongAmount} zats (not the ${fixture.payout}-zat payout): exit ${a.code}, ${typed ? 'refused-rows ["seller"]' : `no typed refusal (${lastLine(a)})`}, no approval recorded`);
   }
 }
 

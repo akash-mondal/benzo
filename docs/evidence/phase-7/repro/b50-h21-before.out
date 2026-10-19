@@ -1,0 +1,26 @@
+commit 7f0bd721c32c118ad4243c4ef5bcfb5b33a766f5 (working tree not clean at run time)
+utc 2026-10-19T05:44:12.018Z
+command node tmp/b50.mjs before h21 (tools/repro/b50-p2-sweep.ts)
+tree M cli/commands/sign-approve.ts
+tree  M cli/commands/sign-derivable.ts
+tree  M settle/cli.ts
+tree  M tools/repro/b48-p3s.ts
+tree  M tools/repro/b50-p2-sweep.ts
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b50-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b50-before.out
+tree ?? docs/evidence/phase-7/repro/b50-h21-after.out
+tree ?? docs/evidence/phase-7/repro/b50-h21-before.out
+tree ?? node_modules
+tree ?? vendor
+PASS fixture-seller-payout the fixture result owes the seller 15000 zats
+PASS fixture-obligations the fixture owes leaf:0:1000000, leaf:1:1000000, leaf:2:985000, seller:15000
+=== h21: a mismatched seller_ua pays the refunds and parks only the seller row
+OBSERVE h21-mismatch exit=1
+  | ERROR signer alice could not list derivable rows: ERROR sign derivable refused-rows ["seller"]: seller payout address does not match the manifest seller_ua_commitment (H10)
+  | ERROR signer bob could not list derivable rows: ERROR sign derivable refused-rows ["seller"]: seller payout address does not match the manifest seller_ua_commitment (H10)
+  | ERROR signer carol could not list derivable rows: ERROR sign derivable refused-rows ["seller"]: seller payout address does not match the manifest seller_ua_commitment (H10)
+  | ERROR settle refused: no signer host could list its derivable rows
+  | ERROR benzo settle exit 1
+FAIL h21-refunds-paid the refund rows pay despite the mismatched seller_ua: leaf:0, leaf:1, leaf:2 (receipts: none)
+FAIL h21-seller-waits-with-reason the seller row waits: missing
+RESULT FAIL (2)

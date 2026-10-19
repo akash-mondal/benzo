@@ -132,6 +132,11 @@ export async function run(argv: string[]): Promise<number | object> {
       // other amount (not the scanned total minus the fee) is a typed refusal, never a silent mismatch.
       if ((meta as any).reserve_row)
         throw Object.assign(new Error(`the reserve-return candidate's output ${out.index} (${String(out.amount_zats)} zats) is not this signer's unspent total minus the fee (${reserve?.row?.amount_zats ?? "not derivable"}) paid to the committed return UA`), { refusedRows: ["reserve-return"] });
+      // H21 (B50): an output paying the packet's seller_ua that is NOT the one valid seller payout (the
+      // result's seller amount, paid at most once) is a mis-shaped seller output — refused typedly
+      // (exit 3, ["seller"]), never an untyped exit 1 (B48 Q3).
+      if (typeof meta.seller_ua === "string" && out.recipient === meta.seller_ua)
+        throw Object.assign(new Error(`seller output ${out.index} (${String(out.amount_zats)} zats) is not the result's seller payout (${payout} zats) paid at most once`), { refusedRows: ["seller"] });
       throw new Error(`output ${out.index} (${String(out.amount_zats)} zats) is not a row this signer derived`);
     }
     // B46 (H15): a reserve-return candidate pays exactly one output — the committed return UA for the whole
