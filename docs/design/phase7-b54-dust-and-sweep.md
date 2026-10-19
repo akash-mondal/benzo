@@ -23,7 +23,7 @@ Head design, 2026-10-19. Source: `benzo-sol/reports/pr-p7-b52-b53.md` (REQUEST C
 
 ## Rules
 
-- Work only in your own worktree: `git worktree add ../benzo-b54 -b b54-dust-sweep <main HEAD>`. Copy `vendor/` with `cp -R ../benzo/vendor .`; do not symlink it. Never `git add` `node_modules` or `vendor`, and before each commit `git diff --cached --summary | grep 120000` must print nothing.
+- Work only in your own worktree: `git worktree add ../benzo-b54 -b b54-dust-sweep ae541ac`. Copy `vendor/` with `cp -R ../benzo/vendor .`; do not symlink it. Never `git add` `node_modules` or `vendor`, and before each commit `git diff --cached --summary | grep 120000` must print nothing.
 - Offline only (stubs). Do not override the git identity. Commit `--no-verify` (R32). If the verify bundle changes, rebuild it and commit it with its sha file. `cargo build --release --locked` in `settle/` if you touch Rust. Commit after each item.
 - No mid-line `//` after code.
 - Build `tmp/b47-republish.mjs` before the b47 fold (R118). Run `npm run typecheck`, `check:structure`, `check:invariants`, `check:dist-require`, `npm run e2e`, the b44, b46, b47, b48, h10, h13, h14 and b53 folds, and the r77, r78 and r82 replays.
