@@ -14,6 +14,8 @@ import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestinati
 import {fetchVerifiedBeacon,publishedClient} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
 import {partyNote,reserveUnspent,walletSpendable} from "./deposits";
+// B54 (P3-2): the one candidate check on the non-custody path too (cli/host-derive.ts reserveCandidateVerdict).
+import {reserveCandidateVerdict} from "../cli/host-derive";
 import { vaultDir, pcztBin } from "../manifest/paths";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 // §11 H1: every vault use for this auction resolves to its own per-auction vault when it ran its own DKG.
@@ -105,6 +107,17 @@ async function check(ledger:Ledger,batch:number,candidate:string,name:string,ran
     return {...row,...obligation};
   });
   const expected=(await destinations(independentlyExpected,name,plan)).filter(o=>o.recipient),i=inspect(candidate,manifestNet());
+  // B54 (P3-2, Reviewer R round 5): the non-custody path pins the reserve-return candidate exactly as the
+  // host paths do (cli/host-derive.ts reserveCandidateVerdict) — before anything is signed. A candidate
+  // that carries change (or any other shape than the one-row sweep the row describes) is refused here;
+  // before this, check() accepted a change-carrying return candidate and the kept accounting then threw
+  // post-broadcast on every re-run (the settlement could never publish).
+  const returnRow=rows.find(o=>o.party==="reserve-return");
+  if(returnRow) {
+    const route0=read(`routing-${name}.json`);
+    const why=reserveCandidateVerdict(i,(route0 as any).reserve_return_ua,plan.reserve_return?.remaining_zats,returnRow.amount_zats);
+    if(why)throw Error(why);
+  }
   const outputs=i.outputs.filter((o:any)=>!o.is_change);
   requireThat(outputs.length===expected.length,"PCZT recipient count differs from result");
   const routed:boolean[]=[];
