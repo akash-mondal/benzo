@@ -7,14 +7,15 @@ import {execFileSync,spawnSync} from "node:child_process";
 import {appendFileSync,existsSync,mkdirSync,readFileSync,writeFileSync} from "node:fs";
 import path from "node:path";
 import {DatabaseSync} from "node:sqlite";
-import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord} from "../manifest/schema";
+import {hash,jsonBytes,QUICKNET,requireThat,verifyRecord,reserveReturnUaCommitment} from "../manifest/schema";
 import {checkCertificates,freezeStatement,validateWitnessSet,witnessSetHash,type WitnessSet} from "../witness";
 import {requireReserveOpening} from "../manifest/reserve";
 import {openSealedBid} from "../envelope/opening";
 import {decryptPublished,publishedClient,fetchVerifiedBeacon} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
 import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
-import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnAmount,reserveReturnOutstanding,paidByOwnLedger} from "./deposits";
+import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnOutstanding,paidByOwnLedger} from "./deposits";
+import {quoteSweep} from "./quote";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
 import {checkFrozen} from "../clear/merkle";
@@ -23,7 +24,7 @@ import {modeEntry,clientCommon as client} from "../clear/registry"; // design §
 import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
-import { vaultDir, scanBin } from "../manifest/paths";
+import { vaultDir, scanBin, pcztBin } from "../manifest/paths";
 import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
 import { minedHeight } from "../cli/host-chain";
 const root=repoRoot();
@@ -380,8 +381,9 @@ try {
   // planned as the last batch, alone, and ONLY when the auction owes NOTHING (settle/deposits.ts
   // reserveReturnOutstanding — the one shared gate, judged from this signer's own derivation plus the published
   // accounting). Vault value is FUNGIBLE (the wallet picks every batch's inputs), so the row's amount is
-  // value-based: it pays the vault's WHOLE unspent value minus the ZIP-317 fee of the one-row transaction that
-  // spends every unspent note (settle/deposits.ts reserveReturnAmount). A legacy manifest plans no row and says
+  // value-based: it pays the vault's WHOLE unspent value minus the fee the TOOL quotes for the one-row sweep
+  // that spends every unspent note (B52, P2-1: `benzo-pczt quote-sweep`, never a predicted fee). A legacy
+  // manifest plans no row and says
   // so with one line; while anything is owed, one waits line names the outstanding count — an unclaimed stray
   // delays the return indefinitely (the conservative choice, disclosed in docs/guide-operator.md).
   let reserve_return:{party:string;kind:"payout";amount_zats:string;remaining_zats:string;fee_zats:string}|null=null;
@@ -410,10 +412,27 @@ try {
     process.stderr.write("WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment\n");
   } else if(outstanding.length>0) {
     process.stderr.write(`reserve return waits: ${outstanding.length} outstanding (strays/balances/exceptions)\n`);
-  } else try {
-    const amount=reserveReturnAmount(notes as any);
-    if(amount.amount_zats!==null)reserve_return={party:"reserve-return",kind:"payout",amount_zats:amount.amount_zats,
-      remaining_zats:amount.total_zats,fee_zats:amount.fee_zats};
-  } catch(e) {process.stderr.write(`WARN reserve-return not planned: ${(e as Error).message}\n`)}
+  } else {
+    // B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md item 1): the row's amount and fee
+    // come from the TOOL's own quote of the sweep — `benzo-pczt quote-sweep` (settle/quote.ts), the same
+    // wallet and fee rule `create` uses — never from a prediction over the source count (the real fee is
+    // the ZIP-317 fee of the transaction's real per-pool action counts; a cross-pool vault's prediction was
+    // wrong and every host's build then died). The sweep's SOURCES are the vault's scanned unspent notes —
+    // whatever their address, vault value is fungible — and the quote sweeps every spendable one with no
+    // change output. B52 item 3 (Sapling): no vault address can receive Sapling (the deposit, fee-reserve,
+    // balance and change UAs are `benzo-pczt address`'s UnifiedAddressRequest::ORCHARD addresses, which
+    // carry no Sapling receiver); if a vault ever held a note the tool cannot spend, the quote refuses it
+    // and the waits line below names that true reason.
+    // When there is no quote (insufficient value, a note the tool cannot spend, or no pinned return UA) the
+    // row is NOT planned and one typed waits line names the true reason — the run still completes, exit 0,
+    // nothing broadcast. Never a crash.
+    const ua=typeof productConfig?.routing?.reserve_return_ua==="string"?productConfig.routing.reserve_return_ua as string:"";
+    const reason=!ua?"no reserve_return_ua is pinned in the operator config"
+      :reserveReturnUaCommitment(ua)!==m.reserve_return_ua_commitment?"the operator config's reserve_return_ua does not match the manifest reserve_return_ua_commitment"
+      :null;
+    const quote=reason!==null?{error:reason}:quoteSweep(pcztBin(root,state),vaultDir(state,id),ua,m.network);
+    if("error" in quote)process.stderr.write(`reserve return waits: the vault's value cannot be swept in one transaction (${quote.error})\n`);
+    else reserve_return={party:"reserve-return",kind:"payout",amount_zats:quote.amount_zats,remaining_zats:quote.input_zats,fee_zats:quote.fee_zats};
+  }
   process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(reserve_return?{reserve_return}:{}),...(m.bond!==undefined?{defaults,balance_refunds,...(bondVoid?{bond_void:true}:{})}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}
