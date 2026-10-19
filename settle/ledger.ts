@@ -207,11 +207,17 @@ export class Ledger {
     return this.atomic(()=> {
       const pending=this.db.prepare("SELECT id FROM batches WHERE height IS NULL AND state!='exception' ORDER BY id LIMIT 1").get() as {id:number}|undefined;
       if(pending)return {id:pending.id,outputs:this.rows().filter(o=>o.batch===pending.id&&o.state==="allocated")};
-      const outputs=this.db.prepare("SELECT * FROM obligations WHERE state='eligible' AND batch IS NULL ORDER BY party LIMIT ?").all(cap) as Row[];
-      if(!outputs.length)return null;
+      // B52 (H23, Reviewer R round 4 P2-2's note): the `reserve-return` row is NEVER allocated with other
+      // rows — it is its own batch, and it goes last. The check runs BEFORE the batch is committed: the old
+      // worker-side rule ran after allocate and threw mid-loop, leaving a permanently pending mixed batch
+      // every re-run resurfaced. Ordinary eligible rows are allocated first; only when none remain can the
+      // return be allocated, alone. B53 (P2-2): a row parked with its batch binding (batch IS NOT NULL) is never re-allocated.
+      const outputs=this.db.prepare("SELECT * FROM obligations WHERE state='eligible' AND batch IS NULL AND party!='reserve-return' ORDER BY party LIMIT ?").all(cap) as Row[];
+      const picked=outputs.length?outputs:(this.db.prepare("SELECT * FROM obligations WHERE state='eligible' AND batch IS NULL AND party='reserve-return'").all() as Row[]).slice(0,1);
+      if(!picked.length)return null;
       const id=Number(this.db.prepare("SELECT COALESCE(MAX(id),0)+1 AS id FROM batches").get()!.id);
       this.db.prepare("INSERT INTO batches(id) VALUES(?)").run(id);
-      for(const o of outputs)this.db.prepare("UPDATE obligations SET state='allocated',batch=? WHERE party=? AND state='eligible'").run(id,o.party);
+      for(const o of picked)this.db.prepare("UPDATE obligations SET state='allocated',batch=? WHERE party=? AND state='eligible'").run(id,o.party);
       return {id,outputs:this.rows().filter(o=>o.batch===id)};
     });
   }

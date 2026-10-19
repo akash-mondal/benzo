@@ -153,6 +153,12 @@ function hostDerivable():{rows:Set<string>;refused:Map<string,string>}|null {
       if(x.refused)refused.set(`${x.party}:${x.amount_zats}`,String(x.reason??"refused by the signer host"));
       else rows.add(`${x.party}:${x.amount_zats}`);
     }
+    // P3-4 (B52, Reviewer R round 4): `sign derivable`'s TOP-LEVEL refused_rows (the reserve-return refusal
+    // that is not a per-row tag) rides into the same refused map, keyed by party alone — so the reserve row
+    // parks with the host's true reason, never the generic "claimable through benzo claim-refund" (it is
+    // not claimable; it waits for the tool's sweep quote and the paid gate).
+    for(const name of (out.refused_rows??[]) as string[])if(typeof name==="string")
+      refused.set(name,String((out.refused_reasons??{})[name]??"refused by the signer host"));
     return {rows,refused};
   }
   return null;
@@ -330,7 +336,16 @@ async function worker(ledger:Ledger) {
   // B53 (P2-2): the rows of a mined batch parked for manual reconciliation carry its reason into the summary.
   const manualReason="manual reconciliation: pre-H3 two-pool batch (H2)";
   const manualReasons=new Map<string,string>();
-  const pinned:any[]=custody?planRows.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:listing!.rows.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:listing!.refused.get(`${o.party}:${o.amount_zats}`)??"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund"}):(await destinations(planRows,settings().signers[0],plan));
+  // B52 (H23): rows a pending mixed reserve-return batch carried are set aside as an exception with this
+  // reason and re-plan; the reason rides into the summary for any that stay parked.
+  const h23Reasons=new Map<string,string>();
+  // P3-4 (B52): a refusal rides by (party, amount) from the in-row tag or by party alone from the
+  // top-level refused_rows; the generic reason is only for a row no host named at all — and it is never
+  // "claimable" for the reserve-return row (it waits for the tool's quote and the paid gate).
+  const genericReason=(party:string)=>party==="reserve-return"
+    ?"the reserve-return row is not derivable on any signer host (the tool's sweep quote refused or no host answered); it waits for the paid gate — it is not claimable"
+    :"no signer host derives this row from its own data (claim or envelope missing or invalid); claimable through benzo claim-refund";
+  const pinned:any[]=custody?planRows.map((o:any)=>setAside.has(o.party)?{...o,reason:asideReason}:listing!.rows.has(`${o.party}:${o.amount_zats}`)?{...o,recipient:"host-derived"}:{...o,reason:listing!.refused.get(`${o.party}:${o.amount_zats}`)??listing!.refused.get(o.party)??genericReason(o.party)}):(await destinations(planRows,settings().signers[0],plan));
   for(const o of pinned.filter(o=>!o.recipient))console.error(`ERROR refund ${o.party} to the exception queue: ${o.reason}`);
   // Ruling R42 (F15): each refund row carries its backing note identities into the ledger (keyed by note
   // identity: one note backs at most one refund row across all row classes) — the shared derivation's rows.
@@ -395,8 +410,16 @@ async function worker(ledger:Ledger) {
   while((batch=ledger.allocate(isolate>0?1:settings().batch_cap))) {
     if(isolate>0)isolate--;
     requireThat(batch.outputs.length>0,"allocated batch has no payable obligations");
-    // B46 (H15): the reserve-return row is planned as the last batch, alone — never with an obligation row.
-    if(batch.outputs.some(o=>o.party==="reserve-return"))requireThat(batch.outputs.length===1,"the reserve-return row must be its own batch, alone");
+    // B52 (H23, Reviewer R round 4 P2-2's note): the reserve-return row must be its own batch — and the
+    // check runs BEFORE the batch is used, never after it was committed. settle/ledger.ts `allocate` keeps
+    // new batches unmixed (the return is allocated alone, last); a PENDING mixed batch already in the
+    // ledger (staged before this rule — every re-run resurfaced the old mid-loop throw) is set aside as an
+    // exception with its reason and its rows re-plan in this run. No throw, exit 0.
+    if(batch.outputs.some((o:any)=>o.party==="reserve-return")&&batch.outputs.length>1) {
+      console.error(`ERROR batch ${batch.id}: reserve-return mixed with rows (H23); the batch is set aside as an exception and its rows re-plan`);
+      for(const o of batch.outputs)h23Reasons.set(o.party,"reserve-return mixed with rows (H23)");
+      ledger.expire(batch.id);pinRows();ledger.eligible();continue;
+    }
     console.log(JSON.stringify({auction_id:id,batch:batch.id,allocated:batch.outputs.length}));
     const base=file(`batch-${batch.id}`),created=base+".pczt",proven=base+".proven.pczt",signed=base+".signed.pczt";
     let staged=ledger.batch(batch.id)!;
@@ -623,6 +646,7 @@ async function worker(ledger:Ledger) {
     for(const r of ledger.rows().filter(o=>o.batch===Number(b.id)))manualReasons.set(r.party,manualReason);
   const reasonOf=new Map<string,string>([...(plan.exceptions??[]),...pinned.filter((o:any)=>o.reason)].map((o:any)=>[o.party,String(o.reason)] as [string,string]));
   for(const [party,reason] of manualReasons)reasonOf.set(party,reason);
+  for(const [party,reason] of h23Reasons)if(!reasonOf.has(party))reasonOf.set(party,reason);
   const summaryRows=ledger.rows().map(r=>r.state==="exception"&&reasonOf.get(r.party)?{...r,reason:reasonOf.get(r.party)}:r);
   writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:summaryRows,batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan:summaryPlan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));
