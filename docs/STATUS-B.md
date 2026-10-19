@@ -229,6 +229,24 @@ sweep below and in `docs/evidence/phase-7/repro/b50-dirs-after.out`; identical b
 - `npx tsc -p tsconfig.json` → exit 0. The verify bundle changed with `api/public-auction.ts` and was
   rebuilt (`npm run build:verify`) and committed with `docs/verify-bundle.sha256`.
 
+### H6 — the receipt exact-key check runs on result-less (cancelled) settlements
+
+The check (`Object.keys(receipt) === {auction_id, party, txid, pool, output_index, amount_zats}`) moved
+from `accounting` (skipped without a result) into `receipt-attestation` (`api/public-auction.ts`), so it
+runs on every settlement, cancelled ones included. Proof (`tools/repro/b50-p2-sweep.ts` section `h6`; red
+`docs/evidence/phase-7/repro/b50-h6-before.out`, green `docs/evidence/phase-7/repro/b50-h6-after.out`): a
+real honest cancelled fixture — a result-less settlement whose stray deposit rows carry an owner-signed
+claim (the R42 per-row recipe: the fixture's own sealed-bid memo opens to the key that signed the claim,
+and the paying batch's two agreeing maps attest its memo hash) — is ACCEPTED on both legs; the same
+fixture's receipt carrying an extra key (`extra_key`), or a blob field (`memo_hex`), is ACCEPTED on the base
+tree (the two red checks) and REFUSED as `settlement receipt 0 shape` after. The three committed cancelled
+snapshots are listed with their standing (OBSERVE, identical before/after): each predates/omits the custody
+maps, so `claims` refuses its unattested stray memo today exactly as before B50 (pre-existing — a Question
+below).
+
+- `npx tsc -p tsconfig.json` → exit 0. The verify bundle was rebuilt again (`npm run build:verify`) and
+  committed with `docs/verify-bundle.sha256`.
+
 
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
 

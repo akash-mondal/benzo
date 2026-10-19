@@ -19156,6 +19156,7 @@ function checkPublicAuction(pub, opts = {}) {
       typeof r2.party === "string" && r2.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r2.txid)) && /^(sapling|orchard|ironwood)$/.test(String(r2.pool)) && Number.isSafeInteger(r2.output_index) && r2.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r2.amount_zats)),
       `settlement receipt ${i2} fields`
     );
+    for (const [i2, r2] of receipts.entries()) requireThat(Object.keys(r2).sort().join(",") === settlementKeys, `settlement receipt ${i2} shape`);
     requireThat(receipts.every((r2) => r2.auction_id === pub.manifest.auction_id), "a settlement receipt names another auction");
     requireThat(new Set(receipts.map((r2) => `${r2.txid}:${r2.pool}:${r2.output_index}`)).size === receipts.length, "two settlement receipts name the same output");
     {
@@ -19289,9 +19290,6 @@ function checkPublicAuction(pub, opts = {}) {
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    for (const [i2, r2] of receipts.entries()) {
-      requireThat(Object.keys(r2).sort().join(",") === settlementKeys, `settlement receipt ${i2} shape`);
-    }
     const expected = modeEntry(pub.manifestPacket).obligations(result, pub.settlement);
     for (const [party, amount] of expected) {
       const rs = receipts.filter((r2) => r2.party === party);

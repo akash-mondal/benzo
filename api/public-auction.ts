@@ -636,6 +636,11 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       typeof r.party === "string" && r.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r.txid)) && /^(sapling|orchard|ironwood)$/.test(String(r.pool)) &&
         Number.isSafeInteger(r.output_index) && r.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r.amount_zats)),
       `settlement receipt ${i} fields`);
+    // H6 (B50): the receipt exact-key check lives HERE, not in `accounting` — accounting is skipped on a
+    // result-less (cancelled) settlement, so before this a cancelled receipt could carry a smuggled field
+    // (a blob, a second amount) that only the pattern leak guard ever saw. Every receipt, on every
+    // document, now carries exactly {auction_id, party, txid, pool, output_index, amount_zats}.
+    for (const [i, r] of receipts.entries()) requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
     // R83 (Reviewer R R82-3): each receipt names this auction.
     requireThat(receipts.every(r => r.auction_id === pub.manifest.auction_id), "a settlement receipt names another auction");
     requireThat(new Set(receipts.map(r => `${r.txid}:${r.pool}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output"); // R81: per-pool action index
@@ -785,9 +790,6 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    for (const [i, r] of receipts.entries()) {
-      requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
-    }
     // Settlement obligations per mode live with the mode (obligationsModeA / obligationsModeB) via the registry;
     // gate CF bond-then-pay accounts balances and forfeits from the settlement's `defaults` list.
     const expected = modeEntry(pub.manifestPacket).obligations(result as ClearBody, pub.settlement);

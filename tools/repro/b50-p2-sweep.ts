@@ -43,9 +43,11 @@ import { checkPublicAuction, loadPublicAuction } from "../../api/public-auction"
 import { deriveClaimOpenings } from "../../cli/published-beacon";
 import { modeEntry } from "../../clear/registry";
 import { signApprovalMap, signOpensReport } from "../../witness";
+import { signStatement, ownerPublic } from "../../envelope";
+import { depositParty } from "../../settle/deposits";
 import { assertScratch } from "./scratch";
 import { makeStubs } from "./b47-world";
-import { buildAuction, fetchBeacon, needRealPczt, witnessPrivate, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, writePublicDir, type Fixture } from "./h-fixtures";
+import { buildAuction, fetchBeacon, needRealPczt, ownerPrivate, witnessPrivate, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, writePublicDir, type Fixture } from "./h-fixtures";
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 const part = process.argv[2], only = process.argv[3];
@@ -72,7 +74,8 @@ const wants = (section: string) => !only || only === section;
 // The in-process verdict — the same path `benzo verify` takes (its claim openings included), reduced to
 // ACCEPTED or REFUSED with the first errors (r78's verdict helper).
 const verdict = async (pub: any, opts: any = {}): Promise<string> => {
-  const claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
+  let claimOpenings = new Map<number, string | null>();
+  try { claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); } catch { /* fails closed in the claims check */ }
   const errors = checkPublicAuction(pub, { claimOpenings, ...opts }).filter((c: any) => c.error);
   return errors.length ? "REFUSED " + errors.map((c: any) => `${c.id}: ${String(c.error).slice(0, 90)}`).join(" | ") : "ACCEPTED";
 };
@@ -374,36 +377,84 @@ const run = async () => {
   // ---- H6: the receipt exact-key check runs on result-less (cancelled) settlements --------------------
   if (wants("h6")) {
     console.log("=== h6: the receipt exact-key check moves into receipt-attestation (cancelled settlements)");
-    const cancelledDocs = [
-      "docs/evidence/phase-5/live-regression-4876156/cli/cancelled.json",
-      "docs/evidence/phase-5/live-regression-7b4b0f9/cli/cancelled.json",
-      "docs/evidence/phase-6/rg/cli-auction/cli/cancelled.json",
-    ];
-    const asDir = (i: number) => {
-      const dir = path.join(ROOT, "tmp", "b50", `h6-cancelled-${i}`);
-      rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-      copyFileSync(path.join(ROOT, cancelledDocs[i]), path.join(dir, "auction.json"));
-      return dir;
+    // A real honest CANCELLED fixture: a result-less settlement whose stray deposit rows refund through
+    // owner-signed claims (the R42 per-row recipe — the fixture's own sealed-bid memos open to the owner
+    // keys that signed each claim, and the paying batch's two agreeing maps attest each memo hash).
+    const strayRows = fx.notes.map((n: any) => depositParty(n));
+    const memoHex = (i: number) => {
+      const ct = Buffer.from(fx.leaves[i].ciphertext_hex, "hex");
+      const memo = Buffer.alloc(512);
+      Buffer.from("ff424e5a01", "hex").copy(memo); memo.writeUInt16BE(ct.length, 5); ct.copy(memo, 7);
+      return memo.toString("hex");
     };
-    for (const [i, f] of cancelledDocs.entries()) {
-      const v = await verdict(loadPublicAuction(asDir(i)));
-      check(`h6-honest-cancelled-${i}-accepted`, v === "ACCEPTED", `${f}: ${v}`);
+    const claimFor = (i: number) => {
+      const party = strayRows[i], memo_hex = memoHex(i);
+      const claim_envelope_sha256 = hash(Buffer.from("b50-cancelled-claim-" + party));
+      const owner = { private_hex: ownerPrivate(String(i)), public_hex: ownerPublic(ownerPrivate(String(i))) };
+      const owner_sig = signStatement(owner, { kind: "claim-refund", auction_id: fx.id, party, claim_envelope_sha256 }) as string;
+      return { party, claim_envelope_sha256, owner_sig, memo_hex, memo_sha256: hash(Buffer.from(memo_hex, "hex")) };
+    };
+    const claim0 = claimFor(0);
+    const cancelledSettlement = (mutate: (s: any) => void = () => {}) => {
+      const maps = [0, 1].map(w => signApprovalMap({
+        auction_id: fx.id, batch: 1, txid: TX1, outputs: [{ party: claim0.party, output_index: 0 }],
+        defaults: [], balance_refunds: [], strays: [{ party: claim0.party, memo_sha256: claim0.memo_sha256 }],
+      } as any, witnessPrivate(String(w))));
+      const s: any = {
+        rows: [
+          { party: claim0.party, kind: "refund", amount_zats: "500000", state: "paid", batch: 1, txid: TX1, output_index: 0, pool: "ironwood" },
+          { party: strayRows[1], kind: "refund", amount_zats: "500000", state: "exception" },
+        ],
+        receipts: [{ auction_id: fx.id, party: claim0.party, txid: TX1, pool: "ironwood", output_index: 0, amount_zats: "500000" }],
+        ignored: [], approval_maps: maps,
+      };
+      mutate(s);
+      return s;
+    };
+    const writeCancelled = (dir: string, settlement: any) => {
+      rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
+      const doc: any = {
+        version: 1, auction_id: fx.id, signer: fx.signer, manifest: fx.manifestPacket, state: "CANCELLED",
+        receipts: fx.receipts, frozen: fx.frozen, opened: fx.opened, beacon: fx.beacon,
+        witness_set: fx.witnessSet, witness_cert: fx.witnessCert, envelopes: fx.envelopes,
+        claims: [{ party: claim0.party, claim_envelope_sha256: claim0.claim_envelope_sha256, owner_sig: claim0.owner_sig, memo_hex: claim0.memo_hex }],
+        settlement,
+      };
+      writeFileSync(path.join(dir, "auction.json"), jsonBytes(doc));
+      writeFileSync(path.join(dir, "manifest.json"), jsonBytes(fx.manifestPacket));
+    };
+    const cdir = path.join(ROOT, "tmp", "b50", "h6-public");
+    {
+      writeCancelled(cdir, cancelledSettlement());
+      const v = await verdict(loadPublicAuction(cdir));
+      check("h6-honest-cancelled-accepted", v === "ACCEPTED", `the honest cancelled settlement (stray claim, two agreeing maps): ${v}`);
     }
     {
-      const pub = loadPublicAuction(asDir(1));
-      const s = JSON.parse(JSON.stringify(pub.settlement));
-      s.receipts[0].extra_key = "a smuggled field";
-      const v = await verdict({ ...pub, settlement: s });
-      const refused = /receipt/.test(v) && v.startsWith("REFUSED");
+      writeCancelled(cdir, cancelledSettlement((s) => { s.receipts[0].extra_key = "a smuggled field"; }));
+      const v = await verdict(loadPublicAuction(cdir));
+      const refused = /receipt-attestation/.test(v) && /shape/.test(v);
       check("h6-cancelled-receipt-extra-key-refused", refused, `a cancelled receipt carrying an extra key: ${v}`);
     }
     {
-      const pub = loadPublicAuction(asDir(2));
-      const s = JSON.parse(JSON.stringify(pub.settlement));
-      s.receipts[1].memo_hex = "aGVsbG8gd29ybGQ=";
-      const v = await verdict({ ...pub, settlement: s });
-      const refused = /receipt/.test(v) && v.startsWith("REFUSED");
+      writeCancelled(cdir, cancelledSettlement((s) => { s.receipts[0].memo_hex = "aGVsbG8gd29ybGQ="; }));
+      const v = await verdict(loadPublicAuction(cdir));
+      const refused = /receipt-attestation/.test(v) && /shape/.test(v);
       check("h6-cancelled-receipt-blob-field-refused", refused, `a cancelled receipt carrying a blob field: ${v}`);
+    }
+    // The committed cancelled snapshots, listed with their standing verdicts (before/after identical): each
+    // carries a stray claim whose per-row map attestation is not in its own doc (pre-existing — the run
+    // published no custody maps), so `claims` refuses it today and did so before B50.
+    for (const f of [
+      "docs/evidence/phase-5/live-regression-4876156/cli/cancelled.json",
+      "docs/evidence/phase-5/live-regression-7b4b0f9/cli/cancelled.json",
+      "docs/evidence/phase-6/rg/cli-auction/cli/cancelled.json",
+    ]) {
+      const d2 = path.join(ROOT, "tmp", "b50", "h6-committed-" + f.replace(/\W/g, "_"));
+      rmSync(d2, { recursive: true, force: true }); mkdirSync(d2, { recursive: true });
+      copyFileSync(path.join(ROOT, f), path.join(d2, "auction.json"));
+      let v: string;
+      try { v = await verdict(loadPublicAuction(d2)); } catch (e) { v = `THREW ${(e as Error).message.slice(0, 100)}`; }
+      console.log(`OBSERVE committed cancelled ${f}: ${v}`);
     }
   }
 
