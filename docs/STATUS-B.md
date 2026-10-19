@@ -62,6 +62,10 @@ Status block (every command and its result; updated per item):
   (new digest `ceae69fd8b7545858daf42cd9ecb10a6a7ea8e3d41c463b26e1222aab849e60d`); `npm run check:bundle` —
   OK; the r77 (`honest: ACCEPTED`), r78 (`honest (maps): ACCEPTED`) and r82 replays stay green on the
   committed evidence.
+- Item 6 (P3-6, `adapters/zilkroad.ts` comment + the H7 hardening row): comment-only — no behaviour
+  changed; the comment names the published-receipt requirement in `claimBody` as the load-bearing guard for
+  H7's unattested zero-receipt defaults. `npm run typecheck` — OK. No red/green (documentation only; the
+  guard it names is unchanged code, pinned by the existing claim-path folds).
 
 ### Questions
 
