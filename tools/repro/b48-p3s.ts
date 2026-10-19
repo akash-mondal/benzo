@@ -60,6 +60,13 @@ const hostEnv = (state: string) => ({ BNZ_STATE_DIR: state, BNZ_PCZT_BIN: path.j
 
 const beacon = await fetchBeacon(32704232);
 const fixture: Fixture = await buildAuction({ beacon, commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+// B52 (P3-8c): the stub wallet now charges the real ZIP-317 fee (per pool, max(spends, outputs), each
+// bundle padded to its 2-action floor), so these worlds carry one fee-slack note — at a NON-deposit
+// address, so it is never a stray or an obligation; it only funds the wallet's fees, as the live fee
+// reserve does.
+fixture.notes.push({ txid: createHash("sha256").update("b48-fee-slack").digest("hex"), height: 90100, pool: "ironwood",
+  address: "utest1b48feeslackaddress0000000000000000000000000000000000000", diversifier_index: "20", action_index: 0,
+  value_zats: 30000, memo_hex: null, spent_in_txid: null });
 check("fixture-seller-payout", /^[1-9][0-9]*$/.test(fixture.payout),
   `the fixture result owes the seller ${fixture.payout} zats, so the seller-row cases are not vacuous`);
 

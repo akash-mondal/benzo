@@ -1014,7 +1014,12 @@ async function red51() {
   console.log("=== red (g) on base bundles (a107447): the H19 preflight double-counts the in-flight batch (P2-2)");
   const w = writeWorld("g-base", fx, { root: BASE51, benzo: BASE51_BENZO, feeReserve: 60000 });
   const seeded = seedBroadcastUnconfirmed(w);
-  const demanded = w.obligationZats + Math.max(Math.ceil(w.obligationZats / 10), 5000);
+  // The base's pre-B51 preflight formula EXACTLY (settle/cli.ts at a107447): the obligation total plus
+  // 5,000 x (spendable notes + unpaid rows + remaining batches) minus the spendable value, plus the
+  // pre-R109 margin. The seeded world's spendable value is the mined batch's change note (30,000 zats —
+  // the wallet's real 30,000 fee under B52's fee-aware stubs; the bound's 7 fee slots still expect 35,000).
+  const baseShortfall = w.obligationZats + 5000 * (1 + w.obligationRows.length + 1) - seeded.change;
+  const demanded = baseShortfall + Math.max(Math.ceil(baseShortfall / 10), 5000);
   const g = runSettle(w);
   console.log(`OBSERVE g-red exit=${g.code}`);
   console.log((g.err || g.out).trim().split("\n").map(l => "  | " + l).join("\n"));

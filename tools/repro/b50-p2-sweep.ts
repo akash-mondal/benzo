@@ -239,7 +239,12 @@ const run = async () => {
     const hostState = (name: string, pools: boolean) => {
       const st = path.join(ROOT, "tmp", "b50", `h3-state-${name}`);
       rmSync(st, { recursive: true, force: true });
-      writeHostState(st, fx, REAL_PCZT);
+      // B52 (P3-8c): the stub wallet charges the real ZIP-317 fee now (per pool, max(spends, outputs),
+      // each bundle padded to its 2-action floor), so the host state carries one fee-slack note — at a
+      // NON-deposit address, so it is never a stray or an obligation; it only funds the wallet's fees.
+      writeHostState(st, { ...fx, notes: [...fx.notes, { txid: hash("b50-h3-fee-slack"), height: 90100, pool: "ironwood",
+        address: "utest1b50h3feeslackaddress00000000000000000000000000000000000", diversifier_index: "20", action_index: 0,
+        value_zats: 30000, memo_hex: null, spent_in_txid: null }] }, REAL_PCZT);
       const fix = JSON.parse(readFileSync(path.join(st, "fixture.json"), "utf8"));
       if (pools) fix.pool_by_amount = poolByAmount;
       writeFileSync(path.join(st, "fixture.json"), JSON.stringify(fix));

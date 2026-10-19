@@ -1060,6 +1060,16 @@ if (part === "before") {
     check("k4-honest-still-verifies", honest.code === 0 && /^OK accounting-strays$/m.test(honest.out),
       `the honest published result still verifies (exit ${honest.code})`);
   }
+  console.log("=== B52 (k5): the real benzo-pczt quote-sweep — a fixture wallet cannot exist offline (STATUS-B)");
+  {
+    // The design asks for one real-tool case "if the real benzo-pczt can run quote-sweep offline against a
+    // fixture wallet". It cannot: a zcash_client_sqlite wallet only holds notes after a lightwalletd sync,
+    // which is forbidden offline. What CAN be pinned offline is the shipped binary itself: the command
+    // exists at the design's flags and surfaces the tool's own error (the typed waits line's reason source).
+    const r = spawnSync(REAL_PCZT, ["quote-sweep", "--wallet", path.join(WORK, "no-such-wallet"), "--to", UA_ORCHARD, "--network", "test"], { encoding: "utf8" });
+    check("k5-real-tool-surface", r.status === 1 && /unable to open database file/.test(String(r.stderr ?? "")),
+      `the real quote-sweep (settle/target/release/benzo-pczt) refuses a wallet it cannot open with its own error (exit ${r.status}): ${String(r.stderr ?? "").trim().split("\n").at(-1)?.slice(0, 120)}`);
+  }
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
 }
