@@ -1,0 +1,24 @@
+commit 167550c35f7aaecfe545d94d8809fec84b6caee1 (working tree not clean at run time)
+utc 2026-10-19T05:18:51.426Z
+command node tmp/b50.mjs after h5 (tools/repro/b50-p2-sweep.ts)
+tree M api/public-auction.ts
+tree  M tools/repro/b50-p2-sweep.ts
+tree ?? docs/evidence/phase-7/repro/b50-h5-after.out
+tree ?? node_modules
+tree ?? vendor
+PASS fixture-seller-payout the fixture result owes the seller 15000 zats
+PASS fixture-obligations the fixture owes leaf:0:1000000, leaf:1:1000000, leaf:2:985000, seller:15000
+=== h5: batch proofs/inspect/signing hold their exact shapes
+PASS h5-honest-doc-accepted the committed launch-r34 doc: ACCEPTED
+PASS h5-proofs-shape-accepted a batch carrying the exact proofs shape ({height, raw_hash}): ACCEPTED
+PASS h5-signing-blob-refused a blob in place of the signing object: REFUSED receipt-attestation: refused: settlement batch 0 signing is not an object
+PASS h5-signing-extra-key-refused an extra key in signing: REFUSED receipt-attestation: refused: settlement batch 0 signing.leak is not a documented key
+PASS h5-signing-field-blob-refused a blob in place of signing.sighash: REFUSED receipt-attestation: refused: settlement batch 0 signing.sighash is not 64-hex
+PASS h5-inspect-blob-refused a blob in place of the inspect object: REFUSED receipt-attestation: refused: settlement batch 0 inspect is not an object
+PASS h5-inspect-extra-key-refused an extra key in inspect: REFUSED receipt-attestation: refused: settlement batch 0 inspect.encoded_payload is not a documented key
+PASS h5-inspect-field-blob-refused a blob in place of inspect.fee_zats: REFUSED receipt-attestation: refused: settlement batch 0 inspect.fee_zats is not a non-negative integer
+PASS h5-inspect-wrong-type-refused a string in place of inspect.actions: REFUSED receipt-attestation: refused: settlement batch 0 inspect.actions is not a non-negative integer
+PASS h5-inspect-output-extra-key-refused an extra key in an inspect output: REFUSED receipt-attestation: refused: settlement batch 0 inspect.outputs[0].recipient is not a documented key
+PASS h5-proofs-blob-refused a blob in place of the proofs list: REFUSED receipt-attestation: refused: settlement batch 0 proofs is not a list
+PASS h5-proofs-entry-blob-refused a blob in place of proofs[0].height: REFUSED receipt-attestation: refused: settlement batch 0 proofs[0].height is not a non-negative integer
+RESULT PASS

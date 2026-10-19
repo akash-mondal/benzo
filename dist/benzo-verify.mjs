@@ -19179,6 +19179,84 @@ function checkPublicAuction(pub, opts = {}) {
       for (const [i2, b2] of (pub.settlement.batches ?? []).entries()) {
         requireThat(b2 && typeof b2 === "object" && Object.keys(b2).every((k2) => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing", "proofs"].includes(k2)), `settlement batch ${i2} keys`);
         requireThat(nat(b2.id) && (b2.pczt_hash == null || hex64(b2.pczt_hash)) && (b2.txid == null || hex64(b2.txid)) && (b2.height == null || nat(b2.height)) && (b2.state === void 0 || word(b2.state)), `settlement batch ${i2} values`);
+        {
+          const closed = (what, v2, required, optional = []) => {
+            requireThat(v2 && typeof v2 === "object" && !Array.isArray(v2), `${what} is not an object`);
+            for (const k2 of Object.keys(v2)) requireThat(required.includes(k2) || optional.includes(k2), `${what}.${k2} is not a documented key`);
+            for (const k2 of required) requireThat(Object.keys(v2).includes(k2), `${what}.${k2} is missing`);
+          };
+          const hexLen = (what, v2, n2) => requireThat(typeof v2 === "string" && v2.length === n2 && /^[0-9a-f]+$/.test(v2), `${what} is not ${n2}-hex`);
+          const hexShort = (what, v2) => requireThat(typeof v2 === "string" && v2.length <= 128 && /^[0-9a-f]*$/.test(v2), `${what} is not hex`);
+          const at2 = (what, v2) => requireThat(nat(v2), `${what} is not a non-negative integer`);
+          const poolName = (what, v2) => requireThat(v2 === "sapling" || v2 === "orchard" || v2 === "ironwood", `${what} is not a pool name`);
+          const amountStr = (what, v2) => requireThat(typeof v2 === "string" && /^[0-9]+$/.test(v2), `${what} is not a decimal amount`);
+          const inspect = b2.inspect;
+          if (inspect !== null && inspect !== void 0) {
+            closed(
+              `settlement batch ${i2} inspect`,
+              inspect,
+              ["consensus_branch_id", "expiry_height", "fee_zats", "input_zats", "inputs", "output_zats", "outputs", "shielded_sighash", "tx_version"],
+              ["actions", "randomizers", "txid"]
+            );
+            hexLen(`settlement batch ${i2} inspect.consensus_branch_id`, inspect.consensus_branch_id, 8);
+            hexLen(`settlement batch ${i2} inspect.shielded_sighash`, inspect.shielded_sighash, 64);
+            for (const k2 of ["expiry_height", "fee_zats", "input_zats", "output_zats", "tx_version", "actions"]) if (inspect[k2] !== void 0) at2(`settlement batch ${i2} inspect.${k2}`, inspect[k2]);
+            if (inspect.txid !== void 0) hexLen(`settlement batch ${i2} inspect.txid`, inspect.txid, 64);
+            requireThat(Array.isArray(inspect.inputs), `settlement batch ${i2} inspect.inputs is not a list`);
+            for (const [j2, x2] of inspect.inputs.entries()) {
+              closed(`settlement batch ${i2} inspect.inputs[${j2}]`, x2, ["index", "pool", "value_zats"]);
+              at2(`settlement batch ${i2} inspect.inputs[${j2}].index`, x2.index);
+              poolName(`settlement batch ${i2} inspect.inputs[${j2}].pool`, x2.pool);
+              at2(`settlement batch ${i2} inspect.inputs[${j2}].value_zats`, x2.value_zats);
+            }
+            requireThat(Array.isArray(inspect.outputs), `settlement batch ${i2} inspect.outputs is not a list`);
+            for (const [j2, x2] of inspect.outputs.entries()) {
+              closed(`settlement batch ${i2} inspect.outputs[${j2}]`, x2, ["amount_zats", "index", "is_change", "pool"], ["matches_pinned_routing", "recipient_hash", "redacted"]);
+              amountStr(`settlement batch ${i2} inspect.outputs[${j2}].amount_zats`, x2.amount_zats);
+              at2(`settlement batch ${i2} inspect.outputs[${j2}].index`, x2.index);
+              poolName(`settlement batch ${i2} inspect.outputs[${j2}].pool`, x2.pool);
+              requireThat(typeof x2.is_change === "boolean", `settlement batch ${i2} inspect.outputs[${j2}].is_change is not a boolean`);
+              if (x2.matches_pinned_routing !== void 0) requireThat(typeof x2.matches_pinned_routing === "boolean", `settlement batch ${i2} inspect.outputs[${j2}].matches_pinned_routing is not a boolean`);
+              if (x2.recipient_hash !== void 0) hexLen(`settlement batch ${i2} inspect.outputs[${j2}].recipient_hash`, x2.recipient_hash, 64);
+              if (x2.redacted !== void 0) requireThat(x2.redacted === true, `settlement batch ${i2} inspect.outputs[${j2}].redacted is not true`);
+            }
+            if (inspect.randomizers !== void 0) {
+              requireThat(Array.isArray(inspect.randomizers), `settlement batch ${i2} inspect.randomizers is not a list`);
+              for (const [j2, x2] of inspect.randomizers.entries()) {
+                closed(`settlement batch ${i2} inspect.randomizers[${j2}]`, x2, ["pool", "index", "alpha"]);
+                poolName(`settlement batch ${i2} inspect.randomizers[${j2}].pool`, x2.pool);
+                at2(`settlement batch ${i2} inspect.randomizers[${j2}].index`, x2.index);
+                hexLen(`settlement batch ${i2} inspect.randomizers[${j2}].alpha`, x2.alpha, 64);
+              }
+            }
+          }
+          const signing = b2.signing;
+          if (signing !== null && signing !== void 0) {
+            closed(`settlement batch ${i2} signing`, signing, ["sessions", "sighash"]);
+            hexLen(`settlement batch ${i2} signing.sighash`, signing.sighash, 64);
+            requireThat(Array.isArray(signing.sessions), `settlement batch ${i2} signing.sessions is not a list`);
+            for (const [j2, s2] of signing.sessions.entries()) {
+              closed(`settlement batch ${i2} signing.sessions[${j2}]`, s2, ["coordinator_started_at", "participantsSaw", "randomizer", "sighash", "signature", "signers"], ["duration_ms"]);
+              at2(`settlement batch ${i2} signing.sessions[${j2}].coordinator_started_at`, s2.coordinator_started_at);
+              if (s2.duration_ms !== void 0) at2(`settlement batch ${i2} signing.sessions[${j2}].duration_ms`, s2.duration_ms);
+              hexLen(`settlement batch ${i2} signing.sessions[${j2}].sighash`, s2.sighash, 64);
+              hexLen(`settlement batch ${i2} signing.sessions[${j2}].signature`, s2.signature, 128);
+              hexShort(`settlement batch ${i2} signing.sessions[${j2}].randomizer`, s2.randomizer);
+              requireThat(Array.isArray(s2.signers) && s2.signers.length > 0, `settlement batch ${i2} signing.sessions[${j2}].signers is not a non-empty list`);
+              for (const [k2, x2] of s2.signers.entries()) requireThat(typeof x2 === "string" && /^[0-9a-f]{64,128}$/.test(x2), `settlement batch ${i2} signing.sessions[${j2}].signers[${k2}] is not hex`);
+              requireThat(Array.isArray(s2.participantsSaw), `settlement batch ${i2} signing.sessions[${j2}].participantsSaw is not a list`);
+              for (const [k2, x2] of s2.participantsSaw.entries()) hexShort(`settlement batch ${i2} signing.sessions[${j2}].participantsSaw[${k2}]`, x2);
+            }
+          }
+          if (b2.proofs !== null && b2.proofs !== void 0) {
+            requireThat(Array.isArray(b2.proofs), `settlement batch ${i2} proofs is not a list`);
+            for (const [j2, p2] of b2.proofs.entries()) {
+              closed(`settlement batch ${i2} proofs[${j2}]`, p2, ["height", "raw_hash"]);
+              at2(`settlement batch ${i2} proofs[${j2}].height`, p2.height);
+              hexLen(`settlement batch ${i2} proofs[${j2}].raw_hash`, p2.raw_hash, 64);
+            }
+          }
+        }
       }
     }
     const published = pub.settlement.approval_maps ?? [];

@@ -669,6 +669,82 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(b && typeof b === "object" && Object.keys(b).every(k => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing", "proofs"].includes(k)), `settlement batch ${i} keys`);
       // R80 (Reviewer R N-3): a batch set aside before staging (R46, ledger.expire) has no PCZT yet — pczt_hash null.
       requireThat(nat(b.id) && (b.pczt_hash == null || hex64(b.pczt_hash)) && (b.txid == null || hex64(b.txid)) && (b.height == null || nat(b.height)) && (b.state === undefined || word(b.state)), `settlement batch ${i} values`);
+      // H5 (B50, R82-2): batch `proofs`, `inspect` and `signing` hold their EXACT shapes — the records the
+      // workers actually wrote (settle/cli.ts writes `inspect`/`signing`; the earlier workers also `proofs`),
+      // each key set closed and every value typed. Before this, a blob in place of any of the three was seen
+      // only by the pattern leak guard. The variants below are exactly the shapes across the committed
+      // published evidence (recipient_hash the earliest redaction, matches_pinned_routing the local build's
+      // routing bit, redacted the custody redaction, actions/txid/randomizers added over time, duration_ms
+      // optional in the earliest signing sessions).
+      {
+        const closed = (what: string, v: any, required: string[], optional: string[] = []) => {
+          requireThat(v && typeof v === "object" && !Array.isArray(v), `${what} is not an object`);
+          for (const k of Object.keys(v)) requireThat(required.includes(k) || optional.includes(k), `${what}.${k} is not a documented key`);
+          for (const k of required) requireThat(Object.keys(v).includes(k), `${what}.${k} is missing`);
+        };
+        const hexLen = (what: string, v: unknown, n: number) => requireThat(typeof v === "string" && v.length === n && /^[0-9a-f]+$/.test(v), `${what} is not ${n}-hex`);
+        const hexShort = (what: string, v: unknown) => requireThat(typeof v === "string" && v.length <= 128 && /^[0-9a-f]*$/.test(v), `${what} is not hex`);
+        const at = (what: string, v: unknown) => requireThat(nat(v), `${what} is not a non-negative integer`);
+        const poolName = (what: string, v: unknown) => requireThat(v === "sapling" || v === "orchard" || v === "ironwood", `${what} is not a pool name`);
+        const amountStr = (what: string, v: unknown) => requireThat(typeof v === "string" && /^[0-9]+$/.test(v), `${what} is not a decimal amount`);
+        const inspect = b.inspect as any;
+        if (inspect !== null && inspect !== undefined) {
+          closed(`settlement batch ${i} inspect`, inspect,
+            ["consensus_branch_id", "expiry_height", "fee_zats", "input_zats", "inputs", "output_zats", "outputs", "shielded_sighash", "tx_version"],
+            ["actions", "randomizers", "txid"]);
+          hexLen(`settlement batch ${i} inspect.consensus_branch_id`, inspect.consensus_branch_id, 8);
+          hexLen(`settlement batch ${i} inspect.shielded_sighash`, inspect.shielded_sighash, 64);
+          for (const k of ["expiry_height", "fee_zats", "input_zats", "output_zats", "tx_version", "actions"]) if (inspect[k] !== undefined) at(`settlement batch ${i} inspect.${k}`, inspect[k]);
+          if (inspect.txid !== undefined) hexLen(`settlement batch ${i} inspect.txid`, inspect.txid, 64);
+          requireThat(Array.isArray(inspect.inputs), `settlement batch ${i} inspect.inputs is not a list`);
+          for (const [j, x] of inspect.inputs.entries()) {
+            closed(`settlement batch ${i} inspect.inputs[${j}]`, x, ["index", "pool", "value_zats"]);
+            at(`settlement batch ${i} inspect.inputs[${j}].index`, x.index); poolName(`settlement batch ${i} inspect.inputs[${j}].pool`, x.pool); at(`settlement batch ${i} inspect.inputs[${j}].value_zats`, x.value_zats);
+          }
+          requireThat(Array.isArray(inspect.outputs), `settlement batch ${i} inspect.outputs is not a list`);
+          for (const [j, x] of inspect.outputs.entries()) {
+            closed(`settlement batch ${i} inspect.outputs[${j}]`, x, ["amount_zats", "index", "is_change", "pool"], ["matches_pinned_routing", "recipient_hash", "redacted"]);
+            amountStr(`settlement batch ${i} inspect.outputs[${j}].amount_zats`, x.amount_zats);
+            at(`settlement batch ${i} inspect.outputs[${j}].index`, x.index); poolName(`settlement batch ${i} inspect.outputs[${j}].pool`, x.pool);
+            requireThat(typeof x.is_change === "boolean", `settlement batch ${i} inspect.outputs[${j}].is_change is not a boolean`);
+            if (x.matches_pinned_routing !== undefined) requireThat(typeof x.matches_pinned_routing === "boolean", `settlement batch ${i} inspect.outputs[${j}].matches_pinned_routing is not a boolean`);
+            if (x.recipient_hash !== undefined) hexLen(`settlement batch ${i} inspect.outputs[${j}].recipient_hash`, x.recipient_hash, 64);
+            if (x.redacted !== undefined) requireThat(x.redacted === true, `settlement batch ${i} inspect.outputs[${j}].redacted is not true`);
+          }
+          if (inspect.randomizers !== undefined) {
+            requireThat(Array.isArray(inspect.randomizers), `settlement batch ${i} inspect.randomizers is not a list`);
+            for (const [j, x] of inspect.randomizers.entries()) {
+              closed(`settlement batch ${i} inspect.randomizers[${j}]`, x, ["pool", "index", "alpha"]);
+              poolName(`settlement batch ${i} inspect.randomizers[${j}].pool`, x.pool); at(`settlement batch ${i} inspect.randomizers[${j}].index`, x.index); hexLen(`settlement batch ${i} inspect.randomizers[${j}].alpha`, x.alpha, 64);
+            }
+          }
+        }
+        const signing = b.signing as any;
+        if (signing !== null && signing !== undefined) {
+          closed(`settlement batch ${i} signing`, signing, ["sessions", "sighash"]);
+          hexLen(`settlement batch ${i} signing.sighash`, signing.sighash, 64);
+          requireThat(Array.isArray(signing.sessions), `settlement batch ${i} signing.sessions is not a list`);
+          for (const [j, s] of signing.sessions.entries()) {
+            closed(`settlement batch ${i} signing.sessions[${j}]`, s, ["coordinator_started_at", "participantsSaw", "randomizer", "sighash", "signature", "signers"], ["duration_ms"]);
+            at(`settlement batch ${i} signing.sessions[${j}].coordinator_started_at`, s.coordinator_started_at);
+            if (s.duration_ms !== undefined) at(`settlement batch ${i} signing.sessions[${j}].duration_ms`, s.duration_ms);
+            hexLen(`settlement batch ${i} signing.sessions[${j}].sighash`, s.sighash, 64);
+            hexLen(`settlement batch ${i} signing.sessions[${j}].signature`, s.signature, 128);
+            hexShort(`settlement batch ${i} signing.sessions[${j}].randomizer`, s.randomizer);
+            requireThat(Array.isArray(s.signers) && s.signers.length > 0, `settlement batch ${i} signing.sessions[${j}].signers is not a non-empty list`);
+            for (const [k, x] of s.signers.entries()) requireThat(typeof x === "string" && /^[0-9a-f]{64,128}$/.test(x), `settlement batch ${i} signing.sessions[${j}].signers[${k}] is not hex`);
+            requireThat(Array.isArray(s.participantsSaw), `settlement batch ${i} signing.sessions[${j}].participantsSaw is not a list`);
+            for (const [k, x] of s.participantsSaw.entries()) hexShort(`settlement batch ${i} signing.sessions[${j}].participantsSaw[${k}]`, x);
+          }
+        }
+        if (b.proofs !== null && b.proofs !== undefined) {
+          requireThat(Array.isArray(b.proofs), `settlement batch ${i} proofs is not a list`);
+          for (const [j, p] of b.proofs.entries()) {
+            closed(`settlement batch ${i} proofs[${j}]`, p, ["height", "raw_hash"]);
+            at(`settlement batch ${i} proofs[${j}].height`, p.height); hexLen(`settlement batch ${i} proofs[${j}].raw_hash`, p.raw_hash, 64);
+          }
+        }
+      }
     }
     }
     const published = pub.settlement.approval_maps ?? [];

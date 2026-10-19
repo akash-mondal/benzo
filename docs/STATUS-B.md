@@ -210,6 +210,25 @@ paid). Controls green on both legs.
 - `npx tsc -p tsconfig.json` → exit 0; `npm run build:settle` + `npm run build:cli` rebuilt (no api/ change,
   so the verify bundle is untouched by this item).
 
+### H5 — exact shapes for batch `proofs`, `inspect` and `signing`
+
+`api/public-auction.ts` (receipt-attestation's batch block) now holds the three worker-written objects to
+their exact shapes — closed key sets and typed values, derived from what the workers actually write
+(`settle/cli.ts` inspect/signing; the earlier workers' `proofs`) and matched against every committed
+published variant (recipient_hash / matches_pinned_routing / redacted per output; actions/txid/randomizers
+optional in inspect; duration_ms optional per signing session). Proof (`tools/repro/b50-p2-sweep.ts` section
+`h5`; red `docs/evidence/phase-7/repro/b50-h5-before.out`, green `docs/evidence/phase-7/repro/b50-h5-after.out`):
+on the committed `launch-r34/launch-cold` doc, a blob in place of `signing`/`inspect`/`proofs`, an extra key
+in `signing`/`inspect`/an inspect output, a blob in place of `signing.sighash`, `inspect.fee_zats`,
+`proofs[0].height`, and a string in place of `inspect.actions` are all ACCEPTED on the base tree (the ten
+red checks — only the leak guard looked at them) and REFUSED with their own shape errors after. Controls
+(the untouched committed doc; a batch carrying the exact `{height, raw_hash}` proofs shape) ACCEPTED on
+both. Every committed published dir keeps its verdict (the `dirs` sweep, listed one by one in the batch
+sweep below and in `docs/evidence/phase-7/repro/b50-dirs-after.out`; identical before/after B50).
+
+- `npx tsc -p tsconfig.json` → exit 0. The verify bundle changed with `api/public-auction.ts` and was
+  rebuilt (`npm run build:verify`) and committed with `docs/verify-bundle.sha256`.
+
 
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
 

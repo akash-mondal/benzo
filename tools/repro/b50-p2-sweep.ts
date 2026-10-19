@@ -344,14 +344,13 @@ const run = async () => {
   if (wants("h5")) {
     console.log("=== h5: batch proofs/inspect/signing hold their exact shapes");
     const real = path.join(ROOT, "docs/evidence/phase-6/markets/launch-r34/launch-cold");
-    const legacy = path.join(ROOT, "docs/evidence/phase-6/rg/settle-crash/settle/main");
     {
       const v = await verdict(loadPublicAuction(real));
       check("h5-honest-doc-accepted", v === "ACCEPTED", `the committed launch-r34 doc: ${v}`);
     }
     {
-      const v = await verdict(loadPublicAuction(legacy));
-      check("h5-honest-legacy-proofs-accepted", v === "ACCEPTED", `the committed settle-crash doc (carries proofs): ${v}`);
+      const v = await verdict(tamper(real, (s) => { s.batches[0].proofs = [{ height: 4428068, raw_hash: "ab".repeat(32) }]; }));
+      check("h5-proofs-shape-accepted", v === "ACCEPTED", `a batch carrying the exact proofs shape ({height, raw_hash}): ${v}`);
     }
     const cases: [string, string, (s: any) => void][] = [
       ["h5-signing-blob-refused", "a blob in place of the signing object", (s) => { s.batches[0].signing = "aGVsbG8gd29ybGQ="; }],
