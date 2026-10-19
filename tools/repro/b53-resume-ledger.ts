@@ -340,6 +340,143 @@ async function p22() {
   }
 }
 
+// ---- p33 stub cases (NEW function): the custody re-send under a TRUE "already exists in mempool". The
+// wallet stub gets one more send mode, `mempool-blind`: the transaction sits in the mempool (pending) but
+// `list-tx` stays blind to it until it mines (send-without-storing's real behaviour — the wallet stores
+// nothing unmined), every send answers the truthful phrase, and the pending entry mines on its own after
+// `blind_ms` (the driver-controlled stand-in for the next block). Nothing else in the stub changes.
+function blindDevtoolStub(changeAddr: string): string {
+  return `const fs = require("fs"), crypto = require("crypto");
+const chainFile = process.env.BNZ_TEST_CHAIN, a = process.argv.slice(2);
+const txidOf = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+function mine(c, txid) {
+  const p = c.pending.find(x => x.txid === txid);
+  if (!p) return;
+  c.pending = c.pending.filter(x => x.txid !== txid);
+  c.tip += 1;
+  for (const s of p.spends) { const n = c.notes.find(n => n.txid + ":" + n.pool + ":" + n.action_index === s); if (n) n.spent_in_txid = txid; }
+  if (p.change_zats > 0) c.notes.push({ txid, height: c.tip, pool: "ironwood",
+    address: p.change_address, diversifier_index: "99", action_index: 0, value_zats: p.change_zats, memo_hex: null, spent_in_txid: null });
+  c.mined[txid] = { height: c.tip, rows: p.rows };
+}
+if (a[0] === "wallet") {
+  const verb = a[3];
+  if (verb === "sync" || verb === "enhance") process.exit(0);
+  const c = JSON.parse(fs.readFileSync(chainFile, "utf8"));
+  if (verb === "balance") { console.log(JSON.stringify({ chain_tip_height: c.tip })); process.exit(0); }
+  if (verb === "list-tx") {
+    for (const t of [...c.pending]) if (!t.blind_until || Date.now() >= t.blind_until) mine(c, t.txid);
+    if (!c.pending.length && c.send_mode === "mempool-blind") c.send_mode = "ok";
+    fs.writeFileSync(chainFile, JSON.stringify(c));
+    console.log(JSON.stringify(Object.entries(c.mined).map(([txid, m]) => ({ txid, mined_height: m.height }))));
+    process.exit(0);
+  }
+  process.stderr.write("zcash-devtool stub: unknown wallet verb " + verb + "\\n"); process.exit(1);
+}
+if (a[0] === "pczt") {
+  const verb = ["extract", "prove", "redact", "send-without-storing", "send"].find(v => a.includes(v));
+  if (verb === "extract") { process.stdout.write(txidOf(fs.readFileSync(0)) + "\\n"); process.exit(0); }
+  if (verb === "prove") { fs.copyFileSync(a[a.indexOf("prove") + 1], a[a.indexOf("--output") + 1]); process.exit(0); }
+  if (verb === "redact") { fs.copyFileSync(a[a.indexOf("--output") - 1], a[a.indexOf("--output") + 1]); process.exit(0); }
+  if (verb === "send" || verb === "send-without-storing") {
+    const file = a[a.length - 1], buf = fs.readFileSync(file), txid = txidOf(buf), body = JSON.parse(buf.toString("utf8"));
+    const c = JSON.parse(fs.readFileSync(chainFile, "utf8"));
+    const record = { txid, spends: body.spends, change_zats: body.change_zats, change_address: ${JSON.stringify(changeAddr)}, rows: body.rows };
+    // The TRUE mempool state: the transaction is in the mempool, the wallet stays blind (nothing stored),
+    // and every send answers the truthful phrase until it mines.
+    if (c.send_mode === "mempool-blind") {
+      if (!c.pending.some(x => x.txid === txid)) c.pending.push({ ...record, blind_until: Date.now() + (c.blind_ms ?? 20000) });
+      fs.writeFileSync(chainFile, JSON.stringify(c));
+      process.stderr.write("Error: Send failed: (-1) transaction already exists in mempool\\n");
+      process.exit(1);
+    }
+    c.broadcasts.push(txid);
+    c.pending.push(record);
+    mine(c, txid);
+    fs.writeFileSync(chainFile, JSON.stringify(c));
+    process.stdout.write(txid + "\\n");
+    process.exit(0);
+  }
+  process.stderr.write("zcash-devtool stub: unknown pczt verb " + verb + "\\n"); process.exit(1);
+}
+process.stderr.write("zcash-devtool stub: unknown " + a.join(" ") + "\\n"); process.exit(1);
+`;
+}
+
+// Run 1 broadcast and died between `ledger.stage` and the mined-wait: the batch is staged with its txid,
+// the transaction sits in the mempool (blind to the wallet), nothing is mined and nothing is confirmed.
+function seedBlindCrash(w: World) {
+  const id = w.id, sd = path.join(w.state, "settle", id);
+  const rows = w.rows;
+  const body = { rows: rows.map(r => ({ recipient: UA_ORCHARD, amount_zats: r.amount_zats })),
+    input_zats: rows.reduce((s, r) => s + Number(r.amount_zats), 0) + 10000, fee_zats: 10000, change_zats: 10000,
+    spends: chain(w).notes.map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`),
+    spend_values: chain(w).notes.map((n: any) => Number(n.value_zats)), expiry_height: 100364 };
+  const pczt = path.join(sd, "batch-1.pczt");
+  writeFileSync(pczt, JSON.stringify(body));
+  const tx1 = sha256(readFileSync(pczt));
+  const c = chain(w);
+  c.tip = 100012;
+  c.send_mode = "mempool-blind"; c.blind_ms = 25000;
+  c.pending.push({ txid: tx1, spends: body.spends, change_zats: 10000, change_address: CHANGE_ADDR, rows: body.rows, blind_until: Date.now() + 25000 });
+  c.broadcasts.push(tx1); // run 1 really broadcast it
+  writeFileSync(w.chainFile, JSON.stringify(c));
+  const mapped = rows.map((r, i) => ({ party: r.party, output_index: i }));
+  writeFileSync(path.join(sd, "batch-1.build.json"), jsonBytes({ outputs: mapped }));
+  writeFileSync(path.join(sd, "batch-1.maps.json"), jsonBytes([0, 1].map(i => signApprovalMap({ auction_id: id, batch: 1, txid: tx1,
+    outputs: mapped, defaults: [], balance_refunds: [] }, witnessPrivate(String(i))))));
+  for (const n of ["alice", "bob", "carol"]) {
+    const adir = path.join(w.hosts[n], "approvals", id);
+    mkdirSync(adir, { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(adir, "ledger.json"), JSON.stringify([{ batch: 1, txid: tx1, expiry_height: 100364, approved_tip: 100000,
+      sources: rows.map((r) => r.party), mapped: rows.map((r, i) => ({ party: r.party, output_index: i, amount_zats: r.amount_zats })) }]) + "\n", { mode: 0o600 });
+  }
+  const ledger = new Ledger(w.state, id);
+  ledger.pin(rows as any);
+  ledger.eligible();
+  const batch = ledger.allocate(13)!;
+  ledger.stage(batch.id, pczt, tx1);
+  ledger.close();
+  return { tx1 };
+}
+
+async function p33() {
+  const beacon = await fetchBeacon(R);
+  const fx = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+  const run = part === "before" ? { root: BASE, benzo: BASE_BENZO } : { root: ROOT, benzo: GREEN_BENZO };
+  const tag = part === "before" ? "red" : "green";
+  const w = writeWorld(`p33-${tag}`, fx, run);
+  stub(path.join(w.state, "bin"), "zcash-devtool", blindDevtoolStub(CHANGE_ADDR));
+  const seeded = seedBlindCrash(w);
+  // Run 2: the honest re-send after the crash. Both sends answer the TRUE phrase from a wallet that does
+  // not know the txid.
+  const r2 = runSettle(w);
+  console.log(`OBSERVE p33-${tag} run 2 exit=${r2.code}`);
+  console.log((r2.err || r2.out).trim().split("\n").filter(Boolean).slice(-8).map(l => "  | " + l).join("\n"));
+  const phrases = (settleLog(w).match(/transaction already exists in mempool/g) ?? []).length;
+  const receipts = existsSync(path.join(w.state, "settle", w.id, "receipts.json")) ? receiptsOf(w) : [];
+  if (part === "after") {
+    check("p33-reaches-mined", r2.code === 0 && receipts.length === w.rows.length && receipts.every((x: any) => x.txid === seeded.tx1),
+      `run 2 reached mined and confirmed the staged batch (exit ${r2.code}, ${receipts.length} receipts at ${seeded.tx1.slice(0, 16)}…)`);
+    check("p33-continues", r2.err.includes(`settlement already in mempool ${seeded.tx1}; waiting for it to mine`) && phrases >= 2,
+      `the run continued past the double phrase (${phrases} truthful answers) into the mined-wait`);
+    check("p33-never-rebroadcast", chain(w).broadcasts.length === 1 && chain(w).broadcasts[0] === seeded.tx1,
+      "the transaction was never re-broadcast (run 1's broadcast stands; run 2 only waited)");
+    const r3 = runSettle(w);
+    check("p33-rerun-0", r3.code === 0 && receiptsOf(w).length === w.rows.length,
+      `a further re-run is clean (exit ${r3.code})`);
+  } else {
+    check("p33-red-crash-loops", r2.code === 1 && /already exists in mempool/.test(r2.err) && receipts.length === 0,
+      `the base run 2 throws on the true phrase (exit ${r2.code}): ${(r2.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1) ?? "").slice(0, 140)}`);
+    const r3 = runSettle(w);
+    check("p33-red-every-rerun", r3.code === 1 && /already exists in mempool/.test(r3.err),
+      `every re-run takes the same path — the crash-loop until the transaction actually mines (exit ${r3.code})`);
+    check("p33-red-nothing-recorded", chain(w).broadcasts.length === 1 && chain(w).broadcasts[0] === seeded.tx1 && (existsSync(path.join(w.state, "settle", w.id, "receipts.json")) ? receiptsOf(w) : []).length === 0,
+      "nothing was recorded and nothing was re-broadcast on the base");
+  }
+}
+
 if (wants("p22")) await p22();
+if (wants("p33")) await p33();
 console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
 process.exitCode = failed ? 1 : 0;

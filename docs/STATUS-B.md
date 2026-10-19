@@ -33,6 +33,12 @@ Status block (every command and its result; updated per item):
   `manual reconciliation: pre-H3 two-pool batch (H2)` on all 6 rows, records nothing, and a re-run exits 0
   without re-allocating them). Evidence:
   `docs/evidence/phase-7/repro/b53-p22-red.out`, `docs/evidence/phase-7/repro/b53-p22-green.out`.
+- Item 2 (P3-3, `settle/cli.ts` the send catch): `node tmp/b53.mjs before p33` — PASS (red: the base throws
+  `Send failed: (-1) transaction already exists in mempool` on the true custody re-send and every re-run
+  repeats it — the crash-loop); `node tmp/b53.mjs after p33` — PASS (green: run 2 hears the phrase twice
+  from the blind wallet, falls through to the bounded mined-wait, reaches mined, confirms all 5 receipts,
+  continues, never re-broadcasts, and a further re-run is clean). Evidence:
+  `docs/evidence/phase-7/repro/b53-p33-red.out`, `docs/evidence/phase-7/repro/b53-p33-green.out`.
 
 ### Questions
 
@@ -49,6 +55,9 @@ Status block (every command and its result; updated per item):
 - Q2 (item 1, row states): the parked rows are published as `state="exception"` rows, which verify's
   accounting requires for an unpaid obligation (an `allocated` published row would fail verify). Confirm that
   is the intended published shape for a manually reconciled batch.
+- Q3 (item 2, P3-3): the mined-wait's fail-safe timeout leg ("if it times out, exit with a clear error") is
+  `unverified` by the driver — it is the existing 30-minute `mined()` deadline (`deadline waiting for mined
+  settlement <txid>`) and driving it would need a 30-minute wait. Code path reviewed only.
 
 ## Batch B51 (Builder B, branch `b51-review-fixes`, from `a107447`) — Reviewer R on B47/B48: the preflight re-run double-count, the reserve-address listing wall, four P3s
 

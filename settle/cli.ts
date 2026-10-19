@@ -496,6 +496,15 @@ async function worker(ledger:Ledger) {
       // mempool" claim is treated as NOT broadcast and the send is retried once with the same bytes; any other
       // error stays an immediate error. The old catch assigned sent = staged.txid and then "checked"
       // sent === staged.txid — a vacuous pair; the txid check now runs only on a send that returned one.
+      // B53 (P3-3, Reviewer R round 4): under custody the wallet stores nothing until the transaction mines
+      // (send-without-storing), so a TRUE "already exists in mempool" — the re-send after run 1 died between
+      // broadcast and the mined-wait — can never be confirmed by list-tx while it sits in the mempool, and
+      // the old terminal throw crash-looped every re-run until it mined. The one retry above stays (it is
+      // what catches a lying wrapper that answers the phrase without recording anything — B51 P3-2); when
+      // the retry hears the same phrase again and the wallet still does not know the txid, the transaction
+      // is presumed already broadcast and the run falls through to the bounded mined-wait below (the
+      // design's "or the next mined-wait finds it" leg). That wait is fail-safe: its deadline throws a clear
+      // error and a later run retries; nothing is recorded here. Every other send error stays immediate.
       let sent:string|null=null;
       for(let attempt=0;attempt<2&&sent===null;attempt++) {
         let returned:string|null=null,sendError:Error|null=null;
@@ -508,9 +517,11 @@ async function worker(ledger:Ledger) {
         let known=false;
         try {known=!!JSON.parse(wallet("list-tx","--json")).find((t:any)=>t.txid===staged.txid)} catch {}
         if(known) {sent=staged.txid!;break}
-        if(!/already exists in mempool/i.test(sendError.message)||attempt===1)throw sendError;
+        if(!/already exists in mempool/i.test(sendError.message))throw sendError;
+        if(attempt===1)break; // twice the same phrase, wallet blind: fall through to the mined-wait
       }
-      console.log(`settlement broadcast ${sent}`);
+      if(sent)console.log(`settlement broadcast ${sent}`);
+      else console.log(`settlement already in mempool ${staged.txid}; waiting for it to mine`);
     }
     const tMine=Date.now();
     const height=await mined(staged.txid!,Date.now()+30*60_000);
