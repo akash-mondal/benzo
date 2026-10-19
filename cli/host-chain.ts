@@ -5,7 +5,7 @@ import path from "node:path";
 import { requireThat } from "../manifest/schema";
 import { endpointKey, lwdBound, lwdTimedOut } from "../settle/bounded";
 
-const TRANSIENT = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream/;
+const TRANSIENT = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream|timed out|os error (54|60)/i;
 function grpc(st: string, method: string, body: object, endpoint?: string): { ok: boolean; out: string } {
   const lwd = endpoint ?? process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
   for (let attempt = 1; ; attempt++) {

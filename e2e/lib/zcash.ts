@@ -24,7 +24,7 @@ export const wallet = (name: string, ...args: string[]) => run(bin("zcash-devtoo
 export const pczt = (name: string, ...args: string[]) => run(bin("zcash-devtool"), ["pczt", "-w", path.join(STATE, name), ...args]);
 
 // Head (live run 14): load-balanced lightwalletd backends can be a few blocks apart; retry a sync 4x with backoff.
-const SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks/;
+const SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks|timed out|os error (54|60)/i;
 export const sync = (name: string) => {
   for (let attempt = 1; ; attempt++) {
     try { return wallet(name, "sync", "-s", LWD); } catch (e) {
@@ -66,7 +66,7 @@ export const send = (file: string) => lastTxid(pczt("vault", "send", "-s", LWD, 
 // Head (2026-10-03, live run 10 died on one "error receiving data from backing node"): transient endpoint errors
 // (Internal, Unavailable, DeadlineExceeded, backend/connection failures) are retried 4 times with backoff;
 // NotFound and every other answer are returned or thrown unchanged.
-const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream/;
+const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream|timed out|os error (54|60)/i;
 function retryTransient<T>(f: () => T): T {
   for (let attempt = 1; ; attempt++) {
     try { return f(); } catch (e) {

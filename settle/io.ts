@@ -17,7 +17,7 @@ export function run(cmd:string,args:string[],input?:string|Buffer):string {
 // Head (2026-10-03, live run 14): the public lightwalletd sits behind a load balancer whose backends can be a few
 // blocks apart ("GetBlock: block N is newer than the latest block"); a wallet sync retries 4x with backoff on that
 // and on transient endpoint errors. Every other wallet command is unchanged.
-const SYNC_TRANSIENT=/newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks/;
+const SYNC_TRANSIENT=/newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks|timed out|os error (54|60)/i;
 export function syncRetry(f:()=>string):string {
   for(let attempt=1;;attempt++) {
     try{return f()}catch(e){if(attempt>=4||!SYNC_TRANSIENT.test(String((e as Error)?.message??e)))throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5000*attempt)}
@@ -49,7 +49,7 @@ export async function mined(txid:string,deadline:number) {
 // Head (2026-10-03, live run 10 died on one "error receiving data from backing node"): transient endpoint errors
 // (Internal, Unavailable, DeadlineExceeded, backend/connection failures) are retried 4 times with backoff;
 // NotFound and every other answer are returned or thrown unchanged.
-const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream/;
+const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|backing node|connection reset|EOF|stalled lightwalletd stream|timed out|os error (54|60)/i;
 // Head (2026-10-04, NU7 on testnet): settlement normally requires two independent lightwalletd endpoints to agree.
 // While only one public testnet endpoint serves NU7, BNZ_LWD_SINGLE=1 runs on the primary alone: testnet only,
 // warned on stderr and recorded in the settlement summary (lwd_endpoints). Mainnet always needs both.

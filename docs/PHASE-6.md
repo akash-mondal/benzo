@@ -1017,3 +1017,22 @@ No P0, P1 or P2. Three P3 notes:
 - a dust stray that has an owner claim is refunded from other notes (disclosed);
 - `backfillMapped` can heal a subset of a map's rows (conservative);
 - `sign envelope-opens` before R exits 1 (disclosed at R123).
+
+### R127: lightwalletd retries are case-insensitive and cover timeouts; the RG restarts (head, 2026-10-19)
+
+The first final-RG pass at `6a008c1`:
+- **testnet-golden-path:** PASS, 9 of 9.
+- **auction-core:** rc=1. I1 threw on one `Connection reset by peer (os error 54)` during a vault sync. The other 22 checks passed.
+- **settle-crash:** rc=1. The main leg's 5 checks passed, then a vault sync threw `Operation timed out (os error 60)` before M1. M1 had passed live at `62fcd2a`.
+- **cli-auction** was stopped before any testnet action.
+
+**Root cause, in the product too.** Every transient-error pattern matched only the lowercase `connection reset` and had no timeout case:
+- `settle/io.ts` SYNC_TRANSIENT and TRANSIENT_GRPC;
+- `cli/host-chain.ts` TRANSIENT;
+- `e2e/lib/zcash.ts` (both).
+
+So an operator's `benzo settle` or a signer host stopped on one OS-level reset instead of retrying.
+
+**Fix.** The patterns are now case-insensitive and add `timed out|os error (54|60)`, with the same 4-attempt cap. Every retried call is read-only (wallet sync and enhance; GetTransaction, GetLatestBlock, GetBlock, GetBlockRange), so a retry cannot repeat a broadcast.
+
+**Gate.** Every fold, replay and published dir is green, and the offline e2e passes on the first try. The hosts are re-provisioned at this commit, and the final RG restarts from the first project so all six run on one code commit.
