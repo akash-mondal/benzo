@@ -791,3 +791,20 @@ Report `benzo-sol/reports/pr-p7-b47-b48.md`. Checked clean:
 **P2-1:** `sign derivable` still walls on a seller mismatch (H21, in B50) and on a mismatched reserve-return address. **P2-2:** the H19 preflight double-counts a broadcast-but-unconfirmed batch on a re-run; the reviewer's probe confirmed it. Plus six P3s.
 
 Batch B51 (`docs/design/phase7-b51-review-fixes.md`) takes P2-2, the reserve-address wall and four of the P3s. The other P3s become rows. B49 is still unreviewed: the next Reviewer R pass covers B49 to B51.
+
+### R114 — B51 merged: preflight re-run fix, reserve-address wall, four P3s (head, 2026-10-19)
+
+B51 (`b51-review-fixes`, eight commits) cherry-picked cleanly onto `a107447`. The head rebuilt the bundles from the combined tree. The verify bundle is now `4f20e9fc…`; README, `reproducible-build.md` and `verify-it-yourself.md` are updated. On main the head re-ran:
+- `npm run check` (all five checks) and e2e;
+- the b44, b46, b47 (cases a–j), b48, h10, h13 and h14 folds, all RESULT PASS;
+- the four published dirs (launch-cold, the DOC run, scale-55, the H15 live run): 19 OK each.
+
+Rulings on its questions:
+- **Q1** accepted: the source count is the paying batch's published `inspect` inputs.
+- **Q2** accepted: fail-closed when no count is published. Every committed dir carries one.
+- **Q3** accepted: the b46 case that pinned the old wholesale refusal now pins R107's rule.
+- **Q4** accepted: wallet knowledge of the staged txid, plus one retry, then refuse. A mined-wait used as the confirmation would bring back the 30-minute stall.
+- **Q5:** the bundle was rebuilt at merge, as in R112.
+- **Q6** noted: the fee/source tie is self-consistency only. Host-attested inputs would be the real binding; that is H2's ground, which H3 mitigates.
+
+**P2-2 and P2-1b from R113 are fixed.** B50 still holds H21 (the seller branch).

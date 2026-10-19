@@ -42,7 +42,7 @@ it is the toolchain the project's evidence runs against:
 
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
-| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `c93f1e19d06c153695d25d3f6d57b6f69ae64db5a6c37032ab81bf5b36be9a25` (also in `docs/verify-bundle.sha256`) |
+| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `4f20e9fc9e7eb275df16f4848bfd4eb9d67a3c6c8dfa998a238d08797d949b4b` (also in `docs/verify-bundle.sha256`) |
 | `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `6e666aa19b08c4dc87ed3033eae55c7d90e53542516437ce341f45abf45f8ecb` |
 | `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` |
 
@@ -57,7 +57,7 @@ npm ci                            # exact tree from package-lock.json
 
 npm run build:verify              # rebuilds the shipped verify bundle + its digest
 shasum -a 256 dist/benzo-verify.mjs
-# c93f1e19d06c153695d25d3f6d57b6f69ae64db5a6c37032ab81bf5b36be9a25  dist/benzo-verify.mjs
+# 4f20e9fc9e7eb275df16f4848bfd4eb9d67a3c6c8dfa998a238d08797d949b4b  dist/benzo-verify.mjs
 shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
