@@ -29,6 +29,17 @@
 //       the staged txid must be known to the wallet (or the retry's real send stands), and the batch completes.
 //   (j) B51 (P3): with the paid batch's inspect record gone, a re-run REFUSES — the already-published doc can
 //       never feed its own accounting back (the H20.2 kept-doc fallback is gone).
+//   (a2) B52 (P2-1, docs/design/phase7-b52-return-fee.md proof (a)): the reviewer's cross-pool vault — the
+//       settled vault's unspent value is THREE ORCHARD notes and the committed return UA receives in
+//       Ironwood. The plan quotes the sweep at the tool's own fee (3 Orchard + 1 Ironwood bundle, each
+//       padded to its 2-action floor: 5 actions, 25,000 zats — the design text's "20,000" is the reviewer's
+//       unpadded arithmetic, see STATUS-B Q1), the hosts approve, `benzo settle` completes and `benzo
+//       verify` accepts the published dir. The base's prediction (5,000 x max(2, 3) = 15,000) cannot even
+//       build it.
+//   (e) B52 (H23): a pending MIXED batch (the return row allocated with the ordinary rows — the pre-B52
+//       wedge) is set aside as an exception with the reason `reserve-return mixed with rows (H23)`, its
+//       rows re-plan in the same run, exit 0 — and the next settle completes the return. The base throws
+//       mid-loop (`the reserve-return row must be its own batch, alone`) and crash-loops.
 //
 // Red (`node tmp/b47.mjs before`) against BASE bundles built from pristine 8a9f638 (pre-R107) sources:
 //   (a)-red: the first settle refuses before paying anything — the exact R107 signature of the h15-live
@@ -54,6 +65,10 @@
 //   commit a107447 (the batch's own red base — B47's 8a9f638 legs above are untouched):
 //     mkdir -p tmp/b51/base-src && git archive a107447 | tar -x -C tmp/b51/base-src && ln -s $PWD/node_modules tmp/b51/base-src/node_modules
 //     (cd tmp/b51/base-src && node cli/build.mjs && the same three esbuild commands as above)
+//   B52's red legs (`node tmp/b47.mjs before52`) run cases (a2) and (e) against base bundles from the B52
+//   base commit 59c863c (tmp/b52/base-src, the same recipe — shared with tools/repro/b46-reserve-return.ts):
+//     mkdir -p tmp/b52/base-src && git archive 59c863c | tar -x -C tmp/b52/base-src && ln -s $PWD/node_modules tmp/b52/base-src/node_modules
+//     (cd tmp/b52/base-src && node cli/build.mjs && the same three esbuild commands as above)
 //
 // Test-only seams: NONE in product code. The stubs read two driver-set variables, BNZ_TEST_CHAIN (the shared
 // fake chain-state file) and BNZ_TEST_STUBS (the orb stub's config); both are refused when BNZ_NETWORK=main
@@ -72,7 +87,7 @@ import { buildAuction, fetchBeacon, needRealPczt, witnessPrivate, UA_ORCHARD, wr
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 const part = process.argv[2];
-if (part !== "before" && part !== "after" && part !== "before51") { console.error("usage: node tmp/b47.mjs before|after|before51"); process.exit(2); }
+if (part !== "before" && part !== "after" && part !== "before51" && part !== "before52") { console.error("usage: node tmp/b47.mjs before|after|before51|before52"); process.exit(2); }
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 const dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim();
 console.log(`commit ${commit}${dirty ? " (working tree not clean at run time)" : ""}`);
@@ -92,6 +107,12 @@ const BASE51 = path.join(ROOT, "tmp/b51/base-src");
 const BASE51_BENZO = path.join(BASE51, "cli/dist/benzo.mjs");
 if (part === "before51") for (const f of [BASE51_BENZO, path.join(BASE51, "settle/dist/cli.mjs"), path.join(BASE51, "settle/dist/plan.mjs"), path.join(BASE51, "clear/dist/cli.mjs")])
   if (!existsSync(f)) throw new Error(`${f} missing — build the base bundles first (see the header)`);
+// B52 (docs/design/phase7-b52-return-fee.md): the batch's own red base — 59c863c bundles (tmp/b52/base-src,
+// the same git-archive recipe), driven by the `before52` part.
+const BASE52 = path.join(ROOT, "tmp/b52/base-src");
+const BASE52_BENZO = path.join(BASE52, "cli/dist/benzo.mjs");
+if (part === "before52") for (const f of [BASE52_BENZO, path.join(BASE52, "settle/dist/cli.mjs"), path.join(BASE52, "settle/dist/plan.mjs"), path.join(BASE52, "clear/dist/cli.mjs")])
+  if (!existsSync(f)) throw new Error(`${f} missing — build the B52 base bundles first (see the header)`);
 if (part === "after") for (const f of [GREEN_BENZO, path.join(ROOT, "settle/dist/cli.mjs"), path.join(ROOT, "settle/dist/plan.mjs"), path.join(ROOT, "clear/dist/cli.mjs")])
   if (!existsSync(f)) throw new Error(`${f} missing — run npm run build:core && npm run build:settle && npm run build:cli first`);
 
@@ -210,6 +231,20 @@ const fix = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8")
 const a = process.argv.slice(2), cmd = a[0];
 const chain = () => JSON.parse(fs.readFileSync(process.env.BNZ_TEST_CHAIN, "utf8"));
 const txidOf = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+// B52 (P3-8c): actions the REAL way (settle/src/main.rs inspect): per pool, max(spends, outputs), each
+// bundle padded to at least 2 actions (the pinned orchard builder pads every non-empty bundle to its
+// 2-action floor); one INPUT per source note; the fee is the ZIP-317 fee of that action count,
+// 5,000 x max(2, actions).
+const bundleActions = (s, o) => (s + o > 0 ? Math.max(2, Math.max(s, o)) : 0);
+const shapeOf = (spendPools, outPools) => {
+  const counts = {};
+  for (const p of spendPools) { counts[p] = counts[p] || { s: 0, o: 0 }; counts[p].s++; }
+  for (const p of outPools) { counts[p] = counts[p] || { s: 0, o: 0 }; counts[p].o++; }
+  let actions = 0;
+  for (const k of Object.keys(counts)) actions += bundleActions(counts[k].s, counts[k].o);
+  return { actions, fee: 5000 * Math.max(2, actions) };
+};
+const outPoolOf = (recipient, amount) => (fix.pool_by_ua || {})[recipient] || (fix.pool_by_amount || {})[String(amount)] || "ironwood";
 if (cmd === "classify-address") {
   if (a.includes("--stdin")) {
     const r = cp.spawnSync(${JSON.stringify(REAL_PCZT)}, ["classify-address", "--stdin"], { input: fs.readFileSync(0), maxBuffer: 1 << 28 });
@@ -220,13 +255,33 @@ if (cmd === "classify-address") {
 if (cmd === "ufvk-ak") { console.log(fix.groupKey); process.exit(0); }
 if (cmd === "owns") { console.log((fix.internal_addresses ?? []).includes(a[2]) ? "internal" : "external"); process.exit(0); }
 if (cmd === "address") { console.log(${JSON.stringify(UA_ORCHARD)}); process.exit(0); }
+if (cmd === "quote-sweep") {
+  // B52 (item 1): the tool's own quote of the one-row sweep — every spendable note, one output, no change.
+  const to = a[a.indexOf("--to") + 1], c = chain();
+  const confirmed = (n) => n.height && c.tip - n.height + 1 >= ${CONFIRMATIONS};
+  const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 0 && confirmed(n));
+  const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
+  if (bad) { process.stderr.write("the vault's value cannot be swept in one transaction: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
+  if (!spendable.length) { process.stderr.write("the vault's value cannot be swept in one transaction: no spendable note\\n"); process.exit(1); }
+  const shape = shapeOf(spendable.map(n => String(n.pool)), [outPoolOf(to, 0)]);
+  const total = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
+  const amount = total - shape.fee;
+  if (amount <= 0) { process.stderr.write("the vault's value cannot be swept in one transaction: proposal: InsufficientFunds { available: Zatoshis(" + total + "), required: Zatoshis(" + (total + shape.fee) + ") }\\n"); process.exit(1); }
+  console.log(JSON.stringify({ amount_zats: String(amount), fee_zats: String(shape.fee), input_zats: String(total), spends: spendable.length, actions: shape.actions }));
+  process.exit(0);
+}
 if (cmd === "create") {
   const rows = JSON.parse(fs.readFileSync(0, "utf8")), c = chain();
   const confirmed = (n) => n.height && c.tip - n.height + 1 >= ${CONFIRMATIONS};
   const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 0 && confirmed(n));
+  const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
+  if (bad) { process.stderr.write("Error: proposal: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
   const available = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
-  const fee = 5000 * Math.max(2, spendable.length);
-  const required = rows.reduce((s, r) => s + Number(r.amount_zats), 0) + fee;
+  const rowZats = rows.reduce((s, r) => s + Number(r.amount_zats), 0);
+  const outPools = rows.map(r => outPoolOf(r.recipient, r.amount_zats));
+  let fee = shapeOf(spendable.map(n => String(n.pool)), outPools).fee;
+  if (rowZats + fee <= available) fee = shapeOf(spendable.map(n => String(n.pool)), outPools.concat([fix.change_pool || "ironwood"])).fee;
+  const required = rowZats + fee;
   if (required > available) {
     process.stderr.write("Error: proposal: InsufficientFunds { available: Zatoshis(" + available + "), required: Zatoshis(" + required + ") }\\n");
     process.exit(1);
@@ -234,18 +289,24 @@ if (cmd === "create") {
   fs.writeFileSync(a[2], JSON.stringify({ rows, input_zats: available, fee_zats: fee, change_zats: available - required,
     spends: spendable.map(n => ({ id: n.txid + ":" + n.pool + ":" + n.action_index, value: Number(n.value_zats) })).sort((x, y) => x.id < y.id ? -1 : 1).map(p => p.id),
     spend_values: spendable.map(n => ({ id: n.txid + ":" + n.pool + ":" + n.action_index, value: Number(n.value_zats) })).sort((x, y) => x.id < y.id ? -1 : 1).map(p => p.value),
+    spend_pools: spendable.map(n => ({ id: n.txid + ":" + n.pool + ":" + n.action_index, pool: String(n.pool) })).sort((x, y) => x.id < y.id ? -1 : 1).map(p => p.pool),
     expiry_height: c.tip + 364 }));
   process.exit(0);
 }
 if (cmd === "inspect") {
   const buf = fs.readFileSync(a[1]), body = JSON.parse(buf.toString("utf8"));
-  const outputs = body.rows.map((r, i) => ({ index: i, pool: "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
-  const output = body.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
+  const outputs = body.rows.map((r, i) => ({ index: i, pool: outPoolOf(r.recipient, r.amount_zats), is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
+  if (Number(body.change_zats ?? 0) > 0) outputs.push({ index: outputs.length, pool: fix.change_pool || "ironwood", is_change: true, recipient: null, amount_zats: String(body.change_zats) });
+  const output = outputs.reduce((s, r) => s + Number(r.amount_zats), 0);
   const input = Number(body.input_zats ?? output);
   // B50 (H5): the stub models the real benzo-pczt inspect's full shape (settle/src/main.rs), which verify
   // now shape-checks. B51 P3-3: it publishes one input per spent note, read as the published source count.
-  const inputs = (body.spends ?? []).map((s, i) => ({ index: i, pool: "ironwood", value_zats: Number((body.spend_values ?? [])[i] ?? 0) }));
-  console.log(JSON.stringify({ outputs, consensus_branch_id: "37a5165b", tx_version: 6, actions: body.rows.length,
+  // B52 (P3-8c): each input carries its pool, the change output the wallet left behind is reported
+  // (is_change true), and actions are computed the real way (per pool, max(spends, outputs), each bundle
+  // padded to at least 2).
+  const inputs = (body.spends ?? []).map((s, i) => ({ index: i, pool: String((body.spend_pools ?? [])[i] ?? "ironwood"), value_zats: Number((body.spend_values ?? [])[i] ?? 0) }));
+  const shape = shapeOf(inputs.map(n => n.pool), outputs.map(o => o.pool));
+  console.log(JSON.stringify({ outputs, consensus_branch_id: "37a5165b", tx_version: 6, actions: shape.actions,
     inputs, input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: Number(body.expiry_height ?? chain().tip + 364), txid: txidOf(buf),
     shielded_sighash: txidOf(buf),
@@ -461,6 +522,8 @@ const worldEnv = (w: World): Record<string, string> => ({
 const runSettle = (w: World, timeoutMs?: number) => w.benzo === GREEN_BENZO
   ? sh(path.join(ROOT, "bin/benzo"), ["settle", "--id", w.id], worldEnv(w), timeoutMs)
   : sh(process.execPath, [w.benzo, "settle", "--id", w.id], worldEnv(w), timeoutMs);
+// `benzo verify` on the published dir — the "verify accepts" half of B52's case (a2).
+const runVerify = (w: World) => sh(process.execPath, [w.benzo, "verify", "--dir", w.publicDir, "--signer", w.fx.signer], worldEnv(w));
 
 const chain = (w: World) => JSON.parse(readFileSync(w.chainFile, "utf8"));
 const receiptsOf = (w: World) => JSON.parse(readFileSync(path.join(w.state, "settle", w.id, "receipts.json"), "utf8"));
@@ -484,9 +547,23 @@ const addTopUp = (w: World, zats: number) => {
 
 // ---- the expected arithmetic (independent of the worker's own computation) ---
 const feeOf = (noteCount: number) => 5000 * Math.max(2, noteCount);
+// B52: the ordinary batch's fee the wallet really charges — (fx notes + fee-reserve note) spends and
+// (rows + change) outputs in one pool: max(spends, outputs) actions. The old note-count-only figure
+// undercounted whenever the batch has more outputs than spends (5 rows + change = 6 outputs here).
+const batchFeeOf = (w: { fx: { notes: unknown[] }; obligationRows: unknown[] }) =>
+  feeRule(Array(w.fx.notes.length + 1).fill("ironwood"), Array(w.obligationRows.length + 1).fill("ironwood")).fee;
+// B52 (P3-8c): the fee rule the stub tool computes and the cases pin independently — per pool,
+// max(spends, outputs), each bundle padded to at least 2 actions; fee 5,000 x max(2, total actions).
+const feeRule = (spendPools: string[], outPools: string[]): { actions: number; fee: number } => {
+  const counts: Record<string, { s: number; o: number }> = {};
+  for (const p of spendPools) { counts[p] ??= { s: 0, o: 0 }; counts[p].s++; }
+  for (const p of outPools) { counts[p] ??= { s: 0, o: 0 }; counts[p].o++; }
+  const actions = Object.values(counts).reduce((s, c) => s + (c.s + c.o > 0 ? Math.max(2, Math.max(c.s, c.o)) : 0), 0);
+  return { actions, fee: 5000 * Math.max(2, actions) };
+};
 const scenario = (w: World) => {
   const spendable0 = w.obligationZats + w.feeReserve;
-  const batchFee = feeOf(w.fx.notes.length + 1);
+  const batchFee = batchFeeOf(w);
   const change = spendable0 - w.obligationZats - batchFee;
   const returnFee = feeOf(1);
   return { batchFee, change, returnFee, returnAmount: change - returnFee };
@@ -700,6 +777,52 @@ async function green() {
   check("j-nothing-republished", JSON.stringify(jBefore) === JSON.stringify(jAfter),
     "the published dir is untouched — nothing was re-derived and nothing was re-fed from the doc");
 
+  // ---- world W8: case (a2) — the cross-pool vault (B52, P2-1) ------------------------------------------
+  console.log("=== case (a2): the cross-pool vault — the plan quotes the tool's fee, the hosts approve, settle completes, verify accepts (B52)");
+  const w8 = writeWorld("w8", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 120000 });
+  // The settled vault's unspent value is THREE ORCHARD notes (the reviewer's cross-pool vault; the
+  // committed return UA receives in Ironwood).
+  const a2seed = seedPostBatchOne(w8, { allocatesReturn: false, changeNotes: [{ pool: "orchard", value: 50000 }, { pool: "orchard", value: 30000 }, { pool: "orchard", value: 15000 }] });
+  const a2shape = feeRule(["orchard", "orchard", "orchard"], ["ironwood"]);
+  const a2Amount = a2seed.change - a2shape.fee;
+  const a2 = runSettle(w8);
+  console.log(`OBSERVE case-a2 exit=${a2.code}`);
+  console.log(a2.err.trim().split("\n").map(l => "  | " + l).join("\n"));
+  const a2Receipts = receiptsOf(w8), a2Settlement = settlementOf(w8);
+  check("a2-exit-0", a2.code === 0, `benzo settle exits 0 (exit ${a2.code}${a2.err ? `; stderr ${a2.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1)?.slice(0, 120) ?? ""}` : ""})`);
+  check("a2-quote-25000", a2shape.actions === 5 && a2shape.fee === 25000 && a2Receipts.some((r: any) => r.party === "reserve-return" && r.amount_zats === String(a2Amount)),
+    `the plan quotes the sweep at ${a2shape.fee} zats (3 Orchard + 1 Ironwood bundle, each padded to its 2-action floor: ${a2shape.actions} actions) and the return pays ${a2Amount} of ${a2seed.change} — the removed prediction said 15,000 (STATUS-B Q1: the design text's 20,000 is the unpadded arithmetic)`);
+  check("a2-accounting", !!a2Settlement?.reserve_return && a2Settlement.reserve_return.remaining_zats === String(a2seed.change) && a2Settlement.reserve_return.fee_zats === String(a2shape.fee),
+    `the published accounting ${JSON.stringify(a2Settlement?.reserve_return ?? null)} carries the tool's own fee`);
+  check("a2-hosts-approved", signerNames.slice(0, 2).every(n => existsSync(path.join(w8.hosts[n], "approvals", w8.id, "batch-2.json"))),
+    "both signing hosts approved the cross-pool return batch");
+  const a2verify = runVerify(w8);
+  check("a2-verify-accepts", a2verify.code === 0 && !/^ERROR/m.test(a2verify.err),
+    `benzo verify accepts the published dir (exit ${a2verify.code}); ${a2verify.out.trim().split("\n").filter(l => l.startsWith("OK")).length} OK lines`);
+
+  // ---- world W9: case (e) — a pending mixed return batch (H23) -----------------------------------------
+  console.log("=== case (e): a pending mixed return batch is set aside as an exception, its rows re-plan (H23)");
+  const w9 = writeWorld("w9", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 70000 });
+  seedMixedPending(w9);
+  const h23a = runSettle(w9);
+  console.log(`OBSERVE case-e mixed exit=${h23a.code}`);
+  console.log(h23a.err.trim().split("\n").map(l => "  | " + l).join("\n"));
+  const mixedBatches = () => {
+    const db = new DatabaseSync(path.join(w9.state, "settle", w9.id, "ledger.sqlite"), { readOnly: true });
+    try { return db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all() as any[]; } finally { db.close(); }
+  };
+  const eBatches = mixedBatches();
+  check("e-mixed-set-aside", h23a.code === 0 && /reserve-return mixed with rows \(H23\)/.test(h23a.err) && eBatches.some((b: any) => b.id === 1 && b.state === "exception"),
+    `the mixed batch is set aside as an exception with the reason reserve-return mixed with rows (H23) and the run completes (exit ${h23a.code}): ${JSON.stringify(eBatches)}`);
+  const e1Receipts = receiptsOf(w9);
+  check("e-rows-replan", e1Receipts.length === w9.obligationRows.length && w9.obligationRows.every(o => e1Receipts.some((r: any) => r.party === o.party)),
+    `the mixed batch's ordinary rows re-plan and settle in the same run (${e1Receipts.length} receipts)`);
+  bumpTip(w9, 12);
+  const h23b = runSettle(w9);
+  const e2Receipts = receiptsOf(w9);
+  check("e-return-completes", h23b.code === 0 && e2Receipts.some((r: any) => r.party === "reserve-return") && !!settlementOf(w9)?.reserve_return,
+    `the next settle completes the return (exit ${h23b.code}, accounting ${JSON.stringify(settlementOf(w9)?.reserve_return ?? null)})`);
+
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
 }
@@ -707,11 +830,14 @@ async function green() {
 // ==============================================================================
 // RED legs (base bundles from pristine 8a9f638)
 // ==============================================================================
-function seedPostBatchOne(w: World) {
+function seedPostBatchOne(w: World, opts: { allocatesReturn?: boolean; changeNotes?: { pool: string; value: number }[] } = {}) {
   // The exact world the live run was in at the R107b crash, written through the REAL Ledger class: batch 1
   // mined with every ordinary row receipted, the published settlement carrying those five receipts (published
   // after pass 1 — the return batch was allocated only in the failed pass 2), and the return row allocated to
   // batch 2 with no transaction. The chain shows the batch's change as spendable.
+  // B52: `changeNotes` splits the batch's change into notes of chosen pools (the cross-pool world of case
+  // (a2): THREE ORCHARD change notes), and `allocatesReturn: false` seeds only batch 1 — the run then plans
+  // and allocates the return itself.
   const id = w.id;
   const tx1 = hash("b47-seed-batch1-" + w.label);
   const c = chain(w);
@@ -723,8 +849,12 @@ function seedPostBatchOne(w: World) {
   // B49: the batch's change note carries the batch's txid (the scan's mined-height evidence for the
   // "paid" rule) and each host's own approval ledger records that it approved batch 1's rows at their
   // amounts — exactly what the real `sign approve` recorded when the batch was approved.
-  c.notes.push({ txid: tx1, height: 100001, pool: "ironwood", address: CHANGE_ADDR, diversifier_index: "99", action_index: 0,
-    value_zats: w.obligationZats + w.feeReserve - w.obligationZats - feeOf(w.fx.notes.length + 1), memo_hex: null, spent_in_txid: null });
+  const changeTotal = w.obligationZats + w.feeReserve - w.obligationZats - batchFeeOf(w);
+  const changeNotes = opts.changeNotes ?? [{ pool: "ironwood", value: changeTotal }];
+  for (const [i, note] of changeNotes.entries())
+    c.notes.push({ txid: tx1, height: 100001, pool: note.pool, address: CHANGE_ADDR, diversifier_index: "99", action_index: i,
+      value_zats: note.value, memo_hex: null, spent_in_txid: null });
+  const changeSum = changeNotes.reduce((s, n) => s + n.value, 0);
   for (const n of signerNames) {
     const adir = path.join(w.hosts[n], "approvals", w.id);
     mkdirSync(adir, { recursive: true, mode: 0o700 });
@@ -742,9 +872,11 @@ function seedPostBatchOne(w: World) {
   writeFileSync(pczt, `b47 seeded batch 1 ${tx1}\n`);
   ledger.stage(batch.id, pczt, tx1);
   ledger.confirm(batch.id, tx1, 100001, w.obligationRows.map((o, i) => ({ party: o.party, amount_zats: o.amount_zats, index: i, pool: "ironwood" })));
-  ledger.pin([{ party: "reserve-return", kind: "payout", amount_zats: String(sc.returnAmount) }] as any);
-  ledger.eligible();
-  ledger.allocate(13);
+  if (opts.allocatesReturn !== false) {
+    ledger.pin([{ party: "reserve-return", kind: "payout", amount_zats: String(sc.returnAmount) }] as any);
+    ledger.eligible();
+    ledger.allocate(13);
+  }
   const rows = ledger.rows();
   const receipts = ledger.receipts();
   ledger.close();
@@ -758,7 +890,24 @@ function seedPostBatchOne(w: World) {
   const republish = path.join(ROOT, "tmp/b47-republish.mjs");
   const r = spawnSync(process.execPath, [republish, id], { encoding: "utf8", env: { ...process.env, ...worldEnv(w) } });
   if (r.status !== 0) throw new Error(`republish failed: ${(r.stderr || r.stdout).trim().slice(-300)}`);
-  return { tx1, returnAmount: sc.returnAmount };
+  return { tx1, returnAmount: sc.returnAmount, change: changeSum };
+}
+
+// B52 (H23, docs/design/phase7-b52-return-fee.md item 5): the pre-B52 wedge — a PENDING batch whose rows
+// were allocated TOGETHER (the reserve-return row with the ordinary rows; the old `allocate` had no return
+// rule and the worker's own-batch check then threw mid-loop after the batch was committed, so every re-run
+// resurfaced it). Written through the REAL Ledger class: one batch, no transaction, every row allocated.
+function seedMixedPending(w: World) {
+  const id = w.id;
+  const sc = scenario(w);
+  const ledger = new Ledger(w.state, id);
+  ledger.pin([...w.obligationRows, { party: "reserve-return", kind: "payout", amount_zats: String(sc.returnAmount) }] as any);
+  ledger.eligible();
+  ledger.db.prepare("INSERT INTO batches(id) VALUES(?)").run(1);
+  ledger.db.prepare("UPDATE obligations SET state='allocated',batch=1").run();
+  const rows = ledger.rows();
+  ledger.close();
+  return { rows, returnAmount: sc.returnAmount };
 }
 
 // B51 (P2-2) — the reviewer's probe world: batch 1 is staged with its txid and that transaction has ALREADY
@@ -769,7 +918,7 @@ function seedPostBatchOne(w: World) {
 function seedBroadcastUnconfirmed(w: World) {
   const id = w.id;
   const sd = path.join(w.state, "settle", id);
-  const batchFee = feeOf(w.fx.notes.length + 1);
+  const batchFee = batchFeeOf(w);
   const change = w.feeReserve - batchFee;
   const c = chain(w);
   const spends = c.notes.map((n: any) => `${n.txid}:${n.pool}:${n.action_index}`);
@@ -925,4 +1074,40 @@ async function red51() {
   process.exitCode = failed ? 1 : 0;
 }
 
-part === "after" ? await green() : part === "before51" ? await red51() : await red();
+// ==============================================================================
+// B52 red legs (base bundles from 59c863c — docs/design/phase7-b52-return-fee.md)
+// ==============================================================================
+async function red52() {
+  const beacon = await fetchBeacon(R);
+  const fx = await buildAuction({ beacon, count: 4, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+
+  console.log("=== red (a2) on base bundles (59c863c): the predicted fee cannot build the cross-pool sweep (P2-1)");
+  const w = writeWorld("a2-base", fx, { root: BASE52, benzo: BASE52_BENZO, feeReserve: 120000 });
+  const seeded = seedPostBatchOne(w, { allocatesReturn: false, changeNotes: [{ pool: "orchard", value: 50000 }, { pool: "orchard", value: 30000 }, { pool: "orchard", value: 15000 }] });
+  const a2 = runSettle(w);
+  console.log(`OBSERVE a2-red exit=${a2.code}`);
+  console.log((a2.err || a2.out).trim().split("\n").map(l => "  | " + l).join("\n"));
+  check("a2-red-crash-loop", a2.code !== 0 && /no signer host could build batch 2/.test(a2.err) && !/refused-rows/.test(a2.err),
+    `the base plan's prediction (95,000 − 5,000 x max(2, 3) = 80,000) cannot balance the wallet's real 25,000 fee: every host's build dies UNYPED and benzo settle exits ${a2.code} at the return batch on every re-run (P2-1's wall)`);
+  const a2b = runSettle(w);
+  check("a2-red-every-rerun", a2b.code !== 0, `the re-run crashes the same way (exit ${a2b.code}) — the wall an honest re-run cannot pass`);
+  check("a2-red-nothing-paid", !existsSync(path.join(w.state, "settle", w.id, "receipts.json")) ? true : !receiptsOf(w).some((r: any) => r.party === "reserve-return") && !settlementOf(w)?.reserve_return,
+    `the return never completes on the base (no receipt, no accounting; ${seeded.change} zats stranded in the vault)`);
+
+  console.log("=== red (e) on base bundles (59c863c): the mixed batch throws mid-loop and crash-loops (H23)");
+  const we = writeWorld("e-base", fx, { root: BASE52, benzo: BASE52_BENZO, feeReserve: 70000 });
+  seedMixedPending(we);
+  const e = runSettle(we);
+  console.log(`OBSERVE e-red exit=${e.code}`);
+  console.log((e.err || e.out).trim().split("\n").map(l => "  | " + l).join("\n"));
+  check("e-red-throws", e.code !== 0 && /the reserve-return row must be its own batch, alone/.test(e.err),
+    `the base throws AFTER ledger.allocate committed the mixed batch: exit ${e.code} — every re-run resurfaces it`);
+  const e2 = runSettle(we);
+  check("e-red-still-pending", e2.code !== 0 && !existsSync(path.join(we.state, "settle", we.id, "receipts.json")) && chain(we).broadcasts.length === 0,
+    `nothing is paid and the mixed batch stays pending — the H23 crash loop (re-run exit ${e2.code})`);
+
+  console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
+  process.exitCode = failed ? 1 : 0;
+}
+
+part === "after" ? await green() : part === "before52" ? await red52() : part === "before51" ? await red51() : await red();
