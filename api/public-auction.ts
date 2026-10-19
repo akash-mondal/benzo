@@ -15,7 +15,7 @@ import { balanceExcessLeafIndex, bondVoidAt, isBalanceExcessParty, isBalanceLate
 import { deliveryRowOrder } from "../clear/launch";
 import { envelopeRecordValid, settlementCommitment, verifyEnvelope, verifyStatement } from "../envelope/index";
 import { sealedBidPlaintext, memoBindsEnvelope, memoSealedBid } from "../settle/envelopes";
-import { isAnyDepositParty, isDepositParty, reserveReturnFee } from "../settle/deposits";
+import { isAnyDepositParty, isDepositParty } from "../settle/deposits";
 import { checkCertificates, earliestAgreedBond, freezeStatement, mapPairAgrees, validateWitnessSet, verifyApprovalMap, verifyDeliveryListSig, witnessSetHash, type ApprovalMap, type WitnessCert, type WitnessSet } from "../witness";
 
 // Gate EN: manifest validation and clearing dispatch through the mode registry (one code path per mode).
@@ -952,16 +952,27 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(rr && typeof rr === "object" && Object.keys(rr).sort().join(",") === "fee_zats,remaining_zats" &&
         /^[1-9][0-9]*$/.test(String(rr.remaining_zats)) && /^[1-9][0-9]*$/.test(String(rr.fee_zats)), "reserve_return accounting shape");
       requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
-      // B51 (P3-3): `fee_zats` must be the ZIP-317 fee FOR THE PUBLISHED SOURCE COUNT — the number of
-      // sources in the paying batch's published inspect (settlement.batches). A coordinator that bumps
-      // (remaining, fee) by the same 5,000 keeps the difference and merely looks ZIP-317-shaped; against
-      // the published source count the fee no longer adds up. A published accounting with no source count
-      // is refused (fail-closed — the product's publish always carries the paying batch's inspect).
-      const paying = ((pub.settlement as any).batches ?? []).find((b: any) => b && typeof b === "object" && b.txid === rrReceipts[0].txid) as { inspect?: { inputs?: unknown[] } } | undefined;
-      requireThat(paying && paying.inspect && Array.isArray(paying.inspect.inputs) && paying.inspect.inputs.length > 0,
-        "the reserve_return accounting has no published source count (the paying batch's inspect inputs)");
-      requireThat(BigInt(rr.fee_zats) === reserveReturnFee(paying!.inspect!.inputs!.length),
-        "reserve_return fee is not the ZIP-317 fee for the published source count");
+      // B51 (P3-3) folded into B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md item 4):
+      // the fee tie is the REAL basis — the ZIP-317 fee for the paying batch's published ACTION count (the
+      // per-pool action counts `inspect` enforced when the transaction was built: per pool,
+      // max(spends, outputs), each bundle padded to its 2-action floor) — never a prediction from the
+      // source count, which was wrong whenever the sweep's single output landed in a pool none of the
+      // sources was in. The accounting is held to the published inspect in full: the fee is the fee for its
+      // actions, `remaining_zats` is its `input_zats` (the value the sweep really spent), the receipt
+      // amount is input minus fee, and the source count never exceeds the action count. A coordinator that
+      // bumps (remaining, fee) no longer adds up against the real basis.
+      const paying = ((pub.settlement as any).batches ?? []).find((b: any) => b && typeof b === "object" && b.txid === rrReceipts[0].txid) as { inspect?: { inputs?: unknown[]; input_zats?: unknown; actions?: unknown } } | undefined;
+      requireThat(paying && paying.inspect && Array.isArray(paying.inspect.inputs) && paying.inspect.inputs.length > 0 && paying.inspect.actions !== undefined && paying.inspect.input_zats !== undefined,
+        "the reserve_return accounting has no published source count (the paying batch's inspect inputs, actions and input_zats)");
+      const pi = paying!.inspect! as { inputs: unknown[]; input_zats: unknown; actions: unknown };
+      requireThat(/^[1-9][0-9]*$/.test(String(pi.input_zats)) && /^[1-9][0-9]*$/.test(String(pi.actions)) && Number.isSafeInteger(Number(pi.actions)) && Number(pi.actions) > 0,
+        "the paying batch's inspect input_zats/actions");
+      const actions = BigInt(String(pi.actions));
+      requireThat(BigInt(rr.fee_zats) === 5000n * (actions > 2n ? actions : 2n),
+        "reserve_return fee is not the ZIP-317 fee for the paying batch's published action count");
+      requireThat(BigInt(pi.inputs.length) <= actions, "the paying batch's inspect carries more sources than actions");
+      requireThat(BigInt(rr.remaining_zats) === BigInt(String(pi.input_zats)),
+        "reserve_return remaining value differs from the paying batch's published input_zats");
       requireThat(BigInt(rr.remaining_zats) > BigInt(rr.fee_zats), "the reserve_return remaining value does not cover the fee");
       const amount = (BigInt(rr.remaining_zats) - BigInt(rr.fee_zats)).toString();
       requireThat(rrRows[0].amount_zats === amount && rrReceipts[0].amount_zats === amount,
