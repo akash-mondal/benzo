@@ -247,6 +247,28 @@ below).
 - `npx tsc -p tsconfig.json` → exit 0. The verify bundle was rebuilt again (`npm run build:verify`) and
   committed with `docs/verify-bundle.sha256`.
 
+### H7 — every batch set aside publishes a no-payment settlement carrying the set-aside reasons
+
+`cli/product.ts` (the `pick === null` gate): when the defaults tie-break has no paying batch AND the
+settlement has not one receipt, publish serves the plan's own defaults/bond_void instead of refusing — a
+NO-PAYMENT settlement, every row its exception row with its set-aside reason. With any receipt at all, a
+defaults list no two agreeing host-signed maps carry stays unpublishable (unchanged). `settle/cli.ts` joins
+the set-aside reasons onto the summary's exception rows (and from there they publish); `api/public-auction.ts`
+accepts an optional `reason` on exception rows only, and its `defaults` check exempts a zero-receipt
+settlement from the map tie-break (nothing was paid under the list — the equal-balance swap needs paid rows
+— and the next settle re-derives the unpaid rows). Proof (`tools/repro/b50-p2-sweep.ts` section `h7`; red
+`docs/evidence/phase-7/repro/b50-h7-before.out`, green `docs/evidence/phase-7/repro/b50-h7-after.out`): the
+real `publish()` serves the fixture where every batch is set aside (2 exception rows carrying their
+reasons, 0 receipts, defaults published — base: `publish refused: settlement defaults need two agreeing
+host-signed approval maps`), `benzo verify` accepts both the served and a directly written no-payment
+settlement (exit 0 — base: refused with `defaults: ... not carried by two agreeing host-signed approval
+maps`), the narrowness control (a settlement WITH a receipt and unattested defaults) stays refused on both,
+and the real `bin/benzo settle` worker publishes its set-aside row WITH its reason (`h7-worker-row-carries-
+reason` — base: the row is paid, no reason).
+
+- `npx tsc -p tsconfig.json` → exit 0. The verify bundle was rebuilt again (`npm run build:verify`) and
+  committed with `docs/verify-bundle.sha256`.
+
 
 ## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
 

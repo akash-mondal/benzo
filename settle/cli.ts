@@ -563,7 +563,11 @@ async function worker(ledger:Ledger) {
     requireThat(BigInt(accounting!.remaining_zats)-BigInt(accounting!.fee_zats)===BigInt(paidReturn.amount_zats),"the kept reserve_return accounting does not match the paid receipt");
     summaryPlan.reserve_return={party:"reserve-return",kind:"payout",amount_zats:paidReturn.amount_zats,...accounting!};
   }
-  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:ledger.rows(),batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan:summaryPlan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
+  // H7 (B50): the set-aside reasons travel with their exception rows into the summary — and from there into
+  // the published no-payment settlement — so a reader sees WHY each row waits, not just that it does.
+  const reasonOf=new Map<string,string>([...(plan.exceptions??[]),...pinned.filter((o:any)=>o.reason)].map((o:any)=>[o.party,String(o.reason)]));
+  const summaryRows=ledger.rows().map(r=>r.state==="exception"&&reasonOf.get(r.party)?{...r,reason:reasonOf.get(r.party)}:r);
+  writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:summaryRows,batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan:summaryPlan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));
 }
 try {

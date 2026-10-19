@@ -89,8 +89,17 @@ export function publish(id:string) {
       const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
       // Ruling R61: the agreed pair {defaults, bond_void} — a void bond is published only when two agreeing maps attest it.
       const pick=earliestAgreedBond((maps as any[]).filter(mp=>mp&&mp.auction_id===id),wkeys,(read(path.join(sd,'receipts.json'))as any[]).map((r:any)=>r.txid));
-      requireThat(pick!==null,'settlement defaults need two agreeing host-signed approval maps; refusing to publish');
-      agreed=pick!.defaults;agreedVoid=pick!.bond_void;
+      if(pick!==null){agreed=pick!.defaults;agreedVoid=pick!.bond_void;}
+      else {
+        // H7 (B50): every batch set aside — a NO-PAYMENT settlement publishes instead of stalling at
+        // `pick === null`. With not one receipt there is no paid attribution a wrong list could redirect
+        // (the equal-balance swap needs paid rows and receipts) and the tie-break has no paying batch to
+        // bind to; the plan's own list publishes with the set-aside reasons and verify accepts the
+        // no-payment settlement (every row is its exception row). With any receipt at all, a defaults list
+        // no two agreeing host-signed maps carry stays unpublishable.
+        requireThat((read(path.join(sd,'receipts.json'))as any[]).length===0,'settlement defaults need two agreeing host-signed approval maps; refusing to publish');
+        agreed=s.plan.defaults;agreedVoid=s.plan.bond_void===true;
+      }
     }
     doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
       // B46 (H15, Revision R103): the reserve-return accounting — the vault's whole unspent value the return

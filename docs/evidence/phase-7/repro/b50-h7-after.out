@@ -1,0 +1,22 @@
+commit c5b076f521d77309aa478cf31d108c1bff254905 (working tree not clean at run time)
+utc 2026-10-19T05:34:14.863Z
+command node tmp/b50.mjs after h7 (tools/repro/b50-p2-sweep.ts)
+tree M api/public-auction.ts
+tree  M cli/product.ts
+tree  M dist/benzo-verify.mjs
+tree  M docs/verify-bundle.sha256
+tree  M settle/cli.ts
+tree  M tools/repro/b50-p2-sweep.ts
+tree ?? docs/evidence/phase-7/repro/b50-h7-after.out
+tree ?? node_modules
+tree ?? vendor
+PASS fixture-seller-payout the fixture result owes the seller 15000 zats
+PASS fixture-obligations the fixture owes leaf:0:1000000, leaf:1:1000000, leaf:2:985000, seller:15000
+=== h7: a bond auction whose every batch is set aside publishes a no-payment settlement
+PASS h7-bond-obligations the bond fixture owes leaf:0:7000, seller:3000
+PASS h7-publish-serves publish served the no-payment settlement: 2 exception rows carrying their set-aside reasons, 0 receipts, defaults []
+PASS h7-verify-accepts-served benzo verify on the served no-payment settlement: exit 0 (OK no-destinations)
+PASS h7-verify-accepts-no-payment benzo verify on the no-payment settlement (no receipts, exception rows with reasons): exit 0 (OK no-destinations)
+PASS h7-paid-unattested-defaults-refused a settlement WITH a receipt and unattested defaults: REFUSED receipt-attestation: refused: receipts not host-attested: no approval maps published (verify --legacy-unatteste | defaults: refused: paying batch 5a052a5c80b0a68a817b493cf3679a97b0483258c966513c7d1b27e903e0df7c is 
+PASS h7-worker-row-carries-reason the real worker's published set-aside row leaf:2: state exception, reason "set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)" (exit 0)
+RESULT PASS

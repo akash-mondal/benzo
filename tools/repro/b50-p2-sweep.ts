@@ -40,6 +40,7 @@ import path from "node:path";
 import { hash, jsonBytes, sellerUaCommitment, reserveReturnUaCommitment } from "../../manifest/schema";
 import { sealBlob } from "../../envelope";
 import { checkPublicAuction, loadPublicAuction } from "../../api/public-auction";
+import { publish } from "../../cli/product";
 import { deriveClaimOpenings } from "../../cli/published-beacon";
 import { modeEntry } from "../../clear/registry";
 import { signApprovalMap, signOpensReport } from "../../witness";
@@ -455,6 +456,86 @@ const run = async () => {
       let v: string;
       try { v = await verdict(loadPublicAuction(d2)); } catch (e) { v = `THREW ${(e as Error).message.slice(0, 100)}`; }
       console.log(`OBSERVE committed cancelled ${f}: ${v}`);
+    }
+  }
+
+  // ---- H7: every batch set aside → a no-payment settlement with the set-aside reasons ----------------
+  if (wants("h7")) {
+    console.log("=== h7: a bond auction whose every batch is set aside publishes a no-payment settlement");
+    const fxB: Fixture = await buildAuction({
+      beacon, count: 3, fee_zats: "0", c_zats: "10000",
+      bond: { bond_bps: 1000, balance_window_start_height: 95000, balance_window_blocks: 1000, balance_addresses: ["utest1b50balanceaddress000000000000000000000000000000000"] },
+      commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD),
+    });
+    const obsB = obligationsOf(fxB);
+    check("h7-bond-obligations", obsB.length >= 1, `the bond fixture owes ${obsB.map(([p, a]) => `${p}:${a}`).join(", ")}`);
+    // The worker's all-set-aside summary: every obligation row waits in the exception queue with its reason,
+    // the one allocated batch is its set-aside batch (R80's pczt_hash null), nothing was ever paid.
+    const asideText = "set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)";
+    const setAside = obsB.map(([party, amount_zats]) => ({ party, kind: party === "seller" ? "payout" : "refund", amount_zats, state: "exception", reason: asideText }));
+    const stateH7 = path.resolve(ROOT, process.env.BNZ_STATE_DIR ?? path.join("tmp", "b50", "state"));
+    const idH7 = fxB.id, pubH7 = path.join(ROOT, "tmp", "b50", "h7-public"), sd = path.join(stateH7, "settle", idH7);
+    rmSync(sd, { recursive: true, force: true }); rmSync(pubH7, { recursive: true, force: true });
+    for (const d of [path.join(stateH7, "auction"), path.join(stateH7, "product"), sd]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    mkdirSync(pubH7, { recursive: true });
+    // The witness certificates `benzo witness sign` places in the public dir; publish() carries them over.
+    writeFileSync(path.join(pubH7, "auction.json"), jsonBytes({ witness_cert: fxB.witnessCert }));
+    writeFileSync(path.join(stateH7, "auction", `${idH7}.json`), jsonBytes({ manifest: fxB.manifestPacket, signer: fxB.signer, state: "SETTLED", receipts: [],
+      frozen: fxB.frozen, result: fxB.result, opened: fxB.opened, beacon: fxB.beacon, witness_set: fxB.witnessSet, envelopes: fxB.envelopes }));
+    writeFileSync(path.join(stateH7, "product", `${idH7}.json`), jsonBytes({ public_dir: pubH7, settlement: { signers: ["alice", "bob", "carol"], batch_cap: 13, pczt_expiry_blocks: 364 } }));
+    writeFileSync(path.join(sd, "receipts.json"), jsonBytes([]));
+    writeFileSync(path.join(sd, "summary.json"), jsonBytes({ auction_id: idH7, rows: setAside,
+      batches: [{ id: 1, pczt_hash: null, txid: null, height: null, state: "exception" }],
+      plan: { defaults: [], balance_refunds: [], ignored: [] }, offline_signer: "carol" }));
+    let served: any = null, publishError = "";
+    try { served = publish(idH7); } catch (e) { publishError = (e as Error).message; }
+    const sRows: any[] = served?.settlement?.rows ?? [];
+    check("h7-publish-serves", !!served?.settlement && (served.settlement.receipts ?? []).length === 0 && sRows.length === setAside.length
+      && sRows.every((r) => r.state === "exception" && typeof r.reason === "string" && /set aside this run/.test(r.reason))
+      && Array.isArray(served.settlement.defaults),
+      publishError ? `publish refused: ${publishError.slice(0, 120)}`
+        : `publish served the no-payment settlement: ${sRows.length} exception rows carrying their set-aside reasons, ${(served.settlement.receipts ?? []).length} receipts, defaults ${JSON.stringify(served.settlement.defaults)}`);
+    const v = sh(["verify", "--dir", pubH7, "--signer", fxB.signer]);
+    check("h7-verify-accepts-served", !!served?.settlement && v.code === 0,
+      publishError ? `publish refused: ${publishError.slice(0, 120)}` : `benzo verify on the served no-payment settlement: exit ${v.code} (${lastLine(v)})`);
+    // The same no-payment settlement written directly (so the verify-side rule is judged on its own):
+    // no receipts, every obligation row its exception row with its reason, the plan's own defaults list.
+    {
+      const d4 = path.join(ROOT, "tmp", "b50", "h7-no-payment");
+      writeFixtureDir(d4, fxB, { rows: setAside, receipts: [], ignored: [], defaults: [], balance_refunds: [] });
+      const v4 = sh(["verify", "--dir", d4, "--signer", fxB.signer]);
+      check("h7-verify-accepts-no-payment", v4.code === 0,
+        `benzo verify on the no-payment settlement (no receipts, exception rows with reasons): exit ${v4.code} (${lastLine(v4)})`);
+    }
+    // The exemption is narrow: a settlement WITH a receipt and a defaults list no two agreeing maps carry
+    // stays refused (the equal-balance swap it protects needs exactly that).
+    {
+      const paidDefault = {
+        rows: [
+          { party: setAside[0].party, kind: setAside[0].kind, amount_zats: setAside[0].amount_zats, state: "paid", batch: 1, txid: TX1, output_index: 0, pool: "ironwood" },
+          ...setAside.slice(1),
+        ],
+        receipts: [{ auction_id: fxB.id, party: setAside[0].party, txid: TX1, pool: "ironwood", output_index: 0, amount_zats: setAside[0].amount_zats }],
+        ignored: [], defaults: [], balance_refunds: [],
+      };
+      const d3 = path.join(ROOT, "tmp", "b50", "h7-paid-default");
+      writeFixtureDir(d3, fxB, paidDefault);
+      const verdictPaid = await verdict(loadPublicAuction(d3));
+      check("h7-paid-unattested-defaults-refused", /defaults/.test(verdictPaid) && verdictPaid.startsWith("REFUSED"),
+        `a settlement WITH a receipt and unattested defaults: ${verdictPaid}`);
+    }
+    // The worker itself carries the set-aside reason onto its published exception row (settle/cli.ts).
+    {
+      const fxW: Fixture = await buildAuction({ beacon, count: 3, fee_zats: "0", commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+      const minority = (obligationsOf(fxW).find(([p]) => p === "leaf:2") ?? obligationsOf(fxW)[0]);
+      const w = writeWorkerWorld("h7-reasons", fxW, { root: part === "before" ? BASE : ROOT, benzo: BENZO, custody: true, poolByAmount: { [minority[1]]: "orchard" } });
+      const greenBenzo = path.join(ROOT, "cli", "dist", "benzo.mjs");
+      const r = runCmd(w.benzo === greenBenzo ? path.join(ROOT, "bin", "benzo") : process.execPath,
+        w.benzo === greenBenzo ? ["settle", "--id", w.id] : [w.benzo, "settle", "--id", w.id], worldEnv(w));
+      const doc = existsSync(path.join(w.publicDir, "auction.json")) ? JSON.parse(readFileSync(path.join(w.publicDir, "auction.json"), "utf8")) : null;
+      const row = (doc?.settlement?.rows ?? []).find((x: any) => x.party === minority[0]);
+      check("h7-worker-row-carries-reason", r.code === 0 && !!row && row.state === "exception" && typeof row.reason === "string" && /set aside this run/.test(row.reason),
+        `the real worker's published set-aside row ${minority[0]}: ${row ? `state ${row.state}, reason ${JSON.stringify(row.reason ?? null)}` : "missing"} (exit ${r.code})`);
     }
   }
 

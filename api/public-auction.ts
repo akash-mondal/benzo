@@ -665,9 +665,12 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const word = (v: unknown) => typeof v === "string" && /^[a-z]{3,16}$/.test(v), hex64 = (v: unknown) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
     const nat = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
     for (const [i, r] of (pub.settlement.rows ?? []).entries() as IterableIterator<[number, any]>) {
-      requireThat(r && typeof r === "object" && Object.keys(r).every(k => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid"].includes(k)), `settlement row ${i} keys`);
+      requireThat(r && typeof r === "object" && Object.keys(r).every(k => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid", "reason"].includes(k)), `settlement row ${i} keys`);
       requireThat(typeof r.party === "string" && /^[0-9]+$/.test(String(r.amount_zats)) && word(r.state) && (r.kind === undefined || r.kind === "refund" || r.kind === "payout") &&
-        (r.pool == null || /^(sapling|orchard|ironwood)$/.test(r.pool)) && (r.txid == null || hex64(r.txid)) && (r.batch == null || nat(r.batch)) && (r.output_index == null || nat(r.output_index)),
+        (r.pool == null || /^(sapling|orchard|ironwood)$/.test(r.pool)) && (r.txid == null || hex64(r.txid)) && (r.batch == null || nat(r.batch)) && (r.output_index == null || nat(r.output_index)) &&
+        // H7 (B50): an exception row may carry the reason it waits (a string, on exception rows only) — the
+        // set-aside reasons a no-payment settlement publishes. Every other state carries none.
+        (r.reason === undefined || (r.state === "exception" && typeof r.reason === "string" && r.reason.length > 0 && r.reason.length <= 200)),
         `settlement row ${i} values`);
     }
     for (const [i, b] of ((pub.settlement.batches ?? []) as any[]).entries()) {
@@ -905,6 +908,12 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (pub.settlement && pub.settlement.bond_void !== undefined)
       requireThat(!!m.bond && !!pub.result && pub.settlement.defaults !== undefined, "settlement bond_void outside a settled bond auction");
     if (!m.bond || !pub.settlement || pub.settlement.defaults === undefined) return;
+    // H7 (B50): a NO-PAYMENT settlement — not one receipt — publishes its plan's own defaults/bond_void with
+    // the set-aside reasons. Nothing was paid under the list (the equal-balance swap it protects needs paid
+    // rows and receipts), the map tie-break has no paying batch to bind to (it is null by construction), and
+    // every row is an exception still held to the recomputed obligations below; the next settle re-derives
+    // and re-pins the unpaid rows. With any receipt at all, an unattested list stays unpublishable.
+    if ((pub.settlement.receipts ?? []).length === 0) return;
     requireThat(pub.witnessSet && m.witness_set_hash === witnessSetHash(pub.witnessSet!), "host-signed defaults need a pinned witness set");
     const keys = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, pub.signer), m.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));

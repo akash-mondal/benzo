@@ -19171,9 +19171,11 @@ function checkPublicAuction(pub, opts = {}) {
       const word = (v2) => typeof v2 === "string" && /^[a-z]{3,16}$/.test(v2), hex64 = (v2) => typeof v2 === "string" && /^[0-9a-f]{64}$/.test(v2);
       const nat = (v2) => Number.isSafeInteger(v2) && v2 >= 0;
       for (const [i2, r2] of (pub.settlement.rows ?? []).entries()) {
-        requireThat(r2 && typeof r2 === "object" && Object.keys(r2).every((k2) => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid"].includes(k2)), `settlement row ${i2} keys`);
+        requireThat(r2 && typeof r2 === "object" && Object.keys(r2).every((k2) => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid", "reason"].includes(k2)), `settlement row ${i2} keys`);
         requireThat(
-          typeof r2.party === "string" && /^[0-9]+$/.test(String(r2.amount_zats)) && word(r2.state) && (r2.kind === void 0 || r2.kind === "refund" || r2.kind === "payout") && (r2.pool == null || /^(sapling|orchard|ironwood)$/.test(r2.pool)) && (r2.txid == null || hex64(r2.txid)) && (r2.batch == null || nat(r2.batch)) && (r2.output_index == null || nat(r2.output_index)),
+          typeof r2.party === "string" && /^[0-9]+$/.test(String(r2.amount_zats)) && word(r2.state) && (r2.kind === void 0 || r2.kind === "refund" || r2.kind === "payout") && (r2.pool == null || /^(sapling|orchard|ironwood)$/.test(r2.pool)) && (r2.txid == null || hex64(r2.txid)) && (r2.batch == null || nat(r2.batch)) && (r2.output_index == null || nat(r2.output_index)) && // H7 (B50): an exception row may carry the reason it waits (a string, on exception rows only) — the
+          // set-aside reasons a no-payment settlement publishes. Every other state carries none.
+          (r2.reason === void 0 || r2.state === "exception" && typeof r2.reason === "string" && r2.reason.length > 0 && r2.reason.length <= 200),
           `settlement row ${i2} values`
         );
       }
@@ -19367,6 +19369,7 @@ function checkPublicAuction(pub, opts = {}) {
     if (pub.settlement && pub.settlement.bond_void !== void 0)
       requireThat(!!m2.bond && !!pub.result && pub.settlement.defaults !== void 0, "settlement bond_void outside a settled bond auction");
     if (!m2.bond || !pub.settlement || pub.settlement.defaults === void 0) return;
+    if ((pub.settlement.receipts ?? []).length === 0) return;
     requireThat(pub.witnessSet && m2.witness_set_hash === witnessSetHash(pub.witnessSet), "host-signed defaults need a pinned witness set");
     const keys2 = validateWitnessSet(verifyRecord(pub.witnessSet, pub.signer), m2.auction_id).keys;
     const maps = (pub.settlement.approval_maps ?? []).filter((mp) => !!mp && mp.auction_id === m2.auction_id && verifyApprovalMap(mp, keys2));
