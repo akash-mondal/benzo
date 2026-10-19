@@ -963,3 +963,19 @@ The canary passed testnet-golden-path and auction-core. settle-crash failed for 
 - **The specs fund the exact real fee.** H19's worst-case preflight asks for about twice that. The top-up refusal came before the kill, so L1, J2, K1 and N1 cascaded, and J1 was checked against no batch.
 
 Both go to B55 (`docs/design/phase7-b55-cancel-before-r-and-rg-harness.md`). The final RG waits for B55 and B56.
+
+### R123: B55 merged (head, 2026-10-19)
+
+B55 is cherry-picked onto main as 5 commits. The only conflict was the STATUS-B markers.
+- The verify bundle is unchanged (`ec044a12…`; B55's files are not in its graph). `npm run check` and `tsc -p .` (which covers the specs) are green.
+- Folds: b55-cancel-before-r before PASS and after PASS (it needs the builder's base bundles in `tmp/b55/`), b55-h19-bound PASS, b44 29, b46 66, b47 49, h13 38, h14 14, b54 29 (one retry after a drand relay timeout), b48 23, h10 22, and b53 28 across 7 sections.
+- Replays r73, r77 ×2, r78, r81 and r82 exit 0. All 5 published dirs give 19 OK. The offline e2e passes.
+
+Rulings on B55's questions:
+- **Q1.** Accepted. A frozen-but-cancelled packet skips the internal `benzo verify`, which needs a result. The host still checks the manifest signature, recomputes the frozen root from its own scan (`recomputeFrozen`) and checks the pinned root. On base, such a packet could never settle under host custody.
+- **Q2, Q4, Q5, Q6.** Accepted as reported.
+- **Q3.** Disclosed P3: `sign envelope-opens` before R exits 1 for that command. It is an operator-run step, not part of automatic settlement.
+- **Q7 and Q8.** The head runs the e2e and the bundle rebuild on main.
+- **Q9.** drand relay flakiness: retry.
+
+The live settle-crash rerun at this commit is the gate for M1 and for H19 funding.
