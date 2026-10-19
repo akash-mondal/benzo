@@ -81,7 +81,8 @@ try {
     }
     // B46 (H15): the reserve-return row is planned only when no batch is pending (every staged transaction has
     // mined), so its sources can never race a batch that still holds a note.
-    pendingBatches=Number((db.prepare("SELECT COUNT(*) AS c FROM batches WHERE txid IS NULL AND state!='exception'").get() as {c:number}).c);
+    // R107b: the return's own batch is not a pending batch for the return's gate, or allocating it would cancel it.
+    pendingBatches=Number((db.prepare("SELECT COUNT(*) AS c FROM batches WHERE txid IS NULL AND state!='exception' AND id NOT IN (SELECT batch FROM obligations WHERE party='reserve-return' AND batch IS NOT NULL)").get() as {c:number}).c);
     } finally {db.close()}
   }
   const depositNotes=notes.filter(n=>m.deposit_addresses.includes(n.address)&&(!n.spent_in_txid||owned.has(n.spent_in_txid)));

@@ -715,3 +715,16 @@ Three published dirs still verify, 19 OK each (launch-cold, the DOC run, scale-5
 The live H15 walkthrough (auction `426b8585…`, hosts at `8a9f638`) stopped at `benzo settle`: every host's `sign derivable` exited 3 with `refused-rows ["reserve-return"]: the auction still owes 4 outstanding`, so **no** row could be listed and nothing paid. Every settlement packet carries `routing.reserve_return_ua`, so `deriveReserveReturn` bound the address on ordinary batches and refused while anything was owed. B46's offline proof never built an ordinary-batch packet with the address set; this is exactly its open question 5.
 
 Fix (head, `cli/host-derive.ts`, one line): while something is owed, only a packet that **declares** the return row is refused; any other packet gets "no return row yet". The B46 repro still passes green and `npm run check` passes. Hosts are provisioned again, and the walkthrough resumes at `benzo settle` for the same auction. Deposits are safe in the vault meanwhile.
+
+### R107b — The reserve-return gate counted the return itself as outstanding; fixed (head, 2026-10-19)
+
+After R107, batch 1 of `426b8585…` paid all four rows (SETTLED). The return then needed batch 1's change to be spendable, so it was a second `benzo settle` (logged cleanly: "the reserve stays in the vault until the next benzo settle"). That second settle allocated the return as batch 2 and then crashed with `Cannot read properties of null (reading 'amount_zats')`. Two causes:
+1. The plan counted the return's own allocated batch as a pending batch, so `plan.reserve_return` went null.
+2. `reserveReturnOutstanding` would count the published return row (no receipt yet) as unresolved, on the hosts too.
+
+Fix (head):
+- the pending-batch count excludes the batch holding the `reserve-return` obligation (`settle/plan.ts`);
+- the shared outstanding rule skips the `reserve-return` row itself (`settle/deposits.ts`);
+- the worker takes the amount from the allocated batch (`settle/cli.ts`).
+
+The B46 repro still passes green and `npm run check` passes (verify bundle unchanged). This is the third live-only wiring gap in this path (R99, R107, R107b), so **an offline end-to-end proof of the settle worker's reserve-return pass** goes to the next builder batch.
