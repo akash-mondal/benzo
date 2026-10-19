@@ -856,3 +856,30 @@ Report `benzo-sol/reports/pr-p7-b49-b51.md`. Confirmed by probe:
 **P2-2:** H2 is not mitigated on the resume path, because confirm attributes receipts by index alone. That fix, plus P3-1 (zero-change batches), P3-2 (pre-B49 ledger entries), P3-3 (a true mempool re-send under custody), P3-5, P3-6, P3-7 and P3-8a/b, goes to B53 (`docs/design/phase7-b53-resume-and-ledger.md`).
 
 The two batches run in parallel and their edit regions are kept apart. Both designs require copying `vendor/`, never symlinking it (R115).
+
+### R117 — B53 merged: resume attribution, the custody re-send, zero-change paid depth, ledger healing, P3s (head, 2026-10-19)
+
+B53 (`b53-resume-ledger`, nine commits) was cherry-picked cleanly onto R116. It carried no symlinks; R115's guard held. The head rebuilt the bundles on main; the verify bundle is now `d33c77ea…`. On main the head re-ran:
+- `npm run check` and e2e (passed on main; the builder's worktree could not run it, Q7);
+- the b44, b46, b47, b48, h10, h13 and h14 folds, all RESULT PASS;
+- B53's own driver, 27 PASS (one transient drand timeout, clean on retry);
+- the r73, r77, r77-serial, r78, r81 and r82 replays, exit 0;
+- the four published dirs, 19 OK each.
+
+**Closed from round 4:**
+- P2-2: confirm resolves receipts by a unique `(output_index, amount)`, and an ambiguous batch is parked as an exception, never thrown. H2 is mitigated on the resume path too.
+- P3-1: a zero-change batch is counted from the host's own chain lookup, 10 deep.
+- P3-2: a pre-B49 `mapped` entry is healed on read and on re-approve.
+- P3-3: a true mempool re-send under custody falls through to the bounded mined-wait.
+- P3-5: `mapPairAgrees` now includes `auction_id` and `txid`; defaults selection needs an agreeing pair.
+- P3-6: the zilkroad guard comment.
+- P3-7: excess-row backing notes join `sources`.
+- P3-8a/b: the one-pool reason on the custody path; the unused import is removed.
+
+Rulings on its questions:
+- **Q1, Q2, Q4, Q5** accepted as built.
+- **Q3:** the 30-minute mined-wait timeout leg is bounded and records nothing on timeout. It is accepted untested offline and will be exercised live in RG if it occurs.
+- **Q6:** two narrow edits sit inside B52's regions; resolve them at the B52 merge.
+- **Q7:** e2e passed on main.
+
+B52 (the return fee basis, H23, P3-4, P3-8c) is still running.
