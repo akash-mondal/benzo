@@ -1,0 +1,29 @@
+commit 8eefbda7102b4a2b874d8fdb6bbbfaa49721fb29 (working tree not clean at run time)
+utc 2026-10-19T03:05:31.960Z
+command node tmp/h10.mjs (tools/repro/h10-seller-binding.ts)
+tree ?? docs/evidence/phase-7/repro/b48-p3s-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-before.out
+PASS unit-commitment-known-answer sellerUaCommitment = af44dfd8f3328b34de0d35ffd9fa3eb14e3a6f5ca51acc28436a0f00d3b5704b (independent sha256 over "benzo-seller-ua-v1\0" || utf8(ua) = af44dfd8f3328b34de0d35ffd9fa3eb14e3a6f5ca51acc28436a0f00d3b5704b)
+PASS unit-commitment-not-the-address the commitment is domain-separated, not a bare address hash
+PASS unit-shape-good accepted
+PASS unit-shape-bad-length refused: refused: seller_ua_commitment
+PASS unit-shape-uppercase-hex refused: refused: seller_ua_commitment
+PASS unit-shape-extra-field refused: refused: unknown or missing manifest field
+PASS fixture-seller-payout /^[1-9]/ tests the fixture result's seller obligation: 15000 zats
+PASS create-sets-commitment-from-routing set seller_ua_commitment af44dfd8f3328b34de0d35ffd9fa3eb14e3a6f5ca51acc28436a0f00d3b5704b ({"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","state":"DRAFT","manifest":{"version":1)
+PASS create-refuses-sapling-only-seller-ua refused a Sapling-only seller_ua (H4): ERROR benzo refused: seller_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver (H4)
+PASS create-mainnet-requires-commitment mainnet create without seller_ua_commitment refused: ERROR benzo refused: mainnet manifest must carry seller_ua_commitment (H10)
+PASS create-mainnet-with-commitment-passes-h10-rule passes the H10 rule, refused later by the network lock: ERROR benzo refused: manifest version/network
+PASS sign-build-substituted-refused typed refusal: ERROR sign build refused-rows ["seller"]: seller payout address does not match the manifest seller_ua_commitment (H10)
+PASS sign-approve-substituted-refused typed refusal: ERROR sign approve refused-rows ["seller"]: seller payout address does not match the manifest seller_ua_commitment (H10)
+PASS sign-derivable-substituted-refused typed refusal: ERROR sign derivable refused-rows ["seller"]: seller payout address does not match the manifest seller_ua_commitment (H10)
+PASS sign-build-honest-passes built the seller row to the committed address (utest1dzh6avyyspadzv6g63…)
+PASS sign-derivable-honest-passes lists the seller row
+PASS sign-approve-honest-passes recorded the approval
+OBSERVE legacy-packet-seller-accepted utest1redacted (amount-only behaviour for pre-H10 manifests)
+PASS legacy-manifest-settles-with-warn settled the legacy manifest's seller row from the packet with 1 WARN line(s)
+PASS legacy-manifest-derivable-with-warn lists the seller row with 1 WARN line(s)
+PASS seller-check-honest exit 0 (expected 0): {"signer":"302a300506032b6570032100ed4f9c95e52a05d8f62fc2bd78ef2a45f6fb516fc45e913901198bb46bc0aa57","network":"test","seller_ua_commitment"
+PASS seller-check-substituted exit 1 (expected 1): ERROR seller check: this address is not the manifest's committed seller payout address
+PASS seller-check-legacy exit 1 (expected 1): ERROR seller check: this address is not the manifest's committed seller payout address
+RESULT PASS

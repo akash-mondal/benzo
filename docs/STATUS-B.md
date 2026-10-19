@@ -3,6 +3,131 @@
 <!-- Only Builder B writes this file, on branch track-b. Same rules as docs/STATUS.md: outcome first, back every claim
 with a command and its result or mark it `unverified`, replace stale lines. Rulings live in the phase doc only. -->
 
+## Batch B48 (Builder B, branch `b48-p3s`, from `5535b74`) — H18: Reviewer R's three P3s
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets, no
+live Playwright; the worktree carries its own `.env` (from `.env.example`) and its own `.benzo/bin` tool dir;
+the fixture beacons are the established one-time past-quicknet fetch). Spec:
+`docs/design/phase7-b48-p3s.md`. Worktree `../benzo-b48`, branch `b48-p3s`, base `5535b74`. Commits
+`--no-verify` (R32): `9293b20` (fix 1), `a4e86c4` (fix 2), `4b1a566` (fix 3 + the rebuilt verify bundle),
+`2800e0e`/`2c638c2`/`8eefbda` (the proof repro and its red-before leg), then the evidence/status commit.
+Product edits touch only `cli/host-derive.ts` (sellerBinding comment), the three `sign` callers,
+`cli/commands/seller.ts` and the `--openings-cache` path check in `cli/commands/verify.ts` — nothing in
+`settle/*`, `api/public-auction.ts`, the classify prefetch or the reserve-return gate (B49's files).
+
+### The three fixes, each with its proof (`tools/repro/b48-p3s.ts`, red-before/green-after)
+
+Red-before drives the PRISTINE `5535b74` bundles (built from a `git archive` extraction into
+`tmp/b48-base-src`, the folds' recipe — no second worktree); green runs this tree. Green: 17 checks,
+`RESULT PASS` (`docs/evidence/phase-7/repro/b48-p3s-after.out`). Red-before: `RESULT FAIL (5)` with exactly
+the five behaviour changes red and every unchanged refusal green
+(`docs/evidence/phase-7/repro/b48-p3s-before.out`).
+
+1. **A seller-commitment mismatch refuses only the seller row, and only when the batch has one (P3-1).**
+   The binding values (`bound`/`legacy`/`mismatch`) are unchanged (`cli/host-derive.ts:293-302`); the
+   refusal is now gated on the batch actually carrying a seller row, in the caller that knows its batch:
+   `cli/commands/sign-build.ts:51-54` (this batch's `rows.json` has a `seller` row),
+   `cli/commands/sign-approve.ts:102-109` (the inspected candidate has the seller output — exactly the
+   output the mapping below would accept as `seller`: the packet's `seller_ua` for the result's seller
+   amount; the old whole-packet pre-check at :83-85 is folded into it),
+   `cli/commands/sign-derivable.ts:38-42` (the row listing has one: `payout !== "0"` and a named
+   `seller_ua`, the listing's own push condition at :45). Proof: a mismatched-`seller_ua` packet whose
+   batch has NO seller row **builds and approves its refund rows** (`p31-build-refund-rows-built`: exit 0,
+   the three leaf refunds built and paid to the derived refund address, nothing to the substitute;
+   `p31-approve-refund-rows-approved`: exit 0, approval recorded) and `sign derivable`'s seller-less
+   listing comes out (`p31-derivable-no-seller-row-lists-refunds`: exit 0, exactly the refund rows).
+   The same packet with the seller row is refused for that row only, typed, `refused-rows ["seller"]`,
+   exit 3, nothing built/recorded (`p31-build-seller-row-refused-typed`,
+   `p31-approve-seller-row-refused-typed`, `p31-derivable-seller-row-refused-typed` — all three also
+   green on the base tree, i.e. unchanged). Red-before: the first three were the P3's deadlock — the
+   base refused the WHOLE packet (`refused-rows ["seller"]`, exit 3) on refund-only batches too.
+2. **`seller check` requires the signed manifest (P3-2).** `cli/commands/seller.ts:22-28`: a raw manifest
+   object is refused with exactly one ERROR line telling the seller to pass the published `manifest.json`;
+   the signed packet passes and `--signer HEX` must be exactly the signing key (unchanged). Proof:
+   `p32-raw-manifest-refused` (exit 1, 1 ERROR line naming manifest.json — red-before printed the false
+   all-clear `{"signer":null,…}` at exit 0), `p32-signed-packet-passes`, `p32-right-signer-passes`,
+   `p32-wrong-signer-refused` (`untrusted manifest/receipt signer`, exit 1).
+3. **`verify --openings-cache` reads only the host's own cache file (P3-3).**
+   `cli/commands/verify.ts:72-81`: the resolved path must be exactly
+   `$BNZ_STATE_DIR/auctions/<the dir's auction id>/openings.json` (the B43 lexical check, unchanged) AND
+   the file at it must BE the host's own plain file there — a link standing in for a cache copied
+   elsewhere is refused (`cli/commands/verify.ts:81`). Proof: a cache copied elsewhere is refused — named
+   directly (`p33-copied-cache-refused`, the B43 message) and as a link at the host's own name
+   (`p33-link-standing-in-refused`, the new message — red-before READ the copied cache through the link
+   and passed), while the host's own cache works as before (`p33-own-cache-works`,
+   `p33-restored-own-cache-works`, exit 0).
+
+### Commands run (worktree `/Users/akshmnd/Dev Projects/benzo-b48`), each with result
+
+- Setup: `npm ci` OK (pinned lockfile); `cargo build --release --locked --manifest-path settle/Cargo.toml`
+  OK; untracked `vendor/nu7` copied from the main checkout into the worktree (gitignored build input, the
+  B45 practice) for that cargo build; `GOBIN=$PWD/.benzo/bin go install github.com/drand/tlock/cmd/tle@v1.2.0`
+  OK (the e2e's tle, into the worktree's own `.benzo`).
+- Green bundles `npm run build:core && npm run build:settle && npm run build:cli` OK;
+  `npm run build:verify` rebuilt the shipped verifier bundle with the fix 3 check —
+  `dist/benzo-verify.mjs` sha256 `7bde83849ddf…` and `docs/verify-bundle.sha256` updated and committed
+  together in `4b1a566` (R32: the verify bundle changed, so it is rebuilt and committed with its sha file).
+- `npm run typecheck` clean; `npm run check:structure` `OK check:structure (214 files)`;
+  `npm run check:invariants` `{"fails":{"I1":0,"I2":0,"I3":0,"I4":0}}` ×2;
+  `npm run check:dist-require` OK; `npm run check:bundle` `OK check:bundle 7bde8384… dist/benzo-verify.mjs
+  and docs/verify-bundle.sha256 match a fresh rebuild of this tree` (observed PASS here despite R32's
+  "cannot pass in a worktree" — reported as seen; all commits still `--no-verify`).
+- `npm run e2e` — `PASSED default seal in the browser, open with tle after R (39 s)` —
+  `docs/evidence/phase-7/repro/e2e-seal-open-b48.out`.
+- `node tmp/b48.mjs` (the new proof) — `RESULT PASS`, 17 checks —
+  `docs/evidence/phase-7/repro/b48-p3s-after.out`; the red-before leg on pristine `5535b74` bundles
+  (`BNZ_B48_BENZO=tmp/b48-base-src/cli/dist/benzo.mjs`) — `RESULT FAIL (5)`, the five changes above —
+  `docs/evidence/phase-7/repro/b48-p3s-before.out`.
+- **Folds all green** (raw outputs `docs/evidence/phase-7/repro/*-b48*`, each `RESULT PASS`):
+  `h10-seller-binding` 22/22 (`h10-seller-binding-b48.out` — its C1 substituted-address refusals are the
+  seller-row-in-play cases, unchanged by fix 1), `h13-host-scale` both legs (base bundles from pristine
+  `cd19905` via `git archive` → `tmp/b45/base-tree`, its own `build:core`+`build:cli`, `cli-dist` copied to
+  `tmp/b45/base/cli-dist`; before 8 checks, after 38 checks — `h13-host-scale-b48-{before,after}.out`),
+  the b47 settle e2e green leg `node tmp/b47.mjs after` 28/28, cases (a)–(f)
+  (`b47-settle-e2e-b48.out`; the b47 red legs' base is `8a9f638`, untouched by this batch and not re-run —
+  B47's evidence stands).
+
+### Proof detail — what changed where (the five reds on the base tree)
+
+| check | base `5535b74` | this tree |
+|---|---|---|
+| `p31-build-refund-rows-built` | exit 3 `refused-rows ["seller"]`, nothing built (the P3 deadlock) | exit 0, the 3 refund rows built and paid |
+| `p31-approve-refund-rows-approved` | exit 3 `refused-rows ["seller"]`, no approval | exit 0, approval recorded |
+| `p31-derivable-no-seller-row-lists-refunds` | exit 3 whole listing refused | exit 0, the 3 refund rows listed |
+| `p32-raw-manifest-refused` | exit 0 `"matches":true`, `"signer":null` (false all-clear) | exit 1, one ERROR line naming manifest.json |
+| `p33-link-standing-in-refused` | exit 0 — the linked copy was read as the host's cache | exit 1, `not a link to a cache copied elsewhere` |
+
+## Questions (B48)
+
+1. **P3-3's delta: the design sentence describes a check that already exists.** "Refuse unless the resolved
+   path is exactly `$BNZ_STATE_DIR/auctions/<the dir's auction id>/openings.json`" is the B43 lexical check
+   (`cli/commands/verify.ts:82`, unchanged message, still green in the h13 fold — a cache named at any
+   other path was refused before this batch too). What B48 adds is the on-disk pin at `cli/commands/verify.ts:81`:
+   the file at that path must BE the host's own plain file there, so "a cache copied elsewhere is refused"
+   now holds in both senses — named directly, or as a link standing in for one at the host's own name
+   (`p33-link-standing-in-refused`, red on the base tree). If the head meant a different delta — pinning the
+   cache to the host identity (the review's alternative), or full `realpath` containment — say so and I will
+   reshape it. Residuals kept deliberately: the flag and `BNZ_STATE_DIR` are both caller-controlled (a third
+   party running the public `benzo verify` can still stage a file AT the host's own path — verdict-safe per
+   the review's own analysis), and a hard link at the host's own name is indistinguishable from the host's
+   own file by path + `lstat` alone.
+2. **"The batch" for `sign derivable` is a reading decision.** The command has no batch; I read "a batch
+   with/without a seller row" as its row listing with/without one (the listing's own push condition:
+   `payout !== "0"` and a named `seller_ua`, `cli/commands/sign-derivable.ts:42,45`). So a MISMATCHED
+   `seller_ua` with a live seller obligation is still refused whole (`exit 3`, `refused-rows ["seller"]`, as
+   today) — and at settle time `hostDerivable` then answers nothing and the run stops at "no signer host
+   could list its derivable rows" until the config is fixed. What is unblocked is exactly the P3's case:
+   batches without a seller row (build/approve) and listings without one. If the head wants `derivable` to
+   list the refund rows and refuse-tag only the seller row instead of exiting 3, that is a small change.
+3. **`sign approve`'s "batch has a seller row" is detected on the candidate.** The batch has one exactly
+   when the candidate carries the output the mapping would accept as `seller` (recipient = the packet's
+   `seller_ua`, amount = the result's seller payout — `cli/commands/sign-approve.ts:106-107`). A candidate
+   whose seller output deviates from that shape (e.g. it pays the COMMITTED address while the packet's
+   config mismatches, or the wrong amount) is refused untyped (`output N is not a row this signer derived`,
+   exit 1) rather than typed `refused-rows ["seller"]` — still a refusal, but the coordinator would retry
+   rather than set the row aside. Say if the typed refusal is wanted there too (the detection would need
+   the committed address surfaced from `deriveRows`).
+
 ## Batch B47 (Builder B, branch `b47-settle-worker`, from `32101ec`) — H20 + H19: settle worker robustness + the first offline end-to-end proof of `benzo settle`
 
 **DONE, offline only** (no main-checkout `.benzo/` or `.env` read or used — the worktree carries its own
