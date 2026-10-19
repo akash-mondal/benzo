@@ -329,7 +329,7 @@ async function worker(ledger:Ledger) {
   // the wallet's own rule: an unspent, positive-value note with the manifest's confirmations. The
   // reserve-return row never counts as an obligation (it pays itself out of the sweep), but its row and its
   // own batch do count in the fee bound. The top-up N is the exact shortfall plus a 10% margin
-  // (shortfall + ceil(shortfall/10)). With only the self-funding return left there is nothing to reserve for:
+  // (shortfall + max(ceil(shortfall/10), 5,000), R109: one fee slot of slack so a small top-up never needs a second one). With only the self-funding return left there is nothing to reserve for:
   // the preflight is skipped and the return pass runs as before (its own failure is the spendable-change
   // case, not a fee shortfall).
   {
@@ -344,7 +344,7 @@ async function worker(ledger:Ledger) {
     const remainingBatches=allocatedBatches.size+Math.ceil(eligibleRows/settings().batch_cap);
     const shortfall=obligationZats+5000*(spendableNotes.length+unpaid.length+remainingBatches)-spendableValue;
     if(shortfall>0&&unpaid.some(o=>o.party!=="reserve-return")) {
-      const topUp=shortfall+Math.ceil(shortfall/10);
+      const topUp=shortfall+Math.max(Math.ceil(shortfall/10),5000);
       let feeUa="";
       try {feeUa=JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8"))?.routing?.fee_reserve_ua??""} catch {}
       if(!feeUa) try {feeUa=JSON.parse(readFileSync(file(`routing-${settings().signers[0]}.json`),"utf8")).fee_reserve_ua??""} catch {}

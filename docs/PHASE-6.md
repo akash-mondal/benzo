@@ -732,3 +732,14 @@ The B46 repro still passes green and `npm run check` passes (verify bundle uncha
 ### R108 — H15 proven live: the unused fee reserve returned to the committed address (head, 2026-10-19)
 
 Evidence `docs/evidence/phase-7/h15-live/`. After R107b, the hosts signed the return and it mined: `46b5a8ac…` at 4,516,884 paid **25,000 zats to the committed return address**, from 35,000 remaining minus the 10,000 fee, leaving the vault at 0 value. The published receipt and accounting are present, and the cold verify printed 19 OK. Two settle re-run gaps remain (a mempool resend exits 1; a re-run after the return refuses to republish). They are cosmetic for the outcome and recorded as **H20**, together with the missing offline end-to-end proof of the settle worker. **H15 is closed.** The operator guide gains one line: the return may need a second `benzo settle` once the last batch has confirmed.
+
+### R109 — B47 merged: settle worker idempotence, fee preflight, and the first offline end-to-end proof of `benzo settle` (head, 2026-10-19)
+
+B47 is on main (`a8513ab`, `c05f885`, `b80a23c`):
+- a mempool resend or an already-mined txid counts as broadcast (H20.1);
+- once the return is receipted, its accounting is kept from the paid batch's inspect record or the published doc (H20.2);
+- a fee-reserve preflight stops before any broadcast with the exact top-up line (H19).
+
+`tools/repro/b47-settle-e2e.ts` runs the **real** `bin/benzo settle` against stub chain, wallet and orb tools, with the real host `sign` commands in three state dirs. Cases (a)–(f) are green, 33 checks. On pristine `8a9f638` it reproduces the exact live R107 refusal wall and the R107b crash, so this test layer would have caught both.
+
+Head change at merge (Q1): the top-up is `shortfall + max(ceil(shortfall/10), 5,000)`. The head re-ran B47's e2e on main (RESULT PASS) and `npm run check` (verify bundle unchanged, `f146a894…`). Rulings on Q2–Q5: accepted. **H19 and H20 are closed.** No host code changed, so no host provisioning is needed.
