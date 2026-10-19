@@ -220,6 +220,14 @@ fn quote_sweep(wallet: &str, to: &str, net: Network) -> anyhow::Result<()> {
     // The action count the fee pays for under the enforced rule (fee = 5,000 x max(2, actions)); the fee
     // itself comes from the wallet's own proposal, so this is its shape, not a prediction.
     let actions=fee/5000;
+    // B54 (P3-3, H25, Reviewer R round 5): the sweep must fit what `create` can build. `create` refuses
+    // more than 29 value-carrying spends (max(spends, outputs) <= 29) and more than 29 actions across both
+    // bundles — the measured 100 KB shape. A bigger sweep would quote an amount no build can ever produce:
+    // the row would be set aside and re-planned forever. Refuse here with the typed reason, so the plan's
+    // "reserve return waits" line names it. Disclosed limit H25 (docs/design/phase7-hardening.md): a vault
+    // with more than 28 spendable notes cannot return its reserve in one transaction (and a cross-pool
+    // vault can reach the action bound earlier — actions are the true shape). No multi-step sweep yet.
+    ensure!(spends<=29 && actions<=29, "the vault's value cannot be swept in one transaction: the sweep has {spends} spends and {actions} actions, beyond create's 29 bound (H25)");
     println!("{}",json!({"amount_zats":amount.to_string(),"fee_zats":fee.to_string(),"input_zats":input.to_string(),"spends":spends,"actions":actions}));
     Ok(())
 }

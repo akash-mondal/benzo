@@ -142,6 +142,9 @@ if (cmd === "quote-sweep") {
   if (bad) { process.stderr.write("the vault's value cannot be swept in one transaction: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
   if (!spendable.length) { process.stderr.write("the vault's value cannot be swept in one transaction: no spendable note\\n"); process.exit(1); }
   const shape = shapeOf(spendable.map(n => String(n.pool)), [outPoolOf(to, 0)]);
+  // B54 (P3-3, H25): the sweep must fit what create can build (at most 29 spends and 29 actions —
+  // create's own bounds); the typed reason names it so the plan's waits line carries it.
+  if (spendable.length > 29 || shape.actions > 29) { process.stderr.write("the vault's value cannot be swept in one transaction: the sweep has " + spendable.length + " spends and " + shape.actions + " actions, beyond create's 29 bound (H25)\\n"); process.exit(1); }
   const total = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
   const amount = total - shape.fee;
   if (amount <= 0) { process.stderr.write("the vault's value cannot be swept in one transaction: proposal: InsufficientFunds { available: Zatoshis(" + total + "), required: Zatoshis(" + (total + shape.fee) + ") }\\n"); process.exit(1); }
