@@ -270,6 +270,22 @@ const state = path.dirname(path.dirname(process.argv[1]));
 const fix = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8"));
 const a = process.argv.slice(2), cmd = a[0];
 if (process.env.BNZ_PCZT_TRACE) fs.appendFileSync(process.env.BNZ_PCZT_TRACE, a.join(" ") + "\\n");
+// B52 (P3-8c): actions the REAL way (settle/src/main.rs inspect): per pool, max(spends, outputs), with each
+// bundle padded to at least 2 actions (the pinned orchard builder pads every non-empty bundle to its
+// 2-action floor — orchard-0.15.3 DEFAULT_MIN_ACTIONS), and one INPUT per source note. The fee is the
+// ZIP-317 fee of that action count: 5,000 x max(2, actions).
+const bundleActions = (s, o) => (s + o > 0 ? Math.max(2, Math.max(s, o)) : 0);
+const shapeOf = (spendPools, outPools) => {
+  const counts = {};
+  for (const p of spendPools) { counts[p] = counts[p] || { s: 0, o: 0 }; counts[p].s++; }
+  for (const p of outPools) { counts[p] = counts[p] || { s: 0, o: 0 }; counts[p].o++; }
+  let actions = 0;
+  for (const k of Object.keys(counts)) actions += bundleActions(counts[k].s, counts[k].o);
+  return { actions, fee: 5000 * Math.max(2, actions) };
+};
+const idOf = (n) => n.txid + ":" + n.pool + ":" + n.action_index;
+const unspentNotes = () => fix.notes.filter(n => (n.spent_in_txid ?? null) == null && Number(n.value_zats) > 0);
+const outPoolOf = (recipient, amount) => (fix.pool_by_ua || {})[recipient] || (fix.pool_by_amount || {})[String(amount)] || "ironwood";
 if (cmd === "classify-address") {
   // B45: classify-address --stdin is the bulk form — stdin/stdout pass straight through to the real binary.
   if (a.includes("--stdin")) {
@@ -285,24 +301,66 @@ if (cmd === "owns") {
   console.log(((fix.internal_addresses ?? []).includes(a[2])) ? "internal" : "external");
   process.exit(0);
 }
+if (cmd === "quote-sweep") {
+  // B52 (item 1): the tool's own quote of the one-row sweep — every spendable note, one output, no change,
+  // the fee of the real action count. A note the tool cannot spend is a quoted failure, never a smaller
+  // sweep that would leave value behind.
+  const to = a[a.indexOf("--to") + 1];
+  const spendable = unspentNotes();
+  const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
+  if (bad) { process.stderr.write("the vault's value cannot be swept in one transaction: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
+  if (!spendable.length) { process.stderr.write("the vault's value cannot be swept in one transaction: no spendable note\\n"); process.exit(1); }
+  const shape = shapeOf(spendable.map(n => String(n.pool)), [outPoolOf(to, 0)]);
+  const total = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
+  const amount = total - shape.fee;
+  if (amount <= 0) { process.stderr.write("the vault's value cannot be swept in one transaction: proposal: InsufficientFunds { available: Zatoshis(" + total + "), required: Zatoshis(" + (total + shape.fee) + ") }\\n"); process.exit(1); }
+  console.log(JSON.stringify({ amount_zats: String(amount), fee_zats: String(shape.fee), input_zats: String(total), spends: spendable.length, actions: shape.actions }));
+  process.exit(0);
+}
 if (cmd === "create") {
   const rows = JSON.parse(fs.readFileSync(0, "utf8"));
-  fs.writeFileSync(a[2], JSON.stringify({ rows }));
+  // B52 (P3-8c): the wallet's proposal shape — spend every spendable note, pay the rows, and leave change
+  // only when the rows plus the fee of the real action count fall short of the spent value.
+  const spendable = unspentNotes();
+  const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
+  if (bad) { process.stderr.write("Error: proposal: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
+  const available = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
+  const rowZats = rows.reduce((s, r) => s + Number(r.amount_zats), 0);
+  const outPools = rows.map(r => outPoolOf(r.recipient, r.amount_zats));
+  let fee = shapeOf(spendable.map(n => String(n.pool)), outPools).fee;
+  if (rowZats + fee <= available) fee = shapeOf(spendable.map(n => String(n.pool)), outPools.concat([fix.change_pool || "ironwood"])).fee;
+  const required = rowZats + fee;
+  if (required > available) {
+    process.stderr.write("Error: proposal: InsufficientFunds { available: Zatoshis(" + available + "), required: Zatoshis(" + required + ") }\\n");
+    process.exit(1);
+  }
+  fs.writeFileSync(a[2], JSON.stringify({ rows, input_zats: available, fee_zats: fee, change_zats: available - required,
+    spends: spendable.map(idOf).sort() }));
   fs.appendFileSync(path.join(state, "create-log.jsonl"), rows.map(r => JSON.stringify(r)).join(String.fromCharCode(10)) + String.fromCharCode(10));
   process.exit(0);
 }
 if (cmd === "inspect") {
   const file = JSON.parse(fs.readFileSync(a[1], "utf8"));
   // B46 (H10..R103): inspect reports the candidate's input_zats (the wallet's spent total — the unspent
-  // fixture notes unless the candidate file pins its own, for the grief probes), so the hosts can refuse a
-  // return candidate that leaves notes behind. H3 (B50, test-only knob): fixture.json may map an amount to
-  // another pool name (pool_by_amount), so a repro can build a candidate whose payments span two pools.
-  const unspent = fix.notes.filter(n => (n.spent_in_txid ?? null) == null && Number(n.value_zats) > 0);
-  const input = Number(file.input_zats ?? unspent.reduce((s, n) => s + Number(n.value_zats), 0));
-  const output = file.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
-  console.log(JSON.stringify({ outputs: file.rows.map((r, i) => ({ index: i, pool: (fix.pool_by_amount || {})[String(r.amount_zats)] || "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) })),
-    consensus_branch_id: "37a5165b", tx_version: 6, actions: file.rows.length,
-    inputs: [{ index: 0, pool: "ironwood", value_zats: input }], input_zats: input, output_zats: output, fee_zats: input - output,
+  // fixture notes unless the candidate file pins its own or names its spends) and the change output the
+  // wallet left behind (is_change true, recipient null — the real inspect's owned-change shape). H3 (B50,
+  // test-only knob): fixture.json may map an amount or a recipient to another pool name (pool_by_amount /
+  // pool_by_ua), so a repro can build a candidate whose payments span two pools. B52 (P3-8c): one input
+  // per source note and actions computed the real way.
+  const byId = new Map(fix.notes.map(n => [idOf(n), n]));
+  const spends = (file.spends ?? unspentNotes().map(idOf)).map((id, i) => {
+    const n = byId.get(id);
+    return { id, value: Number((file.spend_values ?? [])[i] ?? n?.value_zats ?? 0), pool: String((file.spend_pools ?? [])[i] ?? n?.pool ?? "ironwood") };
+  });
+  const input = Number(file.input_zats ?? spends.reduce((s, n) => s + n.value, 0));
+  const outs = [];
+  for (const r of file.rows) outs.push({ pool: outPoolOf(r.recipient, r.amount_zats), is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) });
+  if (Number(file.change_zats ?? 0) > 0) outs.push({ pool: fix.change_pool || "ironwood", is_change: true, recipient: null, amount_zats: String(file.change_zats) });
+  const output = outs.reduce((s, o) => s + Number(o.amount_zats), 0);
+  const shape = shapeOf(spends.map(n => n.pool), outs.map(o => o.pool));
+  console.log(JSON.stringify({ outputs: outs.map((o, i) => ({ index: i, ...o })),
+    consensus_branch_id: "37a5165b", tx_version: 6, actions: shape.actions,
+    inputs: spends.map((n, i) => ({ index: i, pool: n.pool, value_zats: n.value })), input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: 100500, txid: crypto.createHash("sha256").update(fs.readFileSync(a[1])).digest("hex"), randomizers: [] }));
   process.exit(0);
 }

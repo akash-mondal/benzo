@@ -106,6 +106,20 @@ const fix = JSON.parse(fs.readFileSync(path.join(state, "fixture.json"), "utf8")
 const a = process.argv.slice(2), cmd = a[0];
 const chain = () => JSON.parse(fs.readFileSync(process.env.BNZ_TEST_CHAIN, "utf8"));
 const txidOf = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+// B52 (P3-8c): actions the REAL way (settle/src/main.rs inspect): per pool, max(spends, outputs), each
+// bundle padded to at least 2 actions (the pinned orchard builder pads every non-empty bundle to its
+// 2-action floor); one INPUT per source note; the fee is the ZIP-317 fee of that action count,
+// 5,000 x max(2, actions).
+const bundleActions = (s, o) => (s + o > 0 ? Math.max(2, Math.max(s, o)) : 0);
+const shapeOf = (spendPools, outPools) => {
+  const counts = {};
+  for (const p of spendPools) { counts[p] = counts[p] || { s: 0, o: 0 }; counts[p].s++; }
+  for (const p of outPools) { counts[p] = counts[p] || { s: 0, o: 0 }; counts[p].o++; }
+  let actions = 0;
+  for (const k of Object.keys(counts)) actions += bundleActions(counts[k].s, counts[k].o);
+  return { actions, fee: 5000 * Math.max(2, actions) };
+};
+const outPoolOf = (recipient, amount) => (fix.pool_by_ua || {})[recipient] || (fix.pool_by_amount || {})[String(amount)] || "ironwood";
 if (cmd === "classify-address") {
   if (a.includes("--stdin")) {
     const r = cp.spawnSync(${JSON.stringify(REAL_PCZT)}, ["classify-address", "--stdin"], { input: fs.readFileSync(0), maxBuffer: 1 << 28 });
@@ -116,30 +130,59 @@ if (cmd === "classify-address") {
 if (cmd === "ufvk-ak") { console.log(fix.groupKey); process.exit(0); }
 if (cmd === "owns") { console.log((fix.internal_addresses ?? []).includes(a[2]) ? "internal" : "external"); process.exit(0); }
 if (cmd === "address") { console.log(${JSON.stringify(UA_ORCHARD)}); process.exit(0); }
+if (cmd === "quote-sweep") {
+  // B52 (item 1): the tool's own quote of the one-row sweep — every spendable note, one output, no change.
+  const to = a[a.indexOf("--to") + 1], c = chain();
+  const confirmed = (n) => n.height && c.tip - n.height + 1 >= ${CONFIRMATIONS};
+  const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 0 && confirmed(n));
+  const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
+  if (bad) { process.stderr.write("the vault's value cannot be swept in one transaction: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
+  if (!spendable.length) { process.stderr.write("the vault's value cannot be swept in one transaction: no spendable note\\n"); process.exit(1); }
+  const shape = shapeOf(spendable.map(n => String(n.pool)), [outPoolOf(to, 0)]);
+  const total = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
+  const amount = total - shape.fee;
+  if (amount <= 0) { process.stderr.write("the vault's value cannot be swept in one transaction: proposal: InsufficientFunds { available: Zatoshis(" + total + "), required: Zatoshis(" + (total + shape.fee) + ") }\\n"); process.exit(1); }
+  console.log(JSON.stringify({ amount_zats: String(amount), fee_zats: String(shape.fee), input_zats: String(total), spends: spendable.length, actions: shape.actions }));
+  process.exit(0);
+}
 if (cmd === "create") {
   const rows = JSON.parse(fs.readFileSync(0, "utf8")), c = chain();
   const confirmed = (n) => n.height && c.tip - n.height + 1 >= ${CONFIRMATIONS};
   const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 0 && confirmed(n));
+  const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
+  if (bad) { process.stderr.write("Error: proposal: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
   const available = spendable.reduce((s, n) => s + Number(n.value_zats), 0);
-  const fee = 5000 * Math.max(2, spendable.length);
-  const required = rows.reduce((s, r) => s + Number(r.amount_zats), 0) + fee;
+  const rowZats = rows.reduce((s, r) => s + Number(r.amount_zats), 0);
+  const outPools = rows.map(r => outPoolOf(r.recipient, r.amount_zats));
+  let fee = shapeOf(spendable.map(n => String(n.pool)), outPools).fee;
+  if (rowZats + fee <= available) fee = shapeOf(spendable.map(n => String(n.pool)), outPools.concat([fix.change_pool || "ironwood"])).fee;
+  const required = rowZats + fee;
   if (required > available) {
     process.stderr.write("Error: proposal: InsufficientFunds { available: Zatoshis(" + available + "), required: Zatoshis(" + required + ") }\\n");
     process.exit(1);
   }
   fs.writeFileSync(a[2], JSON.stringify({ rows, input_zats: available, fee_zats: fee, change_zats: available - required,
-    spends: spendable.map(n => n.txid + ":" + n.pool + ":" + n.action_index).sort(), expiry_height: c.tip + 364 }));
+    spends: spendable.map(n => n.txid + ":" + n.pool + ":" + n.action_index).sort(),
+    spend_values: spendable.map(n => ({ id: n.txid + ":" + n.pool + ":" + n.action_index, value: Number(n.value_zats) })).sort((x, y) => x.id < y.id ? -1 : 1).map(p => p.value),
+    spend_pools: spendable.map(n => ({ id: n.txid + ":" + n.pool + ":" + n.action_index, pool: String(n.pool) })).sort((x, y) => x.id < y.id ? -1 : 1).map(p => p.pool),
+    expiry_height: c.tip + 364 }));
   process.exit(0);
 }
 if (cmd === "inspect") {
   const buf = fs.readFileSync(a[1]), body = JSON.parse(buf.toString("utf8"));
-  const outputs = body.rows.map((r, i) => ({ index: i, pool: (fix.pool_by_amount || {})[String(r.amount_zats)] || "ironwood", is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
-  const output = body.rows.reduce((s, r) => s + Number(r.amount_zats), 0);
+  const outputs = body.rows.map((r, i) => ({ index: i, pool: outPoolOf(r.recipient, r.amount_zats), is_change: false, recipient: r.recipient, amount_zats: String(r.amount_zats) }));
+  if (Number(body.change_zats ?? 0) > 0) outputs.push({ index: outputs.length, pool: fix.change_pool || "ironwood", is_change: true, recipient: null, amount_zats: String(body.change_zats) });
+  const output = outputs.reduce((s, r) => s + Number(r.amount_zats), 0);
   const input = Number(body.input_zats ?? output);
   // B50 (H5): the real benzo-pczt inspect's full shape (settle/src/main.rs) — the published inspect is
-  // shape-checked against it now, so the stub models the real tool's fields exactly.
-  console.log(JSON.stringify({ outputs, consensus_branch_id: "37a5165b", tx_version: 6, actions: body.rows.length,
-    inputs: [{ index: 0, pool: "ironwood", value_zats: input }], input_zats: input, output_zats: output, fee_zats: input - output,
+  // shape-checked against it now, so the stub models the real tool's fields exactly. B51 P3-3: one input
+  // per spent note. B52 (P3-8c): each input carries its pool, the change output the wallet left behind is
+  // reported (is_change true), and actions are computed the real way (per pool, max(spends, outputs),
+  // each bundle padded to at least 2).
+  const inputs = (body.spends ?? []).map((s, i) => ({ index: i, pool: String((body.spend_pools ?? [])[i] ?? "ironwood"), value_zats: Number((body.spend_values ?? [])[i] ?? 0) }));
+  const shape = shapeOf(inputs.map(n => n.pool), outputs.map(o => o.pool));
+  console.log(JSON.stringify({ outputs, consensus_branch_id: "37a5165b", tx_version: 6, actions: shape.actions,
+    inputs, input_zats: input, output_zats: output, fee_zats: input - output,
     expiry_height: Number(body.expiry_height ?? chain().tip + 364), txid: txidOf(buf),
     shielded_sighash: txidOf(buf),
     randomizers: [{ pool: "ironwood", index: 0, alpha: crypto.createHash("sha256").update(Buffer.concat([buf, Buffer.from("alpha")])).digest("hex") }] }));
