@@ -1,0 +1,68 @@
+commit cabfee8983abeed7a9f29dbdaa7aae8053881528 (working tree not clean at run time)
+utc 2026-10-19T15:37:50.618Z
+command node tmp/b53.mjs before (tools/repro/b53-resume-ledger.ts)
+tree ?? docs/evidence/phase-7/repro/b44-opener-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b55-fold-red51.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b55-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-resume-ledger-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b55.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b55-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b55-fold-before.out
+tree ?? docs/evidence/phase-7/repro/r77-b55-fold.out
+tree ?? docs/evidence/phase-7/repro/r78-b55-fold.out
+tree ?? docs/evidence/phase-7/repro/r82-b55-fold.out
+OBSERVE p22-diff-red first run exit=1
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":5}
+  | ERROR settle refused: mined amount differs from result.json
+  | ERROR benzo settle exit 1
+PASS p22-diff-red-wedges the base confirm throws on the resumed mined batch (exit 1): ERROR benzo settle exit 1
+PASS p22-diff-red-every-rerun every re-run takes the same path and throws again (exit 1) — the wall an honest re-run cannot pass
+PASS p22-diff-red-nothing-recorded no receipt recorded and nothing re-broadcast on the base
+OBSERVE p22-equal-red first run exit=1
+  | ERROR refund deposit:e51f82cac689af5cd9d1d01ac75fd093a20d6f936807bad55c776a33f8db87f5:ironwood:0 to the exception queue: deposit memo is not an openable sealed bid; no owner key claims it
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":6}
+  | ERROR settle refused: one receipt per allocated output
+  | ERROR benzo settle exit 1
+PASS p22-equal-red-wedges the base confirm throws on the resumed mined batch (exit 1): ERROR benzo settle exit 1
+PASS p22-equal-red-every-rerun every re-run takes the same path and throws again (exit 1)
+PASS p22-equal-red-misattributes-or-throws the base either threw or (equal amounts) attributed a receipt to the wrong pool — nothing clean was recorded
+OBSERVE p33-red run 2 exit=1
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":5}
+  | ERROR settle zcash-devtool exited 1: Error: Send failed: (-1) transaction already exists in mempool
+  | ERROR benzo settle exit 1
+PASS p33-red-crash-loops the base run 2 throws on the true phrase (exit 1): ERROR benzo settle exit 1
+PASS p33-red-every-rerun every re-run takes the same path — the crash-loop until the transaction actually mines (exit 1)
+PASS p33-red-nothing-recorded nothing was recorded and nothing was re-broadcast on the base
+OBSERVE p31-before zero-change 11 deep=0 9 deep=0 reorged=0 scan-note-reorged=0 ordinary=1
+PASS p31-zero-change-red the base predicate counts a zero-change batch 11 deep as NOT paid — the row is owed forever (the wall)
+PASS p31-zero-change-red-ignores-lookup the base reads the mined height only from a vault note of the paying txid (its change): the ordinary world counts, the zero-change one never does
+OBSERVE p32-a-before approve exit=0 mapped=[] counts=0
+PASS p32-a-red-never-heals the base keeps mapped=undefined on read — the entry's receipts can never count as paid (counts=0)
+OBSERVE p32-b-before re-approve exit=0 rows=0 counts=0
+PASS p32-b-red-never-heals the base re-approve leaves the same-txid entry without mapped (the reviewer's probe: entry.mapped=undefined) — counts=0
+OBSERVE p35-before across-agrees=true picked=[7] no-pair=refused
+PASS p35-predicate-red the base predicate says two maps of DIFFERENT auctions and txids agree (the name over-promises)
+PASS p35-tiebreak-red-steered the base tie-break picks the two-witness version's list even though its two witnesses disagree on outputs ([7]) — the publisher can steer the published defaults
+OBSERVE p37-before batch1 exit=0 sources=[balance-excess:0] backing=57f3013325646396230a067823df434a7c0eb615048f76fb42fd36f2a08db20a:ironwood:0 batch2 exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":2,"name":"alice","plan_version":"6c1d018d903e7e056189f359fda5061d1ae4d9892abeefaf912b3539592b1c09","sighash":"6c1d018d903e7e056189f359fda5061d1ae4d9892abeefaf912b3539592b1c09","txid":"6c1d018d903e7e056189f359fda5061d1ae4d9892abeefaf912b3539592b1c09","map":null,"outputs":1,"spends":0,"randomizers":[],"defaults":[],"approved_at":1792424305}
+PASS p37-red-sources-lack-backing the base records only the party name as the excess row's source ([balance-excess:0]) — the backing notes never join sources
+PASS p37-red-respend-approved and the second live candidate re-spending the backing note is APPROVED — two live candidates can spend the same note (the P3-7 hole)
+OBSERVE p38-red exit=0
+  | ERROR signer bob could not build batch 1: ERROR sign build refused-rows ["leaf:3"]: the candidate pays more than one pool (one-pool rule, R81); these rows wait in the exception queue and re-derive on the next settle
+  | ERROR signer carol could not build batch 1: ERROR sign build refused-rows ["leaf:3"]: the candidate pays more than one pool (one-pool rule, R81); these rows wait in the exception queue and re-derive on the next settle
+  | ERROR batch 1: every reachable signer host refused leaf:3; set aside this run (re-derived on the next settle), the other rows settle next
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":2,"allocated":4}
+  | settlement broadcast f64d88a9bf905d657826f05689e02acf4b7e327ccedefd1abf7ac733d6a570df
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":4}
+  | ERROR settle fee reserve short: pay 1090210 zats to utest1b53feereserveaddress00000000000000000000000000000000000000 and run benzo settle again
+  | ERROR reserve-return pass exited 1; the reserve stays in the vault until the next benzo settle
+OBSERVE p38-red leaf:3 reason="set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)"
+PASS p38-red-generic-reason the base custody set-aside publishes the GENERIC reason (the H7 summary is less precise on the custody path): "set aside this run: no reachable signer host builds it; re-derived on the next settle (an owner claim makes a refund derivable)"
+RESULT PASS

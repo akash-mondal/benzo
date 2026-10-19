@@ -194,6 +194,194 @@ Status block (every command and its result):
   `AND rn.value > :min_value` with `min_value = u64::from(zip317::MARGINAL_FEE)` — and
   `select_spendable_notes_matching_value`, "Notes with individual value *below* the ``MARGINAL_FEE``
   will be ignored"). `settle/deposits.ts:122-132` cites the real lines.
+## Batch B55 (Builder B, branch `b55-cancel-rg`, from `b2b35b6`) — a cancel before R never touches drand (M1); the RG specs fund the H19 bound
+
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no VMs, no
+funds, no live Playwright; own tmp state/builds and stubs only — the folds' one-time fetch of the real
+PAST quicknet beacon is the battery's only network, exactly as every earlier fold's own header prescribes
+and B53 recorded). Spec: `docs/design/phase7-b55-cancel-before-r-and-rg-harness.md`. Worktree
+`../benzo-b55`, branch `b55-cancel-rg`, base `b2b35b6`. Commits `--no-verify` (R32): `b3fa990`
+(item 1 product fix), `d6ece61` + `dfc0275` (item 1 fold + its Rule-bullet-3 case), `cabfee8` (item 2:
+helper, spec edits, unit check); this status commit closes the batch. B54's named regions untouched
+(`cli/host-derive.ts` `backfillMapped`/`reserveCandidateVerdict`, `cli/commands/sign-approve.ts`,
+`settle/deposits.ts`, `settle/cli.ts` `check()`/H23, `cli/host-chain.ts`, the `h-fixtures`/b47-world
+stubs). Setup: `vendor/` copied (`cp -R ../benzo/vendor .`), `node_modules` symlinked to the main
+checkout's, `cargo build --release --locked --manifest-path settle/Cargo.toml` (offline, vendored),
+green bundles `npm run build:core && npm run build:settle && npm run build:cli`, base bundles per each
+fold's own recipe (`tmp/b55/base-src` b2b35b6, `tmp/b44/base-src`+`tmp/b44/base` d646ceb,
+`tmp/b43/base-src` 5086be1, `tmp/b45/base-src` cd19905, `tmp/b46/base-src` a81e826,
+`tmp/b46/base49-src` 7c4e661, `tmp/b47/base-src` 8a9f638, `tmp/b51/base-src` a107447,
+`tmp/b53/base-src` 59c863c), `tmp/b47-republish.mjs` built before the b47 fold (R118).
+
+Status block (every command and its result):
+
+- Item 1 (M1, the Rule) — `settle/plan.ts`, `cli/host-derive.ts`, `cli/commands/sign-derivable.ts`,
+  `cli/product.ts`: before R (`released`, the plan.ts:108 predicate) no path fetches the beacon. The
+  plan parks every confirmed cancelled deposit with the existing reason
+  `cancelled before release; refund is claimable after R` and exits 0; the host derive returns no
+  payable deposit row (each waits with that reason in the listing's `refused_rows` and as H21 refused
+  tags) and does not throw; a claim submitted before R fails per request with its reason inside the
+  plan's claims-loop try and the run continues. After R everything is byte-for-byte as before.
+  Every `fetchVerifiedBeacon`/`opener()` caller a pre-R cancelled auction reaches (the design's list):
+  1. `settle/plan.ts` `beacon()` — cancelled deposit loop `strayEnvelope` (FIXED: `released`-gated),
+     the claims loop `ownerKeyFor` memo open (FIXED: per-request pre-R refusal, no fetch), the reason
+     ternary's `bidPlaintextFor` (already short-circuited on `!released`); the cleared branch's leaf
+     loop, `decryptPublished` and stray loop sit behind `requireThat(released, …)` and are untouched.
+  2. `cli/host-derive.ts` `opener()`/`cacheKeys()` — the leaf-cache load and both `saveOpenings`
+     cache-key writes, the frozen-leaf loop and the cancelled-deposit loop
+     (`authenticatedMemoEnvelope(..., await opener(), openMemo)` and `memoOwner`) (FIXED: a pre-R
+     cancelled derive opens nothing; rows wait in `refusedRows`).
+  3. `cli/product.ts` `claim-refund` record-time `claimBeacon` (FIXED: per-request pre-R refusal).
+  4. `cli/product.ts` `sign envelope-opens` stray-memo `memoBeacon` — NOT fixed (see Q3): it throws
+     per command (the CLI's catch prints `ERROR benzo refused: drand opening beacon unavailable …`,
+     exit 1); it is not one of the Rule's three outcomes and not a settle run.
+  5. `settle/cli.ts` `destinations()` per-row `memoBeacon` — already compliant: each row's own try
+     parks it with the fetch error as its reason; a pre-R cancelled plan has no plan rows, so the
+     worker never calls it. Verified in reading; unchanged.
+  6. `cli/commands/sign-delivery.ts:51` — the launch-delivery path; unreachable for a cancelled
+     auction (needs a result and delivery records). Nothing to do.
+  7. `cli/published-beacon.ts` `fetchVerifiedBeacon`/`deriveClaimOpenings` — the shared definitions
+     (the latter takes the beacon and never fetches). `settle/plan.ts`'s `minedHeight` fallback and
+     `cli/host-chain.ts` are chain lookups, not beacon fetches.
+- Item 1 fold `tools/repro/b55-cancel-before-r.ts` — `node tmp/b55.mjs before` — RESULT PASS (6/0):
+  red on the b2b35b6 bundles: (a)/(b) the plan exits 1 with
+  `ERROR settle refused: drand opening beacon unavailable or unverified on every endpoint` and 1
+  beacon fetch on the counting stub (the canary's M1 line), (a-claim) a recorded claim dies with the
+  opaque drand error (`refused: refused: drand opening beacon unavailable …`) and kills the run,
+  (c) `sign derivable` exits 1 on both packets (the unfrozen one at the drand fetch, the frozen one
+  at the internal verify gate — see Q1), and the (d) post-R baseline resolves claim + envelope.
+  `node tmp/b55.mjs after` — RESULT PASS (14/0): (a)/(b) exit 0, exactly 2 exception rows
+  (`refund`, `1000100`, the exact reason) and 2 refusals, 0 checks, **0 beacon fetches** (also 0 with
+  a claim recorded; also exit 0 with `BNZ_DRAND_URLS` on a genuinely closed local port); (c) both
+  packets list no deposit rows and wait each one in `refused_rows`/H21 tags with the reason, **0
+  fetches**; (d) the post-R world with the stub-verified beacon (the stub serves the recorded round-
+  32704232 beacon and the shared fetch's own BLS verify accepts it) resolves the claim and the memo
+  envelope through `gateEnvelope` (2 obligations, 1 claim envelope, 2 agreed hashes) and base/green
+  plans and derives agree row for row (`green-d-parity-with-base`). Evidence:
+  `docs/evidence/phase-7/repro/b55-cancel-before-r-before.out`,
+  `docs/evidence/phase-7/repro/b55-cancel-before-r-after.out`.
+- Item 2 (H19/H15) — `e2e/lib/h19.ts` `h19FeeBound({notes, rows, batchCap, remainingBatches?})` (the
+  preflight's own bound term; the batches default is the fresh-run figure), funded as
+  `max(old reserve, bound + 5000)` at every settle funding site: settle-crash main
+  30,000 → **65,000** (5 notes × 5 rows, bound 60,000) and its cancel leg 15,000 → **20,000**;
+  cli-auction main 70,000 → **130,000** (13 notes × 10 rows, bound 125,000) and its second auction
+  none → **40,000** (3 notes × 2 rows, bound 35,000); buyback-mode 600,000 (bound 55,000 — unchanged
+  value, now helper-derived); markets each leg via the same helper (scale-8 60,000 → 105,000,
+  scale-27 200,000 → 295,000, scale-55 400,000 → 605,000, drop 60,000 → 90,000, every other leg
+  keeps its 60,000 floor). The bidder-floor guards now name the funded amounts (identical thresholds
+  at the old amounts, except buyback's — see Q4). H15: no spec's manifest commits
+  `reserve_return_ua_commitment` (their hand-written manifests predate H15, and `auction create` sets
+  the commitment only from `routing.reserve_return_ua`, which none configures), so
+  `settle/plan.ts`'s legacy branch plans **no** `reserve-return` row anywhere and every row/receipt
+  count covers exactly the expected rows — annotated (H15) at cli-auction T3 and buyback V2.
+- Item 2 offline proofs: `npm run typecheck` and `npx tsc --noEmit -p .` — OK (the specs are covered);
+  `node tmp/b55-h19.mjs` (tools/repro/b55-h19-bound.ts) — RESULT PASS (16/0): the helper equals the
+  preflight's bound term and its batches default equals the fresh-run figure over a sweep; the OLD
+  amounts reproduce the canary exactly (settle-crash's 30,000 → `fee reserve short: pay 35000 zats`,
+  C-independent; the second auction's 0 → 40,000); the NEW funding passes the preflight in every
+  world (settle-crash main, both cli-auction auctions, buyback, markets scale-8/27/55 and the drop)
+  and for ANY obligations/extras (worst shortfall −5000 − extras = the one fee slot). Evidence:
+  `docs/evidence/phase-7/repro/b55-h19-bound.out`.
+
+Final checks at HEAD: `npm run typecheck` — OK; `check:structure` — OK (222 files); `check:invariants`
+— OK (`I1..I4` zero, both runs); `check:dist-require` — OK; `npm run e2e` — **blocked in this
+worktree, unverified** (see Q7).
+
+**Folds all green** (raw `docs/evidence/phase-7/repro/*-b55-fold*`, `h10-seller-binding-b55.out`,
+`b55-h19-bound.out`):
+
+| fold | result |
+|---|---|
+| b55-cancel-before-r | before 6/0 (red on b2b35b6), after 14/0, RESULT PASS both |
+| b55-h19-bound | 16/0, RESULT PASS |
+| b44-opener | before 25/0, after 29/0, RESULT PASS both |
+| b46-reserve-return | before (historical bases a81e826 + 7c4e661) and after, RESULT PASS both |
+| b47-settle-e2e | before, before51 (a107447) and after, RESULT PASS all three |
+| b48-p3s | RESULT PASS |
+| h10-seller-binding | 22/0, RESULT PASS |
+| h13-host-scale | before 8/0, after 38/0, RESULT PASS both |
+| h14-open-griefing | before 12/0, after 14/0, RESULT PASS both (its deriveRows legs cover the item-1 derive edit) |
+| b53-resume-ledger | before (all sections) and after (p22/p33/p31/p35/p32/p37/p38, 27/0), RESULT PASS |
+| replays r77, r78, r82 | each exit 0 — honest ACCEPTED, each tamper REFUSED (`*-b55-fold.out`) |
+
+Spec assertions changed (each with its reason in-place):
+
+1. `e2e/settle-crash.spec.ts` J1: the exact-fee triple `input 4C+30000 / output 4C / fee 30000`
+   (assumed no change) is replaced by inspect-based checks — `fee_zats === 5000·max(2, actions)`,
+   `input_zats === output_zats + fee_zats` (output_zats INCLUDES change — `benzo-pczt inspect` sums
+   every output with value > 0, `settle/src/main.rs`), and the non-change outputs equal `expected`.
+   Reason (H19): the funded reserve now exceeds the real fee, so the batch carries change.
+2. settle-crash J1: vault `=== 0` → `=== MAIN_RESERVE − feeTotal` — the design's "the vault keeps
+   exactly reserve − fee after the batch, before recovery" (H19).
+3. settle-crash J1/M1 records (`balances.json`, `outage.json`): `fee_reserve_zats` now records the
+   funded amounts (MAIN_RESERVE / CANCEL_RESERVE) (H19).
+4. settle-crash M1: vault `=== 2*C+15000` → `=== 2*C+CANCEL_RESERVE` (H19: the cancel leg funds
+   20,000 — 3 notes, 0 unpaid rows, bound 15,000 + one fee slot).
+5. settle-crash + cli-auction + buyback-mode bidder-floor guards name the funded reserves
+   (+ the treasury leg in buyback) instead of lumps — same thresholds at the old amounts (H19;
+   buyback's is stricter, Q4).
+6. cli-auction: the main reserve70,000 → MAIN_RESERVE (H19: bound 125,000 + 5,000) and the second
+   auction now funds ID2_RESERVE (H19: its post-R settle pays 2 rows from 3 notes and would otherwise
+   refuse `fee reserve short: pay 40000 zats` — the design's "and its second auction").
+7. cli-auction T3 and buyback V2: (H15) notes that no reserve-return row can exist here (no manifest
+   `reserve_return_ua_commitment`), so their row/receipt counts are unchanged and complete.
+8. `tools/repro/markets.ts`: each leg funds `max(sc.reserve ?? 60000, bound + 5000)` with the leg's
+   own note/row counts (H19; counts round UP where outcomes decide the exact row set — over-funding
+   only), and one `H19 fee reserve …` OBSERVE line per leg; scale-27's comment updated.
+
+### Questions
+
+- Q1 (item 1, the frozen-cancelled host derive): the design says the frozen-leaf loop is "which a
+  cancel after freeze reaches" — on base `b2b35b6` the derive actually refused BEFORE that loop, at
+  its internal `benzo verify` gate (`ERROR verify refused: missing result` — verify requires a frozen
+  set AND a result, `api/public-auction.ts` `loadCompletePublicAuction`), so the frozen cancelled
+  packet could never derive at all. To satisfy the Rule's "does not throw" I made the gate run only
+  when the packet carries a result and kept every other check: the frozen root is still re-derived
+  from this host's own scan (`recomputeFrozen`) and compared to the pinned root, and a frozen packet
+  WITH a result verifies exactly as before. Confirm the result-conditional gate is the intended fix
+  (it also changes post-R behaviour for frozen-cancelled packets: base threw at the gate, now the
+  derive completes — see the fold's OBSERVE line).
+- Q2 (item 1, claims): the Rule says a pre-R claim "fails per request, with its reason inside the
+  existing try/catch". I guarded BOTH surfaces: the plan's claims loop (the existing try/catch —
+  the claim is refused with `claim refused: refused: claim before release; the owner key is
+  derivable only after R`, nothing stops the run) and `benzo claim-refund`'s record-time owner-key
+  check (no try/catch there — the CLI's global catch reports the same reason and records nothing).
+  Confirm the record-time refusal should also happen before R (a claim cannot be recorded at all
+  until R, since its owner key needs the round-R beacon).
+- Q3 (listed, not fixed): `benzo sign envelope-opens`'s stray-memo loop still calls the beacon
+  unguarded; a pre-R run on a cancelled auction with strays exits 1 with the drand error. It is not
+  one of the Rule's three outcomes and not a settle run (it is each signer's attestation command),
+  so I left it and listed it. Want the same pre-R guard there (its report would then carry no stray
+  entries pre-R)?
+- Q4 (item 2, buyback's floor guard): its old `−3*C−200000` undercounted the real spend (600,000
+  reserve + 430 treasury). Since the H19 amount is UNCHANGED there (600,000 already over-funds), I
+  could have left the guard alone; "guards consistent with the new amount" reads as naming the
+  amount, so I made it subtract `BB_RESERVE + 430` — stricter than before (it can only refuse the
+  drill earlier, never spend past the floor). Revert if the old lump was deliberate.
+- Q5 (item 2, markets counts): the per-leg note/row counts round UP where outcomes decide the exact
+  row set (e.g. the drop's rows count 7 vs the 5 actually paid; launch-miss counts a seller row it
+  never gets). A larger bound only over-funds (the preflight refuses only when underfunded) — confirm
+  over-funding is acceptable vs deriving each leg's exact row set.
+- Q6 (item 1, (d) parity): "behaves exactly as before" is proven for every path base can run — the
+  unfrozen cancelled packet (plan + derive, base/green agree row for row with a stub-verified real
+  beacon). The frozen cancelled packet's post-R derive differs on purpose (Q1: base refused at the
+  verify gate), so parity there is impossible without keeping the base bug.
+- Q7 (`npm run e2e`): blocked in this worktree, unverified — `NOT RUN tle missing at
+  …/.benzo/bin/tle` (the `default`/seal-open project needs the Go `tle` binary, which lives only in
+  the main checkout's `.benzo/` (forbidden) or a network fetch (forbidden)); the same block B53
+  recorded. The changed specs are live Playwright specs the head runs (they typecheck and their one
+  shared helper is unit-checked offline).
+- Q8 (`check:bundle`): NOT in the prescribed battery and **stale at base `b2b35b6` already** —
+  committed `d234ba0b…` vs a fresh rebuild `91913051…`, and the fresh rebuild is byte-identical
+  before and after every B55 edit (my changed files are outside the verify bundle's graph). I did
+  NOT rebuild/commit it: the difference exists at base and looks build-environment-related (the
+  B53-committed sha `ceae69fd…` also differs from both). Rebuild in the head's environment if wanted.
+- Q9 (battery, drand relay flakiness): the b53 fold's `after` run hit transient `fetch failed /
+  other side closed` at its 4th fixture fetch three times in one process; it passes cleanly run
+  per section (p22/p33/p31/p35/p32/p37/p38 — the concatenated evidence has 27 PASS / 0 FAIL). The
+  folds' fixture builds each fetch the real PAST quicknet beacon once (their own headers' rule);
+  everything else in the battery is offline.
+
 
 ## Batch B53 (Builder B, branch `b53-resume-ledger`, from `59c863c`) — Reviewer R round 4: the resume, re-send and ledger gaps (P2-2, P3-1, P3-2, P3-3, P3-5, P3-6, P3-7, P3-8)
 
