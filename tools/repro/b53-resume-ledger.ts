@@ -476,7 +476,46 @@ async function p33() {
   }
 }
 
+// ---- p31 (P3-1): the shared "paid" predicate with the injected minedHeightOf lookup. The green leg runs
+// the shipped settle/deposits.ts; the red leg runs the BASE tree's own predicate bundle (the pristine
+// 59c863c settle/deposits.ts, esbuild'd per the header), where a zero-change batch can never count.
+async function p31() {
+  const cur = await import("../../settle/deposits");
+  const dep: any = part === "before" ? await import(pathToFileURL(path.join(BASE, "settle", "dist", "deposits.mjs")).href) : cur;
+  const tip = 110, txid = "aa".repeat(32);
+  const att = [{ txid, party: "leaf:0", output_index: 0, amount_zats: "15000" }];
+  const receipt = [{ party: "leaf:0", amount_zats: "15000", txid, output_index: 0 }];
+  // A zero-change paying batch: one vault note was spent by the tx, and the scan carries NO note of the
+  // txid itself (the batch spent exact inputs and left no change).
+  const scanZeroChange = [{ txid: "bb".repeat(32), height: 100, spent_in_txid: txid }];
+  // The ordinary batch's control world: the change note's txid IS the paying txid.
+  const scanNormal = [{ txid: "bb".repeat(32), height: 100, spent_in_txid: txid }, { txid, height: 100, spent_in_txid: null }];
+  // A reorged-out batch whose notes the scan still carries, at no height.
+  const scanReorged = [{ txid: "bb".repeat(32), height: null, spent_in_txid: txid }, { txid, height: null, spent_in_txid: null }];
+  const count = (scan: any[], at: (t: string) => number) => dep.paidByOwnLedger(receipt, att, scan, tip, at).length;
+  const eleven = () => 100, nine = () => 102, gone = () => 0; // the injected lookup at 11 deep, 9 deep, and absent
+  console.log(`OBSERVE p31-${part} zero-change 11 deep=${count(scanZeroChange, eleven)} 9 deep=${count(scanZeroChange, nine)} reorged=${count(scanZeroChange, gone)} scan-note-reorged=${count(scanReorged, eleven)} ordinary=${count(scanNormal, gone)}`);
+  if (part === "after") {
+    check("p31-zero-change-11-deep", count(scanZeroChange, eleven) === 1,
+      "a zero-change batch 11 deep counts through the injected minedHeightOf lookup");
+    check("p31-zero-change-9-deep", count(scanZeroChange, nine) === 0,
+      "9 deep does not count (the same >=10 rule as the scan)");
+    check("p31-reorged-out", count(scanZeroChange, gone) === 0,
+      "a reorged-out transaction (the lookup finds no height) does not count");
+    check("p31-scan-authoritative", count(scanReorged, eleven) === 0,
+      "a scan that carries the txid's own note stays authoritative — a reorged note never falls back to the chain lookup");
+    check("p31-ordinary-unchanged", count(scanNormal, gone) === 1,
+      "the ordinary change-note world counts exactly as before (no lookup needed)");
+  } else {
+    check("p31-zero-change-red", count(scanZeroChange, eleven) === 0,
+      "the base predicate counts a zero-change batch 11 deep as NOT paid — the row is owed forever (the wall)");
+    check("p31-zero-change-red-ignores-lookup", count(scanZeroChange, eleven) === 0 && count(scanNormal, eleven) === 1,
+      "the base reads the mined height only from a vault note of the paying txid (its change): the ordinary world counts, the zero-change one never does");
+  }
+}
+
 if (wants("p22")) await p22();
 if (wants("p33")) await p33();
+if (wants("p31")) await p31();
 console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
 process.exitCode = failed ? 1 : 0;

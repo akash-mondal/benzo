@@ -157,20 +157,38 @@ export function reserveReturnFee(sourceCount: number): bigint {
 //     scan's evidence of its mined height).
 // Packet receipts are only an index — never trusted on their own. A row without such a receipt is
 // outstanding. A transaction a reorg un-mines loses both scan traces, so its row is owed again (P2-2).
+//
+// B53 (P3-1, Reviewer R round 4): a paying batch that spends exact inputs and leaves NO change has only
+// spent_in_txid traces — the scan carries no note of its txid — so its receipts could never count and the
+// reserve return waited forever. When the scan has no note of the paying txid at all, the caller's own
+// chain lookup (cli/host-chain.ts minedHeight, injected as `minedHeightOf` — the predicate stays pure and
+// offline stubs supply it) is the depth evidence, with the SAME rule: at least 10 deep at or below the
+// caller's own tip. A scan that DOES carry a note of the txid stays authoritative (a shallow or reorged
+// note never falls back to the chain).
 export type PaidReceipt = { party: string; amount_zats: string; txid: string; output_index: number };
 export type PaidAttestation = { txid: string; party: string; output_index: number; amount_zats: string };
 export type PaidScanNote = { txid: string; height: number | null; spent_in_txid: string | null };
 // The ZIP-315 depth a paying transaction must reach before its receipt counts (the design's 10).
 export const PAID_CONFIRMATIONS = 10;
-export function paidByOwnLedger<T extends PaidReceipt>(receipts: Iterable<T>, ownLedger: Iterable<PaidAttestation>, ownScan: Iterable<PaidScanNote>, tip: number): T[] {
+export function paidByOwnLedger<T extends PaidReceipt>(receipts: Iterable<T>, ownLedger: Iterable<PaidAttestation>, ownScan: Iterable<PaidScanNote>, tip: number, minedHeightOf?: (txid: string) => number): T[] {
   const ledger = [...ownLedger], scan = [...ownScan];
   const counted: T[] = [];
   for (const r of receipts) {
     const approved = ledger.some(l => l.txid === r.txid && l.party === r.party && l.output_index === r.output_index && l.amount_zats === r.amount_zats);
     if (!approved) continue;
     const funded = scan.some(n => n.spent_in_txid === r.txid);
-    const mined = scan.some(n => n.txid === r.txid && n.height != null && n.height <= tip && tip - n.height + 1 >= PAID_CONFIRMATIONS);
-    if (funded && mined) counted.push(r);
+    if (!funded) continue;
+    const deep = (h: number) => h > 0 && h <= tip && tip - h + 1 >= PAID_CONFIRMATIONS;
+    if (scan.some(n => n.txid === r.txid)) {
+      // The scan carries a note of the paying txid (its change): the scan is the evidence, full stop — a
+      // shallow or reorged-out note never counts, however the chain reads.
+      if (scan.some(n => n.txid === r.txid && n.height != null && deep(n.height))) counted.push(r);
+      continue;
+    }
+    // B53 (P3-1): a zero-change batch leaves no vault note of its txid — the caller's own chain lookup is
+    // then the depth evidence, at the same 10-deep-at-or-below-our-tip rule.
+    const h = minedHeightOf ? minedHeightOf(r.txid) : 0;
+    if (deep(h)) counted.push(r);
   }
   return counted;
 }

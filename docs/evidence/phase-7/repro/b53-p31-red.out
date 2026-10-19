@@ -1,0 +1,12 @@
+commit 0ab0cc7e68ad7a2552c08934ef7a57b4303a343b (working tree not clean at run time)
+utc 2026-10-19T08:56:08.577Z
+command node tmp/b53.mjs before p31 (tools/repro/b53-resume-ledger.ts)
+tree M cli/host-derive.ts
+tree  M settle/deposits.ts
+tree  M settle/plan.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree ?? docs/evidence/phase-7/repro/b53-p31-red.out
+OBSERVE p31-before zero-change 11 deep=0 9 deep=0 reorged=0 scan-note-reorged=0 ordinary=1
+PASS p31-zero-change-red the base predicate counts a zero-change batch 11 deep as NOT paid — the row is owed forever (the wall)
+PASS p31-zero-change-red-ignores-lookup the base reads the mined height only from a vault note of the paying txid (its change): the ordinary world counts, the zero-change one never does
+RESULT PASS

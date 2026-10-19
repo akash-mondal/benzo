@@ -19,7 +19,7 @@ import { Destination, authenticatedMemoEnvelope, memoSealedBid, openDestination,
 import { depositParty, isSlotCollision, paidByOwnLedger, refundable, reserveReturnAmount, reserveReturnOutstanding, strayNotes } from "../settle/deposits";
 import { treasuryBlock, treasuryFunded, treasuryRequired, treasuryReturn } from "../clear/mode-b";
 import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, bondVoidAt, isRefundRowParty, type BalanceRefund } from "../clear/features";
-import { blockHeader, chainTip } from "./host-chain";
+import { blockHeader, chainTip, minedHeight } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
 import { lwdBound, lwdTimedOut } from "../settle/bounded";
@@ -395,7 +395,10 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
   const ledgerFile = path.join(st, "approvals", o.id, "ledger.json");
   const ownLedger = existsSync(ledgerFile) ? (JSON.parse(readFileSync(ledgerFile, "utf8")) as any[]).flatMap(e =>
     Array.isArray(e.mapped) ? e.mapped.map((mm: any) => ({ txid: String(e.txid), party: String(mm.party), output_index: Number(mm.output_index), amount_zats: String(mm.amount_zats) })) : []) : [];
-  const counted = paidByOwnLedger((pub.settlement?.receipts ?? []) as any, ownLedger, notes as any, chainTip(st));
+  // B53 (P3-1): the scan's own note is the mined-height evidence when it has one; a zero-change paying
+  // batch leaves none, so this host's own chain lookup stands in at the same 10-deep rule (the predicate
+  // stays pure — the lookup is injected, and an unreachable endpoint reads as not-yet-counted).
+  const counted = paidByOwnLedger((pub.settlement?.receipts ?? []) as any, ownLedger, notes as any, chainTip(st), (txid) => { try { return minedHeight(st, txid) } catch { return 0 } });
   const outstanding = reserveReturnOutstanding({ owed, rows: pub.settlement?.rows ?? [], receipts: counted,
     balance_refunds: pub.settlement?.balance_refunds ?? [] });
   // R107: an ordinary batch's packet carries reserve_return_ua too, so only a packet that DECLARES the return row

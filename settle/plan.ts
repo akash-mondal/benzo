@@ -25,6 +25,7 @@ import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin } from "../manifest/paths";
 import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
+import { minedHeight } from "../cli/host-chain";
 const root=repoRoot();
 for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
   const m=line.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2];
@@ -398,7 +399,11 @@ try {
   // B49 (P0-1/P2-2): a published receipt counts only when THIS coordinator's own ledger approved the row at
   // that amount AND its own scan shows the paying transaction mined 10 deep (the one shared rule) — packet
   // receipts alone are never trusted. The scan is the freshest one (the post-window scan when a bond ran).
-  const paid=paidByOwnLedger(receipts,ownPaid,balNotes.length?balNotes:notes,tip);
+  // B53 (P3-1): the scan's own note is the mined-height evidence when it has one; a zero-change paying
+  // batch leaves none, so this host's own chain lookup (cli/host-chain.ts minedHeight) stands in at the
+  // same rule — at least 10 deep at or below our own tip (the predicate stays pure; an unreachable
+  // lightwalletd reads as not-yet-counted, the conservative direction).
+  const paid=paidByOwnLedger(receipts,ownPaid,balNotes.length?balNotes:notes,tip,(txid)=>{try{return minedHeight(state,txid)}catch{return 0}});
   const outstanding=reserveReturnOutstanding({owed,rows:(published?.settlement?.rows??[]) as any,receipts:paid,
     balance_refunds:(published?.settlement?.balance_refunds??[]) as any,pending_batches:pendingBatches});
   if(m.reserve_return_ua_commitment===undefined) {

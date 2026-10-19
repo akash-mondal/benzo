@@ -39,6 +39,12 @@ Status block (every command and its result; updated per item):
   from the blind wallet, falls through to the bounded mined-wait, reaches mined, confirms all 5 receipts,
   continues, never re-broadcasts, and a further re-run is clean). Evidence:
   `docs/evidence/phase-7/repro/b53-p33-red.out`, `docs/evidence/phase-7/repro/b53-p33-green.out`.
+- Item 3 (P3-1, `settle/deposits.ts` `paidByOwnLedger` + the `settle/plan.ts:401` and
+  `cli/host-derive.ts:398` callers): `node tmp/b53.mjs before p31` — PASS (red: the base predicate counts
+  a zero-change batch 11 deep as NOT paid — the row is owed forever); `node tmp/b53.mjs after p31` — PASS
+  (green: 11 deep counts through the injected `minedHeightOf` lookup, 9 deep does not, reorged out does
+  not, a scan note of the txid stays authoritative, the ordinary world is unchanged). Evidence:
+  `docs/evidence/phase-7/repro/b53-p31-red.out`, `docs/evidence/phase-7/repro/b53-p31-green.out`.
 
 ### Questions
 
