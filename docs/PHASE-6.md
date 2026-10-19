@@ -1008,3 +1008,12 @@ The head reviewed B56's money surface directly:
 The B55 host-derive gate change was reviewed at R123.
 
 Round 6 reruns when the provider is back, before the Oct 24 freeze, with the same brief.
+
+### R126: review round 6 on B54–B56 is done by the head: APPROVE (head, 2026-10-19)
+
+The user ruled that the head now works solo: "do all by yourself now no subagents from pi". The head ran round 6 with the R125 brief. Report: `benzo-sol/reports/pr-p7-b54-b56.md`.
+
+No P0, P1 or P2. Three P3 notes:
+- a dust stray that has an owner claim is refunded from other notes (disclosed);
+- `backfillMapped` can heal a subset of a map's rows (conservative);
+- `sign envelope-opens` before R exits 1 (disclosed at R123).
