@@ -23,10 +23,26 @@ export function chainTip(st: string): number {
   requireThat(Number.isSafeInteger(h) && h > 0, "lightwalletd tip");
   return h;
 }
-// The height a transaction mined at, or 0 when this host's endpoint does not know it.
+// The height a transaction mined at, or 0 when this host's endpoints do not know it.
+// B54 (P3-6, Reviewer R round 5): cross-checked across endpoints like `blockHeader` — every configured
+// endpoint answers (BNZ_LWD_URL and BNZ_LWD_URL_ALT; one endpoint only under BNZ_LWD_SINGLE=1), and
+// endpoints that DISAGREE mean no height, which fails closed: the gate callers read the refusal as
+// not-yet-counted (their catch → 0, the conservative direction) and a signer host never approves on a
+// height its own endpoints dispute (the same standing lightwalletd trust as the scan's spent trace, one
+// lying endpoint stronger against). R64's rule rides along: one endpoint configured twice is not a
+// cross-check.
 export function minedHeight(st: string, txid: string): number {
-  const r = grpc(st, "GetTransaction", { hash: Buffer.from(txid, "hex").reverse().toString("base64") });
-  return r.ok ? Number(JSON.parse(r.out).height) || 0 : 0;
+  const single = process.env.BNZ_LWD_SINGLE === "1";
+  const endpoints = [process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443", ...(single ? [] : [process.env.BNZ_LWD_URL_ALT ?? ""])];
+  requireThat(endpoints.every((e) => e.length > 0), "second lightwalletd endpoint (BNZ_LWD_URL_ALT) not configured");
+  requireThat(single || new Set(endpoints.map(endpointKey)).size === endpoints.length, "BNZ_LWD_URL_ALT must be a different endpoint from BNZ_LWD_URL");
+  const hash64 = Buffer.from(txid, "hex").reverse().toString("base64");
+  const seen = endpoints.map((e) => {
+    const r = grpc(st, "GetTransaction", { hash: hash64 }, e);
+    return r.ok ? Number(JSON.parse(r.out).height) || 0 : 0;
+  });
+  requireThat(seen.every((h) => h === seen[0]), `GetTransaction ${txid} height differs across lightwalletd endpoints; no height`);
+  return seen[0];
 }
 // R58 (Reviewer R F2 on R57): "this endpoint does not know the txid" is not proof the transaction never mined (all
 // hosts share one testnet endpoint, so a lagging or pruned answer is correlated). Absence is proven only from the

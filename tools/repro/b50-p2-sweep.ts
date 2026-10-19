@@ -234,7 +234,7 @@ const run = async () => {
     const candidateRows = obs.map(([, amount_zats]) => ({ recipient: UA_ORCHARD, amount_zats }));
     const hostEnv = (st: string) => ({
       BNZ_STATE_DIR: st, BNZ_PCZT_BIN: path.join(st, "bin", "benzo-pczt"),
-      BNZ_SCAN_BIN: path.join(st, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_DRAND_URLS: "http://127.0.0.1:9/",
+      BNZ_SCAN_BIN: path.join(st, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/",
     });
     const hostState = (name: string, pools: boolean) => {
       const st = path.join(ROOT, "tmp", "b50", `h3-state-${name}`);

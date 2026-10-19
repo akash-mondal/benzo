@@ -123,7 +123,7 @@ const mainnet = (withCommitment: boolean) => ({ ...(withCommitment ? fixture.man
 
 // ---- C. the three signer-host paths --------------------------------------------------------------------------
 const hostEnv = (state: string) => ({ BNZ_STATE_DIR: state, BNZ_PCZT_BIN: path.join(state, "bin", "benzo-pczt"),
-  BNZ_SCAN_BIN: path.join(state, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
+  BNZ_SCAN_BIN: path.join(state, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
 const packetDir = (name: string, fx: Fixture, sellerUa: string, rows: any[], candidate?: { pays: string; amount: string }) => {
   const dir = path.join(WORK, "packet-" + name);
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true, mode: 0o700 });

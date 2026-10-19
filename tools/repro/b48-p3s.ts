@@ -56,7 +56,7 @@ const sh = (args: string[], env: Record<string, string>) => {
 };
 const lastLine = (r: { out: string; err: string }) => (r.err || r.out).trim().split("\n").filter(Boolean).at(-1)?.slice(0, 180) ?? "";
 const hostEnv = (state: string) => ({ BNZ_STATE_DIR: state, BNZ_PCZT_BIN: path.join(state, "bin", "benzo-pczt"),
-  BNZ_SCAN_BIN: path.join(state, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
+  BNZ_SCAN_BIN: path.join(state, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
 
 const beacon = await fetchBeacon(32704232);
 const fixture: Fixture = await buildAuction({ beacon, commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });

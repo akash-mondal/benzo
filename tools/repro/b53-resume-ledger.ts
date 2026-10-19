@@ -540,7 +540,7 @@ async function p31() {
 // through h-fixtures.ts writeHostState). A pre-B49 approval entry with no `mapped` must heal after a
 // re-approve and after migration on read — and then count as paid at the shared rule.
 const hostEnv = (st: string) => ({ BNZ_STATE_DIR: st, BNZ_PCZT_BIN: path.join(st, "bin", "benzo-pczt"),
-  BNZ_SCAN_BIN: path.join(st, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
+  BNZ_SCAN_BIN: path.join(st, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
 function approveWorld(label: string, fx: Fixture, batch: number, candidateRows: { recipient: string; amount_zats: string }[]): { st: string; dir: string } {
   const st = path.join(ROOT, "tmp", "b53", `${label}-state`);
   rmSync(st, { recursive: true, force: true });
