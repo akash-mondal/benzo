@@ -453,18 +453,28 @@ async function worker(ledger:Ledger) {
       // does not know (store fails AccountUnknown, live Y2); broadcast without storing (the vault still supplies the network config), the next sync records it.
       // H20 item 1 (R108): a send that answers "transaction already exists in mempool" — the resend after a lost
       // response, or a resend on a re-run — counts as broadcast, and so does a send whose transaction has already
-      // mined (checked against this worker's own wallet). The batch continues to the mined-wait. Any other send
-      // error stays an error.
+      // mined (checked against this worker's own wallet). The batch continues to the mined-wait.
+      // B51 (P3, Reviewer R P3-2): the error string alone is never trusted. On a send error the STAGED TXID
+      // itself must be known to this worker's own wallet (the same list-tx the mined-wait repeats when it finds
+      // the transaction). Known — mempool or mined — counts as broadcast; unknown with an "already exists in
+      // mempool" claim is treated as NOT broadcast and the send is retried once with the same bytes; any other
+      // error stays an immediate error. The old catch assigned sent = staged.txid and then "checked"
+      // sent === staged.txid — a vacuous pair; the txid check now runs only on a send that returned one.
       let sent:string|null=null;
-      try {sent=(custody?pczt("send-without-storing","-s",env("BNZ_LWD_URL"),staged.pczt_path!):pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!)).trim().split("\n").at(-1)??null}
-      catch(e) {
-        const inMempool=/already exists in mempool/i.test(String((e as Error).message));
-        let alreadyMined=false;
-        try {alreadyMined=!!JSON.parse(wallet("list-tx","--json")).find((t:any)=>t.txid===staged.txid&&t.mined_height)} catch {}
-        if(!inMempool&&!alreadyMined)throw e;
-        sent=staged.txid!;
+      for(let attempt=0;attempt<2&&sent===null;attempt++) {
+        let returned:string|null=null,sendError:Error|null=null;
+        try {returned=(custody?pczt("send-without-storing","-s",env("BNZ_LWD_URL"),staged.pczt_path!):pczt("send","-s",env("BNZ_LWD_URL"),staged.pczt_path!)).trim().split("\n").at(-1)??null}
+        catch(e) {sendError=e as Error}
+        if(sendError===null) {
+          requireThat(returned===staged.txid,"broadcast returned a different txid");
+          sent=staged.txid!;break;
+        }
+        let known=false;
+        try {known=!!JSON.parse(wallet("list-tx","--json")).find((t:any)=>t.txid===staged.txid)} catch {}
+        if(known) {sent=staged.txid!;break}
+        if(!/already exists in mempool/i.test(sendError.message)||attempt===1)throw sendError;
       }
-      requireThat(sent===staged.txid,"broadcast returned a different txid");console.log(`settlement broadcast ${sent}`);
+      console.log(`settlement broadcast ${sent}`);
     }
     const tMine=Date.now();
     const height=await mined(staged.txid!,Date.now()+30*60_000);

@@ -25,6 +25,8 @@
 //   (h) B51 (P3): the R109 margin is pinned — a 20,000-zat shortfall asks for exactly 25,000 (the fee bound
 //       counts one extra spend per remaining batch; reverting max(ceil(shortfall/10), 5000) to the pre-R109
 //       ceil/10 would ask 22,000 and fail the pin), and topping up exactly 25,000 completes.
+//   (i) B51 (P3): a send that lies "already exists in mempool" without recording anything is never trusted —
+//       the staged txid must be known to the wallet (or the retry's real send stands), and the batch completes.
 //
 // Red (`node tmp/b47.mjs before`) against BASE bundles built from pristine 8a9f638 (pre-R107) sources:
 //   (a)-red: the first settle refuses before paying anything — the exact R107 signature of the h15-live
@@ -107,7 +109,8 @@ const CONFIRMATIONS = 10; // the wallet's spendability rule the stubs and the pr
 // exceed the MATURE spendable notes — exactly the live "the return needs the last batch's change to be
 // spendable" case. `send_mode: "mempool"` makes the NEXT send answer the live resend error
 // ("transaction already exists in mempool") while recording the transaction, which the next wallet sync
-// mines — the H20 item 1 case.
+// mines — the H20 item 1 case. `send_mode: "lie"` answers that SAME phrase WITHOUT recording anything
+// (a hostile or broken wrapper) — the B51 P3-2 case: the phrase alone must never count as broadcast.
 const CHAIN_GUARD = `if (process.env.BNZ_NETWORK === "main") { process.stderr.write("test stubs refuse BNZ_NETWORK=main\\n"); process.exit(1); }
 if (!process.env.BNZ_TEST_CHAIN) { process.stderr.write("test stubs need BNZ_TEST_CHAIN\\n"); process.exit(1); }
 `;
@@ -152,6 +155,12 @@ if (a[0] === "pczt") {
     const file = a[a.length - 1], buf = fs.readFileSync(file), txid = txidOf(buf), body = JSON.parse(buf.toString("utf8"));
     const c = JSON.parse(fs.readFileSync(chainFile, "utf8"));
     const record = { txid, spends: body.spends, change_zats: body.change_zats, change_address: ${JSON.stringify(CHANGE_ADDR)}, rows: body.rows };
+    if (c.send_mode === "lie") {
+      c.send_mode = "ok";
+      fs.writeFileSync(chainFile, JSON.stringify(c));
+      process.stderr.write("Error: Send failed: (-1) transaction already exists in mempool\\n");
+      process.exit(1);
+    }
     if (c.send_mode === "mempool") {
       c.send_mode = "ok";
       c.pending.push(record);
@@ -426,9 +435,10 @@ function writeWorld(label: string, fx: Fixture, opts: { root: string; benzo: str
     obligationRows, obligationZats, C: Number(fx.manifest.C_zats), feeReserve: opts.feeReserve };
 }
 
-const sh = (cmd: string, args: string[], env: Record<string, string>) => {
-  const r = spawnSync(cmd, args, { input: "", encoding: "utf8", maxBuffer: 64 << 20, env: { ...process.env, ...env } });
-  return { code: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
+const sh = (cmd: string, args: string[], env: Record<string, string>, timeoutMs?: number) => {
+  const r = spawnSync(cmd, args, { input: "", encoding: "utf8", maxBuffer: 64 << 20,
+    ...(timeoutMs ? { timeout: timeoutMs, killSignal: "SIGKILL" } : {}), env: { ...process.env, ...env } });
+  return { code: r.status ?? 1, killed: !!(r.error && (r.error as any).code === "ETIMEDOUT"), out: r.stdout ?? "", err: r.stderr ?? "" };
 };
 const worldEnv = (w: World): Record<string, string> => ({
   BNZ_STATE_DIR: w.state, BNZ_TEST_CHAIN: w.chainFile, BNZ_TEST_STUBS: path.join(w.shared, "stub-config.json"),
@@ -438,9 +448,10 @@ const worldEnv = (w: World): Record<string, string> => ({
   PATH: `${w.stubBin}${path.delimiter}${process.env.PATH ?? ""}`,
 });
 // The real `bin/benzo settle --id ID` on this tree; the base runs take the same argv through the base bundle.
-const runSettle = (w: World) => w.benzo === GREEN_BENZO
-  ? sh(path.join(ROOT, "bin/benzo"), ["settle", "--id", w.id], worldEnv(w))
-  : sh(process.execPath, [w.benzo, "settle", "--id", w.id], worldEnv(w));
+// `timeoutMs` bounds a run the driver must kill (the red (i) leg: the base sits in the 30-minute mined-wait).
+const runSettle = (w: World, timeoutMs?: number) => w.benzo === GREEN_BENZO
+  ? sh(path.join(ROOT, "bin/benzo"), ["settle", "--id", w.id], worldEnv(w), timeoutMs)
+  : sh(process.execPath, [w.benzo, "settle", "--id", w.id], worldEnv(w), timeoutMs);
 
 const chain = (w: World) => JSON.parse(readFileSync(w.chainFile, "utf8"));
 const receiptsOf = (w: World) => JSON.parse(readFileSync(path.join(w.state, "settle", w.id, "receipts.json"), "utf8"));
@@ -453,6 +464,8 @@ const readdirSyncSorted = (dir: string) => (execFileSync("ls", ["-1", dir], { en
 const settleLog = (w: World) => { try { return readFileSync(path.join(w.state, "run", "settle-cli.log"), "utf8"); } catch { return ""; } };
 const bumpTip = (w: World, n: number) => { const c = chain(w); c.tip += n; writeFileSync(w.chainFile, JSON.stringify(c)); };
 const armMempool = (w: World) => { const c = chain(w); c.send_mode = "mempool"; writeFileSync(w.chainFile, JSON.stringify(c)); };
+// B51 (P3-2): the next send answers "already exists in mempool" WITHOUT recording anything — the lie.
+const armLiar = (w: World) => { const c = chain(w); c.send_mode = "lie"; writeFileSync(w.chainFile, JSON.stringify(c)); };
 const addTopUp = (w: World, zats: number) => {
   const c = chain(w);
   c.notes.push({ txid: hash("b47-topup-run-" + w.label), height: 90300, pool: "ironwood", address: FEE_RESERVE_UA, diversifier_index: "11", action_index: 0, value_zats: zats, memo_hex: null, spent_in_txid: null });
@@ -645,6 +658,23 @@ async function green() {
   check("h-completes-after-exact-top-up", h2.code === 0 && h3.code === 0 && !!hSettlement?.reserve_return && receiptsOf(w6).length === w6.obligationRows.length + 1,
     `topping up exactly ${hTopUp} zats suffices (the equality case passes at zero): the settlement completes (return accounting ${JSON.stringify(hSettlement?.reserve_return ?? null)})`);
 
+  // ---- world W7: case (i) ----------------------------------------------------
+  console.log("=== case (i): a send that lies 'already exists in mempool' is not trusted — the staged txid must be known (B51 P3)");
+  const w7 = writeWorld("w7", fx, { root: ROOT, benzo: GREEN_BENZO, feeReserve: 60000 });
+  armLiar(w7);
+  const i1 = runSettle(w7);
+  console.log(`OBSERVE case-i exit=${i1.code}`);
+  console.log(i1.err.trim().split("\n").map(l => "  | " + l).join("\n"));
+  const iLies = (settleLog(w7).match(/transaction already exists in mempool/g) ?? []).length;
+  check("i-lie-never-accepted", iLies === 1 && i1.code === 0 && (i1.err.match(/settlement broadcast /g) ?? []).length === 1,
+    `the lie was answered once and never counted as broadcast: the send was retried with the same bytes and really recorded (exit ${i1.code}, ${iLies} lie)`);
+  check("i-really-broadcast", chain(w7).broadcasts.length === 1 && receiptsOf(w7).length === w7.obligationRows.length,
+    `the transaction was really broadcast on the retry (${chain(w7).broadcasts[0]?.slice(0, 16)}…) and the ${w7.obligationRows.length} rows are receipted`);
+  bumpTip(w7, 12);
+  const i2 = runSettle(w7);
+  check("i-completes", i2.code === 0 && !!settlementOf(w7)?.reserve_return,
+    `the settlement completes after the retry (exit ${i2.code}, accounting ${JSON.stringify(settlementOf(w7)?.reserve_return ?? null)})`);
+
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
 }
@@ -828,6 +858,18 @@ async function red51() {
   console.log((h.err || h.out).trim().split("\n").map(l => "  | " + l).join("\n"));
   check("h-red-undercounted-bound", h.code === 1 && h.err.includes("pay 20000 zats") && !h.err.includes("pay 25000 zats"),
     `the base bound is short one spend per remaining batch: it demands 20000 zats where the pinned demand is 25000 (${h.err.trim().split("\n").filter(l => l.includes("ERROR")).at(-1)?.slice(0, 160) ?? "(no ERROR line)"})`);
+
+  console.log("=== red (i) on base bundles (a107447): the send's 'already exists in mempool' text is trusted alone (P3-2)");
+  const wi = writeWorld("i-base", fx, { root: BASE51, benzo: BASE51_BENZO, feeReserve: 60000 });
+  armLiar(wi);
+  const i = runSettle(wi, 45000); // the base accepts the lie and sits in the 30-minute mined-wait; the driver kills it
+  console.log(`OBSERVE i-red exit=${i.code} killed=${i.killed}`);
+  console.log((i.err || i.out).trim().split("\n").map(l => "  | " + l).join("\n"));
+  const lied = i.err.match(/settlement broadcast [0-9a-f]{64}/)?.[0] ?? "(none)";
+  check("i-red-accepts-the-lie", lied !== "(none)" && i.killed,
+    `the base trusted the error string alone — ${lied} — for a transaction nothing recorded, then sat in the 30-minute mined-wait (the reviewer's stall; the driver killed it at 45 s)`);
+  check("i-red-nothing-recorded", chain(wi).broadcasts.length === 0 && chain(wi).pending.length === 0 && !existsSync(path.join(wi.state, "settle", wi.id, "receipts.json")),
+    "nothing was broadcast, nothing is pending or mined, and no receipt was recorded");
 
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
