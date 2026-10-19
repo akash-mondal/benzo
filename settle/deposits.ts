@@ -121,6 +121,14 @@ export function reserveReturnOutstanding(input: {
   for (let i = 0; i < (input.pending_batches ?? 0); i++) out.add(`pending batch ${i + 1}`);
   return [...out].sort();
 }
+// B56 (R121, docs/design/phase7-b56-unpaid-return-row.md): an UNPAID `reserve-return` row is never
+// published. The published settlement rows (and the summary rows that feed them) leave the row out until
+// the ledger confirmed the batch that paid it — the same paid set `receipts()` uses (`paid`, or `refunded`
+// for a refund-kind row; the return row itself confirms as `paid`). Verify stays strict: a published
+// return row still needs its receipt and its published accounting. The private ledger keeps the row and
+// its state, and the run prints its typed reason (the pinned exception row's reason line).
+export const rowPublishes = (r: { party: string; state?: string }): boolean =>
+  r.party !== "reserve-return" || ["paid", "refunded"].includes(String(r.state));
 // B54 (Reviewer R round 5, P2-1, docs/design/phase7-b54-dust-and-sweep.md): the ONE rule for a note the
 // wallet can select at all. The pinned wallet NEVER selects a note of 5,000 zats or less: the crate's own
 // note-selection SQL is `AND rn.value > :min_value` with `let min_value = u64::from(zip317::MARGINAL_FEE)`

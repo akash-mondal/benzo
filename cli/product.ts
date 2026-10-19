@@ -18,7 +18,7 @@ import {clientCommon as client,modeEntry,modePaysSeller} from '../clear/registry
 import {isRefundRowParty,refundRowLeafIndex} from '../clear/features';
 import {launchWinners} from '../clear/launch';
 import {requireOwnEnvelopeKey,memoSealedBid,ownEnvelopePrivate,openDestination,authenticatedMemoEnvelope} from '../settle/envelopes';
-import {depositParty,partyNote,isDepositParty,refundable} from '../settle/deposits';
+import {depositParty,partyNote,isDepositParty,refundable,rowPublishes} from '../settle/deposits';
 import {checkCertificates,earliestAgreedBond,freezeStatement,signOpensReport,validateWitnessSet,verifyApprovalMap,verifyDeliveryListSig,witnessSetHash,type WitnessSet} from '../witness';
 import {verifyStatement} from '../envelope';
 import {sealedBidShape,openSealedBid} from '../envelope/opening';
@@ -101,7 +101,15 @@ export function publish(id:string) {
         agreed=s.plan.defaults;agreedVoid=s.plan.bond_void===true;
       }
     }
-    doc.settlement={rows:s.rows,receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
+    // B56 (R121, docs/design/phase7-b56-unpaid-return-row.md): an UNPAID `reserve-return` row is never
+    // published — the filter drops every such row from the published settlement rows (and with them the
+    // public summary.json below). A bare return row publishes an exception the product's own verify
+    // refuses (`a reserve-return row or receipt without the published reserve_return accounting`), and
+    // that doc then walls every later `benzo settle` at `no signer host could list its derivable rows`:
+    // a permanent wall from a transient plan/host skew. The private ledger keeps the row and its state,
+    // the run prints its typed reason, and verify stays strict — a published return row still needs its
+    // receipt and its published accounting. The filter also heals a pre-B56 summary on republish.
+    doc.settlement={rows:s.rows.filter(rowPublishes),receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
       // B46 (H15, Revision R103): the reserve-return accounting — the vault's whole unspent value the return
       // swept and the ZIP-317 fee, amounts only, never the destination (the signed manifest carries only its
       // commitment). Published only when the settlement actually paid the row, so `benzo verify` accepts

@@ -13,7 +13,7 @@ import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {fetchVerifiedBeacon,publishedClient} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
-import {partyNote,reserveUnspent,walletSpendable} from "./deposits";
+import {partyNote,reserveUnspent,walletSpendable,rowPublishes} from "./deposits";
 // B54 (P3-2): the one candidate check on the non-custody path too (cli/host-derive.ts reserveCandidateVerdict).
 import {reserveCandidateVerdict} from "../cli/host-derive";
 import { vaultDir, pcztBin } from "../manifest/paths";
@@ -691,7 +691,13 @@ async function worker(ledger:Ledger) {
   const reasonOf=new Map<string,string>([...(plan.exceptions??[]),...pinned.filter((o:any)=>o.reason)].map((o:any)=>[o.party,String(o.reason)] as [string,string]));
   for(const [party,reason] of manualReasons)reasonOf.set(party,reason);
   for(const [party,reason] of h23Reasons)if(!reasonOf.has(party))reasonOf.set(party,reason);
-  const summaryRows=ledger.rows().map(r=>r.state==="exception"&&reasonOf.get(r.party)?{...r,reason:reasonOf.get(r.party)}:r);
+  const summaryRows=ledger.rows().map(r=>r.state==="exception"&&reasonOf.get(r.party)?{...r,reason:reasonOf.get(r.party)}:r)
+    // B56 (R121, docs/design/phase7-b56-unpaid-return-row.md): the summary rows ARE the published
+    // settlement rows (cli/product.ts publish carries them verbatim), so an UNPAID `reserve-return` row
+    // leaves them out here too — never a bare return row in a published doc. The private ledger keeps the
+    // row and its state, its reason is re-derived and printed every run (the typed waits line above), and
+    // verify stays strict for the paid row (its receipt and its published accounting).
+    .filter(rowPublishes);
   writeFileSync(file("summary.json"),jsonBytes({auction_id:id,lwd_endpoints:lwdEndpoints(client(auction().manifest,auction().signer).manifest.network),rows:summaryRows,batches:ledger.db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all(),signoffs,plan:summaryPlan,offline_signer:["alice","bob","carol"].find(n=>!signoffs.some(c=>c.participant===n))}),{mode:0o600});
   process.stdout.write(jsonBytes({auction_id:id,settled:ledger.receipts().length}));
 }
