@@ -150,9 +150,14 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
 // their witnesses are distinct pinned signers — the G-4 agreement `agreedBatchMaps` binds at finalize.
 // H1 (B50): exported, and the pair must agree on EVERY signed field, batch included — receipt-attestation
 // holds its two attesting maps to this same full agreement, so two maps that agree on the receipt's txid and
-// outputs but differ in defaults, strays or bond fields can never jointly attest anything.
+// outputs but differ in defaults, strays or bond fields can never jointly attest anything. B53 (P3-5,
+// Reviewer R round 4): `auction_id` and `txid` join the comparison — the predicate's name is now true and a
+// pair of maps of different auctions or candidates can never "agree" (every caller prefiltering those two
+// fields was the only thing keeping the name honest before).
 export const mapPairAgrees = (a: ApprovalMap, b: ApprovalMap): boolean =>
   a.witness !== b.witness &&
+  a.auction_id === b.auction_id &&
+  a.txid === b.txid &&
   a.batch === b.batch &&
   jsonBytes(a.outputs).equals(jsonBytes(b.outputs)) &&
   jsonBytes(a.defaults ?? null).equals(jsonBytes(b.defaults ?? null)) &&
@@ -191,16 +196,20 @@ export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: str
   }
   const batches = [...new Set(ms.map((mp) => mp.batch))].filter((b) => ms.some((mp) => mp.batch === b && paying.has(mp.txid))).sort((a, b) => a - b);
   for (const b of batches) {
-    const byList = new Map<string, { list: number[]; bond_void: boolean; bond_start: { height: number; hash: string; time: number } | null; witnesses: Set<string> }>();
+    const byList = new Map<string, { list: number[]; bond_void: boolean; bond_start: { height: number; hash: string; time: number } | null; witnesses: Set<string>; maps: ApprovalMap[] }>();
     for (const mp of ms.filter((mp) => mp.batch === b)) {
       // `?? null` is load-bearing: jsonBytes refuses `undefined`, and every pre-R63 map has no bond_start (R65).
       const k = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null }).toString("hex");
-      const e = byList.get(k) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null, witnesses: new Set<string>() };
-      e.witnesses.add(mp.witness);
+      const e = byList.get(k) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null, witnesses: new Set<string>(), maps: [] };
+      e.witnesses.add(mp.witness); e.maps.push(mp);
       byList.set(k, e);
     }
+    // B53 (P3-5): the chosen list must be carried by a pair that agrees under mapPairAgrees — not merely by
+    // two witnesses counted per key. Two map versions can each carry two witnesses while the two witnesses
+    // of a version disagree on outputs/strays/refund rows (chain drift across signing attempts); counting
+    // witnesses alone let a publisher steer the published defaults to a list no fully agreeing pair backs.
     const agreed = [...byList.values()]
-      .filter((e) => e.witnesses.size >= 2)
+      .filter((e) => e.witnesses.size >= 2 && e.maps.some((a) => e.maps.some((b2) => mapPairAgrees(a, b2))))
       .sort((x, y) => y.witnesses.size - x.witnesses.size || jsonBytes({ defaults: x.list, bond_void: x.bond_void, bond_start: x.bond_start }).toString("hex").localeCompare(jsonBytes({ defaults: y.list, bond_void: y.bond_void, bond_start: y.bond_start }).toString("hex"))); // R64: bond_start in the selection too
     if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void, bond_start: agreed[0].bond_start };
   }

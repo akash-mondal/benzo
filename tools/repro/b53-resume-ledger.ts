@@ -599,9 +599,53 @@ async function p32() {
   }
 }
 
+// ---- p35 (P3-5): mapPairAgrees covers auction_id/txid, and the defaults tie-break only picks a list
+// carried by a FULLY agreeing pair. The green leg runs the shipped witness/index.ts; the red leg runs the
+// BASE tree's own witness bundle, where two map versions each carried by two witnesses (disagreeing on
+// outputs) can steer the selection.
+async function p35() {
+  const cur = await import("../../witness");
+  const wit: any = part === "before" ? await import(pathToFileURL(path.join(BASE, "dist", "witness.mjs")).href) : cur;
+  const k = [wit.generateWitnessKey(), wit.generateWitnessKey(), wit.generateWitnessKey()];
+  const keys = k.map((x: any) => x.public_hex);
+  const T1 = "aa".repeat(32), T2 = "cc".repeat(32);
+  const base = { auction_id: "11".repeat(32), batch: 1, txid: T1, outputs: [{ party: "leaf:0", output_index: 0 }], defaults: [7], balance_refunds: [] } as any;
+  // The predicate alone: maps differing in BOTH auction_id and txid.
+  const across = wit.mapPairAgrees(wit.signApprovalMap(base, k[0].private_hex),
+    wit.signApprovalMap({ ...base, auction_id: "22".repeat(32), txid: T2 }, k[1].private_hex));
+  // Two map versions of ONE paying batch, each carried by two witnesses, that disagree on outputs:
+  // version L1 (defaults [7]) is carried by w0 and w1 over DIFFERENT outputs; version L2 (defaults [9]) by
+  // w2 and w0 over the SAME outputs (a fully agreeing pair).
+  const X = [{ party: "leaf:0", output_index: 0 }], Y = [{ party: "leaf:1", output_index: 0 }];
+  const maps = [
+    wit.signApprovalMap({ ...base, outputs: X, defaults: [7] }, k[0].private_hex),
+    wit.signApprovalMap({ ...base, outputs: Y, defaults: [7] }, k[1].private_hex),
+    wit.signApprovalMap({ ...base, outputs: X, defaults: [9] }, k[2].private_hex),
+    wit.signApprovalMap({ ...base, outputs: X, defaults: [9] }, k[0].private_hex),
+  ];
+  const picked = wit.earliestAgreedBond(maps, keys, [T1]);
+  let refused = "";
+  try { wit.earliestAgreedBond([maps[0], maps[1], maps[2]], keys, [T1]); } catch (e) { refused = (e as Error).message; }
+  console.log(`OBSERVE p35-${part} across-agrees=${across} picked=${JSON.stringify(picked?.defaults ?? null)} no-pair=${refused ? "refused" : "PICKED"}`);
+  if (part === "after") {
+    check("p35-predicate-covers-txid", across === false && wit.mapPairAgrees(maps[2], maps[3]) === true,
+      "mapPairAgrees now compares auction_id and txid (a pair of maps of other candidates never agrees), while a real agreeing pair still agrees");
+    check("p35-tiebreak-picks-agreeing-pair", JSON.stringify(picked?.defaults ?? null) === "[9]",
+      `the selection picks only the fully agreeing pair's list (${JSON.stringify(picked?.defaults ?? null)}), never the two-witness-disagreeing version's [7]`);
+    check("p35-no-pair-refuses", !!refused,
+      `with no agreeing pair at all the selection refuses (${refused.slice(0, 100)})`);
+  } else {
+    check("p35-predicate-red", across === true,
+      "the base predicate says two maps of DIFFERENT auctions and txids agree (the name over-promises)");
+    check("p35-tiebreak-red-steered", JSON.stringify(picked?.defaults ?? null) === "[7]",
+      `the base tie-break picks the two-witness version's list even though its two witnesses disagree on outputs (${JSON.stringify(picked?.defaults ?? null)}) — the publisher can steer the published defaults`);
+  }
+}
+
 if (wants("p22")) await p22();
 if (wants("p33")) await p33();
 if (wants("p31")) await p31();
 if (wants("p32")) await p32();
+if (wants("p35")) await p35();
 console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
 process.exitCode = failed ? 1 : 0;

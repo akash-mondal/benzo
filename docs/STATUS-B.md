@@ -52,6 +52,16 @@ Status block (every command and its result; updated per item):
   entry from its own stored map plus the host's derived amounts `[leaf:0:1000100]` and the re-approve
   merges 4 attested rows into the same-txid entry; both count as paid at the shared rule). Evidence:
   `docs/evidence/phase-7/repro/b53-p32-red.out`, `docs/evidence/phase-7/repro/b53-p32-green.out`.
+- Item 5 (P3-5, `witness/index.ts`): `node tmp/b53.mjs before p35` — PASS (red: the base predicate says
+  two maps of DIFFERENT auctions and txids agree, and the tie-break picks the two-witness version's `[7]`
+  even though its two witnesses disagree on outputs — the steerable selection); `node tmp/b53.mjs after
+  p35` — PASS (green: `mapPairAgrees` compares auction_id and txid, the selection picks only the fully
+  agreeing pair's `[9]`, and with no agreeing pair it refuses). Evidence:
+  `docs/evidence/phase-7/repro/b53-p35-red.out`, `docs/evidence/phase-7/repro/b53-p35-green.out`.
+  The verify bundle changed (witness feeds it): rebuilt `dist/benzo-verify.mjs` + `docs/verify-bundle.sha256`
+  (new digest `ceae69fd8b7545858daf42cd9ecb10a6a7ea8e3d41c463b26e1222aab849e60d`); `npm run check:bundle` —
+  OK; the r77 (`honest: ACCEPTED`), r78 (`honest (maps): ACCEPTED`) and r82 replays stay green on the
+  committed evidence.
 
 ### Questions
 
