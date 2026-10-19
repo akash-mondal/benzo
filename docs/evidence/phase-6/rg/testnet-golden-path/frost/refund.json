@@ -1,0 +1,10 @@
+{
+ "txid": "24364429fbbbaa072104c6aa8d6baffd445c902e65c426d6de42ae787212e3aa",
+ "height": {
+  "testnet.zec.rocks:443": 4519535,
+  "second_endpoint": "none (BNZ_LWD_SINGLE=1, R27/R47)"
+ },
+ "header_hex": "06000080",
+ "version_group_id_hex": "98b684d8",
+ "consensus_branch_id": "77190ad9"
+}
