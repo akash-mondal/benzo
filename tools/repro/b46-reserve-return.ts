@@ -215,11 +215,14 @@ const settlementFor = (fx: Fixture, opts: { strayPaid?: boolean; latePaid?: bool
   // shape — so `benzo verify` can tie the reserve_return fee to the published source count. The return
   // sweeps the vault's four unspent notes (20,000 + 35,000 + 1,000 + 1,000 = 57,000) and pays the ZIP-317
   // fee of a four-source transaction (5,000 x 4 = 20,000) — exactly the honest REMAINING/RESERVE_FEE.
+  // B50 (H5) checks the published inspect against the real benzo-pczt shape, so the fixture carries
+  // its fixed fields too.
+  const realInspect = (txid: string) => ({ consensus_branch_id: "37a5165b", tx_version: 6, expiry_height: 100500, shielded_sighash: hash(jsonBytes("sighash:" + txid)) });
   const swept = [{ index: 0, pool: "ironwood", value_zats: 20000 }, { index: 1, pool: "ironwood", value_zats: 35000 },
     { index: 2, pool: "ironwood", value_zats: 1000 }, { index: 3, pool: "ironwood", value_zats: 1000 }];
   settlement.batches = [...new Set(receipts.map((r: any) => String(r.txid)))].map((txid, i) => ({ id: i + 1, pczt_hash: hash(jsonBytes(txid)), txid, height: 99500, state: "mined",
-    inspect: txid === TX_RESERVE ? { inputs: swept, input_zats: 57000, output_zats: 37000, fee_zats: 20000, outputs: [{ index: 0, pool: "ironwood", amount_zats: RESERVE_AMOUNT }] }
-      : { inputs: [{ index: 0, pool: "ironwood", value_zats: 100000 }], input_zats: 100000, output_zats: 95000, fee_zats: 5000, outputs: [] } }));
+    inspect: { ...realInspect(txid), ...(txid === TX_RESERVE ? { inputs: swept, input_zats: 57000, output_zats: 37000, fee_zats: 20000, outputs: [{ index: 0, pool: "ironwood", is_change: false, amount_zats: String(RESERVE_AMOUNT) }] }
+      : { inputs: [{ index: 0, pool: "ironwood", value_zats: 100000 }], input_zats: 100000, output_zats: 95000, fee_zats: 5000, outputs: [] }) } }));
   return settlement;
 };
 const writeSettledDir = (dir: string, fx: Fixture, settlement: any, opts: { claims?: any[]; cancelled?: boolean } = {}) => {

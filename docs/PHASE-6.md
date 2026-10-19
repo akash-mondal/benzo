@@ -808,3 +808,37 @@ Rulings on its questions:
 - **Q6** noted: the fee/source tie is self-consistency only. Host-attested inputs would be the real binding; that is H2's ground, which H3 mitigates.
 
 **P2-2 and P2-1b from R113 are fixed.** B50 still holds H21 (the seller branch).
+
+### R115 — B50 merged on top of B51: H1, H3, H5, H6, H7, H21 closed; H2 mitigated by H3 (head, 2026-10-19)
+
+B50 (`b50-p2-sweep`, seven commits) was cherry-picked onto R114. The conflicts were:
+- the imports in `api/public-auction.ts` (union of both sides);
+- the H21–H24 rows in `phase7-hardening.md` (B50's closed H21 plus B51's new H22–H24);
+- the b47 stub `inspect` (B50's full real shape plus B51's one input per spent note).
+
+**Merge incident.** B50's sweep commit tracked its worktree's `node_modules` and `vendor` symlinks. The `.gitignore` entries `node_modules/` and `vendor/nu7/` match directories only, not symlinks. Checking the commit out on main replaced main's ignored `node_modules` and `vendor` with self-pointing links. Nothing was pushed. The fix:
+- the commit was amended to drop both links;
+- `.gitignore` now ignores `node_modules` and `vendor` in any form;
+- `npm ci` reinstalled from the pinned lockfile;
+- `vendor` was restored from B51's 10:13 copy of main's (the gitignored NU7 build input);
+- `.benzo/` and `scan/target` were untouched.
+
+**Fold interaction.** After the merge, the b46 fold failed 11 checks. H5 now requires the real `benzo-pczt inspect` shape, and B51's new published-batch fixture lacked the fixed fields. The head added them (test-only; `tools/repro/b46-reserve-return.ts`). The fold then passed 56 checks (`b46-reserve-return-b50b51-merge.out`).
+
+On main, with the verify bundle now `90cf8ba0…`, the head re-ran:
+- `npm run check` and e2e;
+- the b44, b46, b47, b48, h10, h13 and h14 folds, all RESULT PASS;
+- the r73, r77, r77-serial, r78, r81 and r82 replays, all exit 0 with every tamper refused;
+- the four published dirs, 19 OK each.
+
+Rulings on B50's questions:
+- **Q1:** the 12 committed dirs that do not verify on their own today, such as pre-R41 drops and phase-3 layouts, stay as historical snapshots. Each one's verdict is byte-identical to `503826b`. The release evidence list names only dirs that verify.
+- **Q2** accepted: the minority pool's rows are the ones named.
+- **Q3** accepted and disclosed: a zero-receipt settlement publishes its `defaults` / `bond_void` unattested. Nothing was paid under them, and the next settle re-derives them.
+
+**Phase 7 open rows after this merge:**
+- disclosed limits H12 and H17;
+- harness items H8 and H9;
+- new P3s H22–H24.
+
+Next: a Reviewer R pass on B49–B51, provisioning the hosts, then the release RG and PK.
