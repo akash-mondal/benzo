@@ -743,3 +743,15 @@ B47 is on main (`a8513ab`, `c05f885`, `b80a23c`):
 `tools/repro/b47-settle-e2e.ts` runs the **real** `bin/benzo settle` against stub chain, wallet and orb tools, with the real host `sign` commands in three state dirs. Cases (a)–(f) are green, 33 checks. On pristine `8a9f638` it reproduces the exact live R107 refusal wall and the R107b crash, so this test layer would have caught both.
 
 Head change at merge (Q1): the top-up is `shortfall + max(ceil(shortfall/10), 5,000)`. The head re-ran B47's e2e on main (RESULT PASS) and `npm run check` (verify bundle unchanged, `f146a894…`). Rulings on Q2–Q5: accepted. **H19 and H20 are closed.** No host code changed, so no host provisioning is needed.
+
+### R110 — Reviewer R round 2 on B44–B46: REQUEST CHANGES (P0 in the reserve-return gate) → B49 (head, 2026-10-19)
+
+Report `benzo-sol/reports/pr-p7-b44-b46.md`. **B44 is confirmed closed**: zero throws across every mutation, the honest sealer still opens, and all 10 call sites share one opener.
+
+**P0-1:** the reserve-return gate trusts packet receipts. On a cancelled auction (no verify subprocess) a coordinator could fabricate receipts for unclaimed strays and get the hosts to sweep them. Unbroadcast-batch receipts do the same on cleared auctions.
+
+**P1-1:** the classify prefetch throws on a crafted refund string (empty, or NUL/newline) and freezes every host.
+
+**P2s:** the approval-ledger namespace split; a stale receipt after a reorg.
+
+Batch B49 (`docs/design/phase7-b49-paid-means-mined.md`): "paid" means this host approved the txid and its own scan shows it mined 10 deep. That one rule is used by hosts and plan. The prefetch can never throw, and the ledger gets one source namespace. **The reserve return (H15) is reopened** until B49 merges. No live funds are exposed, because these are testnet auctions with no outstanding strays.
