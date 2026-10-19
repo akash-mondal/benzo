@@ -842,3 +842,17 @@ Rulings on B50's questions:
 - new P3s H22–H24.
 
 Next: a Reviewer R pass on B49–B51, provisioning the hosts, then the release RG and PK.
+
+### R116 — Reviewer R round 4 on B49–B51 (after the B50 merge): REQUEST CHANGES (two P2 liveness walls, no P0/P1) → B52 + B53 (head, 2026-10-19)
+
+Report `benzo-sol/reports/pr-p7-b49-b51.md`. Confirmed by probe:
+- B49's paid rule holds on every paid path: it needs this host's own ledger at the exact amount, plus its own scan 10 deep;
+- 9-deep, reorged and amount-drifted receipts do not count;
+- no reserve return can be approved while anything is owed;
+- B50 and B51 add no money-moving hole in combination.
+
+**P2-1:** the return's fee is predicted from the source count, while the wallet and `inspect` use the real per-pool action count. A cross-pool vault can never complete the return, and B51's verify tie locks in the wrong basis. The head confirmed it against `settle/src/main.rs:21-40,160`. Fix: B52 (`docs/design/phase7-b52-return-fee.md`). The tool quotes the sweep; the hosts check the built transaction's own input − fee with no change; verify ties the fee to `inspect.actions`. B52 also takes H23, P3-4 and P3-8c.
+
+**P2-2:** H2 is not mitigated on the resume path, because confirm attributes receipts by index alone. That fix, plus P3-1 (zero-change batches), P3-2 (pre-B49 ledger entries), P3-3 (a true mempool re-send under custody), P3-5, P3-6, P3-7 and P3-8a/b, goes to B53 (`docs/design/phase7-b53-resume-and-ledger.md`).
+
+The two batches run in parallel and their edit regions are kept apart. Both designs require copying `vendor/`, never symlinking it (R115).
