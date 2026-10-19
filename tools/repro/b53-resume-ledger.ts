@@ -55,10 +55,12 @@ import { buildAuction, fetchBeacon, needRealPczt, ownerPrivate, writeHostState, 
 import { makeStubs } from "./b47-world";
 
 // B52 removed the predicted reserve-return amount. The stub `quote-sweep` (tools/repro/h-fixtures.ts)
-// now prices the sweep from its real action shape: every unspent note, one output in the default ironwood
+// now prices the sweep from its real action shape: every spendable note, one output in the default ironwood
 // pool, each pool's bundle padded to at least 2 actions. This mirrors that rule for the p37 case.
+// B54 (P2-1): "spendable" mirrors the wallet's note-selection rule too — a note of 5,000 zats or less is
+// never selected (settle/deposits.ts walletSpendable).
 function stubSweepAmount(notes: { pool: string; value_zats: number | string; spent_in_txid?: string | null }[]): { amount_zats: string } {
-  const unspent = notes.filter(n => (n.spent_in_txid ?? null) == null && BigInt(n.value_zats) > 0n);
+  const unspent = notes.filter(n => (n.spent_in_txid ?? null) == null && BigInt(n.value_zats) > 5000n);
   const counts = new Map<string, { s: number; o: number }>();
   for (const n of unspent) { const c = counts.get(n.pool) ?? { s: 0, o: 0 }; c.s++; counts.set(n.pool, c); }
   const out = counts.get("ironwood") ?? { s: 0, o: 0 }; out.o++; counts.set("ironwood", out);

@@ -425,6 +425,12 @@ export async function deriveReserveReturn(o: { id: string; name: string }, st: s
   const scanned = reserveUnspent(notes as any);
   const quote = quoteSweep(pcztBin(root, st), vaultDir(st, o.id), meta.reserve_return_ua as string, m.network);
   if ("error" in quote) return refuse(`the vault's value cannot be swept in one transaction (${quote.error})`);
+  // B54 (Reviewer R round 5, P2-1): `scanned` counts only the notes the WALLET can spend
+  // (settle/deposits.ts walletSpendable — the pinned wallet never selects a note of 5,000 zats or less),
+  // the same rule `quote-sweep` and `create` share. A dust note no longer walls this comparison forever:
+  // it sits outside both sides and is published as the reserve_return accounting's residue
+  // (dust_notes/dust_zats). Unconfirmed or locked notes still diverge and refuse typedly — that recovers
+  // on a later run once the note matures or the lock expires.
   if (quote.input_zats !== scanned.total_zats)
     return refuse(`the vault's value cannot be swept in one transaction (the tool's quote spends ${quote.input_zats} zats of this signer's scanned unspent total ${scanned.total_zats})`);
   const row = { party: "reserve-return" as const, kind: "payout" as const,

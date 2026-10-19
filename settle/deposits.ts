@@ -121,6 +121,20 @@ export function reserveReturnOutstanding(input: {
   for (let i = 0; i < (input.pending_batches ?? 0); i++) out.add(`pending batch ${i + 1}`);
   return [...out].sort();
 }
+// B54 (Reviewer R round 5, P2-1, docs/design/phase7-b54-dust-and-sweep.md): the ONE rule for a note the
+// wallet can select at all. The pinned wallet NEVER selects a note of 5,000 zats or less: the crate's own
+// note-selection SQL is `AND rn.value > :min_value` with `let min_value = u64::from(zip317::MARGINAL_FEE)`
+// (zcash_client_sqlite-0.22.0 wallet/common.rs `select_unspent_notes`, whose doc says "Selects all the
+// unspent notes with value greater than zip317::MARGINAL_FEE" — and `select_spendable_notes_matching_value`
+// in the same file, "Notes with individual value *below* the MARGINAL_FEE will be ignored"). Every selection
+// path shares it: `create`'s greedy selector and `quote-sweep`'s MaxSpendMode::Everything alike. A note of
+// 5,000 zats or less is therefore permanently unspendable value — dust — and the swept total that plan,
+// hosts and candidates are held to counts only notes the wallet can really spend.
+export const ZIP317_MARGINAL_FEE_ZATS = 5000;
+export function walletSpendable(note: { value_zats: number | string }): boolean {
+  return BigInt(note.value_zats) > BigInt(ZIP317_MARGINAL_FEE_ZATS);
+}
+
 // B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md): the return's amount and fee come
 // from the TOOL's own quote of the sweep (settle/quote.ts quoteSweep — `benzo-pczt quote-sweep`, the same
 // wallet and fee rule `create` uses), never from a prediction over the source count: the real fee is the
@@ -136,12 +150,26 @@ export function reserveReturnOutstanding(input: {
 // receiver and OMITS every other receiver, so the UA carries no Sapling receiver a sender could pay. A
 // Sapling note in the vault is therefore unreachable today; if one ever appeared, `quote-sweep` refuses
 // it (a note the tool cannot spend) and the row is not planned — the typed waits line, never a crash.
+//
+// B54 (P2-1): the swept total counts only notes the WALLET can spend (walletSpendable, above) — the same
+// rule `quote-sweep` and `create` share. The unspendable residue is reported beside it as `dust_notes`
+// (count) and `dust_zats` (value): it is what stays in the vault after the sweep, and the published
+// reserve_return accounting carries it (verify shape-checks it there).
+//
+// The OWED side keeps counting dust notes in full: a stray or late-balance note of 5,000 zats or less is
+// owed at its received value and refunded like any row — the refund pays FROM OTHER NOTES, because the
+// wallet can never select a dust note as an input and vault value is fungible. Once that refund's receipt
+// counts, the dust note never keeps the return waiting; its own note just stays unspent forever and is
+// published as the residue below.
 export function reserveUnspent<T extends { txid: string; pool: string; action_index: number; value_zats: number | string; spent_in_txid?: string | null }>(
   notes: T[],
-): { total_zats: string; ids: string[] } {
+): { total_zats: string; ids: string[]; dust_notes: number; dust_zats: string } {
   const unspent = notes.filter(n => (n.spent_in_txid ?? null) == null && BigInt(n.value_zats) > 0n);
-  const total = unspent.reduce((s, n) => s + BigInt(n.value_zats), 0n);
-  return { total_zats: total.toString(), ids: unspent.map(n => reserveSourceId(n)).sort() };
+  const spendable = unspent.filter(walletSpendable);
+  const dust = unspent.filter(n => !walletSpendable(n));
+  const total = spendable.reduce((s, n) => s + BigInt(n.value_zats), 0n);
+  return { total_zats: total.toString(), ids: spendable.map(n => reserveSourceId(n)).sort(),
+    dust_notes: dust.length, dust_zats: dust.reduce((s, n) => s + BigInt(n.value_zats), 0n).toString() };
 }
 // B46: the one note identity for a vault note (the same `<txid>:<pool>:<action_index>` the ledger's refund
 // backing uses), so plan, hosts, the approval ledger and packets all name a note the same way.

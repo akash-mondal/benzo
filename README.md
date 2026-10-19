@@ -93,6 +93,7 @@ Copied from `docs/research/DESIGN.md` §14:
 Stated again for this build:
 
 - **Leftover fee funds return only when the auction owes nothing else** (H15): after settlement one final `reserve-return` batch pays the vault's whole unspent value minus the ZIP-317 fee to the manifest-committed return address — but only once every row is receipted and no stray deposit or late/excess balance note remains unpaid (claimed or not). An unclaimed stray can therefore delay the return indefinitely: a batch can spend the stray's note and leave its value in internal change, so an earlier sweep could return a bidder's unclaimed money to the operator. That delay is the conservative choice.
+- **Dust stays in the vault** (B54): the sweep spends exactly the notes the wallet can select, and the pinned wallet never selects a note of 5,000 zats or less (ZIP-317 `MARGINAL_FEE`). Such a note is permanently unspendable — anyone can create one by sending 1–5,000 zats to a published deposit address — and while its refund is paid from other notes (and never keeps the return waiting once receipted), the note itself stays in the vault forever. The published `reserve_return` accounting reports the residue (`dust_notes`/`dust_zats`): dust of at most 5,000 zats per note stays in the vault.
 - All orders open at R. Losing bids are not secret forever.
 - Two of three signers acting together can misbehave; `benzo verify` shows it after the fact.
 - **A colluding 2-of-3 quorum can misdirect a refund and the public cannot tell** (R16 F6): receipts

@@ -257,9 +257,12 @@ if (cmd === "owns") { console.log((fix.internal_addresses ?? []).includes(a[2]) 
 if (cmd === "address") { console.log(${JSON.stringify(UA_ORCHARD)}); process.exit(0); }
 if (cmd === "quote-sweep") {
   // B52 (item 1): the tool's own quote of the one-row sweep — every spendable note, one output, no change.
+  // B54 (P2-1): \"spendable\" carries the wallet's NOTE-SELECTION rule too — a note of 5,000 zats or less
+  // is never selected (zcash_client_sqlite-0.22.0 wallet/common.rs select_unspent_notes: rn.value >
+  // MARGINAL_FEE), so it is outside the quote exactly like the real wallet.
   const to = a[a.indexOf("--to") + 1], c = chain();
   const confirmed = (n) => n.height && c.tip - n.height + 1 >= ${CONFIRMATIONS};
-  const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 0 && confirmed(n));
+  const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 5000 && confirmed(n));
   const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
   if (bad) { process.stderr.write("the vault's value cannot be swept in one transaction: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
   if (!spendable.length) { process.stderr.write("the vault's value cannot be swept in one transaction: no spendable note\\n"); process.exit(1); }
@@ -273,7 +276,7 @@ if (cmd === "quote-sweep") {
 if (cmd === "create") {
   const rows = JSON.parse(fs.readFileSync(0, "utf8")), c = chain();
   const confirmed = (n) => n.height && c.tip - n.height + 1 >= ${CONFIRMATIONS};
-  const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 0 && confirmed(n));
+  const spendable = c.notes.filter(n => (n.spent_in_txid ?? null) === null && Number(n.value_zats) > 5000 && confirmed(n));
   const bad = spendable.find(n => !["orchard", "ironwood"].includes(String(n.pool)));
   if (bad) { process.stderr.write("Error: proposal: the vault holds a " + bad.pool + " note the tool cannot spend\\n"); process.exit(1); }
   const available = spendable.reduce((s, n) => s + Number(n.value_zats), 0);

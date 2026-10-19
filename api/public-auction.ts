@@ -46,7 +46,11 @@ export type SettlementSummary = {
   // swept and the ZIP-317 fee of its one-row transaction, amounts only, never the destination (the signed
   // manifest carries only its commitment). The single `reserve-return` receipt must equal
   // remaining_zats − fee_zats, and verify accepts it only while nothing else is outstanding.
-  reserve_return?: { remaining_zats: string; fee_zats: string };
+  // B54 (P2-1): the accounting also reports the sweep's unspendable residue — dust_notes (count) and
+  // dust_zats (value), the notes of at most 5,000 zats the wallet can never select and what stays in the
+  // vault. Optional here only because the historical published dirs predate it (verify accepts the
+  // pre-B54 pair for them; every new accounting carries both).
+  reserve_return?: { remaining_zats: string; fee_zats: string; dust_notes?: number; dust_zats?: string };
   delivery_defaults?: Signed[];
   // R33 item 3: the signer hosts' G-4 approval maps (each carrying the defaults list that host derived from its
   // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
@@ -949,8 +953,24 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     requireThat(rrReceipts.length <= 1, "duplicate reserve-return receipt");
     if (rr === undefined) requireThat(rrReceipts.length === 0 && rrRows.length === 0, "a reserve-return row or receipt without the published reserve_return accounting");
     else {
-      requireThat(rr && typeof rr === "object" && Object.keys(rr).sort().join(",") === "fee_zats,remaining_zats" &&
+      // B54 (P2-1): the accounting also reports the sweep's unspendable residue — dust_notes (count) and
+      // dust_zats (value): every note the wallet can never select (value at most ZIP-317's MARGINAL_FEE,
+      // 5,000 zats) that stays in the vault after the sweep. The published shape is exactly
+      // dust_notes, dust_zats, fee_zats, remaining_zats; the PRE-B54 pair (fee_zats, remaining_zats) stays
+      // accepted for the historical published directories (the R26 legacy rule — they are immutable).
+      // The residue is shape-checked only — the scan behind it is signer-private — but tightly: each dust
+      // note is 1..5,000 zats, so dust_zats sits between dust_notes and 5,000 x dust_notes, and both are
+      // zero together. `remaining_zats` still ties to the paying batch's inspect input_zats below.
+      const rrKeys = Object.keys(rr).sort().join(",");
+      requireThat(rr && typeof rr === "object" && (rrKeys === "fee_zats,remaining_zats" || rrKeys === "dust_notes,dust_zats,fee_zats,remaining_zats") &&
         /^[1-9][0-9]*$/.test(String(rr.remaining_zats)) && /^[1-9][0-9]*$/.test(String(rr.fee_zats)), "reserve_return accounting shape");
+      if (rrKeys === "dust_notes,dust_zats,fee_zats,remaining_zats") {
+        const dustNotes = (rr as any).dust_notes, dustZats = String((rr as any).dust_zats);
+        requireThat(Number.isSafeInteger(dustNotes) && dustNotes >= 0 && /^(0|[1-9][0-9]*)$/.test(dustZats) &&
+          (dustNotes === 0) === (BigInt(dustZats) === 0n) &&
+          BigInt(dustZats) >= BigInt(dustNotes) && BigInt(dustZats) <= 5000n * BigInt(dustNotes),
+          "reserve_return residue shape (dust_notes/dust_zats: each dust note is 1..5,000 zats)");
+      }
       requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
       // B51 (P3-3) folded into B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md item 4):
       // the fee tie is the REAL basis — the ZIP-317 fee for the paying batch's published ACTION count (the

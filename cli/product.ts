@@ -108,7 +108,11 @@ export function publish(id:string) {
       // exactly one reserve-return receipt only together with this accounting.
       ...(()=>{const rec=(read(path.join(sd,'receipts.json')) as any[]).find((r:any)=>r.party==='reserve-return');if(!rec)return {};
         const rr=s.plan?.reserve_return;requireThat(rr&&rr.amount_zats===rec.amount_zats,'a reserve-return receipt without its planned accounting; refusing to publish');
-        return {reserve_return:{remaining_zats:rr.remaining_zats,fee_zats:rr.fee_zats}}})(),
+        // B54 (P2-1): the published accounting also reports the sweep's unspendable residue (dust_notes,
+        // dust_zats) — what the wallet can never select and what stays in the vault. Verify shape-checks it.
+        requireThat(Number.isInteger(rr.dust_notes)&&rr.dust_notes>=0&&/^[0-9]+$/.test(String(rr.dust_zats)),
+          'the planned reserve_return accounting carries no residue (dust_notes/dust_zats); refusing to publish');
+        return {reserve_return:{remaining_zats:rr.remaining_zats,fee_zats:rr.fee_zats,dust_notes:rr.dust_notes,dust_zats:String(rr.dust_zats)}}})(),
       // Part 2, collection drop (bond-then-pay): the defaults list co-signed by the signer hosts — the list
       // carried by two agreeing maps (above), never a fresh derivation.
       ...(agreed!==undefined?{defaults:agreed}:{}),...(agreedVoid?{bond_void:true}:{}),
@@ -118,7 +122,10 @@ export function publish(id:string) {
       ...(s.plan?.balance_refunds!==undefined?{balance_refunds:s.plan.balance_refunds.map((r:any)=>({party:r.party,leaf_index:r.leaf_index,amount_zats:r.amount_zats,state:paid.has(r.party)?"paid":"pending"}))}:{}),
       ...(maps.length?{approval_maps:maps}:{}),batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
-      return {...b,state:b.state,inspect:i?{...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)}:null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
+      // B54 (P2-1): the worker's record may carry the return batch's residue annotations (dust_notes/
+      // dust_zats — the kept accounting's source); the published inspect keeps the transaction's own
+      // shape (recipient redaction does the same). The residue is published in reserve_return only.
+      return {...b,state:b.state,inspect:i?(()=>{const ins={...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)};delete ins.dust_notes;delete ins.dust_zats;return ins})():null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
     })};
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');

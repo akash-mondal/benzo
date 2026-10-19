@@ -14,7 +14,7 @@ import {openSealedBid} from "../envelope/opening";
 import {decryptPublished,publishedClient,fetchVerifiedBeacon} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
 import {sealedBidPlaintext,validEnvelope,memoSealedBid,requireOwnEnvelopeKey,authenticatedMemoEnvelope,agreedDestinations} from "./envelopes";
-import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnOutstanding,paidByOwnLedger} from "./deposits";
+import {depositParty,partyNote,isDepositParty,refundable,strayNotes,isSlotCollision,reserveReturnOutstanding,paidByOwnLedger,reserveUnspent} from "./deposits";
 import {quoteSweep} from "./quote";
 import {verifyStatement,envelopeRecordValid} from "../envelope";
 import {requireShieldedDestination} from "../envelope/destination";
@@ -386,7 +386,10 @@ try {
   // manifest plans no row and says
   // so with one line; while anything is owed, one waits line names the outstanding count — an unclaimed stray
   // delays the return indefinitely (the conservative choice, disclosed in docs/guide-operator.md).
-  let reserve_return:{party:string;kind:"payout";amount_zats:string;remaining_zats:string;fee_zats:string}|null=null;
+  // B54 (P2-1): the accounting carries the sweep's unspendable residue too — dust_notes (count) and
+  // dust_zats (value) are what the wallet can never select (settle/deposits.ts walletSpendable) and what
+  // therefore stays in the vault after the sweep; verify shape-checks them in the published accounting.
+  let reserve_return:{party:string;kind:"payout";amount_zats:string;remaining_zats:string;fee_zats:string;dust_notes:number;dust_zats:string}|null=null;
   const receipts:{party:string;amount_zats:string;txid:string;output_index:number}[]=(published?.settlement?.receipts??[]) as any;
   // The owed set, from our own derivation, run WITHOUT requiring a destination (R103): every row this plan
   // owes or parks is owed whether or not anyone claimed it, and every stray deposit note of our own scan is
@@ -426,13 +429,22 @@ try {
     // When there is no quote (insufficient value, a note the tool cannot spend, or no pinned return UA) the
     // row is NOT planned and one typed waits line names the true reason — the run still completes, exit 0,
     // nothing broadcast. Never a crash.
+    // B54 (P2-1): the swept total is the sum of the notes the WALLET can spend (settle/deposits.ts
+    // walletSpendable — the same rule `quote-sweep` and `create` share), never every positive note. The
+    // quote must spend exactly that total (nothing spendable left behind), or the typed waits line names
+    // the divergence and the row is not planned this run — the same comparison the signer hosts hold the
+    // candidate to (cli/host-derive.ts deriveReserveReturn). A dust note can no longer wall the return:
+    // it is simply outside both sides of the comparison and is published as the residue.
     const ua=typeof productConfig?.routing?.reserve_return_ua==="string"?productConfig.routing.reserve_return_ua as string:"";
     const reason=!ua?"no reserve_return_ua is pinned in the operator config"
       :reserveReturnUaCommitment(ua)!==m.reserve_return_ua_commitment?"the operator config's reserve_return_ua does not match the manifest reserve_return_ua_commitment"
       :null;
     const quote=reason!==null?{error:reason}:quoteSweep(pcztBin(root,state),vaultDir(state,id),ua,m.network);
+    const scanned=reserveUnspent(notes as any);
     if("error" in quote)process.stderr.write(`reserve return waits: the vault's value cannot be swept in one transaction (${quote.error})\n`);
-    else reserve_return={party:"reserve-return",kind:"payout",amount_zats:quote.amount_zats,remaining_zats:quote.input_zats,fee_zats:quote.fee_zats};
+    else if(quote.input_zats!==scanned.total_zats)
+      process.stderr.write(`reserve return waits: the vault's value cannot be swept in one transaction (the tool's quote spends ${quote.input_zats} zats of the scanned unspent total ${scanned.total_zats})\n`);
+    else reserve_return={party:"reserve-return",kind:"payout",amount_zats:quote.amount_zats,remaining_zats:scanned.total_zats,fee_zats:quote.fee_zats,dust_notes:scanned.dust_notes,dust_zats:scanned.dust_zats};
   }
   process.stdout.write(jsonBytes({auction_id:id,manifest_hash,network:m.network,result_hash,opened,obligations,exceptions,refusals,ignored,claim_envelopes:claimEnvelopes,claims_used:claimsUsed,envelope_agreed,...(reserve_return?{reserve_return}:{}),...(m.bond!==undefined?{defaults,balance_refunds,...(bondVoid?{bond_void:true}:{})}:{}),checks,checked_at:Math.floor(Date.now()/1000),chain_tip:tip}));
 } catch(e) {process.stderr.write(`ERROR settle ${(e as Error).message}\n`);process.exitCode=1}

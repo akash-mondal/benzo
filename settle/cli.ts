@@ -13,7 +13,7 @@ import {pubkey,zcashSign,withSigningLock} from "./sign";
 import {envelopeRecipient,memoEnvelopeRecipient,ownEnvelopePrivate,openDestination} from "./envelopes";
 import {fetchVerifiedBeacon,publishedClient} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
-import {partyNote} from "./deposits";
+import {partyNote,reserveUnspent,walletSpendable} from "./deposits";
 import { vaultDir, pcztBin } from "../manifest/paths";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 // §11 H1: every vault use for this auction resolves to its own per-auction vault when it ran its own DKG.
@@ -384,7 +384,7 @@ async function worker(ledger:Ledger) {
     // "fee reserve short: pay N zats" demanding roughly the total that batch had already paid on chain.
     const owned=new Set<number>();
     for(const b of ledger.db.prepare("SELECT id FROM batches WHERE txid IS NOT NULL AND state!='exception'").all() as {id:number}[])owned.add(Number(b.id));
-    const spendableNotes=notes(manifestNet()).filter((n:any)=>(n.spent_in_txid??null)===null&&Number(n.value_zats)>0&&!!n.height&&tip-Number(n.height)+1>=m.confirmations);
+    const spendableNotes=notes(manifestNet()).filter((n:any)=>(n.spent_in_txid??null)===null&&walletSpendable(n)&&!!n.height&&tip-Number(n.height)+1>=m.confirmations);
     const spendableValue=spendableNotes.reduce((s:number,n:any)=>s+Number(n.value_zats),0);
     const unpaid=ledger.rows().filter(o=>["eligible","allocated"].includes(o.state)&&!(o.batch!==null&&owned.has(o.batch)));
     const obligationZats=unpaid.filter(o=>o.party!=="reserve-return").reduce((s,o)=>s+Number(o.amount_zats),0);
@@ -422,6 +422,22 @@ async function worker(ledger:Ledger) {
     }
     console.log(JSON.stringify({auction_id:id,batch:batch.id,allocated:batch.outputs.length}));
     const base=file(`batch-${batch.id}`),created=base+".pczt",proven=base+".proven.pczt",signed=base+".signed.pczt";
+    // B54 (P2-1): the reserve-return batch's inspect record also carries the sweep's unspendable residue —
+    // dust_notes (count) and dust_zats (value), the notes the wallet can never select
+    // (settle/deposits.ts walletSpendable) that therefore stay in the vault. The kept accounting at
+    // republish (below) reads them from THIS record — the ledger's own record of the paid batch — so the
+    // published accounting is never re-derived from the emptied vault (H20 item 2). The first write wins:
+    // a confirm re-write keeps the residue recorded when the batch was staged. Only the return batch
+    // carries them; every other batch's record is unchanged.
+    const isReturnBatch=batch.outputs.some((o:any)=>o.party==="reserve-return");
+    const writeInspect=(record:any)=>{
+      if(!isReturnBatch) {writeFileSync(base+".inspect.json",jsonBytes(record),{mode:0o600});return}
+      let prior:any=null;try{prior=JSON.parse(readFileSync(base+".inspect.json","utf8"))}catch{prior=null}
+      const dust=prior&&Number.isInteger(prior.dust_notes)&&/^[0-9]+$/.test(String(prior.dust_zats))
+        ?{dust_notes:prior.dust_notes,dust_zats:String(prior.dust_zats)}
+        :(()=>{const r=reserveUnspent(notes(manifestNet()));return{dust_notes:r.dust_notes,dust_zats:r.dust_zats}})();
+      writeFileSync(base+".inspect.json",jsonBytes({...record,...dust}),{mode:0o600});
+    };
     let staged=ledger.batch(batch.id)!;
     if(!staged.txid) {
       const custodyKeys=path.join(STATE,"vaults",id,"keys.json");
@@ -486,7 +502,7 @@ async function worker(ledger:Ledger) {
       const fd=openSync(signed,"r");fsyncSync(fd);closeSync(fd);
       const df=openSync(dir,"r");fsyncSync(df);closeSync(df);
       const txid=run(bin("zcash-devtool"),["pczt","extract"],readFileSync(signed)).trim().split("\n").at(-1)!;
-      ledger.stage(batch.id,signed,txid);writeFileSync(base+".inspect.json",jsonBytes(custody?inspect(signed,manifestNet(),true):routedInspect(inspect(signed,manifestNet()),(await destinations(batch.outputs,settings().signers[0],plan)).filter(o=>o.recipient))),{mode:0o600});
+      ledger.stage(batch.id,signed,txid);writeInspect(custody?inspect(signed,manifestNet(),true):routedInspect(inspect(signed,manifestNet()),(await destinations(batch.outputs,settings().signers[0],plan)).filter(o=>o.recipient)));
     }
     staged=ledger.batch(batch.id)!;
     requireThat(staged.txid&&staged.pczt_path&&staged.pczt_hash===hash(readFileSync(staged.pczt_path)),"stored signed PCZT missing or changed");
@@ -605,17 +621,17 @@ async function worker(ledger:Ledger) {
       if(unattributable) {
         ledger.park(batch.id,height);
         console.error(`ERROR batch ${batch.id}: ${manualReason}; the mined batch is parked as an exception and its rows wait for manual reconciliation`);
-        writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
+        writeInspect(i);
         continue;
       }
       ledger.confirm(batch.id,staged.txid!,height,receipt);
-      writeFileSync(base+".inspect.json",jsonBytes(i),{mode:0o600});
+      writeInspect(i);
     } else {
     const expected=(await destinations(batch.outputs,settings().signers[0],plan)).filter(o=>o.recipient);
     const available=i.outputs.filter((o:any)=>!o.is_change);
     const receipt=expected.map(e=>{const index=available.findIndex((o:any)=>o.recipient===e.recipient&&o.amount_zats===e.amount_zats);requireThat(index>=0,"mined amount differs from result.json");const [o]=available.splice(index,1);return {party:e.party,amount_zats:o.amount_zats,index:o.index,pool:o.pool}});
     ledger.confirm(batch.id,staged.txid!,height,receipt);
-    writeFileSync(base+".inspect.json",jsonBytes(routedInspect(i,expected)),{mode:0o600});
+    writeInspect(routedInspect(i,expected));
     }
   }
   writeFileSync(file("receipts.json"),jsonBytes(ledger.receipts()),{mode:0o600});
@@ -625,12 +641,15 @@ async function worker(ledger:Ledger) {
   // so input_zats is the recorded remaining and fee_zats the recorded fee). It is never re-derived from the
   // emptied vault. B51 (P3-3): the old second source — the already-published doc — is gone: a doc can never
   // feed its own accounting back (a doctored accounting would survive every re-run that way).
+  // B54 (P2-1): the kept accounting also carries the recorded residue (dust_notes/dust_zats) the record
+  // wrote when the batch was staged — the same never-re-derived rule.
   const summaryPlan:any=plan;
   const paidReturn=ledger.rows().find(o=>o.party==="reserve-return"&&["paid","refunded"].includes(o.state))??null;
   if(paidReturn) {
-    const kept=():{remaining_zats:string;fee_zats:string}|null=>{
+    const kept=():{remaining_zats:string;fee_zats:string;dust_notes:number;dust_zats:string}|null=>{
       try {const i=JSON.parse(readFileSync(file(`batch-${paidReturn.batch}.inspect.json`),"utf8"));
-        if(i&&i.input_zats!==undefined&&i.fee_zats!==undefined)return {remaining_zats:String(i.input_zats),fee_zats:String(i.fee_zats)}} catch {}
+        if(i&&i.input_zats!==undefined&&i.fee_zats!==undefined&&Number.isInteger(i.dust_notes)&&i.dust_notes>=0&&/^[0-9]+$/.test(String(i.dust_zats)))
+          return {remaining_zats:String(i.input_zats),fee_zats:String(i.fee_zats),dust_notes:i.dust_notes,dust_zats:String(i.dust_zats)}} catch {}
       return null;
     };
     const accounting=kept();

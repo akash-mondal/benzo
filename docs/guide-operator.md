@@ -151,6 +151,16 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       confirmations deep (`settle/deposits.ts` `paidByOwnLedger`). A row without such a receipt is
       outstanding and the return waits.
 
+      B54 disclosure (dust): the sweep spends what the wallet can spend — and no more. The pinned
+      wallet never selects a vault note of 5,000 zats or less (ZIP-317 `MARGINAL_FEE`), so such a
+      note is permanently unspendable: anyone can create one by sending 1–5,000 zats to a published
+      deposit address. Its refund obligation is paid like any other row, from OTHER notes (vault
+      value is fungible), and once that refund is receipted it never keeps the return waiting — but
+      the note itself stays in the vault forever. The published `reserve_return` accounting reports
+      the residue as `dust_notes` (count) and `dust_zats` (value): dust of at most 5,000 zats per
+      note stays in the vault. And the return must fit one transaction (H25): a vault with more than
+      28 spendable notes cannot return its reserve in one sweep.
+
       `--witness-set` is the `file` printed by `witness set` — the signed side-packet the manifest's
       `witness_set_hash` commits to. Output: the `auction_id` (64 hex chars) and `state: DRAFT`.
 

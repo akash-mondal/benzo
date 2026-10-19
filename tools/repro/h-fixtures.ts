@@ -284,7 +284,13 @@ const shapeOf = (spendPools, outPools) => {
   return { actions, fee: 5000 * Math.max(2, actions) };
 };
 const idOf = (n) => n.txid + ":" + n.pool + ":" + n.action_index;
-const unspentNotes = () => fix.notes.filter(n => (n.spent_in_txid ?? null) == null && Number(n.value_zats) > 0);
+// B54 (P2-1): the wallet's NOTE-SELECTION rule, not just its fee rule — the pinned wallet never selects a
+// note of 5,000 zats or less (zcash_client_sqlite-0.22.0 wallet/common.rs select_unspent_notes: the SQL is
+// \"AND rn.value > :min_value\" with min_value = zip317::MARGINAL_FEE = 5000). quote-sweep and create share
+// it (settle/deposits.ts walletSpendable is the product's one rule), so a dust note is invisible to both —
+// exactly like the real wallet — and the stubs can reproduce the dust wall and the published residue.
+const walletSpendable = (n) => Number(n.value_zats) > 5000;
+const unspentNotes = () => fix.notes.filter(n => (n.spent_in_txid ?? null) == null && Number(n.value_zats) > 0 && walletSpendable(n));
 const outPoolOf = (recipient, amount) => (fix.pool_by_ua || {})[recipient] || (fix.pool_by_amount || {})[String(amount)] || "ironwood";
 if (cmd === "classify-address") {
   // B45: classify-address --stdin is the bulk form — stdin/stdout pass straight through to the real binary.
