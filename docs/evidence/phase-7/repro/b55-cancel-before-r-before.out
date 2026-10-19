@@ -1,0 +1,14 @@
+commit b3fa9903169983e2aaaf6103b964f42fff2002f6 (working tree not clean at run time)
+utc 2026-10-19T15:13:14.090Z
+command node tmp/b55.mjs before (tools/repro/b55-cancel-before-r.ts)
+tree ?? tools/repro/b55-cancel-before-r.ts
+=== red (a) on the BASE bundles: the cancelled-before-R plan dies on the drand fetch (M1)
+PASS red-a-cancel-before-r-throws exit 1, 1 beacon fetch(es): ERROR settle refused: drand opening beacon unavailable or unverified on every endpoint
+=== red (b): the same with a frozen set (cancel after freeze)
+PASS red-b-cancel-after-freeze-throws exit 1, 1 beacon fetch(es): ERROR settle refused: drand opening beacon unavailable or unverified on every endpoint
+=== red (c): the host derive throws on both packets
+PASS red-c-derive-throws exit 1, 1 beacon fetch(es): ERROR sign derivable refused: drand opening beacon unavailable or unverified on every endpoint
+PASS red-c-derive-frozen-throws exit 1, 0 beacon fetch(es): ERROR sign derivable refused: public check failed: ERROR verify refused: missing result
+=== (d) baseline on the BASE bundles: the same world AFTER R resolves claim and envelope
+PASS base-d-post-r-claim-and-envelope-resolve plan exit 0 obligations ["deposit:3f52a326dfc04e51c92b1eca5913e9e49ed8f0cc5033b643b3fe0e234668b7d4:ironwood:1:1000100","deposit:6516cc9d903528e0dbe89b768b5c19e4659a6bc930ffd1fce4792c52ef98a355:ironwood:0:1000100"], derive exit 0 rows ["deposit:6516cc9d903528e0dbe89b768b5c19e4659a6bc930ffd1fce4792c52ef98a355:ironwood:0","deposit:3f52a326dfc04e51c92b1eca5913e9e49ed8f0cc5033b643b3fe0e234668b7d4:ironwood:1"], 1+3 beacon fetch(es); plan: WARN the reserve stays in the vault (legacy, H15): this manifest commits no reserve_return_ua_commitment; derive: WARN legacy manifest: seller payout address not bound (H10)
+RESULT PASS
