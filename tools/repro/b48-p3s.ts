@@ -1,0 +1,210 @@
+// B48 (docs/design/phase7-b48-p3s.md, H18): the three Reviewer R P3s, each with its own proof on the REAL
+// shipped host paths offline (tools/repro/h10-seller-binding.ts's shape: every product decision runs the real
+// code, only the offline-impossible externals are stubbed through h-fixtures.ts writeHostState):
+//   P3-1 a seller-commitment mismatch refuses only the seller row, and only when the batch has one. A
+//        mismatched-seller_ua packet whose batch has NO seller row builds and approves its refund rows; the
+//        same packet with the seller row is refused for that row (typed, exit 3, refused-rows ["seller"]).
+//        `sign derivable` follows the same rule on its row listing.
+//   P3-2 `benzo seller check` accepts only the published signed manifest.json: a raw manifest object is
+//        refused with one ERROR line; the wrong --signer is refused and the right one passes.
+//   P3-3 `benzo verify --openings-cache` reads only the host's own cache file at its own path: a cache copied
+//        elsewhere is refused (its own path, or a link standing in for one at the host's own name), and the
+//        host's own cache works as before.
+// Build+run: npx esbuild tools/repro/b48-p3s.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/b48.mjs && node tmp/b48.mjs
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { jsonBytes, reserveReturnUaCommitment, sellerUaCommitment } from "../../manifest/schema";
+import { sealBlob } from "../../envelope";
+import { buildAuction, fetchBeacon, needRealPczt, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, writePublicDir, type Fixture } from "./h-fixtures";
+
+const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+const commit = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+const dirty = execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim();
+console.log(`commit ${commit}${dirty ? " (working tree not clean at run time)" : ""}`);
+console.log(`utc ${new Date().toISOString()}`);
+console.log("command node tmp/b48.mjs (tools/repro/b48-p3s.ts)");
+for (const l of dirty.split("\n").filter(Boolean)) console.log(`tree ${l}`);
+for (const line of (existsSync(path.join(ROOT, ".env")) ? readFileSync(path.join(ROOT, ".env"), "utf8") : "").split("\n")) {
+  const m = line.match(/^([A-Z0-9_]+)=(.*)$/); if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
+}
+const REAL_PCZT = needRealPczt(ROOT);
+process.env.BNZ_PCZT_BIN = REAL_PCZT; // this process classifies through the real audited binary
+const BENZO = path.join(ROOT, "cli", "dist", "benzo.mjs");
+const WORK = path.join(ROOT, "tmp", "b48");
+rmSync(WORK, { recursive: true, force: true }); mkdirSync(WORK, { recursive: true });
+
+let failed = 0;
+const pass = (id: string, detail = "") => console.log(`PASS ${id}${detail ? " " + detail : ""}`);
+const fail = (id: string, detail: string) => { failed++; console.log(`FAIL ${id} ${detail}`); };
+const check = (id: string, ok: boolean, detail: string) => ok ? pass(id, detail) : fail(id, detail);
+const sh = (args: string[], env: Record<string, string>) => {
+  const r = spawnSync(process.execPath, [BENZO, ...args], { encoding: "utf8", maxBuffer: 64 << 20, env: { ...process.env, ...env } });
+  return { code: r.status ?? 1, out: r.stdout ?? "", err: r.stderr ?? "" };
+};
+const lastLine = (r: { out: string; err: string }) => (r.err || r.out).trim().split("\n").filter(Boolean).at(-1)?.slice(0, 180) ?? "";
+const hostEnv = (state: string) => ({ BNZ_STATE_DIR: state, BNZ_PCZT_BIN: path.join(state, "bin", "benzo-pczt"),
+  BNZ_SCAN_BIN: path.join(state, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
+
+const beacon = await fetchBeacon(32704232);
+const fixture: Fixture = await buildAuction({ beacon, commitment: sellerUaCommitment(UA_ORCHARD), reserve_commitment: reserveReturnUaCommitment(UA_ORCHARD) });
+check("fixture-seller-payout", /^[1-9][0-9]*$/.test(fixture.payout),
+  `the fixture result owes the seller ${fixture.payout} zats, so the seller-row cases are not vacuous`);
+
+// The packet builders: a build packet carries rows.json (what settle/cli.ts writes for one), an approve
+// packet the candidate sealed to alice. `sellerUa` is the packet's meta.seller_ua — the substitute
+// UA_SAPLING_ONLY is the "mismatched" one against the manifest's commitment on UA_ORCHARD.
+const packetDir = (name: string, fx: Fixture, sellerUa: string | null, rows: any[], candidate?: { rows: { recipient: string; amount_zats: string }[] }) => {
+  const dir = path.join(WORK, "packet-" + name);
+  rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writePublicDir(path.join(dir, "public"), fx);
+  const meta: any = { auction_id: fx.id, signer: fx.signer, seller_ua: sellerUa };
+  if (rows.length) { meta.batch = 1; meta.expiry_blocks = 100; writeFileSync(path.join(dir, "rows.json"), jsonBytes(rows)); }
+  if (candidate) {
+    const content = JSON.stringify({ rows: candidate.rows });
+    writeFileSync(path.join(dir, "candidate.pczt"), content);
+    writeFileSync(path.join(dir, "sealed-alice.bin"), sealBlob(Buffer.from(content), fx.envelopeKeys[0].public_hex), { mode: 0o600 });
+    meta.batch = 1;
+    meta.plan_version = createHash("sha256").update(readFileSync(path.join(dir, "candidate.pczt"))).digest("hex");
+  }
+  writeFileSync(path.join(dir, "packet.json"), jsonBytes(meta));
+  return dir;
+};
+const createdRows = (state: string) => existsSync(path.join(state, "create-log.jsonl"))
+  ? readFileSync(path.join(state, "create-log.jsonl"), "utf8").trim().split("\n").filter(Boolean).map(l => JSON.parse(l)) : [];
+const listedRows = (r: { out: string }) => JSON.parse(r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!).rows ?? [];
+const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringify([...rows].map(x => `${x.party}:${x.amount_zats}`).sort());
+
+// ---- P3-1: the mismatch refuses only the seller row, and only when the batch has one -------------------------
+// The batch rows this signer derives (the honest listing) minus the seller row: the refund-only batch the P3
+// says must never stall. Every fixture envelope refunds to UA_ORCHARD (h-fixtures seals each one to it), so
+// that is the recipient the host derives for every refund row.
+{
+  const dir = packetDir("enum", fixture, UA_ORCHARD, []);
+  const state = path.join(WORK, "state-enum"); writeHostState(state, fixture, REAL_PCZT);
+  const r = sh(["sign", "derivable", "--id", fixture.id, "--packet", dir, "--name", "alice"], hostEnv(state));
+  const listed = listedRows(r) as { party: string; amount_zats: string }[];
+  const refundRows = listed.filter(x => x.party !== "seller");
+  check("p31-fixture-rows", r.code === 0 && listed.some(x => x.party === "seller") && refundRows.length >= 1,
+    `the honest listing derives ${listed.length} rows: ${refundRows.length} refund rows and the seller row`);
+  const refundBuildRows = refundRows.map(x => ({ party: x.party, kind: "refund", amount_zats: x.amount_zats }));
+  const refundCandidateRows = refundRows.map(x => ({ recipient: UA_ORCHARD, amount_zats: x.amount_zats }));
+
+  // Bullet 1 — a batch WITHOUT a seller row ignores seller_ua (the packet carries the substitute).
+  {
+    const pdir = packetDir("build-refunds-only", fixture, UA_SAPLING_ONLY, refundBuildRows);
+    const st = path.join(WORK, "state-build-refunds-only"); writeHostState(st, fixture, REAL_PCZT);
+    const b = sh(["sign", "build", "--id", fixture.id, "--batch", "1", "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const built = existsSync(path.join(pdir, "build.json")) ? JSON.parse(readFileSync(path.join(pdir, "build.json"), "utf8")) : null;
+    const paid = createdRows(st);
+    check("p31-build-refund-rows-built", b.code === 0 && !!built && parties(built.outputs) === parties(refundBuildRows)
+      && paid.length === refundBuildRows.length && paid.every((x: any) => x.recipient === UA_ORCHARD),
+      `mismatched seller_ua, no seller row in the batch: exit ${b.code}, built ${built ? built.outputs.map((o: any) => o.party).join(",") : "(nothing)"}, paid ${paid.map((x: any) => x.recipient).join(",").slice(0, 32)}… (${lastLine(b)})`);
+  }
+  {
+    const pdir = packetDir("approve-refunds-only", fixture, UA_SAPLING_ONLY, [], { rows: refundCandidateRows });
+    const st = path.join(WORK, "state-approve-refunds-only"); writeHostState(st, fixture, REAL_PCZT);
+    const a = sh(["sign", "approve", "--id", fixture.id, "--batch", "1", "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const recorded = existsSync(path.join(st, "approvals", fixture.id, "batch-1.json"));
+    check("p31-approve-refund-rows-approved", a.code === 0 && recorded,
+      `mismatched seller_ua, no seller row in the candidate: exit ${a.code}, approval ${recorded ? "recorded" : "not recorded"} (${lastLine(a)})`);
+  }
+
+  // Bullet 2 — the SAME packet with the seller row is refused for that row only (typed, as today).
+  {
+    const pdir = packetDir("build-with-seller", fixture, UA_SAPLING_ONLY, [...refundBuildRows, { party: "seller", kind: "payout", amount_zats: fixture.payout }]);
+    const st = path.join(WORK, "state-build-with-seller"); writeHostState(st, fixture, REAL_PCZT);
+    const b = sh(["sign", "build", "--id", fixture.id, "--batch", "1", "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const typed = /ERROR sign build refused-rows \["seller"\]/.test(b.err);
+    check("p31-build-seller-row-refused-typed", b.code === 3 && typed && !existsSync(path.join(pdir, "build.json")) && createdRows(st).length === 0,
+      `same packet plus the seller row: exit ${b.code}, ${typed ? 'refused-rows ["seller"]' : `no typed refusal (${lastLine(b)})`}, nothing built`);
+  }
+  {
+    const pdir = packetDir("approve-with-seller", fixture, UA_SAPLING_ONLY, [],
+      { rows: [...refundCandidateRows, { recipient: UA_SAPLING_ONLY, amount_zats: fixture.payout }] });
+    const st = path.join(WORK, "state-approve-with-seller"); writeHostState(st, fixture, REAL_PCZT);
+    const a = sh(["sign", "approve", "--id", fixture.id, "--batch", "1", "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const typed = /ERROR sign approve refused-rows \["seller"\]/.test(a.err);
+    check("p31-approve-seller-row-refused-typed", a.code === 3 && typed && !existsSync(path.join(st, "approvals", fixture.id, "batch-1.json")),
+      `same packet plus the seller row: exit ${a.code}, ${typed ? 'refused-rows ["seller"]' : `no typed refusal (${lastLine(a)})`}, no approval recorded`);
+  }
+
+  // `sign derivable` follows the same rule on its own row listing: a listing WITH a seller row and a
+  // mismatched packet is refused typedly (as today); a listing with NO seller row (the packet names no
+  // seller_ua) ignores seller_ua and lists the refund rows.
+  {
+    const pdir = packetDir("derivable-mismatch", fixture, UA_SAPLING_ONLY, []);
+    const st = path.join(WORK, "state-derivable-mismatch"); writeHostState(st, fixture, REAL_PCZT);
+    const d = sh(["sign", "derivable", "--id", fixture.id, "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const typed = /ERROR sign derivable refused-rows \["seller"\]/.test(d.err);
+    check("p31-derivable-seller-row-refused-typed", d.code === 3 && typed,
+      `listing has a seller row, mismatched packet: exit ${d.code}, ${typed ? 'refused-rows ["seller"]' : `no typed refusal (${lastLine(d)})`}`);
+  }
+  {
+    const pdir = packetDir("derivable-no-seller-ua", fixture, null, []);
+    const st = path.join(WORK, "state-derivable-no-seller-ua"); writeHostState(st, fixture, REAL_PCZT);
+    const d = sh(["sign", "derivable", "--id", fixture.id, "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const rows = listedRows(d) as { party: string; amount_zats: string }[];
+    check("p31-derivable-no-seller-row-lists-refunds", d.code === 0 && !rows.some(x => x.party === "seller") && parties(rows) === parties(refundRows),
+      `listing has no seller row (no seller_ua named): exit ${d.code}, listed ${rows.map(x => x.party).join(",") || "(nothing)"} (${lastLine(d)})`);
+  }
+}
+
+// ---- P3-2: `seller check` requires the signed manifest -------------------------------------------------------
+{
+  const rawDir = path.join(WORK, "seller-raw"); mkdirSync(rawDir, { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(rawDir, "manifest.json"), JSON.stringify(fixture.manifest));
+  const r = sh(["seller", "check", "--manifest", path.join(rawDir, "manifest.json"), "--ua", UA_ORCHARD], { BNZ_STATE_DIR: path.join(WORK, "seller-check-state") });
+  const errors = (r.err.match(/^ERROR/gm) ?? []).length;
+  check("p32-raw-manifest-refused", r.code !== 0 && errors === 1 && /manifest\.json/.test(r.err),
+    `raw manifest object: exit ${r.code}, ${errors} ERROR line(s): ${lastLine(r)}`);
+}
+{
+  const dir = path.join(WORK, "seller-signed"); writePublicDir(dir, fixture);
+  const env = { BNZ_STATE_DIR: path.join(WORK, "seller-check-state") };
+  const ok = sh(["seller", "check", "--manifest", path.join(dir, "manifest.json"), "--ua", UA_ORCHARD], env);
+  check("p32-signed-packet-passes", ok.code === 0 && /"matches":true/.test(ok.out + ok.err) && new RegExp(`"signer":"${fixture.signer}"`).test(ok.out + ok.err),
+    `signed packet, committed address: exit ${ok.code} (${lastLine(ok)})`);
+  const pinned = sh(["seller", "check", "--manifest", path.join(dir, "manifest.json"), "--ua", UA_ORCHARD, "--signer", fixture.signer], env);
+  check("p32-right-signer-passes", pinned.code === 0 && /"matches":true/.test(pinned.out + pinned.err),
+    `signed packet, --signer the signing key: exit ${pinned.code} (${lastLine(pinned)})`);
+  const wrong = sh(["seller", "check", "--manifest", path.join(dir, "manifest.json"), "--ua", UA_ORCHARD, "--signer", "ab".repeat(44)], env);
+  check("p32-wrong-signer-refused", wrong.code !== 0 && /untrusted manifest\/receipt signer/.test(wrong.err),
+    `signed packet, --signer a different key: exit ${wrong.code} (${lastLine(wrong)})`);
+}
+
+// ---- P3-3: `verify --openings-cache` reads only the host's own cache file ------------------------------------
+{
+  const st = path.join(WORK, "state-p33"); writeHostState(st, fixture, REAL_PCZT);
+  const pdir = packetDir("p33-enum", fixture, UA_ORCHARD, []);
+  const warm = sh(["sign", "derivable", "--id", fixture.id, "--packet", pdir, "--name", "alice"], hostEnv(st));
+  const own = path.join(st, "auctions", fixture.id, "openings.json");
+  check("p33-host-cache-written", warm.code === 0 && existsSync(own),
+    `the host's own derivation wrote ${path.relative(ROOT, own)} (exit ${warm.code})`);
+  const pubDir = path.join(WORK, "p33-public"); writePublicDir(pubDir, fixture);
+  const verify = (cacheArg: string[]) => sh(["verify", "--dir", pubDir, "--signer", fixture.signer, ...cacheArg], hostEnv(st));
+
+  // The host's own cache works as before.
+  const a = verify(["--openings-cache", own]);
+  check("p33-own-cache-works", a.code === 0, `--openings-cache on the host's own file: exit ${a.code} (${lastLine(a)})`);
+
+  // A cache copied elsewhere is refused — named directly, and as a link standing in for one at the host's
+  // own name (the second refusal is the B48 pin; before B48 the link was read as the host's cache).
+  const copied = path.join(WORK, "p33-copied-openings.json");
+  copyFileSync(own, copied);
+  const b = verify(["--openings-cache", copied]);
+  check("p33-copied-cache-refused", b.code !== 0 && /openings cache must be this host's own/.test(b.err),
+    `a cache copied elsewhere named directly: exit ${b.code} (${lastLine(b)})`);
+  const backup = path.join(WORK, "p33-own-backup.json");
+  renameSync(own, backup); symlinkSync(copied, own);
+  const c = verify(["--openings-cache", own]);
+  check("p33-link-standing-in-refused", c.code !== 0 && /not a link to a cache copied elsewhere/.test(c.err),
+    `the host's own name standing in for the copied file (a link): exit ${c.code} (${lastLine(c)})`);
+  unlinkSync(own); renameSync(backup, own);
+  const d = verify(["--openings-cache", own]);
+  check("p33-restored-own-cache-works", d.code === 0, `the restored host's own file works again: exit ${d.code} (${lastLine(d)})`);
+}
+
+console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
+process.exitCode = failed ? 1 : 0;
