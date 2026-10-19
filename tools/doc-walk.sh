@@ -11,7 +11,7 @@ ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT"
 set -a; . ./.env; set +a
 export BNZ_LWD_SINGLE=1
 STATE="$ROOT/${BNZ_STATE_DIR#./}"
-OUT="$1"; mkdir -p "$OUT"; T="$OUT/transcript.out"; : > "$T"
+OUT="$1"; mkdir -p "$OUT"; T="$OUT/transcript.out"; [ -n "${BNZ_WALK_RESUME_ID:-}" ] || : > "$T"
 PRIV="$STATE/run/doc-walk"; mkdir -p "$PRIV"; chmod 700 "$PRIV"
 say() { echo "$*" | tee -a "$T"; }
 # run a guide command: echo it, run it, keep its last JSON line in $J
@@ -20,9 +20,18 @@ b() { say "\$ benzo $*"; local o; o="$(bin/benzo "$@" 2>&1)" || { echo "$o" | te
 redact() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const l of s.split("\n")){if(!l)continue;try{const j=JSON.parse(l);const w=v=>v&&typeof v==="object"?(Array.isArray(v)?v.map(w):Object.fromEntries(Object.entries(v).map(([k,x])=>[k,/private|secret|seed|nonce/i.test(k)?"<redacted>":w(x)]))):v;console.log(JSON.stringify(w(j)))}catch{console.log(l)}}})'; }
 jget() { node -e 'const j=JSON.parse(process.argv[1]);const v=process.argv[2].split(".").reduce((a,k)=>a?.[k],j);console.log(typeof v==="object"?JSON.stringify(v):v)' "$J" "$1"; }
 wallet_ua() { "$ROOT/settle/target/release/benzo-pczt" address "$STATE/bidder" --network test | tail -1; }
-latest_round() { curl -s -m 10 "https://api.drand.sh/$BNZ_DRAND_CHAIN_HASH/public/latest" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).round))'; }
+# The latest quicknet round, or 0 when no relay answers (a failed poll means "not yet", never "released").
+latest_round() { local u r; for u in ${BNZ_DRAND_URLS//,/ } https://api.drand.sh; do r="$(curl -s -m 10 "$u/$BNZ_DRAND_CHAIN_HASH/public/latest" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const n=JSON.parse(s).round;console.log(Number.isSafeInteger(n)?n:0)}catch{console.log(0)}})')"; [ "${r:-0}" -gt 0 ] && { echo "$r"; return; }; done; echo 0; }
 
 say "# Gate DOC live walkthrough — commit $(git rev-parse --short HEAD) — $(date -u +%FT%TZ)"
+if [ -n "${BNZ_WALK_RESUME_ID:-}" ]; then
+  # Resume an auction this script already ran up to 7.3, from 7.4 on, appending to the same transcript.
+  ID="$BNZ_WALK_RESUME_ID"; SIGNER="$(cat "$OUT/signer")"; PUB="$ROOT/tmp/doc-walk/public-$ID"
+  R="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).drand.R)' "$PRIV/unsigned-manifest.json")"
+  SELLER="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).routing.seller_ua)' "$PRIV/private-operator.json")"
+  RETURN_UA="$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).routing.reserve_return_ua)' "$PRIV/private-operator.json")"
+  say "# RESUMED at operator 7.4, $(git rev-parse --short HEAD), $(date -u +%FT%TZ). Harness fix: the drand wait loop ended early when a relay poll failed, so open ran before R and was refused (correctly)."
+else
 ID="$(openssl rand -hex 32)"; say "# operator picks the auction id: $ID"
 
 say "## operator 1.0 — DKG and keys on the three hosts"
@@ -100,8 +109,9 @@ say "## bidder 5 — prove each bid is in"
 for i in 0 1 2; do b receipt prove --dir "$PUB" --ciphertext-hash "$(node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1])).ciphertext_hash)' "$PRIV/sealed-$i.json")"; done
 say "## operator 7.3 — witness certificates"
 b hosts witness --id "$ID" --names alice,bob
+fi
 say "## operator 7.4 — wait for R, open, clear"
-while [ "$(latest_round)" -lt "$R" ]; do sleep 10; done
+until [ "$(latest_round)" -ge "$R" ]; do sleep 10; done
 b open --id "$ID"
 b clear --id "$ID"
 say "## operator 7.5 — the hosts' envelope-opening reports"
