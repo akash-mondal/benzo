@@ -428,7 +428,15 @@ async function worker(ledger:Ledger) {
     // new batches unmixed (the return is allocated alone, last); a PENDING mixed batch already in the
     // ledger (staged before this rule — every re-run resurfaced the old mid-loop throw) is set aside as an
     // exception with its reason and its rows re-plan in this run. No throw, exit 0.
-    if(batch.outputs.some((o:any)=>o.party==="reserve-return")&&batch.outputs.length>1) {
+    // B54 (P3-1, Reviewer R round 5): the expiry fires only for a batch with NO staged transaction. A
+    // STAGED mixed batch (signed — possibly broadcast, possibly already mined by a crashed run) has money
+    // in flight: expiring it released every row for re-allocation and a second payment when the old
+    // transaction mined (the reviewer's C2/C3 double-pay shape). It runs through the normal broadcast,
+    // mined-wait and confirm instead — its rows are one pool, so confirm attributes them; if confirm
+    // cannot, the batch is parked (settle/ledger.ts park keeps the binding, like every mined batch).
+    // Defence in depth: no shipped worker ever staged a mixed batch (the own-batch rule has thrown before
+    // the staging step since the reserve-return row itself) — one bad state restore reaches this.
+    if(batch.outputs.some((o:any)=>o.party==="reserve-return")&&batch.outputs.length>1&&!ledger.batch(batch.id)!.txid) {
       console.error(`ERROR batch ${batch.id}: reserve-return mixed with rows (H23); the batch is set aside as an exception and its rows re-plan`);
       for(const o of batch.outputs)h23Reasons.set(o.party,"reserve-return mixed with rows (H23)");
       ledger.expire(batch.id);pinRows();ledger.eligible();continue;
