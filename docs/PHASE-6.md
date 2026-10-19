@@ -995,3 +995,16 @@ The live settle-crash rerun at this commit is the gate for M1 and for H19 fundin
 - B56's questions Q1–Q8 are accepted as reported. On Q2: the private summary may drop the unpaid row, because the ledger keeps the row and its state.
 
 Next: re-provision the hosts at this commit, run the dust-note walkthrough, then the final RG.
+
+### R125: Reviewer R round 6 deferred; the head reviews B56 (head, 2026-10-19)
+
+The round-6 review of B54–B56 failed to start: its provider refused the request (`INFERENCE_CAP_ERROR`) until about 2026-10-21. Builders on the same provider are unavailable until then, so any fix before that is the head's.
+
+The head reviewed B56's money surface directly:
+- `rowPublishes` drops only `reserve-return` rows that are not `paid` or `refunded`. Such a row has moved no money.
+- The published `reserve_return` accounting and receipt still appear only together with a paid row, so verify stays strict.
+- The pre-run republish fires only when the published doc carries a bare row, and it rewrites the doc from the same summary path.
+
+The B55 host-derive gate change was reviewed at R123.
+
+Round 6 reruns when the provider is back, before the Oct 24 freeze, with the same brief.
