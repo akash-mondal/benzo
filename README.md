@@ -197,9 +197,9 @@ Each exited 0. The verification bundle rebuilds byte-for-byte:
 
 ```text
 $ shasum -a 256 dist/benzo-verify.mjs
-d234ba0b922f67621032fa0797f4b0353c689fbfdac5cacea6b4a1e4c60746b6  dist/benzo-verify.mjs
+ec044a128889e67632251339d10d4243fdbfe02090b3fbf824ed6c6d40500bc0  dist/benzo-verify.mjs
 $ cat docs/verify-bundle.sha256
-d234ba0b922f67621032fa0797f4b0353c689fbfdac5cacea6b4a1e4c60746b6  dist/benzo-verify.mjs
+ec044a128889e67632251339d10d4243fdbfe02090b3fbf824ed6c6d40500bc0  dist/benzo-verify.mjs
 ```
 
 Then verify the shipped public auction directory (the expected signer key is published in the directory's own

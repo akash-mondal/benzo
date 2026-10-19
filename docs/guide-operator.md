@@ -158,8 +158,9 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       value is fungible), and once that refund is receipted it never keeps the return waiting — but
       the note itself stays in the vault forever. The published `reserve_return` accounting reports
       the residue as `dust_notes` (count) and `dust_zats` (value): dust of at most 5,000 zats per
-      note stays in the vault. And the return must fit one transaction (H25): a vault with more than
-      28 spendable notes cannot return its reserve in one sweep.
+      note stays in the vault. And the return must fit one transaction (H25): a sweep over 29 spends or
+      29 padded actions cannot run (28 spendable notes always fit a one-pool vault; a vault whose return
+      lands in another pool can hit the action bound sooner).
 
       `--witness-set` is the `file` printed by `witness set` — the signed side-packet the manifest's
       `witness_set_hash` commits to. Output: the `auction_id` (64 hex chars) and `state: DRAFT`.

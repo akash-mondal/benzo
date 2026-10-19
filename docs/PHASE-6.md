@@ -936,3 +936,30 @@ Report `benzo-sol/reports/pr-p7-b52-b53.md`. Both round-4 walls are confirmed cl
 All go to B54 (`docs/design/phase7-b54-dust-and-sweep.md`). The cap becomes disclosed limit H25.
 
 The live release walkthrough started at `bd18eb6` before this report. It still exercises `quote-sweep` live, but B54 changes host code, so the hosts are provisioned again after B54 and the walkthrough is repeated with a dust note and a just-received note at a vault address (P3-5).
+
+### R120: B54 merged (head, 2026-10-19)
+
+B54 (dust and sweep: Reviewer R round 5, P2-1 and P3-1 to P3-6) is cherry-picked onto main as 8 commits with no conflicts.
+- Rebuilt with `cargo build --release --locked`. The verify bundle is now `ec044a12…`.
+- `npm run check` is green.
+- Folds: b44 29, b46 66, b47 49, h13 38, h14 14, b54 29, b48 23, h10 22, and b53 28 across 7 sections. Every one has 0 failures.
+- Replays r73, r77 ×2, r78, r81 and r82 exit 0. All 5 published dirs give verify 19 OK, including rel-walk-ca34e2a. The offline e2e passes.
+
+Rulings on B54's questions:
+- **Q1.** H25's disclosure uses the exact bound: 29 spends or 29 padded actions. The operator guide and the H25 row are reworded.
+- **Q2, Q3, Q6, Q8, Q9.** Accepted as reported.
+- **Q4.** → R121 and B56: an unpaid `reserve-return` row is never published. Verify stays strict.
+- **Q5.** Accepted as a disclosed residual. No shipped worker ever staged a mixed return batch; the unattributable variant parks cleanly.
+- **Q7.** The e2e blocks in builder worktrees. The head runs it on main.
+
+### R121: B56, an unpaid reserve-return row is never published (head, 2026-10-19)
+
+See `docs/design/phase7-b56-unpaid-return-row.md`.
+
+### R122: the canary RG at b2b35b6 → B55 (head, 2026-10-19)
+
+The canary passed testnet-golden-path and auction-core. settle-crash failed for two reasons:
+- **The M1 product bug.** Since B43, a cancelled-before-R `benzo settle` fetches the not-yet-existing round-R beacon and exits 1, in both the plan and the host derive.
+- **The specs fund the exact real fee.** H19's worst-case preflight asks for about twice that. The top-up refusal came before the kill, so L1, J2, K1 and N1 cascaded, and J1 was checked against no batch.
+
+Both go to B55 (`docs/design/phase7-b55-cancel-before-r-and-rg-harness.md`). The final RG waits for B55 and B56.
