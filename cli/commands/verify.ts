@@ -2,6 +2,7 @@
 // Re-derives every opening offline from its ciphertext and authenticated published quicknet beacon.
 import os from "node:os";
 import path from "node:path";
+import { existsSync, lstatSync } from "node:fs";
 import { verifyBeacon } from "drand-client/beacon-verification.js";
 import { hash, requireThat } from "../../manifest/schema";
 import { requireReserveOpening, tleOpening as tleDecrypt } from "../../manifest/reserve";
@@ -68,11 +69,16 @@ export async function run(argv: string[]): Promise<number> {
     // published document. The file must be the host's own: any other path is refused. A cache with other
     // keys (a different frozen root or beacon) covers nothing, so every opening is re-derived. The public
     // `benzo verify` never passes the flag (see --help) and re-derives every opening.
+    // B48 (H18 P3-3): host-only by construction, not by convention. The resolved path must be exactly the
+    // host's own cache for the directory's auction id, and the file at it must BE the host's own file there —
+    // a cache copied elsewhere is refused, and so is a link standing in for one at the host's own name. Only
+    // the host's own plain file is ever read through this flag.
     let cache: Record<string, string | null> | null = null;
     if (openingsCache) {
       const state = process.env.BNZ_STATE_DIR ? path.resolve(process.env.BNZ_STATE_DIR) : path.join(os.homedir(), ".benzo");
       const own = path.join(state, "auctions", pub.manifest.auction_id, "openings.json");
       requireThat(path.resolve(openingsCache) === path.resolve(own), "openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json");
+      if (existsSync(own)) requireThat(lstatSync(own).isFile(), "openings cache must be the host's own file at that path, not a link to a cache copied elsewhere");
       cache = loadOpenings(own, pub.frozen.root, beaconSha256(pub.beacon!));
     }
     const derived: Opened[] = [];

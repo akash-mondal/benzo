@@ -7873,6 +7873,7 @@ var require_tlock_js = __commonJS({
 var import_beacon_verification = __toESM(require_beacon_verification(), 1);
 import os from "node:os";
 import path5 from "node:path";
+import { existsSync as existsSync5, lstatSync } from "node:fs";
 
 // manifest/schema.ts
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
@@ -19549,6 +19550,7 @@ async function run(argv) {
       const state = process.env.BNZ_STATE_DIR ? path5.resolve(process.env.BNZ_STATE_DIR) : path5.join(os.homedir(), ".benzo");
       const own = path5.join(state, "auctions", pub.manifest.auction_id, "openings.json");
       requireThat(path5.resolve(openingsCache) === path5.resolve(own), "openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json");
+      if (existsSync5(own)) requireThat(lstatSync(own).isFile(), "openings cache must be the host's own file at that path, not a link to a cache copied elsewhere");
       cache = loadOpenings(own, pub.frozen.root, beaconSha256(pub.beacon));
     }
     const derived = [];
