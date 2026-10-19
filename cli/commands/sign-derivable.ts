@@ -25,11 +25,19 @@ export async function run(argv: string[]): Promise<number | object> {
     const packet = path.resolve(o.packet), meta = JSON.parse(readFileSync(path.join(packet, "packet.json"), "utf8"));
     requireThat(meta.auction_id === o.id, "packet is for another auction");
     // B46 (H15, Revision R103): the reserve-return row this signer derives — planned alone, only when the
-    // auction owes nothing, and paying the vault's whole unspent value minus the ZIP-317 fee. Checked first:
-    // a packet whose return UA does not hash to the manifest commitment is refused typedly (exit 3, named
-    // rows) exactly like H10's seller row.
-    const reserve = await deriveReserveReturn({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta, null);
-    if (reserve.refusal) { process.stderr.write(`ERROR sign derivable refused-rows ${JSON.stringify(["reserve-return"])}: ${reserve.refusal}\n`); return 3; }
+    // auction owes nothing, and paying the vault's whole unspent value minus the ZIP-317 fee. A packet that
+    // DECLARES the return row and carries a return UA that does not hash to the manifest commitment is
+    // refused typedly (exit 3, named rows) exactly like H10's seller row.
+    // B51 (P2-1b): R107's rule reaches the listing too — an ordinary packet (one that declares NO return
+    // row) is never walled by a mismatched reserve_return_ua. Every other row is listed and only the
+    // reserve-return row is left out, tagged as refused in the JSON output. Before this, a stale routing
+    // reserve_return_ua refused the whole listing on every host and stalled the whole settlement.
+    const reserve = await deriveReserveReturn({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta, (meta as any).reserve_row ?? null);
+    const reserveRefused: string[] = [];
+    if (reserve.refusal) {
+      if ((meta as any).reserve_row) { process.stderr.write(`ERROR sign derivable refused-rows ${JSON.stringify(["reserve-return"])}: ${reserve.refusal}\n`); return 3; }
+      reserveRefused.push("reserve-return");
+    }
     const { expected, payout, balanceRefunds, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
     // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
     // packet's seller_ua must hash to it — otherwise the seller row is refused, a typed refusal (named rows,
@@ -48,7 +56,8 @@ export async function run(argv: string[]): Promise<number | object> {
     if (reserve.row) rows.push({ party: reserve.row.party, amount_zats: reserve.row.amount_zats });
     // Ruling R40 item 2 (F2): this host's own per-note late-refund counts (party names and amounts, no
     // recipients and no addresses) — the same derivation the plan publishes as settlement.balance_refunds.
-    return { auction_id: o.id, name: o.name, rows, balance_refunds: balanceRefunds };
+    // B51: a refused-but-not-declared reserve-return row is tagged here (the listing format allows it).
+    return { auction_id: o.id, name: o.name, rows, balance_refunds: balanceRefunds, ...(reserveRefused.length ? { refused_rows: reserveRefused } : {}) };
   } catch (e) {
     process.stderr.write(`ERROR sign derivable ${(e as Error).message}\n`);
     return 1;

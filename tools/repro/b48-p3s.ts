@@ -10,6 +10,11 @@
 //   P3-3 `benzo verify --openings-cache` reads only the host's own cache file at its own path: a cache copied
 //        elsewhere is refused (its own path, or a link standing in for one at the host's own name), and the
 //        host's own cache works as before.
+// Batch B51 (docs/design/phase7-b51-review-fixes.md) extends this proof, red on the B51 base commit
+// a107447 bundles (BNZ_B48_BENZO=tmp/b51/base-src/cli/dist/benzo.mjs) and green after:
+//   P2-1b a mismatched reserve_return_ua never walls the row listing: a packet that declares NO return row
+//        lists every other row and tags the reserve-return row refused (exit 0); a packet that DECLARES the
+//        return row with the mismatched address stays refused (typed, exit 3).
 // Build+run: npx esbuild tools/repro/b48-p3s.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/b48.mjs && node tmp/b48.mjs
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -57,11 +62,17 @@ check("fixture-seller-payout", /^[1-9][0-9]*$/.test(fixture.payout),
 // The packet builders: a build packet carries rows.json (what settle/cli.ts writes for one), an approve
 // packet the candidate sealed to alice. `sellerUa` is the packet's meta.seller_ua — the substitute
 // UA_SAPLING_ONLY is the "mismatched" one against the manifest's commitment on UA_ORCHARD.
-const packetDir = (name: string, fx: Fixture, sellerUa: string | null, rows: any[], candidate?: { rows: { recipient: string; amount_zats: string }[] }) => {
+const packetDir = (name: string, fx: Fixture, sellerUa: string | null, rows: any[], candidate?: { rows: { recipient: string; amount_zats: string }[] }, reserve?: { ua?: string | null; row?: { amount_zats: string } | null }) => {
   const dir = path.join(WORK, "packet-" + name);
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true, mode: 0o700 });
   writePublicDir(path.join(dir, "public"), fx);
   const meta: any = { auction_id: fx.id, signer: fx.signer, seller_ua: sellerUa };
+  // B51 (P2-1b): the packet's reserve-return shape — the routing config's reserve_return_ua (possibly the
+  // mismatched substitute) and, for a packet that declares the return row, its `reserve_row` amount.
+  if (reserve) {
+    if (reserve.ua !== undefined) meta.reserve_return_ua = reserve.ua;
+    if (reserve.row) meta.reserve_row = reserve.row;
+  }
   if (rows.length) { meta.batch = 1; meta.expiry_blocks = 100; writeFileSync(path.join(dir, "rows.json"), jsonBytes(rows)); }
   if (candidate) {
     const content = JSON.stringify({ rows: candidate.rows });
@@ -78,6 +89,11 @@ const createdRows = (state: string) => existsSync(path.join(state, "create-log.j
 const listedRows = (r: { out: string }) => {
   const line = r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1);
   return line ? (JSON.parse(line).rows ?? []) : []; // a refusal prints no JSON row list
+};
+// B51 (P2-1b): the listing's refused tag (the JSON output's `refused_rows`).
+const listedRefused = (r: { out: string }) => {
+  const line = r.out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1);
+  return line ? (JSON.parse(line).refused_rows ?? []) : [];
 };
 const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringify([...rows].map(x => `${x.party}:${x.amount_zats}`).sort());
 
@@ -153,6 +169,38 @@ const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringi
     const rows = listedRows(d) as { party: string; amount_zats: string }[];
     check("p31-derivable-no-seller-row-lists-refunds", d.code === 0 && !rows.some(x => x.party === "seller") && parties(rows) === parties(refundRows),
       `listing has no seller row (no seller_ua named): exit ${d.code}, listed ${rows.map(x => x.party).join(",") || "(nothing)"} (${lastLine(d)})`);
+  }
+}
+
+// ---- B51 P2-1b: a mismatched reserve_return_ua never walls the listing (R107's rule) ---------------------
+{
+  const dir = packetDir("b51-enum", fixture, UA_ORCHARD, []);
+  const state = path.join(WORK, "state-b51-enum"); writeHostState(state, fixture, REAL_PCZT);
+  const r = sh(["sign", "derivable", "--id", fixture.id, "--packet", dir, "--name", "alice"], hostEnv(state));
+  const honest = listedRows(r) as { party: string; amount_zats: string }[];
+  check("b51-honest-listing", r.code === 0 && honest.length >= 2 && !honest.some(x => x.party === "reserve-return") && listedRefused(r).length === 0,
+    `the honest listing derives ${honest.length} rows, no reserve-return row (something is still owed) and no refused tag`);
+
+  // A packet WITHOUT a declared return row and a mismatched reserve_return_ua (stale routing): every other
+  // row is listed and only the reserve-return row is left out, tagged refused. On base this exits 3 and
+  // lists nothing — the wholesale wall (P2-1b).
+  {
+    const pdir = packetDir("b51-mismatch-no-row", fixture, UA_ORCHARD, [], undefined, { ua: UA_SAPLING_ONLY });
+    const st = path.join(WORK, "state-b51-mismatch-no-row"); writeHostState(st, fixture, REAL_PCZT);
+    const d = sh(["sign", "derivable", "--id", fixture.id, "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const rows = listedRows(d) as { party: string; amount_zats: string }[];
+    const refused = listedRefused(d);
+    check("b51-mismatched-ua-without-row-lists", d.code === 0 && parties(rows) === parties(honest) && refused.includes("reserve-return"),
+      `mismatched reserve_return_ua, no declared return row: exit ${d.code}, listed ${rows.map(x => x.party).join(",") || "(nothing)"}, refused_rows ${JSON.stringify(refused)} (${lastLine(d)})`);
+  }
+  // A packet that DECLARES the return row with the mismatched address stays refused (typed, exit 3).
+  {
+    const pdir = packetDir("b51-mismatch-row", fixture, UA_ORCHARD, [], undefined, { ua: UA_SAPLING_ONLY, row: { amount_zats: "1" } });
+    const st = path.join(WORK, "state-b51-mismatch-row"); writeHostState(st, fixture, REAL_PCZT);
+    const d = sh(["sign", "derivable", "--id", fixture.id, "--packet", pdir, "--name", "alice"], hostEnv(st));
+    const typed = /ERROR sign derivable refused-rows \["reserve-return"\]/.test(d.err);
+    check("b51-mismatched-ua-with-row-refused-typed", d.code === 3 && typed,
+      `mismatched reserve_return_ua with the declared return row: exit ${d.code}, ${typed ? 'refused-rows ["reserve-return"]' : `no typed refusal (${lastLine(d)})`}`);
   }
 }
 
