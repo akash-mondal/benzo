@@ -9,7 +9,9 @@
 //
 // Green cases (this tree, `node tmp/b47.mjs after`), each one `bin/benzo settle` invocation or a sequence,
 // asserting exit codes and the published dir:
-//   (a) ordinary batches pay every row while the return waits (this catches R107);
+//   (a) ordinary batches pay every row while the return waits (this catches R107; B49: it now waits at the
+//     shared "paid" gate — the paying batch's receipts are not 10 confirmations deep yet, so no return
+//     batch is allocated and the live InsufficientFunds build failure is unreachable at 0-conf);
 //   (b) the return is planned after the last batch mines, built, approved, broadcast and recorded (R107b);
 //   (c) the broadcast answers "already exists in mempool" and the worker continues and records the receipt
 //       (H20 item 1);
@@ -106,7 +108,9 @@ function mine(c, txid) {
   c.pending = c.pending.filter(x => x.txid !== txid);
   c.tip += 1;
   for (const s of p.spends) { const n = c.notes.find(n => n.txid + ":" + n.pool + ":" + n.action_index === s); if (n) n.spent_in_txid = txid; }
-  if (p.change_zats > 0) c.notes.push({ txid: txidOf(Buffer.from("change " + txid)), height: c.tip, pool: "ironwood",
+  // B49: the change note's txid IS the transaction's txid (as on a real chain) — it is the scan's own
+  // evidence that the txid mined at this height, which the reserve gate's "paid" rule reads.
+  if (p.change_zats > 0) c.notes.push({ txid, height: c.tip, pool: "ironwood",
     address: p.change_address, diversifier_index: "99", action_index: 0, value_zats: p.change_zats, memo_hex: null, spent_in_txid: null });
   c.mined[txid] = { height: c.tip, rows: p.rows };
 }
@@ -472,10 +476,14 @@ async function green() {
   const aSettlement = settlementOf(w1);
   check("a-return-waits", !!aSettlement && (aSettlement.reserve_return === undefined) && !aReceipts.some((r: any) => r.party === "reserve-return"),
     "the return is not paid in this run (no reserve_return accounting, no receipt)");
-  check("a-return-waits-line", /ERROR reserve-return pass exited 1; the reserve stays in the vault until the next benzo settle/.test(a.err),
-    "the return pass tried and waited: the change is not spendable yet (the live line)");
-  check("a-insufficient-funds", /InsufficientFunds/.test(a.err) && /no signer host could build batch 2/.test(a.err),
-    "the return pass failed inside the host build with InsufficientFunds, exactly the live failure");
+  // B49 ("paid" means approved AND mined 10 deep): the return now waits at the shared paid gate — the
+  // paying batch's receipt is not 10 confirmations deep yet, so its rows are still outstanding and no
+  // return batch is even allocated (previously the return pass reached the wallet and died in the host
+  // build with the live InsufficientFunds line).
+  check("a-return-waits-at-the-paid-gate", /reserve return waits: 5 outstanding \(strays\/balances\/exceptions\)/.test(settleLog(w1)),
+    "the return pass waits at the new paid gate: the paying batch is not 10 confirmations deep yet (B49)");
+  check("a-no-return-attempt", !/InsufficientFunds/.test(a.err) && !/ERROR reserve-return pass/.test(a.err),
+    "nothing of the return is attempted while the receipts are not deep (no build, no InsufficientFunds line)");
   const c1 = chain(w1);
   check("a-one-broadcast", c1.broadcasts.length === 1 && a.err.includes(`settlement broadcast ${c1.broadcasts[0]}`) && (a.err.match(/settlement broadcast /g) ?? []).length === 1,
     `exactly one transaction broadcast and mined (${c1.broadcasts[0]?.slice(0, 16)}…), the ordinary batch`);
@@ -486,8 +494,8 @@ async function green() {
     try { return db.prepare("SELECT id,pczt_hash,txid,height,state FROM batches ORDER BY id").all() as any[]; } finally { db.close(); }
   };
   const batchesAfterA = w1ledger();
-  check("a-return-batch-left-allocated", batchesAfterA.length === 2 && batchesAfterA[1].id === 2 && batchesAfterA[1].txid === null,
-    `the failed return pass left batch 2 allocated and unmined (${JSON.stringify(batchesAfterA[1])}) — the exact state the live R107b crash needed`);
+  check("a-no-return-batch", batchesAfterA.length === 1,
+    `no return batch exists after the run (${JSON.stringify(batchesAfterA)}) — the return waits for the paying batch's 10 confirmations`);
 
   console.log("=== case (b): the return is planned after the last batch mines, built, approved, broadcast, recorded (catches R107b)");
   bumpTip(w1, 12); // the last batch's change is now spendable (the wallet's 10-confirmation rule)
@@ -596,8 +604,18 @@ function seedPostBatchOne(w: World) {
   c.tip = 100012;
   c.mined[tx1] = { height: 100001, rows: [] };
   c.broadcasts.push(tx1);
-  c.notes.push({ txid: hash("b47-seed-change-" + w.label), height: 100001, pool: "ironwood", address: CHANGE_ADDR, diversifier_index: "99", action_index: 0,
+  // B49: the batch's change note carries the batch's txid (the scan's mined-height evidence for the
+  // "paid" rule) and each host's own approval ledger records that it approved batch 1's rows at their
+  // amounts — exactly what the real `sign approve` recorded when the batch was approved.
+  c.notes.push({ txid: tx1, height: 100001, pool: "ironwood", address: CHANGE_ADDR, diversifier_index: "99", action_index: 0,
     value_zats: w.obligationZats + w.feeReserve - w.obligationZats - feeOf(w.fx.notes.length + 1), memo_hex: null, spent_in_txid: null });
+  for (const n of signerNames) {
+    const adir = path.join(w.hosts[n], "approvals", w.id);
+    mkdirSync(adir, { recursive: true, mode: 0o700 });
+    const mapped = w.obligationRows.map((o, i) => ({ party: o.party, output_index: i, amount_zats: String(o.amount_zats) }));
+    const sources = [...new Set(w.obligationRows.map((o) => (o.party.startsWith("leaf:") ? `deposit:${w.fx.notes[Number(o.party.slice(5))].txid}:ironwood:${Number(o.party.slice(5))}` : o.party)) )];
+    writeFileSync(path.join(adir, "ledger.json"), JSON.stringify([{ batch: 1, txid: tx1, expiry_height: 100364, approved_tip: 100000, sources, mapped }]) + "\n", { mode: 0o600 });
+  }
   writeFileSync(w.chainFile, JSON.stringify(c));
   const sc = scenario(w);
   const ledger = new Ledger(w.state, id);
