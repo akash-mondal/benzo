@@ -1,0 +1,100 @@
+commit 9a4fd444467d3b075ed16fe9b961885889098e1c (working tree not clean at run time)
+utc 2026-10-19T09:46:41.173Z
+command node tmp/b47.mjs after (tools/repro/b47-settle-e2e.ts)
+tree M settle/cli.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b53-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b53-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b53-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-p38-green.out
+tree ?? docs/evidence/phase-7/repro/b53-p38-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b53.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b53-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b53-fold-before.out
+=== case (a): ordinary batches pay every row while the return waits (catches R107)
+OBSERVE case-a exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":5}
+  | settlement broadcast 2827128e0c843560f395d31c9ee53ca27ac5cb575a8d9d517ab187c238550f29
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+PASS a-exit-0 benzo settle exits 0 (exit 0; stderr {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5})
+PASS a-rows-paid all 5 ordinary rows paid (receipts: 5 — leaf:0, leaf:1, leaf:2, leaf:3, seller)
+PASS a-return-waits the return is not paid in this run (no reserve_return accounting, no receipt)
+PASS a-return-waits-at-the-paid-gate the return pass waits at the new paid gate: the paying batch is not 10 confirmations deep yet (B49)
+PASS a-no-return-attempt nothing of the return is attempted while the receipts are not deep (no build, no InsufficientFunds line)
+PASS a-one-broadcast exactly one transaction broadcast and mined (2827128e0c843560…), the ordinary batch
+PASS a-amounts the rows total the obligations total (4000400 zats)
+PASS a-no-return-batch no return batch exists after the run ([{"id":1,"pczt_hash":"2827128e0c843560f395d31c9ee53ca27ac5cb575a8d9d517ab187c238550f29","txid":"2827128e0c843560f395d31c9ee53ca27ac5cb575a8d9d517ab187c238550f29","height":100001,"state":"mined"}]) — the return waits for the paying batch's 10 confirmations
+=== case (b): the return is planned after the last batch mines, built, approved, broadcast, recorded (catches R107b)
+OBSERVE case-b exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":2,"allocated":1}
+  | settlement broadcast ee6cc20b060e0f8d159d755307c648b86f03d10752b2f5b71282b386fbdca1e6
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":6}
+PASS b-exit-0 benzo settle exits 0 (exit 0; stderr {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":6})
+PASS b-return-paid the reserve-return receipt is recorded (25000 zats = 35000 − 10000 fee)
+PASS b-accounting the published accounting {remaining_zats:35000, fee_zats:10000} matches the sweep
+PASS b-broadcast the return batch was broadcast and mined (ee6cc20b060e0f8d…)
+PASS b-hosts-approved both signing hosts recorded their approval of the return batch
+PASS b-vault-swept the vault holds no unspent value after the sweep
+=== case (d): a re-run after the return exits 0 and leaves the published dir byte-identical (H20 item 2)
+OBSERVE case-d exit=0
+PASS d-exit-0 the re-run exits 0 (exit 0; stderr {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":6})
+PASS d-byte-identical the published dir is byte-identical (10 files, unchanged: auction.json, beacon.json, envelope.json, frozen.json, manifest.json, opened.json, receipts.json, result.json, signer.json, summary.json)
+PASS d-settled-unchanged the re-run changes nothing: the same receipts are recorded
+=== case (c): the broadcast answers 'already exists in mempool' and the worker continues (H20 item 1)
+OBSERVE case-c exits=0,0
+PASS c-exit-0 both settles exit 0 despite the send errors (0, 0)
+PASS c-send-errors-seen the stub answered "already exists in mempool" 2 times (once per armed send)
+PASS c-continues-records the worker counted each resend as broadcast and recorded every receipt (6)
+PASS c-settlement-complete the published settlement is complete (rows, receipts and the return accounting)
+=== case (e): an under-funded reserve stops at the preflight with the exact top-up line (H19)
+OBSERVE case-e preflight exit=1
+PASS e-preflight-line the exact top-up line is printed: "ERROR settle fee reserve short: pay 60500 zats to utest1b47feereserveaddress00000000000000000000000000000000000000 and run benzo settle again"
+PASS e-nothing-broadcast nothing was broadcast (the stop is before the first batch)
+PASS e-no-host-build no host build ran (the stop is before any host build)
+OBSERVE case-e completes exits=0,0
+PASS e-completes after the top-up of exactly 60500 zats the settlement completes (return accounting {"fee_zats":"10000","remaining_zats":"35500"})
+=== case (f): a legacy manifest settles with no return and its one WARN line
+OBSERVE case-f exit=0
+PASS f-exit-0 benzo settle exits 0 on the legacy manifest (exit 0)
+PASS f-no-return no reserve-return row is planned, built or paid (one broadcast: the ordinary batch)
+PASS f-warn-line its one WARN line per plan run (2 lines for 2 plan runs), and no waits line
+=== case (g): a re-run with one batch broadcast and mined but unconfirmed confirms it and continues (B51 P2-2)
+OBSERVE case-g first re-run exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":5}
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":2,"allocated":1}
+  | settlement broadcast 04dbcb7c769a61522121620d0dea6f1bfc7842f36a92e7b6ff72cd09e1f23f9b
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":6}
+PASS g-no-preflight-refusal the re-run never demands the total batch 1 already paid (exit 0; stderr )
+PASS g-confirms-the-batch the resumed batch is confirmed from its own mined height (6 receipts; the 5 rows at 682bde955b4e90b0…)
+PASS g-never-rebroadcast batch 1 was never re-sent: its mined transaction was read and confirmed, not re-broadcast (the only other broadcast is the return)
+PASS g-continues-to-the-return the same benzo settle continues past the confirmation and completes the return (accounting {"fee_zats":"10000","remaining_zats":"35000"})
+PASS g-rerun-clean a further re-run is clean and changes nothing (exit 0, 6 receipts)
+=== case (h): the R109 margin pinned — a 20,000-zat shortfall asks for exactly 25,000 (B51 P3)
+OBSERVE case-h preflight exit=1
+PASS h-shortfall-20000-asks-25000 a 20000-zat shortfall asks for exactly 25000 zats (the change re-spend per remaining batch counted): the exact line is printed
+PASS h-margin-floor-pinned the margin is max(ceil(20000/10), 5000) = 5000 — reverting to the pre-R109 ceil/10 would ask 22000 and fail this pin
+OBSERVE case-h completes exits=0,0
+PASS h-completes-after-exact-top-up topping up exactly 25000 zats suffices (the equality case passes at zero): the settlement completes (return accounting {"fee_zats":"10000","remaining_zats":"35000"})
+=== case (i): a send that lies 'already exists in mempool' is not trusted — the staged txid must be known (B51 P3)
+OBSERVE case-i exit=0
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":5}
+  | settlement broadcast 7f8924483cd5668dc43e3e22fc27e6623925500bea5b220d19ebc8803b3cf723
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","settled":5}
+PASS i-lie-never-accepted the lie was answered once and never counted as broadcast: the send was retried with the same bytes and really recorded (exit 0, 1 lie)
+PASS i-really-broadcast the transaction was really broadcast on the retry (7f8924483cd5668d…) and the 5 rows are receipted
+PASS i-completes the settlement completes after the retry (exit 0, accounting {"fee_zats":"10000","remaining_zats":"35000"})
+=== case (j): with the paid batch's inspect record gone, a re-run refuses — a doc never feeds its own accounting back (B51 P3)
+OBSERVE case-j exit=1
+  | ERROR settle refused: a paid reserve-return receipt without its accounting in the ledger (the paid batch's own inspect record)
+  | ERROR benzo settle exit 1
+PASS j-refuses-without-ledger-record the re-run refuses instead of reading the accounting back out of the published doc (exit 1; ERROR benzo settle exit 1)
+PASS j-nothing-republished the published dir is untouched — nothing was re-derived and nothing was re-fed from the doc
+RESULT PASS

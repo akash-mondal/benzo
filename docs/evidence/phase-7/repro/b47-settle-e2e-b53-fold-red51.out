@@ -1,0 +1,53 @@
+commit 9a4fd444467d3b075ed16fe9b961885889098e1c (working tree not clean at run time)
+utc 2026-10-19T09:55:01.005Z
+command node tmp/b47.mjs before51 (tools/repro/b47-settle-e2e.ts)
+tree M settle/cli.ts
+tree  M tools/repro/b53-resume-ledger.ts
+tree ?? docs/evidence/phase-7/repro/b44-opener-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b44-opener-b53-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b46-reserve-return-b53-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b53-fold-before.out
+tree ?? docs/evidence/phase-7/repro/b47-settle-e2e-b53-fold-red51.out
+tree ?? docs/evidence/phase-7/repro/b48-p3s-b53-fold.out
+tree ?? docs/evidence/phase-7/repro/b53-p38-green.out
+tree ?? docs/evidence/phase-7/repro/b53-p38-red.out
+tree ?? docs/evidence/phase-7/repro/h10-seller-binding-b53.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h13-host-scale-b53-fold-before.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b53-fold-after.out
+tree ?? docs/evidence/phase-7/repro/h14-open-griefing-b53-fold-before.out
+=== red (g) on base bundles (a107447): the H19 preflight double-counts the in-flight batch (P2-2)
+OBSERVE g-red exit=1
+  | ERROR settle fee reserve short: pay 4400440 zats to utest1b47feereserveaddress00000000000000000000000000000000000000 and run benzo settle again
+  | ERROR benzo settle exit 1
+PASS g-red-preflight-refusal the preflight refuses demanding 4400440 zats — the total batch 1 ALREADY paid (4000400 zats) plus the margin (the reviewer's probe line was "pay 4400440 zats"): ERROR benzo settle exit 1
+PASS g-red-cannot-confirm the run cannot even CONFIRM the batch that is already mined: no receipts recorded, nothing new broadcast, every row still allocated
+=== red (h) on base bundles (a107447): the fee bound omits the change re-spend per remaining batch (P3)
+OBSERVE h-red exit=1
+  | ERROR settle fee reserve short: pay 20000 zats to utest1b47feereserveaddress00000000000000000000000000000000000000 and run benzo settle again
+  | ERROR benzo settle exit 1
+PASS h-red-undercounted-bound the base bound is short one spend per remaining batch: it demands 20000 zats where the pinned demand is 25000 (ERROR benzo settle exit 1)
+=== red (i) on base bundles (a107447): the send's 'already exists in mempool' text is trusted alone (P3-2)
+OBSERVE i-red exit=1 killed=true
+  | {"auction_id":"ba24d4e31bd28ec15e7a139863820ed5d8ed59b9540cb870c8ac7c6a11171426","batch":1,"allocated":5}
+  | settlement broadcast edd7fe1c164ffde9e94845c782c5b37959d969a5ccafe1816bed7bae4960790f
+PASS i-red-accepts-the-lie the base trusted the error string alone — settlement broadcast edd7fe1c164ffde9e94845c782c5b37959d969a5ccafe1816bed7bae4960790f — for a transaction nothing recorded, then sat in the 30-minute mined-wait (the reviewer's stall; the driver killed it at 45 s)
+PASS i-red-nothing-recorded nothing was broadcast, nothing is pending or mined, and no receipt was recorded
+=== red (j) on base bundles (a107447): the kept fallback lets the published doc feed its own accounting back (P3-3)
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:1 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:2 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:3 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation seller vanished from the re-derivation; the pinned row stands
+OBSERVE j-red exits=0,0 accounting {"fee_zats":"10000","remaining_zats":"35000"} -> {"fee_zats":"10000","remaining_zats":"35000"} changed=["auction.json","summary.json"]
+PASS j-red-doc-feeds-itself with the paid batch's own record gone the base re-reads the accounting out of the already-published doc ({"fee_zats":"10000","remaining_zats":"35000"}) and exits 0 — the doc feeds its own accounting back (the republication then drops the deleted batch inspect: ["auction.json","summary.json"])
+=== green on the same seeded world: this tree refuses instead of re-reading the published doc
+WARN settlement obligation leaf:0 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:1 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:2 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation leaf:3 vanished from the re-derivation; the pinned row stands
+WARN settlement obligation seller vanished from the re-derivation; the pinned row stands
+PASS j-green-same-world-refuses the same seeded world refuses on this tree (exits 0, 1) — the published doc can never feed its own accounting back
+RESULT PASS

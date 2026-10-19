@@ -5,12 +5,21 @@ with a command and its result or mark it `unverified`, replace stale lines. Ruli
 
 ## Batch B53 (Builder B, branch `b53-resume-ledger`, from `59c863c`) — Reviewer R round 4: the resume, re-send and ledger gaps (P2-2, P3-1, P3-2, P3-3, P3-5, P3-6, P3-7, P3-8)
 
-**IN PROGRESS, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets,
+**DONE, offline only** (no main-checkout `.benzo/` or `.env`, no OrbStack/`orb`, no testnet, no wallets,
 no live Playwright; stubs and own tmp state/builds only). Spec:
 `docs/design/phase7-b53-resume-and-ledger.md`; source report `benzo-sol/reports/pr-p7-b49-b51.md`. Worktree
-`../benzo-b53`, branch `b53-resume-ledger`, base `59c863c`. Commits `--no-verify` (R32). Setup: `vendor/`
-copied (`cp -R ../benzo/vendor .`), `node_modules` symlinked to the main checkout's; `cargo build --release
---locked --manifest-path settle/Cargo.toml` in the worktree (offline, vendored) rebuilt `settle/target`.
+`../benzo-b53`, branch `b53-resume-ledger`, base `59c863c`. Commits `--no-verify` (R32): `5ea5b0f`
+(item 1), `0ab0cc7` (item 2), `dea483e` (item 3), `eabdfe0` (item 4), `7cf1894` (item 5 + the rebuilt
+verify bundle and its sha), `7b23e58` (item 6), `9a4fd44` (item 7), `50ba5e9`
+(item 8); this folds/status commit closes the batch. B52's named regions untouched (the reserve-return fee path, the return checks in
+sign-build/sign-approve, `api/public-auction.ts` `reserve_return`, `settle/cli.ts:149-154` and the
+hostBuild return flow, the stub `inspect` in h-fixtures/b47-world/b47-settle-e2e); every new stub case
+lives in its own new function in `tools/repro/b53-resume-ledger.ts`. The two narrow overlaps the DESIGN
+itself assigns to this batch are named in Q6. Setup: `vendor/` copied (`cp -R ../benzo/vendor .`),
+`node_modules` symlinked to the main checkout's; `cargo build --release --locked --manifest-path
+settle/Cargo.toml` in the worktree (offline, vendored) rebuilt `settle/target`. A `.env` was created in
+this worktree from the committed `.env.example` for the `npm run e2e` attempt only — no main-checkout
+`.env` or `.benzo/` was read.
 
 Status block (every command and its result; updated per item):
 
@@ -73,7 +82,41 @@ Status block (every command and its result; updated per item):
   live candidate is refused `…:ironwood:0 is in batch 1, which can still mine until 100500`, nothing
   recorded for it). Evidence: `docs/evidence/phase-7/repro/b53-p37-red.out`,
   `docs/evidence/phase-7/repro/b53-p37-green.out`.
-- Item 8 (P3-8a/b, `settle/cli.ts`):
+- Item 8 (P3-8a/b, `settle/cli.ts`): 8a — the custody H3 set-aside now carries the LOCAL build's one-pool
+  reason (the same shared text; `hostBuild` tags a one-pool typed refusal `onePool` and the catch maps the
+  reason). `node tmp/b53.mjs before p38` — PASS (red: the base custody set-aside publishes the generic
+  `no reachable signer host builds it` reason — the H7 summary is less precise on the custody path);
+  `node tmp/b53.mjs after p38` — PASS (green: the reason is exactly the local build's one-pool text, the
+  other rows settle next, and a re-run re-derives the row as its own one-pool batch and pays it). 8b — the
+  unused `setAsideRows` import removed (`npm run typecheck` clean). Evidence:
+  `docs/evidence/phase-7/repro/b53-p38-red.out`, `docs/evidence/phase-7/repro/b53-p38-green.out`.
+
+Final checks at HEAD: `npm run typecheck` — OK; `check:structure` — OK (218 files); `check:invariants` —
+OK (`I1..I4` zero); `check:dist-require` — OK; `check:bundle` — OK (verify bundle `ceae69fd…` matches the
+committed sha; unchanged since item 5).
+
+**Folds all green** (raw `docs/evidence/phase-7/repro/*-b53-fold*`, `h10-seller-binding-b53.out`):
+
+| fold | result |
+|---|---|
+| b44-opener | before 25/0, after 29/0, RESULT PASS both |
+| b46-reserve-return | before (historical bases a81e826 + 7c4e661), after 56/0, RESULT PASS both |
+| b47-settle-e2e | after 41/0 (cases (a)–(j)), before 7/0 (8a9f638), before51 7/0 (a107447), RESULT PASS all |
+| b48-p3s | green 22/0, RESULT PASS |
+| h10-seller-binding | 22/0, RESULT PASS |
+| h13-host-scale | before 8/0, after 38/0, RESULT PASS both (one transient drand fetch timeout on the first `before`, clean on retry) |
+| h14-open-griefing | before 12/0, after 14/0, RESULT PASS both |
+| replays r77, r78, r82 | each exit 0 — honest ACCEPTED, each tamper REFUSED (`*-b53-fold.out`) |
+
+- Base trees built by each fold's own recipe (`git archive` extraction + that recipe; no second worktree):
+  `tmp/b53/base-src` (`59c863c`), `tmp/b44/base-src` + `tmp/b44/base` (`d646ceb`), `tmp/b45/base`
+  (`cd19905`), `tmp/b43/base` (`5086be1`), `tmp/b46/base-src` (`a81e826`), `tmp/b46/base49-src`
+  (`7c4e661`), `tmp/b47/base-src` (`8a9f638`), `tmp/b51/base-src` (`a107447`).
+- `npm run e2e` — **blocked in this worktree, unverified**: first refused for a missing `.env` (created
+  here from the committed `.env.example` for the attempt only), then `NOT RUN tle missing at
+  …/.benzo/bin/tle` — the `default` (seal-open) spec needs the Go `tle` binary, which lives only in the
+  main checkout's `.benzo/` (forbidden) or a network fetch (forbidden). Nothing in B53 touches the
+  seal/open paths beyond comments; see Q7.
 
 ### Questions
 
@@ -93,6 +136,21 @@ Status block (every command and its result; updated per item):
 - Q3 (item 2, P3-3): the mined-wait's fail-safe timeout leg ("if it times out, exit with a clear error") is
   `unverified` by the driver — it is the existing 30-minute `mined()` deadline (`deadline waiting for mined
   settlement <txid>`) and driving it would need a 30-minute wait. Code path reviewed only.
+- Q4 (item 3, P3-1): the design's option (b) makes the CHAIN lookup the depth evidence only when the scan
+  carries NO note of the paying txid. A scan note of the txid stays authoritative (a shallow or
+  reorged-out note never falls back to the chain) — the conservative reading of "when the scan has no such
+  note". Say if the fallback should also apply to a reorged-out scan note.
+- Q5 (item 4, P3-2): the healed `mapped` amounts come from "this host's own derived row amounts" — the
+  rows it derives NOW (its money-rule amounts). A party it cannot derive today gets no `mapped` entry
+  (fail-closed: its receipts stay un-counted rather than attested at a guessed amount).
+- Q6 (items 1/8, overlap): the DESIGN assigns B53 item 1's park rule a `settle/plan.ts` `owned` change and
+  item 8a a `settle/cli.ts` line inside B52's named :385-440 region (the hostBuild catch + its H3 throw).
+  Those were implemented exactly as the design specifies (narrow, additive); merge order with B52 may need
+  a rebase touch-up there.
+- Q7 (`npm run e2e`): blocked in the worktree by the offline rules (the seal-open spec needs the Go `tle`
+  binary that only the main checkout's `.benzo/` holds). If the fold gate requires it green, either allow
+  provisioning `tle` into this worktree or run the seal-open spec on the head's machine; B53 changes no
+  code the spec covers (settle/ledger, sign approve, witness maps and comments).
 
 ## Batch B51 (Builder B, branch `b51-review-fixes`, from `a107447`) — Reviewer R on B47/B48: the preflight re-run double-count, the reserve-address listing wall, four P3s
 
