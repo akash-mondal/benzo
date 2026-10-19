@@ -755,3 +755,12 @@ Report `benzo-sol/reports/pr-p7-b44-b46.md`. **B44 is confirmed closed**: zero t
 **P2s:** the approval-ledger namespace split; a stale receipt after a reorg.
 
 Batch B49 (`docs/design/phase7-b49-paid-means-mined.md`): "paid" means this host approved the txid and its own scan shows it mined 10 deep. That one rule is used by hosts and plan. The prefetch can never throw, and the ledger gets one source namespace. **The reserve return (H15) is reopened** until B49 merges. No live funds are exposed, because these are testnet auctions with no outstanding strays.
+
+### R111 — B48 merged: Reviewer R's three P3s (H18 closed; H21 follow-up) (head, 2026-10-19)
+
+B48 is on main (`e364ad4`…`ef396a8`; round 2 after a provider drop):
+1. A seller mismatch refuses only the seller row, in a batch that has one.
+2. `seller check` requires the signed `manifest.json`.
+3. `verify --openings-cache` reads only the host's own file at its own path.
+
+The head re-ran on main: `npm run check`, e2e, the B48 repro (RESULT PASS) and B47's settle e2e (RESULT PASS). The verify bundle is now `7bde8384…`. B48's Q2 and Q3 (derivable still refuses whole when a seller row exists; approve's untyped refusal) are **H21** (P3). Q1 is accepted as is.
