@@ -8,6 +8,7 @@ import { createHash, createPrivateKey, createPublicKey } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { bls12_381 } from "@noble/curves/bls12-381";
+import sodium from "libsodium-wrappers";
 import { timelockEncrypt } from "tlock-js";
 import { decodeArmor } from "tlock-js/age/armor.js";
 import { QUICKNET, hash, jsonBytes, signRecord, type Manifest, type Signed } from "../../manifest/schema";
@@ -320,6 +321,28 @@ export function writeAuctionLedger(state: string, fixture: Fixture): void {
 }
 
 export const sha256Hex = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+
+// B49 (P1-1, docs/design/phase7-b49-paid-means-mined.md): a hand-built envelope box carrying an ARBITRARY
+// plaintext — the exact `benzo-envelope-v2` box format envelope/index.ts sealPadded writes (same libsodium
+// calls), but withOUT the destination rule at seal, so a repro can publish the reviewer's two crafted
+// refunds (an empty refund, and one with a NUL and a newline) that must never crash a host's classify
+// prefetch. A hostile sealer can build these from the public format and the manifest's envelope_keys.
+export async function craftedEnvelope(plaintext: string, recipientPublicHexes: string[]): Promise<string> {
+  await sodium.ready;
+  const MAGIC = Buffer.from("benzo-envelope-v2"), NONCE_BYTES = 12, ENVELOPE_PT_BYTES = 512;
+  const STANZA_BYTES = 32 + 80, COMMIT_BYTES = 32;
+  const KC_LABEL = Buffer.from("benzo-envelope-v2-kc");
+  const KC_KEY = Buffer.concat([KC_LABEL, Buffer.alloc(sodium.crypto_generichash_KEYBYTES - KC_LABEL.length)]);
+  const payload = Buffer.from(plaintext, "utf8");
+  if (payload.length > ENVELOPE_PT_BYTES - 2) throw new Error("crafted envelope plaintext too long");
+  const pt = Buffer.alloc(ENVELOPE_PT_BYTES); pt.writeUInt16BE(payload.length, 0); payload.copy(pt, 2);
+  const contentKey = sodium.randombytes_buf(32), nonce = sodium.randombytes_buf(NONCE_BYTES);
+  const stanzas = Buffer.concat(recipientPublicHexes.map(pk => Buffer.concat([Buffer.from(pk, "hex"), sodium.crypto_box_seal(contentKey, Buffer.from(pk, "hex"))])));
+  const keyCommit = Buffer.from(sodium.crypto_generichash(32, contentKey, KC_KEY));
+  const header = Buffer.concat([MAGIC, Buffer.from([recipientPublicHexes.length]), stanzas, keyCommit]);
+  const body = Buffer.from(sodium.crypto_aead_chacha20poly1305_ietf_encrypt(pt, header, null, nonce, contentKey));
+  return Buffer.concat([header, nonce, body]).toString("hex");
+}
 export const realPcztPath = (root: string) => path.join(root, "settle", "target", "release", "benzo-pczt");
 export const needRealPczt = (root: string) => {
   const p = realPcztPath(root);

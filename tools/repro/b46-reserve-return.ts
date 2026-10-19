@@ -24,11 +24,31 @@
 //   green: `benzo verify` accepts the published result and refuses a forged second `reserve-return` receipt
 //     and a return with something still outstanding.
 //
+// Batch B49 (docs/design/phase7-b49-paid-means-mined.md) extends this proof with the "paid means approved
+// and mined" cases, red on the B49 base commit 7c4e661 (bundles under tmp/b46/base49-src/) and green after:
+//   red/green (a): a cancelled auction with unclaimed strays plus fabricated packet receipts — on the base the
+//     hosts BUILD the sweeping return; after, they refuse it typedly (the strays stay outstanding);
+//   red/green (b): a cleared auction plus receipts of an approved but never-broadcast batch — on the base the
+//     hosts build the return and the plan plans it; after, both refuse (the receipt is not mined);
+//   red/green (c): a receipt whose transaction was mined and then reorged out (stub scan) — on the base the
+//     return proceeds; after, the row is outstanding again and the return is refused;
+//   green (d): honest receipts — approved, mined and 10 deep — so the return proceeds (the F section), and
+//     a 9-deep variant is refused (the depth boundary);
+//   red/green (e): the reviewer's two crafted envelopes (empty refund; NUL and newline) in the packet's
+//     claims — on the base the classify prefetch throws and freezes `sign derivable` for every host; after,
+//     the run completes and each crafted row is underivable while the batch proceeds;
+//   red/green (f): a cross-kind re-spend — a reserve-return candidate whose sweep re-spends a note an
+//     approved ordinary batch already sources (and whose ledger entry is pre-B49 namespaced) is refused
+//     after the namespace migration; on the base both candidates are approved.
+//
 // Build+run:
 //   npx esbuild tools/repro/b46-reserve-return.ts --bundle --packages=external --platform=node --format=esm --banner:js='import { createRequire } from "module"; const require = createRequire(import.meta.url);' --outfile=tmp/b46.mjs
 //   (base bundles under tmp/b46/base-src/, built ONCE from the pristine base commit before any B46 edit:
 //     mkdir -p tmp/b46/base-src && git archive a81e826 | tar -x -C tmp/b46/base-src && ln -s $PWD/node_modules tmp/b46/base-src/node_modules
 //     (cd tmp/b46/base-src && node cli/build.mjs && npx esbuild settle/plan.ts --bundle --packages=external --platform=node --format=esm --banner:js=... --outfile=settle/dist/plan.mjs && npx esbuild clear/cli.ts --bundle --packages=external --platform=node --format=esm --banner:js=... --outfile=clear/dist/cli.mjs))
+//   (B49 base bundles under tmp/b46/base49-src/, from the B49 base commit 7c4e661:
+//     mkdir -p tmp/b46/base49-src && git archive 7c4e661 | tar -x -C tmp/b46/base49-src && ln -s $PWD/node_modules tmp/b46/base49-src/node_modules
+//     (cd tmp/b46/base49-src && node cli/build.mjs && npx esbuild settle/plan.ts --bundle --packages=external --platform=node --format=esm --banner:js=... --outfile=settle/dist/plan.mjs && npx esbuild clear/cli.ts --bundle --packages=external --platform=node --format=esm --banner:js=... --outfile=clear/dist/cli.mjs))
 //   green bundles from this tree: npm run build:core && npm run build:settle && npm run build:cli)
 //   node tmp/b46.mjs before && node tmp/b46.mjs after
 import { execFileSync, spawnSync } from "node:child_process";
@@ -45,7 +65,7 @@ import { signApprovalMap, signOpensReport } from "../../witness";
 import { publishedClient } from "../../cli/published-beacon";
 import { timelockEncrypt } from "tlock-js";
 import { decodeArmor } from "tlock-js/age/armor.js";
-import { buildAuction, fetchBeacon, needRealPczt, ownerPrivate, witnessPrivate, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, type Fixture } from "./h-fixtures";
+import { buildAuction, craftedEnvelope, fetchBeacon, needRealPczt, ownerPrivate, witnessPrivate, UA_ORCHARD, UA_SAPLING_ONLY, writeHostState, type Fixture } from "./h-fixtures";
 
 const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
 const part = process.argv[2];
@@ -65,8 +85,12 @@ const REAL_PCZT = needRealPczt(ROOT);
 process.env.BNZ_PCZT_BIN = REAL_PCZT;
 const BASE = path.join(ROOT, "tmp", "b46", "base-src");
 const BASE_PLAN = path.join(BASE, "settle", "dist", "plan.mjs"), BASE_BENZO = path.join(BASE, "cli", "dist", "benzo.mjs");
+// B49: the B49 base commit's bundles (7c4e661 — the P0/P1 holes present) for the B49 red legs.
+const BASE49 = path.join(ROOT, "tmp", "b46", "base49-src");
+const BASE49_PLAN = path.join(BASE49, "settle", "dist", "plan.mjs"), BASE49_BENZO = path.join(BASE49, "cli", "dist", "benzo.mjs");
 const GREEN_PLAN = path.join(ROOT, "settle", "dist", "plan.mjs"), GREEN_BENZO = path.join(ROOT, "cli", "dist", "benzo.mjs");
 for (const f of [BASE_PLAN, BASE_BENZO, path.join(BASE, "clear", "dist", "cli.mjs")]) if (part === "before" && !existsSync(f)) throw new Error(`${f} missing — build the base bundles first (see the header)`);
+for (const f of [BASE49_PLAN, BASE49_BENZO, path.join(BASE49, "clear", "dist", "cli.mjs")]) if (part === "before" && !existsSync(f)) throw new Error(`${f} missing — build the B49 base bundles first (see the header)`);
 for (const f of [GREEN_PLAN, GREEN_BENZO]) if (part === "after" && !existsSync(f)) throw new Error(`${f} missing — run npm run build:core && npm run build:settle && npm run build:cli first`);
 
 let failed = 0;
@@ -84,14 +108,16 @@ const CHANGE_ADDR = "utest1b46internalchangeaddress00000000000000000000000000000
 const CHANGE2_ADDR = "utest1b46internalchangetwoaddress000000000000000000000000000000000";
 const BAL_ADDR = "utest1b46latebalanceaddress00000000000000000000000000000000000000";
 const BOND = { bond_bps: 1000, balance_window_start_height: 95000, balance_window_blocks: 1000, balance_addresses: [BAL_ADDR] };
-const STRAY_TXID = hash("b46-stray-deposit"), CHANGE_TXID = hash("b46-reserve-change"), CHANGE2_TXID = hash("b46-stray-change"),
-  RES_TXID = hash("b46-fee-reserve-note"), LATE_TXID = hash("b46-late-balance"), PRIOR_TXID = hash("b46-prior-sweep");
+const STRAY_TXID = hash("b46-stray-deposit"), CHANGE2_TXID = hash("b46-stray-change"),
+  RES_TXID = hash("b46-fee-reserve-note"), LATE_TXID = hash("b46-late-balance"), PRIOR_TXID = hash("b46-prior-sweep"),
+  INPUT_TXID = hash("b46-stray-refund-input"), DEAD_TXID = hash("b46-dead-batch");
 const TX_OBLIG = hash("b46-batch-obligations"), TX_REFUND_S = hash("b46-batch-stray-refund"), TX_REFUND_L = hash("b46-batch-late-refund"),
   TX_RESERVE = hash("b46-batch-reserve-return"), TX_FORGED = hash("b46-batch-forged");
 const STRAY_VALUE = "500000", LATE_VALUE = "499999";
-// The vault's unspent value once the strays and balances are settled: the fee-reserve note (20,000) and the
-// internal change (35,000). The return pays 55,000 − the ZIP-317 fee of the 2-note transaction (10,000).
-const REMAINING = "55000", RESERVE_FEE = "10000", RESERVE_AMOUNT = "45000";
+// B49: the vault's unspent value once the strays and balances are settled — the fee-reserve note (20,000),
+// the obligations batch's change (35,000) and the two refund batches' change (1,000 + 1,000). The return
+// sweeps 4 notes, so its ZIP-317 fee is 5,000 x 4 = 20,000 and it pays 57,000 − 20,000.
+const REMAINING = "57000", RESERVE_FEE = "20000", RESERVE_AMOUNT = "37000";
 const strayParty = () => depositParty({ txid: STRAY_TXID, pool: "ironwood", action_index: 0 });
 const lateParty = () => balanceLateParty({ txid: LATE_TXID, pool: "ironwood", action_index: 0 });
 // R13: a claim-paid row carries a published, owner-signed claim — checkable against the opening its owner key
@@ -102,20 +128,36 @@ const lateParty = () => balanceLateParty({ txid: LATE_TXID, pool: "ironwood", ac
 const claimBody = (party: string, envelopeCt: string) => ({ kind: "claim-refund", auction_id: bound.id, party, claim_envelope_sha256: hash(Buffer.from(envelopeCt, "hex")) });
 const strayOwner = (privateHex: string) => ({ private_hex: privateHex, public_hex: ownerPublic(privateHex) });
 let STRAY_CLAIM: any = null, LATE_CLAIM: any = null, STRAY_MEMO = "";
+// The PACKET's claim request carries the sealed box itself (deriveRows opens packet/claims.json); the
+// published doc carries only its hash (benzo verify's claim shape).
 const claimsFor = (settlement: any) => [STRAY_CLAIM, LATE_CLAIM].filter(c => c && (settlement.rows ?? []).some((r: any) => r.party === c.party && r.state === "paid"));
-const claimFor = (party: string, owner: { private_hex: string; public_hex: string }, memoHex?: string) => {
-  const envelopeCt = sealEnvelope(UA_ORCHARD, bound.envelopeKeys.map(k => k.public_hex), "test");
+const publishedClaims = (claims: any[]) => claims.map(({ claim_envelope_ct: _ct, ...rest }) => rest);
+const claimFor = (party: string, owner: { private_hex: string; public_hex: string }, memoHex?: string, sealed?: string) => {
+  // B49: `sealed` overrides the claim's sealed refund box — the crafted-envelope fixtures of proof case (e)
+  // carry an arbitrary plaintext the classifier must never crash on.
+  const envelopeCt = sealed ?? sealEnvelope(UA_ORCHARD, bound.envelopeKeys.map(k => k.public_hex), "test");
   const body = claimBody(party, envelopeCt);
-  return { party, claim_envelope_sha256: body.claim_envelope_sha256, owner_sig: signStatement(owner, body), ...(memoHex ? { memo_hex: memoHex } : {}) };
+  return { party, claim_envelope_sha256: body.claim_envelope_sha256, claim_envelope_ct: envelopeCt, owner_sig: signStatement(owner, body), ...(memoHex ? { memo_hex: memoHex } : {}) };
 };
 // The scan notes. The bid deposit is spent by the obligations batch (recorded in the plan's ledger); the
 // stray and late notes are unspent (case 1) or spent by their refund batches (case 2) or — the R103
 // fungibility case — the stray's note was swept into change by a prior batch while its row is still unpaid.
-const vaultNotes = (fx: Fixture, opts: { straySpent?: string | null; lateSpent?: string | null; strayChange?: boolean } = {}) => [...fx.notes.map(n => ({ ...n, spent_in_txid: TX_OBLIG })),
-  { txid: STRAY_TXID, height: 99100, pool: "ironwood", address: fx.manifest.deposit_addresses[0], diversifier_index: "7", action_index: 0, value_zats: 500000, memo_hex: null, spent_in_txid: opts.straySpent ?? null },
-  { txid: CHANGE_TXID, height: 99200, pool: "ironwood", address: CHANGE_ADDR, diversifier_index: "8", action_index: 0, value_zats: 35000, memo_hex: null, spent_in_txid: null },
+// B49 ("paid" means approved AND mined): every mined batch's CHANGE note is the scan's own evidence that the
+// batch's txid mined at that height (settle/deposits.ts paidByOwnLedger) — `changes` names the mined batches
+// whose change is in the vault (the honest world: the obligations batch and both refund batches),
+// `strayInput` adds the note the stray refund batch really spent while the stray's own note stayed unspent
+// (the wallet picks the inputs — fungibility), and `depositsUnspent` leaves the bid deposits unclaimed
+// (the cancelled world).
+const CHANGE_OF: Record<string, [number, number]> = { [TX_OBLIG]: [99200, 35000], [TX_REFUND_S]: [99600, 1000], [TX_REFUND_L]: [99610, 1000] };
+const vaultNotes = (fx: Fixture, opts: { straySpent?: string | null; lateSpent?: string | null; strayChange?: boolean; changes?: string[]; changesHeight?: number; strayInput?: boolean; depositsUnspent?: boolean } = {}) => [...fx.notes.map(n => ({ ...n, spent_in_txid: opts.depositsUnspent ? null : TX_OBLIG })),
+  // B49: the stray carries its own sealed-bid memo (STRAY_MEMO, set in the setup block) — a real stray
+  // deposit does — so its claim-based row derives exactly like the live flow's (proof case (e) then shows
+  // the crafted claim taking that row away).
+  { txid: STRAY_TXID, height: 99100, pool: "ironwood", address: fx.manifest.deposit_addresses[0], diversifier_index: "7", action_index: 0, value_zats: 500000, memo_hex: STRAY_MEMO, spent_in_txid: opts.straySpent ?? null },
   { txid: RES_TXID, height: 99050, pool: "ironwood", address: FEE_RESERVE_UA, diversifier_index: "9", action_index: 0, value_zats: 20000, memo_hex: null, spent_in_txid: null },
   { txid: LATE_TXID, height: 99300, pool: "ironwood", address: BAL_ADDR, diversifier_index: "10", action_index: 0, value_zats: 499999, memo_hex: null, spent_in_txid: opts.lateSpent ?? null },
+  ...(opts.strayInput ? [{ txid: INPUT_TXID, height: 99040, pool: "ironwood", address: CHANGE2_ADDR, diversifier_index: "12", action_index: 0, value_zats: 600000, memo_hex: null, spent_in_txid: TX_REFUND_S }] : []),
+  ...(opts.changes ?? [TX_OBLIG, TX_REFUND_S, TX_REFUND_L]).map(txid => ({ txid, height: opts.changesHeight ?? CHANGE_OF[txid][0], pool: "ironwood", address: CHANGE_ADDR, diversifier_index: "8", action_index: 0, value_zats: CHANGE_OF[txid][1], memo_hex: null, spent_in_txid: null })),
   ...(opts.strayChange ? [{ txid: CHANGE2_TXID, height: 99400, pool: "ironwood", address: CHANGE2_ADDR, diversifier_index: "11", action_index: 0, value_zats: 500000, memo_hex: null, spent_in_txid: null }] : [])];
 const obligationRows = (fx: Fixture) => [...modeEntry(fx.manifestPacket).obligations(fx.result as any, { defaults: [], balance_refunds: [] })].map(([party, amount_zats]) => ({ party, amount_zats }));
 
@@ -126,7 +168,10 @@ const obligationRows = (fx: Fixture) => [...modeEntry(fx.manifestPacket).obligat
 // variant — the one `reserve-return` row, receipt and published accounting (the vault's whole unspent value
 // and the fee; the destination itself is never published, only the manifest commitment). Every paying
 // txid carries its two agreeing maps (verify's defaults tie-break refuses an unattested paying batch).
-const settlementFor = (fx: Fixture, opts: { strayPaid?: boolean; latePaid?: boolean; hideStrayRow?: boolean; returned?: boolean; forged?: boolean; dropReceiptOf?: string } = {}) => {
+const settlementFor = (fx: Fixture, opts: { strayPaid?: boolean; latePaid?: boolean; hideStrayRow?: boolean; returned?: boolean; forged?: boolean; dropReceiptOf?: string; strayTxid?: string } = {}) => {
+  // B49: `strayTxid` names the batch that (claims to have) paid the stray — the honest refund txid, or a
+  // DEAD_TXID for the "approved but never-broadcast batch" receipts of proof case (b).
+  const strayTx = opts.strayTxid ?? TX_REFUND_S;
   const obs = obligationRows(fx);
   const rows: any[] = obs.map((o, i) => ({ party: o.party, kind: o.party === "seller" ? "payout" : "refund", amount_zats: o.amount_zats, state: "paid", batch: 1, txid: TX_OBLIG, output_index: i, pool: "ironwood" }));
   const receipts: any[] = obs.map((o, i) => ({ auction_id: fx.id, party: o.party, txid: TX_OBLIG, pool: "ironwood", output_index: i, amount_zats: o.amount_zats }));
@@ -134,8 +179,8 @@ const settlementFor = (fx: Fixture, opts: { strayPaid?: boolean; latePaid?: bool
   const pair = (batch: number, txid: string, outputs: any[], balance_refunds: any[], strays?: any[]) =>
     maps.push(...[0, 1].map(w => signApprovalMap({ auction_id: fx.id, batch, txid, outputs, defaults: [], balance_refunds, ...(strays ? { strays } : {}) }, witnessPrivate(String(w)))));
   if (!opts.hideStrayRow) {
-    rows.push({ party: strayParty(), kind: "refund", amount_zats: STRAY_VALUE, state: opts.strayPaid ? "paid" : "exception", ...(opts.strayPaid ? { batch: 2, txid: TX_REFUND_S, output_index: 0 } : {}), pool: "ironwood" });
-    if (opts.strayPaid) { receipts.push({ auction_id: fx.id, party: strayParty(), txid: TX_REFUND_S, pool: "ironwood", output_index: 0, amount_zats: STRAY_VALUE }); pair(2, TX_REFUND_S, [{ party: strayParty(), output_index: 0 }], [], [{ party: strayParty(), memo_sha256: hash(Buffer.from(STRAY_MEMO, "hex")) }]); }
+    rows.push({ party: strayParty(), kind: "refund", amount_zats: STRAY_VALUE, state: opts.strayPaid ? "paid" : "exception", ...(opts.strayPaid ? { batch: 2, txid: strayTx, output_index: 0 } : {}), pool: "ironwood" });
+    if (opts.strayPaid) { receipts.push({ auction_id: fx.id, party: strayParty(), txid: strayTx, pool: "ironwood", output_index: 0, amount_zats: STRAY_VALUE }); pair(2, strayTx, [{ party: strayParty(), output_index: 0 }], [], [{ party: strayParty(), memo_sha256: hash(Buffer.from(STRAY_MEMO, "hex")) }]); }
   }
   const balances: any[] = [];
   if (opts.latePaid) {
@@ -161,14 +206,17 @@ const settlementFor = (fx: Fixture, opts: { strayPaid?: boolean; latePaid?: bool
   if (opts.dropReceiptOf) { const at = receipts.findIndex(r => r.party === opts.dropReceiptOf); if (at >= 0) receipts.splice(at, 1); }
   return settlement;
 };
-const writeSettledDir = (dir: string, fx: Fixture, settlement: any) => {
+const writeSettledDir = (dir: string, fx: Fixture, settlement: any, opts: { claims?: any[]; cancelled?: boolean } = {}) => {
   rmSync(dir, { recursive: true, force: true }); mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "auction.json"), jsonBytes({ version: 1, auction_id: fx.id, signer: fx.signer, manifest: fx.manifestPacket, state: "SETTLED",
-    receipts: fx.receipts, frozen: fx.frozen, result: fx.result, opened: fx.opened, beacon: fx.beacon,
-    witness_set: fx.witnessSet, witness_cert: fx.witnessCert, envelopes: fx.envelopes,
+  // B49: `cancelled` writes the CANCELLED public doc (no frozen set, no result — the packet shape proof case
+  // (a) runs, where deriveRows runs no benzo verify); `claims` overrides the published claims (the crafted
+  // envelope fixtures of proof case (e)).
+  const claims = opts.claims ?? claimsFor(settlement);
+  writeFileSync(path.join(dir, "auction.json"), jsonBytes({ version: 1, auction_id: fx.id, signer: fx.signer, manifest: fx.manifestPacket, state: opts.cancelled ? "CANCELLED" : "SETTLED",
+    receipts: opts.cancelled ? [] : fx.receipts, ...(opts.cancelled ? { beacon: fx.beacon } : { frozen: fx.frozen, result: fx.result, opened: fx.opened, beacon: fx.beacon, witness_set: fx.witnessSet, witness_cert: fx.witnessCert }), envelopes: fx.envelopes,
     // R13: every claim-paid row carries its published claim (only the paid ones publish — the publisher
     // never publishes a pending row's claim).
-    ...(() => { const claims = claimsFor(settlement); return claims.length ? { claims } : {}; })(),
+    ...(claims.length ? { claims: publishedClaims(claims) } : {}),
     settlement }));
   writeFileSync(path.join(dir, "manifest.json"), jsonBytes(fx.manifestPacket));
 };
@@ -177,7 +225,7 @@ const writeSettledDir = (dir: string, fx: Fixture, settlement: any) => {
 // pointing at the published document (the plan then cross-checks its fresh openings and clearing against it).
 // Two agreeing signed envelope-opens reports gate the leaf refunds exactly like a live settle. The ledger
 // records the obligations batch as a mined batch, so the bid deposit shows spent and `no batch is pending`.
-const writePlanState = (state: string, fx: Fixture, notes: any[], publicDir: string) => {
+const writePlanState = (state: string, fx: Fixture, notes: any[], publicDir: string, opts: { confirmed?: string[] } = {}) => {
   rmSync(state, { recursive: true, force: true });
   writeHostState(state, { ...fx, notes }, REAL_PCZT);
   const fixFile = path.join(state, "fixture.json");
@@ -194,16 +242,33 @@ const writePlanState = (state: string, fx: Fixture, notes: any[], publicDir: str
     const body = { signer: n, opens: fx.leaves.map((l: any) => ({ leaf: l.leaf_index, party: `leaf:${l.leaf_index}`, ok: true, dest_sha256: dest })) };
     writeFileSync(path.join(state, "settle", fx.id, `envelope-opens-${n}.json`), jsonBytes({ ...body, ...signOpensReport(body, witnessPrivate(w)) }));
   }
+  // B49 ("paid" means approved AND mined): the coordinator's own settle ledger of PAID rows — one batch per
+  // receipted txid, its rows confirmed exactly as the real worker confirms them. `confirmed` names the txids
+  // its ledger actually confirmed; a receipted txid outside it (proof case (b): approved but never
+  // broadcast) is only a staged batch, and its receipt must never count as paid.
+  const receipts: any[] = JSON.parse(readFileSync(path.join(publicDir, "auction.json"), "utf8")).settlement?.receipts ?? [];
+  const confirmed = opts.confirmed ?? [...new Set(receipts.map((r: any) => r.txid))];
   const ledger = new Ledger(state, fx.id);
-  const pczt = path.join(state, "settle", fx.id, "batch-obligations.pczt");
-  writeFileSync(pczt, `b46 fixture obligations batch ${TX_OBLIG}\n`);
-  ledger.db.prepare("INSERT INTO batches(id,pczt_path,pczt_hash,txid,height,state) VALUES(1,?,?,?,99500,'staged')")
-    .run(pczt, createHash("sha256").update(readFileSync(pczt)).digest("hex"), TX_OBLIG);
+  for (const [i, txid] of confirmed.entries()) {
+    const pczt = path.join(state, "settle", fx.id, `batch-${i + 1}.pczt`);
+    writeFileSync(pczt, `b46 fixture batch ${txid}\n`);
+    ledger.db.prepare("INSERT INTO batches(id,pczt_path,pczt_hash,txid,height,state) VALUES(?,?,?,?,'99500','staged')")
+      .run(i + 1, pczt, createHash("sha256").update(readFileSync(pczt)).digest("hex"), txid);
+    for (const r of receipts.filter((r: any) => r.txid === txid))
+      ledger.db.prepare("INSERT INTO obligations(party,kind,amount_zats,state,batch,txid,output_index,pool) VALUES(?,?,?,?,?,?,?,?)")
+        .run(r.party, r.party === "seller" || r.party === "reserve-return" ? "payout" : "refund", String(r.amount_zats), r.party === "seller" || r.party === "reserve-return" ? "paid" : "refunded", i + 1, txid, Number(r.output_index), String(r.pool ?? "ironwood"));
+  }
+  for (const [i, txid] of receipts.map((r: any) => r.txid).filter((t: string) => !confirmed.includes(t)).entries()) {
+    const pczt = path.join(state, "settle", fx.id, `batch-dead-${i}.pczt`);
+    writeFileSync(pczt, `b46 fixture staged-but-unmined batch ${txid}\n`);
+    ledger.db.prepare("INSERT INTO batches(id,pczt_path,pczt_hash,txid,height,state) VALUES(?,?,?,?,NULL,'staged')")
+      .run(100 + i, pczt, createHash("sha256").update(readFileSync(pczt)).digest("hex"), txid);
+  }
   ledger.db.close();
 };
-const runPlan = (label: string, planBundle: string, fx: Fixture, notes: any[], publicDir: string, bnzRoot: string) => {
+const runPlan = (label: string, planBundle: string, fx: Fixture, notes: any[], publicDir: string, bnzRoot: string, opts: { confirmed?: string[] } = {}) => {
   const state = path.join(WORK, "state-plan-" + label);
-  writePlanState(state, fx, notes, publicDir);
+  writePlanState(state, fx, notes, publicDir, opts);
   const r = spawnSync(process.execPath, [planBundle, fx.id], { input: "{}", encoding: "utf8", maxBuffer: 64 << 20,
     env: { ...process.env, BNZ_STATE_DIR: state, BNZ_SCAN_BIN: path.join(state, "bin", "benzo-scan"), BNZ_PCZT_BIN: path.join(state, "bin", "benzo-pczt"),
       BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/", BNZ_ROOT: bnzRoot } });
@@ -213,20 +278,47 @@ const runPlan = (label: string, planBundle: string, fx: Fixture, notes: any[], p
 
 // ---- host-command harness (the real `sign build` / `sign approve` / `sign derivable` against the stub externals).
 const hostEnv = (state: string) => ({ BNZ_STATE_DIR: state, BNZ_PCZT_BIN: path.join(state, "bin", "benzo-pczt"), BNZ_SCAN_BIN: path.join(state, "bin", "benzo-scan"), BNZ_LWD_URL: "127.0.0.1:9", BNZ_LWD_URL_ALT: "127.0.0.1:10", BNZ_DRAND_URLS: "http://127.0.0.1:9/" });
-const writeHostFixture = (label: string, fx: Fixture, notes: any[]) => {
+// B49 ("paid" means approved AND mined): this host's own approval ledger (approvals/<id>/ledger.json) —
+// one entry per approved batch with its mapped outputs at their amounts. `approved` names the txids this
+// host approved (empty for the fabricated-receipt world of proof case (a)); every source is written in the
+// PRE-B49 namespaces exactly as an old ledger file has them, so a refusal against these entries is the
+// migrate-on-read proof too.
+const sourceFor = (fx: Fixture, party: string): string => {
+  if (party === "seller" || party === "treasury") return party;
+  if (party.startsWith("leaf:")) { const n = fx.notes[Number(party.slice(5))]; return `deposit:${n.txid}:ironwood:${n.action_index}`; }
+  return party;
+};
+const seedApprovalLedger = (state: string, fx: Fixture, settlement: any, approved: string[] | null) => {
+  const byTxid = new Map<string, any[]>();
+  for (const r of (settlement?.receipts ?? []) as any[]) {
+    if (approved && !approved.includes(r.txid)) continue;
+    if (!byTxid.has(r.txid)) byTxid.set(r.txid, []);
+    byTxid.get(r.txid)!.push(r);
+  }
+  const entries = [...byTxid].map(([txid, rs], i) => ({ batch: i + 1, txid, expiry_height: 100500, approved_tip: 99000,
+    sources: [...new Set(rs.map(r => sourceFor(fx, r.party)))],
+    mapped: rs.map(r => ({ party: r.party, output_index: Number(r.output_index), amount_zats: String(r.amount_zats) })) }));
+  mkdirSync(path.join(state, "approvals", fx.id), { recursive: true, mode: 0o700 });
+  writeFileSync(path.join(state, "approvals", fx.id, "ledger.json"), JSON.stringify(entries) + "\n", { mode: 0o600 });
+};
+const writeHostFixture = (label: string, fx: Fixture, notes: any[], opts: { settlement?: any; approved?: string[] } = {}) => {
   const state = path.join(WORK, "state-" + label);
   writeHostState(state, { ...fx, notes }, REAL_PCZT);
   const fixFile = path.join(state, "fixture.json");
   writeFileSync(fixFile, JSON.stringify({ ...JSON.parse(readFileSync(fixFile, "utf8")), internal_addresses: [CHANGE_ADDR, CHANGE2_ADDR] }));
   mkdirSync(path.join(state, "witness"), { recursive: true, mode: 0o700 });
   writeFileSync(path.join(state, "witness", "alice.key"), witnessPrivate("0"), { mode: 0o600 });
+  if (opts.settlement) seedApprovalLedger(state, fx, opts.settlement, opts.approved ?? null);
   return state;
 };
-const writePacket = (label: string, fx: Fixture, settlement: any, meta: any, rows?: any[], candidate?: { pays: string; amount: string; input_zats?: string }) => {
+const writePacket = (label: string, fx: Fixture, settlement: any, meta: any, rows?: any[], candidate?: { pays: string; amount: string; input_zats?: string }, opts: { claims?: any[]; cancelled?: boolean } = {}) => {
   const dir = path.join(WORK, "packet-" + label);
-  writeSettledDir(path.join(dir, "public"), fx, settlement);
+  writeSettledDir(path.join(dir, "public"), fx, settlement, opts);
   const full: any = { auction_id: fx.id, signer: fx.signer, seller_ua: UA_ORCHARD, reserve_return_ua: UA_ORCHARD, ...meta };
   if (rows) writeFileSync(path.join(dir, "rows.json"), jsonBytes(rows));
+  // The recorded claim requests travel in the PACKET (deriveRows opens packet/claims.json); the published
+  // doc carries the same claims (writeSettledDir). `opts.claims` overrides both (the crafted envelopes).
+  writeFileSync(path.join(dir, "claims.json"), jsonBytes(opts.claims ?? claimsFor(settlement)));
   if (candidate) {
     const content = JSON.stringify({ rows: [{ recipient: candidate.pays, amount_zats: candidate.amount }], ...(candidate.input_zats !== undefined ? { input_zats: candidate.input_zats } : {}) });
     writeFileSync(path.join(dir, "candidate.pczt"), content);
@@ -288,6 +380,80 @@ if (part === "before") {
   const b = runPlan("red-bound", BASE_PLAN, bound, vaultNotes(bound, { straySpent: TX_REFUND_S, lateSpent: TX_REFUND_L }), pubBound, BASE);
   check("red-plan-bound-manifest-unreadable", b.code !== 0 && /unknown or missing manifest field/.test(b.err),
     `the base manifest schema cannot even represent reserve_return_ua_commitment: ${(b.err || b.out).trim().split("\n").at(-1)?.slice(0, 120)}`);
+
+  console.log("=== B49 red on the base commit 7c4e661: a published receipt is trusted as paid (P0-1/P2-2), and the prefetch throws (P1-1)");
+  const settledB49 = settlementFor(bound, { strayPaid: true, latePaid: true });
+  const settledNotesB49 = vaultNotes(bound, { straySpent: TX_REFUND_S, lateSpent: TX_REFUND_L });
+  const buildReturn = (label: string, benzo: string, settlement: any, notes: any[], opts: { claims?: any[]; cancelled?: boolean; approved?: string[] } = {}) => {
+    const amount = reserveReturnAmount(notes as any);
+    const state = writeHostFixture(label, bound, notes, { settlement, ...(opts.approved !== undefined ? { approved: opts.approved } : {}) });
+    const dir = writePacket(label, bound, settlement, { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: amount.amount_zats } },
+      [{ party: "reserve-return", kind: "payout", amount_zats: amount.amount_zats }], undefined, { ...(opts.claims ? { claims: opts.claims } : {}), ...(opts.cancelled ? { cancelled: true } : {}) });
+    const r = sh(benzo, ["sign", "build", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
+    const built = existsSync(path.join(dir, "build.json")) ? JSON.parse(readFileSync(path.join(dir, "build.json"), "utf8")) : null;
+    return { r, dir, amount, out: (built?.outputs ?? []).find((o: any) => o.party === "reserve-return") ?? null };
+  };
+  // (a) a CANCELLED auction with unclaimed strays plus FABRICATED packet receipts — no rows, no approval
+  // maps, no chain reality needed. The base hosts build the sweeping return.
+  {
+    const notes = vaultNotes(bound, { depositsUnspent: true, changes: [], straySpent: null, lateSpent: null });
+    const fabricated = { rows: [], ignored: [], defaults: [], balance_refunds: [], approval_maps: [],
+      receipts: [
+        { auction_id: bound.id, party: depositParty(bound.notes[0]), txid: hash("b46-fabricated-1"), pool: "ironwood", output_index: 0, amount_zats: String(bound.notes[0].value_zats) },
+        { auction_id: bound.id, party: strayParty(), txid: hash("b46-fabricated-2"), pool: "ironwood", output_index: 0, amount_zats: STRAY_VALUE }] };
+    const { r, out, amount } = buildReturn("a-fabricated-base", BASE49_BENZO, fabricated, notes, { cancelled: true, approved: [] });
+    check("a-red-fabricated-receipts-build-the-sweep", r.code === 0 && !!out && out.amount_zats === amount.amount_zats,
+      `the base hosts BUILD the return that sweeps the unclaimed strays (${out?.amount_zats} zats) on coordinator-fabricated receipts: exit ${r.code}, ${(r.err || r.out).trim().split("\n").filter((l: string) => /^ERROR/.test(l)).at(-1)?.slice(0, 160) ?? ""}`);
+  }
+  // (b) a cleared auction plus receipts of an approved but never-broadcast batch: the base hosts build and
+  // the base plan plans the return on the dead batch's receipt.
+  {
+    const deadSettlement = settlementFor(bound, { strayPaid: true, strayTxid: DEAD_TXID, latePaid: true });
+    const deadNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG, TX_REFUND_L] });
+    const { r, out, amount } = buildReturn("b-dead-base", BASE49_BENZO, deadSettlement, deadNotes);
+    check("b-red-dead-batch-receipt-builds-the-sweep", r.code === 0 && !!out && out.amount_zats === amount.amount_zats,
+      `the base hosts BUILD the return on the never-broadcast batch's receipt (exit ${r.code}, ${out?.amount_zats} zats)`);
+    const pubDead = path.join(WORK, "public-dead-base"); writeSettledDir(pubDead, bound, deadSettlement);
+    const p = runPlan("dead-base", BASE49_PLAN, bound, deadNotes, pubDead, BASE49, { confirmed: [TX_OBLIG, TX_REFUND_L] });
+    check("b-red-dead-batch-receipt-plans-the-return", p.code === 0 && !!p.parsed && !!p.parsed.reserve_return,
+      `the base plan PLANS the return on the dead batch's receipt (${JSON.stringify(p.parsed?.reserve_return ?? null)})`);
+  }
+  // (c) a receipt whose transaction was mined and then reorged out (the stub scan drops its traces): the
+  // base hosts still treat the row as paid and build the return.
+  {
+    const reorgSettlement = settlementFor(bound, { strayPaid: true, latePaid: true });
+    const reorgNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG, TX_REFUND_L] });
+    const { r, out } = buildReturn("c-reorg-base", BASE49_BENZO, reorgSettlement, reorgNotes);
+    check("c-red-reorged-receipt-builds-the-sweep", r.code === 0 && !!out,
+      `the base hosts BUILD the return although the refund's transaction was reorged out (exit ${r.code})`);
+  }
+  // (e) the reviewer's two crafted envelopes (empty refund; NUL and newline) in the packet's claims freeze
+  // every host's sign derivable on the base.
+  {
+    const emptyRefund = await craftedEnvelope('{"v":2,"refund":""}', bound.envelopeKeys.map(k => k.public_hex));
+    const nulRefund = await craftedEnvelope("a\u0000b\nc", bound.envelopeKeys.map(k => k.public_hex));
+    const craftedClaims = [
+      claimFor(strayParty(), strayOwner(createHash("sha256").update("b46-stray-depositor").digest("hex")), STRAY_MEMO, emptyRefund),
+      claimFor(lateParty(), strayOwner(ownerPrivate("0")), undefined, nulRefund)];
+    const state = writeHostFixture("e-crafted-base", bound, settledNotesB49, { settlement: settledB49 });
+    const dir = writePacket("e-crafted-base", bound, settledB49, {}, undefined, undefined, { claims: craftedClaims });
+    const r = sh(BASE49_BENZO, ["sign", "derivable", "--id", bound.id, "--packet", dir, "--name", "alice"], hostEnv(state));
+    check("e-red-crafted-envelopes-freeze-derivable", r.code !== 0 && /refused: destination|null bytes/.test(r.err),
+      `one crafted record freezes sign derivable for every host: exit ${r.code}, ${(r.err || r.out).trim().split("\n").filter(l => /^ERROR/.test(l)).at(-1)?.slice(0, 140) ?? ""}`);
+  }
+  // (f) a cross-kind re-spend: the reserve sweep re-spends a note a live approved ordinary batch already
+  // sources — the two source namespaces never collide on the base, so both candidates are approved.
+  {
+    const fNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, strayInput: true });
+    const fSettlement = settlementFor(bound, { strayPaid: true, latePaid: true });
+    const amount = reserveReturnAmount(fNotes as any);
+    const state = writeHostFixture("f-cross-base", bound, fNotes, { settlement: fSettlement });
+    const dir = writePacket("f-cross-base", bound, fSettlement, { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: amount.amount_zats } }, undefined, { pays: UA_ORCHARD, amount: amount.amount_zats! });
+    const r = sh(BASE49_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
+    const recorded = existsSync(path.join(state, "approvals", bound.id, "batch-1.json"));
+    check("f-red-cross-kind-respend-approved", r.code === 0 && recorded,
+      `the base hosts approve the sweep that re-spends a note a live ordinary batch already sources (the two namespaces never collide): exit ${r.code}, approval ${recorded ? "recorded" : "missing"}`);
+  }
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
 } else {
@@ -410,7 +576,7 @@ if (part === "before") {
   const reserveRow = { party: "reserve-return", kind: "payout", amount_zats: RESERVE_AMOUNT };
   const reserveMeta = { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: RESERVE_AMOUNT } };
   {
-    const state = writeHostFixture("honest-build", bound, settledNotes);
+    const state = writeHostFixture("honest-build", bound, settledNotes, { settlement: settled });
     const dir = writePacket("honest-build", bound, settled, reserveMeta, [reserveRow]);
     const r = sh(GREEN_BENZO, ["sign", "build", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
     const built = existsSync(path.join(dir, "build.json")) ? JSON.parse(readFileSync(path.join(dir, "build.json"), "utf8")) : null;
@@ -420,7 +586,7 @@ if (part === "before") {
       `${r.code === 0 ? `built the reserve-return row (${out?.amount_zats} zats to the committed return UA; inspect input_zats = the scanned ${REMAINING})` : `exit ${r.code}: ${(r.err || r.out).trim().split("\n").at(-1)?.slice(0, 160)}`}`);
   }
   {
-    const state = writeHostFixture("honest-derivable", bound, settledNotes);
+    const state = writeHostFixture("honest-derivable", bound, settledNotes, { settlement: settled });
     const dir = writePacket("honest-derivable", bound, settled, {});
     const r = sh(GREEN_BENZO, ["sign", "derivable", "--id", bound.id, "--packet", dir, "--name", "alice"], hostEnv(state));
     let listed = false;
@@ -429,7 +595,7 @@ if (part === "before") {
       `${r.code === 0 && listed ? "lists the reserve-return row at the plan's amount" : `exit ${r.code}: ${(r.err || r.out).trim().split("\n").at(-1)?.slice(0, 160)}`}`);
   }
   {
-    const state = writeHostFixture("honest-approve", bound, settledNotes);
+    const state = writeHostFixture("honest-approve", bound, settledNotes, { settlement: settled });
     const dir = writePacket("honest-approve", bound, settled, { reserve_row: { amount_zats: RESERVE_AMOUNT } }, undefined, { pays: UA_ORCHARD, amount: RESERVE_AMOUNT });
     const r = sh(GREEN_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
     const recorded = existsSync(path.join(state, "approvals", bound.id, "batch-1.json"));
@@ -441,7 +607,7 @@ if (part === "before") {
   console.log("=== green hosts: typed refusals (exit 3, named rows)");
   for (const [name, args, candidate] of [["build", ["sign", "build", "--id", bound.id, "--batch", "1"], false],
     ["approve", ["sign", "approve", "--id", bound.id, "--batch", "1"], true]] as [string, string[], boolean][]) {
-    const state = writeHostFixture(`wrong-ua-${name}`, bound, settledNotes);
+    const state = writeHostFixture(`wrong-ua-${name}`, bound, settledNotes, { settlement: settled });
     const dir = writePacket(`wrong-ua-${name}`, bound, settled, reserveMeta, name === "build" ? [reserveRow] : undefined,
       candidate ? { pays: UA_SAPLING_ONLY, amount: RESERVE_AMOUNT } : undefined);
     const meta = JSON.parse(readFileSync(path.join(dir, "packet.json"), "utf8"));
@@ -453,7 +619,7 @@ if (part === "before") {
     if (name === "build" && existsSync(path.join(dir, "build.json"))) fail(`sign-${name}-wrong-return-ua-no-build`, "build.json was written for a refused packet");
   }
   {
-    const state = writeHostFixture("wrong-ua-derivable", bound, settledNotes);
+    const state = writeHostFixture("wrong-ua-derivable", bound, settledNotes, { settlement: settled });
     const dir = writePacket("wrong-ua-derivable", bound, settled, {});
     const meta = JSON.parse(readFileSync(path.join(dir, "packet.json"), "utf8"));
     meta.reserve_return_ua = UA_SAPLING_ONLY;
@@ -465,17 +631,17 @@ if (part === "before") {
   {
     // R103's input check: a candidate whose inspect input_zats is below this signer's scanned unspent total
     // leaves notes behind (someone else can sweep them) — refused typedly.
-    const state = writeHostFixture("low-input", bound, settledNotes);
+    const state = writeHostFixture("low-input", bound, settledNotes, { settlement: settled });
     const dir = writePacket("low-input", bound, settled, { reserve_row: { amount_zats: RESERVE_AMOUNT } }, undefined, { pays: UA_ORCHARD, amount: RESERVE_AMOUNT, input_zats: "100" });
     const r = sh(GREEN_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
-    const named = /input_zats 100 differs from this signer's scanned unspent total 55000/.test(r.err);
+    const named = /input_zats 100 differs from this signer's scanned unspent total 57000/.test(r.err);
     check("sign-approve-input-below-scanned-total-refused", r.code === 3 && typedRefusal(r.err) && named,
       `${r.code === 3 && typedRefusal(r.err) && named ? "typed refusal: input_zats below the scanned unspent total" : `exit ${r.code}`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 160) ?? ""}`);
   }
   {
     // The output must be exactly the scanned total minus the fee — a candidate paying anything else is
     // refused typedly (the amount is the ONLY thing that can protect unclaimed value; R103).
-    const state = writeHostFixture("wrong-amount", bound, settledNotes);
+    const state = writeHostFixture("wrong-amount", bound, settledNotes, { settlement: settled });
     const dir = writePacket("wrong-amount", bound, settled, { reserve_row: { amount_zats: RESERVE_AMOUNT } }, undefined, { pays: UA_ORCHARD, amount: "44999" });
     const r = sh(GREEN_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
     const named = /is not this signer's unspent total minus the fee/.test(r.err);
@@ -484,7 +650,7 @@ if (part === "before") {
   }
   {
     // A return planned while something is still outstanding (the unclaimed stray + late balance world).
-    const state = writeHostFixture("before-receipts", bound, vaultNotes(bound));
+    const state = writeHostFixture("before-receipts", bound, vaultNotes(bound), { settlement: outstanding });
     const dir = writePacket("before-receipts", bound, outstanding, reserveMeta, [reserveRow]);
     const r = sh(GREEN_BENZO, ["sign", "build", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
     const named = /still owes 2 outstanding \(strays\/balances\/exceptions\)/.test(r.err);
@@ -568,6 +734,101 @@ if (part === "before") {
       `a reserve-return receipt without its published accounting is refused: ${(miss.err || miss.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 140)}`);
   }
 
+  // ---- J. B49: "paid" means this host approved it AND its own scan shows it mined 10 deep -----------
+  console.log("=== B49 (a): a cancelled auction with unclaimed strays and FABRICATED receipts — the hosts refuse");
+  {
+    const notes = vaultNotes(bound, { depositsUnspent: true, changes: [], straySpent: null, lateSpent: null });
+    const fabricated = { rows: [], ignored: [], defaults: [], balance_refunds: [], approval_maps: [],
+      receipts: [
+        { auction_id: bound.id, party: depositParty(bound.notes[0]), txid: hash("b46-fabricated-1"), pool: "ironwood", output_index: 0, amount_zats: String(bound.notes[0].value_zats) },
+        { auction_id: bound.id, party: strayParty(), txid: hash("b46-fabricated-2"), pool: "ironwood", output_index: 0, amount_zats: STRAY_VALUE }] };
+    const amount = reserveReturnAmount(notes as any);
+    const state = writeHostFixture("a-fabricated", bound, notes, { settlement: fabricated, approved: [] });
+    const dir = writePacket("a-fabricated", bound, fabricated, { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: amount.amount_zats } },
+      [{ party: "reserve-return", kind: "payout", amount_zats: amount.amount_zats }], undefined, { cancelled: true });
+    const r = sh(GREEN_BENZO, ["sign", "build", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
+    const named = /still owes 2 outstanding/.test(r.err) && r.err.includes(strayParty()) && r.err.includes(depositParty(bound.notes[0]));
+    check("a-fabricated-receipts-refused", r.code === 3 && typedRefusal(r.err) && named,
+      `${r.code === 3 && typedRefusal(r.err) && named ? "typed refusal naming both unclaimed strays" : `exit ${r.code}`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 200) ?? ""}`);
+    if (existsSync(path.join(dir, "build.json"))) fail("a-fabricated-no-build", "build.json was written for the fabricated-receipt packet");
+  }
+  console.log("=== B49 (b): receipts of an approved but never-broadcast batch — the plan and the hosts refuse");
+  {
+    const deadSettlement = settlementFor(bound, { strayPaid: true, strayTxid: DEAD_TXID, latePaid: true });
+    const deadNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG, TX_REFUND_L] });
+    const amount = reserveReturnAmount(deadNotes as any);
+    const state = writeHostFixture("b-dead", bound, deadNotes, { settlement: deadSettlement });
+    const dir = writePacket("b-dead", bound, deadSettlement, { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: amount.amount_zats } },
+      [{ party: "reserve-return", kind: "payout", amount_zats: amount.amount_zats }]);
+    const r = sh(GREEN_BENZO, ["sign", "build", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
+    const named = /still owes 1 outstanding/.test(r.err) && r.err.includes(strayParty());
+    check("b-dead-batch-receipt-refused", r.code === 3 && typedRefusal(r.err) && named,
+      `${r.code === 3 && typedRefusal(r.err) && named ? "typed refusal naming the stray the dead batch was to refund" : `exit ${r.code}`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 200) ?? ""}`);
+    const pubDead = path.join(WORK, "public-dead"); writeSettledDir(pubDead, bound, deadSettlement);
+    const p = runPlan("dead", GREEN_PLAN, bound, deadNotes, pubDead, ROOT, { confirmed: [TX_OBLIG, TX_REFUND_L] });
+    const waits = (p.err.match(/^reserve return waits: 1 outstanding \(strays\/balances\/exceptions\)$/m) ?? []);
+    check("b-dead-batch-plan-waits", p.code === 0 && !!p.parsed && p.parsed.reserve_return === undefined && waits.length === 1,
+      `the plan plans NO return on the dead batch's receipt (the coordinator's own ledger never confirmed it): ${waits[0] ?? "(no waits line)"}`);
+  }
+  console.log("=== B49 (c): a receipt whose transaction was reorged out — the row is outstanding again");
+  {
+    const reorgSettlement = settlementFor(bound, { strayPaid: true, latePaid: true });
+    const reorgNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, changes: [TX_OBLIG, TX_REFUND_L] });
+    const amount = reserveReturnAmount(reorgNotes as any);
+    const state = writeHostFixture("c-reorg", bound, reorgNotes, { settlement: reorgSettlement });
+    const dir = writePacket("c-reorg", bound, reorgSettlement, { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: amount.amount_zats } },
+      [{ party: "reserve-return", kind: "payout", amount_zats: amount.amount_zats }]);
+    const r = sh(GREEN_BENZO, ["sign", "build", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
+    const named = /still owes 1 outstanding/.test(r.err) && r.err.includes(strayParty());
+    check("c-reorged-receipt-refused", r.code === 3 && typedRefusal(r.err) && named,
+      `${r.code === 3 && typedRefusal(r.err) && named ? "the reorged refund's row is outstanding again and the return is refused" : `exit ${r.code}`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 200) ?? ""}`);
+  }
+  console.log("=== B49 (d): honest receipts mined 10 deep proceed (the F section) — 9 deep refuses");
+  {
+    const shallowNotes = vaultNotes(bound, { straySpent: TX_REFUND_S, lateSpent: TX_REFUND_L, changesHeight: 99992 });
+    const amount = reserveReturnAmount(shallowNotes as any);
+    const state = writeHostFixture("d-shallow", bound, shallowNotes, { settlement: settled });
+    const dir = writePacket("d-shallow", bound, settled, { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: amount.amount_zats } },
+      [{ party: "reserve-return", kind: "payout", amount_zats: amount.amount_zats }]);
+    const r = sh(GREEN_BENZO, ["sign", "build", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
+    check("d-nine-deep-refused", r.code === 3 && typedRefusal(r.err) && /still owes 4 outstanding/.test(r.err),
+      `a paying transaction 9 confirmations deep does not count yet (exit ${r.code}): ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 160) ?? ""}`);
+  }
+  console.log("=== B49 (e): the two crafted envelopes never crash the prefetch; each crafted row is underivable");
+  {
+    const emptyRefund = await craftedEnvelope('{"v":2,"refund":""}', bound.envelopeKeys.map(k => k.public_hex));
+    const nulRefund = await craftedEnvelope("a\u0000b\nc", bound.envelopeKeys.map(k => k.public_hex));
+    const craftedClaims = [
+      claimFor(strayParty(), strayOwner(createHash("sha256").update("b46-stray-depositor").digest("hex")), STRAY_MEMO, emptyRefund),
+      claimFor(lateParty(), strayOwner(ownerPrivate("0")), undefined, nulRefund)];
+    const rowsOf = (out: string) => { try { return (JSON.parse(out.trim().split("\n").filter((l: string) => l.startsWith("{")).at(-1)!).rows ?? []) as any[]; } catch { return []; } };
+    const stateClean = writeHostFixture("e-clean", bound, settledNotes, { settlement: settled });
+    const dirClean = writePacket("e-clean", bound, settled, {});
+    const clean = sh(GREEN_BENZO, ["sign", "derivable", "--id", bound.id, "--packet", dirClean, "--name", "alice"], hostEnv(stateClean));
+    const state = writeHostFixture("e-crafted", bound, settledNotes, { settlement: settled });
+    const dir = writePacket("e-crafted", bound, settled, {}, undefined, undefined, { claims: craftedClaims });
+    const r = sh(GREEN_BENZO, ["sign", "derivable", "--id", bound.id, "--packet", dir, "--name", "alice"], hostEnv(state));
+    const cleanRows = rowsOf(clean.out), craftedRows = rowsOf(r.out);
+    const proceeds = craftedRows.some((x: any) => x.party === "leaf:0") && craftedRows.some((x: any) => x.party === "reserve-return");
+    const underivable = !craftedRows.some((x: any) => x.party === strayParty() || x.party === lateParty()) && cleanRows.some((x: any) => x.party === strayParty()) && cleanRows.some((x: any) => x.party === lateParty());
+    check("e-crafted-envelopes-never-crash", r.code === 0 && clean.code === 0,
+      `sign derivable completes on the crafted packet (exit ${r.code}) exactly like the clean one (exit ${clean.code})`);
+    check("e-crafted-rows-underivable-batch-proceeds", proceeds && underivable,
+      `each crafted row is underivable (${craftedRows.map((x: any) => x.party).join(", ") || "none"} listed) while the batch proceeds (the clean run lists ${cleanRows.map((x: any) => x.party).join(", ")})`);
+  }
+  console.log("=== B49 (f): a cross-kind re-spend is refused — the reserve sweep vs the ordinary batch's source note");
+  {
+    const fNotes = vaultNotes(bound, { straySpent: null, lateSpent: TX_REFUND_L, strayInput: true });
+    const fSettlement = settlementFor(bound, { strayPaid: true, latePaid: true });
+    const amount = reserveReturnAmount(fNotes as any);
+    const state = writeHostFixture("f-cross", bound, fNotes, { settlement: fSettlement });
+    const dir = writePacket("f-cross", bound, fSettlement, { batch: 1, expiry_blocks: 100, reserve_row: { amount_zats: amount.amount_zats } }, undefined, { pays: UA_ORCHARD, amount: amount.amount_zats! });
+    const r = sh(GREEN_BENZO, ["sign", "approve", "--id", bound.id, "--batch", "1", "--packet", dir, "--name", "alice"], hostEnv(state));
+    const src = `${STRAY_TXID}:ironwood:0`;
+    const named = r.err.includes(src) && /can still mine until/.test(r.err);
+    check("f-cross-kind-respend-refused", r.code === 1 && named && !existsSync(path.join(state, "approvals", bound.id, "batch-1.json")),
+      `${r.code === 1 && named ? `the sweep re-spending ${src} (the live ordinary batch's source, migrated from its pre-B49 namespace) is refused` : `exit ${r.code}`}: ${(r.err || r.out).trim().split("\n").filter(l => l.startsWith("ERROR")).at(-1)?.slice(0, 200) ?? ""}`);
+  }
   console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");
   process.exitCode = failed ? 1 : 0;
 }
