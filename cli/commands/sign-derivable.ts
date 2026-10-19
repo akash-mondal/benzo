@@ -41,7 +41,7 @@ export async function run(argv: string[]): Promise<number | object> {
       // coordinator parks the reserve row with it (never "claimable through benzo claim-refund").
       refusedReasons["reserve-return"] = reserve.refusal;
     }
-    const { expected, payout, balanceRefunds, sellerBinding } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
+    const { expected, payout, balanceRefunds, sellerBinding, refusedRows } = await deriveRows({ id: o.id, name: o.name }, state(), repoRoot(), packet, meta);
     // H10 (docs/design/phase7-h10-h11.md): when the signed manifest commits the seller payout address, the
     // packet's seller_ua must hash to it — otherwise the seller row is refused, never a silent pass. A
     // manifest without the field predates H10: the row is listed as before and one WARN line says the
@@ -64,7 +64,13 @@ export async function run(argv: string[]): Promise<number | object> {
     // Ruling R40 item 2 (F2): this host's own per-note late-refund counts (party names and amounts, no
     // recipients and no addresses) — the same derivation the plan publishes as settlement.balance_refunds.
     // B51: a refused-but-not-declared reserve-return row is tagged here (the listing format allows it).
-    return { auction_id: o.id, name: o.name, rows, balance_refunds: balanceRefunds, ...(reserveRefused.length ? { refused_rows: reserveRefused, refused_reasons: refusedReasons } : {}) };
+    // B55 (M1): every pre-R cancelled deposit row that waits rides the listing with its reason — the H21
+    // per-row refused tag AND the top-level refused_rows/refused_reasons (the same surfaces the reserve
+    // refusal uses) — so the coordinator parks each one with the true reason instead of allocating it.
+    for (const r of refusedRows) rows.push({ party: r.party, amount_zats: r.amount_zats, refused: true, reason: r.reason });
+    const refusedAll = [...reserveRefused, ...refusedRows.map(r => r.party)];
+    const refusedWhy = { ...refusedReasons, ...Object.fromEntries(refusedRows.map(r => [r.party, r.reason])) };
+    return { auction_id: o.id, name: o.name, rows, balance_refunds: balanceRefunds, ...(refusedAll.length ? { refused_rows: refusedAll, refused_reasons: refusedWhy } : {}) };
   } catch (e) {
     process.stderr.write(`ERROR sign derivable ${(e as Error).message}\n`);
     return 1;

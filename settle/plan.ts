@@ -260,6 +260,12 @@ try {
       // R15 item 3: the claim's destination is SEALED in its v2 envelope; the owner-signed body carries only
       // the envelope's hash — no plaintext destination and no destination hash an address could be matched to.
       const body={kind:"claim-refund",auction_id:id,party:request.party,claim_envelope_sha256:hash(Buffer.from(request.claim_envelope_ct,"hex"))};
+      // B55 (M1, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §1): a claim before R cannot verify —
+      // its owner key lives in a memo opening that needs the round-R beacon, which no endpoint has produced yet —
+      // so it fails per request with its reason inside this try and NEVER fetches (the rule: before R, the
+      // plan.ts `released` predicate, no path touches drand). The run continues and the deposit stays in the
+      // exception queue; the owner claims it after R.
+      requireThat(released||!isDepositParty(request.party),"claim before release; the owner key is derivable only after R");
       const owner=await ownerKeyFor(request.party);
       requireThat(owner&&verifyStatement(owner!,body,request.owner_sig),"claim owner signature");
       // R11/R13/R15.3: the first claim whose owner signature verifies is the one used — its sealed
@@ -310,7 +316,11 @@ try {
       const party=depositParty(n),row:{party:string;kind:"refund";amount_zats:string}={party,kind:"refund",amount_zats:String(n.value_zats)};
       if(!confirmed(n)) {exceptions.push({...row,reason:"deposit not confirmed; claimable after confirmation"});continue}
       if(claimEnvelopes[party]) {gateEnvelope(row);continue}
-      if(await strayEnvelope(party)) {gateEnvelope(row);continue}
+      // B55 (M1): before R the memo/envelope leg cannot run — strayEnvelope opens the memo with the round-R
+      // beacon, which does not exist yet — so it is skipped and the deposit parks with the reason below,
+      // exit 0 (the rule: before R no path fetches the beacon; the reason ternary below short-circuits the
+      // same way). After R nothing changes: the envelope resolves exactly as before.
+      if(released&&await strayEnvelope(party)) {gateEnvelope(row);continue}
       const reason=!released?"cancelled before release; refund is claimable after R":
         !(await bidPlaintextFor(party))?"deposit memo is not an openable sealed bid; no owner key claims it":
         "no valid owner-signed settlement envelope";

@@ -65,7 +65,7 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string; seller_ua?: unknown }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean; bondStart: import("./host-chain").BlockHeader | null; sellerBinding: "bound" | "legacy" | "mismatch"}> {
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string; seller_ua?: unknown }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean; bondStart: import("./host-chain").BlockHeader | null; sellerBinding: "bound" | "legacy" | "mismatch"; refusedRows: { party: string; amount_zats: string; reason: string }[]}> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -79,10 +79,15 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // --openings-cache flag, so a re-run skips re-decrypting the leaves this host already opened.
     const cacheDir = path.join(st, "auctions", o.id);
     const leafCacheFile = path.join(cacheDir, "openings.json"), memoCacheFile = path.join(cacheDir, "memo-openings.json");
-    if (pub.frozen) {
+    if (pub.frozen && pub.result) {
       const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", publicDir, "--signer", meta.signer, "--openings-cache", leafCacheFile], { encoding: "utf8", env: process.env });
       requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
-    } else requireThat(Date.now() / 1000 > pub.manifest.T_freeze, "an unfrozen auction before T_freeze is not cancelled; refusing");
+    } else if (!pub.frozen) requireThat(Date.now() / 1000 > pub.manifest.T_freeze, "an unfrozen auction before T_freeze is not cancelled; refusing");
+    // B55 (M1, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §1): a CANCELLED packet after freeze
+    // (frozen, no result) has nothing for `benzo verify` to check — verify requires a frozen set AND a result
+    // (cli/commands/verify.ts loadCompletePublicAuction) and the gate used to refuse the packet before any
+    // derivation. The frozen set is still re-derived below from this host's own scan (recomputeFrozen) and
+    // compared to this host's pinned root, so a fabricated frozen set is refused there exactly as before.
     // Ruling R28 item 2 (G-3): a frozen root this host has seen (as a witness, or in an earlier packet) is pinned; a packet
     // without it, or with another root, is refused — a frozen auction can't be turned into a "cancelled" one.
     const rootPin = path.join(st, "auctions", o.id, "frozen-root.txt");
@@ -106,10 +111,17 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // H13 item 4: the frozen openings come from this host's own cache when its frozen root AND beacon key match
     // this packet; everything freshly opened is written back after the successful open.
     const cacheKeys = async (): Promise<[string, string]> => [pub.frozen?.root ?? "", beaconSha256(await beacon())];
-    const leafCache = pub.frozen ? loadOpenings(leafCacheFile, ...(await cacheKeys())) : null;
+    // B55 (M1, the rule): before R (the same `released` predicate settle/plan.ts uses) NO path fetches the
+    // beacon. A cancelled packet's rows all resolve through memo-bound claims/envelopes whose owner keys need
+    // the round-R beacon — so a pre-R cancelled derive opens NOTHING (no leaf, no memo, no cache key) and every
+    // deposit row waits with the plan's own reason in refused_rows below. After R (or with a result) nothing
+    // changes: every opening derives exactly as before.
+    const released = Date.now() / 1000 >= QUICKNET.genesis + ((pub.manifest as any).drand.R - 1) * QUICKNET.period;
+    const preRelease = !pub.result && !released;
+    const leafCache = pub.frozen && !preRelease ? loadOpenings(leafCacheFile, ...(await cacheKeys())) : null;
     const freshLeaves: Record<string, string | null> = {};
     const opened: { leaf_index: number; plaintext_hex: string | null }[] = [];
-    for (const l of pub.frozen?.leaves ?? []) {
+    for (const l of preRelease ? [] : (pub.frozen?.leaves ?? [])) {
       const covered = leafCache && Object.hasOwn(leafCache, String(l.leaf_index)) ? leafCache[String(l.leaf_index)] : undefined;
       const pt = covered !== undefined ? covered : await openSealedBid(l.ciphertext_hex, await opener());
       if (covered === undefined) freshLeaves[String(l.leaf_index)] = pt;
@@ -269,8 +281,12 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     // Ruling R42 (F11): every deposit row this host derives also derives its per-row attestation — the note
     // identity and the SHA-256 of its own scanned memo — for the map this host signs when the batch pays it.
     const strays: import("../witness").StrayAttestation[] = [];
+    // B55 (M1): each pre-R cancelled deposit row that waits, with the plan's own reason — the listing surfaces
+    // these as refused rows so the coordinator parks them instead of allocating a row no host can build.
+    const refusedRows: { party: string; amount_zats: string; reason: string }[] = [];
     for (const n of refundable((cancelled ? deposits : strayNotes(deposits, pub.manifest, pub.frozen)) as any).payable as any[]) {
       const party = depositParty(n);
+      if (preRelease) { refusedRows.push({ party, amount_zats: String(n.value_zats), reason: "cancelled before release; refund is claimable after R" }); continue }
       const rec = await authenticatedMemoEnvelope(deposits as any, party, pub.manifestPacket, pub.envelopes, await opener(), openMemo);
       // Ruling R40 item 1 (F1): a slot collision refunds through the owner-signed claim path only (the plan
       // never auto-pays it; its record belongs to the frozen leaf's ciphertext) — the same rule on this host.
@@ -299,7 +315,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
     mkdirSync(cacheDir, { recursive: true, mode: 0o700 });
     writeFileSync(classifyFile + ".new", jsonBytes({ bin_sha256: binSha256, entries: classified }), { mode: 0o600 });
     renameSync(classifyFile + ".new", classifyFile);
-    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart,
+    return { expected, payout, envelopeKeys: (pub.manifest as any).envelope_keys, network: (pub.manifest as any).network, balanceSources, defaults, balanceRefunds, strays, bondVoid, bondStart, refusedRows,
       // H10 (docs/design/phase7-h10-h11.md): the packet's seller_ua checked against the SIGNED manifest this
       // signer just verified — never against packet bytes alone. "bound" when the packet's address hashes to the
       // manifest's seller_ua_commitment; "legacy" when the manifest predates H10 and carries no commitment (the

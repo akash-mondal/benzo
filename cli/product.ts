@@ -496,6 +496,11 @@ export async function runCommand(command:string,args:string[]) {
       const ptHex=await openSealedBid(memo.ciphertext_hex,await claimBeacon());
       return ptHex?Buffer.from(ptHex,'hex').subarray(61,93).toString('hex'):null;
     };
+    // B55 (M1, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §1): a claim before R fails per
+    // request with its reason — its owner key lives in a memo opening that needs the round-R beacon, which
+    // no endpoint has produced yet — and NEVER fetches it (the rule: before R no path touches drand).
+    // Nothing is recorded and no settle run is stopped; the owner claims after R.
+    requireThat(Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period||!isDepositParty(request.party),"claim before release; the owner key is derivable only after R");
     const owner=await ownerKeyFor(request.party);
     requireThat(owner&&verifyStatement(owner!,{kind:'claim-refund',auction_id:id,party:request.party,claim_envelope_sha256:hash(Buffer.from(request.claim_envelope_ct,'hex'))},request.owner_sig),'claim owner signature');
     const file=path.join(STATE,'settle',id,'claims.json'),claims=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):[];
