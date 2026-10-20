@@ -27,19 +27,10 @@ const publicHex = (tag: string) => createPublicKey(ed(tag)).export({ type: "spki
 const rawPublic = (tag: string) => publicHex(tag).slice(24);
 const read = (file: string) => JSON.parse(readFileSync(file, "utf8"));
 const write = (file: string, value: unknown) => writeFileSync(file, jsonBytes(value));
-// Valid testnet Sapling encoding for a synthetic 43-byte receiver. No wallet or funds.
-function destination(): string {
-  const hrp = "ztestsapling", alphabet = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
-  const raw = Buffer.concat([bytes("receiver-a"), bytes("receiver-b")]).subarray(0, 43);
-  let accumulator = 0, bits = 0; const data: number[] = [];
-  for (const byte of raw) { accumulator = (accumulator << 8) | byte; bits += 8; while (bits >= 5) { bits -= 5; data.push((accumulator >>> bits) & 31); } }
-  if (bits) data.push((accumulator << (5 - bits)) & 31);
-  const expanded = [...hrp].map(c => c.charCodeAt(0) >>> 5).concat([0], [...hrp].map(c => c.charCodeAt(0) & 31));
-  let chk = 1; const generators = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
-  for (const v of expanded.concat(data, [0, 0, 0, 0, 0, 0])) { const top = chk >>> 25; chk = ((chk & 0x1ffffff) << 5) ^ v; for (let j = 0; j < 5; j++) if ((top >>> j) & 1) chk ^= generators[j]; }
-  chk ^= 1;
-  return hrp + "1" + data.concat(Array.from({ length: 6 }, (_, i) => (chk >>> (5 * (5 - i))) & 31)).map(v => alphabet[v]).join("");
-}
+// R81: settlement pays Orchard/Ironwood only, so the synthetic destination is the fixtures' Orchard-capable testnet UA
+// (Sapling+Orchard receivers, e2e/lib/readpath.ts). No wallet or funds.
+const BENCH_UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
+function destination(): string { return BENCH_UA; }
 
 async function stage(name: string, dir: string, count: number) {
   const input = name === "generate" ? null : read(resolve(dir, "input.json"));

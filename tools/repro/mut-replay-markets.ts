@@ -1,6 +1,7 @@
 // Mutation replays for part 2's market mutations: the spec's assertions re-executed with the code under test
 // mutated (5M6/5M7) or with the attack applied (5M11), on the published data of the live passing runs
-// (docs/evidence/phase-5/markets: revision-cold, rfq-cold, and the R33 drop's cold dir). Each mutation must turn
+// (docs/evidence/phase-5/markets: revision-cold, rfq-cold, and a drop cold dir — drop-a24 at the final code; drop-r33
+// predates the 40-block balance-window minimum (R38 N3) and is refused by verify). Each mutation must turn
 // its assertion red:
 //   5M6  (a pre-window note counts as payment)      -> FAIL drop-defaults-window
 //   5M7  (a default refunded instead of forfeited)  -> FAIL drop-forfeit
@@ -49,9 +50,9 @@ const m = JSON.parse(Buffer.from(drop.manifest.bytes, "base64").toString("utf8")
 const start = m.bond.balance_window_start_height, blocks = m.bond.balance_window_blocks;
 const slot = (leaf: number) => m.bond.balance_addresses[m.deposit_addresses.indexOf(drop.frozen.leaves[leaf].deposit.address)];
 const fixtureNotes = [
-  { address: slot(2), height: start - 1, value_zats: 300_000 }, // the operator pre-funds the defaulter (P1-1)
-  { address: slot(0), height: start + 2, value_zats: 300_000 }, // the paying winner, inside (start, start+blocks]
-];
+  { address: slot(2), height: start - 1, value_zats: 300_000, txid: "f1".repeat(32), pool: "orchard", action_index: 0 }, // the operator pre-funds the defaulter (P1-1)
+  { address: slot(0), height: start + 2, value_zats: 300_000, txid: "f2".repeat(32), pool: "orchard", action_index: 0 }, // the paying winner, inside (start, start+blocks]
+]; // Each fixture note has its own {txid, pool, action_index}: balanceMatured dedupes notes by identity (R-AF-6).
 line("drop-defaults", () => {
   const d = drop.settlement?.defaults ?? null;
   return [JSON.stringify(d) === "[2]", `published defaults ${JSON.stringify(d)}`];
