@@ -1,0 +1,31 @@
+# U7 re-run at commit 25c751a4a78d9cf47f347c596ce6d0c4b1d7761f (final code; gate RG offline half, head, 2026-10-20T13:30:55Z)
+# patch docs/evidence/phase-5/mutations/U7.patch; build: npm run build:core; command: npx playwright test --config=tmp/folds.config.ts
+# expected red: ERROR U7; red exit 1 (1 matching lines); green exit 0 (0 matching lines); tracked tree after revert: clean
+RESULT RED (expected), green after revert
+--- red: matching lines ---
+ERROR U7 forged reserve opening accepted by the signer-side binding
+--- red: last 15 lines ---
+true   reserve opening (2000) -> leaf0:winner:pay=4000:refund=996000 leaf1:winner:pay=4000:refund=996000 leaf2:unfilled:pay=0:refund=1000000 clearing=4000
+forged reserve opening (5000) -> leaf0:winner:pay=5000:refund=995000 leaf1:below_reserve:pay=0:refund=1000000 leaf2:below_reserve:pay=0:refund=1000000 clearing=5000
+
+results differ: true
+
+ERROR U7 forged reserve opening accepted by the signer-side binding
+  ✘  1 tmp/folds.spec.ts:8:1 › folds (0ms)
+
+
+  1) tmp/folds.spec.ts:8:1 › folds ─────────────────────────────────────────────────────────────────
+
+    Error: worker process exited unexpectedly (code=1, signal=null)
+
+  1 failed
+    tmp/folds.spec.ts:8:1 › folds ──────────────────────────────────────────────────────────────────
+--- green: last 8 lines ---
+
+results differ: true
+
+signer-side binding refuses the forged opening: refused: reserve opening published differs from re-derived
+F2 FIXED: the signer re-derives the sealed reserve and refuses a forged published opening before any signature.
+  ✓  1 tmp/folds.spec.ts:8:1 › folds (1.0m)
+
+  1 passed (1.0m)

@@ -1,0 +1,26 @@
+# 5M6 re-run at commit 25c751a4a78d9cf47f347c596ce6d0c4b1d7761f (final code; gate RG offline half, head, 2026-10-20T13:11:56Z)
+# patch docs/evidence/phase-5/mutations/5M6.patch; build: none; command: npx esbuild tools/repro/mut-replay-markets.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/mut-replay-markets.mjs --log-level=warning && node tmp/mut-replay-markets.mjs docs/evidence/phase-5/markets/revision/revision-cold/auction.json docs/evidence/phase-5/markets/rfq/rfq-cold/auction.json docs/evidence/phase-5/markets/drop-a24/drop-cold
+# expected red: ERROR drop-defaults-window; red exit 1 (1 matching lines); green exit 1 (0 matching lines); tracked tree after revert: clean
+RESULT RED (expected), green after revert
+--- red: matching lines ---
+ERROR drop-defaults-window defaults [] (a pre-window note must not count as payment; fixture (4478205, 4478208] in (4478206, 4478246])
+--- red: last 15 lines ---
+PASS revision outcomes superseded,unfilled,winner price 300
+PASS rfq outcomes unfilled,winner,not_allowlisted price 400
+PASS drop-defaults published defaults [2]
+PASS drop-defaults-maps 4 agreeing verified maps
+FAIL drop-defaults-window defaults [] (a pre-window note must not count as payment; fixture (4478205, 4478208] in (4478206, 4478246])
+ERROR drop-defaults-window defaults [] (a pre-window note must not count as payment; fixture (4478205, 4478208] in (4478206, 4478246])
+PASS drop-forfeit obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
+PASS drop-swapped-defaults-refused swapped [0] verify exit 1 (ERROR accounting refused: settlement seller amount | ERROR defaults refused: settlement defaults differ from the host-signed approval maps)
+FAIL drop-reserve-opening threw ENOENT: no such file or directory, open '/Users/akshmnd/Dev Projects/benzo-mutrg/.benzo/product/d710c2c737960065647ecc886c82804bd54cdbaa4d7fb931ff787ca9ab141366.json'
+ERROR drop-reserve-opening threw ENOENT: no such file or directory, open '/Users/akshmnd/Dev Projects/benzo-mutrg/.benzo/product/d710c2c737960065647ecc886c82804bd54cdbaa4d7fb931ff787ca9ab141366.json'
+--- green: last 8 lines ---
+PASS rfq outcomes unfilled,winner,not_allowlisted price 400
+PASS drop-defaults published defaults [2]
+PASS drop-defaults-maps 4 agreeing verified maps
+PASS drop-defaults-window defaults [2] (a pre-window note must not count as payment; fixture (4478205, 4478208] in (4478206, 4478246])
+PASS drop-forfeit obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
+PASS drop-swapped-defaults-refused swapped [0] verify exit 1 (ERROR accounting refused: settlement seller amount | ERROR defaults refused: settlement defaults differ from the host-signed approval maps)
+FAIL drop-reserve-opening threw ENOENT: no such file or directory, open '/Users/akshmnd/Dev Projects/benzo-mutrg/.benzo/product/d710c2c737960065647ecc886c82804bd54cdbaa4d7fb931ff787ca9ab141366.json'
+ERROR drop-reserve-opening threw ENOENT: no such file or directory, open '/Users/akshmnd/Dev Projects/benzo-mutrg/.benzo/product/d710c2c737960065647ecc886c82804bd54cdbaa4d7fb931ff787ca9ab141366.json'

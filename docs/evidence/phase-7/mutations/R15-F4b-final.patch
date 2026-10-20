@@ -1,0 +1,22 @@
+diff --git a/api/public-auction.ts b/api/public-auction.ts
+index f1f05ef..c207817 100644
+--- a/api/public-auction.ts
++++ b/api/public-auction.ts
+@@ -937,7 +937,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
+     } else requireThat(!expected!.bond_void, "a void bond needs the signed start header");
+   });
+   run("accounting-strays", () => {
+-    if (!pub.settlement) return;
++    if (!pub.settlement || !pub.result) return; /* MUTATION R15-F4b: CANCELLED path unenforced */
+     const receipts = pub.settlement.receipts ?? [];
+     const rows = pub.settlement.rows ?? [];
+     // B46 (H15, Revision R103): the reserve-return accounting — exactly one `reserve-return` receipt, accepted
+@@ -1008,7 +1008,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
+     // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
+     // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
+     // result exists and every party must therefore be a deposit refund.
+-    const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
++    const expected = modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement);
+     const stray = (party: string): void => {
+       // Design §6.1: a buyback's one `treasury` row returns unspent budget to the signed treasury_ua. Its amount
+       // (funded − treasury_zats) rests on shielded funding notes only the signers see; they derive it from their

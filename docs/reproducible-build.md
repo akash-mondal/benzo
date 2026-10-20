@@ -43,13 +43,13 @@ it is the toolchain the project's evidence runs against:
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
 | `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `ec044a128889e67632251339d10d4243fdbfe02090b3fbf824ed6c6d40500bc0` (also in `docs/verify-bundle.sha256`) |
-| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `6e666aa19b08c4dc87ed3033eae55c7d90e53542516437ce341f45abf45f8ecb` |
+| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `93e63695eba173624286a3c337d9fabb96be87ba632f511f50bc150bb6af557a` |
 | `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` |
 
 ## 3. The commands (fresh clone)
 
 ```sh
-git clone --branch track-b <this-repository> benzo-rebuild
+git clone <this-repository> benzo-rebuild   # main
 cd benzo-rebuild
 git rev-parse --short HEAD        # the commit these digests are recorded at
 
@@ -62,7 +62,7 @@ shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
-# 6e666aa19b08c4dc87ed3033eae55c7d90e53542516437ce341f45abf45f8ecb  dist/benzo-0.1.0.tgz
+# 93e63695eba173624286a3c337d9fabb96be87ba632f511f50bc150bb6af557a  dist/benzo-0.1.0.tgz
 
 npm run package:bidder            # build:seal, then the bidder tarball
 shasum -a 256 dist/benzo-bidder-0.1.0.tgz
@@ -102,6 +102,13 @@ run-28 record in `docs/STATUS-B.md`).
 
 ## 5. Notes
 
+- **Final record (R130, `25c751a`, 2026-10-20).** The R127/R128/R130 product fixes are CLI inputs, so the npm package moved to
+  `93e63695…` (30,012,938 bytes, 18,328 entries, 112 production packages). The verify bundle `ec044a12…` and the bidder bundle
+  `f6afad13…` are unchanged. A clean-machine re-run on `benzo-pk` (`docs/evidence/phase-6/pk-vm/at-25c751a/`) rebuilt all three
+  byte-identical on Linux from a fresh clone. Offline, the packaged CLI verified a published auction with 19 OK and refused the
+  tampered and wrong-signer copies. The bidder bundle sealed a bid that `tle` opened only after round R.
+- **The npm package ships `README.md`** (and `docs/verify-it-yourself.md`, `docs/verify-bundle.sha256`). Any README edit moves the
+  package digest: re-run `npm run package`, PK step 04 on `benzo-pk`, and update the two places above in the same commit.
 - The npm package tarball's digest changed a few times while this batch landed (the previous
   `tar czf` recorded per-file copy times and the builder's uid; the first deterministic version
   still leaked an absolute symlink; and `benzo auction keys` loaded `settle/io` — which resolves

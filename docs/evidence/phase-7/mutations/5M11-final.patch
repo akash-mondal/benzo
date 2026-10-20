@@ -1,0 +1,13 @@
+diff --git a/api/public-auction.ts b/api/public-auction.ts
+index f1f05ef..4fb1339 100644
+--- a/api/public-auction.ts
++++ b/api/public-auction.ts
+@@ -923,7 +923,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
+     const maps = (pub.settlement.approval_maps ?? []).filter(mp => !!mp && (mp as any).auction_id === m.auction_id && verifyApprovalMap(mp, keys));
+     const expected = earliestAgreedBond(maps, keys, (pub.settlement.receipts ?? []).map(r => r.txid));
+     requireThat(expected !== null, "settlement defaults are not carried by two agreeing host-signed approval maps");
+-    requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected!.defaults)), "settlement defaults differ from the host-signed approval maps");
++    // 5M11 (re-cut at the final code): a coordinator-swapped defaults list is accepted
+     // Ruling R61: a void bond (refund everything, pay the seller nothing) is accepted only when the same two agreeing
+     // host-signed maps attest it — and a published settlement can never drop a void the hosts attested.
+     requireThat(!!pub.settlement.bond_void === expected!.bond_void, "settlement bond_void differs from the host-signed approval maps");
