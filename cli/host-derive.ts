@@ -23,7 +23,7 @@ import { balanceAddressMap, balanceDefaults, balanceSettlement, balanceWindow, b
 import { blockHeader, chainTip, minedHeight } from "./host-chain";
 import { recomputeFrozen } from "../witness/recompute";
 import { modeEntry } from "../clear/registry";
-import { lwdBound, lwdTimedOut } from "../settle/bounded";
+import { lwdBound, lwdTimedOut, LWD_SYNC_TRANSIENT } from "../settle/bounded";
 
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 // This machine's own view of the auction's vault: sync and enhance it against its own lightwalletd (transient errors
@@ -36,7 +36,8 @@ export async function ownScan(st: string, root: string, id: string, net: string)
       const r = spawnSync(devtool, args, { encoding: "utf8", ...lwdBound(devtool, args) });
       if (r.status === 0) break;
       const err = lwdTimedOut(devtool, r)?.message ?? r.stderr ?? ""; // R48: a stalled stream is transient
-      requireThat(attempt < 4 && /newer than the latest block|past the valid range|Internal|Unavailable|backing node|stalled lightwalletd stream|NonSequentialBlocks/.test(err), `vault ${verb} failed: ${err.trim().slice(-160)}`);
+      requireThat(attempt < 4 && (LWD_SYNC_TRANSIENT.test(err) || /Internal|Unavailable/.test(err)), // R130: + socket timeouts/resets
+        `vault ${verb} failed: ${err.trim().slice(-160)}`);
       await new Promise(res => setTimeout(res, 5000 * attempt));
     }
   }

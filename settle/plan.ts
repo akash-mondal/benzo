@@ -25,7 +25,7 @@ import {treasuryBlock,treasuryFunded,treasuryReturn} from "../clear/mode-b";
 import type {Obligation} from "./ledger";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin, pcztBin } from "../manifest/paths";
-import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
+import { endpointKey, lwdBound, lwdTimedOut, LWD_SYNC_TRANSIENT } from "./bounded";
 import { minedHeight } from "../cli/host-chain";
 const root=repoRoot();
 for(const line of (existsSync(path.join(root,".env"))?readFileSync(path.join(root,".env"),"utf8"):"").split("\n")) {
@@ -70,7 +70,13 @@ try {
     checkCertificates((published as any).witness_cert??[],spec,freezeStatement(m,src.frozen!));
   }
   requireThat(m.auction_id===id&&m.fee_zats==="0","settlement requires zero auction fee; network fee comes from reserve");
-  const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state,id),...args]);
+  // R130 (RG final, cli-auction): one lightwalletd socket timeout in this plan's sync aborted a live settlement. A
+  // sync/enhance retries 4x with backoff on the shared transient rule, as settle/io.ts does; sync is incremental.
+  const walletOnce=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state,id),...args]);
+  const wallet=(...args:string[])=>{
+    if(!["sync","enhance"].includes(args[0]))return walletOnce(...args);
+    for(let attempt=1;;attempt++){try{return walletOnce(...args)}catch(e){if(attempt>=4||!LWD_SYNC_TRANSIENT.test(String((e as Error)?.message??e)))throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5000*attempt)}}
+  };
   wallet("sync","-s",process.env.BNZ_LWD_URL!);wallet("enhance","-s",process.env.BNZ_LWD_URL!);
   const notes=execute(scanBin(root,state),["scan",m.network,vaultDir(state,id)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   let tip=JSON.parse(wallet("balance","--json")).chain_tip_height;

@@ -3,7 +3,7 @@ import {appendFileSync,readFileSync,existsSync} from "node:fs";
 import path from "node:path";
 import { repoRoot } from "../manifest/root";
 import { vaultDir, scanBin, pcztBin, ufvkFile } from "../manifest/paths";
-import { endpointKey, lwdBound, lwdTimedOut } from "./bounded";
+import { endpointKey, lwdBound, lwdTimedOut, LWD_SYNC_TRANSIENT } from "./bounded";
 export const ROOT=repoRoot();
 for(const l of (existsSync(path.join(ROOT,".env"))?readFileSync(path.join(ROOT,".env"),"utf8"):"").split("\n")) {const m=l.match(/^([A-Z0-9_]+)=(.*)$/);if(m&&process.env[m[1]]===undefined)process.env[m[1]]=m[2]}
 export const STATE=path.resolve(ROOT,process.env.BNZ_STATE_DIR!),bin=(n:string)=>path.join(STATE,"bin",n);
@@ -17,7 +17,7 @@ export function run(cmd:string,args:string[],input?:string|Buffer):string {
 // Head (2026-10-03, live run 14): the public lightwalletd sits behind a load balancer whose backends can be a few
 // blocks apart ("GetBlock: block N is newer than the latest block"); a wallet sync retries 4x with backoff on that
 // and on transient endpoint errors. Every other wallet command is unchanged.
-const SYNC_TRANSIENT=/newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks|timed out|os error (54|60)/i;
+const SYNC_TRANSIENT=LWD_SYNC_TRANSIENT;
 export function syncRetry(f:()=>string):string {
   for(let attempt=1;;attempt++) {
     try{return f()}catch(e){if(attempt>=4||!SYNC_TRANSIENT.test(String((e as Error)?.message??e)))throw e;Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,5000*attempt)}

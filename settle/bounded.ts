@@ -6,6 +6,9 @@ import path from "node:path";
 
 export const LWD_TIMEOUT_MS = Number(process.env.BNZ_LWD_TIMEOUT_MS ?? 600_000);
 export const LWD_STALLED = "stalled lightwalletd stream";
+// R130: the one transient-error rule for a lightwalletd wallet sync/enhance (load-balancer skew, stalled or reset
+// streams, socket timeouts). Every sync caller retries on it: settle/io.ts, settle/plan.ts and the hosts' ownScan.
+export const LWD_SYNC_TRANSIENT = /newer than the latest block|past the valid range|Code: (Internal|Unavailable)|backing node|connection reset|stalled lightwalletd stream|NonSequentialBlocks|timed out|os error (54|60)/i;
 const talksToLwd = (cmd: string, args: string[]) => path.basename(cmd) === "grpcurl" || (path.basename(cmd) === "zcash-devtool" && args.includes("-s"));
 export const lwdBound = (cmd: string, args: string[]) => talksToLwd(cmd, args) ? { timeout: LWD_TIMEOUT_MS, killSignal: "SIGKILL" as const } : {};
 // The error to throw when spawnSync hit the bound (it reports ETIMEDOUT), else null.
