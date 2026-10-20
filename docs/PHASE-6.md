@@ -1065,3 +1065,20 @@ B55 treated the symptom with blanket `released` gates in `settle/plan.ts` and `c
 - Every other fold, replay and published dir passes. The offline e2e passes on the first try.
 
 Hosts are re-provisioned, and the final RG restarts from its first project at this commit.
+
+### R129: final RG at `eec0c66` is half done and paused for testnet funds (head, 2026-10-20)
+
+**Green on the final code** (hosts provisioned at `eec0c66`):
+- testnet-golden-path: 9 of 9;
+- auction-core: 23 of 23;
+- settle-crash: 6 of 6, M1 included.
+
+**Not green:**
+- **cli-auction**, rc=1 after 2 minutes. `bid deposit --pay` died inside zcash-devtool on a TLS `unexpected-eof` from lightwalletd. The 5.19M-zat payment `aad86883…` was never broadcast (lightwalletd NotFound) and frees at its expiry height 4520388. A paying step is correctly not auto-retried.
+- **buyback-mode**: NOT RUN, bidder floor.
+- **markets**: stopped by the head after its first funding (`36d66439…`, 920,000 zats), to keep the remaining funds.
+
+**Funds.** The bidder has about 2.04M spendable, plus 5.19M once `aad86883` expires.
+- About 2.5M is stranded in two interrupted auctions: the head's double-launch buyback run `603ebbef…` (R128 aside) and that markets leg.
+- cli-auction alone needs about 15·C plus reserves, about 7.8M. buyback and markets need more.
+- The user is asked to refill the bidder from the faucet, as for U2 in Phase 6.
