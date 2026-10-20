@@ -1082,3 +1082,25 @@ Hosts are re-provisioned, and the final RG restarts from its first project at th
 - About 2.5M is stranded in two interrupted auctions: the head's double-launch buyback run `603ebbef…` (R128 aside) and that markets leg.
 - cli-auction alone needs about 15·C plus reserves, about 7.8M. buyback and markets need more.
 - The user is asked to refill the bidder from the faucet, as for U2 in Phase 6.
+
+### R130: the RG restarts on a timeout fix; the offline mutation half is red on the final code (head, 2026-10-20)
+
+**The faucet refill arrived** (0.125 TAZ, tx `a509f24d…`). The bidder had 22.97M spendable, and cli-auction ran first.
+
+**cli-auction failed again, on a network timeout, and that exposed a liveness gap:**
+- Batch 1 was allocated. Then `settle/plan.ts` died on one `zcash-devtool` sync: `transport error: Operation timed out (os error 60)`.
+- R127 made timeouts transient in `settle/io.ts`, `cli/host-chain.ts` and the harness. It missed two more places:
+  - `settle/plan.ts`'s own wallet helper, which had no retry at all;
+  - the pattern in the hosts' `ownScan` (`cli/host-derive.ts`), which had no timeout terms.
+- **Fix (`13a6005`):** `LWD_SYNC_TRANSIENT` in `settle/bounded.ts` is now the one rule. The plan's sync and enhance retry 4 times with backoff, as in `settle/io.ts`, and `ownScan` uses the same rule. The verify bundle is unchanged (`ec044a12…`), and `npm run check` passes.
+- The vault leftovers were swept back to the bidder (`dafba463…`). buyback-mode and markets did not run on the old code.
+- The fix changes product code, so **all six projects re-run on one commit** after `up.sh` re-provisions the hosts.
+
+**The offline mutation half on the final code** (head, separate worktrees, records in `docs/evidence/phase-7/mutations-final/`). All 23 offline IDs from the B35 table are red under their mutation and green after revert:
+- M1–M4, 5M1, 5M3, 5M6–5M11, B31-a, B32-a, R15-F4a/F4b/F5, R16-F2a, R23-2 (revert patch), R23-3a, R26-3a/3b, U7.
+- **Re-cut against the final source:** 5M11, R15-F4b and R23-2-revert. The semantics are unchanged, and the patches are in `docs/evidence/phase-7/mutations/`.
+- The run found three harness defects, fixed in `5f2c2b7`. No product change came from them.
+  1. `npm run bench` could not generate its corpus: its synthetic destination was Sapling, which R81 refuses. It now uses the fixtures' Orchard-capable testnet UA. The projection is unchanged (24.13 h at cap 13, 20.85 h at cap 28).
+  2. `mut-replay-markets.ts`'s two fixture notes had no `{txid, pool, action_index}`. Since R-AF-6, `balanceMatured` dedupes notes by that identity, so it dropped the paying winner's note, and the window leg failed unmutated.
+  3. The replay corpus `drop-r33` has a 12-block balance window, below the 40-block minimum (R38 N3), so the final verify refuses it. The replay now runs on `drop-a24`, which verifies with 19 OK, like a19–a23. Bundling the replay needs `--packages=external`, because its imports reach Playwright.
+- **5M11 note:** with `drop-a24`, the swapped defaults list is refused twice. One refusal is the defaults check, which the mutation removes. The other is `accounting refused: settlement seller amount`, so verify still exits 1 under 5M11 (defense in depth). The red is shown by the assertion's specific ERROR line.
