@@ -42,8 +42,8 @@ it is the toolchain the project's evidence runs against:
 
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
-| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `ec044a128889e67632251339d10d4243fdbfe02090b3fbf824ed6c6d40500bc0` (also in `docs/verify-bundle.sha256`) |
-| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `93e63695eba173624286a3c337d9fabb96be87ba632f511f50bc150bb6af557a` |
+| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `cffd6a335bc101dda73177230c8466ba9a6a2ba625d88157c3470b95779dca86` (also in `docs/verify-bundle.sha256`) |
+| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `96e8fdf2b2cf0ff6a5a1b4f929447fc99a1558b5b9c69619cf3cf408330425c0` |
 | `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` |
 
 ## 3. The commands (fresh clone)
@@ -57,12 +57,12 @@ npm ci                            # exact tree from package-lock.json
 
 npm run build:verify              # rebuilds the shipped verify bundle + its digest
 shasum -a 256 dist/benzo-verify.mjs
-# ec044a128889e67632251339d10d4243fdbfe02090b3fbf824ed6c6d40500bc0  dist/benzo-verify.mjs
+# cffd6a335bc101dda73177230c8466ba9a6a2ba625d88157c3470b95779dca86  dist/benzo-verify.mjs
 shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
-# 93e63695eba173624286a3c337d9fabb96be87ba632f511f50bc150bb6af557a  dist/benzo-0.1.0.tgz
+# 96e8fdf2b2cf0ff6a5a1b4f929447fc99a1558b5b9c69619cf3cf408330425c0  dist/benzo-0.1.0.tgz
 
 npm run package:bidder            # build:seal, then the bidder tarball
 shasum -a 256 dist/benzo-bidder-0.1.0.tgz
@@ -102,7 +102,12 @@ run-28 record in `docs/STATUS-B.md`).
 
 ## 5. Notes
 
-- **Final record (R130, `25c751a`, 2026-10-20).** The R127/R128/R130 product fixes are CLI inputs, so the npm package moved to
+- **Final record (R132, B57 `52c7353`, 2026-10-22).** B57 changed `cli/commands/verify.ts` (H24) and the CLI (H8, H9, H22), so the
+  verify bundle moved to `cffd6a33…` and the npm package to `96e8fdf2…` (30,013,193 bytes, 18,328 entries, 112 production packages).
+  The bidder bundle `f6afad13…` is unchanged. The clean-machine re-run on `benzo-pk` (`docs/evidence/phase-7/pk-vm/at-52c7353/`) rebuilt
+  all three byte-identical on Linux from a fresh clone. Offline, the packaged CLI verified a published auction with 19 OK and refused
+  the tampered and wrong-signer copies. The bidder bundle sealed a bid that `tle` opened only after round R.
+- **Earlier record (R130, `25c751a`, 2026-10-20).** The R127/R128/R130 product fixes are CLI inputs, so the npm package moved to
   `93e63695…` (30,012,938 bytes, 18,328 entries, 112 production packages). The verify bundle `ec044a12…` and the bidder bundle
   `f6afad13…` are unchanged. A clean-machine re-run on `benzo-pk` (`docs/evidence/phase-6/pk-vm/at-25c751a/`) rebuilt all three
   byte-identical on Linux from a fresh clone. Offline, the packaged CLI verified a published auction with 19 OK and refused the
