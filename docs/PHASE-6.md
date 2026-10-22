@@ -1104,3 +1104,54 @@ Hosts are re-provisioned, and the final RG restarts from its first project at th
   2. `mut-replay-markets.ts`'s two fixture notes had no `{txid, pool, action_index}`. Since R-AF-6, `balanceMatured` dedupes notes by that identity, so it dropped the paying winner's note, and the window leg failed unmutated.
   3. The replay corpus `drop-r33` has a 12-block balance window, below the 40-block minimum (R38 N3), so the final verify refuses it. The replay now runs on `drop-a24`, which verifies with 19 OK, like a19–a23. Bundling the replay needs `--packages=external`, because its imports reach Playwright.
 - **5M11 note:** with `drop-a24`, the swapped defaults list is refused twice. One refusal is the defaults check, which the mutation removes. The other is `accounting refused: settlement seller amount`, so verify still exits 1 under 5M11 (defense in depth). The red is shown by the assertion's specific ERROR line.
+
+### R131: the live RG finishes on 25c751a; sleep incidents, recoveries and two harness gaps (head, 2026-10-21)
+
+**Result:** all six live projects pass on product commit `25c751a`. Only the host manifest (`9f09c48`, `up.sh` provisioning) and evidence commits sit on top.
+- testnet-golden-path, settle-crash, cli-auction (74/74) and buyback-mode passed on the first run after `up.sh`.
+- auction-core: 23 of 23 (I1 narrowed), evidence `370986f`, 50 min.
+- markets (serial, `BNZ_MARKETS_SERIAL=1`): 8 of 8, evidence `06cf6d3`, 8.4 h (30,177 s).
+
+**Why auction-core and markets took several attempts.** None of these failures came from product code:
+1. **Immature notes.** auction-core started right after golden-path, while its change notes were still unconfirmed. The sixth deposit found `have 0`. The runner now waits until `spendable == total` (up to 30 minutes) before each project.
+2. **The Mac went to sleep with the lid closed.** Clamshell sleep stops OrbStack's VM (`vmgr msg=sleep`), so `orb run` hangs and DNS fails. `caffeinate -ims` does not prevent this sleep. Two markets attempts died this way: parallel at the 4 h timeout with orphaned lanes, then serial with DNS failures. The final runs were gated on 10 minutes of uninterrupted `vmgr` wake plus a reachable drand endpoint.
+3. **The lightwalletd endpoint dropped a TLS connection while a deposit was being paid.** One auction-core attempt hit a TLS EOF from `testnet.zec.rocks` after 2 deposits. Paying steps deliberately do not retry: a retry could double-pay. The run stopped, and the vault was swept.
+
+**Funds recovered.** Every interrupted auction was either settled or swept:
+- Group-vault sweeps: `dafba463…`, `0b3a06ec…` (2.53M zats), `25aaeb62…` (1.0M zats). The 1.0M sweep includes the one deposit (`ce04aca3…`) broadcast by a killed auction-core attempt.
+- Markets resumes, each ending with verify exit 0: `1f01b00a` (drop), `1b0fad8e` (rfq-cancel), `519d08a0` (otc-match), `eeb4e7e8` (otc-nomatch), and `991692af` (drop; details below).
+- `991692af` (drop) needed four tries.
+  1. `no memo stored … run wallet enhance first`: sleep had interrupted the operator vault's sync. A manual `sync` and `enhance` cleared it.
+  2. Then the hosts' copies of the vault, 3,500 blocks behind, hit lightwalletd's `ENHANCE_YOUR_CALM` stream resets three times. They synced in seconds about 10 minutes later.
+  3. The fourth resume ran settle to exit 1, but receipts equal obligations (`leaf:1`, `leaf:3`, `seller` 700,000) and verify exits 0. A direct `benzo settle` re-run exits 0 with `settled: 4`.
+  4. Its two out-of-window balance payments (70,000 zats in the vault) wait in the exception queue for their leaf owner's `claim-refund`. This is the drop scenario's designed path; it hits the owner-key gap below.
+
+**Stranded: about 660k testnet zats.** `e20a5f1a` (launch-meet) was cancelled before freeze with `benzo cancel` (state REFUNDING). It holds 3 unadmitted deposits and the 60k reserve. This exposed two harness gaps. Neither is a product defect: the product path refunds correctly when the owner keys are present.
+- `markets.ts resume` only calls settle. An auction that was never frozen needs `benzo cancel --id` first, and resume does not do that.
+- The markets driver keeps each auction's owner keys in memory only. Unadmitted deposits go to the exception queue, which needs the owner key to claim, so a killed driver cannot claim them.
+- Both gaps are logged for after the hackathon. Neither touches the verify path. On testnet the cost is about 730k zats (660k here plus 991692af's 70k).
+
+**PK** (clean-machine rebuild, `pk-vm`) is recorded at `25c751a` on the final-records commit. The npm tarball digest is `93e63695…`. The tarball includes the README, so any README change needs PK step 04 re-run and the digest updated.
+
+**A hung `orb` client (markets, rfq-cancel).** One `orb run -m benzo-carol -u root rm -f …ufvk….txt` (the per-auction UFVK cleanup in `dkgOnHosts`) hung for 2 hours. carol answered the next call instantly. `sh()` gives each `orb` call a 2-minute `spawnSync` timeout, but that timeout sends SIGTERM, and this `orb` client ignored it, so `spawnSync` blocked. A manual SIGKILL let the built-in retry run the same idempotent `rm -f`, and the auction went on. This is Phase 7 H8 (the same hang on alice in RG attempt 13). The fix is `killSignal: "SIGKILL"` on those calls, not applied because the RG is pinned to `25c751a`.
+
+**Live §3 mutations at the final code.** All five live mutations are red on `25c751a`. They were re-run (`*-final.out` in `rg/mutations/`), since N7, P3 and U2 cover files changed since `910a531`. P3 is re-cut against the current `settle/plan.ts` (`P3-final.patch`; same mutation).
+- M5: red on B1 (`9030a50`). N7: red on I1 (`8ca3eab`). P3: red on M1 on the pinned Node (`8941101`).
+- The first P3 record (`6a86962`, "NOT RED") is void. At about 05:06 UTC, while it ran, Node v24.15.0 was removed from `~/.nvm` outside this work, and v24.22.1 became the nvm default. M1 died on `spawnSync …/v24.15.0/bin/node ENOENT` before reaching its assertion, so it is not a verdict.
+- The pinned v24.15.0 (`reproducible-build.md`) was restored from nvm's checksum-verified cache, and the nvm default was left at 24.22.1. The runner now refuses any other Node version and records the version in each `.out`. The RG projects, M5 and N7 all finished before the removal.
+- U2: red on S1 (`6bcb516`). The mutated bid listing leaks `price_zats|quantity`. The second error (`settle refused: frozen deposit missing or spent`, then `FIXED: the signer refused the redirected PCZT`) is that project's designed negative check. It matches the Phase-4 `U2.out` exactly.
+- 5M5: red on Y1a (`9c2b51c`), on the pinned Node and Go. `auction keys` refused a group key reused from an earlier auction, before any deposit. This is the same refusal as the `910a531` record (`5M5.out`). Hosts re-provisioned clean afterwards.
+- The first 5M5 record (`ebccd88`, "NOT RED", no ERROR ids) is void. It was the same outside cleanup, which reached further than Node. Between about 05:06 and 06:11 UTC:
+  - Homebrew upgraded the Mac's Go to 1.27.3 and removed 1.25.6.
+  - The Playwright browser cache (`~/Library/Caches/ms-playwright`) was deleted.
+  - Effect: `up.sh` refused to run (`Mac go … != pinned 1.25.6`), so the mutated signer code never reached the hosts. The unmutated hosts passed Y1a. Then `bid seal` died on Playwright's missing-browser banner.
+  - P3 and U2 started before Go mattered (neither re-provisions hosts) and finished with their assertions intact, so they stand.
+- The pins were restored next to the user's upgraded tools, which were left in place:
+  - Go 1.25.6 at `~/sdk/go1.25.6` (`golang.org/dl`, checksum-verified), first on `PATH` for the runner only.
+  - `chromium_headless_shell-1243` via `npx playwright install --only-shell chromium` on the pinned Node.
+- A clean `up.sh` with the restored Go reproduced every binary hash in the committed manifest; only `generated_utc` and `commit` differed. The runner now also refuses any other Go and a missing browser pin, and a failed `up.sh` stops the run rather than testing unmutated hosts.
+- `*-final.out` "product code" labels: the first runner recorded `HEAD` at its start (`6a86962`), an evidence-only commit. The product code is `25c751a` throughout. Only evidence, the host manifest (`9f09c48`) and the PK record's doc edit (`9f36087`, `reproducible-build.md`) sit on top.
+
+**OrbStack restart.** At 06:25 UTC, during U2, OrbStack received an external stop request (`reason=1`, not sleep) and restarted. The VMs were back within about 20 s. U2's run continued and its assertions are recorded above.
+
+**Gate RG holds at `25c751a`.** The 52 built-artifact sha256 entries common to all six `run.json`s are equal. `git diff 25c751a HEAD` outside `docs/evidence`, `docs/PHASE-6.md` and `tmp` touches only `deploy/signers/manifest.json` (`9f09c48`, the host provisioning record) and `docs/reproducible-build.md` (`9f36087`, the PK digests). EVIDENCE.md's RG and PK rows now point here.
