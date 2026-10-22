@@ -1,0 +1,11 @@
+mutation 5M5 (docs/evidence/phase-5/mutations/5M5.patch) on project buyback-mode
+commit 6bcb516c1ce74f9b09dc2e471e8cd376a4fc44d5 (patch applied on top, then reverted; product code 6a86962)
+utc 2026-10-22T08:50:11Z
+node v24.15.0
+expected red: Y1a
+ERROR ids: 
+RESULT NOT RED AS EXPECTED
+--- last 30 lines ---
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+auction f8b88ea775dbc585dc419a1ab6673df35b290d26b07be5213d354a1f545906e6
