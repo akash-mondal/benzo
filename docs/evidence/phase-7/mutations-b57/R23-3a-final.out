@@ -1,0 +1,31 @@
+# R23-3a re-run at commit 52c735309e271939a9164332cdaa8a12e84db4d8 (B57 code; gate RG offline half, head, 2026-10-22T16:45:35Z)
+# patch docs/evidence/phase-5/mutations/R23-3a.patch; build: npm run build:cli; command: npx playwright test --config=tmp/folds.config.ts
+# expected red: ERROR r23-3-api-claims-no-beacon; red exit 1 (1 matching lines); green exit 0 (0 matching lines); tracked tree after revert: clean
+RESULT RED (expected), green after revert
+--- red: matching lines ---
+ERROR r23-3-api-claims-no-beacon Error: r23-3-api-claims-no-beacon threw | Expected: "" | Received: "status 400 valid undefined claims null"
+--- red: last 15 lines ---
+      42 |       } catch (err) {
+    > 43 |         expect.soft(String((err as Error)?.message ?? err), `${id} threw`).toBe("");
+         |                                                                            ^
+      44 |       }
+      45 |       for (const rel of this.evidence[id] ?? []) expect.soft(existsSync(path.join(OUT, rel)), `${id} evidence ${rel} was not written`).toBe(true);
+      46 |       const errors = test.info().errors.slice(before);
+        at /Users/akshmnd/Dev Projects/benzo-mutrg/e2e/lib/run.ts:43:76
+        at Run.check (/Users/akshmnd/Dev Projects/benzo-mutrg/e2e/lib/run.ts:38:5)
+        at foldR233 (/Users/akshmnd/Dev Projects/benzo-mutrg/e2e/lib/readpath.ts:280:3)
+        at /Users/akshmnd/Dev Projects/benzo-mutrg/tmp/folds.spec.ts:10:112
+
+    Error Context: test-results/folds-folds/error-context.md
+
+  1 failed
+    tmp/folds.spec.ts:8:1 › folds ──────────────────────────────────────────────────────────────────
+--- green: last 8 lines ---
+
+results differ: true
+
+signer-side binding refuses the forged opening: refused: reserve opening published differs from re-derived
+F2 FIXED: the signer re-derives the sealed reserve and refuses a forged published opening before any signature.
+  ✓  1 tmp/folds.spec.ts:8:1 › folds (1.1m)
+
+  1 passed (1.1m)

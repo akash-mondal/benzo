@@ -1,0 +1,26 @@
+# M2 re-run at commit 52c735309e271939a9164332cdaa8a12e84db4d8 (B57 code; gate RG offline half, head, 2026-10-22T16:17:26Z)
+# patch docs/evidence/phase-1/mutations/M2.patch; build: none; command: npm run e2e
+# expected red: ERROR C7; red exit 1 (1 matching lines); green exit 0 (0 matching lines); tracked tree after revert: clean
+RESULT RED (expected), green after revert
+--- red: matching lines ---
+ERROR C7 Error: quantity | Expected: "1334044719" | Received: "803767119"
+--- red: last 15 lines ---
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> benzo@0.1.0 e2e
+> playwright test --project=default
+
+ERROR C7 Error: quantity | Expected: "1334044719" | Received: "803767119"
+run.json -> tmp/e2e/out
+FAILED default seal in the browser, open with tle after R (38 s)
+run failed; details in tmp/e2e/report.json
+--- green: last 8 lines ---
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> benzo@0.1.0 e2e
+> playwright test --project=default
+
+run.json -> tmp/e2e/out
+PASSED default seal in the browser, open with tle after R (37 s)
+run passed; details in tmp/e2e/report.json
