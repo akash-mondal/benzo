@@ -1,0 +1,15 @@
+diff --git a/settle/plan.ts b/settle/plan.ts
+index e5bd9ae..c234a54 100644
+--- a/settle/plan.ts
++++ b/settle/plan.ts
+@@ -122,6 +122,10 @@ try {
+   const beacon=async():Promise<ChainClient>=>beaconClient??=publishedClient((src as any).beacon??await fetchVerifiedBeacon(m.drand.R));
+   if(["CANCELLED","REFUNDING"].includes(src.state)) {
+     requireThat(!src.opened,"cancelled plan has opened bids");
++    const leaf=auction.leaves[0],ct=path.join(state,"settle",id,"cancel-first.age"),pt=path.join(state,"settle",id,"cancel-first.bin");
++    writeFileSync(ct,Buffer.from(leaf.ciphertext_hex,"hex"),{mode:0o600});
++    appendFileSync(path.join(state,"run","settle-tle.jsonl"),JSON.stringify({auction_id:id,operation:"tle -d",time:Date.now()})+"\n");
++    execute(path.join(state,"bin","tle"),["-d","-n",process.env.BNZ_DRAND_URLS!.split(",")[0],"-c",QUICKNET.chain_hash,"-o",pt,ct]);
+   } else {
+     requireThat(["CLEARED","SETTLING","SETTLED"].includes(src.state)&&src.result&&src.frozen,"settlement requires cleared result");
+     if(published)requireThat(published.beacon&&published.beacon.round===m.drand.R&&published.beacon.chain_hash===m.drand.chain_hash,"published beacon missing or unbound");
