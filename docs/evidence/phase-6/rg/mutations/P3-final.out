@@ -1,15 +1,18 @@
 mutation P3 (docs/evidence/phase-6/rg/mutations/P3-final.patch) on project settle-crash
-commit 8ca3eab97d010a68f71a83352506420006a6b3c4 (patch applied on top, then reverted; product code 9bc6cfe)
-utc 2026-10-22T05:15:35Z
+commit 6a869629b3488ddb0d83d14584f354f9ea56cc29 (patch applied on top, then reverted; product code 6a86962)
+utc 2026-10-22T05:55:36Z
+node v24.15.0
 expected red: M1
-ERROR ids: 
-RESULT NOT RED AS EXPECTED
+ERROR ids: M1 
+RESULT RED (expected)
 --- last 30 lines ---
-main deposits broadcast 3af97c0210ea4a3a8c2f4c10fff38b8c3cfe150104c1e23ddd831ea325690b1b
-development-only fund recovery 5612d0ca543b820b198cad5fe6c4a5a0e923aacd9c6e7134b18ddebaf078a6e3
-cancel deposits broadcast dd1ae0b9ae419d257036a04d77ff16cdafa43cb61941261004ec62cfc2b4e2ba
-development-only fund recovery 74cb2ebfe8673f9492f715203a67cdab32a81395e4fe0982dba8a5be4fefd108
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+main deposits broadcast 03a83183176d2d0475cd921a6bd3434ff1bfaaac480cc20658af72433646304e
+development-only fund recovery 8899f67ce399f1474c5cbc35797fc91e740dae9a07b1a710ad90565b60098cb9
+cancel deposits broadcast fd9d9b50a8e06d8e400365ac3f56c574349973ca8ca6697aea0e2196f22e3afe
+ERROR M1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+development-only fund recovery a2a6820b3aac685045e715f4d348ba44046d7b3632a77c707a21029b5ce0423a
 run.json -> tmp/e2e/out
-FAILED settle-crash settlement survives a worker crash and drand outage with one signer not selected (2051 s)
+FAILED settle-crash settlement survives a worker crash and drand outage with one signer not selected (2128 s)
 run failed; details in tmp/e2e/report.json
-npm error A complete log of this run can be found in: /Users/akshmnd/.npm/_logs/2026-10-22T04_41_22_115Z-debug-0.log
