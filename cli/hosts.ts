@@ -30,20 +30,22 @@ export const H = "/home/benzo/.benzo", NAMES = ["alice", "bob", "carol"] as cons
 export const FROSTD = `host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
 // `orb`/`orbctl` calls have hung indefinitely on a VM that answered the next call instantly (live R28 run): they get a
 // 2-minute timeout and up to 3 attempts. A lightwalletd call is bounded as in the product (R48/R49); every other
-// command runs once, unbounded.
+// command runs once, unbounded. H8: a stuck `orb` client ignores SIGTERM, so every orb/orbctl bound here kills
+// with SIGKILL (settle/cli.ts already does; RG attempt 13 and the final RG each hung 1-2 h on SIGTERM).
+const ORB_BOUND = { timeout: 120_000, killSignal: "SIGKILL" as const };
 export const sh = (cmd: string, args: string[], input?: string) => {
   const orb = cmd === "orb" || cmd === "orbctl";
-  let r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, ...(orb ? { timeout: 120_000 } : lwdBound(cmd, args)) });
+  let r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, ...(orb ? ORB_BOUND : lwdBound(cmd, args)) });
   const stalled = orb ? null : lwdTimedOut(cmd, r);
   if (stalled) throw stalled;
-  for (let i = 1; orb && r.status === null && i < 3; i++) r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, timeout: 120_000 });
+  for (let i = 1; orb && r.status === null && i < 3; i++) r = spawnSync(cmd, args, { input, encoding: "utf8", maxBuffer: 64 << 20, ...ORB_BOUND });
   if (r.error && !orb) throw r.error;
   if (r.status !== 0) throw new Error(`${path.basename(cmd)} ${args.slice(0, 5).join(" ")} exited ${r.status}: ${(r.stderr || r.stdout).trim().slice(-400)}`);
   return r.stdout.trim();
 };
 // `orb run` has returned an empty stdout once for a command that succeeded (live Y2, a host `cat`); retry empties.
 export const host = (n: string, args: string[]) => { for (let i = 0; ; i++) { const out = sh("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args]); if (out || i >= 2) return out; } };
-export const hostTry = (n: string, args: string[]) => spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args], { encoding: "utf8", maxBuffer: 64 << 20, timeout: 15 * 60_000 });
+export const hostTry = (n: string, args: string[]) => spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args], { encoding: "utf8", maxBuffer: 64 << 20, timeout: 15 * 60_000, killSignal: "SIGKILL" });
 export const hostBenzo = (n: string, args: string[]) => { const out = host(n, [`${H}/bin/benzo`, ...args]); return JSON.parse(out.split("\n").filter(l => l.startsWith("{")).at(-1)!); };
 export const push = (n: string, src: string, dest: string) => {
   sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "rm", "-rf", `/home/benzo/${dest}`]);
@@ -84,13 +86,16 @@ export async function dkgOnHosts(id: string, benzo: (args: string[], input?: any
   const pk = (n: string) => host(n, ["cat", `${H}/contacts/${n}.pubkey`]);
   // A killed or failed earlier DKG leaves sessions open on frostd, and frost-client then refuses to join ("user has
   // more than one FROST session active"); close each host user's sessions first (callers serialize DKGs).
-  for (const n of NAMES) spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "env", `SSL_CERT_FILE=${H}/tls/rootCA.pem`, `${H}/bin/frost-client`, "sessions", "-c", `${H}/frost/${n}.toml`, "-s", FROSTD, "--close-all"], { timeout: 120_000 });
+  for (const n of NAMES) spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "env", `SSL_CERT_FILE=${H}/tls/rootCA.pem`, `${H}/bin/frost-client`, "sessions", "-c", `${H}/frost/${n}.toml`, "-s", FROSTD, "--close-all"], ORB_BOUND);
   const keys = await Promise.all(NAMES.map((n, i) => new Promise<string>((resolve, reject) => {
     setTimeout(() => {
       const p = spawn("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", `${H}/bin/benzo`, "sign", "dkg", "--id", id, "--name", n, "--server", FROSTD, ...(i === 0 ? ["--peers", `${pk("bob")},${pk("carol")}`] : [])]);
       let out = "", err = "";
+      // H8: a DKG that has not finished in 10 minutes is stuck (a live one takes seconds); SIGKILL it so the caller
+      // fails loudly. `sign dkg` is idempotent per auction, so a re-run reports a finished key instead of redoing it.
+      const stuck = setTimeout(() => p.kill("SIGKILL"), 10 * 60_000);
       p.stdout.on("data", d => (out += d)); p.stderr.on("data", d => (err += d));
-      p.on("close", c => c === 0 ? resolve(JSON.parse(out.trim().split("\n").at(-1)!).group_key) : reject(new Error(`${n} dkg: ${err.trim().slice(-300)}`)));
+      p.on("close", c => { clearTimeout(stuck); return c === 0 ? resolve(JSON.parse(out.trim().split("\n").at(-1)!).group_key) : reject(new Error(`${n} dkg: ${err.trim().slice(-300)}`)); });
     }, i === 0 ? 0 : 2500);
   })));
   const groupKeys = keys.join(",");
@@ -111,7 +116,12 @@ export async function dkgOnHosts(id: string, benzo: (args: string[], input?: any
 export function hostEnvelopeKeys(): string[] {
   return NAMES.map(n => {
     const f = `${H}/signers/${n}/envelope-key.json`;
-    const exists = spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "test", "-f", f]).status === 0;
+    // H8: bounded like every orb call; a killed probe (status null) is retried, then thrown, never read as "absent"
+    // (that would mint a new envelope key over the pinned one).
+    let t = spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
+    for (let i = 1; t.status === null && i < 3; i++) t = spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
+    requireThat(t.status !== null, `host ${n} did not answer the envelope-key probe`);
+    const exists = t.status === 0;
     return exists ? JSON.parse(host(n, ["cat", f])).public_hex : hostBenzo(n, ["sign", "envelope-key", "--name", n]).public_hex;
   });
 }

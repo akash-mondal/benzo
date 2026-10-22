@@ -1,5 +1,5 @@
 // CLI coordinator. Signer routing is private, pinned before funding; no recipient input is accepted at run/sign time.
-import {copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,renameSync,writeFileSync} from "node:fs";
+import {appendFileSync,copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,renameSync,writeFileSync} from "node:fs";
 import {spawn,spawnSync} from "node:child_process";
 import path from "node:path";
 import {hash,jsonBytes,requireThat,verifyRecord,QUICKNET} from "../manifest/schema";
@@ -22,6 +22,16 @@ const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 if(id&&/^[0-9a-f]{64}$/.test(id))process.env.BNZ_AUCTION_ID=id;
 const dir=path.join(STATE,"settle",id??""),file=(n:string)=>path.join(dir,n);
 const read=(n:string)=>JSON.parse(readFileSync(file(n),"utf8"));
+// H9: a signer host's whole stderr goes to this auction's operator-private host-errors.log (0600; hosts never
+// print key material), and the console gets its first ERROR line plus the log path. Keeping only the last
+// 200 chars hid RG attempt 13's real cause (a lightwalletd 503) behind an empty `GetBlock:` line.
+const hostError=(n:string,what:string,stderr:string|null|undefined):string=>{
+  const t=(stderr||"").trim(),lines=t.split("\n");
+  mkdirSync(dir,{recursive:true,mode:0o700});
+  appendFileSync(file("host-errors.log"),`==== ${new Date().toISOString()} signer ${n} ${what}\n${t}\n`,{mode:0o600});
+  const first=lines.find(l=>/\bERROR\b/.test(l))??lines.find(l=>/error/i.test(l))??lines.at(-1)??"";
+  return `${first.trim().slice(0,300)} (full stderr: ${file("host-errors.log")})`;
+};
 const settings=()=>existsSync(path.join(STATE,"product",`${id}.json`))?JSON.parse(readFileSync(path.join(STATE,"product",`${id}.json`),"utf8")).settlement:{signers:["alice","bob"],pczt_expiry_blocks:364,batch_cap:13};
 const auction=()=>JSON.parse(readFileSync(path.join(STATE,"auction",`${id}.json`),"utf8"));
 // G-7: every benzo-pczt call takes the network from the signed manifest — never a hardcoded default
@@ -162,7 +172,7 @@ function hostDerivable():{rows:Set<string>;refused:Map<string,string>}|null {
     if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
     spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"});
     const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
-    if(r.status!==0){console.error(`ERROR signer ${n} could not list derivable rows: ${(r.stderr||"").trim().slice(-200)}`);continue}
+    if(r.status!==0){console.error(`ERROR signer ${n} could not list derivable rows: ${hostError(n,"sign derivable",r.stderr)}`);continue}
     const out=JSON.parse(r.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
     // H21 (B50): a listing may tag a row refused (typed — `refused: true` with its reason, e.g. the H10
     // seller mismatch): the tagged rows do NOT derive, and their reason rides to the exception queue so
@@ -219,7 +229,7 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
     if(b.status!==0){
       attempts.push({status:b.status,stderr:b.stderr??""});
-      console.error(`ERROR signer ${n} could not build batch ${batchId}: ${(b.stderr||"").trim().slice(-200)}`);continue;
+      console.error(`ERROR signer ${n} could not build batch ${batchId}: ${hostError(n,`sign build batch ${batchId}`,b.stderr)}`);continue;
     }
     const built=JSON.parse(b.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
     // §11 H7: pull only the redacted candidate and the sealed full copies; the full candidate never reaches here.
@@ -297,7 +307,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     timing({auction:id,batch:batchId,phase:"host-approve",signer:n,ms:Date.now()-tA,ok:a.status===0});
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
     if(a.status===0){try{maps[n]=JSON.parse(a.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!).map??null}catch{maps[n]=null}}
-    if(a.status!==0)console.error(`ERROR signer ${n} refused batch ${batchId}: ${(a.stderr||"").trim().slice(-200)}`);
+    if(a.status!==0)console.error(`ERROR signer ${n} refused batch ${batchId}: ${hostError(n,`sign approve batch ${batchId}`,a.stderr)}`);
     return a.status===0;
   };
   for(let attempt=1;attempt<=3;attempt++) {

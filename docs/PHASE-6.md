@@ -1155,3 +1155,58 @@ Hosts are re-provisioned, and the final RG restarts from its first project at th
 **OrbStack restart.** At 06:25 UTC, during U2, OrbStack received an external stop request (`reason=1`, not sleep) and restarted. The VMs were back within about 20 s. U2's run continued and its assertions are recorded above.
 
 **Gate RG holds at `25c751a`.** The 52 built-artifact sha256 entries common to all six `run.json`s are equal. `git diff 25c751a HEAD` outside `docs/evidence`, `docs/PHASE-6.md` and `tmp` touches only `deploy/signers/manifest.json` (`9f09c48`, the host provisioning record) and `docs/reproducible-build.md` (`9f36087`, the PK digests). EVIDENCE.md's RG and PK rows now point here.
+
+### R132: testnet work finished before mainnet: B57 closes the last open hardening rows, the stranded funds are recovered (head, 2026-10-22)
+
+**The user's call (2026-10-22):** "wait for mainnet finish all testnet work". Mainnet waits. Everything below is testnet or offline.
+
+**The hardening list, audited.** `phase7-hardening.md` is titled "Must land before mainnet". Its status column had fallen behind the rulings, so each row now carries its status and the ruling that closed it:
+- Closed earlier: H1–H7, H10, H11, H13–H16, H18–H21, H23.
+- Disclosed limits, not built (README "Not built" row, `honest-limits.md`): H12, H17, H25, H26.
+- Still open in code: H8, H9, H22 and H24. B57 closes them.
+
+**B57 (head, solo).**
+- **H8:** a stuck `orb` client ignores SIGTERM.
+  - Every `orb`/`orbctl` bound in `cli/hosts.ts` now kills with SIGKILL. `settle/cli.ts` already did.
+  - The per-host DKG spawn gets a 10-minute SIGKILL bound. `sign dkg` is idempotent per auction.
+  - The envelope-key probe is bounded too. A killed probe is retried and then thrown, never read as "absent", which would mint a new key over the pinned one.
+  - Proof: `b57-h8-orb-sigkill.ts`. A stub `orb` that ignores TERM; `sh()` gives up after its three 2-minute attempts, and no stub survives.
+- **H9:** each signer host's whole stderr now goes to the auction's operator-private `host-errors.log` (0600).
+  - The console prints the first ERROR line and the log path, instead of the last 200 characters.
+  - The published refusal detail keeps its short form.
+- **H22:** `reserveReturnOutstanding` no longer skips a row by its name.
+  - Since B56 an unpaid `reserve-return` row is never published, so a published one is judged like any other row: settled only when paid and receipted.
+  - A paid return's accounting is still kept from the ledger (`settle/cli.ts`, the H20 path).
+  - Proof: two new cases in `b46-reserve-return.ts`.
+- **H24:** both sides of the `--openings-cache` pin go through `realpath` on their directory. The `lstat` link check is unchanged.
+  - The help text names `BNZ_STATE_DIR` as the trust anchor.
+  - Proof: two new cases in `b48-p3s.ts`. The own file through a symlinked directory works; a copied one through the same link is still refused.
+- **Repro fix:** `b42-hosts-cli.ts` had been red since B45. Its stub `benzo-pczt` forwarded only one `classify-address` argument, and B45's bulk classifier sends `--stdin`. The stub now passes stdin through to the real binary, as `b47-world.ts` already did. `main` at `37f5c8e` failed the same way, so this is not a B57 regression.
+
+**R131 correction: the owner keys were never lost.** R131 said the markets driver kept owner keys in memory only. In fact `bid seal` writes each bid's one-time owner key to `$BNZ_STATE_DIR/bids/<id>/<ciphertext_hash>.json`. The real gap was that `resume` never used them. Recovered with the product's own claim path (`claim-refund` signed by each kept key, `hosts envelope-opens`, `settle`):
+- `e20a5f1a` (launch-meet, cancelled before freeze): three 200,000-zat deposits claimed and refunded in tx `03156669…`. The auction is CANCELLED.
+- `991692af` (drop): the two out-of-window balance payments (20,000 and 1 zats; R131's "70k" was wrong) claimed and paid in tx `b8c0288b…`. The auction is SETTLED, and `benzo verify` gives 19 OK, exit 0.
+- Their unused fee reserves stay in their vaults by design. The markets driver commits no `reserve_return_ua` (the testnet legacy branch, the same as buyback-mode V2), so settle plans no return row. Mainnet refuses a manifest without the commitment (`cli/product.ts`).
+- A wrong key is refused at record time and records nothing. Each claim matched exactly one kept key.
+
+**Harness gaps closed** (`tools/repro/markets.ts` `resume`):
+1. An auction still OPEN and unfrozen after `T_freeze` is cancelled with `benzo cancel`.
+2. After settle, every exception row an owner must claim is claimed with the kept key that signs for it, to a fresh bidder address. Then the hosts open the claims and settle runs again.
+
+**Found and disclosed: `benzo verify` covers only auctions that reached the freeze.** It refuses `e20a5f1a` with `missing frozen`. By design it requires the frozen set (R21 item 5), but this was not disclosed. `honest-limits.md` now says so: such deposits still refund only through each bid's memo-bound envelope or its owner's claim, and each bidder checks with their own wallet scan.
+
+**Offline proofs.** Red on the old product code, green on B57 (`docs/evidence/phase-7/repro/b57-*`):
+- H22 `gate-h22-named-row-not-skipped`: before, the named row was hidden (`outstanding: []`).
+- H24 `b57-h24-symlinked-dir-works`: before, it was falsely refused.
+- H8: before, `sh()` was still blocked after 420 s. After, it throws at 360 s and no stub survives.
+- B42: 87/87 after; it failed on `main` before.
+
+Every repro on the touched paths is green (`b57-after-summary.out`): B46, B47 (settle end-to-end), B48, B53 (each section alone; one full run died on a drand relay socket close), B54, B55, B55-H19, B56, H10 and the offline `npm run e2e`. B50's 12 FAILs are its legacy-directory census, identical to the committed `b50-dirs-after.out`. `npm run check` passes. The verify bundle is now `cffd6a33…`.
+
+**The live proof still owed.** This path had three gaps that only showed up live (R99, R107, R107b), so H22 also needs one. The DOC walkthrough (`tools/doc-walk.sh`) commits a return address and runs the reserve return plus the B54 dust leg, so it runs again at the B57 commit, after the RG.
+
+**Next ("testnet gold in all features", the user, 2026-10-22).** Everything below runs at the B57 commit:
+1. Gate RG: the hosts provisioned at the commit, the six live projects (evidence `docs/evidence/phase-7/rg/`), the five §3 live mutations and the 23 offline mutations.
+2. PK steps 02–04: the verify bundle and the npm digest move.
+3. The features RG does not run: the DOC walkthrough with the reserve return, the three cross-chain demos, the recurring buyback series and scale-8.
+4. Then a gpt-6.1-sol (Codex CLI) judge pass with the Zecathon dossier (user request), and the mainnet question again.

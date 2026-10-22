@@ -149,6 +149,9 @@ const calls = (): string[] => (existsSync(LOG) ? readFileSync(LOG, "utf8").split
 // address are the offline stand-ins (the UFVK is a stub string, so its ak check echoes the canned group key).
 const stubBenzoPczt = `const cp = require("child_process"), path = require("path");
 const a = process.argv.slice(2);
+// B57: since B45 the classifier runs in bulk (\`classify-address --stdin\`); the stub passes stdin through to the
+// REAL binary, the same as tools/repro/b47-world.ts (before B57 it forwarded only a[1] and \`auction keys\` failed).
+if (a[0] === "classify-address" && a[1] === "--stdin") { const r = cp.spawnSync(${JSON.stringify(REAL_PCZT)}, ["classify-address", "--stdin"], { input: require("fs").readFileSync(0), maxBuffer: 1 << 28 }); process.stdout.write(r.stdout); process.stderr.write(r.stderr); process.exit(r.status ?? 1); }
 if (a[0] === "classify-address") { process.stdout.write(cp.execFileSync(${JSON.stringify(REAL_PCZT)}, ["classify-address", a[1]], { encoding: "utf8" })); process.exit(0); }
 if (a[0] === "ufvk-ak") { console.log(${JSON.stringify(GROUP_KEY)}); process.exit(0); }
 if (a[0] === "address") { console.log(${JSON.stringify(UA_ORCHARD)}); process.exit(0); }

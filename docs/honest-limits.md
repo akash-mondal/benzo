@@ -89,6 +89,10 @@ built from witnesses you do not trust.
 packet against it; a seller should check the commitment against their own address before bidding opens with
 `benzo seller check --manifest public-dir/manifest.json --ua <your address>`.
 - **A chain reorg after the freeze breaks verification** (H17): if a frozen deposit leaves the chain, `open` marks it `reorg`, but `benzo verify` has no chain view and refuses that published row, so an honest auction that saw a reorg would not verify. With 10 confirmations required before freeze this is rare; the fix (witness-signed reorg evidence) is not built yet.
+- **`benzo verify` covers auctions that reached the freeze**: an auction cancelled before its freeze has no frozen set
+and no result, so `benzo verify` refuses it with `missing frozen`. Its deposits still refund only through each bid's
+own memo-bound envelope or its owner's signed claim; each bidder checks their refund with their own wallet scan
+(testnet `e20a5f1a…`, R132).
 - **An operator can refuse a funded bid** (gate H, threat 005): witnesses check that every frozen leaf is a real
 deposit, not that every deposit was admitted, and `benzo verify` checks omissions only against the operator's own
 published deposit list. A refused bidder gets no acceptance receipt, and the deposit stays claimable with the bid's

@@ -662,6 +662,13 @@ if (part === "before") {
     check("gate-unreceipted-row-blocks", unReceipted.length === 1 && unReceipted[0] === "seller", "a row without its receipt blocks the return");
     const pendingBatch = reserveReturnOutstanding({ owed, rows, receipts, pending_batches: 1 });
     check("gate-pending-batch-blocks", pendingBatch.length === 1, "a pending batch blocks the return");
+    // B57 (H22): no row is skipped by its name. A published row named `reserve-return` that is not paid and
+    // receipted is outstanding like any other (before B57 the name alone hid it); a paid, receipted one is settled.
+    const named = reserveReturnOutstanding({ owed, rows: [...rows, { party: "reserve-return", amount_zats: "500", state: "exception" }], receipts });
+    check("gate-h22-named-row-not-skipped", named.length === 1 && named[0] === "reserve-return",
+      `a published unpaid row named reserve-return — outstanding: ${JSON.stringify(named)}`);
+    const paidReturn = reserveReturnOutstanding({ owed, rows: [...rows, { party: "reserve-return", amount_zats: "500", state: "paid" }], receipts: [...receipts, { party: "reserve-return", amount_zats: "500" }] });
+    check("gate-h22-paid-return-settled", paidReturn.length === 0, `a paid, receipted return row is settled — outstanding: ${JSON.stringify(paidReturn)}`);
   }
 
   // ---- B. green plan on the stray + unclaimed late-balance fixture: NO row, the waits line -----------------

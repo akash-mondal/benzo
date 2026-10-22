@@ -19,6 +19,7 @@
 //        lists every other row and tags the reserve-return row refused (exit 0); a packet that DECLARES the
 //        return row with the mismatched address stays refused (typed, exit 3).
 //   P3-5  `seller check` without --signer prints one no-trust-anchor WARN and still checks the commitment.
+// B57 (H24) adds the canonical-path pair to P3-3: the own file through a symlinked directory works, a copied one stays refused.
 // Build+run: npx esbuild tools/repro/b48-p3s.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/b48.mjs && node tmp/b48.mjs
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -302,6 +303,14 @@ const parties = (rows: { party: string; amount_zats: string }[]) => JSON.stringi
   unlinkSync(own); renameSync(backup, own);
   const d = verify(["--openings-cache", own]);
   check("p33-restored-own-cache-works", d.code === 0, `the restored host's own file works again: exit ${d.code} (${lastLine(d)})`);
+  // B57 (H24): the pin is canonical. The same own file named through a symlinked directory (macOS /tmp is
+  // /private/tmp) works; before B57 the lexical comparison refused it (fail-closed, but a false refusal).
+  const alias = WORK + "-alias"; rmSync(alias, { force: true }); symlinkSync(WORK, alias);
+  const e = verify(["--openings-cache", path.join(alias, path.relative(WORK, own))]);
+  check("b57-h24-symlinked-dir-works", e.code === 0, `the host's own file named through a symlinked directory: exit ${e.code} (${lastLine(e)})`);
+  const f = verify(["--openings-cache", path.join(alias, "p33-copied-openings.json")]);
+  check("b57-h24-copied-still-refused", f.code !== 0 && /openings cache must be this host's own/.test(f.err), `a copied cache through the same link is still refused: exit ${f.code}`);
+  unlinkSync(alias);
 }
 
 console.log(failed ? `RESULT FAIL (${failed})` : "RESULT PASS");

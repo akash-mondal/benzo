@@ -111,9 +111,10 @@ export function reserveReturnOutstanding(input: {
   // catches an unclaimed stray or balance note hidden from the published rows — our own scan derived it.
   for (const o of input.owed) if (!receipted(o.party, o.amount_zats)) out.add(o.party);
   for (const r of input.rows) {
-    // R107b: the reserve-return row itself is never outstanding for its own gate (it is published, without a
-    // receipt, while its batch is in flight).
-    if (r.party === "reserve-return") continue;
+    // H22: no row is skipped by name. R107b skipped any published row named `reserve-return` because the row
+    // was published, without a receipt, while its batch was in flight. Since B56 (rowPublishes) an unpaid return
+    // row is never published, so a published one is judged like every other row: settled only when paid and
+    // receipted at its amount. A coordinator-authored row cannot hide behind the name.
     const settled = (r.state === "paid" || r.state === "refunded") && receipted(r.party, r.amount_zats);
     if (!settled) out.add(r.party); // an exception row, or a row without its receipt: unresolved
   }

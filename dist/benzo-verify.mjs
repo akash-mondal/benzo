@@ -7873,7 +7873,7 @@ var require_tlock_js = __commonJS({
 var import_beacon_verification = __toESM(require_beacon_verification(), 1);
 import os from "node:os";
 import path5 from "node:path";
-import { existsSync as existsSync5, lstatSync } from "node:fs";
+import { existsSync as existsSync5, lstatSync, realpathSync } from "node:fs";
 
 // manifest/schema.ts
 import { createHash, createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
@@ -19620,7 +19620,7 @@ function loadOpenings(file, frozenRoot, beaconSha) {
 }
 
 // cli/commands/verify.ts
-var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] \u2014 re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json (B43 H13) and only skips re-decrypting the openings that file covers; the public benzo verify never uses it and re-derives every opening.";
+var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] \u2014 re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json (B43 H13) and only skips re-decrypting the openings that file covers (the host's BNZ_STATE_DIR is the trust anchor for that path); the public benzo verify never uses it and re-derives every opening.";
 var tleOpening2 = (ciphertext, chain2) => tleOpening("tle", chain2, ciphertext);
 async function run(argv) {
   if (argv.includes("--help")) {
@@ -19669,7 +19669,11 @@ async function run(argv) {
     if (openingsCache) {
       const state = process.env.BNZ_STATE_DIR ? path5.resolve(process.env.BNZ_STATE_DIR) : path5.join(os.homedir(), ".benzo");
       const own = path5.join(state, "auctions", pub.manifest.auction_id, "openings.json");
-      requireThat(path5.resolve(openingsCache) === path5.resolve(own), "openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json");
+      const canon = (p2) => {
+        const d2 = path5.dirname(path5.resolve(p2));
+        return path5.join(existsSync5(d2) ? realpathSync(d2) : d2, path5.basename(p2));
+      };
+      requireThat(canon(openingsCache) === canon(own), "openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json");
       if (existsSync5(own)) requireThat(lstatSync(own).isFile(), "openings cache must be the host's own file at that path, not a link to a cache copied elsewhere");
       cache = loadOpenings(own, pub.frozen.root, beaconSha256(pub.beacon));
     }

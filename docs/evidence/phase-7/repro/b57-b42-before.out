@@ -1,0 +1,19 @@
+commit 37f5c8e96bcc8ad5d9ee87ea0afa5121fe7086eb (working tree not clean at run time)
+utc 2026-10-22T15:44:38.844Z
+command node tmp/b42-hosts-cli.mjs (tools/repro/b42-hosts-cli.ts)
+tree ?? tools/repro/b57-h8-orb-sigkill.ts
+PASS hosts-keys-fresh-sequence 9 orb calls
+PASS hosts-keys-fresh-output envelope 96833898,85145473,1c3423d7 witness 2b6eefbd,f8571ace,29bf7d9d
+PASS hosts-keys-reuse-sequence 6 orb calls
+PASS hosts-keys-reuse-output envelope 96833898,85145473,1c3423d7 witness 2b6eefbd,f8571ace,29bf7d9d
+file:///Users/akshmnd/Dev%20Projects/benzo/tmp/b42-hosts-cli.mjs:1249
+  if (r.status !== 0) throw new Error(`benzo ${args.join(" ")} exited ${r.status}: ${(r.stderr || r.stdout).trim().slice(-300)}`);
+                            ^
+
+Error: benzo auction keys --id 3cdc521175600196935ecff164c98d4063a3971b6f519825d7390b0a695a53b4 --group-keys 4eac3c9ba87a3db36ea9a90f2f3a5c6835b8f46019fb5fb0c8b59c3ab53a6a6e,4eac3c9ba87a3db36ea9a90f2f3a5c6835b8f46019fb5fb0c8b59c3ab53a6a6e,4eac3c9ba87a3db36ea9a90f2f3a5c6835b8f46019fb5fb0c8b59c3ab53a6a6e exited 1: ERROR auction keys refused: benzo-pczt printed no escrow UA
+    at file:///Users/akshmnd/Dev%20Projects/benzo/tmp/b42-hosts-cli.mjs:1249:29
+    at Module.dkgOnHosts (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/b42/old-hosts.mjs:84:13)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///Users/akshmnd/Dev%20Projects/benzo/tmp/b42-hosts-cli.mjs:1306:12
+
+Node.js v24.15.0

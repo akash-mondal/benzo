@@ -8,7 +8,7 @@ import { assertScratch } from "./scratch";
 import { Keypair } from "@solana/web3.js";
 import { SigningKey, Wallet } from "ethers";
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ROOT, STATE, env, DRAND } from "../../e2e/lib/env";
 import { h19FeeBound } from "../../e2e/lib/h19";
@@ -631,6 +631,22 @@ function intakeFlow(name: string, id: string, d: any, serials: number[], say: (s
   benzo(["buyback", "intake", "--id", id, "--file", file]);
   say(`serial intake published ${records.map((r: any) => r.serials[0]).join(",")}`);
 }
+function claimExceptions(id: string, say: (s: string) => void): number {
+  const sum = path.join(STATE, "settle", id, "summary.json"), keysDir = path.join(STATE, "bids", id);
+  if (!existsSync(sum) || !existsSync(keysDir)) return 0;
+  const claimsFile = path.join(STATE, "settle", id, "claims.json");
+  const claimed = new Set<string>((existsSync(claimsFile) ? json(claimsFile) : []).map((c: any) => c.party));
+  const rows = (json(sum).rows ?? []).filter((r: any) => r.state === "exception" && /^(deposit|balance-late|balance-excess):/.test(r.party) && !claimed.has(r.party));
+  const keys = readdirSync(keysDir).filter(f => f.endsWith(".json")).map(f => json(path.join(keysDir, f)).owner_private_hex as string);
+  let recorded = 0;
+  for (const r of rows) {
+    const destination = fresh(path.join(STATE, "bidder"));
+    const ok = keys.some(k => { try { benzo(["claim-refund", "--id", id, "--defer", "true"], benzoRaw(["claim-refund", "--id", id, "--party", r.party, "--destination", destination, "--owner-key-stdin"], k)); return true; } catch { return false; } });
+    say(ok ? `claimed ${r.party.slice(0, 40)}… (${r.amount_zats} zats) with its owner key` : `no kept owner key signs for ${r.party.slice(0, 40)}…`);
+    if (ok) recorded++;
+  }
+  return recorded;
+}
 // `resume:<id>`: finish an existing frozen product auction whose run stopped (certificates, open, clear, envelope-opens,
 // settle — whichever is still missing), then check receipts against the registry's obligations and cold-verify.
 async function resume(id: string) {
@@ -650,6 +666,9 @@ async function resume(id: string) {
     if (Date.now() / 1000 < m.T_freeze) benzo(["freeze", "--id", id]);
     else say(`T_freeze passed unfrozen: the auction is cancelled; settlement refunds every deposit through its own memo`);
   }
+  // R132 harness gap 1: an auction still OPEN and unfrozen after T_freeze is cancelled with `benzo cancel` (the
+  // product's own cancel-before-freeze path), so its deposits route to refunds instead of waiting forever.
+  if (stateOf() === "OPEN" && !doc().frozen && Date.now() / 1000 >= m.T_freeze) { benzo(["cancel", "--id", id]); say(`unfrozen after T_freeze: cancelled (state ${stateOf()})`); }
   if ((doc().witness_cert ?? []).length < 2 && doc().frozen) hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
   while ((await latestRound()) < m.drand.R) await sleep(10_000);
   if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
@@ -665,7 +684,12 @@ async function resume(id: string) {
   if (scen?.balancePays && d0.result) await bondFlow(id, scen, d0, say);
   if (scen?.intakeSerials && d0.result && !existsSync(path.join(publicDir, "serial-intake.json"))) intakeFlow(`resume-${id.slice(0, 8)}`, id, doc(), scen.intakeSerials, say);
   hostEnvelopeOpens(id, publicDir);
-  const settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
+  let settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 });
+  // R132 harness gap 2: exception rows only an owner can claim (an unadmitted deposit of a cancelled run, an
+  // out-of-window balance payment). `bid seal` keeps each of this run's owner keys under STATE/bids/<id>/, so
+  // resume claims every such row to a fresh bidder address with the key that signs for it (a wrong key is
+  // refused at record time and records nothing), re-opens the claim envelopes on the hosts and settles again.
+  if (claimExceptions(id, say) > 0) { hostEnvelopeOpens(id, publicDir); settle = spawnSync(benzoBin, ["settle", "--id", id], { encoding: "utf8", maxBuffer: 64 << 20 }); }
   const receipts = Object.fromEntries((doc().settlement?.receipts ?? []).map((r: any) => [r.party, Number(r.amount_zats)]));
   // A cancelled run has no result: its obligations are the deposits themselves, each refunded at its own note
   // value through its memo-bound envelope (or its owner's claim) — and `benzo verify` is the accounting check.

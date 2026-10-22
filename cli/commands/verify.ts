@@ -2,7 +2,7 @@
 // Re-derives every opening offline from its ciphertext and authenticated published quicknet beacon.
 import os from "node:os";
 import path from "node:path";
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { verifyBeacon } from "drand-client/beacon-verification.js";
 import { hash, requireThat } from "../../manifest/schema";
 import { requireReserveOpening, tleOpening as tleDecrypt } from "../../manifest/reserve";
@@ -15,7 +15,7 @@ import { beaconSha256, loadOpenings } from "../openings-cache";
 
 export const noun = "verify";
 export const verb = "";
-export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] — re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json (B43 H13) and only skips re-decrypting the openings that file covers; the public benzo verify never uses it and re-derives every opening.";
+export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] — re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json (B43 H13) and only skips re-decrypting the openings that file covers (the host's BNZ_STATE_DIR is the trust anchor for that path); the public benzo verify never uses it and re-derives every opening.";
 
 // Go tle is an optional independent cross-check, resolved only through PATH (shared with the signer
 // plan through manifest/reserve.ts so the sealed-reserve rules cannot drift).
@@ -77,7 +77,11 @@ export async function run(argv: string[]): Promise<number> {
     if (openingsCache) {
       const state = process.env.BNZ_STATE_DIR ? path.resolve(process.env.BNZ_STATE_DIR) : path.join(os.homedir(), ".benzo");
       const own = path.join(state, "auctions", pub.manifest.auction_id, "openings.json");
-      requireThat(path.resolve(openingsCache) === path.resolve(own), "openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json");
+      // H24: the comparison is canonical. Each side's directory goes through realpath (macOS /tmp is /private/tmp),
+      // the file name stays as given, so the lstat below still refuses a link at the host's own name.
+      // BNZ_STATE_DIR is the trust anchor here, the same boundary as the 0600 host state this cache comes from.
+      const canon = (p: string) => { const d = path.dirname(path.resolve(p)); return path.join(existsSync(d) ? realpathSync(d) : d, path.basename(p)); };
+      requireThat(canon(openingsCache) === canon(own), "openings cache must be this host's own $BNZ_STATE_DIR/auctions/<id>/openings.json");
       if (existsSync(own)) requireThat(lstatSync(own).isFile(), "openings cache must be the host's own file at that path, not a link to a cache copied elsewhere");
       cache = loadOpenings(own, pub.frozen.root, beaconSha256(pub.beacon!));
     }
