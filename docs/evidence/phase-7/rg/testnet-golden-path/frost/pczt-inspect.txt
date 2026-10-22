@@ -1,0 +1,23 @@
+# pczt inspect created.pczt
+2 Ironwood actions:
+- 0:
+  - Spend: 500000 zatoshis
+  - Output: Zero value (likely a dummy)
+- 1:
+  - Spend: 500000 zatoshis
+  - Output: 990000 zatoshis to utest1jz0w…hmx0a4
+
+TxID: 7520f4b99d2ad3b1e11cfcc55cff37b05aa73b3b15850770264b17d70e5b2e1d
+Version: V6
+
+# pczt inspect signed.pczt
+2 Ironwood actions:
+- 0:
+  - Spend: 500000 zatoshis
+  - Output: Zero value (likely a dummy)
+- 1:
+  - Spend: 500000 zatoshis
+  - Output: 990000 zatoshis to utest1jz0w…hmx0a4
+
+TxID: 7520f4b99d2ad3b1e11cfcc55cff37b05aa73b3b15850770264b17d70e5b2e1d
+Version: V6
