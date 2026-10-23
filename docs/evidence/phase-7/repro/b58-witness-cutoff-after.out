@@ -1,0 +1,14 @@
+commit b6f478bc2923725b4d14b8098b136d07b4393574 (working tree not clean at run time)
+utc 2026-10-23T03:05:51.304Z
+command node tmp/b58.mjs after (tools/repro/b58-witness-cutoff.ts)
+tree ?? docs/evidence/phase-7/repro/b58-witness-cutoff-after.out
+tree ?? docs/evidence/phase-7/repro/b58-witness-cutoff-before.out
+=== green (1) B58 plan: CANCELLED + frozen + no witness certificate, before R -> parked
+PASS green-1-uncertified-cancel-plans exit 0, exceptions 2: ERROR refund deposit:3f52a326dfc04e51c92b1eca5913e9e49ed8f0cc5033b643b3fe0e234668b7d4:ironwood:1 to the exception queue: cancelled before release; refund is cla
+=== green (2) B58 witness sign after R -> refused before any scan
+PASS green-2-late-first-certificate-refused exit 1: ERROR witness refused: witness signing closed: round 32704232 was released at 2026-10-02T04:41:00.000Z; a first certificate after the release could follow the p
+=== green (3) B58 witness sign, R in the future -> not refused by the clock
+PASS green-3-before-release-not-refused exit 0: (no ERROR line)
+=== green (4) B58 witness sign after R, root already pinned by this witness -> not refused by the clock
+PASS green-4-pinned-resign-not-refused exit 0: (no ERROR line)
+RESULT PASS after
