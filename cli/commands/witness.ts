@@ -94,6 +94,14 @@ export async function run(argv: string[]): Promise<number> {
     const statement = freezeStatement(pub.manifest, pub.frozen!);
     if (mode === "sign") {
       const resolved = witnessKey(o.key);
+      // B58 (judge finding): a FIRST certificate is refused once round R is out, by this witness's own clock. After R
+      // anyone can read the prices, so an operator that froze late could pick which bids count; an honest witness
+      // will not certify that. Re-signing the root this witness already pinned (an idempotent re-run) stays allowed.
+      // An auction left uncertified at R is cancelled and refunds every deposit in full (settle/plan.ts).
+      const pinFile = path.join(state, "auctions", pub.manifest.auction_id, "frozen-root.txt");
+      const already = existsSync(pinFile) && readFileSync(pinFile, "utf8").trim() === pub.frozen!.root;
+      const release = pub.manifest.drand.genesis + (pub.manifest.drand.R - 1) * pub.manifest.drand.period;
+      requireThat(already || Date.now() / 1000 < release, `witness signing closed: round ${pub.manifest.drand.R} was released at ${new Date(release * 1000).toISOString()}; a first certificate after the release could follow the prices`);
       // Ruling R28 item 1: on a signer host (it holds this auction's DKG share) certifying also pins the manifest — the
       // signer key, group key and vault addresses are checked and its hash recorded before any later approval.
       if (existsSync(path.join(state, "auctions", pub.manifest.auction_id, "group-key.txt"))) custodyBinding(pub.manifest.auction_id, state, root, pub, o.signer);

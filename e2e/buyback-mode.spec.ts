@@ -96,12 +96,13 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     while(Date.now()/1000<manifest.T_submit+2)await sleep(5_000);
     if(Date.now()/1000>=manifest.T_freeze)throw Error('deposits matured after T_freeze');
     benzo(['freeze','--id',id]);
-    while((await latestRound())<R)await sleep(10_000);
     // X1: open refuses without a q_w certificate; then two hosts certify after recomputing the root themselves.
+    // B58: witnesses certify BEFORE R (a first certificate after R is refused), so X1a runs before the wait.
     await run.check('X1a','open refuses a root without q_w witness certificates',()=> {
       const r=cli(['open','--id',id]);expect(r.status).not.toBe(0);expect(r.stderr).toMatch(/witness|certificate/i);
     });
     hostWitnessCerts(id,publicDir,signer,['alice','bob']);
+    while((await latestRound())<R)await sleep(10_000);
     benzo(['open','--id',id]);benzo(['clear','--id',id]);
     const doc=()=>json(path.join(publicDir,'auction.json'));
     await run.check('V1b','CLI clear equals the pure Mode B clear on the same opened set',()=> {

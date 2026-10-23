@@ -93,6 +93,10 @@ packet against it; a seller should check the commitment against their own addres
 and no result, so `benzo verify` refuses it with `missing frozen`. Its deposits still refund only through each bid's
 own memo-bound envelope or its owner's signed claim; each bidder checks their refund with their own wallet scan
 (testnet `e20a5f1a…`, R132).
+- **Witnesses certify only before R, by their own clocks** (B58): a witness refuses a first certificate once round R
+is out, so an operator that froze late cannot get a price-aware subset certified. The certificate carries no
+independent timestamp, so a witness quorum that ignores its clock with the operator is outside this guarantee. An
+auction left uncertified at R cannot open; it is cancelled and every deposit refunds in full.
 - **An operator can refuse a funded bid** (gate H, threat 005): witnesses check that every frozen leaf is a real
 deposit, not that every deposit was admitted, and `benzo verify` checks omissions only against the operator's own
 published deposit list. A refused bidder gets no acceptance receipt, and the deposit stays claimable with the bid's

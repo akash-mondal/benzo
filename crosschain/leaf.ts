@@ -5,8 +5,9 @@
 //   root = keccak256("benzo-root-v1" ‖ leaf_count u64be ‖ tree_root)
 //   tree: sorted-pair keccak parents (OpenZeppelin MerkleProof convention)
 //
-// Amounts are never in a leaf: payout = lot_count × standard_lot (§3, lesson 6). Nothing from
-// Zcash or the funding path enters a leaf (lesson 5). The same layout is enforced on chain by
+// Amounts are never in a leaf: payout = lot_count × standard_lot (§3, lesson 6). No Zcash address,
+// note or funding detail enters a leaf (lesson 5); the public auction id and leaf index do, so a
+// release is publicly matchable to its opened bid (docs/claims.yaml stealth-delivery). The same layout is enforced on chain by
 // contracts/evm/src/BenzoEscrow.sol and contracts/solana/src/lib.rs.
 import { keccak_256 } from "@noble/hashes/sha3";
 import { bech32m } from "@scure/base";

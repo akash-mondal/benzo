@@ -669,7 +669,12 @@ async function resume(id: string) {
   // R132 harness gap 1: an auction still OPEN and unfrozen after T_freeze is cancelled with `benzo cancel` (the
   // product's own cancel-before-freeze path), so its deposits route to refunds instead of waiting forever.
   if (stateOf() === "OPEN" && !doc().frozen && Date.now() / 1000 >= m.T_freeze) { benzo(["cancel", "--id", id]); say(`unfrozen after T_freeze: cancelled (state ${stateOf()})`); }
-  if ((doc().witness_cert ?? []).length < 2 && doc().frozen) hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
+  // B58: witnesses refuse a first certificate once R is out, so a frozen run resumed after R without its certificates
+  // is cancelled (cancel before opening), and every deposit refunds in full through its own memo or claim.
+  if ((doc().witness_cert ?? []).length < 2 && doc().frozen) {
+    if (Date.now() / 1000 < m.drand.genesis + (m.drand.R - 1) * m.drand.period) hostWitnessCerts(id, publicDir, signer, ["alice", "bob"]);
+    else if (stateOf() === "SEALED-WAIT") { benzo(["cancel", "--id", id]); say(`uncertified at R: cancelled (state ${stateOf()})`); }
+  }
   while ((await latestRound()) < m.drand.R) await sleep(10_000);
   if (stateOf() === "SEALED-WAIT") benzo(["open", "--id", id]);
   if (stateOf() === "OPENED") benzo(["clear", "--id", id]);

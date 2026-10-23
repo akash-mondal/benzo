@@ -63,7 +63,9 @@ try {
   // frozen statement — a refusal on the signer path, never a WARN. A cancelled-before-freeze auction has no
   // frozen root to witness (benzo verify's witness rule is the same: no root, no witness material), so the
   // gate applies exactly where a frozen statement exists.
-  if(published&&m.witness_set_hash!==undefined&&src.frozen) {
+  // B58: a cancelled auction pays only full-C refunds through each deposit's own memo envelope or owner claim, so its
+  // frozen set needs no certificate (witnesses refuse a first certificate after R; an uncertified auction cancels).
+  if(published&&m.witness_set_hash!==undefined&&src.frozen&&!["CANCELLED","REFUNDING"].includes(src.state)) {
     requireThat((published as any).witness_set,"missing witness set");
     const spec=validateWitnessSet(verifyRecord<WitnessSet>((published as any).witness_set,src.signer),id);
     requireThat(witnessSetHash((published as any).witness_set)===m.witness_set_hash,"witness set hash mismatch");

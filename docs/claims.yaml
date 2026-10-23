@@ -76,12 +76,12 @@ claims:
     limits: "It waits until nothing else is owed. Dust notes (5,000 zats or less each) stay in the vault. One transaction only, up to 29 spends or 29 padded actions (H25)."
 
   - id: stealth-delivery
-    text: "A cross-chain payout was delivered to an ERC-5564 stealth address on Ethereum Sepolia and spent by the winner's viewing key alone."
+    text: "A cross-chain payout was delivered to an ERC-5564 stealth address on Ethereum Sepolia; the winner found it with the viewing key and spent it with the spending key."
     status: testnet_live
     environments: [ethereum-sepolia]
     evidence:
       - docs/evidence/phase-5/repro/stealth-live.out
-    limits: "The stealth derivation reproducible by signers is custom code (docs/AUDITS.md)."
+    limits: "The stealth derivation reproducible by signers is custom code (docs/AUDITS.md). Cross-chain delivery is public on the target chain: the escrow release names the auction and the winning leaf, so a payout can be matched to its opened bid. Stealth hides the winner's long-term address, not that match; a direct (non-stealth) address hides neither."
 
   - id: solana-confidential
     text: "Token-2022 confidential transfer ran on Solana devnet as a standalone demo."
