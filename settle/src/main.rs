@@ -35,10 +35,12 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32, net: Network) -> anyho
     let change=MultiOutputChangeStrategy::new(StandardFeeRule::Zip317,None,ShieldedPool::Orchard,DustOutputPolicy::default(),SplitPolicy::with_min_output_value(NonZeroUsize::new(1).unwrap(),Zatoshis::from_u64(10_000_000)?));
     let proposal=propose_transfer::<_,_,_,_,zcash_client_sqlite::wallet::commitment_tree::Error>(&mut db,&net,accounts[0],&GreedyInputSelector::new(),&change,TransactionRequest::new(payments)?,ConfirmationsPolicy::default(),&SpendPolicy::default(),None,None).map_err(|e|anyhow!("proposal: {e:?}"))?;
     let expiry=proposal.min_target_height()+expiry_blocks;
-    // Ruling R27: the testnet NU7 activation at 4,465,026. Mainnet keeps the as-pinned Ironwood stack and its
-    // activation height is not yet set (docs/mainnet-risks.md records it once decided); this straddle guard is
-    // therefore testnet-only until then.
-    if net==Network::TestNetwork { ensure!(!(u32::from(proposal.min_target_height())<=4_465_026 && u32::from(expiry)>=4_465_026),"PCZT expiry reaches NU7 activation; refusing create"); }
+    // Ruling R27: no PCZT may be valid on both sides of NU7. Testnet activated at 4,465,026; mainnet activates at
+    // 3,543,405 (Zebra PR #11830, agreed Oct 21 2026). This stack is pre-NU7 on mainnet, so a mainnet PCZT whose
+    // expiry reaches that height is refused (B58).
+    let nu7:u32=if net==Network::TestNetwork {4_465_026} else {3_543_405};
+    ensure!(!(u32::from(proposal.min_target_height())<=nu7 && u32::from(expiry)>=nu7),"PCZT expiry reaches NU7 activation; refusing create");
+    ensure!(net==Network::TestNetwork || u32::from(proposal.min_target_height())<nu7,"mainnet NU7 is active and this stack is pre-NU7 on mainnet; refusing create");
     let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&net,accounts[0],OvkPolicy::Discard,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
     // Ruling R33 P2-5 (R30's size claim covers spends too): the batch must hold at most 29 value-carrying
     // spends and 29 outputs (max(spends, outputs) <= 29) — 28 recipients plus change stay under 100 KB, and

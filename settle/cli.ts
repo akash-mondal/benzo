@@ -148,9 +148,11 @@ async function check(ledger:Ledger,batch:number,candidate:string,name:string,ran
 }
 function guard(metadata:any,tip:number) {
   requireThat(metadata.expiry_height>tip,"expired PCZT; refusing broadcast");
-  // Published testnet height in ZIP 214; expiry must not straddle the next consensus branch. R33 P2-1: the
-  // straddle guard is testnet-only (mainnet's activation height is not set; settle/src/main.rs agrees).
-  if(manifestNet()==="test")requireThat(!(tip<4465026&&metadata.expiry_height>=4465026),"PCZT expiry reaches NU7 activation; refusing create/broadcast");
+  // Expiry must not straddle the next consensus branch (NU7): testnet 4,465,026; mainnet 3,543,405 (Zebra PR #11830,
+  // agreed Oct 21 2026). This stack is pre-NU7 on mainnet, so past that height it refuses (B58; settle/src/main.rs agrees).
+  const nu7=manifestNet()==="test"?4465026:3543405;
+  requireThat(!(tip<nu7&&metadata.expiry_height>=nu7),"PCZT expiry reaches NU7 activation; refusing create/broadcast");
+  requireThat(manifestNet()==="test"||tip<nu7,"mainnet NU7 is active and this stack is pre-NU7 on mainnet; refusing broadcast");
 }
 // §11 H3/H4 (host custody): build the batch packet, have each preferred signer host approve it from its own data,
 // sign with two approving hosts, and on a mid-session failure (the kill drill) record the abandoned session and
@@ -168,10 +170,10 @@ function hostDerivable():{rows:Set<string>;refused:Map<string,string>}|null {
   writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,reserve_return_ua:cfg.routing?.reserve_return_ua??null}),{mode:0o600});
   const remote=`derivable-${id.slice(0,16)}`;
   for(const n of [...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))]) {
-    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
-    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"});
-    const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
+    if(spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"});
+    const r=spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","derivable","--id",id,"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
     if(r.status!==0){console.error(`ERROR signer ${n} could not list derivable rows: ${hostError(n,"sign derivable",r.stderr)}`);continue}
     const out=JSON.parse(r.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!);
     // H21 (B50): a listing may tag a row refused (typed — `refused: true` with its reason, e.g. the H10
@@ -220,13 +222,13 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   // classification lives in settle/build-outcome.ts (the R45 lab repro drives it).
   const attempts:BuildOutcome[]=[];
   for(const n of prefer) {
-    if(spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
-    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
-    spawnSync("orb",["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"});
+    if(spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    if(spawnSync("orbctl",["push","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,packet,remote],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
+    spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"});
     // A22 live-run defect (the b5b3b38 class): orb can stall and ignores SIGTERM, so a spawnSync without a
     // SIGKILL bound waits forever (a `rm -rf` stalled 50 min and orphaned a funded settle). Every orb/orbctl
     // call here is bounded with SIGKILL — an unreachable host fails loudly and the batch flow moves on.
-    const b=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
+    const b=spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","build","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],{encoding:"utf8",maxBuffer:64<<20,timeout:15*60_000,killSignal:"SIGKILL"});
     if(b.status!==0){
       attempts.push({status:b.status,stderr:b.stderr??""});
       console.error(`ERROR signer ${n} could not build batch ${batchId}: ${hostError(n,`sign build batch ${batchId}`,b.stderr)}`);continue;
@@ -235,11 +237,11 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
     // §11 H7: pull only the redacted candidate and the sealed full copies; the full candidate never reaches here.
     const pulled=file(`batch-${batchId}.pulled.pczt`);
     run("rm",["-f",pulled]);
-    requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/proven.redacted.pczt`,pulled],{timeout:120_000,killSignal:"SIGKILL"}).status===0&&existsSync(pulled),`could not pull the candidate from ${n}`);
+    requireThat(spawnSync("orbctl",["pull","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,`${remote}/proven.redacted.pczt`,pulled],{timeout:120_000,killSignal:"SIGKILL"}).status===0&&existsSync(pulled),`could not pull the candidate from ${n}`);
     requireThat(hash(readFileSync(pulled))===built.plan_version,"pulled candidate differs from the builder's plan_version");
     for(const s of ["alice","bob","carol"]) {
       const f=file(`batch-${batchId}.sealed-${s}.bin`);run("rm",["-f",f]);
-      requireThat(spawnSync("orbctl",["pull","-m",`benzo-${n}`,`${remote}/sealed-${s}.bin`,f],{timeout:120_000,killSignal:"SIGKILL"}).status===0&&existsSync(f),`could not pull the candidate sealed to ${s}`);
+      requireThat(spawnSync("orbctl",["pull","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,`${remote}/sealed-${s}.bin`,f],{timeout:120_000,killSignal:"SIGKILL"}).status===0&&existsSync(f),`could not pull the candidate sealed to ${s}`);
     }
     copyFileSync(pulled,proven);
     writeFileSync(file(`batch-${batchId}.build.json`),jsonBytes(built),{mode:0o600});
@@ -286,7 +288,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     for(let round=0;round<4;round++){
       failing=[];
       for(const n of ["alice","bob","carol"]){
-        const r=spawnSync("orb",["run","-m",`benzo-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000,killSignal:"SIGKILL"});
+        const r=spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","benzo","env","SSL_CERT_FILE=/home/benzo/.benzo/tls/rootCA.pem","/home/benzo/.benzo/bin/frost-client","sessions","-c",`/home/benzo/.benzo/auctions/${id}/frost.toml`,"-s",server,"--close-all"],{encoding:"utf8",timeout:120_000,killSignal:"SIGKILL"});
         if(r.status!==0)failing.push(n); // exit 0: every session it listed was closed
       }
       if(!failing.length)return;
@@ -298,12 +300,12 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   };
   const approve=async(n:string):Promise<boolean>=>{
     const remote=`packet-${id.slice(0,16)}-${batchId}`;
-    const r=await orbAsync(["run","-m",`benzo-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],120_000);
+    const r=await orbAsync(["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],120_000);
     if(r.status!==0){events.push({signer:n,approve:"unreachable"});return false}
-    if(spawnSync("orbctl",["push","-m",`benzo-${n}`,packet,remote],{encoding:"utf8",timeout:120_000,killSignal:"SIGKILL"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
-    await orbAsync(["run","-m",`benzo-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],120_000);
+    if(spawnSync("orbctl",["push","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,packet,remote],{encoding:"utf8",timeout:120_000,killSignal:"SIGKILL"}).status!==0){events.push({signer:n,approve:"push failed"});return false}
+    await orbAsync(["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","root","chown","-R","benzo:benzo",`/home/benzo/${remote}`],120_000);
     const tA=Date.now();
-    const a=await orbAsync(["run","-m",`benzo-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],15*60_000);
+    const a=await orbAsync(["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","benzo","/home/benzo/.benzo/bin/benzo","sign","approve","--id",id,"--batch",String(batchId),"--packet",`/home/benzo/${remote}`,"--name",n],15*60_000);
     timing({auction:id,batch:batchId,phase:"host-approve",signer:n,ms:Date.now()-tA,ok:a.status===0});
     events.push(a.status===0?{signer:n,approve:"approved"}:{signer:n,approve:"refused",detail:(a.stderr||"").trim().slice(-200)});
     if(a.status===0){try{maps[n]=JSON.parse(a.stdout.trim().split("\n").filter(l=>l.startsWith("{")).at(-1)!).map??null}catch{maps[n]=null}}

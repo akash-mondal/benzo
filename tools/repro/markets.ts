@@ -735,5 +735,5 @@ const frostd = listening ? null : spawn(path.join(STATE, "bin/frostd"), ["-i", "
 await sleep(2000);
 let all = true;
 try { for (const n of process.argv.slice(2)) { try { all = (n === "buyback-series" ? await series() : n.startsWith("resume:") ? await resume(n.slice(7)) : await run(n)) && all; } catch (e) { for (const l of [...held]) dropLock(l); console.log(`[${n}] FATAL ${String((e as Error)?.stack ?? e).slice(0, 800)}`); all = false; } } }
-finally { frostd?.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `benzo-${n}`]); }
+finally { frostd?.kill(); for (const n of ["alice", "bob", "carol"]) spawnSync("orb", ["start", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`]); }
 process.exitCode = all ? 0 : 1;

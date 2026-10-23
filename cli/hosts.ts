@@ -44,13 +44,13 @@ export const sh = (cmd: string, args: string[], input?: string) => {
   return r.stdout.trim();
 };
 // `orb run` has returned an empty stdout once for a command that succeeded (live Y2, a host `cat`); retry empties.
-export const host = (n: string, args: string[]) => { for (let i = 0; ; i++) { const out = sh("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args]); if (out || i >= 2) return out; } };
-export const hostTry = (n: string, args: string[]) => spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", ...args], { encoding: "utf8", maxBuffer: 64 << 20, timeout: 15 * 60_000, killSignal: "SIGKILL" });
+export const host = (n: string, args: string[]) => { for (let i = 0; ; i++) { const out = sh("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", ...args]); if (out || i >= 2) return out; } };
+export const hostTry = (n: string, args: string[]) => spawnSync("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", ...args], { encoding: "utf8", maxBuffer: 64 << 20, timeout: 15 * 60_000, killSignal: "SIGKILL" });
 export const hostBenzo = (n: string, args: string[]) => { const out = host(n, [`${H}/bin/benzo`, ...args]); return JSON.parse(out.split("\n").filter(l => l.startsWith("{")).at(-1)!); };
 export const push = (n: string, src: string, dest: string) => {
-  sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "rm", "-rf", `/home/benzo/${dest}`]);
-  sh("orbctl", ["push", "-m", `benzo-${n}`, src, dest]);
-  sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "chown", "-R", "benzo:benzo", `/home/benzo/${dest}`]);
+  sh("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "root", "rm", "-rf", `/home/benzo/${dest}`]);
+  sh("orbctl", ["push", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, src, dest]);
+  sh("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "root", "chown", "-R", "benzo:benzo", `/home/benzo/${dest}`]);
 };
 
 // The operator's own CLI, invoked exactly as the harness invokes it (bin/benzo): the last JSON line of stdout.
@@ -86,10 +86,10 @@ export async function dkgOnHosts(id: string, benzo: (args: string[], input?: any
   const pk = (n: string) => host(n, ["cat", `${H}/contacts/${n}.pubkey`]);
   // A killed or failed earlier DKG leaves sessions open on frostd, and frost-client then refuses to join ("user has
   // more than one FROST session active"); close each host user's sessions first (callers serialize DKGs).
-  for (const n of NAMES) spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "env", `SSL_CERT_FILE=${H}/tls/rootCA.pem`, `${H}/bin/frost-client`, "sessions", "-c", `${H}/frost/${n}.toml`, "-s", FROSTD, "--close-all"], ORB_BOUND);
+  for (const n of NAMES) spawnSync("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", "env", `SSL_CERT_FILE=${H}/tls/rootCA.pem`, `${H}/bin/frost-client`, "sessions", "-c", `${H}/frost/${n}.toml`, "-s", FROSTD, "--close-all"], ORB_BOUND);
   const keys = await Promise.all(NAMES.map((n, i) => new Promise<string>((resolve, reject) => {
     setTimeout(() => {
-      const p = spawn("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", `${H}/bin/benzo`, "sign", "dkg", "--id", id, "--name", n, "--server", FROSTD, ...(i === 0 ? ["--peers", `${pk("bob")},${pk("carol")}`] : [])]);
+      const p = spawn("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", `${H}/bin/benzo`, "sign", "dkg", "--id", id, "--name", n, "--server", FROSTD, ...(i === 0 ? ["--peers", `${pk("bob")},${pk("carol")}`] : [])]);
       let out = "", err = "";
       // H8: a DKG that has not finished in 10 minutes is stuck (a live one takes seconds); SIGKILL it so the caller
       // fails loudly. `sign dkg` is idempotent per auction, so a re-run reports a finished key instead of redoing it.
@@ -103,10 +103,10 @@ export async function dkgOnHosts(id: string, benzo: (args: string[], input?: any
   // Hosts import the operator's UFVK (zcash-sign draws the non-ak components at random; one UFVK per auction).
   for (const n of NAMES) {
     const f = `ufvk-${id.slice(0, 12)}.txt`;
-    sh("orbctl", ["push", "-m", `benzo-${n}`, path.join(STATE, "vaults", id, "ufvk.txt"), f]);
-    sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "chown", "benzo:benzo", `/home/benzo/${f}`]);
+    sh("orbctl", ["push", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, path.join(STATE, "vaults", id, "ufvk.txt"), f]);
+    sh("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "root", "chown", "benzo:benzo", `/home/benzo/${f}`]);
     hostBenzo(n, ["auction", "keys", "--id", id, "--group-keys", groupKeys, "--ufvk", `/home/benzo/${f}`]);
-    sh("orb", ["run", "-m", `benzo-${n}`, "-u", "root", "rm", "-f", `/home/benzo/${f}`]);
+    sh("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "root", "rm", "-f", `/home/benzo/${f}`]);
   }
   return { keys, group_key: k.group_key as string, escrow_ua: k.escrow_ua as string };
 }
@@ -118,8 +118,8 @@ export function hostEnvelopeKeys(): string[] {
     const f = `${H}/signers/${n}/envelope-key.json`;
     // H8: bounded like every orb call; a killed probe (status null) is retried, then thrown, never read as "absent"
     // (that would mint a new envelope key over the pinned one).
-    let t = spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
-    for (let i = 1; t.status === null && i < 3; i++) t = spawnSync("orb", ["run", "-m", `benzo-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
+    let t = spawnSync("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
+    for (let i = 1; t.status === null && i < 3; i++) t = spawnSync("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
     requireThat(t.status !== null, `host ${n} did not answer the envelope-key probe`);
     const exists = t.status === 0;
     return exists ? JSON.parse(host(n, ["cat", f])).public_hex : hostBenzo(n, ["sign", "envelope-key", "--name", n]).public_hex;

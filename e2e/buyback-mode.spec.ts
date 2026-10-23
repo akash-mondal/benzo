@@ -41,7 +41,7 @@ const fresh=(wallet:string)=>sh(pcztBin,['address',wallet,'--network','test']).s
 
 test('Mode B buyback settles under host custody with the treasury leg',async()=> {
   test.setTimeout(110*60_000);const run=new Run('buyback-mode');
-  for(const n of NAMES)if(spawnSync('orb',['start',`benzo-${n}`]).status!==0)run.notRun(IDS,`signer host benzo-${n} not available`);
+  for(const n of NAMES)if(spawnSync('orb',['start',`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`]).status!==0)run.notRun(IDS,`signer host ${process.env.BNZ_HOST_PREFIX??"benzo"}-${n} not available`);
   // B55 (H19): the guard now names the funded reserve and the treasury leg it is about to spend (the old
   // 200,000 lump undercounted both — stricter, and it can only refuse earlier, never spend past the floor).
   z.sync('bidder');if(z.spendable(z.balance('bidder'))-3*C-BB_RESERVE-430<3*C+40000)run.notRun(IDS,'bidder floor; Needs user funds');
@@ -175,7 +175,7 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
     // Y1: settlement with the kill drill — bob's host is stopped mid-session; the batch completes with alice + carol.
     const settle=spawnSync(benzoBin,['settle','--id',id],{encoding:'utf8',env:{...process.env,BNZ_DRILL_STOP:'bob'},maxBuffer:64<<20});
     writeFileSync(path.join(privateDir,'settle.log'),(settle.stdout||'')+'\n----\n'+(settle.stderr||''));
-    spawnSync('orb',['start','benzo-bob']);
+    spawnSync('orb',['start',`${process.env.BNZ_HOST_PREFIX??"benzo"}-bob`]);
     await run.check('Y1b','settlement completes with alice + carol while bob is stopped',()=> {
       expect(settle.status,(settle.stderr||'').split('\n').filter(l=>/^ERROR/.test(l)).slice(-3).join(' | ')).toBe(0);
       const custody=json(path.join(STATE,'settle',id,'batch-1.custody.json'));
@@ -216,5 +216,5 @@ test('Mode B buyback settles under host custody with the treasury leg',async()=>
       expect(cli(['verify','--dir',cold,'--signer',signer]).status).not.toBe(0);
     });
     await run.check('Y1c','no FROST share for this auction on the Mac',()=>expect(existsSync(path.join(STATE,'auctions',id))).toBe(false));
-  } finally {frostd.kill();for(const n of NAMES)spawnSync('orb',['start',`benzo-${n}`])}
+  } finally {frostd.kill();for(const n of NAMES)spawnSync('orb',['start',`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`])}
 });

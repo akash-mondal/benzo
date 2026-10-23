@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gate DOC live walkthrough: one uniform auction on testnet, run with ONLY the commands the three guides give
+# Gate DOC live walkthrough: one uniform auction on $BNZ_NETWORK (testnet by default; B58: mainnet gold), run with ONLY the commands the three guides give
 # (docs/guide-operator.md, docs/guide-signer.md, docs/guide-bidder.md), in their order. Every guide command is
 # echoed as "$ benzo …" with its output into the transcript. The only non-benzo steps are the ones the guides
 # leave to the user's own tools: picking an id, picking times, filling the JSON templates (node one-liners), and
@@ -9,7 +9,9 @@
 set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT"
 set -a; . ./.env; set +a
-export BNZ_LWD_SINGLE=1
+NET="${BNZ_NETWORK:-test}"; export NET
+# Testnet has one NU7 endpoint; mainnet always cross-checks two (BNZ_LWD_URL and BNZ_LWD_URL_ALT).
+if [ "$NET" = test ]; then export BNZ_LWD_SINGLE=1; else unset BNZ_LWD_SINGLE; fi
 STATE="$ROOT/${BNZ_STATE_DIR#./}"
 OUT="$1"; mkdir -p "$OUT"; T="$OUT/transcript.out"; [ -n "${BNZ_WALK_RESUME_ID:-}" ] || : > "$T"
 PRIV="$STATE/run/doc-walk"; mkdir -p "$PRIV"; chmod 700 "$PRIV"
@@ -19,11 +21,11 @@ b() { say "\$ benzo $*"; local o; o="$(bin/benzo "$@" 2>&1)" || { echo "$o" | te
 # Transcript guard: any JSON field whose name says private/secret/seed/nonce is replaced before it is written.
 redact() { node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const l of s.split("\n")){if(!l)continue;try{const j=JSON.parse(l);const w=v=>v&&typeof v==="object"?(Array.isArray(v)?v.map(w):Object.fromEntries(Object.entries(v).map(([k,x])=>[k,/private|secret|seed|nonce/i.test(k)?"<redacted>":w(x)]))):v;console.log(JSON.stringify(w(j)))}catch{console.log(l)}}})'; }
 jget() { node -e 'const j=JSON.parse(process.argv[1]);const v=process.argv[2].split(".").reduce((a,k)=>a?.[k],j);console.log(typeof v==="object"?JSON.stringify(v):v)' "$J" "$1"; }
-wallet_ua() { "$ROOT/settle/target/release/benzo-pczt" address "$STATE/bidder" --network test | tail -1; }
+wallet_ua() { "$ROOT/settle/target/release/benzo-pczt" address "$STATE/bidder" --network "$NET" | tail -1; }
 # The latest quicknet round, or 0 when no relay answers (a failed poll means "not yet", never "released").
 latest_round() { local u r; for u in ${BNZ_DRAND_URLS//,/ } https://api.drand.sh; do r="$(curl -s -m 10 "$u/$BNZ_DRAND_CHAIN_HASH/public/latest" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const n=JSON.parse(s).round;console.log(Number.isSafeInteger(n)?n:0)}catch{console.log(0)}})')"; [ "${r:-0}" -gt 0 ] && { echo "$r"; return; }; done; echo 0; }
 
-say "# Gate DOC live walkthrough — commit $(git rev-parse --short HEAD) — $(date -u +%FT%TZ)"
+say "# Gate DOC live walkthrough — network $NET — commit $(git rev-parse --short HEAD) — $(date -u +%FT%TZ)"
 if [ -n "${BNZ_WALK_RESUME_ID:-}" ]; then
   # Resume an auction this script already ran up to 7.3, from 7.4 on, appending to the same transcript.
   ID="$BNZ_WALK_RESUME_ID"; SIGNER="$(cat "$OUT/signer")"; PUB="$ROOT/tmp/doc-walk/public-$ID"
@@ -52,7 +54,7 @@ say "## operator 1.6 — fill the template (docs/examples/unsigned-manifest.json
 node -e '
 const fs=require("fs"),[,tpl,cfg,out,cout,id,escrow,group,d1,d2,ek,wsh,R,tsub,tfrz,seller,fee]=process.argv;
 const m=JSON.parse(fs.readFileSync(tpl));
-Object.assign(m,{auction_id:id,escrow_ua:escrow,frost_group_key:group,lot:"gate DOC walkthrough",supply:2,reserve_zats:"10",tick_zats:"10",B_max_zats:"3000",q_max:1,C_zats:"200000",fee_zats:"0",deposit_addresses:[escrow,d1,d2],envelope_keys:JSON.parse(ek),witness_set_hash:wsh,T_submit:+tsub,T_freeze:+tfrz});
+Object.assign(m,{network:process.env.NET,auction_id:id,escrow_ua:escrow,frost_group_key:group,lot:"gate DOC walkthrough",supply:2,reserve_zats:"10",tick_zats:"10",B_max_zats:"3000",q_max:1,C_zats:"200000",fee_zats:"0",deposit_addresses:[escrow,d1,d2],envelope_keys:JSON.parse(ek),witness_set_hash:wsh,T_submit:+tsub,T_freeze:+tfrz});
 m.drand.R=+R; for(const k of Object.keys(m))if(/_commitment$/.test(k))delete m[k]; fs.writeFileSync(out,JSON.stringify(m,null,2),{mode:0o600});
 const c=JSON.parse(fs.readFileSync(cfg)); c.routing.bidders=[escrow,d1,d2].map(deposit_ua=>({deposit_ua})); c.routing.seller_ua=seller; c.routing.fee_reserve_ua=fee; c.routing.reserve_return_ua=process.env.RETURN_UA;
 fs.writeFileSync(cout,JSON.stringify(c,null,2),{mode:0o600});' docs/examples/unsigned-manifest.json docs/examples/private-operator.json "$PRIV/unsigned-manifest.json" "$PRIV/private-operator.json" "$ID" "$ESCROW" "$GROUP" "$D1" "$D2" "$EK" "$WSH" "$R" "$TSUB" "$TFRZ" "$SELLER" "$FEE"

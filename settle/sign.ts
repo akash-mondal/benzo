@@ -85,7 +85,7 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
       const p = orb(n, [`${H}/bin/benzo`, "sign", "join", "--id", custody.id, "--name", n, "--sighash", sighash, "--randomizer", randomizer, "--server", custody.server]);
       participants.push(p); await when(p, "Joining signing session...");
       // Test-only drill hook (BNZ_DRILL_STOP=<signer>): stop that signer's host after it joined, mid-session, once.
-      if (process.env.BNZ_DRILL_STOP === n && !process.env.BNZ_DRILL_DONE) { process.env.BNZ_DRILL_DONE = "1"; require_spawnSync("orb", ["stop", `benzo-${n}`]); }
+      if (process.env.BNZ_DRILL_STOP === n && !process.env.BNZ_DRILL_DONE) { process.env.BNZ_DRILL_DONE = "1"; require_spawnSync("orb", ["stop", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`]); }
     }
     // A participant that dies mid-session (host stopped) aborts the session at once: the coordinator would wait
     // for its share forever. The error names the failed signers so the worker can re-plan the batch without them.
