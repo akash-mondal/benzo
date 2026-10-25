@@ -17,8 +17,7 @@
 //    (expected values come from the vectors' own labels, never from our code).
 // IDs: g7-classifier-network-labels, g7-mainnet-ua-on-main, g7-mainnet-ua-refused-on-test, g7-testnet-ua-on-test,
 // g7-testnet-ua-refused-on-main, g7-ufvk-fixture-shape, g7-ufvk-network-main, g7-ufvk-network-test,
-// g7-missing-network-refused, g7-main-manifest-accepted, g7-main-refuses-test-address,
-// g7-other-network-refused, g7-main-address-checks-ready (B58: the lock check became the three acceptance checks).
+// g7-missing-network-refused, g7-manifest-lock-stays, g7-main-address-checks-ready.
 import {expect,test} from "@playwright/test";
 import {createHash,randomBytes} from "node:crypto";
 import {execFileSync,spawnSync} from "node:child_process";
@@ -75,7 +74,7 @@ test("signed sealed auction on testnet",async({page})=> {
   }
   const signer=cli("manifest/dist/cli.mjs",["public",key],{}).value.signer;
   // ---- R35 fold: g7-network (official mainnet-format fixtures against the network-aware checks) ----
-  const G7=["g7-classifier-network-labels","g7-mainnet-ua-on-main","g7-mainnet-ua-refused-on-test","g7-testnet-ua-on-test","g7-testnet-ua-refused-on-main","g7-ufvk-fixture-shape","g7-ufvk-network-main","g7-ufvk-network-test","g7-missing-network-refused","g7-main-manifest-accepted","g7-main-refuses-test-address","g7-other-network-refused","g7-main-address-checks-ready"];
+  const G7=["g7-classifier-network-labels","g7-mainnet-ua-on-main","g7-mainnet-ua-refused-on-test","g7-testnet-ua-on-test","g7-testnet-ua-refused-on-main","g7-ufvk-fixture-shape","g7-ufvk-network-main","g7-ufvk-network-test","g7-missing-network-refused","g7-manifest-lock-stays","g7-main-address-checks-ready"];
   const pcztBin=path.join(ROOT,"settle/target/release/benzo-pczt");
   const pczt=(args:string[])=>{try{return{code:0,out:execFileSync(pcztBin,args,{encoding:"utf8",maxBuffer:64<<20}),err:""}}catch(e:any){return{code:e.status??1,out:e.stdout??"",err:e.stderr??""}}};
   const need=(ok:boolean,why:string)=>{if(!ok)throw Error(why)};
@@ -129,14 +128,8 @@ test("signed sealed auction on testnet",async({page})=> {
       clearing:{mode:"uniform",band:"floor_pro_rata_units",dust:"ascending_leaf_index",tie:"ascending_leaf_index",minimum_fill:1},
       refund:{invalid:"full_C",reorg:"C_minus_fee_remove_leaf",cancel:"full_C"},freeze:"merkle_root_v1",
     };
-    // B58 lifts the testnet-only lock: "main" validates, a testnet address in a mainnet manifest is refused, and
-    // any other network value is still refused by the version/network rule.
-    const err=(m:any)=>{try{validateManifest(m);return ""}catch(e:any){return String(e.message)}};
-    const testAddr=JSON.parse(readFileSync(path.join(ROOT,"tools/repro/fixtures/zcash-address-cases.json"),"utf8")).ua.find((r:any)=>r.network==="test"&&r.shielded).address;
-    const mainMsg=err(base),crossMsg=err({...base,escrow_ua:testAddr}),otherMsg=err({...base,network:"regtest"});
-    await run.check("g7-main-manifest-accepted","a well-formed network:\"main\" manifest passes validateManifest (B58 lock lifted)",()=>need(mainMsg==="",`refused: ${mainMsg}`));
-    await run.check("g7-main-refuses-test-address","a mainnet manifest carrying a testnet escrow address is refused",()=>need(/escrow address not on the manifest network/.test(crossMsg),`got: ${crossMsg||"accepted"}`));
-    await run.check("g7-other-network-refused","a manifest network other than test/main is refused (version/network)",()=>need(/version\/network/.test(otherMsg),`got: ${otherMsg||"accepted"}`));
+    let lockMsg="";try{validateManifest(base)}catch(e:any){lockMsg=String(e.message)}
+    await run.check("g7-manifest-lock-stays","the manifest schema still refuses network:\"main\" (version/network lock)",()=>need(/version\/network/.test(lockMsg),`a network:"main" manifest passed validateManifest (${lockMsg})`));
     await run.check("g7-main-address-checks-ready","the manifest's u1 escrow_ua passes the network-aware checks under main",()=>need(uaShape(base.escrow_ua,"main")&&isUnifiedOn(base.escrow_ua,"main"),"u1 escrow_ua not accepted under main"));
   }
   const stop=await startFrostd();

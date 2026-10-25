@@ -7,7 +7,7 @@ export const QUICKNET = {
   scheme: "bls-unchained-g1-rfc9380", genesis: 1692803367, period: 3,
 };
 export type Manifest = {
-  version: 1; network: "test" | "main"; auction_id: string; escrow_ua: string; frost_group_key: string;
+  version: 1; network: "test"; auction_id: string; escrow_ua: string; frost_group_key: string;
   lot?: string; supply: number; reserve_zats: string; tick_zats: string; B_max_zats: string;
   q_max: number; C_zats: string; fee_zats: string; deposit_addresses: string[];
   drand: typeof QUICKNET & { R: number }; T_submit: number; T_freeze: number; confirmations: 10;
@@ -85,8 +85,8 @@ function keys(object: any, expected: string) {
 }
 // G-7 (mainnet readiness): the manifest's own network decides the address shape (testnet `utest1…`, mainnet
 // `u1…`). This pure matcher keeps the offline verifier free of the classifier binary; the Node boundaries add
-// the audited `benzo-pczt classify-address` check (envelope/destination.ts isUnifiedOn). B58 (mainnet gold) lifts
-// the old testnet-only lock: a manifest is "test" or "main", and every address in it must match that network.
+// the audited `benzo-pczt classify-address` check (envelope/destination.ts isUnifiedOn). The `network: "test"`
+// lock below stays: this submission is testnet only (B58's mainnet lift was dropped with mainnet).
 export const uaShape = (addr: unknown, network: string): boolean =>
   typeof addr === "string" && (network === "main" ? /^u1[0-9a-z]+$/ : /^utest1[a-z0-9]+$/).test(addr);
 
@@ -143,10 +143,10 @@ export function validateManifest(m: Manifest): void {
   delete base.witness_set_hash; delete base.envelope_keys; delete base.bond; delete base.sealed_reserve; delete base.lots; delete base.series; delete base.serials; delete base.seller_ua_commitment; delete base.reserve_return_ua_commitment;
   // Multi-lot rounds replace the single `lot` label with `lots` (field set recorded under Questions for Track A).
   keys(base, ["version","network","auction_id","escrow_ua","frost_group_key","supply","reserve_zats","tick_zats","B_max_zats","q_max","C_zats","fee_zats","deposit_addresses","drand","T_submit","T_freeze","confirmations","clearing","refund","freeze"].concat(m.lots === undefined ? ["lot"] : []).join(" "));
-  requireThat(m.version === 1 && (m.network === "test" || m.network === "main"), "manifest version/network");
+  requireThat(m.version === 1 && m.network === "test", "manifest version/network");
   requireThat(/^[0-9a-f]{64}$/.test(m.auction_id) && /^[0-9a-f]{64}$/.test(m.frost_group_key), "auction/group key");
   requireThat(m.lots !== undefined || (typeof m.lot === "string" && m.lot.length > 0 && m.lot.length <= 256), "lot");
-  requireThat(uaShape(m.escrow_ua, m.network), "escrow address not on the manifest network");
+  requireThat(uaShape(m.escrow_ua, m.network), "testnet escrow address");
   requireThat(Array.isArray(m.deposit_addresses) && m.deposit_addresses.length > 0 &&
     m.deposit_addresses.every(a => uaShape(a, m.network)) && new Set(m.deposit_addresses).size === m.deposit_addresses.length, "per-bid addresses");
   // R33 item 1: the balance addresses are fixed in the signed manifest before bidding — same length as
