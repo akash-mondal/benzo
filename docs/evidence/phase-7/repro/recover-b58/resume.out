@@ -1,0 +1,16 @@
+[resume d153e9d9] state CLEARED
+[resume d153e9d9] balance window (4531248, 4531288] manifest-fixed (was operator-chosen after the clear)
+[resume d153e9d9] dust already present at leaf 0's balance address before the window start
+[resume d153e9d9] balance already paid for leaf 0 in (4531248, 4531288]
+[resume d153e9d9] balance window closed; the window was (4531248, 4531288], tip now 4540476
+[resume d153e9d9] claimed balance-late:21f114ff530b50fe7803cf39974… (20000 zats) with its owner key
+[resume d153e9d9] claimed deposit:efd96d4c2014177e60eee094eebb5c1a… (200000 zats) with its owner key
+[resume d153e9d9] settle exit 1; receipts {"leaf:1":200000,"leaf:3":200000,"seller":700000}; obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+[resume d153e9d9] RESULT FAIL (verify exit 0)
+[resume b548e8cb] state REFUNDING
+[resume b548e8cb] settle exit 0; receipts {"deposit:a69f14c3f6355aac59e6c2bd3a4a9bcfb5bbe72190f4af174b877e58e246616e:ironwood:0":200000,"deposit:a69f14c3f6355aac59e6c2bd3a4a9bcfb5bbe72190f4af174b877e58e246616e:ironwood:3":200000,"deposit:a69f14c3f6355aac59e6c2bd3a4a9bcfb5bbe72190f4af174b877e58e246616e:ironwood:4":200000} (cancelled: each deposit refunds at its own note value)
+[resume b548e8cb] RESULT FAIL (verify exit 1)
+[resume 487c44d2] state SEALED-WAIT
+[resume 487c44d2] settle exit 0; receipts {"leaf:0":200000,"leaf:1":200400,"leaf:2":200000,"treasury":100}; obligations {"leaf:0":200000,"leaf:1":200400,"leaf:2":200000}
+[resume 487c44d2] RESULT PASS (verify exit 0)
+RECOVER-DONE rc=1

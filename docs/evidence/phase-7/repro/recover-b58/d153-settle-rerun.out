@@ -1,0 +1,8 @@
+{"auction_id":"d153e9d95b1c6cc57f01e0a816f1210697eeccd67a8fc4cef04bd1ef19c171ae","batch":2,"allocated":2}
+settlement broadcast 885bb2aef471636629db8a7c95b746c794034561df6c2acdd259b882ae722eea
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+{"auction_id":"d153e9d95b1c6cc57f01e0a816f1210697eeccd67a8fc4cef04bd1ef19c171ae","settled":5}
+WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
+{"auction_id":"d153e9d95b1c6cc57f01e0a816f1210697eeccd67a8fc4cef04bd1ef19c171ae","settled":5}
+{"auction_id":"d153e9d95b1c6cc57f01e0a816f1210697eeccd67a8fc4cef04bd1ef19c171ae","state":"SETTLED","settled":5}
