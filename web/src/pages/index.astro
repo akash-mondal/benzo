@@ -1,0 +1,26 @@
+---
+import Base from "../layouts/Base.astro";
+import Sky from "../components/universe/Sky";
+import { auctions } from "../lib/server";
+const list = await auctions();
+const live = list.find((a) => a.live && a.state === "OPEN");
+---
+<Base>
+  <div class="relative h-dvh w-full overflow-hidden bg-ground">
+    <Sky client:only="react" initial={list} />
+    <div class="pointer-events-none absolute left-5 right-5 top-5 z-10 sm:left-7 sm:right-auto sm:top-6 sm:max-w-[36ch]">
+      <h1 class="rise pointer-events-auto flex w-fit items-center gap-2 font-sans text-[18px] font-bold tracking-tight text-sand">
+        <img src="/doodles/sealed-envelope.svg" alt="" class="size-5 opacity-90" />Benzo, sealed-bid auctions on Zcash testnet
+      </h1>
+      <p class="rise rise-1 pointer-events-auto mt-2 font-serif text-[16px] leading-snug text-sand/70">Every doodle is a real round: bids time-locked to a drand round, settled by two of three signers, checkable offline. Drag the sky, open one.</p>
+    </div>
+    <a href={live ? `/bid/?id=${live.id}` : "/bid/"} data-testid="live-link" data-live={live ? "1" : "0"} class="rise rise-2 group absolute bottom-12 left-5 z-10 inline-flex h-11 sm:bottom-auto sm:left-auto items-center gap-2 bg-sand px-4 font-sans text-[14px] font-medium text-ink transition-transform hover:bg-surface active:scale-[0.97] sm:right-7 sm:top-6">
+      <span class="size-1.5 rounded-full bg-moss group-data-[live=0]:bg-muted"></span><span data-live-word>{live ? `Bid in ${live.lot ?? "the live round"}` : "Next round soon"}</span>
+    </a>
+    <span class="rise rise-3 pointer-events-none absolute bottom-5 left-7 z-10 hidden font-sans text-[13px] text-sand/45 sm:inline">drag the sky · open a doodle</span>
+    <span class="rise rise-3 absolute bottom-5 left-5 z-10 font-sans text-[13px] text-sand/60 sm:left-auto sm:right-7">
+      <a class="rise rise-1 inline-block hover:text-sand" href="/lots/">every lot</a> · <a class="rise rise-2 inline-block hover:text-sand" href="/how/">how it works</a> · <a class="rise rise-2 inline-block hover:text-sand" href="/verify/">verify</a> · <a class="rise rise-3 inline-block hover:text-sand" href="https://github.com/akash-mondal/benzo-zcash">source</a>
+    </span>
+  </div>
+  <noscript><p style="padding:2rem;color:#ddd6c6">The sky needs script; <a href="/lots/">every lot</a> is plain HTML.</p></noscript>
+</Base>

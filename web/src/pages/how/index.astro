@@ -1,0 +1,39 @@
+---
+import Shell from "../../components/page/Shell.astro";
+// How a bid stays sealed, step by step. Every sentence here matches docs/claims.yaml and the shipped code.
+const steps = [
+  { glyph: "padlock", title: "Sealed in your browser", text: "Your price and quantity are time-locked to a future drand round R, inside this page, by the same sealer bundle the CLI ships. Before R nobody can read them, the operator included. There is no reveal step, so no bidder can hold back after seeing the others." },
+  { glyph: "sealed-envelope", title: "One fixed deposit", text: "You pay the same fixed deposit as everyone else, from your own shielded wallet, to an address made for your bid. The sealed bid rides in the payment's 512-byte memo. Your refund address is sealed to the three signers and is never published." },
+  { glyph: "merkle-tree", title: "Frozen and witnessed", text: "Each deposit is admitted after 10 confirmations. At the freeze every admitted bid goes into one Merkle root, and two witnesses certify it before round R. A round they cannot certify in time is cancelled and every deposit refunds in full." },
+  { glyph: "beacon", title: "Opened by the sky", text: "When drand publishes round R, anyone can open every bid at once. The clearing rule was fixed in the signed manifest before the first bid: uniform price, drop, launch, buyback, RFQ or blind OTC." },
+  { glyph: "three-rings", title: "Settled by two of three", text: "Three signers hold the escrow as a FROST key. Two of them sign one shielded transaction that pays the seller, refunds every deposit, and charges the winners; each re-derives every output from its own chain scan before it signs." },
+  { glyph: "magnifier", title: "Checked by anyone", text: "Each round publishes a signed directory. One standalone verifier, which rebuilds byte for byte from the source, recomputes the whole round offline and prints its checks." },
+];
+---
+<Shell title="How it works – Benzo" description="How a Benzo bid stays sealed until a public drand round, settles by 2-of-3 FROST, and verifies offline.">
+  <article class="card-in mx-auto w-full max-w-[720px] bg-surface text-ink" style="clip-path: polygon(44px 0, 100% 0, 100% 100%, 0 100%, 0 44px)">
+    <div class="h-11"></div>
+    <h1 class="rise rise-1 px-6 pt-3 font-sans text-[clamp(1.75rem,1.2rem+2vw,2.5rem)]">A bid nobody can read until the sky says so</h1>
+    <ol class="px-6 pb-4 pt-4">
+      {steps.map((s) => (
+        <li class="rise rise-3 grid grid-cols-[56px_1fr] gap-4 py-5 sm:grid-cols-[72px_1fr] sm:gap-6">
+          <img src={`/doodles/${s.glyph}.svg`} alt="" class="size-14 bg-leaf-deep p-2.5 sm:size-[72px] sm:p-3" />
+          <div>
+            <h2 class="font-sans text-[18px] tracking-tight">{s.title}</h2>
+            <p class="mt-1.5 font-serif text-[16px] leading-relaxed">{s.text}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+    <div class="mx-6 border-t-2 border-dotted border-ink/25"></div>
+    <section id="testnet" class="px-6 pb-8 pt-5" aria-labelledby="limits">
+      <h2 id="limits" class="font-sans text-[18px] tracking-tight">What this is not, yet</h2>
+      <ul class="mt-2 grid gap-1.5 font-serif text-[16px] leading-relaxed">
+        <li>It runs on Zcash testnet only. No mainnet transaction has been made.</li>
+        <li>Deposits must arrive in the NU7 Ironwood pool, so you need a testnet wallet that supports NU7.</li>
+        <li>Settling a very large round takes time: 17,000 bids verified offline, but would need about 600 settlement batches on testnet.</li>
+      </ul>
+      <p class="mt-4 font-sans text-[14px]"><a class="text-moss underline underline-offset-4" href="https://github.com/akash-mondal/benzo-zcash">The source, the claims and their evidence</a></p>
+    </section>
+  </article>
+</Shell>

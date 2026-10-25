@@ -1,0 +1,27 @@
+{
+  "name": "benzo-web",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "gateway": "node --experimental-strip-types gateway/server.ts"
+  },
+  "dependencies": {
+    "@astrojs/react": "7.1.1",
+    "@fontsource-variable/source-serif-4": "5.3.1",
+    "@fontsource/libre-franklin": "5.3.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/qrcode": "1.5.6",
+    "@types/three": "0.186.0",
+    "astro": "7.4.2",
+    "buffer": "6.0.3",
+    "qrcode": "1.5.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "tailwindcss": "4.3.3",
+    "three": "0.186.1"
+  }
+}

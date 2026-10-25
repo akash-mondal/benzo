@@ -1,0 +1,626 @@
+[
+  {
+    "slug": "gavel",
+    "name": "Gavel",
+    "category": "Uniform price",
+    "group": "market",
+    "mode": "uniform"
+  },
+  {
+    "slug": "swap-arrows",
+    "name": "Swap Arrows",
+    "category": "OTC",
+    "group": "market",
+    "mode": "otc"
+  },
+  {
+    "slug": "price-tag",
+    "name": "Price Tag",
+    "category": "RFQ",
+    "group": "market",
+    "mode": "rfq"
+  },
+  {
+    "slug": "rocket",
+    "name": "Rocket",
+    "category": "Launch",
+    "group": "market",
+    "mode": "launch"
+  },
+  {
+    "slug": "loop-arrows",
+    "name": "Loop Arrows",
+    "category": "Buyback",
+    "group": "market",
+    "mode": "buyback"
+  },
+  {
+    "slug": "crate",
+    "name": "Drop Crate",
+    "category": "Drop",
+    "group": "market",
+    "mode": "drop"
+  },
+  {
+    "slug": "sealed-envelope",
+    "name": "Sealed Envelope",
+    "category": "Sealed bid",
+    "group": "mechanism"
+  },
+  {
+    "slug": "padlock",
+    "name": "Padlock",
+    "category": "Sealed bid",
+    "group": "mechanism"
+  },
+  {
+    "slug": "time-key",
+    "name": "Time Key",
+    "category": "Round R",
+    "group": "mechanism"
+  },
+  {
+    "slug": "beacon",
+    "name": "Beacon",
+    "category": "drand",
+    "group": "mechanism"
+  },
+  {
+    "slug": "stopwatch",
+    "name": "Stopwatch",
+    "category": "Round R",
+    "group": "mechanism"
+  },
+  {
+    "slug": "hourglass",
+    "name": "Hourglass",
+    "category": "Submission window",
+    "group": "mechanism"
+  },
+  {
+    "slug": "three-rings",
+    "name": "Three Rings",
+    "category": "2-of-3 custody",
+    "group": "mechanism"
+  },
+  {
+    "slug": "shield-z",
+    "name": "Shield Z",
+    "category": "Shielded",
+    "group": "mechanism"
+  },
+  {
+    "slug": "zec-coin",
+    "name": "ZEC Coin",
+    "category": "Zcash",
+    "group": "mechanism"
+  },
+  {
+    "slug": "merkle-tree",
+    "name": "Merkle Tree",
+    "category": "Freeze",
+    "group": "mechanism"
+  },
+  {
+    "slug": "receipt",
+    "name": "Receipt",
+    "category": "Receipt",
+    "group": "mechanism"
+  },
+  {
+    "slug": "closed-eye",
+    "name": "Closed Eye",
+    "category": "Operator-blind",
+    "group": "mechanism"
+  },
+  {
+    "slug": "magnifier",
+    "name": "Magnifier",
+    "category": "Verify",
+    "group": "mechanism"
+  },
+  {
+    "slug": "ballot-box",
+    "name": "Ballot Box",
+    "category": "Deposit",
+    "group": "mechanism"
+  },
+  {
+    "slug": "scales",
+    "name": "Scales",
+    "category": "Clearing",
+    "group": "mechanism"
+  },
+  {
+    "slug": "vault-door",
+    "name": "Vault Door",
+    "category": "Escrow",
+    "group": "mechanism"
+  },
+  {
+    "slug": "chain-link",
+    "name": "Chain Link",
+    "category": "Cross-chain",
+    "group": "mechanism"
+  },
+  {
+    "slug": "rosette",
+    "name": "Rosette",
+    "category": "Verified",
+    "group": "mechanism"
+  },
+  {
+    "slug": "quill",
+    "name": "Quill",
+    "category": "Signed manifest",
+    "group": "mechanism"
+  },
+  {
+    "slug": "dice",
+    "name": "Dice",
+    "category": "Serial shuffle",
+    "group": "mechanism"
+  },
+  {
+    "slug": "bell",
+    "name": "Bell",
+    "category": "Opening",
+    "group": "mechanism"
+  },
+  {
+    "slug": "ticket",
+    "name": "Ticket",
+    "category": "Bid ticket",
+    "group": "mechanism"
+  },
+  {
+    "slug": "bridge",
+    "name": "Bridge",
+    "category": "Delivery",
+    "group": "mechanism"
+  },
+  {
+    "slug": "spiral",
+    "name": "Spiral",
+    "category": "Swirls",
+    "group": "ornament"
+  },
+  {
+    "slug": "tight-spiral",
+    "name": "Tight Spiral",
+    "category": "Swirls",
+    "group": "ornament"
+  },
+  {
+    "slug": "rings",
+    "name": "Rings",
+    "category": "Circles",
+    "group": "ornament"
+  },
+  {
+    "slug": "donut",
+    "name": "Donut",
+    "category": "Circles",
+    "group": "ornament"
+  },
+  {
+    "slug": "open-ring",
+    "name": "Open Ring",
+    "category": "Circles",
+    "group": "ornament"
+  },
+  {
+    "slug": "starburst",
+    "name": "Starburst",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "sun-badge",
+    "name": "Sun Badge",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "sparkle",
+    "name": "Sparkle",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "asterisk",
+    "name": "Asterisk",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "thin-star",
+    "name": "Thin Star",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "dot-grid",
+    "name": "Dot Grid",
+    "category": "Dots",
+    "group": "ornament"
+  },
+  {
+    "slug": "dot-diamond",
+    "name": "Dot Diamond",
+    "category": "Dots",
+    "group": "ornament"
+  },
+  {
+    "slug": "dot-ring",
+    "name": "Dot Ring",
+    "category": "Dots",
+    "group": "ornament"
+  },
+  {
+    "slug": "striped-sphere",
+    "name": "Striped Sphere",
+    "category": "Spheres",
+    "group": "ornament"
+  },
+  {
+    "slug": "hatched-sphere",
+    "name": "Hatched Sphere",
+    "category": "Spheres",
+    "group": "ornament"
+  },
+  {
+    "slug": "globe-lines",
+    "name": "Globe Lines",
+    "category": "Spheres",
+    "group": "ornament"
+  },
+  {
+    "slug": "half-dome",
+    "name": "Half Dome",
+    "category": "Spheres",
+    "group": "ornament"
+  },
+  {
+    "slug": "triple-wave",
+    "name": "Triple Wave",
+    "category": "Squiggles",
+    "group": "ornament"
+  },
+  {
+    "slug": "wavy-ribbon",
+    "name": "Wavy Ribbon",
+    "category": "Squiggles",
+    "group": "ornament"
+  },
+  {
+    "slug": "zigzag",
+    "name": "Zigzag",
+    "category": "Squiggles",
+    "group": "ornament"
+  },
+  {
+    "slug": "loop-squiggle",
+    "name": "Loop Squiggle",
+    "category": "Squiggles",
+    "group": "ornament"
+  },
+  {
+    "slug": "blob",
+    "name": "Blob",
+    "category": "Blobs",
+    "group": "ornament"
+  },
+  {
+    "slug": "blob-outline",
+    "name": "Blob Outline",
+    "category": "Blobs",
+    "group": "ornament"
+  },
+  {
+    "slug": "pebble",
+    "name": "Pebble",
+    "category": "Blobs",
+    "group": "ornament"
+  },
+  {
+    "slug": "bean",
+    "name": "Bean",
+    "category": "Blobs",
+    "group": "ornament"
+  },
+  {
+    "slug": "clover",
+    "name": "Clover",
+    "category": "Flowers",
+    "group": "ornament"
+  },
+  {
+    "slug": "daisy",
+    "name": "Daisy",
+    "category": "Flowers",
+    "group": "ornament"
+  },
+  {
+    "slug": "plus",
+    "name": "Plus",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "triangle-hatch",
+    "name": "Hatched Triangle",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "hash-grid",
+    "name": "Hash Grid",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "checker-diamond",
+    "name": "Checker Diamond",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "ladder",
+    "name": "Ladder",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "chevrons",
+    "name": "Chevrons",
+    "category": "Arrows",
+    "group": "ornament"
+  },
+  {
+    "slug": "curvy-arrow",
+    "name": "Curvy Arrow",
+    "category": "Arrows",
+    "group": "ornament"
+  },
+  {
+    "slug": "loop-arrow",
+    "name": "Loop Arrow",
+    "category": "Arrows",
+    "group": "ornament"
+  },
+  {
+    "slug": "cloud",
+    "name": "Cloud",
+    "category": "Weather",
+    "group": "ornament"
+  },
+  {
+    "slug": "rays",
+    "name": "Rays",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "comma-swirl",
+    "name": "Comma Swirl",
+    "category": "Swirls",
+    "group": "ornament"
+  },
+  {
+    "slug": "podium",
+    "name": "Podium",
+    "category": "Uniform price",
+    "group": "market",
+    "mode": "uniform"
+  },
+  {
+    "slug": "auction-bell",
+    "name": "Auction Bell",
+    "category": "Uniform price",
+    "group": "market",
+    "mode": "uniform"
+  },
+  {
+    "slug": "pact",
+    "name": "Pact",
+    "category": "OTC",
+    "group": "market",
+    "mode": "otc"
+  },
+  {
+    "slug": "two-coins",
+    "name": "Two Coins",
+    "category": "OTC",
+    "group": "market",
+    "mode": "otc"
+  },
+  {
+    "slug": "quote-bubble",
+    "name": "Quote Bubble",
+    "category": "RFQ",
+    "group": "market",
+    "mode": "rfq"
+  },
+  {
+    "slug": "ledger-sheet",
+    "name": "Ledger Sheet",
+    "category": "RFQ",
+    "group": "market",
+    "mode": "rfq"
+  },
+  {
+    "slug": "sprout",
+    "name": "Sprout",
+    "category": "Launch",
+    "group": "market",
+    "mode": "launch"
+  },
+  {
+    "slug": "flag",
+    "name": "Flag",
+    "category": "Launch",
+    "group": "market",
+    "mode": "launch"
+  },
+  {
+    "slug": "return-coin",
+    "name": "Return Coin",
+    "category": "Buyback",
+    "group": "market",
+    "mode": "buyback"
+  },
+  {
+    "slug": "basket",
+    "name": "Basket",
+    "category": "Buyback",
+    "group": "market",
+    "mode": "buyback"
+  },
+  {
+    "slug": "gift-box",
+    "name": "Gift Box",
+    "category": "Drop",
+    "group": "market",
+    "mode": "drop"
+  },
+  {
+    "slug": "ticket-roll",
+    "name": "Ticket Roll",
+    "category": "Drop",
+    "group": "market",
+    "mode": "drop"
+  },
+  {
+    "slug": "emblem-how",
+    "name": "Sealed Orbit",
+    "category": "How it works",
+    "group": "page"
+  },
+  {
+    "slug": "emblem-verify",
+    "name": "Check Lens",
+    "category": "Verify",
+    "group": "page"
+  },
+  {
+    "slug": "emblem-lots",
+    "name": "Lot Stack",
+    "category": "Every lot",
+    "group": "page"
+  },
+  {
+    "slug": "emblem-bid",
+    "name": "Sealed Ticket",
+    "category": "Bid",
+    "group": "page"
+  },
+  {
+    "slug": "emblem-receipt",
+    "name": "Folded Receipt",
+    "category": "Receipt",
+    "group": "page"
+  },
+  {
+    "slug": "pill",
+    "name": "Pill",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "crescent",
+    "name": "Crescent",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "quarter-ring",
+    "name": "Quarter Ring",
+    "category": "Circles",
+    "group": "ornament"
+  },
+  {
+    "slug": "orbit-dots",
+    "name": "Orbit Dots",
+    "category": "Dots",
+    "group": "ornament"
+  },
+  {
+    "slug": "dash-circle",
+    "name": "Dash Circle",
+    "category": "Circles",
+    "group": "ornament"
+  },
+  {
+    "slug": "star-five",
+    "name": "Five Star",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "star-outline",
+    "name": "Star Outline",
+    "category": "Stars",
+    "group": "ornament"
+  },
+  {
+    "slug": "lightning",
+    "name": "Lightning",
+    "category": "Weather",
+    "group": "ornament"
+  },
+  {
+    "slug": "raindrop",
+    "name": "Raindrop",
+    "category": "Weather",
+    "group": "ornament"
+  },
+  {
+    "slug": "wave-band",
+    "name": "Wave Band",
+    "category": "Squiggles",
+    "group": "ornament"
+  },
+  {
+    "slug": "scribble",
+    "name": "Scribble",
+    "category": "Squiggles",
+    "group": "ornament"
+  },
+  {
+    "slug": "arch",
+    "name": "Arch",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "stripe-square",
+    "name": "Stripe Square",
+    "category": "Shapes",
+    "group": "ornament"
+  },
+  {
+    "slug": "dot-wave",
+    "name": "Dot Wave",
+    "category": "Dots",
+    "group": "ornament"
+  },
+  {
+    "slug": "knot",
+    "name": "Knot",
+    "category": "Swirls",
+    "group": "ornament"
+  },
+  {
+    "slug": "teardrop-pair",
+    "name": "Teardrop Pair",
+    "category": "Blobs",
+    "group": "ornament"
+  },
+  {
+    "slug": "grid-sphere",
+    "name": "Grid Sphere",
+    "category": "Spheres",
+    "group": "ornament"
+  }
+]

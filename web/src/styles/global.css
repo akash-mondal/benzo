@@ -1,0 +1,61 @@
+@import "tailwindcss";
+@import "@fontsource/libre-franklin/700.css";
+@import "@fontsource/libre-franklin/500.css";
+@import "@fontsource-variable/source-serif-4";
+@import "@fontsource-variable/source-serif-4/wght-italic.css";
+
+/* Direction: "The product performs" (taste-skill v2, seed 1041642974). Palette "Sand and moss", type Libre Franklin /
+   Source Serif 4. Sand holds the page, charcoal type; moss is the one accent (actions); the leaf field is the stage. */
+@theme {
+  --font-sans: "Libre Franklin", "Helvetica Neue", Arial, sans-serif;
+  --font-serif: "Source Serif 4 Variable", Georgia, serif;
+  --color-sand: #ddd6c6;
+  --color-surface: #d2cab8;
+  --color-ink: #2a2a26;
+  --color-muted: #4a4840;
+  --color-moss: #435230;
+  --color-leaf: #3f5a2a;
+  --color-leaf-deep: #2e431e;
+  --color-shade: #c6bda9;
+  /* The canvas: a green-black night the doodles float in. */
+  --color-ground: #141a10;
+  --color-ground-2: #1b2316;
+}
+
+:root {
+  --step-small: clamp(0.8125rem, 0.79rem + 0.1vw, 0.875rem);
+  --step-body: clamp(1.0625rem, 1rem + 0.25vw, 1.1875rem);
+  --step-lead: clamp(1.25rem, 1.1rem + 0.7vw, 1.625rem);
+  --step-head: clamp(2rem, 1.3rem + 3.2vw, 4rem);
+  --step-display: clamp(3.25rem, 5.2vw, 5rem);
+  --margin: clamp(1.25rem, 2.8vw, 2.5rem);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  /* The product's own shape: an envelope flap, cut into a corner. */
+  --flap: 7.5rem;
+}
+
+html { background: var(--color-ground); color: var(--color-sand); }
+body { min-height: 100dvh; font-family: var(--font-serif); font-size: var(--step-body); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { font-family: var(--font-sans); font-weight: 700; letter-spacing: -0.035em; line-height: 0.95; text-wrap: balance; }
+::selection { background: var(--color-moss); color: #fff; }
+:focus-visible { outline: 2px solid var(--color-moss); outline-offset: 3px; }
+.tabular { font-variant-numeric: tabular-nums; }
+.wrap { padding-inline: var(--margin); }
+
+/* Motion: entrances rise once; the hero stage opens like a shutter (the signature move). */
+@keyframes rise { from { opacity: 0; transform: translateY(24px); } to { opacity: 1; transform: none; } }
+.rise { animation: rise 0.7s var(--ease-out) both; }
+.rise-1 { animation-delay: 0.07s; } .rise-2 { animation-delay: 0.14s; } .rise-3 { animation-delay: 0.21s; } .rise-4 { animation-delay: 0.28s; } .rise-5 { animation-delay: 0.35s; }
+@keyframes shutter { from { clip-path: inset(100% 0 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes settle { from { transform: scale(1.12); } to { transform: none; } }
+.shutter { animation: shutter 1.1s var(--ease-out) both; }
+.shutter > .settle { animation: settle 1.1s var(--ease-out) both; }
+@keyframes card-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.card-in { animation: card-in 0.25s var(--ease-out) both; }
+.reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.7s var(--ease-out), transform 0.7s var(--ease-out); }
+.reveal.in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .rise, .shutter, .shutter > .settle, .card-in { animation: none; }
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+@media (scripting: none) { .reveal { opacity: 1; transform: none; } }

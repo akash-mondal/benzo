@@ -1,0 +1,40 @@
+---
+import Shell from "../../components/page/Shell.astro";
+import { auctions } from "../../lib/server";
+import { glyphFor } from "../../lib/glyphs";
+import { MODE_NAME, thousands, utc } from "../../lib/api";
+const list = await auctions();
+const now = Date.now() / 1000;
+const groups = [
+  { word: "Running now", rows: list.filter((a) => a.live || (!["SETTLED", "CANCELLED"].includes(a.state) && now - a.updated < 6 * 3600)) },
+  { word: "Settled", rows: list.filter((a) => a.state === "SETTLED") },
+  { word: "Cancelled and refunded in full", rows: list.filter((a) => a.state === "CANCELLED") },
+  { word: "Stopped mid-way in test runs", rows: list.filter((a) => !["SETTLED", "CANCELLED"].includes(a.state) && !a.live && now - a.updated >= 6 * 3600) },
+].filter((g) => g.rows.length);
+---
+<Shell title="Every lot – Benzo" description="Every auction Benzo ran on Zcash testnet, with its state and result.">
+  <article class="card-in mx-auto w-full max-w-[720px] bg-surface text-ink" style="clip-path: polygon(44px 0, 100% 0, 100% 100%, 0 100%, 0 44px)">
+    <div class="h-11"></div>
+    <h1 class="rise rise-1 px-6 pt-3 font-sans text-[clamp(1.75rem,1.2rem+2vw,2.5rem)]">{list.length} rounds on Zcash testnet</h1>
+    <p class="rise rise-2 max-w-[60ch] px-6 pt-3 font-serif text-[18px] leading-snug text-ink">Each one is a published, signed auction directory. Open a round to see its bids opened at round R, its payments, and the checks anyone can rerun.</p>
+    <div class="px-6 pb-8 pt-2">
+      {groups.map((g) => (
+        <section class="rise rise-3 mt-8" aria-label={g.word}>
+          <h2 class="font-sans text-[15px] tracking-tight text-muted">{g.word} <span class="tabular">({g.rows.length})</span></h2>
+          <ul class="mt-2">
+            {g.rows.map((a) => (
+              <li>
+                <a href={`/auction/?id=${a.id}`} class="group flex min-h-[44px] items-center gap-3 font-sans md:min-h-[38px]" data-testid="lot-row">
+                  <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg`} alt="" class="size-6 flex-none bg-leaf-deep p-1" />
+                  <span class="min-w-0 truncate text-[15px] text-ink group-hover:text-moss">{a.lot ?? MODE_NAME[a.mode]}</span>
+                  <span class="hidden shrink-0 text-[13px] text-muted sm:inline">{MODE_NAME[a.mode]}</span>
+                  <span class="ml-auto shrink-0 text-[13px] text-muted tabular">{a.state === "SETTLED" && a.clearing_price_zats && a.clearing_price_zats !== "0" ? `cleared ${thousands(a.clearing_price_zats)} zats` : a.state === "SETTLED" ? `settled ${utc(a.updated)}` : utc(a.updated)}</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  </article>
+</Shell>

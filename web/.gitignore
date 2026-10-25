@@ -1,0 +1,5 @@
+dist/
+tmp/
+.astro/
+gateway/dist/
+.taste-skill/inspect*/
