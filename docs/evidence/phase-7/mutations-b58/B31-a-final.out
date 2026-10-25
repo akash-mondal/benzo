@@ -1,0 +1,23 @@
+# B31-a re-run at commit 7ac4b934166b34a27a2e435f5b132f3b5e473b8d (final code 7ac4b93, B58 + testnet-only lock; gate RG offline half, head, 2026-10-25T14:22:29Z)
+# patch docs/evidence/phase-6/mutations/B31-a.patch; build: none; command: npm run bench -- --stage batch-plan tmp/bench-100 100
+# expected red: ERROR batching-equal-cap13; red exit 1 (1 matching lines); green exit 0 (0 matching lines); tracked tree after revert: clean
+RESULT RED (expected), green after revert
+--- red: matching lines ---
+ERROR bench ERROR batching-equal-cap13 batch 1: ledger {"id":1,"parties":["B0000-row","B0002-row","B0004-row","B0006-row","B0008-row","B000a-row","B000c-row","B000e-row","B0010-row","B0012-row","B0014-row","B0016-row","B0018-row"]} vs planBatches {"id":1,"parties":["a0001-row","a0003-row","a0005-row","a0007-row","a0009-row","a000b-row","a000d-row","a000f-row","a0011-row","a0013-row","a0015-row","a0017-row","a0019-row"]}
+--- red: last 15 lines ---
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> benzo@0.1.0 bench
+> esbuild tools/bench.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/bench.mjs --log-level=warning && node tmp/bench.mjs --stage batch-plan tmp/bench-100 100
+
+ERROR bench ERROR batching-equal-cap13 batch 1: ledger {"id":1,"parties":["B0000-row","B0002-row","B0004-row","B0006-row","B0008-row","B000a-row","B000c-row","B000e-row","B0010-row","B0012-row","B0014-row","B0016-row","B0018-row"]} vs planBatches {"id":1,"parties":["a0001-row","a0003-row","a0005-row","a0007-row","a0009-row","a000b-row","a000d-row","a000f-row","a0011-row","a0013-row","a0015-row","a0017-row","a0019-row"]}
+--- green: last 8 lines ---
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> benzo@0.1.0 bench
+> esbuild tools/bench.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/bench.mjs --log-level=warning && node tmp/bench.mjs --stage batch-plan tmp/bench-100 100
+
+PASS batching-equal cap=13 batches=77 rows=1000
+PASS batching-equal cap=28 batches=36 rows=1000

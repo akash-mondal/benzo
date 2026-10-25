@@ -1,0 +1,26 @@
+# M4 re-run at commit 7ac4b934166b34a27a2e435f5b132f3b5e473b8d (final code 7ac4b93, B58 + testnet-only lock; gate RG offline half, head, 2026-10-25T14:22:08Z)
+# patch docs/evidence/phase-1/mutations/M4.patch; build: none; command: npm run e2e
+# expected red: ERROR C4; red exit 1 (1 matching lines); green exit 0 (0 matching lines); tracked tree after revert: clean
+RESULT RED (expected), green after revert
+--- red: matching lines ---
+ERROR C4 Error: envelope for a past time | Expected: "" | Received: "ff424e5a0201e76167652d656e6372797074696f6e2e6f72672f76310a2d3e20746c6f636b20333333373832313020353264623962613730653063633066366561663738303364643037343437613166353437373733356664336636363137393262613934363030633834653937310a6b7a4e50646c7663474d584167644e697a6a2b434e30333464305771374a4c794c426c42755938464a4767365274326131393163466b394f746a
+--- red: last 15 lines ---
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> benzo@0.1.0 e2e
+> playwright test --project=default
+
+ERROR C4 Error: envelope for a past time | Expected: "" | Received: "ff424e5a0201e76167652d656e6372797074696f6e2e6f72672f76310a2d3e20746c6f636b20333333373832313020353264623962613730653063633066366561663738303364643037343437613166353437373733356664336636363137393262613934363030633834653937310a6b7a4e50646c7663474d584167644e697a6a2b434e30333464305771374a4c794c426c42755938464a4767365274326131393163466b394f746a
+run.json -> tmp/e2e/out
+FAILED default seal in the browser, open with tle after R (40 s)
+run failed; details in tmp/e2e/report.json
+--- green: last 8 lines ---
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> benzo@0.1.0 e2e
+> playwright test --project=default
+
+run.json -> tmp/e2e/out
+PASSED default seal in the browser, open with tle after R (38 s)
+run passed; details in tmp/e2e/report.json
