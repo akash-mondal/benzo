@@ -1210,3 +1210,15 @@ Every repro on the touched paths is green (`b57-after-summary.out`): B46, B47 (s
 2. PK steps 02–04: the verify bundle and the npm digest move.
 3. The features RG does not run: the DOC walkthrough with the reserve return, the three cross-chain demos, the recurring buyback series and scale-8.
 4. Then a gpt-6.1-sol (Codex CLI) judge pass with the Zecathon dossier (user request), and the mainnet question again.
+
+### R133: B58 lands, mainnet is dropped, MIT license (head, 2026-10-25)
+
+**The user's calls (2026-10-25):** "we are ditching mainnet"; the license is MIT; the full testnet gold runs at the final commit even past the evening deadline.
+
+**B58 (judge finding, `b6f478b`).** A witness refuses its first certificate once round R is released (`cli/commands/witness.ts`): a first certificate after R could follow the opened prices. An auction left uncertified after R is cancelled and refunds `C` in full; `settle/plan.ts` skips the certificate gate for CANCELLED/REFUNDING, and the markets `resume` cancels instead of certifying late. Proof: `b58-witness-cutoff-{before,after}.out` (red on `52c7353`, green at `b6f478b`). The same commit corrects two claims: the stealth delivery is found with the viewing key and spent with the spending key, and cross-chain delivery is public and matchable to the opened bid.
+
+**Mainnet dropped.** `e429003` had lifted the testnet-only manifest lock. No mainnet auction will run, so `7ac4b93` puts the lock back (`network: "test"`, `g7-manifest-lock-stays`); the verify bundle returns to `cffd6a33…`. The per-network signer prefix (`BNZ_HOST_PREFIX`), the mainnet NU7 guards and the network-aware doc walk stay: they are inert on testnet.
+
+**License.** R36's private ruling ends with the submission: `LICENSE` (MIT, the B33 text) is back and `package.json` says `"license": "MIT"`. The npm package digest moves with `package.json`; PK re-records it at the final commit.
+
+**Next, at the final commit:** the 23 offline mutations; gold RG (hosts provisioned, six live projects, five live mutations); the features RG does not run (DOC walk, cross-chain demos, buyback series, scale-8); PK; the history scrub of the old refund-address evidence before the repo goes public.
