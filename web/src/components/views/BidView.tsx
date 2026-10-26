@@ -9,7 +9,7 @@ import QRCode from "qrcode";
 import { api, MODE_NAME, short, zec } from "../../lib/api";
 import { glyphFor } from "../../lib/glyphs";
 import { archiveCurrent, attemptsFor, currentAttempt, partyFor, saveAttempt, type Attempt, type PartyKey } from "../../lib/mine";
-import { Btn, Copyable, ErrorLine, Field, Panel, Pill, cx, fieldCls, rel, when, zats } from "../app/ui";
+import { Btn, Glyph, Copyable, ErrorLine, Field, Panel, Pill, cx, fieldCls, rel, when, zats } from "../app/ui";
 import { clock, useCountdown } from "./useCountdown";
 import type { AuctionDetail } from "../../lib/types";
 
@@ -55,11 +55,11 @@ export default function BidView() {
     setSaved({ ...a, key });
   };
 
-  if (round === undefined) return <h1 className="py-16 text-[26px] text-app-muted" data-testid="ticket-title">Finding the round…</h1>;
+  if (round === undefined) return <h1 className="py-16 text-app-muted" data-testid="ticket-title">Finding the round…</h1>;
   if (!round) return (
     <div className="mx-auto max-w-[540px] py-16 text-center">
-      <img src="/doodles/hourglass.svg?v=2" alt="" className="mx-auto size-14 opacity-80" />
-      <h1 className="mt-6 text-[26px]" data-testid="ticket-title">{failed ? "We couldn't load the rounds" : wanted ? "We couldn't find that round" : "No rounds are taking bids right now"}</h1>
+      <Glyph name="hourglass" className="mx-auto size-16" />
+      <h1 className="mt-6" data-testid="ticket-title">{failed ? "We couldn't load the rounds" : wanted ? "We couldn't find that round" : "No rounds are taking bids right now"}</h1>
       <p className="mt-2 text-app-muted">{failed ? "The service didn't answer. Try again in a moment." : "You can look at how finished rounds turned out, no wallet needed. New rounds open here when they start."}</p>
       <div className="mt-7 flex justify-center gap-3"><Btn href="/lots/?stage=settled" testid="bid-start">Explore finished rounds</Btn><Btn href="/start/" kind="secondary">Start a test round</Btn></div>
     </div>
@@ -100,17 +100,17 @@ function RoundSummary({ round, left, role }: { round: AuctionDetail; left: numbe
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-4">
-        <img src={`/doodles/${glyphFor(round.mode, round.id)}.svg?v=2`} alt="" className="size-14 shrink-0 rounded-2xl bg-app-1 p-2.5" />
+        <Glyph name={glyphFor(round.mode, round.id)} className="size-16" />
         <div className="min-w-0">
           <div className="text-[13px] text-app-faint">{MODE_NAME[round.mode]} · Zcash testnet</div>
-          <h1 className="truncate text-[26px]" data-testid="ticket-title">{round.lot ?? "Round"}</h1>
+          <h1 className="truncate" data-testid="ticket-title">{round.lot ?? "Round"}</h1>
         </div>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5">
-        <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("mt-1 text-[22px] font-semibold tabular-nums", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : Date.now() / 1000 < round.T_submit ? "Not here" : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
-        <div><div className="text-[13px] text-app-faint">Fixed deposit</div><div className="mt-1 text-[22px] font-semibold tabular-nums">{zats(round.C_zats)} zats</div><div className="text-[13px] text-app-muted">{taz(round.C_zats)} · not your {role.noun}</div></div>
-        <div><div className="text-[13px] text-app-faint">{m.lots ? "Lots" : role.seller ? "Units wanted" : "Units for sale"}</div><div className="mt-1 text-[17px] font-medium">{m.lots ? `${m.lots.length} lots` : round.supply}</div></div>
-        <div><div className="text-[13px] text-app-faint">Bids open</div><div className="mt-1 text-[17px] font-medium">{rel(round.release)}</div><div className="text-[13px] text-app-muted">{when(round.release)}</div></div>
+        <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : Date.now() / 1000 < round.T_submit ? "Not here" : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
+        <div><div className="text-[13px] text-app-faint">Fixed deposit</div><div className="serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]">{zats(round.C_zats)} zats</div><div className="text-[13px] text-app-muted">{taz(round.C_zats)} · not your {role.noun}</div></div>
+        <div><div className="text-[13px] text-app-faint">{m.lots ? "Lots" : role.seller ? "Units wanted" : "Units for sale"}</div><div className="serif-figure mt-1 text-[24px] leading-[1.1]">{m.lots ? `${m.lots.length} lots` : round.supply}</div></div>
+        <div><div className="text-[13px] text-app-faint">Bids open</div><div className="serif-figure mt-1 text-[24px] leading-[1.1]">{rel(round.release)}</div><div className="text-[13px] text-app-muted">{when(round.release)}</div></div>
       </div>
     </div>
   );
@@ -274,7 +274,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
         <span className="text-app-faint">Sealed{b.lot_index !== undefined ? ` · Lot ${b.lot_index + 1}` : ""}</span>
         <span className="tabular-nums"><span className="text-[17px] font-semibold">{zats(b.price_zats)}</span> zats</span>
       </div>
-      <div className={cx("rounded-2xl p-4", s.savedKey ? "bg-app-2" : "bg-[#2b2410]")}>
+      <div className={cx("rounded-2xl p-4", s.savedKey ? "bg-[#ddd6c60a] ring-1 ring-app-line" : "bg-[#e9cd8414] ring-1 ring-[#e9cd8440]")}>
         <div className="flex items-center justify-between gap-3">
           <div><div className="text-[14px] font-medium">{s.savedKey ? "Recovery file downloaded" : "First, download your recovery file"}</div><div className="text-[13px] text-app-muted">It holds your private bid key and price. Keep it private; you may need it to claim a refund.</div></div>
           <Btn kind={s.savedKey ? "text" : "primary"} onClick={keyFile} testid="bid-key">{s.savedKey ? "Again" : "Download"}</Btn>
@@ -299,7 +299,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
             <button type="button" onClick={() => setBig(true)} className="shrink-0" aria-label="Enlarge the QR code">{qr ? <img src={qr} alt="QR code for the deposit payment" className="size-[180px] rounded-xl bg-white sm:size-[200px]" data-testid="bid-qr" /> : <div className="size-[180px] rounded-xl bg-app-2" />}</button>
             <div className="grid min-w-0 content-start gap-2 text-[14px]">
               <p className="text-app-muted"><span className="sm:hidden">Paying from another device? Scan this. </span>Use the whole payment link; sending to the address alone won't include your sealed {role.noun}.</p>
-              <a href={b.uri} className="hidden w-fit rounded-full bg-white px-4 py-2 font-semibold text-black hover:bg-[#e6e6e6] sm:inline-block" data-testid="bid-uri">Open in wallet</a>
+              <a href={b.uri} className="hidden w-fit rounded-full bg-sand px-4 py-2 font-semibold text-ink hover:bg-[#ebe5d6] sm:inline-block" data-testid="bid-uri">Open in wallet</a>
               <button type="button" className="hidden w-fit text-app-muted hover:text-app-text sm:block" onClick={() => copy("Payment link copied, with the amount and sealed memo", b.uri)}>Copy payment link</button>
               <button type="button" className="w-fit text-app-muted hover:text-app-text" onClick={() => setBig(true)}>Enlarge QR</button>
             </div>

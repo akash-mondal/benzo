@@ -236,7 +236,9 @@ export default function Field({ doodles, center, pitch, onSelect, onNavigate = g
       // The centre word under the pointer (and no door): its pitch fades in under it.
       const cm = centerMesh.current, onWord = !hit && !dive && !!cm && cm.visible && ray.intersectObject(cm).length > 0;
       if (onWord !== pitchHover.current) { pitchHover.current = onWord; setPitchOn(onWord || pitchPinned.current); }
-      focus += (Number(pitchHover.current || pitchPinned.current) - focus) * Math.min(dt * 8, 1);
+      const goal = Number(pitchHover.current || pitchPinned.current);
+      focus += (goal - focus) * Math.min(dt * 8, 1);
+      if (Math.abs(goal - focus) < 0.02) focus = goal;
       if (cm) {
         const want = pitchHover.current || pitchPinned.current ? 1.04 : 1;
         cm.scale.setScalar(cm.scale.x + (want - cm.scale.x) * 0.12);

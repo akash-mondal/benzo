@@ -5,12 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 import { api, MODE_NAME, utc } from "../../lib/api";
 import { glyphFor, marketOf, MARKETS } from "../../lib/glyphs";
 import { outcomeLine } from "../../lib/outcome";
-import { cx } from "../app/ui";
+import { Glyph, Pill } from "../app/ui";
 import type { AuctionSummary } from "../../lib/types";
 
 // Stage, from the round's own state (never guessed from its age).
 const stageOf = (a: AuctionSummary) => (a.live ? "open" : a.state === "SETTLED" ? "settled" : a.state === "CANCELLED" ? "cancelled" : "running");
-const STAGE: Record<string, [string, string]> = { open: ["Taking bids", "bg-[#2b2410] text-gold"], running: ["In progress", "bg-app-2 text-app-text"], settled: ["Settled", "bg-[#1d2a14] text-[#b9e27a]"], cancelled: ["Cancelled", "bg-app-2 text-app-muted"] };
+const STAGE: Record<string, [string, "live" | "wait" | "good" | "plain"]> = { open: ["Taking bids", "live"], running: ["In progress", "wait"], settled: ["Settled", "good"], cancelled: ["Cancelled", "plain"] };
 const TABS: [string, string][] = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"], ["settled", "Settled"], ["cancelled", "Cancelled"]];
 const order = (l: AuctionSummary[]) => [...l].sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated);
 const local = (unix: number) => {
@@ -48,7 +48,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
 
   return (
     <div>
-      <h1 className="text-[28px]">All rounds</h1>
+      <h1>All rounds</h1>
       <p className="mt-1 text-[14px] text-app-muted"><span id="count">{match.length}</span> rounds on Zcash testnet</p>
       <div className="mt-6 grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
         <label className="sr-only" htmlFor="q">Search round name or id</label>
@@ -66,20 +66,20 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
           </button>
         ))}
       </div>
-      <div className="mt-4 overflow-hidden rounded-[20px] bg-app-1">
+      <div className="mt-4 overflow-hidden rounded-[22px] bg-app-1 ring-1 ring-app-line backdrop-blur-xl">
         <div className="hidden grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px] gap-4 px-5 pb-2 pt-4 text-[13px] text-app-faint md:grid"><span>Round</span><span>Stage</span><span>Result</span><span className="text-right">Last update</span></div>
         <ul id="rows">
           {list.map((a) => { const st = stageOf(a); return (
             <li key={a.id} hidden={!visible.has(a.id)}>
               <a href={`/auction/?id=${a.id}`} data-testid="lot-row" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 md:grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px]">
                 <span className="flex min-w-0 items-center gap-3">
-                  <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg?v=2`} alt="" className="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
+                  <Glyph name={glyphFor(a.mode, a.id)} className="size-9" />
                   <span className="min-w-0">
                     <span className="block truncate text-[15px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}{(counts.get(a.lot ?? "") ?? 0) > 1 && <span className="text-app-faint"> · {a.id.slice(0, 6)}</span>}</span>
                     <span className="block text-[13px] text-app-faint">{MODE_NAME[a.mode]} · {a.leaf_count ?? 0} bids</span>
                   </span>
                 </span>
-                <span><span className={cx("inline-flex h-6 items-center rounded-full px-2.5 text-[12.5px] font-medium", STAGE[st][1])}>{STAGE[st][0]}</span></span>
+                <span><Pill kind={STAGE[st][1]}>{STAGE[st][0]}</Pill></span>
                 <span className="col-span-2 truncate text-[14px] text-app-muted tabular-nums md:col-span-1 md:text-app-text">{outcomeLine(a)}{st === "running" && now - a.updated > 6 * 3600 ? " · no update for a while" : ""}</span>
                 <time dateTime={new Date(a.updated * 1000).toISOString()} className="col-span-2 text-[13px] text-app-faint tabular-nums md:col-span-1 md:text-right md:text-app-muted">{ready ? local(a.updated) : utc(a.updated)}</time>
               </a>

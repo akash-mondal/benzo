@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api, MODE_NAME } from "../../lib/api";
 import { ABOUT, DOOR, MARKETS, type Market } from "../../lib/glyphs";
 import { addParty, addStarted } from "../../lib/mine";
-import { Btn, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
+import { Btn, Glyph, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
 
 const FOR = ABOUT;
 
@@ -21,15 +21,15 @@ export default function StartView() {
   }, []);
   if (!market) return (
     <div>
-      <h1 className="text-[28px]">Start a round</h1>
+      <h1>Start a round</h1>
       <p className="mt-1.5 text-app-muted">Choose how you want to sell or buy.</p>
       <ul className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="start-markets">
         {MARKETS.map((m) => (
           <li key={m}>
             <button type="button" onClick={() => { setMarket(m); history.pushState({ benzoStep: 1 }, "", `/start/?market=${m}`); }}
-              className="flex h-full w-full flex-col gap-4 rounded-[20px] bg-app-1 p-5 text-left transition-colors hover:bg-app-2" data-testid={`start-${m}`}>
-              <img src={`/doodles/${DOOR[m]}.svg?v=2`} alt="" className="size-10" />
-              <span><span className="block text-[17px] font-semibold">{MODE_NAME[m]}</span><span className="mt-1 block text-[14px] text-app-muted">{FOR[m]}</span></span>
+              className="group flex h-full w-full flex-col gap-5 rounded-[22px] bg-app-1 p-6 text-left ring-1 ring-app-line backdrop-blur-xl transition-[transform,box-shadow,background-color] duration-300 hover:-translate-y-0.5 hover:bg-[#232b1dd0] hover:shadow-[0_24px_50px_-28px_#000,0_0_0_1px_#ddd6c633]" data-testid={`start-${m}`}>
+              <Glyph name={DOOR[m]} className="size-16 transition-transform duration-300 group-hover:scale-110" />
+              <span><span className="serif-figure block text-[26px] leading-tight text-[#f3eee2]">{MODE_NAME[m]}</span><span className="mt-1 block text-[14px] text-app-muted">{FOR[m]}</span></span>
             </button>
           </li>
         ))}
@@ -92,7 +92,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
   const summary = (
     <Panel>
       <div className="flex items-center gap-3">
-        <img src={`/doodles/${DOOR[market]}.svg?v=2`} alt="" className="size-10 rounded-xl bg-app-2 p-2" />
+        <Glyph name={DOOR[market]} className="size-12" />
         <div className="min-w-0"><div className="truncate text-[17px] font-semibold">{f.lot || "Untitled"}</div><div className="text-[13px] text-app-muted">{MODE_NAME[market]}</div></div>
       </div>
       <dl className="mt-5 grid gap-2.5 text-[14px]">
@@ -111,7 +111,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h1 className="text-[28px]">New {marketTitle(MODE_NAME[market])} round</h1>
+        <h1>New {marketTitle(MODE_NAME[market])} round</h1>
         <button type="button" onClick={onChange} className="text-[14px] text-app-muted hover:text-app-text">Change market</button>
       </div>
       <p className="mt-1.5 text-app-muted">{FOR[market]}</p>

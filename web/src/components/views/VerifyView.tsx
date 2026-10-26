@@ -39,7 +39,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
   const counted = (d?.checks ?? []).filter((c) => c.status !== "not_applicable");
   return (
     <div>
-      <h1 className="text-[28px]">Verify a round</h1>
+      <h1>Verify a round</h1>
       <p className="mt-1.5 max-w-[640px] text-app-muted">Check a round's public record: its terms, which bids were in, how they opened and cleared, and the payments.</p>
       {/* Phone: picker, result, then the notes. Desktop: picker and notes left, result right. */}
       <div className="mt-8 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[auto_1fr]">
@@ -70,7 +70,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
               {d && (
                 <>
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-[19px] font-semibold">{failed.length ? `${failed.length} check${failed.length > 1 ? "s" : ""} failed` : "All applicable checks pass"}</div>
+                    <div className="serif-figure text-[26px] leading-tight text-[#f3eee2]">{failed.length ? `${failed.length} check${failed.length > 1 ? "s" : ""} failed` : "All applicable checks pass"}</div>
                     <Pill kind={d.valid ? "good" : "bad"}>{d.valid ? "Record checks out" : "Does not verify"}</Pill>
                   </div>
                   <p className="mt-1 text-[13px] text-app-faint tabular-nums">{counted.filter((c) => c.ok).length} of {counted.length} applicable checks pass · {d.checks.length - counted.length} not applicable · record updated {when(d.updated)}</p>
@@ -111,7 +111,7 @@ function Group({ title, checks }: { title: string; checks: Check[] }) {
   if (!checks.length) return null;
   return (
     <section>
-      <h2 className="text-[13px] font-medium text-app-faint">{title}</h2>
+      <h2 className="text-[18px] text-app-muted">{title}</h2>
       <ul className="mt-1">{checks.map((c) => (
         <li key={c.id} className="flex gap-3 border-t border-app-line py-2.5 text-[14.5px] first:border-t-0">
           {c.status === "not_applicable" ? <span className="mt-[3px] size-4 shrink-0 text-center text-app-faint">–</span> : <Tick ok={c.ok} />}

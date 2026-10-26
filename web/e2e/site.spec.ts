@@ -29,7 +29,7 @@ async function hover(page: any, match: RegExp) {
 // The centre of a named door on screen: its name label sits just under it.
 async function doorAt(page: any, name: string) {
   return page.locator(`[data-door-label="${name}"]`).evaluateAll((els: HTMLElement[]) => {
-    const e = els.find((x) => x.style.opacity === "1");
+    const e = els.find((x) => Number(x.style.opacity) > 0.9); // shown (the ring dims while the centre pitch is up)
     if (!e) return null;
     const r = e.getBoundingClientRect();
     return [r.left + r.width / 2, r.top - 34] as const;

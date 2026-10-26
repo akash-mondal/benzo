@@ -5,7 +5,8 @@
 import { useEffect, useRef, useState } from "react";
 import { api, MODE_NAME, short, zec } from "../../lib/api";
 import { outcomeLine } from "../../lib/outcome";
-import { Btn, Copyable, ErrorLine, Figure, H2, Panel, Pill, StatePill, Tick, Timeline, checkName, cx, fieldCls, rel, when, zats } from "../app/ui";
+import { glyphFor } from "../../lib/glyphs";
+import { Btn, Copyable, Glyph, ErrorLine, Figure, H2, Panel, Pill, StatePill, Tick, Timeline, checkName, cx, fieldCls, rel, when, zats } from "../app/ui";
 import { clock, useCountdown } from "./useCountdown";
 import type { AuctionDetail } from "../../lib/types";
 
@@ -54,9 +55,9 @@ export default function AuctionView() {
     return () => { gone = true; window.clearInterval(t); };
   }, [id]);
   const toClose = useCountdown(d?.T_submit);
-  if (err === "bad" || err === "missing") return <div className="py-16"><h1 className="text-[26px]" data-testid="ticket-title">Round not found</h1><p className="mt-2 text-app-muted">{err === "bad" ? "This link doesn't point to a round." : "There's no round with this id. Check the link or browse all rounds."}</p><div className="mt-6"><Btn href="/lots/" kind="secondary">Browse rounds</Btn></div></div>;
-  if (err === "unavailable") return <div className="py-16"><h1 className="text-[26px]" data-testid="ticket-title">We couldn't load this round</h1><p className="mt-2 text-app-muted">The service didn't answer. The round itself is fine; try again in a moment.</p><div className="mt-6"><Btn onClick={() => { setErr(""); load.current(); }}>Try again</Btn></div></div>;
-  if (!d) return <div className="py-16"><h1 className="text-[26px] text-app-muted" data-testid="ticket-title">Loading the round…</h1></div>;
+  if (err === "bad" || err === "missing") return <div className="py-16"><h1 data-testid="ticket-title">Round not found</h1><p className="mt-2 text-app-muted">{err === "bad" ? "This link doesn't point to a round." : "There's no round with this id. Check the link or browse all rounds."}</p><div className="mt-6"><Btn href="/lots/" kind="secondary">Browse rounds</Btn></div></div>;
+  if (err === "unavailable") return <div className="py-16"><h1 data-testid="ticket-title">We couldn't load this round</h1><p className="mt-2 text-app-muted">The service didn't answer. The round itself is fine; try again in a moment.</p><div className="mt-6"><Btn onClick={() => { setErr(""); load.current(); }}>Try again</Btn></div></div>;
+  if (!d) return <div className="py-16"><h1 className="text-app-muted" data-testid="ticket-title">Loading the round…</h1></div>;
 
   const m: any = d.manifest, live = d.live && d.state === "OPEN" && !!toClose, sells = SELLS(d.mode);
   const allocations: any[] = d.result?.allocations ?? [];
@@ -84,13 +85,19 @@ export default function AuctionView() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-3">
-        <h1 className="min-w-0 break-words text-[28px]" data-testid="ticket-title">{d.lot ?? `${MODE_NAME[d.mode]} round`}</h1>
-        <StatePill state={d.state} live={live} testid="ticket-light" />
+      {/* The round's own doodle from the sky, then its name: the page is the door you came through. */}
+      <div className="flex items-center gap-5">
+        <Glyph name={glyphFor(d.mode, d.id)} className="size-16 sm:size-20" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="min-w-0 break-words" data-testid="ticket-title">{d.lot ?? `${MODE_NAME[d.mode]} round`}</h1>
+            <StatePill state={d.state} live={live} testid="ticket-light" />
+          </div>
+          <p className="mt-2 text-[14px] text-app-muted" data-testid="auction-caption">{MODE_NAME[d.mode]} · {m.lots ? `${m.lots.length} lots` : `${d.supply} unit${d.supply > 1 ? "s" : ""}`} · {d.leaf_count ?? 0} sealed bids · {short(d.id, 4)}</p>
+        </div>
       </div>
-      <p className="mt-1.5 text-[14px] text-app-muted" data-testid="auction-caption">{MODE_NAME[d.mode]} · {m.lots ? `${m.lots.length} lots` : `${d.supply} unit${d.supply > 1 ? "s" : ""}`} · {d.leaf_count ?? 0} sealed bids · {short(d.id, 4)}</p>
       <div className="mt-5 max-w-[720px]" data-testid="story">
-        <div className="text-[19px] font-semibold">{outcomeLine(d)}</div>
+        <div className="serif-figure text-[24px] leading-snug text-[#f3eee2]">{outcomeLine(d)}</div>
         <p className="mt-1 text-[15px] text-app-muted">{story(d, sold)}</p>
       </div>
       {stale && <div className="mt-4"><ErrorLine>Updates unavailable right now; showing the last loaded record. <button className="underline" onClick={() => load.current()}>Retry</button></ErrorLine></div>}
@@ -99,7 +106,7 @@ export default function AuctionView() {
         <div className="grid min-w-0 content-start gap-4">
           {live && (
             <Panel className="lg:hidden">
-              <div className="flex items-center justify-between gap-3"><div><div className="text-[13px] text-app-faint">Bidding closes in</div><div className="text-[24px] font-semibold tabular-nums text-gold">{clock(toClose!)}</div></div><Btn href={`/bid/?id=${d.id}`} testid="auction-bid-m">{sells ? "Make an offer" : "Place a sealed bid"}</Btn></div>
+              <div className="flex items-center justify-between gap-3"><div><div className="text-[13px] text-app-faint">Bidding closes in</div><div className="serif-figure text-[30px] leading-none text-gold">{clock(toClose!)}</div></div><Btn href={`/bid/?id=${d.id}`} testid="auction-bid-m">{sells ? "Make an offer" : "Place a sealed bid"}</Btn></div>
             </Panel>
           )}
           <Panel>

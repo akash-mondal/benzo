@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api, MODE_NAME } from "../../lib/api";
 import { glyphFor, DOOR, marketOf } from "../../lib/glyphs";
 import { bids, parties, started } from "../../lib/mine";
-import { Btn, Panel, Pill, zats } from "../app/ui";
+import { Btn, Glyph, Panel, Pill, zats } from "../app/ui";
 import type { AuctionDetail, RoundRequest } from "../../lib/types";
 
 type Line = { word: string; kind: "live" | "wait" | "good" | "bad" | "plain"; next?: string };
@@ -45,7 +45,7 @@ export default function MineView() {
   const tabs = [["bids", "Bids", mine.length], ["rounds", "Rounds you started", rounds.length], ["invites", "Invites", invites.length]] as const;
   return (
     <div>
-      <h1 className="text-[28px]">My activity</h1>
+      <h1>My activity</h1>
       <p className="mt-1.5 text-app-muted">Saved in this browser only. It doesn't sync, and clearing this site's data removes it.</p>
       {empty ? (
         <Panel className="mt-7 text-center">
@@ -54,7 +54,7 @@ export default function MineView() {
             <p className="mt-1 text-[14px] text-app-muted">Bids you seal and rounds you start here show up on this page. Have a recovery file from a bid? Open it to find that bid.</p>
             <div className="mt-5 flex flex-wrap justify-center gap-3">
               <Btn href="/lots/" testid="mine-bid">Browse rounds</Btn>
-              <label className="inline-flex h-10 cursor-pointer items-center rounded-full bg-app-2 px-5 text-[14px] font-semibold hover:bg-[#2a3124]">Open a recovery file<input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void openKey(e.target.files?.[0])} /></label>
+              <label className="inline-flex h-10 cursor-pointer items-center rounded-full bg-[#ddd6c60d] px-5 text-[14px] font-semibold ring-1 ring-[#ddd6c62e] hover:bg-[#ddd6c61a]">Open a recovery file<input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void openKey(e.target.files?.[0])} /></label>
             </div>
           </div>
         </Panel>
@@ -73,7 +73,7 @@ export default function MineView() {
                 const href = b.step === "pay" || (l?.next === "View status") ? `/bid/?id=${b.id}` : `/auction/?id=${b.id}&bid=${b.bid?.ciphertext_hash ?? ""}`;
                 return (
                   <li key={b.key}><a href={href} className="flex items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
-                    <img src={`/doodles/${dd ? glyphFor(dd.mode, dd.id) : "sealed-envelope"}.svg?v=2`} alt="" className="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
+                    <Glyph name={dd ? glyphFor(dd.mode, dd.id) : "sealed-envelope"} className="size-9" />
                     <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{dd?.lot ?? "A round"}{b.bid?.lot_index !== undefined ? ` · Lot ${b.bid.lot_index + 1}` : ""}{b.archived ? <span className="text-app-faint"> · earlier attempt</span> : ""}</span><span className="block text-[13px] text-app-faint tabular-nums">{dd ? MODE_NAME[dd.mode] : ""} · your price {zats(b.bid?.price_zats ?? 0)} zats</span></span>
                     <span className="flex shrink-0 flex-col items-end gap-1">{l ? <Pill kind={l.kind}>{l.word}</Pill> : <Pill kind="plain">Checking…</Pill>}{l?.next && <span className="text-[12.5px] text-app-muted">{l.next}</span>}</span>
                   </a></li>
@@ -83,7 +83,7 @@ export default function MineView() {
             {tab === "rounds" && (rounds.length ? (
               <ul data-testid="mine-rounds">{rounds.map((r) => { const l = reqLine(reqs[r.rid]); return (
                 <li key={r.rid}><a href={`/round/?r=${r.rid}&t=${r.token}`} className="flex items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
-                  <img src={`/doodles/${DOOR[marketOf(r.mode)]}.svg?v=2`} alt="" className="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
+                  <Glyph name={DOOR[marketOf(r.mode)]} className="size-9" />
                   <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{r.lot}</span><span className="block text-[13px] text-app-faint">{MODE_NAME[r.mode]}</span></span>
                   <span className="flex shrink-0 flex-col items-end gap-1">{l && <Pill kind={l.kind}>{l.word}</Pill>}{l?.next && <span className="text-[12.5px] text-app-muted">{l.next}</span>}</span>
                 </a></li>); })}</ul>
