@@ -1,0 +1,22 @@
+(node:44972) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[demo1] locked 5QFomQ4FLrmweEq3qEtBzHFfcBiBLSDBMXvCMCoDrhU9unQYooiRwEnmKaoyNCjoFXePpVGMSPMEnZQW3WiGX4qv
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+  tmp/markets.mjs  132.7kb
+
+⚡ Done in 10ms
+[xchain-drop] auction a7b02009965e2394056167a4fcd8e9fb538f8416bc6e5cc9ca8cff8ac80a3e4c mode uniform
+[xchain-drop] H19 fee reserve 60000 zats (bound 50000 + 5000 over 4 notes x 4 rows, floor 60000)
+[xchain-drop] funding 0d638a997952c899e4ae10c8f43da6735f4ea19ed4938b812b33cf46e0ed00ff
+[xchain-drop] PASS xchain-drop-cli-equals-pure-clear outcomes over_cap,winner,winner price 200
+[xchain-drop] PASS xchain-drop-settled exit 0
+[xchain-drop] PASS xchain-drop-receipts {"leaf:0":200000,"leaf:1":199800,"leaf:2":199800,"seller":400}
+[xchain-drop] PASS xchain-drop-landed [200000,199800,199800,0]
+[xchain-drop] PASS xchain-drop-cold-verify
+[xchain-drop] RESULT PASS xchain-drop
+PASS demo1-release
+PASS demo1-no-zcash-on-chain
+[demo1] result [{"fill":0,"leaf_index":0,"outcome":"over_cap","payment_zats":"0","price_zats":"300","quantity":2,"refund_zats":"200000"},{"fill":1,"leaf_index":1,"outcome":"winner","payment_zats":"200","price_zats":"250","quantity":1,"refund_zats":"199800"},{"fill":1,"leaf_index":2,"outcome":"winner","payment_zats":"200","price_zats":"200","quantity":1,"refund_zats":"199800"}] delivers [{"chain":"solana","kind":"address","to":"HWPMf3PrSGGhhJaMzaCfPuXR1GJBjtrkBbw2sNj3MriD"},{"chain":"solana","kind":"address","to":"GAwMGfz1QafHVHZY9nstYJ2iky5qxLtjmjwcN4sSz6md"},{"chain":"solana","kind":"address","to":"5pe9Y4XXm1zFkzE2ZjP4kyUixz1RfyEzxfsGwa7RfcV5"}] — payments asserted at the host records' destinations by xchain status
+RESULT PASS all xchain demo assertions
