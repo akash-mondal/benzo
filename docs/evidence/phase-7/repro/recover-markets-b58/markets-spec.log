@@ -1,0 +1,110 @@
+[drop] auction 755e026ed7449cd3cc508ed9a203adb71cf88b1906ca53c71ff0d2d8bc074b95 mode uniform
+[drop] H19 fee reserve 90000 zats (bound 85000 + 5000 over 8 notes x 7 rows, floor 60000)
+[drop] funding 05eb9964b96ae514e002b91fb30488fb712e77b7749ed3fe85d4d416f4ad7244
+[drop] A20 F11: stray deposit paid to utest146zcmp2mumss… (never admitted) 22f0f7eaa6fcc96e0483b6d93135df197379755803e92dc856d98ae06e1b98eb
+[drop] PASS drop-cli-equals-pure-clear outcomes winner,unfilled,winner,below_reserve price 0
+[drop] balance window (4542873, 4542913] manifest-fixed (was operator-chosen after the clear)
+[drop] dust sent to leaf 0's balance address before the window opens, at tip 4542699 (out of window: never counts as payment, refunds to leaf 0) (e55edc4cf38df54573c0a6d6fbbe5f7cdb2beeb0e1249814b1e6b932c3dc11ed)
+[drop] balance paid 300000 for leaf 0, sent at tip 4542874 (window (4542873, 4542913]; a logged height is the SEND tip, never a mined height) (6b40346e81b7a77467461a69da8b12920153da75dd9a34da7683febe8efdd810)
+[drop] balance window closed; the window was (4542873, 4542913], tip now 4542915
+[drop] A20 F11: the stray deposit:22f0f7eaa6fcc96e0483b6d93135df197379755803e92dc856d98ae06e1b98eb:ironwood:1 mined at 4542636 (200000 zats); its own owner key claimed it to a fresh destination
+[drop] A19 F7: 1-zat note sent to leaf 0's balance address AFTER both hosts signed batch 1 (72cacedec1d8241dc79204f23730bda320481c249d6573cb61378e6681b31804)
+[drop] PASS drop-late-settle1 batch 1 finalized and published despite the late note
+[drop] A19 F7: the late note balance-late:72cacedec1d8241dc79204f23730bda320481c249d6573cb61378e6681b31804:ironwood:1 mined at 4542924 (1 zats)
+[drop] A19 F7: the claim for balance-late:72cacedec1d8241dc79204f23730bda320481c249d6573cb61378e6681b31804:ironwood:1 recorded (owner-signed to leaf 0's own destination)
+[drop] PASS drop-late-refund-gate settle-2 exit 0; plan row absent (R46: unmatured notes are invisible); paid false; entry absent (note at ~4 confs)
+[drop] PASS drop-late-refund-paid settle-3 exit 0; receipt [{"amount_zats":"1","auction_id":"755e026ed7449cd3cc508ed9a203adb71cf88b1906ca53c71ff0d2d8bc074b95","output_index":1,"party":"balance-late:72cacedec1d8241dc79204f23730bda320481c249d6573cb61378e6681b31804:ironwood:1","pool":"ironwood","txid":"0d538d94576daa738e28c449cc39bc3b97a2c973522e2c6b99bf08383f4e44c6"}]
+[drop] PASS drop-expected-equals-obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
+[drop] PASS drop-settled exit 0
+[drop] PASS drop-receipts {"balance-late:72cacedec1d8241dc79204f23730bda320481c249d6573cb61378e6681b31804:ironwood:1":1,"deposit:22f0f7eaa6fcc96e0483b6d93135df197379755803e92dc856d98ae06e1b98eb:ironwood:1":200000,"leaf:1":200000,"leaf:3":200000,"seller":700000}
+[drop] PASS drop-landed [1,200000,0,200000,0]
+[drop] PASS drop-late-landed leaf 0's own destination holds 1 (the late row refunded to its slot's bidder)
+[drop] PASS drop-stray-landed the claim's destination holds 200000 (the stray refunded to its claimant)
+[drop] PASS drop-stray-claim-published claim published with its scanned memo and owner signature
+[drop] PASS drop-stray-row-attested 2 agreeing maps attest {party, memo_sha256} (distinct witnesses 2)
+[drop] PASS drop-cold-verify
+[drop] PASS drop-defaults [2]
+[drop] PASS drop-seller-landed 700000
+[drop] PASS drop-reserve-opening reserve_opening present; verify exit 0
+[drop] PASS drop-defaults-maps 4 agreeing verified maps
+[drop] PASS drop-swapped-defaults-refused exit 1
+[drop] PASS drop-serial-replay-enforced exit 1
+[drop] PASS drop-late-row-attested entry paid; attesting maps 2 (distinct 2)
+[drop] PASS drop-late-claim-published 2 published claims
+[drop] PASS drop-unpaid-rows-pending unpaid rows [{"party":"balance-late:e55edc4cf38df54…","state":"pending"}]
+[drop] RESULT PASS drop
+[otc-match] auction ada55b8b1dbb7f7e5a95d4acc8b8e66f11fd898e2e1d7ca35b93b3170579c4b3 mode otc
+[otc-match] H19 fee reserve 60000 zats (bound 35000 + 5000 over 3 notes x 2 rows, floor 60000)
+[otc-match] funding 512b5017b7b3c11992d52ad73a78d8e9e06c6b71f8ad03804a19e48047ceede1
+[otc-match] PASS otc-match-cli-equals-pure-clear outcomes winner,winner price 800
+[otc-match] PASS otc-match-expected-equals-obligations {"leaf:0":199200,"leaf:1":200800}
+[otc-match] ERROR otc-match-settled exit 1
+[otc-match] ERROR otc-match-receipts {}
+[otc-match] FATAL Error: zcash-devtool wallet -w /Users/akshmnd/Dev Projects/benzo/.benzo/bidder sync exited 1:     0: dns error |     1: dns error |     2: failed to lookup address information: nodename nor servname provided, or not known
+    at run (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1487:29)
+    at wallet (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1491:33)
+    at sync (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1496:14)
+    at run2 (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:2016:3)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:2291:109
+[launch-meet] auction b203021e48e53c668e896aec9a661427c05981ddbdb908cc4765baf59f5ef799 mode launch
+[launch-meet] H19 fee reserve 60000 zats (bound 50000 + 5000 over 4 notes x 4 rows, floor 60000)
+[launch-meet] funding 5d74d0c310e745a648987380624a84e5d4304d54a6815d45889c95a5b8e51a26
+[launch-meet] delivery list signed by alice+bob (2 sealed records)
+[launch-meet] PASS launch-meet-cli-equals-pure-clear outcomes winner,winner,unfilled price 250
+[launch-meet] PASS launch-meet-allocation-order canonical=true root=true noJoin=true; published rows [":fc17807",":ffff2a5"] vs winner leaf order [":ffff2a5",":fc17807"]
+[launch-meet] PASS launch-meet-expected-equals-obligations {"leaf:0":199750,"leaf:1":199750,"leaf:2":200000,"seller":500}
+[launch-meet] PASS launch-meet-settled exit 0
+[launch-meet] PASS launch-meet-receipts {"leaf:0":199750,"leaf:1":199750,"leaf:2":200000,"seller":500}
+[launch-meet] PASS launch-meet-landed [199750,199750,200000,0]
+[launch-meet] PASS launch-meet-cold-verify
+[launch-meet] RESULT PASS launch-meet
+[rfq] auction 60fc3299af0352e247013014715c33f922de252fd43ec2445c68142aa0d34adc mode rfq
+[rfq] FATAL Error: orb run -m benzo-alice -u benzo exited 1: ERROR auction keys grpcurl exited 1: Failed to dial target host "testnet.zec.rocks:443": context deadline exceeded
+    at sh (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1331:29)
+    at host (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1336:17)
+    at hostBenzo (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1341:15)
+    at dkgOnHosts (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1372:5)
+    at async run2 (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:1829:9)
+    at async file:///Users/akshmnd/Dev%20Projects/benzo/tmp/markets-spec.mjs:2291:109
+[otc-nomatch] auction 9afe78cd717a5cd1e088a5783f52ca1994f52376bc8c6c2f23e17d500247f68e mode otc
+[otc-nomatch] H19 fee reserve 60000 zats (bound 35000 + 5000 over 3 notes x 2 rows, floor 60000)
+[otc-nomatch] funding 6bc6b65d8e3e14dc75fbe15d7dfc24c691ff8f5490e2c773e2c2c0e75c19e74e
+[otc-nomatch] PASS otc-nomatch-cli-equals-pure-clear outcomes no_match,no_match price 0
+[otc-nomatch] PASS otc-nomatch-expected-equals-obligations {"leaf:0":200000,"leaf:1":200000}
+[otc-nomatch] PASS otc-nomatch-settled exit 0
+[otc-nomatch] PASS otc-nomatch-receipts {"leaf:0":200000,"leaf:1":200000}
+[otc-nomatch] PASS otc-nomatch-landed [200000,200000,0]
+[otc-nomatch] PASS otc-nomatch-cold-verify
+[otc-nomatch] RESULT PASS otc-nomatch
+[launch-miss] auction a6a07afe2091e7024a4ffe1ef590d209c817fac990a5205d470373c77ed76a4e mode launch
+[launch-miss] H19 fee reserve 60000 zats (bound 50000 + 5000 over 4 notes x 4 rows, floor 60000)
+[launch-miss] funding 62ed3933d1e2daa52cf8bcca3cb4dcf92dc64ee2f9e97c00ffefa5830d158743
+[launch-miss] PASS launch-miss-cli-equals-pure-clear outcomes cancelled,cancelled,cancelled price 0
+[launch-miss] PASS launch-miss-no-delivery no winners: no allocation file, no delivery list, every fill 0
+[launch-miss] PASS launch-miss-expected-equals-obligations {"leaf:0":200000,"leaf:1":200000,"leaf:2":200000}
+[launch-miss] PASS launch-miss-settled exit 0
+[launch-miss] PASS launch-miss-receipts {"leaf:0":200000,"leaf:1":200000,"leaf:2":200000}
+[launch-miss] PASS launch-miss-landed [200000,200000,200000,0]
+[launch-miss] PASS launch-miss-cold-verify
+[launch-miss] RESULT PASS launch-miss
+[rfq-cancel] auction 5c6dccb6eddfd5e835548f2cde86e32802479a75a8a2139c3dcb041d289d751c mode rfq
+[rfq-cancel] H19 fee reserve 60000 zats (bound 45000 + 5000 over 4 notes x 3 rows, floor 60000)
+[rfq-cancel] funding 6e260dcea23d5e41eff792de4080c032fc91414255a1b78b0badef66b11ce420
+[rfq-cancel] PASS rfq-cancel-cli-equals-pure-clear outcomes cancelled,not_allowlisted price 0
+[rfq-cancel] PASS rfq-cancel-expected-equals-obligations {"leaf:0":200000,"leaf:1":200000}
+[rfq-cancel] PASS rfq-cancel-settled exit 0
+[rfq-cancel] PASS rfq-cancel-receipts {"leaf:0":200000,"leaf:1":200000,"treasury":500}
+[rfq-cancel] PASS rfq-cancel-landed [200000,200000,500]
+[rfq-cancel] PASS rfq-cancel-cold-verify
+[rfq-cancel] RESULT PASS rfq-cancel
+[revision] auction 35d475a5d69433a84104e529f075a7172c20549ec440bc20080e3db7866783f3 mode uniform
+[revision] H19 fee reserve 60000 zats (bound 50000 + 5000 over 4 notes x 4 rows, floor 60000)
+[revision] funding aab4f9c26f32aa1a1dee94e2fba79f8781caf26b38157c5cb30365b8618516fb
+[revision] PASS revision-cli-equals-pure-clear outcomes superseded,unfilled,winner price 300
+[revision] PASS revision-outcomes superseded,unfilled,winner
+[revision] PASS revision-settled exit 0
+[revision] PASS revision-receipts {"leaf:0":200000,"leaf:1":200000,"leaf:2":199700,"seller":300}
+[revision] PASS revision-landed [200000,200000,199700,0]
+[revision] PASS revision-cold-verify
+[revision] RESULT PASS revision

@@ -1,0 +1,14 @@
+[resume ada55b8b] state CLEARED
+[resume ada55b8b] settle exit 0; receipts {"leaf:0":199200,"leaf:1":200800}; obligations {"leaf:0":199200,"leaf:1":200800}
+[resume ada55b8b] RESULT PASS (verify exit 0)
+[rfq] auction 97f5e6b42b0ff489e173e17c44334fc4f68881c4eaca1bb0ce1ddfdda1442d6f mode rfq
+[rfq] H19 fee reserve 60000 zats (bound 55000 + 5000 over 5 notes x 4 rows, floor 60000)
+[rfq] funding bd9284746c964063c40698f7098cddcb9ab406a5af9bbdf2257d73c7e74d255a
+[rfq] PASS rfq-cli-equals-pure-clear outcomes unfilled,winner,not_allowlisted price 400
+[rfq] PASS rfq-expected-equals-obligations {"leaf:0":200000,"leaf:1":200400,"leaf:2":200000}
+[rfq] PASS rfq-outcomes unfilled,winner,not_allowlisted
+[rfq] PASS rfq-settled exit 0
+[rfq] PASS rfq-receipts {"leaf:0":200000,"leaf:1":200400,"leaf:2":200000,"treasury":100}
+[rfq] PASS rfq-landed [200000,200400,200000,100]
+[rfq] PASS rfq-cold-verify
+[rfq] RESULT PASS rfq
