@@ -12,7 +12,7 @@ export default defineConfig({
   timeout: 120_000,
   reporter: [["list"], ["json", { outputFile: "tmp/report.json" }]],
   use: {
-    browserName: "chromium", headless: true, baseURL: `http://127.0.0.1:${PORT}`,
+    browserName: "chromium", headless: true, baseURL: process.env.BNZ_WEB_TEST_URL ?? `http://127.0.0.1:${PORT}`,
     launchOptions: { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] },
     acceptDownloads: true,
   },
@@ -23,5 +23,7 @@ export default defineConfig({
   projects: [
     { name: "offline", testMatch: /(site|bid-offline|start)\.spec\.ts/ },
     { name: "live", testMatch: /live\.spec\.ts/, timeout: 3 * 3600_000 },
+    // Every UI action on testnet, all six markets at once (run with --workers=6 and the house operator up).
+    { name: "drive", testMatch: /drive\.spec\.ts/, timeout: 4 * 3600_000, fullyParallel: true, use: { actionTimeout: 60_000 } },
   ],
 });

@@ -243,6 +243,8 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
 function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDetail; role: ReturnType<typeof roleOf>; s: Attempt; open: boolean; onKey: () => void; onPaid: (txid: string) => void; onNew: () => void }) {
   const [qr, setQr] = useState("");
   const [big, setBig] = useState(false);
+  // The enlarged QR closes on Escape, on its Close button, or a click anywhere.
+  useEffect(() => { if (!big) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setBig(false); }; document.addEventListener("keydown", k); return () => document.removeEventListener("keydown", k); }, [big]);
   const [txid, setTxid] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -330,8 +332,11 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
       </form>
       <span className="sr-only" data-testid="bid-hash">{short(b.ciphertext_hash, 8)}</span>
       {big && qr && (
-        <div role="dialog" aria-label="Payment QR code" className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-6" onClick={() => setBig(false)}>
-          <img src={qr} alt="QR code for the deposit payment" className="w-full max-w-[420px] rounded-2xl bg-white" />
+        <div role="dialog" aria-modal="true" aria-label="Payment QR code" className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-6" onClick={() => setBig(false)}>
+          <div className="grid w-full max-w-[420px] justify-items-center gap-4">
+            <img src={qr} alt="QR code for the deposit payment" className="w-full rounded-2xl bg-white" />
+            <button type="button" autoFocus onClick={() => setBig(false)} className="h-10 rounded-full bg-sand px-6 text-[14px] font-semibold text-ink">Close</button>
+          </div>
         </div>
       )}
     </div>

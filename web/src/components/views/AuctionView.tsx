@@ -157,7 +157,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
         {/* The ticket: bid while the round takes bids (or follow your bid); afterwards, the result and find your bid. */}
         <Pane className="max-lg:order-2 lg:col-start-3 lg:row-span-2 lg:row-start-1 fit:min-h-0" testid="ticket">
           <div className="min-h-0 flex-1 overflow-auto p-4">
-            {live || mine ? (
+            {live || (mine && !d.result) ? (
               <>
                 <div className="mb-4 flex items-baseline justify-between gap-3">
                   <div className="text-[15px] font-medium">{sells ? "Make a sealed offer" : d.mode === "otc" ? "Set your sealed limit" : "Place a sealed bid"}</div>
@@ -165,7 +165,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
                 </div>
                 <BidTicket round={d} />
               </>
-            ) : <Result d={d} sold={sold} of={of} paid={paid} price={price} priceWord={priceWord} sells={sells} done={done} />}
+            ) : <Result d={d} sold={sold} of={of} paid={paid} price={price} priceWord={priceWord} sells={sells} done={done} mineHash={mine?.bid?.ciphertext_hash} />}
           </div>
         </Pane>
       </div>
@@ -401,7 +401,7 @@ function Checks({ d, done }: { d: AuctionDetail; done: boolean }) {
 }
 
 // After bidding: the result in a sentence and four figures, then find your bid.
-function Result({ d, sold, of, paid, price, priceWord, sells, done }: { d: AuctionDetail; sold: number; of: number; paid: number; price?: number; priceWord: string; sells: boolean; done: boolean }) {
+function Result({ d, sold, of, paid, price, priceWord, sells, done, mineHash }: { d: AuctionDetail; sold: number; of: number; paid: number; price?: number; priceWord: string; sells: boolean; done: boolean; mineHash?: string }) {
   const sellerGot = d.mode === "otc" ? (d.result?.allocations ?? []).filter((a: any) => a.side === "seller").reduce((s: number, a: any) => s + Number(a.payment_zats ?? 0), 0) : d.receipts.filter((r) => r.party === "seller").reduce((s, r) => s + Number(r.amount_zats), 0);
   const fig = (k: string, v: string, gold?: boolean) => <div className="min-w-0"><div className="text-[11.5px] text-app-faint">{k}</div><div className={cx("serif-figure mt-0.5 truncate text-[20px] leading-[1.15]", gold ? "chrome" : "text-[#f3eee2]")}>{v}</div></div>;
   return (
@@ -416,7 +416,7 @@ function Result({ d, sold, of, paid, price, priceWord, sells, done }: { d: Aucti
         {fig(sells ? "Offers" : "Bids", String(d.leaf_count ?? 0))}
         {fig(sells ? "Paid to sellers" : done || d.mode === "otc" ? "Seller received" : "Seller so far", zats(sells ? paid : sellerGot))}
       </div>}
-      <ReceiptLookup d={d} frozen={Boolean(d.freeze_root)} sells={sells} />
+      <ReceiptLookup d={d} frozen={Boolean(d.freeze_root)} sells={sells} initial={mineHash} />
       <Details d={d} />
     </div>
   );
@@ -446,8 +446,9 @@ function Details({ d }: { d: AuctionDetail }) {
 }
 
 // Find your bid: paste its hash, or open the recovery file (read here, never uploaded); says what happened to that bid.
-function ReceiptLookup({ d, frozen, sells }: { d: AuctionDetail; frozen: boolean; sells: boolean }) {
-  const [hash, setHash] = useState(() => new URLSearchParams(location.search).get("bid") ?? "");
+function ReceiptLookup({ d, frozen, sells, initial }: { d: AuctionDetail; frozen: boolean; sells: boolean; initial?: string }) {
+  // The bid in the link, else the one this browser placed in this round, is looked up straight away.
+  const [hash, setHash] = useState(() => new URLSearchParams(location.search).get("bid") ?? initial ?? "");
   const [out, setOut] = useState<any>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
