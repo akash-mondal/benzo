@@ -1,0 +1,16 @@
+mutation P3 (docs/evidence/phase-6/rg/mutations/P3-final.patch) on project settle-crash
+commit f28219e86d622e02adcb7a056618b0dadd564610 (patch applied on top, then reverted; product code 7ac4b93)
+utc 2026-10-26T11:36:27Z
+node v24.15.0, go version go1.25.6 darwin/arm64
+expected red: M1
+ERROR ids: M1 
+RESULT RED (expected)
+--- last 30 lines ---
+main deposits broadcast 2a0d06f3dad192d6dbedc5cd1a5fac1b51b1fe564e44d430576f0731bb425ae0
+development-only fund recovery 012f7252fb578d98146496a924f2bafc4ca9e4cbe8aee5fac8f87e0dff50729b
+cancel deposits broadcast 3806eceb73aae0d585728ece81b316bf84e50c1f79a8a757c92c931b97e45775
+ERROR M1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+development-only fund recovery 2056e559d2e25deff710e438740b88c3212ee4f6d3c343785032223457af227f
+run.json -> tmp/e2e/out
+FAILED settle-crash settlement survives a worker crash and drand outage with one signer not selected (2058 s)
+run failed; details in tmp/e2e/report.json
