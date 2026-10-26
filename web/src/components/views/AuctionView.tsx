@@ -60,7 +60,12 @@ export default function AuctionView() {
 
   const m: any = d.manifest, live = d.live && d.state === "OPEN" && !!toClose, sells = SELLS(d.mode);
   const allocations: any[] = d.result?.allocations ?? [];
-  const sold = allocations.reduce((s, a) => s + Number(a.fill ?? 0), 0), paid = allocations.reduce((s, a) => s + (Number(a.fill ?? 0) ? Number(a.payment_zats ?? 0) : 0), 0);
+  // An OTC trade fills both sides of one unit: count the buyer's side. A buyer's payment there comes out of the deposit
+  // (deposit minus refund); payment_zats on the seller's row is what the seller received.
+  const counted = d.mode === "otc" ? allocations.filter((a) => a.side === "buyer") : allocations;
+  const sold = counted.reduce((s, a) => s + Number(a.fill ?? 0), 0), paid = counted.reduce((s, a) => s + (Number(a.fill ?? 0) ? Number(a.payment_zats ?? 0) : 0), 0);
+  const rowPaid = (a: any) => d.mode === "otc" && a.side === "buyer" && Number(a.fill) ? Number(d.C_zats) - Number(a.refund_zats ?? 0) : Number(a.payment_zats ?? 0);
+  const sellerGot = d.mode === "otc" ? allocations.filter((a) => a.side === "seller").reduce((s, a) => s + Number(a.payment_zats ?? 0), 0) : d.receipts.filter((r) => r.party === "seller").reduce((s, r) => s + Number(r.amount_zats), 0);
   const of = m.lots ? m.lots.length : d.supply;
   const lotName = (h: string) => { const i = (m.lots ?? []).indexOf(h); return i >= 0 ? `Lot ${i + 1}` : "—"; };
   const ok = d.checks.filter((c) => c.ok).length, na = d.checks.filter((c) => c.status === "not_applicable").length;
@@ -70,7 +75,7 @@ export default function AuctionView() {
     { label: now < d.T_submit ? "Bidding open" : "Bidding closed", at: when(d.T_submit), state: step(now >= d.T_submit, now < d.T_submit) },
     { label: "Bids committed", at: d.freeze_root ? `${d.leaf_count ?? 0} sealed bids, fixed` : `by ${when(d.T_freeze)}`, state: step(Boolean(d.freeze_root), now >= d.T_submit && !d.freeze_root) },
     { label: "Bids opened", at: when(d.release), state: step(opened, Boolean(d.freeze_root) && !opened) },
-    { label: d.state === "CANCELLED" ? "Refunded" : "Paid out", at: done ? `record updated ${when(d.updated)}` : "after opening", state: step(done, opened && !done) },
+    { label: d.state === "CANCELLED" ? "Refunded" : done ? "Paid out" : opened ? "Paying out" : "Paid out", at: done ? `record updated ${when(d.updated)}` : opened ? "in progress" : "after opening", state: step(done, opened && !done) },
   ];
   // Recorded payments, grouped by the transaction that carried them.
   const byTx = new Map<string, typeof d.receipts>();
@@ -101,9 +106,9 @@ export default function AuctionView() {
             {opened ? (
               <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
                 {d.mode === "drop" ? <Figure label="Lots sold" value={`${sold} of ${of}`} gold /> : <Figure label={sells ? "Price paid per unit" : d.mode === "otc" ? "Trade price" : "Clearing price"} value={d.clearing_price_zats && d.clearing_price_zats !== "0" ? `${zats(d.clearing_price_zats)} zats` : "—"} gold />}
-                {d.mode === "drop" ? <Figure label="Total paid" value={`${zats(paid)} zats`} note="each lot at its own price" /> : <Figure label={sells ? "Units bought" : "Units sold"} value={`${sold} of ${of}`} />}
+                {d.mode === "drop" ? <Figure label="Winning bids" value={`${zats(paid)} zats`} note="each lot at its own price" /> : <Figure label={sells ? "Units bought" : "Units sold"} value={`${sold} of ${of}`} />}
                 <Figure label={sells ? "Offers" : "Bids"} value={d.leaf_count ?? 0} />
-                <Figure label={sells ? "Paid to sellers" : "Seller received"} value={`${zats(sells ? paid : d.receipts.filter((r) => r.party === "seller").reduce((s, r) => s + Number(r.amount_zats), 0))} zats`} />
+                <Figure label={sells ? "Paid to sellers" : "Seller received"} value={`${zats(sells ? paid : sellerGot)} zats`} note={!sells && !done && d.mode !== "otc" ? "so far" : undefined} />
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-5 sm:grid-cols-4">
@@ -124,14 +129,14 @@ export default function AuctionView() {
                 <div className="overflow-x-auto">
                   <table className="w-full min-w-[560px] text-[14px] tabular-nums" data-testid="allocations">
                     <thead className="text-left text-[13px] text-app-faint"><tr className="[&>th]:px-5 [&>th]:pb-2 [&>th]:pt-4 [&>th]:font-normal">
-                      <th>{d.mode === "otc" ? "Side" : sells ? "Offer" : "Bid"}</th>{m.lots && <th>Lot</th>}<th className="text-right">{sells ? "Ask" : d.mode === "otc" ? "Limit" : "Price"}</th><th>Result</th><th className="text-right">{sells ? "Proceeds" : "Paid"}</th><th className="text-right">{sells ? "Deposit back" : "Refund"}</th>
+                      <th>{d.mode === "otc" ? "Side" : sells ? "Offer" : "Bid"}</th>{m.lots && <th>Lot</th>}<th className="text-right">{sells ? "Ask" : d.mode === "otc" ? "Limit" : "Price"}</th><th>Result</th><th className="text-right">{sells ? "Proceeds" : d.mode === "otc" ? "Paid / received" : "Paid"}</th><th className="text-right">{sells ? "Deposit back" : "Refund"}</th>
                     </tr></thead>
                     <tbody>{allocations.map((a) => { const o = outcome(a.outcome, sells); return (
                       <tr key={a.leaf_index} className="border-t border-app-line [&>td]:px-5 [&>td]:py-3">
                         <td>{d.mode === "otc" ? (a.side === "buyer" ? "Buyer" : a.side === "seller" ? "Seller" : "—") : a.leaf_index + 1}</td>{m.lots && <td className="text-app-muted">{lotName(a.lot)}</td>}
                         <td className="text-right">{a.price_zats ? zats(a.price_zats) : "—"}</td>
                         <td><span title={o.why}><Pill kind={o.kind}>{o.word}</Pill></span></td>
-                        <td className="text-right">{Number(a.payment_zats ?? 0) ? zats(a.payment_zats) : "0"}</td>
+                        <td className="text-right">{rowPaid(a) ? zats(rowPaid(a)) : "0"}</td>
                         <td className="text-right text-app-muted">{zats(sells ? d.C_zats : a.refund_zats ?? 0)}</td>
                       </tr>); })}</tbody>
                   </table>
@@ -154,7 +159,7 @@ export default function AuctionView() {
                     ))}</ul>
                   </div>
                 ))}
-                {cons && <p className="border-t border-app-line px-5 py-3 text-[13px] text-app-muted tabular-nums">Where the deposits went: {zats(cons.input_zats)} in = {zats(cons.payout_zats)} paid out + {zats(cons.refund_zats)} refunded + {zats(cons.fees_zats)} fees.</p>}
+                {cons && <p className="border-t border-app-line px-5 py-3 text-[13px] text-app-muted tabular-nums">Where the money went: {zats(Number(cons.input_zats) + Number(cons.balances_zats ?? 0))} in{Number(cons.balances_zats ?? 0) ? ` (${zats(cons.input_zats)} deposits + ${zats(cons.balances_zats)} balances)` : ""} = {zats(cons.payout_zats)} paid out + {zats(cons.refund_zats)} refunded + {zats(cons.fees_zats)} fees.</p>}
               </Panel>
             </div>
           )}
@@ -197,27 +202,28 @@ function ReceiptLookup({ d, frozen, sells }: { d: AuctionDetail; frozen: boolean
   const [busy, setBusy] = useState(false);
   const look = async (h = hash) => {
     setErr(""); setOut(null);
-    if (!/^[0-9a-f]{64}$/.test(h.trim())) { setErr("Enter the 64-character bid hash, or open your bid key file."); return; }
+    if (!/^[0-9a-f]{64}$/.test(h.trim())) { setErr("Enter the 64-character bid hash, or open your recovery file."); return; }
     setBusy(true);
     try { setOut(await api.receipt(d.id, h.trim())); } catch (x) { setErr(/not in frozen/.test(String((x as Error).message)) ? "That bid isn't in this round's committed bids." : /: 404|: 4\d\d/.test(String((x as Error).message)) ? "That bid isn't in this round." : "We couldn't look that up right now. Try again."); } finally { setBusy(false); }
   };
   const openKey = async (f: File | undefined) => {
     if (!f) return;
-    try { const k = JSON.parse(await f.text()); if (k.auction_id && k.auction_id !== d.id) { setErr("That bid key belongs to a different round."); return; } setHash(k.ciphertext_hash ?? ""); void look(k.ciphertext_hash ?? ""); } catch { setErr("That file isn't a Benzo bid key."); }
+    try { const k = JSON.parse(await f.text()); if (k.auction_id && k.auction_id !== d.id) { setErr("That recovery file belongs to a different round."); return; } setHash(k.ciphertext_hash ?? ""); void look(k.ciphertext_hash ?? ""); } catch { setErr("That file isn't a Benzo recovery file."); }
   };
   useEffect(() => { if (hash && frozen) void look(); }, []);
   if (!frozen) return <Panel><div className="text-[15px] font-medium">Bidding closed</div><p className="mt-1 text-[14px] text-app-muted">The bids are being committed. Your bid's receipt appears here after.</p></Panel>;
   const s = out?.settlement, li = out ? Number(out.inclusion.leaf_index) : -1, al = (d.result?.allocations ?? []).find((a: any) => a.leaf_index === li);
   const mine = al ? outcome(al.outcome, sells) : null;
+  const paidHere = (a: any) => d.mode === "otc" && a.side === "buyer" && Number(a.fill) ? Number(d.C_zats) - Number(a.refund_zats ?? 0) : Number(a.payment_zats ?? 0);
   return (
     <Panel>
       <div className="text-[15px] font-medium">Find your bid</div>
       <form onSubmit={(e) => { e.preventDefault(); void look(); }} className="mt-3 grid gap-2">
         <label className="sr-only" htmlFor="ct">Bid hash</label>
-        <input id="ct" value={hash} onChange={(e) => setHash(e.target.value.trim())} placeholder="Bid hash (in your bid key file)" spellCheck={false} className={cx(fieldCls, "text-[13.5px]")} />
+        <input id="ct" value={hash} onChange={(e) => setHash(e.target.value.trim())} placeholder="Bid hash (in your recovery file)" spellCheck={false} className={cx(fieldCls, "text-[13.5px]")} />
         <div className="flex gap-2">
           <Btn type="submit" kind="secondary" disabled={busy} className="flex-1">{busy ? "Looking up…" : "Look up"}</Btn>
-          <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-full px-4 text-[14px] font-semibold text-app-muted hover:text-app-text">Open key file<input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void openKey(e.target.files?.[0])} /></label>
+          <label className="inline-flex h-10 cursor-pointer items-center justify-center rounded-full px-4 text-[14px] font-semibold text-app-muted hover:text-app-text">Open recovery file<input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => void openKey(e.target.files?.[0])} /></label>
         </div>
       </form>
       {err && <div className="mt-3"><ErrorLine>{err}</ErrorLine></div>}
@@ -225,7 +231,7 @@ function ReceiptLookup({ d, frozen, sells }: { d: AuctionDetail; frozen: boolean
         <div className="mt-4 grid gap-1.5 text-[14px]" data-testid="receipt">
           <div className="text-[16px] font-medium">{mine ? `Bid ${li + 1} · ${mine.word}` : `Bid ${li + 1} is in this round`}</div>
           {mine?.why && <p className="text-[13px] text-app-muted">{mine.why}</p>}
-          {al && Number(al.payment_zats) > 0 && <div className="flex justify-between"><span className="text-app-faint">{sells ? "Proceeds" : "Paid"}</span><span className="tabular-nums">{zats(al.payment_zats)} zats</span></div>}
+          {al && paidHere(al) > 0 && <div className="flex justify-between"><span className="text-app-faint">{sells || (d.mode === "otc" && al.side === "seller") ? "Proceeds" : "Paid"}</span><span className="tabular-nums">{zats(paidHere(al))} zats</span></div>}
           <div className="flex justify-between"><span className="text-app-faint">{sells ? "Sent to you" : "Refund"}</span><span className="tabular-nums">{s ? `${zats(s.amount_zats)} zats` : "Not sent yet"}</span></div>
           <span className="sr-only">{out.inclusion.ciphertext_hash}</span>
         </div>

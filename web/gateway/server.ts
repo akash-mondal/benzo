@@ -63,7 +63,7 @@ function load(id: string, dir: string): Entry | null {
       settled: Boolean(pub.settlement), live: runner?.isLive(id) ?? false, updated: Math.floor(mtime / 1000),
       // The outcome as published: units (or lots) filled out of how many, and what the winners paid in total. A drop
       // clears each lot at its own price, so its scalar clearing price is 0; "filled" says what actually sold.
-      outcome: pub.result ? (() => { const al: any[] = (pub.result as any).allocations ?? []; return { filled: al.reduce((n, x) => n + Number(x.fill ?? 0), 0), of: Array.isArray(m.lots) ? m.lots.length : m.supply, paid_zats: String(al.reduce((n, x) => n + (Number(x.fill ?? 0) ? Number(x.payment_zats ?? 0) : 0), 0)) }; })() : null,
+      outcome: pub.result ? (() => { const al: any[] = ((pub.result as any).allocations ?? []).filter((x: any) => MODE(m) !== "otc" || x.side === "buyer"); return { filled: al.reduce((n, x) => n + Number(x.fill ?? 0), 0), of: Array.isArray(m.lots) ? m.lots.length : m.supply, paid_zats: String(al.reduce((n, x) => n + (Number(x.fill ?? 0) ? Number(x.payment_zats ?? 0) : 0), 0)) }; })() : null,
     };
     const e: Entry = { id, dir, mtime, summary };
     cache.set(id, e);

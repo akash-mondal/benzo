@@ -72,14 +72,14 @@ export default function BidView() {
   return (
     // Phone: the round, then the card, then the terms. Desktop: the round and its terms left, the card right.
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[auto_1fr] lg:gap-x-10">
-      <RoundSummary round={round} left={left} role={role} />
+      <RoundSummary round={round} left={open ? left : 0} role={role} />
       <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1">
         <Steps step={step} />
         <div className="mt-6">
-          {!open && !saved ? (
-            <div data-testid="bid-closed"><div className="text-[16px] font-medium">Bidding has closed for this round</div><p className="mt-1 text-[14px] text-app-muted">You can still see how it turns out.</p><div className="mt-4"><Btn href={`/auction/?id=${round.id}`}>View this round</Btn></div></div>
-          ) : (round.mode === "otc" || round.mode === "rfq") && !party && !saved ? (
-            <div data-testid="bid-parties-only"><div className="text-[16px] font-medium">Invited parties only</div><p className="mt-1 text-[14px] text-app-muted">This round takes {role.noun}s only from the people its creator invited. Open your invite link in this browser to take part.</p></div>
+          {(round.mode === "otc" || round.mode === "rfq") && !party && !saved ? (
+            <div data-testid="bid-parties-only"><div className="text-[16px] font-medium">Invited parties only</div><p className="mt-1 text-[14px] text-app-muted">This round takes {role.noun}s only from the people its creator invited. Open your invite link in this browser to take part.</p><div className="mt-4"><Btn href={`/auction/?id=${round.id}`} kind="secondary">View this round</Btn></div></div>
+          ) : !open && !saved ? (
+            <div data-testid="bid-closed"><div className="text-[16px] font-medium">{left ? "This round isn't taking bids here" : "Bidding has closed for this round"}</div><p className="mt-1 text-[14px] text-app-muted">{left ? "It was set up outside this site, so bids go in through its own tools. You can still follow how it turns out." : "You can still see how it turns out."}</p><div className="mt-4"><Btn href={`/auction/?id=${round.id}`}>View this round</Btn></div></div>
           ) : (
             <>
               {!saved && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
@@ -107,7 +107,7 @@ function RoundSummary({ round, left, role }: { round: AuctionDetail; left: numbe
         </div>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5">
-        <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("mt-1 text-[22px] font-semibold tabular-nums", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
+        <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("mt-1 text-[22px] font-semibold tabular-nums", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : Date.now() / 1000 < round.T_submit ? "Not here" : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
         <div><div className="text-[13px] text-app-faint">Fixed deposit</div><div className="mt-1 text-[22px] font-semibold tabular-nums">{zats(round.C_zats)} zats</div><div className="text-[13px] text-app-muted">{taz(round.C_zats)} · not your {role.noun}</div></div>
         <div><div className="text-[13px] text-app-faint">{m.lots ? "Lots" : role.seller ? "Units wanted" : "Units for sale"}</div><div className="mt-1 text-[17px] font-medium">{m.lots ? `${m.lots.length} lots` : round.supply}</div></div>
         <div><div className="text-[13px] text-app-faint">Bids open</div><div className="mt-1 text-[17px] font-medium">{rel(round.release)}</div><div className="text-[13px] text-app-muted">{when(round.release)}</div></div>

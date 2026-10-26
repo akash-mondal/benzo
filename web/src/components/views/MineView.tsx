@@ -39,7 +39,7 @@ export default function MineView() {
   const reqLine = (x?: RoundRequest | "down"): Line | null => !x ? null : x === "down" ? { word: "Status unavailable", kind: "bad" } : x.status === "open" ? { word: "Taking bids", kind: "live" } : x.status === "failed" ? { word: "Couldn't start", kind: "bad", next: "View reason" } : x.status === "queued" ? { word: "Setting up", kind: "wait" } : { word: `Waiting for ${x.invites.filter((i) => !i.joined).length} invited part${x.invites.filter((i) => !i.joined).length === 1 ? "y" : "ies"}`, kind: "wait", next: "Manage invites" };
   const openKey = async (f: File | undefined) => {
     if (!f) return;
-    try { const k = JSON.parse(await f.text()); if (k.auction_id && k.ciphertext_hash) location.href = `/auction/?id=${k.auction_id}&bid=${k.ciphertext_hash}`; } catch { alert("That file isn't a Benzo bid key."); }
+    try { const k = JSON.parse(await f.text()); if (k.auction_id && k.ciphertext_hash) location.href = `/auction/?id=${k.auction_id}&bid=${k.ciphertext_hash}`; } catch { alert("That file isn't a Benzo recovery file."); }
   };
   const empty = !mine.length && !rounds.length && !invites.length;
   const tabs = [["bids", "Bids", mine.length], ["rounds", "Rounds you started", rounds.length], ["invites", "Invites", invites.length]] as const;
