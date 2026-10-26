@@ -132,7 +132,7 @@ export default function AuctionView() {
                       <th>{d.mode === "otc" ? "Side" : sells ? "Offer" : "Bid"}</th>{m.lots && <th>Lot</th>}<th className="text-right">{sells ? "Ask" : d.mode === "otc" ? "Limit" : "Price"}</th><th>Result</th><th className="text-right">{sells ? "Proceeds" : d.mode === "otc" ? "Paid / received" : "Paid"}</th><th className="text-right">{sells ? "Deposit back" : "Refund"}</th>
                     </tr></thead>
                     <tbody>{allocations.map((a) => { const o = outcome(a.outcome, sells); return (
-                      <tr key={a.leaf_index} className="border-t border-app-line [&>td]:px-5 [&>td]:py-3">
+                      <tr key={a.leaf_index} className="border-t border-app-line [&>td]:whitespace-nowrap [&>td]:px-5 [&>td]:py-3">
                         <td>{d.mode === "otc" ? (a.side === "buyer" ? "Buyer" : a.side === "seller" ? "Seller" : "—") : a.leaf_index + 1}</td>{m.lots && <td className="text-app-muted">{lotName(a.lot)}</td>}
                         <td className="text-right">{a.price_zats ? zats(a.price_zats) : "—"}</td>
                         <td><span title={o.why}><Pill kind={o.kind}>{o.word}</Pill></span></td>

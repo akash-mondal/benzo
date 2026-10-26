@@ -41,12 +41,12 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
     <div>
       <h1 className="text-[28px]">Verify a round</h1>
       <p className="mt-1.5 max-w-[640px] text-app-muted">Check a round's public record: its terms, which bids were in, how they opened and cleared, and the payments.</p>
-      <div className="mt-8 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)]">
-        <aside className="grid content-start gap-4">
-          <Panel>
+      {/* Phone: picker, result, then the notes. Desktop: picker and notes left, result right. */}
+      <div className="mt-8 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[auto_1fr]">
+          <Panel className="self-start lg:col-start-1 lg:row-start-1">
             <Field label="Round">
               <select value={known ? id : ""} onChange={(e) => { if (e.target.value) void run(e.target.value); }} className={fieldCls} aria-label="Recent settled rounds">
-                {!known && <option value="">Pasted round</option>}
+                {!known && <option value="">{id ? `Round ${short(id, 4)}` : "Choose a round"}</option>}
                 {recent.map((r) => <option key={r.id} value={r.id}>{r.lot ?? MODE_NAME[r.mode]} · {r.id.slice(0, 6)}</option>)}
               </select>
             </Field>
@@ -58,24 +58,8 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
               <Btn type="submit" kind="secondary" disabled={a?.status === "checking"} testid="verify-run">{a?.status === "checking" ? "Checking…" : "Run the checks"}</Btn>
             </form>
           </Panel>
-          <Panel>
-            <div className="text-[15px] font-medium">What this establishes</div>
-            <ul className="mt-2 grid gap-2 text-[13.5px] text-app-muted">
-              <li>That the published bids, result and accounting pass the checks below. They are reported by this service.</li>
-              <li>Payments are attested by two of the three signers. These checks don't show that your wallet received funds; your wallet does.</li>
-              <li>Bid prices become public after opening. Bidders' addresses and refund addresses are never published.</li>
-            </ul>
-          </Panel>
-          {d && (
-            <Panel>
-              <div className="text-[15px] font-medium">Check it yourself</div>
-              <p className="mt-1 text-[14px] text-app-muted">Download this round's public record and run Benzo's open-source verifier on your own computer.</p>
-              <div className="mt-4 flex flex-wrap gap-2"><Btn href={`/api/auctions/${d.id}/public.tgz`} kind="secondary">Download the record</Btn></div>
-            </Panel>
-          )}
-        </aside>
 
-        <Panel>
+        <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1">
           {!a ? <div className="py-10 text-center text-app-muted">Pick a round to check.</div> : (
             <>
               <div className="text-[13px] text-app-faint">Round {short(a.target, 6)}{d ? ` · ${d.lot ?? MODE_NAME[d.mode]} · ${MODE_NAME[d.mode]}` : ""}</div>
@@ -101,6 +85,23 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
             </>
           )}
         </Panel>
+        <aside className="grid content-start gap-4 lg:col-start-1 lg:row-start-2">
+          <Panel>
+            <div className="text-[15px] font-medium">What this establishes</div>
+            <ul className="mt-2 grid gap-2 text-[13.5px] text-app-muted">
+              <li>That the published bids, result and accounting pass the checks below. They are reported by this service.</li>
+              <li>Payments are attested by two of the three signers. These checks don't show that your wallet received funds; your wallet does.</li>
+              <li>Bid prices become public after opening. Bidders' addresses and refund addresses are never published.</li>
+            </ul>
+          </Panel>
+          {d && (
+            <Panel>
+              <div className="text-[15px] font-medium">Check it yourself</div>
+              <p className="mt-1 text-[14px] text-app-muted">Download this round's public record and run Benzo's open-source verifier on your own computer.</p>
+              <div className="mt-4 flex flex-wrap gap-2"><Btn href={`/api/auctions/${d.id}/public.tgz`} kind="secondary">Download the record</Btn></div>
+            </Panel>
+          )}
+        </aside>
       </div>
     </div>
   );
