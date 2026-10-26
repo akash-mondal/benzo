@@ -99,8 +99,9 @@ test("a settled round: opened bids, payments, 19 checks, and a bid's receipt", a
   await page.goto(`/auction/?id=${featured}`);
   await expect(page.getByTestId("auction-caption")).toContainText(`${d.leaf_count} sealed bids`);
   await expect(page.getByTestId("allocations").locator("tbody tr")).toHaveCount(d.result.allocations.length);
+  // The terminal: the records sit in tabs under the chart; the checks are one of them.
+  await page.locator('[data-testid=records] [data-tab="checks"]').click();
   await expect(page.getByText(`${d.checks.length} of ${d.checks.length} checks pass`)).toBeVisible();
-  await page.getByTestId("checks").locator("summary").click();
   await expect(page.getByTestId("checks").locator("li")).toHaveCount(d.checks.length);
   await page.getByPlaceholder("Bid hash (in your recovery file)").fill(d.freeze.leaves[0].ciphertext_hash);
   await page.getByRole("button", { name: "Look up" }).click();

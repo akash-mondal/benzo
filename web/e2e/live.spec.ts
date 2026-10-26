@@ -80,6 +80,7 @@ test("live: seal in the page, pay on testnet, admitted, opened at R, settled, ve
   await page.goto(`/auction/?id=${round.id}&bid=${key.ciphertext_hash}`);
   await expect(page.getByTestId("ticket-light")).toContainText("Settled");
   await expect(page.getByTestId("receipt")).toContainText(key.ciphertext_hash);
+  await page.locator('[data-testid=records] [data-tab="checks"]').click();
   await expect(page.getByText(`${d.checks.length} of ${d.checks.length} checks pass`)).toBeVisible();
 
   // 8. And offline, with the shipped verifier, on the downloaded public directory.

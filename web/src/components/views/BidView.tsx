@@ -17,7 +17,7 @@ const SELLS = (mode: string) => mode === "buyback" || mode === "rfq";
 const taz = (zatsN: number | string) => `${(Number(zatsN) / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "")} TAZ`;
 
 // Who you are in this round and what your number means.
-function roleOf(d: AuctionDetail, party: PartyKey | null) {
+export function roleOf(d: AuctionDetail, party: PartyKey | null) {
   const m: any = d.manifest, seller = SELLS(d.mode) || party?.label === "Seller";
   const lo = d.mode === "otc" ? 10 : Number(m.reserve_zats ?? 0) || 10, hi = Number(m.buyback?.max_price_zats ?? m.rfq?.max_price_zats ?? m.B_max_zats);
   const label = d.mode === "buyback" ? "Your ask, per unit" : d.mode === "rfq" ? "Your quote" : d.mode === "otc" ? (seller ? "Lowest price you'll accept" : "Highest price you'll pay") : m.lots ? "Your bid for this lot" : "Your price, per unit";
@@ -36,7 +36,6 @@ export default function BidView() {
   const q = new URLSearchParams(location.search), wanted = q.get("id");
   const [round, setRound] = useState<AuctionDetail | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
-  const [saved, setSaved] = useState<(Attempt & { key?: string }) | null>(null);
   useEffect(() => {
     (async () => {
       // An explicit round always loads (open, closed or settled), so a saved bid in it is never stranded.
@@ -44,16 +43,9 @@ export default function BidView() {
       if (wanted && /^[0-9a-f]{64}$/.test(wanted)) d = await api.auction(wanted).catch((e) => { if (!/: 404 /.test(String((e as Error).message))) setFailed(true); return null; });
       else { const list = await api.auctions(); const live = list.find((a) => a.live && a.state === "OPEN"); d = live ? await api.auction(live.id) : null; }
       setRound(d);
-      if (d) setSaved(currentAttempt(d.id));
     })().catch(() => { setFailed(true); setRound(null); });
   }, []);
   const left = useCountdown(round?.T_submit);
-  const keep = (a: Attempt | null) => {
-    if (!round) return;
-    if (!a) { archiveCurrent(round.id); setSaved(null); return; }
-    const key = saveAttempt(round.id, a, saved?.key && saved.bid?.ciphertext_hash === a.bid?.ciphertext_hash ? saved.key : undefined);
-    setSaved({ ...a, key });
-  };
 
   if (round === undefined) return <h1 className="py-16 text-app-muted" data-testid="ticket-title">Finding the round…</h1>;
   if (!round) return (
@@ -67,31 +59,50 @@ export default function BidView() {
   const party = round.mode === "otc" || round.mode === "rfq" ? partyFor(round.request) : null;
   const role = roleOf(round, party);
   const open = round.live && round.state === "OPEN" && !!left;
-  const step = !saved ? 0 : saved.step === "pay" ? 1 : 2;
-  const others = attemptsFor(round.id).filter((a) => a.key !== saved?.key);
   return (
     // Phone: the round, then the card, then the terms. Desktop: the round and its terms left, the card right.
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[auto_1fr] lg:gap-x-10">
       <RoundSummary round={round} left={open ? left : 0} role={role} />
-      <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1">
-        <Steps step={step} />
-        <div className="mt-6">
-          {(round.mode === "otc" || round.mode === "rfq") && !party && !saved ? (
-            <div data-testid="bid-parties-only"><div className="text-[16px] font-medium">Invited parties only</div><p className="mt-1 text-[14px] text-app-muted">This round takes {role.noun}s only from the people its creator invited. Open your invite link in this browser to take part.</p><div className="mt-4"><Btn href={`/auction/?id=${round.id}`} kind="secondary">View this round</Btn></div></div>
-          ) : !open && !saved ? (
-            <div data-testid="bid-closed"><div className="text-[16px] font-medium">{left ? "This round isn't taking bids here" : "Bidding has closed for this round"}</div><p className="mt-1 text-[14px] text-app-muted">{left ? "It was set up outside this site, so bids go in through its own tools. You can still follow how it turns out." : "You can still see how it turns out."}</p><div className="mt-4"><Btn href={`/auction/?id=${round.id}`}>View this round</Btn></div></div>
-          ) : (
-            <>
-              {!saved && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
-              {saved?.step === "pay" && <Pay round={round} role={role} s={saved} open={open} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid })} onNew={() => keep(null)} />}
-              {saved?.step === "track" && <Track round={round} role={role} s={saved} open={open} onNew={() => keep(null)} />}
-            </>
-          )}
-          {others.length > 0 && <p className="mt-5 text-[13px] text-app-faint">You have {others.length} other {role.noun}{others.length > 1 ? "s" : ""} in this round. They're all in <a className="underline" href="/mine/">My activity</a>.</p>}
-        </div>
-      </Panel>
-      <Terms round={round} role={role} />
+      <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1"><BidTicket round={round} /></Panel>
+      <div className="min-w-0 lg:col-start-1 lg:row-start-2"><Terms round={round} role={role} /><a href={`/auction/?id=${round.id}`} className="mt-6 inline-block text-[14px] text-app-muted underline-offset-4 hover:text-app-text hover:underline">View the round</a></div>
     </div>
+  );
+}
+
+// The bid card: Seal, then Pay, then Track, for one round. Used by the bid page and by the round's terminal (its order
+// ticket). It keeps this browser's attempts for the round; none is ever deleted.
+export function BidTicket({ round }: { round: AuctionDetail }) {
+  const [saved, setSaved] = useState<(Attempt & { key?: string }) | null>(() => currentAttempt(round.id));
+  useEffect(() => { setSaved(currentAttempt(round.id)); }, [round.id]);
+  const left = useCountdown(round.T_submit);
+  const keep = (a: Attempt | null) => {
+    if (!a) { archiveCurrent(round.id); setSaved(null); return; }
+    const key = saveAttempt(round.id, a, saved?.key && saved.bid?.ciphertext_hash === a.bid?.ciphertext_hash ? saved.key : undefined);
+    setSaved({ ...a, key });
+  };
+  const party = round.mode === "otc" || round.mode === "rfq" ? partyFor(round.request) : null;
+  const role = roleOf(round, party);
+  const open = round.live && round.state === "OPEN" && !!left;
+  const step = !saved ? 0 : saved.step === "pay" ? 1 : 2;
+  const others = attemptsFor(round.id).filter((a) => a.key !== saved?.key);
+  return (
+    <>
+      <Steps step={step} />
+      <div className="mt-6">
+        {(round.mode === "otc" || round.mode === "rfq") && !party && !saved ? (
+          <div data-testid="bid-parties-only"><div className="text-[16px] font-medium">Invited parties only</div><p className="mt-1 text-[14px] text-app-muted">This round takes {role.noun}s only from the people its creator invited. Open your invite link in this browser to take part.</p></div>
+        ) : !open && !saved ? (
+          <div data-testid="bid-closed"><div className="text-[16px] font-medium">{left ? "This round isn't taking bids here" : "Bidding has closed for this round"}</div><p className="mt-1 text-[14px] text-app-muted">{left ? "It was set up outside this site, so bids go in through its own tools. You can still follow how it turns out." : "You can still see how it turns out."}</p></div>
+        ) : (
+          <>
+            {!saved && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
+            {saved?.step === "pay" && <Pay round={round} role={role} s={saved} open={open} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid })} onNew={() => keep(null)} />}
+            {saved?.step === "track" && <Track round={round} role={role} s={saved} open={open} onNew={() => keep(null)} />}
+          </>
+        )}
+        {others.length > 0 && <p className="mt-5 text-[13px] text-app-faint">You have {others.length} other {role.noun}{others.length > 1 ? "s" : ""} in this round. They're all in <a className="underline" href="/mine/">My activity</a>.</p>}
+      </div>
+    </>
   );
 }
 
@@ -117,16 +128,15 @@ function RoundSummary({ round, left, role }: { round: AuctionDetail; left: numbe
 }
 
 // The terms, in this market's words for this side (shown under the card on a phone).
-function Terms({ round, role }: { round: AuctionDetail; role: ReturnType<typeof roleOf> }) {
+export function Terms({ round, role }: { round: AuctionDetail; role: ReturnType<typeof roleOf> }) {
   return (
-    <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+    <div className="min-w-0">
       <dl className="grid gap-4 text-[14px]">
         <div><dt className="font-medium text-app-text">How this round decides</dt><dd className="mt-0.5 text-app-muted">{role.rule}</dd></div>
         <div><dt className="font-medium text-app-text">Your deposit</dt><dd className="mt-0.5 text-app-muted">{role.deposit} Every bidder pays the same deposit, so it gives nothing away.</dd></div>
         <div><dt className="font-medium text-app-text">Sealed until the bids open</dt><dd className="mt-0.5 text-app-muted">Your {role.noun} is sealed in this browser. Nobody, the operator included, can read it before the bids open at {when(round.release)}. After that, prices are published; addresses never are.</dd></div>
         <div><dt className="font-medium text-app-text">What you'll need</dt><dd className="mt-0.5 text-app-muted">A Zcash testnet wallet that keeps payment memos (NU7), with {taz(round.C_zats)} plus the wallet's fee. TAZ is testnet Zcash and has no real value. 1 TAZ = 100,000,000 zats.</dd></div>
       </dl>
-      <a href={`/auction/?id=${round.id}`} className="mt-6 inline-block text-[14px] text-app-muted underline-offset-4 hover:text-app-text hover:underline">View the round</a>
     </div>
   );
 }

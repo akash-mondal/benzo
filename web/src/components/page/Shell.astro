@@ -4,14 +4,16 @@
 // task of their own (starting a round, bidding).
 import Base from "../../layouts/Base.astro";
 import Back from "./Back.astro";
-const { title, description, back = "/", cta = true } = Astro.props;
+const { title, description, back = "/", cta = true, full = false } = Astro.props;
+// full: the page uses the whole width (the round terminal), like an exchange's trade screen.
+const frame = full ? "max-w-none px-3 sm:px-4" : "max-w-[1120px] px-5 sm:px-8";
 const path = Astro.url.pathname;
 const links = [{ href: "/lots/", label: "Rounds" }, { href: "/mine/", label: "My activity" }, { href: "/verify/", label: "Verify" }];
 ---
 <Base title={title} description={description}>
   <div class="app min-h-dvh">
     <header class="app-header sticky top-0 z-30 border-b border-app-line bg-[#141a10b3] backdrop-blur-xl">
-      <div class="mx-auto flex h-14 max-w-[1120px] items-center justify-between gap-3 px-5 sm:px-8">
+      <div class:list={["mx-auto flex h-14 items-center justify-between gap-3", frame]}>
         <div class="flex min-w-0 items-center gap-3 sm:gap-5">
           <Back href={back} tone="app" />
           <a href="/" class="chrome serif-figure pr-1 text-[26px] leading-none" aria-label="Benzo, all markets">Benzo</a>
@@ -29,8 +31,9 @@ const links = [{ href: "/lots/", label: "Rounds" }, { href: "/mine/", label: "My
         </nav>
       </div>
     </header>
-    <!-- One container for every screen, the header's: every left edge on the page lines up. -->
-    <main class="mx-auto max-w-[1120px] px-5 pb-24 pt-8 sm:px-8 sm:pt-12"><slot /></main>
+    <!-- One container for every screen, the header's: every left edge on the page lines up. On a big enough screen the
+         page is exactly one window (fit): the view inside fills it and nothing scrolls. -->
+    <main class:list={["mx-auto fit:flex fit:h-[calc(100dvh-3.5rem-1px)] fit:flex-col fit:overflow-hidden", frame, full ? "pb-6 pt-3 fit:pb-1 fit:pt-2" : "pb-24 pt-8 sm:pt-12 fit:pb-6 fit:pt-7"]}><slot /></main>
   </div>
 </Base>
 <script>

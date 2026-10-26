@@ -9,16 +9,29 @@ import { useCountUp } from "@/hooks/use-count-up";
 export type LadderRow = { key: string; label: string; price: number; won: boolean; faint?: boolean; word: string; name: string };
 export type LadderLine = { value: number; label: string };
 
+// Round axis steps (1, 2, 2.5 or 5 × 10ⁿ), at most four, the top step just above the highest bar.
+export function niceTicks(top: number) {
+  const raw = Math.max(1, top) / 4, p = 10 ** Math.floor(Math.log10(raw)), step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw)!;
+  const max = Math.ceil((top * 1.04) / step) * step;
+  return Array.from({ length: Math.round(max / step) + 1 }, (_, i) => i * step);
+}
 const k = (n: number) => (n >= 1_000_000 ? `${+(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${+(n / 1000).toFixed(1)}k` : `${n}`);
 
-export default function BidLadder({ rows, line, title, sub }: { rows: LadderRow[]; line?: LadderLine; title: string; sub: string }) {
+export default function BidLadder({ rows, line, title, sub, bare }: { rows: LadderRow[]; line?: LadderLine; title: string; sub: string; bare?: boolean }) {
   const [hover, setHover] = useState<number | null>(null);
   const r = hover !== null ? rows[hover] : null;
   const shown = useCountUp(r ? r.price : line?.value ?? Math.max(...rows.map((x) => x.price)));
   const top = Math.max(...rows.map((x) => x.price), line?.value ?? 0);
   if (!rows.length) return null;
   return (
-    <section className="flex h-[320px] min-w-0 flex-col gap-4 rounded-[22px] bg-app-1 px-5 pb-3 pt-5 ring-1 ring-app-line backdrop-blur-xl sm:px-6" data-testid="ladder">
+    // Bare: inside the round terminal's chart panel, which supplies the frame; the headline is one quiet line.
+    <section className={bare ? "flex h-full min-h-0 min-w-0 flex-col gap-2" : "flex h-[320px] min-w-0 flex-col gap-4 rounded-[22px] bg-app-1 px-5 pb-3 pt-5 ring-1 ring-app-line backdrop-blur-xl sm:px-6"} data-testid="ladder">
+      {bare ? (
+        <div className="flex items-center justify-between gap-3 px-1 text-[12.5px] text-app-muted tabular-nums">
+          <span key={hover ?? "line"} className="animate-number-fade min-w-0 truncate">{r ? <>{r.name} · <span className="text-app-text">{r.price.toLocaleString("en-US")} zats</span> · {r.word}</> : <>{title} <span className="text-app-text">{line ? `${line.value.toLocaleString("en-US")} zats` : ""}</span> · {sub}</>}</span>
+          <span className="flex shrink-0 items-center gap-3"><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-gold" />Won</span><span className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#ddd6c64d]" />Didn't win</span>{line && <span className="flex items-center gap-1.5"><span className="h-0 w-3 border-t border-dashed border-gold" />{line.label}</span>}</span>
+        </div>
+      ) : (
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[13px] text-app-muted">{r ? r.name : title}</p>
@@ -34,12 +47,13 @@ export default function BidLadder({ rows, line, title, sub }: { rows: LadderRow[
           {line && <div className="flex items-center gap-1.5"><span className="h-0 w-3 border-t border-dashed border-gold" aria-hidden /><dt>{line.label}</dt></div>}
         </dl>
       </div>
+      )}
       <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} margin={{ top: 6, right: 4, bottom: 0, left: 4 }} barCategoryGap={rows.length > 12 ? "18%" : "34%"}
             onMouseMove={(s) => { const i = Number(s?.activeTooltipIndex); if (s?.isTooltipActive && Number.isFinite(i)) setHover(i); }}
             onMouseLeave={() => setHover(null)}>
-            <YAxis width={48} domain={[0, Math.ceil(top * 1.12)]} tickCount={4} tickFormatter={k} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#938e80" }} />
+            <YAxis width={48} domain={[0, niceTicks(top).at(-1)!]} ticks={niceTicks(top)} tickFormatter={k} tickLine={false} axisLine={false} tick={{ fontSize: 12, fill: "#938e80" }} />
             <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={10} interval={rows.length > 14 ? "preserveStartEnd" : 0} tick={{ fontSize: 12.5, fill: "#938e80" }} />
             <Tooltip content={() => null} cursor={{ fill: "#ddd6c60f", radius: 6 }} />
             <Bar dataKey="price" radius={[4, 4, 0, 0]} isAnimationActive animationDuration={550}>

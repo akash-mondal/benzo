@@ -1,7 +1,7 @@
 // The product screens' kit, in the landing's language: glass panels over the night sky, the sand pill (the sky's hover
 // label) for the one primary action, serif italic in the doodles' chrome for the figure a panel is about, sand-gold for
 // what's live, tabular figures.
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { thousands } from "../../lib/api";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -159,3 +159,35 @@ if (typeof window !== "undefined")
     document.querySelectorAll(".page-door").forEach((n) => n.classList.remove("page-door"));
     document.querySelectorAll(".page-door-off").forEach((n) => n.classList.replace("page-door-off", "page-door"));
   });
+
+// How many rows of a list fit the space it has (fit screens page their lists instead of scrolling). Measures the
+// element the rows go in; small screens, where pages scroll, get the fallback.
+export function useFitRows(rowHeight: number, fallback = 25) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [rows, setRows] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fit = window.matchMedia("(min-width: 1024px) and (min-height: 660px)");
+    const measure = () => setRows(fit.matches ? Math.max(3, Math.floor(el.clientHeight / rowHeight)) : fallback);
+    const ro = new ResizeObserver(measure); ro.observe(el); fit.addEventListener("change", measure); measure();
+    return () => { ro.disconnect(); fit.removeEventListener("change", measure); };
+  }, [rowHeight, fallback]);
+  return [ref, rows] as const;
+}
+
+// Previous / next for a paged list: "1–9 of 138".
+export function Pager({ page, size, total, onPage, testid }: { page: number; size: number; total: number; onPage: (p: number) => void; testid?: string }) {
+  if (total <= size) return <span className="text-[13px] text-app-faint tabular-nums">{total ? `${total} shown` : ""}</span>;
+  const last = Math.max(0, Math.ceil(total / size) - 1), from = page * size + 1, to = Math.min(total, (page + 1) * size);
+  const btn = "grid size-8 place-items-center rounded-full text-app-muted ring-1 ring-app-line transition-colors hover:bg-[#ddd6c61a] hover:text-app-text disabled:opacity-35 disabled:hover:bg-transparent";
+  return (
+    <div className="flex items-center gap-3 text-[13px] text-app-muted tabular-nums" data-testid={testid}>
+      <span>{from}–{to} of {total}</span>
+      <div className="flex gap-1.5">
+        <button type="button" aria-label="Previous page" disabled={page === 0} onClick={() => onPage(page - 1)} className={btn}><svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 18l-6-6 6-6" /></svg></button>
+        <button type="button" aria-label="Next page" disabled={page >= last} onClick={() => onPage(page + 1)} className={btn}><svg className="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 18l6-6-6-6" /></svg></button>
+      </div>
+    </div>
+  );
+}

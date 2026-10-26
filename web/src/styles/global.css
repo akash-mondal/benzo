@@ -10,6 +10,9 @@
    is left out on purpose; the product screens keep this file's look, and the tokens are mapped onto it below. */
 @import "./theme.css";
 @import "./typography.css";
+/* "fit": a screen big enough to show a whole page at once (laptop and up). There, every product screen is one window,
+   no scrolling: lists page, long sections become tabs. Smaller screens scroll as usual. */
+@custom-variant fit (@media (min-width: 1024px) and (min-height: 660px));
 
 /* Direction: "The product performs" (taste-skill v2, seed 1041642974). Palette "Sand and moss", type Libre Franklin /
    Source Serif 4. Sand holds the page, charcoal type; moss is the one accent (actions); the leaf field is the stage. */
