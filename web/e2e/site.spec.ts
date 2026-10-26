@@ -106,7 +106,7 @@ test("a settled round: opened bids, payments, 19 checks, and a bid's receipt", a
   await expect(page.getByText(`${d.checks.length} of ${d.checks.length} checks pass`)).toBeVisible();
   await page.getByTestId("checks").locator("summary").click();
   await expect(page.getByTestId("checks").locator("li")).toHaveCount(d.checks.length);
-  await page.getByPlaceholder("ciphertext hash from your bid key").fill(d.freeze.leaves[0].ciphertext_hash);
+  await page.getByPlaceholder("Bid hash (in your bid key file)").fill(d.freeze.leaves[0].ciphertext_hash);
   await page.getByRole("button", { name: "Look up" }).click();
   await expect(page.getByTestId("receipt")).toContainText(d.freeze.leaves[0].ciphertext_hash);
 });

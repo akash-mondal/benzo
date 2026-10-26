@@ -17,8 +17,6 @@ const name = MODE_NAME[market];
     <h1 class="sr-only">{name}: {n} rounds on Zcash testnet</h1>
     <Sky client:only="react" initial={list} market={market} />
     <div class="absolute left-5 top-5 z-10 sm:left-7 sm:top-6"><Back href="/" label="All markets" /></div>
-    <a href="/" class="rise absolute bottom-5 left-5 z-10 font-sans text-[12px] text-sand/45 transition-colors hover:text-sand sm:left-7">benzo · <span class="text-sand/80">{name.toLowerCase()}</span></a>
-    <span class="rise rise-2 pointer-events-none absolute bottom-5 right-5 z-10 hidden font-sans text-[12px] text-sand/35 sm:right-7 sm:inline">{n} rounds · open one</span>
   </div>
   <noscript><p style="padding:2rem;color:#ddd6c6">The sky needs script; <a href="/lots/">every lot</a> is plain HTML.</p></noscript>
 </Base>

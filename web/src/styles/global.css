@@ -1,4 +1,7 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource/libre-franklin/400.css";
+@import "@fontsource/libre-franklin/600.css";
 @import "@fontsource/libre-franklin/700.css";
 @import "@fontsource/libre-franklin/500.css";
 @import "@fontsource-variable/source-serif-4";
@@ -20,6 +23,18 @@
   /* The canvas: a green-black night the doodles float in. */
   --color-ground: #141a10;
   --color-ground-2: #1b2316;
+  /* The app screens after the landing (taste-skill app sheet "True-black flat", seed 9397609, face: the landing's
+     moss night as the ground, Zcash gold as the one data hue). Elevation by lightness alone; no borders on cards. */
+  --color-app: #0b0e09;
+  --color-app-1: #141811;
+  --color-app-2: #1f251b;
+  --color-app-line: #232a1e;
+  --color-app-text: #ededed;
+  --color-app-muted: #a9aba6;
+  --color-app-faint: #8b8e88;
+  --color-gold: #f4b728;
+  --color-bad: #ef6a7e;
+  --color-warn: #e5a93b;
 }
 
 :root {
@@ -59,3 +74,9 @@ h1, h2, h3, h4 { font-family: var(--font-sans); font-weight: 700; letter-spacing
   .reveal { opacity: 1; transform: none; transition: none; }
 }
 @media (scripting: none) { .reveal { opacity: 1; transform: none; } }
+
+/* App screens: one sans at 14-15px, tabular figures everywhere numbers live. */
+.app { background: var(--color-app); color: var(--color-app-text); font-family: "Inter Variable", "Inter", system-ui, sans-serif; font-size: 15px; line-height: 1.5; font-feature-settings: "cv11", "ss01"; }
+.app h1, .app h2, .app h3 { font-family: inherit; letter-spacing: -0.022em; line-height: 1.15; font-weight: 600; }
+.app :focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }
+.app ::selection { background: var(--color-gold); color: #000; }

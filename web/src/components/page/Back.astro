@@ -1,9 +1,10 @@
 ---
 // Back, on every screen but home: to the page you came from on this site, else to the screen's parent. Escape does the
 // same whenever nothing is open (an open card closes first; a field keeps its Escape).
-const { href = "/", label = "Back", class: cls = "" } = Astro.props;
+const { href = "/", label = "Back", class: cls = "", tone = "sand" } = Astro.props;
+const color = tone === "app" ? "text-app-muted hover:text-app-text" : "text-sand/80 hover:text-sand";
 ---
-<a href={href} data-back class={`group inline-flex h-11 items-center gap-2 font-sans text-[14px] text-sand/80 transition-colors hover:text-sand ${cls}`} data-testid="back">
+<a href={href} data-back class={`group inline-flex h-11 items-center gap-1.5 font-sans text-[14px] transition-colors ${color} ${cls}`} data-testid="back">
   <svg class="size-4 transition-transform group-hover:-translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>{label}
 </a>
 <script>

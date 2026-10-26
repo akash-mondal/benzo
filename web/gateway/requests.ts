@@ -16,7 +16,7 @@ export type Request = {
 const UA = /^utest1[a-z0-9]{60,}$/, KEY = /^[0-9a-f]{64}$/, NAME = /^[\p{L}\p{N} .,'&#:()-]{1,40}$/u;
 const int = (v: unknown, lo: number, hi: number, what: string) => {
   const n = Number(v);
-  if (!Number.isSafeInteger(n) || n < lo || n > hi) throw new Error(`${what} must be a whole number from ${lo} to ${hi}`);
+  if (!Number.isSafeInteger(n) || n < lo || n > hi) throw new Error(`${what.charAt(0).toUpperCase() + what.slice(1)} must be a whole number from ${lo.toLocaleString("en-US")} to ${hi.toLocaleString("en-US")}.`);
   return n;
 };
 const C = 200_000, LIMIT = Number(process.env.BNZ_WEB_REQUEST_LIMIT ?? 8), PER_IP_HOUR = Number(process.env.BNZ_WEB_REQUEST_PER_IP ?? 4);
@@ -26,31 +26,31 @@ export function specFrom(f: any): { spec: Spec; invites: string[]; side?: "buyer
   const mode = f.mode as Mode;
   if (!["uniform", "drop", "launch", "buyback", "otc", "rfq"].includes(mode)) throw new Error("unknown market");
   const lot = String(f.lot ?? "").trim();
-  if (!NAME.test(lot)) throw new Error("name: 1 to 40 letters, digits or simple punctuation");
+  if (!NAME.test(lot)) throw new Error("Give it a name: up to 40 letters, digits or simple punctuation.");
   const submit_min = int(f.minutes ?? 40, 20, 120, "bidding time (minutes)");
   const B_max = int(f.max_price ?? 3000, 20, C, "maximum price");
   const reserve = int(f.reserve ?? 10, 1, B_max, "reserve");
   const base = { mode, lot, supply: 1, reserve_zats: String(reserve), B_max_zats: String(B_max), tick_zats: "10", C_zats: String(C), submit_min, house_bids: 0 } as Spec;
-  if (B_max % 10 || reserve % 10) throw new Error("prices go in steps of 10 zats");
+  if (B_max % 10 || reserve % 10) throw new Error("Prices go in steps of 10 zats.");
   const payout = String(f.payout_ua ?? "").trim();
   if (mode === "uniform" || mode === "launch" || mode === "drop") {
-    if (!UA.test(payout)) throw new Error("payout address: a shielded testnet address (utest1…)");
+    if (!UA.test(payout)) throw new Error("The payout address should be a shielded testnet address (utest1…).");
     base.payout_ua = payout;
   }
   if (mode === "uniform") return { spec: { ...base, supply: int(f.supply ?? 1, 1, 6, "units") }, invites: [] };
   if (mode === "launch") return { spec: { ...base, supply: int(f.supply ?? 3, 1, 6, "units"), launch: { minimum_raise_zats: String(int(f.minimum_raise ?? 0, 1, 6 * B_max, "minimum raise")) } }, invites: [] };
   if (mode === "drop") {
     const lots = (Array.isArray(f.lots) ? f.lots : String(f.lots ?? "").split(",")).map((x: string) => String(x).trim()).filter(Boolean);
-    if (lots.length < 2 || lots.length > 5 || !lots.every((l: string) => NAME.test(l)) || new Set(lots).size !== lots.length) throw new Error("lots: 2 to 5 different names");
+    if (lots.length < 2 || lots.length > 5 || !lots.every((l: string) => NAME.test(l)) || new Set(lots).size !== lots.length) throw new Error("Give 2 to 5 different lot names.");
     return { spec: { ...base, lots }, invites: [] };
   }
   if (mode === "otc") {
     const side = f.side === "buyer" ? "buyer" : "seller", key = String(f.creator_key ?? "");
-    if (!KEY.test(key)) throw new Error("your party key is missing");
+    if (!KEY.test(key)) throw new Error("Your party key is missing. Reload the page and try again.");
     return { spec: { ...base, reserve_zats: "0", otc: side === "buyer" ? { buyer_key: key, seller_key: "" } : { buyer_key: "", seller_key: key } }, invites: [side === "buyer" ? "Seller" : "Buyer"], side };
   }
   const treasury = String(f.treasury_ua ?? "").trim();
-  if (!UA.test(treasury)) throw new Error("return address: a shielded testnet address (utest1…)");
+  if (!UA.test(treasury)) throw new Error("The return address should be a shielded testnet address (utest1…).");
   if (mode === "buyback") {
     const max = int(f.max_price ?? 300, 20, B_max, "maximum ask");
     return { spec: { ...base, supply: int(f.supply ?? 2, 1, 6, "units"), reserve_zats: "10", buyback: { budget_zats: String(int(f.budget ?? 600, 20, 6 * max, "budget")), max_price_zats: String(max), treasury_ua: treasury } }, invites: [] };
@@ -74,8 +74,8 @@ export class Requests {
 
   create(form: any, ip: string) {
     const now = Date.now() / 1000, all = this.all();
-    if (all.filter((r) => r.status === "waiting" || r.status === "queued").length >= LIMIT) throw new Error("too many rounds are waiting to start; try again in a few minutes");
-    if (all.filter((r) => r.ip === ip && now - r.created < 3600).length >= PER_IP_HOUR) throw new Error("you started several rounds this hour; try again later");
+    if (all.filter((r) => r.status === "waiting" || r.status === "queued").length >= LIMIT) throw new Error("Too many rounds are waiting to start. Try again in a few minutes.");
+    if (all.filter((r) => r.ip === ip && now - r.created < 3600).length >= PER_IP_HOUR) throw new Error("You've started several rounds this hour. Try again later.");
     const { spec, invites, side } = specFrom(form);
     const r: Request = { rid: randomBytes(8).toString("hex"), token: randomBytes(16).toString("hex"), mode: spec.mode, spec, status: "waiting",
       invites: invites.map((label) => ({ label, token: randomBytes(16).toString("hex") })), created: now, ip, side };

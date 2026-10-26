@@ -1,54 +1,77 @@
 ---
+// Every round (after Fragment's auction table): one row per round with its result and when, filterable by market and
+// by state. ?market=<mode> arrives from a market's "All rounds".
 import Shell from "../../components/page/Shell.astro";
 import { auctions } from "../../lib/server";
-import { glyphFor, marketOf } from "../../lib/glyphs";
+import { glyphFor, marketOf, MARKETS } from "../../lib/glyphs";
 import { MODE_NAME, thousands, utc } from "../../lib/api";
-const list = await auctions();
 const now = Date.now() / 1000;
-const groups = [
-  { word: "Running now", rows: list.filter((a) => a.live || (!["SETTLED", "CANCELLED"].includes(a.state) && now - a.updated < 6 * 3600)) },
-  { word: "Settled", rows: list.filter((a) => a.state === "SETTLED") },
-  { word: "Cancelled and refunded in full", rows: list.filter((a) => a.state === "CANCELLED") },
-  { word: "Stopped mid-way in test runs", rows: list.filter((a) => !["SETTLED", "CANCELLED"].includes(a.state) && !a.live && now - a.updated >= 6 * 3600) },
-].filter((g) => g.rows.length);
+// Live first, then what settled, then the rest; newest first inside each.
+const rank = (a: any) => (a.live ? 0 : a.state === "SETTLED" ? 1 : a.state === "CANCELLED" ? 2 : 3);
+const list = (await auctions()).sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
+const groupOf = (a: any) => a.live ? "open" : a.state === "SETTLED" ? "settled" : a.state === "CANCELLED" ? "refunded" : now - a.updated < 6 * 3600 ? "running" : "stopped";
+const STATE: Record<string, [string, string]> = { open: ["Taking bids", "bg-[#2b2410] text-gold"], running: ["In progress", "bg-app-2 text-app-text"], settled: ["Settled", "bg-[#1d2a14] text-[#b9e27a]"], refunded: ["Refunded", "bg-[#2c1a1e] text-bad"], stopped: ["Stopped", "bg-app-2 text-app-muted"] };
+const result = (a: any) => a.live ? "open now" : a.state === "SETTLED" && a.clearing_price_zats && a.clearing_price_zats !== "0" ? `${thousands(a.clearing_price_zats)} zats` : a.state === "SETTLED" ? "no sale" : "—";
+const tabs = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"], ["settled", "Settled"], ["refunded", "Refunded"], ["stopped", "Stopped"]];
 ---
-<Shell title="Every lot – Benzo" description="Every auction Benzo ran on Zcash testnet, with its state and result.">
-  <article class="card-in mx-auto w-full max-w-[720px] bg-surface text-ink" style="clip-path: polygon(44px 0, 100% 0, 100% 100%, 0 100%, 0 44px)">
-    <div class="h-11"></div>
-    <h1 class="rise rise-1 px-6 pt-3 font-sans text-[clamp(1.75rem,1.2rem+2vw,2.5rem)]" data-all={`${list.length} rounds on Zcash testnet`}>{list.length} rounds on Zcash testnet</h1>
-    <div class="px-6 pb-8 pt-2">
-      {groups.map((g) => (
-        <section class="rise rise-3 mt-8" aria-label={g.word} data-group>
-          <h2 class="font-sans text-[15px] tracking-tight text-muted">{g.word} <span class="tabular">({g.rows.length})</span></h2>
-          <ul class="mt-2">
-            {g.rows.map((a) => (
-              <li data-market={marketOf(a.mode)}>
-                <a href={`/auction/?id=${a.id}`} class="group flex min-h-[44px] items-center gap-3 font-sans md:min-h-[38px]" data-testid="lot-row">
-                  <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg`} alt="" class="size-6 flex-none bg-leaf-deep p-1" />
-                  <span class="min-w-0 truncate text-[15px] text-ink group-hover:text-moss">{a.lot ?? MODE_NAME[a.mode]}</span>
-                  <span class="hidden shrink-0 text-[13px] text-muted sm:inline">{MODE_NAME[a.mode]}</span>
-                  <span class="ml-auto shrink-0 text-[13px] text-muted tabular">{a.state === "SETTLED" && a.clearing_price_zats && a.clearing_price_zats !== "0" ? `cleared ${thousands(a.clearing_price_zats)} zats` : a.state === "SETTLED" ? `settled ${utc(a.updated)}` : utc(a.updated)}</span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
+<Shell title="Every lot – Benzo" description="Every round run through Benzo on Zcash testnet." wide>
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <h1 class="text-[28px]" data-all={`${list.length} rounds on Zcash testnet`}>{list.length} rounds on Zcash testnet</h1>
+    <label class="flex items-center gap-2 text-[14px] text-app-muted">Market
+      <select id="market" class="h-9 rounded-full bg-app-1 px-3 text-[14px] text-app-text outline-none">
+        <option value="">All markets</option>
+        {MARKETS.map((m) => <option value={m}>{MODE_NAME[m]}</option>)}
+      </select>
+    </label>
+  </div>
+  <div class="mt-5 flex flex-wrap gap-1" role="tablist" aria-label="State">
+    {tabs.map(([k, label], i) => <button type="button" role="tab" data-tab={k} aria-selected={i === 0 ? "true" : "false"} class="h-8 rounded-full px-3 text-[14px] text-app-muted aria-selected:bg-app-2 aria-selected:text-app-text hover:text-app-text">{label} <span class="tabular-nums text-app-faint" data-count={k}></span></button>)}
+  </div>
+  <div class="mt-4 overflow-hidden rounded-[20px] bg-app-1">
+    <div class="hidden grid-cols-[minmax(0,1fr)_150px_150px_170px] gap-4 px-5 pb-2 pt-4 text-[13px] text-app-faint sm:grid"><span>Round</span><span>State</span><span class="text-right">Price</span><span class="text-right">Updated</span></div>
+    <ul id="rows">
+      {list.map((a) => (
+        <li data-market={marketOf(a.mode)} data-group={groupOf(a)}>
+          <a href={`/auction/?id=${a.id}`} class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 sm:grid-cols-[minmax(0,1fr)_150px_150px_170px]" data-testid="lot-row">
+            <span class="flex min-w-0 items-center gap-3">
+              <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg`} alt="" class="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
+              <span class="min-w-0"><span class="block truncate text-[15px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}</span><span class="block text-[13px] text-app-faint">{MODE_NAME[a.mode]} · {a.leaf_count ?? 0} bids</span></span>
+            </span>
+            <span><span class={`inline-flex h-6 items-center rounded-full px-2.5 text-[12.5px] font-medium ${STATE[groupOf(a)][1]}`}>{STATE[groupOf(a)][0]}</span></span>
+            <span class="hidden text-right text-[14px] tabular-nums sm:block">{result(a)}</span>
+            <time datetime={new Date(a.updated * 1000).toISOString()} data-local class="hidden text-right text-[13px] text-app-muted tabular-nums sm:block">{utc(a.updated)}</time>
+          </a>
+        </li>
       ))}
-    </div>
-  </article>
+    </ul>
+    <p id="empty" hidden class="border-t border-app-line px-5 py-6 text-[14px] text-app-muted">No rounds here yet.</p>
+  </div>
+  <div class="mt-4 flex justify-center"><button id="more" type="button" class="h-10 rounded-full bg-app-1 px-5 text-[14px] font-semibold text-app-text hover:bg-app-2">Show more</button></div>
   <script>
-    // ?market=<mode> (a market's "All rounds"): only that market's rounds.
     import { MODE_NAME } from "../../lib/api";
-    const m = new URLSearchParams(location.search).get("market");
-    if (m && MODE_NAME[m]) {
+    const sel = document.getElementById("market") as HTMLSelectElement, h1 = document.querySelector("h1")!;
+    const rows = [...document.querySelectorAll<HTMLElement>("#rows > li")], tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-tab]")];
+    let tab = "all", shown = 25;
+    const more = document.getElementById("more") as HTMLButtonElement;
+    more.addEventListener("click", () => { shown += 25; apply(); });
+    const apply = () => {
+      const m = sel.value, inMarket = rows.filter((r) => !m || r.dataset.market === m);
+      for (const t of tabs) { const k = t.dataset.tab!, c = inMarket.filter((r) => k === "all" || r.dataset.group === k).length; t.querySelector("[data-count]")!.textContent = String(c); t.hidden = k !== "all" && c === 0; }
       let n = 0;
-      for (const li of document.querySelectorAll<HTMLElement>("li[data-market]")) { const on = li.dataset.market === m; li.hidden = !on; n += Number(on); }
-      for (const g of document.querySelectorAll<HTMLElement>("section[data-group]")) {
-        const shown = g.querySelectorAll("li[data-market]:not([hidden])").length;
-        g.hidden = shown === 0;
-        const c = g.querySelector(".tabular"); if (c) c.textContent = `(${shown})`;
-      }
-      document.querySelector("h1")!.textContent = `${n} ${MODE_NAME[m].toLowerCase()} rounds`;
+      for (const r of rows) { const on = (!m || r.dataset.market === m) && (tab === "all" || r.dataset.group === tab); r.hidden = !on || n >= shown; n += Number(on); }
+      document.getElementById("empty")!.hidden = n > 0;
+      more.hidden = n <= shown; more.textContent = `Show more (${n - shown} left)`;
+      h1.textContent = m ? `${inMarket.length} ${MODE_NAME[m].toLowerCase()} rounds` : h1.dataset.all!;
+      const u = new URL(location.href); m ? u.searchParams.set("market", m) : u.searchParams.delete("market"); history.replaceState(history.state, "", u);
+    };
+    for (const t of tabs) t.addEventListener("click", () => { tab = t.dataset.tab!; shown = 25; for (const x of tabs) x.setAttribute("aria-selected", String(x === t)); apply(); });
+    sel.value = new URLSearchParams(location.search).get("market") ?? "";
+    sel.addEventListener("change", () => { shown = 25; apply(); });
+    // Dates in the reader's own time.
+    for (const t of document.querySelectorAll<HTMLTimeElement>("time[data-local]")) {
+      const d = new Date(t.dateTime), today = d.toDateString() === new Date().toDateString(), hm = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+      t.textContent = today ? hm : `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${hm}`;
     }
+    apply();
   </script>
 </Shell>

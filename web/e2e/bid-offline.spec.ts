@@ -94,7 +94,7 @@ test("the bid page refuses a bad price and a malformed refund address before any
   await page.getByTestId("bid-price").fill("450");
   await page.getByTestId("bid-refund").fill("t1notashieldedaddress");
   await page.getByTestId("bid-seal").click();
-  await expect(page.getByTestId("bid-error")).toContainText("unified address");
+  await expect(page.getByTestId("bid-error")).toContainText("shielded testnet address");
 });
 
 test("an RFQ round takes bids only from its invited dealers: a stranger sees that, a dealer bids under its own key", async ({ page, request }) => {
