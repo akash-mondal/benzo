@@ -120,7 +120,7 @@ export class Runner {
     const open = await new Promise<boolean>((r) => { const s = net.connect(port, "127.0.0.1", () => { s.end(); r(true); }); s.on("error", () => r(false)); });
     if (open || this.frostd) return;
     const S = this.state;
-    this.frostd = spawn(path.join(S, "bin/frostd"), ["-i", "127.0.0.1", "-p", String(port), "-c", path.join(S, "tls/frostd.pem"), "-k", path.join(S, "tls/frostd.key")], { stdio: "ignore" });
+    this.frostd = spawn(path.join(S, "bin/frostd"), ["-i", process.env.BNZ_FROSTD_BIND ?? "127.0.0.1", "-p", String(port), "-c", path.join(S, "tls/frostd.pem"), "-k", path.join(S, "tls/frostd.key")], { stdio: "ignore" });
     this.frostd.on("exit", () => { this.frostd = null; });
     await new Promise((r) => setTimeout(r, 2000));
   }
