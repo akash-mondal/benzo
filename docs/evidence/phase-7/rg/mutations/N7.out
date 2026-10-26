@@ -1,0 +1,19 @@
+mutation N7 (docs/evidence/phase-2/mutations/N7.patch) on project auction-core
+commit e87ddc538893911e7cfd389d2242a72bb906a7ec (patch applied on top, then reverted; product code 7ac4b93)
+utc 2026-10-26T10:57:50Z
+node v24.15.0, go version go1.25.6 darwin/arm64
+expected red: I1
+ERROR ids: I1 
+RESULT RED (expected)
+--- last 30 lines ---
+deposit 1/6 broadcast 19863170dfbc2b19c5f42332d9480d9386877679077d3b14b78916c4387157d1
+deposit 2/6 broadcast 40ea831506a76f79545d9203893f7682c1a90618f5c50d2941e3f8518f8e8050
+deposit 3/6 broadcast 87f8e478975f9296a12a7a1b38d1a1eb225cc7ba007525c7c4a466eda1aaef64
+deposit 4/6 broadcast 3953f063864596aa7995889c5e98dbaf6318c6d5a8499f18b62a77a3b7072d8e
+deposit 5/6 broadcast 26aa0245f83a584ec284d09412980e52da07b5b017e445012db6810c44a261db
+deposit 6/6 broadcast ce56969edb81aff572c23d86fdb7b3e241edb2b9ab3f3d162a87a2de1d41ca18
+refund broadcast 77b2f214db104b09e39fb0f620a03ba6653562f055e0e6886a80704e472d0ea4
+ERROR I1 Error: expect(received).toBe(expected) // Object.is equality | Expected: 0 | Received: 1
+run.json -> tmp/e2e/out
+FAILED auction-core signed sealed auction on testnet (2974 s)
+run failed; details in tmp/e2e/report.json
