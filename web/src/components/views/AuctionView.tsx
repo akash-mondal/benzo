@@ -11,6 +11,7 @@ import { outcomeLine } from "../../lib/outcome";
 import { glyphFor } from "../../lib/glyphs";
 import BidLadder, { type LadderRow } from "../dash/BidLadder";
 import Depth from "../dash/Depth";
+import { WhoSees } from "../app/WhoSees";
 import { BidTicket, Terms, roleOf } from "./BidView";
 import { currentAttempt } from "../../lib/mine";
 import { Btn, Copyable, ErrorLine, Glyph, Pill, StatePill, Tick, Timeline, checkName, cx, fieldCls, rel, when, zats } from "../app/ui";
@@ -138,13 +139,14 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
 
         {/* Below the chart, the round's records in tabs. */}
         <Pane className="min-h-[280px] max-lg:order-4 lg:col-start-1 lg:row-start-2 fit:min-h-0" testid="records">
-          <Tabs tabs={[["bids", sells ? "Offers" : "Bids"], ["payments", `Payments${d.receipts.length ? ` ${d.receipts.length}` : ""}`], ["checks", `Checks${done ? ` ${d.checks.filter((c) => c.ok).length}/${d.checks.length}` : ""}`], ["terms", "Terms"]]} value={bottom} onChange={setBottom}
+          <Tabs tabs={[["bids", sells ? "Offers" : "Bids"], ["payments", `Payments${d.receipts.length ? ` ${d.receipts.length}` : ""}`], ["checks", `Checks${done ? ` ${d.checks.filter((c) => c.ok).length}/${d.checks.length}` : ""}`], ["terms", "Terms"], ["privacy", "Who sees what"]]} value={bottom} onChange={setBottom}
             right={bottom === "checks" && done ? <a href={`/verify/?id=${d.id}`} className="hover:text-app-text">Verify it yourself</a> : undefined} />
           <div className="min-h-0 flex-1 overflow-auto">
             {bottom === "bids" && <BidsTable d={d} allocations={allocations} sells={sells} opened={opened} />}
             {bottom === "payments" && <Payments d={d} />}
             {bottom === "checks" && <Checks d={d} done={done} />}
             {bottom === "terms" && <div className="p-4 text-[13.5px]"><Terms round={d} role={roleOf(d, null)} /></div>}
+            {bottom === "privacy" && <div className="p-4"><WhoSees compact now={opened ? "after" : "before"} /></div>}
           </div>
         </Pane>
 

@@ -15,13 +15,15 @@ const NOT_YET = /deposit not unique or absent|deposit confirmation|lightwalletd|
 
 export class Intake {
   private dir: string;
-  private timer: NodeJS.Timeout;
+  private timer?: NodeJS.Timeout;
   private busy = false;
   constructor(private root: string, private state: string, private live: (id: string) => boolean) {
     this.dir = path.join(state, "web", "intake");
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
-    this.timer = setInterval(() => void this.work(), 30_000);
   }
+  // Only the operator's gateway admits bids (server.ts starts this with --runner). A read-only gateway on the same
+  // state once ran this loop too, with another checkout's tools, and refused every bid it touched.
+  start() { this.timer ??= setInterval(() => void this.work(), 30_000); }
 
   private file(id: string, ct: string) { return path.join(this.dir, id, `${ct}.json`); }
   private read(id: string, ct: string): Item | null { const f = this.file(id, ct); return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null; }

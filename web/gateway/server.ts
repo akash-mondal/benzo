@@ -4,7 +4,9 @@
 // the auctions this site's operator runs (gateway/runner.ts).
 // Build: node gateway/build.mjs   Run: node gateway/dist/server.mjs [--port 8790] [--host 127.0.0.1] [--runner]
 import http from "node:http";
-import { existsSync, readFileSync, readdirSync, statSync, createReadStream } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, createReadStream } from "node:fs";
+import os from "node:os";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -96,6 +98,53 @@ async function detail(e: Entry) {
   return d;
 }
 
+// ---------- try to cheat: one change to a copy of a round's public record, then the same checks ----------
+// Each tamper edits a temporary copy of auction.json (the document `benzo verify` reads), never the published one.
+// The copy is loaded with the round's real signer pinned, as `benzo verify --signer` does, so a record signed by any
+// other key is refused too. The answer is what refused the copy: loading it, or which checks failed.
+const flipHex = (h: string, at = 0) => h.slice(0, at) + ((parseInt(h[at], 16) ^ 1).toString(16)) + h.slice(at + 1);
+export const TAMPERS: Record<string, { label: string; apply: (doc: any) => boolean }> = {
+  // The control: the same copy-and-check path with nothing changed must pass, or the refusals below prove nothing.
+  "unchanged": { label: "Change nothing (the control)", apply: () => true },
+  "pay-less": { label: "Pay a winner less than the result says", apply: (d) => {
+    const a = (d.result?.allocations ?? []).find((x: any) => BigInt(x.payment_zats ?? 0) > 0n);
+    if (!a) return false; a.payment_zats = String(BigInt(a.payment_zats) - 1n); a.refund_zats = String(BigInt(a.refund_zats ?? 0) + 1n); return true; } },
+  "change-bid": { label: "Change a bid after it was opened", apply: (d) => {
+    const o = (d.opened ?? []).find((x: any) => typeof x.plaintext_hex === "string" && x.plaintext_hex.length > 8);
+    if (!o) return false; o.plaintext_hex = flipHex(o.plaintext_hex, o.plaintext_hex.length - 2); return true; } },
+  "slip-bid": { label: "Slip an extra bid into the frozen set", apply: (d) => {
+    const f = d.frozen; if (!f || !Array.isArray(f.leaves) || !f.leaves.length) return false;
+    const extra = JSON.parse(JSON.stringify(f.leaves.at(-1)));
+    for (const k of Object.keys(extra)) if (typeof extra[k] === "string" && /^[0-9a-f]{64}$/.test(extra[k])) extra[k] = randomBytes(32).toString("hex");
+    if (typeof extra.leaf_index === "number") extra.leaf_index = f.leaves.length;
+    f.leaves.push(extra); f.leaf_count = f.leaves.length; return true; } },
+  "break-signature": { label: "Edit the operator-signed terms", apply: (d) => {
+    const b = d.manifest?.bytes; if (typeof b !== "string") return false;
+    const m = JSON.parse(Buffer.from(b, "base64").toString("utf8")); m.reserve_zats = String(BigInt(m.reserve_zats ?? 0) + 1n);
+    d.manifest.bytes = Buffer.from(JSON.stringify(m)).toString("base64"); return true; } },
+  "other-signer": { label: "Present the record under another operator's key", apply: (d) => {
+    if (typeof d.signer !== "string") return false; d.signer = d.signer.slice(0, 24) + randomBytes(32).toString("hex"); return true; } },
+};
+async function tamper(e: Entry, kind: string) {
+  const t = TAMPERS[kind];
+  if (!t) return null;
+  const real = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8"));
+  const dir = mkdtempSync(path.join(os.tmpdir(), "bnz-tamper-"));
+  try {
+    cpSync(e.dir, dir, { recursive: true });
+    const doc = JSON.parse(JSON.stringify(real));
+    if (!t.apply(doc)) return { kind, label: t.label, applicable: false };
+    writeFileSync(path.join(dir, "auction.json"), JSON.stringify(doc));
+    let pub: ReturnType<typeof loadPublicAuction>;
+    try { pub = loadPublicAuction(dir, { signer: real.signer }); }
+    catch (err) { return { kind, label: t.label, applicable: true, refused: true, stage: "load", reason: (err as Error).message.replace(/^ERROR\s*/, "") }; }
+    let openings: Map<number, string | null>;
+    try { openings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); } catch { openings = new Map(); }
+    const failed = checkPublicAuction(pub, { claimOpenings: openings }).filter((c) => c.error).map((c) => ({ id: c.id, detail: c.error }));
+    return { kind, label: t.label, applicable: true, refused: failed.length > 0, stage: "checks", failed };
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 // ---------- chain status (tip height and the latest drand round), cached ----------
 let chain = { tip: null as number | null, round: null as number | null, at: 0 };
 async function chainStatus() {
@@ -158,6 +207,11 @@ const server = http.createServer(async (req, res) => {
         if (parts.length === 3 && req.method === "GET") return json(res, 200, await detail(e));
         if (parts[3] === "packet") { const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8")); return json(res, 200, { manifest: doc.manifest, signer: doc.signer }); }
         if (parts[3] === "doc") return file(res, path.join(e.dir, "auction.json"));
+        if (parts[3] === "tamper" && req.method === "GET") {
+          if (!parts[4]) return json(res, 200, Object.entries(TAMPERS).map(([kind, t]) => ({ kind, label: t.label })));
+          const r = await tamper(e, parts[4]);
+          return r ? json(res, 200, r) : json(res, 404, { error: "unknown tamper" });
+        }
         if (parts[3] === "public.tgz") { res.writeHead(200, { "content-type": "application/gzip", "content-disposition": `attachment; filename="public-${id.slice(0, 8)}.tgz"` }); return res.end(tarDirectory(e.dir, `public-${id.slice(0, 8)}`)); }
         if (parts[3] === "receipt" && /^[0-9a-f]{64}$/.test(parts[4] ?? "")) {
           const pub = loadPublicAuction(e.dir);
@@ -198,6 +252,15 @@ const server = http.createServer(async (req, res) => {
 });
 
 // The house operator uses the signer hosts and the bidder wallet: opt-in only (never while another run uses them).
-if (argv.includes("--runner")) runner = new Runner(ROOT, STATE, intake, (rid, id, error) => requests.created(rid, id, error));
+if (argv.includes("--runner")) {
+  // One operator per state directory: a second gateway with --runner on the same state refuses to start.
+  const lock = path.join(STATE, "web", "operator.lock");
+  try { const held = JSON.parse(readFileSync(lock, "utf8")); process.kill(held.pid, 0); if (held.pid !== process.pid) { console.error(`another operator gateway (pid ${held.pid}, port ${held.port}) runs on ${STATE}; stop it first`); process.exit(3); } } catch { /* no live holder */ }
+  writeFileSync(lock, JSON.stringify({ pid: process.pid, port: PORT, root: ROOT }), { mode: 0o600 });
+  process.on("exit", () => { try { if (JSON.parse(readFileSync(lock, "utf8")).pid === process.pid) rmSync(lock, { force: true }); } catch { /* gone */ } });
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
+  runner = new Runner(ROOT, STATE, intake, (rid, id, error) => requests.created(rid, id, error));
+  intake.start();
+}
 process.on("uncaughtException", (e) => process.stderr.write(`ERROR gateway ${e.message}\n`));
 server.listen(PORT, HOST, () => process.stdout.write(`benzo web gateway http://${HOST}:${PORT} state=${STATE}${runner ? " runner=on" : ""}\n`));

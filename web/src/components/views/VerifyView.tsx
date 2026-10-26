@@ -3,7 +3,7 @@
 // replaces the result; an old green verdict never stands beside a different round. The page says plainly what the
 // service's checks establish and what they don't, and how to run them yourself.
 import { useEffect, useRef, useState } from "react";
-import { api, MODE_NAME, short } from "../../lib/api";
+import { api, MODE_NAME, short, type Tamper } from "../../lib/api";
 import { Btn, ErrorLine, PageHead, Field, Panel, Pill, Tick, checkName, cx, fieldCls, when } from "../app/ui";
 import type { AuctionDetail, Check } from "../../lib/types";
 
@@ -100,6 +100,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
               <div className="mt-4 flex flex-wrap gap-2"><Btn href={`/api/auctions/${d.id}/public.tgz`} kind="secondary">Download the record</Btn></div>
             </Panel>
           )}
+          {d && d.valid && d.result && <TryToCheat key={d.id} id={d.id} />}
         </aside>
       </div>
     </div>
@@ -119,5 +120,57 @@ function Group({ title, checks }: { title: string; checks: Check[] }) {
         </li>
       ))}</ul>
     </section>
+  );
+}
+
+// Try to cheat: each row changes one thing in a throwaway copy of this round's public record and runs the same checks.
+// The first row changes nothing, so a refusal below it means the change was caught, not that the copy was broken.
+const TAMPER_ROWS: [string, string][] = [
+  ["unchanged", "Change nothing (the control)"],
+  ["pay-less", "Pay a winner less than the result says"],
+  ["change-bid", "Change a bid after it was opened"],
+  ["slip-bid", "Slip an extra bid into the frozen set"],
+  ["break-signature", "Edit the operator-signed terms"],
+  ["other-signer", "Present the record under another key"],
+];
+const LOAD_REASON: [RegExp, string][] = [
+  [/manifest byte hash|signature/i, "The signed terms no longer match the operator's signature."],
+  [/signer mismatch/i, "It is signed by a different key than this round's operator."],
+];
+function TryToCheat({ id }: { id: string }) {
+  const [res, setRes] = useState<Record<string, Tamper | "busy" | "error">>({});
+  const go = async (kind: string) => {
+    setRes((r) => ({ ...r, [kind]: "busy" }));
+    try { const t = await api.tamper(id, kind); setRes((r) => ({ ...r, [kind]: t })); } catch { setRes((r) => ({ ...r, [kind]: "error" })); }
+  };
+  return (
+    <Panel testid="try-to-cheat">
+      <div className="text-[15px] font-medium">Try to cheat</div>
+      <p className="mt-1 text-[13.5px] text-app-muted">Change one thing in a copy of this round's record and run the same checks. The published record is never touched.</p>
+      <ul className="mt-3">{TAMPER_ROWS.map(([kind, label]) => {
+        const r = res[kind], t = typeof r === "object" ? r : null, control = kind === "unchanged";
+        const caught = t?.applicable && t.refused, verdict = !t ? null : !t.applicable ? "Doesn't apply to this round"
+          : control ? (t.refused ? "The copy failed. Something is wrong with this check." : "Passes every check, as it should")
+          : !t.refused ? "Not caught" : t.stage === "load" ? (LOAD_REASON.find(([re]) => re.test(t.reason ?? ""))?.[1] ?? `Refused: ${t.reason}`)
+          : `Caught by ${t.failed!.length} check${t.failed!.length > 1 ? "s" : ""}`;
+        const good = t && t.applicable && (control ? !t.refused : caught);
+        return (
+          <li key={kind} className="border-t border-app-line py-2.5 first:border-t-0" data-tamper={kind}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[14px]">{label}</span>
+              <button type="button" onClick={() => void go(kind)} disabled={r === "busy"} data-testid={`tamper-${kind}`}
+                className="h-8 shrink-0 rounded-full px-3 text-[13px] font-semibold text-app-text ring-1 ring-[#ddd6c62e] hover:bg-[#ddd6c61a] disabled:opacity-50">
+                {r === "busy" ? "Checking…" : t ? "Again" : "Try it"}</button>
+            </div>
+            {r === "error" && <p className="mt-1 text-[13px] text-bad">The service didn't answer. Try again.</p>}
+            {verdict && <p className={cx("mt-1 flex gap-2 text-[13px]", good ? "text-[#c4e09a]" : t?.applicable ? "text-bad" : "text-app-faint")} data-testid={`tamper-${kind}-verdict`}>
+              {t?.applicable && <Tick ok={Boolean(good)} />}<span>{verdict}</span></p>}
+            {t?.applicable && t.refused && t.stage === "checks" && !control && (
+              <ul className="mt-1 grid gap-0.5 pl-6 text-[12.5px] text-app-faint">{t.failed!.map((f) => <li key={f.id}>{checkName(f.id)}</li>)}</ul>
+            )}
+          </li>
+        );
+      })}</ul>
+    </Panel>
   );
 }

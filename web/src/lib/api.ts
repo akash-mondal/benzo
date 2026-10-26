@@ -13,11 +13,15 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+// "Try to cheat": what refused a tampered copy of a round's public record (the published record is never changed).
+export type Tamper = { kind: string; label: string; applicable: boolean; refused?: boolean; stage?: "load" | "checks"; reason?: string; failed?: { id: string; detail: string }[] };
+
 export const api = {
   auctions: () => get<AuctionSummary[]>("/api/auctions"),
   auction: (id: string) => get<AuctionDetail>(`/api/auctions/${id}`),
   packet: (id: string) => get<{ manifest: any; signer: string }>(`/api/auctions/${id}/packet`),
   chain: () => get<Chain>("/api/chain"),
+  tamper: (id: string, kind: string) => get<Tamper>(`/api/auctions/${id}/tamper/${kind}`),
   receipt: (id: string, ciphertextHash: string) => get<any>(`/api/auctions/${id}/receipt/${ciphertextHash}`),
   slot: (id: string, key?: string) => post<{ address: string; slot: number; held_until: number }>(`/api/auctions/${id}/slot`, key ? { key } : {}),
   start: (form: Record<string, unknown>) => post<{ rid: string; token: string; invites: { label: string; token: string }[] }>("/api/rounds", form),
