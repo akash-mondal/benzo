@@ -4,8 +4,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { api, MODE_NAME, utc } from "../../lib/api";
 import { glyphFor, marketOf, MARKETS } from "../../lib/glyphs";
-import { outcomeLine } from "../../lib/outcome";
-import { Glyph, Pill } from "../app/ui";
+import { outcomeLine, traded } from "../../lib/outcome";
+import Stats from "../dash/Stats";
+import Activity from "../dash/Activity";
+import { Glyph, PageHead, Pill, claimDoor } from "../app/ui";
 import type { AuctionSummary } from "../../lib/types";
 
 // Stage, from the round's own state (never guessed from its age).
@@ -38,6 +40,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   }, [market, tab, q, ready]);
 
   const now = Date.now() / 1000;
+  const settled = list.filter((a) => a.state === "SETTLED");
   const counts = useMemo(() => list.reduce((m, a) => m.set(a.lot ?? "", (m.get(a.lot ?? "") ?? 0) + 1), new Map<string, number>()), [list]);
   const text = q.trim().toLowerCase();
   const base = list.filter((a) => (!market || marketOf(a.mode) === market) && (!text || `${(a.lot ?? "").toLowerCase()} ${a.id}`.includes(text)));
@@ -48,8 +51,15 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
 
   return (
     <div>
-      <h1>All rounds</h1>
-      <p className="mt-1 text-[14px] text-app-muted"><span id="count">{match.length}</span> rounds on Zcash testnet</p>
+      <PageHead glyph="emblem-lots" title="All rounds" sub={<><span id="count">{match.length}</span> rounds on Zcash testnet</>} />
+      {/* The overview: what's been run, what moved, what's open; then rounds per day. Everything from the published rounds. */}
+      <Stats className="mt-8" items={[
+        { label: "Rounds settled", value: settled.length, note: `${settled.filter(traded).length} traded, the rest refunded`, testid: "stat-settled" },
+        { label: "Paid to winners and sellers", value: settled.reduce((n, a) => n + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0), unit: "zats", gold: true, note: "through settled rounds", testid: "stat-paid" },
+        { label: "Sealed bids", value: list.reduce((n, a) => n + (a.leaf_count ?? 0), 0), note: "opened after bidding closed", testid: "stat-bids" },
+        { label: "Taking bids now", value: list.filter((a) => a.live).length, note: list.some((a) => a.live) ? list.filter((a) => a.live).map((a) => MODE_NAME[a.mode]).join(", ") : "None right now", testid: "stat-live" },
+      ]} />
+      <div className="mt-3"><Activity list={list} /></div>
       <div className="mt-6 grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
         <label className="sr-only" htmlFor="q">Search round name or id</label>
         <input id="q" type="search" value={q} onChange={(e) => { setQ(e.target.value); reset(); }} placeholder="Search round name or id" autoComplete="off" spellCheck={false} className="h-10 rounded-[10px] bg-app-1 px-3 text-[15px] text-app-text outline-none ring-1 ring-transparent placeholder:text-app-faint focus:ring-gold/70" />
@@ -71,7 +81,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
         <ul id="rows">
           {list.map((a) => { const st = stageOf(a); return (
             <li key={a.id} hidden={!visible.has(a.id)}>
-              <a href={`/auction/?id=${a.id}`} data-testid="lot-row" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 md:grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px]">
+              <a href={`/auction/?id=${a.id}`} onClick={(e) => claimDoor(e.currentTarget)} data-testid="lot-row" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 md:grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px]">
                 <span className="flex min-w-0 items-center gap-3">
                   <Glyph name={glyphFor(a.mode, a.id)} className="size-9" />
                   <span className="min-w-0">

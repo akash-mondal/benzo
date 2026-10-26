@@ -6,6 +6,10 @@
 @import "@fontsource/libre-franklin/500.css";
 @import "@fontsource-variable/source-serif-4";
 @import "@fontsource-variable/source-serif-4/wght-italic.css";
+/* BoardUI (free tier): its tokens and type utilities only. Its globals.css (resets, page background, root transitions)
+   is left out on purpose; the product screens keep this file's look, and the tokens are mapped onto it below. */
+@import "./theme.css";
+@import "./typography.css";
 
 /* Direction: "The product performs" (taste-skill v2, seed 1041642974). Palette "Sand and moss", type Libre Franklin /
    Source Serif 4. Sand holds the page, charcoal type; moss is the one accent (actions); the leaf field is the stage. */
@@ -92,3 +96,30 @@ body { min-height: 100dvh; font-family: var(--font-serif); font-size: var(--step
 .serif-figure { font-family: var(--font-serif); font-style: italic; font-weight: 500; letter-spacing: -0.01em; }
 /* A doodle from the sky, in its sand chrome (the SVG is the mask). */
 .glyph { display: inline-block; flex-shrink: 0; background: linear-gradient(135deg, #9f957c 0%, #fbf6e8 38%, #b9ae92 60%, #efe8d4 100%); -webkit-mask: var(--g) center / contain no-repeat; mask: var(--g) center / contain no-repeat; }
+
+/* BoardUI's semantic tokens, in the sky's colours (only inside the product screens). */
+.app {
+  --color-text-primary: #ebe5d6; --color-text-secondary: #b9b3a3; --color-text-tertiary: #938e80;
+  --color-background-secondary-default: #ddd6c60d; --color-background-tertiary-default: #ddd6c614;
+  --color-segmented-control-background: #0f140cb3; --color-segmented-control-selected-background: #ddd6c61f;
+  --color-border-focus-ring: #e9cd8499;
+  --color-status-lime-background: #b9d98a1a; --color-status-lime-text: #c4e09a;
+  --color-status-rose-background: #f0939a1a; --color-status-rose-text: #f0939a;
+  --color-status-yellow-background: #e9cd841a; --color-status-yellow-text: #e9cd84;
+  --color-chart-track: #ddd6c614; --color-chart-cursor: #ddd6c633; --color-chart-neutral: #ddd6c633;
+}
+@keyframes number-fade { from { opacity: 0.35; } to { opacity: 1; } }
+.animate-number-fade { animation: number-fade 220ms ease-out; }
+.recharts-wrapper :focus, .recharts-wrapper :focus-visible, .recharts-surface:focus { outline: none; }
+
+/* Between the sky and the pages: the browser's page transitions. The door you dive into becomes the doodle at the head
+   of the page it opens ("door"); the header stays put between pages; everything else crossfades over the same sea. */
+@view-transition { navigation: auto; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.38s; animation-timing-function: var(--ease-out); }
+::view-transition-group(door) { animation-duration: 0.62s; animation-timing-function: var(--ease-out); }
+::view-transition-old(door), ::view-transition-new(door) { animation-duration: 0.62s; height: 100%; object-fit: contain; }
+.page-door { view-transition-name: door; }
+.app-header { view-transition-name: app-header; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, MODE_NAME, short, zec } from "../../lib/api";
 import { outcomeLine } from "../../lib/outcome";
 import { glyphFor } from "../../lib/glyphs";
+import BidLadder, { type LadderRow } from "../dash/BidLadder";
 import { Btn, Copyable, Glyph, ErrorLine, Figure, H2, Panel, Pill, StatePill, Tick, Timeline, checkName, cx, fieldCls, rel, when, zats } from "../app/ui";
 import { clock, useCountdown } from "./useCountdown";
 import type { AuctionDetail } from "../../lib/types";
@@ -82,12 +83,24 @@ export default function AuctionView() {
   const byTx = new Map<string, typeof d.receipts>();
   for (const r of d.receipts) { const k = r.txid ?? "pending"; byTx.set(k, [...(byTx.get(k) ?? []), r]); }
   const cons: any = (d.result as any)?.conservation;
+  // The ladder: every opened bid at its price, best first (lowest ask first where sellers compete), by lot for a drop.
+  const lotIdx = (h: string) => (m.lots ?? []).indexOf(h);
+  const ladder: LadderRow[] = [...allocations]
+    .sort((a, b) => d.mode === "otc" ? 0 : d.mode === "drop" ? lotIdx(a.lot) - lotIdx(b.lot) || Number(b.price_zats) - Number(a.price_zats) : sells ? Number(a.price_zats) - Number(b.price_zats) : Number(b.price_zats) - Number(a.price_zats))
+    .filter((a) => a.price_zats !== undefined && a.price_zats !== null)
+    .map((a) => {
+      const o = outcome(a.outcome, sells), n = a.leaf_index + 1;
+      const label = d.mode === "otc" ? (a.side === "buyer" ? "Buyer" : "Seller") : d.mode === "drop" ? `L${lotIdx(a.lot) + 1}·${n}` : `${n}`;
+      const name = d.mode === "otc" ? (a.side === "buyer" ? "The buyer's limit" : "The seller's limit") : d.mode === "drop" ? `Bid ${n} · Lot ${lotIdx(a.lot) + 1}` : `${sells ? "Offer" : "Bid"} ${n}`;
+      return { key: String(a.leaf_index), label, name, price: Number(a.price_zats), won: Number(a.fill ?? 0) > 0, faint: /below_reserve|not_allowlisted|cancel/.test(a.outcome ?? ""), word: o.word };
+    });
+  const ladderLine = d.mode !== "drop" && d.clearing_price_zats && d.clearing_price_zats !== "0" ? { value: Number(d.clearing_price_zats), label: d.mode === "otc" ? "Trade price" : sells ? "Price paid" : "Clearing price" } : undefined;
 
   return (
     <div>
       {/* The round's own doodle from the sky, then its name: the page is the door you came through. */}
       <div className="flex items-center gap-5">
-        <Glyph name={glyphFor(d.mode, d.id)} className="size-16 sm:size-20" />
+        <Glyph name={glyphFor(d.mode, d.id)} className="page-door size-16 sm:size-20" />
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="min-w-0 break-words" data-testid="ticket-title">{d.lot ?? `${MODE_NAME[d.mode]} round`}</h1>
@@ -127,6 +140,7 @@ export default function AuctionView() {
             )}
           </Panel>
 
+          {opened && ladder.length > 0 && <BidLadder rows={ladder} line={ladderLine} title={ladderLine?.label ?? "Highest bid"} sub={`${ladder.length} ${d.mode === "otc" ? "limits" : sells ? "offers" : "bids"}, opened · hover one to see it`} />}
           <Panel><Timeline steps={steps} testid="timeline" /><p className="mt-4 text-[12.5px] text-app-faint">Times in your local time{zone() ? ` (${zone()})` : ""}.</p></Panel>
 
           <div className="min-w-0">

@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api, MODE_NAME } from "../../lib/api";
 import { ABOUT, DOOR, MARKETS, type Market } from "../../lib/glyphs";
 import { addParty, addStarted } from "../../lib/mine";
-import { Btn, Glyph, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
+import { Btn, Glyph, PageHead, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
 
 const FOR = ABOUT;
 
@@ -21,8 +21,7 @@ export default function StartView() {
   }, []);
   if (!market) return (
     <div>
-      <h1>Start a round</h1>
-      <p className="mt-1.5 text-app-muted">Choose how you want to sell or buy.</p>
+      <PageHead glyph="quill" title="Start a round" sub="Choose how you want to sell or buy." />
       <ul className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="start-markets">
         {MARKETS.map((m) => (
           <li key={m}>
@@ -110,11 +109,8 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
   );
   return (
     <div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h1>New {marketTitle(MODE_NAME[market])} round</h1>
-        <button type="button" onClick={onChange} className="text-[14px] text-app-muted hover:text-app-text">Change market</button>
-      </div>
-      <p className="mt-1.5 text-app-muted">{FOR[market]}</p>
+      <PageHead glyph="quill" title={`New ${marketTitle(MODE_NAME[market])} round`} sub={FOR[market]}
+        aside={<button type="button" onClick={onChange} className="text-[14px] text-app-muted hover:text-app-text">Change market</button>} />
       <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <form onSubmit={go} className="grid content-start gap-4" data-testid="start-form" noValidate>
           <Panel>

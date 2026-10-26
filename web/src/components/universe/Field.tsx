@@ -66,7 +66,7 @@ export default function Field({ doodles, center, pitch, onSelect, onNavigate = g
     camera.position.z = arrive && !still ? 5 : HOME_Z;
     cameraRef.current = camera;
     // A dive: the camera flies into a door, then the page changes.
-    let dive: { x: number; y: number; z: number; at: number; href: string } | null = null;
+    let dive: { x: number; y: number; z: number; at: number; href: string; entry: Entry } | null = null;
     // Two layers: the sea of background doodles, dust and streaks on a slightly blurred canvas (depth of field), and the
     // doodles you can click, sharp, on a transparent canvas over it. One camera drives both.
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -163,6 +163,19 @@ export default function Field({ doodles, center, pitch, onSelect, onNavigate = g
       if (pinned !== pitchPinned.current) { pitchPinned.current = pinned; setPitchOn(pinned || pitchHover.current); }
       if (entry) start(entry);
     };
+    // Leaving the sky for a page: a copy of the door, at the size it has grown to on screen, named "door" for the
+    // browser's page transition, so the page's own doodle grows out of it. Removed again when the sky swaps in place.
+    const handoff = (entry: Entry) => {
+      if (!("startViewTransition" in document)) return null;
+      const m = entry.mesh, half = (entry.size * m.scale.x) / 2, a = new THREE.Vector3(m.position.x - half, m.position.y + half, m.position.z).project(camera), b = new THREE.Vector3(m.position.x + half, m.position.y - half, m.position.z).project(camera);
+      const r = el.getBoundingClientRect(), W = r.width / 2, H = r.height / 2;
+      const left = r.left + a.x * W + W, top = r.top - a.y * H + H, w = (b.x - a.x) * W, h = (a.y - b.y) * H;
+      const g = document.createElement("span");
+      g.className = "glyph page-door";
+      g.style.cssText = `position:fixed;left:${left}px;top:${top}px;width:${w}px;height:${h}px;z-index:40;pointer-events:none;--g:url(${entry.doodle.src})`;
+      document.body.appendChild(g);
+      return g;
+    };
     // Into a doodle: a door dives and goes to its page; anything else is selected.
     const start = (entry: Entry) => {
       if (dive) return;
@@ -170,7 +183,7 @@ export default function Field({ doodles, center, pitch, onSelect, onNavigate = g
       const href = entry.doodle.href;
       if (!href) return select.current(entry.doodle);
       if (still) return navigate.current(href);
-      dive = { x: entry.mesh.position.x, y: entry.mesh.position.y, z: entry.mesh.position.z, at: clock.getElapsedTime(), href };
+      dive = { x: entry.mesh.position.x, y: entry.mesh.position.y, z: entry.mesh.position.z, at: clock.getElapsedTime(), href, entry };
     };
     diveRef.current = (key: string) => { const entry = entries.current.find((x) => x.doodle.key === key); if (entry) start(entry); };
     el.addEventListener("pointerdown", down);
@@ -192,7 +205,7 @@ export default function Field({ doodles, center, pitch, onSelect, onNavigate = g
 
     const clock = new THREE.Clock();
     // Back to this page from the browser's cache (Back after a dive): the view starts centred again, never mid-dive.
-    const shown = (e: PageTransitionEvent) => { if (!e.persisted) return; dive = null; camera.position.set(0, 0, HOME_Z); };
+    const shown = (e: PageTransitionEvent) => { document.querySelectorAll("body > span.page-door").forEach((n) => n.remove()); if (!e.persisted) return; dive = null; camera.position.set(0, 0, HOME_Z); };
     window.addEventListener("pageshow", shown);
     let frame = 0, last = 0;
     const v0 = new THREE.Vector3();
@@ -224,9 +237,9 @@ export default function Field({ doodles, center, pitch, onSelect, onNavigate = g
         camera.position.y += (dive.y - camera.position.y) * e * 0.35;
         camera.position.z += (dive.z + 1.2 - camera.position.z) * e * 0.3;
         if (k >= 1) {
-          const href = dive.href; dive = null;
+          const href = dive.href, door = handoff(dive.entry); dive = null;
           // Swapped in place: hide this sky until the next one is laid out, then come back out of the door.
-          if (navigate.current(href) === true) { arriving.current = true; g.visible = false; if (centerMesh.current) centerMesh.current.visible = false; }
+          if (navigate.current(href) === true) { door?.remove(); arriving.current = true; g.visible = false; if (centerMesh.current) centerMesh.current.visible = false; }
         }
       } else if (camera.position.z !== HOME_Z || camera.position.x !== 0 || camera.position.y !== 0) {
         const f = Math.min(dt * 4, 1);

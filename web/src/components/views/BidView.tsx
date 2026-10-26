@@ -100,7 +100,7 @@ function RoundSummary({ round, left, role }: { round: AuctionDetail; left: numbe
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-4">
-        <Glyph name={glyphFor(round.mode, round.id)} className="size-16" />
+        <Glyph name={glyphFor(round.mode, round.id)} className="page-door size-16" />
         <div className="min-w-0">
           <div className="text-[13px] text-app-faint">{MODE_NAME[round.mode]} · Zcash testnet</div>
           <h1 className="truncate" data-testid="ticket-title">{round.lot ?? "Round"}</h1>

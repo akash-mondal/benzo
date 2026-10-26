@@ -4,7 +4,7 @@
 // service's checks establish and what they don't, and how to run them yourself.
 import { useEffect, useRef, useState } from "react";
 import { api, MODE_NAME, short } from "../../lib/api";
-import { Btn, ErrorLine, Field, Panel, Pill, Tick, checkName, cx, fieldCls, when } from "../app/ui";
+import { Btn, ErrorLine, PageHead, Field, Panel, Pill, Tick, checkName, cx, fieldCls, when } from "../app/ui";
 import type { AuctionDetail, Check } from "../../lib/types";
 
 const GROUPS: [string, string[]][] = [
@@ -39,8 +39,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
   const counted = (d?.checks ?? []).filter((c) => c.status !== "not_applicable");
   return (
     <div>
-      <h1>Verify a round</h1>
-      <p className="mt-1.5 max-w-[640px] text-app-muted">Check a round's public record: its terms, which bids were in, how they opened and cleared, and the payments.</p>
+      <PageHead glyph="emblem-verify" title="Verify a round" sub="Check a round's public record: its terms, which bids were in, how they opened and cleared, and the payments." />
       {/* Phone: picker, result, then the notes. Desktop: picker and notes left, result right. */}
       <div className="mt-8 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[auto_1fr]">
           <Panel className="self-start lg:col-start-1 lg:row-start-1">

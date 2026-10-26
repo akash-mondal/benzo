@@ -133,3 +133,29 @@ export const when = (unix: number) => {
 export function Glyph({ name, className }: { name: string; className?: string }) {
   return <span aria-hidden="true" className={cx("glyph", className ?? "size-8")} style={{ ["--g" as string]: `url(/doodles/${name}.svg?v=2)` }} />;
 }
+
+// A page's head: the door's doodle you came through (the page transition lands on it), the title, one line.
+export function PageHead({ glyph, title, sub, aside }: { glyph: string; title: ReactNode; sub?: ReactNode; aside?: ReactNode }) {
+  return (
+    <div className="flex items-center gap-4 sm:gap-5">
+      <Glyph name={glyph} className="page-door size-12 sm:size-16" />
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1"><h1>{title}</h1>{aside}</div>
+        {sub && <p className="mt-1.5 text-app-muted">{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+// Opening a round from a list: the row's doodle takes the page transition's "door", so the round page's head doodle
+// grows out of the row you clicked. Back (from the browser's cache) gives the name back to the page's own head.
+export const claimDoor = (row: Element) => {
+  document.querySelectorAll(".page-door").forEach((n) => n.classList.replace("page-door", "page-door-off"));
+  row.querySelector(".glyph")?.classList.add("page-door");
+};
+if (typeof window !== "undefined")
+  window.addEventListener("pageshow", (e) => {
+    if (!e.persisted) return;
+    document.querySelectorAll(".page-door").forEach((n) => n.classList.remove("page-door"));
+    document.querySelectorAll(".page-door-off").forEach((n) => n.classList.replace("page-door-off", "page-door"));
+  });
