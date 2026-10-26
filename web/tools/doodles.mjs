@@ -201,6 +201,116 @@ add("knot", "Knot", "Swirls", "ornament", `<path d="${smooth([[60, 150], [40, 80
 add("teardrop-pair", "Teardrop Pair", "Blobs", "ornament", `<path d="M70 30 C96 70 112 96 106 126 A40 40 0 0 1 30 116 C34 84 52 62 70 30 Z" ${F}/><path d="M146 72 C164 100 178 120 172 144 A30 30 0 0 1 116 138 C118 114 132 96 146 72 Z" ${S(8)}/>`);
 add("grid-sphere", "Grid Sphere", "Spheres", "ornament", clip("gs", `<circle cx="100" cy="100" r="76"/>`, Array.from({ length: 9 }, (_, i) => `<rect x="${24 + i * 18}" y="0" width="7" height="200" ${F}/><rect x="0" y="${24 + i * 18}" width="200" height="7" ${F}/>`).join("")));
 
+// ---------- detailed redraws (Oct 26): engraved drawings for every doodle you can click ----------
+// The shader reads only alpha, so detail is geometry: solid bodies with engraved cuts (a mask of thin black lines),
+// rims, seams, rivets and hatching. Cuts are 3.5-5 units on the 200 grid, so they hold at field size and up close.
+const redo = (slug, body) => { const d = lib.find((x) => x.slug === slug); if (!d) throw new Error(`no doodle ${slug}`); d.svg = svg(body); };
+const C = (d, w = 4.5) => `<path d="${d}" fill="none" stroke="#000" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+const Cc = (cx, cy, r, w = 4.5) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#000" stroke-width="${w}"/>`;
+const Cd = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#000"/>`;
+const mask = (id, cuts) => `<defs><mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200"><rect width="200" height="200" fill="#fff"/>${cuts}</mask></defs>`;
+const L = (d, w = 4) => `<path d="${d}" fill="none" stroke="#fff" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round"/>`;
+const dot = (cx, cy, r) => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#fff"/>`;
+const hatch = (x0, x1, y0, y1, step, w = 3, slope = 1) => Array.from({ length: Math.ceil((x1 - x0 + (y1 - y0)) / step) }, (_, i) => `M${x0 + i * step - (y1 - y0) * slope} ${y1} L${x0 + i * step} ${y0}`).join(" ");
+const sparks = (pts) => pts.map(([x, y, r]) => `<path d="M${x} ${y - r} Q${x} ${y} ${x + r} ${y} Q${x} ${y} ${x} ${y + r} Q${x} ${y} ${x - r} ${y} Q${x} ${y} ${x} ${y - r} Z" fill="#fff"/>`).join("");
+
+// Uniform price: the gavel, banded head and ridged caps, a gripped handle, the sound block, the strike.
+redo("gavel", mask("gv", C("M64 58 V82 M136 58 V82") + C("M58 70 H142", 3) + C("M100 118 V148 M100 158 V164", 3.5) + C("M24 166 H120", 3) + Cd(42, 70, 3) + Cd(158, 70, 3)) +
+  `<g mask="url(#gv)" transform="rotate(-38 100 100)"><rect x="52" y="48" width="96" height="44" rx="12" fill="#fff"/><rect x="36" y="40" width="20" height="60" rx="8" fill="#fff"/><rect x="144" y="40" width="20" height="60" rx="8" fill="#fff"/><rect x="92" y="92" width="16" height="84" rx="8" fill="#fff"/></g>` +
+  `<g>${mask("gb", C("M30 172 H118", 3))}<rect mask="url(#gb)" x="22" y="160" width="104" height="24" rx="8" fill="#fff"/></g>` + L("M138 160 L156 150 M142 176 L164 176 M134 144 L146 128", 5));
+// OTC: two hollow arrows passing each other, a sealed coin between them.
+redo("swap-arrows", mask("sw", C("M44 72 H140 M126 58 L144 72 L126 86", 4) + C("M156 128 H60 M74 114 L56 128 L74 142", 4) + Cc(100, 100, 13, 3.5)) +
+  `<g mask="url(#sw)">${L("M34 72 H150 M120 42 L152 72 L120 102", 20)}${L("M166 128 H50 M80 98 L48 128 L80 158", 20)}</g>` + dot(100, 100, 9) + L("M18 72 h4 M178 128 h4", 6));
+// RFQ: the price tag with its eyelet, a looped string, quoted lines and a stitched edge.
+redo("price-tag", mask("pt", Cc(140, 58, 11, 5) + C("M94 108 L124 78 M80 104 L114 70 M88 128 L132 84", 5) + C("M106 34 H160 V88 L96 152 L46 102 Z", 3) + `<path d="M106 34 H160 V88 L96 152 L46 102 Z" fill="none" stroke="#000" stroke-width="3" stroke-dasharray="1 9" transform="translate(0 0)"/>`) +
+  `<path mask="url(#pt)" d="M100 22 H172 V94 L96 170 L28 102 Z" fill="#fff" stroke="#fff" stroke-width="8" stroke-linejoin="round"/>` + L("M140 58 C150 20 186 16 186 36 C186 52 166 54 158 42", 4.5));
+// Launch: a riveted rocket with a rimmed porthole, panel seams, finned tail and a two-tongue flame.
+redo("rocket", mask("rk", Cc(100, 72, 15, 5) + Cd(100, 72, 9) + C("M76 104 H124 M80 124 H120", 3.5) + C("M100 22 V40", 3) + Cd(82, 114, 2.6) + Cd(118, 114, 2.6) + C("M54 124 L46 140 M146 124 L154 140", 3) + C("M90 156 Q100 176 110 156", 3)) +
+  `<g mask="url(#rk)"><path d="M100 12 C138 42 146 94 132 138 H68 C54 94 62 42 100 12 Z" fill="#fff"/><path d="M70 100 L36 144 L40 158 L72 140 Z M130 100 L164 144 L160 158 L128 140 Z" fill="#fff"/><path d="M78 140 H122 V150 H78 Z" fill="#fff"/><path d="M84 152 C84 176 100 192 100 192 C100 192 116 176 116 152 Z" fill="#fff"/></g>` + sparks([[34, 40, 7], [168, 70, 5], [40, 86, 4]]));
+// Buyback: two hollow return arcs around a coin stamped with a Z.
+redo("loop-arrows", mask("la", C("M145 86 A50 50 0 0 0 58 74 M44 62 L58 76 L74 64", 4) + C("M55 114 A50 50 0 0 0 142 126 M156 138 L142 124 L126 136", 4) + C("M88 86 H112 L88 114 H112", 5) + Cc(100, 100, 30, 3)) +
+  `<g mask="url(#la)">${L("M154 84 A58 58 0 0 0 50 72 M32 56 L50 78 L74 60", 18)}${L("M46 116 A58 58 0 0 0 150 128 M168 144 L150 122 L126 140", 18)}<circle cx="100" cy="100" r="36" fill="#fff"/></g>`);
+// Drop: an isometric crate with planks, corner brackets, nails and a stencilled arrow.
+redo("crate", mask("cr", C("M100 94 V176 M32 60 L100 94 L168 60", 5) + C("M44 84 L90 107 M44 112 L90 135 M110 107 L156 84 M110 135 L156 112", 3.5) + C("M66 43 L134 77", 4) + [[38, 70], [38, 128], [94, 102], [94, 160], [106, 102], [106, 160], [162, 70], [162, 128]].map(([x, y]) => Cd(x, y, 2.6)).join("") + C("M130 128 V146 M122 138 L130 146 L138 138", 3.5)) +
+  `<path mask="url(#cr)" d="M100 22 L172 58 V142 L100 178 L28 142 V58 Z" fill="#fff" stroke="#fff" stroke-width="6" stroke-linejoin="round"/>`);
+// Bid: a sealed admission ticket: notched, perforated, a wax seal, printed lines and a serial.
+redo("emblem-bid", mask("eb", Cc(66, 100, 20, 4.5) + `<path d="M66 86 L70 96 L80 96 L72 102 L75 112 L66 106 L57 112 L60 102 L52 96 L62 96 Z" fill="#000"/>` + `<path d="M124 56 V144" stroke="#000" stroke-width="5" stroke-dasharray="1 11" stroke-linecap="round"/>` + C("M142 76 H164 M142 92 H160 M142 108 H164 M142 124 H156", 3.5) + C("M98 84 H110 M98 100 H112 M98 116 H108", 3) + `<path d="M30 56 H170 V84 A16 16 0 0 0 170 116 V144 H30 V116 A16 16 0 0 0 30 84 Z" fill="none" stroke="#000" stroke-width="2.5" transform="translate(100 100) scale(0.9) translate(-100 -100)"/>`) +
+  `<path mask="url(#eb)" d="M20 48 H180 V82 A18 18 0 0 0 180 118 V152 H20 V118 A18 18 0 0 0 20 82 Z" fill="#fff"/>`);
+// Start a round: a quill with a split nib, a rachis, combed barbs and an ink drop.
+redo("quill", mask("qu", C("M60 146 C88 104 118 66 148 26", 3.5) + Array.from({ length: 11 }, (_, i) => { const t = 0.12 + i * 0.075, x = 60 + (148 - 60) * t, y = 146 + (26 - 146) * t; return C(`M${f(x)} ${f(y)} l${f(10 - i * 0.3)} ${f(5 + i * 0.4)}`, 2.6) + C(`M${f(x)} ${f(y)} l${f(-5 - i * 0.2)} ${f(-9 + i * 0.2)}`, 2.6); }).join("")) +
+  `<path mask="url(#qu)" d="M156 16 C100 32 66 82 54 146 C100 134 146 92 156 16 Z" fill="#fff"/>` + `<path d="M56 140 L40 168 L46 174 L62 148 Z" fill="#fff"/>` + L("M36 176 L30 186", 4) + `<path d="M150 170 C158 180 158 188 150 190 C142 188 142 180 150 170 Z" fill="#fff"/>`);
+// Mine: a receipt with a header band, itemised lines and amounts, a total rule and a barcode.
+redo("emblem-receipt", mask("er", `<rect x="62" y="30" width="76" height="14" rx="4" fill="#000"/>` + C("M64 62 H112 M124 62 H138 M64 80 H104 M124 80 H138 M64 98 H116 M124 98 H138", 4) + C("M64 118 H138", 2.5) + C("M64 132 H96 M114 132 H138", 5) + Array.from({ length: 14 }, (_, i) => `<rect x="${64 + i * 5.3}" y="146" width="${i % 3 ? 2.2 : 3.6}" height="16" fill="#000"/>`).join("")) +
+  `<path mask="url(#er)" d="M48 16 H152 V182 L139 172 L126 182 L113 172 L100 182 L87 172 L74 182 L61 172 L48 182 Z" fill="#fff"/>`);
+// Verify: a rimmed lens with a glint, a check cut through the glass and a banded handle.
+redo("emblem-verify", mask("ev", Cc(86, 86, 48, 4) + C("M58 88 L78 108 L114 68", 12) + C("M56 56 A40 40 0 0 1 82 44", 4) + C("M134 128 L144 138 M146 140 L156 150", 4)) +
+  `<g mask="url(#ev)"><circle cx="86" cy="86" r="62" fill="#fff"/>${L("M128 128 L176 176", 22)}</g>` + dot(176, 176, 5));
+// Every lot: three filed folders with tabs, labels and a stitched spine.
+redo("emblem-lots", mask("el", C("M54 48 H96 M54 100 H112 M54 152 H128", 4.5) + C("M140 48 H150 M150 100 H160 M160 152 H170", 4.5) + `<path d="M30 74 H174 M22 126 H182" stroke="#000" stroke-width="3" stroke-dasharray="1 8" stroke-linecap="round"/>`) +
+  `<g mask="url(#el)"><path d="M36 30 H84 L92 38 H164 V66 H36 Z" fill="#fff"/><path d="M26 82 H90 L98 90 H174 V118 H26 Z" fill="#fff"/><path d="M16 134 H96 L104 142 H184 V170 H16 Z" fill="#fff"/></g>`);
+
+// The market's other round glyphs, each in the same engraved manner.
+redo("podium", mask("pd", C("M78 110 H122 M30 140 H66 M136 152 H170", 3.5) + `<text x="100" y="104" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="30" fill="#000">1</text><text x="47" y="134" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="22" fill="#000">2</text><text x="153" y="148" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="20" fill="#000">3</text>`) +
+  `<path mask="url(#pd)" d="M70 70 H130 V176 H70 Z M22 108 H70 V176 H22 Z M130 124 H178 V176 H130 Z" fill="#fff"/>` + `<path d="M100 18 L107 34 L124 35 L111 46 L115 63 L100 54 L85 63 L89 46 L76 35 L93 34 Z" fill="#fff"/>` + sparks([[60, 40, 6], [142, 46, 5]]));
+redo("auction-bell", mask("ab", C("M60 120 C60 90 74 74 100 72", 4) + C("M44 150 H156", 3) + Cc(100, 52, 6, 3)) +
+  `<g mask="url(#ab)"><path d="M40 150 C40 96 62 64 100 62 C138 64 160 96 160 150 Z" fill="#fff"/><rect x="24" y="148" width="152" height="22" rx="10" fill="#fff"/><circle cx="100" cy="52" r="13" fill="#fff"/></g>` + L("M150 40 L168 22 M160 62 L184 56 M40 40 L28 26", 6) + L("M60 180 H140", 4));
+redo("pact", mask("pc", Cc(40, 100, 18, 3.5) + Cc(160, 100, 18, 3.5) + C("M92 100 L100 92 L108 100 L100 108 Z", 3)) +
+  `<g mask="url(#pc)"><circle cx="40" cy="100" r="30" fill="#fff"/><circle cx="160" cy="100" r="30" fill="#fff"/><path d="M100 72 L128 100 L100 128 L72 100 Z" fill="#fff"/></g>` + `<path d="M70 100 H72 M128 100 H130" stroke="#fff" stroke-width="10"/>` + L("M40 140 V160 M160 140 V160 M40 160 H160", 5) + L("M100 128 V160", 5));
+redo("two-coins", mask("tc", Cc(126, 114, 38, 3.5) + C("M112 96 H140 L112 132 H140 M126 86 V96 M126 132 V142", 5) + Array.from({ length: 24 }, (_, i) => { const a = (i / 24) * Math.PI * 2; return C(`M${f(126 + Math.cos(a) * 44)} ${f(114 + Math.sin(a) * 44)} L${f(126 + Math.cos(a) * 49)} ${f(114 + Math.sin(a) * 49)}`, 2.5); }).join("")) +
+  `<circle cx="72" cy="84" r="48" fill="none" stroke="#fff" stroke-width="10"/>` + L("M58 62 H86 L58 106 H86", 6) + `<circle mask="url(#tc)" cx="126" cy="114" r="52" fill="#fff"/>`);
+redo("quote-bubble", mask("qb", C("M62 74 H138 M62 96 H120 M62 118 H104", 5) + `<text x="150" y="122" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="34" fill="#000">?</text>`) +
+  `<path mask="url(#qb)" d="M26 34 H174 V140 H90 L48 176 V140 H26 Z" fill="#fff" stroke="#fff" stroke-width="6" stroke-linejoin="round"/>` + dot(174, 34, 0));
+redo("ledger-sheet", mask("lg", C("M62 50 H138", 6) + C("M62 76 H106 M120 76 H138 M62 98 H106 M120 98 H138 M62 120 H106 M120 120 H138", 4) + C("M114 66 V130", 2.5) + C("M62 146 H138", 3) + C("M98 162 H138", 5)) +
+  `<rect mask="url(#lg)" x="38" y="20" width="124" height="162" rx="14" fill="#fff"/>` + `<path d="M140 20 L162 42 H140 Z" fill="#fff"/>`);
+redo("sprout", mask("sp", C("M100 104 C78 96 58 78 48 54", 3.5) + C("M100 92 C118 74 140 60 162 52", 3.5) + C("M66 82 L72 70 M82 94 L90 82 M122 80 L118 68 M140 68 L138 56", 2.6)) +
+  `<g mask="url(#sp)"><path d="M100 106 C58 110 34 82 32 42 C74 42 98 66 100 106 Z M100 94 C112 58 140 38 174 40 C172 80 142 100 100 94 Z" fill="#fff"/></g>` + L("M100 176 V96", 9) + `<path d="M48 178 C70 160 130 160 152 178 Z" fill="#fff"/>`);
+redo("flag", mask("fl", C("M70 46 C96 38 114 60 146 50", 3.5) + C("M70 70 C96 62 114 84 146 74", 3.5) + C("M70 94 C96 86 114 108 146 98", 3.5)) +
+  `<path mask="url(#fl)" d="M56 28 C92 12 118 44 160 28 V112 C118 128 92 96 56 112 Z" fill="#fff"/>` + L("M50 18 V184", 10) + dot(50, 16, 8) + `<path d="M30 184 H72 L66 172 H36 Z" fill="#fff"/>`);
+redo("return-coin", mask("rc", Cc(100, 100, 30, 3.5) + C("M88 86 H112 L88 114 H112 M100 76 V86 M100 114 V124", 5)) +
+  `<circle mask="url(#rc)" cx="100" cy="100" r="40" fill="#fff"/>` + L("M162 104 A62 62 0 1 1 134 48", 11) + `<path d="M114 24 L146 42 L120 68 Z" fill="#fff"/>` + L("M100 12 v6 M100 182 v6 M12 100 h6", 5));
+redo("basket", mask("bk", C("M40 104 H160 M44 130 H156 M50 154 H150", 3.5) + C("M70 86 L74 168 M100 86 V170 M130 86 L126 168", 3.5)) +
+  `<path mask="url(#bk)" d="M18 84 H182 L162 174 H38 Z" fill="#fff"/>` + L("M54 84 L86 26 M146 84 L114 26", 10) + dot(86, 24, 7) + dot(114, 24, 7) + `<rect x="10" y="76" width="180" height="14" rx="7" fill="#fff"/>`);
+redo("gift-box", mask("gf", C("M100 58 V176", 14) + C("M30 120 H170", 3) + C("M36 92 H164", 2.5)) +
+  `<g mask="url(#gf)"><rect x="30" y="84" width="140" height="94" rx="8" fill="#fff"/><rect x="20" y="58" width="160" height="32" rx="8" fill="#fff"/></g>` + L("M92 58 V178 M108 58 V178", 4) + `<path d="M100 56 C70 14 38 32 60 52 C68 60 86 58 100 56 Z M100 56 C130 14 162 32 140 52 C132 60 114 58 100 56 Z" fill="#fff"/>` + dot(100, 56, 8));
+redo("ticket-roll", mask("tr", Cc(70, 100, 40, 3) + Cc(70, 100, 26, 3) + Cd(70, 100, 10) + `<path d="M140 108 V136" stroke="#000" stroke-width="5" stroke-dasharray="1 9" stroke-linecap="round"/>` + C("M152 114 H176 M152 128 H170", 3.5)) +
+  `<circle mask="url(#tr)" cx="70" cy="100" r="56" fill="#fff"/><path mask="url(#tr)" d="M96 92 H186 V112 A8 8 0 0 0 186 128 V148 H96 Z" fill="#fff"/>`);
+
+// The pieces of a sealed bid (background, softened): each gains its own engraved detail.
+redo("sealed-envelope", mask("se", C("M30 60 L100 112 L170 60", 5) + C("M30 150 L80 104 M170 150 L120 104", 3.5) + Cc(100, 118, 20, 3.5) + `<text x="100" y="126" text-anchor="middle" font-family="Georgia,serif" font-weight="700" font-size="22" fill="#000">B</text>`) + `<rect mask="url(#se)" x="18" y="46" width="164" height="112" rx="12" fill="#fff"/>`);
+redo("padlock", mask("pl", Cc(100, 124, 12, 0) + Cd(100, 122, 11) + C("M100 128 V150", 9) + C("M56 104 H144 M56 162 H144", 3)) + L("M64 92 V66 A36 36 0 0 1 136 66 V92", 14) + `<rect mask="url(#pl)" x="42" y="88" width="116" height="92" rx="16" fill="#fff"/>`);
+redo("vault-door", mask("vd", Cc(100, 100, 60, 3.5) + Cc(100, 100, 22, 4) + Array.from({ length: 6 }, (_, i) => { const a = (i / 6) * Math.PI * 2; return C(`M${f(100 + Math.cos(a) * 28)} ${f(100 + Math.sin(a) * 28)} L${f(100 + Math.cos(a) * 52)} ${f(100 + Math.sin(a) * 52)}`, 6); }).join("") + Array.from({ length: 12 }, (_, i) => { const a = (i / 12) * Math.PI * 2; return Cd(f(100 + Math.cos(a) * 70), f(100 + Math.sin(a) * 70), 3); }).join("")) + `<circle mask="url(#vd)" cx="100" cy="100" r="80" fill="#fff"/>`);
+redo("magnifier", mask("mg", Cc(84, 84, 40, 3.5) + C("M62 60 A30 30 0 0 1 84 50", 4)) + `<g mask="url(#mg)"><circle cx="84" cy="84" r="54" fill="#fff"/></g>` + L("M124 124 L172 172", 20));
+redo("zec-coin", mask("zc", Cc(100, 100, 62, 3.5) + C("M74 72 H126 L74 128 H126 M100 52 V72 M100 128 V148", 11) + Array.from({ length: 36 }, (_, i) => { const a = (i / 36) * Math.PI * 2; return C(`M${f(100 + Math.cos(a) * 70)} ${f(100 + Math.sin(a) * 70)} L${f(100 + Math.cos(a) * 77)} ${f(100 + Math.sin(a) * 77)}`, 2.6); }).join("")) + `<circle mask="url(#zc)" cx="100" cy="100" r="80" fill="#fff"/>`);
+redo("shield-z", mask("sz2", C("M100 30 L154 50 V96 C154 134 130 158 100 170 C70 158 46 134 46 96 V50 Z", 3.5) + C("M74 68 H126 L74 128 H126", 14)) + `<path mask="url(#sz2)" d="M100 16 L168 40 V96 C168 142 136 170 100 184 C64 170 32 142 32 96 V40 Z" fill="#fff"/>`);
+redo("hourglass", mask("hg", C("M76 150 Q100 132 124 150", 3)) + L("M48 22 H152 M48 178 H152", 12) + L("M58 26 C58 78 100 86 100 100 C100 114 58 122 58 174 H142 C142 122 100 114 100 100 C100 86 142 78 142 26", 8) + `<path mask="url(#hg)" d="M72 166 Q100 124 128 166 Z" fill="#fff"/>` + `<path d="M84 60 Q100 74 116 60 Z" fill="#fff"/>` + L("M100 100 V150", 3) + L("M40 26 V174 M160 26 V174", 6));
+redo("merkle-tree", L("M100 46 L56 100 M100 46 L144 100 M56 100 L34 152 M56 100 L78 152 M144 100 L122 152 M144 100 L166 152", 6) + [[100, 42, 16], [56, 100, 14], [144, 100, 14], [34, 156, 12], [78, 156, 12], [122, 156, 12], [166, 156, 12]].map(([x, y, r], i) => `${mask("mk" + i, Cc(x, y, r - 5, 3) + Cd(x, y, 2.5))}<circle mask="url(#mk${i})" cx="${x}" cy="${y}" r="${r}" fill="#fff"/>`).join(""));
+
+// OTC, redrawn: two solid arrows passing, each grooved along its shaft, a sealed coin between them.
+redo("swap-arrows", mask("sw2", C("M44 72 H126", 3.5) + C("M156 128 H74", 3.5) + C("M132 58 L146 72 L132 86", 3) + C("M68 114 L54 128 L68 142", 3) + Cc(100, 100, 9, 3)) +
+  `<g mask="url(#sw2)">${L("M30 72 H130", 18)}<path d="M126 42 L164 72 L126 102 Z" fill="#fff" stroke="#fff" stroke-width="6" stroke-linejoin="round"/>${L("M170 128 H70", 18)}<path d="M74 98 L36 128 L74 158 Z" fill="#fff" stroke="#fff" stroke-width="6" stroke-linejoin="round"/><circle cx="100" cy="100" r="16" fill="#fff"/></g>`);
+
+// A detail pass on every doodle not redrawn by hand: a solid shape gets an engraved inner contour (its own outline,
+// drawn smaller as a cut), a thick line gets a groove down its middle (a thinner cut along it).
+const handDrawn = new Set(["gavel", "swap-arrows", "price-tag", "rocket", "loop-arrows", "crate", "emblem-bid", "quill", "emblem-receipt", "emblem-verify", "emblem-lots",
+  "podium", "auction-bell", "pact", "two-coins", "quote-bubble", "ledger-sheet", "sprout", "flag", "return-coin", "basket", "gift-box", "ticket-roll",
+  "sealed-envelope", "padlock", "vault-door", "magnifier", "zec-coin", "shield-z", "hourglass", "merkle-tree"]);
+for (const d of lib) {
+  if (handDrawn.has(d.slug)) continue;
+  const body = d.svg.replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
+  if (/<mask|clip-path|<text/.test(body)) continue; // already carries cuts or clipping of its own
+  // Grooves along thick strokes.
+  const grooves = [...body.matchAll(/<(path|circle|ellipse|rect)\b([^>]*?)stroke="#fff" stroke-width="([\d.]+)"([^>]*)\/>/g)]
+    .filter((m) => Number(m[3]) >= 9).map((m) => `<${m[1]}${m[2]}stroke="#000" stroke-width="${f(Number(m[3]) * 0.26)}"${m[4]}/>`).join("");
+  // Inner contours inside solid fills.
+  // (small dots and pips stay plain: an inner line on them reads as a crescent)
+  const big = (m) => { const a = m[0], n = (k) => Number(a.match(new RegExp(`\\b${k}="([\\d.]+)"`))?.[1] ?? 999); return m[1] === "circle" ? n("r") >= 18 : m[1] === "ellipse" ? Math.min(n("rx"), n("ry")) >= 14 : m[1] === "rect" ? Math.min(n("width"), n("height")) >= 30 : true; };
+  const contours = [...body.matchAll(/<(path|circle|ellipse|rect)\b([^>]*?)fill="#fff"([^>]*)\/>/g)].filter(big)
+    .map((m) => `<g transform="translate(100 100) scale(0.8) translate(-100 -100)"><${m[1]}${m[2]}fill="none" stroke="#000" stroke-width="4.5"${m[3].replace(/\bmask="[^"]*"/, "")}/></g>`).join("");
+  if (!grooves && !contours) continue;
+  const id = `dp-${d.slug}`;
+  d.svg = svg(`<defs><mask id="${id}" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200"><rect width="200" height="200" fill="#fff"/>${grooves}${contours}</mask></defs><g mask="url(#${id})">${body}</g>`);
+}
+
 // ---------- write ----------
 const index = [];
 for (const d of lib) {

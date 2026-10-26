@@ -3,7 +3,9 @@ import library from "../data/doodles.json";
 
 export type Doodle = { slug: string; name: string; category: string; group: "market" | "mechanism" | "page" | "ornament"; mode?: string };
 export const LIB = library as Doodle[];
-export const src = (slug: string) => `/doodles/${slug}.svg`;
+// ?v= changes when the drawings are redrawn, so a browser never keeps an old one.
+export const DOODLES_V = 2;
+export const src = (slug: string) => `/doodles/${slug}.svg?v=${DOODLES_V}`;
 
 // An auction's doodle: one of its mode's three glyphs, picked by its id, so a field of real rounds is not one shape repeated.
 export const glyphFor = (mode: string, id: string) => {

@@ -12,7 +12,7 @@ const links = [{ href: "/lots/", label: "Every lot" }, { href: "/mine/", label: 
       <div class="mx-auto flex h-14 max-w-[1120px] items-center justify-between gap-4 px-5 sm:px-8">
         <div class="flex min-w-0 items-center gap-3 sm:gap-5">
           <Back href={back} tone="app" />
-          <a href="/" class="hidden items-center gap-2 text-[15px] font-semibold tracking-tight text-app-text sm:flex"><img src="/doodles/sealed-envelope.svg" alt="" class="size-5" />Benzo</a>
+          <a href="/" class="hidden items-center gap-2 text-[15px] font-semibold tracking-tight text-app-text sm:flex"><img src="/doodles/sealed-envelope.svg?v=2" alt="" class="size-5" />Benzo</a>
         </div>
         <nav aria-label="Pages" class="flex items-center gap-1 text-[14px]">
           {links.map((l) => <a href={l.href} class:list={["hidden rounded-full px-3 py-1.5 transition-colors hover:text-app-text sm:inline", path.startsWith(l.href) ? "text-app-text" : "text-app-muted"]}>{l.label}</a>)}

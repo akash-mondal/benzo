@@ -61,7 +61,7 @@ export default function RequestView() {
   return (
     <div data-testid="request" data-status={r.status}>
       <div className="flex flex-wrap items-center gap-3">
-        <img src={`/doodles/${DOOR[marketOf(r.mode)]}.svg`} alt="" className="size-10 rounded-xl bg-app-1 p-2" />
+        <img src={`/doodles/${DOOR[marketOf(r.mode)]}.svg?v=2`} alt="" className="size-10 rounded-xl bg-app-1 p-2" />
         <h1 className="text-[28px]" data-testid="ticket-title">{r.lot}</h1>
         <Pill kind={kind}>{word}</Pill>
       </div>

@@ -28,7 +28,7 @@ export default function StartView() {
           <li key={m}>
             <button type="button" onClick={() => { setMarket(m); history.pushState({ benzoStep: 1 }, "", `/start/?market=${m}`); }}
               className="flex h-full w-full flex-col gap-4 rounded-[20px] bg-app-1 p-5 text-left transition-colors hover:bg-app-2" data-testid={`start-${m}`}>
-              <img src={`/doodles/${DOOR[m]}.svg`} alt="" className="size-10" />
+              <img src={`/doodles/${DOOR[m]}.svg?v=2`} alt="" className="size-10" />
               <span><span className="block text-[17px] font-semibold">{MODE_NAME[m]}</span><span className="mt-1 block text-[14px] text-app-muted">{FOR[m]}</span></span>
             </button>
           </li>
@@ -116,7 +116,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
           <div className="mb-2 text-[13px] text-app-faint">What bidders will see</div>
           <Panel>
             <div className="flex items-center gap-3">
-              <img src={`/doodles/${DOOR[market]}.svg`} alt="" className="size-10 rounded-xl bg-app-2 p-2" />
+              <img src={`/doodles/${DOOR[market]}.svg?v=2`} alt="" className="size-10 rounded-xl bg-app-2 p-2" />
               <div className="min-w-0"><div className="truncate text-[17px] font-semibold">{f.lot || "Untitled"}</div><div className="text-[13px] text-app-muted">{MODE_NAME[market]}</div></div>
             </div>
             <dl className="mt-5 grid gap-2.5 text-[14px]">

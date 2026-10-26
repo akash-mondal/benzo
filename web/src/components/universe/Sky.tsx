@@ -121,17 +121,20 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
     for (const slug of ["quill", "emblem-lots", "emblem-bid"]) void doodleTexture(src(slug), 1024);
   }, []);
 
+  const now = useRef({ selected: null as FieldDoodle | null, market: undefined as Market | undefined, close: () => {}, back: () => {} });
   const route = useCallback((d: FieldDoodle | null) => {
     window.history.replaceState({}, "", d?.auction ? `${base}?lot=${d.auction.id}` : base);
   }, [base]);
   const choose = useCallback((d: FieldDoodle) => { setSelected(d); route(d); }, [route]);
   const close = useCallback(() => { setSelected(null); route(null); }, [route]);
+  now.current = { selected, market, close, back };
   useEffect(() => {
-    // Escape closes the ticket first; with none open, a market's sky goes back to all markets.
-    const esc = (e: KeyboardEvent) => { if (e.key !== "Escape") return; if (selected) close(); else if (market) back(); };
+    // Escape closes the ticket first; with none open, a market's sky goes back to all markets. One listener reads the
+    // current state through refs (a listener re-made per render can still hold the state from before a card opened).
+    const esc = (e: KeyboardEvent) => { if (e.key !== "Escape") return; if (now.current.selected) now.current.close(); else if (now.current.market) now.current.back(); };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, [close, back, selected, market]);
+  }, []);
 
   // Deep link ?lot=<id>: open its ticket here, or on its market's screen when this sky does not hold it.
   useEffect(() => {

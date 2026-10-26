@@ -41,7 +41,7 @@ export default function BidView() {
   if (round === undefined) return <h1 className="py-16 text-[26px] text-app-muted" data-testid="ticket-title">Finding the round…</h1>;
   if (!round) return (
     <div className="mx-auto max-w-[520px] py-16 text-center">
-      <img src="/doodles/hourglass.svg" alt="" className="mx-auto size-14 opacity-80" />
+      <img src="/doodles/hourglass.svg?v=2" alt="" className="mx-auto size-14 opacity-80" />
       <h1 className="mt-6 text-[26px]" data-testid="ticket-title">No round is taking bids here</h1>
       <p className="mt-2 text-app-muted">This round has closed, or the link is old. Start your own, or pick a market.</p>
       <div className="mt-7 flex justify-center gap-3"><Btn href="/start/" testid="bid-start">Start a round</Btn><Btn href="/" kind="secondary">All markets</Btn></div>
@@ -75,7 +75,7 @@ function RoundSummary({ round, left }: { round: AuctionDetail; left: number | nu
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-4">
-        <img src={`/doodles/${glyphFor(round.mode, round.id)}.svg`} alt="" className="size-14 shrink-0 rounded-2xl bg-app-1 p-2.5" />
+        <img src={`/doodles/${glyphFor(round.mode, round.id)}.svg?v=2`} alt="" className="size-14 shrink-0 rounded-2xl bg-app-1 p-2.5" />
         <div className="min-w-0">
           <div className="text-[13px] text-app-faint">{MODE_NAME[round.mode]}</div>
           <h1 className="truncate text-[26px]" data-testid="ticket-title">{round.lot ?? "Live round"}</h1>

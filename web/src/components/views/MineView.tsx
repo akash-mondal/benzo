@@ -47,7 +47,7 @@ export default function MineView() {
                 const href = b.step === "pay" || (a?.live && st !== "admitted") ? `/bid/?id=${b.id}` : `/auction/?id=${b.id}&bid=${b.bid?.ciphertext_hash ?? ""}`;
                 return (
                   <li key={b.id}><a href={href} className="flex items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
-                    <img src={`/doodles/${a ? glyphFor(a.mode, a.id) : "sealed-envelope"}.svg`} alt="" className="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
+                    <img src={`/doodles/${a ? glyphFor(a.mode, a.id) : "sealed-envelope"}.svg?v=2`} alt="" className="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
                     <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{a?.lot ?? "A round"}{b.bid?.lot ? ` · ${b.bid.lot}` : ""}</span><span className="block text-[13px] text-app-faint tabular-nums">{a ? MODE_NAME[a.mode] : ""} · {zats(b.bid?.price_zats ?? 0)} zats</span></span>
                     <Pill kind={kind}>{word}</Pill>
                   </a></li>
@@ -57,7 +57,7 @@ export default function MineView() {
             {tab === "rounds" && (
               <ul data-testid="mine-rounds">{rounds.map((r) => (
                 <li key={r.rid}><a href={`/round/?r=${r.rid}&t=${r.token}`} className="flex items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
-                  <img src={`/doodles/${DOOR[marketOf(r.mode)]}.svg`} alt="" className="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
+                  <img src={`/doodles/${DOOR[marketOf(r.mode)]}.svg?v=2`} alt="" className="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
                   <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{r.lot}</span><span className="block text-[13px] text-app-faint">{MODE_NAME[r.mode]}</span></span>
                   {reqs[r.rid] && <Pill kind={reqs[r.rid].status === "open" ? "live" : reqs[r.rid].status === "failed" ? "bad" : "wait"}>{reqWord(reqs[r.rid])}</Pill>}
                 </a></li>

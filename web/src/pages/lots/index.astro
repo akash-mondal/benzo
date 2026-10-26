@@ -34,7 +34,7 @@ const tabs = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"
         <li data-market={marketOf(a.mode)} data-group={groupOf(a)}>
           <a href={`/auction/?id=${a.id}`} class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 sm:grid-cols-[minmax(0,1fr)_150px_150px_170px]" data-testid="lot-row">
             <span class="flex min-w-0 items-center gap-3">
-              <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg`} alt="" class="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
+              <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg?v=2`} alt="" class="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
               <span class="min-w-0"><span class="block truncate text-[15px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}</span><span class="block text-[13px] text-app-faint">{MODE_NAME[a.mode]} · {a.leaf_count ?? 0} bids</span></span>
             </span>
             <span><span class={`inline-flex h-6 items-center rounded-full px-2.5 text-[12.5px] font-medium ${STATE[groupOf(a)][1]}`}>{STATE[groupOf(a)][0]}</span></span>
