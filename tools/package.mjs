@@ -6,7 +6,7 @@
 // (tools/deterministic-tar.mjs): two builds — including one from a fresh clone — give
 // the identical sha256 recorded in docs/reproducible-build.md.
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { tarGz } from "./deterministic-tar.mjs";
 
@@ -25,7 +25,10 @@ execFileSync(process.execPath, ["tools/check-bundle.mjs"], { stdio: "inherit" })
 rmSync(path.join("tmp", "package"), { recursive: true, force: true });
 mkdirSync(path.join("dist"), { recursive: true });
 for (const dir of ["bin", "cli/dist", "seal/dist", "dist", "docs"]) mkdirSync(path.join(stage, dir), { recursive: true });
-const copy = (from, to) => cpSync(from, path.join(stage, to), { recursive: true, preserveTimestamps: true });
+// A native addon that npm compiled on install (node-gyp's build/ folder, marked by config.gypi) is skipped: macOS
+// installs none of them and each package falls back to plain JS, so the tarball is the same on Linux and macOS.
+const gypBuild = (src) => path.basename(src) === "build" && existsSync(path.join(src, "config.gypi"));
+const copy = (from, to) => cpSync(from, path.join(stage, to), { recursive: true, preserveTimestamps: true, filter: (src) => !gypBuild(src) });
 copy("bin/benzo", "bin/benzo");
 copy("cli/dist", "cli/dist");
 copy("seal/dist", "seal/dist");
