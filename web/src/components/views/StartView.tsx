@@ -3,18 +3,11 @@
 // get invite links on the next screen.
 import { useEffect, useState } from "react";
 import { api, MODE_NAME } from "../../lib/api";
-import { DOOR, MARKETS, type Market } from "../../lib/glyphs";
+import { ABOUT, DOOR, MARKETS, type Market } from "../../lib/glyphs";
 import { addParty, addStarted } from "../../lib/mine";
 import { Btn, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
 
-const FOR: Record<Market, string> = {
-  uniform: "Sell several units. Every winner pays the same price.",
-  drop: "Sell a few named items. Each goes to its best bid.",
-  launch: "Raise money in units. Everyone is refunded if the minimum isn't met.",
-  buyback: "Buy units back. Sellers send sealed asks against your budget.",
-  otc: "One buyer, one seller. You trade if your limits cross.",
-  rfq: "Ask a few dealers for sealed quotes. The best quote wins.",
-};
+const FOR = ABOUT;
 
 export default function StartView() {
   const q = new URLSearchParams(location.search);

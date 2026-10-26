@@ -17,3 +17,13 @@ export type Market = (typeof MARKETS)[number];
 export const DOOR: Record<Market, string> = { uniform: "gavel", otc: "swap-arrows", rfq: "price-tag", launch: "rocket", buyback: "loop-arrows", drop: "crate" };
 export const marketOf = (mode: string): Market => (mode === "vickrey" ? "uniform" : (mode as Market));
 
+
+// What each market is for, in a person's words (the hover on its door, and the start page).
+export const ABOUT: Record<Market, string> = {
+  uniform: "Sell several units. Every winner pays the same price.",
+  drop: "Sell a few named items. Each goes to its best bid.",
+  launch: "Raise money in units. Everyone is refunded if the minimum isn't met.",
+  buyback: "Buy units back. Sellers send sealed asks against your budget.",
+  otc: "One buyer, one seller. You trade if your limits cross.",
+  rfq: "Ask a few dealers for sealed quotes. The best quote wins.",
+};

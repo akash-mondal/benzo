@@ -358,7 +358,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
           className="pointer-events-none absolute left-0 top-0 z-10 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
       ))}
       {label && (
-        <span className="pointer-events-none absolute z-10 flex -translate-x-1/2 items-baseline gap-2 bg-sand px-2.5 py-1 font-sans text-[13px] font-medium whitespace-nowrap text-ink" style={{ left: pointer.x, top: pointer.y + 24 }} data-testid="hover-pill">
+        <span className="pointer-events-none absolute z-30 flex w-max max-w-[240px] -translate-x-1/2 flex-col gap-0.5 rounded-lg bg-sand px-3 py-2 font-sans text-[13px] leading-snug text-ink" style={{ left: pointer.x, top: pointer.y + 24 }} data-testid="hover-pill">
           {label.name}
           {label.tag && <span className={label.name ? "text-muted" : ""}>{label.tag}</span>}
         </span>

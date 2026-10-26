@@ -52,7 +52,7 @@ test("home: every doodle is a door — a market door dives into that market's sk
   await expect(page).toHaveURL(/\/markets\/drop\/$/);
   await expect(page.locator("h1")).toContainText("rounds on Zcash testnet");
   await ready(page);
-  const round = await hover(page, /(Settled|Refunded|Running|Stopped|Live)$/);
+  const round = await hover(page, /^(Sold at|Didn't sell|Closed without a sale|Taking sealed bids|Bids closed|Stopped part-way)/);
   expect(round, "no round found under the pointer").not.toBeNull();
   await page.mouse.click(round![0], round![1]);
   const card = page.getByTestId("card");

@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Field from "./Field";
 import Card from "./Card";
 import { api, MODE_NAME } from "../../lib/api";
-import { DOOR, LIB, MARKETS, glyphFor, marketOf, src, type Market } from "../../lib/glyphs";
+import { ABOUT, DOOR, LIB, MARKETS, glyphFor, marketOf, src, type Market } from "../../lib/glyphs";
 import type { AuctionSummary, FieldDoodle } from "../../lib/types";
 import { doodleTexture } from "./shaders";
 
@@ -15,7 +15,11 @@ const IN_PROGRESS = new Set(["OPEN", "FROZEN", "SEALED-WAIT", "OPENED", "CLEARED
 // The home sky shows finished rounds and ones really moving; a market's own sky shows every round, stopped test runs too.
 const showable = (a: AuctionSummary, now: number) => a.live || a.state === "SETTLED" || a.state === "CANCELLED" || moving(a, now);
 const moving = (a: AuctionSummary, now: number) => IN_PROGRESS.has(a.state) && now - a.updated < DAY / 4;
-const tagOf = (a: AuctionSummary, now = Date.now() / 1000) => (a.live ? "Live" : a.state === "CANCELLED" ? "Refunded" : a.state === "SETTLED" ? "Settled" : moving(a, now) ? "Running" : "Stopped");
+// A round on hover, as a person would say it.
+const tagOf = (a: AuctionSummary, now = Date.now() / 1000) => a.live ? "Taking sealed bids now"
+  : a.state === "CANCELLED" ? "Didn't sell. Every deposit was returned."
+  : a.state === "SETTLED" ? (a.clearing_price_zats && a.clearing_price_zats !== "0" ? `Sold at ${Number(a.clearing_price_zats).toLocaleString("en-US")} zats` : "Closed without a sale. Deposits returned.")
+  : moving(a, now) ? "Bids closed. Opening and paying out." : "Stopped part-way in a test run";
 
 export const auctionDoodle = (a: AuctionSummary): FieldDoodle => ({
   key: `a:${a.id}`, src: src(glyphFor(a.mode, a.id)), slug: glyphFor(a.mode, a.id), name: a.lot ?? `${MODE_NAME[a.mode]} ${a.id.slice(0, 6)}`,
@@ -61,13 +65,13 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
       return { ...d, place: [Math.cos(t) * rx, Math.sin(t) * ry] as [number, number] };
     });
     if (!market) {
-      const doors = MARKETS.map((m, i) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), [1.35, 1.15, 1.25, 1.4, 1.1, 1.3][i], "market"));
+      const doors = MARKETS.map((m, i) => door(DOOR[m], MODE_NAME[m], ABOUT[m], marketPath(m), [1.35, 1.15, 1.25, 1.4, 1.1, 1.3][i], "market"));
       const pages = [
-        door("emblem-bid", "Bid", live ? `Open now · ${live.lot ?? MODE_NAME[live.mode]}` : "Next round soon", live ? `/bid/?id=${live.id}` : "/bid/", 1.2),
-        door("quill", "Start a round", "Any market", "/start/", 1.05),
-        door("emblem-receipt", "Mine", "Your bids and rounds", "/mine/", 0.9),
-        door("emblem-verify", "Verify", null, "/verify/", 1),
-        door("emblem-lots", "Every lot", `${auctions.length} rounds`, "/lots/", 0.85),
+        door("emblem-bid", "Bid", "Place a sealed bid. Nobody sees your price until the bids open.", live ? `/bid/?id=${live.id}` : "/bid/", 1.2),
+        door("quill", "Start a round", "Sell or buy something. Pick a market and set your terms.", "/start/", 1.05),
+        door("emblem-receipt", "Mine", "Your bids and the rounds you started.", "/mine/", 0.9),
+        door("emblem-verify", "Verify", "Check any round's result for yourself.", "/verify/", 1),
+        door("emblem-lots", "Every lot", "Every round so far, and how each one ended.", "/lots/", 0.85),
       ];
       // Markets across the top, actions along the bottom (one ring on a phone).
       const ring = narrow ? arc([...doors, ...pages], 90, 450, 0.33, 0.36, true) : [...arc(doors, 158, 22, 0.34, 0.31), ...arc(pages, 204, 336, 0.34, 0.31)];
@@ -82,9 +86,9 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
       .map((d) => { const max = narrow ? 12 : 18; return { ...d, name: d.name.length > max ? `${d.name.slice(0, max - 1).trimEnd()}…` : d.name }; });
     const n = auctions.filter((a) => marketOf(a.mode) === market).length;
     const actions = [
-      ...(live && marketOf(live.mode) === market ? [door("emblem-bid", "Bid", `Open now · ${live.lot ?? MODE_NAME[live.mode]}`, `/bid/?id=${live.id}`, 1.15)] : []),
-      door("quill", "Start a round", MODE_NAME[market], `/start/?market=${market}`, 1.1),
-      door("emblem-lots", "All rounds", `${n} rounds`, `/lots/?market=${market}`, 0.95),
+      ...(live && marketOf(live.mode) === market ? [door("emblem-bid", "Bid", "Bid in the round that's open now.", `/bid/?id=${live.id}`, 1.15)] : []),
+      door("quill", "Start a round", `Open a new ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round with your own terms.`, `/start/?market=${market}`, 1.1),
+      door("emblem-lots", "All rounds", `Every ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round so far, and how each ended.`, `/lots/?market=${market}`, 0.95),
     ];
     const top = rounds.length ? arc(rounds.map((d) => ({ ...d, scale: d.auction?.live ? 1.15 : 0.95 })), narrow ? 150 : 160, narrow ? 30 : 20, narrow ? 0.33 : 0.36, narrow ? 0.3 : 0.31) : [];
     return [...top, ...arc(actions, narrow ? 210 : 205, narrow ? 330 : 335, narrow ? 0.33 : 0.33, narrow ? 0.3 : 0.31), ...ornaments(narrow)];
