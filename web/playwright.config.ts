@@ -17,10 +17,11 @@ export default defineConfig({
     acceptDownloads: true,
   },
   webServer: process.env.BNZ_WEB_TEST_URL ? undefined : {
-    command: `node gateway/dist/server.mjs --port ${PORT}`, url: `http://127.0.0.1:${PORT}/api/chain`, reuseExistingServer: false, timeout: 60_000,
+    // Started rounds go to a scratch folder (wiped per run), never the operator's state.
+    command: `rm -rf tmp/requests-e2e && BNZ_WEB_REQUESTS_DIR=tmp/requests-e2e BNZ_WEB_REQUEST_PER_IP=1000 BNZ_WEB_REQUEST_LIMIT=1000 node gateway/dist/server.mjs --port ${PORT}`, url: `http://127.0.0.1:${PORT}/api/chain`, reuseExistingServer: false, timeout: 60_000,
   },
   projects: [
-    { name: "offline", testMatch: /(site|bid-offline)\.spec\.ts/ },
+    { name: "offline", testMatch: /(site|bid-offline|start)\.spec\.ts/ },
     { name: "live", testMatch: /live\.spec\.ts/, timeout: 3 * 3600_000 },
   ],
 });

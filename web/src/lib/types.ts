@@ -37,6 +37,15 @@ export type AuctionDetail = AuctionSummary & {
   valid: boolean;
   deposit_addresses: string[];
   free_slots: number | null;
+  funding: { address: string; amount_zats: string; house: boolean } | null; // the treasury budget a buyback or RFQ needs
+  request: string | null; // the site request that started it
+};
+
+// A round someone started on the site (gateway/requests.ts).
+export type RoundRequest = {
+  rid: string; mode: string; lot: string; lots: string[] | null; supply: number; status: "waiting" | "queued" | "open" | "failed";
+  auction_id: string | null; error: string | null; minutes: number; max_price_zats: string; reserve_zats: string; side: "buyer" | "seller" | null;
+  invites: { label: string; joined: boolean; token?: string }[]; budget_zats: string | null; manage: boolean; queue?: number | null; operator?: boolean;
 };
 
 export type FieldDoodle = {

@@ -22,7 +22,7 @@ export const auctionDoodle = (a: AuctionSummary): FieldDoodle => ({
 });
 const door = (slug: string, name: string, tag: string | null, href: string, scale: number, group: FieldDoodle["group"] = "page"): FieldDoodle =>
   ({ key: `d:${slug}:${href}`, src: src(slug), slug, name, category: "", group, tag, scale, href });
-const ornaments = (narrow: boolean): FieldDoodle[] => LIB.filter((d) => d.group === "ornament" || d.group === "mechanism").filter((_, i) => !narrow || i % 2 === 0)
+const ornaments = (narrow: boolean): FieldDoodle[] => LIB.filter((d) => (d.group === "ornament" || d.group === "mechanism") && d.slug !== "quill").filter((_, i) => !narrow || i % 2 === 0)
   .map((d) => ({ key: `o:${d.slug}`, src: src(d.slug), slug: d.slug, name: d.name, category: d.category, group: "ornament", tag: null, ambient: true }));
 const marketPath = (m: Market) => `/markets/${m}/`;
 
@@ -48,7 +48,9 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
       const doors = MARKETS.map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 2.2, "market"));
       const pages = [
         door("emblem-bid", live ? `Bid in ${live.lot ?? "the live round"}` : "Bid", live ? "Open now" : "Next round soon", live ? `/bid/?id=${live.id}` : "/bid/", 1.6),
-        door("emblem-verify", "Verify a round", "Anyone can", "/verify/", 1.5),
+        door("quill", "Start a round", "Any market", "/start/", 1.6),
+        door("emblem-receipt", "Mine", "Your bids and rounds", "/mine/", 1.4),
+        door("emblem-verify", "Verify a round", null, "/verify/", 1.4),
         door("emblem-lots", "Every lot", `${auctions.length} rounds`, "/lots/", 1.5),
       ];
       // Each market's newest rounds (and any live one) float here too; the rest wait behind its door.
@@ -61,9 +63,10 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
     const rounds = auctions.filter((a) => marketOf(a.mode) === market).sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated)
       .slice(0, narrow ? 18 : undefined).map(auctionDoodle);
     const home = door("sealed-envelope", "All markets", "Benzo", "/", 1.8);
+    const start = door("quill", `Start a ${MODE_NAME[market].toLowerCase()} round`, null, `/start/?market=${market}`, 1.8);
     const others = MARKETS.filter((m) => m !== market).map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 1.4, "market"));
     const bid = live && marketOf(live.mode) !== market ? [door("emblem-bid", `Bid in ${live.lot ?? "the live round"}`, "Open now", `/bid/?id=${live.id}`, 1.4)] : [];
-    return [...rounds, home, ...others, ...bid, ...ornaments(narrow)];
+    return [...rounds, start, home, ...others, ...bid, ...ornaments(narrow)];
   }, [auctions, market, live?.id]);
 
   const route = useCallback((d: FieldDoodle | null) => {

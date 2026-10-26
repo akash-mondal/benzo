@@ -13,6 +13,7 @@ import { deriveClaimOpenings } from "../../cli/published-beacon";
 import { tarDirectory } from "./tar";
 import { Intake } from "./intake";
 import { Runner } from "./runner";
+import { Requests } from "./requests";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const WEB = path.resolve(HERE, "../.."); // web/
@@ -68,7 +69,7 @@ function load(id: string, dir: string): Entry | null {
 }
 
 async function detail(e: Entry) {
-  if (e.detail && e.detailMtime === e.mtime) return { ...e.detail, live: runner?.isLive(e.id) ?? false };
+  if (e.detail && e.detailMtime === e.mtime) return { ...e.detail, live: runner?.isLive(e.id) ?? false, free_slots: runner?.freeSlots(e.id) ?? null };
   const pub = loadPublicAuction(e.dir);
   let openings: Map<number, string | null>;
   try { openings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); } catch { openings = new Map(); }
@@ -81,6 +82,7 @@ async function detail(e: Entry) {
     witness_certificates: pub.witnessCerts.length, checks, valid: checks.every((c) => c.ok),
     deposit_addresses: (pub.manifest as any).deposit_addresses ?? [], freeze: pub.frozen ? freezeBoard(pub) : null,
     free_slots: runner?.freeSlots(e.id) ?? null,
+    funding: runner?.funding(e.id) ?? null, request: requests.byAuction(e.id)?.rid ?? null,
   };
   e.detail = d; e.detailMtime = e.mtime;
   return d;
@@ -121,6 +123,8 @@ async function body(req: http.IncomingMessage): Promise<any> {
 
 let runner: Runner | null = null;
 const intake = new Intake(ROOT, STATE, (id) => runner?.isLive(id) ?? false);
+const requests = new Requests(STATE, (spec) => runner ? runner.enqueue(spec) : null);
+const ipOf = (req: http.IncomingMessage) => String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "").split(",")[0].trim();
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -132,6 +136,13 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, list);
       }
       if (parts[1] === "chain") return json(res, 200, await chainStatus());
+      // Rounds people start: create, read (the creator's token adds the invite links), and join with a party key.
+      if (parts[1] === "rounds" && parts.length === 2 && req.method === "POST") return json(res, 201, requests.create(await body(req), ipOf(req)));
+      if (parts[1] === "rounds" && parts.length === 3 && req.method === "GET") {
+        const v = requests.view(parts[2], url.searchParams.get("token"));
+        return v ? json(res, 200, { ...v, queue: runner?.queued() ?? null, operator: Boolean(runner) }) : json(res, 404, { error: "unknown round request" });
+      }
+      if (parts[1] === "rounds" && parts[3] === "join" && req.method === "POST") { const b = await body(req); return json(res, 200, requests.join(parts[2], String(b.invite ?? ""), String(b.key ?? ""))); }
       if (parts[1] === "auctions" && /^[0-9a-f]{64}$/.test(parts[2] ?? "")) {
         const id = parts[2], reg = registry().find((r) => r.id === id), e = reg && load(id, reg.dir);
         if (!e) return json(res, 404, { error: "unknown auction" });
@@ -145,8 +156,11 @@ const server = http.createServer(async (req, res) => {
           try { return json(res, 200, receiptShow(pub, parts[4])); } catch (err) { return json(res, 404, { error: (err as Error).message }); }
         }
         if (parts[3] === "slot" && req.method === "POST") {
-          if (!runner?.isLive(id)) return json(res, 409, { error: "this auction is not taking web bids" });
-          return json(res, 200, runner.reserveSlot(id));
+          if (!runner?.isLive(id)) return json(res, 409, { error: "this round is not taking bids" });
+          // OTC and RFQ: the party key picks the party's own slot.
+          const b = await body(req), rq = requests.byAuction(id), party = rq && typeof b.key === "string" ? requests.partyOf(rq.rid, b.key) : null;
+          if (rq && (rq.mode === "otc" || rq.mode === "rfq") && party === null) return json(res, 403, { error: "only this round's invited parties can bid" });
+          return json(res, 200, runner.reserveSlot(id, party ?? undefined));
         }
         if (parts[3] === "bids" && parts.length === 4 && req.method === "POST") return json(res, 202, intake.submit(id, await body(req)));
         if (parts[3] === "bids" && /^[0-9a-f]{64}$/.test(parts[4] ?? "")) return json(res, 200, intake.status(id, parts[4]));
@@ -175,6 +189,6 @@ const server = http.createServer(async (req, res) => {
 });
 
 // The house operator uses the signer hosts and the bidder wallet: opt-in only (never while another run uses them).
-if (argv.includes("--runner")) runner = new Runner(ROOT, STATE, intake);
+if (argv.includes("--runner")) runner = new Runner(ROOT, STATE, intake, (rid, id, error) => requests.created(rid, id, error));
 process.on("uncaughtException", (e) => process.stderr.write(`ERROR gateway ${e.message}\n`));
 server.listen(PORT, HOST, () => process.stdout.write(`benzo web gateway http://${HOST}:${PORT} state=${STATE}${runner ? " runner=on" : ""}\n`));

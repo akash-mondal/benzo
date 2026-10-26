@@ -14,12 +14,27 @@ export type Prepared = {
 };
 
 const repo = () => Promise.all([import("../../../../envelope/bid"), import("../../../../manifest/schema"), import("../../../../envelope/opening")]);
+// Each mode's sealed-order layout version (clear/registry.ts): uniform, Vickrey and buyback 0, launch 1, RFQ 2, OTC 3.
+const LAYOUT: Record<string, number> = { uniform: 0, vickrey: 0, buyback: 0, launch: 1, rfq: 2, otc: 3 };
+const modeOf = (m: any) => String(m.clearing?.mode ?? "uniform");
+// The signed manifest's own rules: the generic ones for uniform rounds; each other mode adds fields the generic check
+// does not know, so for those the signature (verifyRecord) and the fields this page uses are checked.
+function checkManifest(schema: any, m: any) {
+  if (modeOf(m) === "uniform" || modeOf(m) === "vickrey") return schema.validateManifest(m);
+  if (!(Array.isArray(m.deposit_addresses) && Array.isArray(m.envelope_keys) && m.envelope_keys.length === 3 && m.drand?.R > 0 && /^[0-9]+$/.test(m.C_zats))) throw new Error("this round's manifest is not one this page can bid in");
+}
+
+// A party key for OTC and RFQ rounds: made here, kept in this browser, its public half pinned in the round's manifest.
+export async function newPartyKey(): Promise<{ private_hex: string; public_hex: string }> {
+  const env = await import("../../../../envelope/index");
+  return env.generateOwnerKey();
+}
 
 // Check the operator's signature on the manifest against the signer the round published, and the manifest itself.
 export async function verifiedManifest(packet: any, signer: string) {
   const [, schema] = await repo();
   const m: any = schema.verifyRecord(packet, signer);
-  schema.validateManifest(m);
+  checkManifest(schema, m);
   return m;
 }
 
@@ -54,22 +69,27 @@ function memoParts(hex: string) {
   return { ct: hex.slice(14, 14 + len * 2), tag: hex.slice(14 + len * 2, 14 + (len + 18) * 2) };
 }
 
-export async function prepareSealedBid(args: { packet: any; signer: string; address: string; price_zats: string; refund_ua: string }): Promise<Prepared> {
+export async function prepareSealedBid(args: { packet: any; signer: string; address: string; price_zats: string; refund_ua: string; lot?: string; owner_private_hex?: string }): Promise<Prepared> {
   const [bid, schema, opening] = await repo();
   const m: any = schema.verifyRecord(args.packet, args.signer);
-  schema.validateManifest(m);
+  checkManifest(schema, m);
+  const lots: string[] | undefined = m.lots;
+  if (lots && !(args.lot && lots.includes(args.lot))) throw new Error("pick one of this round's lots");
+  if (!lots && args.lot) throw new Error("this round has a single lot");
   if (!m.deposit_addresses.includes(args.address)) throw new Error("that deposit address is not one of this round's");
   if (Date.now() / 1000 >= m.T_submit) throw new Error("bids for this round have closed");
   if (!/^[1-9][0-9]*$/.test(args.price_zats)) throw new Error("price must be a whole number of zats");
   const price = BigInt(args.price_zats);
   if (price < BigInt(m.reserve_zats ?? 0) || price > BigInt(m.B_max_zats)) throw new Error(`price must be between ${m.reserve_zats} and ${m.B_max_zats} zats`);
   if (BigInt(m.tick_zats ?? 1) > 1n && price % BigInt(m.tick_zats) !== 0n) throw new Error(`price must be a multiple of ${m.tick_zats} zats`);
-  const prep: any = bid.prepareBid({ auction_id: m.auction_id, price_zats: price, quantity: 1, destination_ua: args.refund_ua, envelope_public_hexs: m.envelope_keys, network: m.network });
+  let owner: { private_hex: string; public_hex: string } | undefined;
+  if (args.owner_private_hex) { const env = await import("../../../../envelope/index"); owner = { private_hex: args.owner_private_hex, public_hex: env.ownerPublic(args.owner_private_hex) }; }
+  const prep: any = bid.prepareBid({ auction_id: m.auction_id, price_zats: price, quantity: 1, destination_ua: args.refund_ua, envelope_public_hexs: m.envelope_keys, owner, network: m.network });
   const tag = prep.envelope_ct_hex ? schema.hash(Buffer.from(prep.envelope_ct_hex, "hex")).slice(0, 36) : "00".repeat(18);
   const sealed = await seal({
     opening: new Date((QUICKNET.genesis + (m.drand.R - 1) * QUICKNET.period) * 1000).toISOString(), auction: m.auction_id, price: args.price_zats, quantity: "1",
     collateral: m.C_zats, address: args.address, owner: prep.owner.public_hex, nonce: prep.nonce_hex, commitment: prep.settlement_commitment_hex,
-    envelope_tag: tag, layout_version: "0", binding: m.auction_id, holder: "",
+    envelope_tag: tag, layout_version: String(LAYOUT[modeOf(m)] ?? 0), binding: lots ? args.lot! : m.auction_id, holder: "",
   });
   const parts = memoParts(sealed.envelope);
   if (parts.tag !== tag) throw new Error("memo envelope tag mismatch");

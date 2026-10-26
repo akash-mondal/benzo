@@ -9,6 +9,10 @@ import { memoBindsEnvelope, memoSealedBid, memoTlockCiphertext } from "../../set
 import { sealedBidShape } from "../../envelope/opening";
 import { hash, verifyRecord } from "../../manifest/schema";
 
+// The round as the gateway's detail route serves it (the bid page reads its mode, manifest and request from here).
+const detail = (m: any, extra: Record<string, unknown> = {}) => ({ id: m.auction_id, mode: "uniform", state: "OPEN", lot: m.lot ?? null, lots: 1, supply: m.supply, C_zats: m.C_zats, T_submit: m.T_submit,
+  T_freeze: m.T_freeze, R: m.drand.R, release: 0, leaf_count: 0, clearing_price_zats: null, settled: false, live: true, updated: 0, manifest: m, request: null, funding: null, ...extra });
+
 test("seal a bid in the page; the record passes admission's rules and every signer opens the refund address", async ({ page, request }) => {
   const list = await (await request.get("/api/auctions")).json();
   const base = list.find((a: any) => a.mode === "uniform" && a.state === "SETTLED");
@@ -19,6 +23,7 @@ test("seal a bid in the page; the record passes admission's rules and every sign
   let submitted: any = null;
 
   await page.route("**/api/auctions", (r) => r.fulfill({ json: [{ id, mode: "uniform", state: "OPEN", lot: m.lot, lots: 1, supply: m.supply, C_zats: m.C_zats, T_submit: m.T_submit, T_freeze: m.T_freeze, R: m.drand.R, release, leaf_count: 0, clearing_price_zats: null, settled: false, live: true, updated: Math.floor(Date.now() / 1000) }] }));
+  await page.route(`**/api/auctions/${id}`, (r) => r.fulfill({ json: detail(m) }));
   await page.route(`**/api/auctions/${id}/slot`, (r) => r.fulfill({ json: { address, slot: 1, held_until: m.T_submit } }));
   await page.route(`**/api/auctions/${id}/packet`, (r) => r.fulfill({ json: { manifest: round.packet, signer: round.signer } }));
   await page.route(`**/api/auctions/${id}/bids`, async (r) => { submitted = r.request().postDataJSON(); await r.fulfill({ status: 202, json: { status: "queued", detail: "waiting for the deposit's 10 confirmations" } }); });
@@ -78,6 +83,7 @@ test("the bid page refuses a bad price and a malformed refund address before any
   const round = openRound(verifyRecord<any>((await (await request.get(`/api/auctions/${base.id}/packet`)).json()).manifest, (await (await request.get(`/api/auctions/${base.id}`)).json()).signer));
   const m = round.manifest, id = m.auction_id;
   await page.route("**/api/auctions", (r) => r.fulfill({ json: [{ id, mode: "uniform", state: "OPEN", lot: m.lot, lots: 1, supply: 1, C_zats: m.C_zats, T_submit: m.T_submit, T_freeze: m.T_freeze, R: m.drand.R, release: 0, leaf_count: 0, clearing_price_zats: null, settled: false, live: true, updated: 0 }] }));
+  await page.route(`**/api/auctions/${id}`, (r) => r.fulfill({ json: detail(m) }));
   await page.route(`**/api/auctions/${id}/slot`, (r) => r.fulfill({ json: { address: m.deposit_addresses[0], slot: 0, held_until: m.T_submit } }));
   await page.route(`**/api/auctions/${id}/packet`, (r) => r.fulfill({ json: { manifest: round.packet, signer: round.signer } }));
   await page.goto(`/bid/?id=${id}`);
@@ -89,4 +95,20 @@ test("the bid page refuses a bad price and a malformed refund address before any
   await page.getByTestId("bid-refund").fill("t1notashieldedaddress");
   await page.getByTestId("bid-seal").click();
   await expect(page.getByTestId("bid-error")).toContainText("unified address");
+});
+
+test("an RFQ round takes bids only from its invited dealers: a stranger sees that, a dealer bids under its own key", async ({ page, request }) => {
+  const list = await (await request.get("/api/auctions")).json();
+  const base = list.find((a: any) => a.mode === "uniform" && a.state === "SETTLED");
+  const round = openRound(verifyRecord<any>((await (await request.get(`/api/auctions/${base.id}/packet`)).json()).manifest, (await (await request.get(`/api/auctions/${base.id}`)).json()).signer));
+  const m = round.manifest, id = m.auction_id, rid = "0123456789abcdef";
+  await page.route("**/api/auctions", (r) => r.fulfill({ json: [{ ...detail(m, { mode: "rfq" }), manifest: undefined }] }));
+  await page.route(`**/api/auctions/${id}`, (r) => r.fulfill({ json: detail(m, { mode: "rfq", request: rid }) }));
+  await page.goto(`/bid/?id=${id}`);
+  await expect(page.getByTestId("bid-parties-only")).toBeVisible();
+  await expect(page.getByTestId("bid-form")).toHaveCount(0);
+  await page.evaluate((r) => localStorage.setItem("benzo:parties", JSON.stringify([{ rid: r, label: "Dealer 2", private_hex: "11".repeat(32), public_hex: "22".repeat(32) }])), rid);
+  await page.reload();
+  await expect(page.getByTestId("bid-party")).toContainText("Dealer 2");
+  await expect(page.getByText("Your quote")).toBeVisible();
 });

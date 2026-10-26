@@ -134,7 +134,9 @@ export default function Card({ doodle, onClose, signer }: { doodle: FieldDoodle;
           ? <a href={`/auction/?id=${a.id}`} className="relative block truncate pt-2.5 text-center font-sans text-base font-bold tracking-tight text-ink underline-offset-4 hover:underline" data-testid="card-open"><span data-testid="card-name">{name}</span> <span aria-hidden className="text-moss">→</span></a>
           : <p className="relative truncate pt-2.5 text-center font-sans text-base font-bold tracking-tight text-ink" data-testid="card-name">{name}</p>}
         <div className="relative -mx-3.5 grid grid-cols-2">
-          <Picker items={items} value={format} onChange={setFormat} />
+          {a?.live
+            ? <a href={`/bid/?id=${a.id}`} className={`${CONTROL} font-medium text-moss`} data-testid="card-bid">{a.mode === "buyback" || a.mode === "rfq" ? "Offer" : "Bid"} <span aria-hidden>→</span></a>
+            : <Picker items={items} value={format} onChange={setFormat} />}
           <button type="button" onClick={copy} aria-label="Copy" className={`${CONTROL} ${copied ? "text-moss hover:text-moss" : ""}`}>
             {copied ? "Copied" : "Copy"}
           </button>

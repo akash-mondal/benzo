@@ -1,5 +1,5 @@
 // Client for the site's gateway (web/gateway). Same origin in production; the dev server proxies /api.
-import type { AuctionDetail, AuctionSummary, Chain } from "./types";
+import type { AuctionDetail, AuctionSummary, Chain, RoundRequest } from "./types";
 
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(path, { headers: { accept: "application/json" } });
@@ -19,7 +19,10 @@ export const api = {
   packet: (id: string) => get<{ manifest: any; signer: string }>(`/api/auctions/${id}/packet`),
   chain: () => get<Chain>("/api/chain"),
   receipt: (id: string, ciphertextHash: string) => get<any>(`/api/auctions/${id}/receipt/${ciphertextHash}`),
-  slot: (id: string) => post<{ address: string; slot: number; held_until: number }>(`/api/auctions/${id}/slot`, {}),
+  slot: (id: string, key?: string) => post<{ address: string; slot: number; held_until: number }>(`/api/auctions/${id}/slot`, key ? { key } : {}),
+  start: (form: Record<string, unknown>) => post<{ rid: string; token: string; invites: { label: string; token: string }[] }>("/api/rounds", form),
+  request: (rid: string, token?: string | null) => get<RoundRequest>(`/api/rounds/${rid}${token ? `?token=${token}` : ""}`),
+  join: (rid: string, invite: string, key: string) => post<RoundRequest>(`/api/rounds/${rid}/join`, { invite, key }),
   submit: (id: string, record: { address: string; txid: string; envelope_hex: string; envelope_ct_hex: string; owner_sig_hex: string; ciphertext_hash: string }) =>
     post<{ status: string }>(`/api/auctions/${id}/bids`, record),
   bidStatus: (id: string, ciphertextHash: string) => get<{ status: "queued" | "waiting" | "admitted" | "refused"; detail: string; leaf_index?: number }>(`/api/auctions/${id}/bids/${ciphertextHash}`),

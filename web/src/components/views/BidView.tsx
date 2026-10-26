@@ -4,49 +4,67 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { Ticket, Part, Row, Button } from "../page/Ticket";
-import { api, short, thousands, utc, zec } from "../../lib/api";
+import { api, MODE_NAME, short, thousands, utc, zec } from "../../lib/api";
+import { partyFor, type PartyKey } from "../../lib/mine";
 import { glyphFor } from "../../lib/glyphs";
 import { clock, useCountdown } from "./useCountdown";
-import type { AuctionSummary } from "../../lib/types";
+import type { AuctionDetail } from "../../lib/types";
 
 type Saved = { step: "pay" | "track"; bid: any; txid?: string; savedKey?: boolean };
 const store = (id: string) => `benzo:bid:${id}`;
 const field = "w-full border border-ink/30 bg-white/50 px-3 py-2.5 font-sans text-[15px] text-ink outline-none focus:border-moss";
 
+// What the price means in each market, and its limits from the signed manifest.
+function priceRule(d: AuctionDetail, side: string | null) {
+  const m: any = d.manifest, lo = Number(m.reserve_zats ?? 0) || 10, hi = Number(m.buyback?.max_price_zats ?? m.rfq?.max_price_zats ?? m.B_max_zats);
+  const label = d.mode === "buyback" ? "Your ask" : d.mode === "rfq" ? "Your quote" : d.mode === "otc" ? (side === "seller" ? "Lowest price you accept" : "Highest price you pay") : "Your price";
+  return { label, lo: d.mode === "otc" ? 10 : lo, hi, tick: Number(m.tick_zats ?? 10) };
+}
+
 export default function BidView() {
   const q = new URLSearchParams(location.search);
-  const [round, setRound] = useState<AuctionSummary | null | undefined>(undefined);
+  const [round, setRound] = useState<AuctionDetail | null | undefined>(undefined);
   const [saved, setSaved] = useState<Saved | null>(null);
   useEffect(() => {
-    api.auctions().then((list) => {
-      const pick = list.find((a) => a.id === q.get("id") && a.live) ?? list.find((a) => a.live && a.state === "OPEN") ?? null;
-      setRound(pick);
-      if (pick) { const s = localStorage.getItem(store(pick.id)); if (s) setSaved(JSON.parse(s)); }
-    }).catch(() => setRound(null));
+    (async () => {
+      const list = await api.auctions();
+      const pick = list.find((a) => a.id === q.get("id") && a.live) ?? (q.get("id") ? null : list.find((a) => a.live && a.state === "OPEN")) ?? null;
+      const d = pick ? await api.auction(pick.id) : null;
+      setRound(d);
+      if (d) { const s = localStorage.getItem(store(d.id)); if (s) setSaved(JSON.parse(s)); }
+    })().catch(() => setRound(null));
   }, []);
   const keep = (s: Saved | null) => { setSaved(s); if (round) s ? localStorage.setItem(store(round.id), JSON.stringify(s)) : localStorage.removeItem(store(round.id)); };
   const left = useCountdown(round?.T_submit);
 
-  if (round === undefined) return <Ticket kind="Bid" title="Finding the live round…" />;
+  if (round === undefined) return <Ticket kind="Bid" title="Finding the round…" />;
   if (!round) return (
-    <Ticket kind="Bid" title="No round open" glyph="hourglass" caption="next round soon">
-      <p className="font-sans text-[14px]"><a className="text-moss underline underline-offset-4" href="/lots/">Every lot</a></p>
+    <Ticket kind="Bid" title="No round open here" glyph="hourglass">
+      <div className="flex flex-wrap gap-4"><Button href="/start/" testid="bid-start">Start a round</Button><Button quiet href="/">All markets</Button></div>
     </Ticket>
   );
+  const party = round.mode === "otc" || round.mode === "rfq" ? partyFor(round.request) : null;
   return (
-    <Ticket kind={`Live round · bids close ${utc(round.T_submit)}`} title={round.lot ?? "Live round"} glyph={glyphFor(round.mode, round.id)}
+    <Ticket kind={`${MODE_NAME[round.mode]} · bids close ${utc(round.T_submit)}`} title={round.lot ?? "Live round"} glyph={glyphFor(round.mode, round.id)}
       light={{ word: left ? `${clock(left)} left` : "Closed", color: left ? "bg-[#9fd36b]" : "bg-muted" }}
-      caption={<span>{round.leaf_count ?? 0} sealed so far · deposit {zec(round.C_zats)} TAZ · opens at round {thousands(round.R)}</span>}>
-      {!saved && <Form round={round} onSealed={(bid) => keep({ step: "pay", bid })} />}
-      {saved?.step === "pay" && <Pay round={round} s={saved} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid })} onRestart={() => keep(null)} />}
-      {saved?.step === "track" && <Track round={round} s={saved} onRestart={() => keep(null)} />}
+      caption={<span>{round.leaf_count ?? 0} sealed · deposit {zec(round.C_zats)} TAZ · opens at round {thousands(round.R)}</span>}>
+      {(round.mode === "otc" || round.mode === "rfq") && !party && !saved
+        ? <p className="font-sans text-[14px] text-muted" data-testid="bid-parties-only">Only this round's invited parties can bid.</p>
+        : <>
+          {!saved && <Form round={round} party={party} onSealed={(bid) => keep({ step: "pay", bid })} />}
+          {saved?.step === "pay" && <Pay round={round} s={saved} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid })} onRestart={() => keep(null)} />}
+          {saved?.step === "track" && <Track round={round} s={saved} onRestart={() => keep(null)} />}
+        </>}
     </Ticket>
   );
 }
 
-function Form({ round, onSealed }: { round: AuctionSummary; onSealed: (bid: any) => void }) {
+function Form({ round, party, onSealed }: { round: AuctionDetail; party: PartyKey | null; onSealed: (bid: any) => void }) {
   const q = new URLSearchParams(location.search);
+  const lots: string[] | undefined = (round.manifest as any).lots;
+  const rule = priceRule(round, party?.label === "Seller" ? "seller" : party?.label === "Buyer" ? "buyer" : null);
   const [price, setPrice] = useState(q.get("price") ?? "");
+  const [lot, setLot] = useState(lots?.[0] ?? "");
   const [refund, setRefund] = useState("");
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -54,34 +72,40 @@ function Form({ round, onSealed }: { round: AuctionSummary; onSealed: (bid: any)
     e.preventDefault(); setErr("");
     try {
       setBusy("Taking a deposit slot…");
-      const slot = await api.slot(round.id);
-      setBusy("Checking the operator's signature on the round…");
+      const slot = await api.slot(round.id, party?.public_hex);
+      setBusy("Checking the round's signature…");
       const packet = await api.packet(round.id);
-      setBusy("Sealing your price to round R…");
+      setBusy("Sealing…");
       const { prepareSealedBid } = await import("../../lib/bidder");
-      const bid = await prepareSealedBid({ packet: packet.manifest, signer: packet.signer, address: slot.address, price_zats: price.trim(), refund_ua: refund.trim() });
-      onSealed(bid);
+      const bid = await prepareSealedBid({ packet: packet.manifest, signer: packet.signer, address: slot.address, price_zats: price.trim(), refund_ua: refund.trim(), lot: lots ? lot : undefined, owner_private_hex: party?.private_hex });
+      onSealed({ ...bid, lot: lots ? lot : undefined });
     } catch (x) { setErr(String((x as Error).message)); } finally { setBusy(""); }
   };
   return (
     <form onSubmit={go} className="grid gap-5" data-testid="bid-form">
-      <Part title="Your price">
-        <label className="grid gap-1.5 font-sans text-[13px] text-muted">Price per unit, in zats (100 to 3,000, in steps of 10)
+      {party && <Row k="Bidding as" v={party.label} testid="bid-party" />}
+      {lots && (
+        <Part title="Lot">
+          <select value={lot} onChange={(e) => setLot(e.target.value)} className={field} data-testid="bid-lot">{lots.map((l) => <option key={l}>{l}</option>)}</select>
+        </Part>
+      )}
+      <Part title={rule.label}>
+        <label className="grid gap-1.5 font-sans text-[13px] text-muted">zats per unit · {thousands(rule.lo)} to {thousands(rule.hi)}, steps of {rule.tick}
           <input name="price" inputMode="numeric" required value={price} onChange={(e) => setPrice(e.target.value)} className={`${field} tabular`} data-testid="bid-price" />
         </label>
       </Part>
-      <Part title="Where your refund goes">
-        <label className="grid gap-1.5 font-sans text-[13px] text-muted">A shielded testnet address from your wallet (utest1…)
+      <Part title={round.mode === "buyback" || round.mode === "rfq" || rule.label.startsWith("Lowest") ? "Where you get paid" : "Where your refund goes"}>
+        <label className="grid gap-1.5 font-sans text-[13px] text-muted">shielded testnet address · utest1…
           <input name="refund" required value={refund} onChange={(e) => setRefund(e.target.value)} spellCheck={false} className={`${field} text-[13px]`} data-testid="bid-refund" />
         </label>
       </Part>
       {err && <p className="font-sans text-[14px] text-[#9b2c2c]" data-testid="bid-error">{err}</p>}
-      <div className="flex items-center gap-4"><Button type="submit" disabled={!!busy} testid="bid-seal">{busy || "Seal my price"}</Button></div>
+      <div className="flex items-center gap-4"><Button type="submit" disabled={!!busy} testid="bid-seal">{busy || "Seal"}</Button></div>
     </form>
   );
 }
 
-function Pay({ round, s, onKey, onPaid, onRestart }: { round: AuctionSummary; s: Saved; onKey: () => void; onPaid: (txid: string) => void; onRestart: () => void }) {
+function Pay({ round, s, onKey, onPaid, onRestart }: { round: AuctionDetail; s: Saved; onKey: () => void; onPaid: (txid: string) => void; onRestart: () => void }) {
   const [qr, setQr] = useState("");
   const [txid, setTxid] = useState("");
   const [err, setErr] = useState("");
@@ -138,7 +162,7 @@ function Pay({ round, s, onKey, onPaid, onRestart }: { round: AuctionSummary; s:
   );
 }
 
-function Track({ round, s, onRestart }: { round: AuctionSummary; s: Saved; onRestart: () => void }) {
+function Track({ round, s, onRestart }: { round: AuctionDetail; s: Saved; onRestart: () => void }) {
   const [st, setSt] = useState<{ status: string; detail: string; leaf_index?: number } | null>(null);
   useEffect(() => {
     let gone = false;

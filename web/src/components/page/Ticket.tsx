@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Spinner } from "../universe/Card";
 
 export function Ticket({ kind, title, sub, light, glyph, caption, children, wide = false }: {
-  kind: string; title: string; sub?: ReactNode; light?: { word: string; color: string; glow?: string }; glyph?: string; caption?: ReactNode; children: ReactNode; wide?: boolean;
+  kind: string; title: string; sub?: ReactNode; light?: { word: string; color: string; glow?: string }; glyph?: string; caption?: ReactNode; children?: ReactNode; wide?: boolean;
 }) {
   return (
     <article className={`card-in mx-auto w-full ${wide ? "max-w-[720px]" : "max-w-[560px]"} bg-surface text-ink`} style={{ clipPath: "polygon(44px 0, 100% 0, 100% 100%, 0 100%, 0 44px)" }}>

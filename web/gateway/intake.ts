@@ -11,7 +11,7 @@ type Item = BidRecord & { auction_id: string; status: "queued" | "waiting" | "ad
 
 const HEX = (n: number) => new RegExp(`^[0-9a-f]{${n}}$`);
 // Admission refusals that only mean "not yet": the deposit is not mined, not confirmed, or not scanned.
-const NOT_YET = /deposit not unique or absent|deposit confirmation|lightwalletd|transport|timeout|ECONN|sync/i;
+const NOT_YET = /deposit not unique or absent|deposit confirmation|lightwalletd|transport|timeout|ECONN|sync|treasury funded/i;
 
 export class Intake {
   private dir: string;
