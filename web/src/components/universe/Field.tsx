@@ -45,6 +45,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
   const names = useRef(new Map<string, HTMLSpanElement>());
   const centerMesh = useRef<THREE.Mesh | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
+  const backGroup = useRef<THREE.Group | null>(null);
   const scene = sceneRef;
 
   // Scene, camera, dust, streaks and the input loop: built once.
@@ -61,14 +62,29 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
     cameraRef.current = camera;
     // A dive: the camera flies into a door, then the page changes.
     let dive: { x: number; y: number; z: number; at: number; href: string } | null = null;
+    // Two layers: the sea of background doodles, dust and streaks on a slightly blurred canvas (depth of field), and the
+    // doodles you can click, sharp, on a transparent canvas over it. One camera drives both.
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(el.clientWidth, el.clientHeight);
     renderer.domElement.setAttribute("aria-hidden", "true");
+    renderer.domElement.style.cssText = "position:absolute;inset:0;filter:blur(2px);transform:scale(1.015)";
     el.appendChild(renderer.domElement);
+    const front = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    front.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    front.setSize(el.clientWidth, el.clientHeight);
+    front.setClearColor(0x000000, 0);
+    front.domElement.setAttribute("aria-hidden", "true");
+    front.domElement.style.cssText = "position:absolute;inset:0";
+    el.appendChild(front.domElement);
+    const frontScene = new THREE.Scene();
+    frontScene.fog = new THREE.Fog(ground, 10, 26);
+    const back = new THREE.Group();
+    scene.add(back);
+    backGroup.current = back;
     const g = new THREE.Group();
-    scene.add(g);
-    sceneRef.current = scene;
+    frontScene.add(g);
+    sceneRef.current = frontScene;
     group.current = g;
 
     const dustTile = () => {
@@ -154,6 +170,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
       camera.aspect = el.clientWidth / el.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(el.clientWidth, el.clientHeight);
+      front.setSize(el.clientWidth, el.clientHeight);
       const t = dustTile();
       dustMat.uniforms.uTile.value.set(t.w, t.h);
     });
@@ -238,15 +255,16 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
         }
       }
       renderer.render(scene, camera);
+      front.render(frontScene, camera);
     };
     loop();
     return () => {
       cancelAnimationFrame(frame); resize.disconnect(); window.removeEventListener("pageshow", shown);
       el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up);
       el.removeEventListener("pointerleave", leave); el.removeEventListener("click", click);
-      g.children.forEach((m) => { const mesh = m as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
+      for (const grp of [g, back]) grp.children.forEach((m) => { const mesh = m as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
       dustGeo.dispose(); dustMat.dispose(); streaks.forEach((s) => { s.mesh.geometry.dispose(); s.material.dispose(); });
-      renderer.dispose(); el.removeChild(renderer.domElement);
+      renderer.dispose(); el.removeChild(renderer.domElement); front.dispose(); el.removeChild(front.domElement);
     };
   }, []);
 
@@ -259,8 +277,8 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
       // The doodles you can click are drawn sharp (they grow on hover and when you click in); the background stays light.
       const textures = await Promise.all(doodles.map((d) => doodleTexture(d.src, d.place ? 1024 : 256)));
       if (stale) return;
-      g.children.forEach((m) => { const mesh = m as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
-      g.clear();
+      const back = backGroup.current!;
+      for (const grp of [g, back]) { grp.children.forEach((m) => { const mesh = m as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); }); grp.clear(); }
       const el = host.current, aspect = el ? el.clientWidth / Math.max(el.clientHeight, 1) : 1.6;
       const tan = Math.tan(THREE.MathUtils.degToRad(29)), H = tan * 19.5 * 2, W = H * aspect; // the screen at the ornaments' depth
       tile.current = { w: W, h: H };
@@ -280,7 +298,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
           mesh.position.set(x, y, z);
           mesh.rotation.z = (hash01(k * 4.2) - 0.5) * 0.7;
           mesh.name = d.key;
-          g.add(mesh);
+          (ambient ? back : g).add(mesh);
           list.push({ mesh, doodle: d, size, baseX: x, baseY: y, phase: hash01(k * 5.5) * Math.PI * 2, bobSpeed: 0.25 + hash01(k * 6.1) * 0.5, spinSpeed: (hash01(k * 7.3) - 0.5) * 0.3, targetScale: 1, baseScale: 1 });
         });
       };
@@ -337,7 +355,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
     <div ref={host} className="absolute inset-0" data-testid="field">
       {doodles.filter((d) => d.place && (d.href || d.auction)).map((d) => (
         <span key={d.key} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
-          className="pointer-events-none absolute left-0 top-0 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
+          className="pointer-events-none absolute left-0 top-0 z-10 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
       ))}
       {label && (
         <span className="pointer-events-none absolute z-10 flex -translate-x-1/2 items-baseline gap-2 bg-sand px-2.5 py-1 font-sans text-[13px] font-medium whitespace-nowrap text-ink" style={{ left: pointer.x, top: pointer.y + 24 }} data-testid="hover-pill">

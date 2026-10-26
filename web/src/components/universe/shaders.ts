@@ -113,8 +113,10 @@ export const wrap = (v: number, size: number) => (((v + size / 2) % size) + size
 
 // An SVG drawn into a 256² canvas and flattened to white, so the shader reads only its alpha.
 const textureCache = new Map<string, Promise<THREE.Texture | null>>();
-export function doodleTexture(url: string, size = 256): Promise<THREE.Texture | null> {
-  const key = `${url}@${size}`;
+// soft: the background sea is drawn small and scaled up, which blurs it the same way in every browser (canvas
+// filters are not everywhere), so the doodles you can click stay the sharp ones.
+export function doodleTexture(url: string, size = 256, soft = false): Promise<THREE.Texture | null> {
+  const key = `${url}@${size}${soft ? "~" : ""}`;
   if (!textureCache.has(key))
     textureCache.set(key, new Promise((resolve) => {
       const img = new Image();
@@ -124,7 +126,13 @@ export function doodleTexture(url: string, size = 256): Promise<THREE.Texture | 
         const ctx = c.getContext("2d");
         if (!ctx) return resolve(null);
         const w = img.width || 64, h = img.height || 64, k = Math.min(size / w, size / h);
-        ctx.drawImage(img, (size - w * k) / 2, (size - h * k) / 2, w * k, h * k);
+        if (soft) {
+          const t = 22, small = document.createElement("canvas"); small.width = t; small.height = t;
+          const sx = small.getContext("2d")!, q = Math.min(t / w, t / h) * 0.86;
+          sx.drawImage(img, (t - w * q) / 2, (t - h * q) / 2, w * q, h * q);
+          ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(small, 0, 0, size, size);
+        } else ctx.drawImage(img, (size - w * k) / 2, (size - h * k) / 2, w * k, h * k);
         ctx.globalCompositeOperation = "source-in";
         ctx.fillStyle = "#ffffff";
         ctx.fillRect(0, 0, size, size);
