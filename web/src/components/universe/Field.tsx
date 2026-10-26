@@ -165,7 +165,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
       if (hit !== hovered.current) {
         hovered.current = hit;
         // A named doodle already shows its name under it: its pill carries only the detail (count, state), if any.
-        const named = hit && hit.doodle.place && hit.doodle.href;
+        const named = hit && hit.doodle.place && (hit.doodle.href || hit.doodle.auction);
         setLabel(hit && (!named || hit.doodle.tag) ? { name: named ? "" : hit.doodle.name, tag: hit.doodle.tag } : null);
       }
       if (dive) {
@@ -307,7 +307,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
 
   return (
     <div ref={host} className="absolute inset-0" data-testid="field">
-      {doodles.filter((d) => d.place && d.href).map((d) => (
+      {doodles.filter((d) => d.place && (d.href || d.auction)).map((d) => (
         <span key={d.key} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
           className="pointer-events-none absolute left-0 top-0 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
       ))}

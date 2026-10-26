@@ -62,17 +62,22 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
       const ring = narrow ? arc([...doors, ...pages], 90, 450, 0.33, 0.36, true) : [...arc(doors, 158, 22, 0.34, 0.31), ...arc(pages, 204, 336, 0.34, 0.31)];
       return [...ring, ...ornaments(narrow)];
     }
-    // As many rounds as the outer ring holds, newest (and live) first.
-    const rounds = auctions.filter((a) => marketOf(a.mode) === market).sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated)
-      .slice(0, narrow ? 16 : 44).map(auctionDoodle);
-    const start = door("quill", "Start a round", MODE_NAME[market], `/start/?market=${market}`, 1.15);
-    const home = door("sealed-envelope", "All markets", "Benzo", "/", 1);
-    const others = MARKETS.filter((m) => m !== market).map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 0.9, "market"));
-    const bid = live && marketOf(live.mode) !== market ? [door("emblem-bid", "Bid", `Open now · ${live.lot ?? MODE_NAME[live.mode]}`, `/bid/?id=${live.id}`, 0.9)] : [];
-    // The options on a ring around the market's name; its rounds on a wider ring outside them.
-    const ring = arc([start, ...others.slice(0, 3), home, ...others.slice(3), ...bid], 90, 450, narrow ? 0.3 : 0.27, narrow ? 0.26 : 0.27, true);
-    const outer = arc(rounds.map((d) => ({ ...d, scale: d.auction?.live ? 0.95 : 0.7 })), 90, 450, narrow ? 0.43 : 0.45, narrow ? 0.43 : 0.42, true);
-    return [...ring, ...outer, ...ornaments(narrow)];
+    // A market's screen: one ring. Across the top its live rounds and its latest finished ones (test runs that stopped
+    // part-way stay on the full list); along the bottom what you can do here.
+    const rounds = auctions.filter((a) => marketOf(a.mode) === market && showable(a, now))
+      .sort((a, b) => Number(b.live) - Number(a.live) || Number(b.state === "SETTLED") - Number(a.state === "SETTLED") || b.updated - a.updated)
+      .slice(0, narrow ? 3 : 6).map(auctionDoodle)
+      // Short names under the round: the lot, clipped, so labels never run into each other.
+      .map((d) => { const max = narrow ? 12 : 18; return { ...d, name: d.name.length > max ? `${d.name.slice(0, max - 1).trimEnd()}…` : d.name }; });
+    const n = auctions.filter((a) => marketOf(a.mode) === market).length;
+    const actions = [
+      ...(live && marketOf(live.mode) === market ? [door("emblem-bid", "Bid", `Open now · ${live.lot ?? MODE_NAME[live.mode]}`, `/bid/?id=${live.id}`, 1.15)] : []),
+      door("quill", "Start a round", MODE_NAME[market], `/start/?market=${market}`, 1.1),
+      door("emblem-lots", "All rounds", `${n} rounds`, `/lots/?market=${market}`, 0.95),
+      door("sealed-envelope", "All markets", null, "/", 0.95),
+    ];
+    const top = rounds.length ? arc(rounds.map((d) => ({ ...d, scale: d.auction?.live ? 1.15 : 0.95 })), narrow ? 150 : 160, narrow ? 30 : 20, narrow ? 0.33 : 0.36, narrow ? 0.3 : 0.31) : [];
+    return [...top, ...arc(actions, narrow ? 210 : 205, narrow ? 330 : 335, narrow ? 0.33 : 0.33, narrow ? 0.3 : 0.31), ...ornaments(narrow)];
   }, [auctions, market, live?.id]);
 
   const route = useCallback((d: FieldDoodle | null) => {

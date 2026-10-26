@@ -1,7 +1,7 @@
 ---
 import Shell from "../../components/page/Shell.astro";
 import { auctions } from "../../lib/server";
-import { glyphFor } from "../../lib/glyphs";
+import { glyphFor, marketOf } from "../../lib/glyphs";
 import { MODE_NAME, thousands, utc } from "../../lib/api";
 const list = await auctions();
 const now = Date.now() / 1000;
@@ -15,14 +15,14 @@ const groups = [
 <Shell title="Every lot – Benzo" description="Every auction Benzo ran on Zcash testnet, with its state and result.">
   <article class="card-in mx-auto w-full max-w-[720px] bg-surface text-ink" style="clip-path: polygon(44px 0, 100% 0, 100% 100%, 0 100%, 0 44px)">
     <div class="h-11"></div>
-    <h1 class="rise rise-1 px-6 pt-3 font-sans text-[clamp(1.75rem,1.2rem+2vw,2.5rem)]">{list.length} rounds on Zcash testnet</h1>
+    <h1 class="rise rise-1 px-6 pt-3 font-sans text-[clamp(1.75rem,1.2rem+2vw,2.5rem)]" data-all={`${list.length} rounds on Zcash testnet`}>{list.length} rounds on Zcash testnet</h1>
     <div class="px-6 pb-8 pt-2">
       {groups.map((g) => (
-        <section class="rise rise-3 mt-8" aria-label={g.word}>
+        <section class="rise rise-3 mt-8" aria-label={g.word} data-group>
           <h2 class="font-sans text-[15px] tracking-tight text-muted">{g.word} <span class="tabular">({g.rows.length})</span></h2>
           <ul class="mt-2">
             {g.rows.map((a) => (
-              <li>
+              <li data-market={marketOf(a.mode)}>
                 <a href={`/auction/?id=${a.id}`} class="group flex min-h-[44px] items-center gap-3 font-sans md:min-h-[38px]" data-testid="lot-row">
                   <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg`} alt="" class="size-6 flex-none bg-leaf-deep p-1" />
                   <span class="min-w-0 truncate text-[15px] text-ink group-hover:text-moss">{a.lot ?? MODE_NAME[a.mode]}</span>
@@ -36,4 +36,19 @@ const groups = [
       ))}
     </div>
   </article>
+  <script>
+    // ?market=<mode> (a market's "All rounds"): only that market's rounds.
+    import { MODE_NAME } from "../../lib/api";
+    const m = new URLSearchParams(location.search).get("market");
+    if (m && MODE_NAME[m]) {
+      let n = 0;
+      for (const li of document.querySelectorAll<HTMLElement>("li[data-market]")) { const on = li.dataset.market === m; li.hidden = !on; n += Number(on); }
+      for (const g of document.querySelectorAll<HTMLElement>("section[data-group]")) {
+        const shown = g.querySelectorAll("li[data-market]:not([hidden])").length;
+        g.hidden = shown === 0;
+        const c = g.querySelector(".tabular"); if (c) c.textContent = `(${shown})`;
+      }
+      document.querySelector("h1")!.textContent = `${n} ${MODE_NAME[m].toLowerCase()} rounds`;
+    }
+  </script>
 </Shell>
