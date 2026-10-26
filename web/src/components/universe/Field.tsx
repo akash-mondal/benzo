@@ -18,8 +18,9 @@ type Entry = {
 
 const go = (href: string) => { location.href = href; };
 
-export default function Field({ doodles, center, onSelect, onNavigate = go, onHover, arrive = false, ground = "#141a10" }: {
+export default function Field({ doodles, center, pitch, onSelect, onNavigate = go, onHover, arrive = false, ground = "#141a10" }: {
   doodles: FieldDoodle[];
+  pitch?: { title: string; line?: string }; // shown under the centre word while it's hovered (or tapped, on touch)
   onHover?: (d: FieldDoodle) => void; // a door under the pointer: the page can get the next screen ready
   center?: string; // a word pinned to the middle of the screen: the sky moves under it
   onSelect: (d: FieldDoodle) => void;
@@ -45,6 +46,9 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
   const names = useRef(new Map<string, HTMLElement>());
   const diveRef = useRef<((key: string) => void) | null>(null);
   const centerMesh = useRef<THREE.Mesh | null>(null);
+  const [pitchOn, setPitchOn] = useState(false);
+  const pitchHover = useRef(false), pitchPinned = useRef(false);
+  const pitchEl = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const backGroup = useRef<THREE.Group | null>(null);
   const scene = sceneRef;
@@ -153,6 +157,10 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
       ray.setFromCamera(mouse, camera);
       const hit = ray.intersectObjects(targets.current)[0]?.object;
       const entry = entries.current.find((x) => x.mesh === hit);
+      // A tap on the centre word shows its pitch (touch has no hover); a tap anywhere else puts it away.
+      const onWord = !entry && !!centerMesh.current && ray.intersectObject(centerMesh.current).length > 0;
+      const pinned = onWord ? !pitchPinned.current : false;
+      if (pinned !== pitchPinned.current) { pitchPinned.current = pinned; setPitchOn(pinned || pitchHover.current); }
       if (entry) start(entry);
     };
     // Into a doodle: a door dives and goes to its page; anything else is selected.
@@ -187,6 +195,8 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
     const shown = (e: PageTransitionEvent) => { if (!e.persisted) return; dive = null; camera.position.set(0, 0, HOME_Z); };
     window.addEventListener("pageshow", shown);
     let frame = 0, last = 0;
+    const v0 = new THREE.Vector3();
+    let focus = 0; // 0 → 1 while the centre word's pitch shows: the ring steps back so the pitch reads alone
     const loop = () => {
       frame = requestAnimationFrame(loop);
       const now = clock.getElapsedTime(), dt = Math.min(now - last, 0.1);
@@ -223,6 +233,19 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
         camera.position.x += -camera.position.x * f; camera.position.y += -camera.position.y * f; camera.position.z += (HOME_Z - camera.position.z) * f;
         if (Math.abs(HOME_Z - camera.position.z) < 0.01 && Math.abs(camera.position.x) < 0.01 && Math.abs(camera.position.y) < 0.01) camera.position.set(0, 0, HOME_Z);
       }
+      // The centre word under the pointer (and no door): its pitch fades in under it.
+      const cm = centerMesh.current, onWord = !hit && !dive && !!cm && cm.visible && ray.intersectObject(cm).length > 0;
+      if (onWord !== pitchHover.current) { pitchHover.current = onWord; setPitchOn(onWord || pitchPinned.current); }
+      focus += (Number(pitchHover.current || pitchPinned.current) - focus) * Math.min(dt * 8, 1);
+      if (cm) {
+        const want = pitchHover.current || pitchPinned.current ? 1.04 : 1;
+        cm.scale.setScalar(cm.scale.x + (want - cm.scale.x) * 0.12);
+        if (pitchEl.current) {
+          const hgt = (cm.geometry as THREE.PlaneGeometry).parameters.height * cm.scale.y;
+          v0.set(0, -hgt / 2, cm.position.z).project(camera);
+          pitchEl.current.style.top = `${(-v0.y * el.clientHeight / 2 + el.clientHeight / 2).toFixed(1)}px`;
+        }
+      }
       el.style.cursor = hit ? "pointer" : "default";
       for (const x of list) {
         // Nothing drifts: every doodle stays where it was laid out (only the dust and the odd streak move).
@@ -234,6 +257,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
         const u = x.mesh.material.uniforms;
         u.uTime.value = t;
         u.uHover.value += (Number(x === hit) - u.uHover.value) * 0.12;
+        if (u.uFade) u.uFade.value = 1 - 0.85 * focus;
       }
       // The names under the placed doodles follow their doodle on screen.
       const W2 = el.clientWidth / 2, H2 = el.clientHeight / 2, v = new THREE.Vector3();
@@ -244,7 +268,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
         v.set(x.mesh.position.x, x.mesh.position.y - (x.size * x.mesh.scale.x) / 2 - 0.08, x.mesh.position.z).project(camera);
         const sx = v.x * W2 + W2, sy = -v.y * H2 + H2, out = v.z > 1 || sx < -80 || sx > el.clientWidth + 80 || sy < -40 || sy > el.clientHeight + 40;
         span.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px) translateX(-50%)`;
-        span.style.opacity = out ? "0" : "1";
+        span.style.opacity = out ? "0" : String(1 - 0.85 * focus);
       }
       // The centre word: one, at the canvas origin; it moves with the canvas, never repeats.
       if (centerMesh.current) (centerMesh.current.material as THREE.ShaderMaterial).uniforms.uTime.value = t;
@@ -336,6 +360,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
         list.push({ mesh, doodle: d, size, baseX: x, baseY: y, phase: hash01(k * 5.5) * Math.PI * 2, bobSpeed: 0.25 + hash01(k * 6.1) * 0.4, spinSpeed: (hash01(k * 7.3) - 0.5) * 0.3, targetScale: 1, baseScale: 1 });
       });
       lay(all.filter((x) => x.d.ambient), true, 517);
+      pitchHover.current = false; pitchPinned.current = false; setPitchOn(false);
       if (centerMesh.current) { scene.current?.remove(centerMesh.current); centerMesh.current.geometry.dispose(); (centerMesh.current.material as THREE.Material).dispose(); centerMesh.current = null; }
       if (center) {
         await document.fonts.load(WORD_FONT).catch(() => undefined);
@@ -366,6 +391,13 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
           title={d.tag ?? undefined}
           className="absolute left-0 top-0 z-10 whitespace-nowrap rounded-md px-1.5 py-0.5 font-sans text-[13px] text-sand/80 outline-none transition-colors hover:text-sand focus-visible:text-sand focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-ground" style={{ opacity: 0 }}>{d.name}</a>
       ))}
+      {pitch && (
+        <div ref={pitchEl} aria-hidden={!pitchOn} data-testid="pitch" data-on={pitchOn}
+          className={`pointer-events-none absolute left-1/2 z-20 w-[min(520px,88vw)] -translate-x-1/2 -mt-4 text-center transition-all duration-300 ease-out ${pitchOn ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"}`}>
+          <p className={`font-serif italic text-sand ${pitch.line ? "text-[clamp(24px,3.2vw,34px)] leading-[1.1]" : "text-[clamp(18px,2.2vw,22px)] leading-snug"}`}>{pitch.title}</p>
+          {pitch.line && <p className="mx-auto mt-3 max-w-[460px] font-sans text-[15px] leading-relaxed text-sand/75">{pitch.line}</p>}
+        </div>
+      )}
       {label && (
         <span className="pointer-events-none absolute z-30 flex w-max max-w-[240px] -translate-x-1/2 flex-col gap-0.5 rounded-lg bg-sand px-3 py-2 font-sans text-[13px] leading-snug text-ink" style={{ left: pointer.x, top: pointer.y + 24 }} data-testid="hover-pill">
           {label.name}

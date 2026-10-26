@@ -11,6 +11,12 @@ import { ABOUT, DOOR, LIB, MARKETS, glyphFor, marketOf, src, type Market } from 
 import type { AuctionSummary, FieldDoodle } from "../../lib/types";
 import { doodleTexture } from "./shaders";
 
+// What Benzo is, shown only while the centre word is hovered (or tapped): the whole reach first, then how it holds.
+const PITCH = {
+  title: "Sealed-bid markets on Zcash",
+  line: "Auctions, drops, token launches, buybacks, OTC trades and dealer quotes. Bids stay sealed until a public time lock opens them, money moves shielded, and anyone can check the result.",
+};
+
 const DAY = 24 * 3600;
 const IN_PROGRESS = new Set(["OPEN", "FROZEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "REFUNDING"]);
 // The home sky shows finished rounds and ones really moving; a market's own sky shows every round, stopped test runs too.
@@ -156,7 +162,7 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
   const doors = doodles.filter((d) => d.href);
   return (
     <div className="absolute inset-0 overflow-hidden bg-ground">
-      <Field doodles={doodles} center={market ? MODE_NAME[market] : "Benzo"} onSelect={choose} onNavigate={navigate} onHover={warm} arrive={arrive} />
+      <Field doodles={doodles} center={market ? MODE_NAME[market] : "Benzo"} pitch={market ? { title: ABOUT[market] } : PITCH} onSelect={choose} onNavigate={navigate} onHover={warm} arrive={arrive} />
       {market && (
         <button type="button" onClick={back} data-testid="back" className="group absolute left-5 top-5 z-10 inline-flex h-11 items-center gap-1.5 font-sans text-[14px] text-sand/80 transition-colors hover:text-sand sm:left-7 sm:top-6">
           <svg className="size-4 transition-transform group-hover:-translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>All markets
