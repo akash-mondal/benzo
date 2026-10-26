@@ -1,0 +1,11 @@
+(node:76323) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ERROR xchain-demos Error: orb run -m benzo-alice -u benzo exited 1: ERROR xchain refused: xchain key already exists; refusing to replace it
+    at sh (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/xchain-demos.mjs:96327:30)
+    at host (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/xchain-demos.mjs:96332:17)
+    at hostBenzo (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/xchain-demos.mjs:96337:15)
+    at file:///Users/akshmnd/Dev%20Projects/benzo/tmp/xchain-demos.mjs:96350:16
+    at Array.map (<anonymous>)
+    at hostXchainKeys (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/xchain-demos.mjs:96347:16)
+    at liveDemo (file:///Users/akshmnd/Dev%20Projects/benzo/tmp/xchain-demos.mjs:96764:19)
+    at file:///Users/akshmnd/Dev%20Projects/benzo/tmp/xchain-demos.mjs:96917:64
