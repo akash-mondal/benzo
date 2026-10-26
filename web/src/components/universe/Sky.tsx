@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Field from "./Field";
 import Card from "./Card";
 import { api, MODE_NAME } from "../../lib/api";
+import { outcomeLine } from "../../lib/outcome";
 import { ABOUT, DOOR, LIB, MARKETS, glyphFor, marketOf, src, type Market } from "../../lib/glyphs";
 import type { AuctionSummary, FieldDoodle } from "../../lib/types";
 import { doodleTexture } from "./shaders";
@@ -21,9 +22,10 @@ const tagOf = (a: AuctionSummary, now = Date.now() / 1000) => a.live ? "Taking s
   : a.state === "SETTLED" ? (a.clearing_price_zats && a.clearing_price_zats !== "0" ? `Sold at ${Number(a.clearing_price_zats).toLocaleString("en-US")} zats` : "Closed without a sale. Deposits returned.")
   : moving(a, now) ? "Bids closed. Opening and paying out." : "Stopped part-way in a test run";
 
+// A round is a door too: its doodle opens the round's page (its hover says how it ended).
 export const auctionDoodle = (a: AuctionSummary): FieldDoodle => ({
   key: `a:${a.id}`, src: src(glyphFor(a.mode, a.id)), slug: glyphFor(a.mode, a.id), name: a.lot ?? `${MODE_NAME[a.mode]} ${a.id.slice(0, 6)}`,
-  category: MODE_NAME[a.mode], group: "auction", tag: tagOf(a), scale: a.live ? 1.5 : 1, auction: a,
+  category: MODE_NAME[a.mode], group: "auction", tag: outcomeLine(a), scale: a.live ? 1.5 : 1, auction: a, href: `/auction/?id=${a.id}`,
 });
 const door = (slug: string, name: string, tag: string | null, href: string, scale: number, group: FieldDoodle["group"] = "page"): FieldDoodle =>
   ({ key: `d:${slug}:${href}`, src: src(slug), slug, name, category: "", group, tag, scale, href });
@@ -82,8 +84,8 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
     const rounds = auctions.filter((a) => marketOf(a.mode) === market && showable(a, now))
       .sort((a, b) => Number(b.live) - Number(a.live) || Number(b.state === "SETTLED") - Number(a.state === "SETTLED") || b.updated - a.updated)
       .slice(0, narrow ? 3 : 6).map(auctionDoodle)
-      // Short names under the round: the lot, clipped, so labels never run into each other.
-      .map((d) => { const max = narrow ? 12 : 18; return { ...d, name: d.name.length > max ? `${d.name.slice(0, max - 1).trimEnd()}…` : d.name }; });
+      // Short names under the round: the lot, clipped so labels never run into each other, and a short id where names repeat.
+      .map((d, _, all) => { const max = narrow ? 11 : 15, dup = all.filter((x) => x.name === d.name).length > 1, base = d.name.length > max ? `${d.name.slice(0, max - 1).trimEnd()}…` : d.name; return { ...d, name: dup ? `${base} · ${d.auction!.id.slice(0, 4)}` : base }; });
     const n = auctions.filter((a) => marketOf(a.mode) === market).length;
     const actions = [
       ...(live && marketOf(live.mode) === market ? [door("emblem-bid", "Bid", "Bid in the round that's open now.", `/bid/?id=${live.id}`, 1.15)] : []),
@@ -141,10 +143,8 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
     if (selected) return;
     const lot = new URLSearchParams(location.search).get("lot");
     if (!lot) return;
-    const pick = doodles.find((x) => x.auction?.id === lot);
-    if (pick) return setSelected(pick);
-    const a = auctions.find((x) => x.id === lot);
-    if (a && marketOf(a.mode) !== market) { history.replaceState({}, "", `${marketPath(marketOf(a.mode))}?lot=${lot}`); setMarket(marketOf(a.mode)); }
+    // A round's old sky link (?lot=) now opens the round's page.
+    if (/^[0-9a-f]{64}$/.test(lot)) location.replace(`/auction/?id=${lot}`);
   }, [doodles.length]);
 
   useEffect(() => {
@@ -163,12 +163,6 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
         </button>
       )}
       {selected && <div className="absolute bottom-14 left-5 z-20 sm:bottom-16 sm:left-7"><Card doodle={selected} signer={signer} onClose={close} /></div>}
-      <nav className="sr-only" aria-label="Every doodle in the field">
-        <ul>
-          {doors.map((d) => <li key={d.key}><a href={d.href}>{d.name}{d.tag ? ` (${d.tag})` : ""}</a></li>)}
-          {doodles.filter((d) => d.auction).map((d) => <li key={d.key}><a href={`/auction/?id=${d.auction!.id}`}>{d.name} ({d.category}, {d.tag})</a></li>)}
-        </ul>
-      </nav>
     </div>
   );
 }

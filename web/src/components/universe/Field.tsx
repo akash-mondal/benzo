@@ -42,7 +42,8 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
   const tile = useRef({ w: 0, h: 0 });
   const [label, setLabel] = useState<{ name: string; tag: string | null } | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
-  const names = useRef(new Map<string, HTMLSpanElement>());
+  const names = useRef(new Map<string, HTMLElement>());
+  const diveRef = useRef<((key: string) => void) | null>(null);
   const centerMesh = useRef<THREE.Mesh | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const backGroup = useRef<THREE.Group | null>(null);
@@ -152,13 +153,18 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
       ray.setFromCamera(mouse, camera);
       const hit = ray.intersectObjects(targets.current)[0]?.object;
       const entry = entries.current.find((x) => x.mesh === hit);
-      if (!entry || dive) return;
+      if (entry) start(entry);
+    };
+    // Into a doodle: a door dives and goes to its page; anything else is selected.
+    const start = (entry: Entry) => {
+      if (dive) return;
       if (entry.doodle.href && !entry.sharp) { entry.sharp = true; void doodleTexture(entry.doodle.src, 2048).then((t) => { if (t) entry.mesh.material.uniforms.uMap.value = t; }); }
       const href = entry.doodle.href;
       if (!href) return select.current(entry.doodle);
       if (still) return navigate.current(href);
       dive = { x: entry.mesh.position.x, y: entry.mesh.position.y, z: entry.mesh.position.z, at: clock.getElapsedTime(), href };
     };
+    diveRef.current = (key: string) => { const entry = entries.current.find((x) => x.doodle.key === key); if (entry) start(entry); };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
@@ -353,9 +359,12 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, onHo
 
   return (
     <div ref={host} className="absolute inset-0" data-testid="field">
+      {/* Each name is a real link (keyboard, new tab, copy link all work); a plain click flies in like the doodle does. */}
       {doodles.filter((d) => d.place && (d.href || d.auction)).map((d) => (
-        <span key={d.key} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
-          className="pointer-events-none absolute left-0 top-0 z-10 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
+        <a key={d.key} href={d.href ?? `/auction/?id=${d.auction!.id}`} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
+          onClick={(e) => { if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return; e.preventDefault(); diveRef.current?.(d.key); }}
+          title={d.tag ?? undefined}
+          className="absolute left-0 top-0 z-10 whitespace-nowrap rounded-md px-1.5 py-0.5 font-sans text-[13px] text-sand/80 outline-none transition-colors hover:text-sand focus-visible:text-sand focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-ground" style={{ opacity: 0 }}>{d.name}</a>
       ))}
       {label && (
         <span className="pointer-events-none absolute z-30 flex w-max max-w-[240px] -translate-x-1/2 flex-col gap-0.5 rounded-lg bg-sand px-3 py-2 font-sans text-[13px] leading-snug text-ink" style={{ left: pointer.x, top: pointer.y + 24 }} data-testid="hover-pill">

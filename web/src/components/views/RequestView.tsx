@@ -12,19 +12,27 @@ import type { AuctionDetail, RoundRequest } from "../../lib/types";
 const WORD: Record<RoundRequest["status"], [string, "live" | "wait" | "good" | "bad"]> = { waiting: ["Waiting for parties", "wait"], queued: ["Setting up", "wait"], open: ["Taking bids", "live"], failed: ["Couldn't start", "bad"] };
 
 export default function RequestView() {
-  const q = new URLSearchParams(location.search), rid = q.get("r") ?? "", token = q.get("t"), invite = q.get("i"), inviteLabel = q.get("l") ?? "Party";
+  const q = new URLSearchParams(location.search), rid = q.get("r") ?? "", token = q.get("t"), invite = q.get("i");
   const [r, setR] = useState<RoundRequest | null | undefined>(undefined);
+  const [down, setDown] = useState(false);
+  // The invite's side comes from the server (the link's own text is never trusted for it).
+  const [inv, setInv] = useState<{ label: string; claimed: boolean } | null>(null);
+  useEffect(() => { if (invite) api.invite(rid, invite).then(setInv).catch(() => setInv(null)); }, []);
+  const inviteLabel = inv?.label ?? "Party";
   const [d, setD] = useState<AuctionDetail | null>(null);
   const [mine, setMine] = useState(partyFor(rid));
   const [err, setErr] = useState("");
   useEffect(() => {
     let gone = false;
-    const load = () => api.request(rid, token).then(async (x) => { if (gone) return; setR(x); if (x.auction_id) setD(await api.auction(x.auction_id).catch(() => null)); }).catch(() => !gone && setR(null));
+    const load = () => api.request(rid, token).then(async (x) => { if (gone) return; setR(x); setDown(false); if (x.auction_id) setD(await api.auction(x.auction_id).catch(() => null)); })
+      .catch((e) => { if (gone) return; if (/: 404 /.test(String((e as Error).message))) setR((old) => old ?? null); else { setDown(true); setR((old) => old ?? undefined); } });
     load();
     const t = window.setInterval(load, 10_000);
     return () => { gone = true; window.clearInterval(t); };
   }, []);
-  if (r === undefined) return <h1 className="py-16 text-[26px] text-app-muted">Loading…</h1>;
+  if (r === undefined) return down
+    ? <div className="py-16"><h1 className="text-[26px]">We couldn't load this round</h1><p className="mt-2 text-app-muted">The service didn't answer. Your round is saved; check again in a moment.</p><div className="mt-6"><Btn onClick={() => location.reload()}>Check again</Btn></div></div>
+    : <h1 className="py-16 text-[26px] text-app-muted">Loading…</h1>;
   if (r === null) return <div className="py-16"><h1 className="text-[26px]">We couldn't find this round</h1><p className="mt-2 text-app-muted">The link may be incomplete.</p><div className="mt-6"><Btn href="/start/" kind="secondary">Start a round</Btn></div></div>;
 
   const join = async () => {
@@ -33,11 +41,11 @@ export default function RequestView() {
       const { newPartyKey } = await import("../../lib/bidder");
       const key = await newPartyKey();
       const x = await api.join(rid, invite!, key.public_hex);
-      const p = { ...key, rid, label: inviteLabel };
+      const p = { ...key, rid, label: x.you };
       addParty(p); setMine(p); setR({ ...r, ...x });
     } catch (x) { setErr(String((x as Error).message).replace(/^./, (c) => c.toUpperCase())); }
   };
-  const link = (i: { label: string; token?: string }) => `${location.origin}/round/?r=${rid}&i=${i.token}&l=${encodeURIComponent(i.label)}`;
+  const link = (i: { label: string; token?: string }) => `${location.origin}/round/?r=${rid}&i=${i.token}`;
   const joined = r.invites.filter((i) => i.joined).length, needsParties = r.invites.length > 0;
   const stage = r.status === "waiting" ? 1 : r.status === "queued" ? 2 : r.status === "open" ? 3 : -1;
   const [word, kind] = WORD[r.status];
@@ -50,12 +58,18 @@ export default function RequestView() {
         <ul className="mt-3 grid gap-2" data-testid="request-invites">{r.invites.map((i) => (
           <li key={i.label} className="flex items-center justify-between gap-3 rounded-xl bg-app-2 px-3 py-2 text-[14px]">
             <span>{i.label}</span>
-            {i.joined ? <Pill kind="good">Joined</Pill> : i.token && <button type="button" className="text-app-text underline-offset-4 hover:underline" onClick={() => navigator.clipboard.writeText(link(i))} data-invite={link(i)}>Copy invite link</button>}
+            {i.joined ? <Pill kind="good">Joined</Pill> : i.token && <CopyInvite label={i.label} href={link(i)} />}
           </li>
         ))}</ul>
-      ) : stage === 1 && invite && !mine ? <div className="mt-3"><Btn onClick={join} testid="request-join">Join as {inviteLabel}</Btn></div> : undefined,
+      ) : stage === 1 && invite && !mine ? (
+        inv?.claimed ? <p className="mt-2 text-[14px] text-app-muted">This invitation has already been claimed. If that was you, reopen it in the browser you joined with; otherwise ask the round's creator.</p> : (
+          <div className="mt-3 grid gap-2">
+            <p className="text-[14px] text-app-muted">You're invited as the <span className="text-app-text">{inviteLabel}</span>. Joining makes your party key in this browser; you'll need this same browser to submit your price. Joining doesn't send any payment.</p>
+            <div><Btn onClick={join} testid="request-join" disabled={!inv}>Join as {inviteLabel} on this device</Btn></div>
+          </div>)
+      ) : undefined,
     } as S] : []),
-    { title: "Set up on the signers", note: r.status === "queued" ? (r.operator === false ? "The operator is offline on this server" : r.queue ? `${r.queue} round${r.queue > 1 ? "s" : ""} ahead of yours` : "A few minutes") : r.status === "failed" ? r.error ?? "" : undefined, state: r.status === "failed" ? "bad" : stage > 2 ? "done" : stage === 2 ? "now" : "next" },
+    { title: "Set up on the signers", note: r.status === "queued" ? (r.operator === false ? "Setup is paused: the service that sets rounds up is offline. Your round is saved, and no bidding has started." : r.queue ? `${r.queue} round${r.queue > 1 ? "s" : ""} ahead of yours. Usually a few minutes each.` : "Usually a few minutes.") : r.status === "failed" ? `Couldn't start: ${r.error ?? "unknown reason"}. Start a new round to try again.` : undefined, state: r.status === "failed" ? "bad" : stage > 2 ? "done" : stage === 2 ? "now" : "next" },
     { title: "Taking bids", note: d ? `until ${new Date(d.T_submit * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : undefined, state: stage === 3 ? "now" : "next", body: stage === 3 && d ? <Open d={d} r={r} canBid={!needsParties || Boolean(mine)} /> : undefined },
   ];
   return (
@@ -109,8 +123,8 @@ function Open({ d, r, canBid }: { d: AuctionDetail; r: RoundRequest; canBid: boo
         <div className="flex gap-4 rounded-xl bg-[#2b2410] p-3">
           {qr ? <img src={qr} alt="QR code for the budget payment" className="size-[112px] shrink-0 rounded-lg" data-testid="request-fund-qr" /> : <div className="size-[112px] shrink-0 rounded-lg bg-app-2" />}
           <div className="grid min-w-0 content-start gap-1.5 text-[14px]">
-            <div className="font-medium">Pay the {zec(d.funding.amount_zats)} TAZ budget</div>
-            <p className="text-app-muted">Offers count only once the budget has arrived.</p>
+            <div className="font-medium">Fund the budget: {zats(d.funding.amount_zats)} zats ({zec(d.funding.amount_zats)} TAZ)</div>
+            <p className="text-app-muted">Send it once, from your testnet wallet. Offers count only after it arrives; whatever isn't spent comes back to your return address.</p>
             <a href={uri} className="w-fit underline underline-offset-4" data-testid="request-fund">Open in wallet</a>
             <button type="button" className="w-fit text-app-muted hover:text-app-text" onClick={() => navigator.clipboard.writeText(uri)}>Copy payment link</button>
           </div>
@@ -122,4 +136,9 @@ function Open({ d, r, canBid }: { d: AuctionDetail; r: RoundRequest; canBid: boo
       </div>
     </div>
   );
+}
+
+function CopyInvite({ label, href }: { label: string; href: string }) {
+  const [done, setDone] = useState("");
+  return <button type="button" className="text-app-text underline-offset-4 hover:underline" onClick={() => navigator.clipboard.writeText(href).then(() => { setDone(`Copied ${label} invite`); setTimeout(() => setDone(""), 2000); }).catch(() => setDone("Couldn't copy"))} data-invite={href} role="status">{done || "Copy invite link"}</button>;
 }

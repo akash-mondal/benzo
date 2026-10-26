@@ -23,7 +23,8 @@ test("start a uniform round: the form refuses bad terms, the request carries the
   await page.getByTestId("start-reserve").fill("105");
   await page.getByTestId("start-payout_ua").fill(ua);
   await page.getByTestId("start-submit").click();
-  await expect(page.getByTestId("start-error")).toContainText("steps of 10");
+  await expect(page.getByText("Use steps of 10.")).toBeVisible();
+  await expect(page.getByTestId("start-error")).toContainText("need fixing");
   await page.getByTestId("start-reserve").fill("100");
   await page.getByTestId("start-payout_ua").fill("t1notshielded");
   await page.getByTestId("start-submit").click();
@@ -48,7 +49,7 @@ test("OTC: the seller starts, the buyer joins from the invite in another browser
   await expect(page.getByTestId("request")).toHaveAttribute("data-status", "waiting");
   await expect(page.getByTestId("request-party")).toContainText("Seller");
   const invite = await page.locator("[data-invite]").getAttribute("data-invite");
-  expect(invite).toMatch(/\/round\/\?r=[0-9a-f]{16}&i=[0-9a-f]{32}&l=Buyer$/);
+  expect(invite).toMatch(/\/round\/\?r=[0-9a-f]{16}&i=[0-9a-f]{32}$/);
   const rid = new URL(page.url()).searchParams.get("r")!;
   const sellerKey = await page.evaluate((r) => JSON.parse(localStorage.getItem("benzo:parties")!).find((p: any) => p.rid === r), rid);
   expect(saved(rid).spec.otc.seller_key).toBe(sellerKey.public_hex);
@@ -103,6 +104,5 @@ test("every market's form opens from the start page and from its own sky", async
     await expect(page.getByTestId("start-lot")).toBeVisible();
   }
   await page.goto("/markets/launch/");
-  const nav = page.getByRole("navigation", { name: "Every doodle in the field" });
-  await expect(nav.locator('a[href="/start/?market=launch"]')).toBeAttached();
+  await expect(page.locator('a[data-door-label][href="/start/?market=launch"]')).toBeAttached();
 });

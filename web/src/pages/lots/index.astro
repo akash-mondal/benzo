@@ -1,72 +1,94 @@
 ---
-// Every round (after Fragment's auction table): one row per round with its result and when, filterable by market and
-// by state. ?market=<mode> arrives from a market's "All rounds".
+// All rounds (after Fragment's auction table and Stripe's searchable lists): one row per round with what happened and
+// when; search by name or id; filter by market and stage; the filters live in the link. ?market=<mode> arrives from a
+// market's "All rounds".
 import Shell from "../../components/page/Shell.astro";
 import { auctions } from "../../lib/server";
 import { glyphFor, marketOf, MARKETS } from "../../lib/glyphs";
-import { MODE_NAME, thousands, utc } from "../../lib/api";
+import { MODE_NAME, utc } from "../../lib/api";
+import { outcomeLine } from "../../lib/outcome";
+// Live first, then the rest by most recent update.
+const list = (await auctions()).sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated);
+// Stage, from the round's own state (never guessed from its age): taking bids, in progress, settled, cancelled.
+const stageOf = (a: any) => a.live ? "open" : a.state === "SETTLED" ? "settled" : a.state === "CANCELLED" ? "cancelled" : "running";
+const STAGE: Record<string, [string, string]> = { open: ["Taking bids", "bg-[#2b2410] text-gold"], running: ["In progress", "bg-app-2 text-app-text"], settled: ["Settled", "bg-[#1d2a14] text-[#b9e27a]"], cancelled: ["Cancelled", "bg-app-2 text-app-muted"] };
+const tabs: [string, string][] = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"], ["settled", "Settled"], ["cancelled", "Cancelled"]];
+// Names repeat (test runs share them): the short id tells rounds apart.
+const counts = list.reduce((m, a) => m.set(a.lot ?? "", (m.get(a.lot ?? "") ?? 0) + 1), new Map<string, number>());
 const now = Date.now() / 1000;
-// Live first, then what settled, then the rest; newest first inside each.
-const rank = (a: any) => (a.live ? 0 : a.state === "SETTLED" ? 1 : a.state === "CANCELLED" ? 2 : 3);
-const list = (await auctions()).sort((a, b) => rank(a) - rank(b) || b.updated - a.updated);
-const groupOf = (a: any) => a.live ? "open" : a.state === "SETTLED" ? "settled" : a.state === "CANCELLED" ? "refunded" : now - a.updated < 6 * 3600 ? "running" : "stopped";
-const STATE: Record<string, [string, string]> = { open: ["Taking bids", "bg-[#2b2410] text-gold"], running: ["In progress", "bg-app-2 text-app-text"], settled: ["Settled", "bg-[#1d2a14] text-[#b9e27a]"], refunded: ["Refunded", "bg-[#2c1a1e] text-bad"], stopped: ["Stopped", "bg-app-2 text-app-muted"] };
-const result = (a: any) => a.live ? "open now" : a.state === "SETTLED" && a.clearing_price_zats && a.clearing_price_zats !== "0" ? `${thousands(a.clearing_price_zats)} zats` : a.state === "SETTLED" ? "no sale" : "—";
-const tabs = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"], ["settled", "Settled"], ["refunded", "Refunded"], ["stopped", "Stopped"]];
 ---
-<Shell title="Every lot – Benzo" description="Every round run through Benzo on Zcash testnet." wide>
+<Shell title="Rounds – Benzo" description="Every round run through Benzo on Zcash testnet, and how each one ended." wide>
   <div class="flex flex-wrap items-end justify-between gap-4">
-    <h1 class="text-[28px]" data-all={`${list.length} rounds on Zcash testnet`}>{list.length} rounds on Zcash testnet</h1>
-    <label class="flex items-center gap-2 text-[14px] text-app-muted">Market
-      <select id="market" class="h-9 rounded-full bg-app-1 px-3 text-[14px] text-app-text outline-none">
-        <option value="">All markets</option>
-        {MARKETS.map((m) => <option value={m}>{MODE_NAME[m]}</option>)}
-      </select>
-    </label>
+    <div>
+      <h1 class="text-[28px]" data-all="All rounds">All rounds</h1>
+      <p class="mt-1 text-[14px] text-app-muted"><span id="count">{list.length}</span> rounds on Zcash testnet</p>
+    </div>
   </div>
-  <div class="mt-5 flex flex-wrap gap-1" role="tablist" aria-label="State">
-    {tabs.map(([k, label], i) => <button type="button" role="tab" data-tab={k} aria-selected={i === 0 ? "true" : "false"} class="h-8 rounded-full px-3 text-[14px] text-app-muted aria-selected:bg-app-2 aria-selected:text-app-text hover:text-app-text">{label} <span class="tabular-nums text-app-faint" data-count={k}></span></button>)}
+  <div class="mt-6 grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
+    <label class="sr-only" for="q">Search round name or id</label>
+    <input id="q" type="search" placeholder="Search round name or id" autocomplete="off" spellcheck="false" class="h-10 rounded-[10px] bg-app-1 px-3 text-[15px] text-app-text outline-none ring-1 ring-transparent placeholder:text-app-faint focus:ring-gold/70" />
+    <label class="sr-only" for="market">Market</label>
+    <select id="market" class="h-10 rounded-[10px] bg-app-1 px-3 text-[15px] text-app-text outline-none focus:ring-1 focus:ring-gold/70">
+      <option value="">All markets</option>
+      {MARKETS.map((m) => <option value={m}>{MODE_NAME[m]}</option>)}
+    </select>
+  </div>
+  <div class="mt-3 flex flex-wrap gap-1" role="tablist" aria-label="Stage">
+    {tabs.map(([k, label], i) => <button type="button" role="tab" data-tab={k} aria-selected={i === 0 ? "true" : "false"} class="h-8 rounded-full px-3 text-[14px] text-app-muted hover:text-app-text aria-selected:bg-app-2 aria-selected:text-app-text">{label} <span class="tabular-nums text-app-faint" data-count={k}></span></button>)}
   </div>
   <div class="mt-4 overflow-hidden rounded-[20px] bg-app-1">
-    <div class="hidden grid-cols-[minmax(0,1fr)_150px_150px_170px] gap-4 px-5 pb-2 pt-4 text-[13px] text-app-faint sm:grid"><span>Round</span><span>State</span><span class="text-right">Price</span><span class="text-right">Updated</span></div>
+    <div class="hidden grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px] gap-4 px-5 pb-2 pt-4 text-[13px] text-app-faint md:grid"><span>Round</span><span>Stage</span><span>Result</span><span class="text-right">Last update</span></div>
     <ul id="rows">
       {list.map((a) => (
-        <li data-market={marketOf(a.mode)} data-group={groupOf(a)}>
-          <a href={`/auction/?id=${a.id}`} class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 sm:grid-cols-[minmax(0,1fr)_150px_150px_170px]" data-testid="lot-row">
+        <li data-market={marketOf(a.mode)} data-group={stageOf(a)} data-text={`${(a.lot ?? "").toLowerCase()} ${a.id}`}>
+          <a href={`/auction/?id=${a.id}`} class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 md:grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px]" data-testid="lot-row">
             <span class="flex min-w-0 items-center gap-3">
               <img src={`/doodles/${glyphFor(a.mode, a.id)}.svg?v=2`} alt="" class="size-8 shrink-0 rounded-lg bg-app-2 p-1.5" />
-              <span class="min-w-0"><span class="block truncate text-[15px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}</span><span class="block text-[13px] text-app-faint">{MODE_NAME[a.mode]} · {a.leaf_count ?? 0} bids</span></span>
+              <span class="min-w-0">
+                <span class="block truncate text-[15px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}{(counts.get(a.lot ?? "") ?? 0) > 1 && <span class="text-app-faint"> · {a.id.slice(0, 6)}</span>}</span>
+                <span class="block text-[13px] text-app-faint">{MODE_NAME[a.mode]} · {a.leaf_count ?? 0} bids</span>
+              </span>
             </span>
-            <span><span class={`inline-flex h-6 items-center rounded-full px-2.5 text-[12.5px] font-medium ${STATE[groupOf(a)][1]}`}>{STATE[groupOf(a)][0]}</span></span>
-            <span class="hidden text-right text-[14px] tabular-nums sm:block">{result(a)}</span>
-            <time datetime={new Date(a.updated * 1000).toISOString()} data-local class="hidden text-right text-[13px] text-app-muted tabular-nums sm:block">{utc(a.updated)}</time>
+            <span><span class={`inline-flex h-6 items-center rounded-full px-2.5 text-[12.5px] font-medium ${STAGE[stageOf(a)][1]}`}>{STAGE[stageOf(a)][0]}</span></span>
+            <span class="col-span-2 truncate text-[14px] text-app-muted tabular-nums md:col-span-1 md:text-app-text">{outcomeLine(a)}{stageOf(a) === "running" && now - a.updated > 6 * 3600 ? " · no update for a while" : ""}</span>
+            <time datetime={new Date(a.updated * 1000).toISOString()} data-local class="col-span-2 text-[13px] text-app-faint tabular-nums md:col-span-1 md:text-right md:text-app-muted">{utc(a.updated)}</time>
           </a>
         </li>
       ))}
     </ul>
-    <p id="empty" hidden class="border-t border-app-line px-5 py-6 text-[14px] text-app-muted">No rounds here yet.</p>
+    <div id="empty" hidden class="border-t border-app-line px-5 py-6 text-[14px] text-app-muted"><span id="empty-text">No rounds match.</span> <button id="clear" type="button" class="ml-1 text-app-text underline underline-offset-4">Clear filters</button></div>
   </div>
-  <div class="mt-4 flex justify-center"><button id="more" type="button" class="h-10 rounded-full bg-app-1 px-5 text-[14px] font-semibold text-app-text hover:bg-app-2">Show more</button></div>
+  <div class="mt-4 flex items-center justify-between gap-3 text-[13px] text-app-faint"><span id="showing"></span><button id="more" type="button" class="h-10 rounded-full bg-app-1 px-5 text-[14px] font-semibold text-app-text hover:bg-app-2">Show 25 more</button></div>
   <script>
     import { MODE_NAME } from "../../lib/api";
-    const sel = document.getElementById("market") as HTMLSelectElement, h1 = document.querySelector("h1")!;
+    const sel = document.getElementById("market") as HTMLSelectElement, q = document.getElementById("q") as HTMLInputElement, more = document.getElementById("more") as HTMLButtonElement;
     const rows = [...document.querySelectorAll<HTMLElement>("#rows > li")], tabs = [...document.querySelectorAll<HTMLButtonElement>("[data-tab]")];
-    let tab = "all", shown = 25;
-    const more = document.getElementById("more") as HTMLButtonElement;
-    more.addEventListener("click", () => { shown += 25; apply(); });
+    const p = new URLSearchParams(location.search);
+    let tab = p.get("stage") ?? "all", shown = 25;
+    sel.value = p.get("market") ?? ""; q.value = p.get("q") ?? "";
     const apply = () => {
-      const m = sel.value, inMarket = rows.filter((r) => !m || r.dataset.market === m);
-      for (const t of tabs) { const k = t.dataset.tab!, c = inMarket.filter((r) => k === "all" || r.dataset.group === k).length; t.querySelector("[data-count]")!.textContent = String(c); t.hidden = k !== "all" && c === 0; }
-      let n = 0;
-      for (const r of rows) { const on = (!m || r.dataset.market === m) && (tab === "all" || r.dataset.group === tab); r.hidden = !on || n >= shown; n += Number(on); }
-      document.getElementById("empty")!.hidden = n > 0;
-      more.hidden = n <= shown; more.textContent = `Show more (${n - shown} left)`;
-      h1.textContent = m ? `${inMarket.length} ${MODE_NAME[m].toLowerCase()} rounds` : h1.dataset.all!;
-      const u = new URL(location.href); m ? u.searchParams.set("market", m) : u.searchParams.delete("market"); history.replaceState(history.state, "", u);
+      const m = sel.value, text = q.value.trim().toLowerCase();
+      const base = rows.filter((r) => (!m || r.dataset.market === m) && (!text || r.dataset.text!.includes(text)));
+      for (const t of tabs) { const k = t.dataset.tab!; t.querySelector("[data-count]")!.textContent = String(base.filter((r) => k === "all" || r.dataset.group === k).length); t.setAttribute("aria-selected", String(k === tab)); }
+      const match = base.filter((r) => tab === "all" || r.dataset.group === tab);
+      for (const r of rows) r.hidden = true;
+      match.slice(0, shown).forEach((r) => (r.hidden = false));
+      document.getElementById("count")!.textContent = String(match.length);
+      const empty = document.getElementById("empty")!;
+      empty.hidden = match.length > 0;
+      const tabName = tabs.find((t) => t.dataset.tab === tab)!.textContent!.replace(/\d+/g, "").trim().toLowerCase();
+      document.getElementById("empty-text")!.textContent = `No ${tab === "all" ? "" : tabName + " "}${m ? MODE_NAME[m] + " " : ""}rounds${text ? ` match "${q.value.trim()}"` : ""}.`;
+      document.getElementById("showing")!.textContent = match.length ? `Showing ${Math.min(shown, match.length)} of ${match.length}` : "";
+      more.hidden = match.length <= shown;
+      const u = new URL(location.href);
+      for (const [k, v] of [["market", m], ["stage", tab === "all" ? "" : tab], ["q", q.value.trim()]]) v ? u.searchParams.set(k, v) : u.searchParams.delete(k);
+      history.replaceState(history.state, "", u);
     };
-    for (const t of tabs) t.addEventListener("click", () => { tab = t.dataset.tab!; shown = 25; for (const x of tabs) x.setAttribute("aria-selected", String(x === t)); apply(); });
-    sel.value = new URLSearchParams(location.search).get("market") ?? "";
+    for (const t of tabs) t.addEventListener("click", () => { tab = t.dataset.tab!; shown = 25; apply(); });
     sel.addEventListener("change", () => { shown = 25; apply(); });
+    q.addEventListener("input", () => { shown = 25; apply(); });
+    more.addEventListener("click", () => { shown += 25; apply(); });
+    document.getElementById("clear")!.addEventListener("click", () => { tab = "all"; sel.value = ""; q.value = ""; shown = 25; apply(); });
     // Dates in the reader's own time.
     for (const t of document.querySelectorAll<HTMLTimeElement>("time[data-local]")) {
       const d = new Date(t.dateTime), today = d.toDateString() === new Date().toDateString(), hm = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });

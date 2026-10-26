@@ -37,7 +37,7 @@ async function doorAt(page: any, name: string) {
 }
 const ready = (page: any) => page.waitForFunction(() => Number(document.querySelector("[data-testid=field]")?.getAttribute("data-ready") ?? 0) > 40);
 
-test("home: every doodle is a door — a market door dives into that market's sky, a round there opens its ticket", async ({ page }) => {
+test("home: every doodle is a door — a market door dives into that market's sky, a round there opens its page", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
@@ -52,23 +52,19 @@ test("home: every doodle is a door — a market door dives into that market's sk
   await expect(page).toHaveURL(/\/markets\/drop\/$/);
   await expect(page.locator("h1")).toContainText("rounds on Zcash testnet");
   await ready(page);
-  const round = await hover(page, /^(Sold at|Didn't sell|Closed without a sale|Taking sealed bids|Bids closed|Stopped part-way)/);
-  expect(round, "no round found under the pointer").not.toBeNull();
-  await page.mouse.click(round![0], round![1]);
-  const card = page.getByTestId("card");
-  await expect(card).toBeVisible();
-  await expect(page).toHaveURL(/\/markets\/[a-z]+\/\?lot=[0-9a-f]{64}$/);
-  await expect(page.getByTestId("card-light")).toHaveText(/Settled|Settling|Cleared|Open|Frozen|Opened|Refunded|Refunding|Sealed/);
-  await card.getByRole("button", { name: "Copy format" }).click();
-  await expect(card.getByRole("option")).toHaveCount(4);
-  await card.getByRole("option").filter({ hasText: "Verify" }).click();
-  await card.getByTestId("card-open").click();
+  // A round on the market's ring: its name is a link to the round's page; a plain click flies in.
+  const roundLink = page.locator('a[data-door-label][href^="/auction/"]').first();
+  await expect(roundLink).toBeAttached();
+  await page.waitForTimeout(600);
+  await roundLink.click();
+  // A round's doodle opens the round's own page.
   await expect(page).toHaveURL(/\/auction\/\?id=[0-9a-f]{64}/);
-  await expect(page.getByTestId("ticket-title")).not.toHaveText("Loading…");
+  await expect(page.getByTestId("ticket-title")).not.toHaveText(/Loading/);
+  await expect(page.getByTestId("story")).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-test("home: one fixed screen (a drag moves nothing); a round's link lands on its market with its ticket open; Escape closes it; every door is listed", async ({ page }) => {
+test("home: one fixed screen (a drag moves nothing); every option's name is a real, focusable link; an old round link opens the round", async ({ page }) => {
   await page.goto("/");
   await ready(page);
   await page.waitForTimeout(600);
@@ -78,21 +74,21 @@ test("home: one fixed screen (a drag moves nothing); a round's link lands on its
   const after = await doorAt(page, "Verify");
   expect(Math.abs(after![0] - before![0])).toBeLessThan(4);
   expect(Math.abs(after![1] - before![1])).toBeLessThan(20); // it bobs a little, never pans
-  const nav = page.getByRole("navigation", { name: "Every doodle in the field" });
-  for (const href of ["/markets/uniform/", "/markets/drop/", "/verify/", "/lots/", "/bid/"])
-    await expect(nav.locator(`a[href="${href}"]`).first()).toBeAttached();
+  // Every option's name is a real link (keyboard, new tab and copy-link all work).
+  for (const href of ["/markets/uniform/", "/markets/drop/", "/verify/", "/lots/", "/bid/", "/start/", "/mine/"])
+    await expect(page.locator(`a[data-door-label][href="${href}"]`)).toHaveCount(1);
+  await page.keyboard.press("Tab");
+  await expect(page.locator("a[data-door-label]:focus")).toHaveCount(1);
+  // An old sky link to a round opens that round's page.
   await page.goto(`/?lot=${featured}`);
-  await expect(page).toHaveURL(new RegExp(`/markets/uniform/\\?lot=${featured}$`));
-  await expect(page.getByTestId("card")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("card")).toHaveCount(0);
-  await expect(page).toHaveURL(/\/markets\/uniform\/$/);
+  await expect(page).toHaveURL(new RegExp(`/auction/\\?id=${featured}`));
 });
 
 test("every lot lists every published round and opens one", async ({ page, request }) => {
   const n = (await (await request.get("/api/auctions")).json()).length;
   await page.goto("/lots/");
-  await expect(page.locator("h1")).toHaveText(`${n} rounds on Zcash testnet`);
+  await expect(page.locator("h1")).toHaveText("All rounds");
+  await expect(page.locator("#count")).toHaveText(String(n));
   await expect(page.getByTestId("lot-row")).toHaveCount(n);
   await page.getByTestId("lot-row").first().click();
   await expect(page).toHaveURL(/\/auction\/\?id=/);
@@ -158,11 +154,11 @@ test("you can back out of everything: Back and Escape return to where you came f
   await page.getByTestId("back").click();
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
   // Escape on a market screen with no card open goes back too; with a card open it closes the card first.
+  // An old sky link to a round opens the round's page; Escape on a market's sky goes back to all markets.
   await page.goto(`/markets/uniform/?lot=${featured}`);
-  await expect(page.getByTestId("card")).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(page.getByTestId("card")).toHaveCount(0);
-  await expect(page).toHaveURL(/\/markets\/uniform\/$/);
+  await expect(page).toHaveURL(new RegExp(`/auction/\\?id=${featured}`));
+  await page.goto("/markets/uniform/");
+  await ready(page);
   await page.keyboard.press("Escape");
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
   // The start page: picking a market is a step Back undoes.

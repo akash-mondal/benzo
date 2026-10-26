@@ -61,6 +61,9 @@ function load(id: string, dir: string): Entry | null {
       supply: m.supply, C_zats: m.C_zats, T_submit: m.T_submit, T_freeze: m.T_freeze, R: m.drand.R, release: release(m.drand.R),
       leaf_count: pub.frozen?.leaf_count ?? null, clearing_price_zats: (pub.result as any)?.clearing_price_zats ?? null,
       settled: Boolean(pub.settlement), live: runner?.isLive(id) ?? false, updated: Math.floor(mtime / 1000),
+      // The outcome as published: units (or lots) filled out of how many, and what the winners paid in total. A drop
+      // clears each lot at its own price, so its scalar clearing price is 0; "filled" says what actually sold.
+      outcome: pub.result ? (() => { const al: any[] = (pub.result as any).allocations ?? []; return { filled: al.reduce((n, x) => n + Number(x.fill ?? 0), 0), of: Array.isArray(m.lots) ? m.lots.length : m.supply, paid_zats: String(al.reduce((n, x) => n + (Number(x.fill ?? 0) ? Number(x.payment_zats ?? 0) : 0), 0)) }; })() : null,
     };
     const e: Entry = { id, dir, mtime, summary };
     cache.set(id, e);
@@ -73,7 +76,12 @@ async function detail(e: Entry) {
   const pub = loadPublicAuction(e.dir);
   let openings: Map<number, string | null>;
   try { openings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon); } catch { openings = new Map(); }
-  const checks = checkPublicAuction(pub, { claimOpenings: openings }).map((c) => ({ id: c.id, ok: !c.error, detail: c.error ?? c.warn ?? "" }));
+  // Each check with what it concluded: passed, failed, a warning, or not applicable to this round (a launch-only or
+  // bond-only check on a round without one returns early in the verifier; it proves nothing here and says so).
+  const pm: any = pub.manifest, launch = (pm.clearing?.mode ?? "uniform") === "launch", bond = Boolean(pm.bond);
+  const notApplicable = (id: string) => ((id === "delivery" || id === "delivery-list") && !launch) || ((id === "balances" || id === "balance-refs" || id === "defaults") && !bond);
+  const checks = checkPublicAuction(pub, { claimOpenings: openings }).map((c) => ({ id: c.id, ok: !c.error, detail: c.error ?? c.warn ?? "",
+    status: c.error ? "failed" : notApplicable(c.id) ? "not_applicable" : c.warn ? "warning" : "passed" }));
   const s: any = pub.settlement;
   const d = {
     ...e.summary, signer: pub.signer, manifest_hash: pub.manifest_hash, manifest: pub.manifest, freeze_root: pub.frozen?.root ?? null,
@@ -142,7 +150,8 @@ const server = http.createServer(async (req, res) => {
         const v = requests.view(parts[2], url.searchParams.get("token"));
         return v ? json(res, 200, { ...v, queue: runner?.queued() ?? null, operator: Boolean(runner) }) : json(res, 404, { error: "unknown round request" });
       }
-      if (parts[1] === "rounds" && parts[3] === "join" && req.method === "POST") { const b = await body(req); return json(res, 200, requests.join(parts[2], String(b.invite ?? ""), String(b.key ?? ""))); }
+      if (parts[1] === "rounds" && parts[3] === "invite" && req.method === "GET") { const v = requests.invite(parts[2], url.searchParams.get("i") ?? ""); return v ? json(res, 200, v) : json(res, 404, { error: "unknown invite" }); }
+            if (parts[1] === "rounds" && parts[3] === "join" && req.method === "POST") { const b = await body(req); return json(res, 200, requests.join(parts[2], String(b.invite ?? ""), String(b.key ?? ""))); }
       if (parts[1] === "auctions" && /^[0-9a-f]{64}$/.test(parts[2] ?? "")) {
         const id = parts[2], reg = registry().find((r) => r.id === id), e = reg && load(id, reg.dir);
         if (!e) return json(res, 404, { error: "unknown auction" });

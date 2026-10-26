@@ -33,6 +33,8 @@ test("seal a bid in the page; the record passes admission's rules and every sign
   await expect(page.getByTestId("ticket-title")).toHaveText("Offline test round");
   await page.getByTestId("bid-price").fill("450");
   await page.getByTestId("bid-refund").fill(refund);
+  await page.getByTestId("bid-next").click();
+  await expect(page.getByTestId("bid-review")).toContainText("No money is sent by sealing");
   await page.getByTestId("bid-seal").click();
   await expect(page.getByTestId("bid-qr")).toBeVisible({ timeout: 60_000 });
 
@@ -89,12 +91,17 @@ test("the bid page refuses a bad price and a malformed refund address before any
   await page.goto(`/bid/?id=${id}`);
   await page.getByTestId("bid-price").fill(String(Number(m.B_max_zats) + 10));
   await page.getByTestId("bid-refund").fill(m.deposit_addresses[2]);
-  await page.getByTestId("bid-seal").click();
-  await expect(page.getByTestId("bid-error")).toContainText("price must be between");
+  await page.getByTestId("bid-next").click();
+  await expect(page.getByTestId("bid-error")).toContainText("Enter between");
+  // A typed amount is never rewritten: "4.50" is refused, not read as 450.
+  await page.getByTestId("bid-price").fill("4.50");
+  await page.getByTestId("bid-next").click();
+  await expect(page.getByTestId("bid-error")).toContainText("You entered 4.50");
+  await expect(page.getByTestId("bid-price")).toHaveValue("4.50");
   await page.getByTestId("bid-price").fill("450");
   await page.getByTestId("bid-refund").fill("t1notashieldedaddress");
-  await page.getByTestId("bid-seal").click();
-  await expect(page.getByTestId("bid-error")).toContainText("shielded testnet address");
+  await page.getByTestId("bid-next").click();
+  await expect(page.getByTestId("bid-error")).toContainText("shielded Zcash testnet address");
 });
 
 test("an RFQ round takes bids only from its invited dealers: a stranger sees that, a dealer bids under its own key", async ({ page, request }) => {
@@ -110,5 +117,5 @@ test("an RFQ round takes bids only from its invited dealers: a stranger sees tha
   await page.evaluate((r) => localStorage.setItem("benzo:parties", JSON.stringify([{ rid: r, label: "Dealer 2", private_hex: "11".repeat(32), public_hex: "22".repeat(32) }])), rid);
   await page.reload();
   await expect(page.getByTestId("bid-party")).toContainText("Dealer 2");
-  await expect(page.getByText("Your quote")).toBeVisible();
+  await expect(page.getByLabel("Your quote")).toBeVisible();
 });

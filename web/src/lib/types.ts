@@ -21,9 +21,10 @@ export type AuctionSummary = {
   settled: boolean;
   live: boolean; // run by this site's operator and still taking bids
   updated: number;
+  outcome?: { filled: number; of: number; paid_zats: string } | null; // what sold, once the round has a result
 };
 
-export type Check = { id: string; ok: boolean; detail: string };
+export type Check = { id: string; ok: boolean; detail: string; status?: "passed" | "failed" | "warning" | "not_applicable" };
 
 export type AuctionDetail = AuctionSummary & {
   signer: string;

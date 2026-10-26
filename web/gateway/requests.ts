@@ -96,19 +96,27 @@ export class Requests {
     this.save(r);
   }
 
+  // What an invite link is for, before anyone joins: its side and whether it's still open. The token is the bearer
+  // secret; the label shown comes from here, so editing the link can't change the side.
+  invite(rid: string, invite: string) {
+    const r = this.read(rid), i = r?.invites.find((x) => x.token === invite);
+    if (!r || !i) return null;
+    return { label: i.label, claimed: Boolean(i.key) };
+  }
   join(rid: string, invite: string, key: string) {
     const r = this.read(rid);
     if (!r) throw new Error("unknown round request");
     const i = r.invites.find((x) => x.token === invite);
-    if (!i) throw new Error("this invite link is not valid");
+    if (!i) throw new Error("This invite link isn't valid. Ask the round's creator for a new one.");
     if (!KEY.test(key)) throw new Error("party key");
-    if (i.key && i.key !== key) throw new Error("this invite was already used");
+    if (i.key && i.key !== key) throw new Error("This invite has already been claimed. If that was you, reopen it in the browser you joined with; otherwise ask the round's creator.");
     const taken = [r.spec.otc?.buyer_key, r.spec.otc?.seller_key, ...r.invites.filter((x) => x !== i).map((x) => x.key)].filter(Boolean);
     if (taken.includes(key)) throw new Error("that key is already a party of this round");
     if (r.status !== "waiting" && !i.key) throw new Error("this round already started");
     i.key = key;
     this.ready(r);
-    return this.view(r, null);
+    // The joiner's side comes from the invite itself (never from anything in the link they opened).
+    return { ...this.view(r, null)!, you: i.label };
   }
 
   created(rid: string, id: string | null, error?: string) {

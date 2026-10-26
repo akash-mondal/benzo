@@ -22,7 +22,8 @@ export const api = {
   slot: (id: string, key?: string) => post<{ address: string; slot: number; held_until: number }>(`/api/auctions/${id}/slot`, key ? { key } : {}),
   start: (form: Record<string, unknown>) => post<{ rid: string; token: string; invites: { label: string; token: string }[] }>("/api/rounds", form),
   request: (rid: string, token?: string | null) => get<RoundRequest>(`/api/rounds/${rid}${token ? `?token=${token}` : ""}`),
-  join: (rid: string, invite: string, key: string) => post<RoundRequest>(`/api/rounds/${rid}/join`, { invite, key }),
+  join: (rid: string, invite: string, key: string) => post<RoundRequest & { you: string }>(`/api/rounds/${rid}/join`, { invite, key }),
+  invite: (rid: string, invite: string) => get<{ label: string; claimed: boolean }>(`/api/rounds/${rid}/invite?i=${invite}`),
   submit: (id: string, record: { address: string; txid: string; envelope_hex: string; envelope_ct_hex: string; owner_sig_hex: string; ciphertext_hash: string }) =>
     post<{ status: string }>(`/api/auctions/${id}/bids`, record),
   bidStatus: (id: string, ciphertextHash: string) => get<{ status: "queued" | "waiting" | "admitted" | "refused"; detail: string; leaf_index?: number }>(`/api/auctions/${id}/bids/${ciphertextHash}`),

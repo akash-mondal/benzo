@@ -1,6 +1,6 @@
 ---
-// Back, on every screen but home: to the page you came from on this site, else to the screen's parent. Escape does the
-// same whenever nothing is open (an open card closes first; a field keeps its Escape).
+// Back, on every screen but home: to the page you came from on this site, else to the screen's parent. (Escape only
+// closes layers; it never leaves a page.)
 const { href = "/", label = "Back", class: cls = "", tone = "sand" } = Astro.props;
 const color = tone === "app" ? "text-app-muted hover:text-app-text" : "text-sand/80 hover:text-sand";
 ---
@@ -19,11 +19,4 @@ const color = tone === "app" ? "text-app-muted hover:text-app-text" : "text-sand
     a.href = fallback(a);
     a.addEventListener("click", (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); go(a); });
   }
-  window.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || e.defaultPrevented) return;
-    const t = e.target as HTMLElement;
-    if (t.closest("input, select, textarea, [role=dialog], [role=listbox]") || document.querySelector("[data-testid=card]")) return;
-    const a = document.querySelector<HTMLAnchorElement>("a[data-back]");
-    if (a) go(a);
-  });
 </script>
