@@ -192,7 +192,11 @@ export function hostXchainKeys(chain: "evm" | "solana"): string[] {
   return NAMES.map(n => {
     const reg = path.join(STATE, "custody", `xchain-${chain}-${n}.pub`);
     if (existsSync(reg)) return readFileSync(reg, "utf8").trim();
-    const k = hostBenzo(n, ["xchain", "keygen", "--chain", chain, "--name", n]);
+    // The host may already hold its key (the registry here can be lost with a reset state dir): read its public half
+    // with --show first; generate only when the host has none. A host key is never replaced.
+    let k: any;
+    try { k = hostBenzo(n, ["xchain", "keygen", "--chain", chain, "--name", n, "--show"]); }
+    catch (e) { if (!/no xchain key on this host/.test(String((e as Error).message))) throw e; k = hostBenzo(n, ["xchain", "keygen", "--chain", chain, "--name", n]); }
     mkdirSync(path.dirname(reg), { recursive: true }); writeFileSync(reg, k.public); return k.public;
   });
 }
