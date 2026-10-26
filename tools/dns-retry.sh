@@ -1,5 +1,6 @@
 #!/bin/bash
-# DNS retry wrapper (Oct 26): this Mac's resolver drops lookups of the lightwalletd host for a few seconds at a time.
+# DNS retry wrapper (Oct 26): this Mac's resolver drops lookups of the lightwalletd host for a few seconds at a time,
+# and the lightwalletd connection itself sometimes drops mid-sync.
 # A call that failed only because the name did not resolve (or the host could not be dialled) never reached the
 # server, so it is safe to run again. Every other result (success or any other error) passes through unchanged, with
 # its exit code. Installed as .benzo/bin/<tool> in front of the real binary at .benzo/bin/.real/<tool>; the e2e pin
@@ -9,7 +10,11 @@ log="${BNZ_NET_LOG:-$(cd "$(dirname "$0")/../.." && pwd)/tmp/net.log}"
 for i in 1 2 3 4 5 6 7 8 9 10; do
   out=$(mktemp); err=$(mktemp)
   "$real" "$@" >"$out" 2>"$err"; rc=$?
-  if [ $rc -ne 0 ] && [ $i -lt 10 ] && grep -qiE "dns error|failed to lookup address|no such host|nodename nor servname|name resolution|Failed to dial target host" "$out" "$err"; then
+  # A wallet sync only reads, so a dropped connection mid-sync is also safe to retry. Anything that may have reached
+  # the server and changed something (a payment, a broadcast) is never retried on a dropped connection.
+  pat="dns error|failed to lookup address|no such host|nodename nor servname|name resolution|Failed to dial target host"
+  case " $* " in *" sync "*) pat="$pat|transport error|connection closed|operation was canceled|connection reset|broken pipe";; esac
+  if [ $rc -ne 0 ] && [ $i -lt 10 ] && grep -qiE "$pat" "$out" "$err"; then
     echo "$(date -u +%FT%TZ) DNS-RETRY $(basename "$0") $1 $2 (try $i)" >> "$log" 2>/dev/null; rm -f "$out" "$err"; sleep $((i * 4)); continue
   fi
   cat "$out"; cat "$err" >&2; rm -f "$out" "$err"; exit $rc
