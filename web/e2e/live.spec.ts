@@ -33,11 +33,14 @@ test("live: seal in the page, pay on testnet, admitted, opened at R, settled, ve
   await page.goto(`/bid/?id=${round.id}`);
   await page.getByTestId("bid-price").fill("990");
   await page.getByTestId("bid-refund").fill(refund);
+  await page.getByTestId("bid-next").click();
+  await expect(page.getByTestId("bid-review")).toContainText("No money is sent by sealing");
   await page.getByTestId("bid-seal").click();
   await expect(page.getByTestId("bid-qr")).toBeVisible({ timeout: 120_000 });
+  // As a person would: the recovery file first, then the payment link it unlocks.
+  const [dl] = await Promise.all([page.waitForEvent("download"), page.getByTestId("bid-key").click()]);
   const uri = await page.getByTestId("bid-uri").getAttribute("href") as string;
   const ciphertext = (await page.getByTestId("bid-hash").textContent())!;
-  const [dl] = await Promise.all([page.waitForEvent("download"), page.getByTestId("bid-key").click()]);
   const key = JSON.parse(readFileSync((await dl.path())!, "utf8"));
   say(`sealed ${key.ciphertext_hash.slice(0, 12)} (${ciphertext})`);
 
