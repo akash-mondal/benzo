@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { bin, E2E, OUT, ROOT, STATE } from "./env";
+import { bin, E2E, OUT, realBin, ROOT, STATE } from "./env";
 
 const RUN_DIRS = ["frost", "memo", "tlock", "scan", "auction", "settle", "cli"];
 const sha256 = (p: string) => createHash("sha256").update(readFileSync(p)).digest("hex");
@@ -28,7 +28,7 @@ export default function globalTeardown() {
   const built = [...cliBuilt,"seal/dist/index.html", "seal/dist/main.js", "scan/target/release/benzo-scan", "manifest/dist/cli.mjs", "clear/dist/cli.mjs", "clear/dist/auction.mjs", "settle/dist/cli.mjs", "settle/dist/plan.mjs", "settle/target/release/benzo-pczt"].filter((p) => existsSync(path.join(ROOT, p)));
   const tools = execFileSync("cargo", ["install", "--list", "--root", STATE]).toString().split("\n").filter((l) => /^\S/.test(l));
   for (const t of ["tle", "grpcurl"])
-    if (existsSync(bin(t))) tools.push(`${t} ` + execFileSync("go", ["version", "-m", bin(t)]).toString().split("\n").find((l) => l.startsWith("\tmod\t"))!.trim());
+    if (existsSync(bin(t))) tools.push(`${t} ` + execFileSync("go", ["version", "-m", realBin(t)]).toString().split("\n").find((l) => l.startsWith("\tmod\t"))!.trim());
   const packages = JSON.parse(readFileSync(path.join(ROOT, "package-lock.json"), "utf8")).packages;
   for (const name of ["tlock-js", "@playwright/test", "playwright-core", "esbuild", "typescript", "@types/node"])
     tools.push(`${name} ${packages[`node_modules/${name}`].version}`);

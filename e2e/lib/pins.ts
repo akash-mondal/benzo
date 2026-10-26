@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { bin, ROOT, STATE } from "./env";
+import { bin, realBin, ROOT, STATE } from "./env";
 
 const sha = (f: string) => createHash("sha256").update(readFileSync(f)).digest("hex");
 const BUILD_EDITS = new Set([" M Cargo.toml", " M Cargo.lock", "?? Cargo.lock.pinned"]);
@@ -62,9 +62,20 @@ export function pinsMismatch(): string | undefined {
       catch { return `tools/nu7/${cv}.patch is not committed`; } // R58 (P2): a gate miss is NOT RUN, never a spec error
       if (committed !== p.patches[cv]) return `${crate} was built with a different ${cv}.patch`;
     }
-    if (sha(bin(crate)) !== p.bin_sha256) return `${crate} binary differs from the one tools/nu7/build.sh built`;
+    if (wrapperBad(crate)) return wrapperBad(crate);
+    if (sha(realBin(crate)) !== p.bin_sha256) return `${crate} binary differs from the one tools/nu7/build.sh built`;
   }
   const go: [string, string, string][] = [["tle", "github.com/drand/tlock", pins.TLE_TAG], ["grpcurl", "github.com/fullstorydev/grpcurl", pins.GRPCURL_TAG]];
   for (const [tool, mod, tag] of go)
-    if (!existsSync(bin(tool)) || !execFileSync("go", ["version", "-m", bin(tool)]).toString().includes(`\tmod\t${mod}\t${tag}\t`)) return `${tool} is not ${mod}@${tag}`;
+    if (wrapperBad(tool)) return wrapperBad(tool);
+    else if (!existsSync(realBin(tool)) || !execFileSync("go", ["version", "-m", realBin(tool)]).toString().includes(`\tmod\t${mod}\t${tag}\t`)) return `${tool} is not ${mod}@${tag}`;
+}
+
+// When a tool runs behind the DNS retry wrapper, the file at bin/<tool> must be exactly the committed
+// tools/dns-retry.sh (from git HEAD, never the working tree), so the wrapper cannot change what the tool does.
+function wrapperBad(tool: string): string {
+  if (realBin(tool) === bin(tool)) return "";
+  let committed: Buffer;
+  try { committed = execFileSync("git", ["-C", ROOT, "show", "HEAD:tools/dns-retry.sh"]); } catch { return "tools/dns-retry.sh is not committed"; }
+  return readFileSync(bin(tool)).equals(committed) ? "" : `${tool} wrapper differs from tools/dns-retry.sh`;
 }

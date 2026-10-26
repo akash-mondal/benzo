@@ -1,6 +1,6 @@
 // Paths and settings for the E2E glue. Variables come from .env (a copy of .env.example); the command line wins.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 export const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"]).toString().trim();
@@ -18,6 +18,9 @@ export function env(name: string): string {
 
 export const STATE = path.join(ROOT, env("BNZ_STATE_DIR").replace(/^\.\//, ""));
 export const bin = (tool: string) => path.join(STATE, "bin", tool);
+// A pinned tool may sit behind the DNS retry wrapper (tools/dns-retry.sh): the pin then applies to the real binary
+// at bin/.real/<tool>, and pins.ts checks the wrapper is the committed one.
+export const realBin = (tool: string) => { const r = path.join(STATE, "bin", ".real", tool); return existsSync(r) ? r : bin(tool); };
 // Every run stages its output here; an evidence run copies it to BNZ_EVIDENCE_DIR at the end (global-teardown.ts).
 export const E2E = path.join(ROOT, "tmp", "e2e");
 export const OUT = path.join(E2E, "out");
