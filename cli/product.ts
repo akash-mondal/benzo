@@ -369,11 +369,13 @@ export async function runCommand(command:string,args:string[]) {
         requireThat(treasuryBlock(m)&&/^[1-9][0-9]*$/.test(treasury.amount_zats),'treasury funding needs a treasury block and an amount');
         const suffix='.'+(bids.length+(reserve?1:0));params.set('address'+suffix,treasuryBlock(m)!.funding_ua);params.set('amount'+suffix,(Number(treasury.amount_zats)/1e8).toFixed(8));
       }
-      syncRetry(()=>execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'sync','-s',process.env.BNZ_LWD_URL!]));
-      const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'balance','--json']));
+      // The paying wallet: the operator's house wallet when the gateway's runner pays its house bids (BNZ_PAY_WALLET), else 'bidder'.
+      const payer=process.env.BNZ_PAY_WALLET??'bidder';requireThat(/^[A-Za-z0-9_-]+$/.test(payer),'BNZ_PAY_WALLET');
+      syncRetry(()=>execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,payer),'sync','-s',process.env.BNZ_LWD_URL!]));
+      const balance=JSON.parse(execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,payer),'balance','--json']));
       const available=balance.sapling_spendable+balance.orchard_spendable+balance.ironwood_spendable,c=Number(m.C_zats);
       requireThat(available-c*bids.length-Number(reserve?.amount_zats??0)-Number(treasury?.amount_zats??0)-5000*(bids.length+3)>=3*c+40000,'bidder floor; Needs user funds');
-      const output=execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,'bidder'),'pay','-i',path.join(STATE,'bidder.age'),'--disable-confirmation','-s',process.env.BNZ_LWD_URL!,'--payment-uri','zcash:?'+params]);
+      const output=execute(bin('zcash-devtool'),['wallet','-w',path.join(STATE,payer),'pay','-i',path.join(STATE,`${payer}.age`),'--disable-confirmation','-s',process.env.BNZ_LWD_URL!,'--payment-uri','zcash:?'+params]);
       const txid=output.match(/^[0-9a-f]{64}$/gm)?.at(-1);requireThat(txid,'payment produced no txid');
       return {txid,C_zats:m.C_zats,deposits:bids.length,state:'broadcast'};
     }

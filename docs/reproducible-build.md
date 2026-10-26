@@ -42,8 +42,8 @@ it is the toolchain the project's evidence runs against:
 
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
-| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `cffd6a335bc101dda73177230c8466ba9a6a2ba625d88157c3470b95779dca86` (also in `docs/verify-bundle.sha256`) |
-| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `c77b9663a08dfae1056de7b209b09b800bcd5d12240f14fe10835cdef7b88bf8` |
+| `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `19254021e5c8bf0ac72207c586b94dba0f83deccbe0f2c622e86548463c8a11b` (also in `docs/verify-bundle.sha256`) |
+| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `0b49cd7e766e7f475e16ff539749e17bddc8a31ce2ca70f9fd9ac97d33790f3b` |
 | `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` |
 
 ## 3. The commands (fresh clone)
@@ -57,12 +57,12 @@ npm ci                            # exact tree from package-lock.json
 
 npm run build:verify              # rebuilds the shipped verify bundle + its digest
 shasum -a 256 dist/benzo-verify.mjs
-# cffd6a335bc101dda73177230c8466ba9a6a2ba625d88157c3470b95779dca86  dist/benzo-verify.mjs
+# 19254021e5c8bf0ac72207c586b94dba0f83deccbe0f2c622e86548463c8a11b  dist/benzo-verify.mjs
 shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
-# c77b9663a08dfae1056de7b209b09b800bcd5d12240f14fe10835cdef7b88bf8  dist/benzo-0.1.0.tgz
+# 0b49cd7e766e7f475e16ff539749e17bddc8a31ce2ca70f9fd9ac97d33790f3b  dist/benzo-0.1.0.tgz
 
 npm run package:bidder            # build:seal, then the bidder tarball
 shasum -a 256 dist/benzo-bidder-0.1.0.tgz
@@ -102,7 +102,10 @@ run-28 record in `docs/STATUS-B.md`).
 
 ## 5. Notes
 
-- **Final record (the host deploy, 2026-10-26).** The CLI moved (`xchain keygen --show`, `BNZ_FROSTD_HOST`), so the npm package is
+- **Final record (zero-bid fix, 2026-10-27).** `clear/core.ts` now checks the bond/balance fields per allocation, so a round
+  nobody bid on settles (the old whole-list test refused it). That moves the verify bundle to `19254021…` and the npm package
+  to `0b49cd7e…` (30,014,643 bytes). The CLI also pays from `BNZ_PAY_WALLET` when set (the gateway's house wallet).
+- **Earlier record (the host deploy, 2026-10-26).** The CLI moved (`xchain keygen --show`, `BNZ_FROSTD_HOST`), so the npm package is
   `c77b9663…` (30,013,736 bytes, 18,328 entries, 112 production packages); the verify bundle stays `cffd6a33…`. The packager now skips
   node-gyp build output (a `build/` folder holding `config.gypi`): a Linux machine with a compiler builds `bufferutil` and
   `utf-8-validate` natively on install, which added 22 files. macOS builds none, and both packages fall back to plain JS. The the host

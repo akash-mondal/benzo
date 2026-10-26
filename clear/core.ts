@@ -103,7 +103,9 @@ export function clear(input: ClearInput) {
 // verify's accounting check reaches this through the mode registry, never a per-mode copy.
 export function checkResultModeA(m: Manifest, result: ClearBody): void {
   const fee = zats(m.fee_zats, "fee"), C = zats(m.C_zats, "C");
-  requireThat((m.bond !== undefined) === result.allocations.every(a => a.balance_due_zats !== undefined) &&
+  // Per allocation, so a round with no allocations (nobody bid) passes: `every` over none is true, which the old
+  // whole-list comparison read as "has balance fields" and refused every zero-bid round without a bond.
+  requireThat(result.allocations.every(a => (a.balance_due_zats !== undefined) === (m.bond !== undefined)) &&
     (m.bond !== undefined) === (result.conservation.balances_zats !== undefined), "bond/balance fields");
   let balances = 0n;
   for (const a of result.allocations) {

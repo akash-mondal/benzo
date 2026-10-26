@@ -8299,7 +8299,7 @@ function clear(input) {
 }
 function checkResultModeA(m2, result) {
   const fee = zats(m2.fee_zats, "fee"), C2 = zats(m2.C_zats, "C");
-  requireThat(m2.bond !== void 0 === result.allocations.every((a2) => a2.balance_due_zats !== void 0) && m2.bond !== void 0 === (result.conservation.balances_zats !== void 0), "bond/balance fields");
+  requireThat(result.allocations.every((a2) => a2.balance_due_zats !== void 0 === (m2.bond !== void 0)) && m2.bond !== void 0 === (result.conservation.balances_zats !== void 0), "bond/balance fields");
   let balances = 0n;
   for (const a2 of result.allocations) {
     const payment = BigInt(a2.payment_zats), refund = BigInt(a2.refund_zats);

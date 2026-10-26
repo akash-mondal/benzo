@@ -35,6 +35,8 @@ type Live = {
 // The house wallet under the state dir (and its age identity, <name>.age): "bidder" unless BNZ_WEB_HOUSE_WALLET names
 // another, so a live drive of the site can run beside other testnet runs without two writers on one wallet.
 const HOUSE_WALLET = process.env.BNZ_WEB_HOUSE_WALLET ?? "bidder";
+// The CLI pays house bids (`bid deposit --pay`) from the same house wallet.
+process.env.BNZ_PAY_WALLET ??= HOUSE_WALLET;
 const QUICKNET = { genesis: 1692803367, period: 3 };
 // A drop's lots, as the manifest names them: one 64-hex id per lot (the schema's rule), from its place and its name.
 // The names stay with the round here (the site shows the round's title; the bid page shows "Lot 1", "Lot 2", …).
