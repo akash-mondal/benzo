@@ -130,3 +130,43 @@ test("check it yourself: the downloaded public directory verifies offline with t
   const recorded = readFileSync(path.join(REPO, "docs/reproducible-build.md"), "utf8").match(/`(f9a9[0-9a-f]{60})`/)?.[1];
   expect(createHash("sha256").update(tgz).digest("hex")).toBe(recorded);
 });
+
+test("you can back out of everything: Back and Escape return to where you came from, or to the screen's parent", async ({ page }) => {
+  // Home -> a market -> its start form, then back out step by step.
+  await page.goto("/");
+  await ready(page);
+  await page.waitForTimeout(600);
+  const drop = await doorAt(page, "Drop");
+  await page.mouse.click(drop![0], drop![1]);
+  await expect(page).toHaveURL(/\/markets\/drop\/$/);
+  await ready(page);
+  await page.waitForTimeout(600);
+  const start = await doorAt(page, "Start a round");
+  await page.mouse.click(start![0], start![1]);
+  await expect(page).toHaveURL(/\/start\/\?market=drop$/);
+  await page.getByTestId("back").click();
+  await expect(page).toHaveURL(/\/markets\/drop\/$/);
+  await page.getByTestId("back").click();
+  await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
+  // Escape on a market screen with no card open goes back too; with a card open it closes the card first.
+  await page.goto(`/markets/uniform/?lot=${featured}`);
+  await expect(page.getByTestId("card")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByTestId("card")).toHaveCount(0);
+  await expect(page).toHaveURL(/\/markets\/uniform\/$/);
+  await page.keyboard.press("Escape");
+  await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
+  // The start page: picking a market is a step Back undoes.
+  await page.goto("/start/");
+  await page.getByTestId("start-launch").click();
+  await expect(page.getByTestId("start-form")).toBeVisible();
+  await page.getByTestId("back").click();
+  await expect(page.getByTestId("start-markets")).toBeVisible();
+  // Landed straight on a page: Back goes to its parent.
+  await page.goto("/mine/");
+  await page.getByTestId("back").click();
+  await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
+  await page.goto("/lots/?market=otc");
+  await page.getByTestId("back").click();
+  await expect(page).toHaveURL(/\/markets\/otc\/$/);
+});

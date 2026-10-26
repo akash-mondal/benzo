@@ -1,0 +1,28 @@
+---
+// Back, on every screen but home: to the page you came from on this site, else to the screen's parent. Escape does the
+// same whenever nothing is open (an open card closes first; a field keeps its Escape).
+const { href = "/", label = "Back", class: cls = "" } = Astro.props;
+---
+<a href={href} data-back class={`group inline-flex h-11 items-center gap-2 font-sans text-[14px] text-sand/80 transition-colors hover:text-sand ${cls}`} data-testid="back">
+  <svg class="size-4 transition-transform group-hover:-translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>{label}
+</a>
+<script>
+  // The parent when there is no page to go back to: a market's start form and its full list go to that market.
+  const parent = (a: HTMLAnchorElement) => a.dataset.parent ?? a.getAttribute("href") ?? "/";
+  const fallback = (a: HTMLAnchorElement) => { const m = new URLSearchParams(location.search).get("market"); return m && /^\/(start|lots)\/$/.test(location.pathname) ? `/markets/${m}/` : parent(a); };
+  const fromHere = () => { try { return document.referrer !== "" && new URL(document.referrer).origin === location.origin && history.length > 1; } catch { return false; } };
+  // A step taken inside the page (history.state.benzoStep, e.g. picking a market on the start page) is undone first.
+  const go = (a: HTMLAnchorElement) => { if (history.state?.benzoStep || fromHere()) history.back(); else location.href = fallback(a); };
+  for (const a of document.querySelectorAll<HTMLAnchorElement>("a[data-back]")) {
+    a.dataset.parent = a.getAttribute("href") ?? "/";
+    a.href = fallback(a);
+    a.addEventListener("click", (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); go(a); });
+  }
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || e.defaultPrevented) return;
+    const t = e.target as HTMLElement;
+    if (t.closest("input, select, textarea, [role=dialog], [role=listbox]") || document.querySelector("[data-testid=card]")) return;
+    const a = document.querySelector<HTMLAnchorElement>("a[data-back]");
+    if (a) go(a);
+  });
+</script>

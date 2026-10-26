@@ -74,7 +74,6 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
       ...(live && marketOf(live.mode) === market ? [door("emblem-bid", "Bid", `Open now · ${live.lot ?? MODE_NAME[live.mode]}`, `/bid/?id=${live.id}`, 1.15)] : []),
       door("quill", "Start a round", MODE_NAME[market], `/start/?market=${market}`, 1.1),
       door("emblem-lots", "All rounds", `${n} rounds`, `/lots/?market=${market}`, 0.95),
-      door("sealed-envelope", "All markets", null, "/", 0.95),
     ];
     const top = rounds.length ? arc(rounds.map((d) => ({ ...d, scale: d.auction?.live ? 1.15 : 0.95 })), narrow ? 150 : 160, narrow ? 30 : 20, narrow ? 0.33 : 0.36, narrow ? 0.3 : 0.31) : [];
     return [...top, ...arc(actions, narrow ? 210 : 205, narrow ? 330 : 335, narrow ? 0.33 : 0.33, narrow ? 0.3 : 0.31), ...ornaments(narrow)];

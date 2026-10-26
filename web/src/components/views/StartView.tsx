@@ -1,6 +1,6 @@
 // Start a round in any of the six markets. The form becomes the round's signed manifest on the operator's side; for
 // OTC this browser makes your party key first (only its public half is sent), and RFQ dealers get invite links.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Ticket, Part, Button } from "../page/Ticket";
 import { api, MODE_NAME } from "../../lib/api";
 import { DOOR, MARKETS, type Market } from "../../lib/glyphs";
@@ -13,12 +13,18 @@ export default function StartView() {
   const q = new URLSearchParams(location.search);
   const initial = MARKETS.includes(q.get("market") as Market) ? (q.get("market") as Market) : null;
   const [market, setMarket] = useState<Market | null>(initial);
+  // Picking a market is a step you can go back from: Back (or the browser's) returns to the six markets.
+  useEffect(() => {
+    const pop = () => { const m = new URLSearchParams(location.search).get("market"); setMarket(MARKETS.includes(m as Market) ? (m as Market) : null); };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
   if (!market) return (
     <Ticket kind="Start" title="Start a round">
       <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="start-markets">
         {MARKETS.map((m) => (
           <li key={m}>
-            <button type="button" onClick={() => { setMarket(m); history.replaceState({}, "", `/start/?market=${m}`); }} className="flex w-full items-center gap-3 bg-sand px-3 py-3 text-left font-sans text-[15px] text-ink hover:bg-white/50" data-testid={`start-${m}`}>
+            <button type="button" onClick={() => { setMarket(m); history.pushState({ benzoStep: 1 }, "", `/start/?market=${m}`); }} className="flex w-full items-center gap-3 bg-sand px-3 py-3 text-left font-sans text-[15px] text-ink hover:bg-white/50" data-testid={`start-${m}`}>
               <img src={`/doodles/${DOOR[m]}.svg`} alt="" className="size-8 bg-leaf-deep p-1.5" />{MODE_NAME[m]}
             </button>
           </li>

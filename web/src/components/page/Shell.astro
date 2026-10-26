@@ -1,13 +1,17 @@
 ---
-// Every inner page: the dimmed sky behind, the mark top-left (home), the live light top-right, the ticket column.
+// Every inner page: the dimmed sky behind, Back and the mark top-left, the pages top-right, the ticket column.
 import Base from "../../layouts/Base.astro";
 import Backdrop from "./Backdrop";
-const { title, description } = Astro.props;
+import Back from "./Back.astro";
+const { title, description, back = "/" } = Astro.props;
 ---
 <Base title={title} description={description}>
   <Backdrop client:only="react" />
   <header class="flex items-center justify-between px-5 pt-5 sm:px-7 sm:pt-6">
-    <a href="/" class="rise flex items-center gap-2 font-sans text-[15px] font-bold tracking-tight text-sand"><img src="/doodles/sealed-envelope.svg" alt="" class="size-5" />Benzo</a>
+    <div class="rise flex items-center gap-4 sm:gap-6">
+      <Back href={back} />
+      <a href="/" class="hidden items-center gap-2 font-sans text-[15px] font-bold tracking-tight text-sand sm:flex"><img src="/doodles/sealed-envelope.svg" alt="" class="size-5" />Benzo</a>
+    </div>
     <nav aria-label="Pages" class="flex items-center gap-5 font-sans text-[14px] text-sand/75">
       <a class="rise rise-1 hidden hover:text-sand sm:inline" href="/lots/">every lot</a><a class="rise rise-2 hidden hover:text-sand sm:inline" href="/verify/">verify</a><a class="rise rise-3 hover:text-sand" href="/mine/">mine</a>
       <a href="/start/" class="rise rise-4 inline-flex h-11 items-center bg-sand px-4 font-medium text-ink transition-transform hover:bg-surface active:scale-[0.97]">Start a round</a>
