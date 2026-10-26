@@ -66,20 +66,11 @@ export default function Sky({ initial, initialSlug }: { initial: AuctionSummary[
   }, [doodles.length]);
 
   const live = auctions.find((a) => a.live && a.state === "OPEN");
-  // The static overlay's live button (index.astro) follows the live round.
-  useEffect(() => {
-    const b = document.querySelector<HTMLAnchorElement>("[data-testid=live-link]");
-    if (!b) return;
-    b.href = live ? `/bid/?id=${live.id}` : "/bid/";
-    b.querySelector("[data-live-word]")!.textContent = live ? `Bid in ${live.lot ?? "the live round"}` : "Next round soon";
-    b.dataset.live = live ? "1" : "0";
-  }, [live?.id]);
   const words = useMemo<FieldWord[]>(() => [
     { label: "Benzo", scale: 2.6, href: "/how/", tag: "How it works" },
     { label: "bid live", scale: 1.3, href: live ? `/bid/?id=${live.id}` : "/bid/", tag: live ? "Open now" : "Next round" },
     { label: "verify", scale: 1.3, href: "/verify/", tag: "Anyone can" },
     { label: "every lot", scale: 1.2, href: "/lots/", tag: `${auctions.length} rounds` },
-    { label: "sealed", scale: 1.5, href: "/how/", tag: "Until round R" },
   ], [live?.id, auctions.length]);
 
   useEffect(() => {

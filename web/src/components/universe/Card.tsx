@@ -123,20 +123,21 @@ export default function Card({ doodle, onClose, signer }: { doodle: FieldDoodle;
             {light.word}<span className={`size-1.5 rounded-full ${light.color} ${light.glow}`} />
           </span>
           <Spinner src={doodle.src} />
-          <p className="truncate text-center font-sans text-[13px] text-sand/70">{a ? `${a.leaf_count ?? 0} sealed bids · C ${Number(a.C_zats) / 1e8} TAZ` : doodle.name}</p>
+          {a && <p className="truncate text-center font-sans text-[12px] text-sand/60">{a.leaf_count ?? 0} sealed bids</p>}
         </div>
         <div className="relative -mx-3.5 mt-3">
           <div className="border-t-2 border-dotted border-ink/25" />
           <span aria-hidden className="absolute -left-2 top-1/2 size-4 -translate-y-1/2 rounded-full bg-ground" />
           <span aria-hidden className="absolute -right-2 top-1/2 size-4 -translate-y-1/2 rounded-full bg-ground" />
         </div>
-        <p className="relative truncate pt-2.5 text-center font-sans text-base font-bold tracking-tight text-ink" data-testid="card-name">{name}</p>
-        <div className={`relative -mx-3.5 grid ${a ? "grid-cols-3" : "grid-cols-2"}`}>
+        {a
+          ? <a href={`/auction/?id=${a.id}`} className="relative block truncate pt-2.5 text-center font-sans text-base font-bold tracking-tight text-ink underline-offset-4 hover:underline" data-testid="card-open"><span data-testid="card-name">{name}</span> <span aria-hidden className="text-moss">→</span></a>
+          : <p className="relative truncate pt-2.5 text-center font-sans text-base font-bold tracking-tight text-ink" data-testid="card-name">{name}</p>}
+        <div className="relative -mx-3.5 grid grid-cols-2">
           <Picker items={items} value={format} onChange={setFormat} />
           <button type="button" onClick={copy} aria-label="Copy" className={`${CONTROL} ${copied ? "text-moss hover:text-moss" : ""}`}>
             {copied ? "Copied" : "Copy"}
           </button>
-          {a && <a href={`/auction/?id=${a.id}`} className={`${CONTROL} text-moss`} data-testid="card-open">{a.live ? "Bid" : "Open"} <span aria-hidden>→</span></a>}
         </div>
       </div>
     </div>
