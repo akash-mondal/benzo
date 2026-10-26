@@ -1,0 +1,26 @@
+[buyback-r1] auction c9919aa132e1824ef74dea54459975d200b208c02498b32753aa6dc33b622640 mode buyback
+[buyback-r1] H19 fee reserve 60000 zats (bound 55000 + 5000 over 5 notes x 4 rows, floor 60000)
+[buyback-r1] funding 7695e2efa8a7f30fd9f4bb09484fa86190c22316449f1b4637d314b3c413bd45
+[buyback-r1] PASS buyback-r1-cli-equals-pure-clear outcomes above_max_price,winner,winner price 150000
+[buyback-r1] serial intake published 1000,1001
+[buyback-r1] PASS buyback-r1-expected-equals-obligations {"leaf:0":200000,"leaf:1":350000,"leaf:2":350000}
+[buyback-r1] PASS buyback-r1-settled exit 0
+[buyback-r1] PASS buyback-r1-receipts {"leaf:0":200000,"leaf:1":350000,"leaf:2":350000,"treasury":200000}
+[buyback-r1] PASS buyback-r1-landed [200000,350000,350000,200000]
+[buyback-r1] PASS buyback-r1-cold-verify
+[buyback-r1] RESULT PASS buyback-r1
+[buyback-r2] auction c710902c9c852ac76f3859c0ad4a8e3abc5f60850b7f14bc96833412e5d6c1d8 mode buyback
+[buyback-r2] H19 fee reserve 60000 zats (bound 45000 + 5000 over 4 notes x 3 rows, floor 60000)
+[buyback-r2] funding 90a6ee6f8172a8a8fc410f649b61f554fa4c7295b17d275fa67e0dac014d78d1
+[buyback-r2] PASS buyback-r2-cli-equals-pure-clear outcomes winner,winner price 160000
+[buyback-r2] serial intake published 1010,1011
+[buyback-r2] PASS buyback-r2-expected-equals-obligations {"leaf:0":360000,"leaf:1":360000}
+[buyback-r2] PASS buyback-r2-settled exit 0
+[buyback-r2] PASS buyback-r2-receipts {"leaf:0":360000,"leaf:1":360000,"treasury":180000}
+[buyback-r2] PASS buyback-r2-landed [360000,360000,180000]
+[buyback-r2] PASS buyback-r2-cold-verify
+[buyback-r2] RESULT PASS buyback-r2
+[buyback-series] PASS buyback-series-report {"version":1,"auction_id":"c710902c9c852ac76f3859c0ad4a8e3abc5f60850b7f14bc96833412e5d6c1d8","series_id":"46825754cd1f67babdb3ac4c8923a188af10f2f6a87dc179ff7778d9180b15f8","window_index":2,"result_hash":"fe4015744fc2347e6ff3baba2b99d9f81f3f
+[buyback-series] PASS buyback-series-round1-report {"version":1,"auction_id":"c9919aa132e1824ef74dea54459975d200b208c02498b32753aa6dc33b622640","series_id":"46825754cd1f67babdb3ac4c8923a188af10f2f6a87dc179ff7778d9180b15f8","window_index":1,"result_hash":"5d49df8bdc5c79c5e573a6f38da1944d874c
+[buyback-series] PASS buyback-series-linked-verify OK series
+[buyback-series] RESULT PASS buyback-series
