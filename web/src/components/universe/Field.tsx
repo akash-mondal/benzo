@@ -12,7 +12,7 @@ import type { FieldDoodle } from "../../lib/types";
 
 type Entry = {
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  doodle: FieldDoodle; size: number;
+  doodle: FieldDoodle; size: number; sharp?: boolean;
   baseX: number; baseY: number; phase: number; bobSpeed: number; spinSpeed: number; targetScale: number; baseScale: number;
 };
 
@@ -38,7 +38,6 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
   const [label, setLabel] = useState<{ name: string; tag: string | null } | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const names = useRef(new Map<string, HTMLSpanElement>());
-  const veil = useRef<HTMLDivElement>(null);
   const centerMesh = useRef<THREE.Mesh | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const scene = sceneRef;
@@ -53,7 +52,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
     const camera = new THREE.PerspectiveCamera(58, el.clientWidth / el.clientHeight, 0.1, 100);
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const HOME_Z = 12;
-    camera.position.z = arrive && !still ? 8.5 : HOME_Z;
+    camera.position.z = arrive && !still ? 5 : HOME_Z;
     // A dive: the camera flies into a door, then the page changes.
     let dive: { x: number; y: number; z: number; at: number; href: string } | null = null;
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -132,6 +131,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
       const hit = ray.intersectObjects(targets.current)[0]?.object;
       const entry = entries.current.find((x) => x.mesh === hit);
       if (!entry || dive) return;
+      if (entry.doodle.href && !entry.sharp) { entry.sharp = true; void doodleTexture(entry.doodle.src, 2048).then((t) => { if (t) entry.mesh.material.uniforms.uMap.value = t; }); }
       const href = entry.doodle.href;
       if (!href) return select.current(entry.doodle);
       if (still) return navigate.current(href);
@@ -155,7 +155,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
 
     const clock = new THREE.Clock();
     // Back to this page from the browser's cache (Back after a dive): the view starts centred again, never mid-dive.
-    const shown = (e: PageTransitionEvent) => { if (!e.persisted) return; dive = null; camera.position.set(0, 0, HOME_Z); if (veil.current) veil.current.style.opacity = "0"; };
+    const shown = (e: PageTransitionEvent) => { if (!e.persisted) return; dive = null; camera.position.set(0, 0, HOME_Z); };
     window.addEventListener("pageshow", shown);
     let frame = 0, last = 0;
     const loop = () => {
@@ -168,17 +168,21 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
       const hit = list.find((x) => x.mesh === hitObj) ?? null;
       if (hit !== hovered.current) {
         hovered.current = hit;
+        if (hit?.doodle.href && !hit.sharp) {
+          hit.sharp = true;
+          const m = hit.mesh;
+          void doodleTexture(hit.doodle.src, 2048).then((t) => { if (t) m.material.uniforms.uMap.value = t; });
+        }
         // A named doodle already shows its name under it: its pill carries only the detail (count, state), if any.
         const named = hit && hit.doodle.place && (hit.doodle.href || hit.doodle.auction);
         setLabel(hit && (!named || hit.doodle.tag) ? { name: named ? "" : hit.doodle.name, tag: hit.doodle.tag } : null);
       }
       if (dive) {
-        // A short move toward the doodle while the screen fades to the ground; the page changes under the fade.
-        const k = Math.min((now - dive.at) / 0.45, 1), e = k * k * (3 - 2 * k);
-        camera.position.x += (dive.x - camera.position.x) * e * 0.25;
-        camera.position.y += (dive.y - camera.position.y) * e * 0.25;
-        camera.position.z += (Math.max(dive.z + 5, 8.5) - camera.position.z) * e * 0.25;
-        if (veil.current) veil.current.style.opacity = String(e);
+        // The fly-in: the camera dives into the doodle, then the page changes.
+        const k = Math.min((now - dive.at) / 0.55, 1), e = k * k * (3 - 2 * k);
+        camera.position.x += (dive.x - camera.position.x) * e * 0.35;
+        camera.position.y += (dive.y - camera.position.y) * e * 0.35;
+        camera.position.z += (dive.z + 1.2 - camera.position.z) * e * 0.3;
         if (k >= 1) { const href = dive.href; dive = null; navigate.current(href); }
       } else if (camera.position.z !== HOME_Z || camera.position.x !== 0 || camera.position.y !== 0) {
         const f = Math.min(dt * 4, 1);
@@ -315,7 +319,6 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
 
   return (
     <div ref={host} className="absolute inset-0" data-testid="field">
-      <div ref={veil} aria-hidden className="pointer-events-none absolute inset-0 z-20 bg-ground" style={{ opacity: 0 }} />
       {doodles.filter((d) => d.place && (d.href || d.auction)).map((d) => (
         <span key={d.key} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
           className="pointer-events-none absolute left-0 top-0 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
