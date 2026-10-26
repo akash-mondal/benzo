@@ -47,13 +47,9 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
     // Hand-placed spots around the centre word, inside the first screen (fractions of it; x right, y up). Loose on
     // purpose: no ring, no grid. A phone gets its own set for the tall screen.
     const SPOTS: [number, number][] = narrow
-      ? [[-0.27, 0.37], [0.24, 0.33], [-0.03, 0.25], [-0.31, 0.13], [0.3, 0.16], [0.02, 0.1], [-0.26, -0.13], [0.25, -0.17], [-0.02, -0.26], [-0.29, -0.37], [0.27, -0.35]]
+      ? [[-0.27, 0.37], [0.24, 0.33], [-0.03, 0.25], [-0.31, 0.13], [0.3, 0.16], [0.03, 0.17], [-0.26, -0.13], [0.25, -0.17], [-0.02, -0.26], [-0.29, -0.37], [0.27, -0.35]]
       : [[-0.31, 0.21], [-0.13, 0.34], [0.06, 0.26], [0.26, 0.32], [0.37, 0.07], [-0.39, -0.03], [-0.21, -0.25], [0.03, -0.31], [0.21, -0.19], [0.4, -0.31], [-0.41, -0.36]];
-    // The hand-placed set on the first screen, and copies of it scattered over the rest of the canvas.
-    const at = (items: FieldDoodle[]) => [
-      ...items.map((d, i) => ({ ...d, place: SPOTS[i % SPOTS.length] })),
-      ...Array.from({ length: narrow ? 5 : 9 }, (_, k) => items.map((d) => ({ ...d, key: `${d.key}:copy${k}`, copy: true }))).flat(),
-    ];
+    const at = (items: FieldDoodle[]) => items.map((d, i) => ({ ...d, place: SPOTS[i % SPOTS.length] }));
     if (!market) {
       const doors = MARKETS.map((m, i) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), [1.35, 1.15, 1.25, 1.4, 1.1, 1.3][i], "market"));
       const pages = [
@@ -68,7 +64,7 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
     }
     // A phone gets the newest rounds only: the same tile in a narrow window would be packed solid.
     const rounds = auctions.filter((a) => marketOf(a.mode) === market).sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated)
-      .slice(0, narrow ? 18 : undefined).map(auctionDoodle);
+      .slice(0, narrow ? 14 : 60).map(auctionDoodle);
     const start = door("quill", "Start a round", MODE_NAME[market], `/start/?market=${market}`, 1.15);
     const home = door("sealed-envelope", "All markets", "Benzo", "/", 1);
     const others = MARKETS.filter((m) => m !== market).map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 0.9, "market"));
@@ -104,7 +100,7 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
   }, [selected?.key]);
 
   const arrive = typeof document !== "undefined" && document.referrer.startsWith(location.origin);
-  const doors = doodles.filter((d) => d.href && !d.copy);
+  const doors = doodles.filter((d) => d.href);
   return (
     <div className="absolute inset-0 overflow-hidden bg-ground">
       <Field doodles={doodles} center={market ? MODE_NAME[market] : "Benzo"} onSelect={choose} arrive={arrive} />

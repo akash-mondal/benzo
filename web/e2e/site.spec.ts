@@ -68,13 +68,16 @@ test("home: every doodle is a door — a market door dives into that market's sk
   expect(errors).toEqual([]);
 });
 
-test("home: dragging moves the sky; a round's link lands on its market with its ticket open; Escape closes it; every door is listed", async ({ page }) => {
+test("home: one fixed screen (a drag moves nothing); a round's link lands on its market with its ticket open; Escape closes it; every door is listed", async ({ page }) => {
   await page.goto("/");
   await ready(page);
-  const before = await page.locator("canvas").first().screenshot();
+  await page.waitForTimeout(600);
+  const before = await doorAt(page, "Verify");
   await page.mouse.move(700, 450); await page.mouse.down(); await page.mouse.move(380, 300, { steps: 12 }); await page.mouse.up();
   await page.waitForTimeout(400);
-  expect(Buffer.compare(before, await page.locator("canvas").first().screenshot())).not.toBe(0);
+  const after = await doorAt(page, "Verify");
+  expect(Math.abs(after![0] - before![0])).toBeLessThan(4);
+  expect(Math.abs(after![1] - before![1])).toBeLessThan(20); // it bobs a little, never pans
   const nav = page.getByRole("navigation", { name: "Every doodle in the field" });
   for (const href of ["/markets/uniform/", "/markets/drop/", "/verify/", "/lots/", "/bid/"])
     await expect(nav.locator(`a[href="${href}"]`).first()).toBeAttached();
