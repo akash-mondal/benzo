@@ -101,7 +101,7 @@ export default function RequestView() {
           {mine && <Panel><div className="flex items-center justify-between text-[14px]" data-testid="request-party"><span className="text-app-faint">You are</span><Pill kind="wait">{mine.label}</Pill></div><p className="mt-2 text-[13px] text-app-muted">Your party key stays in this browser. Bid from this device.</p></Panel>}
           <Panel>
             <dl className="grid gap-2.5 text-[14px]">
-              <div className="flex justify-between"><dt className="text-app-faint">{r.mode === "buyback" || r.mode === "rfq" ? "Asks up to" : "Bids up to"}</dt><dd className="tabular-nums">{zats(r.max_price_zats)} zats</dd></div>
+              <div className="flex justify-between"><dt className="text-app-faint">{r.mode === "rfq" ? "Quotes up to" : r.mode === "buyback" ? "Asks up to" : "Bids up to"}</dt><dd className="tabular-nums">{zats(r.max_price_zats)} zats</dd></div>
               {r.mode !== "otc" && r.mode !== "rfq" && r.mode !== "buyback" && <div className="flex justify-between"><dt className="text-app-faint">Reserve</dt><dd className="tabular-nums">{zats(r.reserve_zats)} zats</dd></div>}
               {r.budget_zats && <div className="flex justify-between"><dt className="text-app-faint">Budget</dt><dd className="tabular-nums">{zats(r.budget_zats)} zats</dd></div>}
               <div className="flex justify-between"><dt className="text-app-faint">Bidding time</dt><dd>{r.minutes} min</dd></div>
