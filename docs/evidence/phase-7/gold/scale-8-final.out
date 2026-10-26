@@ -1,0 +1,9 @@
+[scale-8] auction a95214aecb72b05c1a73c796bfa39b8fb3a1605e43889b2151e98aa709d273cf mode uniform
+[scale-8] H19 fee reserve 105000 zats (bound 100000 + 5000 over 9 notes x 9 rows, floor 60000)
+[scale-8] funding 31ba6360205185512cac8fa7b70a542f0996a1c648ea57718ae30d3832b2828d
+[scale-8] PASS scale-8-cli-equals-pure-clear outcomes winner,winner,winner,winner,unfilled,unfilled,unfilled,unfilled price 270
+[scale-8] PASS scale-8-settled exit 0
+[scale-8] PASS scale-8-receipts {"leaf:0":199730,"leaf:1":199730,"leaf:2":199730,"leaf:3":199730,"leaf:4":200000,"leaf:5":200000,"leaf:6":200000,"leaf:7":200000,"seller":1080}
+[scale-8] PASS scale-8-landed [199730,199730,199730,199730,200000,200000,200000,200000,0]
+[scale-8] PASS scale-8-cold-verify
+[scale-8] RESULT PASS scale-8
