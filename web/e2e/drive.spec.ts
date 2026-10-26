@@ -23,7 +23,14 @@ const devtool = (args: string[]) => execFileSync(path.join(STATE, "bin/zcash-dev
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // A fresh shielded address of the testnet wallet (refunds, payouts, treasuries: what a person pastes from their wallet).
 // (Dry runs never touch the wallet: they use a published deposit address, BNZ_DRIVE_UA, which has the right shape.)
-const freshUA = () => process.env.BNZ_DRIVE_DRY ? process.env.BNZ_DRIVE_UA! : execFileSync(path.join(REPO, "settle/target/release/benzo-pczt"), ["address", WALLET, "--network", "test"], { encoding: "utf8" }).trim().split("\n").at(-1)!;
+// The wallet takes one writer at a time: a busy database is waited out (the browsers ask for addresses together).
+const freshUA = (): string => {
+  if (process.env.BNZ_DRIVE_DRY) return process.env.BNZ_DRIVE_UA!;
+  for (let i = 0; ; i++) {
+    try { return execFileSync(path.join(REPO, "settle/target/release/benzo-pczt"), ["address", WALLET, "--network", "test"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim().split("\n").at(-1)!; }
+    catch (e) { if (i > 40 || !/locked|busy/i.test(String((e as any).stderr ?? (e as Error).message))) throw e; Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500 + Math.random() * 1000); }
+  }
+};
 
 // One payment at a time from the shared wallet (its database takes one writer), waiting for a spendable note.
 const LOCK = "/tmp/benzo-drive-pay.lock";
@@ -31,7 +38,8 @@ async function pay(m: string, uri: string): Promise<string> {
   for (;;) { try { mkdirSync(LOCK); break; } catch { await sleep(2000); } }
   try {
     for (let i = 0; ; i++) {
-      devtool(["wallet", "-w", WALLET, "sync", "-s", LWD]);
+      // A sync only reads the chain: retried when the wallet is busy (another process syncing it) or stalls.
+      for (let k = 0; ; k++) { try { execFileSync(path.join(STATE, "bin/zcash-devtool"), ["wallet", "-w", WALLET, "sync", "-s", LWD], { encoding: "utf8", timeout: 5 * 60_000 }); break; } catch (e) { if (k >= 6) throw e; say(m, `wallet sync busy or stalled; retrying`); await sleep(20_000); } }
       try {
         const out = devtool(["wallet", "-w", WALLET, "pay", "-i", path.join(STATE, `${WALLET_NAME}.age`), "--disable-confirmation", "-s", LWD, "--payment-uri", uri]);
         const txid = out.match(/^[0-9a-f]{64}$/gm)?.at(-1);
