@@ -108,11 +108,11 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
     </Panel>
   );
   return (
-    <div>
+    <div className="flex flex-col fit:min-h-0 fit:flex-1">
       <PageHead glyph="quill" title={`New ${marketTitle(MODE_NAME[market])} round`} sub={FOR[market]}
         aside={<button type="button" onClick={onChange} className="text-[14px] text-app-muted hover:text-app-text">Change market</button>} />
-      <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <form onSubmit={go} className="grid content-start gap-4" data-testid="start-form" noValidate>
+      <div className="mt-7 grid gap-6 fit:min-h-0 fit:flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <form onSubmit={go} className="grid content-start gap-4 fit:min-h-0 fit:overflow-auto fit:pb-2 fit:pr-2" data-testid="start-form" noValidate>
           <Panel>
             <div className="grid gap-4">
               {market === "otc" && (
@@ -158,11 +158,14 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
             </Panel>
           )}
           <div className="lg:hidden"><div className="mb-2 text-[13px] text-app-faint">Review the round</div>{summary}</div>
-          {err && <ErrorLine testid="start-error">{err}</ErrorLine>}
-          {tried && invalid && !err && <ErrorLine testid="start-error">Some terms need fixing; they're marked above.</ErrorLine>}
-          <div className="grid gap-1.5">
-            <div><Btn type="submit" disabled={busy} testid="start-submit">{busy ? "Creating…" : "Create round"}</Btn></div>
-            <p className="text-[13px] text-app-muted">No payment is sent now. {next}</p>
+          {/* The action stays in view at the foot of the form, like an order ticket's button. */}
+          <div className="grid gap-2 fit:sticky fit:bottom-0 fit:-mx-1 fit:rounded-2xl fit:bg-[#141a10f2] fit:px-1 fit:pb-1 fit:pt-3 fit:backdrop-blur-xl">
+            {err && <ErrorLine testid="start-error">{err}</ErrorLine>}
+            {tried && invalid && !err && <ErrorLine testid="start-error">Some terms need fixing; they're marked above.</ErrorLine>}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <Btn type="submit" disabled={busy} testid="start-submit">{busy ? "Creating…" : "Create round"}</Btn>
+              <p className="text-[13px] text-app-muted">No payment is sent now. {next}</p>
+            </div>
           </div>
         </form>
         <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">

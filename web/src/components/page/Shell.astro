@@ -4,7 +4,8 @@
 // task of their own (starting a round, bidding).
 import Base from "../../layouts/Base.astro";
 import Back from "./Back.astro";
-const { title, description, back = "/", cta = true, full = false } = Astro.props;
+const { title, description, back = "/", cta = true, full = false, fit = false } = Astro.props;
+// fit: the page is built to be one window on a laptop (its panels scroll inside); other pages scroll as usual.
 // full: the page uses the whole width (the round terminal), like an exchange's trade screen.
 const frame = full ? "max-w-none px-3 sm:px-4" : "max-w-[1120px] px-5 sm:px-8";
 const path = Astro.url.pathname;
@@ -33,7 +34,7 @@ const links = [{ href: "/lots/", label: "Rounds" }, { href: "/mine/", label: "My
     </header>
     <!-- One container for every screen, the header's: every left edge on the page lines up. On a big enough screen the
          page is exactly one window (fit): the view inside fills it and nothing scrolls. -->
-    <main class:list={["mx-auto fit:flex fit:h-[calc(100dvh-3.5rem-1px)] fit:flex-col fit:overflow-hidden", frame, full ? "pb-6 pt-3 fit:pb-1 fit:pt-2" : "pb-24 pt-8 sm:pt-12 fit:pb-6 fit:pt-7"]}><slot /></main>
+    <main class:list={["mx-auto", fit && "fit:flex fit:h-[calc(100dvh-3.5rem-1px)] fit:flex-col fit:overflow-hidden", frame, full ? "pb-6 pt-3 fit:pb-1 fit:pt-2" : fit ? "pb-24 pt-8 sm:pt-12 fit:pb-6 fit:pt-7" : "pb-24 pt-8 sm:pt-12"]}><slot /></main>
   </div>
 </Base>
 <script>

@@ -3,11 +3,10 @@
 // was at build time, then keeps it current from the gateway, so a round that settles reads as settled without a rebuild.
 import { useEffect, useMemo, useState } from "react";
 import { api, MODE_NAME, utc } from "../../lib/api";
-import { glyphFor, marketOf, MARKETS } from "../../lib/glyphs";
+import { DOOR, glyphFor, marketOf, MARKETS } from "../../lib/glyphs";
 import { outcomeLine, traded } from "../../lib/outcome";
-import Stats from "../dash/Stats";
 import Activity from "../dash/Activity";
-import { Glyph, PageHead, Pill, claimDoor } from "../app/ui";
+import { Glyph, Pager, Pill, claimDoor, cx, useFitRows } from "../app/ui";
 import type { AuctionSummary } from "../../lib/types";
 
 // Stage, from the round's own state (never guessed from its age).
@@ -23,7 +22,7 @@ const local = (unix: number) => {
 export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   const [list, setList] = useState(() => order(initial));
   const [ready, setReady] = useState(false);
-  const [market, setMarket] = useState(""), [q, setQ] = useState(""), [tab, setTab] = useState("all"), [shown, setShown] = useState(25);
+  const [market, setMarket] = useState(""), [q, setQ] = useState(""), [tab, setTab] = useState("all"), [page, setPage] = useState(0);
   useEffect(() => {
     const p = new URLSearchParams(location.search);
     setMarket(p.get("market") ?? ""); setQ(p.get("q") ?? ""); setTab(p.get("stage") ?? "all"); setReady(true);
@@ -45,66 +44,105 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   const text = q.trim().toLowerCase();
   const base = list.filter((a) => (!market || marketOf(a.mode) === market) && (!text || `${(a.lot ?? "").toLowerCase()} ${a.id}`.includes(text)));
   const match = base.filter((a) => tab === "all" || stageOf(a) === tab);
-  const visible = new Set(match.slice(0, shown).map((a) => a.id));
-  const reset = () => setShown(25);
+  const reset = () => setPage(0);
   const tabName = TABS.find(([k]) => k === tab)?.[1].toLowerCase() ?? "";
 
+  // Rows per page: as many as fit the table on a one-window screen; small screens scroll and get 25.
+  const [rowsRef, rows] = useFitRows(56, 25);
+  const pages = Math.max(1, Math.ceil(match.length / rows));
+  const pg = Math.min(page, pages - 1);
+  const shownIds = new Set(match.slice(pg * rows, pg * rows + rows).map((a) => a.id));
+  const paidOut = settled.reduce((n, a) => n + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0);
+  const liveNow = list.filter((a) => a.live);
+  const ribbon: [string, string, boolean?][] = [
+    ["Rounds settled", `${settled.length.toLocaleString("en-US")}`], ["Traded", `${settled.filter(traded).length}`], ["Paid to winners and sellers", `${paidOut.toLocaleString("en-US")} zats`, true],
+    ["Sealed bids", list.reduce((n, a) => n + (a.leaf_count ?? 0), 0).toLocaleString("en-US")], ["Taking bids now", liveNow.length ? liveNow.map((a) => MODE_NAME[a.mode]).join(", ") : "none"],
+  ];
+  const byMarket = MARKETS.map((m) => { const r = list.filter((a) => marketOf(a.mode) === m), st = r.filter((a) => a.state === "SETTLED"); return { m, n: r.length, traded: st.filter(traded).length, paid: st.reduce((x, a) => x + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0) }; });
+
   return (
-    <div>
-      <PageHead glyph="emblem-lots" title="All rounds" sub={<><span id="count">{match.length}</span> rounds on Zcash testnet</>} />
-      {/* The overview: what's been run, what moved, what's open; then rounds per day. Everything from the published rounds. */}
-      <Stats className="mt-8" items={[
-        { label: "Rounds settled", value: settled.length, note: `${settled.filter(traded).length} traded, the rest refunded`, testid: "stat-settled" },
-        { label: "Paid to winners and sellers", value: settled.reduce((n, a) => n + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0), unit: "zats", gold: true, note: "through settled rounds", testid: "stat-paid" },
-        { label: "Sealed bids", value: list.reduce((n, a) => n + (a.leaf_count ?? 0), 0), note: "opened after bidding closed", testid: "stat-bids" },
-        { label: "Taking bids now", value: list.filter((a) => a.live).length, note: list.some((a) => a.live) ? list.filter((a) => a.live).map((a) => MODE_NAME[a.mode]).join(", ") : "None right now", testid: "stat-live" },
-      ]} />
-      <div className="mt-3"><Activity list={list} /></div>
-      <div className="mt-6 grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
-        <label className="sr-only" htmlFor="q">Search round name or id</label>
-        <input id="q" type="search" value={q} onChange={(e) => { setQ(e.target.value); reset(); }} placeholder="Search round name or id" autoComplete="off" spellCheck={false} className="h-10 rounded-[10px] bg-app-1 px-3 text-[15px] text-app-text outline-none ring-1 ring-transparent placeholder:text-app-faint focus:ring-gold/70" />
-        <label className="sr-only" htmlFor="market">Market</label>
-        <select id="market" value={market} onChange={(e) => { setMarket(e.target.value); reset(); }} className="h-10 rounded-[10px] bg-app-1 px-3 text-[15px] text-app-text outline-none focus:ring-1 focus:ring-gold/70">
-          <option value="">All markets</option>
-          {MARKETS.map((m) => <option key={m} value={m}>{MODE_NAME[m]}</option>)}
-        </select>
+    <div className="flex flex-col gap-2 fit:min-h-0 fit:flex-1">
+      {/* The ribbon: the page's doodle and title, then the figures an exchange's markets page leads with. */}
+      <div className="flex flex-col gap-3 rounded-[14px] bg-app-1 px-3 py-2 ring-1 ring-app-line backdrop-blur-xl lg:flex-row lg:items-center lg:gap-6">
+        <div className="flex items-center gap-3 px-2 py-1">
+          <Glyph name="emblem-lots" className="page-door size-10" />
+          <div><h1 className="text-[21px] leading-tight">All rounds</h1><div className="text-[12px] text-app-faint"><span id="count">{match.length}</span> rounds on Zcash testnet</div></div>
+        </div>
+        <div className="hidden h-9 w-px bg-app-line lg:block" />
+        <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2.5 px-2 pb-1 sm:grid-cols-3 lg:flex lg:items-center lg:gap-x-7 lg:p-0">
+          {ribbon.map(([k, v, gold]) => (
+            <div key={k} className="min-w-0 shrink-0"><dt className="text-[11.5px] text-app-faint">{k}</dt><dd className={cx("mt-0.5 truncate whitespace-nowrap text-[14px] tabular-nums", gold ? "chrome serif-figure text-[17px] leading-[1.1]" : "text-app-text")} data-testid={`stat-${k.split(" ")[0].toLowerCase()}`}>{v}</dd></div>
+          ))}
+        </dl>
       </div>
-      <div className="mt-3 flex flex-wrap gap-1" role="tablist" aria-label="Stage">
-        {TABS.map(([k, label]) => (
-          <button key={k} type="button" role="tab" data-tab={k} aria-selected={tab === k} onClick={() => { setTab(k); reset(); }} className="h-8 rounded-full px-3 text-[14px] text-app-muted hover:text-app-text aria-selected:bg-app-2 aria-selected:text-app-text">
-            {label} <span className="tabular-nums text-app-faint">{base.filter((a) => k === "all" || stageOf(a) === k).length}</span>
-          </button>
-        ))}
-      </div>
-      <div className="mt-4 overflow-hidden rounded-[22px] bg-app-1 ring-1 ring-app-line backdrop-blur-xl">
-        <div className="hidden grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px] gap-4 px-5 pb-2 pt-4 text-[13px] text-app-faint md:grid"><span>Round</span><span>Stage</span><span>Result</span><span className="text-right">Last update</span></div>
-        <ul id="rows">
-          {list.map((a) => { const st = stageOf(a); return (
-            <li key={a.id} hidden={!visible.has(a.id)}>
-              <a href={`/auction/?id=${a.id}`} onClick={(e) => claimDoor(e.currentTarget)} data-testid="lot-row" className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 border-t border-app-line px-5 py-3.5 transition-colors hover:bg-app-2 md:grid-cols-[minmax(0,1fr)_130px_minmax(0,260px)_150px]">
-                <span className="flex min-w-0 items-center gap-3">
-                  <Glyph name={glyphFor(a.mode, a.id)} className="size-9" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-[15px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}{(counts.get(a.lot ?? "") ?? 0) > 1 && <span className="text-app-faint"> · {a.id.slice(0, 6)}</span>}</span>
-                    <span className="block text-[13px] text-app-faint">{MODE_NAME[a.mode]} · {a.leaf_count ?? 0} bids</span>
-                  </span>
-                </span>
-                <span><Pill kind={STAGE[st][1]}>{STAGE[st][0]}</Pill></span>
-                <span className="col-span-2 truncate text-[14px] text-app-muted tabular-nums md:col-span-1 md:text-app-text">{outcomeLine(a)}{st === "running" && now - a.updated > 6 * 3600 ? " · no update for a while" : ""}</span>
-                <time dateTime={new Date(a.updated * 1000).toISOString()} className="col-span-2 text-[13px] text-app-faint tabular-nums md:col-span-1 md:text-right md:text-app-muted">{ready ? local(a.updated) : utc(a.updated)}</time>
-              </a>
-            </li>); })}
-        </ul>
-        {match.length === 0 && (
-          <div className="border-t border-app-line px-5 py-6 text-[14px] text-app-muted">
-            No {tab === "all" ? "" : tabName + " "}{market ? MODE_NAME[market] + " " : ""}rounds{text ? ` match "${q.trim()}"` : ""}.{" "}
-            <button type="button" onClick={() => { setTab("all"); setMarket(""); setQ(""); reset(); }} className="ml-1 text-app-text underline underline-offset-4">Clear filters</button>
+
+      <div className="grid gap-2 fit:min-h-0 fit:flex-1 lg:grid-cols-[minmax(0,1fr)_356px]">
+        {/* The rounds table: stage tabs, search, market; pages instead of scrolling. */}
+        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[14px] bg-app-1 ring-1 ring-app-line backdrop-blur-xl">
+          <div className="flex flex-wrap items-stretch justify-between gap-x-4 gap-y-2 border-b border-app-line px-3 pt-1.5 lg:h-11 lg:flex-nowrap lg:pt-0">
+            <div className="flex items-stretch gap-4 overflow-x-auto" role="tablist" aria-label="Stage">
+              {TABS.map(([k, label]) => (
+                <button key={k} type="button" role="tab" data-tab={k} aria-selected={tab === k} onClick={() => { setTab(k); reset(); }}
+                  className={cx("-mb-px whitespace-nowrap border-b-2 px-0.5 py-2 text-[13px] transition-colors", tab === k ? "border-gold text-app-text" : "border-transparent text-app-faint hover:text-app-muted")}>
+                  {label} <span className="tabular-nums text-app-faint">{base.filter((a) => k === "all" || stageOf(a) === k).length}</span>
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 pb-1.5 lg:pb-0">
+              <label className="sr-only" htmlFor="q">Search round name or id</label>
+              <input id="q" type="search" value={q} onChange={(e) => { setQ(e.target.value); reset(); }} placeholder="Search name or id" autoComplete="off" spellCheck={false} className="h-8 w-[180px] rounded-lg bg-[#0f140cb3] px-2.5 text-[13px] text-app-text outline-none ring-1 ring-app-line placeholder:text-app-faint focus:ring-[#ddd6c680]" />
+              <label className="sr-only" htmlFor="market">Market</label>
+              <select id="market" value={market} onChange={(e) => { setMarket(e.target.value); reset(); }} className="h-8 rounded-lg bg-[#0f140cb3] px-2 text-[13px] text-app-text outline-none ring-1 ring-app-line focus:ring-[#ddd6c680]">
+                <option value="">All markets</option>
+                {MARKETS.map((m) => <option key={m} value={m}>{MODE_NAME[m]}</option>)}
+              </select>
+            </div>
           </div>
-        )}
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-3 text-[13px] text-app-faint">
-        <span>{match.length ? `Showing ${Math.min(shown, match.length)} of ${match.length}` : ""}</span>
-        {match.length > shown && <button type="button" onClick={() => setShown((n) => n + 25)} className="h-10 rounded-full bg-app-1 px-5 text-[14px] font-semibold text-app-text hover:bg-app-2">Show 25 more</button>}
+          <div className="hidden grid-cols-[minmax(0,1.4fr)_120px_110px_minmax(0,1.2fr)_52px_110px] gap-4 px-4 py-2 text-[11.5px] text-app-faint md:grid"><span>Round</span><span>Market</span><span>Stage</span><span>Result</span><span className="text-right">Bids</span><span className="text-right">Updated</span></div>
+          <div ref={rowsRef} className="min-h-0 flex-1 fit:overflow-hidden">
+            <ul id="rows">
+              {list.map((a) => { const st = stageOf(a); return (
+                <li key={a.id} hidden={!shownIds.has(a.id)}>
+                  <a href={`/auction/?id=${a.id}`} onClick={(e) => claimDoor(e.currentTarget)} data-testid="lot-row" className="grid h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-t border-app-line px-4 transition-colors hover:bg-[#ddd6c60d] md:grid-cols-[minmax(0,1.4fr)_120px_110px_minmax(0,1.2fr)_52px_110px]">
+                    <span className="flex min-w-0 items-center gap-3">
+                      <Glyph name={glyphFor(a.mode, a.id)} className="size-8" />
+                      <span className="min-w-0"><span className="block truncate text-[14px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}</span><span className="block truncate text-[12px] text-app-faint md:hidden">{MODE_NAME[a.mode]} · {outcomeLine(a)}</span><span className="hidden text-[12px] text-app-faint md:block">{a.id.slice(0, 8)}</span></span>
+                    </span>
+                    <span className="hidden truncate text-[13px] text-app-muted md:block">{MODE_NAME[a.mode]}</span>
+                    <span><Pill kind={STAGE[st][1]}>{STAGE[st][0]}</Pill></span>
+                    <span className="hidden truncate text-[13px] text-app-text tabular-nums md:block">{outcomeLine(a)}{st === "running" && now - a.updated > 6 * 3600 ? " · stalled" : ""}</span>
+                    <span className="hidden text-right text-[13px] tabular-nums text-app-muted md:block">{a.leaf_count ?? 0}</span>
+                    <time dateTime={new Date(a.updated * 1000).toISOString()} className="hidden text-right text-[12.5px] tabular-nums text-app-muted md:block">{ready ? local(a.updated) : utc(a.updated)}</time>
+                  </a>
+                </li>); })}
+            </ul>
+            {match.length === 0 && (
+              <div className="border-t border-app-line px-4 py-6 text-[14px] text-app-muted">
+                No {tab === "all" ? "" : tabName + " "}{market ? MODE_NAME[market] + " " : ""}rounds{text ? ` match "${q.trim()}"` : ""}.{" "}
+                <button type="button" onClick={() => { setTab("all"); setMarket(""); setQ(""); reset(); }} className="ml-1 text-app-text underline underline-offset-4">Clear filters</button>
+              </div>
+            )}
+          </div>
+          <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-t border-app-line px-4">
+            <span className="text-[12px] text-app-faint">{liveNow.length ? `${liveNow.length} taking bids now` : "Newest first"}</span>
+            <Pager page={pg} size={rows} total={match.length} onPage={setPage} testid="pager" />
+          </div>
+        </section>
+
+        {/* Beside it: rounds per day, then each market at a glance (click one to filter). */}
+        <div className="grid min-h-0 gap-2 fit:grid-rows-[minmax(0,1fr)_auto]">
+          <Activity list={list} className="h-[320px] fit:h-full" />
+          <section className="rounded-[14px] bg-app-1 ring-1 ring-app-line backdrop-blur-xl" data-testid="by-market">
+            <div className="grid grid-cols-[minmax(0,1fr)_52px_60px] gap-2 border-b border-app-line px-4 py-2 text-[11.5px] text-app-faint"><span>Market</span><span className="text-right">Rounds</span><span className="text-right">Traded</span></div>
+            {byMarket.map(({ m, n, traded: t }) => (
+              <button key={m} type="button" onClick={() => { setMarket(market === m ? "" : m); reset(); }} aria-pressed={market === m}
+                className={cx("grid w-full grid-cols-[minmax(0,1fr)_52px_60px] items-center gap-2 px-4 py-1.5 text-left text-[13px] transition-colors hover:bg-[#ddd6c60d]", market === m && "bg-[#e9cd8414]")}>
+                <span className="flex min-w-0 items-center gap-2.5"><Glyph name={DOOR[m]} className="size-5" /><span className="truncate">{MODE_NAME[m]}</span></span>
+                <span className="text-right tabular-nums text-app-muted">{n}</span><span className="text-right tabular-nums text-app-muted">{n ? `${t}` : "—"}</span>
+              </button>
+            ))}
+          </section>
+        </div>
       </div>
     </div>
   );

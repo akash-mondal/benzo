@@ -4,4 +4,4 @@ import VerifyView from "../../components/views/VerifyView";
 import { auctions } from "../../lib/server";
 const list = (await auctions()).filter((a) => a.state === "SETTLED").slice(0, 30).map((a) => ({ id: a.id, lot: a.lot, mode: a.mode }));
 ---
-<Shell title="Verify a round – Benzo"><VerifyView client:only="react" recent={list} /></Shell>
+<Shell title="Verify a round – Benzo" fit><VerifyView client:only="react" recent={list} /></Shell>

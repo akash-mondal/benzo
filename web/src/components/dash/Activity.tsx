@@ -31,7 +31,7 @@ function days(list: AuctionSummary[], span: number): Day[] {
   return out;
 }
 
-export default function Activity({ list }: { list: AuctionSummary[] }) {
+export default function Activity({ list, className = "h-[340px]" }: { list: AuctionSummary[]; className?: string }) {
   const [span, setSpan] = useState(7);
   const [hover, setHover] = useState<number | null>(null);
   const data = useMemo(() => days(list, span), [list, span]);
@@ -44,24 +44,22 @@ export default function Activity({ list }: { list: AuctionSummary[] }) {
   const running = d ? d.running : data.reduce((n, x) => n + x.running, 0);
 
   return (
-    <section className="flex h-[340px] min-w-0 flex-col gap-5 rounded-[22px] bg-app-1 px-5 pb-3 pt-5 ring-1 ring-app-line backdrop-blur-xl sm:px-6" data-testid="activity">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[13px] text-app-muted">{d ? d.full : `Rounds in the last ${span} days`}</p>
-          <p key={hover ?? "all"} className="animate-number-fade serif-figure mt-0.5 text-[34px] leading-[1.05] text-[#f3eee2] tabular-nums">{shown.toLocaleString("en-US")}</p>
-          <p className="mt-0.5 text-[13px] text-app-faint tabular-nums">{tradedN} traded{paid ? ` · ${paid.toLocaleString("en-US")} zats paid out` : ""}{running ? ` · ${running} still running` : ""}</p>
-        </div>
-        <div className="flex flex-col items-end gap-3">
+    <section className={`flex min-h-0 min-w-0 flex-col gap-4 rounded-[14px] bg-app-1 px-4 pb-3 pt-4 ring-1 ring-app-line backdrop-blur-xl ${className}`} data-testid="activity">
+      <div className="grid gap-1">
+        <div className="flex items-center justify-between gap-3">
+          <p className="min-w-0 truncate text-[13px] text-app-muted">{d ? d.full : `Rounds in the last ${span} days`}</p>
           <SegmentedControl aria-label="Range" selectedKeys={new Set([String(span)])} onSelectionChange={(k) => { const v = [...k][0]; if (v) { setSpan(Number(v)); setHover(null); } }}>
-            <SegmentedControlItem id="7">7 days</SegmentedControlItem>
-            <SegmentedControlItem id="30">30 days</SegmentedControlItem>
+            <SegmentedControlItem id="7">7d</SegmentedControlItem>
+            <SegmentedControlItem id="30">30d</SegmentedControlItem>
           </SegmentedControl>
-          <dl className="flex items-center gap-4 text-[12.5px] text-app-muted">
-            <div className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-gold" aria-hidden /><dt>Traded</dt></div>
-            <div className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#ddd6c64d]" aria-hidden /><dt>Refunded</dt></div>
-            <div className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#ddd6c626]" aria-hidden /><dt>Running</dt></div>
-          </dl>
         </div>
+        <p key={hover ?? "all"} className="animate-number-fade serif-figure text-[34px] leading-[1.05] text-[#f3eee2] tabular-nums">{shown.toLocaleString("en-US")}</p>
+        <p className="text-[12.5px] text-app-faint tabular-nums">{tradedN} traded{paid ? ` · ${paid.toLocaleString("en-US")} zats paid out` : ""}{running ? ` · ${running} still running` : ""}</p>
+        <dl className="mt-1 flex items-center gap-4 text-[12px] text-app-muted">
+          <div className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-gold" aria-hidden /><dt>Traded</dt></div>
+          <div className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#ddd6c64d]" aria-hidden /><dt>Refunded</dt></div>
+          <div className="flex items-center gap-1.5"><span className="size-2 rounded-full bg-[#ddd6c626]" aria-hidden /><dt>Running</dt></div>
+        </dl>
       </div>
       <div className="min-h-0 flex-1">
         <ResponsiveContainer width="100%" height="100%">

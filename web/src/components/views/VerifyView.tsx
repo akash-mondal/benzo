@@ -38,10 +38,10 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
   const failed = (d?.checks ?? []).filter((c) => c.status === "failed" || (!c.ok && !c.status));
   const counted = (d?.checks ?? []).filter((c) => c.status !== "not_applicable");
   return (
-    <div>
+    <div className="flex flex-col fit:min-h-0 fit:flex-1">
       <PageHead glyph="emblem-verify" title="Verify a round" sub="Check a round's public record: its terms, which bids were in, how they opened and cleared, and the payments." />
       {/* Phone: picker, result, then the notes. Desktop: picker and notes left, result right. */}
-      <div className="mt-8 grid gap-4 lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[auto_1fr]">
+      <div className="mt-6 grid gap-4 fit:min-h-0 fit:flex-1 lg:grid-cols-[340px_minmax(0,1fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
           <Panel className="self-start lg:col-start-1 lg:row-start-1">
             <Field label="Round">
               <select value={known ? id : ""} onChange={(e) => { if (e.target.value) void run(e.target.value); }} className={fieldCls} aria-label="Recent settled rounds">
@@ -58,7 +58,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
             </form>
           </Panel>
 
-        <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1">
+        <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1 fit:min-h-0 fit:self-stretch fit:overflow-auto">
           {!a ? <div className="py-10 text-center text-app-muted">Pick a round to check.</div> : (
             <>
               <div className="text-[13px] text-app-faint">Round {short(a.target, 6)}{d ? ` · ${d.lot ?? MODE_NAME[d.mode]} · ${MODE_NAME[d.mode]}` : ""}</div>
@@ -73,7 +73,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
                     <Pill kind={d.valid ? "good" : "bad"}>{d.valid ? "Record checks out" : "Does not verify"}</Pill>
                   </div>
                   <p className="mt-1 text-[13px] text-app-faint tabular-nums">{counted.filter((c) => c.ok).length} of {counted.length} applicable checks pass · {d.checks.length - counted.length} not applicable · record updated {when(d.updated)}</p>
-                  <div className="mt-5 grid gap-5" data-testid="verify-results">
+                  <div className="mt-5 grid gap-x-8 gap-y-5 xl:grid-cols-2" data-testid="verify-results">
                     {failed.length > 0 && <Group title="Failed" checks={failed} />}
                     {GROUPS.map(([title, ids]) => by(ids).length > 0 && <Group key={title} title={title} checks={by(ids).filter((c) => !failed.includes(c))} />)}
                     {leftovers.length > 0 && <Group title="Other checks" checks={leftovers.filter((c) => !failed.includes(c))} />}
@@ -84,7 +84,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
             </>
           )}
         </Panel>
-        <aside className="grid content-start gap-4 lg:col-start-1 lg:row-start-2">
+        <aside className="grid content-start gap-4 lg:col-start-1 lg:row-start-2 fit:min-h-0 fit:overflow-auto">
           <Panel>
             <div className="text-[15px] font-medium">What this establishes</div>
             <ul className="mt-2 grid gap-2 text-[13.5px] text-app-muted">
