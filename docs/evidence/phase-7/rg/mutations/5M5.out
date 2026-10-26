@@ -1,0 +1,13 @@
+mutation 5M5 (docs/evidence/phase-5/mutations/5M5.patch) on project buyback-mode
+commit d7da1677318b4ba0ee441dda7805c4f44e16f162 (patch applied on top, then reverted; product code 7ac4b93)
+utc 2026-10-26T12:00:33Z
+node v24.15.0, go version go1.25.6 darwin/arm64
+expected red: Y1a
+ERROR ids: Y1a 
+RESULT RED (expected)
+--- last 30 lines ---
+auction 77dade22376c09548c4472be6f85f32db2bf886e803f91ec85036ebcb6732de9
+ERROR Y1a Error: Y1a threw | Expected: "" | Received: "benzo auction keys --id 77dade22376c09548c4472be6f85f32db2bf886e803f91ec85036ebcb6732de9 --group-keys exited 1: ERROR auction keys refused: group key reused from auction 005a515f52fcd56789670e267f8c8167fd0d28b32300d1ddd5c9c05eb8fb16b0"
+run.json -> tmp/e2e/out
+FAILED buyback-mode Mode B buyback settles under host custody with the treasury leg (11 s)
+run failed; details in tmp/e2e/report.json
