@@ -30,13 +30,13 @@ function useRoll(value: number, ms = 900) {
 function Stat({ label, value, unit, note, gold, testid }: StatItem) {
   const n = useRoll(value);
   return (
-    <div className="min-w-0 rounded-[20px] bg-app-1 p-5 ring-1 ring-app-line backdrop-blur-xl" data-testid={testid} data-value={value}>
+    <div className="min-w-0 rounded-[20px] bg-app-1 p-4 ring-1 sm:p-5 ring-app-line backdrop-blur-xl" data-testid={testid} data-value={value}>
       <div className="text-[12.5px] text-app-faint">{label}</div>
-      <div className="mt-1.5 flex min-w-0 items-baseline gap-1.5">
-        <span className={cx("serif-figure truncate pb-0.5 text-[32px] leading-[1.05] tabular-nums", gold ? "chrome" : "text-[#f3eee2]")}>{n.toLocaleString("en-US")}</span>
+      <div className="mt-1.5 flex min-w-0 flex-wrap items-baseline gap-x-1.5">
+        <span className={cx("serif-figure pb-0.5 text-[26px] leading-[1.05] tabular-nums sm:text-[32px]", gold ? "chrome" : "text-[#f3eee2]")}>{n.toLocaleString("en-US")}</span>
         {unit && <span className="shrink-0 text-[13px] text-app-muted">{unit}</span>}
       </div>
-      {note && <div className="mt-1 truncate text-[13px] text-app-muted">{note}</div>}
+      {note && <div className="mt-1 line-clamp-2 text-[13px] leading-snug text-app-muted">{note}</div>}
     </div>
   );
 }
