@@ -6,6 +6,6 @@ import RoundsView from "../../components/views/RoundsView";
 import { auctions } from "../../lib/server";
 const list = await auctions();
 ---
-<Shell title="Rounds – Benzo" description="Every round run through Benzo on Zcash testnet, and how each one ended." wide>
+<Shell title="Rounds – Benzo" description="Every round run through Benzo on Zcash testnet, and how each one ended." full fit>
   <RoundsView client:load initial={list} />
 </Shell>

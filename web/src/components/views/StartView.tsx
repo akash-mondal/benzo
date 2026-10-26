@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { api, MODE_NAME } from "../../lib/api";
 import { ABOUT, DOOR, MARKETS, type Market } from "../../lib/glyphs";
 import { addParty, addStarted } from "../../lib/mine";
-import { Btn, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
+import { Btn, Glyph, PageHead, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
 
 const FOR = ABOUT;
 
@@ -21,15 +21,14 @@ export default function StartView() {
   }, []);
   if (!market) return (
     <div>
-      <h1 className="text-[28px]">Start a round</h1>
-      <p className="mt-1.5 text-app-muted">Choose how you want to sell or buy.</p>
+      <PageHead glyph="quill" title="Start a round" sub="Choose how you want to sell or buy." />
       <ul className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" data-testid="start-markets">
         {MARKETS.map((m) => (
           <li key={m}>
             <button type="button" onClick={() => { setMarket(m); history.pushState({ benzoStep: 1 }, "", `/start/?market=${m}`); }}
-              className="flex h-full w-full flex-col gap-4 rounded-[20px] bg-app-1 p-5 text-left transition-colors hover:bg-app-2" data-testid={`start-${m}`}>
-              <img src={`/doodles/${DOOR[m]}.svg?v=2`} alt="" className="size-10" />
-              <span><span className="block text-[17px] font-semibold">{MODE_NAME[m]}</span><span className="mt-1 block text-[14px] text-app-muted">{FOR[m]}</span></span>
+              className="group flex h-full w-full flex-col gap-5 rounded-[22px] bg-app-1 p-6 text-left ring-1 ring-app-line backdrop-blur-xl transition-[transform,box-shadow,background-color] duration-300 hover:-translate-y-0.5 hover:bg-[#232b1dd0] hover:shadow-[0_0_0_1px_#ddd6c633]" data-testid={`start-${m}`}>
+              <Glyph name={DOOR[m]} className="size-16 transition-transform duration-300 group-hover:scale-110" />
+              <span><span className="serif-figure block text-[26px] leading-tight text-[#f3eee2]">{MODE_NAME[m]}</span><span className="mt-1 block text-[14px] text-app-muted">{FOR[m]}</span></span>
             </button>
           </li>
         ))}
@@ -92,7 +91,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
   const summary = (
     <Panel>
       <div className="flex items-center gap-3">
-        <img src={`/doodles/${DOOR[market]}.svg?v=2`} alt="" className="size-10 rounded-xl bg-app-2 p-2" />
+        <Glyph name={DOOR[market]} className="size-12" />
         <div className="min-w-0"><div className="truncate text-[17px] font-semibold">{f.lot || "Untitled"}</div><div className="text-[13px] text-app-muted">{MODE_NAME[market]}</div></div>
       </div>
       <dl className="mt-5 grid gap-2.5 text-[14px]">
@@ -109,14 +108,11 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
     </Panel>
   );
   return (
-    <div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <h1 className="text-[28px]">New {marketTitle(MODE_NAME[market])} round</h1>
-        <button type="button" onClick={onChange} className="text-[14px] text-app-muted hover:text-app-text">Change market</button>
-      </div>
-      <p className="mt-1.5 text-app-muted">{FOR[market]}</p>
-      <div className="mt-7 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <form onSubmit={go} className="grid content-start gap-4" data-testid="start-form" noValidate>
+    <div className="flex flex-col fit:min-h-0 fit:flex-1">
+      <PageHead glyph="quill" title={`New ${marketTitle(MODE_NAME[market])} round`} sub={FOR[market]}
+        aside={<button type="button" onClick={onChange} className="text-[14px] text-app-muted hover:text-app-text">Change market</button>} />
+      <div className="mt-7 grid gap-6 fit:min-h-0 fit:flex-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <form onSubmit={go} className="grid content-start gap-4 fit:min-h-0 fit:overflow-auto fit:pb-2 fit:pr-2" data-testid="start-form" noValidate>
           <Panel>
             <div className="grid gap-4">
               {market === "otc" && (
@@ -162,11 +158,14 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
             </Panel>
           )}
           <div className="lg:hidden"><div className="mb-2 text-[13px] text-app-faint">Review the round</div>{summary}</div>
-          {err && <ErrorLine testid="start-error">{err}</ErrorLine>}
-          {tried && invalid && !err && <ErrorLine testid="start-error">Some terms need fixing; they're marked above.</ErrorLine>}
-          <div className="grid gap-1.5">
-            <div><Btn type="submit" disabled={busy} testid="start-submit">{busy ? "Creating…" : "Create round"}</Btn></div>
-            <p className="text-[13px] text-app-muted">No payment is sent now. {next}</p>
+          {/* The action stays in view at the foot of the form, like an order ticket's button. */}
+          <div className="grid gap-2 fit:sticky fit:bottom-0 fit:-mx-1 fit:rounded-2xl fit:bg-[#141a10f2] fit:px-1 fit:pb-1 fit:pt-3 fit:backdrop-blur-xl">
+            {err && <ErrorLine testid="start-error">{err}</ErrorLine>}
+            {tried && invalid && !err && <ErrorLine testid="start-error">Some terms need fixing; they're marked above.</ErrorLine>}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+              <Btn type="submit" disabled={busy} testid="start-submit">{busy ? "Creating…" : "Create round"}</Btn>
+              <p className="text-[13px] text-app-muted">No payment is sent now. {next}</p>
+            </div>
           </div>
         </form>
         <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">

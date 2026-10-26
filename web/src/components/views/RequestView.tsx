@@ -6,7 +6,7 @@ import QRCode from "qrcode";
 import { api, MODE_NAME, zec } from "../../lib/api";
 import { DOOR, marketOf } from "../../lib/glyphs";
 import { addParty, partyFor } from "../../lib/mine";
-import { Btn, ErrorLine, Panel, Pill, cx, zats } from "../app/ui";
+import { Btn, Glyph, ErrorLine, Panel, Pill, cx, zats } from "../app/ui";
 import type { AuctionDetail, RoundRequest } from "../../lib/types";
 
 const WORD: Record<RoundRequest["status"], [string, "live" | "wait" | "good" | "bad"]> = { waiting: ["Waiting for parties", "wait"], queued: ["Setting up", "wait"], open: ["Taking bids", "live"], failed: ["Couldn't start", "bad"] };
@@ -31,9 +31,9 @@ export default function RequestView() {
     return () => { gone = true; window.clearInterval(t); };
   }, []);
   if (r === undefined) return down
-    ? <div className="py-16"><h1 className="text-[26px]">We couldn't load this round</h1><p className="mt-2 text-app-muted">The service didn't answer. Your round is saved; check again in a moment.</p><div className="mt-6"><Btn onClick={() => location.reload()}>Check again</Btn></div></div>
-    : <h1 className="py-16 text-[26px] text-app-muted">Loading…</h1>;
-  if (r === null) return <div className="py-16"><h1 className="text-[26px]">We couldn't find this round</h1><p className="mt-2 text-app-muted">The link may be incomplete.</p><div className="mt-6"><Btn href="/start/" kind="secondary">Start a round</Btn></div></div>;
+    ? <div className="py-16"><h1>We couldn't load this round</h1><p className="mt-2 text-app-muted">The service didn't answer. Your round is saved; check again in a moment.</p><div className="mt-6"><Btn onClick={() => location.reload()}>Check again</Btn></div></div>
+    : <h1 className="py-16 text-app-muted">Loading…</h1>;
+  if (r === null) return <div className="py-16"><h1>We couldn't find this round</h1><p className="mt-2 text-app-muted">The link may be incomplete.</p><div className="mt-6"><Btn href="/start/" kind="secondary">Start a round</Btn></div></div>;
 
   const join = async () => {
     setErr("");
@@ -75,8 +75,8 @@ export default function RequestView() {
   return (
     <div data-testid="request" data-status={r.status}>
       <div className="flex flex-wrap items-center gap-3">
-        <img src={`/doodles/${DOOR[marketOf(r.mode)]}.svg?v=2`} alt="" className="size-10 rounded-xl bg-app-1 p-2" />
-        <h1 className="text-[28px]" data-testid="ticket-title">{r.lot}</h1>
+        <Glyph name={DOOR[marketOf(r.mode)]} className="size-14" />
+        <h1 data-testid="ticket-title">{r.lot}</h1>
         <Pill kind={kind}>{word}</Pill>
       </div>
       <p className="mt-1.5 text-[14px] text-app-muted">{MODE_NAME[r.mode]} · {r.lots ? r.lots.join(", ") : `${r.supply} unit${r.supply > 1 ? "s" : ""}`} · {r.minutes} minutes of bidding</p>
@@ -86,7 +86,7 @@ export default function RequestView() {
             {steps.map((s, i) => (
               <li key={s.title} className="relative flex gap-4 pb-6 last:pb-0">
                 {i < steps.length - 1 && <span aria-hidden className={cx("absolute left-[11px] top-7 h-[calc(100%-1.75rem)] w-[2px]", s.state === "done" ? "bg-app-muted" : "bg-app-2")} />}
-                <span aria-hidden className={cx("mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-[12px] font-bold", s.state === "done" && "bg-app-muted text-black", s.state === "now" && "bg-gold text-black", s.state === "next" && "bg-app-2 text-app-faint", s.state === "bad" && "bg-bad text-black")}>{s.state === "done" ? "✓" : s.state === "bad" ? "!" : ""}</span>
+                <span aria-hidden className={cx("mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-[12px] font-bold", s.state === "done" && "bg-app-muted text-ink", s.state === "now" && "bg-gold text-ink", s.state === "next" && "bg-app-2 text-app-faint", s.state === "bad" && "bg-bad text-ink")}>{s.state === "done" ? "✓" : s.state === "bad" ? "!" : ""}</span>
                 <div className="min-w-0 flex-1">
                   <div className={cx("text-[15px] font-medium", s.state === "next" && "text-app-muted")}>{s.title}</div>
                   {s.note && <div className={cx("text-[13.5px]", s.state === "bad" ? "text-bad" : "text-app-muted")}>{s.note}</div>}
@@ -120,7 +120,7 @@ function Open({ d, r, canBid }: { d: AuctionDetail; r: RoundRequest; canBid: boo
   return (
     <div className="mt-3 grid gap-4">
       {d.funding && r.manage && (
-        <div className="flex gap-4 rounded-xl bg-[#2b2410] p-3">
+        <div className="flex gap-4 rounded-xl bg-[#e9cd8414] p-3 ring-1 ring-[#e9cd8440]">
           {qr ? <img src={qr} alt="QR code for the budget payment" className="size-[112px] shrink-0 rounded-lg" data-testid="request-fund-qr" /> : <div className="size-[112px] shrink-0 rounded-lg bg-app-2" />}
           <div className="grid min-w-0 content-start gap-1.5 text-[14px]">
             <div className="font-medium">Fund the budget: {zats(d.funding.amount_zats)} zats ({zec(d.funding.amount_zats)} TAZ)</div>

@@ -15,6 +15,7 @@ export const chromeFragment = /* glsl */ `
   uniform float uTime;
   uniform float uSeed;
   uniform float uHover;
+  uniform float uFade;
   uniform vec3 uLow;
   uniform vec3 uHigh;
   varying vec2 vUv;
@@ -40,7 +41,7 @@ export const chromeFragment = /* glsl */ `
     // Sand chrome: bands run from a dark sand to paper white, each channel offset a little (the sheen).
     vec3 chrome = mix(uLow, uHigh, vec3(rC, g, bC));
     chrome += uHover * 0.12;
-    gl_FragColor = vec4(chrome, a * 0.96);
+    gl_FragColor = vec4(chrome, a * 0.96 * uFade);
   }
 `;
 
@@ -48,7 +49,7 @@ export const chromeFragment = /* glsl */ `
 export const SAND_LOW = new THREE.Vector3(0.62, 0.58, 0.47), SAND_HIGH = new THREE.Vector3(0.99, 0.97, 0.91);
 export const chromeMaterial = (map: THREE.Texture, seed: number, low = SAND_LOW, high = SAND_HIGH) =>
   new THREE.ShaderMaterial({
-    uniforms: { uMap: { value: map }, uTime: { value: 0 }, uSeed: { value: seed }, uHover: { value: 0 }, uLow: { value: low }, uHigh: { value: high } },
+    uniforms: { uMap: { value: map }, uTime: { value: 0 }, uSeed: { value: seed }, uHover: { value: 0 }, uFade: { value: 1 }, uLow: { value: low }, uHigh: { value: high } },
     vertexShader: planeVertex,
     fragmentShader: chromeFragment,
     transparent: true,

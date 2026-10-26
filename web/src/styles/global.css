@@ -6,6 +6,13 @@
 @import "@fontsource/libre-franklin/500.css";
 @import "@fontsource-variable/source-serif-4";
 @import "@fontsource-variable/source-serif-4/wght-italic.css";
+/* BoardUI (free tier): its tokens and type utilities only. Its globals.css (resets, page background, root transitions)
+   is left out on purpose; the product screens keep this file's look, and the tokens are mapped onto it below. */
+@import "./theme.css";
+@import "./typography.css";
+/* "fit": a screen big enough to show a whole page at once (laptop and up). There, every product screen is one window,
+   no scrolling: lists page, long sections become tabs. Smaller screens scroll as usual. */
+@custom-variant fit (@media (min-width: 1024px) and (min-height: 660px));
 
 /* Direction: "The product performs" (taste-skill v2, seed 1041642974). Palette "Sand and moss", type Libre Franklin /
    Source Serif 4. Sand holds the page, charcoal type; moss is the one accent (actions); the leaf field is the stage. */
@@ -23,18 +30,18 @@
   /* The canvas: a green-black night the doodles float in. */
   --color-ground: #141a10;
   --color-ground-2: #1b2316;
-  /* The app screens after the landing (taste-skill app sheet "True-black flat", seed 9397609, face: the landing's
-     moss night as the ground, Zcash gold as the one data hue). Elevation by lightness alone; no borders on cards. */
-  --color-app: #0b0e09;
-  --color-app-1: #141811;
-  --color-app-2: #1f251b;
-  --color-app-line: #232a1e;
-  --color-app-text: #ededed;
-  --color-app-muted: #a9aba6;
-  --color-app-faint: #8b8e88;
-  --color-gold: #f4b728;
-  --color-bad: #ef6a7e;
-  --color-warn: #e5a93b;
+  /* The product screens live in the landing's night: the same ground and doodle sea behind glass panels, sand for
+     type, the chrome of the doodles for the figures that matter, a lit sand-gold for what's live. */
+  --color-app: #141a10;
+  --color-app-1: #1b2216c4;
+  --color-app-2: #ddd6c612;
+  --color-app-line: #ddd6c61c;
+  --color-app-text: #ebe5d6;
+  --color-app-muted: #b9b3a3;
+  --color-app-faint: #938e80;
+  --color-gold: #e9cd84;
+  --color-bad: #f0939a;
+  --color-warn: #e8b96a;
 }
 
 :root {
@@ -51,7 +58,7 @@
 
 html { background: var(--color-ground); color: var(--color-sand); }
 body { min-height: 100dvh; font-family: var(--font-serif); font-size: var(--step-body); line-height: 1.55; -webkit-font-smoothing: antialiased; }
-h1, h2, h3, h4 { font-family: var(--font-sans); font-weight: 700; letter-spacing: -0.035em; line-height: 0.95; text-wrap: balance; }
+@layer base { h1, h2, h3, h4 { font-family: var(--font-sans); font-weight: 700; letter-spacing: -0.035em; line-height: 0.95; text-wrap: balance; } }
 ::selection { background: var(--color-moss); color: #fff; }
 :focus-visible { outline: 2px solid var(--color-moss); outline-offset: 3px; }
 .tabular { font-variant-numeric: tabular-nums; }
@@ -75,8 +82,47 @@ h1, h2, h3, h4 { font-family: var(--font-sans); font-weight: 700; letter-spacing
 }
 @media (scripting: none) { .reveal { opacity: 1; transform: none; } }
 
-/* App screens: one sans at 14-15px, tabular figures everywhere numbers live. */
-.app { background: var(--color-app); color: var(--color-app-text); font-family: "Inter Variable", "Inter", system-ui, sans-serif; font-size: 15px; line-height: 1.5; font-feature-settings: "cv11", "ss01"; }
-.app h1, .app h2, .app h3 { font-family: inherit; letter-spacing: -0.022em; line-height: 1.15; font-weight: 600; }
+/* Product screens: the landing's sky behind everything (its own blurred sea, captured), the landing's label face for
+   the interface, its serif italic for titles and the figures that matter. */
+.app { position: relative; isolation: isolate; background: var(--color-app); color: var(--color-app-text); font-family: "Libre Franklin", "Helvetica Neue", Arial, sans-serif; font-size: 15px; line-height: 1.5; font-variant-numeric: tabular-nums; }
+.app::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background: radial-gradient(120% 80% at 50% 0%, transparent 0%, #141a10cc 70%), url("/sky-sea.webp") center / cover no-repeat, var(--color-app); }
+@layer base {
+  .app h1 { font-family: var(--font-serif); font-style: italic; font-weight: 500; font-size: clamp(28px, 3vw, 38px); letter-spacing: -0.012em; line-height: 1.05; color: #f3eee2; }
+  .app h2 { font-family: var(--font-serif); font-style: italic; font-weight: 500; font-size: 22px; letter-spacing: -0.005em; line-height: 1.2; }
+  .app h3 { font-family: inherit; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2; }
+}
 .app :focus-visible { outline: 2px solid var(--color-gold); outline-offset: 2px; }
-.app ::selection { background: var(--color-gold); color: #000; }
+.app ::selection { background: var(--color-sand); color: var(--color-ink); }
+/* The doodles' sand chrome, for type: the figure a screen is about. */
+.chrome { background: linear-gradient(100deg, #a99f86 0%, #fbf6e8 30%, #c2b799 52%, #f4eedd 74%, #a99f86 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.serif-figure { font-family: var(--font-serif); font-style: italic; font-weight: 500; letter-spacing: -0.01em; }
+/* A doodle from the sky, in its sand chrome (the SVG is the mask). */
+.glyph { display: inline-block; flex-shrink: 0; background: linear-gradient(135deg, #9f957c 0%, #fbf6e8 38%, #b9ae92 60%, #efe8d4 100%); -webkit-mask: var(--g) center / contain no-repeat; mask: var(--g) center / contain no-repeat; }
+
+/* BoardUI's semantic tokens, in the sky's colours (only inside the product screens). */
+.app {
+  --color-text-primary: #ebe5d6; --color-text-secondary: #b9b3a3; --color-text-tertiary: #938e80;
+  --color-background-secondary-default: #ddd6c60d; --color-background-tertiary-default: #ddd6c614;
+  --color-segmented-control-background: #0f140cb3; --color-segmented-control-selected-background: #ddd6c61f;
+  --color-border-focus-ring: #e9cd8499;
+  --color-status-lime-background: #b9d98a1a; --color-status-lime-text: #c4e09a;
+  --color-status-rose-background: #f0939a1a; --color-status-rose-text: #f0939a;
+  --color-status-yellow-background: #e9cd841a; --color-status-yellow-text: #e9cd84;
+  --color-chart-track: #ddd6c614; --color-chart-cursor: #ddd6c633; --color-chart-neutral: #ddd6c633;
+}
+@keyframes number-fade { from { opacity: 0.35; } to { opacity: 1; } }
+.animate-number-fade { animation: number-fade 220ms ease-out; }
+.recharts-wrapper :focus, .recharts-wrapper :focus-visible, .recharts-surface:focus { outline: none; }
+
+/* Between the sky and the pages: the browser's page transitions. The door you dive into becomes the doodle at the head
+   of the page it opens ("door"); the header stays put between pages; everything else crossfades over the same sea. */
+@view-transition { navigation: auto; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.38s; animation-timing-function: var(--ease-out); }
+::view-transition-group(door) { animation-duration: 0.62s; animation-timing-function: var(--ease-out); }
+::view-transition-old(door), ::view-transition-new(door) { animation-duration: 0.62s; height: 100%; object-fit: contain; }
+.page-door { view-transition-name: door; }
+.app-header { view-transition-name: app-header; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

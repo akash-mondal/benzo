@@ -9,7 +9,7 @@ import QRCode from "qrcode";
 import { api, MODE_NAME, short, zec } from "../../lib/api";
 import { glyphFor } from "../../lib/glyphs";
 import { archiveCurrent, attemptsFor, currentAttempt, partyFor, saveAttempt, type Attempt, type PartyKey } from "../../lib/mine";
-import { Btn, Copyable, ErrorLine, Field, Panel, Pill, cx, fieldCls, rel, when, zats } from "../app/ui";
+import { Btn, Glyph, Copyable, ErrorLine, Field, Panel, Pill, cx, fieldCls, rel, when, zats } from "../app/ui";
 import { clock, useCountdown } from "./useCountdown";
 import type { AuctionDetail } from "../../lib/types";
 
@@ -17,7 +17,7 @@ const SELLS = (mode: string) => mode === "buyback" || mode === "rfq";
 const taz = (zatsN: number | string) => `${(Number(zatsN) / 1e8).toFixed(8).replace(/0+$/, "").replace(/\.$/, "")} TAZ`;
 
 // Who you are in this round and what your number means.
-function roleOf(d: AuctionDetail, party: PartyKey | null) {
+export function roleOf(d: AuctionDetail, party: PartyKey | null) {
   const m: any = d.manifest, seller = SELLS(d.mode) || party?.label === "Seller";
   const lo = d.mode === "otc" ? 10 : Number(m.reserve_zats ?? 0) || 10, hi = Number(m.buyback?.max_price_zats ?? m.rfq?.max_price_zats ?? m.B_max_zats);
   const label = d.mode === "buyback" ? "Your ask, per unit" : d.mode === "rfq" ? "Your quote" : d.mode === "otc" ? (seller ? "Lowest price you'll accept" : "Highest price you'll pay") : m.lots ? "Your bid for this lot" : "Your price, per unit";
@@ -36,7 +36,6 @@ export default function BidView() {
   const q = new URLSearchParams(location.search), wanted = q.get("id");
   const [round, setRound] = useState<AuctionDetail | null | undefined>(undefined);
   const [failed, setFailed] = useState(false);
-  const [saved, setSaved] = useState<(Attempt & { key?: string }) | null>(null);
   useEffect(() => {
     (async () => {
       // An explicit round always loads (open, closed or settled), so a saved bid in it is never stranded.
@@ -44,22 +43,15 @@ export default function BidView() {
       if (wanted && /^[0-9a-f]{64}$/.test(wanted)) d = await api.auction(wanted).catch((e) => { if (!/: 404 /.test(String((e as Error).message))) setFailed(true); return null; });
       else { const list = await api.auctions(); const live = list.find((a) => a.live && a.state === "OPEN"); d = live ? await api.auction(live.id) : null; }
       setRound(d);
-      if (d) setSaved(currentAttempt(d.id));
     })().catch(() => { setFailed(true); setRound(null); });
   }, []);
   const left = useCountdown(round?.T_submit);
-  const keep = (a: Attempt | null) => {
-    if (!round) return;
-    if (!a) { archiveCurrent(round.id); setSaved(null); return; }
-    const key = saveAttempt(round.id, a, saved?.key && saved.bid?.ciphertext_hash === a.bid?.ciphertext_hash ? saved.key : undefined);
-    setSaved({ ...a, key });
-  };
 
-  if (round === undefined) return <h1 className="py-16 text-[26px] text-app-muted" data-testid="ticket-title">Finding the round…</h1>;
+  if (round === undefined) return <h1 className="py-16 text-app-muted" data-testid="ticket-title">Finding the round…</h1>;
   if (!round) return (
     <div className="mx-auto max-w-[540px] py-16 text-center">
-      <img src="/doodles/hourglass.svg?v=2" alt="" className="mx-auto size-14 opacity-80" />
-      <h1 className="mt-6 text-[26px]" data-testid="ticket-title">{failed ? "We couldn't load the rounds" : wanted ? "We couldn't find that round" : "No rounds are taking bids right now"}</h1>
+      <Glyph name="hourglass" className="mx-auto size-16" />
+      <h1 className="mt-6" data-testid="ticket-title">{failed ? "We couldn't load the rounds" : wanted ? "We couldn't find that round" : "No rounds are taking bids right now"}</h1>
       <p className="mt-2 text-app-muted">{failed ? "The service didn't answer. Try again in a moment." : "You can look at how finished rounds turned out, no wallet needed. New rounds open here when they start."}</p>
       <div className="mt-7 flex justify-center gap-3"><Btn href="/lots/?stage=settled" testid="bid-start">Explore finished rounds</Btn><Btn href="/start/" kind="secondary">Start a test round</Btn></div>
     </div>
@@ -67,31 +59,50 @@ export default function BidView() {
   const party = round.mode === "otc" || round.mode === "rfq" ? partyFor(round.request) : null;
   const role = roleOf(round, party);
   const open = round.live && round.state === "OPEN" && !!left;
-  const step = !saved ? 0 : saved.step === "pay" ? 1 : 2;
-  const others = attemptsFor(round.id).filter((a) => a.key !== saved?.key);
   return (
     // Phone: the round, then the card, then the terms. Desktop: the round and its terms left, the card right.
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_440px] lg:grid-rows-[auto_1fr] lg:gap-x-10">
       <RoundSummary round={round} left={open ? left : 0} role={role} />
-      <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1">
-        <Steps step={step} />
-        <div className="mt-6">
-          {(round.mode === "otc" || round.mode === "rfq") && !party && !saved ? (
-            <div data-testid="bid-parties-only"><div className="text-[16px] font-medium">Invited parties only</div><p className="mt-1 text-[14px] text-app-muted">This round takes {role.noun}s only from the people its creator invited. Open your invite link in this browser to take part.</p><div className="mt-4"><Btn href={`/auction/?id=${round.id}`} kind="secondary">View this round</Btn></div></div>
-          ) : !open && !saved ? (
-            <div data-testid="bid-closed"><div className="text-[16px] font-medium">{left ? "This round isn't taking bids here" : "Bidding has closed for this round"}</div><p className="mt-1 text-[14px] text-app-muted">{left ? "It was set up outside this site, so bids go in through its own tools. You can still follow how it turns out." : "You can still see how it turns out."}</p><div className="mt-4"><Btn href={`/auction/?id=${round.id}`}>View this round</Btn></div></div>
-          ) : (
-            <>
-              {!saved && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
-              {saved?.step === "pay" && <Pay round={round} role={role} s={saved} open={open} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid })} onNew={() => keep(null)} />}
-              {saved?.step === "track" && <Track round={round} role={role} s={saved} open={open} onNew={() => keep(null)} />}
-            </>
-          )}
-          {others.length > 0 && <p className="mt-5 text-[13px] text-app-faint">You have {others.length} other {role.noun}{others.length > 1 ? "s" : ""} in this round. They're all in <a className="underline" href="/mine/">My activity</a>.</p>}
-        </div>
-      </Panel>
-      <Terms round={round} role={role} />
+      <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1"><BidTicket round={round} /></Panel>
+      <div className="min-w-0 lg:col-start-1 lg:row-start-2"><Terms round={round} role={role} /><a href={`/auction/?id=${round.id}`} className="mt-6 inline-block text-[14px] text-app-muted underline-offset-4 hover:text-app-text hover:underline">View the round</a></div>
     </div>
+  );
+}
+
+// The bid card: Seal, then Pay, then Track, for one round. Used by the bid page and by the round's terminal (its order
+// ticket). It keeps this browser's attempts for the round; none is ever deleted.
+export function BidTicket({ round }: { round: AuctionDetail }) {
+  const [saved, setSaved] = useState<(Attempt & { key?: string }) | null>(() => currentAttempt(round.id));
+  useEffect(() => { setSaved(currentAttempt(round.id)); }, [round.id]);
+  const left = useCountdown(round.T_submit);
+  const keep = (a: Attempt | null) => {
+    if (!a) { archiveCurrent(round.id); setSaved(null); return; }
+    const key = saveAttempt(round.id, a, saved?.key && saved.bid?.ciphertext_hash === a.bid?.ciphertext_hash ? saved.key : undefined);
+    setSaved({ ...a, key });
+  };
+  const party = round.mode === "otc" || round.mode === "rfq" ? partyFor(round.request) : null;
+  const role = roleOf(round, party);
+  const open = round.live && round.state === "OPEN" && !!left;
+  const step = !saved ? 0 : saved.step === "pay" ? 1 : 2;
+  const others = attemptsFor(round.id).filter((a) => a.key !== saved?.key);
+  return (
+    <>
+      <Steps step={step} />
+      <div className="mt-6">
+        {(round.mode === "otc" || round.mode === "rfq") && !party && !saved ? (
+          <div data-testid="bid-parties-only"><div className="text-[16px] font-medium">Invited parties only</div><p className="mt-1 text-[14px] text-app-muted">This round takes {role.noun}s only from the people its creator invited. Open your invite link in this browser to take part.</p></div>
+        ) : !open && !saved ? (
+          <div data-testid="bid-closed"><div className="text-[16px] font-medium">{left ? "This round isn't taking bids here" : "Bidding has closed for this round"}</div><p className="mt-1 text-[14px] text-app-muted">{left ? "It was set up outside this site, so bids go in through its own tools. You can still follow how it turns out." : "You can still see how it turns out."}</p></div>
+        ) : (
+          <>
+            {!saved && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
+            {saved?.step === "pay" && <Pay round={round} role={role} s={saved} open={open} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid })} onNew={() => keep(null)} />}
+            {saved?.step === "track" && <Track round={round} role={role} s={saved} open={open} onNew={() => keep(null)} />}
+          </>
+        )}
+        {others.length > 0 && <p className="mt-5 text-[13px] text-app-faint">You have {others.length} other {role.noun}{others.length > 1 ? "s" : ""} in this round. They're all in <a className="underline" href="/mine/">My activity</a>.</p>}
+      </div>
+    </>
   );
 }
 
@@ -100,33 +111,32 @@ function RoundSummary({ round, left, role }: { round: AuctionDetail; left: numbe
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-4">
-        <img src={`/doodles/${glyphFor(round.mode, round.id)}.svg?v=2`} alt="" className="size-14 shrink-0 rounded-2xl bg-app-1 p-2.5" />
+        <Glyph name={glyphFor(round.mode, round.id)} className="page-door size-16" />
         <div className="min-w-0">
           <div className="text-[13px] text-app-faint">{MODE_NAME[round.mode]} · Zcash testnet</div>
-          <h1 className="truncate text-[26px]" data-testid="ticket-title">{round.lot ?? "Round"}</h1>
+          <h1 className="truncate" data-testid="ticket-title">{round.lot ?? "Round"}</h1>
         </div>
       </div>
       <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5">
-        <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("mt-1 text-[22px] font-semibold tabular-nums", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : Date.now() / 1000 < round.T_submit ? "Not here" : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
-        <div><div className="text-[13px] text-app-faint">Fixed deposit</div><div className="mt-1 text-[22px] font-semibold tabular-nums">{zats(round.C_zats)} zats</div><div className="text-[13px] text-app-muted">{taz(round.C_zats)} · not your {role.noun}</div></div>
-        <div><div className="text-[13px] text-app-faint">{m.lots ? "Lots" : role.seller ? "Units wanted" : "Units for sale"}</div><div className="mt-1 text-[17px] font-medium">{m.lots ? `${m.lots.length} lots` : round.supply}</div></div>
-        <div><div className="text-[13px] text-app-faint">Bids open</div><div className="mt-1 text-[17px] font-medium">{rel(round.release)}</div><div className="text-[13px] text-app-muted">{when(round.release)}</div></div>
+        <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : Date.now() / 1000 < round.T_submit ? "Not here" : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
+        <div><div className="text-[13px] text-app-faint">Fixed deposit</div><div className="serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]">{zats(round.C_zats)} zats</div><div className="text-[13px] text-app-muted">{taz(round.C_zats)} · not your {role.noun}</div></div>
+        <div><div className="text-[13px] text-app-faint">{m.lots ? "Lots" : role.seller ? "Units wanted" : "Units for sale"}</div><div className="serif-figure mt-1 text-[24px] leading-[1.1]">{m.lots ? `${m.lots.length} lots` : round.supply}</div></div>
+        <div><div className="text-[13px] text-app-faint">Bids open</div><div className="serif-figure mt-1 text-[24px] leading-[1.1]">{rel(round.release)}</div><div className="text-[13px] text-app-muted">{when(round.release)}</div></div>
       </div>
     </div>
   );
 }
 
 // The terms, in this market's words for this side (shown under the card on a phone).
-function Terms({ round, role }: { round: AuctionDetail; role: ReturnType<typeof roleOf> }) {
+export function Terms({ round, role }: { round: AuctionDetail; role: ReturnType<typeof roleOf> }) {
   return (
-    <div className="min-w-0 lg:col-start-1 lg:row-start-2">
+    <div className="min-w-0">
       <dl className="grid gap-4 text-[14px]">
         <div><dt className="font-medium text-app-text">How this round decides</dt><dd className="mt-0.5 text-app-muted">{role.rule}</dd></div>
         <div><dt className="font-medium text-app-text">Your deposit</dt><dd className="mt-0.5 text-app-muted">{role.deposit} Every bidder pays the same deposit, so it gives nothing away.</dd></div>
         <div><dt className="font-medium text-app-text">Sealed until the bids open</dt><dd className="mt-0.5 text-app-muted">Your {role.noun} is sealed in this browser. Nobody, the operator included, can read it before the bids open at {when(round.release)}. After that, prices are published; addresses never are.</dd></div>
         <div><dt className="font-medium text-app-text">What you'll need</dt><dd className="mt-0.5 text-app-muted">A Zcash testnet wallet that keeps payment memos (NU7), with {taz(round.C_zats)} plus the wallet's fee. TAZ is testnet Zcash and has no real value. 1 TAZ = 100,000,000 zats.</dd></div>
       </dl>
-      <a href={`/auction/?id=${round.id}`} className="mt-6 inline-block text-[14px] text-app-muted underline-offset-4 hover:text-app-text hover:underline">View the round</a>
     </div>
   );
 }
@@ -233,6 +243,8 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
 function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDetail; role: ReturnType<typeof roleOf>; s: Attempt; open: boolean; onKey: () => void; onPaid: (txid: string) => void; onNew: () => void }) {
   const [qr, setQr] = useState("");
   const [big, setBig] = useState(false);
+  // The enlarged QR closes on Escape, on its Close button, or a click anywhere.
+  useEffect(() => { if (!big) return; const k = (e: KeyboardEvent) => { if (e.key === "Escape") setBig(false); }; document.addEventListener("keydown", k); return () => document.removeEventListener("keydown", k); }, [big]);
   const [txid, setTxid] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -274,7 +286,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
         <span className="text-app-faint">Sealed{b.lot_index !== undefined ? ` · Lot ${b.lot_index + 1}` : ""}</span>
         <span className="tabular-nums"><span className="text-[17px] font-semibold">{zats(b.price_zats)}</span> zats</span>
       </div>
-      <div className={cx("rounded-2xl p-4", s.savedKey ? "bg-app-2" : "bg-[#2b2410]")}>
+      <div className={cx("rounded-2xl p-4", s.savedKey ? "bg-[#ddd6c60a] ring-1 ring-app-line" : "bg-[#e9cd8414] ring-1 ring-[#e9cd8440]")}>
         <div className="flex items-center justify-between gap-3">
           <div><div className="text-[14px] font-medium">{s.savedKey ? "Recovery file downloaded" : "First, download your recovery file"}</div><div className="text-[13px] text-app-muted">It holds your private bid key and price. Keep it private; you may need it to claim a refund.</div></div>
           <Btn kind={s.savedKey ? "text" : "primary"} onClick={keyFile} testid="bid-key">{s.savedKey ? "Again" : "Download"}</Btn>
@@ -299,7 +311,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
             <button type="button" onClick={() => setBig(true)} className="shrink-0" aria-label="Enlarge the QR code">{qr ? <img src={qr} alt="QR code for the deposit payment" className="size-[180px] rounded-xl bg-white sm:size-[200px]" data-testid="bid-qr" /> : <div className="size-[180px] rounded-xl bg-app-2" />}</button>
             <div className="grid min-w-0 content-start gap-2 text-[14px]">
               <p className="text-app-muted"><span className="sm:hidden">Paying from another device? Scan this. </span>Use the whole payment link; sending to the address alone won't include your sealed {role.noun}.</p>
-              <a href={b.uri} className="hidden w-fit rounded-full bg-white px-4 py-2 font-semibold text-black hover:bg-[#e6e6e6] sm:inline-block" data-testid="bid-uri">Open in wallet</a>
+              <a href={b.uri} className="hidden w-fit rounded-full bg-sand px-4 py-2 font-semibold text-ink hover:bg-[#ebe5d6] sm:inline-block" data-testid="bid-uri">Open in wallet</a>
               <button type="button" className="hidden w-fit text-app-muted hover:text-app-text sm:block" onClick={() => copy("Payment link copied, with the amount and sealed memo", b.uri)}>Copy payment link</button>
               <button type="button" className="w-fit text-app-muted hover:text-app-text" onClick={() => setBig(true)}>Enlarge QR</button>
             </div>
@@ -320,8 +332,11 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
       </form>
       <span className="sr-only" data-testid="bid-hash">{short(b.ciphertext_hash, 8)}</span>
       {big && qr && (
-        <div role="dialog" aria-label="Payment QR code" className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-6" onClick={() => setBig(false)}>
-          <img src={qr} alt="QR code for the deposit payment" className="w-full max-w-[420px] rounded-2xl bg-white" />
+        <div role="dialog" aria-modal="true" aria-label="Payment QR code" className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-6" onClick={() => setBig(false)}>
+          <div className="grid w-full max-w-[420px] justify-items-center gap-4">
+            <img src={qr} alt="QR code for the deposit payment" className="w-full rounded-2xl bg-white" />
+            <button type="button" autoFocus onClick={() => setBig(false)} className="h-10 rounded-full bg-sand px-6 text-[14px] font-semibold text-ink">Close</button>
+          </div>
         </div>
       )}
     </div>
