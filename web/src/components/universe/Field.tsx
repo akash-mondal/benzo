@@ -4,7 +4,7 @@
 // a click on a round selects it. Ornaments are background texture: deep in the fog, never hovered.
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { chromeMaterial, doodleTexture, dustFragment, dustVertex, hash01, planeVertex, SAND_HIGH, SAND_LOW, streakFragment, wrap } from "./shaders";
+import { chromeMaterial, doodleTexture, dustFragment, dustVertex, hash01, planeVertex, SAND_HIGH, SAND_LOW, streakFragment, WORD_FONT, wordTexture, wrap } from "./shaders";
 
 // Ornaments are drawn in a dull sand, so the doodles that do something are the bright ones.
 const DIM_LOW = SAND_LOW.clone().multiplyScalar(0.3), DIM_HIGH = SAND_HIGH.clone().multiplyScalar(0.42);
@@ -12,14 +12,15 @@ import type { FieldDoodle } from "../../lib/types";
 
 type Entry = {
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  doodle: FieldDoodle;
+  doodle: FieldDoodle; size: number;
   baseX: number; baseY: number; phase: number; bobSpeed: number; spinSpeed: number; targetScale: number; baseScale: number;
 };
 
 const go = (href: string) => { location.href = href; };
 
-export default function Field({ doodles, onSelect, onNavigate = go, arrive = false, ground = "#141a10" }: {
+export default function Field({ doodles, center, onSelect, onNavigate = go, arrive = false, ground = "#141a10" }: {
   doodles: FieldDoodle[];
+  center?: string; // a word pinned to the middle of the screen: the sky moves under it
   onSelect: (d: FieldDoodle) => void;
   onNavigate?: (href: string) => void;
   arrive?: boolean; // came through a door: the camera eases back out of it
@@ -36,6 +37,11 @@ export default function Field({ doodles, onSelect, onNavigate = go, arrive = fal
   const tile = useRef({ w: 0, h: 0 });
   const [label, setLabel] = useState<{ name: string; tag: string | null } | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
+  const names = useRef(new Map<string, HTMLSpanElement>());
+  const centerMesh = useRef<THREE.Mesh | null>(null);
+  const copyTile = useRef({ w: 0, h: 0, hx: 0, hy: 0 }); // copies wrap on 3 x 3 screens and stay out of the first screen
+  const sceneRef = useRef<THREE.Scene | null>(null);
+  const scene = sceneRef;
 
   // Scene, camera, dust, streaks and the input loop: built once.
   useEffect(() => {
@@ -57,6 +63,7 @@ export default function Field({ doodles, onSelect, onNavigate = go, arrive = fal
     el.appendChild(renderer.domElement);
     const g = new THREE.Group();
     scene.add(g);
+    sceneRef.current = scene;
     group.current = g;
 
     const dustTile = () => {
@@ -164,7 +171,9 @@ export default function Field({ doodles, onSelect, onNavigate = go, arrive = fal
       const hit = list.find((x) => x.mesh === hitObj) ?? null;
       if (hit !== hovered.current) {
         hovered.current = hit;
-        setLabel(hit ? { name: hit.doodle.name, tag: hit.doodle.tag } : null);
+        // A named doodle already shows its name under it: its pill carries only the detail (count, state), if any.
+        const named = hit && (hit.doodle.place || hit.doodle.copy);
+        setLabel(hit && (!named || hit.doodle.tag) ? { name: named ? "" : hit.doodle.name, tag: hit.doodle.tag } : null);
       }
       if (dive) {
         const k = Math.min((now - dive.at) / 0.55, 1), e = k * k * (3 - 2 * k);
@@ -181,15 +190,36 @@ export default function Field({ doodles, onSelect, onNavigate = go, arrive = fal
       const T = tile.current;
       for (const x of list) {
         const y = x.baseY + Math.sin(t * x.bobSpeed + x.phase) * 0.25;
-        if (T.w > 0) { x.mesh.position.x = wrap(x.baseX + pan.current.x, T.w); x.mesh.position.y = wrap(y + pan.current.y, T.h); }
+        // Placed doodles live once, at their spot in the canvas (no wrap); the rest tile and wrap as you pan.
+        if (x.doodle.place) { x.mesh.position.x = x.baseX + pan.current.x; x.mesh.position.y = y * 0.4 + x.baseY * 0.6 + pan.current.y; }
+        else if (x.doodle.copy) {
+          const C = copyTile.current, px = wrap(x.baseX + pan.current.x, C.w), py = wrap(y * 0.4 + x.baseY * 0.6 + pan.current.y, C.h);
+          x.mesh.position.x = px; x.mesh.position.y = py;
+          // The first screen around the centre word holds the one hand-placed set; a copy wrapping into it hides.
+          x.mesh.visible = !(Math.abs(px - pan.current.x) < C.hx && Math.abs(py - pan.current.y) < C.hy);
+        }
+        else if (T.w > 0) { x.mesh.position.x = wrap(x.baseX + pan.current.x, T.w); x.mesh.position.y = wrap(y + pan.current.y, T.h); }
         else x.mesh.position.y = y;
-        if (!still) x.mesh.rotation.z += x.spinSpeed * 0.004;
+        if (!still && !x.doodle.place) x.mesh.rotation.z += x.spinSpeed * 0.004;
         x.targetScale = x === hit ? x.baseScale * 1.5 : x.baseScale;
         x.mesh.scale.setScalar(x.mesh.scale.x + (x.targetScale - x.mesh.scale.x) * 0.15);
         const u = x.mesh.material.uniforms;
         u.uTime.value = t;
         u.uHover.value += (Number(x === hit) - u.uHover.value) * 0.12;
       }
+      // The names under the placed doodles follow their doodle on screen.
+      const W2 = el.clientWidth / 2, H2 = el.clientHeight / 2, v = new THREE.Vector3();
+      for (const x of list) {
+        const span = names.current.get(x.doodle.key);
+        if (!span) continue;
+        if (!x.mesh.visible) { span.style.opacity = "0"; continue; }
+        v.set(x.mesh.position.x, x.mesh.position.y - (x.size * x.mesh.scale.x) / 2 - 0.08, x.mesh.position.z).project(camera);
+        const sx = v.x * W2 + W2, sy = -v.y * H2 + H2, out = v.z > 1 || sx < -80 || sx > el.clientWidth + 80 || sy < -40 || sy > el.clientHeight + 40;
+        span.style.transform = `translate(${sx.toFixed(1)}px, ${sy.toFixed(1)}px) translateX(-50%)`;
+        span.style.opacity = out ? "0" : "1";
+      }
+      // The centre word: one, at the canvas origin; it moves with the canvas, never repeats.
+      if (centerMesh.current) { centerMesh.current.position.set(pan.current.x, pan.current.y, 2.5); (centerMesh.current.material as THREE.ShaderMaterial).uniforms.uTime.value = t; }
       dustMat.uniforms.uPan.value.set(pan.current.x, pan.current.y);
       dustMat.uniforms.uTime.value = t;
       if (!still) {
@@ -245,25 +275,59 @@ export default function Field({ doodles, onSelect, onNavigate = go, arrive = fal
           mesh.rotation.z = (hash01(k * 4.2) - 0.5) * 0.7;
           mesh.name = d.key;
           g.add(mesh);
-          list.push({ mesh, doodle: d, baseX: x, baseY: y, phase: hash01(k * 5.5) * Math.PI * 2, bobSpeed: 0.25 + hash01(k * 6.1) * 0.5, spinSpeed: (hash01(k * 7.3) - 0.5) * 0.3, targetScale: 1, baseScale: 1 });
+          list.push({ mesh, doodle: d, size, baseX: x, baseY: y, phase: hash01(k * 5.5) * Math.PI * 2, bobSpeed: 0.25 + hash01(k * 6.1) * 0.5, spinSpeed: (hash01(k * 7.3) - 0.5) * 0.3, targetScale: 1, baseScale: 1 });
         });
       };
       const all = doodles.map((d, i) => ({ d, tex: textures[i] }));
-      lay(all.filter((x) => !x.d.ambient), false, 1);
+      // The first screen at z 0 (the camera's home distance is 12): placed doodles sit inside it, named below.
+      const vh = 2 * tan * 12, vw = vh * aspect;
+      all.filter((x) => x.d.place && x.tex).forEach(({ d, tex }, i) => {
+        const size = 1.05 * (d.scale ?? 1), mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), chromeMaterial(tex!, hash01(i * 3.3 + 7) * 10));
+        const x = d.place![0] * vw, y = d.place![1] * vh;
+        mesh.position.set(x, y, 0); mesh.rotation.z = (hash01(i * 5.1 + 2) - 0.5) * 0.35; mesh.name = d.key; g.add(mesh);
+        list.push({ mesh, doodle: d, size, baseX: x, baseY: y, phase: hash01(i * 2.7) * Math.PI * 2, bobSpeed: 0.3 + hash01(i * 4.9) * 0.3, spinSpeed: 0, targetScale: 1, baseScale: 1 });
+      });
+      // Copies of the doors: shuffled into the cells of a 12 x 12 grid over 3 x 3 screens, the middle screen left empty.
+      copyTile.current = { w: 3 * vw, h: 3 * vh, hx: vw / 2 + 0.7, hy: vh / 2 + 0.7 };
+      const cells: [number, number][] = [];
+      for (let r = 0; r < 12; r++) for (let c = 0; c < 12; c++) if (!(r >= 4 && r < 8 && c >= 4 && c < 8)) cells.push([c, r]);
+      cells.sort((a, b) => hash01(a[0] * 13.1 + a[1] * 7.7) - hash01(b[0] * 13.1 + b[1] * 7.7));
+      all.filter((x) => x.d.copy && x.tex).forEach(({ d, tex }, i) => {
+        if (i >= cells.length) return;
+        const [c, r] = cells[i], k = i + 901, size = 1.05 * (d.scale ?? 1) * (0.8 + hash01(k * 1.9) * 0.3);
+        const x = ((c + 0.5) / 12 - 0.5) * 3 * vw + (hash01(k) - 0.5) * 0.6 * (vw / 4), y = ((r + 0.5) / 12 - 0.5) * 3 * vh + (hash01(k * 1.3) - 0.5) * 0.6 * (vh / 4);
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), chromeMaterial(tex!, hash01(k * 8.9) * 10));
+        mesh.position.set(x, y, 0); mesh.rotation.z = (hash01(k * 4.2) - 0.5) * 0.4; mesh.name = d.key; g.add(mesh);
+        list.push({ mesh, doodle: d, size, baseX: x, baseY: y, phase: hash01(k * 5.5) * Math.PI * 2, bobSpeed: 0.3 + hash01(k * 6.1) * 0.3, spinSpeed: 0, targetScale: 1, baseScale: 1 });
+      });
+      lay(all.filter((x) => !x.d.ambient && !x.d.place && !x.d.copy), false, 1);
       lay(all.filter((x) => x.d.ambient), true, 517);
+      if (centerMesh.current) { scene.current?.remove(centerMesh.current); centerMesh.current.geometry.dispose(); (centerMesh.current.material as THREE.Material).dispose(); centerMesh.current = null; }
+      if (center) {
+        await document.fonts.load(WORD_FONT).catch(() => undefined);
+        const w = wordTexture(center);
+        if (w && !stale) {
+          const width = Math.min(vw * 0.42, 5.2), mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, width * w.aspect), chromeMaterial(w.texture, 3.1));
+          mesh.position.set(0, 0, 2.5); mesh.name = "center"; scene.current?.add(mesh); centerMesh.current = mesh;
+        }
+      }
       entries.current = list;
       targets.current = list.filter((x) => !x.doodle.ambient).map((x) => x.mesh);
       host.current?.setAttribute("data-ready", String(list.length));
     })();
     return () => { stale = true; };
-  }, [doodles]);
+  }, [doodles, center]);
 
   return (
     <div ref={host} className="absolute inset-0" data-testid="field">
+      {doodles.filter((d) => d.place || d.copy).map((d) => (
+        <span key={d.key} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
+          className="pointer-events-none absolute left-0 top-0 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
+      ))}
       {label && (
         <span className="pointer-events-none absolute z-10 flex -translate-x-1/2 items-baseline gap-2 bg-sand px-2.5 py-1 font-sans text-[13px] font-medium whitespace-nowrap text-ink" style={{ left: pointer.x, top: pointer.y + 24 }} data-testid="hover-pill">
           {label.name}
-          {label.tag && <span className="text-muted">{label.tag}</span>}
+          {label.tag && <span className={label.name ? "text-muted" : ""}>{label.tag}</span>}
         </span>
       )}
     </div>

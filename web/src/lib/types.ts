@@ -60,6 +60,8 @@ export type FieldDoodle = {
   auction?: AuctionSummary;
   href?: string; // a door: a click dives into it and goes here
   ambient?: boolean; // background texture: no hover, no click, set deep in the fog
+  place?: [number, number]; // where it starts, as fractions of the first screen (x right, y up; 0,0 is the centre); named below
+  copy?: boolean; // another copy of a door, scattered over the canvas outside the first screen; named below
 };
 
 export type Chain = { tip: number | null; round: number | null; now: number };

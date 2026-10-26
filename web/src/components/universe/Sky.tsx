@@ -44,29 +44,36 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
   const doodles = useMemo<FieldDoodle[]>(() => {
     const narrow = typeof window !== "undefined" && window.innerWidth < 640, now = Date.now() / 1000;
     const count = (m: Market) => auctions.filter((a) => marketOf(a.mode) === m).length;
+    // Hand-placed spots around the centre word, inside the first screen (fractions of it; x right, y up). Loose on
+    // purpose: no ring, no grid. A phone gets its own set for the tall screen.
+    const SPOTS: [number, number][] = narrow
+      ? [[-0.27, 0.37], [0.24, 0.33], [-0.03, 0.25], [-0.31, 0.13], [0.3, 0.16], [0.02, 0.1], [-0.26, -0.13], [0.25, -0.17], [-0.02, -0.26], [-0.29, -0.37], [0.27, -0.35]]
+      : [[-0.31, 0.21], [-0.13, 0.34], [0.06, 0.26], [0.26, 0.32], [0.37, 0.07], [-0.39, -0.03], [-0.21, -0.25], [0.03, -0.31], [0.21, -0.19], [0.4, -0.31], [-0.41, -0.36]];
+    // The hand-placed set on the first screen, and copies of it scattered over the rest of the canvas.
+    const at = (items: FieldDoodle[]) => [
+      ...items.map((d, i) => ({ ...d, place: SPOTS[i % SPOTS.length] })),
+      ...Array.from({ length: narrow ? 5 : 9 }, (_, k) => items.map((d) => ({ ...d, key: `${d.key}:copy${k}`, copy: true }))).flat(),
+    ];
     if (!market) {
-      const doors = MARKETS.map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 2.2, "market"));
+      const doors = MARKETS.map((m, i) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), [1.35, 1.15, 1.25, 1.4, 1.1, 1.3][i], "market"));
       const pages = [
-        door("emblem-bid", live ? `Bid in ${live.lot ?? "the live round"}` : "Bid", live ? "Open now" : "Next round soon", live ? `/bid/?id=${live.id}` : "/bid/", 1.6),
-        door("quill", "Start a round", "Any market", "/start/", 1.6),
-        door("emblem-receipt", "Mine", "Your bids and rounds", "/mine/", 1.4),
-        door("emblem-verify", "Verify a round", null, "/verify/", 1.4),
-        door("emblem-lots", "Every lot", `${auctions.length} rounds`, "/lots/", 1.5),
+        door("emblem-bid", "Bid", live ? `Open now · ${live.lot ?? MODE_NAME[live.mode]}` : "Next round soon", live ? `/bid/?id=${live.id}` : "/bid/", 1.2),
+        door("quill", "Start a round", "Any market", "/start/", 1.05),
+        door("emblem-receipt", "Mine", "Your bids and rounds", "/mine/", 0.9),
+        door("emblem-verify", "Verify", null, "/verify/", 1),
+        door("emblem-lots", "Every lot", `${auctions.length} rounds`, "/lots/", 0.85),
       ];
-      // Each market's newest rounds (and any live one) float here too; the rest wait behind its door.
-      const per = narrow ? 1 : 3, seen: Record<string, number> = {};
-      const rounds = auctions.filter((a) => showable(a, now)).sort((a, b) => b.updated - a.updated)
-        .filter((a) => a.live || (seen[marketOf(a.mode)] = (seen[marketOf(a.mode)] ?? 0) + 1) <= per).map(auctionDoodle);
-      return [...doors, ...pages, ...rounds, ...ornaments(narrow)];
+      // Markets across the top, actions along the bottom (one ring on a phone).
+      return [...at([...doors, ...pages]), ...ornaments(narrow)];
     }
     // A phone gets the newest rounds only: the same tile in a narrow window would be packed solid.
     const rounds = auctions.filter((a) => marketOf(a.mode) === market).sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated)
       .slice(0, narrow ? 18 : undefined).map(auctionDoodle);
-    const home = door("sealed-envelope", "All markets", "Benzo", "/", 1.8);
-    const start = door("quill", `Start a ${MODE_NAME[market].toLowerCase()} round`, null, `/start/?market=${market}`, 1.8);
-    const others = MARKETS.filter((m) => m !== market).map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 1.4, "market"));
-    const bid = live && marketOf(live.mode) !== market ? [door("emblem-bid", `Bid in ${live.lot ?? "the live round"}`, "Open now", `/bid/?id=${live.id}`, 1.4)] : [];
-    return [...rounds, start, home, ...others, ...bid, ...ornaments(narrow)];
+    const start = door("quill", "Start a round", MODE_NAME[market], `/start/?market=${market}`, 1.15);
+    const home = door("sealed-envelope", "All markets", "Benzo", "/", 1);
+    const others = MARKETS.filter((m) => m !== market).map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 0.9, "market"));
+    const bid = live && marketOf(live.mode) !== market ? [door("emblem-bid", "Bid", `Open now · ${live.lot ?? MODE_NAME[live.mode]}`, `/bid/?id=${live.id}`, 0.9)] : [];
+    return [...at([start, ...others.slice(0, 2), home, ...others.slice(2), ...bid]), ...rounds, ...ornaments(narrow)];
   }, [auctions, market, live?.id]);
 
   const route = useCallback((d: FieldDoodle | null) => {
@@ -97,10 +104,10 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
   }, [selected?.key]);
 
   const arrive = typeof document !== "undefined" && document.referrer.startsWith(location.origin);
-  const doors = doodles.filter((d) => d.href);
+  const doors = doodles.filter((d) => d.href && !d.copy);
   return (
     <div className="absolute inset-0 overflow-hidden bg-ground">
-      <Field doodles={doodles} onSelect={choose} arrive={arrive} />
+      <Field doodles={doodles} center={market ? MODE_NAME[market] : "Benzo"} onSelect={choose} arrive={arrive} />
       {selected && <div className="absolute bottom-14 left-5 z-20 sm:bottom-16 sm:left-7"><Card doodle={selected} signer={signer} onClose={close} /></div>}
       <nav className="sr-only" aria-label="Every doodle in the field">
         <ul>

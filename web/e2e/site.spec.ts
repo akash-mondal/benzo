@@ -26,6 +26,15 @@ async function hover(page: any, match: RegExp) {
   }
   return null;
 }
+// The centre of a named door on screen: its name label sits just under it.
+async function doorAt(page: any, name: string) {
+  return page.locator(`[data-door-label="${name}"]`).evaluateAll((els: HTMLElement[]) => {
+    const e = els.find((x) => x.style.opacity === "1");
+    if (!e) return null;
+    const r = e.getBoundingClientRect();
+    return [r.left + r.width / 2, r.top - 34] as const;
+  });
+}
 const ready = (page: any) => page.waitForFunction(() => Number(document.querySelector("[data-testid=field]")?.getAttribute("data-ready") ?? 0) > 40);
 
 test("home: every doodle is a door — a market door dives into that market's sky, a round there opens its ticket", async ({ page }) => {
@@ -34,10 +43,13 @@ test("home: every doodle is a door — a market door dives into that market's sk
   await page.goto("/");
   await expect(page.locator("h1")).toContainText("Benzo");
   await ready(page);
-  const door = await hover(page, /^(Uniform price|OTC|RFQ|Launch|Buyback|Drop)\d+ rounds$/);
-  expect(door, "no market door found under the pointer").not.toBeNull();
+  // Every option is on the first screen, named.
+  for (const name of ["Uniform price", "OTC", "RFQ", "Launch", "Buyback", "Drop", "Bid", "Start a round", "Mine", "Verify", "Every lot"])
+    expect(await doorAt(page, name), `${name} is not on the first screen`).not.toBeNull();
+  await page.waitForTimeout(800);
+  const door = await doorAt(page, "Drop");
   await page.mouse.click(door![0], door![1]);
-  await expect(page).toHaveURL(/\/markets\/(uniform|otc|rfq|launch|buyback|drop)\/$/);
+  await expect(page).toHaveURL(/\/markets\/drop\/$/);
   await expect(page.locator("h1")).toContainText("rounds on Zcash testnet");
   await ready(page);
   const round = await hover(page, /(Settled|Refunded|Running|Stopped|Live)$/);
