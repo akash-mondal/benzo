@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 const REPO = process.env.BNZ_DRIVE_TOOLS ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = path.join(REPO, ".benzo");
 const LWD = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
-const WALLET = path.join(STATE, "bidder");
+const WALLET_NAME = process.env.BNZ_DRIVE_WALLET ?? "bidder", WALLET = path.join(STATE, WALLET_NAME); // the wallet paying deposits and budgets
 const say = (m: string, s: string) => console.log(`${new Date().toISOString()} [${m}] ${s}`);
 const devtool = (args: string[]) => execFileSync(path.join(STATE, "bin/zcash-devtool"), args, { encoding: "utf8", timeout: 15 * 60_000 });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -33,7 +33,7 @@ async function pay(m: string, uri: string): Promise<string> {
     for (let i = 0; ; i++) {
       devtool(["wallet", "-w", WALLET, "sync", "-s", LWD]);
       try {
-        const out = devtool(["wallet", "-w", WALLET, "pay", "-i", path.join(STATE, "bidder.age"), "--disable-confirmation", "-s", LWD, "--payment-uri", uri]);
+        const out = devtool(["wallet", "-w", WALLET, "pay", "-i", path.join(STATE, `${WALLET_NAME}.age`), "--disable-confirmation", "-s", LWD, "--payment-uri", uri]);
         const txid = out.match(/^[0-9a-f]{64}$/gm)?.at(-1);
         if (txid) { say(m, `paid ${txid.slice(0, 12)}`); return txid; }
         throw new Error(`no txid: ${out.slice(-200)}`);

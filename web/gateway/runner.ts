@@ -32,6 +32,9 @@ type Live = {
   reserved: Record<string, number>; log: string[]; error?: string; retries: number;
 };
 
+// The house wallet under the state dir (and its age identity, <name>.age): "bidder" unless BNZ_WEB_HOUSE_WALLET names
+// another, so a live drive of the site can run beside other testnet runs without two writers on one wallet.
+const HOUSE_WALLET = process.env.BNZ_WEB_HOUSE_WALLET ?? "bidder";
 const QUICKNET = { genesis: 1692803367, period: 3 };
 const env = (k: string, d: number) => Number(process.env[k] ?? d);
 const SUBMIT_MIN = env("BNZ_WEB_SUBMIT_MIN", 40), CONFIRM_MIN = env("BNZ_WEB_CONFIRM_MIN", 25), SLOTS = env("BNZ_WEB_SLOTS", 8);
@@ -123,20 +126,20 @@ export class Runner {
   }
 
   private walletUa() {
-    return execFileSync(path.join(this.root, "settle/target/release/benzo-pczt"), ["address", path.join(this.state, "bidder"), "--network", "test"], { encoding: "utf8" }).trim().split("\n").at(-1)!;
+    return execFileSync(path.join(this.root, "settle/target/release/benzo-pczt"), ["address", path.join(this.state, HOUSE_WALLET), "--network", "test"], { encoding: "utf8" }).trim().split("\n").at(-1)!;
   }
   // The house wallet's spendable balance: a round is set up only when its funding can be paid now.
   private spendable(): number {
     try {
       const S = this.state, lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
-      execFileSync(path.join(S, "bin/zcash-devtool"), ["wallet", "-w", path.join(S, "bidder"), "sync", "-s", lwd], { stdio: "ignore", timeout: 10 * 60_000 });
-      const b = JSON.parse(execFileSync(path.join(S, "bin/zcash-devtool"), ["wallet", "-w", path.join(S, "bidder"), "balance", "--json"], { encoding: "utf8", timeout: 60_000 }));
+      execFileSync(path.join(S, "bin/zcash-devtool"), ["wallet", "-w", path.join(S, HOUSE_WALLET), "sync", "-s", lwd], { stdio: "ignore", timeout: 10 * 60_000 });
+      const b = JSON.parse(execFileSync(path.join(S, "bin/zcash-devtool"), ["wallet", "-w", path.join(S, HOUSE_WALLET), "balance", "--json"], { encoding: "utf8", timeout: 60_000 }));
       return Number(b.ironwood_spendable ?? 0) + Number(b.orchard_spendable ?? 0) + Number(b.sapling_spendable ?? 0);
     } catch { return 0; }
   }
   private pay(uri: string): string {
     const S = this.state, lwd = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
-    const out = execFileSync(path.join(S, "bin/zcash-devtool"), ["wallet", "-w", path.join(S, "bidder"), "pay", "-i", path.join(S, "bidder.age"), "--disable-confirmation", "-s", lwd, "--payment-uri", uri], { encoding: "utf8", timeout: 15 * 60_000 });
+    const out = execFileSync(path.join(S, "bin/zcash-devtool"), ["wallet", "-w", path.join(S, HOUSE_WALLET), "pay", "-i", path.join(S, `${HOUSE_WALLET}.age`), "--disable-confirmation", "-s", lwd, "--payment-uri", uri], { encoding: "utf8", timeout: 15 * 60_000 });
     const txid = out.match(/^[0-9a-f]{64}$/gm)?.at(-1);
     if (!txid) throw new Error("the house wallet produced no txid");
     return txid;
