@@ -1,0 +1,22 @@
+(node:64425) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+[demo2] locked 0x365c68a8c373fa4af103e739e52c1387e422bec0274c9ba7d4f7baea276ea2a3
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+  tmp/markets.mjs  132.7kb
+
+⚡ Done in 12ms
+[xchain-buyback] auction c5178451c222658f21566a37be9d9505fcd82b42f434a02ecaa0cd2e894e6c30 mode buyback
+[xchain-buyback] H19 fee reserve 60000 zats (bound 45000 + 5000 over 4 notes x 3 rows, floor 60000)
+[xchain-buyback] funding e2292781b9f20b4f96627d97e976f7a4aaaa3af86fc9f2caaa97a3f898eb335c
+[xchain-buyback] PASS xchain-buyback-cli-equals-pure-clear outcomes winner,winner price 300
+[xchain-buyback] PASS xchain-buyback-settled exit 0
+[xchain-buyback] PASS xchain-buyback-receipts {"leaf:0":200300,"leaf:1":200300}
+[xchain-buyback] PASS xchain-buyback-landed [200300,200300,0]
+[xchain-buyback] PASS xchain-buyback-cold-verify
+[xchain-buyback] RESULT PASS xchain-buyback
+PASS demo2-release
+PASS demo2-no-zcash-on-chain
+[demo2] result [{"fill":1,"leaf_index":0,"outcome":"winner","payment_zats":"300","price_zats":"300","quantity":1,"refund_zats":"200000"},{"fill":1,"leaf_index":1,"outcome":"winner","payment_zats":"300","price_zats":"250","quantity":1,"refund_zats":"200000"}] delivers [{"chain":"evm","kind":"stealth","to":"0x0211d01b8defa18a002bcc2d19f795322ee008269f72c86995c5f28672a21246ce031c71273aa7253db4574c1292a4f2ba4f81b39c1adf4bffe3cf409c9807dc52c1"},{"chain":"evm","kind":"stealth","to":"0x028f39a6a37f40a65ac7bad2a52d525d4e55d4062bf68dff2be3bde755fff79e0503a2ad009a0bcbbfe331b8703c418bc32b5d969474bd415e7f8f6b43dd15e36ff9"}] — payments asserted at the host records' destinations by xchain status
+RESULT PASS all xchain demo assertions
