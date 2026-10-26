@@ -9,7 +9,13 @@ real="$(cd "$(dirname "$0")" && pwd)/.real/$(basename "$0")"
 log="${BNZ_NET_LOG:-$(cd "$(dirname "$0")/../.." && pwd)/tmp/net.log}"
 for i in 1 2 3 4 5 6 7 8 9 10; do
   out=$(mktemp); err=$(mktemp)
-  "$real" "$@" >"$out" 2>"$err"; rc=$?
+  # Run as a child and pass a kill on to it: a caller's timeout kills this wrapper, and an orphaned sync kept the
+  # wallet locked for every later call. (`<&0`: a background child would otherwise read /dev/null, not our stdin.)
+  # A SIGKILL cannot be trapped, so a watcher also stops the child once this wrapper is gone.
+  "$real" "$@" <&0 >"$out" 2>"$err" & child=$!
+  ( while kill -0 $$ 2>/dev/null; do sleep 5; done; kill -TERM $child 2>/dev/null ) </dev/null >/dev/null 2>&1 & watch=$!; disown $watch
+  trap 'kill -TERM $child $watch 2>/dev/null; rm -f "$out" "$err"; exit 143' TERM INT HUP
+  wait $child; rc=$?; trap - TERM INT HUP; kill $watch 2>/dev/null
   # A wallet sync only reads, so a dropped connection mid-sync is also safe to retry. Anything that may have reached
   # the server and changed something (a payment, a broadcast) is never retried on a dropped connection.
   pat="dns error|failed to lookup address|no such host|nodename nor servname|name resolution|Failed to dial target host"
