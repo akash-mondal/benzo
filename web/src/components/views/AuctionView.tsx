@@ -186,7 +186,7 @@ function Ribbon({ d, live, toClose, sold, of, paid, price, priceWord }: { d: Auc
     ["Opening", opened ? `opened ${when(d.release)}` : Date.now() / 1000 >= d.release ? `due ${when(d.release)}` : `${rel(d.release)} · ${when(d.release)}`],
   ];
   return (
-    <div className="relative flex min-h-16 flex-col gap-3 rounded-[14px] bg-app-1 px-3 py-2 ring-1 ring-app-line backdrop-blur-xl lg:flex-row lg:items-center lg:gap-6" data-testid="ribbon">
+    <div className="relative z-30 flex min-h-16 flex-col gap-3 rounded-[14px] bg-app-1 px-3 py-2 ring-1 ring-app-line backdrop-blur-xl lg:flex-row lg:items-center lg:gap-6" data-testid="ribbon">
       <Switcher d={d} live={live} />
       <div className="hidden h-9 w-px bg-app-line lg:block" />
       <dl className="grid min-w-0 flex-1 grid-cols-3 gap-x-4 gap-y-2.5 px-2 pb-1 lg:flex lg:items-center lg:gap-x-6 lg:overflow-hidden lg:p-0">
@@ -231,7 +231,7 @@ function Switcher({ d, live }: { d: AuctionDetail; live: boolean }) {
         </span>
       </button>
       {open && (
-        <div className="absolute left-0 top-[calc(100%+8px)] z-40 w-[440px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl bg-[#1b2216f2] shadow-[0_20px_60px_-20px_#000] ring-1 ring-app-line backdrop-blur-xl" data-testid="switcher-list">
+        <div className="absolute left-0 top-[calc(100%+8px)] z-40 w-[440px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl bg-[#161c12] shadow-[0_24px_70px_-16px_#000000e6] ring-1 ring-app-line backdrop-blur-xl" data-testid="switcher-list">
           <div className="border-b border-app-line p-2"><input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search rounds by name, market or id" className={cx(fieldCls, "h-9 text-[13.5px]")} /></div>
           <ul className="max-h-[56vh] overflow-auto py-1">
             {!list && <li className="px-4 py-3 text-[13px] text-app-faint">Loading rounds…</li>}
