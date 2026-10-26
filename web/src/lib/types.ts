@@ -45,12 +45,12 @@ export type FieldDoodle = {
   name: string;
   slug: string;
   category: string;
-  group: "market" | "mechanism" | "ornament" | "auction";
+  group: "market" | "mechanism" | "page" | "ornament" | "auction";
   tag: string | null;
   scale?: number;
   auction?: AuctionSummary;
+  href?: string; // a door: a click dives into it and goes here
+  ambient?: boolean; // background texture: no hover, no click, set deep in the fog
 };
-
-export type FieldWord = { label: string; scale: number; href: string; tag: string };
 
 export type Chain = { tip: number | null; round: number | null; now: number };

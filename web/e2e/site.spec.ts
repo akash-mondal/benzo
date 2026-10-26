@@ -17,24 +17,36 @@ test.beforeAll(async ({ request }) => {
   featured = list.filter((a: any) => a.mode === "uniform" && a.state === "SETTLED" && (a.leaf_count ?? 0) >= 2 && a.clearing_price_zats).sort((a: any, b: any) => b.updated - a.updated)[0].id;
 });
 
-test("home: the sky loads real rounds, a hover names one, a click opens its ticket", async ({ page }) => {
+// Finds a doodle under the pointer whose sand pill matches.
+async function hover(page: any, match: RegExp) {
+  for (let y = 100; y < 820; y += 24) for (let x = 60; x < 1400; x += 24) {
+    await page.mouse.move(x, y);
+    const t = await page.locator("[data-testid=hover-pill]").textContent({ timeout: 30 }).catch(() => null);
+    if (t && match.test(t)) return [x, y] as const;
+  }
+  return null;
+}
+const ready = (page: any) => page.waitForFunction(() => Number(document.querySelector("[data-testid=field]")?.getAttribute("data-ready") ?? 0) > 40);
+
+test("home: every doodle is a door — a market door dives into that market's sky, a round there opens its ticket", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
   await expect(page.locator("h1")).toContainText("Benzo");
-  await page.waitForFunction(() => Number(document.querySelector("[data-testid=field]")?.getAttribute("data-ready") ?? 0) > 100);
-  let hit: [number, number] | null = null;
-  for (let y = 120; y < 820 && !hit; y += 26) for (let x = 60; x < 1220 && !hit; x += 26) {
-    await page.mouse.move(x, y);
-    const t = await page.locator("[data-testid=hover-pill]").textContent({ timeout: 50 }).catch(() => null);
-    if (t && /(Settled|Running|Live)$/.test(t)) hit = [x, y];
-  }
-  expect(hit, "no auction doodle found under the pointer").not.toBeNull();
-  await page.mouse.click(hit![0], hit![1]);
+  await ready(page);
+  const door = await hover(page, /^(Uniform price|OTC|RFQ|Launch|Buyback|Drop)\d+ rounds$/);
+  expect(door, "no market door found under the pointer").not.toBeNull();
+  await page.mouse.click(door![0], door![1]);
+  await expect(page).toHaveURL(/\/markets\/(uniform|otc|rfq|launch|buyback|drop)\/$/);
+  await expect(page.locator("h1")).toContainText("rounds on Zcash testnet");
+  await ready(page);
+  const round = await hover(page, /(Settled|Refunded|Running|Stopped|Live)$/);
+  expect(round, "no round found under the pointer").not.toBeNull();
+  await page.mouse.click(round![0], round![1]);
   const card = page.getByTestId("card");
   await expect(card).toBeVisible();
-  await expect(page).toHaveURL(/\?lot=[0-9a-f]{64}$/);
-  await expect(page.getByTestId("card-light")).toHaveText(/Settled|Settling|Cleared|Open|Frozen|Opened/);
+  await expect(page).toHaveURL(/\/markets\/[a-z]+\/\?lot=[0-9a-f]{64}$/);
+  await expect(page.getByTestId("card-light")).toHaveText(/Settled|Settling|Cleared|Open|Frozen|Opened|Refunded|Refunding|Sealed/);
   await card.getByRole("button", { name: "Copy format" }).click();
   await expect(card.getByRole("option")).toHaveCount(4);
   await card.getByRole("option").filter({ hasText: "Verify" }).click();
@@ -44,19 +56,22 @@ test("home: the sky loads real rounds, a hover names one, a click opens its tick
   expect(errors).toEqual([]);
 });
 
-test("home: dragging moves the sky, Escape closes a ticket, the words lead to pages", async ({ page }) => {
+test("home: dragging moves the sky; a round's link lands on its market with its ticket open; Escape closes it; every door is listed", async ({ page }) => {
   await page.goto("/");
-  await page.waitForFunction(() => Number(document.querySelector("[data-testid=field]")?.getAttribute("data-ready") ?? 0) > 100);
+  await ready(page);
   const before = await page.locator("canvas").first().screenshot();
   await page.mouse.move(700, 450); await page.mouse.down(); await page.mouse.move(380, 300, { steps: 12 }); await page.mouse.up();
   await page.waitForTimeout(400);
   expect(Buffer.compare(before, await page.locator("canvas").first().screenshot())).not.toBe(0);
+  const nav = page.getByRole("navigation", { name: "Every doodle in the field" });
+  for (const href of ["/markets/uniform/", "/markets/drop/", "/how/", "/verify/", "/lots/", "/how/#sealed", "/how/#checked"])
+    await expect(nav.locator(`a[href="${href}"]`).first()).toBeAttached();
   await page.goto(`/?lot=${featured}`);
+  await expect(page).toHaveURL(new RegExp(`/markets/uniform/\\?lot=${featured}$`));
   await expect(page.getByTestId("card")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("card")).toHaveCount(0);
-  const nav = page.getByRole("navigation", { name: "Every doodle in the field" });
-  await expect(nav.getByRole("link").first()).toHaveAttribute("href", /\/auction\/\?id=/);
+  await expect(page).toHaveURL(/\/markets\/uniform\/$/);
 });
 
 test("every lot lists every published round and opens one", async ({ page, request }) => {

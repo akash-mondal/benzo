@@ -1,35 +1,36 @@
 // The doodle field, after svgdoodles.com: an endless, draggable night of chrome doodles. Every doodle is a plane with the
 // chrome band shader; the layout tiles and wraps as you pan, dust twinkles in depth, a streak crosses now and then.
-// Hovering shows a white pill with the name; a click (not a drag) selects the doodle; the floating words are links.
+// Hovering shows a sand pill with the name. A click (not a drag) on a door dives the camera into it and goes to its page;
+// a click on a round selects it. Ornaments are background texture: deep in the fog, never hovered.
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import { chromeMaterial, doodleTexture, dustFragment, dustVertex, hash01, planeVertex, streakFragment, WORD_FONT, wordTexture, wrap } from "./shaders";
-import type { FieldDoodle, FieldWord } from "../../lib/types";
+import { chromeMaterial, doodleTexture, dustFragment, dustVertex, hash01, planeVertex, SAND_HIGH, SAND_LOW, streakFragment, wrap } from "./shaders";
+
+// Ornaments are drawn in a dull sand, so the doodles that do something are the bright ones.
+const DIM_LOW = SAND_LOW.clone().multiplyScalar(0.3), DIM_HIGH = SAND_HIGH.clone().multiplyScalar(0.42);
+import type { FieldDoodle } from "../../lib/types";
 
 type Entry = {
   mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
-  doodle: FieldDoodle | null;
-  word: FieldWord | null;
+  doodle: FieldDoodle;
   baseX: number; baseY: number; phase: number; bobSpeed: number; spinSpeed: number; targetScale: number; baseScale: number;
 };
 
-// Where the words sit, as fractions of the tile (the reference's four anchor points).
-// Where the words float, as fractions of the tile.
-const WORD_ANCHORS: [number, number][] = [[0.02, 0.14], [0.17, -0.02], [-0.15, -0.06], [-0.06, -0.21], [0.13, -0.19]];
+const go = (href: string) => { location.href = href; };
 
-export default function Field({ doodles, words = [], onSelect, onWord = () => {}, ground = "#141a10", hint = "" }: {
+export default function Field({ doodles, onSelect, onNavigate = go, arrive = false, ground = "#141a10" }: {
   doodles: FieldDoodle[];
-  words?: FieldWord[];
   onSelect: (d: FieldDoodle) => void;
-  onWord?: (w: FieldWord) => void;
+  onNavigate?: (href: string) => void;
+  arrive?: boolean; // came through a door: the camera eases back out of it
   ground?: string;
-  hint?: string;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const entries = useRef<Entry[]>([]);
   const group = useRef<THREE.Group | null>(null);
   const select = useRef(onSelect); select.current = onSelect;
-  const word = useRef(onWord); word.current = onWord;
+  const navigate = useRef(onNavigate); navigate.current = onNavigate;
+  const targets = useRef<THREE.Object3D[]>([]);
   const hovered = useRef<Entry | null>(null);
   const pan = useRef({ x: 0, y: 0 });
   const tile = useRef({ w: 0, h: 0 });
@@ -44,7 +45,11 @@ export default function Field({ doodles, words = [], onSelect, onWord = () => {}
     scene.background = new THREE.Color(ground);
     scene.fog = new THREE.Fog(ground, 10, 26);
     const camera = new THREE.PerspectiveCamera(58, el.clientWidth / el.clientHeight, 0.1, 100);
-    camera.position.z = 12;
+    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const HOME_Z = 12;
+    camera.position.z = arrive && !still ? 5 : HOME_Z;
+    // A dive: the camera flies into a door, then the page changes.
+    let dive: { x: number; y: number; z: number; at: number; href: string } | null = null;
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(el.clientWidth, el.clientHeight);
@@ -121,10 +126,13 @@ export default function Field({ doodles, words = [], onSelect, onWord = () => {}
       mouse.x = ((e.clientX - r.left) / r.width) * 2 - 1;
       mouse.y = -((e.clientY - r.top) / r.height) * 2 + 1;
       ray.setFromCamera(mouse, camera);
-      const hit = ray.intersectObjects(g.children)[0]?.object;
+      const hit = ray.intersectObjects(targets.current)[0]?.object;
       const entry = entries.current.find((x) => x.mesh === hit);
-      if (entry?.word) word.current(entry.word);
-      else if (entry?.doodle) select.current(entry.doodle);
+      if (!entry || dive) return;
+      const href = entry.doodle.href;
+      if (!href) return select.current(entry.doodle);
+      if (still) return navigate.current(href);
+      dive = { x: entry.mesh.position.x, y: entry.mesh.position.y, z: entry.mesh.position.z, at: clock.getElapsedTime(), href };
     };
     const wheel = (e: WheelEvent) => { e.preventDefault(); const k = unit(); pan.current.x -= e.deltaX * k; pan.current.y += e.deltaY * k; };
     el.addEventListener("pointerdown", down);
@@ -144,7 +152,6 @@ export default function Field({ doodles, words = [], onSelect, onWord = () => {}
     });
     resize.observe(el);
 
-    const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const clock = new THREE.Clock();
     let frame = 0, last = 0;
     const loop = () => {
@@ -153,11 +160,21 @@ export default function Field({ doodles, words = [], onSelect, onWord = () => {}
       last = now;
       const t = still ? 0 : now, list = entries.current;
       ray.setFromCamera(mouse, camera);
-      const hitObj = ray.intersectObjects(g.children)[0]?.object ?? null;
+      const hitObj = dive ? null : ray.intersectObjects(targets.current)[0]?.object ?? null;
       const hit = list.find((x) => x.mesh === hitObj) ?? null;
       if (hit !== hovered.current) {
         hovered.current = hit;
-        setLabel(hit ? { name: hit.word?.label ?? hit.doodle?.name ?? "", tag: hit.word ? hit.word.tag : hit.doodle?.tag ?? null } : null);
+        setLabel(hit ? { name: hit.doodle.name, tag: hit.doodle.tag } : null);
+      }
+      if (dive) {
+        const k = Math.min((now - dive.at) / 0.55, 1), e = k * k * (3 - 2 * k);
+        camera.position.x += (dive.x - camera.position.x) * e * 0.35;
+        camera.position.y += (dive.y - camera.position.y) * e * 0.35;
+        camera.position.z += (dive.z + 1.2 - camera.position.z) * e * 0.3;
+        if (k >= 1) { const href = dive.href; dive = null; navigate.current(href); }
+      } else if (camera.position.z !== HOME_Z) {
+        camera.position.z += (HOME_Z - camera.position.z) * Math.min(dt * 4, 1);
+        if (Math.abs(HOME_Z - camera.position.z) < 0.01) camera.position.z = HOME_Z;
       }
       el.style.cursor = hit ? "pointer" : dragging ? "grabbing" : "grab";
       if (!dragging) { pan.current.x += drift.x; pan.current.y += drift.y; drift.x *= 0.94; drift.y *= 0.94; }
@@ -167,8 +184,7 @@ export default function Field({ doodles, words = [], onSelect, onWord = () => {}
         if (T.w > 0) { x.mesh.position.x = wrap(x.baseX + pan.current.x, T.w); x.mesh.position.y = wrap(y + pan.current.y, T.h); }
         else x.mesh.position.y = y;
         if (!still) x.mesh.rotation.z += x.spinSpeed * 0.004;
-        const grow = x.word ? 1.12 : 1.5;
-        x.targetScale = x === hit ? x.baseScale * grow : x.baseScale;
+        x.targetScale = x === hit ? x.baseScale * 1.5 : x.baseScale;
         x.mesh.scale.setScalar(x.mesh.scale.x + (x.targetScale - x.mesh.scale.x) * 0.15);
         const u = x.mesh.material.uniforms;
         u.uTime.value = t;
@@ -199,56 +215,51 @@ export default function Field({ doodles, words = [], onSelect, onWord = () => {}
     };
   }, []);
 
-  // Lay the doodles out on a jittered grid one tile wide, then the words at their anchors.
+  // Lay the doodles out on a jittered grid one tile wide; the ambient ornaments get a grid of their own, deep in the fog.
   useEffect(() => {
     const g = group.current;
     if (!g) return;
     let stale = false;
     (async () => {
       const textures = await Promise.all(doodles.map((d) => doodleTexture(d.src)));
-      await document.fonts.load(WORD_FONT).catch(() => undefined);
       if (stale) return;
       g.children.forEach((m) => { const mesh = m as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
       g.clear();
-      const el = host.current, aspect = el ? el.clientWidth / Math.max(el.clientHeight, 1) : 1.6, n = doodles.length;
+      const el = host.current, aspect = el ? el.clientWidth / Math.max(el.clientHeight, 1) : 1.6;
       const tan = Math.tan(THREE.MathUtils.degToRad(29)), H = tan * 16 * 2 * 1.3, W = tan * 16 * aspect * 2 * 1.3;
       tile.current = { w: W, h: H };
-      const cols = Math.max(1, Math.round(Math.sqrt((W / H) * n))), rows = Math.max(1, Math.ceil(n / cols));
-      const order = doodles.map((d, i) => ({ d, tex: textures[i], key: hash01(i * 9.17 + 1) })).sort((a, b) => a.key - b.key);
       const list: Entry[] = [];
-      order.forEach(({ d, tex }, i) => {
-        if (!tex) return;
-        const k = i + 1, mat = chromeMaterial(tex, hash01(k * 8.9) * 10), size = (0.55 + hash01(k * 3.7) * 0.7) * (d.scale ?? 1);
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
-        const c = i % cols, r = Math.floor(i / cols);
-        const x = ((c + 0.5) / cols - 0.5) * W + (hash01(k) - 0.5) * 0.8 * (W / cols);
-        const y = ((r + 0.5) / rows - 0.5) * H + (hash01(k * 1.3) - 0.5) * 0.8 * (H / rows);
-        mesh.position.set(x, y, (hash01(k * 2.1) - 0.5) * 7 - 0.5);
-        mesh.rotation.z = (hash01(k * 4.2) - 0.5) * 0.7;
-        mesh.name = d.key;
-        g.add(mesh);
-        list.push({ mesh, doodle: d, word: null, baseX: x, baseY: y, phase: hash01(k * 5.5) * Math.PI * 2, bobSpeed: 0.25 + hash01(k * 6.1) * 0.5, spinSpeed: (hash01(k * 7.3) - 0.5) * 0.3, targetScale: 1, baseScale: 1 });
-      });
-      words.forEach((w, i) => {
-        const tex = wordTexture(w.label);
-        if (!tex) return;
-        const k = (i + 1) * 41.7, mat = chromeMaterial(tex.texture, hash01(k) * 10);
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w.scale, w.scale * tex.aspect), mat);
-        const [fx, fy] = WORD_ANCHORS[i % WORD_ANCHORS.length], x = fx * W, y = fy * H;
-        mesh.position.set(x, y, 1.2);
-        mesh.name = `word:${w.label}`;
-        g.add(mesh);
-        list.push({ mesh, doodle: null, word: w, baseX: x, baseY: y, phase: hash01(k * 3.1) * Math.PI * 2, bobSpeed: 0.2 + hash01(k * 4.3) * 0.3, spinSpeed: 0, targetScale: 1, baseScale: 1 });
-      });
+      const lay = (items: { d: FieldDoodle; tex: THREE.Texture | null }[], ambient: boolean, salt: number) => {
+        const n = items.length, cols = Math.max(1, Math.round(Math.sqrt((W / H) * n))), rows = Math.max(1, Math.ceil(n / cols));
+        items.map((it, i) => ({ ...it, key: hash01(i * 9.17 + salt) })).sort((a, b) => a.key - b.key).forEach(({ d, tex }, i) => {
+          if (!tex) return;
+          const k = i + 1 + salt, mat = ambient ? chromeMaterial(tex, hash01(k * 8.9) * 10, DIM_LOW, DIM_HIGH) : chromeMaterial(tex, hash01(k * 8.9) * 10);
+          const size = (ambient ? 0.45 + hash01(k * 3.7) * 0.45 : 0.55 + hash01(k * 3.7) * 0.7) * (d.scale ?? 1);
+          const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+          const c = i % cols, r = Math.floor(i / cols);
+          const x = ((c + 0.5) / cols - 0.5) * W + (hash01(k) - 0.5) * 0.8 * (W / cols);
+          const y = ((r + 0.5) / rows - 0.5) * H + (hash01(k * 1.3) - 0.5) * 0.8 * (H / rows);
+          // Doors and rounds float near; the bigger the door, the nearer. Ornaments sit far back, where the fog dims them.
+          const z = ambient ? -6 - hash01(k * 2.1) * 3 : (hash01(k * 2.1) - 0.5) * 5 - 0.5 + ((d.scale ?? 1) - 1) * 1.5;
+          mesh.position.set(x, y, z);
+          mesh.rotation.z = (hash01(k * 4.2) - 0.5) * 0.7;
+          mesh.name = d.key;
+          g.add(mesh);
+          list.push({ mesh, doodle: d, baseX: x, baseY: y, phase: hash01(k * 5.5) * Math.PI * 2, bobSpeed: 0.25 + hash01(k * 6.1) * 0.5, spinSpeed: (hash01(k * 7.3) - 0.5) * 0.3, targetScale: 1, baseScale: 1 });
+        });
+      };
+      const all = doodles.map((d, i) => ({ d, tex: textures[i] }));
+      lay(all.filter((x) => !x.d.ambient), false, 1);
+      lay(all.filter((x) => x.d.ambient), true, 517);
       entries.current = list;
+      targets.current = list.filter((x) => !x.doodle.ambient).map((x) => x.mesh);
       host.current?.setAttribute("data-ready", String(list.length));
     })();
     return () => { stale = true; };
-  }, [doodles, words]);
+  }, [doodles]);
 
   return (
     <div ref={host} className="absolute inset-0" data-testid="field">
-      {hint && <span className="pointer-events-none absolute bottom-5 right-6 z-10 font-sans text-[13px] text-sand/70">{hint}</span>}
       {label && (
         <span className="pointer-events-none absolute z-10 flex -translate-x-1/2 items-baseline gap-2 bg-sand px-2.5 py-1 font-sans text-[13px] font-medium whitespace-nowrap text-ink" style={{ left: pointer.x, top: pointer.y + 24 }} data-testid="hover-pill">
           {label.name}
