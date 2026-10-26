@@ -1,12 +1,12 @@
-// One full-screen sky, two kinds of screen. Home: the six markets as doors, the site's pages as doors, the pieces that keep
-// a bid sealed (each opens its step of /how/), and any live round. A market (/markets/<mode>/): every round of that market,
+// One full-screen sky, two kinds of screen. Home: the six markets as doors, the site's pages as doors, and each market's
+// newest rounds. A market (/markets/<mode>/): every round of that market,
 // each opening its ticket (bottom-left), plus doors home and to the other markets. Every doodle you can point at does
 // something; the ornaments are background texture only.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Field from "./Field";
 import Card from "./Card";
 import { api, MODE_NAME } from "../../lib/api";
-import { DOOR, LIB, MARKETS, STEP_OF, STEPS, glyphFor, marketOf, src, type Market } from "../../lib/glyphs";
+import { DOOR, LIB, MARKETS, glyphFor, marketOf, src, type Market } from "../../lib/glyphs";
 import type { AuctionSummary, FieldDoodle } from "../../lib/types";
 
 const DAY = 24 * 3600;
@@ -22,7 +22,7 @@ export const auctionDoodle = (a: AuctionSummary): FieldDoodle => ({
 });
 const door = (slug: string, name: string, tag: string | null, href: string, scale: number, group: FieldDoodle["group"] = "page"): FieldDoodle =>
   ({ key: `d:${slug}:${href}`, src: src(slug), slug, name, category: "", group, tag, scale, href });
-const ornaments = (narrow: boolean): FieldDoodle[] => LIB.filter((d) => d.group === "ornament").filter((_, i) => !narrow || i % 2 === 0)
+const ornaments = (narrow: boolean): FieldDoodle[] => LIB.filter((d) => d.group === "ornament" || d.group === "mechanism").filter((_, i) => !narrow || i % 2 === 0)
   .map((d) => ({ key: `o:${d.slug}`, src: src(d.slug), slug: d.slug, name: d.name, category: d.category, group: "ornament", tag: null, ambient: true }));
 const marketPath = (m: Market) => `/markets/${m}/`;
 
@@ -48,16 +48,14 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
       const doors = MARKETS.map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 2.2, "market"));
       const pages = [
         door("emblem-bid", live ? `Bid in ${live.lot ?? "the live round"}` : "Bid", live ? "Open now" : "Next round soon", live ? `/bid/?id=${live.id}` : "/bid/", 1.6),
-        door("emblem-how", "How it works", "Six steps", "/how/", 1.5),
         door("emblem-verify", "Verify a round", "Anyone can", "/verify/", 1.5),
         door("emblem-lots", "Every lot", `${auctions.length} rounds`, "/lots/", 1.5),
       ];
-      const steps = LIB.filter((d) => d.group === "mechanism").map((d) => door(d.slug, d.name, STEPS[STEP_OF[d.slug]], `/how/#${STEP_OF[d.slug]}`, 1, "mechanism"));
       // Each market's newest rounds (and any live one) float here too; the rest wait behind its door.
       const per = narrow ? 1 : 3, seen: Record<string, number> = {};
       const rounds = auctions.filter((a) => showable(a, now)).sort((a, b) => b.updated - a.updated)
         .filter((a) => a.live || (seen[marketOf(a.mode)] = (seen[marketOf(a.mode)] ?? 0) + 1) <= per).map(auctionDoodle);
-      return [...doors, ...pages, ...rounds, ...(narrow ? steps.filter((_, i) => i % 2 === 0) : steps), ...ornaments(narrow)];
+      return [...doors, ...pages, ...rounds, ...ornaments(narrow)];
     }
     // A phone gets the newest rounds only: the same tile in a narrow window would be packed solid.
     const rounds = auctions.filter((a) => marketOf(a.mode) === market).sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated)

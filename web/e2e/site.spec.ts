@@ -64,7 +64,7 @@ test("home: dragging moves the sky; a round's link lands on its market with its 
   await page.waitForTimeout(400);
   expect(Buffer.compare(before, await page.locator("canvas").first().screenshot())).not.toBe(0);
   const nav = page.getByRole("navigation", { name: "Every doodle in the field" });
-  for (const href of ["/markets/uniform/", "/markets/drop/", "/how/", "/verify/", "/lots/", "/how/#sealed", "/how/#checked"])
+  for (const href of ["/markets/uniform/", "/markets/drop/", "/verify/", "/lots/", "/bid/"])
     await expect(nav.locator(`a[href="${href}"]`).first()).toBeAttached();
   await page.goto(`/?lot=${featured}`);
   await expect(page).toHaveURL(new RegExp(`/markets/uniform/\\?lot=${featured}$`));
@@ -101,12 +101,6 @@ test("verify page runs every check on a chosen round", async ({ page }) => {
   await page.getByTestId("verify-run").click();
   await expect(page.getByTestId("verify-results").locator("li")).toHaveCount(19);
   await expect(page.getByTestId("verify-results")).not.toContainText("ERROR");
-});
-
-test("how it works: six steps and the limits", async ({ page }) => {
-  await page.goto("/how/");
-  await expect(page.locator("ol > li h2")).toHaveCount(6);
-  await expect(page.getByRole("heading", { name: "What this is not, yet" })).toBeVisible();
 });
 
 test("check it yourself: the downloaded public directory verifies offline with the shipped verifier", async ({ request }) => {

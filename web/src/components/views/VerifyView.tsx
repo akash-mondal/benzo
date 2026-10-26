@@ -16,7 +16,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
   };
   const ok = d ? d.checks.filter((c) => c.ok).length : 0;
   return (
-    <Ticket kind="Verify" title="Check a round yourself" glyph="magnifier" caption="the same checks benzo verify runs" sub="Pick any round that ran on Zcash testnet and rerun every check on its published directory.">
+    <Ticket kind="Verify" title="Verify a round" glyph="magnifier">
       <Part title="Pick a round">
         <form onSubmit={run} className="grid gap-2">
           <label className="sr-only" htmlFor="pick">Recent settled rounds</label>
@@ -34,9 +34,8 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
           <Part title={`${ok} of ${d.checks.length} checks pass${d.valid ? "" : " — this round does not verify"}`}>
             <ul className="grid gap-0.5 font-sans text-[14px]" data-testid="verify-results">{d.checks.map((c) => <li key={c.id} className="flex gap-2"><span className={c.ok ? "text-moss" : "text-[#9b2c2c]"}>{c.ok ? "OK" : "ERROR"}</span><span>{c.id}</span>{c.detail && <span className="text-muted">{c.detail}</span>}</li>)}</ul>
           </Part>
-          <Part title="Don't take our word for it">
-            <p>These ran on this site's server. The same verifier ships as an npm package that rebuilds byte for byte from the source; run it offline:</p>
-            <pre className="mt-2 overflow-x-auto bg-sand p-3 text-[13px] leading-relaxed"><code>{`curl -sL ${location.origin}/api/auctions/${d.id}/public.tgz | tar -xz\nnpx -y --package=${location.origin}/dl/benzo-0.1.0.tgz benzo verify \\\n  --dir public-${d.id.slice(0, 8)} --signer ${d.signer}`}</code></pre>
+          <Part title="Run it offline">
+            <pre className=" overflow-x-auto bg-sand p-3 text-[13px] leading-relaxed"><code>{`curl -sL ${location.origin}/api/auctions/${d.id}/public.tgz | tar -xz\nnpx -y --package=${location.origin}/dl/benzo-0.1.0.tgz benzo verify \\\n  --dir public-${d.id.slice(0, 8)} --signer ${d.signer}`}</code></pre>
             <p className="mt-3"><a className="text-moss underline underline-offset-4" href={`/auction/?id=${d.id}`}>Open this round</a></p>
           </Part>
         </>

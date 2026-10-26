@@ -31,7 +31,6 @@ export default function AuctionView() {
   const origin = location.origin;
   return (
     <Ticket wide kind={`${MODE_NAME[d.mode]} · ${d.supply} unit${d.supply > 1 ? "s" : ""}`} title={d.lot ?? `${MODE_NAME[d.mode]} round`} light={light} glyph={glyphFor(d.mode, d.id)}
-      sub={`A ${MODE_NAME[d.mode].toLowerCase()} sealed-bid round on Zcash testnet, ${d.state === "SETTLED" ? "settled" : d.state === "CANCELLED" ? "cancelled and refunded in full" : "in progress"}. Its bids opened at drand round ${thousands(d.R)}.`}
       caption={<span data-testid="auction-caption">{d.leaf_count ?? 0} sealed bids · {zec(d.C_zats)} TAZ deposit each</span>}>
       {d.live && d.state === "OPEN" && (
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3 bg-sand px-4 py-3">
@@ -68,13 +67,12 @@ export default function AuctionView() {
       )}
       <Part title={`${ok} of ${d.checks.length} checks pass`}>
         <details className="font-sans text-[14px]" data-testid="checks">
-          <summary className="cursor-pointer text-moss">The checks, as benzo verify prints them</summary>
+          <summary className="cursor-pointer text-moss">Show checks</summary>
           <ul className="mt-2 grid gap-0.5">{d.checks.map((c) => <li key={c.id} className="flex gap-2"><span className={c.ok ? "text-moss" : "text-[#9b2c2c]"}>{c.ok ? "OK" : "ERROR"}</span><span>{c.id}</span>{c.detail && <span className="text-muted">{c.detail}</span>}</li>)}</ul>
         </details>
       </Part>
-      <Part title="Check it on your own machine">
-        <p>Download the published directory and run the packaged verifier offline. It needs nothing from us after the download.</p>
-        <pre className="mt-2 overflow-x-auto bg-sand p-3 text-[13px] leading-relaxed"><code>{`curl -sL ${origin}/api/auctions/${d.id}/public.tgz | tar -xz\nnpx -y --package=${origin}/dl/benzo-0.1.0.tgz benzo verify \\\n  --dir public-${d.id.slice(0, 8)} --signer ${d.signer}`}</code></pre>
+      <Part title="Run it offline">
+        <pre className=" overflow-x-auto bg-sand p-3 text-[13px] leading-relaxed"><code>{`curl -sL ${origin}/api/auctions/${d.id}/public.tgz | tar -xz\nnpx -y --package=${origin}/dl/benzo-0.1.0.tgz benzo verify \\\n  --dir public-${d.id.slice(0, 8)} --signer ${d.signer}`}</code></pre>
       </Part>
       <ReceiptLookup id={d.id} frozen={Boolean(d.freeze_root)} />
     </Ticket>

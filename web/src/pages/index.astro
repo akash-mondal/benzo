@@ -6,7 +6,7 @@ const list = await auctions();
 ---
 <Base>
   <div class="relative h-dvh w-full overflow-hidden bg-ground">
-    <h1 class="sr-only">Benzo, sealed-bid auctions on Zcash testnet. Six markets, every round real: bids time-locked to a drand round, settled by two of three signers, checkable offline.</h1>
+    <h1 class="sr-only">Benzo · markets on Zcash testnet</h1>
     <Sky client:only="react" initial={list} />
     <a href="https://github.com/akash-mondal/benzo-zcash" class="rise absolute bottom-5 left-5 z-10 font-sans text-[12px] text-sand/45 transition-colors hover:text-sand sm:left-7">benzo · zcash testnet</a>
     <span class="rise rise-2 pointer-events-none absolute bottom-5 right-5 z-10 hidden font-sans text-[12px] text-sand/35 sm:right-7 sm:inline">six markets · drag the sky</span>
