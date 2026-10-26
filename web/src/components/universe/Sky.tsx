@@ -44,12 +44,11 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
   const doodles = useMemo<FieldDoodle[]>(() => {
     const narrow = typeof window !== "undefined" && window.innerWidth < 640, now = Date.now() / 1000;
     const count = (m: Market) => auctions.filter((a) => marketOf(a.mode) === m).length;
-    // Hand-placed spots around the centre word, inside the first screen (fractions of it; x right, y up). Loose on
-    // purpose: no ring, no grid. A phone gets its own set for the tall screen.
-    const SPOTS: [number, number][] = narrow
-      ? [[-0.27, 0.37], [0.24, 0.33], [-0.03, 0.25], [-0.31, 0.13], [0.3, 0.16], [0.03, 0.17], [-0.26, -0.13], [0.25, -0.17], [-0.02, -0.26], [-0.29, -0.37], [0.27, -0.35]]
-      : [[-0.31, 0.21], [-0.13, 0.34], [0.06, 0.26], [0.26, 0.32], [0.37, 0.07], [-0.39, -0.03], [-0.21, -0.25], [0.03, -0.31], [0.21, -0.19], [0.4, -0.31], [-0.41, -0.36]];
-    const at = (items: FieldDoodle[]) => items.map((d, i) => ({ ...d, place: SPOTS[i % SPOTS.length] }));
+    // On an ellipse around the centre word, inside the one screen: angles in degrees, 0 is right, going up.
+    const arc = (items: FieldDoodle[], from: number, to: number, rx: number, ry: number, closed = false) => items.map((d, i) => {
+      const n = items.length, k = n === 1 ? 0.5 : closed ? i / n : i / (n - 1), t = ((from + (to - from) * k) * Math.PI) / 180;
+      return { ...d, place: [Math.cos(t) * rx, Math.sin(t) * ry] as [number, number] };
+    });
     if (!market) {
       const doors = MARKETS.map((m, i) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), [1.35, 1.15, 1.25, 1.4, 1.1, 1.3][i], "market"));
       const pages = [
@@ -60,16 +59,20 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
         door("emblem-lots", "Every lot", `${auctions.length} rounds`, "/lots/", 0.85),
       ];
       // Markets across the top, actions along the bottom (one ring on a phone).
-      return [...at([...doors, ...pages]), ...ornaments(narrow)];
+      const ring = narrow ? arc([...doors, ...pages], 90, 450, 0.33, 0.36, true) : [...arc(doors, 158, 22, 0.34, 0.31), ...arc(pages, 204, 336, 0.34, 0.31)];
+      return [...ring, ...ornaments(narrow)];
     }
-    // A phone gets the newest rounds only: the same tile in a narrow window would be packed solid.
+    // As many rounds as the outer ring holds, newest (and live) first.
     const rounds = auctions.filter((a) => marketOf(a.mode) === market).sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated)
-      .slice(0, narrow ? 14 : 60).map(auctionDoodle);
+      .slice(0, narrow ? 16 : 44).map(auctionDoodle);
     const start = door("quill", "Start a round", MODE_NAME[market], `/start/?market=${market}`, 1.15);
     const home = door("sealed-envelope", "All markets", "Benzo", "/", 1);
     const others = MARKETS.filter((m) => m !== market).map((m) => door(DOOR[m], MODE_NAME[m], `${count(m)} rounds`, marketPath(m), 0.9, "market"));
     const bid = live && marketOf(live.mode) !== market ? [door("emblem-bid", "Bid", `Open now · ${live.lot ?? MODE_NAME[live.mode]}`, `/bid/?id=${live.id}`, 0.9)] : [];
-    return [...at([start, ...others.slice(0, 2), home, ...others.slice(2), ...bid]), ...rounds, ...ornaments(narrow)];
+    // The options on a ring around the market's name; its rounds on a wider ring outside them.
+    const ring = arc([start, ...others.slice(0, 3), home, ...others.slice(3), ...bid], 90, 450, narrow ? 0.3 : 0.27, narrow ? 0.26 : 0.27, true);
+    const outer = arc(rounds.map((d) => ({ ...d, scale: d.auction?.live ? 0.95 : 0.7 })), 90, 450, narrow ? 0.43 : 0.45, narrow ? 0.43 : 0.42, true);
+    return [...ring, ...outer, ...ornaments(narrow)];
   }, [auctions, market, live?.id]);
 
   const route = useCallback((d: FieldDoodle | null) => {

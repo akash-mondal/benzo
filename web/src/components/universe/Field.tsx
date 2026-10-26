@@ -165,7 +165,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
       if (hit !== hovered.current) {
         hovered.current = hit;
         // A named doodle already shows its name under it: its pill carries only the detail (count, state), if any.
-        const named = hit && hit.doodle.place;
+        const named = hit && hit.doodle.place && hit.doodle.href;
         setLabel(hit && (!named || hit.doodle.tag) ? { name: named ? "" : hit.doodle.name, tag: hit.doodle.tag } : null);
       }
       if (dive) {
@@ -180,10 +180,10 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
       }
       el.style.cursor = hit ? "pointer" : "default";
       for (const x of list) {
-        const y = x.baseY + Math.sin(t * x.bobSpeed + x.phase) * 0.25;
+        // Nothing drifts: every doodle stays where it was laid out (only the dust and the odd streak move).
+        const y = x.baseY;
         x.mesh.position.x = x.baseX;
-        x.mesh.position.y = x.doodle.place ? y * 0.4 + x.baseY * 0.6 : y;
-        if (!still && !x.doodle.place) x.mesh.rotation.z += x.spinSpeed * 0.004;
+        x.mesh.position.y = y;
         x.targetScale = x === hit ? x.baseScale * 1.5 : x.baseScale;
         x.mesh.scale.setScalar(x.mesh.scale.x + (x.targetScale - x.mesh.scale.x) * 0.15);
         const u = x.mesh.material.uniforms;
@@ -307,7 +307,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
 
   return (
     <div ref={host} className="absolute inset-0" data-testid="field">
-      {doodles.filter((d) => d.place).map((d) => (
+      {doodles.filter((d) => d.place && d.href).map((d) => (
         <span key={d.key} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
           className="pointer-events-none absolute left-0 top-0 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
       ))}
