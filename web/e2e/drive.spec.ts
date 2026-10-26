@@ -9,13 +9,14 @@
 //   BNZ_WEB_TEST_URL=http://127.0.0.1:8790 playwright test --project=drive --workers=6
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // The checkout whose wallet and tools are used (the main one; BNZ_DRIVE_TOOLS points a preview copy at it).
 const REPO = process.env.BNZ_DRIVE_TOOLS ?? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const STATE = path.join(REPO, ".benzo");
+const KEEP = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../tmp");
 const LWD = process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
 const WALLET_NAME = process.env.BNZ_DRIVE_WALLET ?? "bidder", WALLET = path.join(STATE, WALLET_NAME); // the wallet paying deposits and budgets
 const say = (m: string, s: string) => console.log(`${new Date().toISOString()} [${m}] ${s}`);
@@ -136,6 +137,9 @@ for (const plan of PLANS) test(`drive ${plan.mode}: start, invite, fund, bid, pa
     await seal(b.price);
     const [dl] = await Promise.all([p.waitForEvent("download"), p.getByTestId("bid-key").click()]);
     keys.push(JSON.parse(readFileSync((await dl.path())!, "utf8")));
+    // Kept outside the browser (git-ignored tmp/, owner only): a deposit the round never admits refunds only with its owner key.
+    mkdirSync(path.join(KEEP, "drive-keys"), { recursive: true, mode: 0o700 });
+    writeFileSync(path.join(KEEP, "drive-keys", `${m}-${Date.now()}-${i + 1}.json`), JSON.stringify(keys.at(-1)), { mode: 0o600 });
     await p.getByRole("button", { name: "Enlarge the QR code" }).click(); await p.keyboard.press("Escape");
     const txid = await pay(m, (await p.getByTestId("bid-uri").getAttribute("href"))!);
     await p.getByTestId("bid-txid").fill(txid);

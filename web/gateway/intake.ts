@@ -7,7 +7,7 @@ import path from "node:path";
 import { benzo, CliError } from "./cli";
 
 export type BidRecord = { address: string; txid: string; envelope_hex: string; envelope_ct_hex: string; owner_sig_hex: string; ciphertext_hash: string };
-type Item = BidRecord & { auction_id: string; status: "queued" | "waiting" | "admitted" | "refused"; detail: string; attempts: number; at: number; leaf_index?: number; house?: boolean };
+type Item = BidRecord & { auction_id: string; status: "queued" | "waiting" | "admitted" | "refused"; detail: string; attempts: number; at: number; leaf_index?: number; house?: boolean; failures?: number; last_output?: string };
 
 const HEX = (n: number) => new RegExp(`^[0-9a-f]{${n}}$`);
 // Admission refusals that only mean "not yet": the deposit is not mined, not confirmed, or not scanned.
@@ -82,9 +82,13 @@ export class Intake {
             it.detail = `admitted as leaf ${it.leaf_index ?? "?"}`;
           } catch (e) {
             const msg = e instanceof CliError ? e.message : String((e as Error).message);
+            // The CLI's own output, kept for the operator: the ERROR line alone can be one fragment of a longer error.
+            if (e instanceof CliError) it.last_output = e.output.slice(-3000);
             if (NOT_YET.test(msg)) { it.status = "waiting"; it.detail = `not admissible yet: ${msg.replace(/^ERROR\s*/, "").slice(0, 160)}`; }
             else if (/admission cutoff|round already passed/.test(msg)) { it.status = "refused"; it.detail = "the auction stopped taking records before this deposit confirmed; the deposit refunds through its owner key"; }
-            else if (it.attempts >= 4) { it.status = "refused"; it.detail = msg.replace(/^ERROR\s*/, "").slice(0, 240); }
+            // Only real failures count toward refusal: the "not yet" waits for confirmations above do not, so one
+            // failed try (a tool rebuilt mid-run, a busy wallet) can never refuse a deposit that is still confirming.
+            else if ((it.failures = (it.failures ?? 0) + 1) >= 4) { it.status = "refused"; it.detail = msg.replace(/^ERROR\s*/, "").slice(0, 240); }
             else { it.status = "waiting"; it.detail = `retrying: ${msg.replace(/^ERROR\s*/, "").slice(0, 160)}`; }
           }
           this.save(it);
