@@ -7,7 +7,7 @@
 // (STATE/web/runner.json). Off unless the gateway runs with --runner.
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { createHash, generateKeyPairSync, randomBytes } from "node:crypto";
 import net from "node:net";
 import path from "node:path";
 import { benzo } from "./cli";
@@ -36,6 +36,9 @@ type Live = {
 // another, so a live drive of the site can run beside other testnet runs without two writers on one wallet.
 const HOUSE_WALLET = process.env.BNZ_WEB_HOUSE_WALLET ?? "bidder";
 const QUICKNET = { genesis: 1692803367, period: 3 };
+// A drop's lots, as the manifest names them: one 64-hex id per lot (the schema's rule), from its place and its name.
+// The names stay with the round here (the site shows the round's title; the bid page shows "Lot 1", "Lot 2", …).
+const lotIds = (lots: string[]) => lots.map((name, i) => createHash("sha256").update(`benzo lot ${i + 1}: ${name}`).digest("hex"));
 const env = (k: string, d: number) => Number(process.env[k] ?? d);
 const SUBMIT_MIN = env("BNZ_WEB_SUBMIT_MIN", 40), CONFIRM_MIN = env("BNZ_WEB_CONFIRM_MIN", 25), SLOTS = env("BNZ_WEB_SLOTS", 8);
 const HOUSE = env("BNZ_WEB_HOUSE_BIDS", 2), MAX_ROUNDS = env("BNZ_WEB_MAX_ROUNDS", 1000), MAX_SETUP_TRIES = 3;
@@ -81,6 +84,8 @@ export class Runner {
   private run(args: string[], input?: unknown) { return benzo(this.root, this.state, args, input); }
 
   isLive(id: string) { return this.auctions.some((a) => a.id === id && a.phase === "accepting" && Date.now() / 1000 < a.T_submit); }
+  // The round's own title (a drop's manifest names its lots, not the round).
+  title(id: string) { return this.auctions.find((x) => x.id === id)?.lot ?? null; }
   freeSlots(id: string) { const a = this.auctions.find((x) => x.id === id); return a ? this.openSlots(a).length : null; }
   list() { return this.auctions.map(({ log, reserved, ...a }) => a); }
   queued() { return this.queue.length; }
@@ -192,7 +197,7 @@ export class Runner {
         B_max_zats: spec.B_max_zats, q_max: 1, C_zats: spec.C_zats, fee_zats: "0", deposit_addresses: a.slots, envelope_keys: keys.envelope_keys, witness_set_hash: ws.witness_set_hash, T_submit: a.T_submit, T_freeze: a.T_freeze });
       m.drand.R = a.R;
       m.clearing = { ...m.clearing, mode: mode === "drop" ? "uniform" : mode };
-      if (spec.lots) { delete m.lot; m.lots = spec.lots; } else m.lot = spec.lot;
+      if (spec.lots) { delete m.lot; m.lots = lotIds(spec.lots); } else m.lot = spec.lot;
       if (mode === "launch") m.launch = { standard_lot_size: 1, minimum_raise_zats: spec.launch!.minimum_raise_zats };
       if (mode === "buyback") m.buyback = { budget_zats: spec.buyback!.budget_zats, max_price_zats: spec.buyback!.max_price_zats, treasury_ua: spec.buyback!.treasury_ua ?? house, funding_ua: a.funding_ua };
       if (mode === "otc") { m.otc = { ...spec.otc! }; m.reserve_zats = "0"; m.supply = 1; }
@@ -213,7 +218,7 @@ export class Runner {
       const sealed: any[] = [];
       for (let i = 0; i < a.house; i++) {
         const input: any = { price_zats: String(housePrice(spec)), quantity: 1, address: a.slots[i], refund_ua: house };
-        if (spec.lots) input.lot = spec.lots[i % spec.lots.length];
+        if (spec.lots) input.lot = lotIds(spec.lots)[i % spec.lots.length];
         const s = await this.run(["bid", "seal", "--manifest", path.join(a.pub, "manifest.json"), "--signer", a.signer!], input);
         sealed.push({ ...s, address: a.slots[i] });
       }

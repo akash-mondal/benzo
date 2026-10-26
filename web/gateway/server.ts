@@ -57,7 +57,7 @@ function load(id: string, dir: string): Entry | null {
     const pub = loadPublicAuction(dir);
     const m: any = pub.manifest;
     const summary = {
-      id, mode: MODE(m), state: pub.state, lot: m.lot ?? (Array.isArray(m.lots) ? `${m.lots.length} lots` : null), lots: Array.isArray(m.lots) ? m.lots.length : 1,
+      id, mode: MODE(m), state: pub.state, lot: m.lot ?? runner?.title(id) ?? (Array.isArray(m.lots) ? `${m.lots.length} lots` : null), lots: Array.isArray(m.lots) ? m.lots.length : 1,
       supply: m.supply, C_zats: m.C_zats, T_submit: m.T_submit, T_freeze: m.T_freeze, R: m.drand.R, release: release(m.drand.R),
       leaf_count: pub.frozen?.leaf_count ?? null, clearing_price_zats: (pub.result as any)?.clearing_price_zats ?? null,
       settled: Boolean(pub.settlement), live: runner?.isLive(id) ?? false, updated: Math.floor(mtime / 1000),
