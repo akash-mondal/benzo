@@ -113,28 +113,29 @@ export const wrap = (v: number, size: number) => (((v + size / 2) % size) + size
 
 // An SVG drawn into a 256² canvas and flattened to white, so the shader reads only its alpha.
 const textureCache = new Map<string, Promise<THREE.Texture | null>>();
-export function doodleTexture(url: string): Promise<THREE.Texture | null> {
-  if (!textureCache.has(url))
-    textureCache.set(url, new Promise((resolve) => {
+export function doodleTexture(url: string, size = 256): Promise<THREE.Texture | null> {
+  const key = `${url}@${size}`;
+  if (!textureCache.has(key))
+    textureCache.set(key, new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
         const c = document.createElement("canvas");
-        c.width = 256; c.height = 256;
+        c.width = size; c.height = size;
         const ctx = c.getContext("2d");
         if (!ctx) return resolve(null);
-        const w = img.width || 64, h = img.height || 64, k = Math.min(256 / w, 256 / h);
-        ctx.drawImage(img, (256 - w * k) / 2, (256 - h * k) / 2, w * k, h * k);
+        const w = img.width || 64, h = img.height || 64, k = Math.min(size / w, size / h);
+        ctx.drawImage(img, (size - w * k) / 2, (size - h * k) / 2, w * k, h * k);
         ctx.globalCompositeOperation = "source-in";
         ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, 256, 256);
+        ctx.fillRect(0, 0, size, size);
         const t = new THREE.CanvasTexture(c);
-        t.anisotropy = 4;
+        t.anisotropy = 8;
         resolve(t);
       };
       img.onerror = () => resolve(null);
       img.src = url;
     }));
-  return textureCache.get(url)!;
+  return textureCache.get(key)!;
 }
 
 // A word set in Georgia and turned into a texture, for the chrome words that float in the field.

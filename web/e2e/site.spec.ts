@@ -139,6 +139,15 @@ test("you can back out of everything: Back and Escape return to where you came f
   const drop = await doorAt(page, "Drop");
   await page.mouse.click(drop![0], drop![1]);
   await expect(page).toHaveURL(/\/markets\/drop\/$/);
+  // Back from a dive lands on the centred view, never mid-dive.
+  await page.goBack();
+  await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
+  await page.waitForTimeout(1500);
+  const again = await doorAt(page, "Drop");
+  expect(Math.abs(again![0] - drop![0])).toBeLessThan(6);
+  expect(Math.abs(again![1] - drop![1])).toBeLessThan(24);
+  await page.goForward();
+  await expect(page).toHaveURL(/\/markets\/drop\/$/);
   await ready(page);
   await page.waitForTimeout(600);
   const start = await doorAt(page, "Start a round");

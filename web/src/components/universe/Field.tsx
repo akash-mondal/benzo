@@ -38,6 +38,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
   const [label, setLabel] = useState<{ name: string; tag: string | null } | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const names = useRef(new Map<string, HTMLSpanElement>());
+  const veil = useRef<HTMLDivElement>(null);
   const centerMesh = useRef<THREE.Mesh | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const scene = sceneRef;
@@ -52,7 +53,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
     const camera = new THREE.PerspectiveCamera(58, el.clientWidth / el.clientHeight, 0.1, 100);
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const HOME_Z = 12;
-    camera.position.z = arrive && !still ? 5 : HOME_Z;
+    camera.position.z = arrive && !still ? 8.5 : HOME_Z;
     // A dive: the camera flies into a door, then the page changes.
     let dive: { x: number; y: number; z: number; at: number; href: string } | null = null;
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -153,6 +154,9 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
     resize.observe(el);
 
     const clock = new THREE.Clock();
+    // Back to this page from the browser's cache (Back after a dive): the view starts centred again, never mid-dive.
+    const shown = (e: PageTransitionEvent) => { if (!e.persisted) return; dive = null; camera.position.set(0, 0, HOME_Z); if (veil.current) veil.current.style.opacity = "0"; };
+    window.addEventListener("pageshow", shown);
     let frame = 0, last = 0;
     const loop = () => {
       frame = requestAnimationFrame(loop);
@@ -169,14 +173,17 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
         setLabel(hit && (!named || hit.doodle.tag) ? { name: named ? "" : hit.doodle.name, tag: hit.doodle.tag } : null);
       }
       if (dive) {
-        const k = Math.min((now - dive.at) / 0.55, 1), e = k * k * (3 - 2 * k);
-        camera.position.x += (dive.x - camera.position.x) * e * 0.35;
-        camera.position.y += (dive.y - camera.position.y) * e * 0.35;
-        camera.position.z += (dive.z + 1.2 - camera.position.z) * e * 0.3;
+        // A short move toward the doodle while the screen fades to the ground; the page changes under the fade.
+        const k = Math.min((now - dive.at) / 0.45, 1), e = k * k * (3 - 2 * k);
+        camera.position.x += (dive.x - camera.position.x) * e * 0.25;
+        camera.position.y += (dive.y - camera.position.y) * e * 0.25;
+        camera.position.z += (Math.max(dive.z + 5, 8.5) - camera.position.z) * e * 0.25;
+        if (veil.current) veil.current.style.opacity = String(e);
         if (k >= 1) { const href = dive.href; dive = null; navigate.current(href); }
-      } else if (camera.position.z !== HOME_Z) {
-        camera.position.z += (HOME_Z - camera.position.z) * Math.min(dt * 4, 1);
-        if (Math.abs(HOME_Z - camera.position.z) < 0.01) camera.position.z = HOME_Z;
+      } else if (camera.position.z !== HOME_Z || camera.position.x !== 0 || camera.position.y !== 0) {
+        const f = Math.min(dt * 4, 1);
+        camera.position.x += -camera.position.x * f; camera.position.y += -camera.position.y * f; camera.position.z += (HOME_Z - camera.position.z) * f;
+        if (Math.abs(HOME_Z - camera.position.z) < 0.01 && Math.abs(camera.position.x) < 0.01 && Math.abs(camera.position.y) < 0.01) camera.position.set(0, 0, HOME_Z);
       }
       el.style.cursor = hit ? "pointer" : "default";
       for (const x of list) {
@@ -219,7 +226,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
     };
     loop();
     return () => {
-      cancelAnimationFrame(frame); resize.disconnect();
+      cancelAnimationFrame(frame); resize.disconnect(); window.removeEventListener("pageshow", shown);
       el.removeEventListener("pointerdown", down); el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up);
       el.removeEventListener("pointerleave", leave); el.removeEventListener("click", click);
       g.children.forEach((m) => { const mesh = m as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
@@ -234,7 +241,8 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
     if (!g) return;
     let stale = false;
     (async () => {
-      const textures = await Promise.all(doodles.map((d) => doodleTexture(d.src)));
+      // The doodles you can click are drawn sharp (they grow on hover and when you click in); the background stays light.
+      const textures = await Promise.all(doodles.map((d) => doodleTexture(d.src, d.place ? 1024 : 256)));
       if (stale) return;
       g.children.forEach((m) => { const mesh = m as THREE.Mesh; mesh.geometry.dispose(); (mesh.material as THREE.Material).dispose(); });
       g.clear();
@@ -307,6 +315,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
 
   return (
     <div ref={host} className="absolute inset-0" data-testid="field">
+      <div ref={veil} aria-hidden className="pointer-events-none absolute inset-0 z-20 bg-ground" style={{ opacity: 0 }} />
       {doodles.filter((d) => d.place && (d.href || d.auction)).map((d) => (
         <span key={d.key} ref={(el) => { if (el) names.current.set(d.key, el); else names.current.delete(d.key); }} data-door-label={d.name}
           className="pointer-events-none absolute left-0 top-0 whitespace-nowrap font-sans text-[13px] text-sand/80" style={{ opacity: 0 }}>{d.name}</span>
