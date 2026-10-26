@@ -2,7 +2,6 @@
 // One market's own sky: every round of that market, plus doors home and to the other five.
 import Base from "../../layouts/Base.astro";
 import Sky from "../../components/universe/Sky";
-import Back from "../../components/page/Back.astro";
 import { auctions } from "../../lib/server";
 import { MODE_NAME } from "../../lib/api";
 import { MARKETS, marketOf, type Market } from "../../lib/glyphs";
@@ -16,7 +15,6 @@ const name = MODE_NAME[market];
   <div class="relative h-dvh w-full overflow-hidden bg-ground">
     <h1 class="sr-only">{name}: {n} rounds on Zcash testnet</h1>
     <Sky client:only="react" initial={list} market={market} />
-    <div class="absolute left-5 top-5 z-10 sm:left-7 sm:top-6"><Back href="/" label="All markets" /></div>
   </div>
   <noscript><p style="padding:2rem;color:#ddd6c6">The sky needs script; <a href="/lots/">every lot</a> is plain HTML.</p></noscript>
 </Base>

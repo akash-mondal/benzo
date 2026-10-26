@@ -18,11 +18,12 @@ type Entry = {
 
 const go = (href: string) => { location.href = href; };
 
-export default function Field({ doodles, center, onSelect, onNavigate = go, arrive = false, ground = "#141a10" }: {
+export default function Field({ doodles, center, onSelect, onNavigate = go, onHover, arrive = false, ground = "#141a10" }: {
   doodles: FieldDoodle[];
+  onHover?: (d: FieldDoodle) => void; // a door under the pointer: the page can get the next screen ready
   center?: string; // a word pinned to the middle of the screen: the sky moves under it
   onSelect: (d: FieldDoodle) => void;
-  onNavigate?: (href: string) => void;
+  onNavigate?: (href: string) => boolean | void; // true: the page swapped the sky in place (no reload)
   arrive?: boolean; // came through a door: the camera eases back out of it
   ground?: string;
 }) {
@@ -31,6 +32,10 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
   const group = useRef<THREE.Group | null>(null);
   const select = useRef(onSelect); select.current = onSelect;
   const navigate = useRef(onNavigate); navigate.current = onNavigate;
+  const hoverRef = useRef(onHover); hoverRef.current = onHover;
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const arriving = useRef(false); // the sky was swapped in place mid-dive: the next layout starts close and eases out
+  const lastCenter = useRef<string | undefined>(undefined);
   const targets = useRef<THREE.Object3D[]>([]);
   const hovered = useRef<Entry | null>(null);
   const pan = useRef({ x: 0, y: 0 });
@@ -53,6 +58,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
     const still = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const HOME_Z = 12;
     camera.position.z = arrive && !still ? 5 : HOME_Z;
+    cameraRef.current = camera;
     // A dive: the camera flies into a door, then the page changes.
     let dive: { x: number; y: number; z: number; at: number; href: string } | null = null;
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
@@ -168,6 +174,7 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
       const hit = list.find((x) => x.mesh === hitObj) ?? null;
       if (hit !== hovered.current) {
         hovered.current = hit;
+        if (hit?.doodle.href) hoverRef.current?.(hit.doodle);
         if (hit?.doodle.href && !hit.sharp) {
           hit.sharp = true;
           const m = hit.mesh;
@@ -183,7 +190,11 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
         camera.position.x += (dive.x - camera.position.x) * e * 0.35;
         camera.position.y += (dive.y - camera.position.y) * e * 0.35;
         camera.position.z += (dive.z + 1.2 - camera.position.z) * e * 0.3;
-        if (k >= 1) { const href = dive.href; dive = null; navigate.current(href); }
+        if (k >= 1) {
+          const href = dive.href; dive = null;
+          // Swapped in place: hide this sky until the next one is laid out, then come back out of the door.
+          if (navigate.current(href) === true) { arriving.current = true; g.visible = false; if (centerMesh.current) centerMesh.current.visible = false; }
+        }
       } else if (camera.position.z !== HOME_Z || camera.position.x !== 0 || camera.position.y !== 0) {
         const f = Math.min(dt * 4, 1);
         camera.position.x += -camera.position.x * f; camera.position.y += -camera.position.y * f; camera.position.z += (HOME_Z - camera.position.z) * f;
@@ -310,6 +321,11 @@ export default function Field({ doodles, center, onSelect, onNavigate = go, arri
           mesh.position.set(0, 0, 2.5); mesh.name = "center"; scene.current?.add(mesh); centerMesh.current = mesh;
         }
       }
+      g.visible = true;
+      // Any change of screen in place (a door, or the browser's Back between skies) arrives the same way: close in, easing out.
+      if (lastCenter.current !== undefined && lastCenter.current !== center) arriving.current = true;
+      lastCenter.current = center;
+      if (arriving.current) { arriving.current = false; if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) cameraRef.current?.position.set(0, 0, 5); else cameraRef.current?.position.set(0, 0, 12); }
       entries.current = list;
       targets.current = list.filter((x) => !x.doodle.ambient).map((x) => x.mesh);
       host.current?.setAttribute("data-ready", String(list.length));

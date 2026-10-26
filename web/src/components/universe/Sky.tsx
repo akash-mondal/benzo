@@ -2,12 +2,13 @@
 // newest rounds. A market (/markets/<mode>/): every round of that market,
 // each opening its ticket (bottom-left), plus doors home and to the other markets. Every doodle you can point at does
 // something; the ornaments are background texture only.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Field from "./Field";
 import Card from "./Card";
 import { api, MODE_NAME } from "../../lib/api";
 import { DOOR, LIB, MARKETS, glyphFor, marketOf, src, type Market } from "../../lib/glyphs";
 import type { AuctionSummary, FieldDoodle } from "../../lib/types";
+import { doodleTexture } from "./shaders";
 
 const DAY = 24 * 3600;
 const IN_PROGRESS = new Set(["OPEN", "FROZEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "REFUNDING"]);
@@ -25,9 +26,19 @@ const door = (slug: string, name: string, tag: string | null, href: string, scal
 const ornaments = (narrow: boolean): FieldDoodle[] => LIB.filter((d) => (d.group === "ornament" || d.group === "mechanism") && d.slug !== "quill").filter((_, i) => !narrow || i % 2 === 0)
   .map((d) => ({ key: `o:${d.slug}`, src: src(d.slug), slug: d.slug, name: d.name, category: d.category, group: "ornament", tag: null, ambient: true }));
 const marketPath = (m: Market) => `/markets/${m}/`;
+// Which sky a link opens: null for home, a market, or undefined for any other page (those load normally).
+const skyOf = (href: string): Market | null | undefined => {
+  const p = new URL(href, location.origin).pathname;
+  if (p === "/") return null;
+  const m = p.match(/^\/markets\/([a-z]+)\/?$/)?.[1] as Market | undefined;
+  return m && MARKETS.includes(m) ? m : undefined;
+};
 
-export default function Sky({ initial, market }: { initial: AuctionSummary[]; market?: Market }) {
+export default function Sky({ initial, market: initialMarket }: { initial: AuctionSummary[]; market?: Market }) {
   const [auctions, setAuctions] = useState<AuctionSummary[]>(initial);
+  // Home and the six markets are one page: moving between them swaps the sky in place (no reload), so the fly-in into a
+  // door and the way back out are one motion. The address bar and the browser's Back follow along.
+  const [market, setMarket] = useState<Market | undefined>(initialMarket);
   const [selected, setSelected] = useState<FieldDoodle | null>(null);
   const [signer, setSigner] = useState<string | undefined>();
   const base = market ? marketPath(market) : "/";
@@ -79,16 +90,44 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
     return [...top, ...arc(actions, narrow ? 210 : 205, narrow ? 330 : 335, narrow ? 0.33 : 0.33, narrow ? 0.3 : 0.31), ...ornaments(narrow)];
   }, [auctions, market, live?.id]);
 
+  const go = useCallback((m: Market | null) => {
+    history.pushState({ sky: 1 }, "", m ? marketPath(m) : "/");
+    setSelected(null); setMarket(m ?? undefined);
+  }, []);
+  useEffect(() => {
+    const pop = () => { const m = skyOf(location.href); if (m !== undefined) { setSelected(null); setMarket(m ?? undefined); } };
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  // The title and the heading follow the sky.
+  useEffect(() => {
+    const n = market ? auctions.filter((a) => marketOf(a.mode) === market).length : 0;
+    document.title = market ? `${MODE_NAME[market]} – Benzo` : "Benzo – sealed-bid markets on Zcash";
+    const h = document.querySelector("h1"); if (h) h.textContent = market ? `${MODE_NAME[market]}: ${n} rounds on Zcash testnet` : "Benzo · markets on Zcash testnet";
+  }, [market, auctions.length]);
+  const back = useCallback(() => { if (history.state?.sky) history.back(); else go(null); }, [go]);
+  const navigate = useCallback((href: string) => { const m = skyOf(href); if (m === undefined) { location.href = href; return false; } go(m); return true; }, [go]);
+  // A market's door under the pointer: draw that market's doodles now, so the swap after the click is instant.
+  const warmed = useRef(new Set<string>());
+  const warm = useCallback((d: FieldDoodle) => {
+    const m = d.href ? skyOf(d.href) : undefined;
+    if (!m || warmed.current.has(m)) return;
+    warmed.current.add(m);
+    for (const x of LIB.filter((x) => x.mode === m)) void doodleTexture(src(x.slug), 1024);
+    for (const slug of ["quill", "emblem-lots", "emblem-bid"]) void doodleTexture(src(slug), 1024);
+  }, []);
+
   const route = useCallback((d: FieldDoodle | null) => {
     window.history.replaceState({}, "", d?.auction ? `${base}?lot=${d.auction.id}` : base);
   }, [base]);
   const choose = useCallback((d: FieldDoodle) => { setSelected(d); route(d); }, [route]);
   const close = useCallback(() => { setSelected(null); route(null); }, [route]);
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") close(); };
+    // Escape closes the ticket first; with none open, a market's sky goes back to all markets.
+    const esc = (e: KeyboardEvent) => { if (e.key !== "Escape") return; if (selected) close(); else if (market) back(); };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, [close]);
+  }, [close, back, selected, market]);
 
   // Deep link ?lot=<id>: open its ticket here, or on its market's screen when this sky does not hold it.
   useEffect(() => {
@@ -98,7 +137,7 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
     const pick = doodles.find((x) => x.auction?.id === lot);
     if (pick) return setSelected(pick);
     const a = auctions.find((x) => x.id === lot);
-    if (a && marketOf(a.mode) !== market) location.replace(`${marketPath(marketOf(a.mode))}?lot=${lot}`);
+    if (a && marketOf(a.mode) !== market) { history.replaceState({}, "", `${marketPath(marketOf(a.mode))}?lot=${lot}`); setMarket(marketOf(a.mode)); }
   }, [doodles.length]);
 
   useEffect(() => {
@@ -110,7 +149,12 @@ export default function Sky({ initial, market }: { initial: AuctionSummary[]; ma
   const doors = doodles.filter((d) => d.href);
   return (
     <div className="absolute inset-0 overflow-hidden bg-ground">
-      <Field doodles={doodles} center={market ? MODE_NAME[market] : "Benzo"} onSelect={choose} arrive={arrive} />
+      <Field doodles={doodles} center={market ? MODE_NAME[market] : "Benzo"} onSelect={choose} onNavigate={navigate} onHover={warm} arrive={arrive} />
+      {market && (
+        <button type="button" onClick={back} data-testid="back" className="group absolute left-5 top-5 z-10 inline-flex h-11 items-center gap-1.5 font-sans text-[14px] text-sand/80 transition-colors hover:text-sand sm:left-7 sm:top-6">
+          <svg className="size-4 transition-transform group-hover:-translate-x-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>All markets
+        </button>
+      )}
       {selected && <div className="absolute bottom-14 left-5 z-20 sm:bottom-16 sm:left-7"><Card doodle={selected} signer={signer} onClose={close} /></div>}
       <nav className="sr-only" aria-label="Every doodle in the field">
         <ul>
