@@ -27,7 +27,7 @@ export default function StartView() {
         {MARKETS.map((m) => (
           <li key={m}>
             <button type="button" onClick={() => { setMarket(m); history.pushState({ benzoStep: 1 }, "", `/start/?market=${m}`); }}
-              className="group flex h-full w-full flex-col gap-5 rounded-[22px] bg-app-1 p-6 text-left ring-1 ring-app-line backdrop-blur-xl transition-[transform,box-shadow,background-color] duration-300 hover:-translate-y-0.5 hover:bg-[#232b1dd0] hover:shadow-[0_24px_50px_-28px_#000,0_0_0_1px_#ddd6c633]" data-testid={`start-${m}`}>
+              className="group flex h-full w-full flex-col gap-5 rounded-[22px] bg-app-1 p-6 text-left ring-1 ring-app-line backdrop-blur-xl transition-[transform,box-shadow,background-color] duration-300 hover:-translate-y-0.5 hover:bg-[#232b1dd0] hover:shadow-[0_0_0_1px_#ddd6c633]" data-testid={`start-${m}`}>
               <Glyph name={DOOR[m]} className="size-16 transition-transform duration-300 group-hover:scale-110" />
               <span><span className="serif-figure block text-[26px] leading-tight text-[#f3eee2]">{MODE_NAME[m]}</span><span className="mt-1 block text-[14px] text-app-muted">{FOR[m]}</span></span>
             </button>

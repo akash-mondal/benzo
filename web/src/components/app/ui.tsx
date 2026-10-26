@@ -7,7 +7,7 @@ import { thousands } from "../../lib/api";
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
 export function Panel({ children, className, pad = true, testid }: { children: ReactNode; className?: string; pad?: boolean; testid?: string }) {
-  return <section className={cx("min-w-0 rounded-[22px] bg-[#1b2216b8] shadow-[0_1px_0_#ddd6c612_inset,0_24px_60px_-30px_#000] ring-1 ring-app-line backdrop-blur-xl", pad && "p-5 sm:p-7", className)} data-testid={testid}>{children}</section>;
+  return <section className={cx("min-w-0 rounded-[22px] bg-[#1b2216b8] shadow-[0_1px_0_#ddd6c612_inset] ring-1 ring-app-line backdrop-blur-xl", pad && "p-5 sm:p-7", className)} data-testid={testid}>{children}</section>;
 }
 
 export function H2({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
