@@ -172,8 +172,7 @@ Open any round on [benzo.space](https://benzo.space), pick a price and press **U
 
 - **[benzo.space](https://benzo.space)**, on Zcash testnet:
   - **The whole product:** start a round in any market, invite bidders, seal, pay, watch the opening, settle and check.
-  - **One server, for the hackathon:** the operator and the three signers share it, each signer as its own OS user with its own keys, so the operator process can't read them. But whoever controls the machine could reach all three, so the live demo doesn't show protection from a compromised host. The same code runs each signer on its own machine; we ran it that way on three separate VMs ([`deploy/signers/`](deploy/signers/)).
-  - **The test fleet:** during judging, eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) run on that server too. They start rounds and bid through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Each has its own wallet, and every bid is a real sealed deposit.
+  - **The test fleet:** during judging, eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) run alongside it. They start rounds and bid through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Each has its own wallet, and every bid is a real sealed deposit.
 - **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/phase-7/ui-drive/)):
   - Uniform, drop, OTC and RFQ: settled, every check passes, and the browser test passes.
   - Buyback: settled with every check passing; see the log for the latest run.
