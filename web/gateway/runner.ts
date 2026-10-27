@@ -29,7 +29,7 @@ type Phase = "setup" | "accepting" | "frozen" | "witnessed" | "settling" | "done
 type Live = {
   id: string; phase: Phase; spec: Spec; lot: string; signer?: string; pub: string; slots: string[]; fee?: string; funding_ua?: string; house: number;
   T_submit: number; T_freeze: number; R: number; release: number; created: number;
-  reserved: Record<string, number>; log: string[]; error?: string; retries: number;
+  reserved: Record<string, number>; log: string[]; error?: string; retries: number; nextTry?: number;
 };
 
 // The house wallet under the state dir (and its age identity, <name>.age): "bidder" unless BNZ_WEB_HOUSE_WALLET names
@@ -128,7 +128,7 @@ export class Runner {
     const did = (w: string) => a.log.some((l) => l.includes(w));
     const phase = did("opened at round R") || did("cleared") || did("in settling") ? "settling" : did("witness certificates published") ? "witnessed" : did("frozen") ? "frozen" : null;
     if (!phase) return { ok: false, error: "it failed before it was frozen; nothing to resume" };
-    a.phase = phase as Live["phase"]; a.retries = 0; this.say(a, `operator retry from ${phase}`);
+    a.phase = phase as Live["phase"]; a.retries = 0; a.nextTry = undefined; this.say(a, `operator retry from ${phase}`);
     return { ok: true, phase };
   }
   // The treasury funding a round needs before its sellers can be admitted (buyback, RFQ): pay `budget` to `address`.
@@ -317,22 +317,22 @@ export class Runner {
         // done only when every payment row is paid, refunded or parked in the exception queue.
         for (const step of [["open"], ["clear"], ["hosts", "envelope-opens"]]) await this.run([...step, "--id", a.id]).catch((e: Error) => { if (!/already|state|OPENED|CLEARED|SETTLED/i.test(e.message)) throw e; });
         await this.run(["settle", "--id", a.id]);
-        if (!this.paidOut(a)) { const w = "settle waits for its batches to mine"; if (a.log.at(-1)?.includes(w) !== true) this.say(a, w); return; }
+        if (!this.paidOut(a)) { const w = "settle waits for its batches to mine"; if (a.log.at(-1)?.includes(w) !== true) this.say(a, w); a.nextTry = Date.now() + 3 * 60_000; return; }
         await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]); this.say(a, "settled and verified");
         a.phase = "done"; this.save();
       }
-      a.retries = 0;
+      a.retries = 0; a.nextTry = undefined;
     } catch (e) {
       // A batch that is still mining is a wait, not a failure: it never uses up the round's retries.
       const msg = String((e as Error).message);
-      if (/can still mine|still mining|not yet mined|the next settle builds a new one/i.test(msg)) { a.error = msg.slice(0, 400); if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
+      if (/can still mine|still mining|not yet mined|the next settle builds a new one/i.test(msg)) { a.error = msg.slice(0, 400); a.nextTry = Date.now() + 3 * 60_000; if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
       // A buyback or RFQ whose buyer never funded the budget can't open: after one more try, call it off. The cancel
       // refunds every deposit in full through the same signers, without opening a bid.
       if (/treasury funded 0 of/.test(msg) && a.phase === "settling" && a.retries >= 1) {
         try { await this.run(["cancel", "--id", a.id]); this.say(a, "cancelled: the buyer never funded the budget, so every deposit is refunded"); a.phase = "done"; a.error = undefined; a.retries = 0; this.save(); return; }
         catch (e2) { this.say(a, `cancel failed: ${String((e2 as Error).message).slice(0, 200)}`); }
       }
-      a.retries++; a.error = msg.slice(0, 400);
+      a.retries++; a.error = msg.slice(0, 400); a.nextTry = Date.now() + Math.min(30, 2 ** a.retries) * 60_000;
       this.say(a, `retry ${a.retries} in ${a.phase}: ${a.error}`);
       if (a.retries >= 6) { a.phase = "failed"; this.say(a, "FAILED; needs the operator"); }
     }
@@ -380,7 +380,9 @@ export class Runner {
     this.busy = true;
     try {
       await this.workClaims();
-      for (const a of this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase))) {
+      // A round that just failed a step, or is waiting for a batch to mine, sits out a few ticks (backoff), so a pile of
+      // slow settles never starves the setup of new rounds.
+      for (const a of this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase) && !((x.nextTry ?? 0) > Date.now()))) {
         const t0 = Date.now(); await this.advance(a);
         if (Date.now() - t0 > 60_000) console.log(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] ${a.phase}: one step took ${Math.round((Date.now() - t0) / 1000)} s`);
       }
