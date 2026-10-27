@@ -40,7 +40,7 @@ export default function VerifyView({ recent: built }: { recent: { id: string; lo
     if (id) void run();
     api.auctions().then((l) => {
       const done = l.filter((x) => x.state === "SETTLED").sort((x, y) => y.updated - x.updated).slice(0, 25).map((x) => ({ id: x.id, lot: x.lot, mode: x.mode }));
-      if (done.length) { setRecent(done); if (!id) void run(done[0].id); }
+      if (done.length) { setRecent(done); if (!id && seq.current === 0) void run(done[0].id); }
     }).catch(() => {}).finally(() => setListing(false));
   }, []);
   const known = recent.some((r) => r.id === id);
@@ -109,7 +109,7 @@ export default function VerifyView({ recent: built }: { recent: { id: string; lo
             <Panel>
               <div className="text-[15px] font-medium">Check it yourself</div>
               <p className="mt-1 text-[14px] text-app-muted">Run Benzo's verifier on your own computer against this round's public record. It needs Node 24 and nothing else, and prints one line per check.</p>
-              <pre className="mt-3 overflow-x-auto rounded-[10px] bg-black/30 p-3 text-[12.5px] leading-relaxed text-app-text ring-1 ring-app-line" data-testid="verify-commands">{[
+              <pre className="mt-3 whitespace-pre-wrap break-all rounded-[10px] bg-black/30 p-3 text-[12px] leading-relaxed text-app-text ring-1 ring-app-line" data-testid="verify-commands">{[
                 `curl -sO https://benzo.space/dl/benzo-verify.mjs`,
                 `shasum -a 256 benzo-verify.mjs   # ${VERIFY_SHA}`,
                 `curl -s https://benzo.space/api/auctions/${d.id}/public.tgz | tar -xz`,

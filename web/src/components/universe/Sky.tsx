@@ -64,7 +64,7 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
   }, []);
 
   // "Bid" goes to a round you buy in (uniform price first, then a drop) with a few minutes left; sell-side rounds last.
-  const open = auctions.filter((a) => a.live && a.state === "OPEN"), rank = (m: string) => ["uniform", "drop"].indexOf(m) < 0 ? 9 : ["uniform", "drop"].indexOf(m);
+  const open = auctions.filter((a) => a.live && a.state === "OPEN" && a.free_slots !== 0), rank = (m: string) => ["uniform", "drop"].indexOf(m) < 0 ? 9 : ["uniform", "drop"].indexOf(m);
   const live = [...open].sort((x, y) => Number(Date.now() / 1000 + 180 > x.T_submit) - Number(Date.now() / 1000 + 180 > y.T_submit) || rank(x.mode) - rank(y.mode))[0];
   const doodles = useMemo<FieldDoodle[]>(() => {
     const narrow = typeof window !== "undefined" && window.innerWidth < 640, now = Date.now() / 1000;
@@ -82,6 +82,7 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
         door("emblem-receipt", "My bids", "Your bids and the rounds you started.", "/mine/", 0.9),
         door("emblem-verify", "Verify", "Check any round's result for yourself.", "/verify/", 1),
         door("emblem-lots", "All rounds", "Every round so far, and how each one ended.", "/lots/", 0.85),
+        door("crescent", "Specters", "The demo collection: its mint, one-of-ones, floor buybacks, private sales and commissions.", "/collection/", 1.25),
       ];
       // Markets across the top, actions along the bottom (one ring on a phone).
       const ring = narrow ? arc([...doors, ...pages], 90, 450, 0.33, 0.36, true) : [...arc(doors, 158, 22, 0.34, 0.31), ...arc(pages, 204, 336, 0.34, 0.31)];

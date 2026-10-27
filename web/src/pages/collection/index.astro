@@ -1,0 +1,10 @@
+---
+// Specters, the demo collection: what has sold, what is taking bids, and the five ways it sells (one market each).
+import Shell from "../../components/page/Shell.astro";
+import CollectionView from "../../components/views/CollectionView";
+import { auctions } from "../../lib/server";
+const list = await auctions();
+---
+<Shell title="Specters – Benzo" description="A demo collection on Zcash testnet, sold every way a collection sells, with every bid sealed until the opening.">
+  <CollectionView client:load initial={list} />
+</Shell>

@@ -9,7 +9,7 @@ const { title, description, back = "/", cta = true, full = false, fit = false } 
 // full: the page uses the whole width (the round terminal), like an exchange's trade screen.
 const frame = full ? "max-w-none px-3 sm:px-4" : "max-w-[1120px] px-5 sm:px-8";
 const path = Astro.url.pathname;
-const links = [{ href: "/lots/", label: "Rounds" }, { href: "/mine/", label: "My activity" }, { href: "/verify/", label: "Verify" }];
+const links = [{ href: "/collection/", label: "Specters" }, { href: "/lots/", label: "Rounds" }, { href: "/mine/", label: "My activity" }, { href: "/verify/", label: "Verify" }];
 ---
 <Base title={title} description={description}>
   <div class="app min-h-dvh">

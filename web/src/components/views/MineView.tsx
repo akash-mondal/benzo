@@ -6,7 +6,7 @@ import { api, MODE_NAME } from "../../lib/api";
 import { glyphFor, DOOR, marketOf } from "../../lib/glyphs";
 import { attemptsFor, bids, parties, saveAttempt, started } from "../../lib/mine";
 import Stats from "../dash/Stats";
-import { Btn, Glyph, PageHead, Panel, Pill, claimDoor, zats } from "../app/ui";
+import { Btn, Glyph, PageHead, Panel, Pill, claimDoor, zats, LotArt } from "../app/ui";
 import type { AuctionDetail, RoundRequest } from "../../lib/types";
 
 type Line = { word: string; kind: "live" | "wait" | "good" | "bad" | "plain"; next?: string };
@@ -88,7 +88,7 @@ export default function MineView() {
                 const href = b.step === "pay" || l?.next === "View status" || l?.next === "Claim" ? `/bid/?id=${b.id}` : `/auction/?id=${b.id}&bid=${b.bid?.ciphertext_hash ?? ""}`;
                 return (
                   <li key={b.key}><a href={href} onClick={(e) => claimDoor(e.currentTarget)} className="flex flex-wrap items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
-                    <Glyph name={dd ? glyphFor(dd.mode, dd.id) : "sealed-envelope"} className="size-9" />
+                    <LotArt lot={dd?.lot} glyph={dd ? glyphFor(dd.mode, dd.id) : "sealed-envelope"} className="size-9" />
                     <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{dd?.lot ?? "A round"}{b.bid?.lot_index !== undefined ? ` · Lot ${b.bid.lot_index + 1}` : ""}{b.archived ? <span className="text-app-faint"> · earlier attempt</span> : ""}</span><span className="block text-[13px] text-app-faint tabular-nums">{dd ? MODE_NAME[dd.mode] : ""} · your price {zats(b.bid?.price_zats ?? 0)} zats</span></span>
                     <span className="flex shrink-0 flex-col items-end gap-1 max-sm:basis-full max-sm:items-start max-sm:pl-12">{l ? <Pill kind={l.kind}>{l.word}</Pill> : <Pill kind="plain">Checking…</Pill>}{l?.next && <span className="text-[12.5px] text-app-muted">{l.next}</span>}</span>
                   </a></li>

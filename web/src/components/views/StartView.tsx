@@ -131,14 +131,14 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
                 </Field>
               )}
               <Field label={market === "rfq" ? "What you want quotes for" : market === "buyback" ? "What you're buying back" : market === "launch" ? "Project or allocation name" : market === "otc" ? "What the two of you are trading" : market === "drop" ? "Name of the drop" : "What you're selling"}>
-                <input value={f.lot} onChange={set("lot")} maxLength={40} placeholder={market === "drop" ? "Autumn print series" : market === "rfq" ? "Smart-contract audit" : market === "launch" ? "Seed allocation" : market === "buyback" ? "Membership passes" : market === "otc" ? "50 ZEC block" : "Limited print run"} className={fieldCls} data-testid="start-lot" />
+                <input value={f.lot} onChange={set("lot")} maxLength={40} placeholder={market === "drop" ? "Specter one-of-ones" : market === "rfq" ? "Commission: animate Specter #417" : market === "launch" ? "SPECT token launch" : market === "buyback" ? "Specters floor buyback" : market === "otc" ? "Specter #417 private sale" : "Specters mint: wave 1"} className={fieldCls} data-testid="start-lot" />
               </Field>
               {market === "drop" && (
                 <div className="grid gap-2">
                   <span className="text-[13.5px] font-medium">Lots</span>
                   {lots.map((x, i) => (
                     <div key={i} className="flex gap-2">
-                      <input value={x} onChange={(e) => setLots(lots.map((y, j) => (j === i ? e.target.value : y)))} maxLength={40} placeholder={`Lot ${i + 1} name`} className={fieldCls} data-testid={i === 0 ? "start-lots" : undefined} />
+                      <input value={x} onChange={(e) => setLots(lots.map((y, j) => (j === i ? e.target.value : y)))} maxLength={40} placeholder={["#417 Lantern", "#2299 Tidewalker", "#3702 Ember", "#4555 Static", "#12 Hollow"][i] ?? `Lot ${i + 1} name`} className={fieldCls} data-testid={i === 0 ? "start-lots" : undefined} />
                       {lots.length > 2 && <button type="button" onClick={() => setLots(lots.filter((_, j) => j !== i))} className="shrink-0 rounded-[10px] bg-app-2 px-3 text-[13px] text-app-muted hover:text-app-text" aria-label={`Remove lot ${i + 1}`}>Remove</button>}
                     </div>
                   ))}

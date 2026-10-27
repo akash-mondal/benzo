@@ -64,7 +64,7 @@ export function specFrom(f: any): { spec: Spec; invites: string[]; side?: "buyer
 
 export class Requests {
   private dir: string;
-  constructor(state: string, private enqueue: (spec: Spec) => number | null) {
+  constructor(state: string, private enqueue: (spec: Spec, house?: boolean) => number | null) {
     this.dir = process.env.BNZ_WEB_REQUESTS_DIR ? path.resolve(process.env.BNZ_WEB_REQUESTS_DIR) : path.join(state, "web", "requests");
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
   }
@@ -94,7 +94,7 @@ export class Requests {
     if (r.status === "waiting" && r.invites.every((i) => i.key)) {
       if (r.spec.otc) { const k = r.invites[0].key!; if (!r.spec.otc.buyer_key) r.spec.otc.buyer_key = k; else r.spec.otc.seller_key = k; }
       if (r.spec.rfq) r.spec.rfq.dealer_keys = r.invites.map((i) => i.key!);
-      const pos = this.enqueue(r.spec);
+      const pos = this.enqueue(r.spec, Boolean(r.house));
       r.status = "queued";
       if (pos === null) r.error = "the operator is not running on this server";
     }

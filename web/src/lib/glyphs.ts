@@ -22,10 +22,10 @@ export const marketOf = (mode: string): Market => (mode === "vickrey" ? "uniform
 
 // What each market is for, in a person's words (the hover on its door, and the start page).
 export const ABOUT: Record<Market, string> = {
-  uniform: "Sell several units. Every winner pays the same price.",
-  drop: "Sell a few named items. Each goes to its best bid.",
-  launch: "Raise money in units. Everyone is refunded if the minimum isn't met.",
-  buyback: "Buy units back. Sellers send sealed asks against your budget.",
-  otc: "One buyer, one seller. You trade if your limits cross.",
-  rfq: "Ask a few dealers for sealed quotes. The lowest wins and is paid the second-lowest.",
+  uniform: "Sell many of the same thing at one fair price, like a collection's mint. Every winner pays the same price.",
+  drop: "Sell a few one-of-a-kind pieces. Each goes to its own highest sealed bid.",
+  launch: "Raise for a token or a project in units. Everyone is refunded if the minimum isn't met.",
+  buyback: "Buy back from holders, like a floor buyback. Sealed asks, lowest first, up to your budget.",
+  otc: "A private sale between one buyer and one seller. They trade only if their sealed limits cross.",
+  rfq: "Hire an artist or a dealer. Invited quotes stay sealed; the lowest wins and is paid the second-lowest.",
 };

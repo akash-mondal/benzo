@@ -181,7 +181,7 @@ async function body(req: http.IncomingMessage): Promise<any> {
 
 let runner: Runner | null = null;
 const intake = new Intake(ROOT, STATE, (id) => runner?.isLive(id) ?? false);
-const requests = new Requests(STATE, (spec) => runner ? runner.enqueue(spec) : null);
+const requests = new Requests(STATE, (spec, house) => runner ? runner.enqueue(spec, house) : null);
 const demo = new DemoWallet(STATE);
 const ipOf = (req: http.IncomingMessage) => String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "").split(",")[0].trim();
 
@@ -190,7 +190,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${HOST}`), parts = url.pathname.split("/").filter(Boolean);
     if (parts[0] === "api") {
       if (parts[1] === "auctions" && parts.length === 2 && req.method === "GET") {
-        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean).map((x: any) => x.leaf_count == null && x.state === "OPEN" ? { ...x, counted: intake.admitted(x.id) } : x).map((x: any) => x.state === "SETTLED" ? x : runner?.stopped(x.id) ? { ...x, stopped: true } : runner?.finished(x.id) ? { ...x, finished: true } : x);
+        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean).map((x: any) => x.leaf_count == null && x.state === "OPEN" ? { ...x, counted: intake.admitted(x.id), free_slots: runner?.freeSlots(x.id) ?? null } : x).map((x: any) => x.state === "SETTLED" ? x : runner?.stopped(x.id) ? { ...x, stopped: true } : runner?.finished(x.id) ? { ...x, finished: true } : x);
         list.sort((a: any, b: any) => Number(b.live) - Number(a.live) || b.updated - a.updated);
         return json(res, 200, list);
       }

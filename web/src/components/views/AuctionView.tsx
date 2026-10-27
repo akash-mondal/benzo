@@ -14,9 +14,10 @@ import Depth from "../dash/Depth";
 import { WhoSees } from "../app/WhoSees";
 import { BidTicket, Terms, roleOf } from "./BidView";
 import { currentAttempt } from "../../lib/mine";
-import { Btn, Copyable, ErrorLine, Glyph, Pill, StatePill, Tick, Timeline, checkName, cx, fieldCls, rel, when, zats } from "../app/ui";
+import { Btn, Copyable, ErrorLine, Glyph, Pill, StatePill, Tick, Timeline, checkName, cx, fieldCls, rel, when, zats, LotArt } from "../app/ui";
 import { clock, useCountdown } from "./useCountdown";
 import type { AuctionDetail, AuctionSummary } from "../../lib/types";
+import { piecesFor, specterUri } from "../../lib/specter";
 
 const SELLS = (mode: string) => mode === "buyback" || mode === "rfq"; // the bidders are sellers: asks and proceeds
 const OUTCOME: Record<string, { word: string; kind: "good" | "plain" | "bad"; why: string }> = {
@@ -142,7 +143,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
 
         {/* Below the chart, the round's records in tabs. */}
         <Pane className="min-h-[280px] max-lg:order-4 lg:col-start-1 lg:row-start-2 fit:min-h-0" testid="records">
-          <Tabs tabs={[["bids", sells ? "Offers" : "Bids"], ["payments", `Payments${d.receipts.length ? ` ${d.receipts.length}` : ""}`], ["checks", `Checks${done ? ` ${d.checks.filter((c) => c.ok).length}/${d.checks.length}` : ""}`], ["terms", "Terms"], ["privacy", "Who sees what"]]} value={bottom} onChange={setBottom}
+          <Tabs tabs={[["bids", sells ? "Offers" : "Bids"], ["payments", `Payments${d.receipts.length ? ` ${d.receipts.length}` : ""}`], ["checks", `Checks${done ? ` ${d.checks.filter((c) => c.ok && c.status !== "not_applicable").length}/${d.checks.length}` : ""}`], ["terms", "Terms"], ["privacy", "Who sees what"]]} value={bottom} onChange={setBottom}
             right={bottom === "checks" && done ? <a href={`/verify/?id=${d.id}`} className="hover:text-app-text">Verify it yourself</a> : undefined} />
           <div className="min-h-0 flex-1 overflow-auto">
             {bottom === "bids" && <BidsTable d={d} allocations={allocations} sells={sells} opened={opened} />}
@@ -229,7 +230,7 @@ function Switcher({ d, live }: { d: AuctionDetail; live: boolean }) {
   return (
     <div ref={box} className="relative shrink-0">
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="group flex items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-[#ddd6c60d]" data-testid="switcher">
-        <Glyph name={glyphFor(d.mode, d.id)} className="page-door size-10" />
+        <LotArt lot={d.lot} glyph={glyphFor(d.mode, d.id)} className="page-door size-10" />
         <span className="min-w-0">
           <span className="flex items-center gap-2"><h1 className="max-w-[200px] truncate text-[21px] sm:max-w-[260px] leading-tight" data-testid="ticket-title">{d.lot ?? `${MODE_NAME[d.mode]} round`}</h1>
             <svg className={cx("size-4 shrink-0 text-app-faint transition-transform group-hover:text-app-muted", open && "rotate-180")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg></span>
@@ -244,7 +245,7 @@ function Switcher({ d, live }: { d: AuctionDetail; live: boolean }) {
             {list && !rows.length && <li className="px-4 py-3 text-[13px] text-app-faint">No rounds match.</li>}
             {rows.map((a) => (
               <li key={a.id}><a href={`/auction/?id=${a.id}`} className={cx("flex items-center gap-3 px-3 py-2 hover:bg-[#ddd6c60f]", a.id === d.id && "bg-[#ddd6c60a]")}>
-                <Glyph name={glyphFor(a.mode, a.id)} className="size-7" />
+                <LotArt lot={a.lot} glyph={glyphFor(a.mode, a.id)} className="size-7" />
                 <span className="min-w-0 flex-1"><span className="block truncate text-[13.5px]">{a.lot ?? MODE_NAME[a.mode]} <span className="text-app-faint">· {a.id.slice(0, 6)}</span></span><span className="block truncate text-[12px] text-app-faint">{MODE_NAME[a.mode]} · {outcomeLine(a)}</span></span>
                 {a.live && <Pill kind="live">Live</Pill>}
               </a></li>
@@ -258,10 +259,24 @@ function Switcher({ d, live }: { d: AuctionDetail; live: boolean }) {
 }
 
 // Before opening: the bids are there but their heights aren't: equal sealed bars, and when they open.
+function Pieces({ d }: { d: AuctionDetail }) {
+  const p = piecesFor(d);
+  if (!p.length) return null;
+  const buyback = /buyback/i.test(d.lot ?? "");
+  return (
+    <div className="flex flex-col items-center gap-2" data-testid="pieces">
+      <div className="flex flex-wrap justify-center gap-3">{p.map((x) => (
+        <figure key={x.name} className="w-[84px]"><img src={specterUri(x.no)} alt={`Specter ${x.name}`} className="aspect-square w-full rounded-[18%] ring-1 ring-[#ddd6c62e] [image-rendering:pixelated]" /><figcaption className="mt-1 truncate text-[12px] text-app-muted">{x.name}</figcaption></figure>))}</div>
+      <a href="/collection/" className="text-[12.5px] text-app-faint hover:text-app-text">{buyback ? "The treasury buys back any of these Specters" : "From the Specters collection"} →</a>
+    </div>
+  );
+}
+
 function Sealed({ d, live, toClose }: { d: AuctionDetail; live: boolean; toClose: number | null }) {
   const n = d.leaf_count ?? d.counted ?? 0;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-5 text-center" data-testid="sealed">
+      <Pieces d={d} />
       <div className="flex h-[45%] min-h-[90px] items-end gap-2">
         {Array.from({ length: Math.max(n, 5) }).map((_, i) => (
           <span key={i} className={cx("w-6 rounded-t-[4px]", i < n ? "bg-[repeating-linear-gradient(135deg,#ddd6c633_0_4px,#ddd6c614_4px_8px)] ring-1 ring-[#ddd6c633]" : "bg-[#ddd6c60a]")} style={{ height: `${60 + ((i * 37) % 30)}%` }} />

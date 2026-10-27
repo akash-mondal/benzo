@@ -45,16 +45,17 @@ const env = (k: string, d: number) => Number(process.env[k] ?? d);
 const SUBMIT_MIN = env("BNZ_WEB_SUBMIT_MIN", 40), CONFIRM_MIN = env("BNZ_WEB_CONFIRM_MIN", 25), SLOTS = env("BNZ_WEB_SLOTS", 8);
 const HOUSE = env("BNZ_WEB_HOUSE_BIDS", 2), MAX_ROUNDS = env("BNZ_WEB_MAX_ROUNDS", 1000), MAX_SETUP_TRIES = 3;
 const HOUSE_MARKETS = (process.env.BNZ_WEB_HOUSE_MARKETS ?? "uniform,launch,drop,buyback").split(",").filter(Boolean) as Mode[];
-const NAMES = ["Night", "Silver", "Chrome", "Quiet", "Moon", "Comet", "Dust", "Orbit", "Mirror", "Ember"];
+const NAMES = ["Lantern", "Tidewalker", "Ember", "Static", "Hollow", "Moth", "Veil", "Cinder", "Drift", "Signal"];
 
 // The house round of each market: small zat amounts, so a deposit of C = 200,000 covers any order (no bond).
 export function houseSpec(mode: Mode, n: number): Spec {
-  const name = `${NAMES[n % NAMES.length]} ${Math.floor(n / NAMES.length) + 1}`;
+  // The house sells the demo collection, Specters: mint waves, one-of-ones, floor buybacks.
+  const wave = n + 1, no = (k: number) => ((n * 7919 + k * 104729) % 9999) + 1;
   const base = { reserve_zats: "100", B_max_zats: "3000", tick_zats: "10", C_zats: "200000", submit_min: SUBMIT_MIN, house_bids: HOUSE };
-  if (mode === "drop") return { ...base, mode, lot: `${name} drop`, lots: ["Lot A", "Lot B", "Lot C"], supply: 1 };
-  if (mode === "launch") return { ...base, mode, lot: `${name} launch`, supply: 3, launch: { minimum_raise_zats: "900" } };
-  if (mode === "buyback") return { ...base, mode, lot: `${name} buyback`, supply: 2, reserve_zats: "10", buyback: { budget_zats: "600", max_price_zats: "300" } };
-  return { ...base, mode: "uniform", lot: `${name} lot`, supply: 2 };
+  if (mode === "drop") return { ...base, mode, lot: `Specter one-of-ones ${wave}`, lots: [`#${no(1)} ${NAMES[n % NAMES.length]}`, `#${no(2)} ${NAMES[(n + 3) % NAMES.length]}`, `#${no(3)} ${NAMES[(n + 6) % NAMES.length]}`], supply: 1 };
+  if (mode === "launch") return { ...base, mode, lot: `SPECT token launch ${wave}`, supply: 3, launch: { minimum_raise_zats: "900" } };
+  if (mode === "buyback") return { ...base, mode, lot: `Specters floor buyback ${wave}`, supply: 2, reserve_zats: "10", buyback: { budget_zats: "600", max_price_zats: "300" } };
+  return { ...base, mode: "uniform", lot: `Specters mint: wave ${wave}`, supply: 2 };
 }
 // A house bid's price, inside the round's limits (asks for a buyback sit under its maximum price).
 const housePrice = (s: Spec) => s.mode === "buyback" ? 150 + 10 * Math.floor(Math.random() * 14) : 400 + 10 * Math.floor(Math.random() * 40);
@@ -135,7 +136,14 @@ export class Runner {
     return a?.funding_ua && budget ? { address: a.funding_ua, amount_zats: budget, house: !a.spec.request } : null;
   }
   // A round someone started on the site: built in turn, after the rounds already queued.
-  enqueue(spec: Spec) { this.queue.push(spec); this.save(); void this.tick(); return this.queue.length; }
+  // A person's round goes ahead of the activity bots' queued rounds (house: true on the request), so a founder
+  // never waits behind the fleet.
+  enqueue(spec: Spec, house = false) {
+    (spec as any).house_request = house || undefined;
+    const at = house ? this.queue.length : this.queue.findIndex((q: any) => q.house_request);
+    this.queue.splice(at < 0 ? this.queue.length : at, 0, spec); this.save(); void this.tick();
+    return this.queue.indexOf(spec) + 1;
+  }
 
   // Web slots: the deposit addresses after the house bids', not used by a submitted record, not held by another visitor.
   // OTC and RFQ rounds give each pinned party its own slot (slot i belongs to party i).
@@ -148,15 +156,17 @@ export class Runner {
     if (!existsSync(d)) return [];
     return readdirSync(d).map((f: string) => JSON.parse(readFileSync(path.join(d, f), "utf8"))).filter((i: any) => i.status !== "refused").map((i: any) => i.address);
   }
-  // `house`: the site's own activity bots. They never take the last three open slots, so a person can always bid.
+  // `house`: the site's own activity bots. They never take the last half of a round's open slots, so people can bid.
   reserveSlot(id: string, party?: number, house = false) {
     const a = this.auctions.find((x) => x.id === id);
     if (!a || !this.isLive(id)) throw new Error("this round is not taking bids");
     const pinned = a.spec.mode === "otc" || a.spec.mode === "rfq";
     const free = pinned ? (party !== undefined && a.slots[party] && this.openSlots(a).includes(a.slots[party]) ? [a.slots[party]] : []) : this.openSlots(a);
     if (!free.length) throw new Error(pinned ? "this party's slot is taken or unknown" : "every deposit slot of this round is taken");
-    if (house && !pinned && free.length <= 3) throw new Error("the last open slots are kept for people");
-    const held_until = Math.min(a.T_submit, Math.floor(Date.now() / 1000) + 30 * 60);
+    if (house && !pinned && free.length <= Math.max(4, Math.ceil((a.slots.length - a.house) / 2))) throw new Error("the last open slots are kept for people");
+    // A slot is held 10 minutes for the visitor who took it: long enough to seal and pay, short enough that an
+    // abandoned attempt frees it soon.
+    const held_until = Math.min(a.T_submit, Math.floor(Date.now() / 1000) + 10 * 60);
     a.reserved[free[0]] = held_until; this.save();
     return { address: free[0], slot: a.slots.indexOf(free[0]), held_until };
   }
@@ -338,7 +348,8 @@ export class Runner {
       try {
         // Record the owner-signed claim, have every signer re-open the envelopes with it (the claim's sealed
         // destination is read only there), then settle. The claim is paid only when the public record says so.
-        await this.run(["claim-refund", "--id", c.id, "--defer", "true"], c.request);
+        // A party's first recorded claim is the one that counts; a later one from the same owner settles that one.
+        await this.run(["claim-refund", "--id", c.id, "--defer", "true"], c.request).catch((e: Error) => { if (!/already recorded/.test(e.message)) throw e; });
         await this.run(["hosts", "envelope-opens", "--id", c.id]);
         await this.run(["settle", "--id", c.id]).catch((e: Error) => { if (!/can still mine|still mining|not yet mined|builds a new one/i.test(e.message)) throw e; });
         const row = this.rowOf(a, c.party);

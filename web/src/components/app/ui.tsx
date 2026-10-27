@@ -3,6 +3,7 @@
 // what's live, tabular figures.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { thousands } from "../../lib/api";
+import { isSpecter, specterNo, specterUri } from "../../lib/specter";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -132,6 +133,12 @@ export const when = (unix: number) => {
 // A doodle from the sky, in its sand chrome.
 export function Glyph({ name, className }: { name: string; className?: string }) {
   return <span aria-hidden="true" className={cx("glyph", className ?? "size-8")} style={{ ["--g" as string]: `url(/doodles/${name}.svg?v=2)` }} />;
+}
+
+// A round's picture: a Specter's own pixel art when the lot is one (the demo collection), else the market's doodle.
+export function LotArt({ lot, glyph, className }: { lot?: string | null; glyph: string; className?: string }) {
+  if (!isSpecter(lot)) return <Glyph name={glyph} className={className} />;
+  return <img src={specterUri(specterNo(lot!))} alt="" aria-hidden="true" className={cx("shrink-0 rounded-[22%] ring-1 ring-[#ddd6c62e] [image-rendering:pixelated]", className ?? "size-8")} />;
 }
 
 // A page's head: the door's doodle you came through (the page transition lands on it), the title, one line.

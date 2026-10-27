@@ -175,12 +175,19 @@ async function bid(b: Bot, round: any, party?: { key: { private_hex: string; pub
 }
 
 const THINGS = ["Night lamp", "Field recorder", "Oak stool", "Print run", "Studio hours", "Seed tranche", "Ceramic set", "Tour tickets", "Wool blanket", "Bike frame", "Camera body", "Vinyl pressing", "Garden plot", "Desk lamp", "Market stall", "Guitar pedal", "Coffee lot", "Tea harvest", "Poster set", "Book run"];
+// The demo collection the fleet sells, every way a collection sells: the mint (a sealed uniform-price auction), a set
+// of one-of-ones (a drop, each to its own highest bid), floor buybacks, private sales (OTC) and commissions (RFQ).
+const ONES = ["Lantern", "Tidewalker", "Ember", "Static", "Hollow", "Moth", "Veil", "Cinder", "Drift", "Signal", "Wisp", "Hush", "Lark", "Gloam"];
+const specterNo = () => rnd(1, 9999);
+const lotFor = (mode: string) => mode === "uniform" ? `Specters mint: wave ${rnd(2, 99)}` : mode === "drop" ? `Specter one-of-ones ${rnd(2, 99)}`
+  : mode === "buyback" ? `Specters floor buyback ${rnd(2, 99)}` : mode === "otc" ? `Specter #${specterNo()} private sale`
+  : mode === "rfq" ? `Commission: animate Specter #${specterNo()}` : `${pick(THINGS)} ${rnd(2, 99)}`;
 async function startRound(b: Bot) {
-  const mode = pick(PUBLIC), lot = `${pick(THINGS)} ${rnd(2, 99)}`;
+  const mode = pick(PUBLIC), lot = lotFor(mode);
   const f: any = { mode, lot, minutes: pick([20, 30, 40, 60]), max_price: 3000, reserve: 10 };
   if (mode === "uniform") Object.assign(f, { supply: rnd(2, 6), payout_ua: b.ua });
   if (mode === "launch") Object.assign(f, { supply: rnd(3, 6), payout_ua: b.ua, minimum_raise: rnd(1, 4) * 500 });
-  if (mode === "drop") Object.assign(f, { lots: ["A", "B", "C", "D", "E"].slice(0, rnd(2, 5)).map((x) => `${lot.split(" ")[0]} ${x}`), payout_ua: b.ua });
+  if (mode === "drop") Object.assign(f, { lots: [...ONES].sort(() => Math.random() - 0.5).slice(0, rnd(2, 5)).map((x) => `#${specterNo()} ${x}`), payout_ua: b.ua });
   if (mode === "buyback") Object.assign(f, { supply: rnd(2, 6), treasury_ua: b.ua, max_price: 300, budget: 1200 });
   const r = await post("/api/rounds", f);
   say(b.name, r.ok ? `started a ${mode} round (${lot})` : `start refused (${r.status}): ${JSON.stringify(r.body).slice(0, 160)}`);
@@ -192,7 +199,7 @@ async function startRound(b: Bot) {
 // dealers' quotes, with b funding the budget as the buyer).
 let lastParty = 0, partyTurn = 0;
 async function startPartyRound(b: Bot, all: Bot[]) {
-  const mode = PARTY[partyTurn++ % PARTY.length], lot = `${pick(THINGS)} ${rnd(2, 99)}`;
+  const mode = PARTY[partyTurn++ % PARTY.length], lot = lotFor(mode);
   const others = all.filter((x) => x !== b).sort(() => Math.random() - 0.5);
   const mine = generateOwnerKey();
   const f: any = mode === "otc" ? { mode, lot, minutes: pick([20, 30]), side: "seller", creator_key: mine.public_hex, max_price: 3000 }

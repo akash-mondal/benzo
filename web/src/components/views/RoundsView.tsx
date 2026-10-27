@@ -6,12 +6,12 @@ import { api, MODE_NAME, utc } from "../../lib/api";
 import { DOOR, glyphFor, marketOf, MARKETS } from "../../lib/glyphs";
 import { outcomeLine, traded } from "../../lib/outcome";
 import Activity from "../dash/Activity";
-import { Glyph, Pager, Pill, claimDoor, cx, useFitRows } from "../app/ui";
+import { Glyph, Pager, Pill, claimDoor, cx, useFitRows, LotArt } from "../app/ui";
 import type { AuctionSummary } from "../../lib/types";
 
 // Stage, from the round's own state (never guessed from its age).
-const stageOf = (a: AuctionSummary) => (a.live ? "open" : a.state === "SETTLED" || a.finished ? "settled" : a.state === "CANCELLED" ? "cancelled" : a.stopped ? "stopped" : "running");
-const STAGE: Record<string, [string, "live" | "wait" | "good" | "plain"]> = { open: ["Taking bids", "live"], running: ["In progress", "wait"], settled: ["Settled", "good"], cancelled: ["Cancelled", "plain"], stopped: ["Stopped", "plain"] };
+const stageOf = (a: AuctionSummary) => (a.live && a.free_slots === 0 ? "full" : a.live ? "open" : a.state === "SETTLED" || a.finished ? "settled" : a.state === "CANCELLED" ? "cancelled" : a.stopped ? "stopped" : "running");
+const STAGE: Record<string, [string, "live" | "wait" | "good" | "plain"]> = { open: ["Taking bids", "live"], full: ["Full", "plain"], running: ["In progress", "wait"], settled: ["Settled", "good"], cancelled: ["Cancelled", "plain"], stopped: ["Stopped", "plain"] };
 const TABS: [string, string][] = [["all", "All"], ["open", "Taking bids"], ["running", "In progress"], ["settled", "Settled"], ["cancelled", "Cancelled"], ["stopped", "Stopped"]];
 const order = (l: AuctionSummary[]) => [...l].sort((a, b) => Number(b.live) - Number(a.live) || b.updated - a.updated);
 const local = (unix: number) => {
@@ -110,7 +110,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
                 <li key={a.id} hidden={!shownIds.has(a.id)}>
                   <a href={`/auction/?id=${a.id}`} onClick={(e) => claimDoor(e.currentTarget)} data-testid="lot-row" className="grid h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 border-t border-app-line px-4 transition-colors hover:bg-[#ddd6c60d] md:grid-cols-[minmax(0,1.4fr)_120px_110px_minmax(0,1.2fr)_52px_110px]">
                     <span className="flex min-w-0 items-center gap-3">
-                      <Glyph name={glyphFor(a.mode, a.id)} className="size-8" />
+                      <LotArt lot={a.lot} glyph={glyphFor(a.mode, a.id)} className="size-8" />
                       <span className="min-w-0"><span className="block truncate text-[14px] text-app-text">{a.lot ?? MODE_NAME[a.mode]}</span><span className="block truncate text-[12px] text-app-faint md:hidden">{MODE_NAME[a.mode]} · {outcomeLine(a)}</span><span className="hidden text-[12px] text-app-faint md:block">{a.id.slice(0, 8)}</span></span>
                     </span>
                     <span className="hidden truncate text-[13px] text-app-muted md:block">{MODE_NAME[a.mode]}</span>

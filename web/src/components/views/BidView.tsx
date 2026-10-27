@@ -9,7 +9,8 @@ import QRCode from "qrcode";
 import { api, MODE_NAME, short, zec } from "../../lib/api";
 import { glyphFor } from "../../lib/glyphs";
 import { archiveCurrent, attemptsFor, currentAttempt, partyFor, saveAttempt, type Attempt, type PartyKey } from "../../lib/mine";
-import { Btn, Glyph, Copyable, ErrorLine, Field, Panel, Pill, cx, fieldCls, rel, when, zats } from "../app/ui";
+import { piecesFor, specterUri } from "../../lib/specter";
+import { Btn, Glyph, Copyable, ErrorLine, Field, Panel, Pill, cx, fieldCls, rel, when, zats, LotArt } from "../app/ui";
 import { clock, useCountdown } from "./useCountdown";
 import type { AuctionDetail } from "../../lib/types";
 
@@ -96,7 +97,7 @@ export function BidTicket({ round }: { round: AuctionDetail }) {
         ) : (
           <>
             {/* A round with no open deposit slot can't take another bid: say so before the form, not after sealing. */}
-            {!saved && round.free_slots === 0 && !party && <div data-testid="bid-full"><div className="text-[16px] font-medium">This round is full</div><p className="mt-1 text-[14px] text-app-muted">Every deposit slot is taken, so it can't take another {role.noun}. <a href="/lots/?stage=open" className="text-app-text underline underline-offset-4">See rounds taking bids</a>.</p></div>}
+            {!saved && round.free_slots === 0 && !party && <div data-testid="bid-full"><div className="text-[16px] font-medium">This round is full</div><p className="mt-1 text-[14px] text-app-muted">Every deposit slot is taken or held by someone part-way through a {role.noun}. A held slot frees up within 10 minutes if they don't pay. <a href="/lots/?stage=open" className="text-app-text underline underline-offset-4">See rounds taking bids</a>.</p></div>}
             {!saved && !(round.free_slots === 0 && !party) && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
             {saved?.step === "pay" && <Pay round={round} role={role} s={saved} open={open} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid, at: Date.now() })} onNew={() => keep(null)} />}
             {saved?.step === "track" && <Track round={round} role={role} s={saved} open={open} onNew={() => keep(null)} />}
@@ -113,12 +114,18 @@ function RoundSummary({ round, left, role }: { round: AuctionDetail; left: numbe
   return (
     <div className="min-w-0">
       <div className="flex items-center gap-4">
-        <Glyph name={glyphFor(round.mode, round.id)} className="page-door size-16" />
+        <LotArt lot={round.lot} glyph={glyphFor(round.mode, round.id)} className="page-door size-16" />
         <div className="min-w-0">
           <div className="text-[13px] text-app-faint">{MODE_NAME[round.mode]} · Zcash testnet</div>
           <h1 className="truncate" data-testid="ticket-title">{round.lot ?? "Round"}</h1>
         </div>
       </div>
+      {piecesFor(round).length > 0 && (
+        <div className="mt-5 flex flex-wrap items-end gap-3" data-testid="bid-pieces">
+          {piecesFor(round).map((x) => <figure key={x.name} className="w-[76px]"><img src={specterUri(x.no)} alt={`Specter ${x.name}`} className="aspect-square w-full rounded-[18%] ring-1 ring-[#ddd6c62e] [image-rendering:pixelated]" /><figcaption className="mt-1 truncate text-[12px] text-app-muted">{x.name}</figcaption></figure>)}
+          <a href="/collection/" className="pb-6 text-[13px] text-app-faint hover:text-app-text">Specters collection →</a>
+        </div>
+      )}
       <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5">
         <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : Date.now() / 1000 < round.T_submit ? "Not here" : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
         <div><div className="text-[13px] text-app-faint">Fixed deposit</div><div className="serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]">{zats(round.C_zats)} zats</div><div className="text-[13px] text-app-muted">{taz(round.C_zats)} · not your {role.noun}</div></div>
@@ -210,7 +217,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
         : { text: msg.replace(/^[^:]*: \d+ /, "") });
     } finally { setBusy(""); }
   };
-  const lotLabel = (l: string) => `Lot ${(lots ?? []).indexOf(l) + 1}`;
+  const lotLabel = (l: string) => `Lot ${(lots ?? []).indexOf(l) + 1} · ${l}`;
   if (review) return (
     <div className="grid gap-4" data-testid="bid-review">
       <div className="text-[16px] font-medium">Review your sealed {role.noun}</div>

@@ -18,6 +18,7 @@ export type AuctionSummary = {
   release: number; // unix seconds when round R is published
   leaf_count: number | null;
   counted?: number; // before the freeze: bids admitted so far (the record has no count until the freeze)
+  free_slots?: number | null; // while taking bids: deposit slots still open to a new bidder
   clearing_price_zats: string | null;
   settled: boolean;
   live: boolean; // run by this site's operator and still taking bids
