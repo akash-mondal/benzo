@@ -136,7 +136,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
               )}
               <Field label={market === "rfq" ? "What you want quotes for" : market === "buyback" ? "What you're buying back" : market === "launch" ? "Project or allocation name" : market === "otc" ? "What the two of you are trading" : market === "drop" ? "Name of the drop" : "What you're selling"}>
                 <input value={f.lot} onChange={set("lot")} maxLength={40} placeholder={market === "drop" ? "Specter one-of-ones" : market === "rfq" ? "Commission: animate Specter #417" : market === "launch" ? "SPECT token launch" : market === "buyback" ? "Specters floor buyback" : market === "otc" ? "Specter #417 private sale" : "Specters mint: wave 1"} className={fieldCls} data-testid="start-lot" />
-                <p className="mt-1.5 text-[12.5px] text-app-faint">Benzo settles the money. Handing over the item itself (an NFT, a file, a service) stays with you in this release.</p>
+                <p className="mt-1.5 text-[12.5px] text-app-faint">{f.lot.length}/40 characters. {market === "drop" ? <>Selling a single one-of-one? Use <a href="/start/?market=uniform" className="underline underline-offset-4">Uniform price</a> with 1 unit; Drop is for a set of 2 to 5 pieces. </> : null}Benzo settles the money. Handing over the item itself (an NFT, a file, a service) stays with you in this release.</p>
               </Field>
               {market === "drop" && (
                 <div className="grid gap-2">
