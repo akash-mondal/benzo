@@ -1,5 +1,5 @@
 // CLI coordinator. Signer routing is private, pinned before funding; no recipient input is accepted at run/sign time.
-import {appendFileSync,copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,renameSync,writeFileSync} from "node:fs";
+import {appendFileSync,copyFileSync,existsSync,fsyncSync,mkdirSync,openSync,closeSync,readFileSync,renameSync,rmSync,writeFileSync} from "node:fs";
 import {spawn,spawnSync} from "node:child_process";
 import path from "node:path";
 import {hash,jsonBytes,requireThat,verifyRecord,QUICKNET} from "../manifest/schema";
@@ -317,6 +317,14 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
     const pool=prefer.filter(n=>!failed.has(n));
     while(pair.length<2&&pool.length){const take=pool.splice(0,2-pair.length),ok=await Promise.all(take.map(approve));take.forEach((n,i)=>ok[i]?pair.push(n):failed.add(n))}
     pair.sort((a,b)=>prefer.indexOf(a)-prefer.indexOf(b)); // the first preferred approving host coordinates
+    // A candidate built while an earlier batch was still in flight can spend a deposit that batch then spent. The
+    // hosts refuse it for good ("already paid by mined batch"), and the reuse rule in hostBuild would re-offer the
+    // same candidate until it expires. When two hosts refuse it for that reason, drop the cached candidate so the
+    // next settle builds a fresh one from the current notes; the hosts' own refusal still guards every payment.
+    if(pair.length<2&&events.filter(e=>e.approve==="refused"&&/already paid by mined batch/.test(String(e.detail??""))).length>=2) {
+      for(const f of [file(`batch-${batchId}.build.json`),proven])rmSync(f,{force:true});
+      console.error(`ERROR batch ${batchId}: its candidate spends a deposit a mined batch already spent; discarded, the next settle builds a new one`);
+    }
     requireThat(pair.length===2,`fewer than two signer hosts approve batch ${batchId}`);
     // Under the signing lock no other round is live, so any session a host still has is stale (an abandoned round of
     // this or another auction) and would make a join see the wrong session count: close them all first.

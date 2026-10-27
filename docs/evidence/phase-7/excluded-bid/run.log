@@ -13,3 +13,4 @@
 2026-10-27T17:07:57.925Z bidder B's page after the refund: Not in the round | The operator left your bid out | The operator's status says it counted, but your bid isn't in this round's frozen set, the list of bids two of three witnesses signed before anyone could read a price. So it can't win, and the operator couldn't have known what it bid. | Your deposit is still yours
 2026-10-27T17:07:58.360Z round SETTLING; checks: 19 of 19 pass
 2026-10-27T17:07:58.360Z RESULT PASS a paid bid left out by the operator was detected by its owner and refunded by the signers
+2026-10-27T17:54:05.000Z CORRECTION the RESULT line above is withdrawn: the site marked the claim paid when the claim command exited, but the refund row stayed in the exception queue (the signers never re-opened the envelopes with the claim). Fixed in web/gateway/runner.ts (claim worker: record, envelope-opens, settle, paid only when the public row is paid with a txid); the claim is re-run below.

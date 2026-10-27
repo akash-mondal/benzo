@@ -70,7 +70,11 @@ export class Runner {
   // Owner-signed refund claims from the bid page (a deposit left out of its round), worked one at a time between
   // round steps: `benzo claim-refund --file` records the claim and settles it (the signers check the owner key
   // against their own opening of the deposit's memo before signing).
-  private claims: { id: string; party: string; request: any; state: "queued" | "paying" | "paid" | "failed"; detail: string; at: number }[] = [];
+  private claims: { id: string; party: string; request: any; state: "queued" | "paying" | "paid" | "failed"; detail: string; at: number; tries?: number; txid?: string }[] = [];
+  // The settlement row of one party in the round's public record (null when there is none yet).
+  private rowOf(a: Live, party: string): any {
+    try { return (JSON.parse(readFileSync(path.join(a.pub, "auction.json"), "utf8")).settlement?.rows ?? []).find((r: any) => r.party === party) ?? null; } catch { return null; }
+  }
   private lastWait = "";
   constructor(private root: string, private state: string, private intake: Intake, private onCreated: (request: string, id: string | null, error?: string) => void = () => {}) {
     this.file = path.join(state, "web", "runner.json");
@@ -144,12 +148,14 @@ export class Runner {
     if (!existsSync(d)) return [];
     return readdirSync(d).map((f: string) => JSON.parse(readFileSync(path.join(d, f), "utf8"))).filter((i: any) => i.status !== "refused").map((i: any) => i.address);
   }
-  reserveSlot(id: string, party?: number) {
+  // `house`: the site's own activity bots. They never take the last three open slots, so a person can always bid.
+  reserveSlot(id: string, party?: number, house = false) {
     const a = this.auctions.find((x) => x.id === id);
     if (!a || !this.isLive(id)) throw new Error("this round is not taking bids");
     const pinned = a.spec.mode === "otc" || a.spec.mode === "rfq";
     const free = pinned ? (party !== undefined && a.slots[party] && this.openSlots(a).includes(a.slots[party]) ? [a.slots[party]] : []) : this.openSlots(a);
     if (!free.length) throw new Error(pinned ? "this party's slot is taken or unknown" : "every deposit slot of this round is taken");
+    if (house && !pinned && free.length <= 3) throw new Error("the last open slots are kept for people");
     const held_until = Math.min(a.T_submit, Math.floor(Date.now() / 1000) + 30 * 60);
     a.reserved[free[0]] = held_until; this.save();
     return { address: free[0], slot: a.slots.indexOf(free[0]), held_until };
@@ -307,7 +313,7 @@ export class Runner {
     } catch (e) {
       // A batch that is still mining is a wait, not a failure: it never uses up the round's retries.
       const msg = String((e as Error).message);
-      if (/can still mine|still mining|not yet mined/i.test(msg)) { a.error = msg.slice(0, 400); if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
+      if (/can still mine|still mining|not yet mined|the next settle builds a new one/i.test(msg)) { a.error = msg.slice(0, 400); if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
       a.retries++; a.error = msg.slice(0, 400);
       this.say(a, `retry ${a.retries} in ${a.phase}: ${a.error}`);
       if (a.retries >= 6) { a.phase = "failed"; this.say(a, "FAILED; needs the operator"); }
@@ -323,17 +329,28 @@ export class Runner {
     const c = { id, party: request.party, request, state: "queued" as const, detail: "queued; the signers check it after the round's own steps", at: Date.now() };
     this.claims.push(c); return { state: c.state, detail: c.detail };
   }
-  claimStatus(id: string, party: string) { const c = [...this.claims].reverse().find((x) => x.id === id && x.party === party); return c ? { state: c.state, detail: c.detail } : null; }
+  claimStatus(id: string, party: string) { const c = [...this.claims].reverse().find((x) => x.id === id && x.party === party); return c ? { state: c.state, detail: c.detail, ...(c.txid ? { txid: c.txid } : {}) } : null; }
   private async workClaims() {
     for (const c of this.claims.filter((x) => x.state === "queued")) {
       const a = this.auctions.find((x) => x.id === c.id);
       if (!a || !["done", "failed"].includes(a.phase)) continue; // after the round's own settlement
       c.state = "paying"; c.detail = "the signers are checking the claim";
       try {
-        await this.run(["claim-refund", "--id", c.id], c.request);
-        await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]).catch(() => {});
-        c.state = "paid"; c.detail = "refunded";
-        if (a.phase === "failed") { a.phase = "done"; this.say(a, "settled after a refund claim"); }
+        // Record the owner-signed claim, have every signer re-open the envelopes with it (the claim's sealed
+        // destination is read only there), then settle. The claim is paid only when the public record says so.
+        await this.run(["claim-refund", "--id", c.id, "--defer", "true"], c.request);
+        await this.run(["hosts", "envelope-opens", "--id", c.id]);
+        await this.run(["settle", "--id", c.id]).catch((e: Error) => { if (!/can still mine|still mining|not yet mined|builds a new one/i.test(e.message)) throw e; });
+        const row = this.rowOf(a, c.party);
+        if (row && ["paid", "refunded"].includes(row.state) && row.txid) {
+          await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]).catch(() => {});
+          Object.assign(c, { state: "paid", detail: "refunded", txid: row.txid });
+          if (a.phase === "failed") { a.phase = "done"; this.say(a, "settled after a refund claim"); }
+        } else {
+          c.tries = (c.tries ?? 0) + 1;
+          if (c.tries >= 12) { c.state = "failed"; c.detail = `not paid after ${c.tries} tries: ${row?.reason ?? row?.state ?? "no settlement row"}`; }
+          else { c.state = "queued"; c.detail = row?.state === "exception" ? "the signers are checking the claim" : "the refund is being paid; this takes a few minutes"; }
+        }
       } catch (e) { c.state = "failed"; c.detail = String((e as Error).message).replace(/^ERROR\s*/, "").slice(0, 300); }
       console.log(`[runner ${c.id.slice(0, 8)}] claim ${c.party.slice(8, 20)}… ${c.state}: ${c.detail.slice(0, 160)}`);
     }
