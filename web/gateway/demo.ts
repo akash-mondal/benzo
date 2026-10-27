@@ -51,7 +51,8 @@ export class DemoWallet {
     if (!this.address) return { available: false, reason: "The demo wallet is starting. Try again in a minute." };
     const left = Math.max(0, PER_IP - this.recent(ip).length);
     const funded = this.balance.spendable >= 260_000;
-    return { available: funded && left > 0 && this.dayLeft() > 0, address: this.address, left_this_hour: left,
+    // low: the test fleet (deploy/fleet/lite-bot.ts) tops the demo wallet up when it says so.
+    return { available: funded && left > 0 && this.dayLeft() > 0, address: this.address, left_this_hour: left, low: this.balance.at > 0 && this.balance.spendable < 3_000_000,
       reason: !funded ? "The demo wallet is waiting for its coins to confirm. Try again in a few minutes." : left === 0 ? "You've used this hour's demo deposits. Try again later, or pay from your own wallet." : this.dayLeft() === 0 ? "Today's demo deposits are used up. Pay from your own wallet." : undefined };
   }
   private recent(ip: string) { const t = Date.now() - 3600_000, v = (this.ips.get(ip) ?? []).filter((x) => x > t); this.ips.set(ip, v); return v; }

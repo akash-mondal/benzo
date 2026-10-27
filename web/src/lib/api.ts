@@ -31,7 +31,7 @@ export const api = {
   submit: (id: string, record: { address: string; txid: string; envelope_hex: string; envelope_ct_hex: string; owner_sig_hex: string; ciphertext_hash: string }) =>
     post<{ status: string }>(`/api/auctions/${id}/bids`, record),
   // The demo wallet (web/gateway/demo.ts): pays a sealed deposit link for a visitor with no testnet wallet.
-  demo: () => get<{ available: boolean; address?: string; left_this_hour?: number; reason?: string }>("/api/demo"),
+  demo: () => get<{ available: boolean; address?: string; left_this_hour?: number; low?: boolean; reason?: string }>("/api/demo"),
   demoPay: (id: string, uri: string) => post<{ job: string }>(`/api/auctions/${id}/demo-pay`, { uri }),
   demoJob: (job: string) => get<{ state: "paying" | "paid" | "failed"; txid?: string; error?: string }>(`/api/demo/jobs/${job}`),
   bidStatus: (id: string, ciphertextHash: string) => get<{ status: "queued" | "waiting" | "admitted" | "refused"; detail: string; leaf_index?: number }>(`/api/auctions/${id}/bids/${ciphertextHash}`),

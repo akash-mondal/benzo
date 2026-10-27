@@ -192,11 +192,24 @@ async function fundRequest(b: Bot, req: any) {
   }
 }
 
-async function run(b: Bot, starter: boolean) {
+// The last bot also tops up the site's demo wallet (web/gateway/demo.ts) when it runs low: 25 notes of 0.01 TAZ, so
+// visitors' demo deposits can be paid one after another without waiting for change. At most once an hour.
+let gaveAt = 0;
+async function topUpDemo(b: Bot, spendable: number) {
+  if (Date.now() - gaveAt < 3600_000 || spendable < 30_000_000) return;
+  const d = await api("/api/demo");
+  if (!d.ok || !d.body?.low || !/^utest1[0-9a-z]+$/.test(d.body.address ?? "")) return;
+  gaveAt = Date.now();
+  const q = Array.from({ length: 25 }, (_, i) => `${i ? `address.${i}` : "address"}=${d.body.address}&${i ? `amount.${i}` : "amount"}=0.01`).join("&");
+  say(b.name, `demo wallet topped up: ${(await pay(b, `zcash:?${q}`)).slice(0, 12)}`);
+}
+
+async function run(b: Bot, starter: boolean, giver: boolean) {
   for (;;) {
     try {
       const bal = await balance(b);
       if (bal.spendable < MIN_SPENDABLE) { say(b.name, `waiting for funds (spendable ${bal.spendable}, total ${bal.total})`); await sleep(300_000); continue; }
+      if (giver) await topUpDemo(b, bal.spendable).catch((e) => say(b.name, `demo top-up: ${String(e.message).slice(0, 160)}`));
       const open = await openRounds();
       if (starter && open.length < TARGET_OPEN) await startRound(b);
       if (!open.length) { await sleep(60_000); continue; }
@@ -222,4 +235,4 @@ for (let i = 1; i <= BOTS; i++) {
   say(b.name, `address ${b.ua}`);
   bots.push(b);
 }
-await Promise.all(bots.map(async (b, i) => { await sleep(i * 20_000); await run(b, i === 0); }));
+await Promise.all(bots.map(async (b, i) => { await sleep(i * 20_000); await run(b, i === 0, i === bots.length - 1); }));
