@@ -100,6 +100,15 @@ Sealing, deposits, freezing and settlement don't know which market they serve. A
 
 Adding a market means writing a rule, not a new system.
 
+On [benzo.space](https://benzo.space/collection/) the markets sell one demo collection, **Specters**, the way a collection on Zcash actually sells:
+
+- **The mint** is a sealed uniform-price auction: the top bids win and every winner pays one clearing price. It's the format Zilkroad used to sell 8,000 zkSNARKs at 1.5 ZEC, except that here nobody, the operator included, can read a bid early, and anyone can check the result.
+- **One-of-ones** go to the highest sealed bid, with no public bid ladder to snipe.
+- **Floor buybacks** take holders' sealed asks, lowest first, so nobody front-runs the floor.
+- **Private sales** (OTC) and **commissions** (RFQ) cover the rest.
+
+The collection page shows the floor, the sales, the volume and the activity, all from rounds anyone can verify.
+
 ## 6. Settling with a key nobody holds alone
 
 The deposits sit in a vault whose spending key is split three ways with FROST, a threshold Schnorr scheme for Zcash. The three signers create it together with a dealerless DKG, once per round. No machine ever holds the whole key. Any two can spend; one can't.
