@@ -103,3 +103,19 @@ export async function prepareSealedBid(args: { packet: any; signer: string; addr
     nonce_hex: bound.nonce_hex, settlement_commitment_hex: bound.settlement_commitment_hex, envelope_ct_hex: bound.envelope_ct_hex,
   };
 }
+
+// A refund claim for a deposit that was left out of its round (the bid page's "Claim it back"), exactly as
+// `benzo claim-refund --party … --destination … --owner-key-stdin` builds it: the destination is sealed to the three
+// signers' pinned keys, and the bid's one-time owner key signs the request. The signers check that key against their own
+// opening of the deposit's memo before they pay.
+export async function buildClaim(args: { packet: any; signer: string; party: string; destination: string; owner_private_hex: string }) {
+  const [, schema] = await repo();
+  const env = await import("../../../../envelope/index");
+  const m: any = schema.verifyRecord(args.packet, args.signer);
+  if (!(Array.isArray(m.envelope_keys) && m.envelope_keys.length === 3)) throw new Error("this round doesn't pin the three signers' keys");
+  if (!/^deposit:[0-9a-f]{64}:(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/.test(args.party)) throw new Error("claim party");
+  const owner = { private_hex: args.owner_private_hex, public_hex: env.ownerPublic(args.owner_private_hex) };
+  const claim_envelope_ct = env.sealEnvelope(args.destination, m.envelope_keys, m.network);
+  const body = { kind: "claim-refund", auction_id: m.auction_id, party: args.party, claim_envelope_sha256: schema.hash(Buffer.from(claim_envelope_ct, "hex")) };
+  return { ...body, claim_envelope_ct, owner_sig: env.signStatement(owner, body) };
+}

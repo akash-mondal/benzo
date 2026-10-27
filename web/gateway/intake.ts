@@ -7,7 +7,7 @@ import path from "node:path";
 import { benzo, CliError } from "./cli";
 
 export type BidRecord = { address: string; txid: string; envelope_hex: string; envelope_ct_hex: string; owner_sig_hex: string; ciphertext_hash: string };
-type Item = BidRecord & { auction_id: string; status: "queued" | "waiting" | "admitted" | "refused"; detail: string; attempts: number; at: number; leaf_index?: number; house?: boolean; failures?: number; last_output?: string };
+type Item = BidRecord & { auction_id: string; status: "queued" | "waiting" | "admitted" | "refused"; detail: string; attempts: number; at: number; leaf_index?: number; house?: boolean; failures?: number; withheld?: boolean; last_output?: string };
 
 const HEX = (n: number) => new RegExp(`^[0-9a-f]{${n}}$`);
 // Admission refusals that only mean "not yet": the deposit is not mined, not confirmed, or not scanned.
@@ -45,8 +45,20 @@ export class Intake {
     return { status: it.status, detail: it.detail };
   }
 
+  // The excluded-bid demo (docs/demo-excluded-bid.md), operator-only: play a dishonest operator that keeps one paid
+  // bid out of the round and tells its bidder it counted. Nothing about the record is admitted; the bid page's own
+  // check of the witnessed frozen set, and the signers' own scan of the vault, are what catch it.
+  withhold(id: string, ct: string) {
+    const it = this.read(id, ct);
+    if (!it) throw new Error("no record with this ciphertext hash");
+    if (it.status === "admitted") throw new Error("already admitted");
+    it.withheld = true; this.save(it);
+    return { withheld: true };
+  }
+
   status(id: string, ct: string) {
     const it = this.read(id, ct);
+    if (it?.withheld) return { status: "admitted", detail: "admitted" }; // the dishonest operator's claim
     return it ? { status: it.status, detail: it.detail, leaf_index: it.leaf_index } : { status: "unknown", detail: "no record with this ciphertext hash" };
   }
 
@@ -54,7 +66,7 @@ export class Intake {
   pending(id: string): number {
     const d = path.join(this.dir, id);
     if (!existsSync(d)) return 0;
-    return readdirSync(d).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(path.join(d, f), "utf8")) as Item).filter((i) => i.status === "queued" || i.status === "waiting").length;
+    return readdirSync(d).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(path.join(d, f), "utf8")) as Item).filter((i) => !i.withheld && (i.status === "queued" || i.status === "waiting")).length;
   }
 
   // Close every record still waiting once its auction froze: admission is over.
@@ -63,7 +75,7 @@ export class Intake {
     if (!existsSync(d)) return;
     for (const f of readdirSync(d)) {
       const it: Item = JSON.parse(readFileSync(path.join(d, f), "utf8"));
-      if (it.status === "queued" || it.status === "waiting") { it.status = "refused"; it.detail = reason; this.save(it); }
+      if (!it.withheld && (it.status === "queued" || it.status === "waiting")) { it.status = "refused"; it.detail = reason; this.save(it); }
     }
   }
 
@@ -74,7 +86,7 @@ export class Intake {
       for (const id of existsSync(this.dir) ? readdirSync(this.dir) : []) {
         for (const f of readdirSync(path.join(this.dir, id))) {
           const it: Item = JSON.parse(readFileSync(path.join(this.dir, id, f), "utf8"));
-          if (it.status !== "queued" && it.status !== "waiting") continue;
+          if (it.withheld || (it.status !== "queued" && it.status !== "waiting")) continue;
           it.attempts++;
           try {
             const r = await benzo(this.root, this.state, ["bid", "deposit", "--id", id],

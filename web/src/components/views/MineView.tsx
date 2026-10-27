@@ -26,7 +26,10 @@ export default function MineView() {
         if (s.status === "refused") return set({ word: "Not counted · refundable with your recovery file", kind: "bad" });
         if (s.status !== "admitted") return set({ word: "Waiting for your deposit to confirm", kind: "wait", next: "View status" });
         // Counted: once the round has a result, say what happened to this bid.
-        const r = await api.receipt(b.id, b.bid.ciphertext_hash).catch(() => null);
+        // The frozen set, not the operator's status, says whether the bid counts.
+        let left = false;
+        const r = await api.receipt(b.id, b.bid.ciphertext_hash).catch((e) => { left = /not in frozen/.test(String(e.message)); return null; });
+        if (left) return set({ word: "Left out of the round · claim your deposit back", kind: "bad", next: "Claim" });
         const d = await api.auction(b.id).catch(() => null);
         const al = d?.result?.allocations?.find((a: any) => a.leaf_index === Number(r?.inclusion?.leaf_index));
         if (!al) return set({ word: "Counted · opens with the others", kind: "good" });
@@ -76,7 +79,7 @@ export default function MineView() {
             {tab === "bids" && (mine.length ? (
               <ul data-testid="mine-bids">{mine.map((b) => {
                 const d = rounds_[b.id], dd = d && d !== "down" ? d : null, l = lines[b.key];
-                const href = b.step === "pay" || (l?.next === "View status") ? `/bid/?id=${b.id}` : `/auction/?id=${b.id}&bid=${b.bid?.ciphertext_hash ?? ""}`;
+                const href = b.step === "pay" || l?.next === "View status" || l?.next === "Claim" ? `/bid/?id=${b.id}` : `/auction/?id=${b.id}&bid=${b.bid?.ciphertext_hash ?? ""}`;
                 return (
                   <li key={b.key}><a href={href} onClick={(e) => claimDoor(e.currentTarget)} className="flex items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
                     <Glyph name={dd ? glyphFor(dd.mode, dd.id) : "sealed-envelope"} className="size-9" />

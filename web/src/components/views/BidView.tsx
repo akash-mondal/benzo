@@ -386,13 +386,82 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
   );
 }
 
+// A paid bid the operator left out of the frozen set. The signers scan the vault's addresses themselves, so the deposit
+// shows up in their settlement as a stray; after the opening, the bid's own key claims it back.
+function LeftOut({ round, role, s, said }: { round: AuctionDetail; role: ReturnType<typeof roleOf>; s: Attempt; said: boolean }) {
+  const demo = useDemo();
+  const [row, setRow] = useState<{ party: string; amount_zats: string } | null>(null);
+  const [paid, setPaid] = useState<{ txid: string; amount_zats: string } | null>(null);
+  const [claim, setClaim] = useState<{ state: string; detail: string } | null>(null);
+  const [dest, setDest] = useState("");
+  const [err, setErr] = useState("");
+  const look = async () => {
+    if (!s.txid) return;
+    const x = await api.stray(round.id, s.txid).catch(() => null);
+    const r = x?.rows?.[0] ?? null; setRow(r);
+    const p = x?.receipts?.[0]; if (p) setPaid({ txid: p.txid, amount_zats: p.amount_zats });
+    if (r) await api.claimStatus(round.id, r.party).then(setClaim).catch(() => {});
+  };
+  useEffect(() => { void look(); const t = window.setInterval(look, 20_000); return () => window.clearInterval(t); }, []);
+  useEffect(() => { if (!dest && demo?.address) setDest(demo.address); }, [demo]);
+  const send = async () => {
+    setErr("");
+    if (!/^utest1[0-9a-z]{40,}$/.test(dest.trim())) { setErr("Enter a shielded testnet address (utest1…)."); return; }
+    try {
+      const packet = await api.packet(round.id);
+      const { buildClaim } = await import("../../lib/bidder");
+      const request = await buildClaim({ packet: packet.manifest, signer: packet.signer, party: row!.party, destination: dest.trim(), owner_private_hex: s.bid.owner_private_hex });
+      setClaim(await api.claim(round.id, request));
+    } catch (x) { setErr(String((x as Error).message)); }
+  };
+  return (
+    <div className="grid gap-5" data-testid="bid-left-out">
+      <div>
+        <Pill kind="bad">Not in the round</Pill>
+        <div className="mt-3 text-[18px] font-medium">The operator left your {role.noun} out</div>
+        <p className="mt-1 text-[14px] text-app-muted">{said ? "The operator's status says it counted, but " : ""}your {role.noun} isn't in this round's frozen set, the list of bids two of three witnesses signed before anyone could read a price. So it can't win, and the operator couldn't have known what it bid.</p>
+      </div>
+      <div className="rounded-2xl bg-app-2 p-4 text-[14px]">
+        <div className="font-medium">Your deposit is still yours</div>
+        <p className="mt-1 text-app-muted">The signers scan the round's addresses on chain themselves, so they see your deposit even though the operator left it out. After the opening, this {role.noun}'s own key claims it back; the signers check that key before they pay.</p>
+      </div>
+      {paid ? (
+        <div className="grid gap-1.5 text-[14px]" data-testid="claim-paid"><Pill kind="good">Refunded</Pill><div>{zats(paid.amount_zats)} zats sent back</div><Copyable value={paid.txid} display={short(paid.txid, 6)} /></div>
+      ) : !row ? (
+        <p className="text-[14px] text-app-muted">The claim opens once the round is settled ({round.state === "SETTLED" ? "looking for your deposit in the settlement…" : "waiting for the opening and settlement"}).</p>
+      ) : claim && claim.state !== "failed" ? (
+        <div className="text-[14px]" data-testid="claim-status"><Pill kind={claim.state === "paid" ? "good" : "wait"}>{claim.state === "paid" ? "Refunded" : "Claim sent"}</Pill><p className="mt-2 text-app-muted">{claim.state === "paid" ? "The signers paid it back." : "The signers are checking your claim. This takes a few minutes."}</p></div>
+      ) : (
+        <div className="grid gap-3">
+          <Field label="Refund to" help={demo?.address && dest === demo.address ? "The demo wallet's address. Use your own if you have one." : "A shielded testnet address."}>
+            <input value={dest} onChange={(e) => setDest(e.target.value.trim())} spellCheck={false} placeholder="utest1…" className={cx(fieldCls, "text-[13.5px]")} data-testid="claim-dest" />
+          </Field>
+          {(err || claim?.state === "failed") && <ErrorLine>{err || claim?.detail}</ErrorLine>}
+          <Btn onClick={send} full testid="claim-send">Claim my {zats(row.amount_zats)} zats back</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: ReturnType<typeof roleOf>; s: Attempt; open: boolean; onNew: () => void }) {
   const [st, setSt] = useState<{ status: string; detail: string; leaf_index?: number } | null>(null);
   const [down, setDown] = useState(false);
   const [checked, setChecked] = useState<number | null>(null);
-  const poll = () => api.bidStatus(round.id, s.bid.ciphertext_hash).then((x) => { setSt(x); setDown(false); setChecked(Date.now()); }).catch(() => setDown(true));
-  useEffect(() => { void poll(); const t = window.setInterval(poll, 10_000); return () => window.clearInterval(t); }, []);
+  // Not on the operator's word: once the round is frozen, this page looks for the bid in the frozen set itself (the
+  // root two of three witnesses signed). A bid that isn't there was left out, whatever the operator's status says.
+  const [inSet, setInSet] = useState<boolean | null>(null);
+  const [now, setNow] = useState<AuctionDetail>(round);
+  const poll = async () => {
+    try {
+      const [x, d] = await Promise.all([api.bidStatus(round.id, s.bid.ciphertext_hash), api.auction(round.id)]);
+      setSt(x); setNow(d); setDown(false); setChecked(Date.now());
+      if (d.state !== "OPEN") await api.receipt(round.id, s.bid.ciphertext_hash).then(() => setInSet(true)).catch((e) => { if (/not in frozen/.test(String(e.message))) setInSet(false); });
+    } catch { setDown(true); }
+  };
+  useEffect(() => { void poll(); const t = window.setInterval(poll, 15_000); return () => window.clearInterval(t); }, []);
   const status = st?.status ?? "";
+  if (inSet === false) return <LeftOut round={now} role={role} s={s} said={status === "admitted"} />;
   const settled = round.state === "SETTLED" || round.state === "CANCELLED";
   const [pill, head, sub] = down
     ? [<Pill kind="bad">Status unavailable</Pill>, "We can't check your deposit right now", `Last successful check: ${checked ? new Date(checked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "none yet"}. Your transaction id is saved. Don't send another deposit.`]

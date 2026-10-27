@@ -67,6 +67,10 @@ export class Runner {
   private frostd: ChildProcess | null = null;
   private timer: NodeJS.Timeout;
   private queue: Spec[] = [];
+  // Owner-signed refund claims from the bid page (a deposit left out of its round), worked one at a time between
+  // round steps: `benzo claim-refund --file` records the claim and settles it (the signers check the owner key
+  // against their own opening of the deposit's memo before signing).
+  private claims: { id: string; party: string; request: any; state: "queued" | "paying" | "paid" | "failed"; detail: string; at: number }[] = [];
   private lastWait = "";
   constructor(private root: string, private state: string, private intake: Intake, private onCreated: (request: string, id: string | null, error?: string) => void = () => {}) {
     this.file = path.join(state, "web", "runner.json");
@@ -292,10 +296,36 @@ export class Runner {
     }
   }
 
+  claim(id: string, request: any) {
+    const a = this.auctions.find((x) => x.id === id);
+    if (!a) throw new Error("unknown round");
+    if (!(request && request.auction_id === id && typeof request.party === "string" && /^deposit:[0-9a-f]{64}:(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/.test(request.party))) throw new Error("a claim names one deposit of this round");
+    const old = this.claims.find((c) => c.id === id && c.party === request.party && c.state !== "failed");
+    if (old) return { state: old.state, detail: old.detail };
+    const c = { id, party: request.party, request, state: "queued" as const, detail: "queued; the signers check it after the round's own steps", at: Date.now() };
+    this.claims.push(c); return { state: c.state, detail: c.detail };
+  }
+  claimStatus(id: string, party: string) { const c = [...this.claims].reverse().find((x) => x.id === id && x.party === party); return c ? { state: c.state, detail: c.detail } : null; }
+  private async workClaims() {
+    for (const c of this.claims.filter((x) => x.state === "queued")) {
+      const a = this.auctions.find((x) => x.id === c.id);
+      if (!a || !["done", "failed"].includes(a.phase)) continue; // after the round's own settlement
+      c.state = "paying"; c.detail = "the signers are checking the claim";
+      try {
+        await this.run(["claim-refund", "--id", c.id], c.request);
+        await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]).catch(() => {});
+        c.state = "paid"; c.detail = "refunded";
+        if (a.phase === "failed") { a.phase = "done"; this.say(a, "settled after a refund claim"); }
+      } catch (e) { c.state = "failed"; c.detail = String((e as Error).message).replace(/^ERROR\s*/, "").slice(0, 300); }
+      console.log(`[runner ${c.id.slice(0, 8)}] claim ${c.party.slice(8, 20)}… ${c.state}: ${c.detail.slice(0, 160)}`);
+    }
+  }
+
   async tick() {
     if (this.busy || process.env.BNZ_WEB_RUNNER_PAUSE === "1") return;
     this.busy = true;
     try {
+      await this.workClaims();
       for (const a of this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase))) {
         const t0 = Date.now(); await this.advance(a);
         if (Date.now() - t0 > 60_000) console.log(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] ${a.phase}: one step took ${Math.round((Date.now() - t0) / 1000)} s`);

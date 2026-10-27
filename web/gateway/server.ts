@@ -210,6 +210,8 @@ const server = http.createServer(async (req, res) => {
           const dirs = existsSync(base) ? readdirSync(base).filter((d) => existsSync(path.join(base, d, "host-errors.log"))).sort((a, b) => statSync(path.join(base, b, "host-errors.log")).mtimeMs - statSync(path.join(base, a, "host-errors.log")).mtimeMs).slice(0, 3) : [];
           return json(res, 200, dirs.map((d) => ({ id: d, tail: readFileSync(path.join(base, d, "host-errors.log"), "utf8").split("\n").slice(-120).join("\n") })));
         }
+        // The excluded-bid demo (docs/demo-excluded-bid.md): play a dishonest operator that keeps one paid bid out.
+        if (parts[2] === "withhold" && /^[0-9a-f]{64}$/.test(parts[3] ?? "") && /^[0-9a-f]{64}$/.test(parts[4] ?? "") && req.method === "POST") { try { return json(res, 200, intake.withhold(parts[3], parts[4])); } catch (x) { return json(res, 400, { error: (x as Error).message }); } }
         if (parts[2] === "runner" && req.method === "GET") return json(res, 200, runner?.opsList() ?? []);
         if (parts[2] === "retry" && /^[0-9a-f]{64}$/.test(parts[3] ?? "") && req.method === "POST") return json(res, 200, runner?.retry(parts[3]) ?? { ok: false, error: "no runner" });
         if (parts[2] === "fleet") { const f = process.env.BNZ_FLEET_LOG ?? "/var/benzo/fleet.log"; return json(res, 200, { tail: existsSync(f) ? readFileSync(f, "utf8").split("\n").slice(-Number(url.searchParams.get("n") ?? 200)).join("\n") : "" }); }
@@ -248,6 +250,16 @@ const server = http.createServer(async (req, res) => {
           if (rq && (rq.mode === "otc" || rq.mode === "rfq") && party === null) return json(res, 403, { error: "only this round's invited parties can bid" });
           return json(res, 200, runner.reserveSlot(id, party ?? undefined));
         }
+        // A deposit left out of the round: where the signers' own settlement put it (found by its txid), and the
+        // owner-signed claim that refunds it.
+        if (parts[3] === "stray" && /^[0-9a-f]{64}$/.test(parts[4] ?? "")) {
+          const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8"));
+          const rows = (doc.settlement?.rows ?? []).filter((r: any) => String(r.party).startsWith(`deposit:${parts[4]}:`));
+          const receipts = (doc.settlement?.receipts ?? []).filter((r: any) => String(r.party ?? "").startsWith(`deposit:${parts[4]}:`));
+          return json(res, 200, { settled: Boolean(doc.settlement), rows, receipts });
+        }
+        if (parts[3] === "claims" && req.method === "POST") { try { return json(res, 202, runner ? runner.claim(id, (await body(req)).request) : { error: "no runner" }); } catch (x) { return json(res, 400, { error: (x as Error).message }); } }
+        if (parts[3] === "claims" && req.method === "GET") { const c = runner?.claimStatus(id, url.searchParams.get("party") ?? ""); return c ? json(res, 200, c) : json(res, 404, { error: "no claim" }); }
         if (parts[3] === "demo-pay" && req.method === "POST") {
           if (!runner?.isLive(id)) return json(res, 409, { error: "this round is not taking bids" });
           const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8")), m = JSON.parse(Buffer.from(doc.manifest.bytes, "base64").toString("utf8"));

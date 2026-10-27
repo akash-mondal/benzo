@@ -34,6 +34,10 @@ export const api = {
   demo: () => get<{ available: boolean; address?: string; left_this_hour?: number; low?: boolean; reason?: string }>("/api/demo"),
   demoPay: (id: string, uri: string) => post<{ job: string }>(`/api/auctions/${id}/demo-pay`, { uri }),
   demoJob: (job: string) => get<{ state: "paying" | "paid" | "failed"; txid?: string; error?: string }>(`/api/demo/jobs/${job}`),
+  // A deposit left out of its round: its row in the signers' settlement, and the owner-signed claim that refunds it.
+  stray: (id: string, txid: string) => get<{ settled: boolean; rows: { party: string; amount_zats: string; state?: string }[]; receipts: { party: string; txid: string; amount_zats: string }[] }>(`/api/auctions/${id}/stray/${txid}`),
+  claim: (id: string, request: unknown) => post<{ state: string; detail: string }>(`/api/auctions/${id}/claims`, { request }),
+  claimStatus: (id: string, party: string) => get<{ state: "queued" | "paying" | "paid" | "failed"; detail: string }>(`/api/auctions/${id}/claims?party=${encodeURIComponent(party)}`),
   bidStatus: (id: string, ciphertextHash: string) => get<{ status: "queued" | "waiting" | "admitted" | "refused"; detail: string; leaf_index?: number }>(`/api/auctions/${id}/bids/${ciphertextHash}`),
 };
 
