@@ -48,6 +48,8 @@ export default function StartView() {
 function Form({ market, onChange }: { market: Market; onChange: () => void }) {
   // The site's demo wallet address, offered for the payout field like the bid form offers it for refunds.
   const [demoUa, setDemoUa] = useState("");
+  const [queue, setQueue] = useState<number | null>(null);
+  useEffect(() => { fetch("/api/queue").then((r) => r.json()).then((j) => setQueue(typeof j.queue === "number" ? j.queue : null)).catch(() => {}); }, []);
   useEffect(() => { api.demo().then((d: any) => setDemoUa(d?.address ?? "")).catch(() => {}); }, []);
   const [f, setF] = useState<Record<string, string>>({ lot: "", minutes: "40", supply: market === "launch" ? "3" : market === "buyback" ? "2" : "1", reserve: "100", max_price: market === "buyback" ? "300" : market === "rfq" ? "500" : "3000",
     budget: market === "buyback" ? "600" : "1000", minimum_raise: "900", side: "seller", dealers: "2", payout_ua: "", treasury_ua: "" });
@@ -112,7 +114,8 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
         {market === "launch" && <div className="flex justify-between"><dt className="text-app-faint">Minimum raise</dt><dd className="tabular-nums">{zats(f.minimum_raise)} zats</dd></div>}
         {sells && <div className="flex justify-between"><dt className="text-app-faint">Budget you'll fund</dt><dd className="tabular-nums">{zats(f.budget)} zats</dd></div>}
         <div className="flex justify-between"><dt className="text-app-faint">Deposit per bid</dt><dd className="tabular-nums">200,000 zats</dd></div>
-        <p className="text-[12.5px] text-app-faint">Every bidder pays the same deposit (0.002 TAZ), so a payment never shows the price inside it. Winners pay their price out of it and get the rest back; everyone else gets all of it back.</p>
+        <p className="text-[12.5px] text-app-faint">Every bidder pays the same deposit (0.002 TAZ), so a payment never shows the price inside it. {market === "buyback" || market === "rfq" ? "Every seller gets all of it back; your budget pays the winning sellers." : market === "uniform" || market === "launch" ? "Winners pay the one clearing price out of it and get the rest back; everyone else gets all of it back." : "Winners pay out of it and get the rest back; everyone else gets all of it back."}</p>
+        {queue !== null && <p className="text-[12.5px] text-app-faint" data-testid="start-queue">{queue ? `${queue} round${queue > 1 ? "s are" : " is"} being set up ahead of yours right now, a few minutes each.` : "No queue right now: setup starts as soon as you create it."}</p>}
         <div className="flex justify-between"><dt className="text-app-faint">Bidding lasts</dt><dd className="tabular-nums">{f.minutes} minutes after setup</dd></div>
       </dl>
       <p className="mt-4 text-[12.5px] text-app-faint">Exact closing and opening times appear on the round's page once it's set up. Testnet only.</p>
@@ -133,6 +136,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
               )}
               <Field label={market === "rfq" ? "What you want quotes for" : market === "buyback" ? "What you're buying back" : market === "launch" ? "Project or allocation name" : market === "otc" ? "What the two of you are trading" : market === "drop" ? "Name of the drop" : "What you're selling"}>
                 <input value={f.lot} onChange={set("lot")} maxLength={40} placeholder={market === "drop" ? "Specter one-of-ones" : market === "rfq" ? "Commission: animate Specter #417" : market === "launch" ? "SPECT token launch" : market === "buyback" ? "Specters floor buyback" : market === "otc" ? "Specter #417 private sale" : "Specters mint: wave 1"} className={fieldCls} data-testid="start-lot" />
+                <p className="mt-1.5 text-[12.5px] text-app-faint">Benzo settles the money. Handing over the item itself (an NFT, a file, a service) stays with you in this release.</p>
               </Field>
               {market === "drop" && (
                 <div className="grid gap-2">

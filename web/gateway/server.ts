@@ -194,6 +194,7 @@ const server = http.createServer(async (req, res) => {
         list.sort((a: any, b: any) => Number(b.live) - Number(a.live) || b.updated - a.updated);
         return json(res, 200, list);
       }
+      if (parts[1] === "queue" && req.method === "GET") return json(res, 200, { queue: runner?.queued() ?? null });
       if (parts[1] === "chain") return json(res, 200, await chainStatus());
       // The demo wallet (demo.ts): pays a visitor's sealed deposit link when they have no testnet wallet.
       if (parts[1] === "demo" && parts.length === 2 && req.method === "GET") return json(res, 200, await demo.info(ipOf(req)));

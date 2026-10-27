@@ -47,9 +47,10 @@ function story(d: AuctionDetail, sold: number): string {
   if (sold === 0) return d.mode === "launch" ? "Bids didn't reach the minimum raise, so nothing was sold and every deposit was refunded." : d.mode === "otc" ? "The buyer's highest price was below the seller's lowest, so there was no trade. Both deposits were refunded." : SELLS(d.mode) ? "No offer was accepted. Every deposit was refunded, and the budget went back to the buyer." : "No bid won. Every deposit was refunded.";
   if (d.mode === "drop") return "Each lot went to its highest bid at or above the reserve. Winners paid their bid; everyone else got their deposit back.";
   if (d.mode === "otc") return "The buyer's limit met the seller's, so they traded at the midpoint of the two.";
+  if (d.mode === "rfq") return `The lowest quote won and is paid the second-lowest quote${d.clearing_price_zats ? `, ${zats(Number(d.clearing_price_zats))} zats` : ""}, so no dealer gained by quoting above their real price. Every dealer got their deposit back.`;
   if (SELLS(d.mode)) return "The lowest asks were accepted up to the budget, all at the same price. Sellers got their deposit back plus what they were paid.";
   if (d.mode === "launch") return "The minimum raise was met. Every winning bid paid the same clearing price; the rest got their deposit back.";
-  return "Every winning bid paid the same clearing price. Everyone else got their deposit back.";
+  return `The highest bids won, as many as there were units, and every winner paid the same price: the lowest winning bid${d.clearing_price_zats ? `, ${zats(Number(d.clearing_price_zats))} zats` : ""}. Nobody paid more than they bid; everyone else got their deposit back.`;
 }
 
 // A terminal pane: glass over the sky, a hairline, its own scroll.

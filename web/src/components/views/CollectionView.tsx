@@ -10,7 +10,7 @@ import { Btn, Panel, Pill, cx, zats } from "../app/ui";
 type Way = { key: string; mode: string; title: string; line: string; real: string; match: RegExp };
 const WAYS: Way[] = [
   { key: "mint", mode: "uniform", title: "The mint", line: "A sealed uniform-price auction. The top bids win and every winner pays the same clearing price.", real: "How a 10,000-piece collection sells its first pieces: you can't overpay, you can only miss.", match: /^Specters mint/ },
-  { key: "ones", mode: "drop", title: "One-of-ones", line: "A few named pieces, each to its own highest sealed bid.", real: "A weekly 1/1 sale, without a public bid ladder anyone can snipe or shill.", match: /one-of-ones/ },
+  { key: "ones", mode: "drop", title: "One-of-ones", line: "One piece to the highest sealed bid, or a set of named pieces, each to its own highest bid.", real: "A weekly 1/1 sale, without a public bid ladder anyone can snipe or shill.", match: /one-of-one/ },
   { key: "buyback", mode: "buyback", title: "Floor buybacks", line: "The treasury buys pieces back at the lowest sealed asks, up to its budget.", real: "Where sale proceeds go: holders ask privately, so nobody front-runs the floor.", match: /floor buyback/ },
   { key: "otc", mode: "otc", title: "Private sales", line: "One buyer, one seller, two sealed limits. A trade only if they cross.", real: "A grail changing hands without either side showing their number first.", match: /private sale/ },
   { key: "rfq", mode: "rfq", title: "Commissions", line: "Ask invited artists for sealed quotes. The lowest wins and is paid the second-lowest.", real: "Hiring an artist or an auditor without a public race to the bottom.", match: /^Commission/ },

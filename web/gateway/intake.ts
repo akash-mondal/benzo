@@ -59,7 +59,7 @@ export class Intake {
   status(id: string, ct: string) {
     const it = this.read(id, ct);
     if (it?.withheld) return { status: "admitted", detail: "admitted" }; // the dishonest operator's claim
-    return it ? { status: it.status, detail: it.detail, leaf_index: it.leaf_index } : { status: "unknown", detail: "no record with this ciphertext hash" };
+    return it ? { status: it.status, detail: it.detail, leaf_index: it.leaf_index, txid: (it as any).txid } : { status: "unknown", detail: "no record with this ciphertext hash" };
   }
 
   // Bids admitted so far (before the freeze the round's public record has no count yet; the page shows this one).

@@ -491,7 +491,7 @@ function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: Re
       <dl className="grid gap-2 text-[14px]">
         <div className="flex justify-between gap-3"><dt className="text-app-faint">{role.label}</dt><dd className="tabular-nums">{zats(s.bid.price_zats)} zats</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-app-faint">Expected deposit</dt><dd className="tabular-nums">{taz(round.C_zats)}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-app-faint">Transaction</dt><dd className="min-w-0">{s.txid ? <Copyable value={s.txid} display={short(s.txid, 6)} /> : <span className="text-app-faint">from your recovery file</span>}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-app-faint">Transaction</dt><dd className="min-w-0">{(s.txid ?? (st as any)?.txid) ? <Copyable value={s.txid ?? (st as any).txid} display={short(s.txid ?? (st as any).txid, 6)} /> : <span className="text-app-faint">looking it up…</span>}</dd></div>
       </dl>
       <div className="grid gap-2">
         {!(typeof location !== "undefined" && location.pathname.startsWith("/auction")) && <Btn href={`/auction/?id=${round.id}&bid=${s.bid.ciphertext_hash}`} full testid="bid-follow">{settled ? "See how it turned out" : "View the round"}</Btn>}
