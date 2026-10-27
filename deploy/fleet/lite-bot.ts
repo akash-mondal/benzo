@@ -24,7 +24,9 @@ const DEVTOOL = env.FLEET_DEVTOOL ?? "/home/benzo/opt/bin/zcash-devtool";
 const SEALER = env.FLEET_SEALER ?? "/home/benzo/app/seal/dist/main.js";
 const TARGET_OPEN = Number(env.FLEET_TARGET_OPEN ?? 4);
 const PAUSE = [Number(env.FLEET_PAUSE_MIN ?? 120), Number(env.FLEET_PAUSE_MAX ?? 480)];
-const PUBLIC = ["uniform", "drop", "launch", "buyback"];
+// The markets the fleet starts and bids in (FLEET_MODES). Launch is left out by default: on the site its rounds clear and
+// pay, but the winners' delivery list is a CLI step (benzo launch deliver), so their Verify page shows that check missing.
+const PUBLIC = (env.FLEET_MODES ?? "uniform,drop,buyback").split(",").filter((m) => ["uniform", "drop", "launch", "buyback"].includes(m));
 const LAYOUT: Record<string, number> = { uniform: 0, vickrey: 0, buyback: 0, launch: 1, rfq: 2, otc: 3 };
 const QUICKNET = { genesis: 1692803367, period: 3 };
 const MIN_SPENDABLE = 260_000;
