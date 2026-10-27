@@ -39,7 +39,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   }, [market, tab, q, ready]);
 
   const now = Date.now() / 1000;
-  const settled = list.filter((a) => a.state === "SETTLED");
+  const settled = list.filter((a) => stageOf(a) === "settled");
   const counts = useMemo(() => list.reduce((m, a) => m.set(a.lot ?? "", (m.get(a.lot ?? "") ?? 0) + 1), new Map<string, number>()), [list]);
   const text = q.trim().toLowerCase();
   const base = list.filter((a) => (!market || marketOf(a.mode) === market) && (!text || `${(a.lot ?? "").toLowerCase()} ${a.id}`.includes(text)));
