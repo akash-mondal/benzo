@@ -95,7 +95,7 @@ export default function CollectionView({ initial }: { initial: AuctionSummary[] 
               <p className="mt-1 text-[13.5px] text-app-text">{w.line}</p>
               <p className="mt-2 flex-1 text-[13px] text-app-muted">{w.real}</p>
               <div className="mt-3 text-[12.5px] text-app-faint tabular-nums">{n.length} rounds · {s} finished</div>
-              <div className="mt-3 flex flex-wrap gap-2"><Btn href={`/lots/?market=${w.mode}`} kind="secondary">See rounds</Btn></div>
+              <div className="mt-3 flex flex-wrap gap-2"><Btn href={`/lots/?market=${w.mode}&q=${encodeURIComponent(w.key === "rfq" ? "Commission" : "Specter")}`} kind="secondary">See these rounds</Btn></div>
             </li>); })}
         </ul>
       </section>

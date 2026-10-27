@@ -81,6 +81,7 @@ export default function VerifyView({ recent: built }: { recent: { id: string; lo
               {d && (
                 <>
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                    {!(d.state === "SETTLED" || d.state === "CANCELLED" || (d as any).finished) && <p className="w-full rounded-[10px] bg-[#e9cd8414] px-3 py-2 text-[13px] text-app-muted ring-1 ring-[#e9cd8440]" data-testid="verify-unfinished">This round hasn't finished yet, so these checks cover its record so far. The checks on the result and the payments run once it has paid out.</p>}
                     <div className="serif-figure text-[26px] leading-tight text-[#f3eee2]">{failed.length ? `${failed.length} check${failed.length > 1 ? "s" : ""} failed` : "All applicable checks pass"}</div>
                     <Pill kind={d.valid ? "good" : "bad"}>{d.valid ? "Record checks out" : "Does not verify"}</Pill>
                   </div>

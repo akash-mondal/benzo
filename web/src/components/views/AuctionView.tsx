@@ -145,7 +145,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
 
         {/* Below the chart, the round's records in tabs. */}
         <Pane className="min-h-[280px] max-lg:order-4 lg:col-start-1 lg:row-start-2 fit:min-h-0" testid="records">
-          <Tabs tabs={[["bids", sells ? "Offers" : "Bids"], ["payments", `Payments${d.receipts.length ? ` ${d.receipts.length}` : ""}`], ["checks", `Checks${done ? ` ${d.checks.filter((c) => c.ok && c.status !== "not_applicable").length}/${d.checks.length}` : ""}`], ["terms", "Terms"], ["privacy", "Who sees what"]]} value={bottom} onChange={setBottom}
+          <Tabs tabs={[["bids", sells ? "Offers" : "Bids"], ["payments", `Payments${d.receipts.length ? ` ${d.receipts.length}` : ""}`], ["checks", `Checks${done ? ` ${d.checks.filter((c) => c.ok && c.status !== "not_applicable").length} of ${d.checks.filter((c) => c.status !== "not_applicable").length} pass` : ""}`], ["terms", "Terms"], ["privacy", "Who sees what"]]} value={bottom} onChange={setBottom}
             right={bottom === "checks" && done ? <a href={`/verify/?id=${d.id}`} className="hover:text-app-text">Verify it yourself</a> : undefined} />
           <div className="min-h-0 flex-1 overflow-auto">
             {bottom === "bids" && <BidsTable d={d} allocations={allocations} sells={sells} opened={opened} />}
@@ -234,7 +234,7 @@ function Switcher({ d, live }: { d: AuctionDetail; live: boolean }) {
       <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="group flex items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-[#ddd6c60d]" data-testid="switcher">
         <LotArt lot={d.lot} glyph={glyphFor(d.mode, d.id)} className="page-door size-10" />
         <span className="min-w-0">
-          <span className="flex items-center gap-2"><h1 className="max-w-[200px] truncate text-[21px] sm:max-w-[260px] leading-tight" data-testid="ticket-title">{d.lot ?? `${MODE_NAME[d.mode]} round`}</h1>
+          <span className="flex items-center gap-2"><h1 className="max-w-[220px] truncate text-[21px] sm:max-w-[420px] leading-tight" data-testid="ticket-title" title={d.lot ?? undefined}>{d.lot ?? `${MODE_NAME[d.mode]} round`}</h1>
             <svg className={cx("size-4 shrink-0 text-app-faint transition-transform group-hover:text-app-muted", open && "rotate-180")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg></span>
           <span className="block text-[12px] text-app-faint" data-testid="auction-caption">{MODE_NAME[d.mode]} · {d.leaf_count ?? d.counted ?? 0} sealed bids · {short(d.id, 4)}{live ? " · live" : ""}</span>
         </span>

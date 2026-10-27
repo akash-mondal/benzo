@@ -231,7 +231,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
       <p className="text-[13px] text-app-muted">{role.deposit} Your wallet adds its own network fee.</p>
       {err && <ErrorLine testid="bid-error">{err.text}</ErrorLine>}
       <Btn onClick={seal} disabled={!!busy} full testid="bid-seal">{busy || `Seal this ${role.noun}`}</Btn>
-      <p className="text-center text-[12.5px] text-app-faint">No money is sent by sealing.</p>
+      <p className="text-center text-[12.5px] text-app-faint">No money is sent by sealing. After you pay, your {role.noun} counts in about 10 to 20 minutes, once the deposit has 10 confirmations.</p>
       <button type="button" onClick={() => setReview(false)} className="text-[13px] text-app-muted hover:text-app-text">Edit</button>
     </div>
   );
@@ -250,6 +250,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
         </div>
       </Field>
       {err?.field === "price" && <p className="-mt-3 text-[13px] text-bad" data-testid="bid-error">{err.text}</p>}
+      {!err && <p className="-mt-3 text-[12.5px] text-app-faint">Your price is what you'd pay per unit. Separately, everyone pays the same {zats(round.C_zats)}-zat deposit so payments look alike; it comes back except for what you owe if you win.</p>}
       <Field label={role.seller ? "Where you get paid" : "Where your deposit comes back"} help={err?.field === "refund" ? undefined : "A shielded address from your testnet wallet. It's sealed so only the signers can read it."}>
         <input name="refund" value={refund} onChange={(e) => setRefund(e.target.value.trim())} spellCheck={false} placeholder="utest1…" aria-invalid={err?.field === "refund"} className={cx(fieldCls, "text-[13.5px]", err?.field === "refund" && "ring-bad")} data-testid="bid-refund" />
       </Field>

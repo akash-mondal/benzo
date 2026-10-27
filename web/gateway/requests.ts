@@ -41,8 +41,12 @@ export function specFrom(f: any): { spec: Spec; invites: string[]; side?: "buyer
   if (mode === "uniform") return { spec: { ...base, supply: int(f.supply ?? 1, 1, 6, "units") }, invites: [] };
   if (mode === "launch") return { spec: { ...base, supply: int(f.supply ?? 3, 1, 6, "units"), launch: { minimum_raise_zats: String(int(f.minimum_raise ?? 0, 1, 6 * B_max, "minimum raise")) } }, invites: [] };
   if (mode === "drop") {
-    const lots = (Array.isArray(f.lots) ? f.lots : String(f.lots ?? "").split(",")).map((x: string) => String(x).trim()).filter(Boolean);
-    if (lots.length < 2 || lots.length > 5 || !lots.every((l: string) => NAME.test(l)) || new Set(lots).size !== lots.length) throw new Error("Give 2 to 5 different lot names.");
+    const plain = (x: string) => x.replace(/[\u2012-\u2015\u2212]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').trim();
+    const lots = (Array.isArray(f.lots) ? f.lots : String(f.lots ?? "").split(",")).map((x: string) => plain(String(x))).filter(Boolean);
+    if (lots.length < 2 || lots.length > 5) throw new Error("Give 2 to 5 lots.");
+    const bad = lots.find((l: string) => !NAME.test(l));
+    if (bad) throw new Error(`The lot name "${bad.slice(0, 50)}" can't be used: up to 40 letters, digits, spaces and . , ' & # : ( ) -`);
+    if (new Set(lots).size !== lots.length) throw new Error("Two lots have the same name; give each its own.");
     return { spec: { ...base, lots }, invites: [] };
   }
   if (mode === "otc") {
