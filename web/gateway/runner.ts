@@ -29,7 +29,7 @@ type Phase = "setup" | "accepting" | "frozen" | "witnessed" | "settling" | "done
 type Live = {
   id: string; phase: Phase; spec: Spec; lot: string; signer?: string; pub: string; slots: string[]; fee?: string; funding_ua?: string; house: number;
   T_submit: number; T_freeze: number; R: number; release: number; created: number;
-  reserved: Record<string, number>; log: string[]; error?: string; retries: number; nextTry?: number;
+  reserved: Record<string, number>; log: string[]; error?: string; retries: number; nextTry?: number; lastTry?: number;
 };
 
 // The house wallet under the state dir (and its age identity, <name>.age): "bidder" unless BNZ_WEB_HOUSE_WALLET names
@@ -317,7 +317,7 @@ export class Runner {
         // done only when every payment row is paid, refunded or parked in the exception queue.
         for (const step of [["open"], ["clear"], ["hosts", "envelope-opens"]]) await this.run([...step, "--id", a.id]).catch((e: Error) => { if (!/already|state|OPENED|CLEARED|SETTLED/i.test(e.message)) throw e; });
         await this.run(["settle", "--id", a.id]);
-        if (!this.paidOut(a)) { const w = "settle waits for its batches to mine"; if (a.log.at(-1)?.includes(w) !== true) this.say(a, w); a.nextTry = Date.now() + 3 * 60_000; return; }
+        if (!this.paidOut(a)) { const w = "settle waits for its batches to mine"; if (a.log.at(-1)?.includes(w) !== true) this.say(a, w); a.nextTry = Date.now() + 10 * 60_000; return; }
         await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]); this.say(a, "settled and verified");
         a.phase = "done"; this.save();
       }
@@ -325,7 +325,7 @@ export class Runner {
     } catch (e) {
       // A batch that is still mining is a wait, not a failure: it never uses up the round's retries.
       const msg = String((e as Error).message);
-      if (/can still mine|still mining|not yet mined|the next settle builds a new one/i.test(msg)) { a.error = msg.slice(0, 400); a.nextTry = Date.now() + 3 * 60_000; if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
+      if (/can still mine|still mining|not yet mined|the next settle builds a new one/i.test(msg)) { a.error = msg.slice(0, 400); a.nextTry = Date.now() + 10 * 60_000; if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
       // A buyback or RFQ whose buyer never funded the budget can't open: after one more try, call it off. The cancel
       // refunds every deposit in full through the same signers, without opening a bid.
       if (/treasury funded 0 of/.test(msg) && a.phase === "settling" && a.retries >= 1) {
@@ -382,7 +382,14 @@ export class Runner {
       await this.workClaims();
       // A round that just failed a step, or is waiting for a batch to mine, sits out a few ticks (backoff), so a pile of
       // slow settles never starves the setup of new rounds.
-      for (const a of this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase) && !((x.nextTry ?? 0) > Date.now()))) {
+      // Each tick spends at most about four minutes on rounds already running (the ones tried longest ago first), then
+      // always gets to set up the next round, so a pile of slow settles can't freeze the queue.
+      const tick0 = Date.now();
+      const due = this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase) && !((x.nextTry ?? 0) > Date.now()))
+        .sort((x, y) => Number(x.phase === "settling") - Number(y.phase === "settling") || (x.lastTry ?? 0) - (y.lastTry ?? 0));
+      for (const a of due) {
+        if (a.phase === "settling" && Date.now() - tick0 > 4 * 60_000) break;
+        a.lastTry = Date.now();
         const t0 = Date.now(); await this.advance(a);
         if (Date.now() - t0 > 60_000) console.log(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] ${a.phase}: one step took ${Math.round((Date.now() - t0) / 1000)} s`);
       }
