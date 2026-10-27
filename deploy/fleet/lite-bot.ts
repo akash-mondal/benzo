@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { bindSealedBid, prepareBid } from "../../envelope/bid";
+import { generateOwnerKey } from "../../envelope/index";
 import { sealedBidShape } from "../../envelope/opening";
 import { hash, validateManifest, verifyRecord } from "../../manifest/schema";
 
@@ -27,6 +28,10 @@ const PAUSE = [Number(env.FLEET_PAUSE_MIN ?? 120), Number(env.FLEET_PAUSE_MAX ??
 // The markets the fleet starts and bids in (FLEET_MODES). Launch is left out by default: on the site its rounds clear and
 // pay, but the winners' delivery list is a CLI step (benzo launch deliver), so their Verify page shows that check missing.
 const PUBLIC = (env.FLEET_MODES ?? "uniform,drop,buyback").split(",").filter((m) => ["uniform", "drop", "launch", "buyback"].includes(m));
+// Invite-only markets the fleet also plays (FLEET_PARTY_MODES): one bot starts the round with its party key, other bots
+// join through the invite links (the creator sends them in a real round) and each party places its one sealed order.
+const PARTY = (env.FLEET_PARTY_MODES ?? "otc,rfq").split(",").filter((m) => ["otc", "rfq"].includes(m));
+const PARTY_EVERY_MIN = Number(env.FLEET_PARTY_EVERY_MIN ?? 25);
 const LAYOUT: Record<string, number> = { uniform: 0, vickrey: 0, buyback: 0, launch: 1, rfq: 2, otc: 3 };
 const QUICKNET = { genesis: 1692803367, period: 3 };
 const MIN_SPENDABLE = 260_000;
@@ -128,13 +133,13 @@ function memoParts(hex: string) {
 }
 
 // The bid page's prepareSealedBid (web/src/lib/bidder/index.ts), step for step.
-async function sealedBid(packet: any, signer: string, address: string, price: bigint, refund: string, lot?: string) {
+async function sealedBid(packet: any, signer: string, address: string, price: bigint, refund: string, lot?: string, owner?: { private_hex: string; public_hex: string }) {
   const m: any = verifyRecord(packet, signer);
   const mode = String(m.clearing?.mode ?? "uniform");
   if (mode === "uniform" || mode === "vickrey") validateManifest(m);
   else if (!(Array.isArray(m.deposit_addresses) && Array.isArray(m.envelope_keys) && m.envelope_keys.length === 3 && m.drand?.R > 0)) throw new Error("manifest is not one the bid page can bid in");
   if (!m.deposit_addresses.includes(address)) throw new Error("deposit address is not one of this round's");
-  const prep: any = prepareBid({ auction_id: m.auction_id, price_zats: price, quantity: 1, destination_ua: refund, envelope_public_hexs: m.envelope_keys, network: m.network });
+  const prep: any = prepareBid({ auction_id: m.auction_id, price_zats: price, quantity: 1, destination_ua: refund, envelope_public_hexs: m.envelope_keys, owner, network: m.network });
   const tag = prep.envelope_ct_hex ? hash(Buffer.from(prep.envelope_ct_hex, "hex")).slice(0, 36) : "00".repeat(18);
   const sealed = await seal({
     opening: new Date((QUICKNET.genesis + (m.drand.R - 1) * QUICKNET.period) * 1000).toISOString(), auction: m.auction_id, price: String(price), quantity: "1",
@@ -150,15 +155,15 @@ async function sealedBid(packet: any, signer: string, address: string, price: bi
   return { m, uri: sealed.uri, ciphertext_hash, owner_private_hex: bound.owner.private_hex, owner_sig_hex: bound.owner_sig_hex, envelope_ct_hex: bound.envelope_ct_hex, envelope_hex: sealed.envelope };
 }
 
-async function bid(b: Bot, round: any) {
-  const slot = await post(`/api/auctions/${round.id}/slot`, {});
+async function bid(b: Bot, round: any, party?: { key: { private_hex: string; public_hex: string }; price: number }) {
+  const slot = await post(`/api/auctions/${round.id}/slot`, party ? { key: party.key.public_hex } : {});
   if (!slot.ok) throw new Error(`no slot (${slot.status}): ${JSON.stringify(slot.body).slice(0, 120)}`);
   const pk = await api(`/api/auctions/${round.id}/packet`);
   if (!pk.ok) throw new Error(`no packet (${pk.status})`);
   const lots: string[] | undefined = (verifyRecord(pk.body.manifest, pk.body.signer) as any).lots;
   const lot = lots?.length ? pick(lots) : undefined;
-  const price = BigInt(round.mode === "buyback" ? rnd(2, 30) * 10 : rnd(10, 300) * 10);
-  const s = await sealedBid(pk.body.manifest, pk.body.signer, slot.body.address, price, b.ua, lot);
+  const price = BigInt(party ? party.price : round.mode === "buyback" ? rnd(2, 30) * 10 : rnd(10, 300) * 10);
+  const s = await sealedBid(pk.body.manifest, pk.body.signer, slot.body.address, price, b.ua, lot, party?.key);
   // The recovery record, as the page's download: refunds a deposit the round never counted.
   const keys = path.join(DIR, b.name, "keys"); mkdirSync(keys, { recursive: true, mode: 0o700 });
   writeFileSync(path.join(keys, `${round.id.slice(0, 12)}-${s.ciphertext_hash.slice(0, 12)}.json`), JSON.stringify({ auction_id: round.id, address: slot.body.address, ciphertext_hash: s.ciphertext_hash, owner_private_hex: s.owner_private_hex, envelope_hex: s.envelope_hex }), { mode: 0o600 });
@@ -182,6 +187,40 @@ async function startRound(b: Bot) {
   // A buyback's budget is paid from its request page; the bot pays it from its own wallet.
   if (r.ok && mode === "buyback" && r.body?.rid) void fundRequest(b, r.body).catch((e) => say(b.name, `budget not paid: ${String(e.message).slice(0, 120)}`));
 }
+// An OTC or RFQ round, played by several bots: b starts it, the invitees join with their own party keys, and once the
+// round is taking bids each party seals one order (OTC: a seller's ask and a buyer's limit that usually cross; RFQ: two
+// dealers' quotes, with b funding the budget as the buyer).
+let lastParty = 0, partyTurn = 0;
+async function startPartyRound(b: Bot, all: Bot[]) {
+  const mode = PARTY[partyTurn++ % PARTY.length], lot = `${pick(THINGS)} ${rnd(2, 99)}`;
+  const others = all.filter((x) => x !== b).sort(() => Math.random() - 0.5);
+  const mine = generateOwnerKey();
+  const f: any = mode === "otc" ? { mode, lot, minutes: pick([20, 30]), side: "seller", creator_key: mine.public_hex, max_price: 3000 }
+    : { mode, lot, minutes: pick([20, 30]), treasury_ua: b.ua, dealers: 2, max_price: 500, budget: 1000 };
+  const r = await post("/api/rounds", f);
+  if (!r.ok) { say(b.name, `${mode} start refused (${r.status}): ${JSON.stringify(r.body).slice(0, 140)}`); return; }
+  lastParty = Date.now();
+  say(b.name, `started a ${mode} round (${lot})`);
+  const parties: { bot: Bot; key: { private_hex: string; public_hex: string }; price: number }[] = [];
+  if (mode === "otc") parties.push({ bot: b, key: mine, price: rnd(80, 150) * 10 });
+  for (const [i, inv] of (r.body.invites ?? []).entries()) {
+    const bot = others[i % others.length], key = generateOwnerKey();
+    const j = await post(`/api/rounds/${r.body.rid}/join`, { invite: inv.token, key: key.public_hex });
+    if (!j.ok) { say(bot.name, `couldn't join the ${mode} round: ${JSON.stringify(j.body).slice(0, 120)}`); return; }
+    parties.push({ bot, key, price: mode === "otc" ? rnd(110, 200) * 10 : rnd(10, 50) * 10 });
+  }
+  say(b.name, `${parties.length} parties joined the ${mode} round`);
+  if (mode === "rfq") void fundRequest(b, r.body).catch((e) => say(b.name, `budget not paid: ${String(e.message).slice(0, 120)}`));
+  // Wait for the round to take bids, then each party bids once.
+  let id: string | undefined;
+  for (let i = 0; i < 120 && !id; i++) { await sleep(20_000); id = (await api(`/api/rounds/${r.body.rid}?token=${r.body.token}`)).body?.auction_id; }
+  if (!id) { say(b.name, `the ${mode} round never opened`); return; }
+  for (let i = 0; i < 30; i++) { const a = await api(`/api/auctions/${id}`); if (a.body?.live) break; await sleep(20_000); }
+  for (const p of parties) {
+    await bid(p.bot, { id, mode }, { key: p.key, price: p.price }).catch((e) => say(p.bot.name, `${mode} order not placed: ${String(e.message).slice(0, 160)}`));
+  }
+}
+
 async function fundRequest(b: Bot, req: any) {
   for (let i = 0; i < 120; i++) {
     const v = await api(`/api/rounds/${req.rid}?token=${req.token}`);
@@ -214,6 +253,7 @@ async function run(b: Bot, starter: boolean, giver: boolean) {
       if (giver) await topUpDemo(b, bal.spendable).catch((e) => say(b.name, `demo top-up: ${String(e.message).slice(0, 160)}`));
       const open = await openRounds();
       if (starter && open.length < TARGET_OPEN) await startRound(b);
+      if (starter && PARTY.length && Date.now() - lastParty > PARTY_EVERY_MIN * 60_000) { lastParty = Date.now(); void startPartyRound(b, allBots).catch((e) => say(b.name, `party round: ${String(e.message).slice(0, 160)}`)); }
       if (!open.length) { await sleep(60_000); continue; }
       await bid(b, pick(open));
     } catch (e) { say(b.name, String((e as Error).message ?? e).split("\n")[0].slice(0, 220)); await sleep(60_000); }
@@ -231,7 +271,7 @@ if (env.FLEET_CHECK) {
   process.exit(0);
 }
 mkdirSync(DIR, { recursive: true, mode: 0o700 });
-const bots: Bot[] = [];
+const bots: Bot[] = [], allBots = bots;
 for (let i = 1; i <= BOTS; i++) {
   const b = await ensureWallet(`bot${i}`);
   say(b.name, `address ${b.ua}`);

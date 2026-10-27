@@ -3,7 +3,10 @@
 // get invite links on the next screen.
 import { useEffect, useState } from "react";
 import { api, MODE_NAME } from "../../lib/api";
-import { ABOUT, DOOR, MARKETS, type Market } from "../../lib/glyphs";
+import { ABOUT, DOOR, MARKETS as ALL_MARKETS, type Market } from "../../lib/glyphs";
+// A launch's winners record where their units go with the CLI (benzo launch deliver); the site can't collect that yet,
+// so launch rounds aren't started here.
+const MARKETS: readonly Market[] = ALL_MARKETS.filter((m) => m !== "launch");
 import { addParty, addStarted } from "../../lib/mine";
 import { Btn, Glyph, PageHead, ErrorLine, Field, Panel, cx, fieldCls, marketTitle, zats } from "../app/ui";
 

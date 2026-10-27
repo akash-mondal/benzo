@@ -95,7 +95,8 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
     const n = auctions.filter((a) => marketOf(a.mode) === market).length;
     const actions = [
       ...(live && marketOf(live.mode) === market ? [door("emblem-bid", "Bid", "Bid in the round that's open now.", `/bid/?id=${live.id}`, 1.15)] : []),
-      door("quill", "Start a round", `Open a new ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round with your own terms.`, `/start/?market=${market}`, 1.1),
+      // Launch rounds are started with the CLI (their winners' delivery list isn't collected on the site yet).
+      ...(market === "launch" ? [] : [door("quill", "Start a round", `Open a new ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round with your own terms.`, `/start/?market=${market}`, 1.1)]),
       door("emblem-lots", "All rounds", `Every ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round so far, and how each ended.`, `/lots/?market=${market}`, 0.95),
     ];
     const top = rounds.length ? arc(rounds.map((d) => ({ ...d, scale: d.auction?.live ? 1.15 : 0.95 })), narrow ? 150 : 160, narrow ? 30 : 20, narrow ? 0.33 : 0.36, narrow ? 0.3 : 0.31) : [];

@@ -1,10 +1,6 @@
 <p align="center"><img src="docs/assets/banner.svg" alt="Benzo: sealed-bid markets on Zcash. Bids are locked to a future drand round; nobody can read one before it, not even the operator." width="100%"></p>
 
-<p align="center">
-  <a href="https://benzo.space"><b>Live on testnet: benzo.space</b></a> ·
-  <a href="#try-it-without-a-wallet"><b>Bid without a wallet</b></a> ·
-  <a href="#check-a-round-yourself"><b>Check a round yourself</b></a>
-</p>
+<p align="center"><a href="https://benzo.space"><b>Live demo →</b></a></p>
 
 ---
 
@@ -12,7 +8,13 @@ Every auction has the same weak spot: whoever runs it sees the bids first. On an
 
 The Zecathon Private Markets track asked for the opposite: *the price should be public and the participants should not.*
 
-Benzo is a sealed-bid market engine on Zcash built so that **nobody can read a bid before a fixed moment**. That includes the other bidders, anyone watching the chain, and us, the operator. After that moment the prices are public and checkable; who bid stays private. This post walks through how it works, one layer at a time.
+Take a DAO buying back its own token. If its bid is visible, sellers raise their asks. If the desk running the buyback can see the asks, it can trade ahead of them. Benzo runs that buyback, or any sealed auction, so that:
+
+- **nobody can read a bid before a fixed moment**: not the other bidders, not anyone watching the chain, not us, the operator;
+- **the operator can't change the set of bids** once that moment approaches;
+- **nobody can pay out a wrong result**, because two of three independent signers recompute it before signing, and anyone can recheck it afterwards.
+
+After the opening, the prices are public and checkable; who bid stays private. Each of these rests on a stated assumption: drand's threshold of operators doesn't collude, and two of the three signers don't collude. This post walks through how it works, one layer at a time.
 
 ## A round, from first bid to proof
 
@@ -73,7 +75,9 @@ Sealing stops early reading, but an operator could still cheat on **which** bids
 
 A bid is admitted once its deposit has 10 confirmations and its memo checks out. At `T_freeze`, comfortably before `R`, the admitted bids become the leaves of a Merkle tree ([`clear/merkle.ts`](clear/merkle.ts)). Each leaf hashes the ciphertext and the deposit that paid for it. Two of three witnesses sign a statement naming the root, the leaf count, the freeze time and a recent block hash ([`witness/index.ts`](witness/index.ts)).
 
-From that point the set is fixed, and it was fixed while every bid was still unreadable. A second statement for a different root is refused. A deposit that arrives too late isn't admitted, and its owner key can claim it back.
+From that point the set is fixed, and it was fixed while every bid was still unreadable. A second statement for a different root is refused.
+
+What the root can't prove on its own is that every valid bid made it in: an operator could refuse a funded bid before freezing. It can't do so quietly or profitably. Right after the freeze, still before `R`, each bidder can prove their bid is in the root (`benzo receipt prove`), and the site shows it as counted. A deposit that was paid in time but left out is owed back in full: its owner key claims it from the vault, and the verifier requires every deposit the operator listed to be either in the set or refunded. The operator also can't pick whom to drop by price, because when it freezes it can't read any price.
 
 ## 5. Opening and clearing: six markets, one engine
 
@@ -168,15 +172,16 @@ Open any round on [benzo.space](https://benzo.space), pick a price and press **U
 
 - **[benzo.space](https://benzo.space)**, on Zcash testnet:
   - **The whole product:** start a round in any market, invite bidders, seal, pay, watch the opening, settle and check.
-  - **One server:** the operator and the three signers share it, each signer as its own OS user with its own keys.
+  - **One server, for the hackathon:** the operator and the three signers share it, each signer as its own OS user with its own keys, so the operator process can't read them. But whoever controls the machine could reach all three, so the live demo doesn't show protection from a compromised host. The same code runs each signer on its own machine; we ran it that way on three separate VMs ([`deploy/signers/`](deploy/signers/)).
   - **The test fleet:** during judging, eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) run on that server too. They start rounds and bid through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Each has its own wallet, and every bid is a real sealed deposit.
 - **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/phase-7/ui-drive/)):
-  - Uniform, drop, buyback, OTC and RFQ settled, with every check passing.
-  - Launch settled and paid. Its winners' token-delivery list is still recorded with the CLI (`benzo launch deliver`).
+  - Uniform, drop, OTC and RFQ: settled, every check passes, and the browser test passes.
+  - Buyback: settled with every check passing; see the log for the latest run.
+  - Launch: a launch's winners record where their units go with the CLI (`benzo launch deliver`), which the site doesn't collect yet, so launch rounds aren't started on the site. The full launch flow, delivery list included, passes through the CLI on testnet ([log](docs/evidence/phase-5/markets/launch-a18/launch-meet.out)).
 - **Cross-chain payouts:**
   - Ethereum Sepolia: a payout to a one-time ERC-5564 stealth address ([log](docs/evidence/phase-5/repro/stealth-live.out)).
   - Solana devnet: a Token-2022 confidential transfer ([log](docs/evidence/phase-5/repro/ct-live.out)).
-- **Scale:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared and verified offline ([`bench.json`](docs/evidence/phase-6/bench.json)).
+- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/phase-6/bench.json)). The deposits there are synthetic, not 17,000 on-chain payments; paying that round out would take about 608 transactions. A live round takes about an hour from start to settlement, so Benzo is built for scheduled auctions, not continuous trading.
 
 The rest of the evidence, and what each folder proves, is indexed in [`docs/evidence/phase-7/README.md`](docs/evidence/phase-7/README.md).
 
