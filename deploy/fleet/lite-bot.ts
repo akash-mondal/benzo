@@ -39,8 +39,9 @@ let lock: Promise<unknown> = Promise.resolve();
 // The tool's own log lines (colour codes and INFO noise removed); the error is usually the last of them.
 const tidy = (t: string) => t.replace(/\x1b\[[0-9;]*m/g, "").split("\n").filter((l) => l.trim() && !/ INFO /.test(l)).slice(-4).join(" | ").slice(0, 600);
 function dev(args: string[], timeout = 10 * 60_000): Promise<string> {
+  // stdin is closed at once: `wallet init` waits on an open stdin (for a phrase to import) and never finishes.
   const run = lock.then(() => new Promise<string>((ok, no) => execFile(DEVTOOL, args, { encoding: "utf8", timeout, maxBuffer: 16 << 20 },
-    (e, out, err) => e ? no(new Error(`${args[2] ?? args[0]} failed: ${tidy(err || e.message)}`)) : ok(out))));
+    (e, out, err) => e ? no(new Error(`${args[2] ?? args[0]} failed: ${tidy(err || e.message)}`)) : ok(out)).stdin?.end()));
   lock = run.catch(() => {});
   return run;
 }
