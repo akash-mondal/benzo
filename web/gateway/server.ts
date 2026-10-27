@@ -190,7 +190,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${HOST}`), parts = url.pathname.split("/").filter(Boolean);
     if (parts[0] === "api") {
       if (parts[1] === "auctions" && parts.length === 2 && req.method === "GET") {
-        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean).map((x: any) => x.state === "SETTLED" ? x : runner?.stopped(x.id) ? { ...x, stopped: true } : runner?.finished(x.id) ? { ...x, finished: true } : x);
+        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean).map((x: any) => x.leaf_count == null && x.state === "OPEN" ? { ...x, counted: intake.admitted(x.id) } : x).map((x: any) => x.state === "SETTLED" ? x : runner?.stopped(x.id) ? { ...x, stopped: true } : runner?.finished(x.id) ? { ...x, finished: true } : x);
         list.sort((a: any, b: any) => Number(b.live) - Number(a.live) || b.updated - a.updated);
         return json(res, 200, list);
       }
@@ -219,7 +219,7 @@ const server = http.createServer(async (req, res) => {
         return json(res, 404, { error: "not found" });
       }
       // Rounds people start: create, read (the creator's token adds the invite links), and join with a party key.
-      if (parts[1] === "rounds" && parts.length === 2 && req.method === "POST") return json(res, 201, requests.create(await body(req), ipOf(req)));
+      if (parts[1] === "rounds" && parts.length === 2 && req.method === "POST") return json(res, 201, requests.create(await body(req), ipOf(req), !req.headers["x-forwarded-for"] && /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(req.socket.remoteAddress ?? "")));
       if (parts[1] === "rounds" && parts.length === 3 && req.method === "GET") {
         const v = requests.view(parts[2], url.searchParams.get("token"));
         return v ? json(res, 200, { ...v, queue: runner?.queued() ?? null, operator: Boolean(runner) }) : json(res, 404, { error: "unknown round request" });
@@ -229,7 +229,7 @@ const server = http.createServer(async (req, res) => {
       if (parts[1] === "auctions" && /^[0-9a-f]{64}$/.test(parts[2] ?? "")) {
         const id = parts[2], reg = registry().find((r) => r.id === id), e = reg && load(id, reg.dir);
         if (!e) return json(res, 404, { error: "unknown auction" });
-        if (parts.length === 3 && req.method === "GET") { const d: any = await detail(e); return json(res, 200, d.state === "SETTLED" ? d : runner?.stopped(id) ? { ...d, stopped: true } : runner?.finished(id) ? { ...d, finished: true } : d); }
+        if (parts.length === 3 && req.method === "GET") { const d0: any = await detail(e), d: any = d0.leaf_count == null && d0.state === "OPEN" ? { ...d0, counted: intake.admitted(id) } : d0; return json(res, 200, d.state === "SETTLED" ? d : runner?.stopped(id) ? { ...d, stopped: true } : runner?.finished(id) ? { ...d, finished: true } : d); }
         if (parts[3] === "packet") { const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8")); return json(res, 200, { manifest: doc.manifest, signer: doc.signer }); }
         if (parts[3] === "doc") return file(res, path.join(e.dir, "auction.json"));
         if (parts[3] === "tamper" && req.method === "GET") {
@@ -248,7 +248,7 @@ const server = http.createServer(async (req, res) => {
           // OTC and RFQ: the party key picks the party's own slot.
           const b = await body(req), rq = requests.byAuction(id), party = rq && typeof b.key === "string" ? requests.partyOf(rq.rid, b.key) : null;
           if (rq && (rq.mode === "otc" || rq.mode === "rfq") && party === null) return json(res, 403, { error: "only this round's invited parties can bid" });
-          return json(res, 200, runner.reserveSlot(id, party ?? undefined));
+          return json(res, 200, runner.reserveSlot(id, party ?? undefined, !req.headers["x-forwarded-for"] && /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(req.socket.remoteAddress ?? "")));
         }
         // A deposit left out of the round: where the signers' own settlement put it (found by its txid), and the
         // owner-signed claim that refunds it.
@@ -274,6 +274,11 @@ const server = http.createServer(async (req, res) => {
     if (parts[0] === "sealer") {
       const name = parts[1] === "main.js" ? "main.js" : "index.html", p = path.join(ROOT, "seal/dist", name);
       return existsSync(p) ? file(res, p) : json(res, 503, { error: "sealer bundle not built (npm run build:seal)" });
+    }
+    // The one-file verifier (dist/benzo-verify.mjs, its hash in docs/verify-bundle.sha256), for the Verify page's commands.
+    if (parts[0] === "dl" && parts[1] === "benzo-verify.mjs") {
+      const p = path.join(ROOT, "dist/benzo-verify.mjs");
+      return existsSync(p) ? file(res, p) : json(res, 404, { error: "verifier not built (npm run build:verify)" });
     }
     // The packaged CLI (the PK-recorded tarball), for `npx --package=<url> benzo verify`.
     if (parts[0] === "dl" && parts[1] === "benzo-0.1.0.tgz") {

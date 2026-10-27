@@ -9,7 +9,7 @@ import type { Mode, Spec } from "./runner";
 
 type Invite = { label: string; token: string; key?: string };
 export type Request = {
-  rid: string; token: string; mode: Mode; spec: Spec; status: "waiting" | "queued" | "open" | "failed";
+  rid: string; token: string; mode: Mode; spec: Spec; status: "waiting" | "queued" | "open" | "failed"; house?: boolean;
   invites: Invite[]; auction_id?: string; error?: string; created: number; ip: string; side?: "buyer" | "seller";
 };
 
@@ -25,7 +25,8 @@ const C = 200_000, LIMIT = Number(process.env.BNZ_WEB_REQUEST_LIMIT ?? 8), PER_I
 export function specFrom(f: any): { spec: Spec; invites: string[]; side?: "buyer" | "seller" } {
   const mode = f.mode as Mode;
   if (!["uniform", "drop", "launch", "buyback", "otc", "rfq"].includes(mode)) throw new Error("unknown market");
-  const lot = String(f.lot ?? "").trim();
+  // Typographic dashes and quotes become their plain forms, so a pasted "Two prints — autumn" is accepted.
+  const lot = String(f.lot ?? "").replace(/[\u2012-\u2015\u2212]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').trim();
   if (!NAME.test(lot)) throw new Error("Give it a name: up to 40 letters, digits or simple punctuation.");
   const submit_min = int(f.minutes ?? 40, 20, 120, "bidding time (minutes)");
   const B_max = int(f.max_price ?? 3000, 20, C, "maximum price");
@@ -72,13 +73,17 @@ export class Requests {
   private save(r: Request) { writeFileSync(this.file(r.rid), JSON.stringify(r), { mode: 0o600 }); }
   private all(): Request[] { return readdirSync(this.dir).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(path.join(this.dir, f), "utf8"))); }
 
-  create(form: any, ip: string) {
+  // `house`: the site's own activity bots (calls from this machine). They get their own share of the queue, so a
+  // person starting a round is never turned away because the bots filled it. A round whose invited parties never
+  // joined stops holding a place after two hours.
+  create(form: any, ip: string, house = false) {
     const now = Date.now() / 1000, all = this.all();
-    if (all.filter((r) => r.status === "waiting" || r.status === "queued").length >= LIMIT) throw new Error("Too many rounds are waiting to start. Try again in a few minutes.");
+    const holding = all.filter((r) => Boolean(r.house) === house && (r.status === "queued" || (r.status === "waiting" && now - r.created < 7200)));
+    if (holding.length >= LIMIT) throw new Error("Too many rounds are waiting to start. Try again in a few minutes.");
     if (all.filter((r) => r.ip === ip && now - r.created < 3600).length >= PER_IP_HOUR) throw new Error("You've started several rounds this hour. Try again later.");
     const { spec, invites, side } = specFrom(form);
     const r: Request = { rid: randomBytes(8).toString("hex"), token: randomBytes(16).toString("hex"), mode: spec.mode, spec, status: "waiting",
-      invites: invites.map((label) => ({ label, token: randomBytes(16).toString("hex") })), created: now, ip, side };
+      invites: invites.map((label) => ({ label, token: randomBytes(16).toString("hex") })), created: now, ip, side, ...(house ? { house: true } : {}) };
     spec.request = r.rid;
     this.ready(r);
     return { rid: r.rid, token: r.token, invites: r.invites.map(({ label, token }) => ({ label, token })) };

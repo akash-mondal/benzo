@@ -17,6 +17,7 @@ export type AuctionSummary = {
   R: number;
   release: number; // unix seconds when round R is published
   leaf_count: number | null;
+  counted?: number; // before the freeze: bids admitted so far (the record has no count until the freeze)
   clearing_price_zats: string | null;
   settled: boolean;
   live: boolean; // run by this site's operator and still taking bids

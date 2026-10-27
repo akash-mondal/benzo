@@ -22,11 +22,13 @@ const local = (unix: number) => {
 export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   const [list, setList] = useState(() => order(initial));
   const [ready, setReady] = useState(false);
+  // Until the first fetch lands, an empty list means "not loaded yet", never "no rounds".
+  const [loaded, setLoaded] = useState(initial.length > 0);
   const [market, setMarket] = useState(""), [q, setQ] = useState(""), [tab, setTab] = useState("all"), [page, setPage] = useState(0);
   useEffect(() => {
     const p = new URLSearchParams(location.search);
     setMarket(p.get("market") ?? ""); setQ(p.get("q") ?? ""); setTab(p.get("stage") ?? "all"); setReady(true);
-    const pull = () => api.auctions().then((l) => setList(order(l))).catch(() => {});
+    const pull = () => api.auctions().then((l) => { setList(order(l)); setLoaded(true); }).catch(() => {});
     void pull();
     const t = setInterval(() => { if (!document.hidden) void pull(); }, 15_000);
     return () => clearInterval(t);
@@ -39,7 +41,9 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   }, [market, tab, q, ready]);
 
   const now = Date.now() / 1000;
-  const settled = list.filter((a) => stageOf(a) === "settled");
+  // The ribbon's figures follow the market filter, so a market's page never shows another market's totals.
+  const scope = market ? list.filter((a) => marketOf(a.mode) === market) : list;
+  const settled = scope.filter((a) => stageOf(a) === "settled");
   const counts = useMemo(() => list.reduce((m, a) => m.set(a.lot ?? "", (m.get(a.lot ?? "") ?? 0) + 1), new Map<string, number>()), [list]);
   const text = q.trim().toLowerCase();
   const base = list.filter((a) => (!market || marketOf(a.mode) === market) && (!text || `${(a.lot ?? "").toLowerCase()} ${a.id}`.includes(text)));
@@ -53,11 +57,12 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   const pg = Math.min(page, pages - 1);
   const shownIds = new Set(match.slice(pg * rows, pg * rows + rows).map((a) => a.id));
   const paidOut = settled.reduce((n, a) => n + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0);
-  const liveNow = list.filter((a) => a.live);
-  const ribbon: [string, string, boolean?][] = [
+  const liveNow = scope.filter((a) => a.live);
+  const ribbon0: [string, string, boolean?][] = [
     ["Rounds settled", `${settled.length.toLocaleString("en-US")}`], ["Traded", `${settled.filter(traded).length}`], ["Paid to winners and sellers", `${paidOut.toLocaleString("en-US")} zats`, true],
-    ["Sealed bids", list.reduce((n, a) => n + (a.leaf_count ?? 0), 0).toLocaleString("en-US")], ["Taking bids now", liveNow.length ? `${liveNow.length} round${liveNow.length === 1 ? "" : "s"}` : "none"],
+    ["Sealed bids", scope.reduce((n, a) => n + (a.leaf_count ?? a.counted ?? 0), 0).toLocaleString("en-US")], ["Taking bids now", liveNow.length ? `${liveNow.length} round${liveNow.length === 1 ? "" : "s"}` : "none"],
   ];
+  const ribbon: [string, string, boolean?][] = loaded ? ribbon0 : ribbon0.map(([k, , g]) => [k, "…", g]);
   const byMarket = MARKETS.map((m) => { const r = list.filter((a) => marketOf(a.mode) === m), st = r.filter((a) => a.state === "SETTLED"); return { m, n: r.length, traded: st.filter(traded).length, paid: st.reduce((x, a) => x + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0) }; });
 
   return (
@@ -66,7 +71,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
       <div className="flex flex-col gap-3 rounded-[14px] bg-app-1 px-3 py-2 ring-1 ring-app-line backdrop-blur-xl lg:flex-row lg:items-center lg:gap-6">
         <div className="flex items-center gap-3 px-2 py-1">
           <Glyph name="emblem-lots" className="page-door size-10" />
-          <div><h1 className="text-[21px] leading-tight">All rounds</h1><div className="text-[12px] text-app-faint"><span id="count">{match.length}</span> rounds on Zcash testnet · during judging, a fleet of test bidders runs here too, so you can see Benzo under load</div></div>
+          <div><h1 className="text-[21px] leading-tight">All rounds</h1><div className="text-[12px] text-app-faint"><span id="count">{loaded ? match.length : "…"}</span> {match.length === 1 ? "round" : "rounds"}{market ? ` of ${MODE_NAME[market]}` : ""} on Zcash testnet · during judging, a fleet of test bidders runs here too, so you can see Benzo under load</div></div>
         </div>
         <div className="hidden h-9 w-px bg-app-line lg:block" />
         <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2.5 px-2 pb-1 sm:grid-cols-3 lg:flex lg:items-center lg:gap-x-7 lg:p-0">
@@ -116,7 +121,8 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
                   </a>
                 </li>); })}
             </ul>
-            {match.length === 0 && (
+            {match.length === 0 && !loaded && <div className="border-t border-app-line px-4 py-6 text-[14px] text-app-muted" data-testid="rounds-loading">Loading rounds…</div>}
+            {match.length === 0 && loaded && (
               <div className="border-t border-app-line px-4 py-6 text-[14px] text-app-muted">
                 No {tab === "all" ? "" : tabName + " "}{market ? MODE_NAME[market] + " " : ""}rounds{text ? ` match "${q.trim()}"` : ""}.{" "}
                 <button type="button" onClick={() => { setTab("all"); setMarket(""); setQ(""); reset(); }} className="ml-1 text-app-text underline underline-offset-4">Clear filters</button>

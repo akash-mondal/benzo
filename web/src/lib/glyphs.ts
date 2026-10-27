@@ -27,5 +27,5 @@ export const ABOUT: Record<Market, string> = {
   launch: "Raise money in units. Everyone is refunded if the minimum isn't met.",
   buyback: "Buy units back. Sellers send sealed asks against your budget.",
   otc: "One buyer, one seller. You trade if your limits cross.",
-  rfq: "Ask a few dealers for sealed quotes. The best quote wins.",
+  rfq: "Ask a few dealers for sealed quotes. The lowest wins and is paid the second-lowest.",
 };

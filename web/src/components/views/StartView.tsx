@@ -35,6 +35,10 @@ export default function StartView() {
             </button>
           </li>
         ))}
+        <li id="launch" className="flex h-full flex-col gap-5 rounded-[22px] bg-app-1/60 p-6 ring-1 ring-app-line" data-testid="start-launch-note">
+          <Glyph name={DOOR["launch"]} className="size-16 opacity-70" />
+          <span><span className="serif-figure block text-[26px] leading-tight text-[#f3eee2]">{MODE_NAME["launch"]}</span><span className="mt-1 block text-[14px] text-app-muted">Started from the command line in this release: a launch's winners record where their units go with <code className="text-app-text">benzo launch deliver</code>, which the site doesn't collect yet. Past launches are in All rounds.</span></span>
+        </li>
       </ul>
     </div>
   );
@@ -42,6 +46,9 @@ export default function StartView() {
 }
 
 function Form({ market, onChange }: { market: Market; onChange: () => void }) {
+  // The site's demo wallet address, offered for the payout field like the bid form offers it for refunds.
+  const [demoUa, setDemoUa] = useState("");
+  useEffect(() => { api.demo().then((d: any) => setDemoUa(d?.address ?? "")).catch(() => {}); }, []);
   const [f, setF] = useState<Record<string, string>>({ lot: "", minutes: "40", supply: market === "launch" ? "3" : market === "buyback" ? "2" : "1", reserve: "100", max_price: market === "buyback" ? "300" : market === "rfq" ? "500" : "3000",
     budget: market === "buyback" ? "600" : "1000", minimum_raise: "900", side: "seller", dealers: "2", payout_ua: "", treasury_ua: "" });
   const [lots, setLots] = useState<string[]>(["", ""]);
@@ -158,6 +165,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
               {proceeds
                 ? <Field label="Receive what you sell for at" help="A shielded address from your testnet wallet (utest1…)."><input value={f.payout_ua} onChange={set("payout_ua")} spellCheck={false} placeholder="utest1…" className={cx(fieldCls, "text-[13.5px]")} data-testid="start-payout_ua" /></Field>
                 : <Field label="Return unspent budget to" help="A shielded address from your testnet wallet (utest1…)."><input value={f.treasury_ua} onChange={set("treasury_ua")} spellCheck={false} placeholder="utest1…" className={cx(fieldCls, "text-[13.5px]")} data-testid="start-treasury_ua" /></Field>}
+              {demoUa && <p className="mt-2 text-[13px] text-app-muted">No testnet wallet? <button type="button" className="text-app-text underline underline-offset-4" data-testid="start-use-demo" onClick={() => setF((x) => ({ ...x, [proceeds ? "payout_ua" : "treasury_ua"]: demoUa }))}>Use the demo wallet's address</button>. Anything sent there goes back to the site's demo wallet.</p>}
             </Panel>
           )}
           <div className="lg:hidden"><div className="mb-2 text-[13px] text-app-faint">Review the round</div>{summary}</div>

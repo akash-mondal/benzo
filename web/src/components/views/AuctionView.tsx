@@ -21,7 +21,7 @@ import type { AuctionDetail, AuctionSummary } from "../../lib/types";
 const SELLS = (mode: string) => mode === "buyback" || mode === "rfq"; // the bidders are sellers: asks and proceeds
 const OUTCOME: Record<string, { word: string; kind: "good" | "plain" | "bad"; why: string }> = {
   winner: { word: "Won", kind: "good", why: "This bid won." },
-  unfilled: { word: "Not filled", kind: "plain", why: "Other bids took the units. The deposit was refunded." },
+  unfilled: { word: "Didn't win", kind: "plain", why: "Other bids won the units. The whole deposit was refunded." },
   below_reserve: { word: "Below reserve", kind: "plain", why: "The price was under the reserve. The deposit was refunded." },
   superseded: { word: "Replaced", kind: "plain", why: "A later bid from the same bidder replaced this one. Its deposit was refunded." },
   no_match: { word: "No trade", kind: "plain", why: "The two limits didn't cross. Both deposits were refunded." },
@@ -97,7 +97,7 @@ export default function AuctionView() {
 }
 
 function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail & { freeze?: any }; live: boolean; toClose: number | null; stale: boolean; retry: () => void; chain: { tip: number; round: number } | null }) {
-  const m: any = d.manifest, sells = SELLS(d.mode), opened = Boolean(d.result), done = d.state === "SETTLED" || d.state === "CANCELLED";
+  const m: any = d.manifest, sells = SELLS(d.mode), opened = Boolean(d.result), done = d.state === "SETTLED" || d.state === "CANCELLED" || Boolean(d.finished);
   const allocations: any[] = d.result?.allocations ?? [];
   // An OTC trade fills both sides of one unit: count the buyer's side. A buyer's payment there comes out of the deposit
   // (deposit minus refund); payment_zats on the seller's row is what the seller received.
@@ -130,7 +130,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
       {stale && <ErrorLine>Updates unavailable right now; showing the last loaded record. <button className="underline" onClick={retry}>Retry</button></ErrorLine>}
       <div className="grid gap-2 fit:min-h-0 fit:flex-1 lg:grid-cols-[minmax(0,1fr)_264px_336px] lg:grid-rows-[minmax(0,1.4fr)_minmax(0,1fr)]">
         {/* The chart: how the round cleared (or the sealed bids waiting to open). */}
-        <Pane className="min-h-[340px] max-lg:order-1 lg:col-start-1 lg:row-start-1 fit:min-h-0" testid="chart">
+        <Pane className={cx(opened ? "min-h-[340px]" : "min-h-[220px] lg:min-h-[340px]", live ? "max-lg:order-2" : "max-lg:order-1", "lg:col-start-1 lg:row-start-1 fit:min-h-0")} testid="chart">
           <Tabs tabs={chartTabs} value={chart} onChange={setChart} right={opened ? <span className="truncate">{ladder.length} {d.mode === "otc" ? "limits" : sells ? "offers" : "bids"}, opened {hm(d.release)}</span> : <span>opens {when(d.release)}</span>} />
           <div className="min-h-0 flex-1 p-3">
             {chart === "ladder" && opened && <BidLadder bare rows={ladder} line={price !== undefined && d.mode !== "drop" ? { value: price, label: priceWord } : undefined} title={price !== undefined && d.mode !== "drop" ? priceWord : "Highest bid"} sub="hover a bar" />}
@@ -160,7 +160,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
         </Pane>
 
         {/* The ticket: bid while the round takes bids (or follow your bid); afterwards, the result and find your bid. */}
-        <Pane className="max-lg:order-2 lg:col-start-3 lg:row-span-2 lg:row-start-1 fit:min-h-0" testid="ticket">
+        <Pane className={cx(live ? "max-lg:order-1" : "max-lg:order-2", "lg:col-start-3 lg:row-span-2 lg:row-start-1 fit:min-h-0")} testid="ticket">
           <div className="min-h-0 flex-1 overflow-auto p-4">
             {live || (mine && !d.result) ? (
               <>
@@ -187,7 +187,7 @@ function Ribbon({ d, live, toClose, sold, of, paid, price, priceWord }: { d: Auc
     d.mode === "buyback" && !opened ? ["Budget", `${zats(m.buyback?.budget_zats)} zats`] :
     [opened ? (m.lots ? "Lots sold" : sells ? "Units bought" : "Units sold") : m.lots ? "Lots" : sells ? "Units wanted" : "Units", opened ? soldOf(d, sold, of) : String(of)],
     ["Deposit", `${zats(d.C_zats)} zats`],
-    [sells ? "Sealed offers" : "Sealed bids", d.leaf_count !== null && d.leaf_count !== undefined ? String(d.leaf_count) : "—"],
+    [sells ? "Sealed offers" : "Sealed bids", d.leaf_count !== null && d.leaf_count !== undefined ? String(d.leaf_count) : d.counted !== undefined ? `${d.counted} so far` : "—"],
     ["Bidding", live && toClose ? <span className="text-gold">closes in {clock(toClose)}</span> : `closed ${when(d.T_submit)}`],
     ["Opening", opened ? `opened ${when(d.release)}` : Date.now() / 1000 >= d.release ? `due ${when(d.release)}` : `${rel(d.release)} · ${when(d.release)}`],
   ];
@@ -195,16 +195,16 @@ function Ribbon({ d, live, toClose, sold, of, paid, price, priceWord }: { d: Auc
     <div className="relative z-30 flex min-h-16 flex-col gap-3 rounded-[14px] bg-app-1 px-3 py-2 ring-1 ring-app-line backdrop-blur-xl lg:flex-row lg:items-center lg:gap-6" data-testid="ribbon">
       <Switcher d={d} live={live} />
       <div className="hidden h-9 w-px bg-app-line lg:block" />
-      <dl className="grid min-w-0 flex-1 grid-cols-3 gap-x-4 gap-y-2.5 px-2 pb-1 lg:flex lg:items-center lg:gap-x-6 lg:overflow-hidden lg:p-0">
+      <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2.5 px-2 pb-1 sm:grid-cols-3 lg:flex lg:items-center lg:gap-x-6 lg:overflow-hidden lg:p-0">
         {cells.map(([k, v, gold]) => (
           <div key={k} className="min-w-0 shrink-0">
             <dt className="text-[11.5px] text-app-faint">{k}</dt>
-            <dd className={cx("mt-0.5 truncate whitespace-nowrap text-[14px] tabular-nums", gold ? "chrome serif-figure text-[17px] leading-[1.1]" : "text-app-text")}>{v}</dd>
+            <dd className={cx("mt-0.5 text-[14px] tabular-nums lg:truncate lg:whitespace-nowrap", gold ? "chrome serif-figure text-[17px] leading-[1.1]" : "text-app-text")}>{v}</dd>
           </div>
         ))}
       </dl>
       <div className="flex shrink-0 items-center gap-3 max-lg:absolute max-lg:right-3 max-lg:top-3">
-        <StatePill state={d.state === "OPEN" && Date.now() / 1000 >= d.T_submit ? "FROZEN" : d.state} live={live} testid="ticket-light" />
+        <StatePill state={d.state === "OPEN" && Date.now() / 1000 >= d.T_submit ? "FROZEN" : d.finished ? "SETTLED" : d.state} live={live} testid="ticket-light" />
       </div>
     </div>
   );
@@ -233,7 +233,7 @@ function Switcher({ d, live }: { d: AuctionDetail; live: boolean }) {
         <span className="min-w-0">
           <span className="flex items-center gap-2"><h1 className="max-w-[200px] truncate text-[21px] sm:max-w-[260px] leading-tight" data-testid="ticket-title">{d.lot ?? `${MODE_NAME[d.mode]} round`}</h1>
             <svg className={cx("size-4 shrink-0 text-app-faint transition-transform group-hover:text-app-muted", open && "rotate-180")} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 9l6 6 6-6" /></svg></span>
-          <span className="block text-[12px] text-app-faint" data-testid="auction-caption">{MODE_NAME[d.mode]} · {d.leaf_count ?? 0} sealed bids · {short(d.id, 4)}{live ? " · live" : ""}</span>
+          <span className="block text-[12px] text-app-faint" data-testid="auction-caption">{MODE_NAME[d.mode]} · {d.leaf_count ?? d.counted ?? 0} sealed bids · {short(d.id, 4)}{live ? " · live" : ""}</span>
         </span>
       </button>
       {open && (
@@ -259,7 +259,7 @@ function Switcher({ d, live }: { d: AuctionDetail; live: boolean }) {
 
 // Before opening: the bids are there but their heights aren't: equal sealed bars, and when they open.
 function Sealed({ d, live, toClose }: { d: AuctionDetail; live: boolean; toClose: number | null }) {
-  const n = d.leaf_count ?? 0;
+  const n = d.leaf_count ?? d.counted ?? 0;
   return (
     <div className="flex h-full flex-col items-center justify-center gap-5 text-center" data-testid="sealed">
       <div className="flex h-[45%] min-h-[90px] items-end gap-2">
@@ -279,7 +279,7 @@ function TimelineTab({ d, opened, done }: { d: AuctionDetail; opened: boolean; d
   const now = Date.now() / 1000;
   const step = (isDone: boolean, isNow: boolean) => (isDone ? "done" : isNow ? "now" : "next") as "done" | "now" | "next";
   const steps = [
-    { label: now < d.T_submit ? "Bidding open" : "Bidding closed", at: when(d.T_submit), state: step(now >= d.T_submit, now < d.T_submit) },
+    { label: now < d.T_submit ? "Bidding open" : "Bidding closed", at: now < d.T_submit ? `closes ${when(d.T_submit)}` : `closed ${when(d.T_submit)}`, state: step(now >= d.T_submit, now < d.T_submit) },
     { label: "Bids committed", at: d.freeze_root ? `${d.leaf_count ?? 0} sealed bids, fixed` : `by ${when(d.T_freeze)}`, state: step(Boolean(d.freeze_root), now >= d.T_submit && !d.freeze_root) },
     { label: "Bids opened", at: when(d.release), state: step(opened, Boolean(d.freeze_root) && !opened) },
     { label: d.state === "CANCELLED" ? "Refunded" : done ? "Paid out" : opened ? "Paying out" : "Paid out", at: done ? `record updated ${when(d.updated)}` : opened ? "in progress" : "after opening", state: step(done, opened && !done) },
@@ -360,7 +360,7 @@ function BidsTable({ d, allocations, sells, opened }: { d: AuctionDetail; alloca
   return (
     <table className="w-full min-w-[520px] text-[13px] tabular-nums" data-testid="allocations">
       <thead className="sticky top-0 bg-[#1b2216f2] text-left text-[11.5px] text-app-faint"><tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:font-normal">
-        <th>{d.mode === "otc" ? "Side" : sells ? "Offer" : "Bid"}</th>{m.lots && <th>Lot</th>}<th className="text-right">{sells ? "Ask" : d.mode === "otc" ? "Limit" : "Price"}</th><th>Result</th><th className="text-right">{sells ? "Proceeds" : d.mode === "otc" ? "Paid / received" : "Paid"}</th><th className="text-right">{sells ? "Deposit back" : "Refund"}</th>
+        <th>{d.mode === "otc" ? "Side" : sells ? "Offer" : "Bid"}</th>{m.lots && <th>Lot</th>}<th className="text-right">{sells ? "Ask" : d.mode === "otc" ? "Limit" : "Price"} (zats)</th><th>Result</th><th className="text-right">{sells ? "Proceeds" : d.mode === "otc" ? "Paid / received" : "Paid"} (zats)</th><th className="text-right">{sells ? "Deposit back" : "Refund"} (zats)</th>
       </tr></thead>
       <tbody>{allocations.map((a) => { const o = outcome(a.outcome, sells); return (
         <tr key={a.leaf_index} className="border-t border-app-line [&>td]:whitespace-nowrap [&>td]:px-4 [&>td]:py-2">
@@ -396,11 +396,11 @@ function Payments({ d }: { d: AuctionDetail }) {
 
 function Checks({ d, done }: { d: AuctionDetail; done: boolean }) {
   if (!done) return <p className="p-4 text-[13px] text-app-muted">The checks run on the full record once the round is paid out.</p>;
-  const ok = d.checks.filter((c) => c.ok).length, na = d.checks.filter((c) => c.status === "not_applicable").length;
+  const na = d.checks.filter((c) => c.status === "not_applicable").length, ok = d.checks.filter((c) => c.ok && c.status !== "not_applicable").length;
   return (
     <div className="p-4" data-testid="checks">
-      <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-[14px] font-medium">{ok} of {d.checks.length} checks pass</div><Pill kind={d.valid ? "good" : "bad"}>{d.valid ? "Record checks out" : "Problem"}</Pill></div>
-      <p className="mt-0.5 text-[12.5px] text-app-muted">Checks of the round's public record, reported by this service{na ? `; ${na} don't apply to this round` : ""}.</p>
+      <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-[14px] font-medium">{ok} of {d.checks.length - na} applicable checks pass</div><Pill kind={d.valid ? "good" : "bad"}>{d.valid ? "Record checks out" : "Problem"}</Pill></div>
+      <p className="mt-0.5 text-[12.5px] text-app-muted">Checks of the round's public record, reported by this service{na ? `; ${na} more don't apply to this round` : ""}. Run them yourself from the Verify page.</p>
       <ul className="mt-3 grid gap-x-6 gap-y-1.5 text-[13px] xl:grid-cols-2">{d.checks.map((c) => <li key={c.id} className="flex gap-2.5">{c.status === "not_applicable" ? <span className="mt-[3px] size-4 shrink-0 text-center text-app-faint">–</span> : <Tick ok={c.ok} />}<span className={cx("min-w-0 break-words", c.status === "not_applicable" && "text-app-faint")}>{checkName(c.id)}{c.status === "not_applicable" ? " · not applicable" : ""}</span></li>)}</ul>
     </div>
   );
@@ -419,7 +419,7 @@ function Result({ d, sold, of, paid, price, priceWord, sells, done, mineHash }: 
       {d.result && <div className="grid grid-cols-2 gap-4 rounded-xl bg-[#0f140c80] p-3.5 ring-1 ring-app-line">
         {d.mode === "drop" ? fig("Lots sold", `${sold} of ${of}`, true) : fig(priceWord, price !== undefined ? `${zats(price)}` : "—", true)}
         {d.mode === "drop" ? fig("Winning bids", zats(paid)) : fig(sells ? "Units bought" : "Units sold", soldOf(d, sold, of))}
-        {fig(sells ? "Offers" : "Bids", String(d.leaf_count ?? 0))}
+        {fig(sells ? "Offers" : "Bids", String(d.leaf_count ?? d.counted ?? 0))}
         {fig(sells ? "Paid to sellers" : done || d.mode === "otc" ? "Seller received" : "Seller so far", zats(sells ? paid : sellerGot))}
       </div>}
       <ReceiptLookup d={d} frozen={Boolean(d.freeze_root)} sells={sells} initial={mineHash} />

@@ -3,6 +3,7 @@
 // replaces the result; an old green verdict never stands beside a different round. The page says plainly what the
 // service's checks establish and what they don't, and how to run them yourself.
 import { useEffect, useRef, useState } from "react";
+import VERIFY_SHA_FILE from "../../../../docs/verify-bundle.sha256?raw";
 import { api, MODE_NAME, short, type Tamper } from "../../lib/api";
 import { Btn, ErrorLine, PageHead, Field, Panel, Pill, Tick, checkName, cx, fieldCls, when } from "../app/ui";
 import type { AuctionDetail, Check } from "../../lib/types";
@@ -15,10 +16,15 @@ const GROUPS: [string, string[]][] = [
   ["Privacy of what was published", ["envelope", "no-destinations"]],
   ["Launch deliveries", ["delivery", "delivery-list"]],
 ];
+// The verifier bundle's hash, read at build time from the file the bundle check keeps in step.
+const VERIFY_SHA = VERIFY_SHA_FILE.trim().split(/\s+/)[0];
 type Attempt = { target: string; status: "checking" | "done" | "missing" | "unavailable" | "bad"; d?: AuctionDetail };
 
-export default function VerifyView({ recent }: { recent: { id: string; lot: string | null; mode: string }[] }) {
-  const [id, setId] = useState(() => new URLSearchParams(location.search).get("id") ?? recent[0]?.id ?? "");
+export default function VerifyView({ recent: built }: { recent: { id: string; lot: string | null; mode: string }[] }) {
+  // The list baked in at build time can be empty or old: fetch the live settled rounds and pick the newest.
+  const [recent, setRecent] = useState(built);
+  const [listing, setListing] = useState(true);
+  const [id, setId] = useState(() => new URLSearchParams(location.search).get("id") ?? built[0]?.id ?? "");
   const [paste, setPaste] = useState("");
   const [a, setA] = useState<Attempt | null>(null);
   const seq = useRef(0);
@@ -30,7 +36,13 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
     try { const d = await api.auction(t); if (n === seq.current) setA({ target: t, status: "done", d }); }
     catch (e) { if (n === seq.current) setA({ target: t, status: /: 404 /.test(String((e as Error).message)) ? "missing" : "unavailable" }); }
   };
-  useEffect(() => { if (id) void run(); }, []);
+  useEffect(() => {
+    if (id) void run();
+    api.auctions().then((l) => {
+      const done = l.filter((x) => x.state === "SETTLED").sort((x, y) => y.updated - x.updated).slice(0, 25).map((x) => ({ id: x.id, lot: x.lot, mode: x.mode }));
+      if (done.length) { setRecent(done); if (!id) void run(done[0].id); }
+    }).catch(() => {}).finally(() => setListing(false));
+  }, []);
   const known = recent.some((r) => r.id === id);
   const d = a?.status === "done" ? a.d! : null;
   const by = (ids: string[]) => (d?.checks ?? []).filter((c) => ids.includes(c.id));
@@ -45,7 +57,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
           <Panel className="self-start lg:col-start-1 lg:row-start-1">
             <Field label="Round">
               <select value={known ? id : ""} onChange={(e) => { if (e.target.value) void run(e.target.value); }} className={fieldCls} aria-label="Recent settled rounds">
-                {!known && <option value="">{id ? `Round ${short(id, 4)}` : "Choose a round"}</option>}
+                {!known && <option value="">{id ? `Round ${short(id, 4)}` : listing ? "Loading rounds…" : "Choose a round"}</option>}
                 {recent.map((r) => <option key={r.id} value={r.id}>{r.lot ?? MODE_NAME[r.mode]} · {r.id.slice(0, 6)}</option>)}
               </select>
             </Field>
@@ -59,7 +71,7 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
           </Panel>
 
         <Panel className="self-start lg:col-start-2 lg:row-span-2 lg:row-start-1 fit:min-h-0 fit:self-stretch fit:overflow-auto">
-          {!a ? <div className="py-10 text-center text-app-muted">Pick a round to check.</div> : (
+          {!a ? <div className="py-10 text-center text-app-muted">{listing ? "Loading the newest settled round…" : "Pick a round to check."}</div> : (
             <>
               <div className="text-[13px] text-app-faint">Round {short(a.target, 6)}{d ? ` · ${d.lot ?? MODE_NAME[d.mode]} · ${MODE_NAME[d.mode]}` : ""}</div>
               {a.status === "checking" && <div className="py-10 text-center text-app-muted">Checking round {short(a.target, 6)}…</div>}
@@ -96,8 +108,16 @@ export default function VerifyView({ recent }: { recent: { id: string; lot: stri
           {d && (
             <Panel>
               <div className="text-[15px] font-medium">Check it yourself</div>
-              <p className="mt-1 text-[14px] text-app-muted">Download this round's public record and run Benzo's open-source verifier on your own computer.</p>
-              <div className="mt-4 flex flex-wrap gap-2"><Btn href={`/api/auctions/${d.id}/public.tgz`} kind="secondary">Download the record</Btn></div>
+              <p className="mt-1 text-[14px] text-app-muted">Run Benzo's verifier on your own computer against this round's public record. It needs Node 24 and nothing else, and prints one line per check.</p>
+              <pre className="mt-3 overflow-x-auto rounded-[10px] bg-black/30 p-3 text-[12.5px] leading-relaxed text-app-text ring-1 ring-app-line" data-testid="verify-commands">{[
+                `curl -sO https://benzo.space/dl/benzo-verify.mjs`,
+                `shasum -a 256 benzo-verify.mjs   # ${VERIFY_SHA}`,
+                `curl -s https://benzo.space/api/auctions/${d.id}/public.tgz | tar -xz`,
+                `node benzo-verify.mjs --signer ${d.signer} \\`,
+                `  --dir public-${d.id.slice(0, 8)}`,
+              ].join("\n")}</pre>
+              <p className="mt-2 text-[12.5px] text-app-faint">The hash matches docs/verify-bundle.sha256 in the source, and the file rebuilds byte for byte from it.</p>
+              <div className="mt-4 flex flex-wrap gap-2"><Btn href={`/api/auctions/${d.id}/public.tgz`} kind="secondary">Download the record</Btn><Btn href="/dl/benzo-verify.mjs" kind="secondary">Download the verifier</Btn></div>
             </Panel>
           )}
           {d && d.valid && d.result && <TryToCheat key={d.id} id={d.id} />}

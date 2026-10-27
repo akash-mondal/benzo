@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { api, MODE_NAME } from "../../lib/api";
 import { glyphFor, DOOR, marketOf } from "../../lib/glyphs";
-import { bids, parties, started } from "../../lib/mine";
+import { attemptsFor, bids, parties, saveAttempt, started } from "../../lib/mine";
 import Stats from "../dash/Stats";
 import { Btn, Glyph, PageHead, Panel, Pill, claimDoor, zats } from "../app/ui";
 import type { AuctionDetail, RoundRequest } from "../../lib/types";
@@ -43,7 +43,13 @@ export default function MineView() {
   const reqLine = (x?: RoundRequest | "down"): Line | null => !x ? null : x === "down" ? { word: "Status unavailable", kind: "bad" } : x.status === "open" ? { word: "Taking bids", kind: "live" } : x.status === "failed" ? { word: "Couldn't start", kind: "bad", next: "View reason" } : x.status === "queued" ? { word: "Setting up", kind: "wait" } : { word: `Waiting for ${x.invites.filter((i) => !i.joined).length} invited part${x.invites.filter((i) => !i.joined).length === 1 ? "y" : "ies"}`, kind: "wait", next: "Manage invites" };
   const openKey = async (f: File | undefined) => {
     if (!f) return;
-    try { const k = JSON.parse(await f.text()); if (k.auction_id && k.ciphertext_hash) location.href = `/auction/?id=${k.auction_id}&bid=${k.ciphertext_hash}`; } catch { alert("That file isn't a Benzo recovery file."); }
+    // The file brings the bid back into this browser: it is saved like a bid placed here and its status page opens.
+    try {
+      const k = JSON.parse(await f.text());
+      if (!(k.auction_id && k.ciphertext_hash)) throw new Error("not a recovery file");
+      if (!attemptsFor(k.auction_id).some((a) => a.bid?.ciphertext_hash === k.ciphertext_hash)) saveAttempt(k.auction_id, { step: "track", bid: { ...k, address: k.deposit_address, R: k.round }, savedKey: true, recovered: true } as any);
+      location.href = `/bid/?id=${k.auction_id}`;
+    } catch { alert("That file isn't a Benzo recovery file."); }
   };
   const empty = !mine.length && !rounds.length && !invites.length;
   const tabs = [["bids", "Bids", mine.length], ["rounds", "Rounds you started", rounds.length], ["invites", "Invites", invites.length]] as const;
@@ -81,10 +87,10 @@ export default function MineView() {
                 const d = rounds_[b.id], dd = d && d !== "down" ? d : null, l = lines[b.key];
                 const href = b.step === "pay" || l?.next === "View status" || l?.next === "Claim" ? `/bid/?id=${b.id}` : `/auction/?id=${b.id}&bid=${b.bid?.ciphertext_hash ?? ""}`;
                 return (
-                  <li key={b.key}><a href={href} onClick={(e) => claimDoor(e.currentTarget)} className="flex items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
+                  <li key={b.key}><a href={href} onClick={(e) => claimDoor(e.currentTarget)} className="flex flex-wrap items-center gap-3 border-t border-app-line px-5 py-3.5 first:border-t-0 hover:bg-app-2">
                     <Glyph name={dd ? glyphFor(dd.mode, dd.id) : "sealed-envelope"} className="size-9" />
                     <span className="min-w-0 flex-1"><span className="block truncate text-[15px]">{dd?.lot ?? "A round"}{b.bid?.lot_index !== undefined ? ` · Lot ${b.bid.lot_index + 1}` : ""}{b.archived ? <span className="text-app-faint"> · earlier attempt</span> : ""}</span><span className="block text-[13px] text-app-faint tabular-nums">{dd ? MODE_NAME[dd.mode] : ""} · your price {zats(b.bid?.price_zats ?? 0)} zats</span></span>
-                    <span className="flex shrink-0 flex-col items-end gap-1">{l ? <Pill kind={l.kind}>{l.word}</Pill> : <Pill kind="plain">Checking…</Pill>}{l?.next && <span className="text-[12.5px] text-app-muted">{l.next}</span>}</span>
+                    <span className="flex shrink-0 flex-col items-end gap-1 max-sm:basis-full max-sm:items-start max-sm:pl-12">{l ? <Pill kind={l.kind}>{l.word}</Pill> : <Pill kind="plain">Checking…</Pill>}{l?.next && <span className="text-[12.5px] text-app-muted">{l.next}</span>}</span>
                   </a></li>
                 );
               })}</ul>

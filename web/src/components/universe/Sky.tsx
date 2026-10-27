@@ -63,7 +63,9 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
     return () => { gone = true; window.clearInterval(t); };
   }, []);
 
-  const live = auctions.find((a) => a.live && a.state === "OPEN");
+  // "Bid" goes to a round you buy in (uniform price first, then a drop) with a few minutes left; sell-side rounds last.
+  const open = auctions.filter((a) => a.live && a.state === "OPEN"), rank = (m: string) => ["uniform", "drop"].indexOf(m) < 0 ? 9 : ["uniform", "drop"].indexOf(m);
+  const live = [...open].sort((x, y) => Number(Date.now() / 1000 + 180 > x.T_submit) - Number(Date.now() / 1000 + 180 > y.T_submit) || rank(x.mode) - rank(y.mode))[0];
   const doodles = useMemo<FieldDoodle[]>(() => {
     const narrow = typeof window !== "undefined" && window.innerWidth < 640, now = Date.now() / 1000;
     const count = (m: Market) => auctions.filter((a) => marketOf(a.mode) === m).length;
@@ -77,9 +79,9 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
       const pages = [
         door("emblem-bid", "Bid", "Place a sealed bid. Nobody sees your price until the bids open.", live ? `/bid/?id=${live.id}` : "/bid/", 1.2),
         door("quill", "Start a round", "Sell or buy something. Pick a market and set your terms.", "/start/", 1.05),
-        door("emblem-receipt", "Mine", "Your bids and the rounds you started.", "/mine/", 0.9),
+        door("emblem-receipt", "My bids", "Your bids and the rounds you started.", "/mine/", 0.9),
         door("emblem-verify", "Verify", "Check any round's result for yourself.", "/verify/", 1),
-        door("emblem-lots", "Every lot", "Every round so far, and how each one ended.", "/lots/", 0.85),
+        door("emblem-lots", "All rounds", "Every round so far, and how each one ended.", "/lots/", 0.85),
       ];
       // Markets across the top, actions along the bottom (one ring on a phone).
       const ring = narrow ? arc([...doors, ...pages], 90, 450, 0.33, 0.36, true) : [...arc(doors, 158, 22, 0.34, 0.31), ...arc(pages, 204, 336, 0.34, 0.31)];
@@ -96,7 +98,7 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
     const actions = [
       ...(live && marketOf(live.mode) === market ? [door("emblem-bid", "Bid", "Bid in the round that's open now.", `/bid/?id=${live.id}`, 1.15)] : []),
       // Launch rounds are started with the CLI (their winners' delivery list isn't collected on the site yet).
-      ...(market === "launch" ? [] : [door("quill", "Start a round", `Open a new ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round with your own terms.`, `/start/?market=${market}`, 1.1)]),
+      ...(market === "launch" ? [door("quill", "Start a launch", "Launches start from the command line in this release. See why.", "/start/#launch", 1.1)] : [door("quill", "Start a round", `Open a new ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round with your own terms.`, `/start/?market=${market}`, 1.1)]),
       door("emblem-lots", "All rounds", `Every ${MODE_NAME[market] === MODE_NAME[market].toUpperCase() ? MODE_NAME[market] : MODE_NAME[market].toLowerCase()} round so far, and how each ended.`, `/lots/?market=${market}`, 0.95),
     ];
     const top = rounds.length ? arc(rounds.map((d) => ({ ...d, scale: d.auction?.live ? 1.15 : 0.95 })), narrow ? 150 : 160, narrow ? 30 : 20, narrow ? 0.33 : 0.36, narrow ? 0.3 : 0.31) : [];

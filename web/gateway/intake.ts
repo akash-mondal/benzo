@@ -62,6 +62,12 @@ export class Intake {
     return it ? { status: it.status, detail: it.detail, leaf_index: it.leaf_index } : { status: "unknown", detail: "no record with this ciphertext hash" };
   }
 
+  // Bids admitted so far (before the freeze the round's public record has no count yet; the page shows this one).
+  admitted(id: string): number {
+    const d = path.join(this.dir, id);
+    if (!existsSync(d)) return 0;
+    return readdirSync(d).filter((f) => f.endsWith(".json")).map((f) => JSON.parse(readFileSync(path.join(d, f), "utf8")) as Item).filter((i) => !i.withheld && i.status === "admitted").length;
+  }
   // Records of one auction still waiting to be admitted (the runner freezes only when this is empty, or at the cutoff).
   pending(id: string): number {
     const d = path.join(this.dir, id);

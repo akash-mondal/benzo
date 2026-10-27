@@ -28,7 +28,7 @@ export function roleOf(d: AuctionDetail, party: PartyKey | null) {
     d.mode === "launch" ? "If the bids reach the minimum raise, every winner pays the same clearing price. If not, everyone is refunded." :
     d.mode === "otc" ? "If the buyer's limit is at or above the seller's, you trade at the midpoint of the two. Otherwise there's no trade." :
     d.mode === "buyback" ? "The lowest asks are accepted, up to the budget, and every accepted seller is paid the same price." :
-    d.mode === "rfq" ? "The best quote from an invited dealer wins." : "Every winner pays the same clearing price.";
+    d.mode === "rfq" ? "The lowest quote from an invited dealer wins and is paid the second-lowest quote, so quoting your true price is safe. It needs at least two quotes." : "Every winner pays the same clearing price.";
   return { seller, lo, hi, tick: Number(m.tick_zats ?? 10), label, noun, deposit, rule };
 }
 
@@ -95,8 +95,10 @@ export function BidTicket({ round }: { round: AuctionDetail }) {
           <div data-testid="bid-closed"><div className="text-[16px] font-medium">{left ? "This round isn't taking bids here" : "Bidding has closed for this round"}</div><p className="mt-1 text-[14px] text-app-muted">{left ? "It was set up outside this site, so bids go in through its own tools. You can still follow how it turns out." : "You can still see how it turns out."}</p></div>
         ) : (
           <>
-            {!saved && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
-            {saved?.step === "pay" && <Pay round={round} role={role} s={saved} open={open} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid })} onNew={() => keep(null)} />}
+            {/* A round with no open deposit slot can't take another bid: say so before the form, not after sealing. */}
+            {!saved && round.free_slots === 0 && !party && <div data-testid="bid-full"><div className="text-[16px] font-medium">This round is full</div><p className="mt-1 text-[14px] text-app-muted">Every deposit slot is taken, so it can't take another {role.noun}. <a href="/lots/?stage=open" className="text-app-text underline underline-offset-4">See rounds taking bids</a>.</p></div>}
+            {!saved && !(round.free_slots === 0 && !party) && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
+            {saved?.step === "pay" && <Pay round={round} role={role} s={saved} open={open} onKey={() => keep({ ...saved, savedKey: true })} onPaid={(txid) => keep({ ...saved, step: "track", txid, at: Date.now() })} onNew={() => keep(null)} />}
             {saved?.step === "track" && <Track round={round} role={role} s={saved} open={open} onNew={() => keep(null)} />}
           </>
         )}
@@ -203,7 +205,9 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
     } catch (x) {
       const msg = String((x as Error).message);
       setReview(false);
-      setErr(/unified address|destination|refund/i.test(msg) ? { field: "refund", text: "That isn't a shielded testnet address. It should start with utest1." } : { text: msg.replace(/^[^:]*: \d+ /, "") });
+      setErr(/unified address|destination|refund/i.test(msg) ? { field: "refund", text: "That isn't a shielded testnet address. It should start with utest1." }
+        : /every deposit slot/i.test(msg) ? { text: "This round is full: every deposit slot is taken. Nothing was sent. Pick another round that's taking bids from All rounds." }
+        : { text: msg.replace(/^[^:]*: \d+ /, "") });
     } finally { setBusy(""); }
   };
   const lotLabel = (l: string) => `Lot ${(lots ?? []).indexOf(l) + 1}`;
@@ -330,6 +334,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
       ) : (
         <div className={cx(!s.savedKey && "pointer-events-none opacity-50")} aria-disabled={!s.savedKey}>
           <div className="text-[14px] font-medium">Then pay the deposit</div>
+          <p className="mt-1 text-[13px] text-app-muted">{s.savedKey ? "" : "Download the file above first. "}Pay with the demo wallet or your own testnet wallet. Your bid counts about 10 to 20 minutes after the payment, once it has 10 confirmations.</p>
           {demo && (
             <div className="mt-3 mb-5 rounded-2xl bg-[#e9cd8414] p-4 ring-1 ring-[#e9cd8440]" data-testid="bid-demo">
               <div className="text-[14px] font-medium">No testnet wallet?</div>
@@ -467,7 +472,7 @@ function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: Re
     ? [<Pill kind="bad">Status unavailable</Pill>, "We can't check your deposit right now", `Last successful check: ${checked ? new Date(checked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "none yet"}. Your transaction id is saved. Don't send another deposit.`]
     : status === "admitted" ? [<Pill kind="good">Counted</Pill>, `Your ${role.noun} is in`, settled ? "The round has finished. See how it turned out." : `It's ${role.noun} ${Number(st?.leaf_index ?? 0) + 1} of this round, and opens with the others ${rel(round.release)}.`]
     : status === "refused" ? [<Pill kind="bad">Not counted</Pill>, `Your ${role.noun} didn't count`, `${st?.detail ?? ""} Your deposit can be refunded with your recovery file.`]
-    : [<Pill kind="live">Looking for your deposit</Pill>, "Waiting for your deposit to confirm", `We look for it on the network; it counts after 10 confirmations, usually 10 to 20 minutes. You can close this page; this ${role.noun} stays in My activity.`];
+    : [<Pill kind="live">Looking for your deposit</Pill>, "Waiting for your deposit to confirm", `It counts after 10 confirmations, usually 10 to 20 minutes after you pay${s.at ? ` (yours: ${Math.max(0, Math.round((Date.now() - s.at) / 60000))} min so far)` : ""}. ${checked ? `Last checked ${new Date(checked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}; we check every 15 seconds.` : "Checking now…"} You can close this page; this ${role.noun} stays in My activity.`];
   return (
     <div className="grid gap-5">
       <div>
@@ -479,7 +484,7 @@ function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: Re
       <dl className="grid gap-2 text-[14px]">
         <div className="flex justify-between gap-3"><dt className="text-app-faint">{role.label}</dt><dd className="tabular-nums">{zats(s.bid.price_zats)} zats</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-app-faint">Expected deposit</dt><dd className="tabular-nums">{taz(round.C_zats)}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-app-faint">Transaction</dt><dd className="min-w-0"><Copyable value={s.txid ?? ""} display={short(s.txid ?? "", 6)} /></dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-app-faint">Transaction</dt><dd className="min-w-0">{s.txid ? <Copyable value={s.txid} display={short(s.txid, 6)} /> : <span className="text-app-faint">from your recovery file</span>}</dd></div>
       </dl>
       <div className="grid gap-2">
         <Btn href={`/auction/?id=${round.id}&bid=${s.bid.ciphertext_hash}`} full testid="bid-follow">{settled ? "See how it turned out" : "View the round"}</Btn>
