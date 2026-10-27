@@ -2,6 +2,7 @@
 
 <p align="center">
   <a href="https://benzo.space"><b>Live on testnet: benzo.space</b></a> ·
+  <a href="#try-it-without-a-wallet"><b>Bid without a wallet</b></a> ·
   <a href="#check-a-real-round-in-two-minutes"><b>Check a round yourself</b></a> ·
   <a href="#what-this-is-not"><b>What this is not</b></a>
 </p>
@@ -32,6 +33,10 @@ Benzo is our answer. It is a sealed-bid market engine on Zcash where **nobody ca
 6. **Check.** Anyone can rebuild the whole round from the public record with one file.
 
 Nobody holds the opening key: it doesn't exist until drand's round R. So the seal is maths, not a promise.
+
+## Try it without a wallet
+
+Open any round on [benzo.space](https://benzo.space), pick a price and press **Use the demo wallet**. Your browser still seals the bid; the site's demo wallet pays the 0.002 TAZ deposit from the payment link alone, so it never learns your price. It does know which deposit it paid for. Refunds go back to the demo wallet. With your own testnet wallet, pay from it instead: the page shows a QR code and a payment link.
 
 ## The opening, in one picture
 
@@ -126,9 +131,13 @@ The control matters: if the untouched copy didn't pass, the refusals would prove
 | **Solana devnet** | A Token-2022 confidential transfer, as a standalone demo, not yet an escrow payout ([log](docs/evidence/phase-5/repro/ct-live.out)) |
 | **Offline, real drand** | 17,000 sealed bids admitted, frozen, opened, cleared and verified ([`bench.json`](docs/evidence/phase-6/bench.json)) |
 
-The latest testnet runs, all passing:
+The latest testnet runs:
 
-- [A full round driven through the website](docs/evidence/phase-7/ui-drive/drive-uniform.log): two bids, one changed before paying, settled with 3 payments, and every check on the page passes.
+- **Every market driven through the live site.** A browser starts the round on benzo.space, invites the other side, seals bids, pays from a testnet wallet, waits for the opening and settlement, and runs the round's checks ([logs](docs/evidence/phase-7/ui-drive/)):
+  - Uniform, drop, OTC and RFQ: settled, every check passes.
+  - Buyback: settled with 10 payments, every check passes. The drive's last step failed on the page's wording ("4 of 2 units": the budget, not a unit count, caps a buyback), since fixed.
+  - Launch: settled with 5 payments; 18 of 19 checks pass. The missing one is the winners' delivery list, which the site doesn't collect yet (below).
+- [A full round driven through the website](docs/evidence/phase-7/ui-drive/drive-uniform.log) on a local server: two bids, one changed before paying, settled with 3 payments, and every check on the page passes.
 - [An 8-bid round](docs/evidence/phase-7/gold/scale-8-final.out), settled and verified from cold.
 - Three cross-chain rounds ([1](docs/evidence/phase-7/gold/xchain-demo1-final.out), [2](docs/evidence/phase-7/gold/xchain-demo2-final.out), [3](docs/evidence/phase-7/gold/xchain-demo3-final.out)).
 - [A buyback series](docs/evidence/phase-7/gold/buyback-series.out), settled and verified.
@@ -141,6 +150,7 @@ The latest testnet runs, all passing:
 - **Not private after the opening.** Prices become public on purpose. Who bid stays private.
 - **Not an order book.** Benzo runs rounds with a set opening time. It doesn't match orders continuously.
 - **Not three separate machines today.** To fit a hackathon budget, the live demo runs the operator and all three signers on one server. Each signer runs as its own user with its own keys, and the operator can't read them, but whoever runs the host could. The code also runs each signer on its own machine; we ran it that way on three VMs.
+- **Not finished for launches on the site.** A launch round clears and pays on the site, but where each winner wants the launched units delivered is recorded with the CLI (`benzo launch deliver`). Until it is, that round's Verify page shows the delivery list missing.
 - **Not a custodian or an exchange.** It's an engine and a reference deployment.
 
 The full list, about 30 limits with the reason for each, is in [`docs/honest-limits.md`](docs/honest-limits.md).

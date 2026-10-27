@@ -1,0 +1,88 @@
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+Running 1 test using 1 worker
+
+2026-10-27T09:06:21.895Z [buyback] request d9e451e7baf25019
+2026-10-27T09:07:57.074Z [buyback] round 27af56d1cec2 is taking bids
+2026-10-27T09:07:57.120345Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T09:07:57.449666Z  INFO zcash_devtool::commands::wallet::sync: Sapling tree has 6 subtrees
+2026-10-27T09:07:57.679652Z  INFO zcash_devtool::commands::wallet::sync: Orchard tree has 3 subtrees
+2026-10-27T09:07:57.891386Z  INFO zcash_devtool::commands::wallet::sync: Ironwood tree has 11 subtrees
+2026-10-27T09:07:58.107995Z  INFO zcash_devtool::commands::wallet::sync: Latest block height is 4546947
+2026-10-27T09:07:58.147165Z  INFO zcash_devtool::commands::wallet::sync: Refreshing UTXOs for AccountUuid(ae4d038c-5ae5-49b8-be5e-39a5aa9abeb5) from height 0
+2026-10-27T09:07:58.378201Z  INFO zcash_devtool::commands::wallet::sync: Fetching scan ranges
+2026-10-27T09:07:58.378575Z  INFO zcash_devtool::commands::wallet::sync: Fetched 1 scan ranges
+2026-10-27T09:07:58.378607Z  INFO zcash_devtool::commands::wallet::sync: Fetching ChainTip(4546934..4546948)
+2026-10-27T09:07:58.955183Z  INFO zcash_devtool::commands::wallet::sync: Scanning ChainTip(4546934..4546948)
+2026-10-27T09:07:59.018612Z  INFO zcash_devtool::commands::wallet::sync: Scan complete for range ChainTip(4546934..4546948); progress is 1352/1352
+2026-10-27T09:07:59.018671Z  INFO zcash_devtool::commands::wallet::sync: Waiting for cached blocks to be deleted...
+2026-10-27T09:07:59.058241Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T09:08:01.840Z [buyback] paid cf838c3ebcb7
+2026-10-27T09:08:04.905325Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T09:08:05.202209Z  INFO zcash_devtool::commands::wallet::sync: Sapling tree has 6 subtrees
+2026-10-27T09:08:05.421876Z  INFO zcash_devtool::commands::wallet::sync: Orchard tree has 3 subtrees
+2026-10-27T09:08:05.634361Z  INFO zcash_devtool::commands::wallet::sync: Ironwood tree has 11 subtrees
+2026-10-27T09:08:05.846618Z  INFO zcash_devtool::commands::wallet::sync: Latest block height is 4546948
+2026-10-27T09:08:05.851143Z  INFO zcash_devtool::commands::wallet::sync: Refreshing UTXOs for AccountUuid(ae4d038c-5ae5-49b8-be5e-39a5aa9abeb5) from height 0
+2026-10-27T09:08:06.064795Z  INFO zcash_devtool::commands::wallet::sync: Fetching scan ranges
+2026-10-27T09:08:06.064953Z  INFO zcash_devtool::commands::wallet::sync: Fetched 1 scan ranges
+2026-10-27T09:08:06.064979Z  INFO zcash_devtool::commands::wallet::sync: Fetching ChainTip(4546948..4546949)
+2026-10-27T09:08:06.487039Z  INFO zcash_devtool::commands::wallet::sync: Scanning ChainTip(4546948..4546949)
+2026-10-27T09:08:06.533279Z  INFO zcash_devtool::commands::wallet::sync: Scan complete for range ChainTip(4546948..4546949); progress is 1352/1352
+2026-10-27T09:08:06.533363Z  INFO zcash_devtool::commands::wallet::sync: Waiting for cached blocks to be deleted...
+2026-10-27T09:08:06.572304Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T09:08:09.302Z [buyback] paid acca708debbf
+2026-10-27T09:08:09.347Z [buyback] bid 1 at 200: deposit sent, tracking
+2026-10-27T09:08:13.067108Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T09:08:13.367489Z  INFO zcash_devtool::commands::wallet::sync: Sapling tree has 6 subtrees
+2026-10-27T09:08:13.592335Z  INFO zcash_devtool::commands::wallet::sync: Orchard tree has 3 subtrees
+2026-10-27T09:08:13.799742Z  INFO zcash_devtool::commands::wallet::sync: Ironwood tree has 11 subtrees
+2026-10-27T09:08:14.038740Z  INFO zcash_devtool::commands::wallet::sync: Latest block height is 4546949
+2026-10-27T09:08:14.060657Z  INFO zcash_devtool::commands::wallet::sync: Refreshing UTXOs for AccountUuid(ae4d038c-5ae5-49b8-be5e-39a5aa9abeb5) from height 0
+2026-10-27T09:08:14.291600Z  INFO zcash_devtool::commands::wallet::sync: Fetching scan ranges
+2026-10-27T09:08:14.291747Z  INFO zcash_devtool::commands::wallet::sync: Fetched 1 scan ranges
+2026-10-27T09:08:14.291764Z  INFO zcash_devtool::commands::wallet::sync: Fetching ChainTip(4546949..4546950)
+2026-10-27T09:08:14.712861Z  INFO zcash_devtool::commands::wallet::sync: Scanning ChainTip(4546949..4546950)
+2026-10-27T09:08:14.751965Z  INFO zcash_devtool::commands::wallet::sync: Scan complete for range ChainTip(4546949..4546950); progress is 1352/1352
+2026-10-27T09:08:14.752028Z  INFO zcash_devtool::commands::wallet::sync: Waiting for cached blocks to be deleted...
+2026-10-27T09:08:14.788300Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T09:08:17.992Z [buyback] paid 430595d25728
+2026-10-27T09:08:18.030Z [buyback] bid 2 at 250: deposit sent, tracking
+2026-10-27T09:15:50.125Z [buyback] bid 1 counted
+2026-10-27T09:15:58.944Z [buyback] bid 2 counted
+2026-10-27T10:08:25.304Z [buyback] settled: 10 payments
+  ✘  1 [drive] › e2e/drive.spec.ts:75:27 › drive buyback: start, invite, fund, bid, pay, track, settle, check (1.1h)
+
+
+  1) [drive] › e2e/drive.spec.ts:75:27 › drive buyback: start, invite, fund, bid, pay, track, settle, check 
+
+    Error: expect(locator).toContainText(expected) failed
+
+    Locator: getByTestId('story')
+    Expected pattern: /2 of 2 units bought back/
+    Received string:  "4 of 2 units bought back at 60 zatsThe lowest asks were accepted up to the budget, all at the same price. Sellers got their deposit back plus what they were paid."
+    Timeout: 60000ms
+
+    Call log:
+      - Expect "toContainText" getByTestId('story') with timeout 60000ms
+      - waiting for getByTestId('story')
+        118 × locator resolved to <div data-testid="story">…</div>
+            - unexpected value "4 of 2 units bought back at 60 zatsThe lowest asks were accepted up to the budget, all at the same price. Sellers got their deposit back plus what they were paid."
+
+
+      170 |   //    recovery file opened there finds the bid.
+      171 |   await starter.goto(`/auction/?id=${rid}`);
+    > 172 |   await expect(starter.getByTestId("story")).toContainText(plan.expect, { timeout: 60_000 });
+          |                                              ^
+      173 |   for (const tab of ["ladder", "timeline"]) await starter.locator(`[data-testid=chart] [data-tab="${tab}"]`).click();
+      174 |   await starter.locator('[data-testid=book] [data-tab="activity"]').click();
+      175 |   for (const tab of ["payments", "terms", "checks"]) await starter.locator(`[data-testid=records] [data-tab="${tab}"]`).click();
+        at /Users/akshmnd/Dev Projects/benzo/web/e2e/drive.spec.ts:172:46
+
+    Error Context: tmp/test-results-live-buyback/drive-drive-buyback-start--cf117--bid-pay-track-settle-check-drive/error-context.md
+
+  Slow test file: [drive] › e2e/drive.spec.ts (1.1h)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  1 failed
+    [drive] › e2e/drive.spec.ts:75:27 › drive buyback: start, invite, fund, bid, pay, track, settle, check 
