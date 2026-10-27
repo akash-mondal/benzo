@@ -1,0 +1,19 @@
+# step 4 — rebuild the three artifacts from a fresh clone on Linux (docs/reproducible-build.md §3), compare to the macOS build
+Sun Oct 18 15:23:27 UTC 2026
+node v24.15.0 npm 12.0.2 tar: tar (GNU tar) 1.35 gzip: gzip 1.12
+warning: remote HEAD refers to nonexistent ref, unable to checkout
+e1ddd69
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+7eda287168fa5a2cce10237d057aa1b6eb056edd3dd8c8539acf78b4d0aae554  dist/benzo-verify.mjs
+dist/benzo-verify.mjs: OK
+OK check:bundle 7eda287168fa5a2cce10237d057aa1b6eb056edd3dd8c8539acf78b4d0aae554 dist/benzo-verify.mjs and docs/verify-bundle.sha256 match a fresh rebuild of this tree
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"1aa2b0772ba8d446be5fac4730c0b6d482ffb29c0b3e11540ed7d7844c2ddc6e","bytes":29883444,"files":18327,"production_packages":112}
+{"tarball":"dist/benzo-bidder-0.1.0.tgz","sha256":"f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38","bytes":81381,"files":2}
+# expected (macOS build of e1ddd69):
+1aa2b0772ba8d446be5fac4730c0b6d482ffb29c0b3e11540ed7d7844c2ddc6e  benzo-0.1.0.tgz
+f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38  benzo-bidder-0.1.0.tgz
+# this Linux rebuild:
+1aa2b0772ba8d446be5fac4730c0b6d482ffb29c0b3e11540ed7d7844c2ddc6e  benzo-0.1.0.tgz
+f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38  benzo-bidder-0.1.0.tgz
+benzo-0.1.0.tgz: OK
+benzo-bidder-0.1.0.tgz: OK

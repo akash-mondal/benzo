@@ -1,0 +1,11 @@
+utc 2026-10-16T09:00:20Z
+tree B36 item 2 refresh (working tree at run time = the recording commit; uncommitted then: README.md, docs/verify-it-yourself.md, docs/reproducible-build.md and this record — README.md and docs/verify-it-yourself.md are the only tarball inputs among them and are already final here)
+command npm run package  # build 1
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a","bytes":29831721,"files":18323,"production_packages":112}
+command npm run package  # build 2
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a","bytes":29831721,"files":18323,"production_packages":112}
+PASS two clean npm-package builds identical 9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a
+command shasum -a 256 dist/benzo-0.1.0.tgz
+9693395b1b0020acc6020563516b8be0f55ed31383fbe1900065212d918f405a  dist/benzo-0.1.0.tgz
+command tar -tzf dist/benzo-0.1.0.tgz | wc -l
+   18323

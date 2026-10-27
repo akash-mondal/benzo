@@ -1,0 +1,19 @@
+commit 8a52106c8cc544e9686e5633f1416d33f468193f
+utc 2026-10-03T07:23:36Z
+command bash crosschain/ct-live.sh (Solana devnet, live)
+live rpc https://api.devnet.solana.com
+live crank 3EM3LMNYrs2iUfC9FkoutJcErmuPd8zUtRBMCkhLkpdu
+live winner HiSKPF6dex9RtRdci5vrBu7WDUkVAYF3Xx3TCwHk2br7
+PASS ct-winner-funded winner gas tx Dx1BREPqY3kcgezKg8PxyDmmpD1TnGJGr3XYzgnPAD1VVGzhDjqQyo6vPqV1tu3QuqGCBTHdebZ3AYs8qH7ckRo
+PASS ct-mint-created mint DKzkkZtBW9tACbTeHn1voV3qebYWpX9zv6HTcCE3UCcz tx UWAjJNicARGqypRmtpuAfUo1Rqqeq4LNVpyLphbSUguP9ETdk95FDp533gLRvuGLKz5Lb1fwZdNt7UGWwWFNSFF
+PASS ct-source-funded-confidential source holds the lot as available confidential balance
+PASS ct-fresh-account-configured fresh account DDpH4shfH6uwNQ9RvnEeGg99nBR81J43v7cwRZErx5Ww elgamal 86ae9172fbaeb32e…
+PASS ct-envelope-deliver-roundtrip deliver {"chain":"solana","kind":"ct","to":"DDpH4shfH6uwNQ9RvnEeGg99nBR81J43v7cwRZErx5Ww","elgamal":"86ae9172fbaeb32e257a7ac0297c79d1e148f7b1cd137257e29a32de68ebef1f"}
+PASS ct-deliver-elgamal-matches a doctored deliver.elgamal is refused; 86ae9172fbaeb32e… matches the account
+PASS ct-amount-hidden-probe public mint 597bhELu3bQgYfkxCF51u9zeCTiuhTiJmzkRG87mKAHzDvam3ZPaWNGgGadqkQnhn5nGuYWzsq2opw3R3JVgXe9h leaks the sentinel (assertion works)
+PASS ct-delivery-tx confidential transfer tx 37EFvospxPSRB7rHfn9ZwhHANDhQyKwtRfdWnw8Vzqoz5zAyJzrsx8eygfzky58muaC1CoroU2vcVJMuVDcpoNzc
+PASS ct-amount-hidden the delivered amount appears nowhere in tx 37EFvospxPSRB7rHfn9ZwhHANDhQyKwtRfdWnw8Vzqoz5zAyJzrsx8eygfzky58muaC1CoroU2vcVJMuVDcpoNzc
+PASS ct-pending-encrypted the fresh account's pending balance is a non-zero ciphertext UrQ0Cicq7LrfzJCu… (amount hidden)
+PASS ct-winner-withdraws withdraw tx 64dTLY54tYs14jtAFSzNSaADjdAAK6pgDYxDMkrqYaGtzqPRYFQrdxWSFrTdqT8BTW1gzyZsxwXW73kxFAWSpvi9
+PASS ct-winner-balance winner plaintext balance 100 (want 100)
+RESULT PASS one live Token-2022 Confidential Transfer delivery (deliver.kind=ct) on Solana devnet

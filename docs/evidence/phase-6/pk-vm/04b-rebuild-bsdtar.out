@@ -1,0 +1,10 @@
+# step 4b — same rebuild with bsdtar (libarchive-tools) as tar, as docs/reproducible-build.md pins bsdtar
+tar: bsdtar 3.7.2 - libarchive 3.7.2 zlib/1.3 liblzma/5.4.5 bz2lib/1.0.8 liblz4/1.9.4 libzstd/1.5.5  gzip: gzip 1.12
+{"tarball":"dist/benzo-0.1.0.tgz","sha256":"0003acd3b5946c8cad799ed36e585c2b4210fe9dc55502199525c9b598244bf6","bytes":29917046,"files":18323,"production_packages":112}
+{"tarball":"dist/benzo-bidder-0.1.0.tgz","sha256":"84c06f3ced7c24b04a2ab1462140831d94876489dfc0a46a1e8b7d48a44c5b75","bytes":80733,"files":2}
+benzo-0.1.0.tgz: FAILED
+benzo-bidder-0.1.0.tgz: FAILED
+sha256sum: WARNING: 2 computed checksums did NOT match
+# uncompressed tar layer vs the macOS tarballs
+benzo-0.1.0.tar linux=607d2684a562c27c80751d49643b384e87368f110951ebfd11528409b3d2b057 mac=bfb239681705d36f90f6ebceaf1b958e055f64e348cfe586ad7189a28a3c88cf DIFFERENT
+benzo-bidder-0.1.0.tar linux=2ad6eae8a78eb84e28485ead92c2e862dd6d12bbe5c98d2e231848b980627392 mac=5d751ad02e334d667e515ac96255ef653f2320b8196c7e27eaa2fa8c780b3d96 DIFFERENT
