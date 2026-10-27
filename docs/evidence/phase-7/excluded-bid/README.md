@@ -13,9 +13,10 @@ Live on benzo.space, Zcash testnet, round `9d87d234…ad16a`.
 5. B presses **Claim my 200,000 zats back**. The page signs the claim with the bid's own key.
 
 **Status:** steps 1–4 passed. Step 5 did not: the first run's page showed "Refunded" before any refund was paid (the
-site marked the claim paid when the claim command exited; the row stayed in the exception queue). That bug is fixed
-and the claim is being re-run; [`run.log`](run.log) records the correction. Until it ends with a refund
-transaction id, treat [`3-refunded.png`](3-refunded.png) as showing the bug, not the refund.
+site marked the claim paid when the claim command exited; the row stayed in the exception queue). That worker bug is
+fixed, but two re-runs show a second, open bug: after the signers re-open the envelopes with the claim, the row
+stays in the exception queue ("signers could not agree on the envelope destination"), so the refund is not paid.
+[`run.log`](run.log) records both. [`3-refunded.png`](3-refunded.png) shows the first bug, not a refund.
 
 | File | What |
 |---|---|

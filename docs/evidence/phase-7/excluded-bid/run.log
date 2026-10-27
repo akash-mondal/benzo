@@ -14,3 +14,6 @@
 2026-10-27T17:07:58.360Z round SETTLING; checks: 19 of 19 pass
 2026-10-27T17:07:58.360Z RESULT PASS a paid bid left out by the operator was detected by its owner and refunded by the signers
 2026-10-27T17:54:05.000Z CORRECTION the RESULT line above is withdrawn: the site marked the claim paid when the claim command exited, but the refund row stayed in the exception queue (the signers never re-opened the envelopes with the claim). Fixed in web/gateway/runner.ts (claim worker: record, envelope-opens, settle, paid only when the public row is paid with a txid); the claim is re-run below.
+2026-10-27T18:04:08.623Z claim re-run: bidder B pressed "Claim my deposit back" again (the earlier claim was recorded; the fixed worker re-opens the envelopes and settles)
+2026-10-27T18:49:35.638Z claim re-run: bidder B pressed "Claim my deposit back" again (the earlier claim was recorded; the fixed worker re-opens the envelopes and settles)
+2026-10-27T19:20:28.000Z STATUS after two re-runs with the fixed claim worker: the claim is recorded and the signers re-open the envelopes, but the refund row stays in the exception queue ("signers could not agree on the envelope destination"). The refund is NOT paid; this path is an open bug.
