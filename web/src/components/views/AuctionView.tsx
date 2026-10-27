@@ -128,8 +128,9 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
   return (
     <div className="flex flex-col gap-2 fit:min-h-0 fit:flex-1" data-testid="terminal">
       <Ribbon d={d} live={live} toClose={toClose} sold={sold} of={of} paid={paid} price={price} priceWord={priceWord} />
+      {(d as any).stopped && <div className="rounded-[14px] bg-[#c94f4f1a] px-4 py-3 text-[14px] ring-1 ring-[#c94f4f55]" data-testid="stopped-banner"><span className="font-medium">This round stopped before it paid out.</span> <span className="text-app-muted">Every deposit in it is refundable with its bidder's recovery file.</span> <a href="/mine/" className="underline underline-offset-4">Open your recovery file in My bids</a></div>}
       {stale && <ErrorLine>Updates unavailable right now; showing the last loaded record. <button className="underline" onClick={retry}>Retry</button></ErrorLine>}
-      <div className="grid gap-2 fit:min-h-0 fit:flex-1 lg:grid-cols-[minmax(0,1fr)_264px_336px] lg:grid-rows-[minmax(0,1.4fr)_minmax(0,1fr)]">
+      <div className={cx("grid gap-2 fit:min-h-0 fit:flex-1 lg:grid-rows-[minmax(0,1.4fr)_minmax(0,1fr)]", live ? "lg:grid-cols-[minmax(0,1fr)_240px_420px]" : "lg:grid-cols-[minmax(0,1fr)_264px_336px]")}>
         {/* The chart: how the round cleared (or the sealed bids waiting to open). */}
         <Pane className={cx(opened ? "min-h-[340px]" : "min-h-[220px] lg:min-h-[340px]", live ? "max-lg:order-2" : "max-lg:order-1", "lg:col-start-1 lg:row-start-1 fit:min-h-0")} testid="chart">
           <Tabs tabs={chartTabs} value={chart} onChange={setChart} right={opened ? <span className="truncate">{ladder.length} {d.mode === "otc" ? "limits" : sells ? "offers" : "bids"}, opened {hm(d.release)}</span> : <span>opens {when(d.release)}</span>} />
@@ -166,7 +167,7 @@ function Terminal({ d, live, toClose, stale, retry, chain }: { d: AuctionDetail 
             {live || (mine && !d.result) ? (
               <>
                 <div className="mb-4 flex items-baseline justify-between gap-3">
-                  <div className="text-[15px] font-medium">{sells ? "Make a sealed offer" : d.mode === "otc" ? "Set your sealed limit" : "Place a sealed bid"}</div>
+                  <div className="text-[15px] font-medium">{mine?.step === "track" ? (sells ? "Your sealed offer" : d.mode === "otc" ? "Your sealed limit" : "Your sealed bid") : sells ? "Make a sealed offer" : d.mode === "otc" ? "Set your sealed limit" : "Place a sealed bid"}</div>
                   {live && toClose ? <div className="text-[13px] tabular-nums text-gold">closes in {clock(toClose)}</div> : null}
                 </div>
                 <BidTicket round={d} />
@@ -284,7 +285,7 @@ function Sealed({ d, live, toClose }: { d: AuctionDetail; live: boolean; toClose
       </div>
       <div>
         <div className="serif-figure text-[24px] text-[#f3eee2]">{n ? `${n} sealed ${n === 1 ? "bid" : "bids"}` : live ? "Sealed bids land here" : "Waiting for the committed bids"}</div>
-        <p className="mt-1 max-w-[440px] text-[13px] text-app-muted">{live && toClose ? `Bidding closes in ${clock(toClose)}. ` : ""}{Date.now() / 1000 < d.release ? `Every price stays sealed until the bids open together ${rel(d.release)}, at ${when(d.release)}. Nobody, the operator included, can read one before then.` : `The bids were due to open at ${when(d.release)}. Prices stay sealed until this round's committed bids are opened.`}</p>
+        <p className="mt-1 max-w-[440px] text-[13px] text-app-muted">{live && toClose ? `Bidding closes in ${clock(toClose)}. ` : ""}{Date.now() / 1000 < d.release ? `Every price stays sealed until the bids open together ${rel(d.release)}, at ${when(d.release)}. Nobody, the operator included, can read one before then.` : (d as any).stopped ? `This round stopped before its bids were opened, so nothing was paid out. Every deposit can be refunded: open your recovery file under My bids.` : `The opening is running late: drand published round R at ${when(d.release)}, and the bids open as soon as the operator's runner reaches this round. Nobody has read them meanwhile.`}</p>
       </div>
     </div>
   );
@@ -296,7 +297,7 @@ function TimelineTab({ d, opened, done }: { d: AuctionDetail; opened: boolean; d
   const steps = [
     { label: now < d.T_submit ? "Bidding open" : "Bidding closed", at: now < d.T_submit ? `closes ${when(d.T_submit)}` : `closed ${when(d.T_submit)}`, state: step(now >= d.T_submit, now < d.T_submit) },
     { label: "Bids committed", at: d.freeze_root ? `${d.leaf_count ?? 0} sealed bids, fixed` : `by ${when(d.T_freeze)}`, state: step(Boolean(d.freeze_root), now >= d.T_submit && !d.freeze_root) },
-    { label: "Bids opened", at: when(d.release), state: step(opened, Boolean(d.freeze_root) && !opened) },
+    { label: opened ? "Bids opened" : now >= d.release ? "Opening running late" : "Bids open", at: when(d.release), state: step(opened, Boolean(d.freeze_root) && !opened) },
     { label: d.state === "CANCELLED" ? "Refunded" : done ? "Paid out" : opened ? "Paying out" : "Paid out", at: done ? `record updated ${when(d.updated)}` : opened ? "in progress" : "after opening", state: step(done, opened && !done) },
   ];
   return <div className="flex h-full flex-col justify-center gap-4 px-2"><Timeline steps={steps} testid="timeline" /><p className="text-[12.5px] text-app-faint">Times in your local time{zone() ? ` (${zone()})` : ""}. Bids open at drand round {d.R.toLocaleString("en-US")}, a public randomness beacon nobody controls.</p></div>;

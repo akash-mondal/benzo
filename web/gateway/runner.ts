@@ -101,6 +101,8 @@ export class Runner {
   freeSlots(id: string) { const a = this.auctions.find((x) => x.id === id); return a ? this.openSlots(a).length : null; }
   list() { return this.auctions.map(({ log, reserved, ...a }) => a); }
   queued() { return this.queue.length; }
+  // Where a requested round stands: rounds ahead of it in the queue (0 when it is next or being built), null if not queued.
+  aheadOf(rid: string) { const i = this.queue.findIndex((q) => q.request === rid); return i < 0 ? null : i; }
   // A round the runner gave up on ("FAILED; needs the operator") before it paid out: the site says so.
   stopped(id: string) { return this.auctions.some((a) => a.id === id && a.phase === "failed"); }
   // Settled and verified by the runner with nothing left to pay (a round with no bids keeps the state CLEARED).

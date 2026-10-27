@@ -222,7 +222,7 @@ const server = http.createServer(async (req, res) => {
       if (parts[1] === "rounds" && parts.length === 2 && req.method === "POST") return json(res, 201, requests.create(await body(req), ipOf(req), !req.headers["x-forwarded-for"] && /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(req.socket.remoteAddress ?? "")));
       if (parts[1] === "rounds" && parts.length === 3 && req.method === "GET") {
         const v = requests.view(parts[2], url.searchParams.get("token"));
-        return v ? json(res, 200, { ...v, queue: runner?.queued() ?? null, operator: Boolean(runner) }) : json(res, 404, { error: "unknown round request" });
+        return v ? json(res, 200, { ...v, queue: runner?.aheadOf(parts[2]) ?? null, operator: Boolean(runner) }) : json(res, 404, { error: "unknown round request" });
       }
       if (parts[1] === "rounds" && parts[3] === "invite" && req.method === "GET") { const v = requests.invite(parts[2], url.searchParams.get("i") ?? ""); return v ? json(res, 200, v) : json(res, 404, { error: "unknown invite" }); }
             if (parts[1] === "rounds" && parts[3] === "join" && req.method === "POST") { const b = await body(req); return json(res, 200, requests.join(parts[2], String(b.invite ?? ""), String(b.key ?? ""))); }

@@ -69,7 +69,7 @@ export default function RequestView() {
           </div>)
       ) : undefined,
     } as S] : []),
-    { title: "Set up on the signers", note: r.status === "queued" ? (r.operator === false ? "Setup is paused: the service that sets rounds up is offline. Your round is saved, and no bidding has started." : r.queue ? `${r.queue} round${r.queue > 1 ? "s" : ""} ahead of yours. Usually a few minutes each.` : "Usually a few minutes.") : r.status === "failed" ? `Couldn't start: ${r.error ?? "unknown reason"}. Start a new round to try again.` : undefined, state: r.status === "failed" ? "bad" : stage > 2 ? "done" : stage === 2 ? "now" : "next" },
+    { title: "Set up on the signers", note: r.status === "queued" ? (r.operator === false ? "Setup is paused: the service that sets rounds up is offline. Your round is saved, and no bidding has started." : (r.queue ? `${r.queue} round${r.queue > 1 ? "s" : ""} ahead of yours, a few minutes each.` : "Yours is next or being set up now; it takes a few minutes.") + " Safe to leave: this page is saved in My activity, and it updates on its own.") : r.status === "failed" ? `Couldn't start: ${r.error ?? "unknown reason"}. Start a new round to try again.` : undefined, state: r.status === "failed" ? "bad" : stage > 2 ? "done" : stage === 2 ? "now" : "next" },
     { title: "Taking bids", note: d ? `until ${new Date(d.T_submit * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : undefined, state: stage === 3 ? "now" : "next", body: stage === 3 && d ? <Open d={d} r={r} canBid={!needsParties || Boolean(mine)} /> : undefined },
   ];
   return (

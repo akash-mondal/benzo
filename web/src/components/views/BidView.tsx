@@ -226,7 +226,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
         {lots && <div className="flex justify-between gap-3"><dt className="text-app-faint">Lot</dt><dd>{lotLabel(lot)}</dd></div>}
         <div className="flex justify-between gap-3"><dt className="text-app-faint">{role.label}</dt><dd className="tabular-nums">{zats(price)} zats</dd></div>
         <div className="flex justify-between gap-3"><dt className="text-app-faint">Deposit you'll send</dt><dd className="tabular-nums">{zats(round.C_zats)} zats · {taz(round.C_zats)}</dd></div>
-        <div className="flex justify-between gap-3"><dt className="text-app-faint">{role.seller ? "Paid to" : "Refunds to"}</dt><dd className="min-w-0 truncate">{short(refund, 8)}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-app-faint">{role.seller ? "Payout to" : "Refunds to"}</dt><dd className="min-w-0 truncate">{short(refund, 8)}</dd></div>
       </dl>
       <p className="text-[13px] text-app-muted">{role.deposit} Your wallet adds its own network fee.</p>
       {err && <ErrorLine testid="bid-error">{err.text}</ErrorLine>}
@@ -362,9 +362,9 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
             <Btn href={b.uri} full testid="bid-uri-m">Open in wallet</Btn>
             <button type="button" className="text-[13px] text-app-muted hover:text-app-text" onClick={() => copy("Payment link copied, with the amount and sealed memo", b.uri)}>Copy payment link</button>
           </div>
-          <div className="mt-4 flex gap-4">
+          <div className="mt-4 flex flex-wrap gap-4">
             <button type="button" onClick={() => setBig(true)} className="shrink-0" aria-label="Enlarge the QR code">{qr ? <img src={qr} alt="QR code for the deposit payment" className="size-[180px] rounded-xl bg-white sm:size-[200px]" data-testid="bid-qr" /> : <div className="size-[180px] rounded-xl bg-app-2" />}</button>
-            <div className="grid min-w-0 content-start gap-2 text-[14px]">
+            <div className="grid min-w-[200px] flex-1 content-start gap-2 text-[14px]">
               <p className="text-app-muted"><span className="sm:hidden">Paying from another device? Scan this. </span>Use the whole payment link; sending to the address alone won't include your sealed {role.noun}.</p>
               <a href={b.uri} className="hidden w-fit rounded-full bg-sand px-4 py-2 font-semibold text-ink hover:bg-[#ebe5d6] sm:inline-block" data-testid="bid-uri">Open in wallet</a>
               <button type="button" className="hidden w-fit text-app-muted hover:text-app-text sm:block" onClick={() => copy("Payment link copied, with the amount and sealed memo", b.uri)}>Copy payment link</button>
@@ -494,7 +494,7 @@ function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: Re
         <div className="flex justify-between gap-3"><dt className="text-app-faint">Transaction</dt><dd className="min-w-0">{s.txid ? <Copyable value={s.txid} display={short(s.txid, 6)} /> : <span className="text-app-faint">from your recovery file</span>}</dd></div>
       </dl>
       <div className="grid gap-2">
-        <Btn href={`/auction/?id=${round.id}&bid=${s.bid.ciphertext_hash}`} full testid="bid-follow">{settled ? "See how it turned out" : "View the round"}</Btn>
+        {!(typeof location !== "undefined" && location.pathname.startsWith("/auction")) && <Btn href={`/auction/?id=${round.id}&bid=${s.bid.ciphertext_hash}`} full testid="bid-follow">{settled ? "See how it turned out" : "View the round"}</Btn>}
         {open && <button type="button" onClick={onNew} className="text-[13px] text-app-faint hover:text-app-text">Place another {role.noun}</button>}
       </div>
     </div>

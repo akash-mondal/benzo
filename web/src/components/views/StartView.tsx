@@ -112,6 +112,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
         {market === "launch" && <div className="flex justify-between"><dt className="text-app-faint">Minimum raise</dt><dd className="tabular-nums">{zats(f.minimum_raise)} zats</dd></div>}
         {sells && <div className="flex justify-between"><dt className="text-app-faint">Budget you'll fund</dt><dd className="tabular-nums">{zats(f.budget)} zats</dd></div>}
         <div className="flex justify-between"><dt className="text-app-faint">Deposit per bid</dt><dd className="tabular-nums">200,000 zats</dd></div>
+        <p className="text-[12.5px] text-app-faint">Every bidder pays the same deposit (0.002 TAZ), so a payment never shows the price inside it. Winners pay their price out of it and get the rest back; everyone else gets all of it back.</p>
         <div className="flex justify-between"><dt className="text-app-faint">Bidding lasts</dt><dd className="tabular-nums">{f.minutes} minutes after setup</dd></div>
       </dl>
       <p className="mt-4 text-[12.5px] text-app-faint">Exact closing and opening times appear on the round's page once it's set up. Testnet only.</p>
