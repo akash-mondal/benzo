@@ -62,7 +62,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
   // Field checks, as you type: the amount as typed, never rewritten.
   const whole = (k: string, lo: number, hi = 1e9, step = 1) => { const v = (f[k] ?? "").trim(); if (!/^\d+$/.test(v)) return v ? `Use whole numbers. You entered ${v}.` : "Required."; const n = Number(v); if (n < lo || n > hi) return `Between ${lo.toLocaleString("en-US")} and ${hi.toLocaleString("en-US")}.`; if (step > 1 && n % step) return `Use steps of ${step}.`; return ""; };
   const errs: Record<string, string> = {
-    supply: market === "uniform" || market === "launch" || market === "buyback" ? whole("supply", 1, 6) : "",
+    supply: market === "uniform" ? whole("supply", 1, 12) : market === "launch" || market === "buyback" ? whole("supply", 1, 6) : "",
     reserve: market === "uniform" || market === "drop" ? whole("reserve", 10, 200000, 10) : "",
     max_price: whole("max_price", 20, 200000, 10),
     minimum_raise: market === "launch" ? whole("minimum_raise", 1) : "",

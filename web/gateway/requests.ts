@@ -38,7 +38,7 @@ export function specFrom(f: any): { spec: Spec; invites: string[]; side?: "buyer
     if (!UA.test(payout)) throw new Error("The payout address should be a shielded testnet address (utest1…).");
     base.payout_ua = payout;
   }
-  if (mode === "uniform") return { spec: { ...base, supply: int(f.supply ?? 1, 1, 6, "units") }, invites: [] };
+  if (mode === "uniform") return { spec: { ...base, supply: int(f.supply ?? 1, 1, 12, "units") }, invites: [] };
   if (mode === "launch") return { spec: { ...base, supply: int(f.supply ?? 3, 1, 6, "units"), launch: { minimum_raise_zats: String(int(f.minimum_raise ?? 0, 1, 6 * B_max, "minimum raise")) } }, invites: [] };
   if (mode === "drop") {
     const plain = (x: string) => x.replace(/[\u2012-\u2015\u2212]/g, "-").replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').trim();

@@ -98,6 +98,8 @@ export class Runner {
   isLive(id: string) { return this.auctions.some((a) => a.id === id && a.phase === "accepting" && Date.now() / 1000 < a.T_submit); }
   // The round's own title (a drop's manifest names its lots, not the round).
   title(id: string) { return this.auctions.find((x) => x.id === id)?.lot ?? null; }
+  // A drop's lot names as its creator wrote them (the signed terms carry only their ids).
+  lotNames(id: string) { return this.auctions.find((x) => x.id === id)?.spec.lots ?? null; }
   freeSlots(id: string) { const a = this.auctions.find((x) => x.id === id); return a ? this.openSlots(a).length : null; }
   list() { return this.auctions.map(({ log, reserved, ...a }) => a); }
   queued() { return this.queue.length; }

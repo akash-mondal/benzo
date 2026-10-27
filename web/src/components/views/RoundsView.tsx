@@ -63,7 +63,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
     ["Sealed bids", scope.reduce((n, a) => n + (a.leaf_count ?? a.counted ?? 0), 0).toLocaleString("en-US")], ["Taking bids now", liveNow.length ? `${liveNow.length} round${liveNow.length === 1 ? "" : "s"}` : "none"],
   ];
   const ribbon: [string, string, boolean?][] = loaded ? ribbon0 : ribbon0.map(([k, , g]) => [k, "…", g]);
-  const byMarket = MARKETS.map((m) => { const r = list.filter((a) => marketOf(a.mode) === m), st = r.filter((a) => a.state === "SETTLED"); return { m, n: r.length, traded: st.filter(traded).length, paid: st.reduce((x, a) => x + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0) }; });
+  const byMarket = MARKETS.map((m) => { const r = list.filter((a) => marketOf(a.mode) === m), st = r.filter((a) => stageOf(a) === "settled"); return { m, n: r.length, traded: st.filter(traded).length, paid: st.reduce((x, a) => x + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0) }; });
 
   return (
     <div className="flex flex-col gap-2 fit:min-h-0 fit:flex-1">

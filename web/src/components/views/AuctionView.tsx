@@ -372,7 +372,7 @@ function Activity({ d }: { d: AuctionDetail & { freeze?: any } }) {
 function BidsTable({ d, allocations, sells, opened }: { d: AuctionDetail; allocations: any[]; sells: boolean; opened: boolean }) {
   const m: any = d.manifest;
   if (!opened) return <p className="p-4 text-[13px] text-app-muted">{d.leaf_count ? `${d.leaf_count} sealed bids. ` : ""}Prices stay sealed until the bids open, {rel(d.release)}.</p>;
-  const lotName = (h: string) => { const i = (m.lots ?? []).indexOf(h); return i >= 0 ? `Lot ${i + 1}` : "—"; };
+  const lotName = (h: string) => { const i = (m.lots ?? []).indexOf(h); return i >= 0 ? (d.lot_names?.[i] ?? `Lot ${i + 1}`) : "—"; };
   const rowPaid = (a: any) => d.mode === "otc" && a.side === "buyer" && Number(a.fill) ? Number(d.C_zats) - Number(a.refund_zats ?? 0) : Number(a.payment_zats ?? 0);
   return (
     <table className="w-full min-w-[520px] text-[13px] tabular-nums" data-testid="allocations">

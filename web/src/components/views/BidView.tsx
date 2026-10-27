@@ -217,7 +217,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
         : { text: msg.replace(/^[^:]*: \d+ /, "") });
     } finally { setBusy(""); }
   };
-  const lotLabel = (l: string) => `Lot ${(lots ?? []).indexOf(l) + 1} · ${l}`;
+  const lotLabel = (l: string) => { const i = (lots ?? []).indexOf(l); return round.lot_names?.[i] ? `Lot ${i + 1} · ${round.lot_names[i]}` : `Lot ${i + 1}`; };
   if (review) return (
     <div className="grid gap-4" data-testid="bid-review">
       <div className="text-[16px] font-medium">Review your sealed {role.noun}</div>
@@ -255,7 +255,8 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
         <input name="refund" value={refund} onChange={(e) => setRefund(e.target.value.trim())} spellCheck={false} placeholder="utest1…" aria-invalid={err?.field === "refund"} className={cx(fieldCls, "text-[13.5px]", err?.field === "refund" && "ring-bad")} data-testid="bid-refund" />
       </Field>
       {err?.field === "refund" && <p className="-mt-3 text-[13px] text-bad" data-testid="bid-error">{err.text}</p>}
-      {demo?.address && refund !== demo.address && (
+      {demo && !demo.available && <p className="-mt-3 text-[13px] text-app-muted" data-testid="bid-demo-unavailable">Demo wallet: {demo.reason ?? "it can't pay right now."} You can still bid and pay from your own Zcash testnet wallet.</p>}
+      {demo?.available && demo?.address && refund !== demo.address && (
         <p className="-mt-3 text-[13px] text-app-muted">No testnet wallet? <button type="button" className="font-medium text-gold hover:underline" onClick={() => { setRefund(demo.address!); setErr(null); }} data-testid="bid-demo-refund">Use the demo wallet</button>. It can pay your deposit too, and {role.seller ? "payments" : "refunds"} go back to it.</p>
       )}
       {demo?.address && refund === demo.address && <p className="-mt-3 text-[13px] text-app-muted">Using the demo wallet's address. {role.seller ? "Payments" : "Refunds"} go back to the demo wallet.</p>}

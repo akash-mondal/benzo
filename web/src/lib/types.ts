@@ -42,6 +42,7 @@ export type AuctionDetail = AuctionSummary & {
   valid: boolean;
   deposit_addresses: string[];
   free_slots: number | null;
+  lot_names?: string[] | null; // a drop's lot names, in the order of manifest.lots
   funding: { address: string; amount_zats: string; house: boolean } | null; // the treasury budget a buyback or RFQ needs
   request: string | null; // the site request that started it
 };

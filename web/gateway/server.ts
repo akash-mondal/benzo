@@ -230,7 +230,7 @@ const server = http.createServer(async (req, res) => {
       if (parts[1] === "auctions" && /^[0-9a-f]{64}$/.test(parts[2] ?? "")) {
         const id = parts[2], reg = registry().find((r) => r.id === id), e = reg && load(id, reg.dir);
         if (!e) return json(res, 404, { error: "unknown auction" });
-        if (parts.length === 3 && req.method === "GET") { const d0: any = await detail(e), d: any = d0.leaf_count == null && d0.state === "OPEN" ? { ...d0, counted: intake.admitted(id) } : d0; return json(res, 200, d.state === "SETTLED" ? d : runner?.stopped(id) ? { ...d, stopped: true } : runner?.finished(id) ? { ...d, finished: true } : d); }
+        if (parts.length === 3 && req.method === "GET") { const d1: any = await detail(e), d0: any = { ...d1, lot_names: runner?.lotNames(id) ?? null }, d: any = d0.leaf_count == null && d0.state === "OPEN" ? { ...d0, counted: intake.admitted(id) } : d0; return json(res, 200, d.state === "SETTLED" ? d : runner?.stopped(id) ? { ...d, stopped: true } : runner?.finished(id) ? { ...d, finished: true } : d); }
         if (parts[3] === "packet") { const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8")); return json(res, 200, { manifest: doc.manifest, signer: doc.signer }); }
         if (parts[3] === "doc") return file(res, path.join(e.dir, "auction.json"));
         if (parts[3] === "tamper" && req.method === "GET") {

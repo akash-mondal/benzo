@@ -68,9 +68,9 @@ export function specterSvg(no: number): string {
 export const specterUri = (no: number) => `data:image/svg+xml;utf8,${encodeURIComponent(specterSvg(no))}`;
 
 // What a Specters round sells, drawn: the mint's pieces, each one-of-one, or the piece in a private sale or commission.
-export function piecesFor(d: { id: string; lot: string | null; mode: string; manifest?: any }): { no: number; name: string }[] {
+export function piecesFor(d: { id: string; lot: string | null; mode: string; manifest?: any; lot_names?: string[] | null }): { no: number; name: string }[] {
   if (!isSpecter(d.lot)) return [];
-  const lots: string[] | undefined = d.manifest?.lots;
+  const lots: string[] | undefined = d.lot_names ?? undefined;
   if (lots?.length) return lots.map((l) => ({ no: specterNo(l), name: l }));
   if (/mint|buyback/i.test(d.lot ?? "")) return Array.from({ length: Math.min(4, Number(d.manifest?.supply ?? 2)) }, (_, i) => { const no = (hashOf(`${d.id}:${i}`) % 9999) + 1; return { no, name: `#${no}` }; });
   return [{ no: specterNo(d.lot ?? ""), name: `#${specterNo(d.lot ?? "")}` }];
