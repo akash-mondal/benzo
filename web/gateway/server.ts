@@ -210,6 +210,8 @@ const server = http.createServer(async (req, res) => {
           const dirs = existsSync(base) ? readdirSync(base).filter((d) => existsSync(path.join(base, d, "host-errors.log"))).sort((a, b) => statSync(path.join(base, b, "host-errors.log")).mtimeMs - statSync(path.join(base, a, "host-errors.log")).mtimeMs).slice(0, 3) : [];
           return json(res, 200, dirs.map((d) => ({ id: d, tail: readFileSync(path.join(base, d, "host-errors.log"), "utf8").split("\n").slice(-120).join("\n") })));
         }
+        if (parts[2] === "runner" && req.method === "GET") return json(res, 200, runner?.opsList() ?? []);
+        if (parts[2] === "retry" && /^[0-9a-f]{64}$/.test(parts[3] ?? "") && req.method === "POST") return json(res, 200, runner?.retry(parts[3]) ?? { ok: false, error: "no runner" });
         if (parts[2] === "fleet") { const f = process.env.BNZ_FLEET_LOG ?? "/var/benzo/fleet.log"; return json(res, 200, { tail: existsSync(f) ? readFileSync(f, "utf8").split("\n").slice(-Number(url.searchParams.get("n") ?? 200)).join("\n") : "" }); }
         if (parts[2] === "shim") { const f = path.join(STATE, "run", "host-shim.log"); return json(res, 200, { tail: existsSync(f) ? readFileSync(f, "utf8").split("\n").slice(-200).join("\n") : "" }); }
         return json(res, 404, { error: "not found" });

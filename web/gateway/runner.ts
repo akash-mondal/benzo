@@ -92,6 +92,19 @@ export class Runner {
   freeSlots(id: string) { const a = this.auctions.find((x) => x.id === id); return a ? this.openSlots(a).length : null; }
   list() { return this.auctions.map(({ log, reserved, ...a }) => a); }
   queued() { return this.queue.length; }
+  // The operator's view (/api/ops/runner): every round's phase, last error and last log lines.
+  opsList() { return this.auctions.map((a) => ({ id: a.id, mode: a.spec.mode, phase: a.phase, retries: a.retries, error: a.error, log: a.log.slice(-6) })); }
+  // Put a round that gave up ("FAILED; needs the operator") back at the step it reached, for another six tries. Each
+  // step refuses to run twice, so a step that already happened is skipped (the "settling" resume path).
+  retry(id: string) {
+    const a = this.auctions.find((x) => x.id === id);
+    if (!a || a.phase !== "failed") return { ok: false, error: a ? `phase is ${a.phase}` : "unknown round" };
+    const did = (w: string) => a.log.some((l) => l.includes(w));
+    const phase = did("opened at round R") || did("cleared") || did("in settling") ? "settling" : did("witness certificates published") ? "witnessed" : did("frozen") ? "frozen" : null;
+    if (!phase) return { ok: false, error: "it failed before it was frozen; nothing to resume" };
+    a.phase = phase as Live["phase"]; a.retries = 0; this.say(a, `operator retry from ${phase}`);
+    return { ok: true, phase };
+  }
   // The treasury funding a round needs before its sellers can be admitted (buyback, RFQ): pay `budget` to `address`.
   funding(id: string) {
     const a = this.auctions.find((x) => x.id === id);
