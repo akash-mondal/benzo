@@ -91,7 +91,7 @@ You don't have to trust the site. With Node 24 and this repo:
 
 ```sh
 npm ci && npm run build:verify
-shasum -a 256 dist/benzo-verify.mjs     # 19254021e5c8bf0ac72207c586b94dba0f83deccbe0f2c622e86548463c8a11b
+shasum -a 256 dist/benzo-verify.mjs     # must match docs/verify-bundle.sha256
 node dist/benzo-verify.mjs \
   --signer "$(cat docs/evidence/phase-7/gold/doc-walk/signer)" \
   --dir docs/evidence/phase-7/gold/doc-walk/public
