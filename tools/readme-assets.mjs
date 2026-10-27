@@ -125,7 +125,7 @@ function tlock() {
 
 // ---- 4. the bytes: the 128-byte order and the 512-byte memo that carries it (envelope/bid.ts, seal/src/main.ts).
 function bytes() {
-  const W = 1200, H = 500, x0 = 64, bw = W - 2 * x0;
+  const W = 1200, H = 440, x0 = 64, bw = W - 2 * x0;
   let body = H2(64, 64, "A sealed bid, byte for byte");
   // Widths are drawn for reading, not to scale; each chip says its size.
   const order = [["v", "1 B", 56], ["round or lot id", "32 B", 200], ["price", "8 B · u64", 120], ["qty", "4 B", 76], ["nonce", "16 B", 110], ["owner key", "32 B · Ed25519", 170], ["settlement commitment", "32 B · salted", 236], ["flag", "3 B", 104]];
@@ -141,8 +141,6 @@ function bytes() {
   const s2 = bw / memo.reduce((a, m) => a + m[2], 0);
   x = x0;
   memo.forEach(([name, sub, w, mono], i) => { body += chip(x, y2, w * s2, 62, name, sub, i === 2, mono); x += w * s2; });
-  body += T(x0, y2 + 112, "Every memo is the same length and every deposit the same amount: on chain, a high bid and a low bid look identical.", 17, C.text);
-  body += T(x0, y2 + 138, "The tag is the first 18 bytes of SHA-256 of the bid's refund envelope, so that envelope can't be swapped for another.", 17, C.muted);
   return svg(W, H, "The 128-byte order (version, round id, price, quantity, nonce, owner key, settlement commitment, flag) is tlock-encrypted and carried in a 512-byte memo: magic, length, ciphertext, envelope tag, zero padding.", body);
 }
 
@@ -208,7 +206,7 @@ function freeze() {
 
 // ---- 7. settle: the operator proposes; each signer checks everything itself; any two sign (settle/, cli/hosts.ts).
 function settle() {
-  const W = 1200, H = 520;
+  const W = 1200, H = 480;
   let body = H2(64, 64, "Settling with a key nobody holds alone");
   const mid = (x, w) => x + w / 2;
   body += `${box(64, 110, 260, 330)}
@@ -230,13 +228,12 @@ function settle() {
     ${["two signers run one", "signing session; their", "shares combine into one", "ordinary signature"].map((l, i) => T(mid(fx, fw), 284 + i * 24, l, 16, C.muted, `text-anchor="middle"`)).join("")}
     ${T(mid(fx, fw), 410, "the vault is spent", 16, C.text, `text-anchor="middle" font-weight="600"`)}`;
   body += arrow(sx + sw + 10, 275, fx - 10, 275, true);
-  body += T(64, 478, "The key came from a dealerless DKG for this round only. No machine ever holds it whole; one signer alone can't move a zatoshi.", 17, C.text);
   return svg(W, H, "Settlement: the operator proposes an unsigned transaction; each signer independently opens the bids, re-runs clearing, opens refund envelopes, finds the deposits and checks every output; two of three sign one FROST spend.", body);
 }
 
 // ---- 8. the markets: one registry, six clearing rules (clear/registry.ts).
 function markets() {
-  const W = 1200, H = 540;
+  const W = 1200, H = 494;
   const ms = [
     ["gavel", "Uniform auction", "k units go to the k highest bids;", "all pay the lowest winning bid"],
     ["gift-box", "Collection drop", "one winner per numbered lot;", "drand orders the serials"],
@@ -253,7 +250,6 @@ function markets() {
       ${T(x + 94, y + 60, name, 22, C.text, `font-weight="600"`)}
       ${T(x + 24, y + 114, a, 16.5, C.muted)}${T(x + 24, y + 138, b, 16.5, C.muted)}`;
   });
-  body += T(64, H - 30, "Same deposit, same freeze, same opening. A market is one entry in clear/registry.ts: a layout, a rule, a result check.", 17, C.text);
   return svg(W, H, "Six markets on one engine: uniform auction, collection drop, token launch, buyback, RFQ and blind OTC, each a clearing rule in one registry.", body);
 }
 

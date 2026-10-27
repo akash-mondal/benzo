@@ -83,14 +83,14 @@ At `R` anyone can fetch drand's signature, open every frozen bid and apply the m
 
 Sealing, deposits, freezing and settlement don't know which market they serve. A market is one entry in [`clear/registry.ts`](clear/registry.ts): an order layout, a clearing rule and a check on its result.
 
-| Market | Rule | Who it's for |
-|---|---|---|
-| Uniform auction | k units go to the k highest bids; everyone pays the lowest winning bid | selling several identical things at one fair price |
-| Collection drop | one winner per numbered lot; drand's beacon orders the serials | numbered editions, without a race to mint |
-| Token launch | one price for all if the minimum raise is met, otherwise everyone is refunded | a raise with no early-bird front-running |
-| Buyback | a treasury buys the cheapest sealed asks until its budget runs out | buying back without telegraphing the price |
-| RFQ | invited dealers quote; the lowest wins and the second lowest sets the price | procurement where quotes shouldn't leak to rivals |
-| Blind OTC | two sealed limits; if they cross, they trade at the midpoint | a block trade where neither side shows its hand |
+| Market | Who it's for |
+|---|---|
+| Uniform auction | selling several identical things at one fair price |
+| Collection drop | numbered editions, without a race to mint |
+| Token launch | a raise with no early-bird front-running |
+| Buyback | a treasury buying back without telegraphing its price |
+| RFQ | procurement where quotes shouldn't leak to rival dealers |
+| Blind OTC | a block trade where neither side shows its hand |
 
 Adding a market means writing a rule, not a new system.
 
