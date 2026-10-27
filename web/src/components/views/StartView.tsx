@@ -97,7 +97,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
       <dl className="mt-5 grid gap-2.5 text-[14px]">
         {market === "drop" && <div className="flex justify-between gap-3"><dt className="text-app-faint">Lots</dt><dd className="min-w-0 text-right">{lotNames.join(", ") || "—"}</dd></div>}
         {market === "otc" && <div className="flex justify-between"><dt className="text-app-faint">You</dt><dd>{f.side === "buyer" ? "Buyer" : "Seller"}</dd></div>}
-        {(market === "uniform" || market === "launch" || market === "buyback") && <div className="flex justify-between"><dt className="text-app-faint">{sells ? "Units wanted" : "Units"}</dt><dd className="tabular-nums">{f.supply || "—"}</dd></div>}
+        {(market === "uniform" || market === "launch") && <div className="flex justify-between"><dt className="text-app-faint">{sells ? "Units wanted" : "Units"}</dt><dd className="tabular-nums">{f.supply || "—"}</dd></div>}
         <div className="flex justify-between"><dt className="text-app-faint">{market === "buyback" ? "Asks" : market === "rfq" ? "Quotes" : "Bids"}</dt><dd className="tabular-nums">{sells || market === "otc" || market === "launch" ? `up to ${zats(f.max_price)} zats` : `${zats(f.reserve)}–${zats(f.max_price)} zats`}</dd></div>
         {market === "launch" && <div className="flex justify-between"><dt className="text-app-faint">Minimum raise</dt><dd className="tabular-nums">{zats(f.minimum_raise)} zats</dd></div>}
         {sells && <div className="flex justify-between"><dt className="text-app-faint">Budget you'll fund</dt><dd className="tabular-nums">{zats(f.budget)} zats</dd></div>}
@@ -140,7 +140,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
           </Panel>
           <Panel>
             <div className="grid gap-4 sm:grid-cols-2">
-              {(market === "uniform" || market === "launch" || market === "buyback") && num("supply", sells ? "Units you want to buy" : "Units available", undefined, "")}
+              {(market === "uniform" || market === "launch") && num("supply", sells ? "Units you want to buy" : "Units available", undefined, "")}
               {(market === "uniform" || market === "drop") && num("reserve", market === "drop" ? "Minimum price for each lot" : "Minimum price per unit", "Bids below this don't win.")}
               {num("max_price", market === "buyback" ? "Highest price per unit you'll pay" : market === "rfq" ? "Highest quote you'll accept" : market === "otc" ? "Price ceiling for both sides" : market === "drop" ? "Highest bid allowed for each lot" : "Highest bid allowed per unit", market === "otc" ? "A public rule. Each of you enters a private limit later." : undefined)}
               {market === "launch" && num("minimum_raise", "Minimum total raise", "Below this, nothing sells and everyone is refunded.")}

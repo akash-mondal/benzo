@@ -120,7 +120,7 @@ function RoundSummary({ round, left, role }: { round: AuctionDetail; left: numbe
       <div className="mt-6 grid grid-cols-2 gap-x-6 gap-y-5">
         <div><div className="text-[13px] text-app-faint">Bidding closes</div><div className={cx("serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]", left ? "text-gold" : "text-app-muted")} data-testid="ticket-light">{left ? `in ${clock(left)}` : Date.now() / 1000 < round.T_submit ? "Not here" : "Closed"}</div><div className="text-[13px] text-app-muted">{when(round.T_submit)}</div></div>
         <div><div className="text-[13px] text-app-faint">Fixed deposit</div><div className="serif-figure mt-1 pb-0.5 text-[30px] leading-[1.1]">{zats(round.C_zats)} zats</div><div className="text-[13px] text-app-muted">{taz(round.C_zats)} · not your {role.noun}</div></div>
-        <div><div className="text-[13px] text-app-faint">{m.lots ? "Lots" : role.seller ? "Units wanted" : "Units for sale"}</div><div className="serif-figure mt-1 text-[24px] leading-[1.1]">{m.lots ? `${m.lots.length} lots` : round.supply}</div></div>
+        <div><div className="text-[13px] text-app-faint">{m.lots ? "Lots" : round.mode === "buyback" ? "Budget" : role.seller ? "Units wanted" : "Units for sale"}</div><div className="serif-figure mt-1 text-[24px] leading-[1.1]">{m.lots ? `${m.lots.length} lots` : round.mode === "buyback" ? `${zats((m as any).buyback?.budget_zats ?? 0)} zats` : round.supply}</div></div>
         <div><div className="text-[13px] text-app-faint">Bids open</div><div className="serif-figure mt-1 text-[24px] leading-[1.1]">{rel(round.release)}</div><div className="text-[13px] text-app-muted">{when(round.release)}</div></div>
       </div>
     </div>

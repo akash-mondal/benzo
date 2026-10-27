@@ -63,7 +63,7 @@ const PLANS: Plan[] = [
   { mode: "launch", fill: async (p) => { await p.getByTestId("start-lot").fill("Drive - seed allocation"); await p.getByTestId("start-payout_ua").fill(freshUA()); },
     bids: [{ price: 1000 }, { price: 800 }, { price: 600 }], expect: /Raised/ },
   { mode: "buyback", fill: async (p) => { await p.getByTestId("start-lot").fill("Drive - buy back two units"); await p.getByTestId("start-treasury_ua").fill(freshUA()); }, funds: true,
-    bids: [{ price: 200 }, { price: 250 }], expect: /2 of 2 units bought back/ },
+    bids: [{ price: 200 }, { price: 250 }], expect: /units? bought back at/ },
   { mode: "otc", fill: async (p) => { await p.getByTestId("start-lot").fill("Drive - block trade"); await p.getByTestId("start-side").selectOption("seller"); }, invites: 1,
     bids: [{ price: 600, party: 0 }, { price: 1000, party: 1 }], expect: /Traded at 800 zats/ },
   { mode: "rfq", fill: async (p) => { await p.getByTestId("start-lot").fill("Drive - wallet audit"); await p.getByTestId("start-treasury_ua").fill(freshUA()); }, invites: 2, funds: true,

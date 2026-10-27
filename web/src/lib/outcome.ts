@@ -15,7 +15,8 @@ export function outcomeLine(a: AuctionSummary): string {
   if (a.mode === "drop") return `${o.filled} of ${o.of} lots sold · ${z(o.paid_zats)} in winning bids`;
   if (a.mode === "otc") return price ? `Traded at ${z(price)}` : "Traded";
   if (a.mode === "rfq") return price ? `Quote accepted · ${z(price)}` : "Quote accepted";
-  if (a.mode === "buyback") return `${o.filled} of ${o.of} units bought back${price ? ` at ${z(price)}` : ""}`;
+  // A buyback is capped by its budget, not a unit count (clear/mode-b.ts).
+  if (a.mode === "buyback") return `${o.filled} unit${o.filled === 1 ? "" : "s"} bought back${price ? ` at ${z(price)}` : ""} · ${z(o.paid_zats)} paid`;
   if (a.mode === "launch") return `Raised ${z(o.paid_zats)} · ${o.filled} of ${o.of} units`;
   return `${o.filled} of ${o.of} sold${price ? ` at ${z(price)}` : ""}`;
 }

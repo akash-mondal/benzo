@@ -79,7 +79,7 @@ export default function RequestView() {
         <h1 data-testid="ticket-title">{r.lot}</h1>
         <Pill kind={kind}>{word}</Pill>
       </div>
-      <p className="mt-1.5 text-[14px] text-app-muted">{MODE_NAME[r.mode]} · {r.lots ? r.lots.join(", ") : `${r.supply} unit${r.supply > 1 ? "s" : ""}`} · {r.minutes} minutes of bidding</p>
+      <p className="mt-1.5 text-[14px] text-app-muted">{MODE_NAME[r.mode]} · {r.lots ? r.lots.join(", ") : r.mode === "buyback" ? `budget ${Number(r.budget_zats ?? 0).toLocaleString("en-US")} zats` : `${r.supply} unit${r.supply > 1 ? "s" : ""}`} · {r.minutes} minutes of bidding</p>
       <div className="mt-7 grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px]">
         <Panel>
           <ol className="grid gap-0">

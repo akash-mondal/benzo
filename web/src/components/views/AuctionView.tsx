@@ -36,6 +36,9 @@ const party = (p: string) => /^leaf:(\d+)$/.test(p) ? `Bid ${Number(p.slice(5)) 
 const zone = () => { try { return new Intl.DateTimeFormat([], { timeZoneName: "short" }).formatToParts(new Date()).find((x) => x.type === "timeZoneName")?.value ?? ""; } catch { return ""; } };
 const hm = (t: number) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
+// "2 of 3": units filled of units offered. A buyback has no unit cap (its budget is the limit, clear/mode-b.ts), so
+// it shows the count alone.
+const soldOf = (d: AuctionDetail, sold: number, of: number) => d.mode === "buyback" ? String(sold) : `${sold} of ${of}`;
 // The round's story in a sentence, by market.
 function story(d: AuctionDetail, sold: number): string {
   if (d.state === "CANCELLED") return "The round was cancelled before it cleared. Every deposit was refunded in full.";
@@ -181,7 +184,8 @@ function Ribbon({ d, live, toClose, sold, of, paid, price, priceWord }: { d: Auc
   const m: any = d.manifest, sells = SELLS(d.mode), opened = Boolean(d.result);
   const cells: [string, ReactNode, boolean?][] = [
     opened ? (d.mode === "drop" ? ["Winning bids", `${zats(paid)} zats`, true] : [priceWord, price !== undefined ? `${zats(price)} zats` : "—", true]) : [d.mode === "buyback" ? "Highest ask" : d.mode === "rfq" ? "Highest quote" : "Price range", sells ? `${zats(m.buyback?.max_price_zats ?? m.rfq?.max_price_zats)} zats` : `${zats(m.reserve_zats)}–${zats(m.B_max_zats)}`],
-    [opened ? (m.lots ? "Lots sold" : sells ? "Units bought" : "Units sold") : m.lots ? "Lots" : sells ? "Units wanted" : "Units", opened ? `${sold} of ${of}` : String(of)],
+    d.mode === "buyback" && !opened ? ["Budget", `${zats(m.buyback?.budget_zats)} zats`] :
+    [opened ? (m.lots ? "Lots sold" : sells ? "Units bought" : "Units sold") : m.lots ? "Lots" : sells ? "Units wanted" : "Units", opened ? soldOf(d, sold, of) : String(of)],
     ["Deposit", `${zats(d.C_zats)} zats`],
     [sells ? "Sealed offers" : "Sealed bids", d.leaf_count !== null && d.leaf_count !== undefined ? String(d.leaf_count) : "—"],
     ["Bidding", live && toClose ? <span className="text-gold">closes in {clock(toClose)}</span> : `closed ${when(d.T_submit)}`],
@@ -414,7 +418,7 @@ function Result({ d, sold, of, paid, price, priceWord, sells, done, mineHash }: 
       </div>
       {d.result && <div className="grid grid-cols-2 gap-4 rounded-xl bg-[#0f140c80] p-3.5 ring-1 ring-app-line">
         {d.mode === "drop" ? fig("Lots sold", `${sold} of ${of}`, true) : fig(priceWord, price !== undefined ? `${zats(price)}` : "—", true)}
-        {d.mode === "drop" ? fig("Winning bids", zats(paid)) : fig(sells ? "Units bought" : "Units sold", `${sold} of ${of}`)}
+        {d.mode === "drop" ? fig("Winning bids", zats(paid)) : fig(sells ? "Units bought" : "Units sold", soldOf(d, sold, of))}
         {fig(sells ? "Offers" : "Bids", String(d.leaf_count ?? 0))}
         {fig(sells ? "Paid to sellers" : done || d.mode === "otc" ? "Seller received" : "Seller so far", zats(sells ? paid : sellerGot))}
       </div>}
@@ -431,7 +435,7 @@ function Details({ d }: { d: AuctionDetail }) {
     ["Market", MODE_NAME[d.mode]],
     [sells ? "Highest ask" : "Price range", sells ? `${zats(m.buyback?.max_price_zats ?? m.rfq?.max_price_zats)} zats` : `${zats(m.reserve_zats)}–${zats(m.B_max_zats)} zats`],
     ["Price step", `${zats(m.tick_zats ?? 10)} zats`],
-    [m.lots ? "Lots" : "Units", String(m.lots ? m.lots.length : d.supply)],
+    d.mode === "buyback" ? ["Budget", `${zats(m.buyback?.budget_zats)} zats`] : [m.lots ? "Lots" : "Units", String(m.lots ? m.lots.length : d.supply)],
     ["Deposit per bid", `${zats(d.C_zats)} zats`],
     ["Bidding closed", when(d.T_submit)],
     ["Bids committed by", when(d.T_freeze)],
