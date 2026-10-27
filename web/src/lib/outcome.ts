@@ -8,6 +8,7 @@ const IN_PROGRESS: Record<string, string> = { OPEN: "Bidding closed · waiting t
 export function outcomeLine(a: AuctionSummary): string {
   if (a.live) return "Taking sealed bids";
   if (a.state === "CANCELLED") return "Cancelled · every deposit refunded";
+  if (a.stopped) return "Stopped before paying out · each bidder refunds with their recovery file";
   const o = a.outcome;
   if (!o) return IN_PROGRESS[a.state] ?? a.state;
   const price = a.clearing_price_zats && a.clearing_price_zats !== "0" ? a.clearing_price_zats : null;

@@ -190,7 +190,7 @@ const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", `http://${HOST}`), parts = url.pathname.split("/").filter(Boolean);
     if (parts[0] === "api") {
       if (parts[1] === "auctions" && parts.length === 2 && req.method === "GET") {
-        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean);
+        const list = registry().map((r) => load(r.id, r.dir)?.summary).filter(Boolean).map((x: any) => x.state !== "SETTLED" && runner?.stopped(x.id) ? { ...x, stopped: true } : x);
         list.sort((a: any, b: any) => Number(b.live) - Number(a.live) || b.updated - a.updated);
         return json(res, 200, list);
       }
@@ -227,7 +227,7 @@ const server = http.createServer(async (req, res) => {
       if (parts[1] === "auctions" && /^[0-9a-f]{64}$/.test(parts[2] ?? "")) {
         const id = parts[2], reg = registry().find((r) => r.id === id), e = reg && load(id, reg.dir);
         if (!e) return json(res, 404, { error: "unknown auction" });
-        if (parts.length === 3 && req.method === "GET") return json(res, 200, await detail(e));
+        if (parts.length === 3 && req.method === "GET") { const d: any = await detail(e); return json(res, 200, d.state !== "SETTLED" && runner?.stopped(id) ? { ...d, stopped: true } : d); }
         if (parts[3] === "packet") { const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8")); return json(res, 200, { manifest: doc.manifest, signer: doc.signer }); }
         if (parts[3] === "doc") return file(res, path.join(e.dir, "auction.json"));
         if (parts[3] === "tamper" && req.method === "GET") {
