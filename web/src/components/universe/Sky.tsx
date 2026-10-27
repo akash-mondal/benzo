@@ -64,7 +64,7 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
   }, []);
 
   // "Bid" goes to a round you buy in (uniform price first, then a drop) with a few minutes left; sell-side rounds last.
-  const open = auctions.filter((a) => a.live && a.state === "OPEN" && a.free_slots !== 0), rank = (m: string) => ["uniform", "drop"].indexOf(m) < 0 ? 9 : ["uniform", "drop"].indexOf(m);
+  const open = auctions.filter((a) => a.live && a.state === "OPEN" && a.free_slots !== 0 && a.T_submit - Date.now() / 1000 > 480), rank = (m: string) => ["uniform", "drop"].indexOf(m) < 0 ? 9 : ["uniform", "drop"].indexOf(m);
   const live = [...open].sort((x, y) => Number(Date.now() / 1000 + 180 > x.T_submit) - Number(Date.now() / 1000 + 180 > y.T_submit) || rank(x.mode) - rank(y.mode))[0];
   const doodles = useMemo<FieldDoodle[]>(() => {
     const narrow = typeof window !== "undefined" && window.innerWidth < 640, now = Date.now() / 1000;

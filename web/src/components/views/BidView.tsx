@@ -96,6 +96,7 @@ export function BidTicket({ round }: { round: AuctionDetail }) {
           <div data-testid="bid-closed"><div className="text-[16px] font-medium">{left ? "This round isn't taking bids here" : "Bidding has closed for this round"}</div><p className="mt-1 text-[14px] text-app-muted">{left ? "It was set up outside this site, so bids go in through its own tools. You can still follow how it turns out." : "You can still see how it turns out."}</p></div>
         ) : (
           <>
+            {!saved && open && left !== null && left < 480 && <div className="mb-4 rounded-xl bg-[#e9cd8414] px-3 py-2 text-[13px] text-app-muted ring-1 ring-[#e9cd8440]" data-testid="bid-closing-soon">Bidding closes in {clock(left)}. Seal and pay before then: a payment sent after the close won't count. <a href="/lots/?stage=open" className="text-app-text underline underline-offset-4">Rounds with more time</a></div>}
             {/* A round with no open deposit slot can't take another bid: say so before the form, not after sealing. */}
             {!saved && round.free_slots === 0 && !party && <div data-testid="bid-full"><div className="text-[16px] font-medium">This round is full</div><p className="mt-1 text-[14px] text-app-muted">Every deposit slot is taken or held by someone part-way through a {role.noun}. A held slot frees up within 10 minutes if they don't pay. <a href="/lots/?stage=open" className="text-app-text underline underline-offset-4">See rounds taking bids</a>.</p></div>}
             {!saved && !(round.free_slots === 0 && !party) && <Form round={round} party={party} role={role} onSealed={(bid) => keep({ step: "pay", bid })} />}
@@ -184,7 +185,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
   const [err, setErr] = useState<{ field?: "price" | "refund"; text: string } | null>(null);
   // The amount as typed; checked, never rewritten.
   const priceErr = (): string | null => {
-    const v = price.trim();
+    const v = price.trim().replace(/[,\s_]/g, "");
     if (!v) return "Enter a price.";
     if (!/^\d+$/.test(v)) return `Use whole zats, in steps of ${role.tick}. You entered ${v}.`;
     const n = Number(v);
@@ -207,7 +208,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
       const packet = await api.packet(round.id);
       setBusy("Sealing…");
       const { prepareSealedBid } = await import("../../lib/bidder");
-      const bid = await prepareSealedBid({ packet: packet.manifest, signer: packet.signer, address: slot.address, price_zats: price.trim(), refund_ua: refund.trim(), lot: lots ? lot : undefined, owner_private_hex: party?.private_hex });
+      const bid = await prepareSealedBid({ packet: packet.manifest, signer: packet.signer, address: slot.address, price_zats: price.trim().replace(/[,\s_]/g, ""), refund_ua: refund.trim(), lot: lots ? lot : undefined, owner_private_hex: party?.private_hex });
       onSealed({ ...bid, lot: lots ? lot : undefined, lot_index: lots ? lots.indexOf(lot) : undefined });
     } catch (x) {
       const msg = String((x as Error).message);
@@ -245,7 +246,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
       )}
       <Field label={role.label} help={err?.field === "price" ? undefined : `Between ${zats(role.lo)} and ${zats(role.hi)} zats, in steps of ${role.tick}.${price && /^\d+$/.test(price) ? ` That's ${taz(price)}.` : ""}`}>
         <div className="relative">
-          <input name="price" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value)} aria-invalid={err?.field === "price"} className={cx(fieldCls, "pr-14 text-[17px] tabular-nums", err?.field === "price" && "ring-bad")} data-testid="bid-price" autoComplete="off" />
+          <input name="price" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, ""))} aria-invalid={err?.field === "price"} className={cx(fieldCls, "pr-14 text-[17px] tabular-nums", err?.field === "price" && "ring-bad")} data-testid="bid-price" autoComplete="off" />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[14px] text-app-faint">zats</span>
         </div>
       </Field>
@@ -310,6 +311,7 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
         const j = await api.demoJob(job).catch(() => null);
         if (j?.state === "failed") throw new Error(j.error ?? "the demo payment failed");
         if (j?.state === "paid" && j.txid) t = j.txid;
+        if (i === 40) setDemoBusy("Still sending: the demo wallet pays one deposit at a time, so this can take a few minutes when several people pay at once…");
       }
       if (!t) throw new Error("the demo payment is taking too long; check My activity later");
       setTxid(t); setDemoBusy("Paid. Recording your deposit…");
@@ -432,7 +434,7 @@ function LeftOut({ round, role, s, said }: { round: AuctionDetail; role: ReturnT
     <div className="grid gap-5" data-testid="bid-left-out">
       <div>
         <Pill kind="bad">Not in the round</Pill>
-        <div className="mt-3 text-[18px] font-medium">The operator left your {role.noun} out</div>
+        <div className="mt-3 text-[18px] font-medium">{said ? `The operator left your ${role.noun} out` : `Your ${role.noun} isn't in the round`}</div>
         <p className="mt-1 text-[14px] text-app-muted">{said ? "The operator's status says it counted, but " : ""}your {role.noun} isn't in this round's frozen set, the list of bids two of three witnesses signed before anyone could read a price. So it can't win, and the operator couldn't have known what it bid.</p>
       </div>
       <div className="rounded-2xl bg-app-2 p-4 text-[14px]">
@@ -480,6 +482,7 @@ function Track({ round, role, s, open, onNew }: { round: AuctionDetail; role: Re
   const [pill, head, sub] = down
     ? [<Pill kind="bad">Status unavailable</Pill>, "We can't check your deposit right now", `Last successful check: ${checked ? new Date(checked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "none yet"}. Your transaction id is saved. Don't send another deposit.`]
     : status === "admitted" ? [<Pill kind="good">Counted</Pill>, `Your ${role.noun} is in`, settled ? "The round has finished. See how it turned out." : `It's ${role.noun} ${Number(st?.leaf_index ?? 0) + 1} of this round, and opens with the others ${rel(round.release)}.`]
+    : status === "unknown" && !s.txid ? [<Pill kind="plain">No payment recorded</Pill>, "No deposit was recorded for this bid", open ? "If you haven't paid yet, place the bid again from this page and pay before bidding closes. If you paid from your own wallet, the page that sealed it has the transaction id." : "Bidding has closed. If you never paid, there is nothing to do and nothing to refund."]
     : status === "refused" ? [<Pill kind="bad">Not counted</Pill>, `Your ${role.noun} didn't count`, `${st?.detail ?? ""} Your deposit can be refunded with your recovery file.`]
     : [<Pill kind="live">Looking for your deposit</Pill>, "Waiting for your deposit to confirm", `It counts after 10 confirmations, usually 10 to 20 minutes after you pay${s.at ? ` (yours: ${Math.max(0, Math.round((Date.now() - s.at) / 60000))} min so far)` : ""}. ${checked ? `Last checked ${new Date(checked).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}; we check every 15 seconds.` : "Checking now…"} You can close this page; this ${role.noun} stays in My activity.`];
   return (

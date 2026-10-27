@@ -53,7 +53,7 @@ export class DemoWallet {
     const funded = this.balance.spendable >= 260_000;
     // low: the test fleet (deploy/fleet/lite-bot.ts) tops the demo wallet up when it says so.
     return { available: funded && left > 0 && this.dayLeft() > 0, address: this.address, left_this_hour: left, low: this.balance.at > 0 && this.balance.spendable < 3_000_000,
-      reason: !funded ? "The demo wallet is waiting for its coins to confirm. Try again in a few minutes." : left === 0 ? "You've used this hour's demo deposits. Try again later, or pay from your own wallet." : this.dayLeft() === 0 ? "Today's demo deposits are used up. Pay from your own wallet." : undefined };
+      reason: !funded ? "The demo wallet is waiting for its coins to confirm. Try again in a few minutes." : left === 0 ? `It has paid the ${PER_IP} deposits it allows per network each hour; the next frees up at ${new Date(Math.min(...this.recent(ip)) + 3600_000).toISOString().slice(11, 16)} UTC.` : this.dayLeft() === 0 ? "Today's demo deposits are used up. Pay from your own wallet." : undefined };
   }
   private recent(ip: string) { const t = Date.now() - 3600_000, v = (this.ips.get(ip) ?? []).filter((x) => x > t); this.ips.set(ip, v); return v; }
   private dayLeft() { const t = Date.now() - 86_400_000; this.day = this.day.filter((x) => x > t); return PER_DAY - this.day.length; }
@@ -63,7 +63,7 @@ export class DemoWallet {
   // can't be pointed at another address.
   pay(manifest: any, uri: string, ip: string): { job: string } {
     if (!this.ready) throw Object.assign(new Error("the demo wallet isn't set up on this server"), { status: 503 });
-    if (this.recent(ip).length >= PER_IP) throw Object.assign(new Error("you've used this hour's demo deposits"), { status: 429 });
+    if (this.recent(ip).length >= PER_IP) throw Object.assign(new Error(`the demo wallet has paid this network's ${PER_IP} deposits for this hour`), { status: 429 });
     if (this.dayLeft() <= 0) throw Object.assign(new Error("today's demo deposits are used up"), { status: 429 });
     let u: URL;
     try { u = new URL(uri); } catch { throw Object.assign(new Error("that isn't a payment link"), { status: 400 }); }

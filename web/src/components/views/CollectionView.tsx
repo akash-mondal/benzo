@@ -19,7 +19,7 @@ const wayOf = (a: AuctionSummary) => WAYS.find((w) => w.match.test(a.lot ?? ""))
 const done = (a: AuctionSummary) => a.state === "SETTLED" || Boolean(a.finished);
 const ago = (t: number) => { const s = Math.max(0, Date.now() / 1000 - t); return s < 3600 ? `${Math.max(1, Math.round(s / 60))}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`; };
 // The pieces a settled mint or one-of-ones round sold: numbers drawn from the round, so a round always shows the same ones.
-const piecesOf = (a: AuctionSummary) => Array.from({ length: Math.min(6, Number(a.outcome?.filled ?? 0)) }, (_, i) => (hashOf(`${a.id}:${i}`) % 9999) + 1);
+const piecesOf = (a: AuctionSummary) => /#\s?\d/.test(a.lot ?? "") && Number(a.outcome?.filled ?? 0) > 0 ? [specterNo(a.lot ?? "")] : Array.from({ length: Math.min(6, Number(a.outcome?.filled ?? 0)) }, (_, i) => (hashOf(`${a.id}:${i}`) % 9999) + 1);
 
 function Art({ no, className }: { no: number; className?: string }) {
   return <img src={specterUri(no)} alt={`Specter #${no}`} className={cx("rounded-[18%] ring-1 ring-[#ddd6c62e] [image-rendering:pixelated]", className)} />;
@@ -34,7 +34,7 @@ export default function CollectionView({ initial }: { initial: AuctionSummary[] 
   }, []);
   const mine = useMemo(() => list.filter((a) => isSpecter(a.lot) && wayOf(a)), [list]);
   const settled = mine.filter(done).sort((a, b) => b.updated - a.updated);
-  const live = mine.filter((a) => a.live).sort((a, b) => a.T_submit - b.T_submit);
+  const live = mine.filter((a) => a.live && a.free_slots !== 0 && a.T_submit - Date.now() / 1000 > 480).sort((a, b) => b.T_submit - a.T_submit);
   const mints = settled.filter((a) => wayOf(a)?.key === "mint" && Number(a.clearing_price_zats ?? 0) > 0);
   const floor = mints[0] ? Number(mints[0].clearing_price_zats) : null;
   const sold = settled.filter((a) => ["mint", "ones", "otc"].includes(wayOf(a)!.key)).reduce((n, a) => n + Number(a.outcome?.filled ?? 0), 0);

@@ -286,7 +286,7 @@ function Sealed({ d, live, toClose }: { d: AuctionDetail; live: boolean; toClose
       </div>
       <div>
         <div className="serif-figure text-[24px] text-[#f3eee2]">{n ? `${n} sealed ${n === 1 ? "bid" : "bids"}` : live ? "Sealed bids land here" : "Waiting for the committed bids"}</div>
-        <p className="mt-1 max-w-[440px] text-[13px] text-app-muted">{live && toClose ? `Bidding closes in ${clock(toClose)}. ` : ""}{Date.now() / 1000 < d.release ? `Every price stays sealed until the bids open together ${rel(d.release)}, at ${when(d.release)}. Nobody, the operator included, can read one before then.` : (d as any).stopped ? `This round stopped before its bids were opened, so nothing was paid out. Every deposit can be refunded: open your recovery file under My bids.` : `The opening is running late: drand published round R at ${when(d.release)}, and the bids open as soon as the operator's runner reaches this round. Nobody has read them meanwhile.`}</p>
+        <p className="mt-1 max-w-[440px] text-[13px] text-app-muted">{live && toClose ? `Bidding closes in ${clock(toClose)}. ` : ""}{Date.now() / 1000 < d.release ? `Every price stays sealed until the bids open together ${rel(d.release)}, at ${when(d.release)}. Nobody, the operator included, can read one before then.` : (d as any).stopped ? `This round stopped before its bids were opened, so nothing was paid out. Every deposit can be refunded: open your recovery file under My bids.` : `The opening is running late: drand published round ${d.R.toLocaleString("en-US")} at ${when(d.release)}, and the bids open as soon as the operator's runner reaches this round. Nobody has read them meanwhile.`}</p>
       </div>
     </div>
   );

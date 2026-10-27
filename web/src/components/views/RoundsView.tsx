@@ -116,7 +116,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
                     <span className="hidden truncate text-[13px] text-app-muted md:block">{MODE_NAME[a.mode]}</span>
                     <span><Pill kind={STAGE[st][1]}>{STAGE[st][0]}</Pill></span>
                     <span className="hidden truncate text-[13px] text-app-text tabular-nums md:block">{outcomeLine(a)}{st === "running" && now - a.updated > 6 * 3600 ? " · stalled" : ""}</span>
-                    <span className="hidden text-right text-[13px] tabular-nums text-app-muted md:block">{a.leaf_count ?? 0}</span>
+                    <span className="hidden text-right text-[13px] tabular-nums text-app-muted md:block">{a.leaf_count ?? a.counted ?? 0}</span>
                     <time dateTime={new Date(a.updated * 1000).toISOString()} className="hidden text-right text-[12.5px] tabular-nums text-app-muted md:block">{ready ? local(a.updated) : utc(a.updated)}</time>
                   </a>
                 </li>); })}
