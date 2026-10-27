@@ -120,7 +120,7 @@ The control matters: if the untouched copy didn't pass, the refusals would prove
 
 | Where | What |
 |---|---|
-| **benzo.space** (Zcash testnet) | The full product: start a round, invite bidders, bid from the browser, watch the opening, settle, check. During judging, a fleet of test bidders ([`deploy/fleet/`](deploy/fleet/)) also starts rounds and bids through the site, so you can see it under load. Every one of their bids is a real sealed testnet deposit |
+| **benzo.space** (Zcash testnet) | The full product: start a round, invite bidders, bid from the browser, watch the opening, settle, check. During judging, a fleet of eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) runs on the same server. Each has its own wallet; it starts rounds and bids through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Every one of their bids is a real sealed testnet deposit |
 | **Zcash testnet** | All six markets end to end: shielded deposits with sealed memos, freeze, drand opening, clearing, 2-of-3 FROST settlement. Recorded rounds are in [`docs/evidence/phase-5/markets/`](docs/evidence/phase-5/markets/) |
 | **Ethereum Sepolia** | A cross-chain payout to a one-time ERC-5564 stealth address ([log](docs/evidence/phase-5/repro/stealth-live.out)) |
 | **Solana devnet** | A Token-2022 confidential transfer, as a standalone demo, not yet an escrow payout ([log](docs/evidence/phase-5/repro/ct-live.out)) |

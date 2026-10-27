@@ -27,6 +27,7 @@ api/dist/
 contracts/evm/out/
 contracts/evm/cache/
 envelope/dist/
+deploy/fleet/dist/
 vendor
 # Agent configs and internal build notes stay local (not part of the public repo).
 CLAUDE.md

@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:fleet": "esbuild deploy/fleet/lite-bot.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=deploy/fleet/dist/lite-bot.mjs --log-level=warning",
     "build:seal": "esbuild seal/src/main.ts --bundle --format=esm --platform=browser --outfile=seal/dist/main.js --log-level=warning && cp seal/src/index.html seal/dist/index.html",
     "typecheck": "tsc -p tsconfig.json",
     "e2e": "playwright test --project=default",
