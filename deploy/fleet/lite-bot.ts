@@ -245,10 +245,21 @@ async function topUpDemo(b: Bot, spendable: number) {
   say(b.name, `demo wallet topped up: ${(await pay(b, `zcash:?${q}`)).slice(0, 12)}`);
 }
 
+// One note pays one bid, and its change takes about ten blocks to confirm, so a bot holding one large note bids
+// about once every 12 minutes. Once, each bot pays itself 20 notes of 0.02 TAZ so it can bid back to back.
+async function splitNotes(b: Bot, spendable: number) {
+  const mark = path.join(DIR, b.name, "split.done");
+  if (existsSync(mark) || spendable < 50_000_000) return;
+  const q = Array.from({ length: 20 }, (_, i) => `${i ? `address.${i}` : "address"}=${b.ua}&${i ? `amount.${i}` : "amount"}=0.02`).join("&");
+  const tx = await pay(b, `zcash:?${q}`);
+  writeFileSync(mark, tx + "\n"); say(b.name, `split into 20 notes: ${tx.slice(0, 12)}`);
+}
+
 async function run(b: Bot, starter: boolean, giver: boolean) {
   for (;;) {
     try {
       const bal = await balance(b);
+      await splitNotes(b, bal.spendable).catch((e) => say(b.name, `split: ${String(e.message).slice(0, 140)}`));
       if (bal.spendable < MIN_SPENDABLE) { say(b.name, `waiting for funds (spendable ${bal.spendable}, total ${bal.total})`); await sleep(300_000); continue; }
       if (giver) await topUpDemo(b, bal.spendable).catch((e) => say(b.name, `demo top-up: ${String(e.message).slice(0, 160)}`));
       const open = await openRounds();

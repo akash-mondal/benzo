@@ -98,15 +98,26 @@ export class Runner {
   queued() { return this.queue.length; }
   // A round the runner gave up on ("FAILED; needs the operator") before it paid out: the site says so.
   stopped(id: string) { return this.auctions.some((a) => a.id === id && a.phase === "failed"); }
-  // Settled and verified by the runner (a round with nothing to pay keeps the state CLEARED).
-  finished(id: string) { return this.auctions.some((a) => a.id === id && a.phase === "done"); }
+  // Settled and verified by the runner with nothing left to pay (a round with no bids keeps the state CLEARED).
+  finished(id: string) { const a = this.auctions.find((x) => x.id === id && x.phase === "done"); return !!a && this.paidOut(a); }
+  // Every settlement row of the round's public record is paid, refunded or parked as an exception (or there is none).
+  private paidOut(a: Live) {
+    try {
+      const doc = JSON.parse(readFileSync(path.join(a.pub, "auction.json"), "utf8"));
+      if (doc.state === "SETTLED" || doc.state === "CANCELLED") return true;
+      const rows = doc.settlement?.rows ?? [];
+      const bids = doc.frozen?.leaf_count ?? doc.frozen?.leaves?.length ?? 0;
+      return rows.length ? rows.every((r: any) => ["paid", "refunded", "exception"].includes(r.state)) : bids === 0;
+    } catch { return false; }
+  }
   // The operator's view (/api/ops/runner): every round's phase, last error and last log lines.
   opsList() { return this.auctions.map((a) => ({ id: a.id, mode: a.spec.mode, phase: a.phase, retries: a.retries, error: a.error, log: a.log.slice(-6) })); }
   // Put a round that gave up ("FAILED; needs the operator") back at the step it reached, for another six tries. Each
   // step refuses to run twice, so a step that already happened is skipped (the "settling" resume path).
   retry(id: string) {
     const a = this.auctions.find((x) => x.id === id);
-    if (!a || a.phase !== "failed") return { ok: false, error: a ? `phase is ${a.phase}` : "unknown round" };
+    // "done" too: a round the old resume path marked done before its payments finished (paidOut is false).
+    if (!a || !(a.phase === "failed" || (a.phase === "done" && !this.paidOut(a)))) return { ok: false, error: a ? `phase is ${a.phase}` : "unknown round" };
     const did = (w: string) => a.log.some((l) => l.includes(w));
     const phase = did("opened at round R") || did("cleared") || did("in settling") ? "settling" : did("witness certificates published") ? "witnessed" : did("frozen") ? "frozen" : null;
     if (!phase) return { ok: false, error: "it failed before it was frozen; nothing to resume" };
@@ -283,14 +294,21 @@ export class Runner {
         await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]); this.say(a, "verified");
         a.phase = "done"; this.save();
       } else if (a.phase === "settling") {
-        // A settle interrupted by a restart: open/clear refuse a second run, so pick up where the ledger is.
-        for (const step of [["open"], ["clear"], ["hosts", "envelope-opens"], ["settle"]]) await this.run([...step, "--id", a.id]).catch((e: Error) => { if (!/already|state|OPENED|CLEARED|SETTLED|refus/i.test(e.message)) throw e; });
+        // A settle interrupted by a restart, or one waiting for its last batch to mine: open, clear and the envelope
+        // opens refuse a second run, so pick up where the ledger is. The settle itself is never skipped: the round is
+        // done only when every payment row is paid, refunded or parked in the exception queue.
+        for (const step of [["open"], ["clear"], ["hosts", "envelope-opens"]]) await this.run([...step, "--id", a.id]).catch((e: Error) => { if (!/already|state|OPENED|CLEARED|SETTLED/i.test(e.message)) throw e; });
+        await this.run(["settle", "--id", a.id]);
+        if (!this.paidOut(a)) { const w = "settle waits for its batches to mine"; if (a.log.at(-1)?.includes(w) !== true) this.say(a, w); return; }
         await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]); this.say(a, "settled and verified");
         a.phase = "done"; this.save();
       }
       a.retries = 0;
     } catch (e) {
-      a.retries++; a.error = String((e as Error).message).slice(0, 400);
+      // A batch that is still mining is a wait, not a failure: it never uses up the round's retries.
+      const msg = String((e as Error).message);
+      if (/can still mine|still mining|not yet mined/i.test(msg)) { a.error = msg.slice(0, 400); if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
+      a.retries++; a.error = msg.slice(0, 400);
       this.say(a, `retry ${a.retries} in ${a.phase}: ${a.error}`);
       if (a.retries >= 6) { a.phase = "failed"; this.say(a, "FAILED; needs the operator"); }
     }
