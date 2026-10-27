@@ -10,7 +10,7 @@ export function outcomeLine(a: AuctionSummary): string {
   if (a.state === "CANCELLED") return "Cancelled · every deposit refunded";
   if (a.stopped) return "Stopped before paying out · each bidder refunds with their recovery file";
   const o = a.outcome;
-  if (!o) return IN_PROGRESS[a.state] ?? a.state;
+  if (!o) return a.finished ? "Finished · nothing to pay out" : IN_PROGRESS[a.state] ?? a.state;
   const price = a.clearing_price_zats && a.clearing_price_zats !== "0" ? a.clearing_price_zats : null;
   if (o.filled === 0) return a.mode === "launch" ? "Minimum raise not met · refunded" : a.mode === "otc" ? "No trade · the limits didn't cross" : a.mode === "rfq" ? "No quote accepted · refunded" : a.mode === "buyback" ? "No ask accepted · refunded" : "No winning bids · refunded";
   if (a.mode === "drop") return `${o.filled} of ${o.of} lots sold · ${z(o.paid_zats)} in winning bids`;

@@ -21,6 +21,7 @@ export type AuctionSummary = {
   settled: boolean;
   live: boolean; // run by this site's operator and still taking bids
   updated: number;
+  finished?: boolean; // settled and verified by the runner; a round with nothing to pay keeps the state CLEARED
   stopped?: boolean; // the operator's runner gave up before paying out; deposits refund with each bidder's recovery file
   outcome?: { filled: number; of: number; paid_zats: string } | null; // what sold, once the round has a result
 };

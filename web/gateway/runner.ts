@@ -94,6 +94,8 @@ export class Runner {
   queued() { return this.queue.length; }
   // A round the runner gave up on ("FAILED; needs the operator") before it paid out: the site says so.
   stopped(id: string) { return this.auctions.some((a) => a.id === id && a.phase === "failed"); }
+  // Settled and verified by the runner (a round with nothing to pay keeps the state CLEARED).
+  finished(id: string) { return this.auctions.some((a) => a.id === id && a.phase === "done"); }
   // The operator's view (/api/ops/runner): every round's phase, last error and last log lines.
   opsList() { return this.auctions.map((a) => ({ id: a.id, mode: a.spec.mode, phase: a.phase, retries: a.retries, error: a.error, log: a.log.slice(-6) })); }
   // Put a round that gave up ("FAILED; needs the operator") back at the step it reached, for another six tries. Each
