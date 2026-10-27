@@ -205,6 +205,7 @@ const server = http.createServer(async (req, res) => {
           const dirs = existsSync(base) ? readdirSync(base).filter((d) => existsSync(path.join(base, d, "host-errors.log"))).sort((a, b) => statSync(path.join(base, b, "host-errors.log")).mtimeMs - statSync(path.join(base, a, "host-errors.log")).mtimeMs).slice(0, 3) : [];
           return json(res, 200, dirs.map((d) => ({ id: d, tail: readFileSync(path.join(base, d, "host-errors.log"), "utf8").split("\n").slice(-120).join("\n") })));
         }
+        if (parts[2] === "shim") { const f = path.join(STATE, "run", "host-shim.log"); return json(res, 200, { tail: existsSync(f) ? readFileSync(f, "utf8").split("\n").slice(-200).join("\n") : "" }); }
         return json(res, 404, { error: "not found" });
       }
       // Rounds people start: create, read (the creator's token adds the invite links), and join with a party key.
