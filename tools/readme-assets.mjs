@@ -31,14 +31,17 @@ const DEFS = `<linearGradient id="chrome" x1="0" y1="0" x2="1" y2="0.36"><stop o
 <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${C.muted}"/></marker>
 <marker id="arrowg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${C.gold}"/></marker>`;
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-const svg = (w, h, title, body) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title)}" font-family="${SANS}"><title>${esc(title)}</title><defs>${DEFS}</defs><rect width="${w}" height="${h}" rx="22" fill="url(#night)"/>${body}<rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="22" fill="none" stroke="${C.line}" stroke-opacity=".12"/></svg>`;
+// A figure has no title of its own (the README heading above it says what it is): content drawn below the old title
+// line is lifted by LIFT, and the frame shrinks to match. The banner keeps its full height (lift 0).
+const LIFT = 50;
+const svg = (w, h0, title, body, lift = LIFT) => { const h = h0 - lift; return `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title)}" font-family="${SANS}"><title>${esc(title)}</title><defs>${DEFS}</defs><rect width="${w}" height="${h}" rx="22" fill="url(#night)"/><g transform="translate(0 ${-lift})">${body}</g><rect x=".5" y=".5" width="${w - 1}" height="${h - 1}" rx="22" fill="none" stroke="${C.line}" stroke-opacity=".12"/></svg>`; };
 const T = (x, y, s, size, fill = C.text, more = "") => `<text x="${x}" y="${y}" font-size="${size}" fill="${fill}" ${more}>${esc(s)}</text>`;
-const H2 = (x, y, s) => T(x, y, s, 28, C.text, `font-weight="600" letter-spacing="-.3"`);
+const H2 = () => "";
 const box = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${C.panel}" stroke="${C.line}" stroke-opacity=".16"/>`;
 const arrow = (x1, y1, x2, y2, gold = false) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${gold ? C.gold : C.muted}" stroke-width="2" marker-end="url(#${gold ? "arrowg" : "arrow"})"/>`;
 const chip = (x, y, w, h, label, sub, hot = false, mono = false) => `<rect x="${x + 1}" y="${y}" width="${w - 2}" height="${h}" rx="8" fill="${hot ? C.hot : C.panel2}" stroke="${hot ? C.gold : C.line}" stroke-opacity="${hot ? .9 : .2}"/>`
   + T(x + w / 2, y + h / 2 - 3, label, 15.5, hot ? C.gold : C.text, `text-anchor="middle" font-weight="600" ${mono ? `font-family="${MONO}"` : ""}`)
-  + (sub ? T(x + w / 2, y + h / 2 + 18, sub, 13.5, C.muted, `text-anchor="middle"`) : "");
+  + (sub ? T(x + w / 2, y + h / 2 + 19, sub, 14.5, C.muted, `text-anchor="middle"`) : "");
 
 // ---- 1. banner: the name, the claim, and a sealed envelope whose seal sits cleanly on the flap's point.
 function banner() {
@@ -59,7 +62,7 @@ function banner() {
     ${T(84, 226, "Sealed-bid markets on Zcash.", 30, C.text, `font-weight="500"`)}
     ${T(84, 270, "Bids are locked to a future drand round.", 22, C.muted)}
     ${T(84, 302, "Nobody can read one before it, not even the operator.", 22, C.muted)}`;
-  return svg(W, H, "Benzo: sealed-bid markets on Zcash. Bids are locked to a future drand round; nobody can read one before it, not even the operator.", body);
+  return svg(W, H, "Benzo: sealed-bid markets on Zcash. Bids are locked to a future drand round; nobody can read one before it, not even the operator.", body, 0);
 }
 
 // ---- 2. a round on the clock: six steps on one line; the line runs behind solid circles.
@@ -77,8 +80,8 @@ function lifecycle() {
   let body = `${H2(64, 64, "A round, from first bid to proof")}
     <line x1="${x0}" y1="${y}" x2="${x0 + dx * 2}" y2="${y}" stroke="${C.gold}" stroke-opacity=".6" stroke-width="3"/>
     <line x1="${x0 + dx * 2}" y1="${y}" x2="${W - x0}" y2="${y}" stroke="${C.line}" stroke-opacity=".25" stroke-width="3"/>
-    ${T(x0 + dx, y - R - 22, "sealed: nobody can read a bid", 16, C.gold, `text-anchor="middle" font-weight="600"`)}
-    ${T(x0 + dx * 3.5, y - R - 20, "opened: prices public, bidders still private", 16, C.muted, `text-anchor="middle" font-weight="600"`)}`;
+    ${T(x0 + dx, y - R - 22, "sealed: nobody can read a bid", 17, C.gold, `text-anchor="middle" font-weight="600"`)}
+    ${T(x0 + dx * 3.5, y - R - 20, "opened: prices public, bidders still private", 17, C.muted, `text-anchor="middle" font-weight="600"`)}`;
   steps.forEach(([d, name, lines, when], i) => {
     const x = x0 + dx * i, key = i === 2;
     body += `<circle cx="${x}" cy="${y}" r="${R}" fill="${C.ground}"/>
@@ -86,7 +89,7 @@ function lifecycle() {
       ${doodle(d, x, y, 60, key ? "url(#goldc)" : "url(#chrome)")}
       ${T(x, y + R + 42, `${i + 1}  ${name}`, 21, C.text, `text-anchor="middle" font-weight="600"`)}
       ${lines.map((l, k) => T(x, y + R + 72 + k * 23, l, 16, C.muted, `text-anchor="middle"`)).join("")}
-      ${T(x, y + R + 158, when, 15, key ? C.gold : C.faint, `text-anchor="middle" font-weight="600"`)}`;
+      ${T(x, y + R + 158, when, 16, key ? C.gold : C.faint, `text-anchor="middle" font-weight="600"`)}`;
   });
   return svg(W, H, "A round in six steps: seal and pay, freeze, open at drand round R, clear, settle with 2 of 3 signers, verify.", body);
 }
@@ -150,7 +153,7 @@ function deposit() {
   ["d₁", "d₂", "d₃"].forEach((d, i) => {
     const x = 64 + i * 238, y = 104;
     body += `${box(x, y, 218, 176)}
-      ${T(x + 22, y + 36, "shielded payment", 15, C.faint, `font-weight="600"`)}
+      ${T(x + 22, y + 36, "shielded payment", 16, C.faint, `font-weight="600"`)}
       ${T(x + 22, y + 72, "200,000 zats", 24, C.text, `font-weight="600"`)}
       ${T(x + 22, y + 106, `to deposit address ${d}`, 16, C.muted)}
       ${T(x + 22, y + 134, "memo: 512 sealed bytes", 16, C.muted)}
@@ -166,7 +169,7 @@ function deposit() {
     ${T(ex + 22, ey + 66, "public, but readable only", 16, C.muted)}${T(ex + 22, ey + 88, "with a signer's own key", 16, C.muted)}`;
   ["alice", "bob", "carol"].forEach((n, i) => {
     const y = ey + 110 + i * 50;
-    body += `<rect x="${ex + 22}" y="${y}" width="264" height="40" rx="8" fill="${C.panel2}"/>${T(ex + 36, y + 26, n, 16, C.gold, `font-weight="600"`)}${T(ex + 272, y + 26, "X25519 sealed box", 14.5, C.muted, `text-anchor="end"`)}`;
+    body += `<rect x="${ex + 22}" y="${y}" width="264" height="40" rx="8" fill="${C.panel2}"/>${T(ex + 36, y + 26, n, 16, C.gold, `font-weight="600"`)}${T(ex + 272, y + 26, "X25519 sealed box", 15.5, C.muted, `text-anchor="end"`)}`;
   });
   body += `<rect x="${ex + 22}" y="${ey + 266}" width="264" height="40" rx="8" fill="${C.hot}" stroke="${C.gold}" stroke-opacity=".7"/>
     ${T(ex + 154, ey + 292, "your refund address", 16, C.text, `text-anchor="middle" font-weight="600"`)}`;
@@ -186,19 +189,19 @@ function freeze() {
   lxs.forEach((x, i) => { body += edge(x, ly - 16, l1[Math.floor(i / 2)], y1 + 16); });
   l1.forEach((x, i) => { body += edge(x, y1 - 16, l2[i === 2 ? 1 : 0], y2 + 16); });
   l2.forEach((x) => { body += edge(x, y2 - 16, root, yr + 16); });
-  const node = (x, y, label, w, gold = false) => `<rect x="${x - w / 2}" y="${y - 16}" width="${w}" height="32" rx="8" fill="${gold ? C.hot : C.panel2}" stroke="${gold ? C.gold : C.line}" stroke-opacity="${gold ? 1 : .25}"/>${T(x, y + 5, label, 14, gold ? C.gold : C.muted, `text-anchor="middle" font-family="${MONO}"`)}`;
+  const node = (x, y, label, w, gold = false) => `<rect x="${x - w / 2}" y="${y - 16}" width="${w}" height="32" rx="8" fill="${gold ? C.hot : C.panel2}" stroke="${gold ? C.gold : C.line}" stroke-opacity="${gold ? 1 : .25}"/>${T(x, y + 5, label, 15, gold ? C.gold : C.muted, `text-anchor="middle" font-family="${MONO}"`)}`;
   lxs.forEach((x, i) => { body += node(x, ly, `bid ${i}`, 76); });
   l1.forEach((x) => { body += node(x, y1, "H(01‖l‖r)", 104); });
   l2.forEach((x) => { body += node(x, y2, "H(01‖l‖r)", 104); });
   body += node(root, yr, "frozen root", 132, true);
-  body += T(64, ly + 52, "leaf = SHA-256(00 ‖ SHA-256(ciphertext) ‖ the deposit's txid and address)", 15.5, C.muted);
+  body += T(64, ly + 52, "leaf = SHA-256(00 ‖ SHA-256(ciphertext) ‖ the deposit's txid and address)", 16.5, C.muted);
   const bx = 726;
   body += `${box(bx, 104, 410, 330)}
     ${T(bx + 26, 144, "Witness statement", 21, C.text, `font-weight="600"`)}
     ${["auction id", "frozen root", "leaf count", "T_freeze", "a recent block hash"].map((f, i) => T(bx + 26, 180 + i * 25, `· ${f}`, 16, C.muted)).join("")}
     ${T(bx + 26, 330, "signed by 2 of 3 witness keys", 17, C.text, `font-weight="600"`)}
     ${["alice", "bob", "carol"].map((n, i) => `<rect x="${bx + 26 + i * 122}" y="350" width="110" height="40" rx="9" fill="${i < 2 ? C.hot : C.panel2}" stroke="${i < 2 ? C.gold : C.line}" stroke-opacity="${i < 2 ? .8 : .2}"/>${T(bx + 81 + i * 122, 376, i < 2 ? `${n} ✓` : n, 15.5, i < 2 ? C.gold : C.faint, `text-anchor="middle" font-weight="600"`)}`).join("")}
-    ${T(bx + 26, 418, "A second root for the same round is refused.", 14.5, C.muted)}`;
+    ${T(bx + 26, 418, "A second root for the same round is refused.", 16, C.muted)}`;
   body += arrow(root + 74, yr, bx - 12, yr + 40, true);
   return svg(W, H, "Freeze: the admitted bids become the leaves of a Merkle tree; its root, leaf count, T_freeze and a recent block hash are signed by 2 of 3 witnesses before round R.", body);
 }
