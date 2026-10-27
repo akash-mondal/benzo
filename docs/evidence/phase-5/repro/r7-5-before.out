@@ -1,9 +1,0 @@
-commit 579af44 (source at run time, pre-fix; live sealed-reserve dev auction 90d3aeb8… at CLEARED)
-utc 2026-10-02T20:11:21Z
-command node tools/repro/r7-5-reserve-opening-repro.mjs 90d3aeb89136a005d1bb343f964762eabc1a97fa2bcfdfd17022ea7cd2115d22
-R1 published reserve_opening: MISSING
-R1 fresh tle derivation:      00000000000007d090d3aeb89136a005…
-R1 equal: false
-R2 signer plan exit 1 ERROR settle refused: node failed: ERROR clear refused: missing reserve opening
-R3 verify exit 1 ERROR verify refused: reserve opening published differs from re-derived
-CONFIRMED: publish() never emits reserve_opening — every sealed-reserve product auction is refused by the signer plan and benzo verify (G2 dead wiring).

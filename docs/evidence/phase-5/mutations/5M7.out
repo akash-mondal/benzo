@@ -1,6 +1,0 @@
-# 5M7 mutation replay (a default refunded instead of forfeited), regenerated on the A18 tree and replayed on the A18 drop corpus: ERROR drop-forfeit. Patch applied with git apply, run, reversed with git apply -R.
-# command node tmp/mut-replay-markets.mjs <revision> <rfq> docs/evidence/phase-5/markets/drop-a18/drop-cold <launch>
-PASS revision outcomes superseded,unfilled,winner price 300
-PASS rfq outcomes unfilled,winner,not_allowlisted price 400
-FAIL drop-forfeit obligations {"leaf:1":200000,"leaf:2":250000,"leaf:3":200000,"seller":950000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)
-ERROR drop-forfeit obligations {"leaf:1":200000,"leaf:2":250000,"leaf:3":200000,"seller":950000} want {"leaf:1":200000,"leaf:3":200000,"seller":700000} (the defaulter's bond is forfeited to the seller)

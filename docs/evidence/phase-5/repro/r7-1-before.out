@@ -1,9 +1,0 @@
-commit 223a9e7 (source at run time, pre-fix; live auction a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961 at CLEARED)
-utc 2026-10-02T18:46:07Z
-command node tools/repro/r7-1-ledger-redirect-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961 bob
-F-1 CONFIRMED: operator state a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961.envelope.json holds the envelope private key; it decrypts leaf 0's destination [redacted address 831791cddf]
-allocated batch 1 rows: leaf:0=498800 leaf:1=498800 seller=2400
-sign inspect exit 0
-bf61b8630b557afbd27","matches_pinned_routing":true,"participant":"bob","pczt_hash":"d09578d067d04ff4e76407ee2d814bdde9e4c4c827ccb0d90abe2f0043699c08","pubkey":"24aece4d7b4bc0d6f4d0048af7e85b1b1ae009ac50123ae0249d48966308cd5f","randomizer":"","result_hash":"b24686e5267588a753c08189e4c4d7dd9d18e2824f5b44585e49c70f2b38a8cf","sighash":"d9bf7da244bfcc30c4cd2a35d92be7ecaf70c9f8dc66fb182b2eaa66221f82ed"}
-CONFIRMED: the signer approved a real PCZT paying utest1redacted — the coordinator rewrites STATE/auction/<id>.json and every check passes.
-restored a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961.json; outcome CONFIRMED

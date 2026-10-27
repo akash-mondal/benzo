@@ -1,6 +1,0 @@
-[resume a66c87d2] state CLEARED
-[resume a66c87d2] balance addresses 0:utest1kt0sh2aaql… 2:utest1kv3c4mphlz…
-[resume a66c87d2] balance paid 300000 for leaf 0 (c8087328dd724388cf445dc96de2ff7a3dfe8d5951f6cde2fba4c7b9904738b8)
-[resume a66c87d2] balance window closed at height 4468074 (clear 4468042 + 10)
-[resume a66c87d2] settle exit 0; receipts {"leaf:1":200000,"leaf:3":200000,"seller":400000}; obligations {"leaf:1":200000,"leaf:3":200000,"seller":700000}
-[resume a66c87d2] RESULT FAIL (verify exit 0)

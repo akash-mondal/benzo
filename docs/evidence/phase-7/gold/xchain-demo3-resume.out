@@ -1,3 +1,0 @@
-[resume 93a0691f] state OPEN
-[resume 93a0691f] settle exit 0; receipts {"leaf:0":199200,"leaf:1":200800}; obligations {"leaf:0":199200,"leaf:1":200800}
-[resume 93a0691f] RESULT PASS (verify exit 0)

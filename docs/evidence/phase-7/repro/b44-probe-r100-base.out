@@ -1,3 +1,0 @@
-intact                       shape {"ok":true}                                          open plaintext
-junk 128-byte stanza body    shape {"ok":true}                                          open THROW invalid G2 point: expected 96/192 bytes
-wrong round (R+1)            shape {"ok":false,"reason":"stanza round is 32704233, no   open THROW refused: ciphertext beacon round

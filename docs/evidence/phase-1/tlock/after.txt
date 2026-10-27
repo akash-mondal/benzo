@@ -1,2 +1,0 @@
-bid1 utc=2026-09-30T19:06:30.701Z latest=32663941 public_R_status=200 tle_exit=0 tle: 
-bid2 utc=2026-09-30T19:06:31.860Z latest=32663941 public_R_status=200 tle_exit=0 tle: 

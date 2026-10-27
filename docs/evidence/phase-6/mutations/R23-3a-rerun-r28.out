@@ -1,8 +1,0 @@
-run 28 re-run of mutation R23-3a at 9d7d185 (cheapest mutation re-run: covered code changed in e0ecb63)
-utc 2026-10-03T16:49:28Z
-command git apply docs/evidence/phase-5/mutations/R23-3a.patch && node tools/repro/r23-3-api-claims-repro.mjs (then git apply -R)
-ERROR r23-3-api-claims-no-beacon status 400 valid undefined claims null
-PASS r23-3-api-claims-with-beacon
-PASS r23-3-api-never-500
-RESULT FAIL 1 assertion(s) failed
-exit=1

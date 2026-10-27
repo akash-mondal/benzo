@@ -1,9 +1,0 @@
-# A17-N4 mutation replay (out-of-window notes swept into change again in clear/features.ts) — docs/evidence/phase-5/mutations/A17-N4.patch REGENERATED on the A18 tree, replayed through tools/repro/r38-n4.ts over the drop-r33 run's real late note: ERROR n4-refund-row / ERROR n4-no-sweep / ERROR n4-prewindow-dust.
-commit eb2d0de89fff341550e9569199303bcfe3e1fa4b (working tree not clean at run time)
-utc 2026-10-07T06:48:03.341Z
-FAIL n4-refund-row refunds [] want [{"party":"balance-late:f73de8b8b7995968e45f0b231ddbbd232523519b399d787f371bd93fe331672b:ironwood:0","leaf_index":0,"amount_zats":"300000"}] (one immutable row per late note, to that slot's own leaf)
-ERROR n4-refund-row refunds [] want [{"party":"balance-late:f73de8b8b7995968e45f0b231ddbbd232523519b399d787f371bd93fe331672b:ironwood:0","leaf_index":0,"amount_zats":"300000"}] (one immutable row per late note, to that slot's own leaf)
-FAIL n4-no-sweep sources ["balance:ac51f698365715147aaaf027ae375db13551b6c1fcb071c6c470df67fcb45321:ironwood:1","balance:f73de8b8b7995968e45f0b231ddbbd232523519b399d787f371bd93fe331672b:ironwood:0"] want ["balance:ac51f698365715147aaaf027ae375db13551b6c1fcb071c6c470df67fcb45321:ironwood:1"] (out-of-window notes are never settlement sources)
-ERROR n4-no-sweep sources ["balance:ac51f698365715147aaaf027ae375db13551b6c1fcb071c6c470df67fcb45321:ironwood:1","balance:f73de8b8b7995968e45f0b231ddbbd232523519b399d787f371bd93fe331672b:ironwood:0"] want ["balance:ac51f698365715147aaaf027ae375db13551b6c1fcb071c6c470df67fcb45321:ironwood:1"] (out-of-window notes are never settlement sources)
-FAIL n4-prewindow-dust defaults [2], refunds [] (pre-window dust never counts as payment and is refused by nothing: it adds its own per-note refund row)
-ERROR n4-prewindow-dust defaults [2], refunds [] (pre-window dust never counts as payment and is refused by nothing: it adds its own per-note refund row)

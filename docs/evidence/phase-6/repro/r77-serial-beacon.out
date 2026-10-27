@@ -1,4 +1,0 @@
-# R77 (Reviewer G G-2, refuted): settle/plan.ts recomputes through clear/dist/cli.mjs = clearForMode -> attachSerials (BLS check against the pinned quicknet key). Script: tools/repro/r77-serial-beacon.ts
-published beacon: ACCEPTED
-forged beacon (one hex digit changed, not a curve point): REFUSED ERROR clear Cannot find square root
-substituted beacon (a real drand signature of another round, a valid point): REFUSED ERROR clear refused: serial beacon BLS signature

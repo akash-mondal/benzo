@@ -1,4 +1,0 @@
-{"auction_id":"b379359d45faeea8fb4ab720e167add3a8a3df3627e3ba7c55e210a53fdaf99f","batch":1,"allocated":4}
-WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
-WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
-{"auction_id":"b379359d45faeea8fb4ab720e167add3a8a3df3627e3ba7c55e210a53fdaf99f","settled":4}

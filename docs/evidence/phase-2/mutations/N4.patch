@@ -1,7 +1,0 @@
---- a/clear/core.ts
-+++ b/clear/core.ts
-@@ -26,3 +26,3 @@
-   });
--  const ranked=bids.filter(b=>!b.reason).sort((a,b)=>a.price !== b.price ? (a.price > b.price ? -1:1) : a.leaf_index-b.leaf_index);
-+  const ranked=bids.filter(b=>!b.reason).sort((a,b)=>a.price !== b.price ? (a.price > b.price ? -1:1) : input.opened.findIndex(o=>o.leaf_index===a.leaf_index)-input.opened.findIndex(o=>o.leaf_index===b.leaf_index));
-   let clearingPrice=0n;

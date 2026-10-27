@@ -1,4 +1,0 @@
-# 5M2-host live red run (2026-10-04T23:50:56Z): 5M2-host.patch and 5M4.patch deployed together (independent checks: W2 tests host approve, W1 tests operator files), e2e/buyback-mode.spec.ts
-{"Y1a":"PASS","V1a":"PASS","X1a":"PASS","V1b":"PASS","W2":"FAIL","Y1b":"PASS","V2":"PASS","W1":"FAIL","X1b":"PASS","Y1c":"PASS"}
-ERROR W2 Error: W2 threw | Expected: "" | Received: "alice approved a substituted recipient· | Expected: not 0"
-ERROR W1 Error: W1 threw | Expected: "" | Received: "utest1a0v7rv… in /Users/akshmnd/Dev Projects/benzo/.benzo/settle/14154fd9ef8c92d5cf244758f00aaffd4e3f1b3661976b80a2a4a2a3da46fafc· | Expected: false | Received: true"

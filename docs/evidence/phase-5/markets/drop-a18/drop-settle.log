@@ -1,9 +1,0 @@
-{"auction_id":"b9abcae64d3b1b952e38ac79e71fda0c8924761043a7d5dcb3a0c8f058db4a13","state":"SETTLING","settled":3}
-
-----
-ERROR refund balance-late:740a18632fdc5a1bdff771122a953ab9a7da478b2a85b905c36c9f4ac7bb1caa:ironwood:1 to the exception queue: out-of-window balance payment refunds to this leaf; claimable through benzo claim-refund
-{"auction_id":"b9abcae64d3b1b952e38ac79e71fda0c8924761043a7d5dcb3a0c8f058db4a13","batch":1,"allocated":3}
-settlement broadcast bd5d0a62098720bf7997ff247887ba31947da3e3b882aaeb2f287a7f7dfda380
-WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
-WARN single lightwalletd endpoint testnet.zec.rocks:443 (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement
-{"auction_id":"b9abcae64d3b1b952e38ac79e71fda0c8924761043a7d5dcb3a0c8f058db4a13","settled":3}

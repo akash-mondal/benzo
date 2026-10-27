@@ -1,3 +1,0 @@
-run.json -> tmp/e2e/out
-PASSED default seal in the browser, open with tle after R (39 s)
-run passed; details in tmp/e2e/report.json

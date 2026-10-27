@@ -1,5 +1,0 @@
-# mutation M2 at commit 36913b611fbb403cc5549c23e412606185b7bceb, started 2026-09-30T15:50:45Z, npm run e2e exit 1
-ERROR C7 Error: quantity | Expected: "1253046254" | Received: "4009209674"
-run.json -> tmp/e2e/out
-FAILED default seal in the browser, open with tle after R (38 s)
-run failed; details in tmp/e2e/report.json

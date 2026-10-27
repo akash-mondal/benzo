@@ -1,3 +1,0 @@
-[resume 1bbaa812] state CLEARED
-[resume 1bbaa812] settle exit 0; receipts {"leaf:0":200000,"leaf:1":199800,"leaf:2":199800,"seller":400}; obligations {"leaf:0":200000,"leaf:1":199800,"leaf:2":199800,"seller":400}
-[resume 1bbaa812] RESULT PASS (verify exit 0)

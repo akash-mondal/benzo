@@ -1,4 +1,0 @@
-commit 37f5c8e96bcc8ad5d9ee87ea0afa5121fe7086eb (working tree not clean at run time)
-utc 2026-10-22T16:04:50.607Z
-command node tmp/b57-h8.mjs (tools/repro/b57-h8-orb-sigkill.ts)
-STILL BLOCKED after 420 s (sh() never returned); killed by the proof runner

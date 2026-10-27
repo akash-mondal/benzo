@@ -1,7 +1,0 @@
-commit e0151bb (mutation R23-3a.patch applied to api/server.ts: the fail-closed guard is removed)
-utc 2026-10-03T10:30:30Z
-command node tools/repro/r23-3-api-claims-repro.mjs
-ERROR r23-3-api-claims-no-beacon status 400 valid undefined claims null
-PASS r23-3-api-claims-with-beacon
-PASS r23-3-api-never-500
-RESULT FAIL 1 assertion(s) failed

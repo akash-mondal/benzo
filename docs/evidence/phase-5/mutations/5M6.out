@@ -1,6 +1,0 @@
-# 5M6 mutation replay (a pre-window note counts as payment), regenerated on the A18 tree and replayed on the A18 drop corpus (drop-a18/drop-cold): ERROR drop-defaults-window. Patch applied with git apply, run, reversed with git apply -R.
-# command node tmp/mut-replay-markets.mjs <revision> <rfq> docs/evidence/phase-5/markets/drop-a18/drop-cold <launch>
-PASS revision outcomes superseded,unfilled,winner price 300
-PASS rfq outcomes unfilled,winner,not_allowlisted price 400
-FAIL drop-defaults-window defaults [] (a pre-window note must not count as payment; fixture (4473613, 4473616] in (4473614, 4473654])
-ERROR drop-defaults-window defaults [] (a pre-window note must not count as payment; fixture (4473613, 4473616] in (4473614, 4473654])

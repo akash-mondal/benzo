@@ -1,6 +1,0 @@
-utc 2026-10-02T23:42:36Z
-commit 56dcffe (pre-G10 bundles)
-W1 benzo witness sign on a product dir without published witness material:
-ERROR witness refused: missing witness set
-W2 the signer plan never checks certificates (no witness refusal even with manifest.witness_set_hash and zero certs — see the r7-5/r7-6 plan outputs; dev2's plan dies later at its swept deposits with no witness line)
-W3 publish() emits no witness fields: the R7.6 republish clobbered the fixture-placed witness_set/witness_cert (recorded in r7-6-live.out's history); benzo verify then refused 'missing witness set'

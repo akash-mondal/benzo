@@ -1,5 +1,0 @@
-auction b379359d45faeea8fb4ab720e167add3a8a3df3627e3ba7c55e210a53fdaf99f
-funding 3cdf35cda4d965ec49dd48470ec2870d9486daa7ee17889f5894c494ca1c9e96
-ERROR Y1b Error: Y1b threw | Expected: "" | Received: "ERROR signing session abandoned (batch 1, pair alice+bob, failed bob); re-planning with the next approving host | ERROR settle grpcurl exited 78: ERROR: | ERROR benzo settle exit 1· | Expected: 0 | Received: 1"
-ERROR V2 Error: V2 threw | Expected: "" | Received: "expect(received).toEqual(expected) // deep equality· | - Expected  - 6 | + Received  + 1· | - Object { | -   \"leaf:0\": \"500210\", | -   \"leaf:1\": \"500210\", | -   \"leaf:2\": \"500000\", | -   \"treasury\": \"10\", | - } | + Object {}"
-exit=1

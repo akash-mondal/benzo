@@ -1,7 +1,0 @@
---- a/clear/auction-cli.ts
-+++ b/clear/auction-cli.ts
-@@ -109,2 +109,4 @@
-       requireThat(["OPEN","SEALED-WAIT","CANCELLED"].includes(ledger.state) && !ledger.opened,"cancel after opening");
-+      const ct=path.join(dir,`${id}-cancel.age`); writeFileSync(ct,Buffer.from(ledger.leaves[0].ciphertext_hex,"hex"),{mode:0o600});
-+      ledger.trace.push({operation:"tle -d",time:now}); execute(path.join(state,"bin","tle"),["-d","-c",QUICKNET.chain_hash,ct]);
-       ledger.state="CANCELLED";

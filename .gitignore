@@ -28,3 +28,8 @@ contracts/evm/out/
 contracts/evm/cache/
 envelope/dist/
 vendor
+# Agent configs and internal build notes stay local (not part of the public repo).
+CLAUDE.md
+AGENTS.md
+.claude/
+.taste-skill/

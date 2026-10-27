@@ -1,8 +1,0 @@
-commit 3bb9282 (source at run time, pre-fix; synthetic settlement over the dev auction's published dir)
-utc 2026-10-02T19:32:13Z
-command node tools/repro/r7-4-claim-refund-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961
-C1 benzo claim-refund: absent — ERROR usage unknown command; run benzo --help
-C2 correct exception state verifies: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR envelope refused: missing envelope 2 | ERROR accounting refused: settlement missing obligation leaf:0
-C3 exception row with a receipt: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR envelope refused: missing envelope 2 | ERROR accounting refused: settlement leaf:0 amount
-C3 exception row flipped to paid, no receipt: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR envelope refused: missing envelope 2 | ERROR accounting refused: settlement missing obligation leaf:0
-C3 corrupted exception amount: exit 1 WARN no witness set (pre-Phase-5 manifest) | ERROR envelope refused: missing envelope 2 | ERROR accounting refused: settlement missing obligation leaf:0

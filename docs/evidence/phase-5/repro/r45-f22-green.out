@@ -1,9 +1,0 @@
-# r45-f22 GREEN — tools/repro/r45-f22.ts at the F22 commit (b08be69)
-# command npx esbuild tools/repro/r45-f22.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/r45-f22.mjs && node tmp/r45-f22.mjs
-commit b08be69b70ca90f4044a95e084b88d721e084f96
-utc 2026-10-08T06:01:32.263Z
-command node tmp/r45-f22.mjs (tools/repro/r45-f22.ts)
-PASS f22-multinote-taking-row-error refused: refused: multi-note taking row balance-excess:0 backs more than one note; the per-note skip subtracts a taking row's amount only when it bac
-WARN refund row balance-excess:0: note a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1:ironwood:0 already backs a refund row; skipping that note only (amount 110000 -> 10000; Ruling R44 F18)
-PASS f22-single-note-skip-unchanged per-note skip intact: excess row over the free note at 10000 (expected 10000)
-RESULT PASS r45-f22

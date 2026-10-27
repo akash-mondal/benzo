@@ -1,5 +1,0 @@
-# mutation M3 at commit 36913b611fbb403cc5549c23e412606185b7bceb, started 2026-09-30T15:51:24Z, npm run e2e exit 1
-ERROR C5 Error: events between first keystroke and envelope | - Expected  -  1 | + Received  + 14 | - Array [] | + Array [ | +   Object { | +     "kind": "request", | +     "method": "GET", | +     "t": 1790783486191, | +     "url": "https://api.drand.sh/?e=ff424e5a0101e76167652d656e6372797074696f6e2e6f72672f76310a2d3e20746c6f636b20333236363030353120353264623962613730653063633066366561663738303364643037343
-run.json -> tmp/e2e/out
-FAILED default seal in the browser, open with tle after R (40 s)
-run failed; details in tmp/e2e/report.json

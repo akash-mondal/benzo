@@ -1,6 +1,0 @@
-commit e52318b tree + fix (the run's cold copy ecbebf61…, published claims 10 leaves + 1 stray)
-utc 2026-10-03T01:14:29Z
-R13 repro: a published claim with a forged owner_sig is refused by benzo verify:
-published claims: ["leaf:0".."leaf:8","deposit:9d4db700…:4608313018"]
-ERROR claims refused: claim 0 owner signature
-note the clean copy verifies 12 OK checks after the seller-row fix below (the seller payout is the Q18 operator-pinned sink and never claim-backed).

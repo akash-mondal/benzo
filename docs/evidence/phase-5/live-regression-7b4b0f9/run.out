@@ -1,4 +1,0 @@
-CLI funding ad8d3ee4706bb5ef1816a8481794b82777ab3b9f9d051fa3c7f297b1422da859
-CLI stray funding 4d56ac7ea7beda5b6ae65027f75644741a24414ebd016c71432d3e1d439445cc
-CLI cancelled funding 11c371e9928c3eb500388b2557b73d84be7938c20a91f236856d0274d96b315e
-PASSED cli-auction CLI auction settles with stray deposits, signer-derived amounts and expired-batch recovery (4963 s)

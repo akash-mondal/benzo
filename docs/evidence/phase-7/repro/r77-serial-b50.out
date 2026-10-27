@@ -1,5 +1,0 @@
-=== node tmp/r77-serial.mjs (replay fold r77-serial)
-published beacon: ACCEPTED
-forged beacon (one hex digit changed, not a curve point): REFUSED ERROR clear Cannot find square root
-substituted beacon (quicknet round 32856451's real signature, a valid point, wrong round): REFUSED ERROR clear refused: serial beacon BLS signature
-exit 0

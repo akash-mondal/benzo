@@ -1,8 +1,0 @@
-commit 747252a (source at run time, pre-fix; live plan on dev auction a9f56d6c… with an injected malformed record)
-utc 2026-10-02T19:15:03Z
-command node tools/repro/r7-3-exception-queue-repro.mjs a9f56d6cfa4f97c2dfe85365a2208e0d203fe18ffbe503705b01a620f2551961
-intake shape check: shipped helper absent (intake regex is inline in clear/auction-cli.ts)
-plan exit 1
-plan stderr: ERROR settle refused: key/signature hex
-CONFIRMED: one malformed envelope record aborts the whole settlement plan — every other party's refund and the seller payout are wedged with it.
-restored both documents; outcome CONFIRMED

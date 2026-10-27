@@ -1,7 +1,0 @@
-
-----
-ERROR signer alice could not list derivable rows: ERROR sign derivable refused: balance window starts before the release round
-ERROR signer bob could not list derivable rows: ERROR sign derivable refused: balance window starts before the release round
-ERROR signer carol could not list derivable rows: ERROR sign derivable refused: balance window starts before the release round
-ERROR settle refused: no signer host could list its derivable rows
-ERROR benzo settle exit 1

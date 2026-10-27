@@ -1,9 +1,0 @@
-commit 6606298b32442c535655af6ca02c1e19f48dfae2 (mutation S5-a.patch applied to cli/commands/fund.ts)
-utc 2026-10-03T07:48:11Z
-command node tools/repro/r5-fund-quote-repro.mjs
-PASS r5-quote-dry HTTP 201, quote keys quote,quoteRequest,signature,timestamp,correlationId {"quote":{"amountIn":"282765287296201520072449313","amountInFormatted":"282.765287296201520072449313","amountInUsd":"1326.169197419185","minAmountIn":"279937634
-ERROR fund Cannot convert 1.5 to a BigInt
-ERROR r5-round-amount-refused rc=1: ERROR fund Cannot convert 1.5 to a BigInt
-ERROR fund refused: not a shielded destination
-PASS r5-shielded-only-refused ERROR fund refused: not a shielded destination
-RESULT FAIL 1

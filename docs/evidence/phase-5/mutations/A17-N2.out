@@ -1,6 +1,0 @@
-# A17-N2 mutation replay (the pre-change settlement-time refusal over pre-window notes restored in cli/host-derive.ts) — docs/evidence/phase-5/mutations/A17-N2.patch REGENERATED on the A18 tree (the F1/F2 rewrites moved the old hunk), replayed over the A18 drop run (b9abcae6) at the final tree: ERROR n2-derivable (stale or pre-funded value refused — the wedge over third-party chain state).
-commit eb2d0de89fff341550e9569199303bcfe3e1fa4b (working tree not clean at run time)
-utc 2026-10-07T06:45:41.189Z
-ERROR sign derivable refused: balance address utest1js28nl3eq9… holds a note at height 4473455 at or below the window start; stale or pre-funded value refused
-FAIL n2-derivable exit 1; host rows []; host balance_refunds []; published balance_refunds [{"amount_zats":"20000","leaf_index":0,"party":"balance-late:740a18632fdc5a1bdff771122a953ab9a7da478b2a85b905c36c9f4ac7bb1caa:ironwood:1"}]; output tail: ERROR sign derivable refused: balance address utest1js28nl3eq9… holds a note at height 4473455 at or below the window start; stale or pre-funded value refused
-ERROR n2-derivable the derivation refused (exit 1): ERROR sign derivable refused: balance address utest1js28nl3eq9… holds a note at height 4473455 at or below the window start; stale or pre-funded value refused

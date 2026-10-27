@@ -1,7 +1,0 @@
-PASS xw-honest-root-matches 0ef15727c55942ba… 3 leaves
-PASS xw-leaf-not-in-own-scan-refused refused: leaf 0: deposit not in this witness's own scan
-PASS xw-substituted-ciphertext-refused refused: leaf 0: scanned memo differs from the frozen ciphertext
-PASS xw-wrong-amount-refused refused: leaf 0: scanned deposit is not an admissible bid
-PASS xw-spent-deposit-refused refused: leaf 0: scanned deposit is not an admissible bid
-PASS xw-forged-root-detected
-RESULT PASS all witness recompute assertions

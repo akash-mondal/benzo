@@ -1,4 +1,0 @@
-ERROR signer alice could not build batch 1: zt create /home/benzo/.benzo/vaults/5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2/wallet /home/benzo/build-5e2091c957252c88-1/created.pczt 364
-Error: batch must have 1–13 recipients
-ERROR signer bob could not build batch 1: zt create /home/benzo/.benzo/vaults/5e2091c957252c884760ae7931fd687574f64f0cc08d60982250a70d0c42d5f2/wallet /home/benzo/build-5e2091c957252c88-1/created.pczt 364
-Error: batch must have 1–13 recipients

@@ -1,9 +1,0 @@
-# buyback-series re-run (2026-10-06T04:00:13Z, commit 61b00bb): A15 shared-path re-proof (settlement.defaults/maps publish, manifest-network threading, approval randomizers, sign join --count)
-[buyback-r2] PASS buyback-r2-receipts {"leaf:0":360000,"leaf:1":360000,"treasury":180000}
-[buyback-r2] PASS buyback-r2-landed [360000,360000,180000]
-[buyback-r2] PASS buyback-r2-cold-verify
-[buyback-r2] RESULT PASS buyback-r2
-[buyback-series] PASS buyback-series-report {"version":1,"auction_id":"b1535cc95a30e2e1a2196f9a4941129382da1ed676f4aa522e624576b3f5e255","series_id":"e47a203e759dad2fe671bfc0bae34b26bf468dce7131dace46b977990a0bcad1","window_index":2,"result_hash":"cd9d2f14033e49598631c74aecc82203e188
-[buyback-series] PASS buyback-series-round1-report {"version":1,"auction_id":"85427fec686b2acb751a42627ac34d23b1f635a556e2483d3e0696b62e5bd550","series_id":"e47a203e759dad2fe671bfc0bae34b26bf468dce7131dace46b977990a0bcad1","window_index":1,"result_hash":"3b224156741ad3c1493456b08dca8aff0853
-[buyback-series] PASS buyback-series-linked-verify OK series
-[buyback-series] RESULT PASS buyback-series

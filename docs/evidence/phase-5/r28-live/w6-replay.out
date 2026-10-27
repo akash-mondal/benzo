@@ -1,3 +1,0 @@
-PASS r28-replay alice: exit 1, approved false: ERROR sign approve refused: deposit:e1dfd8825c3bb77adc73f75484f05f730eb3a9c68261338d9bfaf9ffe6eb1bd3:ironwood:1 already paid by mined batch 1
-PASS r28-replay carol: exit 1, approved false: ERROR sign approve refused: deposit:e1dfd8825c3bb77adc73f75484f05f730eb3a9c68261338d9bfaf9ffe6eb1bd3:ironwood:1 already paid by mined batch 1
-RESULT PASS a row paid by a mined batch is never approved again

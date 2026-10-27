@@ -1,8 +1,0 @@
-r42-f11 RED BEFORE — Reviewer R's own lab/pr-a19/tests/r41-strays-wedge.mjs run VERBATIM (byte-identical copy, sha256 57cd405975013fe050ee15f188973688adb9c7503cfd7ccc98a560f5b48aad5d) against a pristine git worktree of fda25b4 (the tree before the F11 fix; the only tree line below is that worktree's node_modules symlink, NOT code). Both legs of the wedge reproduce at the pre-fix tree: a late stray's validly owner-claimed and settled refund can never verify ("claim 1 memo not in a certified strays statement"), and a stray between two witness runs kills the quorum ("two strays statements for one auction").
-commit fda25b4150255ac57185093d5d60679105edec13
-utc 2026-10-07T17:53:42.595Z
-tree ?? node_modules
-claims errors: refused: claim 1 memo not in a certified strays statement
-PASS f11a-verify-refuses-late-stray (refused: claim 1 memo not in a certified strays statement — stray B was validly owner-claimed and settled; the doc can never verify)
-w1 certified its scan [A] (exit 0)
-PASS f11b-witness-strays-cannot-grow (the grown set [A,B] is refused: the statement is a closed set third parties can outgrow)

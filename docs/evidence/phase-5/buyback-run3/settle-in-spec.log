@@ -1,9 +1,0 @@
-
-----
-{"auction_id":"b379359d45faeea8fb4ab720e167add3a8a3df3627e3ba7c55e210a53fdaf99f","batch":1,"allocated":4}
-ERROR signing session abandoned (batch 1, pair alice+bob, failed bob); re-planning with the next approving host
-settlement broadcast d0bf28ff735bbe909c1d8977067541f179d0abba704661e5b1b0239251782be4
-ERROR settle grpcurl exited 78: ERROR:
-  Code: Unavailable
-  Message: unexpected HTTP status code received from server: 503 (Service Unavailable); transport: received unexpected content-type "text/plain; charset=utf-8"
-ERROR benzo settle exit 1

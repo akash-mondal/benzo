@@ -1,8 +1,0 @@
-auction fa22c8acadada56184e5ce01f381151fe47bb99ed1ea63675ec8dd37fbd83a94 state REFUNDING: 2 exception rows
-PASS xc-claims-settled exit 0
-PASS xc-paid deposit:35ca22f5f97513e45c6af65b47a7ea22ac5be165266e87959ddc0da96b360454:ironwood:1 receipt 200000 of 200000
-PASS xc-paid deposit:35ca22f5f97513e45c6af65b47a7ea22ac5be165266e87959ddc0da96b360454:ironwood:2 receipt 200000 of 200000
-PASS xc-landed deposit:35ca22f5f97513e45c6af65b47a7ea22ac5be165266e87959ddc0da96b360454:ironwood:1
-PASS xc-landed deposit:35ca22f5f97513e45c6af65b47a7ea22ac5be165266e87959ddc0da96b360454:ironwood:2
-SKIP xc-verify (cancelled before freeze: no frozen root to verify against)
-RESULT PASS all cancelled-auction claim assertions

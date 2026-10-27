@@ -1,9 +1,0 @@
-commit 8547621 tree (R10 item 5 stashed)
-utc 2026-10-03T05:03:32Z
-command node tools/repro/r10-5-signer-state-repro.mjs
-S1 --state outside a checkout: exit 2 lope-key --name SIGNER — generate the signer's own X25519 envelope keypair in its state dir; prints only the public half
-CONFIRMED: a signer host (no git checkout) cannot generate its envelope key — there is no --state option and the state dir comes from git.
-S2 default ~/.benzo-signer (redirected HOME): exit 1 : git rev-parse --show-toplevel
-fatal: not a git repository (or any of the parent directories): .git
-S3 dev BNZ_STATE_DIR inside the checkout: exit 1 ERROR sign envelope-key refused: signer envelope key already exists; refusing to replace it
-outcome CONFIRMED

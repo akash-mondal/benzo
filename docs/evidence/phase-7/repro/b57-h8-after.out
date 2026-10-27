@@ -1,6 +1,0 @@
-commit 37f5c8e96bcc8ad5d9ee87ea0afa5121fe7086eb (working tree not clean at run time)
-utc 2026-10-22T15:53:55.821Z
-command node tmp/b57-h8.mjs (tools/repro/b57-h8-orb-sigkill.ts)
-PASS h8-sh-gives-up sh("orb", …) threw after 360 s: orb run -m benzo-alice -u benzo exited null: 
-PASS h8-no-stub-survives every stub client was killed
-RESULT PASS

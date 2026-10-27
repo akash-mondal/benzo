@@ -1,9 +1,0 @@
-{
- "M-otc-match": "PASS",
- "M-launch-meet": "PASS",
- "M-rfq": "PASS",
- "M-otc-nomatch": "PASS",
- "M-launch-miss": "PASS",
- "M-rfq-cancel": "PASS",
- "M-revision": "PASS"
-}

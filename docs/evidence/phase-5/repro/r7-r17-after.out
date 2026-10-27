@@ -1,6 +1,0 @@
-commit (cluster, post-fix bundles)
-utc 2026-10-03T01:52:33Z
-R17.2 well-shaped forged claim at record time:
-ERROR benzo refused: claim owner signature
-R17.3 product create without witness_set_hash:
-refused: ERROR benzo refused: manifest must carry witness_set_hash
