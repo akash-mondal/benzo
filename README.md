@@ -79,6 +79,8 @@ From that point the set is fixed, and it was fixed while every bid was still unr
 
 What the root can't prove on its own is that every valid bid made it in: an operator could refuse a funded bid before freezing. It can't do so quietly or profitably. Right after the freeze, still before `R`, each bidder can prove their bid is in the root (`benzo receipt prove`), and the site shows it as counted. A deposit that was paid in time but left out is owed back in full: its owner key claims it from the vault, and the verifier requires every deposit the operator listed to be either in the set or refunded. The operator also can't pick whom to drop by price, because when it freezes it can't read any price.
 
+We ran that attack on the live site: the operator dropped a paid bid, the bidder's page caught it, and one click got the deposit back ([evidence](docs/evidence/phase-7/excluded-bid/)).
+
 ## 5. Opening and clearing: six markets, one engine
 
 At `R` anyone can fetch drand's signature, open every frozen bid and apply the market's rule. The rule is public and deterministic, so everyone gets the same fills, the same price and the same refunds.

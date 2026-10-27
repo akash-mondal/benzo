@@ -1,0 +1,15 @@
+2026-10-27T14:52:35.365Z round request 6859b0f9543b56a1
+2026-10-27T15:49:33.380Z round 9d87d234fc798dfb7b26148fdea26ce82bd9c6fe364fbd13de8261791acad16a is taking bids
+2026-10-27T15:50:05.057Z A: sealed 1200 zats, paid 3dc91950cded654e4b0cebeef87d303f3029dd97011e4dbc7e21cf51061919c5, ciphertext ee5c4f450d16cf472883c0affb3975b594e51620df7e6dce34b4a97936495479
+2026-10-27T15:50:34.142Z B: sealed 2400 zats, paid 3aa167d9273a0c5968a1b38ca909df70e84c7685abd9ff0e3fa81c238f92e76b, ciphertext 2320c3993f9a80e1d67940e79ab516d1922107d4ed1480bbc57af4bd10cd4ead
+2026-10-27T15:50:34.565Z operator withholds bidder B's record: {"withheld":true}
+2026-10-27T15:50:34.600Z part 1 done
+2026-10-27T16:55:17.815Z signers' settlement row for B's deposit: {"amount_zats":"200000","batch":null,"kind":"refund","output_index":null,"party":"deposit:3aa167d9273a0c5968a1b38ca909df70e84c7685abd9ff0e3fa81c238f92e76b:ironwood:0","pool":null,"reason":"no valid owner-signed settlement envelope","state":"exception","txid":null}
+2026-10-27T16:55:18.780Z frozen-set lookup for B: {"error":"refused: ciphertext not in frozen set"}
+2026-10-27T16:55:23.549Z bidder B's page: Not in the round | The operator left your bid out | 
+2026-10-27T16:55:25.365Z bidder B pressed "Claim my deposit back": the page built and signed the claim with the bid's own key
+2026-10-27T17:05:27.757Z refund claim for B's deposit: {"state":"paid","detail":"refunded"}
+2026-10-27T17:07:48.950Z refund claim for B's deposit: {"state":"paid","detail":"refunded"}
+2026-10-27T17:07:57.925Z bidder B's page after the refund: Not in the round | The operator left your bid out | The operator's status says it counted, but your bid isn't in this round's frozen set, the list of bids two of three witnesses signed before anyone could read a price. So it can't win, and the operator couldn't have known what it bid. | Your deposit is still yours
+2026-10-27T17:07:58.360Z round SETTLING; checks: 19 of 19 pass
+2026-10-27T17:07:58.360Z RESULT PASS a paid bid left out by the operator was detected by its owner and refunded by the signers

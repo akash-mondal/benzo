@@ -1,0 +1,10 @@
+2026-10-27T12:36:03.915Z round request a87fd748f8494e48
+2026-10-27T13:15:17.660Z round bcb994f3efdae81d0dcfc6b25605cb87a59f92758309b35fc8ed31cf3705c9b7 is taking bids
+2026-10-27T13:15:57.598Z bidder A: sealed 1200 zats, paid 3031972dff17, ciphertext 771d1d5b92f8
+2026-10-27T13:16:28.564Z bidder B: sealed 2400 zats, paid 3f31b682ecc1, ciphertext d0f051d9e93e
+2026-10-27T13:16:29.034Z operator withholds bidder B's record: {"withheld":true}
+2026-10-27T13:49:04.936Z round state SEALED-WAIT: frozen with 14 bids
+2026-10-27T13:49:05.269Z operator's status for B: {"status":"admitted","detail":"admitted"}
+2026-10-27T13:49:05.627Z frozen-set lookup for B: {"error":"refused: ciphertext not in frozen set"}
+2026-10-27T13:49:06.070Z frozen-set lookup for A: leaf 0
+2026-10-27T13:49:08.307Z bidder B's page: Not in the round | The operator left your bid out | 

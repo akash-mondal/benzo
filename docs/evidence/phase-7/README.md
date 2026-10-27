@@ -10,6 +10,7 @@ Everything here ran on Zcash testnet or offline with real drand. Each folder hol
 | The same round, as a transcript of the three guides' commands | [`gold/doc-walk.out`](gold/doc-walk.out) | `RESULT PASS gate DOC walkthrough` |
 | An 8-bid round, settled and verified from cold | [`gold/scale-8-final.out`](gold/scale-8-final.out) | `RESULT PASS scale-8` |
 | A linked buyback series | [`gold/buyback-series.out`](gold/buyback-series.out) | `RESULT PASS buyback-series` |
+| A paid bid the operator left out, caught by its bidder and refunded | [`excluded-bid/`](excluded-bid/) | `RESULT PASS` |
 | Three cross-chain rounds | [`gold/xchain-demo1-final.out`](gold/xchain-demo1-final.out), [2](gold/xchain-demo2-final.out), [3](gold/xchain-demo3-final.out) | each `RESULT PASS` |
 
 ## Rounds driven through the website
