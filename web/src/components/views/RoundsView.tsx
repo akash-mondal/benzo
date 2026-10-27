@@ -66,7 +66,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
       <div className="flex flex-col gap-3 rounded-[14px] bg-app-1 px-3 py-2 ring-1 ring-app-line backdrop-blur-xl lg:flex-row lg:items-center lg:gap-6">
         <div className="flex items-center gap-3 px-2 py-1">
           <Glyph name="emblem-lots" className="page-door size-10" />
-          <div><h1 className="text-[21px] leading-tight">All rounds</h1><div className="text-[12px] text-app-faint"><span id="count">{match.length}</span> rounds on Zcash testnet</div></div>
+          <div><h1 className="text-[21px] leading-tight">All rounds</h1><div className="text-[12px] text-app-faint"><span id="count">{match.length}</span> rounds on Zcash testnet · during judging, a fleet of test bidders runs here too, so you can see Benzo under load</div></div>
         </div>
         <div className="hidden h-9 w-px bg-app-line lg:block" />
         <dl className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2.5 px-2 pb-1 sm:grid-cols-3 lg:flex lg:items-center lg:gap-x-7 lg:p-0">
