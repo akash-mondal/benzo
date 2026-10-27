@@ -16,6 +16,7 @@ import { tarDirectory } from "./tar";
 import { Intake } from "./intake";
 import { Runner } from "./runner";
 import { Requests } from "./requests";
+import { DemoWallet } from "./demo";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const WEB = path.resolve(HERE, "../.."); // web/
@@ -181,6 +182,7 @@ async function body(req: http.IncomingMessage): Promise<any> {
 let runner: Runner | null = null;
 const intake = new Intake(ROOT, STATE, (id) => runner?.isLive(id) ?? false);
 const requests = new Requests(STATE, (spec) => runner ? runner.enqueue(spec) : null);
+const demo = new DemoWallet(STATE);
 const ipOf = (req: http.IncomingMessage) => String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "").split(",")[0].trim();
 
 const server = http.createServer(async (req, res) => {
@@ -193,6 +195,9 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, list);
       }
       if (parts[1] === "chain") return json(res, 200, await chainStatus());
+      // The demo wallet (demo.ts): pays a visitor's sealed deposit link when they have no testnet wallet.
+      if (parts[1] === "demo" && parts.length === 2 && req.method === "GET") return json(res, 200, await demo.info(ipOf(req)));
+      if (parts[1] === "demo" && parts[2] === "jobs" && /^[0-9a-f]{24}$/.test(parts[3] ?? "")) { const j = demo.job(parts[3]); return j ? json(res, 200, j) : json(res, 404, { error: "unknown demo payment" }); }
       // Operator diagnostics for a deploy without a shell (the host): the process list, disk use and the signers' error
       // logs of recent settlements (hosts never print key material, H9). Only with the operator's BNZ_OPS_TOKEN.
       if (parts[1] === "ops") {
@@ -240,6 +245,11 @@ const server = http.createServer(async (req, res) => {
           const b = await body(req), rq = requests.byAuction(id), party = rq && typeof b.key === "string" ? requests.partyOf(rq.rid, b.key) : null;
           if (rq && (rq.mode === "otc" || rq.mode === "rfq") && party === null) return json(res, 403, { error: "only this round's invited parties can bid" });
           return json(res, 200, runner.reserveSlot(id, party ?? undefined));
+        }
+        if (parts[3] === "demo-pay" && req.method === "POST") {
+          if (!runner?.isLive(id)) return json(res, 409, { error: "this round is not taking bids" });
+          const doc = JSON.parse(readFileSync(path.join(e.dir, "auction.json"), "utf8")), m = JSON.parse(Buffer.from(doc.manifest.bytes, "base64").toString("utf8"));
+          try { return json(res, 202, demo.pay(m, String((await body(req)).uri ?? ""), ipOf(req))); } catch (x) { return json(res, (x as any).status ?? 400, { error: (x as Error).message }); }
         }
         if (parts[3] === "bids" && parts.length === 4 && req.method === "POST") return json(res, 202, intake.submit(id, await body(req)));
         if (parts[3] === "bids" && /^[0-9a-f]{64}$/.test(parts[4] ?? "")) return json(res, 200, intake.status(id, parts[4]));

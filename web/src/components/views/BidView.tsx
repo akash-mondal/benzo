@@ -141,6 +141,14 @@ export function Terms({ round, role }: { round: AuctionDetail; role: ReturnType<
   );
 }
 
+// The demo wallet's state, read once per page: whether it can pay now and the address its refunds come back to.
+type Demo = Awaited<ReturnType<typeof api.demo>>;
+function useDemo() {
+  const [d, setD] = useState<Demo | null>(null);
+  useEffect(() => { api.demo().then(setD).catch(() => setD(null)); }, []);
+  return d;
+}
+
 function Steps({ step }: { step: number }) {
   const names = ["Seal", "Pay", "Track"];
   return (
@@ -161,6 +169,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
   const [price, setPrice] = useState(q.get("price") ?? "");
   const [lot, setLot] = useState(lots?.[0] ?? "");
   const [refund, setRefund] = useState("");
+  const demo = useDemo();
   const [review, setReview] = useState(false);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState<{ field?: "price" | "refund"; text: string } | null>(null);
@@ -234,6 +243,10 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
         <input name="refund" value={refund} onChange={(e) => setRefund(e.target.value.trim())} spellCheck={false} placeholder="utest1…" aria-invalid={err?.field === "refund"} className={cx(fieldCls, "text-[13.5px]", err?.field === "refund" && "ring-bad")} data-testid="bid-refund" />
       </Field>
       {err?.field === "refund" && <p className="-mt-3 text-[13px] text-bad" data-testid="bid-error">{err.text}</p>}
+      {demo?.address && refund !== demo.address && (
+        <p className="-mt-3 text-[13px] text-app-muted">No testnet wallet? <button type="button" className="font-medium text-gold hover:underline" onClick={() => { setRefund(demo.address!); setErr(null); }} data-testid="bid-demo-refund">Use the demo wallet</button>. It can pay your deposit too, and {role.seller ? "payments" : "refunds"} go back to it.</p>
+      )}
+      {demo?.address && refund === demo.address && <p className="-mt-3 text-[13px] text-app-muted">Using the demo wallet's address. {role.seller ? "Payments" : "Refunds"} go back to the demo wallet.</p>}
       {err && !err.field && <ErrorLine testid="bid-error">{err.text}</ErrorLine>}
       <Btn type="submit" full testid="bid-next">Review {role.noun}</Btn>
     </form>
@@ -250,6 +263,8 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
   const [busy, setBusy] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [copied, setCopied] = useState("");
+  const demo = useDemo();
+  const [demoBusy, setDemoBusy] = useState("");
   const b = s.bid;
   useEffect(() => { QRCode.toDataURL(b.uri, { margin: 2, width: 640, color: { dark: "#000000", light: "#ffffff" }, errorCorrectionLevel: "L" }).then(setQr).catch(() => setQr("")); }, [b.uri]);
   const keyFile = () => {
@@ -270,6 +285,24 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
       await api.submit(round.id, { address: b.address, txid: t, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex, ciphertext_hash: b.ciphertext_hash });
       onPaid(t);
     } catch (x) { setErr(`Your wallet payment isn't affected. We couldn't record its transaction id: ${String((x as Error).message).replace(/^[^:]*: \d+ /, "")}. Keep this page and try again; don't pay again.`); } finally { setBusy(false); }
+  };
+  // The demo wallet pays this exact link (the sealed memo included), then the record is handed in as usual.
+  const demoPay = async () => {
+    setErr(""); setDemoBusy("Paying from the demo wallet. This takes about a minute…");
+    try {
+      const { job } = await api.demoPay(round.id, b.uri);
+      let t = "";
+      for (let i = 0; i < 200 && !t; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        const j = await api.demoJob(job).catch(() => null);
+        if (j?.state === "failed") throw new Error(j.error ?? "the demo payment failed");
+        if (j?.state === "paid" && j.txid) t = j.txid;
+      }
+      if (!t) throw new Error("the demo payment is taking too long; check My activity later");
+      setTxid(t); setDemoBusy("Paid. Recording your deposit…");
+      await api.submit(round.id, { address: b.address, txid: t, envelope_hex: b.envelope_hex, envelope_ct_hex: b.envelope_ct_hex, owner_sig_hex: b.owner_sig_hex, ciphertext_hash: b.ciphertext_hash });
+      onPaid(t);
+    } catch (x) { setErr(`The demo wallet couldn't pay: ${String((x as Error).message)}`); } finally { setDemoBusy(""); }
   };
   if (leaving) return (
     <div className="grid gap-3">
@@ -317,6 +350,15 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
             </div>
           </div>
           <p className="mt-2 text-[13px] text-app-faint" role="status">{copied}</p>
+          {demo && (
+            <div className="mt-4 rounded-2xl bg-app-2 p-4" data-testid="bid-demo">
+              <div className="text-[14px] font-medium">No testnet wallet?</div>
+              <p className="mt-1 text-[13px] text-app-muted">The demo wallet can pay this deposit for you. It gets only this payment link, so your {role.noun} stays sealed. It does know that this deposit is the one it paid.</p>
+              {demo.available
+                ? <div className="mt-3"><Btn kind="secondary" onClick={demoPay} disabled={!!demoBusy || busy} full testid="bid-demo-pay">{demoBusy || "Pay with the demo wallet"}</Btn></div>
+                : <p className="mt-2 text-[13px] text-app-faint">{demo.reason ?? "The demo wallet can't pay right now."}</p>}
+            </div>
+          )}
         </div>
       )}
       <form onSubmit={send} className="grid gap-3">
