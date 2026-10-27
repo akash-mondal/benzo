@@ -135,7 +135,7 @@ export function Terms({ round, role }: { round: AuctionDetail; role: ReturnType<
         <div><dt className="font-medium text-app-text">How this round decides</dt><dd className="mt-0.5 text-app-muted">{role.rule}</dd></div>
         <div><dt className="font-medium text-app-text">Your deposit</dt><dd className="mt-0.5 text-app-muted">{role.deposit} Every bidder pays the same deposit, so it gives nothing away.</dd></div>
         <div><dt className="font-medium text-app-text">Sealed until the bids open</dt><dd className="mt-0.5 text-app-muted">Your {role.noun} is sealed in this browser. Nobody, the operator included, can read it before the bids open at {when(round.release)}. After that, prices are published; addresses never are.</dd></div>
-        <div><dt className="font-medium text-app-text">What you'll need</dt><dd className="mt-0.5 text-app-muted">A Zcash testnet wallet that keeps payment memos (NU7), with {taz(round.C_zats)} plus the wallet's fee. TAZ is testnet Zcash and has no real value. 1 TAZ = 100,000,000 zats.</dd></div>
+        <div><dt className="font-medium text-app-text">What you'll need</dt><dd className="mt-0.5 text-app-muted">A Zcash testnet wallet that keeps payment memos (NU7), with {taz(round.C_zats)} plus the wallet's fee, or none: the site's demo wallet can pay the deposit for you. TAZ is testnet Zcash and has no real value. 1 TAZ = 100,000,000 zats.</dd></div>
       </dl>
     </div>
   );
@@ -329,7 +329,17 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
         <div className="rounded-2xl bg-app-2 p-4 text-[14px]"><div className="font-medium">The payment window has closed</div><p className="mt-1 text-app-muted">Don't send a new deposit. If you already sent one, enter its transaction id below.</p></div>
       ) : (
         <div className={cx(!s.savedKey && "pointer-events-none opacity-50")} aria-disabled={!s.savedKey}>
-          <div className="text-[14px] font-medium">Then pay the deposit from your wallet</div>
+          <div className="text-[14px] font-medium">Then pay the deposit</div>
+          {demo && (
+            <div className="mt-3 mb-5 rounded-2xl bg-[#e9cd8414] p-4 ring-1 ring-[#e9cd8440]" data-testid="bid-demo">
+              <div className="text-[14px] font-medium">No testnet wallet?</div>
+              <p className="mt-1 text-[13px] text-app-muted">The demo wallet can pay this deposit for you. It gets only this payment link, so your {role.noun} stays sealed. It does know that this deposit is the one it paid.</p>
+              {demo.available
+                ? <div className="mt-3"><Btn kind="secondary" onClick={demoPay} disabled={!!demoBusy || busy} full testid="bid-demo-pay">{demoBusy || "Pay with the demo wallet"}</Btn></div>
+                : <p className="mt-2 text-[13px] text-app-faint">{demo.reason ?? "The demo wallet can't pay right now."}</p>}
+            </div>
+          )}
+          <div className="text-[14px] font-medium">{demo?.available ? "Or pay from your own wallet" : "From your wallet"}</div>
           <dl className="mt-3 grid gap-1.5 rounded-xl bg-app-2 p-3 text-[13.5px]">
             <div className="flex justify-between gap-3"><dt className="text-app-faint">Network</dt><dd>Zcash testnet</dd></div>
             <div className="flex justify-between gap-3"><dt className="text-app-faint">Amount</dt><dd className="tabular-nums">{taz(round.C_zats)} · exactly</dd></div>
@@ -350,15 +360,6 @@ function Pay({ round, role, s, open, onKey, onPaid, onNew }: { round: AuctionDet
             </div>
           </div>
           <p className="mt-2 text-[13px] text-app-faint" role="status">{copied}</p>
-          {demo && (
-            <div className="mt-4 rounded-2xl bg-app-2 p-4" data-testid="bid-demo">
-              <div className="text-[14px] font-medium">No testnet wallet?</div>
-              <p className="mt-1 text-[13px] text-app-muted">The demo wallet can pay this deposit for you. It gets only this payment link, so your {role.noun} stays sealed. It does know that this deposit is the one it paid.</p>
-              {demo.available
-                ? <div className="mt-3"><Btn kind="secondary" onClick={demoPay} disabled={!!demoBusy || busy} full testid="bid-demo-pay">{demoBusy || "Pay with the demo wallet"}</Btn></div>
-                : <p className="mt-2 text-[13px] text-app-faint">{demo.reason ?? "The demo wallet can't pay right now."}</p>}
-            </div>
-          )}
         </div>
       )}
       <form onSubmit={send} className="grid gap-3">
