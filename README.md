@@ -175,7 +175,7 @@ Open any round on [benzo.space](https://benzo.space), pick a price and press **U
   - **The test fleet:** during judging, eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) run alongside it. They start rounds and bid through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Each has its own wallet, and every bid is a real sealed deposit.
 - **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/phase-7/ui-drive/)):
   - Uniform, drop, OTC and RFQ: settled, every check passes, and the browser test passes.
-  - Buyback: settled with every check passing; see the log for the latest run.
+  - Buyback: settled with 11 payments, every check passes, and the browser test passes.
   - Launch: a launch's winners record where their units go with the CLI (`benzo launch deliver`), which the site doesn't collect yet, so launch rounds aren't started on the site. The full launch flow, delivery list included, passes through the CLI on testnet ([log](docs/evidence/phase-5/markets/launch-a18/launch-meet.out)).
 - **Cross-chain payouts:**
   - Ethereum Sepolia: a payout to a one-time ERC-5564 stealth address ([log](docs/evidence/phase-5/repro/stealth-live.out)).
