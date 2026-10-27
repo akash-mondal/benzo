@@ -6,9 +6,9 @@
 import http from "node:http";
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, createReadStream } from "node:fs";
 import os from "node:os";
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { checkPublicAuction, freezeBoard, loadPublicAuction, receiptShow, resultHash } from "../../api/public-auction";
 import { deriveClaimOpenings } from "../../cli/published-beacon";
@@ -193,6 +193,20 @@ const server = http.createServer(async (req, res) => {
         return json(res, 200, list);
       }
       if (parts[1] === "chain") return json(res, 200, await chainStatus());
+      // Operator diagnostics for a deploy without a shell (the host): the process list, disk use and the signers' error
+      // logs of recent settlements (hosts never print key material, H9). Only with the operator's BNZ_OPS_TOKEN.
+      if (parts[1] === "ops") {
+        const want = Buffer.from(process.env.BNZ_OPS_TOKEN ?? ""), got = Buffer.from(String(req.headers["x-ops-token"] ?? ""));
+        if (want.length < 32 || got.length !== want.length || !timingSafeEqual(got, want)) return json(res, 404, { error: "not found" });
+        const sh = (cmd: string, args: string[]) => { try { return execFileSync(cmd, args, { encoding: "utf8", timeout: 20_000, maxBuffer: 8 << 20 }); } catch (e) { return String((e as any).stdout ?? "") + String((e as Error).message); } };
+        if (parts[2] === "ps") return json(res, 200, { ps: sh("ps", ["-eo", "user,pid,etime,pcpu,rss,args", "--sort=-pcpu"]).slice(0, 20_000), df: sh("df", ["-h", "/var/benzo", "/"]), mem: sh("free", ["-m"]) });
+        if (parts[2] === "host-errors") {
+          const base = path.join(STATE, "settle");
+          const dirs = existsSync(base) ? readdirSync(base).filter((d) => existsSync(path.join(base, d, "host-errors.log"))).sort((a, b) => statSync(path.join(base, b, "host-errors.log")).mtimeMs - statSync(path.join(base, a, "host-errors.log")).mtimeMs).slice(0, 3) : [];
+          return json(res, 200, dirs.map((d) => ({ id: d, tail: readFileSync(path.join(base, d, "host-errors.log"), "utf8").split("\n").slice(-120).join("\n") })));
+        }
+        return json(res, 404, { error: "not found" });
+      }
       // Rounds people start: create, read (the creator's token adds the invite links), and join with a party key.
       if (parts[1] === "rounds" && parts.length === 2 && req.method === "POST") return json(res, 201, requests.create(await body(req), ipOf(req)));
       if (parts[1] === "rounds" && parts.length === 3 && req.method === "GET") {
