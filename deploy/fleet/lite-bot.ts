@@ -7,7 +7,7 @@
 // One bot may also start rounds through POST /api/rounds, the call the Start page makes. The README and the rounds
 // board say this fleet runs. It runs at the lowest CPU priority, one wallet command at a time, so rounds come first.
 import { execFile } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -36,9 +36,11 @@ const pick = <T>(xs: T[]) => xs[Math.floor(Math.random() * xs.length)];
 
 // One wallet command at a time across the whole fleet: proving is the heavy part, and the server signs rounds too.
 let lock: Promise<unknown> = Promise.resolve();
+// The tool's own log lines (colour codes and INFO noise removed); the error is usually the last of them.
+const tidy = (t: string) => t.replace(/\x1b\[[0-9;]*m/g, "").split("\n").filter((l) => l.trim() && !/ INFO /.test(l)).slice(-4).join(" | ").slice(0, 600);
 function dev(args: string[], timeout = 10 * 60_000): Promise<string> {
   const run = lock.then(() => new Promise<string>((ok, no) => execFile(DEVTOOL, args, { encoding: "utf8", timeout, maxBuffer: 16 << 20 },
-    (e, out, err) => e ? no(new Error(String(err || e.message).split("\n").filter(Boolean).slice(-2).join(" "))) : ok(out))));
+    (e, out, err) => e ? no(new Error(`${args[2] ?? args[0]} failed: ${tidy(err || e.message)}`)) : ok(out))));
   lock = run.catch(() => {});
   return run;
 }
@@ -46,7 +48,16 @@ function dev(args: string[], timeout = 10 * 60_000): Promise<string> {
 type Bot = { name: string; wallet: string; ua: string };
 async function ensureWallet(name: string): Promise<Bot> {
   const wallet = path.join(DIR, name, "wallet");
-  if (!existsSync(wallet)) { mkdirSync(path.dirname(wallet), { recursive: true, mode: 0o700 }); await dev(["wallet", "-w", wallet, "init", "--name", name, "-i", `${wallet}.age`, "-n", "test", "-s", LWD]); say(name, "wallet made"); }
+  // A wallet whose first start failed part-way (no keys file yet) is made again from the start.
+  if (existsSync(wallet) && !existsSync(path.join(wallet, "keys.toml"))) { rmSync(wallet, { recursive: true, force: true }); rmSync(`${wallet}.age`, { force: true }); }
+  if (!existsSync(wallet)) {
+    mkdirSync(path.dirname(wallet), { recursive: true, mode: 0o700 });
+    for (let i = 1; ; i++) {
+      try { await dev(["wallet", "-w", wallet, "init", "--name", name, "-i", `${wallet}.age`, "-n", "test", "-s", LWD]); break; }
+      catch (e) { say(name, `wallet not made (try ${i}): ${(e as Error).message}`); rmSync(wallet, { recursive: true, force: true }); rmSync(`${wallet}.age`, { force: true }); await sleep(60_000); }
+    }
+    say(name, "wallet made");
+  }
   const ua = (await dev(["wallet", "-w", wallet, "list-addresses"])).match(/utest1[0-9a-z]+/)?.[0];
   if (!ua) throw new Error("no wallet address");
   writeFileSync(path.join(DIR, name, "address.txt"), ua + "\n");
