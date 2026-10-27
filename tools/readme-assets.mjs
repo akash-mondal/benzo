@@ -109,7 +109,7 @@ function opening() {
   const T = 10, bx = 120, bw = 196, gap = 18, by = 170;
   let body = `${frame(W, H)}${sea(W, H, 20, 11, SEA)}
   ${text(80, 74, "The same five bids, before and after the opening", 30, C.text, `font-weight="600" letter-spacing="-.4"`)}
-  <g class="before">${text(80, 116, "BEFORE ROUND R  ·  every bid is a sealed memo on the same 0.005 ZEC deposit", 14, C.faint, `font-family="${MONO}" letter-spacing="1.6"`)}</g>
+  <g class="before">${text(80, 116, "BEFORE ROUND R  ·  every bid is a sealed memo on the same fixed deposit", 14, C.faint, `font-family="${MONO}" letter-spacing="1.6"`)}</g>
   <g class="after">${text(80, 116, "AFTER ROUND R  ·  anyone opens every bid; the rules set one price", 14, C.gold, `font-family="${MONO}" letter-spacing="1.6"`)}</g>`;
   bids.forEach(([id, p, out, pay], i) => {
     const x = bx + i * (bw + gap), win = out === "winner";
