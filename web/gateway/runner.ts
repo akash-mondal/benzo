@@ -67,6 +67,7 @@ export class Runner {
   private frostd: ChildProcess | null = null;
   private timer: NodeJS.Timeout;
   private queue: Spec[] = [];
+  private lastWait = "";
   constructor(private root: string, private state: string, private intake: Intake, private onCreated: (request: string, id: string | null, error?: string) => void = () => {}) {
     this.file = path.join(state, "web", "runner.json");
     mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 });
@@ -278,7 +279,10 @@ export class Runner {
     if (this.busy || process.env.BNZ_WEB_RUNNER_PAUSE === "1") return;
     this.busy = true;
     try {
-      for (const a of this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase))) await this.advance(a);
+      for (const a of this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase))) {
+        const t0 = Date.now(); await this.advance(a);
+        if (Date.now() - t0 > 60_000) console.log(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] ${a.phase}: one step took ${Math.round((Date.now() - t0) / 1000)} s`);
+      }
       if (this.auctions.length >= MAX_ROUNDS) return;
       // Next round to build: a queued request first, else the first house market with no round taking bids.
       const taking = (m: Mode) => this.auctions.some((a) => !a.spec.request && a.spec.mode === m && (a.phase === "setup" || (a.phase === "accepting" && Date.now() / 1000 < a.T_submit)));
@@ -286,7 +290,13 @@ export class Runner {
       const houseNext = HOUSE_MARKETS.find((m) => !taking(m) && recentFails(m) < MAX_SETUP_TRIES);
       const next = this.queue[0] ?? (houseNext ? houseSpec(houseNext, this.auctions.filter((a) => !a.spec.request).length) : null);
       if (!next) return;
-      if (this.spendable() < this.cost(next).total) return; // wait for the house wallet's change to mature
+      const have = this.spendable(), need = this.cost(next).total;
+      if (have < need) { // wait for the house wallet's change to mature (said once per change, so the log shows why a round waits)
+        const why = `waiting for house funds: spendable ${have}, the next round (${next.mode}${next.request ? ", requested" : ""}) needs ${need}; ${this.queue.length} queued`;
+        if (why !== this.lastWait) { console.log(`[runner] ${why}`); this.lastWait = why; }
+        return;
+      }
+      this.lastWait = "";
       if (this.queue[0] === next) { this.queue.shift(); this.save(); }
       await this.create(next);
     } finally { this.busy = false; }

@@ -88,6 +88,7 @@ for (const plan of PLANS) test(`drive ${plan.mode}: start, invite, fund, bid, pa
   // 2. Invited parties join from their own browsers. Party 0 is the starter (OTC: the seller).
   const parties: Page[] = [starter];
   if (plan.invites) {
+    await expect(starter.locator("[data-invite]")).toHaveCount(plan.invites, { timeout: 60_000 }); // a remote site renders them a moment later
     const links = await starter.locator("[data-invite]").evaluateAll((els) => els.map((e) => e.getAttribute("data-invite")!));
     expect(links).toHaveLength(plan.invites);
     for (const link of links) {
