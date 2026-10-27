@@ -56,7 +56,7 @@ export default function RoundsView({ initial }: { initial: AuctionSummary[] }) {
   const liveNow = list.filter((a) => a.live);
   const ribbon: [string, string, boolean?][] = [
     ["Rounds settled", `${settled.length.toLocaleString("en-US")}`], ["Traded", `${settled.filter(traded).length}`], ["Paid to winners and sellers", `${paidOut.toLocaleString("en-US")} zats`, true],
-    ["Sealed bids", list.reduce((n, a) => n + (a.leaf_count ?? 0), 0).toLocaleString("en-US")], ["Taking bids now", liveNow.length ? liveNow.map((a) => MODE_NAME[a.mode]).join(", ") : "none"],
+    ["Sealed bids", list.reduce((n, a) => n + (a.leaf_count ?? 0), 0).toLocaleString("en-US")], ["Taking bids now", liveNow.length ? `${liveNow.length} round${liveNow.length === 1 ? "" : "s"}` : "none"],
   ];
   const byMarket = MARKETS.map((m) => { const r = list.filter((a) => marketOf(a.mode) === m), st = r.filter((a) => a.state === "SETTLED"); return { m, n: r.length, traded: st.filter(traded).length, paid: st.reduce((x, a) => x + (traded(a) ? Number(a.outcome?.paid_zats ?? 0) : 0), 0) }; });
 
