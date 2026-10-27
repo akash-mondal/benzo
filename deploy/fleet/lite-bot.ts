@@ -229,15 +229,22 @@ async function startPartyRound(b: Bot, all: Bot[]) {
 }
 
 async function fundRequest(b: Bot, req: any) {
-  for (let i = 0; i < 120; i++) {
+  // A requested round can wait in the setup queue for a while: keep looking for up to three hours, and retry a payment
+  // that fails (no spendable note yet) instead of giving up, so the round never sits unfunded.
+  for (let i = 0; i < 540; i++) {
     const v = await api(`/api/rounds/${req.rid}?token=${req.token}`);
     const id = v.body?.auction_id;
+    if (v.body?.status === "failed") { say(b.name, `budget not needed: the round couldn't start`); return; }
     if (id) {
       const f = (await api(`/api/auctions/${id}`)).body?.funding;
-      if (f?.address && f?.amount_zats) { const tx = await pay(b, `zcash:${f.address}?amount=${(Number(f.amount_zats) / 1e8).toFixed(8)}`); say(b.name, `budget paid ${tx.slice(0, 12)}`); return; }
+      if (f?.address && f?.amount_zats) {
+        try { const tx = await pay(b, `zcash:${f.address}?amount=${(Number(f.amount_zats) / 1e8).toFixed(8)}`); say(b.name, `budget paid ${tx.slice(0, 12)}`); return; }
+        catch (e) { say(b.name, `budget payment failed, retrying: ${String((e as Error).message).slice(0, 100)}`); }
+      }
     }
     await sleep(20_000);
   }
+  say(b.name, `budget not paid: round ${req.rid} never opened within three hours`);
 }
 
 // The last bot also tops up the site's demo wallet (web/gateway/demo.ts) when it runs low: 25 notes of 0.01 TAZ, so

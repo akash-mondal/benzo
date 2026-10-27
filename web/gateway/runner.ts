@@ -326,6 +326,12 @@ export class Runner {
       // A batch that is still mining is a wait, not a failure: it never uses up the round's retries.
       const msg = String((e as Error).message);
       if (/can still mine|still mining|not yet mined|the next settle builds a new one/i.test(msg)) { a.error = msg.slice(0, 400); if (a.phase !== "settling") a.phase = "settling"; if (a.log.at(-1)?.includes("waits for batch") !== true) this.say(a, "settle waits for batch 1 to mine"); this.save(); return; }
+      // A buyback or RFQ whose buyer never funded the budget can't open: after one more try, call it off. The cancel
+      // refunds every deposit in full through the same signers, without opening a bid.
+      if (/treasury funded 0 of/.test(msg) && a.phase === "settling" && a.retries >= 1) {
+        try { await this.run(["cancel", "--id", a.id]); this.say(a, "cancelled: the buyer never funded the budget, so every deposit is refunded"); a.phase = "done"; a.error = undefined; a.retries = 0; this.save(); return; }
+        catch (e2) { this.say(a, `cancel failed: ${String((e2 as Error).message).slice(0, 200)}`); }
+      }
       a.retries++; a.error = msg.slice(0, 400);
       this.say(a, `retry ${a.retries} in ${a.phase}: ${a.error}`);
       if (a.retries >= 6) { a.phase = "failed"; this.say(a, "FAILED; needs the operator"); }
