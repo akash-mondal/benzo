@@ -1,0 +1,44 @@
+npm warn Unknown user config "min-release-age-exclude". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+npm warn Unknown user config "allow-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+Running 1 test using 1 worker
+
+2026-10-27T04:52:30.526Z [uniform] request 5bdfed7d11fd9bb4
+2026-10-27T04:55:12.446Z [uniform] round 2bf51a78164c is taking bids
+2026-10-27T04:55:17.861983Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T04:55:18.173540Z  INFO zcash_devtool::commands::wallet::sync: Sapling tree has 6 subtrees
+2026-10-27T04:55:18.400226Z  INFO zcash_devtool::commands::wallet::sync: Orchard tree has 3 subtrees
+2026-10-27T04:55:18.629574Z  INFO zcash_devtool::commands::wallet::sync: Ironwood tree has 11 subtrees
+2026-10-27T04:55:18.846845Z  INFO zcash_devtool::commands::wallet::sync: Latest block height is 4546365
+2026-10-27T04:55:18.890260Z  INFO zcash_devtool::commands::wallet::sync: Refreshing UTXOs for AccountUuid(ae4d038c-5ae5-49b8-be5e-39a5aa9abeb5) from height 0
+2026-10-27T04:55:19.133783Z  INFO zcash_devtool::commands::wallet::sync: Fetching scan ranges
+2026-10-27T04:55:19.136316Z  INFO zcash_devtool::commands::wallet::sync: Fetched 1 scan ranges
+2026-10-27T04:55:19.136368Z  INFO zcash_devtool::commands::wallet::sync: Fetching ChainTip(4546343..4546366)
+2026-10-27T04:55:19.718849Z  INFO zcash_devtool::commands::wallet::sync: Scanning ChainTip(4546343..4546366)
+2026-10-27T04:55:19.801895Z  INFO zcash_devtool::commands::wallet::sync: Scan complete for range ChainTip(4546343..4546366); progress is 1320/1320
+2026-10-27T04:55:19.801941Z  INFO zcash_devtool::commands::wallet::sync: Waiting for cached blocks to be deleted...
+2026-10-27T04:55:19.837765Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T04:55:22.330Z [uniform] paid 610c967274ab
+2026-10-27T04:55:22.365Z [uniform] bid 1 at 990: deposit sent, tracking
+2026-10-27T04:55:25.911Z [uniform] bid 2: sealed at 700, changed before paying
+2026-10-27T04:55:27.873573Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T04:55:28.279605Z  INFO zcash_devtool::commands::wallet::sync: Sapling tree has 6 subtrees
+2026-10-27T04:55:28.515655Z  INFO zcash_devtool::commands::wallet::sync: Orchard tree has 3 subtrees
+2026-10-27T04:55:28.753271Z  INFO zcash_devtool::commands::wallet::sync: Ironwood tree has 11 subtrees
+2026-10-27T04:55:28.990683Z  INFO zcash_devtool::commands::wallet::sync: Latest block height is 4546365
+2026-10-27T04:55:28.993671Z  INFO zcash_devtool::commands::wallet::sync: Refreshing UTXOs for AccountUuid(ae4d038c-5ae5-49b8-be5e-39a5aa9abeb5) from height 0
+2026-10-27T04:55:29.218801Z  INFO zcash_devtool::commands::wallet::sync: Fetching scan ranges
+2026-10-27T04:55:29.218915Z  INFO zcash_devtool::commands::wallet::sync: Fetched 0 scan ranges
+2026-10-27T04:55:29.218929Z  INFO zcash_devtool::commands::wallet::sync: Waiting for cached blocks to be deleted...
+2026-10-27T04:55:29.254879Z  INFO zcash_devtool::remote: Connecting to testnet.zec.rocks:443
+2026-10-27T04:55:32.243Z [uniform] paid 8ff37424028e
+2026-10-27T04:55:32.278Z [uniform] bid 2 at 1500: deposit sent, tracking
+2026-10-27T04:59:23.096Z [uniform] bid 1 counted
+2026-10-27T04:59:23.098Z [uniform] bid 2 counted
+2026-10-27T05:44:59.673Z [uniform] settled: 3 payments
+2026-10-27T05:45:08.687Z [uniform] all checks on the page pass
+  ✓  1 [drive] › e2e/drive.spec.ts:75:27 › drive uniform: start, invite, fund, bid, pay, track, settle, check (52.7m)
+
+  Slow test file: [drive] › e2e/drive.spec.ts (52.7m)
+  Consider running tests from slow files in parallel. See: https://playwright.dev/docs/test-parallel
+  1 passed (52.7m)
