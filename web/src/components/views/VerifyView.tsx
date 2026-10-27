@@ -136,7 +136,8 @@ function Group({ title, checks }: { title: string; checks: Check[] }) {
         <li key={c.id} className="flex gap-3 border-t border-app-line py-2.5 text-[14.5px] first:border-t-0">
           {c.status === "not_applicable" ? <span className="mt-[3px] size-4 shrink-0 text-center text-app-faint">–</span> : <Tick ok={c.ok} />}
           <span className={cx("min-w-0 flex-1", c.status === "not_applicable" && "text-app-faint")}>{checkName(c.id)}{c.status === "not_applicable" ? " · not applicable to this round" : ""}
-            {c.detail && (!c.ok || c.status === "warning") && <span className={cx("block text-[13px]", c.ok ? "text-warn" : "text-bad")}>{c.detail}</span>}</span>
+            {c.detail && (!c.ok || c.status === "warning") && <span className={cx("block text-[13px]", c.ok ? "text-warn" : "text-bad")}>{c.detail}</span>}
+            {c.id === "delivery-list" && !c.ok && /delivery list missing/.test(c.detail ?? "") && <span className="block text-[13px] text-app-muted">The winners haven't recorded where their units go. In this release they do that from the command line (benzo launch deliver), and the two signers then sign the list; until then this check fails.</span>}</span>
         </li>
       ))}</ul>
     </section>
