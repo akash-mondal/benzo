@@ -101,6 +101,11 @@ export class Runner {
   freeSlots(id: string) { const a = this.auctions.find((x) => x.id === id); return a ? this.openSlots(a).length : null; }
   list() { return this.auctions.map(({ log, reserved, ...a }) => a); }
   queued() { return this.queue.length; }
+  // Move the bots' queued rounds behind everyone else's (keeps each group's order).
+  demote(rids: Set<string>) {
+    const bot = (q: Spec) => !!q.request && rids.has(q.request);
+    this.queue = [...this.queue.filter((q) => !bot(q)), ...this.queue.filter(bot).map((q) => ({ ...q, house_request: true } as Spec))]; this.save();
+  }
   // Where a requested round stands: rounds ahead of it in the queue (0 when it is next or being built), null if not queued.
   aheadOf(rid: string) { const i = this.queue.findIndex((q) => q.request === rid); return i < 0 ? null : i; }
   // A round the runner gave up on ("FAILED; needs the operator") before it paid out: the site says so.

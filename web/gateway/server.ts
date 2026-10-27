@@ -306,6 +306,7 @@ if (argv.includes("--runner")) {
   process.on("exit", () => { try { if (JSON.parse(readFileSync(lock, "utf8")).pid === process.pid) rmSync(lock, { force: true }); } catch { /* gone */ } });
   for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
   runner = new Runner(ROOT, STATE, intake, (rid, id, error) => requests.created(rid, id, error));
+  runner.demote(requests.houseRids());
   intake.start();
 }
 process.on("uncaughtException", (e) => process.stderr.write(`ERROR gateway ${e.message}\n`));

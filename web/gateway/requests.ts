@@ -68,6 +68,8 @@ export class Requests {
     this.dir = process.env.BNZ_WEB_REQUESTS_DIR ? path.resolve(process.env.BNZ_WEB_REQUESTS_DIR) : path.join(state, "web", "requests");
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
   }
+  // Requests the activity bots made (marked house, or older ones from this machine's own address).
+  houseRids(): Set<string> { return new Set(this.all().filter((r) => r.house || /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(r.ip ?? "")).map((r) => r.rid)); }
   private file(rid: string) { return path.join(this.dir, `${rid}.json`); }
   private read(rid: string): Request | null { return /^[0-9a-f]{16}$/.test(rid) && existsSync(this.file(rid)) ? JSON.parse(readFileSync(this.file(rid), "utf8")) : null; }
   private save(r: Request) { writeFileSync(this.file(r.rid), JSON.stringify(r), { mode: 0o600 }); }
@@ -78,7 +80,8 @@ export class Requests {
   // joined stops holding a place after two hours.
   create(form: any, ip: string, house = false) {
     const now = Date.now() / 1000, all = this.all();
-    const holding = all.filter((r) => Boolean(r.house) === house && (r.status === "queued" || (r.status === "waiting" && now - r.created < 7200)));
+    const isHouse = (r: Request) => Boolean(r.house) || /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(r.ip ?? "");
+    const holding = all.filter((r) => isHouse(r) === house && (r.status === "queued" || (r.status === "waiting" && now - r.created < 7200)));
     if (holding.length >= LIMIT) throw new Error("Too many rounds are waiting to start. Try again in a few minutes.");
     if (all.filter((r) => r.ip === ip && now - r.created < 3600).length >= PER_IP_HOUR) throw new Error("You've started several rounds this hour. Try again later.");
     const { spec, invites, side } = specFrom(form);
