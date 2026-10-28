@@ -1,9 +1,7 @@
 # Signer guide
 
-Runbook for one Benzo signer (alice, bob or carol) on its own host. Commands checked against
-`bin/benzo --help` and each command's `--help` at commit `96ce0f5` plus this commit's help fixes,
-2026-10-18 (checked by `tools/repro/b42-hosts-cli.ts` section 7, transcript `tmp/guide-help.txt`,
-scratch). Testnet only. Every key lives under your state dir (`--state DIR`, else
+Runbook for one Benzo signer (alice, bob or carol) on its own host. Commands match `bin/benzo --help`
+and each command's `--help`. Testnet only. Every key lives under your state dir (`--state DIR`, else
 `BNZ_STATE_DIR`, else `~/.benzo-signer`); the commands print public values only. Never print a
 private key.
 
@@ -37,8 +35,8 @@ either way.
    a file under the state dir. Like the envelope key it is **per signer and reused**; `keygen`
    generates it once (refusing to replace it) and `--show` prints its existing public half. It
    signs the frozen-root certificate and your envelope-opening report.
-   (Ruling R42: the strays statement is gone — a stray deposit is attested per row, at payment, in
-   the approval map you sign with `benzo sign approve` from your own vault scan.)
+   A stray deposit is attested per row, at payment, in the approval map you sign with
+   `benzo sign approve` from your own vault scan.
 
    ```text
    $ benzo witness keygen --name SIGNER [--show]

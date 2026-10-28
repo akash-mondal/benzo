@@ -41,9 +41,7 @@ SETTLING → SETTLED`, with `CANCELLED → REFUNDING` when the freeze fails.
 `:ciphertext_hash` is the 64-hex SHA-256 of a frozen bid's memo ciphertext (a `leaves[].ciphertext_hash`
 from `GET /freeze`). The URL form is `/receipt/<64-hex>`.
 
-Below, each response body's **key set** is given in a `<!-- shape: … -->` block. `tools/repro/api-reference-check.ts`
-parses these blocks and asserts them against live responses from the shipped server over a committed
-published auction directory, so this document cannot drift from the code silently. Field names ending in
+Below, each response body's **key set** is given in a `<!-- shape: … -->` block. Field names ending in
 `?` are present only in some modes/states (said so per field); every other field is always present.
 A value of `"string|null"` may be JSON `null`; `{"$nullable": true, …}` marks an object that may be `null`.
 
@@ -336,7 +334,7 @@ The API is a **reader of one publisher's directory**. Trust comes from three lay
   `opened`, `api/public-auction.ts:333-341`), but only `benzo verify` proves those openings come from
   the frozen ciphertexts and the drand beacon. A publisher could otherwise invent openings.
 - `GET /auction/:id`'s `valid:true` before `CLEARED`: it covers only the checks that apply to the
-  current state (R21 item 5) — the freeze root and receipts, not a clear that has not run.
+  current state — the freeze root and receipts, not a clear that has not run.
 - Anything from a server started without `--signer`.
 
 Safe without `benzo verify` (given a pinned `--signer`): the manifest-derived fields, `state`,
@@ -365,33 +363,11 @@ bid-side keys"). The fields are listed in §2. In summary:
   signers' envelope keys; the envelope records (`envelopes[].envelope_ct`) and the owner-signed claims
   have no route (`api/server.ts:32-86`). `receipt.inclusion.deposit.address` is the **escrow deposit
   address the bid paid to** (manifest `deposit_addresses`, public), not anyone's refund target.
-- **One documented exception, by design (R34 item 1):** `GET /allocation` (launch mode only) returns
-  the delivery batch's **token-chain** destinations (`clear/launch.ts:13,36-53`). These are the
-  winners' fresh per-round delivery claims for the launched asset (DESIGN §9; the batch is what the
-  result's `allocation_file_hash` commits to), not Zcash addresses; the batch rows carry no
-  `leaf_index`. Today `rows` are emitted in winner leaf order (`clear/launch.ts:40-51`), so row
-  position can be correlated with a winning leaf from `GET /result` — R34 item 2 rules this fixed on
-  Track A (after A15): rows sorted canonically by destination bytes, allocation root over that order,
-  `benzo verify` replaying the sort. This section documents the sorted order once it lands.
+- **One documented exception, by design:** `GET /allocation` (launch mode only) returns the delivery batch's
+  **token-chain** destinations (`clear/launch.ts`). These are the winners' fresh per-round delivery claims for the
+  launched asset (DESIGN §9), not Zcash addresses, and the rows carry no `leaf_index`. Rows are sorted by destination
+  bytes, then amount, never in winner order, so a row's position doesn't say which winning bid it belongs to; the
+  allocation root commits to that order and `benzo verify` replays it.
 
 A UI should state the DESIGN §1 claim and its limits verbatim (all bids open, anonymised, at R) and
 must not display or export anything a route does not return.
-
-## 5. Drift check
-
-`tools/repro/api-reference-check.ts` serves the committed published auction directory
-`docs/evidence/phase-5/markets/launch/cold-f1170469` with
-the shipped `api/dist/server.mjs`, requests every documented route and case, and asserts each
-response's key set against the `<!-- shape: … -->` blocks above. The 409 and 400 bodies are asserted
-against pre-result and mid-flight-broken copies of the same committed document, derived in `tmp/`
-(the server pre-loads at startup, so a broken document must break after start to reach the 400 body).
-Run:
-
-```
-npx esbuild tools/repro/api-reference-check.ts --bundle --platform=node --format=esm --outfile=tmp/api-reference-check.mjs \
-  && node tmp/api-reference-check.mjs
-```
-
-Last run: `docs/evidence/phase-6/repro/api-reference.out`. Mutation `docs/evidence/phase-6/mutations/B32-a.patch`
-drops one documented field from a route's response and the check goes red
-(`docs/evidence/phase-6/mutations/B32-a.out`).

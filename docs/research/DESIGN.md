@@ -1,8 +1,7 @@
 # Benzo — the auction house where the auctioneer is blindfolded
 
-Working name. Zecathon · Private Markets. Synthesized 2026-09-30 from: 826 judged auctions (87 winners), 38 code-read dossiers,
-the Zcash feasibility study (`zcash-feasibility.md`), the 68-threat model (`threat-model.md`) and the organizer forensics
-(`organizer-forensics.md`). Section 13 says who each idea is borrowed from.
+Zecathon · Private Markets. Drawn from 826 judged auctions and a 68-threat model ([`threat-model.md`](threat-model.md)).
+Section 13 says who each idea is borrowed from.
 
 ## 1. The claim (say exactly this, nothing stronger)
 

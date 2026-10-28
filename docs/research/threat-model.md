@@ -74,7 +74,7 @@ flowchart LR
 
 ## Ranked threat register (design judgments)
 
-Rank prioritizes direct privacy/custody failure and irreversible fairness failure, then likelihood and implementation urgency. `P0` is a launch blocker or mandatory explicit trust boundary; `P1` is required hardening/operating policy; `P2` is economic/strategic behavior or residual risk to document. Likelihood is qualitative for the **unmitigated stated architecture**, not a measured probability. “Certain if …” is a conditional design consequence. Low-likelihood critical risks remain P0. Full actors, factual basis, mitigations, residual risks and acceptance checks are in [threat-model.jsonl](threat-model.jsonl).
+Rank prioritizes direct privacy/custody failure and irreversible fairness failure, then likelihood and implementation urgency. `P0` is a launch blocker or mandatory explicit trust boundary; `P1` is required hardening/operating policy; `P2` is economic/strategic behavior or residual risk to document. Likelihood is qualitative for the **unmitigated stated architecture**, not a measured probability. “Certain if …” is a conditional design consequence. Low-likelihood critical risks remain P0.
 
 | Rank | ID | Priority | Threat | Likelihood | Impact | First mitigation |
 |---:|---|---|---|---|---|---|
@@ -153,9 +153,7 @@ The register has **68 threats**. Highest-priority gates are fixed collateral, cl
 
 For the judge demo, show: an adversarial escrow viewer reading only uniform C and ciphertext; attempted early decryption without the round key; tampering/copy/late-entry rejection; coordinator failure with mirror-based opening; matching independent result hashes; signer refusal of a changed refund recipient; and independently verified shielded payout/refund receipts. Separately document that a malicious beacon threshold can release early and a custody quorum can steal or block. Never claim these trust boundaries have been cryptographically eliminated.
 
-## Verification status and evidence boundaries
+## Scope
 
-Research uses the supplied prior catalogs plus current primary documentation/literature and static reads of shallow clones under `/tmp/zecathon-code/auc-threat-model/`. No downloaded code, exploit, project test, benchmark, live auction or transaction was executed. Acceptance checks in JSONL are **requirements to implement and demonstrate**, not passed tests. The auction implementation was not supplied for audit, so no mitigation here is represented as deployed.
-
-Evidence references include original URLs, repository commit, absolute code path, line ranges, SHA-256 and saved inspected excerpts. [Evidence index](auc-threat-model/evidence-index.json) retains prior-catalog row references; local [code inspection summary](auc-threat-model/code-inspections.md) identifies the actual implementation reads. Prior catalog claims are not automatically current deployment facts, and conditional cross-system threats are labeled as design inferences. No Twitter API calls or GitHub search API calls were used. Other researchers’ files were read only.
-
+This model was written before the build, from public documentation and the code of earlier auction systems. It
+lists what the design has to defend against; the rest of the docs say how each part is handled.

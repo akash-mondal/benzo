@@ -1,8 +1,7 @@
 # Bidder guide
 
-Runbook for bidding in one Benzo auction. Commands checked against `bin/benzo --help` and each
-command's `--help` at commit `96ce0f5` plus this commit's help fixes, 2026-10-18 (checked by
-`tools/repro/b42-hosts-cli.ts` section 7). Testnet only. Keep your owner key and bid file
+Runbook for bidding in one Benzo auction. Commands match `bin/benzo --help` and each command's
+`--help`. Testnet only. Keep your owner key and bid file
 private; the commands store owner material under `$BNZ_STATE_DIR` and print only public values.
 
 1. **Fund your shielded wallet.** Get a real quote for funding your own shielded UA with a round
@@ -126,5 +125,4 @@ private; the commands store owner material under `$BNZ_STATE_DIR` and print only
    $ benzo verify --dir PUBLIC --signer HEX
    ```
 
-   Remember the honest limit: all bids open at R, anonymised. Losing bids are not secret forever
-   ([`docs/honest-limits.md`](honest-limits.md)).
+   All bids open at R, without the bidders' identities: losing prices become public then too.

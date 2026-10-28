@@ -1,9 +1,0 @@
-auction dc7bd8aeb26c3cb1afa7484f0ef89915637881fb34edb088487e7d3d20812a77 mode uniform
-funding 84f997328d9438483f4386ddf2e49bf2dba16566fa26c37b717b7451c17468ab
-PASS revision-cli-equals-pure-clear outcomes superseded,unfilled,winner price 300
-PASS revision-outcomes superseded,unfilled,winner
-PASS revision-settled exit 0
-PASS revision-receipts {"leaf:0":200000,"leaf:1":200000,"leaf:2":199700,"seller":300}
-PASS revision-landed [200000,200000,199700,0]
-PASS revision-cold-verify
-RESULT PASS revision

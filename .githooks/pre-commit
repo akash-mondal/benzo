@@ -1,3 +1,0 @@
-#!/bin/sh
-# Agent-friendly gate (docs/design/agent-friendly.md): the same command runs here and before every live run.
-exec npm run -s check

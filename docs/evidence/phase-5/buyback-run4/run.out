@@ -1,6 +1,0 @@
-auction 749f2534b77caf173b46eced8842ce15c0ab4bc6b43ea512857755e4baa913ce
-funding 0666468d7b0804972202e41dc4ad7606555f7b599ee430c2f59cd0ff1c171ef3
-run.json -> tmp/e2e/out
-PASSED buyback-mode Mode B buyback settles under host custody with the treasury leg (2219 s)
-run passed; details in tmp/e2e/report.json
-exit=0

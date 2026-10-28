@@ -1,6 +1,0 @@
-[launch-meet] auction f11704696a430712b52e5c728d397dd0fdb9efb30b3fec2a61698af423f4b542 mode launch
-[launch-meet] funding c07d196bba33bc6538b096d4d1913a9cd6bcd7561477a691e31f5bc72219afff
-[launch-meet] FATAL Error: refused: launch delivery count
-[resume f1170469] state CLEARED
-[resume f1170469] settle exit 0; receipts {"leaf:0":199750,"leaf:1":199750,"leaf:2":200000,"seller":500}; obligations {"leaf:0":199750,"leaf:1":199750,"leaf:2":200000,"seller":500}
-[resume f1170469] RESULT PASS (verify exit 0)

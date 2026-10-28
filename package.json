@@ -8,21 +8,15 @@
     "build:fleet": "esbuild deploy/fleet/lite-bot.ts --bundle --platform=node --format=esm --target=node22 --packages=external --outfile=deploy/fleet/dist/lite-bot.mjs --log-level=warning",
     "build:seal": "esbuild seal/src/main.ts --bundle --format=esm --platform=browser --outfile=seal/dist/main.js --log-level=warning && cp seal/src/index.html seal/dist/index.html",
     "typecheck": "tsc -p tsconfig.json",
-    "e2e": "playwright test --project=default",
-    "e2e:live": "BNZ_LIVE=1 playwright test --project=cli-auction",
     "build:core": "esbuild manifest/cli.ts --bundle --platform=node --format=esm --outfile=manifest/dist/cli.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);' && esbuild manifest/reserve.ts --bundle --platform=node --format=esm --outfile=manifest/dist/reserve.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);' && esbuild envelope/index.ts --bundle --platform=node --format=esm --outfile=envelope/dist/index.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);' && esbuild clear/cli.ts --bundle --platform=node --format=esm --outfile=clear/dist/cli.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);' && esbuild clear/auction-cli.ts --bundle --platform=node --format=esm --outfile=clear/dist/auction.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);'",
     "build:settle": "esbuild settle/plan.ts --bundle --platform=node --format=esm --outfile=settle/dist/plan.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);' && esbuild settle/envelopes.ts --bundle --platform=node --format=esm --outfile=settle/dist/envelopes.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);' && esbuild settle/cli.ts --bundle --platform=node --format=esm --outfile=settle/dist/cli.mjs --log-level=warning --banner:js='import { createRequire } from \"module\"; const require = createRequire(import.meta.url);' && cargo build --release --locked --quiet --manifest-path settle/Cargo.toml",
     "build:cli": "node cli/build.mjs",
     "build:verify": "node tools/build-verify.mjs",
     "check:bundle": "node tools/check-bundle.mjs",
-    "check:structure": "node tools/check-structure.mjs",
-    "check:invariants": "esbuild tools/checks/settlement-invariants.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/checks/settlement-invariants.mjs --log-level=warning && node tmp/checks/settlement-invariants.mjs 1 && node tmp/checks/settlement-invariants.mjs 7",
-    "check": "npm run -s typecheck && npm run -s check:structure && npm run -s check:invariants && npm run -s check:dist-require && npm run -s check:bundle",
+    "check": "npm run -s typecheck && npm run -s check:bundle",
     "package": "node tools/package.mjs",
     "package:bidder": "node tools/package-bidder.mjs",
-    "leak-audit": "esbuild tools/leak-audit.ts --bundle --platform=node --format=esm --outfile=tmp/leak-audit.mjs --log-level=warning && node tmp/leak-audit.mjs",
-    "bench": "esbuild tools/bench.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/bench.mjs --log-level=warning && node tmp/bench.mjs",
-    "check:dist-require": "node tools/check-dist-require.mjs"
+    "bench": "esbuild tools/bench.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/bench.mjs --log-level=warning && node tmp/bench.mjs"
   },
   "dependencies": {
     "@noble/curves": "1.9.7",

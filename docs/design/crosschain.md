@@ -1,137 +1,90 @@
-# Design: cross-chain clearing (Phase 5 part 3)
+# Design: cross-chain clearing
 
-Head-owned design (2026-10-02). User decisions:
-- Zcash stays the private core.
-- Target chains are **EVM = Ethereum only (Ethereum Sepolia now, Ethereum mainnet later; no Base — user, 2026-10-02)** and **Solana devnet**.
-- Delivery is **push**, and the target chain stays private too.
-- **Audited code wherever possible.**
-
-Research inputs: `zcash/research/benzo-ideas/{TARGET-CHAIN-PRIVACY,CROSSCHAIN-PRIOR-ART,UMBRA-RAILGUN-VERIFY}.md`. Implement as written; disagreements go under Questions.
+Zcash stays the private core. Target chains are Ethereum (Sepolia on testnet) and Solana (devnet). Delivery is pushed
+to the winners, the target chain stays private too, and audited code is used wherever it exists.
 
 ## 0. The primitive
 
-**Escrows on other chains that release only on what the Benzo signers attest Zcash cleared.** That lets any market leg live on any chain, under one privacy rule: **the side that must stay hidden pays and gets paid on Zcash.** A public-chain escrow holds only a side that is public anyway, or that is posted from a fresh address.
+**Escrows on other chains that release only on what the Benzo signers attest Zcash cleared.** Any market leg can live
+on any chain under one privacy rule: **the side that must stay hidden pays and gets paid on Zcash.** A public-chain
+escrow holds only a side that is public anyway, or that is posted from a fresh address.
 
-What it unlocks:
-
-| Mode | Cross-chain use | Private side |
+| Market | Cross-chain use | Private side |
 |---|---|---|
-| Auction / drop / launch | sell any Solana/EVM asset for ZEC | buyers |
-| Buyback | a treasury buys back its Solana/EVM token for ZEC; payouts land in shielded ZEC | sellers' payouts, the treasury's max price |
-| RFQ / OTC | a block of SOL/ETH/USDC against ZEC; a bridge-less private swap | the requester / the ZEC side |
+| Auction / drop / launch | sell a Solana or EVM asset for ZEC | the buyers |
+| Buyback | a treasury buys back its Solana or EVM token for ZEC; payouts land in shielded ZEC | the sellers' payouts, the treasury's maximum price |
+| RFQ / OTC | a block of SOL, ETH or USDC against ZEC: a private swap with no bridge | the requester, the ZEC side |
 
-**Proven in this phase:**
-1. a Solana-asset drop;
-2. an EVM-token buyback;
-3. a blind ZEC↔SOL (or ZEC↔USDC) OTC.
+Shown on testnet ([`docs/evidence/crosschain`](../evidence/crosschain/)): a Solana-asset drop, an EVM-token buyback,
+a ZEC↔SOL OTC, a live ERC-5564 stealth delivery on Sepolia and a Token-2022 confidential transfer on Solana devnet.
 
-## 1. Trust model and signatures (audited first)
+## 1. Trust model and signatures
 
-- The same three signers as the ZEC vault (alice, bob, carol), on separate hosts per the Phase 5 part 1 design.
-- **EVM:** each signer holds its own **secp256k1** key, generated on its host. The escrow checks **2-of-3 ECDSA signatures with OpenZeppelin `ECDSA` + `MessageHashUtils` (EIP-712 typed data)**. Use OpenZeppelin Contracts at a pinned audited release. **No FROST-secp256k1 verifier:** none is audited.
-- **Solana:** each signer holds its own **Ed25519** key. The program checks 2-of-3 signatures through the **native Ed25519 signature-verification program**, by reading the preceding instruction through the instructions sysvar, with strict offset checks. Avoid the 2022 Wormhole spoofed-sysvar class: verify that the sysvar account is the real one, and use `load_instruction_at_checked`. Pin Anchor at an audited version, or use native `solana-program`, whichever B can pin.
-- **Attestation message, domain-separated (lesson 1):** `benzo-release-v1 ‖ chain_id ‖ escrow_address ‖ auction_id ‖ result_hash ‖ allocation_root ‖ batch_index ‖ nonce ‖ expiry`.
-  - EVM uses EIP-712 with `chainId` + `verifyingContract`.
-  - Solana uses a fixed byte layout with the cluster genesis hash and program ID.
-  - Each `(auction_id, batch_index)` can be released once (a stored flag), so attestations can't be replayed (lessons 1, 3).
-- Signer keys rotate per auction (the keys are named in the signed manifest's `crosschain` block).
+- The same three signers as the ZEC vault (alice, bob, carol), each on its own host.
+- **EVM:** each signer holds its own secp256k1 key, generated on its host. The escrow checks 2-of-3 ECDSA signatures
+  with OpenZeppelin `ECDSA` + `MessageHashUtils` (EIP-712 typed data). There is no FROST-secp256k1 verifier because
+  none is audited.
+- **Solana:** each signer holds its own Ed25519 key. The program checks 2-of-3 signatures through the native Ed25519
+  program, reading the preceding instruction through the instructions sysvar with strict offset checks: the sysvar
+  account must be the real one (`load_instruction_at_checked`), which closes the spoofed-sysvar class of bugs.
+- **The attestation is domain-separated:** `benzo-release-v1 ‖ chain_id ‖ escrow_address ‖ auction_id ‖ result_hash ‖
+  allocation_root ‖ batch_index ‖ nonce ‖ expiry`. EVM uses EIP-712 with `chainId` and `verifyingContract`; Solana uses
+  a fixed byte layout with the cluster genesis hash and program ID. Each `(auction_id, batch_index)` is approved once,
+  so an attestation can't be replayed.
+- The signer keys are named in the signed manifest's `crosschain` block.
 
-## 2. Escrow lifecycle (lesson 8)
+## 2. Escrow lifecycle
 
-1. **Lock before bidding:**
-   - The seller (project, treasury or OTC counterparty) deposits the asset into the escrow, keyed to `auction_id`, **before `T_submit`**. Deposits after that are refused.
-   - The signed manifest pins `{chain, escrow_address/program_id, asset, amount, deadline}`.
-   - `open` refuses unless the head-chain observer (run by each signer) confirms the locked amount.
-2. **Release:** after clearing and Zcash settlement, the signers attest the allocation root; anyone can submit the release (crank) with the 2-of-3 signatures.
-3. **Refund:** after `deadline` with no release (cancel, minimum not met, or signers unavailable), **anyone** can trigger the return of the asset to the seller's pinned return address. The ZEC side refunds as today.
-4. **Per-recipient paid flags:** one failing recipient never reverts the batch (lesson 3). Failed items stay claimable by a later release.
+1. **Lock before bidding.** The seller deposits the asset into the escrow, keyed to `auction_id`, before `T_submit`.
+   The signed manifest pins chain, escrow, asset, amount and deadline, and `benzo xchain status` shows the lock on
+   chain.
+2. **Release.** After clearing and Zcash settlement the signers attest the allocation root. Anyone can submit it.
+3. **Refund.** After the deadline with no release, anyone can return the asset to the seller's pinned address.
+4. **Per-recipient paid flags.** One failing recipient never reverts a batch; it stays claimable by a later release.
 
-## 3. Allocation leaves (lesson 4)
+## 3. Allocation leaves
 
 - One canonical leaf: `H(benzo-leaf-v1 ‖ auction_id ‖ index ‖ asset ‖ lot_count ‖ destination_kind ‖ destination_bytes)`.
-- Amounts are always `lot_count × standard_lot` (lesson 6).
-- Merkle tree: sorted pairs, a strict index bound, and the leaf count committed in the root (the Hyperbridge out-of-bounds lesson).
-- **Nothing from Zcash or the funding path ever enters a leaf** (lesson 5): no txids, no Zcash addresses, no amounts paid.
-- Destinations come from the bidder's **settlement envelope** (Phase 5 R3), extended with a `crosschain` field: `{kind, bytes}`.
+- Amounts are always `lot_count × standard_lot`.
+- The Merkle tree uses sorted pairs, a strict index bound, and commits the leaf count in the root.
+- **Nothing from Zcash or the funding path ever enters a leaf:** no txids, no Zcash addresses, no amounts paid.
+- Destinations come from the winner's sealed settlement envelope.
 
-## 4. Private delivery per chain (best audited option)
+## 4. Private delivery per chain
 
-| Asset | Testnet now | Mainnet later | Public on chain |
-|---|---|---|---|
-| **SOL** | a fresh address sealed in the bid, plus a small SOL stipend | same (Umbra only if it gets a published audit) | the escrow and fresh addresses, standard lots |
-| **SPL tokens** | **Token-2022 Confidential Transfers** to a fresh account that Benzo configures from the bidder's ElGamal pubkey (in the envelope); proofs pre-verified in setup transactions, then one release | same | the escrow, accounts and mint; **amounts hidden** |
-| **Solana NFTs** | a fresh owner address | same | the owner address |
-| **EVM ERC-20 / NFT** | **Railgun `shield()` on Ethereum Sepolia** to the bidder's 0zk address (escrow calls `shield`; the signers build the shield requests off-chain; 2 of 3 rebuild and compare each request byte for byte; a fresh shield key per settlement, destroyed after); **fallback: ERC-5564 stealth addresses on Ethereum Sepolia** (canonical Announcer and Registry) | **Railgun on Ethereum mainnet** | Railgun: the escrow and that a shield happened, with the recipient and later moves hidden. Stealth: the amount and a one-time address. |
+| Asset | Delivery | Public on chain |
+|---|---|---|
+| SOL | a fresh address sealed in the bid, plus a small SOL stipend | the escrow and fresh addresses, standard lots |
+| SPL tokens | Token-2022 confidential transfer to a fresh account Benzo configures from the bidder's sealed ElGamal key (shown on devnet; the escrow itself pays native SOL today) | the escrow, accounts and mint; amounts hidden |
+| EVM tokens | an ERC-5564 stealth address derived from the bidder's sealed meta-address, through the canonical Announcer and Registry | the amount and a one-time address |
 
-- **Gas stipend (lesson 6):** each release includes a tiny native-token stipend per fresh/stealth destination, so winners never fund it from a known wallet.
-- **Railgun PPOI:** the submitter address is screened, so use a clean, dedicated submitter. Refund policy: a shield stuck in the waiting window returns to Benzo's submitter, which forwards it back to that recipient's next envelope destination, or else the exception queue.
-- **Railgun anonymity set:** Ethereum's pool is the largest; still use fixed lots and one batch time.
+Each release includes a small native-token stipend per fresh or stealth destination, so a winner never funds it from a
+known wallet. Railgun shielding is the stronger EVM option and is not built: it needs custom shield code in the
+escrow.
 
-## 5. Funding helper (inbound)
+## 5. Funding helper
 
-`benzo fund quote --from <chain:asset> --zec <round amount>` calls the NEAR Intents 1Click **quote** API only (testnet: dry run, real quotes). It always targets the bidder's **own shielded UA**, in a **round amount the user chooses** (never C plus a fee), and prints guidance to wait before bidding. No deposits are made by Benzo. The live swap happens on mainnet later.
+`benzo fund quote --from <chain:asset> --zec <round amount>` asks the NEAR Intents 1Click quote API only. It always
+targets the bidder's own shielded address, in a round amount the bidder chooses, and Benzo makes no deposits.
 
-## 6. Code layout and ownership
+## 6. Release in two steps
 
-- **Track B (offline, then its own testnet lane):**
-  - `contracts/evm/` (Foundry; OpenZeppelin pinned; `BenzoEscrow.sol` with lock, release(2-of-3 EIP-712), refund, a Railgun adapter, a stealth adapter);
-  - `contracts/solana/` (escrow program: lock, release(2-of-3 Ed25519 via instructions sysvar), refund, confidential-transfer delivery);
-  - `crosschain/` TS: leaf/tree builder, attestation builder, Railgun shield-request builder, stealth derivation (ScopeLift SDK, pinned), Token-2022 CT account config;
-  - `benzo xchain lock|attest|release|refund|status`, and verify extensions (the escrow state must match the attested root).
-- **Track A** (after Phase 5 part 1): signer-host integration (each signer machine generates its EVM/Solana keys, observes locks and co-signs attestations), the live end-to-end runs, the spec.
+A release used to carry the signatures and every payout in one transaction, and only one or two Solana payouts fit.
+Release is now two steps on both chains:
 
-## 7. Order of work for Track B (one commit per step, each with logged proof)
+- **Submit the attestation** once per `(auction, batch)`. The program checks the 2-of-3 signatures and stores the
+  approved allocation root and its expiry. A second submit is refused. The attestation's expiry must not be after the
+  escrow's deadline, so an approved batch can't race a refund.
+- **Release approved payouts**, with no signatures, as many times as needed: each payout is checked against the
+  approved root, its paid flag is set before the transfer, and the total can't exceed what was locked.
 
-1. **EVM escrow on local anvil:** lock, release with 2-of-3 EIP-712, replay refusal, refund after deadline, per-recipient flags. Foundry tests are fine **inside `contracts/` only**; they don't count toward the project E2E ceiling, which is about live specs. Prove with `forge test` output.
-2. **Solana escrow on `solana-test-validator`:** the same five behaviours, with Ed25519 instruction checks and spoofed-sysvar refusal. Prove with logged runs.
-3. Leaf/tree/attestation TS + `benzo xchain` CLI against both local chains: one cleared drop delivered end to end locally.
-4. **Private delivery adapters:** EVM stealth (local anvil, ScopeLift contracts deployed locally), then Railgun on **Ethereum Sepolia** (needs ETH); Token-2022 CT on **Solana devnet** (needs SOL).
-5. Deploy both escrows to **Ethereum Sepolia and Solana devnet** from Track B's deployer keys (`benzo-b/.benzo/evm/deployer.key`, `benzo-b/.benzo/solana/deployer.json`; never print the private key). Record addresses in STATUS-B.
+On Solana the paid flags and the approval account count only when they're owned by the program and carry a versioned
+marker, so someone pre-funding those addresses with lamports can't fake a "paid" state or block a batch.
 
-## 8. Traps
+## 7. Traps
+
 - Never put a Zcash txid, address, amount paid or funding identifier on a target chain.
-- Shield requests must be rebuilt and compared by 2 signers before submission (Railgun doesn't validate notes).
 - Solana: verify the instructions sysvar account and the exact Ed25519 instruction offsets.
-- EVM: EIP-712 domain with `chainId` + `verifyingContract`; reject `s` in the upper half (OpenZeppelin `ECDSA` already does).
-- Per-auction release-once flags; deadlines; anyone-can-refund.
-- Pin every dependency; record audit status per dependency in `contracts/AUDITS.md`.
-
-## 9. Addendum (2026-10-02): Solana "attest once, release many" (Reviewer R F4: only 1–2 payouts fit per transaction)
-
-Head-owned design; implement as written.
-- **New PDA `Approval`:** seeds `["approval", auction_id(32), batch_index(u64 le)]`. Fields: `auction_id`, `batch_index`, `allocation_root(32)`, `result_hash(32)`, `nonce(u64)`, `expiry(i64)`, `genesis_hash(32)`, `bump`. Created exactly once (`init`, so a second submit fails: replay refusal).
-- **`submit_attestation(att)` instruction:**
-  - Same checks as today's `release`: the preceding native Ed25519 instruction is read through the checked instructions sysvar (account key == `sysvar::instructions::ID`, `load_instruction_at_checked`, strict offsets); 2-of-3 distinct signers from the auction's pinned set; the message is exactly the attestation bytes; the genesis hash matches the one pinned at lock; `now <= expiry`; the auction isn't refunded.
-  - On success, write the `Approval` PDA. No transfers in this instruction.
-- **`release_approved(payouts[])` instruction:**
-  - Takes the `Approval` PDA and the auction account, with **no signatures**.
-  - Requires `now <= approval.expiry` and the auction not refunded.
-  - For each payout: check the leaf bound and Merkle membership against `approval.allocation_root` (the same leaf/root encoding), check the paid-flag PDA is unset, set the paid flag **before** the transfer CPI, check the cap (`paid + amount <= locked`), then transfer.
-  - Anyone can call it repeatedly (the crank) until every leaf is paid. Per-recipient failures skip and stay claimable.
-- **Remove the signature-carrying `release` path,** or keep it only for tiny batches. Single code path preferred.
-- **Size target:** with no Ed25519 instruction and no attestation in the release transaction, measure payouts per transaction at proof depths 0–6. Expect ≥ 6 at depth 4. Use a versioned transaction plus an address lookup table for the paid-flag and destination accounts if that's still below 4.
-- **Tests (local validator):**
-  - submit twice → refused;
-  - release with no `Approval` → refused;
-  - an expired approval → refused;
-  - a release after refund → refused;
-  - a leaf not in the root → refused;
-  - every leaf paid exactly once across several crank calls;
-  - a spoofed sysvar on `submit_attestation` → refused;
-  - record the before/after payouts-per-transaction table.
-
-## 10. Addendum (2026-10-02): fixes from Reviewer R's PR review `pr-b-f5-solana9` (verdict BLOCK; head-confirmed in code)
-
-Head-owned; implement as written. Each item needs a test that fails on the current code and passes on the fix.
-1. **P0 (F-1), a pre-funded `paid` PDA is read as "already paid" (Solana, `lib.rs` `release_approved`).**
-   - Never infer state from lamports or empty data. A paid flag counts only if the account is **owned by the escrow program** and its data carries a versioned marker `PAID_V1`.
-   - Create flag accounts with a pre-funding-safe pattern: if the PDA already holds lamports but isn't program-owned, top up to rent-exempt, then `allocate` + `assign` via `invoke_signed` with the PDA seeds; otherwise `create_account`.
-   - Test: dust `paidPda(leafA)` with 1 lamport from an unrelated key, then crank. rA must still be paid exactly once, and refund must not return rA's lot.
-2. **P0 (F-2), refund races attested payouts (Solana and EVM).**
-   - Require `att.expiry <= auction.deadline` when an attestation is accepted: Solana `submit_attestation`, EVM `release`.
-   - Signers must attest `expiry <= deadline`.
-   - Test: an attestation with `expiry > deadline` is refused on both chains.
-   - Test: an approved but unreleased batch cannot be refunded until its expiry has passed. Refund requires `now > deadline`, and every approval's expiry is ≤ deadline, so this holds by construction; assert it.
-3. **P1 (F-3), a pre-funded `Approval` PDA blocks a batch.** Same pre-funding-safe creation as item 1; `BatchReplayed` only when the account is program-owned and carries the `APPROVAL_V1` marker. Test: dust the approval PDA, then submit still succeeds once and a second submit is refused.
-4. **P1 (F-4), the TypeScript client and CLI on the new instructions.** Confirm `crosschain/solana.ts` and `benzo xchain release` build `submit_attestation` + `release_approved` with exactly the program's PDA seed encodings (`batch_index` little-endian, as in §9). Prove an end-to-end release on the local validator through the CLI.
-5. **P2 (F-5), real drain test.** Make `FeeTokenDrain.t.sol` exercise the pooled-drain scenario it names: two auctions share a fee token, and the test shows the victim stays whole after the fix. Correct `docs/AUDITS.md` so it doesn't overclaim: the delta check stops fee-on-transfer at lock; rebasing tokens are excluded by the manifest asset allowlist.
+- EVM: EIP-712 domain with `chainId` and `verifyingContract`; reject `s` in the upper half (OpenZeppelin `ECDSA` does).
+- Per-batch approve-once flags, deadlines, anyone-can-refund.
+- Pin every dependency and record its audit status in [`docs/AUDITS.md`](../AUDITS.md).

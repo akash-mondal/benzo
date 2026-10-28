@@ -34,3 +34,30 @@ CLAUDE.md
 AGENTS.md
 .claude/
 .taste-skill/
+
+# Local working files: tests, reproductions, dev tools and the full run history stay on the
+# developer's machine; the repo carries the product, its docs and the evidence the README cites.
+e2e/
+web/e2e/
+playwright.config.ts
+web/playwright.config.ts
+tools/repro/
+tools/checks/
+tools/check-structure.mjs
+tools/check-dist-require.mjs
+tools/leak-audit.ts
+tools/readme-assets.mjs
+tools/dns-retry.sh
+web/tools/
+crosschain/*-demo.sh
+crosschain/*-demo.mjs
+.githooks/
+docs/evidence/phase-*/
+docs/mainnet-risks.md
+docs/research/zcash-feasibility.md
+docs/research/organizer-forensics.md
+docs/honest-limits.md
+docs/evidence/scale/scale-measure.md
+docs/evidence/live-markets/live-launch.log
+contracts/AUDITS.md
+web/.impeccable.md

@@ -16,9 +16,7 @@
     ]
   },
   "include": [
-    "e2e",
     "seal/src",
-    "playwright.config.ts",
     "manifest",
     "clear",
     "settle",

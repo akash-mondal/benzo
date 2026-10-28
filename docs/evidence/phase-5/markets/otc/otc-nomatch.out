@@ -1,9 +1,0 @@
-auction 1f02476faa2b9f2dc4cc5c94a896c259bba7a65dd3c65f0cd51ce15785dc4da1 mode otc
-funding 77e259caa87f8b5172a7d9385bd828cf6f36389188c2ac7aa0b4309c37cb06b5
-PASS otc-nomatch-cli-equals-pure-clear outcomes no_match,no_match price 0
-PASS otc-nomatch-expected-equals-obligations {"leaf:0":200000,"leaf:1":200000}
-PASS otc-nomatch-settled exit 0
-PASS otc-nomatch-receipts {"leaf:0":200000,"leaf:1":200000}
-PASS otc-nomatch-landed [200000,200000,0]
-PASS otc-nomatch-cold-verify
-RESULT PASS otc-nomatch

@@ -81,7 +81,7 @@ From that point the set is fixed, and it was fixed while every bid was still unr
 
 What the root can't prove on its own is that every valid bid made it in: an operator could refuse a funded bid before freezing. It can't do so quietly or profitably. Right after the freeze, still before `R`, each bidder can prove their bid is in the root (`benzo receipt prove`), and the site shows it as counted. A deposit that was paid in time but left out is owed back in full: its owner key claims it from the vault, and the verifier requires every deposit the operator listed to be either in the set or refunded. The operator also can't pick whom to drop by price, because when it freezes it can't read any price.
 
-We ran that attack on the live site: the operator dropped a paid bid, the bidder's own page caught it, and the signers refunded the deposit on the bidder's own claim ([evidence](docs/evidence/phase-7/excluded-bid/)).
+We ran that attack on the live site: the operator dropped a paid bid, the bidder's own page caught it, and the signers refunded the deposit on the bidder's own claim ([evidence](docs/evidence/left-out-bid/)).
 
 ## 5. Opening and clearing: six markets, one engine
 
@@ -135,8 +135,8 @@ You don't have to trust the site, or this post. Each round publishes a public re
 npm ci && npm run build:verify
 shasum -a 256 dist/benzo-verify.mjs     # must match docs/verify-bundle.sha256
 node dist/benzo-verify.mjs \
-  --signer "$(cat docs/evidence/phase-7/gold/doc-walk/signer)" \
-  --dir docs/evidence/phase-7/gold/doc-walk/public
+  --signer "$(cat docs/evidence/verify-example/signer)" \
+  --dir docs/evidence/verify-example/public
 ```
 
 That folder is a real testnet round: three sealed bids, opened at a drand round and settled by 2 of 3 signers. The verifier runs 19 checks in under a second, and every one prints `OK`:
@@ -186,16 +186,16 @@ Open any round on [benzo.space](https://benzo.space), pick a price and press **U
 - **[benzo.space](https://benzo.space)**, on Zcash testnet:
   - **The whole product:** start a round in any market, invite bidders, seal, pay, watch the opening, settle and check.
   - **The test fleet:** during judging, eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) run alongside it. They start rounds and bid through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Each has its own wallet, and every bid is a real sealed deposit.
-- **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/phase-7/ui-drive/)):
+- **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/live-markets/)):
   - Uniform, drop, OTC and RFQ: settled, every check passes, and the browser test passes.
   - Buyback: settled with 11 payments, every check passes, and the browser test passes.
-  - Launch: a launch's winners record where their units go with the CLI (`benzo launch deliver`), which the site doesn't collect yet, so launch rounds aren't started on the site. The full launch flow, delivery list included, passes through the CLI on testnet ([log](docs/evidence/phase-5/markets/launch-a18/launch-meet.out)).
+  - Launch: a launch's winners record where their units go with the CLI (`benzo launch deliver`), which the site doesn't collect yet, so launch rounds aren't started on the site. The full launch flow, delivery list included, passes through the CLI on testnet ([log](docs/evidence/launch-round/)).
 - **Cross-chain payouts:**
-  - Ethereum Sepolia: a payout to a one-time ERC-5564 stealth address ([log](docs/evidence/phase-5/repro/stealth-live.out)).
-  - Solana devnet: a Token-2022 confidential transfer ([log](docs/evidence/phase-5/repro/ct-live.out)).
-- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/phase-6/bench.json)). The deposits there are synthetic, not 17,000 on-chain payments; paying that round out would take about 608 transactions.
+  - Ethereum Sepolia: a payout to a one-time ERC-5564 stealth address ([log](docs/evidence/crosschain/stealth-live.out)).
+  - Solana devnet: a Token-2022 confidential transfer ([log](docs/evidence/crosschain/ct-live.out)).
+- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/scale/bench.json)). The deposits there are synthetic, not 17,000 on-chain payments; paying that round out would take about 608 transactions.
 
-The rest of the evidence, and what each folder proves, is indexed in [`docs/evidence/phase-7/README.md`](docs/evidence/phase-7/README.md).
+The rest of the evidence, and what each folder proves, is indexed in [`docs/evidence/README.md`](docs/evidence/README.md).
 
 ## Run it yourself
 
@@ -222,6 +222,6 @@ deploy/      the operator image, the signer setup and the test fleet
 docs/        guides, design, threat model, evidence
 ```
 
-Further reading: the [design](docs/research/DESIGN.md), the [threat model](docs/research/threat-model.md) and [why a timelock](docs/why-timelock.md).
+Further reading: the [design](docs/research/DESIGN.md), the [threat model](docs/research/threat-model.md), [why a timelock](docs/why-timelock.md) and the [dependencies and their audits](docs/AUDITS.md).
 
 MIT licensed. Built for Zecathon 2026.

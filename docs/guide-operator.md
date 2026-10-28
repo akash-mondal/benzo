@@ -1,9 +1,7 @@
 # Operator guide
 
-Runbook for running one Benzo auction. Commands checked against `bin/benzo --help` and each
-command's `--help` at commit `96ce0f5` plus this commit's help fixes, 2026-10-18 (52 invocations,
-checked by `tools/repro/b42-hosts-cli.ts` section 7, transcript `tmp/guide-help.txt`, scratch).
-`benzo` is `bin/benzo` in the checkout. Testnet only. Private key material stays under
+Runbook for running one Benzo auction. Commands match `bin/benzo --help` and each command's
+`--help`. `benzo` is `bin/benzo` in the checkout. Testnet only. Private key material stays under
 `$BNZ_STATE_DIR`; never print it. **Every private input file** (the operator config, the witness
 set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refuses a private file
 (`--config`, `--witness-set`, `--key`, `--witness-key`) from anywhere else.
@@ -144,14 +142,14 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
       $ benzo auction create --file unsigned-manifest.json --witness-set FILE --config PRIVATE-OPERATOR.json
       ```
 
-      B49 disclosure: `benzo verify` checks receipt attestation, NOT on-chain inclusion (verify is
+      Note: `benzo verify` checks receipt attestation, NOT on-chain inclusion (verify is
       offline by design). Inclusion is checked by the signer hosts before any reserve return: a
       receipt counts as paid only when this host's own approval ledger approved that transaction
       with the row at its amount AND this host's own vault scan shows the transaction mined 10
       confirmations deep (`settle/deposits.ts` `paidByOwnLedger`). A row without such a receipt is
       outstanding and the return waits.
 
-      B54 disclosure (dust): the sweep spends what the wallet can spend — and no more. The pinned
+      Note (dust): the sweep spends what the wallet can spend — and no more. The pinned
       wallet never selects a vault note of 5,000 zats or less (ZIP-317 `MARGINAL_FEE`), so such a
       note is permanently unspendable: anyone can create one by sending 1–5,000 zats to a published
       deposit address. Its refund obligation is paid like any other row, from OTHER notes (vault
@@ -200,7 +198,7 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
    `5,000 × max(2, actions)` zats from the reserve (the ZIP-317 fee the batch builder enforces,
    `settle/src/main.rs`). `actions` is the larger of the batch's shielded spends and outputs, and the
    **wallet chooses the spends**: a batch paying k rows can spend more than k notes. Live, the 55-bid
-   run paid about 117,000 zats per 14-row batch, not 75,000 (R105). Fund generously:
+   run paid about 117,000 zats per 14-row batch, not 75,000. Fund generously:
 
    `10,000 × (payable rows + number of batches)` zats,
 
@@ -209,7 +207,7 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
    { available, required }`. Pay the difference (plus slack) to `routing.fee_reserve_ua`, wait 10
    confirmations and run `benzo settle --id ID` again: paid batches stay paid, and the plan continues.
    The harness funds 60,000 zats for small runs and 400,000 for the 55-bid run, and the 55-bid run
-   needed a top-up once (R105). Pay the reserve in the same funding transaction as the deposits, through the `--pay` form of `bid deposit` with
+   needed a top-up once. Pay the reserve in the same funding transaction as the deposits, through the `--pay` form of `bid deposit` with
    `reserve` (the address must equal `routing.fee_reserve_ua` exactly — the CLI refuses a
    mismatch):
 
@@ -340,7 +338,7 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
 
       The return needs the last batch's change to be spendable: if `benzo settle` prints `the reserve
       stays in the vault until the next benzo settle`, run `benzo settle --id ID` again once that batch has
-      10 confirmations (R108).
+      10 confirmations.
 
 8. **Record and settle refund claims.** A request carries `party` (`leaf:N`,
    `deposit:TXID:POOL:INDEX`, `balance-late:TXID:POOL:INDEX` or `balance-excess:LEAF`),
@@ -391,10 +389,8 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
     request.json`; a signer-side view is `benzo sign envelope-opens … --claims FILE`).
 
 13. **NU7 and `BNZ_LWD_SINGLE`.** Public testnet activated NU7 (branch `0x77190AD9`) at height
-    4,465,026 and the stack runs the pinned `tools/nu7` backport (Ruling R27). While only one
-    public lightwalletd endpoint serves NU7, run every live command with `BNZ_LWD_SINGLE=1`
-    (testnet only). Mainnet keeps the as-pinned Ironwood stack until its NU7 height is set
-    (`docs/mainnet-risks.md`).
+    4,465,026 and the stack runs the pinned `tools/nu7` backport. While only one public
+    lightwalletd endpoint serves NU7, run every live command with `BNZ_LWD_SINGLE=1` (testnet only).
 
 14. **Cross-chain lots (optional).** The seller locks the asset in the target-chain escrow BEFORE
     bidding (`xchain lock` pins the signer set, amount, lot and deadline). The signer hosts hold
@@ -412,6 +408,5 @@ set, admission records, key files) lives under `$BNZ_STATE_DIR` — the CLI refu
     ```
 
     After the deadline with no release, anyone can `refund` back to the pinned return address.
-    The demo drivers are `tools/repro/xchain-demos.ts` (part 2 §2); the escrow deployments are
-    recorded in `docs/STATUS-B.md`. Only the allocation root, the result hash and the bidders'
-    fresh destinations ever reach a target chain.
+    Only the allocation root, the result hash and the bidders' fresh destinations ever reach a
+    target chain. Three cross-chain rounds are in [`docs/evidence/crosschain`](evidence/crosschain/).

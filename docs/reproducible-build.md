@@ -1,9 +1,9 @@
-# Reproducible builds (gate PK)
+# Reproducible builds
 
 How to rebuild Benzo's three release artifacts **byte-for-byte** on any machine, and what their
 sha256 values must be. Every input is pinned; nothing resolves `@latest` or a branch. The transcript
 of one such rebuild from a fresh clone in `/tmp` is recorded at
-`docs/evidence/phase-6/pk-rebuild-rg.out`.
+`docs/evidence/reproducible-build/pk-rebuild-rg.out`.
 
 ## 1. Pinned toolchain
 
@@ -21,7 +21,7 @@ but are not what these digests were produced with):
 | Playwright (Chromium pin) | `@playwright/test` 1.63.0 → `chromium_headless_shell-1243` | `package-lock.json` + `npx playwright install` |
 | tlock-js | 0.9.0 | `package.json` + `package-lock.json` |
 
-The tarballs now rebuild the same on macOS and Linux (arm64 and x86-64 measured, R90).
+The tarballs rebuild the same on macOS and Linux (arm64 and x86-64 measured).
 
 The full npm dependency tree is pinned exactly in `package-lock.json` (committed; `npm ci` refuses
 anything else). The three artifacts build from these packages only.
@@ -70,7 +70,7 @@ shasum -a 256 dist/benzo-bidder-0.1.0.tgz
 ```
 
 `npm run check:bundle` (run inside `npm run package`) refuses to package a tree whose
-`dist/benzo-verify.mjs` differs from a fresh rebuild (R32: the bundle is only ever produced by
+`dist/benzo-verify.mjs` differs from a fresh rebuild (the bundle is only ever produced by
 `npm run build:verify` from the checkout that commits it).
 
 ## 4. Why the tarballs are byte-stable
@@ -93,119 +93,14 @@ Both `.tgz` artifacts go through `tools/deterministic-tar.mjs`:
   leak in;
 - Node's **`zlib.gzipSync` at level 9 with the header pinned** (OS byte 3): Apple gzip and GNU gzip
   emit different deflate streams for the same tar, while Node's bundled zlib emits the same stream
-  on macOS and Linux (arm64 and x86-64 measured, R90), and FLG 0 / MTIME 0 keep any filename or
+  on macOS and Linux (arm64 and x86-64 measured), and FLG 0 / MTIME 0 keep any filename or
   build time out of the gzip header.
 
 The verify bundle is esbuild output of pinned inputs with a pinned esbuild: byte-stable by
-construction (`npm run build:verify` twice from absent output produces the same digest — see the
-run-28 record in `docs/STATUS-B.md`).
+construction (`npm run build:verify` twice from absent output produces the same digest).
 
-## 5. Notes
+## 5. Checked on a clean machine
 
-- **Final record (zero-bid fix, 2026-10-27).** `clear/core.ts` now checks the bond/balance fields per allocation, so a round
-  nobody bid on settles (the old whole-list test refused it). That moves the verify bundle to `19254021…` and the npm package
-  to `0b49cd7e…` (30,014,643 bytes). The CLI also pays from `BNZ_PAY_WALLET` when set (the gateway's house wallet).
-- **Earlier record (the host deploy, 2026-10-26).** The CLI moved (`xchain keygen --show`, `BNZ_FROSTD_HOST`), so the npm package is
-  `c77b9663…` (30,013,736 bytes, 18,328 entries, 112 production packages); the verify bundle stays `cffd6a33…`. The packager now skips
-  node-gyp build output (a `build/` folder holding `config.gypi`): a Linux machine with a compiler builds `bufferutil` and
-  `utf-8-validate` natively on install, which added 22 files. macOS builds none, and both packages fall back to plain JS. The the host
-  image (Ubuntu 24.04, build-essential) and this Mac now build the identical `c77b9663…`.
-- **Earlier record (R133, B58 + MIT, `871c5b3`, 2026-10-25).** The code moved by B58 (`b6f478b`, witness cutoff) and `7ac4b93` (the
-  testnet-only lock kept), which leaves the verify bundle at `cffd6a33…`. The MIT `LICENSE` and `"license": "MIT"` move the npm package to
-  `f9a90032…` (30,013,601 bytes, 18,328 entries, 112 production packages). The bidder bundle `f6afad13…` is unchanged. The clean-machine
-  re-run on `benzo-pk` (`docs/evidence/phase-7/pk-vm/at-871c5b3/`) rebuilt both packages byte-identical on Linux from a fresh clone.
-  Offline, the packaged CLI verified a published auction with 19 OK and refused the tampered and wrong-signer copies. The bidder bundle
-  sealed a bid that `tle` opened only after round R.
-- **Earlier record (R132, B57 `52c7353`, 2026-10-22).** B57 changed `cli/commands/verify.ts` (H24) and the CLI (H8, H9, H22), so the
-  verify bundle moved to `cffd6a33…` and the npm package to `96e8fdf2…` (30,013,193 bytes, 18,328 entries, 112 production packages).
-  The bidder bundle `f6afad13…` is unchanged. The clean-machine re-run on `benzo-pk` (`docs/evidence/phase-7/pk-vm/at-52c7353/`) rebuilt
-  all three byte-identical on Linux from a fresh clone. Offline, the packaged CLI verified a published auction with 19 OK and refused
-  the tampered and wrong-signer copies. The bidder bundle sealed a bid that `tle` opened only after round R.
-- **Earlier record (R130, `25c751a`, 2026-10-20).** The R127/R128/R130 product fixes are CLI inputs, so the npm package moved to
-  `93e63695…` (30,012,938 bytes, 18,328 entries, 112 production packages). The verify bundle `ec044a12…` and the bidder bundle
-  `f6afad13…` are unchanged. A clean-machine re-run on `benzo-pk` (`docs/evidence/phase-6/pk-vm/at-25c751a/`) rebuilt all three
-  byte-identical on Linux from a fresh clone. Offline, the packaged CLI verified a published auction with 19 OK and refused the
-  tampered and wrong-signer copies. The bidder bundle sealed a bid that `tle` opened only after round R.
-- **The npm package ships `README.md`** (and `docs/verify-it-yourself.md`, `docs/verify-bundle.sha256`). Any README edit moves the
-  package digest: re-run `npm run package`, PK step 04 on `benzo-pk`, and update the two places above in the same commit.
-- The npm package tarball's digest changed a few times while this batch landed (the previous
-  `tar czf` recorded per-file copy times and the builder's uid; the first deterministic version
-  still leaked an absolute symlink; and `benzo auction keys` loaded `settle/io` — which resolves
-  `BNZ_STATE_DIR` at import time — eagerly, which broke every command in an extract without a
-  `.env`; it now imports it inside `run()`). The superseded digest (`856fae26…`, run 28) lives in
-  git history; `docs/evidence/phase-6/pk-package.out` /
-  `pk-package.sha256` / `pk-package-verify.out` were regenerated by this batch (run 32) at the commit
-  that made the packager deterministic, and `pk-rebuild.out` proves a fresh clone reproduces all
-  three digests above.
-- **B33 refresh (run 33).** The digests above were re-recorded at the B33 commit after the README
-  refresh, the LICENSE addition and a `docs/verify-it-yourself.md` digest fix (all three ship in the
-  tarball). The rebuild found a staleness bug worth knowing: `cli/build.mjs` never prunes
-  `cli/dist/commands/`, and the router lists whatever it finds there, so the **removed**
-  `benzo auction balance-addresses` command (R33 item 1) stayed live in build output and in the
-  first regenerated tarball until `cli/dist` was deleted and rebuilt. The recorded digests come from
-  the cleaned tree, and the package digest is re-proven from a fresh clone in the regenerated
-  `pk-package.out`. `pk-rebuild.out` stays the run-32 record (its three digests are the run-32
-  values). The bidder bundle is unchanged (`fa54df28…` re-checked in run 33 — it ships only
-  `seal/` output).
-- **B34 refresh (run 34).** Re-recorded after R36 (`package.json` is `"license": "UNLICENSED"`, `LICENSE`
-  removed — the tarball never shipped `LICENSE`, but `package.json` does ship, so the npm-package digest
-  changes) and R37.5 (`cli/build.mjs` cleans `cli/dist` before building, so the run-33 stale-module
-  finding is prevented at its source). New digests: verify bundle `80754445…`, npm package `ab18336f…`
-  (18,321 entries, 112 production packages), bidder bundle `fa54df28…` **unchanged** (it ships only
-  `seal/` output). All three re-proven: two clean `npm run package` builds identical
-  (`docs/evidence/phase-6/pk-package.out`), two clean `npm run package:bidder` builds identical plus the
-  clean-machine seal/open proof (`pk-bidder.out`, quicknet round 32818939), and a fresh clone in `/tmp`
-  reproduces all three byte-for-byte (`pk-rebuild.out`; the run-32/33 mixed record it replaces is in git
-  history). The verify-bundle digest also corrects run-33's table entry: `effd9853…` was the bundle of
-  track-b's tree at `50ee067`; the B33 merge resolved `dist/benzo-verify.mjs` to Track A's rebuilt bundle
-  (`9634882`, A15 envelope/verify changes are bundle inputs), and `npm run check:bundle` plus
-  `pk-rebuild.out` both confirm `80754445…` is byte-equal to a rebuild of the merged tree. The digests
-  hold at the commit that records them: everything this refresh commits is `docs/` text and evidence,
-  none of which `tools/package.mjs` copies into the tarball. `pk-package-verify.out` re-proves the clean
-  extract (`bin/benzo verify` on the shipped Phase 4 evidence, offline, exit 0) and shows the R33-removed
-  `auction balance-addresses` is absent from the packaged CLI (router refuses it, exit 2; no tarball
-  entry).
-- **B36 refresh (run 36, 2026-10-16).** All three values re-recorded after the product rulings that
-  landed since run 34's refresh at `3ca5c9f`. `docs/evidence/phase-6/pk-rebuild-rg.out` is the
-  fresh-clone record: two independent clones in `/tmp` with empty HOME rebuild all three artifacts
-  byte-identically at `638ae26` (and equal to the in-tree build), with `dist/benzo-verify.mjs` equal
-  to `docs/verify-bundle.sha256` there. What changed and why:
-  - verify bundle `80754445…` → `b122bf2b…`: the bundle was rebuilt by R42's refund/stray verify
-    (`28f52e3`, `414bcbd`), R44's F19 defaults tie-break verify (`68fb2f7`), F21 (`bd315fd`), R52's
-    `tle` failover bounding in `manifest/reserve.ts` (`42db1fe`), R61's void-bond verify (`38e8d76`),
-    R63's bond-is-mode-A-only verify (`03f4404`) and R64's `bond_void` recomputation (`0d50cdd`, the
-    commit that recorded `b122bf2b…`). R65 changed no bundle input (`npm run check:bundle` PASS at
-    `638ae26`).
-  - npm package `ab18336f…` → `9693395b…` (18,323 entries, 112 production packages; the two extra
-    entries are R40.3's `launch-deliver-list`/`sign-delivery` command modules): the same verify code,
-    plus the CLI/host-side rulings R34.2, R38, R40–R46 and R48–R65 (bounded lightwalletd/drand calls,
-    proven-absence re-pay refusals, the void bond, endpoint normalization), and this refresh's
-    shipped-doc fix below.
-  - bidder bundle `fa54df28…` **unchanged**: `seal/` and its inputs (`seal/src`, `seal/index.html`,
-    `package.json`, the packager) are untouched since run 32 — `git log 3ca5c9f..HEAD -- seal/
-    package.json tools/package-bidder.mjs tools/deterministic-tar.mjs` is empty — and the fresh-clone
-    rebuild re-measures it unchanged.
-  - The shipped-doc fix and the two digests. `README.md` and `docs/verify-it-yourself.md` are tarball
-    inputs (`tools/package.mjs`) and still recorded the superseded run-33 bundle digest (`effd9853…`)
-    although `docs/verify-bundle.sha256` has been `b122bf2b…` since R64; this refresh corrects them,
-    which is why the npm digest measured at `638ae26` (`5d36782f…`, in the rebuild transcript) differs
-    from the expected `9693395b…` above. `pk-package.out` (two clean `npm run package` builds
-    identical) and `pk-package-verify.out` (clean extract in `/tmp` with empty HOME: `bin/benzo verify`
-    on the shipped Phase 4 evidence offline, exit 0; `auction balance-addresses` absent, exit 2)
-    record `9693395b…` at the tree that carries the fix. Nothing this batch commits afterwards
-    touches a tarball input, so the expected values hold at the commit that records them and after.
-  - `pk-rebuild.out` stays the run-34 record; `pk-rebuild-rg.out` supersedes it.
-- **B41 (run 39, 2026-10-18).** The two tarball digests move to the values above because the
-  packager changed; the only code change is `tools/deterministic-tar.mjs`. It now picks bsdtar
-  explicitly (`bsdtar` on PATH, else a `tar` that reports `bsdtar`, else a one-line refusal — never
-  GNU tar), pins the owner names in the tar call (`--uname root --gname root`; macOS wrote `wheel`
-  for gid 0 where Linux writes `root`, measured in `docs/evidence/phase-6/pk-vm/`), and gzip's in
-  Node (`zlib.gzipSync`, header OS byte pinned to 3) instead of the system gzip. The tar layers are
-  unchanged in content (the bidder layer is byte-equal to the `2ad6eae8…` layer the Ubuntu VM
-  measured), `tar -tzf` lists the same 18,323 / 2 entries, and the shipped verify bundle is
-  untouched. The verify-bundle row above also corrects a staleness this refresh found: it recorded
-  `b122bf2b…` although `docs/verify-bundle.sha256` has carried `96886226…` since the R81/R83
-  rebuilds. macOS digests are re-proven twice each at this commit; the matching Linux digests come
-  with the head's re-run of the VM step 04.
-- Cargo (`settle/`, `npm run build:settle`) is not part of the three artifacts; the Rust toolchain
-  is whatever `cargo build --release --locked` accepts from `settle/Cargo.lock`.
+[`docs/evidence/reproducible-build`](evidence/reproducible-build/) holds the runs: on a fresh Linux VM with no network,
+no checkout and an empty home, the published package installs, verifies a real round (every check `OK`) and refuses
+two tampered copies; a fresh clone rebuilds every artifact byte for byte (`04-rebuild.out`: `OK` for each).
