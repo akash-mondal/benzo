@@ -90,6 +90,8 @@ export class Runner {
       const saved = JSON.parse(readFileSync(this.file, "utf8"));
       this.auctions = (Array.isArray(saved) ? saved : saved.auctions).map((a: any) => ({ ...a, spec: a.spec ?? houseSpec("uniform", 0) }));
       this.queue = Array.isArray(saved) ? [] : saved.queue ?? [];
+      // Refund claims survive a restart; one cut off mid-check is checked again.
+      this.claims = Array.isArray(saved) ? [] : (saved.claims ?? []).map((c: any) => c.state === "paying" ? { ...c, state: "queued" } : c);
     }
     // A round interrupted during setup has a half-made state on the hosts; it is never resumed blindly.
     for (const a of this.auctions) if (a.phase === "setup") { a.phase = "failed"; a.error = "interrupted during setup"; if (a.spec.request) this.onCreated(a.spec.request, null, a.error); }
@@ -97,7 +99,7 @@ export class Runner {
     void this.tick(); void this.settleTick();
   }
 
-  private save() { writeFileSync(this.file, JSON.stringify({ auctions: this.auctions, queue: this.queue }, null, 1), { mode: 0o600 }); }
+  private save() { writeFileSync(this.file, JSON.stringify({ auctions: this.auctions, queue: this.queue, claims: this.claims }, null, 1), { mode: 0o600 }); }
   private say(a: Live, line: string) { a.log.push(`${new Date().toISOString()} ${line}`); a.log = a.log.slice(-60); this.save(); process.stdout.write(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] ${line}\n`); }
   private run(args: string[], input?: unknown) { return benzo(this.root, this.state, args, input); }
 
@@ -355,7 +357,7 @@ export class Runner {
     const old = this.claims.find((c) => c.id === id && c.party === request.party && c.state !== "failed");
     if (old) return { state: old.state, detail: old.detail };
     const c = { id, party: request.party, request, state: "queued" as const, detail: "queued; the signers check it after the round's own steps", at: Date.now() };
-    this.claims.push(c); return { state: c.state, detail: c.detail };
+    this.claims.push(c); this.save(); return { state: c.state, detail: c.detail };
   }
   claimStatus(id: string, party: string) { const c = [...this.claims].reverse().find((x) => x.id === id && x.party === party); return c ? { state: c.state, detail: c.detail, ...(c.txid ? { txid: c.txid } : {}) } : null; }
   private async workClaims() {
@@ -381,6 +383,7 @@ export class Runner {
           else { c.state = "queued"; c.detail = row?.state === "exception" ? "the signers are checking the claim" : "the refund is being paid; this takes a few minutes"; }
         }
       } catch (e) { c.state = "failed"; c.detail = String((e as Error).message).replace(/^ERROR\s*/, "").slice(0, 300); }
+      this.save();
       console.log(`[runner ${c.id.slice(0, 8)}] claim ${c.party.slice(8, 20)}… ${c.state}: ${c.detail.slice(0, 160)}`);
     }
   }
