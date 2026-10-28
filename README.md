@@ -1,8 +1,8 @@
 <p align="center"><img src="docs/assets/banner.svg" alt="Benzo: sealed-bid markets on Zcash. Bids are locked to a future drand round; nobody can read one before it, not even the operator." width="100%"></p>
 
-<p align="center"><a href="https://benzo.space"><b>Live demo →</b></a> &nbsp;·&nbsp; <a href="docs/media/benzo-demo.mp4"><b>Demo video (2 min) →</b></a></p>
+<p align="center"><a href="https://benzo.space"><b>Live demo →</b></a> &nbsp;·&nbsp; <a href="https://youtu.be/xqJnJRegB0k"><b>Demo video (2 min) →</b></a></p>
 
-<p align="center"><a href="docs/media/benzo-demo.mp4"><img src="docs/media/demo-poster.jpg" alt="Demo video, 2 minutes: a real sealed bid in the Specters mint on benzo.space. Four of four sold at one clearing price, 1,170 zats; every winner paid the same price." width="100%"></a></p>
+<p align="center"><a href="https://youtu.be/xqJnJRegB0k"><img src="docs/media/demo-poster.jpg" alt="Demo video, 2 minutes: a real sealed bid in the Specters mint on benzo.space. Four of four sold at one clearing price, 1,170 zats; every winner paid the same price." width="100%"></a></p>
 
 ---
 
