@@ -1,168 +1,95 @@
-<p align="center"><img src="docs/assets/banner.svg" alt="Benzo: sealed-bid markets on Zcash. Bids are locked to a future drand round; nobody can read one before it, not even the operator." width="100%"></p>
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/reel/hero.png">
+  <img src="docs/assets/reel/hero.gif" alt="Benzo. The price is public. The bidders are not. A Specters mint round: eight sealed bids open at drand round 33,455,055, six clear at 1,270 zats, paid by 2 of 3 signers." width="100%">
+</picture>
 
-<p align="center"><a href="https://benzo.space"><b>Live demo →</b></a></p>
+<h3 align="center">Sealed-bid markets on Zcash.<br>Nobody reads a bid early. Not the other bidders, not the chain, not the operator.</h3>
 
-<p align="center"><a href="https://youtu.be/xqJnJRegB0k"><img src="docs/media/demo-poster.jpg" alt="Demo video, 2 minutes: a real sealed bid in the Specters mint on benzo.space. Four of four sold at one clearing price, 1,170 zats; every winner paid the same price." width="100%"></a></p>
+<p align="center">
+  <a href="https://benzo.space"><img alt="Try it" src="https://img.shields.io/badge/try%20it-benzo.space-e9cd84?style=for-the-badge&labelColor=141a10"></a>
+  <a href="https://youtu.be/xqJnJRegB0k"><img alt="Watch the 2-minute demo" src="https://img.shields.io/badge/%E2%96%B6%20demo-2%20min-e9cd84?style=for-the-badge&labelColor=141a10"></a>
+</p>
+
+<p align="center">
+  <img alt="Zcash shielded" src="https://img.shields.io/badge/Zcash-shielded-f4b728?labelColor=1b1b1b">
+  <img alt="drand quicknet" src="https://img.shields.io/badge/timelock-drand%20quicknet-b9a571?labelColor=1b1b1b">
+  <img alt="FROST 2 of 3" src="https://img.shields.io/badge/payouts-FROST%202%20of%203-b9a571?labelColor=1b1b1b">
+  <img alt="Zecathon 2026 Private Markets" src="https://img.shields.io/badge/Zecathon%202026-Private%20Markets-b9e27a?labelColor=1b1b1b">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-9d9886?labelColor=1b1b1b">
+</p>
+
+<p align="center">
+  <a href="#try-it-in-a-minute">Try it</a> ·
+  <a href="#why">Why</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#who-can-see-what">Who sees what</a> ·
+  <a href="#check-it-yourself">Check it yourself</a> ·
+  <a href="#the-markets">Markets</a> ·
+  <a href="#screens">Screens</a> ·
+  <a href="#run-it">Run it</a> ·
+  <a href="#docs">Docs</a>
+</p>
 
 ---
 
-Every auction has the same weak spot: whoever runs it sees the bids first. On an exchange, the order book is a list of everyone's intentions, readable by whoever is closest to it. A "sealed" auction is only sealed by a promise. On a public chain it's worse: every bid is a transaction anyone can read, sorted by price, before the auction closes.
+<a href="https://youtu.be/xqJnJRegB0k"><img src="docs/media/demo-poster.jpg" alt="Demo video, 2 minutes: a real sealed bid in the Specters mint on benzo.space. Four of four sold at one clearing price, 1,170 zats." width="100%"></a>
 
-The Zecathon Private Markets track asked for the opposite: *the price should be public and the participants should not.*
+## Try it in a minute
 
-Take a DAO buying back its own token. If its bid is visible, sellers raise their asks. If the desk running the buyback can see the asks, it can trade ahead of them. Benzo runs that buyback, or any sealed auction, so that:
+No wallet needed.
 
-- **nobody can read a bid before a fixed moment**: not the other bidders, not anyone watching the chain, not us, the operator;
-- **the operator can't change the set of bids** once that moment approaches;
-- **nobody can pay out a wrong result**, because two of three signers recompute it before signing, and anyone can recheck it afterwards.
+1. Open **[benzo.space](https://benzo.space)** and go to **Specters**.
+2. Pick an open mint round and press **Bid now**.
+3. Choose a price, press **Review bid**, then **Use the demo wallet**.
+4. Save your recovery file when asked. Your browser seals the bid; the demo wallet pays the deposit.
+5. Press **Track this deposit** and watch it get counted, frozen, opened and settled.
+6. Open any settled round, go to **Verify**, and press **Try it** next to a cheat. The checks catch it.
 
-After the opening, the prices are public and checkable; who bid stays private. Each of these rests on a stated assumption: drand's threshold of operators doesn't collude, and two of the three signers don't collude. This post walks through how it works, one layer at a time.
+Prefer the terminal? Clone the repo and run `npm ci && npm test`. It replays recorded rounds and the tampering they must refuse.
 
-## A round, from first bid to proof
+## Why
 
-<p align="center"><img src="docs/assets/lifecycle.svg" alt="A round in six steps: seal and pay, freeze, open at drand round R, clear, settle with 2 of 3 signers, verify." width="100%"></p>
+Every auction has the same weak spot: whoever runs it sees the bids first.
 
-A round has a deadline for bids (`T_submit`), a moment the set of bids is locked (`T_freeze`), and an opening round `R` on the drand beacon. Everything before `R` is sealed. Everything after is public maths that anyone can redo. The rest of this post takes the steps in order.
+- On an exchange, the order book is a list of everyone's intentions.
+- A "sealed" auction is sealed by a promise.
+- On a public chain it's worse: every bid is a transaction anyone can read before the auction closes.
 
-## 1. Sealing to a moment, not to a person
+Take a DAO buying back its own token. If its bid is visible, sellers raise their asks. If the desk running it sees the asks, it trades ahead of them.
 
-The usual way to keep a bid secret is to encrypt it to someone's key. That just moves the trust: whoever holds the key can open it early. Benzo encrypts to a **time** instead, using [drand](https://drand.love) and timelock encryption (tlock).
+Benzo is a general engine for this: **any market where price discovery needs sealed orders**. Mints, buybacks, token launches, OTC blocks, procurement. Each one is a clearing rule on the same core, so that:
 
-<p align="center"><img src="docs/assets/tlock.svg" alt="tlock: the browser encrypts to drand round R; the key is drand's threshold signature on R, which only exists once round R is published." width="100%"></p>
+- **nobody can read a bid before a fixed moment**, the operator included;
+- **the operator can't change which bids count** once that moment gets close;
+- **nobody can pay out a wrong result**: two of three signers recompute it before signing, and anyone can recheck it after.
 
-drand's quicknet network publishes a value every 3 seconds. Each value is a BLS12-381 threshold signature on the round number, produced only when enough independent League of Entropy nodes sign together. tlock is identity-based encryption where the identity is a round number. The browser encrypts the order to "round R" using only drand's public key. The matching decryption key is drand's signature on R, which nobody has until R is published.
+## How it works
 
-Two things follow:
+<img src="docs/assets/flow.png" alt="Three lanes. The bid: your browser seals the bid to drand round R and pays it as a shielded deposit with the same amount for everyone, into a round vault whose key is split 2 of 3. The freeze: the operator admits every paid bid and commits one Merkle root, signed by all three witnesses. The opening: drand publishes round R, every frozen bid opens by itself, anyone re-clears the result, and 2 of 3 signers pay winners and refunds." width="100%">
 
-- **There is no key to steal or leak before R.** Not on our server, not on a signer's, not anywhere. Opening a bid early means forging a drand signature, which takes a threshold of drand's operators colluding.
-- **Every bid opens at once.** At R the signature is public, so the operator, the signers and every bidder can open every bid at the same instant. Nobody gets a head start.
+**1. Seal.** Your browser encrypts the bid to a future drand round `R` with timelock encryption. There is no key to steal: the key is drand's signature on `R`, and it doesn't exist until `R` is published.
 
-The sealing runs in your browser ([`seal/src/main.ts`](seal/src/main.ts)). It makes no network request: drand's chain parameters are pinned in the bundle.
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/reel/seal.png">
+  <img src="docs/assets/reel/seal.gif" alt="Your bid becomes ciphertext in the browser. drand publishes a round every 3 seconds; only round R unlocks it." width="100%">
+</picture>
 
-## 2. A sealed bid, byte for byte
+**2. Pay.** The sealed bid rides in the memo of a shielded Zcash payment. Every bidder pays the same deposit, and every memo is exactly 512 bytes. Neither says anything about the price.
 
-<p align="center"><img src="docs/assets/bytes.svg" alt="The 128-byte order is tlock-encrypted and carried in a 512-byte memo: magic, length, ciphertext, envelope tag, zero padding." width="100%"></p>
+**3. Freeze.** Before `R`, the paid bids become one Merkle root, signed by three witnesses. The set is fixed while nobody can read it, so the operator can't pick whom to drop by price.
 
-The order is a fixed 128-byte record ([`envelope/bid.ts`](envelope/bid.ts)):
+**4. Open, clear, settle.** At `R` every bid opens at once, for everyone. The market's rule is public, so anyone gets the same fills. Two of three FROST signers each re-run the whole round before they sign the payout.
 
-- **Price and quantity:** the only fields a market reads.
-- **Round or lot id:** binds the order to one round or one lot, so it can't be replayed elsewhere.
-- **A random nonce.**
-- **A one-time Ed25519 owner key:** lets you prove later that a bid is yours without saying so now.
-- **A salted commitment to where your refund goes.**
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/reel/open.png">
+  <img src="docs/assets/reel/open.gif" alt="drand publishes round R. Fifteen sealed bids open into prices. The top four win and all pay one price, 2,160." width="100%">
+</picture>
 
-tlock turns those 128 bytes into an age ciphertext of at most 487 bytes. That ciphertext goes into a Zcash memo with a fixed frame: a 5-byte header (`ff` + `BNZ` + version 2), a 2-byte length, the ciphertext, an 18-byte envelope tag, and zero padding to exactly 512 bytes.
-
-Fixed sizes are the point. Every bid in every round produces a memo of the same length. Nothing about its length says anything about its price.
-
-## 3. Paying a deposit that says nothing
-
-<p align="center"><img src="docs/assets/deposit.svg" alt="Three bids on chain: each a shielded payment of 200,000 zats to its own deposit address with a 512-byte sealed memo. The refund address travels in an envelope sealed to the three signers." width="100%"></p>
-
-Each bid is a **shielded Zcash payment of a fixed deposit** (200,000 zats on the live site) to its own deposit address, with the sealed bid as the memo. Because the amount is the same for everyone, the deposit doesn't hint at the price. Because the payment is shielded, the chain doesn't show who sent it. Every deposit address belongs to the round's vault, a 2-of-3 key the three signers create for this round only (section 6).
-
-Losers get the deposit back and winners pay out of it, so the system needs to know where to send money, without anyone learning it early. Your refund address goes into a **settlement envelope**, encrypted in your browser to the three signers' X25519 keys ([`envelope/index.ts`](envelope/index.ts)):
-
-- **The body:** your address, padded to a fixed length and encrypted with ChaCha20-Poly1305 under a random content key.
-- **The key:** wrapped once per signer with libsodium's sealed box.
-- **A key commitment:** stops a sender from giving different signers different addresses.
-
-The envelope is published, and only the three signers can open it: they need your address to check the refunds they sign. The memo's 18-byte envelope tag is a hash prefix of this envelope, so nobody can swap your envelope for theirs.
-
-## 4. Freezing the set before anyone can read it
-
-Sealing stops early reading, but an operator could still cheat on **which** bids count: drop one, or slip one in after peeking at others. Benzo closes that door before `R`.
-
-<p align="center"><img src="docs/assets/freeze.svg" alt="Freeze: the admitted bids become the leaves of a Merkle tree; its root, leaf count, T_freeze and the drand chain that opens the bids are signed by the witnesses before round R." width="100%"></p>
-
-A bid is admitted once its deposit has 10 confirmations and its memo checks out. At `T_freeze`, comfortably before `R`, the admitted bids become the leaves of a Merkle tree ([`clear/merkle.ts`](clear/merkle.ts)). Each leaf hashes the ciphertext and the deposit that paid for it. The three witnesses sign a statement naming the root, the leaf count, the freeze time and the drand chain that opens the bids ([`witness/index.ts`](witness/index.ts)).
-
-From that point the set is fixed, and it was fixed while every bid was still unreadable. A witness refuses to sign a second root for the same round, and every witness has to sign, so one dishonest witness can't certify a second set.
-
-What the root can't prove on its own is that every valid bid made it in: an operator could refuse a funded bid before freezing. It can't do so quietly or profitably. Right after the freeze, still before `R`, each bidder can prove their bid is in the root (`benzo receipt prove`), and the site shows it as counted. A deposit that was paid in time but left out is owed back in full: its owner key claims it from the vault, and the verifier requires every deposit the operator listed to be either in the set or refunded. The operator also can't pick whom to drop by price, because when it freezes it can't read any price.
-
-We ran that attack on the live site: the operator dropped a paid bid, the bidder's own page caught it, and the signers refunded the deposit on the bidder's own claim ([evidence](docs/evidence/left-out-bid/)).
-
-## 5. Opening and clearing: six markets, one engine
-
-At `R` anyone can fetch drand's signature, open every frozen bid and apply the market's rule. The rule is public and deterministic, so everyone gets the same fills, the same price and the same refunds.
-
-<p align="center"><img src="docs/assets/markets.svg" alt="Six markets on one engine: uniform auction, collection drop, token launch, buyback, RFQ and blind OTC, each a clearing rule in one registry." width="100%"></p>
-
-Sealing, deposits, freezing and settlement don't know which market they serve. A market is one entry in [`clear/registry.ts`](clear/registry.ts): an order layout, a clearing rule and a check on its result.
-
-| Market | Who it's for |
-|---|---|
-| Uniform auction | selling several identical things at one fair price |
-| Collection drop | numbered editions, without a race to mint |
-| Token launch | a raise with no early-bird front-running |
-| Buyback | a treasury buying back without telegraphing its price |
-| RFQ | procurement where quotes shouldn't leak to rival dealers |
-| Blind OTC | a block trade where neither side shows its hand |
-
-Adding a market means writing a rule, not a new system.
-
-On [benzo.space](https://benzo.space/collection/) the markets sell one demo collection, **Specters**, the way a collection on Zcash actually sells:
-
-- **The mint** is a sealed uniform-price auction: the top bids win and every winner pays one clearing price. It's the format Zilkroad used to sell 8,000 zkSNARKs at 1.5 ZEC, except that here nobody, the operator included, can read a bid early, and anyone can check the result.
-- **One-of-ones** go to the highest sealed bid, with no public bid ladder to snipe.
-- **Floor buybacks** take holders' sealed asks, lowest first, so nobody front-runs the floor.
-- **Private sales** (OTC) and **commissions** (RFQ) cover the rest.
-
-The collection page shows the floor, the sales, the volume and the activity, all from rounds anyone can verify.
-
-## 6. Settling with a key nobody holds alone
-
-The deposits sit in a vault whose spending key is split three ways with FROST, a threshold Schnorr scheme for Zcash. The three signers create it together with a dealerless DKG, once per round. No machine ever holds the whole key. Any two can spend; one can't.
-
-<p align="center"><img src="docs/assets/settle.svg" alt="Settlement: the operator proposes an unsigned transaction; each signer independently opens the bids, re-runs clearing, opens refund envelopes, finds the deposits and checks every output; two of three sign one FROST spend." width="100%"></p>
-
-The operator builds one unsigned Zcash transaction (a PCZT) that pays the winners and sellers and refunds everyone else. It can propose; it can't sign. Each signer then repeats the whole round on its own before it signs anything ([`settle/`](settle/)):
-
-1. Fetch drand's signature and open every frozen bid.
-2. Re-run the market's clearing rule.
-3. Open each refund envelope with its own key.
-4. Find the deposits on chain itself.
-5. Check every output, amount and fee in the proposed transaction against what it computed.
-
-If anything differs, it refuses. Two signers that agree run one FROST signing session, and the vault's notes are spent in an ordinary-looking shielded transaction. If a round has to be called off (say drand never publishes `R`), `benzo cancel` refunds every deposit in full, through the same signers, without opening a single bid.
-
-## Check a round yourself
-
-You don't have to trust the site, or this post. Each round publishes a public record: the signed terms, the frozen set, the witness statements, the openings, the result and the payment receipts. One file rebuilds the round from that record. With Node 24 and this repo:
-
-```sh
-npm ci && npm run build:verify
-shasum -a 256 dist/benzo-verify.mjs     # must match docs/verify-bundle.sha256
-node dist/benzo-verify.mjs \
-  --signer "$(cat docs/evidence/verify-example/signer)" \
-  --dir docs/evidence/verify-example/public
-```
-
-That folder is a real testnet round: three sealed bids, opened at a drand round and settled by 2 of 3 signers. The verifier runs 19 checks in under a second, and every one prints `OK`:
-
-- **Terms and the frozen set:** the operator's signature on the terms; every leaf against the frozen root; the witness statements.
-- **The opening and the result:** every opening against drand's published signature; the result re-cleared from scratch with the market's rule.
-- **The money:** the accounting (money in equals payouts plus refunds plus fees); every receipt against the result.
-
-The bundle rebuilds byte for byte from a fresh clone ([`docs/reproducible-build.md`](docs/reproducible-build.md)).
-
-The Verify page of every settled round on the site has a **Try to cheat** panel. It copies the public record, changes one thing, and runs the same checks. Against the round above:
-
-| The cheat | What the verifier says |
-|---|---|
-| Change nothing (the control) | 19 of 19 `OK` |
-| Pay a winner 1 zatoshi less than the result says | `clear refused: canonical result differs` and `accounting refused` |
-| Change a bid after it was opened | `opening 0 published differs from re-derived` |
-| Slip an extra bid into the frozen set | `published opening count` |
-| Edit the operator-signed terms | `manifest byte hash` |
-| Show the record under another operator's key | `signer mismatch` |
-
-The control matters: if the untouched copy didn't pass, the refusals would prove nothing.
+The full walk-through, byte layouts and all, is in **[How Benzo works](docs/how-it-works.md)**.
 
 ## Who can see what
 
-This is what each party is able to read, not what a screen chooses to show. Each round's page on the site has the same table.
+What each party is *able* to read, not what a screen chooses to show.
 
 | | You | Other bidders | Operator | Each signer | Anyone |
 |---|---|---|---|---|---|
@@ -175,38 +102,101 @@ This is what each party is able to read, not what a screen chooses to show. Each
 | Who placed each bid | Your own | No | Network data* | Payout address | No |
 | Where each payment went | Your own | No | No | Yes | Amounts only |
 
-\* The site you bid through sees your network address and timing. Use Tor or a VPN to hide them.
+\* The site you bid through sees your network address and timing. Tor or a VPN hides them.
 
-## Try it without a wallet
+**What you trust:** a threshold of drand's League of Entropy nodes doesn't collude, and two of the three signers don't collude.
+**What you don't have to trust:** the operator, the site, or this README.
 
-Open any round on [benzo.space](https://benzo.space), pick a price and press **Use the demo wallet**. Your browser still seals the bid. The site's demo wallet pays the deposit from the payment link alone, so it never learns your price. Refunds go back to the demo wallet. With your own testnet wallet, pay from it instead: the page shows a QR code and a payment link.
+## Check it yourself
 
-## What's running
+Every round publishes its record: the signed terms, the frozen set, the witness statements, the openings, the result and the payment receipts. One file rebuilds the round from it.
 
-- **[benzo.space](https://benzo.space)**, on Zcash testnet:
-  - **The whole product:** start a uniform-price, drop, buyback, OTC or RFQ round, invite bidders, seal, pay, watch the opening, settle and check.
-  - **The test fleet:** during judging, eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) run alongside it. They start rounds and bid through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Each has its own wallet, and every bid is a real sealed deposit.
-- **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/live-markets/)):
-  - Uniform, drop, OTC and RFQ: settled, every check passes, and the browser test passes.
-  - Buyback: settled with 11 payments, every check passes, and the browser test passes.
-  - Launch: run from the `benzo` CLI, where winners record where their units go (`benzo launch deliver`). A settled testnet launch, delivery list included, passes every check ([record](docs/evidence/launch-round/)).
-- **Cross-chain payouts:**
-  - Ethereum Sepolia: a payout to a one-time ERC-5564 stealth address ([log](docs/evidence/crosschain/stealth-live.out)).
-  - Solana devnet: a Token-2022 confidential transfer ([log](docs/evidence/crosschain/ct-live.out)).
-- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/scale/bench.json)). Its deposits are synthetic; paying that round out plans to 608 transactions.
+```sh
+npm ci && npm run build:verify
+shasum -a 256 dist/benzo-verify.mjs     # must match docs/verify-bundle.sha256
+node dist/benzo-verify.mjs \
+  --signer "$(cat docs/evidence/verify-example/signer)" \
+  --dir docs/evidence/verify-example/public
+```
 
-The rest of the evidence, and what each folder proves, is indexed in [`docs/evidence/README.md`](docs/evidence/README.md).
+That's a recorded round: three sealed bids, opened at a drand round, paid by 2 of 3 signers. 19 checks, under a second, every one `OK`. The bundle rebuilds byte for byte from a fresh clone ([how](docs/reproducible-build.md)).
 
-## Run it yourself
+Every settled round on the site has a **Try to cheat** panel. It changes one thing in a copy of the record and runs the same checks:
+
+<img src="docs/assets/reel/cheat.gif" alt="The Verify page. 'Change a bid after it was opened' is tried and caught by 3 checks: the opening no longer re-derives from its sealed bid, the summary no longer matches, and the result no longer follows." width="100%">
+
+| The cheat | What the verifier says |
+|---|---|
+| Change nothing (the control) | 19 of 19 `OK` |
+| Pay a winner 1 zatoshi less | `clear refused: canonical result differs`, `accounting refused` |
+| Change a bid after it was opened | `opening 0 published differs from re-derived` |
+| Slip an extra bid into the frozen set | `published opening count` |
+| Edit the signed terms | `manifest byte hash` |
+| Show the record under another operator's key | `signer mismatch` |
+
+The control matters. If the untouched copy didn't pass, the refusals would prove nothing.
+
+We also ran the one attack the root can't stop by itself: the operator dropped a paid bid before the freeze. The bidder's own page flagged it, and the signers refunded the deposit on the bidder's claim ([evidence](docs/evidence/left-out-bid/)).
+
+## The markets
+
+Sealing, deposits, freezing and payouts don't know which market they serve. A market is one entry in [`clear/registry.ts`](clear/registry.ts): an order layout, a clearing rule, a check on its result.
+
+| Market | Who it's for |
+|---|---|
+| Uniform auction | many identical things at one fair price |
+| Collection drop | numbered editions, without a race to mint |
+| Token launch | a raise with no early-bird front-running |
+| Buyback | a treasury buying back without showing its price |
+| RFQ | procurement where quotes shouldn't leak to rival dealers |
+| Blind OTC | a block trade where neither side shows its hand |
+
+On the site they all sell one demo collection, **Specters**, the way a collection on Zcash really sells: a sealed mint at one clearing price, one-of-ones to the highest sealed bid, floor buybacks from sealed asks, private sales and commissions. Payouts can also land off Zcash: an ERC-5564 stealth address on Ethereum, or a confidential transfer on Solana ([logs](docs/evidence/crosschain/)).
+
+## Screens
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screens/collection.jpg" alt="Specters collection page: floor, sales, volume and open rounds"><br><sub><b>The collection.</b> Floor, sales and volume, all from verifiable rounds.</sub></td>
+    <td width="50%"><img src="docs/assets/screens/bid.jpg" alt="The bid page: price, quantity, review"><br><sub><b>Placing a bid.</b> Sealed in the browser before it leaves.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screens/result.jpg" alt="A settled mint: ladder chart, book, 6 of 6 sold at 1,270 zats"><br><sub><b>The result.</b> Every price, by bid number. One clearing price.</sub></td>
+    <td><img src="docs/assets/screens/verify.jpg" alt="The Verify page with every check passing"><br><sub><b>Verify.</b> The same checks as the CLI, in the page.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/screens/drop.jpg" alt="A collection drop round"><br><sub><b>A drop.</b> Numbered editions, no mint race.</sub></td>
+    <td><img src="docs/assets/screens/rounds.jpg" alt="The rounds list: open, opening, settled"><br><sub><b>Rounds.</b> Every market, every stage.</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/assets/screens/phone-landing.jpg" alt="benzo.space on a phone: landing" width="30%">&nbsp;
+  <img src="docs/assets/screens/phone-bid.jpg" alt="benzo.space on a phone: bid" width="30%">&nbsp;
+  <img src="docs/assets/screens/phone-result.jpg" alt="benzo.space on a phone: result" width="30%">
+</p>
+
+## What's been run
+
+- **Every market through the live site**, by a browser test that starts a round, seals and pays bids, waits for the payout and runs the checks ([logs](docs/evidence/live-markets/)). Token launches run from the `benzo` CLI ([record](docs/evidence/launch-round/)).
+- **A test fleet** of eight bidders, each with its own wallet, starting rounds and bidding through the public API with the bid page's own sealing code.
+- **17,000 sealed bids** admitted, frozen, opened against real drand, cleared and verified in one round ([bench](docs/evidence/scale/bench.json)).
+
+Every folder and what it proves: [`docs/evidence/`](docs/evidence/README.md).
+
+## Run it
 
 ```sh
 git clone https://github.com/akash-mondal/benzo && cd benzo
 npm ci
-npm test                                    # the verifier against the recorded rounds, and the tampering it must catch
-cd web && npm ci && npm run dev             # the site on localhost:4321, using the public testnet service
+npm test                                  # the verifier against recorded rounds, and the cheats it must catch
+cd web && npm ci && npm run dev           # the site on localhost:4321
 ```
 
-`npm run build:core && npm run build:cli` builds the engine and the `benzo` command. Running your own operator and signers (pinned tools, keys, funding) is in the guides for each role: [bidder](docs/guide-bidder.md), [operator](docs/guide-operator.md), [signer](docs/guide-signer.md). The API: [`docs/api-reference.md`](docs/api-reference.md).
+`npm run build:core && npm run build:cli` builds the engine and the `benzo` command. Running your own operator and signers is in the role guides below.
+
+<details>
+<summary><b>Repo layout</b></summary>
 
 ```
 seal/        the browser sealer: tlock to a drand round, the 512-byte memo
@@ -218,10 +208,28 @@ settle/      payment planning and the 2-of-3 FROST signing flow (Rust + TypeScri
 scan/        finds deposits on chain (Rust)
 crosschain/  EVM and Solana payouts
 cli/         the benzo command, including benzo verify
-web/         benzo.space: the site and its gateway
-docs/        guides, design, threat model, evidence
+web/         benzo.space: the site and its API
+docs/        how it works, guides, design, evidence
 ```
 
-Further reading: the [design](docs/research/DESIGN.md), the [threat model](docs/research/threat-model.md), [why a timelock](docs/why-timelock.md) and the [dependencies and their audits](docs/AUDITS.md).
+</details>
+
+## Docs
+
+| | |
+|---|---|
+| [How Benzo works](docs/how-it-works.md) | the round, layer by layer: sealing, the memo, deposits, the freeze, clearing, FROST payouts |
+| [Verify it yourself](docs/verify-it-yourself.md) | check a round from its public record, step by step |
+| [Why a timelock](docs/why-timelock.md) | why drand and not a key someone holds |
+| [Guides](docs/guide-bidder.md) | [bidder](docs/guide-bidder.md), [operator](docs/guide-operator.md), [signer](docs/guide-signer.md) |
+| [API reference](docs/api-reference.md) | every command and route |
+| [Design](docs/research/DESIGN.md) · [Threat model](docs/research/threat-model.md) | the reasoning and the attacks it answers |
+| [Dependencies and audits](docs/AUDITS.md) | which libraries carry the cryptography, and who audited them |
+| [Reproducible build](docs/reproducible-build.md) | rebuild the verifier byte for byte |
+| [Evidence](docs/evidence/README.md) | the recorded rounds and what each proves |
+
+## Built with
+
+[drand](https://drand.love) and [tlock](https://github.com/drand/tlock-js) · [FROST](https://github.com/ZcashFoundation/frost) · [librustzcash](https://github.com/zcash/librustzcash) · [@noble](https://paulmillr.com/noble/) curves and hashes · libsodium · Astro
 
 MIT licensed. Built for Zecathon 2026.

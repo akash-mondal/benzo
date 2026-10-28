@@ -43,7 +43,7 @@ it is the toolchain the project's evidence runs against:
 | Artifact | Built by | Expected sha256 |
 |---|---|---|
 | `dist/benzo-verify.mjs` (shipped verify bundle) | `npm run build:verify` | `61cfcf2d1c143e5de7b7c40f4d66dd9e77b0d6dec9adb366231ffc48066b23ff` (also in `docs/verify-bundle.sha256`) |
-| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `8ee2ab1339fc57b724f906d06be6c43fb3d407ec80304d3d59acc06ee6a4ccba` |
+| `dist/benzo-0.1.0.tgz` (npm package: CLI + verify bundle + pinned production deps) | `npm run package` | `646f5e3b7eb4e48ec3847656279836d03b53a3c8a5f95e342012bc60cc07905d` |
 | `dist/benzo-bidder-0.1.0.tgz` (bidder bundle: the browser sealer) | `npm run package:bidder` | `f6afad1394f15d9ef4d787edffa25479b0c35b77b94cd21e9b7db51c9cd07c38` |
 
 ## 3. The commands (fresh clone)
@@ -62,7 +62,7 @@ shasum -a 256 -c docs/verify-bundle.sha256
 
 npm run package                   # build:cli + build:seal + check:bundle, then the tarball
 shasum -a 256 dist/benzo-0.1.0.tgz
-# 8ee2ab1339fc57b724f906d06be6c43fb3d407ec80304d3d59acc06ee6a4ccba  dist/benzo-0.1.0.tgz
+# 646f5e3b7eb4e48ec3847656279836d03b53a3c8a5f95e342012bc60cc07905d  dist/benzo-0.1.0.tgz
 
 npm run package:bidder            # build:seal, then the bidder tarball
 shasum -a 256 dist/benzo-bidder-0.1.0.tgz

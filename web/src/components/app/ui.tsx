@@ -108,7 +108,7 @@ export const rel = (unix: number, now = Date.now() / 1000) => {
 
 // What each of `benzo verify`'s checks proves, in plain words.
 export const CHECK: Record<string, string> = {
-  openings: "Every opening re-derived from its sealed bid and the public beacon", manifest: "The round's terms are signed by its operator", witness: "Two witnesses signed the frozen bids", freeze: "The frozen set of bids is complete and unchanged",
+  openings: "Every opening re-derived from its sealed bid and the public beacon", manifest: "The round's terms are signed by its operator", witness: "The witnesses signed the frozen bids", freeze: "The frozen set of bids is complete and unchanged",
   receipts: "Every counted bid has a signed receipt", "missing-deposits": "No paid deposit was left out", clear: "The result follows from the opened bids",
   envelope: "Refund addresses stayed sealed", report: "The signers' opening reports agree", projection: "The summary matches the full record",
   accounting: "Money in equals money out", "accounting-strays": "Stray payments are accounted for", balances: "Balance payments are accounted for",

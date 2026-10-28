@@ -11,7 +11,7 @@ import type { AuctionDetail, Check } from "../../lib/types";
 const GROUPS: [string, string[]][] = [
   ["The round's terms", ["manifest"]],
   ["Which bids were in, and that they were fixed before opening", ["freeze", "witness", "receipts", "missing-deposits"]],
-  ["The opening and the result", ["clear", "report", "projection"]],
+  ["The opening and the result", ["openings", "clear", "report", "projection"]],
   ["The payments", ["accounting", "accounting-strays", "receipt-attestation", "balances", "balance-refs", "defaults", "claims"]],
   ["Privacy of what was published", ["envelope", "no-destinations"]],
   ["Launch deliveries", ["delivery", "delivery-list"]],
