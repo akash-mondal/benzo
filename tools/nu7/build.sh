@@ -41,7 +41,7 @@ lines=[]
 for cv in cvs:
     name='pczt' if cv.startswith('pczt-') else cv.rsplit('-',1)[0]
     if re.search(rf'^{name}\s*=\s*\{{\s*path\s*=\s*"{re.escape(d)}',s,re.M): continue
-    lines.append(f'{name} = {{ path = "{d}/{cv}" }} # NU7 backport, tools/nu7 (Ruling R27)')
+    lines.append(f'{name} = {{ path = "{d}/{cv}" }} # NU7 backport, tools/nu7')
 if lines:
     if re.search(r'^\[patch\.crates-io\]\s*$',s,re.M): s=re.sub(r'^(\[patch\.crates-io\]\s*\n)',lambda m:m.group(1)+'\n'.join(lines)+'\n',s,count=1,flags=re.M)
     else: s=s.rstrip('\n')+'\n\n[patch.crates-io]\n'+'\n'.join(lines)+'\n'

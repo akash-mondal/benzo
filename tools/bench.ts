@@ -105,7 +105,7 @@ async function stage(name: string, dir: string, count: number) {
     // model: each synthetic bid backs one deposit note (the seller payout backs none), plus one
     // fee-reserve spend per batch; outputs are the batch's rows; actions = max(spends, outputs, 2);
     // ZIP-317 fee = 5,000 zats per action. This reproduces the measured scale-27 batch exactly
-    // (27 deposits + fee reserve = 28 spends, 28 outputs, fee 140,000; docs/evidence/scale/scale-measure.md).
+    // (27 deposits + fee reserve = 28 spends, 28 outputs, fee 140,000).
     const result = read(resolve(dir, "result.json"));
     const obligations = [...modeEntry(input.packet).obligations(result, null)].map(([party, amount_zats]) => ({ party, amount_zats }));
     const batches = planBatches(obligations, BATCH_CAP);
@@ -193,7 +193,7 @@ try {
     const evidence = "docs/evidence/phase-6"; mkdirSync(evidence, { recursive: true });
     const plan = read(resolve(dir, "batch-plan.json"));
     // Projection for the organizer's 48-hour volume: 17,000 bids, every constant measured in
-    // docs/evidence/scale/scale-measure.md and cited below; nothing here is invented.
+    // the recorded timings and cited below; nothing here is invented.
     const fit = (y8: number, y27: number) => (x: number) => y8 + ((y27 - y8) * (x - 9)) / 19; // linear through the two measured points
     const build = fit(23.026, 65.144), approvals = fit(19.961, 50.243), frost = 8.2;
     const projectionRows = [...Array.from({ length: 17000 }, (_, i) => ({ party: `leaf:${i}`, amount_zats: "1" })), { party: "seller", amount_zats: "1" }];
@@ -206,10 +206,10 @@ try {
     const projection = {
       model: "per-batch seconds = host_build(rows) + host_approvals(rows) + 8.2 s FROST (flat per batch, R29); mining is overlapped with the next batch and excluded; host build and approvals are linear in rows through the scale-8 and scale-27 points",
       constants: {
-        rows_at_measured_points: { scale_8: 9, scale_27: 28, source: "docs/evidence/scale/scale-measure.md (scale-8: 8 bids + seller; scale-27: 27 bids + seller)" },
-        host_build_s: { scale_8: 23.026, scale_27: 65.144, source: "docs/evidence/scale/scale-8-r29b-timing.jsonl (host-build 23026 ms) + docs/evidence/scale/scale-27-timing.jsonl (host-build 65144 ms), table in docs/evidence/scale/scale-measure.md" },
-        host_approvals_s: { scale_8: 19.961, scale_27: 50.243, source: "docs/evidence/scale/scale-8-r29b-timing.jsonl (host-approve 17082||19961 ms, parallel wall 19.961 s) + docs/evidence/scale/scale-27-timing.jsonl (50012||50243 ms, 50.243 s), table in docs/evidence/scale/scale-measure.md" },
-        frost_s_per_batch: { value: frost, source: "docs/PHASE-6.md R29 + docs/evidence/scale/scale-measure.md (measured frost-parallel 8103 / 8201 ms)" },
+        rows_at_measured_points: { scale_8: 9, scale_27: 28, source: "docs/evidence/scale/scale-8-round.out and the scale-27 timings (scale-8: 8 bids + seller; scale-27: 27 bids + seller)" },
+        host_build_s: { scale_8: 23.026, scale_27: 65.144, source: "docs/evidence/scale/scale-8-r29b-timing.jsonl (host-build 23026 ms) + docs/evidence/scale/scale-27-timing.jsonl (host-build 65144 ms)" },
+        host_approvals_s: { scale_8: 19.961, scale_27: 50.243, source: "docs/evidence/scale/scale-8-r29b-timing.jsonl (host-approve 17082||19961 ms, parallel wall 19.961 s) + docs/evidence/scale/scale-27-timing.jsonl (50012||50243 ms, 50.243 s)" },
+        frost_s_per_batch: { value: frost, source: "docs/evidence/scale/scale-8-r29b-timing.jsonl + docs/evidence/scale/scale-27-timing.jsonl (measured frost-parallel 8103 / 8201 ms)" },
       },
       totals_17000_bids: totals,
     };

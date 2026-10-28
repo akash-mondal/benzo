@@ -114,7 +114,7 @@ export class Ledger {
             const takenValue=moved.reduce((s,p)=>s+BigInt(this.rows().find(r=>r.party===p)!.amount_zats),0n);
             const usable=BigInt(o.amount_zats)-takenValue;
             if(usable<=0n){console.error(`WARN refund row ${o.party} not created: its value is already refunded by the rows backing its taken notes (one note one refund)`);skip();continue;}
-            if(takenValue>0n)console.error(`WARN refund row ${o.party}: note ${takenNotes[0]} already backs a refund row; skipping that note only (amount ${o.amount_zats} -> ${usable}; Ruling R44 F18)`);
+            if(takenValue>0n)console.error(`WARN refund row ${o.party}: note ${takenNotes[0]} already backs a refund row; skipping that note only (amount ${o.amount_zats} -> ${usable})`);
             o2={...o,amount_zats:usable.toString(),notes:free};
           }
         }
