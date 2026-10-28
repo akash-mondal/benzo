@@ -1,4 +1,4 @@
-// benzo fund quote — the funding helper (docs/design/crosschain.md §5): NEAR Intents 1Click QUOTE
+// benzo fund quote — the funding helper: NEAR Intents 1Click QUOTE
 // only. It calls the 1Click /v0/quote endpoint with `dry: true` always (real quotes, no deposit
 // address, no swap, no deposit is ever made by Benzo), targets the bidder's OWN shielded UA in a
 // round ZEC amount the USER chooses (never C plus a fee), and prints guidance to wait for the
@@ -40,7 +40,7 @@ export async function run(argv: string[]): Promise<number> {
     const a = parseArgs(argv);
     const from = need(a, "from");
     const zec = need(a, "zec");
-    // §5: a round amount the USER chooses — a positive whole number of ZEC. Benzo never sizes the
+    // A round amount the USER chooses — a positive whole number of ZEC. Benzo never sizes the
     // funding (never C plus a fee); a fractional or zero amount is refused here.
     if (!/^[1-9][0-9]*$/.test(zec)) throw new Error(`--zec must be a positive whole number of ZEC (a round amount you chose), got ${zec}`);
     const to = need(a, "to");

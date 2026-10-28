@@ -1,4 +1,4 @@
-// PHASE-5 R3.2: reverse-Vickrey procurement; at least two allowlisted valid quotes or exact-C cancellation.
+// Reverse-Vickrey procurement; at least two allowlisted valid quotes or exact-C cancellation.
 import { jsonBytes, requireThat, uaShape, verifyRecord, zats, type Signed } from "../manifest/schema";
 import { LAYOUT_V0 } from "./layout";
 import { sealedReserve } from "./features";

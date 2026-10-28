@@ -1,4 +1,4 @@
-// Track A product state and CLI boundaries. Auction and settlement algorithms stay in their existing entry points.
+// Product state and CLI boundaries. Auction and settlement algorithms stay in their existing entry points.
 import {execFileSync,spawn,spawnSync} from 'node:child_process';
 import {existsSync,mkdirSync,readFileSync,writeFileSync,renameSync,readdirSync} from 'node:fs';
 import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
@@ -43,18 +43,18 @@ export function publish(id:string) {
   const doc:any={version:1,auction_id:id,signer:a.signer,manifest:a.manifest,state:a.state,receipts:a.receipts};
   if(a.frozen)doc.frozen=a.frozen;if(a.result)doc.result=a.result;if(a.opened)doc.opened=a.opened;if(a.beacon)doc.beacon=a.beacon;
   // Part 2, collection drop: the serial shuffle's drand beacon (a) publishes with the round; the bond-then-pay
-  // window and balance addresses are fixed in the signed manifest before bidding (R33), so no post-clear binding
+  // window and balance addresses are fixed in the signed manifest before bidding, so no post-clear binding
   // is recorded or published.
   if(a.serial_beacon)doc.serial_beacon=a.serial_beacon;
-  // R7 item 5 (Reviewer G G2): the reserve opening is published after R alongside the openings, so
+  // The reserve opening is published after R alongside the openings, so
   // sealed-reserve product auctions can settle and verify — both re-derive it from manifest.sealed_reserve
   // and refuse any mismatch (manifest/reserve.ts requireReserveOpening).
   if(a.reserve_opening!==undefined)doc.reserve_opening={plaintext_hex:a.reserve_opening};
-  // R8 G10 (design §5): the signed witness set travels with every rebuilt document, and the witness-signed
+  // R8 G10: the signed witness set travels with every rebuilt document, and the witness-signed
   // certificates placed in the public dir by `benzo witness sign` are carried over instead of clobbered.
   if(a.witness_set)doc.witness_set=a.witness_set;
   if(a.launch_input){const {delivery,...rest}=a.launch_input;
-    // Ruling R40 item 3 (F4): the launch DELIVERY records stay private (the ledger only) — the published doc
+    // The launch DELIVERY records stay private (the ledger only) — the published doc
     // never carries the leaf<->destination join. The rest of launch_input (holder receipts, mined heights, the
     // previous result) is public clear input and publishes as before.
     if(Object.keys(rest).length)doc.launch_input=rest}
@@ -63,35 +63,35 @@ export function publish(id:string) {
   const sd=path.join(STATE,'settle',id),summary=path.join(sd,'summary.json');
   if(existsSync(summary)) {
     const s=read(summary);
-    // R13: the claims the signers actually used for paid rows are published (party, destination hash, owner
+    // The claims the signers actually used for paid rows are published (party, destination hash, owner
     // signature — never the destination) so anyone can check them against the openings.
     const paid=new Set<any>(read(path.join(sd,'receipts.json')).map((r:any)=>r.party));
     const used=(s.plan?.claims_used??[]).filter((c:any)=>paid.has(c.party)).map((c:any)=>({party:c.party,claim_envelope_sha256:c.claim_envelope_sha256,owner_sig:c.owner_sig,...(c.memo_hex?{memo_hex:c.memo_hex}:{})}));
     if(used.length)doc.claims=used;
-    // R33 item 3 (P1-3): `settlement.defaults` is published only when two agreeing host-signed approval maps
-    // (the G-4 maps, verified against the pinned witness set) carry the same list; the maps themselves publish
+    // `settlement.defaults` is published only when two agreeing host-signed approval maps
+    // (the maps, verified against the pinned witness set) carry the same list; the maps themselves publish
     // with the settlement so `benzo verify` re-checks the binding. A coordinator-only list is never published.
     const maps=s.batches.flatMap((b:any)=>{try{return JSON.parse(readFileSync(path.join(sd,`batch-${b.id}.maps.json`),'utf8'))}catch{return []}});
-    // R33 item 3 (P1-3): `settlement.defaults` is published only when two agreeing host-signed approval maps
+    // `settlement.defaults` is published only when two agreeing host-signed approval maps
     // (verified against the pinned witness set) carry the same list; the maps themselves publish with the
     // settlement so `benzo verify` re-checks the binding. A coordinator-only list is never published.
-    // Ruling R41 (F7): `settlement.balance_refunds` is never gate-bound here. Refund rows are attested PER ROW
+    // `settlement.balance_refunds` is never gate-bound here. Refund rows are attested PER ROW
     // in the approval of the batch that PAID them (verify's balance-refs); unpaid rows publish as `pending`
     // with counts only. Comparing a live row set to any earlier signed set is exactly the F7 wedge and is gone.
-    // Ruling R42 (F12): `settlement.defaults` publishes the list carried by two agreeing host-signed
+    // `settlement.defaults` publishes the list carried by two agreeing host-signed
     // approval maps (map-to-map, distinct pinned witnesses) — never this run's fresh plan derivation,
     // which chain drift can move (the F12 wedge). A coordinator-only list is never published.
-    // Ruling R44 (F19): when drift carries two host-attested lists, the tie-break is deterministic — the
+    // When drift carries two host-attested lists, the tie-break is deterministic — the
     // list attested by the two agreeing maps of the EARLIEST paying batch (the shared rule
     // witness/index.ts earliestAgreedDefaults, which verify enforces byte-identically).
     let agreed:number[]|undefined,agreedVoid=false;
     if(s.plan?.defaults!==undefined) {
       const wkeys=doc.witness_set?((verifyRecord<any>(doc.witness_set,doc.signer).keys??[])as string[]):[];
-      // Ruling R61: the agreed pair {defaults, bond_void} — a void bond is published only when two agreeing maps attest it.
+      // The agreed pair {defaults, bond_void} — a void bond is published only when two agreeing maps attest it.
       const pick=earliestAgreedBond((maps as any[]).filter(mp=>mp&&mp.auction_id===id),wkeys,(read(path.join(sd,'receipts.json'))as any[]).map((r:any)=>r.txid));
       if(pick!==null){agreed=pick!.defaults;agreedVoid=pick!.bond_void;}
       else {
-        // H7 (B50): every batch set aside — a NO-PAYMENT settlement publishes instead of stalling at
+        // Every batch set aside — a NO-PAYMENT settlement publishes instead of stalling at
         // `pick === null`. With not one receipt there is no paid attribution a wrong list could redirect
         // (the equal-balance swap needs paid rows and receipts) and the tie-break has no paying batch to
         // bind to; the plan's own list publishes with the set-aside reasons and verify accepts the
@@ -101,22 +101,22 @@ export function publish(id:string) {
         agreed=s.plan.defaults;agreedVoid=s.plan.bond_void===true;
       }
     }
-    // B56 (R121, docs/design/phase7-b56-unpaid-return-row.md): an UNPAID `reserve-return` row is never
+    // An UNPAID `reserve-return` row is never
     // published — the filter drops every such row from the published settlement rows (and with them the
     // public summary.json below). A bare return row publishes an exception the product's own verify
     // refuses (`a reserve-return row or receipt without the published reserve_return accounting`), and
     // that doc then walls every later `benzo settle` at `no signer host could list its derivable rows`:
     // a permanent wall from a transient plan/host skew. The private ledger keeps the row and its state,
     // the run prints its typed reason, and verify stays strict — a published return row still needs its
-    // receipt and its published accounting. The filter also heals a pre-B56 summary on republish.
+    // receipt and its published accounting. The filter also heals a older summary on republish.
     doc.settlement={rows:s.rows.filter(rowPublishes),receipts:read(path.join(sd,'receipts.json')),offline_signer:s.offline_signer,ignored:s.plan?.ignored??[],
-      // B46 (H15, Revision R103): the reserve-return accounting — the vault's whole unspent value the return
+      // The reserve-return accounting — the vault's whole unspent value the return
       // swept and the ZIP-317 fee, amounts only, never the destination (the signed manifest carries only its
       // commitment). Published only when the settlement actually paid the row, so `benzo verify` accepts
       // exactly one reserve-return receipt only together with this accounting.
       ...(()=>{const rec=(read(path.join(sd,'receipts.json')) as any[]).find((r:any)=>r.party==='reserve-return');if(!rec)return {};
         const rr=s.plan?.reserve_return;requireThat(rr&&rr.amount_zats===rec.amount_zats,'a reserve-return receipt without its planned accounting; refusing to publish');
-        // B54 (P2-1): the published accounting also reports the sweep's unspendable residue (dust_notes,
+        // The published accounting also reports the sweep's unspendable residue (dust_notes,
         // dust_zats) — what the wallet can never select and what stays in the vault. Verify shape-checks it.
         requireThat(Number.isInteger(rr.dust_notes)&&rr.dust_notes>=0&&/^[0-9]+$/.test(String(rr.dust_zats)),
           'the planned reserve_return accounting carries no residue (dust_notes/dust_zats); refusing to publish');
@@ -124,20 +124,20 @@ export function publish(id:string) {
       // Part 2, collection drop (bond-then-pay): the defaults list co-signed by the signer hosts — the list
       // carried by two agreeing maps (above), never a fresh derivation.
       ...(agreed!==undefined?{defaults:agreed}:{}),...(agreedVoid?{bond_void:true}:{}),
-      // Ruling R38 item 4 (N4) + Ruling R41 (F7): the out-of-window/excess balance refunds as per-note counts
+      // The out-of-window/excess balance refunds as per-note counts
       // only, never addresses — each row marked `paid` when this settlement paid it (attested in that batch's
       // two agreeing signed maps) and `pending` otherwise (uncounted here; a later batch may pay it).
       ...(s.plan?.balance_refunds!==undefined?{balance_refunds:s.plan.balance_refunds.map((r:any)=>({party:r.party,leaf_index:r.leaf_index,amount_zats:r.amount_zats,state:paid.has(r.party)?"paid":"pending"}))}:{}),
       ...(maps.length?{approval_maps:maps}:{}),batches:s.batches.map((b:any)=>{
       const base=path.join(sd,`batch-${b.id}`),i=existsSync(base+'.inspect.json')?read(base+'.inspect.json'):null;
-      // B54 (P2-1): the worker's record may carry the return batch's residue annotations (dust_notes/
+      // The worker's record may carry the return batch's residue annotations (dust_notes/
       // dust_zats — the kept accounting's source); the published inspect keeps the transaction's own
       // shape (recipient redaction does the same). The residue is published in reserve_return only.
       return {...b,state:b.state,inspect:i?(()=>{const ins={...i,outputs:i.outputs.map(({recipient,...o}:any)=>o)};delete ins.dust_notes;delete ins.dust_zats;return ins})():null,signing:existsSync(base+'.signatures.json')?read(base+'.signatures.json'):null};
     })};
   }
   requireThat(dir.startsWith(ROOT+path.sep)&&!dir.startsWith(STATE+path.sep)&&dir!==STATE,'public directory must be in repository outside private state');
-  // Ruling R40 item 3 (F4): launch delivery records stay private. The published doc carries only the canonical
+  // Launch delivery records stay private. The published doc carries only the canonical
   // allocation.json and two host signatures (`benzo-delivery-list-v1` over allocation_file_hash) — the signing
   // hosts' merged `benzo sign delivery` output, recorded by `benzo launch deliver-list`. This gate refuses a
   // list whose file hash or host signatures do not check; verify re-checks the public invariants and the two
@@ -163,44 +163,44 @@ export function publish(id:string) {
 export async function runCommand(command:string,args:string[]) {
   const o=options(args),id=o.id;
   if(id)requireThat(/^[0-9a-f]{64}$/.test(id),'auction id');
-  if(id)process.env.BNZ_AUCTION_ID=id; // §11 H1: children use this auction's own vault when it ran its own DKG
+  if(id)process.env.BNZ_AUCTION_ID=id; // Children use this auction's own vault when it ran its own DKG
   if(command==='auction create') {
     const m=input(o);requireThat(m.refund?.invalid==="full_C","invalid refund policy must say full_C");
-    // H10 (docs/design/phase7-h10-h11.md): the signed manifest commits the seller payout ADDRESS (as a
-    // commitment — the manifest itself stays destination-free, R74). `--config` is the operator's private config,
+    // The signed manifest commits the seller payout ADDRESS (as a
+    // commitment — the manifest itself stays destination-free). `--config` is the operator's private config,
     // the same file `auction publish` takes: whenever its routing.seller_ua is set, create sets the commitment
-    // from it and holds that address to H4's rule — a unified address on the manifest's OWN network with a
+    // from it and holds that address to rule — a unified address on the manifest's OWN network with a
     // shielded Orchard/Ironwood receiver (a Sapling-only UA cannot receive a settlement output).
     const createdFrom=o.config?read(privatePath(o.config)):undefined;
     const sellerUa=createdFrom?.routing?.seller_ua;
     if(sellerUa!==undefined){
-      requireThat(typeof sellerUa==='string'&&isUnifiedOrchardOn(sellerUa,m.network),'seller_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver (H4)');
+      requireThat(typeof sellerUa==='string'&&isUnifiedOrchardOn(sellerUa,m.network),'seller_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver');
       const committed=sellerUaCommitment(sellerUa);
       requireThat(m.seller_ua_commitment===undefined||m.seller_ua_commitment===committed,'manifest seller_ua_commitment differs from the operator routing seller_ua');
       m.seller_ua_commitment=committed;
     }
-    // B46 (H15, docs/design/phase7-b46-reserve-return.md): the same for the reserve-return address — the
-    // operator config's routing.reserve_return_ua is committed as reserve_return_ua_commitment (H4's rule: a
+    // The same for the reserve-return address — the
+    // operator config's routing.reserve_return_ua is committed as reserve_return_ua_commitment (rule: a
     // unified address on the manifest's OWN network with a shielded Orchard/Ironwood receiver).
     const reserveReturnUa=createdFrom?.routing?.reserve_return_ua;
     if(reserveReturnUa!==undefined){
-      requireThat(typeof reserveReturnUa==='string'&&isUnifiedOrchardOn(reserveReturnUa,m.network),'reserve_return_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver (H4)');
+      requireThat(typeof reserveReturnUa==='string'&&isUnifiedOrchardOn(reserveReturnUa,m.network),'reserve_return_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver');
       const committed=reserveReturnUaCommitment(reserveReturnUa);
       requireThat(m.reserve_return_ua_commitment===undefined||m.reserve_return_ua_commitment===committed,'manifest reserve_return_ua_commitment differs from the operator routing reserve_return_ua');
       m.reserve_return_ua_commitment=committed;
     }
-    // B46 item 1: a mainnet manifest always commits the return address — without it the unused fee reserve
-    // would be stranded in every auction vault (H15, the mainnet blocker). Checked before the seller and
+    // A mainnet manifest always commits the return address — without it the unused fee reserve
+    // would be stranded in every auction vault (the mainnet blocker). Checked before the seller and
     // structural rules so the refusal is this one even while the network lock still refuses "main".
-    requireThat(m.network!=="main"||m.reserve_return_ua_commitment!==undefined,'mainnet manifest must carry reserve_return_ua_commitment (H15)');
-    // H10 item 4: a mainnet manifest for a mode that pays the seller commits the seller payout address — without
-    // it the signer hosts could check only the payout's amount, which is exactly H10's defect. Checked here before
+    requireThat(m.network!=="main"||m.reserve_return_ua_commitment!==undefined,'mainnet manifest must carry reserve_return_ua_commitment');
+    // A mainnet manifest for a mode that pays the seller commits the seller payout address — without
+    // it the signer hosts could check only the payout's amount, which is exactly defect. Checked here before
     // every other rule so the refusal is this one even while the network lock below still refuses "main".
-    requireThat(m.network!=="main"||!modePaysSeller(m.clearing?.mode)||m.seller_ua_commitment!==undefined,'mainnet manifest must carry seller_ua_commitment (H10)');
-    // R33 item 1: `auction create` generates the bond-then-pay balance addresses itself — fresh vault external
+    requireThat(m.network!=="main"||!modePaysSeller(m.clearing?.mode)||m.seller_ua_commitment!==undefined,'mainnet manifest must carry seller_ua_commitment');
+    // `auction create` generates the bond-then-pay balance addresses itself — fresh vault external
     // addresses aligned index-for-index with deposit_addresses, fixed in the signed manifest before bidding. They
     // are never operator input: a draft carrying its own balance_addresses is refused.
-    // Ruling R38 item 1 (N2): the settlement-time refusal of earlier notes at a balance address is gone — any third
+    // The settlement-time refusal of earlier notes at a balance address is gone — any third
     // party can create one and it must never wedge settlement. The "fresh address" property is enforced HERE, where
     // the addresses are ours to enforce: a generated balance address that already holds a note is refused. The
     // wallet is synced first, so a stale wallet cannot regenerate an already-paid address unchecked.
@@ -211,25 +211,25 @@ export async function runCommand(command:string,args:string[]) {
       wallet('sync','-s',process.env.BNZ_LWD_URL??'testnet.zec.rocks:443');wallet('enhance','-s',process.env.BNZ_LWD_URL??'testnet.zec.rocks:443');
       const held=notes(m.network).filter((n:any)=>m.bond.balance_addresses.includes(n.address));
       requireThat(held.length===0,`a generated balance address already holds ${held.length} note(s); refusing`);
-      // R63 (Reviewer R P2-6 on R61): an operator cannot sign a window whose start is already mined (a forced void).
+      // An operator cannot sign a window whose start is already mined (a forced void).
       const tipNow=JSON.parse(String(wallet('balance','--json'))).chain_tip_height;
       requireThat(Number.isSafeInteger(tipNow)&&m.bond.balance_window_start_height>tipNow,`balance window start ${m.bond.balance_window_start_height} is already mined (tip ${tipNow}); refusing`);}
     // Design §6.1: a buyback draft is held to the Mode B rules, and its treasury return must be a shielded destination.
-    // Every registry mode (A13 item 3): the draft is held to its OWN mode's rules — its registry client run on a copy signed
+    // Every registry mode: the draft is held to its OWN mode's rules — its registry client run on a copy signed
     // with a throwaway key (the clients verify a signature first); nothing about the real signing key changes.
     {const k=generateKeyPairSync('ed25519'),probe=signRecord(m,k.privateKey.export({type:'pkcs8',format:'pem'}).toString());modeEntry(probe).client(probe,probe.signer)}
     // Part 2: an RFQ under the product carries its buyer's signed treasury block (host custody derives the return from it).
     if(m.clearing?.mode==='rfq')requireThat(m.rfq?.treasury_ua&&m.rfq?.funding_ua,'rfq needs the buyer treasury_ua and funding_ua');
     if(treasuryBlock(m)){const tb=treasuryBlock(m)!;requireShieldedDestination(tb.treasury_ua,m.network);
-      // R28 item 7 (G-8): a funding address belongs to one auction only (its funded sum counts every note ever received).
+      // A funding address belongs to one auction only (its funded sum counts every note ever received).
       for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(treasuryBlock(mm)?.funding_ua!==tb.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
     }
-    // R7 item 2: the product manifest pins the three signers' envelope public keys (generated signer-side by
+    // The product manifest pins the three signers' envelope public keys (generated signer-side by
     // `benzo sign envelope-key`); bidders seal to those pinned keys and never to an out-of-band value.
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
-    // R17 item 3: gate X cannot be opted out of.
+    // Gate X cannot be opted out of.
     requireThat(m.witness_set_hash!==undefined,'manifest must carry witness_set_hash');
-    // R8 G10 (design §5): a manifest carrying witness_set_hash must be created together with the signed
+    // R8 G10: a manifest carrying witness_set_hash must be created together with the signed
     // witness-set side-packet it commits to.
     const witness_set=o['witness-set']?read(privatePath(o['witness-set'])):undefined;
     if(m.witness_set_hash!==undefined){requireThat(witness_set,'manifest carries witness_set_hash but no witness set supplied');requireThat(witnessSetHash(witness_set)===m.witness_set_hash,'witness set hash mismatch')}
@@ -239,11 +239,11 @@ export async function runCommand(command:string,args:string[]) {
   }
   if(command==='auction sign') {
     requireThat(id,'--id required');const d=read(draft(id));
-    // R10 item 3: every signer envelope-key file present locally must match the manifest's pin at its own
+    // Every signer envelope-key file present locally must match the manifest's pin at its own
     // index (alice 0, bob 1, carol 2), so an operator cannot sign a manifest pinning keys it holds.
-    // §11: under host custody each host checks its own envelope-key pin in `benzo sign approve` instead.
+    // Under host custody each host checks its own envelope-key pin in `benzo sign approve` instead.
     if(!existsSync(path.join(STATE,'vaults',id,'keys.json')))for(const name of ['alice','bob','carol'])requireOwnEnvelopeKey(d.manifest,name,STATE);
-    // Phase 5 part 1 §2 (gate Y): when this auction ran its own DKG (`benzo auction keys`), the manifest must pin
+    // When this auction ran its own DKG (`benzo auction keys`), the manifest must pin
     // exactly that group key and escrow UA; a manifest reusing another key is refused before signing.
     const auctionKeys=path.join(STATE,'vaults',id,'keys.json');
     if(existsSync(auctionKeys)){const k=read(auctionKeys);requireThat(d.manifest.frost_group_key===k.group_key,"manifest group key is not this auction's DKG key");requireThat(d.manifest.escrow_ua===k.escrow_ua,"manifest escrow UA is not this auction's DKG vault")}
@@ -258,7 +258,7 @@ export async function runCommand(command:string,args:string[]) {
     const cfg=read(privatePath(o.config));requireThat(cfg.settlement&&cfg.routing,'operator config needs settlement and private routing');
     requireThat(Number.isInteger(cfg.settlement.batch_cap)&&cfg.settlement.batch_cap>=1&&cfg.settlement.batch_cap<=28&&Number.isInteger(cfg.settlement.pczt_expiry_blocks)&&cfg.settlement.pczt_expiry_blocks>=1&&cfg.settlement.pczt_expiry_blocks<=10000,'batch cap/expiry config');
     save(config(id),{...cfg,public_dir:path.resolve(o.dir)});
-    // R7 item 2: no envelope private key is ever created or held by the operator. The signed manifest pins the
+    // No envelope private key is ever created or held by the operator. The signed manifest pins the
     // signers' public keys (envelope_keys); the signers keep their private halves in their own state dirs.
     ac('init',id,{manifest:d.signed,signer:d.signed.signer,...(d.witness_set?{witness_set:d.witness_set}:{})});sc('init',id,[],cfg.routing);return publish(id);
   }
@@ -272,7 +272,7 @@ export async function runCommand(command:string,args:string[]) {
   // Part 2 launch flow: winners after opening (no records yet), then each winner's owner-signed delivery record.
   if(command==='launch winners'){requireThat(id,'--id required');const a=read(ledger(id));requireThat(a.state==='OPENED','launch winners after opening, before the clear');return {auction_id:id,winners:launchWinners({manifest:a.manifest,signer:a.signer,frozen:a.frozen,opened:a.opened,reserve_opening:a.reserve_opening??null,launch:a.launch_input})}}
   if(command==='launch deliver'&&o['owner-key-stdin']) {
-    // Bidder side (Ruling R40 item 3, F4): the winner's token-chain destinations are SEALED to the manifest's
+    // Bidder side: the winner's token-chain destinations are SEALED to the manifest's
     // `envelope_keys` ("as claims do") and the bid's one-time owner key signs the sealed record's SHA-256 — the
     // operator records it without seeing the destinations and the published doc never carries the join.
     requireThat(id&&o['leaf-index']&&/^[0-9]+$/.test(o['leaf-index'])&&o.destinations,'--id --leaf-index --destinations --owner-key-stdin required');
@@ -286,8 +286,8 @@ export async function runCommand(command:string,args:string[]) {
   }
   if(command==='launch deliver'){requireThat(id,'--id required');const r=ac('deliver',id,input(o));publish(id);return r}
   if(command==='launch deliver-list') {
-    // Operator side (Ruling R40 item 3): record the signing hosts' merged delivery list (the same
-    // allocation_file_hash signed by two `benzo sign delivery` runs). publish() gates the file's hash and
+    // Operator side: record the signing hosts' merged delivery list (the same
+    // allocation_file_hash signed by two `benzo sign delivery` runs). publish gates the file's hash and
     // signatures again and writes the canonical allocation.json; nothing else about the delivery is published.
     requireThat(id,'--id required');const list=input(o);
     save(path.join(STATE,'settle',id,'delivery-list.json'),list);publish(id);
@@ -300,8 +300,8 @@ export async function runCommand(command:string,args:string[]) {
     requireThat(Date.now()/1000<m.T_submit,'submission deadline');
     // Real one-time owner key and salted settlement commitment for the 128-byte layout; the destination (if the
     // bid carries refund_ua) is sealed to a manifest-pinned signer envelope key and never leaves this process in
-    // plaintext. R7 item 2: only pinned keys are accepted — an out-of-band key substitution is refused (G4).
-    // Head merge (R17): the destination is sealed to ALL THREE signers' keys pinned by the verified manifest
+    // plaintext. only pinned keys are accepted — an out-of-band key substitution is refused (G4).
+    // Head merge: the destination is sealed to ALL THREE signers' keys pinned by the verified manifest
     // (multi-recipient v2 envelope); a caller-supplied envelope_pubkey, if any, must still be one of them.
     if(bid.refund_ua!==undefined)requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3&&(bid.envelope_pubkey===undefined||m.envelope_keys.includes(bid.envelope_pubkey)),'envelope key is not pinned by the signed manifest');
     // Part 2 (every registry mode): the order uses its mode's layout version; a multi-lot round binds the lot id; a launch
@@ -316,7 +316,7 @@ export async function runCommand(command:string,args:string[]) {
     try {
       const page=await browser.newPage();await page.goto(`http://127.0.0.1:${(server.address() as any).port}`);
       const fields={opening:new Date((QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period)*1000).toISOString(),auction:m.auction_id,price:bid.price_zats,quantity:String(bid.quantity),collateral:m.C_zats,address:bid.address,owner:prep.owner.public_hex,nonce:prep.nonce_hex,commitment:prep.settlement_commitment_hex,
-        // R16 item 2 (memo framing v2, R18): the memo commits to the first 18 bytes of SHA-256(envelope_ct)
+        // (memo framing v2): the memo commits to the first 18 bytes of SHA-256(envelope_ct)
         // of this bid's settlement envelope, or 18 zero bytes when the bid carries none — the sealer writes
         // it into the memo.
         envelope_tag:prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18),
@@ -330,13 +330,13 @@ export async function runCommand(command:string,args:string[]) {
       await page.locator('#seal').click();await page.waitForFunction(()=>document.getElementById('envelope')!.textContent||document.getElementById('error')!.textContent);
       const error=await page.locator('#error').innerText();requireThat(!error,error);
       const envelope_hex=await page.locator('#envelope').innerText();
-      // R16 item 2 (R18): `bid seal` refuses a memo that is not framing v2 with ct_len <= 487 — the shared
+      // `bid seal` refuses a memo that is not framing v2 with ct_len <= 487 — the shared
       // parser is the boundary check on the browser sealer's output, and the memo's envelope tag must be the
       // one this bid committed to.
       const sealed=memoSealedBid(envelope_hex);
       requireThat(sealed&&sealed.envelope_tag!==null,'memo framing v2 refused: ct_len must be <= 487');
       requireThat(sealed!.envelope_tag===(prep.envelope_ct_hex?hash(Buffer.from(prep.envelope_ct_hex,"hex")).slice(0,36):"00".repeat(18)),'memo envelope tag mismatch');
-      // B43 H14 item 1: the bidder's own self-check with the one sealed-bid shape rule (envelope/opening.ts)
+      // The bidder's own self-check with the one sealed-bid shape rule (envelope/opening.ts)
       // — the same rule `bid deposit`'s admission applies, refused here with its reason so a broken sealer is
       // caught before anyone pays C to deposit its ciphertext.
       const shape=sealedBidShape(sealed!.ciphertext_hex,m.drand.R);
@@ -383,7 +383,7 @@ export async function runCommand(command:string,args:string[]) {
   }
   if(['freeze','open','clear'].includes(command)) {
     requireThat(id,'--id required');
-    // R8 G10 (design §5): `open` refuses without a valid q_w witness certificate when the manifest pins a
+    // R8 G10: `open` refuses without a valid q_w witness certificate when the manifest pins a
     // witness set — a refusal, never a WARN.
     if(command==='open') {
       const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
@@ -404,20 +404,20 @@ export async function runCommand(command:string,args:string[]) {
     const result=ac(command,id);publish(id);return command==='open'?{auction_id:id,state:'OPENED',opened:result.opened.length}:result
   }
   if(command==='sign envelope-opens') {
-    // R10 item 4: each signer attests — before any batch is planned — per refund row it can resolve from an
-    // envelope, to the DESTINATION HASH its own key opens (never the destination). R12 item 3: an envelope
+    // Each signer attests — before any batch is planned — per refund row it can resolve from an
+    // envelope, to the DESTINATION HASH its own key opens (never the destination). an envelope
     // this signer cannot open is reported ok:false; the report never throws and never aborts the others.
     requireThat(id&&['alice','bob','carol'].includes(o.name),'--id --name required');
-    // §11 H5: on a signer host the report is computed from the pushed public dir and claims (--public/--claims).
+    // On a signer host the report is computed from the pushed public dir and claims (--public/--claims).
     const doc=JSON.parse(readFileSync(path.join(o.public?path.resolve(o.public):path.resolve(read(config(id)).public_dir),'auction.json'),'utf8'));
     const {manifest:m}=client(doc.manifest,doc.signer);
     const key=ownEnvelopePrivate(STATE,o.name);requireThat(key,'signer envelope key missing');
     const opens:{leaf:number|null;party:string;ok:boolean;dest_sha256:string|null}[]=[];
     const open=(rec:any):string|null=>{try{return rec?openDestination(rec,key!,m.network)?.reveal()??null:null}catch{return null}}; // revealed only to hash it below
-    // R15 item 3: a claimed row pays through its claim envelope, so the claim's opening report supersedes any
+    // A claimed row pays through its claim envelope, so the claim's opening report supersedes any
     // bid-envelope entry for the same party (the plan's two-signer gate counts one entry class per row).
     const claimed=new Set<string>();
-    // B43 (item 3): the beacon for stray-memo openings — the doc's published beacon (BLS-checked by
+    // The beacon for stray-memo openings — the doc's published beacon (BLS-checked by
     // publishedClient), else the round-R beacon from the shared failover-plus-verify fetch. Built lazily so a
     // report with no stray to open never needs it.
     let beaconClient:ChainClient|null=null;
@@ -434,19 +434,19 @@ export async function runCommand(command:string,args:string[]) {
       const dest=open((doc.envelopes??[]).find((e:any)=>e.ciphertext_hash===l.ciphertext_hash));
       opens.push({leaf:l.leaf_index,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
-    // R26 item 1: one entry per REFUNDABLE scanned deposit note — the report covers exactly the plan's
+    // One entry per REFUNDABLE scanned deposit note — the report covers exactly the plan's
     // refund rows (`deposit:<txid>:<pool>:<action_index>`); a zero-value note is never an obligation and
     // gets no entry.
     for(const n of refundable(notes(m.network).filter((x:any)=>m.deposit_addresses.includes(x.address))).payable) {
       const party=depositParty(n);
       if(claimed.has(party)||(doc.frozen?.leaves??[]).some((l:any)=>l.deposit.txid===n.txid&&l.deposit.address===n.address))continue;
-      // R20: only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
+      // Only an AUTHENTICATED memo-bound record is ever opened/reported; an operator-inserted record
       // for a memo-less or v1 stray is not something this signer reports ok for.
-      // R127: lazily, and null before R — a framing-v2 tag-bound record needs no beacon (B43 had made it fetch one).
+      // Lazily, and null before R — a framing-v2 tag-bound record needs no beacon (had made it fetch one).
       const dest=open(await authenticatedMemoEnvelope(notes(m.network),party,doc.manifest,doc.envelopes,(doc.beacon||Date.now()/1000>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period)?memoBeacon:null));
       opens.push({leaf:null,party,ok:!!dest,dest_sha256:dest?hash(Buffer.from(dest,'utf8')):null});
     }
-    // R23 item 2 (Reviewer G G3): the report is signed by this signer's own witness key (a member of the
+    // The report is signed by this signer's own witness key (a member of the
     // same pinned witness set); the plan counts only reports whose signature verifies.
     requireThat(o['witness-key'],'--witness-key required');
     const signed={signer:o.name,opens,...signOpensReport({signer:o.name,opens},readFileSync(privatePath(o['witness-key']),'utf8').trim())};
@@ -454,32 +454,32 @@ export async function runCommand(command:string,args:string[]) {
     return signed;
   }
   if(command==='claim-refund'&&o.party!==undefined) {
-    // Bidder side (R7 item 4): the bid's one-time owner key signs a request naming a shielded destination.
+    // Bidder side: the bid's one-time owner key signs a request naming a shielded destination.
     // The destination is chosen by the owner and never passes through operator input unsigned.
     requireThat(id&&o.party&&o.destination&&o['owner-key-stdin'],'--id --party --destination --owner-key-stdin required');
     requireThat(/^leaf:[0-9]+$/.test(o.party)||isDepositParty(o.party)||isRefundRowParty(o.party),'claim party');
     const owner={private_hex:readFileSync(0,'utf8').trim(),public_hex:''};owner.public_hex=ownerPublic(owner.private_hex);
-    // R15 item 3 (R F6 + head finding on R13): the destination is SEALED in a v2 envelope to the manifest's
+    // The destination is SEALED in a v2 envelope to the manifest's
     // pinned signer keys — the plaintext destination and any destination hash never enter the request or the
     // operator's view. The signed body carries only the claim envelope's hash.
     const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
-    requireShieldedDestination(o.destination,m.network); // R33 P2-1: the manifest's network, never a literal
+    requireShieldedDestination(o.destination,m.network); // The manifest's network, never a literal
     requireThat(Array.isArray(m.envelope_keys)&&m.envelope_keys.length===3,'manifest must pin the three signers envelope_keys');
     const claim_envelope_ct=sealEnvelope(o.destination,m.envelope_keys!,m.network);
     const body={kind:'claim-refund',auction_id:id,party:o.party,claim_envelope_sha256:hash(Buffer.from(claim_envelope_ct,'hex'))};
     return {...body,claim_envelope_ct,owner_sig:signStatement(owner,body)};
   }
   if(command==='claim-refund') {
-    // Operator side (R7 item 4 + R11): record the owner-signed request and settle what it promotes (the signer
+    // Operator side: record the owner-signed request and settle what it promotes (the signer
     // plan verifies the owner signature against its own fresh opening). --defer records without settling.
     requireThat(id,'--id required');const request=input(o);
     requireThat(request&&request.auction_id===id&&typeof request.party==='string'&&(/^leaf:[0-9]+$/.test(request.party)||isDepositParty(request.party)||isRefundRowParty(request.party))&&typeof request.claim_envelope_ct==='string'&&/^[0-9a-f]{128}$/.test(request.owner_sig),'claim request shape');
     const a=read(ledger(id)),{manifest:m}=client(a.manifest,a.signer);
     requireThat(envelopeRecordValid({envelope_ct:request.claim_envelope_ct,owner_sig:request.owner_sig},m.envelope_keys),'claim envelope format');
-    // R17 item 2: the owner signature is verified at record time with the same rule as the signer plan, and
+    // The owner signature is verified at record time with the same rule as the signer plan, and
     // only valid claims are recorded (first valid per party) — an unsigned claim can neither block the owner's
-    // claim nor linger (the R11 cap is dropped).
-    // B43 (item 3): the beacon for memo openings — the ledger's after open, else the shared fetch. Lazy.
+    // claim nor linger (the cap is dropped).
+    // The beacon for memo openings — the ledger's after open, else the shared fetch. Lazy.
     let claimBeaconClient:ChainClient|null=null;
     const claimBeacon=async():Promise<ChainClient>=>claimBeaconClient??=publishedClient(a.beacon??await fetchVerifiedBeacon(m.drand.R));
     const ownerKeyFor=async(party:string):Promise<string|null>=>{
@@ -487,7 +487,7 @@ export async function runCommand(command:string,args:string[]) {
         const o=read(ledger(id)).opened?.find((x:any)=>x.leaf_index===Number(party.slice(5)));
         return o&&o.plaintext_hex?Buffer.from(o.plaintext_hex,'hex').subarray(61,93).toString('hex'):null;
       }
-      // Ruling R40 items 2/5 + Ruling R41 item 4 (F10): a refund row refunds to the deposit slot's own leaf
+      // A refund row refunds to the deposit slot's own leaf
       // (the shared rule clear/features.ts refundRowLeafIndex — `balance-late:` the note's slot,
       // `balance-excess:<leaf>` its own key), so the owner key is that leaf's one-time key, from the operator's
       // own opened bids.
@@ -500,14 +500,14 @@ export async function runCommand(command:string,args:string[]) {
       const note=party.startsWith('deposit:')?partyNote(notes(m.network),party):undefined;
       const memo=note?.memo_hex?memoSealedBid(note.memo_hex):null;
       if(!memo)return null;
-      // B43 (H14 item 2): the memo's owner key comes from the one opener, offline from the one BLS-verified
+      // The memo's owner key comes from the one opener, offline from the one BLS-verified
       // beacon — no Go tle per claim. A memo that does not open to the 128-byte sealed-bid layout holds no
-      // owner key and the claim is refused with a normal ERROR line (B44: the opener never throws on a memo);
+      // owner key and the claim is refused with a normal ERROR line (the opener never throws on a memo);
       // only an unusable beacon client still stops this call.
       const ptHex=await openSealedBid(memo.ciphertext_hex,await claimBeacon());
       return ptHex?Buffer.from(ptHex,'hex').subarray(61,93).toString('hex'):null;
     };
-    // B55 (M1, docs/design/phase7-b55-cancel-before-r-and-rg-harness.md §1): a claim before R fails per
+    // A claim before R fails per
     // request with its reason — its owner key lives in a memo opening that needs the round-R beacon, which
     // no endpoint has produced yet — and NEVER fetches it (the rule: before R no path touches drand).
     // Nothing is recorded and no settle run is stopped; the owner claims after R.
@@ -523,7 +523,7 @@ export async function runCommand(command:string,args:string[]) {
   if(command==='settle'||command==='cancel'||command==='sign join'||(command==='claim-refund'&&o.defer!=='true')) {
     requireThat(id,'--id required');
     if(command==='sign join'&&o.name&&existsSync(path.join(STATE,'auctions',id,'frost.toml'))) {
-      // §11 H3 (host custody): this host signs only a message equal to a sighash IT approved (`benzo sign approve`),
+      // §11 (host custody): this host signs only a message equal to a sighash IT approved (`benzo sign approve`),
       // with this auction's own DKG share; the answer to frost-client's prompt is decided here, never by the caller.
       requireThat(['alice','bob','carol'].includes(o.name)&&/^[0-9a-f]{64}$/.test(o.sighash??''),'signer/sighash');
       const adir=path.join(STATE,'approvals',id);
@@ -541,10 +541,10 @@ export async function runCommand(command:string,args:string[]) {
         p.stdout!.on('data',watch);p.stderr!.on('data',(d:Buffer)=>{process.stderr.write(d);watch(d)});
         procs.push(p);p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});
       if(o.count===undefined){await join();return}
-      // Phase 6 (R29): one single-message session per spend, all open at once (frost-client signs only the first
+      // One single-message session per spend, all open at once (frost-client signs only the first
       // message of a session, so a multi-message session is never used). This host joins exactly the spend count
       // of the transaction it approved — every session asks for the approved sighash, checked per session above.
-      // R33 P2-4: --count must equal the length of the randomizers this host's own inspect recorded in its
+      // --count must equal the length of the randomizers this host's own inspect recorded in its
       // approval (the same count as its spends) — the approval answers exactly that many prompts.
       requireThat(/^[1-9][0-9]?$/.test(o.count)&&approved.some((a:any)=>Array.isArray(a.randomizers)&&a.randomizers.length===Number(o.count)&&a.spends===Number(o.count)),'--count is not the randomizer count of the approved transaction');
       const listed=spawnSync(bin('frost-client'),['sessions','-c',cfg,'-s',server],{encoding:'utf8',env,timeout:120_000});
@@ -562,11 +562,11 @@ export async function runCommand(command:string,args:string[]) {
       await new Promise<void>((resolve,reject)=>{const p=spawn(bin('frost-client'),['participant','-c',path.join(STATE,'frost',o.name+'.toml'),'-s',process.env.BNZ_FROSTD_ADDR!,'-g',readFileSync(path.join(STATE,'group-key.txt'),'utf8').trim()],{stdio:'inherit',env:{...process.env,SSL_CERT_FILE:path.join(STATE,'tls/rootCA.pem')}});p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`participant exit ${c}`)))});return;
     }
     if(command==='cancel'){ac('cancel',id);publish(id)}
-    // B56 (R121, item 3 — Recovery): a public directory that already published a bare `reserve-return` row
-    // (pre-B56 state) heals here, before the worker sends the hosts its packet: the republish drops the
+    // Recovery): a public directory that already published a bare `reserve-return` row
+    // (older state) heals here, before the worker sends the hosts its packet: the republish drops the
     // unpaid row (publish's own filter above), so the hosts' public check accepts and the run proceeds.
     // Without it the stale row walls this run at `no signer host could list its derivable rows` before
-    // anything could republish — the permanent wall ruling R121 removes.
+    // anything could republish — the permanent wall ruling removes.
     {
       const pubDir=path.resolve(read(config(id)).public_dir),doc=existsSync(path.join(pubDir,'auction.json'))?read(path.join(pubDir,'auction.json')):{};
       if(((doc.settlement?.rows??[]) as any[]).some((r:any)=>r.party==='reserve-return'&&!rowPublishes(r)))publish(id);
@@ -576,15 +576,15 @@ export async function runCommand(command:string,args:string[]) {
     const p=spawn(process.execPath,[path.join(ROOT,'settle/dist/cli.mjs'),'run',id],{stdio:['inherit',2,'inherit']});
     await new Promise<void>((resolve,reject)=>{p.on('error',reject);p.on('close',c=>c===0?resolve():reject(Error(`settle exit ${c}`)))});
     const a=read(ledger(id)),status=JSON.parse(sc('status',id));
-    // R16 item 1: a cancelled auction keeps its cancel states across repeated settles — exceptions stay
+    // A cancelled auction keeps its cancel states across repeated settles — exceptions stay
     // REFUNDING (claimable after R) and a fully paid cancelled auction is CANCELLED — so the CANCELLED/
     // REFUNDING branch keeps resolving it instead of falling into the cleared-path state machine.
     const cancelled=['CANCELLED','REFUNDING'].includes(a.state)||command==='cancel';
     a.state=cancelled?(status.rows.some((r:any)=>r.state==='exception')?'REFUNDING':'CANCELLED'):status.rows.some((r:any)=>r.state==='exception')?'SETTLING':'SETTLED';save(ledger(id),a);let pub=publish(id);
-    // B46 (H15): `benzo settle` runs the reserve-return automatically. The row is planned only once every
+    // `benzo settle` runs the reserve-return automatically. The row is planned only once every
     // obligation row has a PUBLISHED receipt, so when this pass settled them and published them, one more
     // worker pass plans and runs the final `reserve-return` batch (alone). A legacy manifest plans no row; its
-    // plan prints the one "the reserve stays in the vault (legacy, H15)" line in that second pass.
+    // plan prints the one "the reserve stays in the vault (legacy)" line in that second pass.
     const receipted=(rows:any[])=>rows.every((r:any)=>r.state==='exception'||['paid','refunded'].includes(r.state));
     const reservePaid=(rows:any[])=>rows.some((r:any)=>r.party==='reserve-return'&&['paid','refunded'].includes(r.state));
     if(status.rows.length>0&&receipted(status.rows)&&!reservePaid(status.rows)) {
@@ -602,5 +602,5 @@ export async function runCommand(command:string,args:string[]) {
     return {auction_id:id,state:pub.state,settled:pub.settlement.receipts.length};
   }
   if(command==='sign inspect') {requireThat(['alice','bob','carol'].includes(o.name)&&(!o.randomizer||/^[0-9a-f]{64}$/.test(o.randomizer)),'signer/randomizer');requireThat(id&&o.batch&&o.candidate&&o.name,'--id --batch --candidate --name required');const approved=JSON.parse(sc('check',id,[o.batch,privatePath(o.candidate),o.name,o.randomizer??'',o.sighash??'']));if(o.randomizer)save(path.join(STATE,'settle',id,'approvals',o.name+'-'+o.randomizer+'.json'),approved);return approved}
-  throw Error('unknown Track A command');
+  throw Error('unknown command');
 }

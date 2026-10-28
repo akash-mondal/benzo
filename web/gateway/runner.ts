@@ -1,5 +1,5 @@
 // The house operator. It runs every round this site hosts, in all six markets, through the operator guide's lifecycle
-// (the commands tools/doc-walk.sh and tools/repro/markets.ts run, in the same order): DKG on the three hosts,
+// (the commands tools/doc-walk.sh runs, in the same order): DKG on the three hosts,
 // addresses, pinned keys, witness set, round R, create, sign, publish, admission (through the intake), freeze, witness
 // certificates, open at R, clear, the hosts' envelope-opening reports, settle, verify.
 // Two sources of rounds: house rounds (one always taking bids in each house market, with two house bids so it never

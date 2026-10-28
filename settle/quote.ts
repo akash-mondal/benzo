@@ -1,4 +1,4 @@
-// B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md): the one caller of
+// The one caller of
 // `benzo-pczt quote-sweep` — the wallet's OWN quote of the one-row reserve sweep. The fee the return pays
 // is the tool's fee for the transaction it will really build (the ZIP-317 fee of its real per-pool action
 // counts), never a prediction from the source count: a prediction is wrong whenever the sweep's single

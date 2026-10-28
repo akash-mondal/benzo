@@ -14,13 +14,13 @@ export type Launch = { standard_lot_size: number; minimum_raise_zats: string;
 export type LaunchManifest = MarketManifest<{ launch: Launch }>;
 export type LaunchInput = { holder_receipts?: Signed[]; mined_heights?: Signed[]; previous_result?: ClearResult;
   delivery?: LaunchDeliveryRecord[] };
-// Ruling R40 item 3 (F4): a delivery record is sealed to the manifest's `envelope_keys` ("as claims do") —
+// A delivery record is sealed to the manifest's `envelope_keys` ("as claims do") —
 // the operator records and relays it without ever seeing the destinations; the leaf<->destination join stays
 // private (the ledger and the envelope-key holders only). The owner signature covers the sealed record's
 // SHA-256, exactly like a claim.
 export type LaunchDeliveryRecord = { leaf_index: number; delivery_envelope_ct: string; owner_sig: string };
 export type DeliveryBatch = { version: 1; auction_id: string; delivery: "project_on_token_chain"; rows: { destination: string; amount: number }[] };
-// R34.2: the canonical delivery-row order — destination bytes, then amount. Rows leave deliveryBatch in this
+// The canonical delivery-row order — destination bytes, then amount. Rows leave deliveryBatch in this
 // order (never winner leaf order), the allocation root commits to it, and `benzo verify` replays it, so a
 // published row position can never correlate a fresh delivery destination with a winning leaf (and its bid).
 export const deliveryRowOrder = (a: { destination: string; amount: number }, b: { destination: string; amount: number }) =>
@@ -28,7 +28,7 @@ export const deliveryRowOrder = (a: { destination: string; amount: number }, b: 
 export function clientLaunch(packet: Signed, signer: string) {
   return marketClient<{ launch: Launch }>(packet, signer, "launch", m => {
     const l = m.launch;
-    // R64 (Reviewer R P2-2 on R63): refused inside the client too, so no caller of clientLaunch can admit a bonded launch.
+    // Refused inside the client too, so no caller of clientLaunch can admit a bonded launch.
     requireThat((m as { bond?: unknown }).bond === undefined, "bond is a uniform/vickrey (mode A) feature only");
     requireThat(l && Object.keys(l).every(k => ["standard_lot_size", "minimum_raise_zats", "holder", "follow_on"].includes(k)), "launch fields");
     requireThat(Number.isSafeInteger(l.standard_lot_size) && l.standard_lot_size > 0 && m.supply % l.standard_lot_size === 0 && m.q_max % l.standard_lot_size === 0, "launch standard lot size");
@@ -60,7 +60,7 @@ export function deliveryBatch(m: LaunchManifest, result: ClearResult, records: {
   rows.sort(deliveryRowOrder);
   return { version: 1, auction_id: m.auction_id, delivery: "project_on_token_chain", rows };
 }
-// Ruling R40 item 3 (F4): the clear never sees the delivery records — they are sealed to `envelope_keys` and
+// The clear never sees the delivery records — they are sealed to `envelope_keys` and
 // only the envelope-key holders (the signer hosts) open them, check every owner signature against the opened
 // order, and build the canonical delivery list (deliveryBatch) which they sign `benzo-delivery-list-v1` over
 // (witness/index.ts). The result carries no allocation_file_hash; the published doc carries only the canonical
@@ -121,7 +121,7 @@ export function clearLaunch(input: ClearInput): ClearResult {
   // Pre-F4 historical reading (immutable evidence only): a doc that publishes its PLAINTEXT delivery records
   // (each with the owner's signature over {auction_id, leaf_index, destinations}) keeps the old recomputation,
   // including that check, and a result that commits to the allocation file. New delivery records are sealed to
-  // `envelope_keys` (Ruling R40 item 3), so the clear never sees their destinations and the result carries no
+  // `envelope_keys`, so the clear never sees their destinations and the result carries no
   // allocation_file_hash — the canonical list is host-built and host-signed (`benzo-delivery-list-v1`) instead.
   const legacyRecords: any[] = ((data as any).delivery ?? []).filter((r: any) => r && Array.isArray(r.destinations));
   if (legacyRecords.length > 0 && legacyRecords.length === ((data as any).delivery ?? []).length) {

@@ -6,7 +6,7 @@ publish = false
 
 # Exact versions from zcash-devtool@5a26ee854e634a4e88d1d79dab13f8fbb1eac6b8 Cargo.lock.
 [dependencies]
-ff = "=0.13.1" # R29: PrimeField::to_repr for the spend randomizers (already in the lock via orchard)
+ff = "=0.13.1" # PrimeField::to_repr for the spend randomizers (already in the lock via orchard)
 anyhow = "=1.0.104"
 hex = "=0.4.3"
 orchard = { version = "=0.15.3", default-features = false }
@@ -23,7 +23,7 @@ zcash_note_encryption = "=0.4.2"
 zip321 = "=0.9.0"
 
 [patch.crates-io]
-# NU7 backport (Ruling R27): tools/nu7/build.sh crates vendor/nu7 materializes these from the pinned .crate files.
+# NU7 backport: tools/nu7/build.sh crates vendor/nu7 materializes these from the pinned.crate files.
 zcash_protocol = { path = "../vendor/nu7/zcash_protocol-0.10.5" }
 zcash_primitives = { path = "../vendor/nu7/zcash_primitives-0.30.1" }
 pczt = { path = "../vendor/nu7/pczt-0.9.3" }

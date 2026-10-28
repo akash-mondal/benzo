@@ -1,10 +1,10 @@
-// R6 (Reviewer R F3, gate W): settlement destinations for bids come only from the bid's owner-signed
+// Settlement destinations for bids come only from the bid's owner-signed
 // envelope, never from operator routing. Each signer resolves a leaf's destination by checking the published
 // envelope record against the owner material inside the opened bid (owner_sig over auction_id, ciphertext_hash,
 // envelope_ct; the salted settlement commitment over the same ciphertext) and only then opening the envelope
 // with its own key. A bid without a valid envelope is not paid here; the plan moves it to the exception queue.
-// source: envelope record/public shapes from api/public-auction.ts (Track B), validation rules per
-// docs/design/phase5-part1-live.md §4.
+// Envelope record and public shapes come from api/public-auction.ts.
+
 import { Destination } from "./destination";
 export { Destination };
 import { verifyOpensReport, type OpensReport } from "../witness";
@@ -17,15 +17,15 @@ import type { ChainClient } from "tlock-js";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-// R10 item 2: the multi-recipient v2 format is merged and `bid seal` seals to the manifest's pinned keys,
-// so a validated v2 envelope is paid through (each signer opens it with its own key; R10 item 4's
+// The multi-recipient v2 format is merged and `bid seal` seals to the manifest's pinned keys,
+// so a validated v2 envelope is paid through (each signer opens it with its own key; item 4's
 // two-signer agreement gates it). The R7.2 interim refusal is gone.
 
-// R10 item 3 (design §10 item 2): every signer requires the signed manifest to pin ITS OWN envelope key at
+// Every signer requires the signed manifest to pin ITS OWN envelope key at
 // its own index (alice 0, bob 1, carol 2), so an operator cannot pin keys it holds and still get signatures.
 // Checked at auction sign and again in the signer's settlement plan.
 export const SIGNER_ENVELOPE_INDEX: Record<string, number> = { alice: 0, bob: 1, carol: 2 };
-// R33 P2-1 (G-7): the destination network always comes from the signed manifest, never an env default.
+// The destination network always comes from the signed manifest, never an env default.
 const netOf = (manifestPacket: { bytes: string }): string => JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8")).network;
 export function requireOwnEnvelopeKey(m: { envelope_keys?: string[] }, name: string, stateDir: string): void {
   const index = SIGNER_ENVELOPE_INDEX[name];
@@ -38,19 +38,19 @@ export function requireOwnEnvelopeKey(m: { envelope_keys?: string[] }, name: str
 
 export type EnvelopeRecord = { ciphertext_hash: string; envelope_ct: string; owner_sig: string };
 
-// The 512-byte BNZ memo framing (docs/PHASE-1.md section 6). v2 (R16 item 2, corrected by R18):
+// The 512-byte BNZ memo framing. v2:
 //   ff424e5a02 || u16be ct_len || tlock_ct || envelope_tag (18) || zero pad
 // where envelope_tag is the first 18 bytes of SHA-256(envelope_ct) for a bid that carries an envelope, or
 // 18 zero bytes when it does not (exact 512-byte fit at ct_len = 487; `bid seal` refuses any longer
 // ciphertext). 18 bytes stop a third party from substituting an envelope for someone else's deposit at
 // 2^144 (second preimage); a 2^72 collision would only let a depositor confuse its own refund, and the key
-// commitment plus 2-signer agreement still decide the destination (R18). v1 (pre-R16 evidence):
+// commitment plus 2-signer agreement still decide the destination. v1 (older evidence):
 //   ff424e5a01 || u16be length || tlock ciphertext || zero pad
 // v1 memos stay readable; they bind no envelope. Returns the sealed-bid ciphertext inside a deposit memo
 // and the memo's envelope tag (null for v1), or null when the memo is not a sealed bid — such a stray has
-// no owner key and is only ever an exception-queue row (R7 item 6).
+// no owner key and is only ever an exception-queue row.
 // The admission rule for a deposit memo (moved here from clear/auction-cli.ts so the operator's `admit` and every
-// witness's independent root recompute (design §5) apply the same check): a BNZ memo whose ciphertext is one age
+// witness's independent root recompute apply the same check): a BNZ memo whose ciphertext is one age
 // tlock stanza for round R on quicknet. Returns the ciphertext and the v2 envelope tag (null for v1).
 // A tlock opening is a sealed bid of THIS auction under its mode's own layout (part 2: OTC/RFQ/launch orders use their
 // layout's version byte, and a multi-lot order binds its lot id) — the one rule for deposit memos and claims.
@@ -83,28 +83,28 @@ export function memoSealedBid(memoHex: string): { ciphertext_hex: string; envelo
   }
 }
 
-// The memo-bound envelope rule (R16 item 2): only the depositor sets the memo, so the memo's envelope tag
+// The memo-bound envelope rule: only the depositor sets the memo, so the memo's envelope tag
 // is the pre-R authenticator of an envelope record — a record is bound exactly when the first 18 bytes of
 // SHA-256(envelope_ct) equal the memo's tag. A v1 memo (null) binds nothing and an all-zero tag says the bid
 // carries no envelope, so neither can bind a record. One shared rule for intake (clear/auction-cli admit),
-// verify (api/public-auction) and the signer's cancel path (memoBoundEnvelope), so they cannot drift (R12).
+// verify (api/public-auction) and the signer's cancel path (memoBoundEnvelope), so they cannot drift.
 export function memoBindsEnvelope(memoEnvelopeTag: string | null, envelopeCtHex: string): boolean {
   return typeof memoEnvelopeTag === "string" && /^[0-9a-f]{36}$/.test(memoEnvelopeTag) &&
     memoEnvelopeTag !== "00".repeat(18) && /^[0-9a-f]+$/.test(envelopeCtHex) && envelopeCtHex.length % 2 === 0 &&
     hash(Buffer.from(envelopeCtHex, "hex")).slice(0, 36) === memoEnvelopeTag;
 }
 
-// R16 item 2: before R a signer authenticates an envelope from the chain alone — the deposit's scanned memo
+// Before R a signer authenticates an envelope from the chain alone — the deposit's scanned memo
 // commits to the envelope tag (framing v2) — with no tlock opening at all, then opens it with its own
 // key to the bidder's destination. A record the memo does not bind is never opened (null) and the cancel
-// path moves its deposit to the exception queue. Track A wires this into the CANCELLED/REFUNDING branch.
+// path moves its deposit to the exception queue. The plan wires this into the CANCELLED/REFUNDING branch.
 export function memoBoundEnvelope(memoHex: string, rec: EnvelopeRecord, envelopePrivateHex: string, network: string): Destination | null {
   const memo = memoSealedBid(memoHex);
   return memo && memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) ? openDestination(rec, envelopePrivateHex, network) : null;
 }
 
 // The published-record format rule is the one shared `envelopeRecordValid(record, envelope_keys)` exported
-// from envelope/ (R12 item 1): the exact v2 shape for n = 3 with the magic and the signed manifest's
+// from envelope/: the exact v2 shape for n = 3 with the magic and the signed manifest's
 // `envelope_keys` as stanza recipients in order, or the pre-v2 572-byte box where the manifest pins no keys.
 // R7 item 3 (R F-4 = G3): it is enforced at intake (clear/auction-cli.ts admit) so a malformed record can never
 // enter a published directory.
@@ -123,7 +123,7 @@ export function validEnvelope(a: { manifest: any; frozen: any; opened?: any[]; e
     const opening = (a.opened ?? []).find((o: any) => o.leaf_index === leafIndex);
     if (!leaf || !rec || !opening || typeof opening.plaintext_hex !== "string" || !/^[0-9a-f]{256}$/.test(opening.plaintext_hex)) return null;
     const m = JSON.parse(Buffer.from(a.manifest.bytes, "base64").toString("utf8"));
-    // R12 item 1: the one shared rule (envelope/index.ts) — exact v2 n = 3 shape with the manifest's
+    // The one shared rule (envelope/index.ts) — exact v2 n = 3 shape with the manifest's
     // `envelope_keys` as stanza recipients in order, or the pre-v2 box where the manifest pins no keys.
     if (!envelopeRecordValid(rec, m.envelope_keys)) return null;
     const pt = Buffer.from(opening.plaintext_hex, "hex");
@@ -138,7 +138,7 @@ export function validEnvelope(a: { manifest: any; frozen: any; opened?: any[]; e
 
 // The signer's own key opens the authenticated envelope to the bidder's shielded destination, or null when
 // the envelope cannot be opened with it (wrong key, corrupted box, or a plaintext that is not a shielded
-// destination). Total for the same reason as validEnvelope (R7 item 3).
+// destination). Total for the same reason as validEnvelope.
 export function openDestination(rec: EnvelopeRecord, envelopePrivateHex: string, network: string): Destination | null {
   try {
     const ua = openEnvelope(rec.envelope_ct, envelopePrivateHex, network);
@@ -161,22 +161,22 @@ export function envelopeRecipient(
   return rec ? openDestination(rec, envelopePrivateHex, netOf(a.manifest)) : null;
 }
 
-// R20 (head review of c7f1029): a stray or cancelled deposit's envelope is AUTHENTICATED before it is ever
+// (head review of c7f1029): a stray or cancelled deposit's envelope is AUTHENTICATED before it is ever
 // opened — an operator-inserted record for a memo-less or v1 stray is never paid. Exactly one of:
-//   (a) the deposit memo is framing v2 and its envelope_tag binds rec.envelope_ct (Track B's rule, arriving
-//       with the memo v2 merge — the hook below is a no-op until the parser yields the tag), or
+//   (a) the deposit memo is framing v2 and its envelope_tag binds rec.envelope_ct (the hook below is a no-op
+//       until the parser yields the tag), or
 //   (b) after R, the record passes validEnvelope against the memo's own tlock opening — the bid's owner
 //       signature plus its salted settlement commitment, with the memo opening to this auction's 128-byte
 //       sealed-bid layout.
 // Otherwise null — the row is an exception row, claimable through benzo claim-refund.
-// B43 (H14 item 2): the memo's opening comes from the one opener (envelope/opening.ts openSealedBid) against
+// The memo's opening comes from the one opener (envelope/opening.ts openSealedBid) against
 // the BLS-verified beacon client — a griefing memo yields null here instead of stopping every stray's row.
-// H13 item 4: `openMemo` lets a signer host route that opening through its own memo-openings.json cache (the
+// `openMemo` lets a signer host route that opening through its own memo-openings.json cache (the
 // same openSealedBid result, read through cli/openings-cache.ts); the default is the plain opener.
-// R127 (B43 regression fix): `client` may be a beacon client, a LAZY getter, or null. The framing-v2 tag
+// (regression fix): `client` may be a beacon client, a LAZY getter, or null. The framing-v2 tag
 // path (a) authenticates before R with no tlock opening, so the beacon is fetched only when path (b) must
 // open the memo. Null means "no beacon yet" (before R): path (b) cannot open, so the answer is null. After R
-// a getter that cannot produce a verified beacon throws to the caller, as B43/H14 require: an unusable
+// a getter that cannot produce a verified beacon throws to the caller: an unusable
 // beacon stops the run instead of quietly classifying the stray as ownerless.
 export type BeaconSource = ChainClient | (() => Promise<ChainClient>) | null;
 export async function authenticatedMemoEnvelope(
@@ -197,7 +197,7 @@ export async function authenticatedMemoEnvelope(
     const rec = (envelopes ?? []).find(e => e.ciphertext_hash === ctHash);
     if (!rec) return null;
     const manifest = JSON.parse(Buffer.from(manifestPacket.bytes, "base64").toString("utf8"));
-    // (a) head merge (R20 + R16 item 2/R18): a framing-v2 memo whose envelope_tag binds this record (only the
+    // (a) head merge: a framing-v2 memo whose envelope_tag binds this record (only the
     // depositor sets the memo) authenticates it before R with no tlock opening; it must still satisfy the shared
     // format/recipient rule.
     if (memoBindsEnvelope(memo.envelope_tag, rec.envelope_ct) && envelopeRecordValid(rec, manifest.envelope_keys)) return rec;
@@ -219,7 +219,7 @@ export async function authenticatedMemoEnvelope(
   }
 }
 
-// R10 item 2 + R20: the deposit-party twin of envelopeRecipient — the AUTHENTICATED memo-bound record,
+// The deposit-party twin of envelopeRecipient — the AUTHENTICATED memo-bound record,
 // opened with the signer's own key. Total like the rest of this module: anything unresolvable is null.
 export async function memoEnvelopeRecipient(
   observed: DepositNote[],
@@ -238,8 +238,8 @@ export async function memoEnvelopeRecipient(
   }
 }
 
-// R10 item 2/4: the acting signer's own envelope private half, read from its own state dir (the operator's
-// tooling never holds it — R7 item 2). Null when the signer has no key file.
+// The acting signer's own envelope private half, read from its own state dir (the operator's
+// tooling never holds it). Null when the signer has no key file.
 export function ownEnvelopePrivate(stateDir: string, name: string): string | null {
   try {
     const file = path.join(stateDir, "signers", name, "envelope-key.json");
@@ -249,7 +249,7 @@ export function ownEnvelopePrivate(stateDir: string, name: string): string | nul
   }
 }
 
-// R23 item 2 (Reviewer G G3): the plan's two-signer envelope gate counts only reports whose signature
+// The plan's two-signer envelope gate counts only reports whose signature
 // verifies against the pinned witness set (the report is signed by the reporting signer's own witness
 // key), one per distinct witness key — an unsigned or forged report is ignored, and one witness never
 // counts twice. Returns party -> the dest_sha256 at least two distinct witnesses reported ok for.

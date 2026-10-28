@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CPI-forgery regression fixture (R14 item 2 / F1). source: Reviewer R's lab PoC
+// CPI-forgery regression fixture. source: a lab proof of concept
 // `benzo-sol/lab/pr-b-r9/lab-only/cpi-forge.mjs` + `proxy/`, adapted so the forged CPI submit is
 // the regression: it must be REFUSED (the PoC asserted it landed). The proxy program
 // (test/proxy, a 20-line attacker program) invokes `submit_attestation` via CPI with one
@@ -9,8 +9,8 @@
 // Four questions (test-audit rule):
 // 1. Behavior protected: `submit_attestation` accepts only its own top-level attestation bytes —
 //    no CPI (get_stack_height == TRANSACTION_LEVEL_STACK_HEIGHT) and the instruction at
-//    `current` must be this program's own with data[2..2+ATT_LEN] == the parsed att (R14 item 1,
-//    design §9; Reviewer R F1).
+//    `current` must be this program's own with data[2..2+ATT_LEN] == the parsed att (
+//    design §9).
 // 2. Credible regression: a CPI caller presents the signers' signatures over one honest message
 //    and passes a forged attestation (attacker-chosen allocation root) — the approval is written,
 //    release_approved drains the escrow (R's live PoC drained 5 SOL at 4d9c0e6).
@@ -53,7 +53,7 @@ const TAG = (tag) => Uint8Array.of(1, tag);
 const MSG_REF = { ixIndex: 1, offset: 2, size: 200 };
 const IX_SYSVAR = new PublicKey("Sysvar1nstructions1111111111111111111111111");
 const ED25519 = new PublicKey("Ed25519SigVerify111111111111111111111111111");
-// R14 item 1: the two new refusals (custom codes asserted by number, as in test/driver.mjs)
+// The two new refusals (custom codes asserted by number, as in test/driver.mjs)
 const ERR_VIA_CPI = 21; // ViaCpi: submit_attestation reached through a CPI
 const ERR_MESSAGE_NOT_SELF = 22; // MessageNotSelf: ix[current] is not this program's own attestation
 
@@ -226,7 +226,7 @@ async function main() {
     check("cpi-forged-submit-refused",
       err !== null && got === ERR_VIA_CPI,
       err === null
-        ? "forged CPI submit LANDED (the R14 F1 bypass is back)"
+        ? "forged CPI submit LANDED (the CPI-forgery bypass is back)"
         : `expected custom error 0x${ERR_VIA_CPI.toString(16)} (ViaCpi), got ${got === null ? `no custom code (${`${err.message}`.slice(0, 90)})` : `0x${got.toString(16)}`}`);
     // and nothing may have been written for the forged batch
     const apInfo = await conn.getAccountInfo(approvalPdaFor(auctionId, 0));

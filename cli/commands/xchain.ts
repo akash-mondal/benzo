@@ -39,7 +39,7 @@ export const noun = "xchain";
 export const help = [
   "benzo xchain keygen --chain evm|solana --name SIGNER [--show]   (runs ON a signer host: writes state/xchain/<chain>-<name>.key mode 0600, refuses to replace it, and prints only the public part; --show prints the EXISTING public part and refuses when there is none — the EVM address or the Solana pubkey)",
   "benzo xchain lock   --chain evm|solana --auction HEX32 --amount WAD --lot WAD --lock-until TS --deadline TS --signers FILE --return ADDR --key FILE --rpc URL [--asset 0xADDR]",
-  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --dir PUBLIC --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR [--host-record] (--result is the PRODUCT result the signer has itself validated per docs/AUDITS.md: its bytes must equal the published --dir/result.json and its allocations[].fill is the only source of the allocation leaves (the cross-chain winners[] shape is removed — R24 item 2); --dir is the published auction directory: attest runs the same public checks as `benzo verify` on it (re-derived openings, witness certificates, clearing recomputed through the registry) and refuses on any ERROR (R22), then derives every winner's opening ITSELF from the frozen leaf's ciphertext and the published, BLS-verified beacon (R21 — no opening or record comes from operator files), checks SHA-256(ciphertext) against the root-committed ciphertext_hash and the published record's owner signature + settlement commitment, then derives the leaf's destination from each --envelope-key signer's own opening of the winner's v2 envelope deliver.to (R19) — --allocation and --envelopes are removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver) (in --host-record mode — one signer host's own single envelope key and xchain key — the leaf is attested from that opening alone and the 2-of-3 rule is enforced at release from two host records over the identical attestation bytes; without the flag one key can never attest a leaf), winners without a valid deliver go to the bundle's exception queue; the output is the host's SIGNATURE record (attestation bytes, this host's own signature, its own derived payouts) and it is the only thing printed; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",,
+  "benzo xchain attest --chain evm|solana --auction HEX32 --result FILE --dir PUBLIC --envelope-key FILE [--envelope-key FILE ...] [--result-hash HEX32] --batch N --nonce N --expiry TS --signer-key FILE [--signer-key FILE ...] --escrow ADDR --rpc URL --out FILE --asset 0xADDR [--host-record] (--result is the PRODUCT result the signer has itself validated per docs/AUDITS.md: its bytes must equal the published --dir/result.json and its allocations[].fill is the only source of the allocation leaves (the cross-chain winners[] shape is removed); --dir is the published auction directory: attest runs the same public checks as `benzo verify` on it (re-derived openings, witness certificates, clearing recomputed through the registry) and refuses on any ERROR, then derives every winner's opening ITSELF from the frozen leaf's ciphertext and the published, BLS-verified beacon (no opening or record comes from operator files), checks SHA-256(ciphertext) against the root-committed ciphertext_hash and the published record's owner signature + settlement commitment, then derives the leaf's destination from each --envelope-key signer's own opening of the winner's v2 envelope deliver.to — --allocation and --envelopes are removed and refused, a leaf is attested only when at least 2 --envelope-key signers agree on SHA-256(deliver) (in --host-record mode — one signer host's own single envelope key and xchain key — the leaf is attested from that opening alone and the 2-of-3 rule is enforced at release from two host records over the identical attestation bytes; without the flag one key can never attest a leaf), winners without a valid deliver go to the bundle's exception queue; the output is the host's SIGNATURE record (attestation bytes, this host's own signature, its own derived payouts) and it is the only thing printed; a mismatching --result-hash is refused; --asset is required: the escrow's asset is read from chain and must match; no default)",,
   "benzo xchain release --chain evm|solana (--bundle FILE | --attestation FILE --attestation FILE ...) --key FILE --rpc URL [--only 0,2] [--submit-only] [--stipend WAD] [--announcer ADDR]   (--attestation collects HOST signature records (one per signer host, produced by `xchain attest` on each host): release requires records over the identical attestation bytes from at least 2 distinct signers of the escrow's pinned set, takes every destination from those records — never from the coordinator — and signs nothing itself (--signer-key is refused; --key is the crank/payer key only); --only is a crank aid: release only these payout indexes now — the stored approval is never consumed and the rest stays payable; --stipend sends a tiny native gas stipend with each fresh stealth payout and --announcer publishes its ERC-5564 announcement on the canonical Announcer — design §4 lesson 6, the delivery flow for deliver.kind=stealth)",
   "benzo xchain refund --chain evm|solana --auction HEX32 --key FILE --rpc URL --escrow ADDR",
   "benzo xchain status --chain evm|solana --auction HEX32 --rpc URL --escrow ADDR [--bundle FILE] [--result FILE]   (--result is the published result.json: its sha256 is compared with the escrow's approved resultHash and the command exits 1 on mismatch)",
@@ -66,7 +66,7 @@ const need = (a: Args, k: string): string => {
 };
 const num = (a: Args, k: string): number => {
   const v = need(a, k);
-  // R25 item 6: numeric CLI arguments are validated — no silent NaN/float coercion past parsing
+  // Numeric CLI arguments are validated — no silent NaN/float coercion past parsing
   if (!/^\d+$/.test(v)) throw new Error(`--${k} must be a non-negative integer`);
   const n = Number(v);
   if (!Number.isSafeInteger(n)) throw new Error(`--${k} is out of range`);
@@ -101,10 +101,10 @@ interface Bundle {
   asset: string; // 0x address (EVM) or the zero address (native ETH/SOL); bound in every leaf
   standard_lot: string;
   /** the exact bytes every signer signed (EIP-712 digest on evm, the 200-byte message on solana):
-   *  two host records that derived the same leaves carry identical attestation bytes */
+   * two host records that derived the same leaves carry identical attestation bytes*/
   attestation_bytes?: string;
   leaves: (AllocationLeaf & { deliver_kind?: string; announce?: { scheme_id: number; stealth_address: string; ephemeral_pubkey: string; metadata: string } })[];
-  exceptions: { index: number; lot_count: number; reason: string }[]; // R19: winners without an attestable deliver
+  exceptions: { index: number; lot_count: number; reason: string }[]; // Winners without an attestable deliver
   payouts: { index: number; lot_count: number; destination_kind: number; destination: string; leaf_count: number; proof: string[] }[];
   signers: string[]; signatures: string[];
 }
@@ -112,7 +112,7 @@ interface Bundle {
 // Host signature records collected by the coordinator (part 2 §2): `xchain release --attestation`
 // takes one record per signer host (what `xchain attest` printed on that host) and releases only when
 // the records carry the identical attestation bytes and the derived payout sets agree, with valid
-// signatures from >= 2 DISTINCT signers of the escrow's pinned set. R28: every destination comes from
+// signatures from >= 2 DISTINCT signers of the escrow's pinned set. every destination comes from
 // these host-derived records; the coordinator never holds a signer key and never names a destination.
 async function collectAttestations(files: string[], chain: "evm" | "solana", rpc: string): Promise<Bundle> {
   if (files.length < 2) throw new Error("release needs at least 2 --attestation records (one per signer host)");
@@ -260,16 +260,16 @@ export async function run(argv: string[]): Promise<number> {
     if (verb === "attest") {
       const chain2 = chain;
       const rpc = need(a, "rpc"), escrow = need(a, "escrow"), out = need(a, "out");
-      // R19 item 2: no operator destinations. R21: no operator openings/records either — --allocation and
+      // No operator destinations. no operator openings/records either — --allocation and
       // --envelopes are removed; attest derives every leaf's opening itself from the published directory.
       if (typeof a.allocation === "string") {
-        throw new Error("--allocation is removed (R19): destinations come from the bidder's sealed envelope (--dir + --envelope-key)");
+        throw new Error("--allocation is removed: destinations come from the bidder's sealed envelope (--dir + --envelope-key)");
       }
       if (typeof a.envelopes === "string") {
-        throw new Error("--envelopes is removed (R21): attest derives winner openings itself from the published directory (--dir)");
+        throw new Error("--envelopes is removed: attest derives winner openings itself from the published directory (--dir)");
       }
       const auctionId = hexToBytes(need(a, "auction"));
-      // R17 item 4 (Reviewer R F7): --result FILE is a result the signer has itself validated (the signer
+      // --result FILE is a result the signer has itself validated (the signer
       // procedure is documented in docs/AUDITS.md). The result hash is recomputed from those exact bytes and
       // the allocation leaves are derived from the result's winner set and lot counts, so no operator input
       // can move either; --result-hash and --allocation are cross-checks and any mismatch is refused before
@@ -286,8 +286,8 @@ export async function run(argv: string[]): Promise<number> {
       if (resultAuction !== norm(bytesToHex(auctionId))) {
         throw new Error(`--result auction_id ${resultAuction} does not match --auction ${norm(bytesToHex(auctionId))}`);
       }
-      // R24 item 2 (Q6 (a)): the leaves derive from the PRODUCT result only — the allocations[].fill of the
-      // result the signer validated. The cross-chain winners[] branch is removed, so R22's full
+      // (Q6 (a)): the leaves derive from the PRODUCT result only — the allocations[].fill of the
+      // result the signer validated. The cross-chain winners[] branch is removed, so full
       // checkPublicAuction run on --dir covers the attested result exactly.
       const derived: { index: number; lot_count: number }[] = Array.isArray(resultDoc.allocations)
         ? resultDoc.allocations.filter((x: any) => x && Number(x.fill) > 0).map((x: any) => ({ index: Number(x.leaf_index), lot_count: Number(x.fill) }))
@@ -295,12 +295,12 @@ export async function run(argv: string[]): Promise<number> {
       if (!derived.length || derived.some((d) => !Number.isSafeInteger(d.index) || d.index < 0 || !Number.isSafeInteger(d.lot_count) || d.lot_count <= 0) || new Set(derived.map((d) => d.index)).size !== derived.length) {
         throw new Error("--result does not derive a unique positive allocation leaf set (allocations[].fill)");
       }
-      // R22: attest runs the same public checks as `benzo verify` on --dir and refuses on any ERROR, and
+      // Attest runs the same public checks as `benzo verify` on --dir and refuses on any ERROR, and
       // --result must be the directory's own published result.json bytes — so what is attested is exactly
       // the published, witness-certified result, never a parallel one.
       const pub = loadCompletePublicAuction(need(a, "dir"));
       if (!resultBytes.equals(pub.resultBytes)) {
-        throw new Error(`--result does not equal --dir/result.json bytes (R22): --result hashes to ${resultHashHex}, the published result.json to ${hash(pub.resultBytes)}`);
+        throw new Error(`--result does not equal --dir/result.json bytes: --result hashes to ${resultHashHex}, the published result.json to ${hash(pub.resultBytes)}`);
       }
       if (!pub.beacon) throw new Error("attest needs the published beacon in --dir");
       const local = publishedClient(pub.beacon);
@@ -346,8 +346,8 @@ export async function run(argv: string[]): Promise<number> {
       }
       const resultHash = hexToBytes(resultHashHex);
       const batchIndex = num(a, "batch"), nonce = num(a, "nonce"), expiry = num(a, "expiry");
-      // §10 F-2: signers must attest expiry <= deadline (both chains refuse otherwise); the
-      // deadline comes from the locked auction on chain. R9 item 2: so does the asset — the
+      // Signers must attest expiry <= deadline (both chains refuse otherwise); the
+      // deadline comes from the locked auction on chain. so does the asset — the
       // leaves bind exactly what the escrow locked, and --asset must be present and match it
       // (no silent default).
       let chainAsset: string, escrowDeadline: number, chainLot: string;
@@ -373,16 +373,16 @@ export async function run(argv: string[]): Promise<number> {
       if (given !== chainAsset) {
         throw new Error(`--asset ${given} does not match the escrow's asset ${chainAsset} on chain`);
       }
-      // R21: every winner's opening is derived HERE — the frozen leaf's own ciphertext (SHA-256 of it is
+      // Every winner's opening is derived HERE — the frozen leaf's own ciphertext (SHA-256 of it is
       // the root-committed ciphertext_hash) decrypted with the published, BLS-verified beacon through
       // `cli/published-beacon` decryptPublished (the same derivation `benzo verify` uses). The published
       // record for that hash must then pass the shared owner-signature + settlement-commitment rule
       // (settle/envelopes validEnvelope) against that opening. Only then is the winner's `deliver` opened
-      // (R19: at least 2 --envelope-key signers agree on SHA-256(deliver), else the exception queue).
+      // At least 2 --envelope-key signers agree on SHA-256(deliver), else the exception queue).
       if (pub.manifest.auction_id !== bytesToHex(auctionId).slice(2)) {
         throw new Error(`--dir auction ${pub.manifest.auction_id} does not match --auction ${bytesToHex(auctionId).slice(2)}`);
       }
-      // R25 item 2: --envelope-key values are deduplicated by public key and must be distinct members
+      // --envelope-key values are deduplicated by public key and must be distinct members
       // of the signed manifest's envelope_keys — one key passed twice counts once, never as a second
       // signer (a duplicated key must not manufacture a 2-of-3 agreement).
       const envKeyFiles: string[] = Array.isArray(a["envelope-key"]) ? a["envelope-key"] as string[] : [need(a, "envelope-key")];
@@ -420,14 +420,14 @@ export async function run(argv: string[]): Promise<number> {
         try { ptHex = await openSealedBid(fl.ciphertext_hex, local); } catch (e) { ex(`bid did not open: ${(e as Error).message}`); continue; }
         if (!ptHex) { ex("bid did not open"); continue; }
         const opened = Buffer.from(ptHex, "hex");
-        // gate EN: the opened order parses under the MANIFEST MODE's own plaintext layout (uniform/buyback
+        // The opened order parses under the MANIFEST MODE's own plaintext layout (uniform/buyback
         // LAYOUT_V0, OTC version 3, …) with the auction (or lot) binding — never a hardcoded shape
         const layout = modeEntry(pub.manifestPacket as any).layout;
         const order = readOrder(layout, ptHex, (pub.manifest as any).lots ?? [pub.manifest.auction_id]);
         if (opened.length !== layout.bytes || order.reason !== "") { ex("opened bid layout"); continue; }
         const rec = pub.envelopes.find((e) => e.ciphertext_hash === fl.ciphertext_hash) as any;
         if (!rec || typeof rec.envelope_ct !== "string" || typeof rec.owner_sig !== "string") { ex("no envelope record"); continue; }
-        // R21 check 3: the record's owner_sig and settlement commitment against THIS opening (shared rule)
+        // check 3: the record's owner_sig and settlement commitment against THIS opening (shared rule)
         const auth = validEnvelope({ manifest: pub.manifestPacket, frozen: { leaves: [fl] }, opened: [{ leaf_index: 0, plaintext_hex: ptHex }], envelopes: [rec] } as any, 0);
         if (!auth) { ex("no valid owner-signed settlement envelope"); continue; }
         const openings: { sha: string; deliver: Deliver }[] = [];
@@ -447,7 +447,7 @@ export async function run(argv: string[]): Promise<number> {
         // key) the leaf is attested from that opening alone: the 2-of-3 rule is then enforced when
         // `xchain release --attestation` accepts only host records over the identical attestation bytes
         // from 2 distinct pinned signers — two hosts that opened a different deliver cannot agree on
-        // the allocation root. Without the flag one key can never attest a leaf (R25 item 2).
+        // the allocation root. Without the flag one key can never attest a leaf.
         const agreed = openings.find((o) => openings.filter((x) => x.sha === o.sha).length >= 2)
           ?? (hostRecord && openings.length === 1 ? openings[0] : null);
         if (agreed === null) {
@@ -457,7 +457,7 @@ export async function run(argv: string[]): Promise<number> {
           continue;
         }
         const dd = agreed.deliver;
-        // R25 item 3 (Reviewer R F4): a leaf is attested only if THIS chain's escrow can pay its
+        // A leaf is attested only if THIS chain's escrow can pay its
         // deliver.kind — EVM takes address and stealth, Solana takes address. A chain mismatch or any
         // other kind (ct, railgun) goes to this chain's exception queue, never into the tree.
         if (dd.chain !== chain2) { ex(`deliver chain ${dd.chain} does not match chain ${chain2}`); continue; }
@@ -479,13 +479,13 @@ export async function run(argv: string[]): Promise<number> {
       if (!leaves.length) {
         throw new Error(`attest derives no attested leaves (${exceptions.length} winner(s) in the exception queue)`);
       }
-      // design §3: every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)
+      // Every leaf binds the auction's asset (left-padded to 32 bytes; native = zeros)
       const asset = chainAsset;
       const asset32 = assetBytes32(asset);
       const leafHashes = leaves.map((l) =>
         leafHash(auctionId, { index: l.index, lot_count: l.lot_count, destination_kind: l.destination_kind, destination: destinationBytes(l.destination_kind, l.destination, b58ToBytes) }, asset32));
       const tree = buildTree(leafHashes);
-      // R25 item 3 (sparse per-chain trees): leaves keep their winner (frozen leaf) index, so the root
+      // (sparse per-chain trees): leaves keep their winner (frozen leaf) index, so the root
       // commits the leaf INDEX BOUND — the highest attested index + 1 — for the escrows' strict
       // `index < leaf_count` check (crosschain §3, the Hyperbridge out-of-bounds lesson). The same
       // winner keeps the same leaf hash across batches, so the per-leaf paid flag blocks double payment.
@@ -496,7 +496,7 @@ export async function run(argv: string[]): Promise<number> {
       const signers: string[] = [], signatures: string[] = [];
       // The exact bytes every signer signs (the EIP-712 digest on evm, the 200-byte message on solana).
       // They are part of the signature record: `xchain release --attestation` releases only from host
-      // records that carry identical attestation bytes (part 2 §2, R28).
+      // records that carry identical attestation bytes (part 2 §2).
       let attBytes: Uint8Array;
       if (chain2 === "evm") {
         const td = evmTypedData(fields, (await evmProvider(rpc).getNetwork()).chainId, escrow);
@@ -540,7 +540,7 @@ export async function run(argv: string[]): Promise<number> {
 
     if (verb === "release") {
       const rpc = need(a, "rpc"), keyFile = need(a, "key");
-      // R28/part 2 §2: the coordinator signs nothing — --key is the crank/payer key only. A signer
+      // The coordinator signs nothing — --key is the crank/payer key only. A signer
       // key on this command line would mean the coordinator holds one; refused outright.
       if (typeof a["signer-key"] === "string" || Array.isArray(a["signer-key"])) {
         throw new Error("the coordinator never holds a signer key: --signer-key is refused on release (host records come in via --attestation)");
@@ -550,7 +550,7 @@ export async function run(argv: string[]): Promise<number> {
         ? await collectAttestations(attFiles, chain as "evm" | "solana", rpc)
         : JSON.parse(readFileSync(need(a, "bundle"), "utf8"));
       const only = typeof a.only === "string" ? new Set((() => { if (!/^\d+(,\d+)*$/.test(a.only)) throw new Error("--only must be a comma-separated list of payout indexes"); return a.only.split(",").map(Number); })()) : null;
-      // R25 item 6: --announcer must be THE canonical ERC-5564 Announcer (the same address on every
+      // --announcer must be THE canonical ERC-5564 Announcer (the same address on every
       // chain) — an announcement on any other contract is invisible to every ERC-5564 wallet, and a
       // malicious one could fake or hide deliveries. Refused before anything is signed or sent.
       if (typeof a.announcer === "string") {
@@ -567,7 +567,7 @@ export async function run(argv: string[]): Promise<number> {
       };
       const chosen = bundle.payouts.filter((p) => !only || only.has(p.index));
       if (!chosen.length) throw new Error("--only selected no payouts");
-      // R9 item 3 (Solana's model, design §9) on both chains: attest once (submitAttestation
+      // R9 item 3 (Solana's model) on both chains: attest once (submitAttestation
       // stores the approved root per (auction, batch)), then release many (releaseApproved is
       // signature-free, repeatable and never consumes the approval — a partial or failed release
       // leaves the remainder payable). --submit-only runs just the submit step unconditionally,
@@ -596,7 +596,7 @@ export async function run(argv: string[]): Promise<number> {
       }
       const submitted = chain === "evm"
         ? !(await evmApproved(rpc, bundle.escrow, bytesToHex(auctionId), bundle.batch_index))
-        // §10 F-3: the Approval exists only if program-owned with the APPROVAL_V1 marker — a
+        // The Approval exists only if program-owned with the APPROVAL_V1 marker — a
         // dusted PDA must not block the submit step
         : !(await approvalExists(solConnection(rpc), new PublicKey(bundle.escrow), approvalPda(new PublicKey(bundle.escrow), auctionId, bundle.batch_index)));
       const setupTxs: string[] = [];
@@ -611,7 +611,7 @@ export async function run(argv: string[]): Promise<number> {
             leafCount: p.leaf_count, proof: p.proof,
           } as EvmPayout)),
         });
-        // design §4 lesson 6: the release flow delivers each fresh stealth destination too — the tiny
+        // The release flow delivers each fresh stealth destination too — the tiny
         // native gas stipend (--stipend WAD) so the winner never funds the one-time address from a
         // known wallet, and the ERC-5564 announcement (--announcer ADDR) whose bytes were fixed at
         // attest time, so the winner finds the payment with its viewing key alone.
@@ -690,7 +690,7 @@ export async function run(argv: string[]): Promise<number> {
       const auctionId = hexToBytes(need(a, "auction"));
       const bundle: Bundle | null = typeof a.bundle === "string"
         ? JSON.parse(readFileSync(a.bundle, "utf8")) : null;
-      // R14 item 4 (reviewer R F3): --result FILE is the published result.json. Its hash — the
+      // --result FILE is the published result.json. Its hash — the
       // product's published result hash (manifest/schema `hash`, sha256 over the raw file bytes,
       // the same value `benzo verify` and the API report as result_hash) — is printed beside the
       // resultHash the escrow approved and compared with it, so "publish one result while

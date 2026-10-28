@@ -1,7 +1,7 @@
-// benzo receipt show|prove|statement — public receipts. Flags, not positional arguments (R20).
-//   show (R20): inclusion receipt + settlement receipt if any (T2 receipt shape).
-//   prove (R3 item 6): self-contained inclusion proof against the frozen root; --check rechecks one offline.
-//   statement (R3 item 7): owner-key-signed settlement statement (auction, leaf, fill, price, payout/refund
+// benzo receipt show|prove|statement — public receipts. Flags, not positional arguments.
+//   show: inclusion receipt + settlement receipt if any (T2 receipt shape).
+//   prove: self-contained inclusion proof against the frozen root; --check rechecks one offline.
+//   statement: owner-key-signed settlement statement (auction, leaf, fill, price, payout/refund
 //   txid); --check verifies it against result.json and the opened owner key.
 import { missingBidProof, checkMissingBidProof, type MissingBidProof } from "../../api/missing-deposits";
 import { execFileSync } from "node:child_process";

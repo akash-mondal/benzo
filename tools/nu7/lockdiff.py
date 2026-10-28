@@ -1,4 +1,4 @@
-# Ruling R28 item 11: list every Cargo.lock package entry that changed, except the NU7-patched ones.
+# List every Cargo.lock package entry that changed, except the NU7-patched ones.
 import sys,re
 def pk(f):
     out={}

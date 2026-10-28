@@ -1,5 +1,5 @@
 # Benzo cross-chain escrow (Solana). Dependencies pinned exactly; audit status per dependency
-# lives in ../AUDITS.md. Changing a pin needs a Ruling.
+# lives in../AUDITS.md.
 [package]
 name = "benzo-escrow"
 version = "0.1.0"

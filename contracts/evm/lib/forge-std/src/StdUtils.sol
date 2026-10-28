@@ -65,7 +65,7 @@ abstract contract StdUtils {
 
         // Shifting all int256 values to uint256 to use _bound function. The range of two types are:
         // int256 : -(2**255) ~ (2**255 - 1)
-        // uint256:     0     ~ (2**256 - 1)
+        // uint256: 0 ~ (2**256 - 1)
         // So, add 2**255, INT256_MIN_ABS to the integer values.
         //
         // If the given integer value is -2**255, we cannot use `-uint256(-x)` because of the overflow.

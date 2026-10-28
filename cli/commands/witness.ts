@@ -1,4 +1,4 @@
-// benzo witness sign|verify — gate X witness certificates: a witness key co-signs the frozen statement, and the
+// benzo witness sign|verify — witness certificates: a witness key co-signs the frozen statement, and the
 // public dir's certificates are checked q_w-of-n_w against the signed manifest's witness set.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -14,7 +14,7 @@ import { chainTip } from "../host-chain";
 
 export const noun = "witness";
 export const verb = "";
-// Ruling R42 (F11): the `witness strays` mode and its set-equality are deleted with the closed strays
+// The `witness strays` mode and its set-equality are deleted with the closed strays
 // statement — the witness set certifies the frozen root only, and strays are attested per row at payment
 // (the approval maps of the batch that pays them).
 export const help = "benzo witness set --id AUCTION_ID --q N --keys HEX,HEX,HEX [--key private.pem] (operator: the signed witness-set record the manifest pins) | benzo witness keygen --name SIGNER [--show] (a signer host generates its own witness key; prints its public_hex; --show prints the EXISTING public half and refuses when there is none — a key is per signer and is never replaced) | benzo witness sign --dir <public-auction-dir> --signer <ed25519-spki-der-hex> --key <file under BNZ_STATE_DIR> | benzo witness verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> — co-sign the frozen-root certificate after recomputing the root from this witness's own vault scan, or check the certificates";
@@ -36,7 +36,7 @@ const canonical = (v: any): string => Array.isArray(v) ? `[${v.map(canonical).jo
 export async function run(argv: string[]): Promise<number> {
   const mode = argv[0];
   if (mode === "keygen") {
-    // §11 H5: a signer host generates its own witness key here; only the public half is printed (it goes into the
+    // A signer host generates its own witness key here; only the public half is printed (it goes into the
     // signed witness set). The private half never leaves this machine's state dir.
     try {
       const show = argv.slice(1).includes("--show");
@@ -44,7 +44,7 @@ export async function run(argv: string[]): Promise<number> {
       requireThat(/^[a-z]{1,16}$/.test(o.name ?? ""), "--name");
       const st = path.resolve(repoRoot(), process.env.BNZ_STATE_DIR ?? ".benzo"), f = path.join(st, "witness", `${o.name}.key`);
       if (show) {
-        // B42 (G1): print the existing key's public half again; never generate or replace one.
+        // (G1): print the existing key's public half again; never generate or replace one.
         requireThat(existsSync(f), "witness key missing (generate it once with witness keygen)");
         const privateHex = readFileSync(f, "utf8").trim();
         requireThat(/^[0-9a-f]{64}$/.test(privateHex), "stored witness key");
@@ -70,7 +70,7 @@ export async function run(argv: string[]): Promise<number> {
     requireThat(o.dir && /^[0-9a-f]{88}$/.test(o.signer) && (mode === "verify" || o.key), "usage");
     const pub = loadPublicAuction(o.dir, { signer: o.signer });
     requireThat(pub.witnessSet, "missing witness set");
-    // R4 item 2: a manifest that carries witness_set_hash binds this side-packet; refuse a mismatched one.
+    // A manifest that carries witness_set_hash binds this side-packet; refuse a mismatched one.
     if (pub.manifest.witness_set_hash) requireThat(witnessSetHash(pub.witnessSet!) === pub.manifest.witness_set_hash, "witness set hash mismatch");
     else process.stderr.write("WARN no witness set (pre-Phase-5 manifest)\n");
     const spec = validateWitnessSet(verifyRecord<WitnessSet>(pub.witnessSet!, o.signer), pub.manifest.auction_id);
@@ -81,7 +81,7 @@ export async function run(argv: string[]): Promise<number> {
       requireThat(existsSync(resolved) && resolved.startsWith(state + path.sep), "witness key must live under BNZ_STATE_DIR");
       return resolved;
     };
-    // R8 G10 (design §5): on a canonical product dir the certificate is also recorded in the public
+    // R8 G10: on a canonical product dir the certificate is also recorded in the public
     // document, where the signer path and the rebuilt publishes expect it.
     const docFile = path.join(o.dir, "auction.json");
     const record = (field: string, cert: unknown): void => {
@@ -94,7 +94,7 @@ export async function run(argv: string[]): Promise<number> {
     const statement = freezeStatement(pub.manifest, pub.frozen!);
     if (mode === "sign") {
       const resolved = witnessKey(o.key);
-      // B58 (judge finding): a FIRST certificate is refused once round R is out, by this witness's own clock. After R
+      // (judge finding): a FIRST certificate is refused once round R is out, by this witness's own clock. After R
       // anyone can read the prices, so an operator that froze late could pick which bids count; an honest witness
       // will not certify that. Re-signing the root this witness already pinned (an idempotent re-run) stays allowed.
       // An auction left uncertified at R is cancelled and refunds every deposit in full (settle/plan.ts).
@@ -102,7 +102,7 @@ export async function run(argv: string[]): Promise<number> {
       const already = existsSync(pinFile) && readFileSync(pinFile, "utf8").trim() === pub.frozen!.root;
       const release = pub.manifest.drand.genesis + (pub.manifest.drand.R - 1) * pub.manifest.drand.period;
       requireThat(already || Date.now() / 1000 < release, `witness signing closed: round ${pub.manifest.drand.R} was released at ${new Date(release * 1000).toISOString()}; a first certificate after the release could follow the prices`);
-      // Ruling R28 item 1: on a signer host (it holds this auction's DKG share) certifying also pins the manifest — the
+      // On a signer host (it holds this auction's DKG share) certifying also pins the manifest — the
       // signer key, group key and vault addresses are checked and its hash recorded before any later approval.
       if (existsSync(path.join(state, "auctions", pub.manifest.auction_id, "group-key.txt"))) custodyBinding(pub.manifest.auction_id, state, root, pub, o.signer);
       // Design §5: the root is recomputed from THIS witness's own scan of the auction vault before anything is
@@ -110,7 +110,7 @@ export async function run(argv: string[]): Promise<number> {
       const own = recomputeFrozen(pub.manifest as any, pub.manifest_hash, pub.frozen!, await ownScan(state, root, pub.manifest.auction_id, (pub.manifest as any).network), { confirmedAt: chainTip(state) });
       requireThat(own.root === pub.frozen!.root && own.leaf_count === pub.frozen!.leaf_count, `root mismatch: own scan ${own.root} (${own.leaf_count} leaves) vs frozen ${pub.frozen!.root} (${pub.frozen!.leaf_count})`);
       const cert: WitnessCert = { statement, signatures: [signStatement(statement, readFileSync(resolved, "utf8").trim())] };
-      // Ruling R28 item 2: the root this witness certified is pinned for its own later settlement approvals.
+      // The root this witness certified is pinned for its own later settlement approvals.
       const pinDir = path.join(state, "auctions", pub.manifest.auction_id);
       if (existsSync(pinDir)) { const f = path.join(pinDir, "frozen-root.txt"); if (!existsSync(f)) writeFileSync(f, pub.frozen!.root + "\n", { mode: 0o600 }); else requireThat(readFileSync(f, "utf8").trim() === pub.frozen!.root, "this witness already pinned a different root for the auction"); }
       record("witness_cert", cert);

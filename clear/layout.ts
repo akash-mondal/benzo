@@ -1,6 +1,6 @@
-// Versioned order-plaintext layouts (gate EN). Each clearing mode names the layout its sealed orders use, and the
+// Versioned order-plaintext layouts. Each clearing mode names the layout its sealed orders use, and the
 // mode parsers take their offsets from the declared layout, so a new mode can declare a new layout version without
-// touching another mode's parse. LAYOUT_V0 is the 128-byte bid/ask layout (docs/PHASE-1.md section 6).
+// touching another mode's parse. LAYOUT_V0 is the 128-byte bid/ask layout.
 
 export type OrderLayout = {
   version: number; // first plaintext byte
@@ -9,7 +9,7 @@ export type OrderLayout = {
   quantity_at: number; // u32be
   auction_at: number; // binding id bytes: the auction_id (single-lot) or the order's lot id (multi-lot)
   auction_len: number;
-  owner_at: number; // one-time Ed25519 owner pubkey (gate CF revision: orders by the same key supersede)
+  owner_at: number; // one-time Ed25519 owner pubkey (orders by the same key supersede)
   pad_at: number; // zero padding from here to the end
 };
 export const LAYOUT_V0: OrderLayout = { version: 0, bytes: 128, price_at: 33, quantity_at: 41, auction_at: 1, auction_len: 32, owner_at: 61, pad_at: 125 };

@@ -1,8 +1,8 @@
-// Settlement-envelope destinations (gate W, R3 item 7): an envelope may carry only a shielded destination.
+// Settlement-envelope destinations: an envelope may carry only a shielded destination.
 // Transparent addresses (t-addrs), TEX addresses and unified addresses without a shielded receiver are refused
 // at seal and again at open, so no refund/delivery can be directed into the transparent pool (threat #7, #32).
 //
-// R24 item 3 (i): the classification itself is librustzcash's audited `zcash_address` 0.13.0 (pinned in
+// The classification itself is librustzcash's audited `zcash_address` 0.13.0 (pinned in
 // `settle/Cargo.toml`, the zcash-devtool lock) — exposed as `benzo-pczt classify-address <address>`,
 // which returns `{kind, network, receivers[]}` and is called from here. This module keeps only the
 // product's shielded-only rule and its verdict strings; the hand-written bech32/F4Jumble/Base58Check
@@ -29,7 +29,7 @@ function pcztBin(): string {
   return path.join(root, "settle", "target", "release", "benzo-pczt");
 }
 
-// B45 (H16, docs/design/phase7-b45-classify.md): one classifier entry point with an in-process memo
+// One classifier entry point with an in-process memo
 // keyed by the EXACT address string. classifyAddresses(list) answers every entry from the memo, and
 // sends only the misses to the tool — one bulk `classify-address --stdin` call per chunk of up to 2,000
 // addresses. classifyAddress(one) is a thin wrapper over it, so every caller (classifyDestination,
@@ -37,7 +37,7 @@ function pcztBin(): string {
 //
 // Under the memo a signer host can install its own disk cache (cli/host-derive.ts, classify-cache.json):
 // both are pure memos — a verdict is only ever the classifier's own output for that exact address string,
-// so serving one from a memo or cache can never change an answer (proven in tools/repro/b45-classify.ts).
+// so serving one from a memo or cache can never change an answer.
 const memo = new Map<string, Classified>();
 export type ClassifyCache = {
   get(address: string): Classified | undefined;
@@ -110,7 +110,7 @@ export function classifyDestination(destination: string): Destination {
   };
 }
 
-// G-7 (mainnet readiness): a network-aware UA check through the same audited classifier — the address must be
+// (mainnet readiness): a network-aware UA check through the same audited classifier — the address must be
 // a unified address on the MANIFEST's network. Used at the Node boundaries (sign build's seller routing,
 // auction keys' derived escrow UA); the pure manifest checks keep a network-aware shape matcher (schema.uaShape)
 // so the offline verifier never needs the binary.
@@ -121,7 +121,7 @@ export function isUnifiedOn(destination: string, network: string): boolean {
   } catch { return false; }
 }
 
-// H10 (docs/design/phase7-h10-h11.md) + H4: the seller payout check at manifest creation — a unified address on
+// The seller payout check at manifest creation — a unified address on
 // the manifest's OWN network with a shielded Orchard/Ironwood receiver (typecode 0x03). isUnifiedOn alone admits a
 // Sapling-only UA, which settlement outputs cannot pay, so the receiver check (the same rule requireShieldedDestination
 // applies to settlement outputs) is added here, in one place with the classifier.
@@ -131,7 +131,7 @@ export function isUnifiedOrchardOn(destination: string, network: string): boolea
 
 // The envelope validator: only a destination settlement can actually pay is admissible, and only on this auction's
 // network — a wrong-network destination would burn the refund (threat #7). The network comes from the signed manifest
-// at every call site (G-7/R33 P2-1: never an env default or a literal). R81 (Reviewer R R-2 on R80): settlement builds
+// at every call site (never an env default or a literal). settlement builds
 // Orchard/Ironwood outputs only (`benzo-pczt create`/`inspect` refuse Sapling), so a Sapling address or a UA without an
 // Orchard receiver is refused here — at seal time for the bidder, and at open time on the host, where a refused
 // destination becomes an exception row (claimable), never a batch that can never be built.

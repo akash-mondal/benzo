@@ -25,10 +25,10 @@ export function syncRetry(f:()=>string):string {
 }
 export const wallet=(...args:string[])=>["sync","enhance"].includes(args[0])?syncRetry(()=>run(bin("zcash-devtool"),["wallet","-w",vaultDir(STATE),...args])):run(bin("zcash-devtool"),["wallet","-w",vaultDir(STATE),...args]);
 export const pczt=(...args:string[])=>run(bin("zcash-devtool"),["pczt","-w",vaultDir(STATE),...args]);
-// §11 H7: under host custody the coordinator only ever holds the redacted candidate (allowRedacted).
+// Under host custody the coordinator only ever holds the redacted candidate (allowRedacted).
 export const inspect=(file:string,net:string,allowRedacted=false)=>JSON.parse(run(pcztBin(ROOT,STATE),["inspect",file,ufvkFile(STATE),...(allowRedacted?["--allow-redacted"]:[]),"--network",net]));
 export const monetary=(id:string)=>JSON.parse(run(process.execPath,[path.join(ROOT,"settle/dist/plan.mjs"),id]));
-// R33 P2-1 (G-7): the scanner runs on the signed manifest's network — never a hardcoded one.
+// The scanner runs on the signed manifest's network — never a hardcoded one.
 export const notes=(net:string)=>run(scanBin(ROOT,STATE),["scan",net,vaultDir(STATE)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
 export function prove(file:string,output:string):Promise<void> {
   return new Promise((resolve,reject)=> {
@@ -55,17 +55,17 @@ const TRANSIENT_GRPC = /Code: (Internal|Unavailable|DeadlineExceeded|Unknown)|ba
 // warned on stderr and recorded in the settlement summary (lwd_endpoints). Mainnet always needs both.
 export function lwdEndpoints(network: string): string[] {
   if (process.env.BNZ_LWD_SINGLE === "1") {
-    // R28 item 10 (F7/G-7): keyed on the SIGNED manifest's network, never an env default.
+    // Keyed on the SIGNED manifest's network, never an env default.
     if (network !== "test") throw new Error("BNZ_LWD_SINGLE is testnet-only; mainnet settlement needs two endpoints");
     process.stderr.write(`WARN single lightwalletd endpoint ${env("BNZ_LWD_URL")} (BNZ_LWD_SINGLE=1, testnet): no second-endpoint agreement\n`);
     return [env("BNZ_LWD_URL")];
   }
   const pair = [env("BNZ_LWD_URL"), env("BNZ_LWD_URL_ALT")];
-  // R64: one endpoint configured twice is not a second-endpoint agreement.
+  // One endpoint configured twice is not a second-endpoint agreement.
   if (endpointKey(pair[0]) === endpointKey(pair[1])) throw new Error("BNZ_LWD_URL_ALT must be a different endpoint from BNZ_LWD_URL");
   return pair;
 }
-// Phase 6 scale, measure first (docs/design/phase6-scale.md §2): settlement phase timings, one JSON line each in
+// Settlement phase timings, one JSON line each in
 // state/run/settle-timing.jsonl ({at, auction, batch, phase, ms, ...}). Never contains a destination or a key.
 export function timing(rec: Record<string, unknown>): void {
   try { appendFileSync(path.join(STATE, "run", "settle-timing.jsonl"), JSON.stringify({ at: new Date().toISOString(), ...rec }) + "\n"); } catch { /* timing is best-effort */ }

@@ -134,9 +134,9 @@ export async function evmApproved(rpc: string, escrow: string, auctionId: string
   return await c.isApproved(auctionId, batchIndex);
 }
 
-/** R14 item 4 (reviewer R F3): the stored approval in full, via the `approval()` view — the
- *  settled root, the attested result hash and the release window, for the result-vs-settlement
- *  comparison. */
+/** item 4: the stored approval in full, via the `approval` view — the
+ * settled root, the attested result hash and the release window, for the result-vs-settlement
+ * comparison.*/
 export interface EvmApproval {
   allocationRoot: string; resultHash: string; expiry: number; exists: boolean;
 }

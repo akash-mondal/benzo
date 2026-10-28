@@ -1,5 +1,5 @@
 // benzo hosts … — the operator's host-custody commands (the OrbStack testnet deployment, one operator provisions the
-// three signer hosts). Every verb runs the same code the live harness runs (cli/hosts.ts, once e2e/lib/hosts.ts) over
+// three signer hosts). Every verb runs the same code the live harness runs (cli/hosts.ts) over
 // the same bounded orb/orbctl calls. Each command prints one JSON object and never prints key material.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -27,7 +27,7 @@ export async function run(argv: string[]): Promise<number | object> {
     if (mode === "dkg") {
       // One fresh DKG per auction: an existing vault means this auction already has its keys, and a second DKG
       // would mint a different group key. The run takes the harness's DKG lock, so it never collides with a
-      // live `tools/repro/markets.ts` run against the same hosts and frostd.
+      // live run against the same hosts and frostd.
       requireThat(!existsSync(path.join(h.STATE, "vaults", id)), `state/vaults/${id} already exists; refusing to run another DKG for this auction`);
       const k = await h.withDkgLock(() => h.dkgOnHosts(id, h.localBenzo));
       return { group_key: k.group_key, escrow_ua: k.escrow_ua, keys: k.keys };

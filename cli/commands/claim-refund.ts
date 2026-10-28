@@ -1,4 +1,4 @@
-// benzo claim-refund — R7 item 4 (Reviewer R F-5 = Reviewer G G5): the bid's one-time owner key signs a
+// benzo claim-refund — R7 item 4: the bid's one-time owner key signs a
 // request naming a shielded destination, and the signers check it against the owner key inside their own
 // fresh opening before the exception-queue refund is paid. Bidder side builds and signs the request;
 // operator side records it (first claim per party wins) and settles what it promotes.

@@ -1,5 +1,5 @@
-// PHASE-5 §11 gate CF core features, shared by every clearing mode through the registry (no per-mode copies):
-// bid revision, multi-lot rounds, the sealed reserve/max price (R3 item 4), bond-then-pay balances and
+// Core features, shared by every clearing mode through the registry (no per-mode copies):
+// bid revision, multi-lot rounds, the sealed reserve/max price, bond-then-pay balances and
 // recurring-round linkage. Pure logic only — no clock, no network. The mode calculates consume readOrders and the
 // bound helpers and keep only their own ranking and money rules.
 import { requireThat, zats } from "../manifest/schema";
@@ -20,7 +20,7 @@ export function readOrders(input: ClearInput, m: { auction_id: string; lots?: st
   const allowed = lots ?? [m.auction_id];
   requireThat(input.opened.length === input.frozen.leaf_count &&
     new Set(input.opened.map(o => o.leaf_index)).size === input.opened.length, "one opening per frozen leaf");
-  // Ruling R40 item 1 (F1): in a bond-then-pay auction only the first deposit note at each deposit slot is an
+  // In a bond-then-pay auction only the first deposit note at each deposit slot is an
   // order — a slot collision is not an order at all (it refunds through the stray path), so the clearing input
   // carries exactly one bid per slot and no rule ever attributes one address's payment among several bidders.
   const orders: OrderView[] = slotOrders(m, input.frozen.leaves).orders.map(l => {
@@ -47,9 +47,9 @@ export function readOrders(input: ClearInput, m: { auction_id: string; lots?: st
   return orders;
 }
 
-// The sealed price bound (gate CF, R3 item 4): a tlock ciphertext in the signed manifest whose 40-byte plaintext
+// The sealed price bound: a tlock ciphertext in the signed manifest whose 40-byte plaintext
 // is u64be price_zats || auction_id, opened at R with the bids and re-derived by benzo verify. When present it
-// tightens the mode's price bound and never loosens it: max() with the public reserve floor, min() with the
+// tightens the mode's price bound and never loosens it: max with the public reserve floor, min with the
 // buyback max price.
 export function readReserve(plaintextHex: string, auctionId: string, tick: bigint): bigint {
   requireThat(/^[0-9a-f]{80}$/.test(plaintextHex), "reserve opening length");
@@ -76,14 +76,14 @@ export function effectiveMaxPrice(m: { buyback: { max_price_zats: string } }, se
   return sealed !== null && sealed < p ? sealed : p;
 }
 
-// Bond-then-pay (gate CF): C is the bond of bond_bps bps of the cap; a winner's balance = payment + fee - C is
+// Bond-then-pay: C is the bond of bond_bps bps of the cap; a winner's balance = payment + fee - C is
 // paid in the balance window. refundAfter/balanceDue generalize the Mode A identity to
 // payment + refund + fee = C + balance_due and never go negative (without bond C covers the largest order).
 export const balanceDue = (payment: bigint, fee: bigint, C: bigint): bigint => (payment + fee > C ? payment + fee - C : 0n);
 export const refundAfter = (payment: bigint, fee: bigint, C: bigint): bigint => (C > fee + payment ? C - fee - payment : 0n);
 
 // Part 2, collection drop (bond-then-pay with defaults): the balance window and the balance addresses are fixed
-// in the SIGNED manifest before bidding (R33 items 1-2, Reviewer R P1-1/P1-2) — the operator chooses neither after
+// in the SIGNED manifest before bidding — the operator chooses neither after
 // the clear. deposit slot i pays its balance to bond.balance_addresses[i]; a winner's slot is its frozen deposit's
 // own address. A winner's balance counts only notes at its balance address with
 // balance_window_start_height < height <= balance_window_start_height + balance_window_blocks (P1-1's lower bound:
@@ -94,7 +94,7 @@ export type BalanceWindowM = { deposit_addresses: string[]; confirmations?: numb
 export type FrozenLeaf = { leaf_index: number; deposit: { address: string } };
 export type ScannedNote = { txid: string; pool: string; action_index: number; address: string; height: number | null; value_zats: number | string };
 
-// Ruling R40 item 1 (F1): one bid per deposit slot in a bond-then-pay auction. Deposit slots are a shared
+// One bid per deposit slot in a bond-then-pay auction. Deposit slots are a shared
 // public list and a payer is unobservable on shielded Zcash, so no rule can attribute one address's payment
 // among several bidders — the shared-slot cases cannot arise instead. Only the FIRST deposit note at each
 // deposit address (leaf order = chain order) is an order; every later note at that slot is a slot collision
@@ -114,7 +114,7 @@ export function slotOrders<T extends { leaf_index: number; deposit: { address: s
   return { orders, collisions };
 }
 
-// Ruling R61: the bond is void when the window's start block has a header time before R's release time (winners
+// The bond is void when the window's start block has a header time before R's release time (winners
 // must know they won before the window opens). Every party decides it from its own chain view of that one header;
 // published settlements carry the value two agreeing host-signed maps attest.
 export const bondVoidAt = (m: { drand: { genesis: number; period: number; R: number } }, startHeaderTime: number): boolean => {
@@ -143,20 +143,20 @@ export function balanceAddressMap(
     requireThat(slot >= 0 && !map.has(a.leaf_index), "balance address leaf");
     map.set(a.leaf_index, m.bond.balance_addresses[slot]);
   }
-  // Ruling R40 item 1 (F1): one bid per deposit slot, so each balance address belongs to exactly one leaf.
+  // One bid per deposit slot, so each balance address belongs to exactly one leaf.
   // The clearing input can no longer produce anything else; a result that shares one is refused here rather
   // than attributed by any walk (this checks the recomputed result, never chain state).
   requireThat(new Set(map.values()).size === map.size, "balance address shared by two winning leaves (one bid per deposit slot)");
   return map;
 }
-// Ruling R46 (F23): a balance-address note is CLASSIFIED only once matured (the R5 confirmations,
+// A balance-address note is CLASSIFIED only once matured (the R5 confirmations,
 // `confirmations: 10` — the stricter of the manifest's rule and ZIP-315's 10). Unmatured notes are invisible
 // to the derivation (in-window, late and excess alike), so an in-model reorg (fewer than 10 blocks) can never
 // move a note across the window edge after it is counted. This one gate is the classification rule the plan,
 // every signer host and the verify-side replays all consume.
 export const balanceMatured = <T extends { height: number | null }>(m: { confirmations?: number }, notes: T[], tip: number): T[] => {
   const gate = Math.max(m.confirmations ?? 10, 10);
-  // Agent-friendly (Reviewer R R-AF-6): one note is one note. A scan listing the same {txid, pool, action_index} twice
+  // One note is one note. A scan listing the same {txid, pool, action_index} twice
   // must not double-count a payment or back two refund rows; every balance rule passes through this one gate.
   const seen = new Set<string>();
   return notes.filter(n => {
@@ -178,10 +178,10 @@ export function balanceDefaults(
   const byLeaf = balanceAddressMap(result, leaves, m);
   const { start, end } = balanceWindow(m);
   requireThat(tip > end, "balance window has not passed; settlement waits");
-  const seen = balanceMatured(m, notes, tip); // Ruling R46 (F23): classified only once matured
+  const seen = balanceMatured(m, notes, tip); // Classified only once matured
   const inWindow = (address: string): bigint => seen.filter(n => n.address === address && n.height && n.height > start && n.height <= end)
     .reduce((s, n) => s + BigInt(n.value_zats), 0n);
-  // Ruling R40 item 1 (F1): the R38.2 greedy walk is withdrawn. Each balance address belongs to exactly one
+  // The greedy walk is withdrawn. Each balance address belongs to exactly one
   // leaf (balanceAddressMap refuses a shared one — the clear can no longer produce it), so a winner is PAID
   // when its own address's in-window notes cover its balance_due_zats and a DEFAULT otherwise. Deterministic,
   // used by the plan, every signer host and the verify-side replays alike; one payment can never settle two
@@ -195,7 +195,7 @@ export function balanceDefaults(
   return defaults;
 }
 
-// Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2): out-of-window notes at a balance address are NEVER
+// Out-of-window notes at a balance address are NEVER
 // settlement sources (never swept into change) and never count as payment. Each note gets its OWN immutable
 // refund row, keyed by the note — `balance-late:<txid>:<pool>:<action_index>` — at that slot's own leaf's
 // refund destination ("minus the fee, like a stray": settlement requires fee_zats "0", so the row carries the
@@ -204,7 +204,7 @@ export function balanceDefaults(
 // The rows are host-derived — every plan and every signer host computes them from its own scan with this one
 // rule — and claimable through the existing claim path (`benzo claim-refund --party balance-late:…`) with the
 // slot leaf's owner key; only the per-note counts are ever published, never the addresses.
-// Ruling R42 (F15): `notes` names the scanned notes backing the row (`<txid>:<pool>:<action_index>`), so
+// `notes` names the scanned notes backing the row (`<txid>:<pool>:<action_index>`), so
 // the settlement ledger can key refunds by NOTE IDENTITY — one note backs at most one refund row across all
 // row classes and a reorg re-classification can never pay the same note twice. Internal derivation data:
 // never published (published entries are {party, leaf_index, amount_zats, state} only) and never signed.
@@ -219,7 +219,7 @@ export const isBalanceLateParty = (party: string): boolean => {
   const m = BALANCE_LATE.exec(party);
   return !!m && Number(m[3]) <= 65535;
 };
-// Ruling R41 item 4 (F10): in-window value above `balance_due_zats` at a balance address becomes ONE immutable
+// In-window value above `balance_due_zats` at a balance address becomes ONE immutable
 // `balance-excess:<leaf_index>` refund row to that slot's own leaf (final — settlement waits until the window has
 // closed). It refunds exactly like a `balance-late:` row: parked, claimable with that leaf's owner key.
 const BALANCE_EXCESS = /^balance-excess:(0|[1-9][0-9]*)$/;
@@ -232,7 +232,7 @@ export const balanceExcessLeafIndex = (party: string): number | null => {
   const m = BALANCE_EXCESS.exec(party);
   return m ? Number(m[1]) : null;
 };
-// Ruling R41 (F7): the refund rows of bond-then-pay — one immutable row per late note and one per leaf's
+// The refund rows of bond-then-pay — one immutable row per late note and one per leaf's
 // in-window excess. A host attests such a row only in the approval of the batch that PAYS it; unpaid rows are
 // published as `pending` with counts only and no signature ever covers a set that third parties can still grow.
 export const isRefundRowParty = (party: string): boolean => isBalanceLateParty(party) || isBalanceExcessParty(party);
@@ -248,7 +248,7 @@ export function refundRowLeafIndex(
   const n = balanceLateNote(notes, party);
   return n ? balanceLateLeafIndex(m, leaves, n) : null;
 }
-// The note a balance-late party names (the scan's own identity), or undefined. Ruling R44 (F18): an
+// The note a balance-late party names (the scan's own identity), or undefined. an
 // unkeyable note is an ERROR, never a silent disable — a note-shaped party outside the scanner's u16 range
 // can never be keyed by note identity and is refused loudly.
 export function balanceLateNote<T extends { txid: string; pool: string; action_index: number }>(notes: T[], party: string): T | undefined {
@@ -257,7 +257,7 @@ export function balanceLateNote<T extends { txid: string; pool: string; action_i
   requireThat(Number(m[3]) <= 65535, `unkeyable balance-late note identity ${party}; an unkeyable note is an ERROR`);
   return notes.find(n => n.txid === m[1] && String(n.pool) === m[2] && String(n.action_index) === m[3]);
 }
-// Ruling R40 items 2/5: the leaf a balance-late row refunds to — the deposit slot's own leaf (the first note
+// The leaf a balance-late row refunds to — the deposit slot's own leaf (the first note
 // at that slot in leaf order, winner or loser). One shared rule for the plan, every signer host and verify.
 export function balanceLateLeafIndex(
   m: { deposit_addresses: string[]; bond?: unknown },
@@ -275,22 +275,22 @@ export function balanceSettlement(
   leaves: FrozenLeaf[],
   notes: ScannedNote[],
   tip: number,
-  bondVoid = false, // Ruling R61: a void bond settles no balance — every in-window note refunds in full on its excess row
+  bondVoid = false, // A void bond settles no balance — every in-window note refunds in full on its excess row
 ): { sources: string[]; refunds: BalanceRefund[] } {
   requireThat(m.bond !== undefined, "balance notes are bond-then-pay only");
   const byLeaf = balanceAddressMap(result, leaves, m);
   const { start, end } = balanceWindow(m);
-  // Ruling R41 item 3 (F9) + Ruling R46 (F23): a late or excess refund row is derived only from notes with the
+  // A late or excess refund row is derived only from notes with the
   // same confirmations rule as strays and sources (m.confirmations / ZIP-315's 10 — the stricter of the two).
   // Unmatured notes are invisible to the derivation entirely (not rows in `pending`): an in-model reorg can
   // never move a note across the window edge after it is counted, so plan, hosts and verify agree forever.
   const gate = Math.max(m.confirmations ?? 10, 10);
   const matured = (n: ScannedNote): boolean => !!n.height && tip - n.height + 1 >= gate;
-  const seen = balanceMatured(m, notes, tip); // Ruling R46 (F23): classified only once matured
+  const seen = balanceMatured(m, notes, tip); // Classified only once matured
   const sources: string[] = [], refunds: BalanceRefund[] = [];
   for (const n of seen) {
     if (!n.height || BigInt(n.value_zats) === 0n) continue; // zero-value notes are never obligations
-    // Ruling R40 item 5 (F5): a note at a balance address whose slot has a leaf — winner OR loser — refunds
+    // A note at a balance address whose slot has a leaf — winner OR loser — refunds
     // to that leaf through the same per-note row (only a paid winner's in-window notes are payment). A note
     // at the balance address of a slot with NO leaf is never swept and gets no row: nobody can claim it (the
     // README honest limits list it as unrecoverable).
@@ -299,7 +299,7 @@ export function balanceSettlement(
     if (byLeaf.has(leaf) && n.height > start && n.height <= end) { if (!bondVoid) sources.push(`balance:${n.txid}:${n.pool}:${n.action_index}`); }
     else refunds.push({ party: balanceLateParty(n), leaf_index: leaf, amount_zats: String(n.value_zats), matured: matured(n), notes: [`${n.txid}:${n.pool}:${n.action_index}`] });
   }
-  // Ruling R41 item 4 (F10) + Ruling R41.6 (Q9): in-window value at a winner's balance address that does NOT
+  // In-window value at a winner's balance address that does NOT
   // settle becomes ONE immutable `balance-excess:<leaf_index>` refund row to that slot's own leaf — a paid
   // winner settles `balance_due_zats` and refunds the excess above it; a DEFAULTED winner refunds their
   // in-window payment IN FULL (a default forfeits the bond and the lot, never the balance money the bidder
@@ -311,9 +311,9 @@ export function balanceSettlement(
     const due = BigInt(result.allocations.find(a => a.leaf_index === leaf)?.balance_due_zats ?? "0");
     const inNotes = seen.filter(n => n.address === address && n.height && n.height > start && n.height <= end && BigInt(n.value_zats) !== 0n);
     const total = inNotes.reduce((s, n) => s + BigInt(n.value_zats), 0n);
-    const settledZats = !bondVoid && due > 0n && total >= due ? due : 0n; // a default settles nothing (R41.6); nor does a void bond (R61)
+    const settledZats = !bondVoid && due > 0n && total >= due ? due : 0n; // a default settles nothing; nor does a void bond
     const excess = total - settledZats;
-    // Ruling R42 (F15): the excess row's backing is the in-window notes it is carved from — one note backs
+    // The excess row's backing is the in-window notes it is carved from — one note backs
     // at most one refund row across all row classes, enforced by the ledger's note-identity key.
     if (excess > 0n) refunds.push({ party: balanceExcessParty(leaf), leaf_index: leaf, amount_zats: String(excess), matured: inNotes.every(matured), notes: inNotes.map(n => `${n.txid}:${n.pool}:${n.action_index}`) });
   }
@@ -321,7 +321,7 @@ export function balanceSettlement(
 }
 
 export type SeriesLink = { series_id: string; round_index: number; previous_result_hash: string | null };
-// Recurring rounds (gate CF): each manifest links to the previous round's result hash; round 1 starts the chain
+// Recurring rounds: each manifest links to the previous round's result hash; round 1 starts the chain
 // with previous_result_hash null (enforced in manifest validation). checkSeriesLink checks a round against its
 // predecessor (benzo verify --previous).
 export function checkSeriesLink(current: SeriesLink | undefined, previous: { link: SeriesLink | undefined; result_hash: string }): void {

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-// Reviewer R repro (r-02 finding F5), rewritten per crosschain §10 item 5: the real cross-auction
-// POOLED drain, end to end. BenzoEscrow.lock must measure what actually arrived; release() pays
+// Fee-on-transfer drain: the real cross-auction
+// POOLED drain, end to end. BenzoEscrow.lock must measure what actually arrived; release pays
 // lotCount * standardLot in nominal units from the pooled token balance, so a lock that funds the
 // pool with less than its nominal `amount` lets its own signed allocation take the difference from
 // a victim auction.
 // 1. Behaviour protected: crosschain.md §2/§8 — no auction can be underfunded and consume a pooled
-//    peer's funding (F5, docs/AUDITS.md assets allowlist).
-// 2. Credible regression: lock() records nominal `amount` again (the measured-delta check removed
+//    peer's funding (docs/AUDITS.md assets allowlist).
+// 2. Credible regression: lock records nominal `amount` again (the measured-delta check removed
 //    or weakened), so a fee-on-transfer holder's lock is accepted with only 90% delivered.
 // 3. No existing test catches it: the previous version of this file asserted only that the locks
 //    revert — no release, no victim, no drain measurement — so a regression that keeps the revert

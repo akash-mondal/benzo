@@ -6,7 +6,7 @@ import {BenzoEscrow} from "../src/BenzoEscrow.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // Benzo cross-chain escrow tests (docs/design/crosschain.md §7 step 1). These run inside
-// contracts/ only and do not count toward the project E2E ceiling (design §7). The five
+// contracts/ only and do not count toward the project E2E ceiling. The five
 // behaviours under test: lock, release with 2-of-3 EIP-712, replay refusal, refund after
 // deadline, per-recipient paid flags. Expected leaves/roots are recomputed here from the
 // design §3 byte layout, independent of the contract's helpers.
@@ -28,8 +28,8 @@ contract ToggleReceiver {
     }
 }
 
-/// @dev P0 re-entrancy attacker: on receiving a payout it calls back into `release()` with a
-/// second validly signed batch containing its own leaf (the head's double-payment scenario).
+/// @dev P0 re-entrancy attacker: on receiving a payout it calls back into `release` with a
+/// second validly signed batch containing its own leaf (the double-payment scenario).
 /// At most one re-entrant attempt per payment (the `busy` guard keeps the old-code run
 /// deterministic instead of recursing); the outcome is recorded for the test to assert.
 contract ReentrantRecipient {
@@ -389,7 +389,7 @@ contract BenzoEscrowTest is Test {
         escrow.refund(auctionId);
     }
 
-    // 5. §10 item 2 (F-2): expiry must fit inside the refund-free window
+    // 5. expiry must fit inside the refund-free window
     function test_release_expiry_after_deadline_refused() public {
         uint64 until = uint64(block.timestamp + 1 days);
         uint64 dead = uint64(block.timestamp + 2 days);
@@ -516,7 +516,7 @@ contract BenzoEscrowTest is Test {
         assertEq(paid, 0);
     }
 
-    // 6. P0: re-entrant callback must not pay a recipient twice. The attacker's receive()
+    // 6. re-entrant callback must not pay a recipient twice. The attacker's receive
     //    re-enters releaseApproved with a second validly approved batch (different batch index)
     //    carrying the same leaf; the attacker must end up paid exactly once and the re-entrant
     //    release must be refused.

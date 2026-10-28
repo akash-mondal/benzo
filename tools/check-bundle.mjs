@@ -1,4 +1,4 @@
-// check:bundle guard (R26 item 2, head-sanctioned via user instruction 2026-10-03). The shipped
+// check:bundle guard. The shipped
 // public verifier bundle must match this tree: rebuild cli/verify-standalone.ts into tmp through the
 // same tools/build-verify.mjs config `npm run build:verify` uses, and compare the fresh bytes with
 // the committed dist/benzo-verify.mjs AND the digest recorded in docs/verify-bundle.sha256.

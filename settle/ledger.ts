@@ -5,18 +5,18 @@ import path from "node:path";
 import {hash,jsonBytes,requireThat} from "../manifest/schema";
 import {isRefundRowParty} from "../clear/features";
 import {isDepositParty} from "./deposits";
-// Ruling R42 (F15): one note backs at most one REFUND row across all row classes (stray, late, excess,
+// One note backs at most one REFUND row across all row classes (stray, late, excess,
 // collision) — the ledger keys refunds by NOTE IDENTITY (`<txid>:<pool>:<action_index>`), so a reorg
 // re-classification can never pay the same note twice. `Obligation.notes` names a row's backing notes (the
 // excess row's in-window notes); a `balance-late:`/`deposit:` party IS its own note identity.
 export type Obligation={party:string;kind:"payout"|"refund";amount_zats:string;notes?:string[]};
 const NOTE_PARTY=/^(?:deposit|balance-late):([0-9a-f]{64}):(sapling|orchard|ironwood):(0|[1-9][0-9]*)$/;
-// Ruling R44 (F18): a note-shaped party with an out-of-range action_index (or the legacy deposit identity)
+// A note-shaped party with an out-of-range action_index (or the legacy deposit identity)
 // can never be keyed by note identity — it is an ERROR, never a silently unkeyed row (the pre-fix `[]`
 // backing disabled the key and let one note refund twice).
 const LEGACY_NOTE_PARTY=/^deposit:([0-9a-f]{64}):(0|[1-9][0-9]*)$/;
 const isKeyedRefund=(party:string)=>isRefundRowParty(party)||isDepositParty(party);
-// Ruling R46 (F23): "unpaid" = no money has moved for the row AND no signed batch commits it — nothing in a
+// "unpaid" = no money has moved for the row AND no signed batch commits it — nothing in a
 // staged transaction can depend on its amount. Exactly these rows may be dropped or replaced at pin.
 const unpaidRow=(r:{state:string;batch:number|null})=>r.batch===null&&!["paid","refunded"].includes(r.state);
 const backingOf=(o:{party:string;notes?:string[]}):string[]=>{
@@ -49,7 +49,7 @@ export class Ledger {
     requireThat(plan.every(o=>["payout","refund"].includes(o.kind)&&/^[1-9][0-9]*$/.test(o.amount_zats)&&BigInt(o.amount_zats)<=2_100_000_000_000_000n),"settlement obligation amounts");
     const digest=hash(jsonBytes(plan));
     this.atomic(()=> {
-      // Ruling R46 (F23), step 1: FIRST drop every unpaid row the plan no longer produces, releasing its backing
+      // Step 1: FIRST drop every unpaid row the plan no longer produces, releasing its backing
       // notes (no money moved for it and no signed batch holds it, so the note may back its own row again after
       // the reorg resolves); a kept (paid or in-flight) row keeps its notes forever — refunded once. Running this
       // before the per-row pass is what makes the F18 skip safe: an unpaid row that is about to vanish can never
@@ -58,7 +58,7 @@ export class Ledger {
       const parties=new Set(plan.map(p=>p.party));
       for(const r of this.rows()) {
         if(parties.has(r.party))continue;
-        // B46 (H15): a `reserve-return` row the fresh derivation no longer produces (its eligible notes moved,
+        // A `reserve-return` row the fresh derivation no longer produces (its eligible notes moved,
         // or it is already paid) is history when money moved for it — kept quietly — and dropped when unpaid,
         // so a later derivation can replace it. Same monotone rule as the refund rows.
         if(isRefundRowParty(r.party)||r.party==="reserve-return") {
@@ -71,20 +71,20 @@ export class Ledger {
         }
         console.error(`WARN settlement obligation ${r.party} vanished from the re-derivation; the pinned row stands`);
       }
-      // Ruling R46 (F23), step 3 inputs: `want` is the amount the rules say each fresh party's row must hold
+      // Step 3 inputs: `want` is the amount the rules say each fresh party's row must hold
       // after this pin; `history` names parties whose pinned row is history (money moved for it, a signed batch
-      // commits it, or it is a payout row under Ruling R42 (F12)'s stands rule).
+      // commits it, or it is a payout row under stands rule).
       const want=new Map<string,bigint>(),history=new Set<string>();
       const backingSet=(party:string)=>new Set((this.db.prepare("SELECT note FROM refund_backing WHERE party=?").all(party) as {note:string}[]).map(r=>r.note));
       const sameNotes=(party:string,notes:string[])=>{const a=backingSet(party),b=new Set(notes);return a.size===b.size&&[...b].every(n=>a.has(n))};
       for(const o of plan) {
-        // Ruling R44 (F18): an unkeyable note is an ERROR — refuse note-shaped parties the note key cannot
+        // An unkeyable note is an ERROR — refuse note-shaped parties the note key cannot
         // hold (the scanner's u16 range; the legacy identity has no pool and was never keyable), and require
         // every keyed refund row to carry keyable note backing. Keying is never silently disabled.
         const shaped=NOTE_PARTY.exec(o.party) ?? LEGACY_NOTE_PARTY.exec(o.party);
         requireThat(!shaped || (NOTE_PARTY.test(o.party)&&Number(NOTE_PARTY.exec(o.party)![3])<=65535),`unkeyable refund note identity ${o.party}; an unkeyable note is an ERROR`);
         if(isKeyedRefund(o.party))requireThat(backingOf(o).length>0,`refund row ${o.party} carries no keyable note backing; an unkeyable note is an ERROR`);
-        // Ruling R44 (F18): a backing note already taken by ANOTHER party's refund row is skipped per note,
+        // A backing note already taken by ANOTHER party's refund row is skipped per note,
         // never per row — the row is created over its FREE notes and the taken notes' refunded value leaves
         // its amount, so a multi-note excess row still refunds the remaining notes' value and conservation
         // stays zat-exact (row + settled + already-refunded = every zat received, once). The pre-fix skip
@@ -97,39 +97,39 @@ export class Ledger {
           const takenNotes=backing.filter((n,i)=>!!owners[i]&&owners[i]!.party!==o.party);
           if(takenNotes.length) {
             const free=backing.filter((n,i)=>!owners[i]||owners[i]!.party===o.party);
-            // Ruling R46 (F23): when the fresh derivation produces no row, an UNPAID old row for the party is
+            // When the fresh derivation produces no row, an UNPAID old row for the party is
             // released with it (the derivation no longer produces it); money moved or a batch commits, so the
             // row is history and stands.
             const skip=()=>{const old=this.rows().find(r=>r.party===o.party);
               if(old&&unpaidRow(old)&&old.kind==="refund"){this.db.prepare("DELETE FROM obligations WHERE party=?").run(o.party);this.db.prepare("DELETE FROM refund_backing WHERE party=?").run(o.party);want.set(o.party,0n)}
               else if(old)history.add(o.party);else want.set(o.party,0n)};
-            if(!free.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund; Ruling R42 F15)`);skip();continue;}
-            // Ruling R46 (F23): only a row money has moved for represents refunded value — an UNPAID taking
+            if(!free.length){console.error(`WARN refund row ${o.party} not created: every backing note already backs a refund row (one note one refund)`);skip();continue;}
+            // Only a row money has moved for represents refunded value — an UNPAID taking
             // row's amount is NEVER subtracted (its own row still owes that value; the pre-fix subtraction
-            // destroyed it and then dropped the row — probes p2a/p2b). Ruling R45 (F22): where the subtraction
+            // destroyed it and then dropped the row — probes p2a/p2b). where the subtraction
             // does run, its single-note assumption is an ASSERTION — a multi-note taking row is an ERROR,
             // never a wrong amount.
             const moved=[...new Set(takenNotes.map(n=>ownerOf(n)!.party))].filter(p=>{const r=this.rows().find(x=>x.party===p);return !!r&&["paid","refunded"].includes(r.state)});
             for(const p of moved)requireThat(Number((this.db.prepare("SELECT COUNT(*) AS c FROM refund_backing WHERE party=?").get(p) as {c:number}).c)===1,`multi-note taking row ${p} backs more than one note; the per-note skip subtracts a taking row's amount only when it backs exactly one note (a multi-note taking row is an ERROR)`);
             const takenValue=moved.reduce((s,p)=>s+BigInt(this.rows().find(r=>r.party===p)!.amount_zats),0n);
             const usable=BigInt(o.amount_zats)-takenValue;
-            if(usable<=0n){console.error(`WARN refund row ${o.party} not created: its value is already refunded by the rows backing its taken notes (one note one refund; Ruling R42 F15)`);skip();continue;}
+            if(usable<=0n){console.error(`WARN refund row ${o.party} not created: its value is already refunded by the rows backing its taken notes (one note one refund)`);skip();continue;}
             if(takenValue>0n)console.error(`WARN refund row ${o.party}: note ${takenNotes[0]} already backs a refund row; skipping that note only (amount ${o.amount_zats} -> ${usable}; Ruling R44 F18)`);
             o2={...o,amount_zats:usable.toString(),notes:free};
           }
         }
         let old=this.rows().find(r=>r.party===o2.party);
-        // Ruling R46 (F23), step 2: an unpaid REFUND row whose fresh derivation differs is REPLACED — deleted
+        // Step 2: an unpaid REFUND row whose fresh derivation differs is REPLACED — deleted
         // and recreated, releasing its notes. "Rows never change" binds only rows money has moved for; a row a
         // signed batch commits is history too (its staged transaction pays its pinned amounts). A payout row
-        // keeps Ruling R42 (F12)'s stands rule and its monotone exception growth.
+        // keeps stands rule and its monotone exception growth.
         if(old&&unpaidRow(old)&&old.kind==="refund"&&(old.kind!==o2.kind||old.amount_zats!==o2.amount_zats||!sameNotes(o2.party,backingOf(o2)))) {
           this.db.prepare("DELETE FROM obligations WHERE party=?").run(o.party);
           this.db.prepare("DELETE FROM refund_backing WHERE party=?").run(o.party);
           old=undefined;
         }
         if(old){
-          // Ruling R42 (F12): pin is monotone and total over chain-derived differences — a re-derivation that
+          // Pin is monotone and total over chain-derived differences — a re-derivation that
           // differs from a pinned row is LOGGED and the PINNED ROW STANDS, and pin never throws for it (a
           // fresh-vs-pinned refusal is the F12 wedge). Unpaid refund rows never reach here (replaced above);
           // the only amount that ever moves is the pre-existing monotone growth of an unpaid EXCEPTION payout
@@ -149,7 +149,7 @@ export class Ledger {
           }
         }
         if(!old){
-          // Ruling R42 (F15) + Ruling R44 (F18): a NEW refund row claims its backing notes by note identity —
+          // A NEW refund row claims its backing notes by note identity —
           // the per-note skip and amount adjustment ran above, so every backing note here is free. A note that
           // already backs a different party's refund row never backs a second row. The pre-fix per-class key
           // (party uniqueness per class only) is the A20-F15 mutation.
@@ -161,7 +161,7 @@ export class Ledger {
           want.set(o.party,BigInt(o2.amount_zats));
         }
         else {
-          // A kept row stands (F12); its backing set only ever grows (INSERT OR IGNORE never steals a note
+          // A kept row stands; its backing set only ever grows (INSERT OR IGNORE never steals a note
           // another row already backs) — the row's amount may already cover those notes' value.
           if(isKeyedRefund(o2.party))for(const n of backingOf(o2))this.db.prepare("INSERT OR IGNORE INTO refund_backing(note,party) VALUES(?,?)").run(n,o.party);
           if(["paid","refunded"].includes(old.state)||old.batch!==null||old.kind==="payout")history.add(o.party);
@@ -170,7 +170,7 @@ export class Ledger {
         if(old&&old.state==="exception"&&old.batch===null&&ready.has(o.party)) {
           // A row whose re-derived amount differs from its pinned one is never made payable at the stale
           // amount (every host derives the fresh amount and would refuse the candidate): it waits until a
-          // derivation agrees with the pinned row again, and nothing else is held up by it. B53 (P2-2): a
+          // derivation agrees with the pinned row again, and nothing else is held up by it. a
           // row still bound to a parked batch (its money already moved) is never re-promoted here — with the
           // allocate guard below it can never be allocated and paid a second time.
           const now=this.rows().find(r=>r.party===o.party)!;
@@ -178,14 +178,14 @@ export class Ledger {
           else console.error(`WARN settlement obligation ${o.party} pinned at ${now.amount_zats} but re-derived ${o2.amount_zats}; not payable until a derivation agrees`);
         }
       }
-      // Ruling R46 (F23), step 3: conservation is asserted at pin — rows + settled + refunded = received. The
+      // Step 3: conservation is asserted at pin — rows + settled + refunded = received. The
       // fresh derivation is exactly "received − settled" (every plan, every signer host and the verify-side
-      // replays re-derive it through the one shared rule, and R41's conservation property keeps it zat-exact),
+      // replays re-derive it through the one shared rule, and conservation property keeps it zat-exact),
       // and rows money has moved for (or a signed batch commits) are history at their pinned amounts. After
       // reconciliation the ledger must hold exactly the fresh assignments, once: no reorg re-classification may
       // destroy value (probes p2a/p2b: a taken row's amount subtracted and that row then dropped) or duplicate
-      // it (probe p3). This is a code-consistency assertion, defence in depth like R45 (F22)'s: chain input can
-      // never reach it, so it is an ERROR and never a wedge (R38).
+      // it (probe p3). This is a code-consistency assertion, defence in depth: chain input can
+      // never reach it, so it is an ERROR and never a wedge.
       for(const o of plan) {
         if(history.has(o.party))continue;
         const row=this.rows().find(r=>r.party===o.party),wantAmt=want.get(o.party)??0n;
@@ -207,11 +207,11 @@ export class Ledger {
     return this.atomic(()=> {
       const pending=this.db.prepare("SELECT id FROM batches WHERE height IS NULL AND state!='exception' ORDER BY id LIMIT 1").get() as {id:number}|undefined;
       if(pending)return {id:pending.id,outputs:this.rows().filter(o=>o.batch===pending.id&&o.state==="allocated")};
-      // B52 (H23, Reviewer R round 4 P2-2's note): the `reserve-return` row is NEVER allocated with other
+      // The `reserve-return` row is NEVER allocated with other
       // rows — it is its own batch, and it goes last. The check runs BEFORE the batch is committed: the old
       // worker-side rule ran after allocate and threw mid-loop, leaving a permanently pending mixed batch
       // every re-run resurfaced. Ordinary eligible rows are allocated first; only when none remain can the
-      // return be allocated, alone. B53 (P2-2): a row parked with its batch binding (batch IS NOT NULL) is never re-allocated.
+      // return be allocated, alone. a row parked with its batch binding (batch IS NOT NULL) is never re-allocated.
       const outputs=this.db.prepare("SELECT * FROM obligations WHERE state='eligible' AND batch IS NULL AND party!='reserve-return' ORDER BY party LIMIT ?").all(cap) as Row[];
       const picked=outputs.length?outputs:(this.db.prepare("SELECT * FROM obligations WHERE state='eligible' AND batch IS NULL AND party='reserve-return'").all() as Row[]).slice(0,1);
       if(!picked.length)return null;
@@ -237,7 +237,7 @@ export class Ledger {
       this.db.prepare("UPDATE batches SET state='exception' WHERE id=?").run(id);
     });
   }
-  // B53 (P2-2, Reviewer R round 4): park a MINED batch whose receipts cannot be attributed (a pre-H3
+  // Park a MINED batch whose receipts cannot be attributed (an older
   // two-pool batch — manual reconciliation). Unlike expire, nothing is released: the rows keep their batch
   // binding and stay unallocatable (the pin/allocate guards), so the money the batch already moved can never
   // be paid twice. The batch becomes the published `exception` state with its mined height, its rows wait as
@@ -254,7 +254,7 @@ export class Ledger {
   }
   // A mined batch whose two signing hosts' agreed map labels its outputs with different (interchangeable: same
   // recipient, same amount) rows than this ledger allocated. The hosts' signed map is the record of who was paid
-  // (G-4), so it is adopted: each mapped row is marked paid at its output, provided it is owed (not paid), its amount
+  //so it is adopted: each mapped row is marked paid at its output, provided it is owed (not paid), its amount
   // equals the output's, and the mapped amounts are exactly the amounts this batch allocated. The batch's rows the
   // map does not name go back to the queue, and a mapped row allocated to a later batch that has no signed
   // transaction yet is taken from it; that batch is set aside (returned) so it is rebuilt. Returns the set-aside ids.

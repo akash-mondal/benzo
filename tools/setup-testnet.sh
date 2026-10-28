@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time Phase 1 setup (docs/PHASE-1.md section 5, steps 1-5): pinned tools, local TLS for frostd, a 2-of-3 RedPallas
+# One-time setup: pinned tools, local TLS for frostd, a 2-of-3 RedPallas
 # FROST group from a dealerless DKG, the vault UFVK and view-only vault wallet, and the bidder wallet.
 # Safe to re-run: it never regenerates keys once $BNZ_STATE_DIR/frost/ or the vault wallet exists.
 # With BNZ_EVIDENCE_DIR set, it writes setup/group-key.txt there. Its full log goes to $BNZ_STATE_DIR/run/setup.log.

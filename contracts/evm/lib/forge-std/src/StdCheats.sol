@@ -609,7 +609,7 @@ abstract contract StdCheatsSafe {
         // we check if gasMetering started in the off position. If it did, we don't want to turn
         // it back on until we exit the top level function that used the modifier
         //
-        // i.e. funcA() noGasMetering { funcB() }, where funcB has noGasMetering as well.
+        // i.e. funcA noGasMetering { funcB }, where funcB has noGasMetering as well.
         // funcA will have `gasStartedOff` as false, funcB will have it as true,
         // so we only turn metering back on at the end of the funcA
         bool gasStartedOff = gasMeteringOff;

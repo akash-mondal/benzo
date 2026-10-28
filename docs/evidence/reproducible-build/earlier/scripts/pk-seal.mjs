@@ -1,4 +1,4 @@
-// Stranger-side seal: the same steps 4-6 as tools/repro/bidder-bundle-proof.ts, with inputs from the
+// Stranger-side seal: the bidder bundle's seal steps, with inputs from the
 // published launch manifest and the drand quicknet constants; runs the copied driver in a fresh dir.
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";

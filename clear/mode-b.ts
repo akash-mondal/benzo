@@ -1,13 +1,13 @@
 // Pure Mode B buyback clearing (DESIGN §7): sealed asks under the same C/tlock/freeze rules, with the treasury's
 // budget and maximum price in the signed manifest. Mirrors clear/core.ts rules, inverted: asks rank ascending (tie by
 // committed leaf index), the uniform price is the highest accepted ask, and the budget caps spend at that price.
-// Every leaf gets exact C back; fees come only from winner payments (PHASE-3 R2). Integers only; no clock or network.
+// Every leaf gets exact C back; fees come only from winner payments. Integers only; no clock or network.
 import { hash, requireThat, uaShape, validateManifest, verifyRecord, zats, type Manifest, type Signed } from "../manifest/schema";
 import { checkFrozen } from "./merkle";
 import { effectiveMaxPrice, readOrders, sealedReserve } from "./features";
 import type { ClearBody, ClearInput, SettlementExtras } from "./core";
 
-// R3 item 4: max_price_zats is the treasury's maximum accepted ask (was floor_zats). Design §6.1: treasury_ua is where
+// max_price_zats is the treasury's maximum accepted ask (was floor_zats). Design §6.1: treasury_ua is where
 // unspent budget returns; funding_ua is the vault address the treasury funds (not a deposit address, so it is never a
 // bid or a stray). Both are signed, so every signer derives the treasury row from signed data and its own scan.
 export type Buyback = { budget_zats: string; max_price_zats: string; treasury_ua: string; funding_ua: string };
@@ -57,11 +57,11 @@ export function treasuryBlock(m: any): TreasuryBlock | null {
 }
 export const treasuryRequired = (m: any): bigint => { const t = treasuryBlock(m)!; return zats(t.budget_zats, "budget") * BigInt(t.lots); };
 export function treasuryFunded(m: any, notes: { address: string; height: number | null; value_zats: number | string }[], confirmedAt?: number): bigint {
-  // R78 (Reviewer R F-6, the G-3 class): one note is one note — a scan listing {txid, pool, action_index} twice
+  // (the class): one note is one note — a scan listing {txid, pool, action_index} twice
   // never inflates the funded total (the same identity rule as balanceMatured).
   const seen = new Set<string>();
   return notes.filter(n => n.address === treasuryBlock(m)!.funding_ua && n.height && (confirmedAt === undefined || confirmedAt - n.height + 1 >= m.confirmations))
-    .filter(n => { const id = n as unknown as { txid?: string; pool?: string; action_index?: number }; /* R79: identity-less lines collapse by content, never fail open */ const k = id.txid === undefined ? `bare:${JSON.stringify(n)}` : `${id.txid}:${id.pool}:${id.action_index}`; if (seen.has(k)) return false; seen.add(k); return true; })
+    .filter(n => { const id = n as unknown as { txid?: string; pool?: string; action_index?: number }; /* Identity-less lines collapse by content, never fail open*/ const k = id.txid === undefined ? `bare:${JSON.stringify(n)}` : `${id.txid}:${id.pool}:${id.action_index}`; if (seen.has(k)) return false; seen.add(k); return true; })
     .reduce((s, n) => s + BigInt(n.value_zats), 0n);
 }
 export function treasuryReturn(m: any, result: ClearBody | null, funded: bigint): bigint {
@@ -80,7 +80,7 @@ function calculate(input: ClearInput) {
   checkFrozen(input.frozen, m.auction_id, manifest_hash);
   const C = zats(m.C_zats, "C"), fee = zats(m.fee_zats, "fee"), tick = zats(m.tick_zats, "tick"), cap = zats(m.B_max_zats, "B_max");
   const budget = zats(m.buyback.budget_zats, "budget");
-  // Gate CF: the sealed max price (R3 item 4) tightens the treasury cap; readOrders marks superseded revisions
+  // Gate CF: the sealed max price tightens the treasury cap; readOrders marks superseded revisions
   // and binds each ask to its lot. Bond-then-pay is buyer-side and refused for buyback manifests.
   const maxPrice = effectiveMaxPrice(m, sealedReserve(m, input.reserve_opening, tick));
   const orders = readOrders(input, m);
@@ -130,7 +130,7 @@ function calculate(input: ClearInput) {
     return { leaf_index: a.leaf_index, ...(m.lots ? { lot: a.lot! } : {}), price_zats: a.price.toString(), quantity: a.quantity, fill: a.fill,
       payment_zats: payment.toString(), refund_zats: refund.toString(), outcome: a.reason || (a.fill ? "winner" : "unfilled") };
   });
-  // Real invariants (R4 item 3) on the computed result: the uniform-price spend fits the budget, no fill exceeds
+  // Real invariants on the computed result: the uniform-price spend fits the budget, no fill exceeds
   // its ask's quantity, and no winner's ask exceeds the clearing price. Deposits fund refunds; the treasury leg
   // funds payouts and fees, and conservation names it explicitly as treasury_zats = payout + fees.
   const treasury = payout + fees, totalFill = asks.reduce((n, a) => n + a.fill, 0);
@@ -153,7 +153,7 @@ export function clearModeB(input: ClearInput) {
   return { ...calculate(input), comparison: null };
 }
 
-// Verify-side money invariants for a published Mode B result (R4 item 3): the same invariants calculate enforces,
+// Verify-side money invariants for a published Mode B result: the same invariants calculate enforces,
 // plus the recorded treasury leg and the exact-C refunds with fees taken only from winner payments. benzo verify's
 // accounting check runs this on the published result, so a corrupted one is refused on its own numbers.
 export function checkResultBuyback(m: BuybackManifest, result: ClearBody): void {

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# NU7 backport (Ruling R27). Testnet activated NU7 (consensus branch 0x77190AD9) at height 4,465,026 on 2026-10-04;
+# NU7 backport. Testnet activated NU7 (consensus branch 0x77190AD9) at height 4,465,026 on 2026-10-04;
 # the pinned, audited librustzcash crates only carry NU7 behind `zcash_unstable = "nu7"` with a placeholder branch id
 # and no height. This applies exactly upstream's NU7 parameters (zcash_protocol 0.11.0-pre.0 / zcash_primitives
 # 0.31.0-pre.0: testnet height 4,465,026, branch id 0x77190AD9, V6 suggested and V5/V6 valid under NU7) to the pinned
 # versions, as reviewable patches in this directory, and nothing else. Mainnet NU7 stays None, so mainnet behaviour is
 # unchanged.
 #
-#   tools/nu7/build.sh crates <dir>                  fetch the pinned .crate files (sha256-checked), extract, patch
-#   tools/nu7/build.sh patch-toml <Cargo.toml> <dir> <crate-ver>...   add [patch.crates-io] path entries
+#   tools/nu7/build.sh crates <dir> fetch the pinned.crate files (sha256-checked), extract, patch
+#   tools/nu7/build.sh patch-toml <Cargo.toml> <dir> <crate-ver>... add [patch.crates-io] path entries
 #   tools/nu7/build.sh tool <git> <rev> <state> <target> <dir> <crate-ver>... -- <cargo install args>
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -61,13 +61,13 @@ case "${1:-}" in
     patch_toml "$src/Cargo.toml" "$dir" "${cvs[@]}"
     (cd "$src" && cargo update -q --offline -w 2>/dev/null || cargo update -q -w)
     # The lock may differ from the pin ONLY in the patched packages' source/checksum lines.
-    # R28 item 11 (F8): every package except the patched ones keeps its exact lock entry (name, version, source, checksum).
+    # Every package except the patched ones keeps its exact lock entry (name, version, source, checksum).
     extra=$(python3 "$HERE/lockdiff.py" "$src/Cargo.lock.pinned" "$src/Cargo.lock" "${cvs[@]}")
     [ -z "$extra" ] || { echo "ERROR $src: lock changed beyond the patched packages:" >&2; echo "$extra" | head -20 >&2; exit 1; }
     cargo install --locked --path "$src/$1" --root "$state" --target-dir "$target" --force "${@:2}"
-    # R49 (Reviewer R P1-1 on R47): cargo records a path install by its path string only, which names the rev but proves
+    # Cargo records a path install by its path string only, which names the rev but proves
     # nothing. Record what this build actually used: the checkout's HEAD, the NU7 patches, and the built binary's digest.
-    # e2e/lib/pins.ts checks all three against the live tree before any live spec runs.
+    # The live test harness checks all three against the live tree before any live run.
     bin=$([ "$1" = "." ] && basename "$git" || basename "$1")
     mkdir -p "$state/nu7-provenance"
     python3 - "$state/nu7-provenance/$bin.json" "$bin" "$rev" "$(git -C "$src" rev-parse HEAD)" "$src/$1" "$state/bin/$bin" "$HERE" "${cvs[@]}" <<'PY'

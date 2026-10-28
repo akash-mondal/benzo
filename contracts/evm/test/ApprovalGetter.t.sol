@@ -4,8 +4,8 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {BenzoEscrow} from "../src/BenzoEscrow.sol";
 
-// R14 item 4 (Reviewer R F3): the `approval(auctionId, batchIndex)` view. Runs inside contracts/
-// only and does not count toward the project E2E ceiling (design §7).
+// The `approval(auctionId, batchIndex)` view. Runs inside contracts/
+// only and does not count toward the project E2E ceiling.
 //
 // Four questions (test-audit rule):
 // 1. Behavior protected: every stored approval is publicly readable in full — allocationRoot,
@@ -14,8 +14,8 @@ import {BenzoEscrow} from "../src/BenzoEscrow.sol";
 // 2. Credible regression: the getter returns swapped/zeroed fields (e.g. the root in the
 //    resultHash slot) → "publish one result while settling another" is caught by nothing, since
 //    the verifier compares against the wrong value and sees a match.
-// 3. Why no existing test catches it: nothing reads `approval()` — `isApproved` returns only
-//    `bool`, and root/resultHash/expiry were only ever in the `AttestationApproved` event (R F3).
+// 3. Why no existing test catches it: nothing reads `approval` — `isApproved` returns only
+//    `bool`, and root/resultHash/expiry were only ever in the `AttestationApproved` event.
 // 4. No production seam: the test drives the shipped entry points (lock, submitAttestation) and
 //    reads the exact view a real verifier calls.
 

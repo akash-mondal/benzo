@@ -41,10 +41,10 @@ function when(p: Proc, text: string): Promise<void> {
 }
 
 const frostClient = (args: string[]) => start(bin("frost-client"), args, { SSL_CERT_FILE: path.join(TLS, "rootCA.pem") });
-// §11 H4 (host custody): an auction that ran its own DKG keeps its shares on the OrbStack signer hosts. The FROST
+// §11 (host custody): an auction that ran its own DKG keeps its shares on the OrbStack signer hosts. The FROST
 // coordinator runs on the first chosen host (its auction config holds the group) and each participant joins from
 // its own host through `benzo sign join`, which answers frost-client's prompt itself against its own approval.
-export type HostCustody = { id: string; groupKey: string; server: string; network: string }; // network: the signed manifest's (G-7)
+export type HostCustody = { id: string; groupKey: string; server: string; network: string }; // network: the signed manifest's
 const H = "/home/benzo/.benzo";
 const orb = (name: string, args: string[]) => start("orb", ["run", "-m", `benzo-${name}`, "-u", "benzo", ...args]);
 const hostPubkeys = new Map<string, string>();
@@ -131,10 +131,10 @@ async function signOnce(sighash: string, randomizer: string, check: (name:string
   return { signers, sighash, randomizer, signature: sigs[sigs.length - 1], participantsSaw, coordinator_started_at,duration_ms:Date.now()-started };
 }
 
-// Phase 6 (R29): host custody signs every spend of a transaction at once — one single-message coordinator session per
+// Host custody signs every spend of a transaction at once — one single-message coordinator session per
 // randomizer on the pair's first host, all open together, and one `benzo sign join --count N` per signer host that joins
 // each of them (frost-client's participant signs only the first message of a session, so no multi-message session).
-// Measured live: one ~8 s session per spend, serially, was the settlement bottleneck (docs/design/phase6-scale.md §2.1).
+// Measured live: one ~8 s session per spend, serially, was the settlement bottleneck.
 async function signParallelHost(sighash: string, randomizers: string[], pair: string[], custody: HostCustody): Promise<Session[]> {
   const started = Date.now(), coordinator_started_at = started, signers = pair.map(hostPubkey);
   const coordinators = randomizers.map(r => {
@@ -155,7 +155,7 @@ async function signParallelHost(sighash: string, randomizers: string[], pair: st
     all.push(...participants);
     participants.forEach((p, i) => p.done.then(code => { if (code !== 0 && !aborted) { failed.push(pair[i]); abort(); } }));
     // Test-only drill hook (BNZ_DRILL_STOP=<signer>), as in signOnce: stop that signer's host once it joined, mid-session,
-    // once. R55: R29's parallel path had dropped it, so buyback-mode's Y1b kill drill never fired.
+    // once. parallel path had dropped it, so buyback-mode's Y1b kill drill never fired.
     const drill = pair.indexOf(process.env.BNZ_DRILL_STOP ?? "");
     if (drill >= 0 && !process.env.BNZ_DRILL_DONE) { process.env.BNZ_DRILL_DONE = "1"; await when(participants[drill], "Joining signing session..."); require_spawnSync("orb", ["stop", `benzo-${pair[drill]}`]); }
     const codes = await Promise.all(all.map(p => p.done));
@@ -167,7 +167,7 @@ async function signParallelHost(sighash: string, randomizers: string[], pair: st
       throw e;
     }
     // The N joins on a host share one stdout, so a message cannot be tied to session k: a participant is recorded as
-    // having seen the sighash only if it printed it for every session and nothing else (R29 review P2).
+    // having seen the sighash only if it printed it for every session and nothing else (review P2).
     const saw = participants.map(p => { const m = [...p.out.matchAll(/Message to be signed \(hex-encoded\):\n([0-9a-f]+)/g)].map(x => x[1]); return m.length === randomizers.length && m.every(x => x === sighash) ? sighash : ""; });
     return coordinators.map((c, k) => {
       const sigs = c.out.match(/^[0-9a-f]{128}$/gm);
@@ -194,7 +194,7 @@ export async function withSigningLock<T>(fn: () => Promise<T>): Promise<T> {
     catch { try { if (Date.now() - statSync(lock).mtimeMs > 15 * 60_000) rmSync(lock, { recursive: true, force: true }); } catch {} await new Promise(r => setTimeout(r, 3000)); }
   }
   signingLockDepth++;
-  // R33 P2-3: staleness is judged from the last heartbeat, not creation — a held lock is touched every minute, so a
+  // Staleness is judged from the last heartbeat, not creation — a held lock is touched every minute, so a
   // legal attempt loop longer than 15 minutes is never taken over by another auction's settle.
   const beat = signingLockDepth === 1 ? setInterval(() => { try { const t = new Date(); utimesSync(lock, t, t); } catch {} }, 60_000) : undefined;
   try { return await fn(); } finally { if (beat) clearInterval(beat); if (--signingLockDepth === 0) rmSync(lock, { recursive: true, force: true }); }
@@ -210,7 +210,7 @@ async function zcashSignRound(input: string, output: string, check:(name:string,
     if (s) sighash = s[1];
     const r = line.match(/^Randomizer #(\d+) \((\w+)\): ([0-9a-f]{64})$/);
     if (r && custody && process.env.BNZ_SERIAL_SIGN !== "1") {
-      // R29: every spend's randomizer comes from this machine's own inspect of the same PCZT; zcash-sign then asks for
+      // Every spend's randomizer comes from this machine's own inspect of the same PCZT; zcash-sign then asks for
       // them in the same order, and any mismatch stops the round before a signature is handed over.
       if (!parallel) {
         const expected = (inspect(input, custody.network, true).randomizers ?? []) as { pool: string; index: number; alpha: string }[];

@@ -12,7 +12,7 @@ TARGET="$STATE/cargo-target"
 cargo_install() { # <git> <rev> <package> [--bin name]
   cargo install --locked --git "$1" --rev "$2" --root "$STATE" --target-dir "$TARGET" "${@:3}"
 }
-# Ruling R27: zcash-devtool and zcash-sign carry the NU7 backport (tools/nu7: testnet NU7 height and branch id on
+# Zcash-devtool and zcash-sign carry the NU7 backport (tools/nu7: testnet NU7 height and branch id on
 # the pinned librustzcash crates, nothing else); the as-pinned Ironwood builds stay in bin/ironwood for mainnet.
 NU7="$ROOT/tools/nu7/build.sh"
 bash "$NU7" tool "$DEVTOOL_GIT" "$DEVTOOL_REV" "$STATE" "$TARGET" "$STATE/nu7-crates" zcash_protocol-0.10.5 zcash_primitives-0.30.1 pczt-0.9.3 -- .

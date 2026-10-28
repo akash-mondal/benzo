@@ -1,6 +1,6 @@
-// R78 (Reviewer R F-2/F-4 on R77): ONE definition of "a destination, viewing key or seed in text", shared by verify's
-// no-destinations guard (api/public-auction.ts), the evidence redactor (e2e/lib/redact.ts) and the export audit
-// (tools/leak-audit.ts). Three copies drifted three times (R75, R76, R77); now there is one. Boundaries are "not
+// ONE definition of "a destination, viewing key or seed in text", shared by verify's
+// no-destinations guard (api/public-auction.ts), the evidence redactor and the export audit
+// (tools/leak-audit.ts). Three copies drifted three times; now there is one. Boundaries are "not
 // alphanumeric", so an `_` neighbour never hides a match. Audited decoders only (@scure/base, @scure/bip39).
 import { base58 } from "@scure/base";
 import { validateMnemonic } from "@scure/bip39";
@@ -12,7 +12,7 @@ export const ZCASH_ADDRESS = `(?:(?:utest1|uregtest1|u1|ztestsapling1|zs1|textes
 export const VIEWING_KEY = `(?:uviewtest1|uview1|uview|zxviewtestsapling1|zxviews1|zxview)[a-zA-Z0-9]{20,}`;
 export const EVM_ADDRESS = `0[xX][0-9a-fA-F]{40}`;
 export const SOLANA_CANDIDATE = `[1-9A-HJ-NP-Za-km-z]{32,44}`;
-// R79 (Reviewer R N-1 on R78): bech32/bech32m strings are case-insensitive by spec — `UTEST1…` is the same address —
+// bech32/bech32m strings are case-insensitive by spec — `UTEST1…` is the same address —
 // so the Zcash and viewing-key patterns match any case (over-matching base58 t-addrs is harmless). Solana stays exact:
 // base58 is case-sensitive and isSolanaKey decodes the candidate.
 export const patterns = {
@@ -30,7 +30,7 @@ export function isSolanaKey(token: string): boolean {
 const WORD_RUN = /(?<![A-Za-z])(?:[a-z]{3,8}[ \t\r\n]+){11,}[a-z]{3,8}(?![A-Za-z])/g;
 export function mnemonicSpans(text: string): [number, number][] {
   const spans: [number, number][] = [];
-  for (const run of text.toLowerCase().matchAll(WORD_RUN)) { // R79: an uppercased seed is the same seed (ASCII: same offsets)
+  for (const run of text.toLowerCase().matchAll(WORD_RUN)) { // An uppercased seed is the same seed (ASCII: same offsets)
     const words = [...run[0].matchAll(/[a-z]+/g)];
     for (let i = 0; i < words.length; i++)
       for (const n of [24, 21, 18, 15, 12]) {

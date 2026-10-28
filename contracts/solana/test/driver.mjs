@@ -10,17 +10,17 @@
 // signatures, repeatedly until every leaf is paid). Tests: submit twice refused; release with no
 // Approval refused; expired approval refused; release after refund refused; leaf not in the root
 // refused; every leaf paid exactly once across several crank calls; spoofed sysvar on
-// submit_attestation refused. §10 item 1 (reviewer F-1): a dusted `paid` PDA must not read as
+// submit_attestation refused. A dusted `paid` PDA must not read as
 // "already paid" — a paid flag counts only if program-owned with the PAID_V1 marker. R8 item 1
 // (G9): a dusted escrow state PDA must not block the auction either — lock counts as done only
 // when the program owns the state PDA with STATE_LEN data, and a dusted PDA is topped up and
-// completed (allocate + assign), never read as "already locked". R9 item 1: the state account
+// completed (allocate + assign), never read as "already locked". the state account
 // records its account-layout version and every instruction checks it — a layout-v1 account
 // (loaded at genesis by test/old-layout-account.mjs) is refused with BadLayout, never read as
 // this layout's state. The
 // before/after payouts-per-transaction table at proof depths 0–6
 // is measured from real serialized transactions (1232-byte packet limit) and printed as
-// `SIZE depth=…` lines; it is recorded in docs/STATUS-B.md.
+// `SIZE depth=…` lines.
 //
 // Output: one `PASS <id>` or `ERROR <id> <reason>` line per assertion; exit 0 only if all PASS.
 
@@ -46,7 +46,7 @@ const RPC = process.env.BNZ_SOLANA_RPC ?? "http://127.0.0.1:8901";
 const PROGRAM_ID = new PublicKey(process.argv[2] ?? process.env.BNZ_SOLANA_PROGRAM ?? "");
 const conn = new Connection(RPC, "confirmed");
 
-// ---------- canonical cross-chain encodings (design §1/§3; mirrored in contracts/evm + Rust) ----------
+// ---------- canonical cross-chain encodings (mirrored in contracts/evm + Rust) ----------
 const utf8 = (s) => new TextEncoder().encode(s);
 const be64 = (n) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n)); return b; };
 const le64 = (n) => { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, BigInt(n), true); return b; };
@@ -201,7 +201,7 @@ function refundIx(crank, auctionPda, returnTo, auctionId) {
 // ---------- PDA helpers ----------
 const pda = (seeds) => PublicKey.findProgramAddressSync(seeds, PROGRAM_ID)[0];
 const auctionPdaFor = (auctionId) => pda([Buffer.from("escrow"), Buffer.from(auctionId)]);
-// design §9: seeds ["approval", auction_id, batch_index u64 le]
+// Seeds ["approval", auction_id, batch_index u64 le]
 const approvalPdaFor = (auctionId, batch) => pda([Buffer.from("approval"), Buffer.from(auctionId), Buffer.from(le64(batch))]);
 const paidPdaFor = (auctionId, leaf) => pda([Buffer.from("paid"), Buffer.from(auctionId), Buffer.from(leaf)]);
 
@@ -331,7 +331,7 @@ function txSize(tx) {
 const sendV0 = async (payer, tx) => {
   const { blockhash, lastValidBlockHeight } = await conn.getLatestBlockhash("confirmed");
   const sig = await conn.sendRawTransaction(tx.serialize(), { skipPreflight: false });
-  // fail loudly, like send()
+  // fail loudly, like send
   const res = await conn.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
   if (res.value.err) throw new Error(`transaction ${sig} failed on chain: ${JSON.stringify(res.value.err)}`);
   return sig;
@@ -414,7 +414,7 @@ async function main() {
   {
     // ---- R8 item 1 (G9): a dusted escrow state PDA must not block the auction ----
     // 1,000,000 lamports from an unrelated key to the predictable ["escrow", auction_id] PDA
-    // before lock (reviewer G's live griefing probe); the auction must still lock and record
+    // before lock (a live griefing probe); the auction must still lock and record
     // state, and only a real program-owned STATE_LEN state may read as "already locked".
     const dustId = randomBytes(32), dustPda = auctionPdaFor(dustId), dustAmount = 1n * LOT;
     await send(duster, SystemProgram.transfer({ fromPubkey: duster.publicKey, toPubkey: dustPda, lamports: 1_000_000 }));
@@ -467,7 +467,7 @@ async function main() {
       send(crank, refundIx(crank, oldPda, returnTo.publicKey, oldAuctionId)));
   }
 
-  // ---- 2. submit_attestation + release_approved (design §9) ----
+  // ---- 2. submit_attestation + release_approved ----
   const mkPayout = (kp, index, lotCount, leaves, proofs, writable = true) => ({
     index, lotCount, dest: dest(kp), destAi: kp.publicKey, destWritable: writable,
     leafCount: leaves.length, proof: proofs[index],
@@ -514,13 +514,13 @@ async function main() {
       `balances r1 +${a1 - b1} r2 +${a2 - b2} (want ${LOT}), paid flags ${f1 !== null}/${f2 !== null}`);
   }
 
-  // §9: submit twice -> refused (the Approval PDA is created exactly once per batch)
+  // Submit twice -> refused (the Approval PDA is created exactly once per batch)
   await expectCustomError("submit-twice-refused", 9, async () => {
     const att = attestation(genesis, programIdBytes, auctionId, resultHash, root0, 0, 0, deadline);
     await submit(0, att, [0, 2], [0, 2]);
   });
 
-  // §9: release with no Approval -> refused
+  // Release with no Approval -> refused
   await expectCustomError("release-no-approval-refused", 19, () =>
     send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 99), [
       mkPayout(r1, 0, 1, [leafA, leafB], tree0.proofs),
@@ -593,14 +593,14 @@ async function main() {
     await expectCustomError("submit-expired-refused", 8, () => submit(7, att, [0, 1], [0, 1]));
   }
   {
-    // §10 item 2 (F-2): an attestation whose expiry outlives the auction's deadline is refused
+    // An attestation whose expiry outlives the auction's deadline is refused
     // at submit — otherwise the refund window (now > deadline) would overlap the release window
     // (now <= expiry) and a refund racing the release could capture attested payouts
     const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 12, 0, deadline + 1000);
     await expectCustomError("submit-expiry-after-deadline-refused", 5, () => submit(12, att, [0, 1], [0, 1]));
   }
   {
-    // ---- §10 item 3 (F-3): a dusted Approval PDA must not block the batch ----
+    // ---- §10 item 3: a dusted Approval PDA must not block the batch ----
     const batch13 = 13;
     const dusted = approvalPdaFor(auctionId, batch13);
     await send(duster, SystemProgram.transfer({ fromPubkey: duster.publicKey, toPubkey: dusted, lamports: 1_000_000 }));
@@ -624,7 +624,7 @@ async function main() {
       submit(batch13, att, [0, 1], [0, 1]));
   }
   {
-    // §9: a spoofed sysvar on submit_attestation -> refused (the 2022 Wormhole class)
+    // A spoofed sysvar on submit_attestation -> refused (the 2022 Wormhole class)
     const att = attestation(genesis, programIdBytes, auctionId, resultHash, root1, 8, 0, deadline);
     const fakeSysvar = Keypair.generate().publicKey;
     const ix = submitIx(crank, auctionPda, approvalPdaFor(auctionId, 8), att);
@@ -644,7 +644,7 @@ async function main() {
       send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 9), [bad])));
   }
   {
-    // §9: a leaf not in the root -> refused
+    // A leaf not in the root -> refused
     const bad = { ...mkPayout(r3, 0, 1, [leafC, leafD], tree1.proofs), proof: [leafB] }; // wrong sibling
     await expectCustomError("release-leaf-not-in-root-refused", 15, () =>
       send(crank, releaseApprovedIx(crank, auctionPda, approvalPdaFor(auctionId, 9), [bad])));
@@ -754,7 +754,7 @@ async function main() {
   }
 
   {
-    // ---- §10 item 2 (F-2): an approved but unreleased batch cannot be refunded until its
+    // ---- §10 item 2: an approved but unreleased batch cannot be refunded until its
     // expiry has passed. Refund requires now > deadline and every approval's expiry is ≤
     // deadline, so the windows are disjoint by construction — asserted from the chain state ----
     const auction4Id = randomBytes(32);
@@ -796,7 +796,7 @@ async function main() {
   }
 
   {
-    // ---- §10 item 4 (F-4): the pre-§9 client wire format can never release ----
+    // ---- §10 item 4: the pre-§9 client wire format can never release ----
     // `crosschain/solana.ts` at 3a23f15 (the reviewed commit) serialized release as
     // TAG(2) ‖ att ‖ be16(n) ‖ payouts… with the be64-seeded ["batch", …] PDA. That routes to
     // submit_attestation, which requires the instruction to end right after the 200-byte
@@ -814,7 +814,7 @@ async function main() {
   }
 
   {
-    // ---- §10 item 1 (F-1): a dusted paid PDA must not read as "already paid" ----
+    // ---- §10 item 1: a dusted paid PDA must not read as "already paid" ----
     // dust paidPda(leafA) from an unrelated key, then crank: rA must still be paid
     // exactly once (the flag counts only if program-owned with the PAID_V1 marker), and the refund
     // must return only the unpaid remainder — never rA's or rB's paid lot

@@ -12,13 +12,13 @@ interface VmSafe {
     enum CallerMode {
         // No caller modification is currently active.
         None,
-        // A one time broadcast triggered by a `vm.broadcast()` call is currently active.
+        // A one time broadcast triggered by a `vm.broadcast` call is currently active.
         Broadcast,
-        // A recurrent broadcast triggered by a `vm.startBroadcast()` call is currently active.
+        // A recurrent broadcast triggered by a `vm.startBroadcast` call is currently active.
         RecurrentBroadcast,
-        // A one time prank triggered by a `vm.prank()` call is currently active.
+        // A one time prank triggered by a `vm.prank` call is currently active.
         Prank,
-        // A recurrent prank triggered by a `vm.startPrank()` call is currently active.
+        // A recurrent prank triggered by a `vm.startPrank` call is currently active.
         RecurrentPrank
     }
 
@@ -2389,7 +2389,7 @@ interface Vm is VmSafe {
     /// Causes the next contract creation (via new) to fail and return its initcode in the returndata buffer.
     /// This allows type-safe access to the initcode payload that would be used for contract creation.
     /// Example usage:
-    /// vm.interceptInitcode();
+    /// vm.interceptInitcode;
     /// bytes memory initcode;
     /// try new MyContract(param1, param2) { assert(false); }
     /// catch (bytes memory interceptedInitcode) { initcode = interceptedInitcode; }

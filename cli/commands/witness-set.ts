@@ -1,5 +1,5 @@
-// benzo witness set — the signed witness-set side-packet the manifest's `witness_set_hash` commits to (gate X,
-// R8 G10). Built and signed exactly like the harness does it (tools/repro/markets.ts): signRecord over
+// benzo witness set — the signed witness-set side-packet the manifest's `witness_set_hash` commits to.
+// Built and signed with signRecord over
 // {version: 1, auction_id, q_w, keys} with the operator's manifest-signing key (the same key `auction sign`
 // uses, so the packet verifies against the manifest's signer). The q_w-of-n_w witness board is pinned HERE,
 // before bidding; `auction create --witness-set` takes the file this prints.

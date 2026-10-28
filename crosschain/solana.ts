@@ -1,6 +1,6 @@
 // Solana escrow client (@solana/web3.js): lock/submit-attestation/release-approved/refund/status
 // against a local solana-test-validator or devnet. Instruction and attestation layouts mirror
-// contracts/solana/src/lib.rs exactly (design §9: attest once — `submit_attestation` writes the
+// contracts/solana/src/lib.rs exactly (attest once — `submit_attestation` writes the
 // Approval PDA — then release many — `release_approved` is signature-free and repeatable). They
 // are proven against the program by contracts/solana/test/driver.mjs and the cross-chain demo.
 import {
@@ -38,11 +38,11 @@ export function auctionPda(programId: PublicKey, auctionId: Uint8Array): PublicK
 export function approvalPda(programId: PublicKey, auctionId: Uint8Array, batch: number): PublicKey {
   return PublicKey.findProgramAddressSync([Buffer.from("approval"), Buffer.from(auctionId), Buffer.from(le64(batch))], programId)[0];
 }
-/** §10 item 1 (F-1): a paid flag counts only if program-owned with this marker — a dusted PDA
- *  (system-owned lamports) is never "paid". */
+/** §10 item 1: a paid flag counts only if program-owned with this marker — a dusted PDA
+ * (system-owned lamports) is never "paid".*/
 export const PAID_MARKER = Buffer.from("PAID_V1");
-/** §10 item 3 (F-3): an Approval counts as used only if program-owned with this marker — a
- *  dusted PDA must not block submit. */
+/** §10 item 3: an Approval counts as used only if program-owned with this marker — a
+ * dusted PDA must not block submit.*/
 export const APPROVAL_MARKER = Buffer.from("APPROVAL_V1");
 
 /** True iff this batch's Approval already exists (program-owned with the APPROVAL_V1 marker). */
@@ -51,9 +51,9 @@ export async function approvalExists(conn: Connection, programId: PublicKey, app
   return ai !== null && ai.owner.equals(programId) && Buffer.from(ai.data).subarray(0, APPROVAL_MARKER.length).equals(APPROVAL_MARKER);
 }
 
-/** R14 item 4 (reviewer R F3): the stored approval in full — the Solana twin of the EVM
- *  `approval()` view. Approval PDA layout: marker (11) ‖ auction_id (32) ‖ batch_index u64le (8)
- *  ‖ allocation_root (32) ‖ result_hash (32) ‖ nonce u64le (8) ‖ expiry i64le (8) ‖ genesis ‖ bump. */
+/** item 4: the stored approval in full — the Solana twin of the EVM
+ * `approval` view. Approval PDA layout: marker (11) ‖ auction_id (32) ‖ batch_index u64le (8)
+ * ‖ allocation_root (32) ‖ result_hash (32) ‖ nonce u64le (8) ‖ expiry i64le (8) ‖ genesis ‖ bump.*/
 export interface SolApproval {
   allocationRoot: string; resultHash: string; expiry: number; exists: boolean;
 }
@@ -96,8 +96,8 @@ export function lockInstruction(args: {
 }
 
 /** Native Ed25519 verification instruction; the message is the submit-attestation ix's
- *  attestation bytes (message index 1 in the [verify, submit] transaction, offset 2, size 200) —
- *  strictly checked by the program. */
+ * attestation bytes (message index 1 in the [verify, submit] transaction, offset 2, size 200) —
+ * strictly checked by the program.*/
 export function ed25519Instruction(signatures: Uint8Array[], pubkeys: Uint8Array[]): TransactionInstruction {
   const n = signatures.length;
   const header = 2 + 14 * n;
@@ -128,7 +128,7 @@ export interface SolPayout {
   paidPda: PublicKey;
 }
 
-/** `submit_attestation` (design §9): verify 2-of-3 and write the Approval PDA. No transfers. */
+/** `submit_attestation`: verify 2-of-3 and write the Approval PDA. No transfers.*/
 export function submitAttestationInstruction(args: {
   programId: PublicKey; crank: PublicKey; auctionPda: PublicKey; approvalPda: PublicKey; att: Uint8Array;
 }): TransactionInstruction {
@@ -145,8 +145,8 @@ export function submitAttestationInstruction(args: {
   });
 }
 
-/** `release_approved` (design §9): pay payouts against a verified Approval. No signatures;
- *  anyone may call it repeatedly until every leaf is paid. */
+/** `release_approved`: pay payouts against a verified Approval. No signatures;
+ * anyone may call it repeatedly until every leaf is paid.*/
 export function releaseApprovedInstruction(args: {
   programId: PublicKey; crank: PublicKey; auctionPda: PublicKey; approvalPda: PublicKey; payouts: SolPayout[];
 }): TransactionInstruction {
@@ -172,7 +172,7 @@ export function releaseApprovedInstruction(args: {
 }
 
 /** Serialized byte length of a transaction; web3.js refuses to serialize oversize ones, so the
- *  reported number from its error is used instead. */
+ * reported number from its error is used instead.*/
 function txSize(tx: VersionedTransaction | Transaction): number {
   try {
     return tx.serialize().length;
@@ -184,8 +184,8 @@ function txSize(tx: VersionedTransaction | Transaction): number {
 }
 
 /** Create + fill a lookup table holding `addresses` (in payout order) and wait (bounded poll)
- *  until its entries are active for lookups (the runtime ignores entries extended in the slot
- *  the transaction is processed in). */
+ * until its entries are active for lookups (the runtime ignores entries extended in the slot
+ * the transaction is processed in).*/
 export async function createLookupTableOn(
   conn: Connection, payer: Keypair, addresses: PublicKey[],
 ): Promise<{ table: AddressLookupTableAccount; txs: string[] }> {
@@ -231,9 +231,9 @@ export async function createLookupTableOn(
 }
 
 /** Send `release_approved` payouts, chunked to fit the packet limit, as versioned transactions
- *  with the destination + paid-flag accounts in an address lookup table (design §9 size remedy:
- *  the measured capacity without a table is below 4 payouts at proof depth 4). Returns the
- *  payout indexes of each sent chunk and the transaction signatures. */
+ * with the destination + paid-flag accounts in an address lookup table (design §9 size remedy:
+ * the measured capacity without a table is below 4 payouts at proof depth 4). Returns the
+ * payout indexes of each sent chunk and the transaction signatures.*/
 export async function sendReleaseApproved(conn: Connection, payer: Keypair, args: {
   programId: PublicKey; auctionPda: PublicKey; approvalPda: PublicKey; payouts: SolPayout[];
 }): Promise<{ chunks: number[][]; txs: string[]; lookupTable: string }> {
@@ -313,7 +313,7 @@ export interface SolStatus {
 
 export function parseAuctionState(data: Buffer): Omit<SolStatus, "paidLeaves"> {
   if (data.length !== 236 || data[0] !== 1) throw new Error("not a BenzoEscrow auction account");
-  // R9 item 1: the state records its account-layout version (byte 235); refuse any other layout
+  // The state records its account-layout version (byte 235); refuse any other layout
   if (data[235] !== 2) throw new Error(`unsupported BenzoEscrow account layout version ${data[235]}`);
   return {
     bump: data[1], refunded: data[2] !== 0,
@@ -336,7 +336,7 @@ export async function solStatus(conn: Connection, programId: PublicKey, auctionI
   const paidLeaves: Record<string, boolean> = {};
   for (const leaf of leaves) {
     const flag = await conn.getAccountInfo(paidPda(programId, auctionId, leaf));
-    // §10 F-1: the flag counts only if program-owned with the PAID_V1 marker (same rule as the
+    // The flag counts only if program-owned with the PAID_V1 marker (same rule as the
     // program) — lamports or data alone prove nothing, anyone can dust the PDA
     paidLeaves[bytesToHex(leaf)] =
       flag !== null && flag.owner.equals(programId) && Buffer.from(flag.data).equals(PAID_MARKER);

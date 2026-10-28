@@ -1,8 +1,7 @@
-// The three OrbStack signer hosts (Phase 5 part 1 §11), as PRODUCT code: run commands on them, push packets, and the
+// The three OrbStack signer hosts, as PRODUCT code: run commands on them, push packets, and the
 // per-auction custody steps every host-custody run repeats — fresh DKG on the hosts, the operator's UFVK imported per
 // host, host envelope and witness keys, witness certificates and envelope-opens reports computed ON the hosts.
-// Batch B42 (gate DOC): this is the move of e2e/lib/hosts.ts into the product (`benzo hosts ...`), so the harness and
-// the CLI run one copy. e2e/lib/hosts.ts re-exports this module; the harness behaviour (orb/orbctl call sequences,
+// `benzo hosts ...`: the harness and the CLI run this one copy; the harness behaviour (orb/orbctl call sequences,
 // timeouts, retries) is unchanged. Nothing here ever prints private key material.
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -12,7 +11,7 @@ import { checkCertificates, freezeStatement, validateWitnessSet, type WitnessSet
 import { clientCommon as client } from "../clear/registry";
 import { lwdBound, lwdTimedOut } from "../settle/bounded";
 
-// Paths and settings with exactly the semantics e2e/lib/env.ts had (the harness relied on them): the repo root from
+// Paths and settings with exactly the semantics the harness relies on: the repo root from
 // git, .env loaded into unset variables, and BNZ_STATE_DIR resolved against the root.
 export const ROOT = execFileSync("git", ["rev-parse", "--show-toplevel"]).toString().trim();
 for (const line of (existsSync(path.join(ROOT, ".env")) ? readFileSync(path.join(ROOT, ".env"), "utf8") : "").split("\n")) {
@@ -29,9 +28,9 @@ export const STATE = path.join(ROOT, env("BNZ_STATE_DIR").replace(/^\.\//, ""));
 export const H = "/home/benzo/.benzo", NAMES = ["alice", "bob", "carol"] as const;
 // Where the signers dial frostd: OrbStack's host alias, unless BNZ_FROSTD_HOST names another (the host's private hostname).
 export const FROSTD = process.env.BNZ_FROSTD_HOST ?? `host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
-// `orb`/`orbctl` calls have hung indefinitely on a VM that answered the next call instantly (live R28 run): they get a
-// 2-minute timeout and up to 3 attempts. A lightwalletd call is bounded as in the product (R48/R49); every other
-// command runs once, unbounded. H8: a stuck `orb` client ignores SIGTERM, so every orb/orbctl bound here kills
+// `orb`/`orbctl` calls have hung indefinitely on a VM that answered the next call instantly (live run): they get a
+// 2-minute timeout and up to 3 attempts. A lightwalletd call is bounded as in the product; every other
+// command runs once, unbounded. a stuck `orb` client ignores SIGTERM, so every orb/orbctl bound here kills
 // with SIGKILL (settle/cli.ts already does; RG attempt 13 and the final RG each hung 1-2 h on SIGTERM).
 const ORB_BOUND = { timeout: 120_000, killSignal: "SIGKILL" as const };
 export const sh = (cmd: string, args: string[], input?: string) => {
@@ -60,9 +59,9 @@ export const localBenzo = (args: string[], input?: any): any => {
   return out.startsWith("{") || out.startsWith("[") ? JSON.parse(out.split("\n").filter(l => l.startsWith("{") || l.startsWith("[")).at(-1)!) : out;
 };
 
-// The harness's DKG lock (tools/repro/markets.ts run()): concurrent DKGs on the same hosts and frostd collide, so
+// The DKG lock: concurrent DKGs on the same hosts and frostd collide, so
 // processes take turns over the same lock directory. A crashed holder's lock is stale after 10 minutes; the removal
-// keeps the R43 rule (a script may delete only under tmp/), and the fixed path is always there.
+// keeps the rule (a script may delete only under tmp/), and the fixed path is always there.
 const DKG_LOCK = path.join(ROOT, "tmp", "markets-dkg.lock");
 export async function withDkgLock<T>(body: () => Promise<T>): Promise<T> {
   mkdirSync(path.dirname(DKG_LOCK), { recursive: true });
@@ -77,7 +76,7 @@ export async function withDkgLock<T>(body: () => Promise<T>): Promise<T> {
 }
 function rmUnderTmp(p: string): void {
   const r = path.resolve(p);
-  requireThat(r.startsWith(path.join(ROOT, "tmp") + path.sep), "R43: refusing to delete outside tmp/");
+  requireThat(r.startsWith(path.join(ROOT, "tmp") + path.sep), "refusing to delete outside tmp/");
   rmSync(r, { recursive: true, force: true });
 }
 
@@ -92,7 +91,7 @@ export async function dkgOnHosts(id: string, benzo: (args: string[], input?: any
     setTimeout(() => {
       const p = spawn("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", `${H}/bin/benzo`, "sign", "dkg", "--id", id, "--name", n, "--server", FROSTD, ...(i === 0 ? ["--peers", `${pk("bob")},${pk("carol")}`] : [])]);
       let out = "", err = "";
-      // H8: a DKG that has not finished in 10 minutes is stuck (a live one takes seconds); SIGKILL it so the caller
+      // A DKG that has not finished in 10 minutes is stuck (a live one takes seconds); SIGKILL it so the caller
       // fails loudly. `sign dkg` is idempotent per auction, so a re-run reports a finished key instead of redoing it.
       const stuck = setTimeout(() => p.kill("SIGKILL"), 10 * 60_000);
       p.stdout.on("data", d => (out += d)); p.stderr.on("data", d => (err += d));
@@ -117,7 +116,7 @@ export async function dkgOnHosts(id: string, benzo: (args: string[], input?: any
 export function hostEnvelopeKeys(): string[] {
   return NAMES.map(n => {
     const f = `${H}/signers/${n}/envelope-key.json`;
-    // H8: bounded like every orb call; a killed probe (status null) is retried, then thrown, never read as "absent"
+    // Bounded like every orb call; a killed probe (status null) is retried, then thrown, never read as "absent"
     // (that would mint a new envelope key over the pinned one).
     let t = spawnSync("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
     for (let i = 1; t.status === null && i < 3; i++) t = spawnSync("orb", ["run", "-m", `${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`, "-u", "benzo", "test", "-f", f], ORB_BOUND);
@@ -134,7 +133,7 @@ export function hostWitnessKeys(): string[] {
   });
 }
 
-// One checked merge for the hosts' witness certificates (B42, gate DOC): the merged certificate list is verified
+// One checked merge for the hosts' witness certificates: the merged certificate list is verified
 // q_w-of-n_w against the signed witness set and the frozen statement (checkCertificates) BEFORE it is written, so a
 // wrong or forged certificate never reaches the published document. This replaces the harness's raw JSON edit; the
 // written document is byte-identical to the one that edit produced. `benzo open` and settle/plan.ts re-check the same
@@ -167,12 +166,12 @@ export function hostWitnessCerts(id: string, publicDir: string, signer: string, 
   mergeWitnessCerts(publicDir, gathered);
 }
 
-// R23.2 envelope-opens reports computed ON each host from its own key and vault, saved where the plan reads them.
+// envelope-opens reports computed ON each host from its own key and vault, saved where the plan reads them.
 // Returns the saved reports so `benzo hosts envelope-opens` can summarize them.
 export function hostEnvelopeOpens(id: string, publicDir: string): any[] {
   const dir = `pub-${id.slice(0, 12)}`;
   const reports: any[] = [];
-  // R15 item 3 / Ruling R40 item 2: the recorded claims join the report input (the claim's opening report
+  // The recorded claims join the report input (the claim's opening report
   // supersedes any bid-envelope entry for its row), pushed sealed exactly as the settlement packet relays them.
   const claims = path.join(STATE, "settle", id, "claims.json");
   for (const n of NAMES) {
@@ -205,7 +204,7 @@ export const hostXchainAttest = (n: string, args: string[]): any => {
   return JSON.parse(host(n, [`${H}/bin/benzo`, "xchain", "attest", "--host-record", ...args]));
 };
 
-// Ruling R40 item 3 (F4): the canonical launch delivery list is built and signed ON the named hosts (each
+// The canonical launch delivery list is built and signed ON the named hosts (each
 // opens the sealed records with its own envelope key and checks every owner signature against its own
 // openings), merged here and recorded with `benzo launch deliver-list`. Returns the merged list.
 export function hostDeliveryList(id: string, publicDir: string, deliveriesFile: string, signer: string, names: string[]): any {

@@ -18,9 +18,9 @@ export type ClearBody = {
   rfq_delivery?: { deadline_height: number; signers: string[] };
   lots?: { lot_id: string; clearing_price_zats: string }[];
 };
-// Settlement-side extras the money rules may account for (gate CF: which winners defaulted on their balance;
-// R38 item 4 / N4: the out-of-window balance refunds, published as per-leaf counts only, never addresses).
-// Ruling R61: `bond_void` — the signed balance window's start block predates R's release time, so no winner
+// Settlement-side extras the money rules may account for (which winners defaulted on their balance;
+// The out-of-window balance refunds, published as per-leaf counts only, never addresses).
+// `bond_void` — the signed balance window's start block predates R's release time, so no winner
 // could have known they won when the window opened: the bond is void, nobody defaults, every deposit refunds in
 // full on its own leaf, every balance note refunds on its own row, and the seller is paid nothing.
 export type SettlementExtras = { defaults?: number[]; delivery_defaults?: Signed[]; balance_refunds?: import("./features").BalanceRefund[]; bond_void?: boolean };
@@ -139,11 +139,11 @@ export function obligationsModeA(result: ClearBody, settlement?: SettlementExtra
   const defaults = settlement?.defaults ?? [];
   requireThat(new Set(defaults).size === defaults.length, "duplicate default");
   requireThat(defaults.length === 0 || result.allocations.every(a => a.balance_due_zats !== undefined), "defaults without bond");
-  // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2) + Ruling R41 (F7): each out-of-window balance note is its
+  // Each out-of-window balance note is its
   // own immutable refund row (`balance-late:<txid>:<pool>:<action_index>`) and each leaf's in-window excess is
-  // one `balance-excess:<leaf_index>` row (F10), host-derived and claimable through the claim path with that
+  // one `balance-excess:<leaf_index>` row, host-derived and claimable through the claim path with that
   // leaf's owner key. A newly seen note adds a NEW row and never grows an existing one. Published counts only,
-  // never addresses. Ruling R41 (F7): a published `pending` row is counts-only and is NOT counted here (verify
+  // never addresses. a published `pending` row is counts-only and is NOT counted here (verify
   // does not count it); a PAID row is counted, held to the row/receipt accounting and attested by the paying
   // batch's maps. The plan's own derivation carries no state and counts every row it parks or promotes.
   const refunds = (settlement?.balance_refunds ?? []).filter(r => r.state !== "pending");
@@ -151,7 +151,7 @@ export function obligationsModeA(result: ClearBody, settlement?: SettlementExtra
   requireThat(refunds.every(r => isRefundRowParty(r.party) && Number.isSafeInteger(r.leaf_index) && /^[1-9][0-9]*$/.test(r.amount_zats)), "balance refunds");
   requireThat(refunds.length === 0 || result.allocations.every(a => a.balance_due_zats !== undefined), "balance refunds without bond");
   if (settlement?.bond_void) {
-    // Ruling R61: a void bond. Each leaf gets back exactly what its deposit vaulted (payment + refund - balance_due,
+    // A void bond. Each leaf gets back exactly what its deposit vaulted (payment + refund - balance_due,
     // i.e. C at zero auction fee; a non-winner's refund is already C), and each balance note refunds on its own row.
     requireThat(defaults.length === 0, "a void bond has no defaults");
     requireThat(result.allocations.every(a => a.balance_due_zats !== undefined), "bond void without bond");
@@ -166,10 +166,10 @@ export function obligationsModeA(result: ClearBody, settlement?: SettlementExtra
   let seller = BigInt(result.conservation.payout_zats);
   for (const a of result.allocations) {
     if (defaults.includes(a.leaf_index)) {
-      // Forfeit (gate CF): the defaulter never pays their balance and their fill yields the vaulted bond net of
+      // Forfeit: the defaulter never pays their balance and their fill yields the vaulted bond net of
       // fees to the seller instead of the payment (payment + refund - balance_due = C - fee). Since payout already
       // counts their would-be payment, the seller row moves by refund - balance_due; the fill is never re-cleared.
-      // Their own out-of-window notes are not the forfeited bond: each refunds through its own row below (N4).
+      // Their own out-of-window notes are not the forfeited bond: each refunds through its own row below.
       requireThat(a.fill > 0 && BigInt(a.balance_due_zats ?? "0") > 0n, `default for leaf ${a.leaf_index} that owes no balance`);
       seller += BigInt(a.refund_zats) - BigInt(a.balance_due_zats!);
       continue;

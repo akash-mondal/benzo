@@ -1,11 +1,11 @@
-// Settlement envelopes (gate W): the bidder's refund/delivery destination sealed client-side to each custody
+// Settlement envelopes: the bidder's refund/delivery destination sealed client-side to each custody
 // signer's X25519 envelope key, and authenticated by the bid's one-time owner key (Ed25519 over auction_id,
 // ciphertext_hash, envelope_ct — threat model #7, #32, #38). Envelope ciphertexts are public; plaintexts never are.
 // The owner signature and the salted settlement commitment bind the whole envelope.
 //
-// Multi-recipient sealed box (docs/design/phase5-part1-live.md §4): a random 32-byte content key encrypts the
+// Multi-recipient sealed box: a random 32-byte content key encrypts the
 // fixed 512-byte padded plaintext (ChaCha20-Poly1305 IETF) and is wrapped (age-style stanza per recipient) to
-// each signer's X25519 public key with crypto_box_seal. Bytes (R10 item 1):
+// each signer's X25519 public key with crypto_box_seal. Bytes:
 //
 //   "benzo-envelope-v2" (17) || n (1..3) || n * (recipient_pk 32 || sealed_key 80) || key_commit (32) || nonce 12 || body (528)
 //
@@ -14,7 +14,7 @@
 // crypto_generichash(32, content_key, key = "benzo-envelope-v2-kc" zero-padded to libsodium's
 // crypto_generichash_KEYBYTES) is recomputed by openEnvelope after unwrapping and refused on mismatch
 // (`envelope key commitment`): ChaCha20-Poly1305 is not key-committing, so without this field a hostile sealer
-// could wrap different content keys for different signers and make them open different destinations (R10).
+// could wrap different content keys for different signers and make them open different destinations.
 // All cryptography comes from libsodium (crypto_box_seal per stanza, crypto_aead_chacha20poly1305_ietf for the
 // body, crypto_generichash/BLAKE2b for the key commitment — see docs/AUDITS.md); no hand-written key derivation.
 // The recipient set is the signed manifest's `envelope_keys` (the three signers).
@@ -25,7 +25,7 @@ import { requireShieldedDestination } from "./destination";
 import { type Deliver, type DeliverInput, requireDeliver } from "./deliver";
 await sodium.ready;
 
-// R19 item 1: the envelope payload is v2 canonical JSON `{"v":2,"refund":…,"deliver":{…}}` inside the
+// The envelope payload is v2 canonical JSON `{"v":2,"refund":…,"deliver":{…}}` inside the
 // same fixed padded plaintext; a plain-UA plaintext (v1) is still read as `{refund}`. `refund` is
 // mandatory and shielded-only; `deliver` is the cross-chain destination (validated per chain at seal
 // and at every use — `envelope/deliver.ts`).
@@ -57,17 +57,17 @@ export function generateEnvelopeKey(): EnvelopeKey {
 
 const MAGIC = Buffer.from("benzo-envelope-v2"); // 17 bytes
 const STANZA_BYTES = 32 + 80; // recipient X25519 pk || crypto_box_seal(32-byte content key)
-const COMMIT_BYTES = 32; // key_commit (R10 item 1), inside the header / associated data
+const COMMIT_BYTES = 32; // key_commit, inside the header / associated data
 const NONCE_BYTES = 12;
-// Fixed 512-byte plaintext (R4 item 3): u16be payload length || payload || zero pad, so every envelope ciphertext
+// Fixed 512-byte plaintext: u16be payload length || payload || zero pad, so every envelope ciphertext
 // has the same length and reveals nothing about the receiver type. openEnvelope strips and checks the padding.
 export const ENVELOPE_PT_BYTES = 512;
-// R10 item 1: the fixed envelope-ciphertext byte length for n = 3 (the production recipient set).
+// The fixed envelope-ciphertext byte length for n = 3 (the production recipient set).
 export const ENVELOPE_CT_BYTES_N3 = MAGIC.length + 1 + STANZA_BYTES * 3 + COMMIT_BYTES + NONCE_BYTES + ENVELOPE_PT_BYTES + 16;
-// R12 item 1: the pre-v2 sealed box (32 || 12 || 512 || 16 = 572 bytes). It is accepted as a published record
-// only where the signed manifest pins no `envelope_keys` (the Phase 2–4 evidence); nowhere else.
+// The pre-v2 sealed box (32 || 12 || 512 || 16 = 572 bytes). It is accepted as a published record
+// only where the signed manifest pins no `envelope_keys` (the oldest evidence); nowhere else.
 export const ENVELOPE_CT_BYTES_PRE_V2 = 32 + 12 + ENVELOPE_PT_BYTES + 16;
-// key_commit key (R10 item 1): the 20-byte ASCII label zero-padded with `32 - label.length` to exactly
+// key_commit key: the 20-byte ASCII label zero-padded with `32 - label.length` to exactly
 // libsodium's crypto_generichash_KEYBYTES. The head review of 79aed9e found the padding computed as
 // `32 - 19`, which made KC_KEY 33 bytes; the key is exactly KEYBYTES, asserted here (fix before any live
 // envelope exists — none had been sealed under the wrong key).
@@ -103,31 +103,31 @@ function sealPadded(plaintext: string, recipientPublicHexes: string[]): string {
   const body = Buffer.from(sodium.crypto_aead_chacha20poly1305_ietf_encrypt(padPlaintext(plaintext), header, null, nonce, contentKey));
   return hex(Buffer.concat([header, nonce, body]));
 }
-// v1: a plain shielded-UA plaintext (pre-R19 callers and evidence).
+// v1: a plain shielded-UA plaintext (older callers and evidence).
 export function sealEnvelope(plaintext: string, recipientPublicHexes: string[], network: string): string {
   requireShieldedDestination(plaintext, network);
   return sealPadded(plaintext, recipientPublicHexes);
 }
-// R19 item 1: seal the v2 payload. The plaintext is the canonical JSON of {v:2, refund, deliver?}
-// (manifest/schema `canonical`), inside the unchanged fixed padded plaintext. R25 item 1: the
+// Seal the v2 payload. The plaintext is the canonical JSON of {v:2, refund, deliver?}
+// (manifest/schema `canonical`), inside the unchanged fixed padded plaintext. the
 // deliver's `salt` is generated HERE — 32 fresh random bytes inside the sealed envelope, never
 // caller-supplied — so only parties who open the envelope know it.
 export function sealEnvelopePayload(payload: EnvelopePayload, recipientPublicHexes: string[], network: string): string {
   requireThat(payload !== null && typeof payload === "object" && !Array.isArray(payload), "envelope payload");
   requireShieldedDestination(payload.refund, network);
   const doc: Record<string, unknown> = { v: 2, refund: payload.refund };
-  // R25 item 3: the railgun kind has no escrow adapter and is not shipped — refused at `bid seal` outright
+  // The railgun kind has no escrow adapter and is not shipped — refused at `bid seal` outright
   if (payload.deliver !== undefined) requireThat(payload.deliver.kind !== "railgun", "deliver.kind railgun not supported");
   if (payload.deliver !== undefined) doc.deliver = requireDeliver({ ...payload.deliver, salt: randomBytes(32).toString("hex") });
   return sealPadded(canonical(doc), recipientPublicHexes);
 }
 // The X25519 public key of an envelope recipient key (the same derivation openPadded matches against) —
-// used by `xchain attest` to identify which manifest envelope_keys a --envelope-key file is (R25 item 2).
+// used by `xchain attest` to identify which manifest envelope_keys a --envelope-key file is.
 export function envelopePublicKey(recipientPrivateHex: string): string {
   return hex(Buffer.from(sodium.crypto_scalarmult_base(raw(recipientPrivateHex, 32))));
 }
 
-// §11 H7 (host custody): a whole candidate PCZT sealed by the building host to ONE signer's pinned envelope key, so
+// §11 (host custody): a whole candidate PCZT sealed by the building host to ONE signer's pinned envelope key, so
 // the coordinator relays it without reading the refund recipients in it. crypto_box_seal (libsodium) takes any
 // length; the open refuses any tampered or foreign blob.
 export function sealBlob(bytes: Buffer, recipientPublicHex: string): Buffer {
@@ -138,7 +138,7 @@ export function openBlob(sealed: Buffer, recipientPrivateHex: string): Buffer {
   return Buffer.from(sodium.crypto_box_seal_open(sealed, sodium.crypto_scalarmult_base(sk), sk));
 }
 
-// The recipient X25519 public keys of an envelope, in stanza order (R10 item 1: product validation requires
+// The recipient X25519 public keys of an envelope, in stanza order (product validation requires
 // them to be exactly the signed manifest's `envelope_keys`, in order). Throws on a malformed envelope.
 export function envelopeRecipients(envelopeCtHex: string): string[] {
   const b = raw(envelopeCtHex, 0);
@@ -152,12 +152,12 @@ export function envelopeRecipients(envelopeCtHex: string): string[] {
   for (let i = 0; i < n; i++) out.push(hex(b.subarray(MAGIC.length + 1 + i * STANZA_BYTES, MAGIC.length + 1 + i * STANZA_BYTES + 32)));
   return out;
 }
-// R12 item 1 (Reviewer R F-2/F-4): the one shared published-record rule, used by intake
+// The one shared published-record rule, used by intake
 // (clear/auction-cli.ts admit), settlement (settle/envelopes.ts validEnvelope) and `benzo verify`. When the
 // signed manifest pins `envelope_keys`, a record is valid only as the exact v2 shape for n = 3 — the fixed
 // length, the magic, and stanza recipients equal to `envelope_keys` in order — so a substituted or truncated
 // recipient set can never be admitted, published or certified. When the manifest pins no keys (the pre-v2
-// Phase 2–4 evidence), only the pre-v2 572-byte sealed box is accepted. Total: a malformed record is invalid,
+// oldest evidence), only the pre-v2 572-byte sealed box is accepted. Total: a malformed record is invalid,
 // never a throw.
 export function envelopeRecordValid(record: { envelope_ct?: unknown; owner_sig?: unknown }, envelope_keys: unknown): boolean {
   try {
@@ -195,7 +195,7 @@ function openPadded(envelopeCtHex: string, recipientPrivateHex: string): string 
     contentKey = sodium.crypto_box_seal_open(stanzas.subarray(mine * STANZA_BYTES + 32, (mine + 1) * STANZA_BYTES), myPk, sk);
   } catch { requireThat(false, "envelope key wrap"); }
   requireThat(contentKey.length === 32, "envelope key wrap");
-  // R10 item 1: the unwrapped key must be the one the header commits to — a hostile sealer that wraps a
+  // The unwrapped key must be the one the header commits to — a hostile sealer that wraps a
   // different content key into this stanza is refused here, before the body is ever tried.
   requireThat(sodium.memcmp(keyCommit(contentKey), commit), "envelope key commitment");
   let pt: Uint8Array = new Uint8Array(0);
@@ -205,7 +205,7 @@ function openPadded(envelopeCtHex: string, recipientPrivateHex: string): string 
   const text = unpadPlaintext(Buffer.from(pt));
   return text;
 }
-// R19 item 1: read the payload. A plain-UA plaintext (v1) is read as {refund}; a `{`-leading plaintext
+// Read the payload. A plain-UA plaintext (v1) is read as {refund}; a `{`-leading plaintext
 // must be exactly the v2 shape. `deliver` is returned unformat-validated — every use runs
 // `requireDeliver` (seal did already; a tampered sealer is refused at use, e.g. into the exception queue).
 function envelopeRefund(text: string): EnvelopePayload {
@@ -225,7 +225,7 @@ function parseEnvelopePayload(text: string, network: string): EnvelopePayload {
   requireShieldedDestination(payload.refund, network);
   return payload;
 }
-// B45 (H16, docs/design/phase7-b45-classify.md): the host prefetch (cli/host-derive.ts) opens every
+// The host prefetch (cli/host-derive.ts) opens every
 // envelope record ahead of the per-row loop to collect the destinations it then classifies in ONE bulk
 // call. This is that prefetch-only opener: the envelope's own key check and payload shape, but NO
 // destination rule. It is total (null on anything unopenable) and decides nothing: every payment
@@ -240,7 +240,7 @@ export function openEnvelope(envelopeCtHex: string, recipientPrivateHex: string,
   return openEnvelopePayload(envelopeCtHex, recipientPrivateHex, network).refund;
 }
 
-// Ruling R40 item 3 (F4): a launch delivery record is SEALED to the manifest's `envelope_keys` ("as claims
+// A launch delivery record is SEALED to the manifest's `envelope_keys` ("as claims
 // do"), so the leaf<->destination join is known only to the envelope-key holders and never to the operator or
 // the published directory. The plaintext is the canonical JSON
 // {v:1, kind:"launch-delivery", destinations:[…]} inside the same fixed 512-byte padded envelope as every
@@ -279,7 +279,7 @@ export function settlementCommitment(nonceHex: string, envelopeCtHex: string): s
   return createHash("sha256").update(raw(nonceHex, 16)).update(raw(envelopeCtHex, 0)).digest("hex");
 }
 
-// Settlement statement (R3 item 7): the bid's one-time owner key signs a canonical JSON body — auction, leaf,
+// Settlement statement: the bid's one-time owner key signs a canonical JSON body — auction, leaf,
 // fill, price, payout/refund txid — that anyone can check against result.json and the chain.
 export function statementBinding(body: Record<string, unknown>): Buffer {
   return Buffer.concat([Buffer.from("benzo-settlement-statement-v1"), jsonBytes(body)]);

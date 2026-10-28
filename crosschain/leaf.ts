@@ -1,18 +1,18 @@
-// Canonical cross-chain allocation leaves (docs/design/crosschain.md §3).
+// Canonical cross-chain allocation leaves.
 //
 //   leaf = keccak256("benzo-leaf-v1" ‖ auction_id(32) ‖ index u64be ‖ asset(32) ‖ lot_count u64be
 //                     ‖ destination_kind(u8) ‖ destination_bytes)
 //   root = keccak256("benzo-root-v1" ‖ leaf_count u64be ‖ tree_root)
 //   tree: sorted-pair keccak parents (OpenZeppelin MerkleProof convention)
 //
-// Amounts are never in a leaf: payout = lot_count × standard_lot (§3, lesson 6). No Zcash address,
-// note or funding detail enters a leaf (lesson 5); the public auction id and leaf index do, so a
+// Amounts are never in a leaf: payout = lot_count × standard_lot. No Zcash address,
+// note or funding detail enters a leaf; the public auction id and leaf index do, so a
 // release is publicly matchable to its opened bid (docs/claims.yaml stealth-delivery). The same layout is enforced on chain by
 // contracts/evm/src/BenzoEscrow.sol and contracts/solana/src/lib.rs.
 import { keccak_256 } from "@noble/hashes/sha3";
 import { bech32m } from "@scure/base";
 
-export type DestinationKind = 1 | 2 | 3; // 1 = EVM address (20 bytes), 2 = Solana pubkey (32 bytes), 3 = Railgun 0zk recipient (73 bytes, R19)
+export type DestinationKind = 1 | 2 | 3; // 1 = EVM address (20 bytes), 2 = Solana pubkey (32 bytes), 3 = Railgun 0zk recipient (73 bytes)
 
 export interface AllocationLeaf {
   index: number;
@@ -55,8 +55,8 @@ export function concat(...parts: Uint8Array[]): Uint8Array {
 
 export const keccak = (...parts: Uint8Array[]): Uint8Array => keccak_256(concat(...parts));
 
-/** Leaf asset id (design §3): a 20-byte EVM address left-padded to 32 bytes, or a 32-byte id;
- *  native ETH/SOL is the zero id. Mirrors the contracts' bytes32(uint256(uint160(asset))). */
+/** Leaf asset id: a 20-byte EVM address left-padded to 32 bytes, or a 32-byte id;
+ * native ETH/SOL is the zero id. Mirrors the contracts' bytes32(uint256(uint160(asset))).*/
 export function assetBytes32(asset: string): Uint8Array {
   const b = hexToBytes(asset);
   if (b.length !== 20 && b.length !== 32) throw new Error(`asset must be 20 or 32 bytes: ${asset}`);
@@ -66,8 +66,8 @@ export function assetBytes32(asset: string): Uint8Array {
 }
 
 /** Destination bytes for a leaf: kind 1 is a 20-byte EVM address, kind 2 a 32-byte Solana pubkey,
- *  kind 3 (R19) a Railgun 0zk recipient — its bech32m-decoded 73-byte payload (version ‖ master ‖
- *  network ‖ viewing), the canonical byte form of the address the shield request will name. */
+ * kind 3 a Railgun 0zk recipient — its bech32m-decoded 73-byte payload (version ‖ master ‖
+ * network ‖ viewing), the canonical byte form of the address the shield request will name.*/
 export function destinationBytes(kind: DestinationKind, destination: string, base58ToBytes: (s: string) => Uint8Array): Uint8Array {
   if (kind === 1) {
     const b = hexToBytes(destination);

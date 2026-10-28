@@ -1,4 +1,4 @@
-// R6 (Reviewer R F2): one shared sealed-reserve binding for `benzo verify` and the signer plan
+// One shared sealed-reserve binding for `benzo verify` and the signer plan
 // (settle/plan.ts), so the two cannot drift. Every caller derives the opening fresh from
 // manifest.sealed_reserve with its own transport — the signer with the pinned Go tle, verify with
 // tlock-js over the authenticated published beacon and Go tle as an independent cross-check — and
@@ -22,7 +22,7 @@ export function tleDecryptFailover(tleBin: string, chainHash: string, ciphertext
   for (let round = 0; round < 3; round++) {
     for (const url of drandUrls()) {
       const r = spawnSync(tleBin, ["-d", "-n", url, "-c", chainHash], { input: ciphertext, maxBuffer: 1 << 20, ...tleBound });
-      // R52 (Reviewer R P1-2 on R49): a stalled relay is bounded and fails over to the next endpoint like any network error.
+      // A stalled relay is bounded and fails over to the next endpoint like any network error.
       if ((r.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") { errors.push(`${url}: timed out after ${DRAND_TIMEOUT_MS} ms (stalled drand relay)`); continue; }
       if (r.error) throw r.error;
       if (r.status === 0) return r.stdout;

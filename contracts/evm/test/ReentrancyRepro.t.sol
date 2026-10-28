@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {BenzoEscrow} from "../src/BenzoEscrow.sol";
 
-// R-review repro: can releaseApproved() be re-entered from a malicious recipient so that one
+// R-review repro: can releaseApproved be re-entered from a malicious recipient so that one
 // allocation leaf is paid twice (and other auctions' funds drained)?
 
 contract Reenterer {

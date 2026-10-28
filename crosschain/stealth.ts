@@ -1,15 +1,15 @@
-// ERC-5564 stealth delivery (docs/design/crosschain.md §4, §7 step 4).
+// ERC-5564 stealth delivery (§7 step 4).
 //
-// The winner's settlement envelope `deliver` (docs/PHASE-5.md R19: `{chain, kind, to, elgamal?}`) carries
+// The winner's settlement envelope `deliver` (`{chain, kind, to, elgamal?}`) carries
 // its ERC-6538 stealth meta-address. Delivery derives ONE fresh stealth address per settlement from that
 // meta-address with the pinned ScopeLift SDK (`@scopelift/stealth-address-sdk`), the escrow pays the allocation there,
-// the release flow adds the tiny native gas stipend (design §4 lesson 6: the winner never funds the fresh
+// the release flow adds the tiny native gas stipend (the winner never funds the fresh
 // address from a known wallet), and the payment is announced on the canonical ERC-5564 Announcer so the
-// winner finds it with its viewing key alone. What is public on chain (design §4): the escrow, the amount
+// winner finds it with its viewing key alone. What is public on chain: the escrow, the amount
 // and a one-time address — never the winner's meta-address or identity.
 //
 // The Announcer and Registry are the canonical ScopeLift deployments (same addresses on every chain,
-// design §4: "canonical Announcer and Registry"): on local chains they are deployed from the canonical
+// "canonical Announcer and Registry"): on local chains they are deployed from the canonical
 // bytecode bundled in the pinned SDK; on Ethereum Sepolia they are the canonical addresses themselves.
 import {
   generateRandomStealthMetaAddress,
@@ -64,7 +64,7 @@ export function generateStealthMetaAddress(): StealthKeys {
   return generateRandomStealthMetaAddress() as StealthKeys;
 }
 
-// The winner's envelope `deliver` (docs/PHASE-5.md R19: `{chain:"evm", kind:"stealth", to:<meta-address>}`)
+// The winner's envelope `deliver` (`{chain:"evm", kind:"stealth", to:<meta-address>}`)
 // carries its ERC-6538 stealth meta-address. Accepts the raw 0x meta-address or the "st:eth:" URI and
 // returns the URI the SDK takes; anything else is refused (the field crosses a trust boundary — it comes
 // out of an opened envelope, and `envelope/deliver.ts` `requireDeliver` checks it first).
@@ -79,9 +79,9 @@ export function deliverMetaAddressURI(deliver: { chain: string; kind: string; to
   return uri;
 }
 
-// R19 item 2: every signer derives the leaf's destination from its own opening of the winner's envelope,
+// Every signer derives the leaf's destination from its own opening of the winner's envelope,
 // so the one-time stealth address must be signer-reproducible. The ephemeral private key is a SHA-256
-// KDF over the winner's secret deliver `salt` (R25 item 1 — generated inside the sealed envelope), the
+// KDF over the winner's secret deliver `salt` (item 1 — generated inside the sealed envelope), the
 // agreed `SHA-256(deliver)` and the settlement coordinates (custom construction, documented
 // in docs/AUDITS.md); all curve work and the ERC-5564 derivation itself stay in the pinned ScopeLift SDK.
 // One fresh address per (settlement, leaf): different auctions/batches/leaves never reuse an address.

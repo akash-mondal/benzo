@@ -1,4 +1,4 @@
-// PHASE-5 R3.5: serials are assigned after clearing from the manifest's future quicknet beacon.
+// Serials are assigned after clearing from the manifest's future quicknet beacon.
 import { bls12_381 } from "@noble/curves/bls12-381";
 import { createHash } from "node:crypto";
 import { QUICKNET, requireThat } from "../manifest/schema";

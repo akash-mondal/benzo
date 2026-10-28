@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// One LIVE ERC-5564 stealth delivery on Ethereum Sepolia (docs/design/crosschain.md §4, §7 step 4/5):
+// One LIVE ERC-5564 stealth delivery on Ethereum Sepolia (§7 step 4/5):
 // deliver.kind = "stealth" end to end through the shipped CLI against the real chain —
 //   the canonical ScopeLift Announcer + Registry (their canonical Sepolia deployments, from the
 //   pinned SDK), one winner envelope carrying the stealth meta-address, a real published directory
@@ -27,7 +27,7 @@ const WORK = path.join(REPO, "tmp/stealth-live");
 const PUBDIR = path.join(WORK, "public");
 const EVM_RPC = process.argv[2] || process.env.BNZ_SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com";
 const UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
-const STIPEND = parseEther("0.0001"); // design §4 lesson 6: a tiny native gas stipend with the fresh payout
+const STIPEND = parseEther("0.0001"); // A tiny native gas stipend with the fresh payout
 const LOT = parseEther("0.01");
 
 mkdirSync(KEYDIR, { recursive: true, mode: 0o700 });
@@ -85,7 +85,7 @@ async function main() {
   ], { cwd: REPO });
   const { stealth, del, bid, envmod, schema, merkle, reg, tlock, armor } = await import(pathToFileURL(path.join(WORK, "lib.mjs")).href);
 
-  // the canonical Announcer + Registry: their canonical Sepolia deployments (design §4)
+  // the canonical Announcer + Registry: their canonical Sepolia deployments
   const announcer = stealth.CANONICAL_ERC5564_ANNOUNCER;
   const registryCode = await publicClient.getBytecode({ address: stealth.CANONICAL_ERC6538_REGISTRY });
   check("live-canonical-announcer",
@@ -94,7 +94,7 @@ async function main() {
 
   // ---- winner: one fresh stealth meta-address (its deliver is sealed in its envelope) ----
   const winnerKeys = stealth.generateStealthMetaAddress();
-  const deliver = { chain: "evm", kind: "stealth", to: winnerKeys.stealthMetaAddress }; // no salt: the sealer generates it (R25 item 1)
+  const deliver = { chain: "evm", kind: "stealth", to: winnerKeys.stealthMetaAddress }; // no salt: the sealer generates it
 
   // ---- the published directory fixture: one bid, real tlock + BLS-verified drand beacon ----
   const envelopeKeys = [envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey(), envmod.generateEnvelopeKey()];
@@ -133,7 +133,7 @@ async function main() {
     hash: chainHash, groupHash: "", schemeID: schema.QUICKNET.scheme, metadata: { beaconID: "quicknet" },
   };
   const prep = bid.prepareBid({ auction_id: auction1, price_zats: 250000n, quantity: 1, destination_ua: UA, deliver, envelope_public_hexs: recipients });
-  // R25 item 1: the deliver's secret salt is generated inside the sealed envelope — open it to get it
+  // The deliver's secret salt is generated inside the sealed envelope — open it to get it
   const sealedDeliver = del.requireDeliver(envmod.openEnvelopePayload(prep.envelope_ct_hex, envelopeKeys[0].private_hex).deliver);
   const armored = await tlock.timelockEncrypt(R, Buffer.from(prep.plaintext_hex, "hex"), { chain: () => ({ info: async () => pinnedInfo }) });
   const ctHex = Buffer.from(armor.decodeArmor(armored), "binary").toString("hex");
@@ -145,7 +145,7 @@ async function main() {
   const frozenTree = merkle.tree([leaf]);
   // published_at precedes T_freeze as a real freeze does (checkPublicAuction refuses a late freeze)
   const frozen = { auction_id: auction1, manifest_hash: checked.manifest_hash, root: frozenTree.root, leaf_count: 1, cutoff: R, published_at: RT - 500, leaves: [leaf], paths: frozenTree.paths };
-  // the REAL product result (R22 + R24 item 2): the shipped clearing over the opening
+  // the REAL product result: the shipped clearing over the opening
   const openedInput = [{ leaf_index: 0, plaintext_hex: prep.plaintext_hex }];
   const clearResult = reg.clearForMode({ manifest: packet, signer: signerHex, frozen, opened: openedInput, reserve_opening: null });
   mkdirSync(PUBDIR, { recursive: true });
@@ -156,14 +156,14 @@ async function main() {
     envelopes: [{ ciphertext_hash: bound.ciphertext_hash_hex, envelope_ct: bound.envelope_ct_hex, owner_sig: bound.owner_sig_hex }],
     result: clearResult,
   }, null, 2) + "\n");
-  // the literal --dir/result.json (R22 byte-equality): the same canonical bytes the document embeds
+  // the literal --dir/result.json (byte-equality): the same canonical bytes the document embeds
   const resultBytes = schema.jsonBytes(clearResult);
   const resultFile = path.join(PUBDIR, "result.json");
   writeFileSync(resultFile, resultBytes);
   const resultHash = "0x" + sha256(resultBytes);
   pass("live-fixture-built", `auction 0x${auction1} drand round ${R}`);
 
-  // ---- escrow: deploy fresh (R9 item 1: never in-place upgrade), lock the native lot ----
+  // ---- escrow: deploy fresh (never in-place upgrade), lock the native lot ----
   const artifact = JSON.parse(readFileSync(path.join(REPO, "contracts/evm/out/BenzoEscrow.sol/BenzoEscrow.json"), "utf8"));
   const escrow = await new ContractFactory(artifact.abi, artifact.bytecode.object, deployer).deploy();
   await escrow.waitForDeployment();

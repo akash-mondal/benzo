@@ -29,7 +29,7 @@ function omissions(frozen:Frozen, auctionId:string, submitTime:number, C:string,
     const txid=d.note_id.split(":")[0];
     const leaf=frozen.leaves.find(l=>l.ciphertext_hash===d.ciphertext_hash && l.deposit.txid===txid && l.deposit.pool==="ironwood");
     if(leaf) {
-      // Phase 4 Deposit lacks output_index: refuse ambiguous same-tx/same-ciphertext notes rather than
+      // An older Deposit lacks output_index: refuse ambiguous same-tx/same-ciphertext notes rather than
       // silently treating two distinct notes as one included leaf. A must retain the full NoteId when wiring.
       requireThat(!frozenMatches.has(leaf.leaf_index), "ambiguous frozen note identity");frozenMatches.add(leaf.leaf_index);
     } else if(times.get(d.height)!<submitTime) absent.push(d);

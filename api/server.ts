@@ -31,7 +31,7 @@ export function startServer(options: ServerOptions): http.Server {
       }
       if (parts[0] === "auction" && parts[1]) {
         if (parts[1] !== pub.manifest.auction_id) return send(res, 404, { error: "unknown auction id" });
-        // R23 item 3 (reviewer G4): a document with deposit claims and no published beacon fails CLOSED
+        // (reviewer G4): a document with deposit claims and no published beacon fails CLOSED
         // with the verify ERROR — the claims check reports the memo it cannot open — never an exception
         // or a 500. `errors` carries the same ERROR lines `benzo verify` prints.
         let claimOpenings: Map<number, string | null>;
@@ -44,7 +44,7 @@ export function startServer(options: ServerOptions): http.Server {
         // A manifest failure means the document cannot be trusted at all (same verdict as `benzo verify`).
         const manifestBroken = failed.find(c => c.id === "manifest");
         if (manifestBroken) return send(res, 400, { valid: false, error: `manifest ${manifestBroken.error}` });
-        // `valid` covers only the checks that apply to the current state (R21 item 5).
+        // `valid` covers only the checks that apply to the current state.
         return send(res, 200, {
           valid: failed.length === 0,
           errors: failed,
@@ -74,8 +74,8 @@ export function startServer(options: ServerOptions): http.Server {
         return send(res, 200, JSON.parse(pub.resultBytes.toString("utf8")));
       }
       if (parts[0] === "allocation" && parts.length === 1) {
-        // Ruling R41 item 2 (F8): the hash-checked delivery channel is keyed on the HOST-SIGNED
-        // `benzo-delivery-list-v1` statement (R40.3's delivery_list), not the `result.allocation_file_hash`
+        // The hash-checked delivery channel is keyed on the HOST-SIGNED
+        // `benzo-delivery-list-v1` statement (delivery_list), not the `result.allocation_file_hash`
         // field F4 removed — pre-F4 docs fall back to the result field. The file is checked against whichever
         // is present, so the channel the route exists to protect actually serves.
         const commit = pub.deliveryList?.allocation_file_hash ?? pub.result?.allocation_file_hash;
@@ -120,7 +120,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
     process.exit(2);
   }
   try {
-    // A --signer mismatch refuses to serve (R21 item 5), same as every later request load.
+    // A --signer mismatch refuses to serve, same as every later request load.
     loadPublicAuction(dir, { signer });
   } catch (e) {
     process.stderr.write(`ERROR api ${(e as Error).message}\n`);

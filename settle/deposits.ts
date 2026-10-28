@@ -1,4 +1,4 @@
-// R26 item 1: the one deposit-note identity rule. A note is identified by its output position —
+// The one deposit-note identity rule. A note is identified by its output position —
 // `deposit:<txid>:<pool>:<action_index>` with `action_index` the output/action index benzo-scan emits —
 // never by its address's diversifier index: one transaction can carry two outputs to the same deposit
 // address, and each note is its own refund obligation. Every plan, claim, verify and evidence path derives
@@ -25,7 +25,7 @@ export function isDepositParty(party: string): boolean {
   return !!m && Number(m[3]) <= 65535;
 }
 
-// Historical published rows (evidence from Phases 2–5 before R26 item 1) name a note by its
+// Historical published rows (evidence from Phases 2–5 before item 1) name a note by its
 // address's diversifier index, `deposit:<txid>:<diversifier_index>`. Those directories are immutable,
 // so every verifier-side ACCEPTANCE of a published party takes either identity. Writers never emit
 // this one; the strict identity above stays the only one the product writes.
@@ -41,7 +41,7 @@ export function depositParty(note: { txid: string; pool: string; action_index: n
   return party;
 }
 
-// The exact note a deposit party names, or undefined when none does. Ruling R44 (F18): an unkeyable note
+// The exact note a deposit party names, or undefined when none does. an unkeyable note
 // is an ERROR, never a silent disable — a note-shaped party outside the scanner's u16 range is refused loudly.
 export function partyNote<T extends { txid: string; pool: string; action_index: number }>(notes: T[], party: string): T | undefined {
   const m = PARTY.exec(party);
@@ -61,7 +61,7 @@ export function refundable<T extends DepositNote>(notes: T[]): { payable: T[]; i
 }
 
 // The plan's stray rule, shared with the witnesses' strays statement: a deposit-address note that is not
-// one of the frozen leaves' deposits (or any of them when nothing was frozen). Ruling R40 item 1 (F1): in a
+// one of the frozen leaves' deposits (or any of them when nothing was frozen). in a
 // bond-then-pay auction a slot collision's note is a stray too — only the first deposit note at each deposit
 // slot is an order (clear/features.ts slotOrders, the one shared rule), so the later note at a used slot
 // refunds through this same stray path to its own depositor and can never be credited or defaulted against a
@@ -79,13 +79,13 @@ export function strayNotes<T extends { txid: string; address: string }>(
      collide.has(`${n.txid}:${n.address}`)));
 }
 
-// B46 (H15, docs/design/phase7-b46-reserve-return.md, Revision R103): the reserve-return row's AMOUNT is
+// The reserve-return row's AMOUNT is
 // value-based. Vault value is FUNGIBLE — the wallet picks every batch's inputs, so an ordinary batch can spend
 // a bidder's stray note and return its value as internal change — so checking WHICH notes the return spends
 // cannot protect anyone. Only the amount can: once the auction owes NOTHING (the gate below), the return pays
 // the vault's WHOLE unspent value minus the ZIP-317 fee, spending every unspent note (nothing is left behind).
 //
-// B46 R103: the ONE "nothing is owed" gate, shared by the signer plan (settle/plan.ts) and every signer host
+// The ONE "nothing is owed" gate, shared by the signer plan (settle/plan.ts) and every signer host
 // (cli/host-derive.ts deriveReserveReturn). The return is planned or approved only when EVERY one of these
 // holds, judged from our own derivation plus the published accounting:
 //   - every owed row has a published receipt — the owed set is the money rules' own obligations (result
@@ -95,7 +95,7 @@ export function strayNotes<T extends { txid: string; address: string }>(
 //   - no published row is unresolved (an exception row, or a row without its receipt);
 //   - no published balance refund is unpaid (a `pending` entry);
 //   - no batch is pending (the plan's own ledger).
-// An unclaimed stray therefore delays the return indefinitely. That is the conservative choice (R103).
+// An unclaimed stray therefore delays the return indefinitely. That is the conservative choice.
 // The returned list is the outstanding items, deduplicated by identity — its length is the waits line's N.
 export function reserveReturnOutstanding(input: {
   owed: Iterable<{ party: string; amount_zats: string }>;
@@ -111,8 +111,8 @@ export function reserveReturnOutstanding(input: {
   // catches an unclaimed stray or balance note hidden from the published rows — our own scan derived it.
   for (const o of input.owed) if (!receipted(o.party, o.amount_zats)) out.add(o.party);
   for (const r of input.rows) {
-    // H22: no row is skipped by name. R107b skipped any published row named `reserve-return` because the row
-    // was published, without a receipt, while its batch was in flight. Since B56 (rowPublishes) an unpaid return
+    // No row is skipped by name. R107b skipped any published row named `reserve-return` because the row
+    // was published, without a receipt, while its batch was in flight. Since (rowPublishes) an unpaid return
     // row is never published, so a published one is judged like every other row: settled only when paid and
     // receipted at its amount. A coordinator-authored row cannot hide behind the name.
     const settled = (r.state === "paid" || r.state === "refunded") && receipted(r.party, r.amount_zats);
@@ -122,15 +122,15 @@ export function reserveReturnOutstanding(input: {
   for (let i = 0; i < (input.pending_batches ?? 0); i++) out.add(`pending batch ${i + 1}`);
   return [...out].sort();
 }
-// B56 (R121, docs/design/phase7-b56-unpaid-return-row.md): an UNPAID `reserve-return` row is never
+// An UNPAID `reserve-return` row is never
 // published. The published settlement rows (and the summary rows that feed them) leave the row out until
-// the ledger confirmed the batch that paid it — the same paid set `receipts()` uses (`paid`, or `refunded`
+// the ledger confirmed the batch that paid it — the same paid set `receipts` uses (`paid`, or `refunded`
 // for a refund-kind row; the return row itself confirms as `paid`). Verify stays strict: a published
 // return row still needs its receipt and its published accounting. The private ledger keeps the row and
 // its state, and the run prints its typed reason (the pinned exception row's reason line).
 export const rowPublishes = (r: { party: string; state?: string }): boolean =>
   r.party !== "reserve-return" || ["paid", "refunded"].includes(String(r.state));
-// B54 (Reviewer R round 5, P2-1, docs/design/phase7-b54-dust-and-sweep.md): the ONE rule for a note the
+// The ONE rule for a note the
 // wallet can select at all. The pinned wallet NEVER selects a note of 5,000 zats or less: the crate's own
 // note-selection SQL is `AND rn.value > :min_value` with `let min_value = u64::from(zip317::MARGINAL_FEE)`
 // (zcash_client_sqlite-0.22.0 wallet/common.rs `select_unspent_notes`, whose doc says "Selects all the
@@ -144,23 +144,23 @@ export function walletSpendable(note: { value_zats: number | string }): boolean 
   return BigInt(note.value_zats) > BigInt(ZIP317_MARGINAL_FEE_ZATS);
 }
 
-// B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md): the return's amount and fee come
+// The return's amount and fee come
 // from the TOOL's own quote of the sweep (settle/quote.ts quoteSweep — `benzo-pczt quote-sweep`, the same
 // wallet and fee rule `create` uses), never from a prediction over the source count: the real fee is the
 // ZIP-317 fee of the transaction's actual per-pool action counts, which `inspect` enforces. What the rules
 // still derive here is the vault's scanned unspent value and the note identities the sweep must spend:
 // `total_zats` is the figure every signer compares the candidate's inspect `input_zats` against (nothing
 // is left behind), and `ids` are the host approval ledger's source identities, so a second live candidate
-// can never spend them again (Ruling R28 item 3).
+// can never spend them again.
 //
-// B52 item 3 (Sapling): NO vault address can receive Sapling. Every vault address (deposit, fee-reserve,
+// item 3 (Sapling): NO vault address can receive Sapling. Every vault address (deposit, fee-reserve,
 // balance, change) is generated by `benzo-pczt address` (settle/src/main.rs), which derives
 // `UnifiedAddressRequest::ORCHARD` unified addresses — zcash_keys' ORCHARD request requires an Orchard
 // receiver and OMITS every other receiver, so the UA carries no Sapling receiver a sender could pay. A
 // Sapling note in the vault is therefore unreachable today; if one ever appeared, `quote-sweep` refuses
 // it (a note the tool cannot spend) and the row is not planned — the typed waits line, never a crash.
 //
-// B54 (P2-1): the swept total counts only notes the WALLET can spend (walletSpendable, above) — the same
+// The swept total counts only notes the WALLET can spend (walletSpendable, above) — the same
 // rule `quote-sweep` and `create` share. The unspendable residue is reported beside it as `dust_notes`
 // (count) and `dust_zats` (value): it is what stays in the vault after the sweep, and the published
 // reserve_return accounting carries it (verify shape-checks it there).
@@ -180,13 +180,13 @@ export function reserveUnspent<T extends { txid: string; pool: string; action_in
   return { total_zats: total.toString(), ids: spendable.map(n => reserveSourceId(n)).sort(),
     dust_notes: dust.length, dust_zats: dust.reduce((s, n) => s + BigInt(n.value_zats), 0n).toString() };
 }
-// B46: the one note identity for a vault note (the same `<txid>:<pool>:<action_index>` the ledger's refund
+// The one note identity for a vault note (the same `<txid>:<pool>:<action_index>` the ledger's refund
 // backing uses), so plan, hosts, the approval ledger and packets all name a note the same way.
 export function reserveSourceId(note: { txid: string; pool: string; action_index: number }): string {
   return `${note.txid}:${note.pool}:${note.action_index}`;
 }
 
-// B49 (Reviewer R round 2, P0-1/P2-2, docs/design/phase7-b49-paid-means-mined.md): the ONE rule for "paid",
+// The ONE rule for "paid",
 // judged from our own data only. A published receipt counts ONLY when both hold:
 //   - our own ledger approved a candidate with that txid and that row among its mapped outputs at that
 //     amount (a signer host's approval ledger approvals/<id>/ledger.json, or the plan's own settle ledger);
@@ -195,9 +195,9 @@ export function reserveSourceId(note: { txid: string; pool: string; action_index
 //     below our own tip and at least 10 confirmations deep (the transaction's own note in our scan is the
 //     scan's evidence of its mined height).
 // Packet receipts are only an index — never trusted on their own. A row without such a receipt is
-// outstanding. A transaction a reorg un-mines loses both scan traces, so its row is owed again (P2-2).
+// outstanding. A transaction a reorg un-mines loses both scan traces, so its row is owed again.
 //
-// B53 (P3-1, Reviewer R round 4): a paying batch that spends exact inputs and leaves NO change has only
+// A paying batch that spends exact inputs and leaves NO change has only
 // spent_in_txid traces — the scan carries no note of its txid — so its receipts could never count and the
 // reserve return waited forever. When the scan has no note of the paying txid at all, the caller's own
 // chain lookup (cli/host-chain.ts minedHeight, injected as `minedHeightOf` — the predicate stays pure and
@@ -224,7 +224,7 @@ export function paidByOwnLedger<T extends PaidReceipt>(receipts: Iterable<T>, ow
       if (scan.some(n => n.txid === r.txid && n.height != null && deep(n.height))) counted.push(r);
       continue;
     }
-    // B53 (P3-1): a zero-change batch leaves no vault note of its txid — the caller's own chain lookup is
+    // A zero-change batch leaves no vault note of its txid — the caller's own chain lookup is
     // then the depth evidence, at the same 10-deep-at-or-below-our-tip rule.
     const h = minedHeightOf ? minedHeightOf(r.txid) : 0;
     if (deep(h)) counted.push(r);
@@ -232,7 +232,7 @@ export function paidByOwnLedger<T extends PaidReceipt>(receipts: Iterable<T>, ow
   return counted;
 }
 
-// B49 (P2-a): ONE note identity for every approval-ledger source. Ordinary rows used to push
+// ONE note identity for every approval-ledger source. Ordinary rows used to push
 // `deposit:<txid>:<pool>:<idx>` (or `balance-late:…`) while the reserve-return row pushed the bare
 // `<txid>:<pool>:<idx>`, so a reserve-return candidate never collision-checked against ordinary batches.
 // Every source is normalized to the bare note identity `<txid>:<pool>:<action_index>` — the settle ledger's
@@ -245,7 +245,7 @@ export function canonicalSourceId(source: string): string {
   return m && Number(m[3]) <= 65535 ? `${m[1]}:${m[2]}:${m[3]}` : source;
 }
 
-// The slot-collision notes among the strays (R40 item 1): their published envelope record belongs to the
+// The slot-collision notes among the strays: their published envelope record belongs to the
 // frozen LEAF's ciphertext, so the memo-to-record binding is not publicly checkable for a stray row — the
 // plan and every host refund them through the owner-signed claim path only.
 export function isSlotCollision<T extends { txid: string; address: string }>(

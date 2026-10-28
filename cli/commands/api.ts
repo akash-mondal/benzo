@@ -1,4 +1,4 @@
-// benzo api serve — start the read-only JSON API over a public auction directory (R18, --signer per R21 item 5).
+// benzo api serve — start the read-only JSON API over a public auction directory (--signer per item 5).
 import path from "node:path";
 import { loadPublicAuction } from "../../api/public-auction";
 import { startServer } from "../../api/server";
@@ -28,7 +28,7 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    // A --signer mismatch refuses to serve (R21 item 5), same as every later request load.
+    // A --signer mismatch refuses to serve, same as every later request load.
     loadPublicAuction(dir, { signer });
   } catch (e) {
     process.stderr.write(`ERROR api ${(e as Error).message}\n`);

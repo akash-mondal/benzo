@@ -1,14 +1,14 @@
 //! BenzoEscrow — Solana cross-chain escrow released only by 2-of-3 attested Benzo clearing results.
 //!
-//! Design: docs/design/crosschain.md §1–§3, §9 (Track B, Phase 5 part 3): lock; `submit_attestation`
+//! Design: docs/design/crosschain.md §1–§3, §9: lock; `submit_attestation`
 //! (2-of-3 attestations, once per (auction_id, batch_index), written to the `Approval` PDA);
 //! `release_approved` (anyone, no signatures, repeatedly until every leaf is paid); refund after
 //! deadline. §9's "attest once, release many": the attestations and their Ed25519 verification
 //! instructions live in one submit transaction, and every later release transaction carries only
 //! payouts — so many payouts fit per transaction (the before/after table is measured by
-//! `contracts/solana/test/driver.mjs` and recorded in `docs/STATUS-B.md`).
+//! `contracts/solana/test/driver.mjs`).
 //!
-//! Attestation checking (design §1): each signer holds its own Ed25519 key; the crank submits the
+//! Attestation checking: each signer holds its own Ed25519 key; the crank submits the
 //! `submit_attestation` instruction immediately after a native Ed25519 verification instruction.
 //! This program reads that instruction through the **checked** instructions sysvar
 //! (`load_instruction_at_checked` + `load_current_index_checked`, and an explicit
@@ -44,7 +44,7 @@
 //! the paid flag, then moves the lamports. Anyone may call it repeatedly (the crank) until every
 //! leaf is paid; per-recipient failures skip and stay claimable.
 //!
-//! Canonical leaf/root layout (design §3, identical to `contracts/evm/src/BenzoEscrow.sol` and
+//! Canonical leaf/root layout (identical to `contracts/evm/src/BenzoEscrow.sol` and
 //! `crosschain/`):
 //!
 //! ```text
@@ -92,7 +92,7 @@ pub const RELEASE_PREFIX: &[u8] = b"benzo-release-v1"; // 16 bytes
 pub const ATT_LEN: usize = 16 + 32 * 5 + 8 * 3; // 200
 pub const DEST_SOLANA: u8 = 2;
 pub const ASSET_SOL: [u8; 32] = [0u8; 32];
-/// R9 item 1 (F-2): the account layout changed (the `layout_version` byte below), so this build
+/// The account layout changed (the `layout_version` byte below), so this build
 /// ships under a **new program ID** — a layout or marker change is never an in-place upgrade over
 /// live auctions. The state account records its account-layout version and every instruction
 /// checks it before interpreting the bytes (a second line of defence behind that deployment
@@ -100,11 +100,11 @@ pub const ASSET_SOL: [u8; 32] = [0u8; 32];
 /// 235-byte layout is v1 and has no such byte.
 pub const LAYOUT_VERSION: u8 = 2;
 pub const STATE_LEN: usize = 236;
-/// §10 item 1 (F-1): a paid flag counts only if this program owns the account and its data
+/// A paid flag counts only if this program owns the account and its data
 /// carries this versioned marker — never infer state from lamports or empty data.
 pub const PAID_MARKER: &[u8] = b"PAID_V1";
 pub const PAID_LEN: usize = PAID_MARKER.len(); // 7
-/// §10 item 3 (F-3): the same rule for the `Approval` PDA — `BatchReplayed` only when the
+/// The same rule for the `Approval` PDA — `BatchReplayed` only when the
 /// account is program-owned with this marker.
 pub const APPROVAL_MARKER: &[u8] = b"APPROVAL_V1";
 pub const APPROVAL_LEN: usize = 11 + 153; // marker + the §9 fields
@@ -155,7 +155,7 @@ struct Auction {
     deadline: i64,
 }
 
-/// The `Approval` PDA (design §9): created exactly once per (auction_id, batch_index) by
+/// The `Approval` PDA: created exactly once per (auction_id, batch_index) by
 /// `submit_attestation`, read (never written) by `release_approved`.
 #[derive(Clone, Copy)]
 struct Approval {
@@ -191,13 +191,13 @@ pub enum EscrowError {
     AlreadyRefunded = 17,
     BadBinding = 18,
     NoApproval = 19,
-    /// R9 item 1: the state account records an account-layout version this program does not
+    /// The state account records an account-layout version this program does not
     /// interpret (e.g. an old-layout account left by an in-place upgrade).
     BadLayout = 20,
-    /// R14 item 1 (F1): `submit_attestation` reached through a CPI — it runs only as a
+    /// `submit_attestation` reached through a CPI — it runs only as a
     /// top-level transaction instruction.
     ViaCpi = 21,
-    /// R14 item 1 (F1): the instruction at `current` is not this program's own submit carrying
+    /// The instruction at `current` is not this program's own submit carrying
     /// the exact attestation bytes this invocation parses.
     MessageNotSelf = 22,
 }
@@ -343,7 +343,7 @@ fn load_state(data: &[u8]) -> Result<Auction, ProgramError> {
     if data.len() != STATE_LEN || data[S_VERSION] != VERSION {
         return Err(EscrowError::UnknownAuction.into());
     }
-    // R9 item 1: the recorded layout version is checked before any field is interpreted —
+    // The recorded layout version is checked before any field is interpreted —
     // every instruction that reads state goes through here
     if data[S_LAYOUT_VERSION] != LAYOUT_VERSION {
         return Err(EscrowError::BadLayout.into());
@@ -496,7 +496,7 @@ fn lock(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Progra
     // `allocate` + `assign` via `invoke_signed` with the PDA seeds (exactly `create_flag`), so
     // dust can neither block the auction nor fake a lock.
     if auction_ai.owner == program_id && auction_ai.data_len() == STATE_LEN {
-        // R9 item 1: check the recorded layout version before calling it "already locked" —
+        // Check the recorded layout version before calling it "already locked" —
         // an old-layout account is refused, never interpreted as this layout's state
         if auction_ai.try_borrow_data()?[S_LAYOUT_VERSION] != LAYOUT_VERSION {
             return Err(EscrowError::BadLayout.into());
@@ -571,7 +571,7 @@ struct Payout {
     proof: Vec<[u8; 32]>,
 }
 
-/// `submit_attestation` (design §9): verify 2-of-3 attestations and write the `Approval` PDA.
+/// `submit_attestation`: verify 2-of-3 attestations and write the `Approval` PDA.
 /// Same checks as the old signature-carrying release: the preceding native Ed25519 instruction is
 /// read through the checked instructions sysvar (account key == `sysvar::instructions::ID`,
 /// `load_instruction_at_checked`, strict offsets); 2-of-3 distinct signers from the auction's
@@ -579,9 +579,9 @@ struct Payout {
 /// pinned at lock; `now <= expiry`; the auction is not refunded. On success the `Approval` PDA is
 /// written. No transfers happen in this instruction.
 ///
-/// R14 item 1 (Reviewer R F1, live CPI-forgery PoC): the signed message must be bound to the
+/// (live CPI-forgery PoC): the signed message must be bound to the
 /// exact attestation bytes this invocation processes. Two independent refusals:
-/// (a) `ViaCpi` — this instruction runs only at transaction level (`get_stack_height()`), so a
+/// (a) `ViaCpi` — this instruction runs only at transaction level (`get_stack_height`), so a
 ///     hostile program can never be the `current` top-level instruction;
 /// (b) `MessageNotSelf` — the instruction at `current` must be this program's own submit
 ///     instruction carrying `data[2..2+ATT_LEN] == att`, the bytes `check_ed25519` binds the
@@ -591,7 +591,7 @@ fn submit_attestation(
     accounts: &[AccountInfo],
     r: &mut Reader,
 ) -> ProgramResult {
-    // R14 item 1 (a): refuse every CPI entry — only the top-level submit instruction may attest
+    // (a): refuse every CPI entry — only the top-level submit instruction may attest
     if get_stack_height() != TRANSACTION_LEVEL_STACK_HEIGHT {
         return Err(EscrowError::ViaCpi.into());
     }
@@ -655,7 +655,7 @@ fn submit_attestation(
     if Clock::get()?.unix_timestamp > att_expiry {
         return Err(EscrowError::Expired.into());
     }
-    // §10 item 2 (F-2): the attested release window must fit inside the refund-free window —
+    // The attested release window must fit inside the refund-free window —
     // refund is allowed after `deadline`, so an expiry past it would let a refund race (and
     // capture) attested payouts still releasable until `expiry`. Signers attest expiry <= deadline.
     if att_expiry > state.deadline {
@@ -670,7 +670,7 @@ fn submit_attestation(
     if approval_pda != *approval_ai.key {
         return Err(EscrowError::BadAccount.into());
     }
-    // replay refusal (§10 item 3): `BatchReplayed` only when this program owns the account
+    // replay refusal: `BatchReplayed` only when this program owns the account
     // with the APPROVAL_V1 marker — never from lamports or empty data: a dusted PDA must not
     // block the batch (the seller could dust it to escape settlement and take the full refund)
     if flag_is_set(approval_ai, program_id, APPROVAL_MARKER) {
@@ -682,11 +682,11 @@ fn submit_attestation(
     if current == 0 {
         return Err(EscrowError::BadEd25519.into());
     }
-    // R14 item 1 (b): bind the verified message to the exact attestation bytes parsed above.
+    // (b): bind the verified message to the exact attestation bytes parsed above.
     // `check_ed25519` lets the precompile message live at ix[current].data[2..2+ATT_LEN]; that
     // instruction must be this program's own submit carrying these very bytes, so the message
     // the signers signed and the attestation processed can never differ (the CPI-forgery
-    // substitution Reviewer R proved at 4d9c0e6).
+    // substitution shown by a lab proof of concept).
     let self_ix = load_instruction_at_checked(current, instructions_ai)?;
     if self_ix.program_id != *program_id
         || self_ix.data.len() != 2 + ATT_LEN
@@ -701,7 +701,7 @@ fn submit_attestation(
     check_ed25519(&verify_ix.data, &state.signers, current)?;
 
     // write the Approval (crank pays rent; no transfers to recipients in this instruction).
-    // Created pre-funding-safe (§10 item 3): a dusted PDA is topped up and completed with
+    // Created pre-funding-safe: a dusted PDA is topped up and completed with
     // allocate + assign instead of create_account
     create_flag(
         program_id,
@@ -726,12 +726,12 @@ fn submit_attestation(
     store_approval(&mut data, &approval)
 }
 
-/// `release_approved` (design §9): pay payouts against a verified `Approval`, with **no
+/// `release_approved`: pay payouts against a verified `Approval`, with **no
 /// signatures** — anyone (the crank) may call it repeatedly until every leaf is paid. Requires
 /// `now <= approval.expiry` and the auction not refunded. Per payout: leaf bound and Merkle
 /// membership against `approval.allocation_root` (the same leaf/root encoding), paid-flag PDA
 /// unset, paid flag set before the transfer, cap (`paid + amount <= locked`) checked, then the
-/// lamports move. Per-recipient failures skip and stay claimable (design §2.4): one failing
+/// lamports move. Per-recipient failures skip and stay claimable: one failing
 /// recipient never reverts the call.
 fn release_approved(
     program_id: &Pubkey,
@@ -851,8 +851,8 @@ fn release_approved(
             return Err(EscrowError::BadAccount.into());
         }
 
-        // per-recipient paid flag (§10 item 1): a failing or already-paid recipient is skipped,
-        // never a call revert; failed items stay claimable by a later release (design §2.4).
+        // per-recipient paid flag: a failing or already-paid recipient is skipped,
+        // never a call revert; failed items stay claimable by a later release.
         // "Already paid" counts only if this program owns the flag account with the PAID_V1
         // marker — never from lamports or empty data: anyone can dust the predictable PDA with
         // lamports and fake "already paid" to permanently brick an attested payout.
@@ -999,7 +999,7 @@ fn refund(program_id: &Pubkey, accounts: &[AccountInfo], r: &mut Reader) -> Prog
         return Err(EscrowError::BadAccount.into());
     }
 
-    // anyone may return the unspent remainder to the pinned return address (design §2.3)
+    // anyone may return the unspent remainder to the pinned return address
     let remainder = state.amount - state.paid;
     **auction_ai.try_borrow_mut_lamports()? -= remainder;
     **return_ai.try_borrow_mut_lamports()? += remainder;

@@ -1,4 +1,4 @@
-// B43 (docs/design/phase7-h13-h14.md items 1-2): the one sealed-bid shape rule and the one opener.
+// The one sealed-bid shape rule and the one opener.
 //
 // A sealed bid is exactly one age file over this auction's drand round (measured on a real tlock-js 0.9.0
 // ciphertext of a 128-byte bid; the layout is fixed):
@@ -12,12 +12,12 @@
 //     the 128-byte plaintext, the 16-byte final-chunk tag).
 // Anything else is not a sealed bid of this auction: `bid seal` and `bid deposit` refuse it at admission so
 // the bidder sees it, and a frozen leaf carrying it opens as `undecryptable` — one malformed bid can no
-// longer stop every other bidder's open (H14). The rule runs at ADMISSION (the two call sites above) and as
+// longer stop every other bidder's open. The rule runs at ADMISSION (the two call sites above) and as
 // the one opener's own shape gate below — never inside memoTlockCiphertext or any other intake parse. Old
 // published directories were sealed honestly, so their ciphertexts keep passing it (the phase-7 folds replay
-// them; B44's G2 check is proven on the dirs r73/r77/r78/r81/r82 replay).
+// them).
 //
-// openSealedBid is the only path that turns a sealed bid into a plaintext. B44 (Reviewer R P1-1, P1-2): every
+// openSealedBid is the only path that turns a sealed bid into a plaintext. every
 // caller hands it a client built from THIS auction's verified beacon (publishedClient BLS-checks it at
 // construction, and that is where a bad beacon throws), so everything about the ciphertext is the
 // ciphertext's fault. It reads the beacon round from the CLIENT itself, never from the ciphertext; returns
@@ -60,7 +60,7 @@ export function sealedBidShape(ciphertextHex: string, R: number): SealedBidShape
   if (stanza.args[1] !== QUICKNET.chain_hash) return fail(`stanza chain is ${stanza.args[1]}, not ${QUICKNET.chain_hash}`);
   if (stanza.args[0] !== String(R)) return fail(`stanza round is ${stanza.args[0]}, not ${R}`);
   if (stanza.body.length !== BID_BYTES) return fail(`stanza body is ${stanza.body.length} bytes, not ${BID_BYTES}`);
-  // B44 (Reviewer R P1-1): a 128-byte body can still be junk. Its first 96 bytes are the IBE point U — a
+  // A 128-byte body can still be junk. Its first 96 bytes are the IBE point U — a
   // compressed BLS12-381 G2 point that any real sealer writes — so they must decode as one. A griefing body
   // is refused HERE, at admission, where the bidder sees the reason, instead of reaching the frozen set and
   // the IBE decoder (where it used to THROW `invalid G2 point` and stop the open for everyone). The other 32
@@ -75,7 +75,7 @@ export function sealedBidShape(ciphertextHex: string, R: number): SealedBidShape
   return { ok: true };
 }
 
-// The exact failure contract the sealed-RESERVE path maps (H11, docs/design/phase7-h10-h11.md item 3): a null
+// The exact failure contract the sealed-RESERVE path maps: a null
 // return is an AUTHENTICATED-CIPHERTEXT failure — the header MAC ("The MAC did not validate for the fileKey and
 // payload!") or a payload-chunk MAC ("Error during decryption!") — and every other failure throws. tlock-js
 // 0.9.0 raises exactly those two messages at exactly its two MAC checks (age-encrypt-decrypt.js header MAC;
@@ -101,25 +101,25 @@ export async function decryptPublished(ciphertextHex: string, client: ChainClien
   } finally { console.log = log; }
 }
 
-// The one opener (item 2). See the module header for the exact null/throw contract (B44: it never throws on a
+// The one opener. See the module header for the exact null/throw contract (it never throws on a
 // leaf or a memo). Every path that turns a sealed bid into a plaintext calls this: auction `open`, verify's
 // re-derivation, the hosts' deriveRows and memo openings, authenticatedMemoEnvelope, the settlement plan, sign
 // delivery and xchain. No product path spawns Go `tle` any more.
 export async function openSealedBid(ciphertextHex: string, client: ChainClient): Promise<string | null> {
-  // B43 (H13 proof hook): with BNZ_OPENINGS_TRACE set to a file path, every call to the one opener is recorded
-  // there (one JSON line per call), so tools/repro/h13-host-scale.ts can count calls and prove the host cache
+  // (proof hook): with BNZ_OPENINGS_TRACE set to a file path, every call to the one opener is recorded
+  // there (one JSON line per call), so a test can count calls and prove the host cache
   // re-decrypts nothing on a second batch. Unset in every product run, this is inert.
   if (process.env.BNZ_OPENINGS_TRACE) appendFileSync(process.env.BNZ_OPENINGS_TRACE, JSON.stringify({ pid: process.pid, at: Date.now() }) + "\n");
-  // B44 rule 1: the beacon round comes from the CLIENT (the one round it serves), never from the ciphertext.
+  // rule 1: the beacon round comes from the CLIENT (the one round it serves), never from the ciphertext.
   // Only this check can throw: a client that serves no beacon round is unusable, and no ciphertext can cause
   // that. A ciphertext naming another round is the ciphertext's fault and falls to the shape rule below.
   const beacon = await client.latest().catch(() => null);
   const round = beacon && Number.isSafeInteger(beacon.round) && beacon.round > 0 ? beacon.round : 0;
   requireThat(round > 0, "opener: the beacon client serves no round");
-  // B44 rule 2: the shape rule runs against the BEACON's round, so a wrong-round ciphertext is the leaf's (or
+  // rule 2: the shape rule runs against the BEACON's round, so a wrong-round ciphertext is the leaf's (or
   // the stray memo's) fault and returns null here instead of throwing out of client.get.
   if (!sealedBidShape(ciphertextHex, round).ok) return null;
-  // B44 rule 3: every exception the tlock/age/IBE layers raise on THIS ciphertext (either MAC failure, an
+  // rule 3: every exception the tlock/age/IBE layers raise on THIS ciphertext (either MAC failure, an
   // invalid G2 point, an rP check failure, a parse error) is the ciphertext's fault — null. The plaintext must
   // still be exactly one 128-byte bid.
   const text = Buffer.from(ciphertextHex, "hex").toString("binary");

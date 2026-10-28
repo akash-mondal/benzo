@@ -18535,7 +18535,7 @@ var Destination = class {
   toString() {
     return "[Destination]";
   }
-  // R78 (Reviewer R F-7): `==`, `+` or arithmetic on a Destination throws instead of comparing "[Destination]" strings,
+  // `==`, `+` or arithmetic on a Destination throws instead of comparing "[Destination]" strings,
   // which would make two different destinations look equal. Template strings still print "[Destination]".
   [Symbol.toPrimitive](hint) {
     if (hint === "string") return "[Destination]";
@@ -18748,10 +18748,10 @@ function readClient(packet, signer) {
 }
 var SETTLEMENT_TRUST = {
   auction_id: { trust: "derived", verifiedBy: ["receipt-attestation"] },
-  // R82: bound to the manifest's auction_id
+  // Bound to the manifest's auction_id
   rows: { trust: "derived", verifiedBy: ["accounting", "accounting-strays"] },
-  // R81: a cancelled settlement has no result, so only accounting-strays reads its rows
-  // B49 (Reviewer R round 2 P0-1/P3-6): `benzo verify` checks receipt attestation, NOT on-chain inclusion —
+  // A cancelled settlement has no result, so only accounting-strays reads its rows
+  // `benzo verify` checks receipt attestation, NOT on-chain inclusion —
   // verify is offline by design. Inclusion is checked by the signer hosts before any reserve return ("paid"
   // means this host approved the row and its own scan shows the paying transaction mined 10 deep —
   // settle/deposits.ts paidByOwnLedger). What verify does check is that every receipt's txid is one of the
@@ -18761,21 +18761,21 @@ var SETTLEMENT_TRUST = {
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
   balance_refunds: { trust: "host-attested", verifiedBy: ["balance-refs"] },
-  // B46 (H15, Revision R103): the reserve-return accounting is value-based — the published remaining value
+  // The reserve-return accounting is value-based — the published remaining value
   // minus the ZIP-317 fee (above). Re-derived from the published amounts; the source notes themselves are
-  // never published (vault value is fungible — the hosts checked the spent total when approving). B51
-  // (P3-3): its fee is additionally tied to the paying batch's published source count (accounting-strays).
+  // never published (vault value is fungible — the hosts checked the spent total when approving).
+  // Its fee is additionally tied to the paying batch's published source count (accounting-strays).
   reserve_return: { trust: "derived", verifiedBy: ["accounting-strays"] },
   delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
   approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
   batches: { trust: "informational", verifiedBy: [] },
   offline_signer: { trust: "informational", verifiedBy: [] },
-  // R82: the settlement worker's own summary (settle/cli.ts) also carries its plan and signoffs; informational, and the
+  // The settlement worker's own summary (settle/cli.ts) also carries its plan and signoffs; informational, and the
   // no-destinations guard still scans them at any depth.
   plan: { trust: "informational", verifiedBy: [] },
   signoffs: { trust: "informational", verifiedBy: [] },
   lwd_endpoints: { trust: "informational", verifiedBy: [] }
-  // R83 (Reviewer R R82-1): the worker's public lightwalletd hosts
+  // The worker's public lightwalletd hosts
 };
 var canonicalKeys = /* @__PURE__ */ new Set(["version", "auction_id", "signer", "manifest", "state", "receipts", "frozen", "result", "settlement", "opened", "beacon", "envelopes", "witness_set", "witness_cert", "strays_cert", "reserve_opening", "serial_beacon", "launch_input", "delivery_list", "claims"]);
 var states = /* @__PURE__ */ new Set(["DRAFT", "OPEN", "SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED", "CANCELLED", "REFUNDING"]);
@@ -19171,7 +19171,7 @@ function checkPublicAuction(pub, opts = {}) {
       for (const [i2, r2] of (pub.settlement.rows ?? []).entries()) {
         requireThat(r2 && typeof r2 === "object" && Object.keys(r2).every((k2) => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid", "reason"].includes(k2)), `settlement row ${i2} keys`);
         requireThat(
-          typeof r2.party === "string" && /^[0-9]+$/.test(String(r2.amount_zats)) && word(r2.state) && (r2.kind === void 0 || r2.kind === "refund" || r2.kind === "payout") && (r2.pool == null || /^(sapling|orchard|ironwood)$/.test(r2.pool)) && (r2.txid == null || hex64(r2.txid)) && (r2.batch == null || nat(r2.batch)) && (r2.output_index == null || nat(r2.output_index)) && // H7 (B50): an exception row may carry the reason it waits (a string, on exception rows only) — the
+          typeof r2.party === "string" && /^[0-9]+$/.test(String(r2.amount_zats)) && word(r2.state) && (r2.kind === void 0 || r2.kind === "refund" || r2.kind === "payout") && (r2.pool == null || /^(sapling|orchard|ironwood)$/.test(r2.pool)) && (r2.txid == null || hex64(r2.txid)) && (r2.batch == null || nat(r2.batch)) && (r2.output_index == null || nat(r2.output_index)) && // An exception row may carry the reason it waits (a string, on exception rows only) — the
           // set-aside reasons a no-payment settlement publishes. Every other state carries none.
           (r2.reason === void 0 || r2.state === "exception" && typeof r2.reason === "string" && r2.reason.length > 0 && r2.reason.length <= 200),
           `settlement row ${i2} values`
@@ -19620,7 +19620,7 @@ function loadOpenings(file, frozenRoot, beaconSha) {
 }
 
 // cli/commands/verify.ts
-var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] \u2014 re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json (B43 H13) and only skips re-decrypting the openings that file covers (the host's BNZ_STATE_DIR is the trust anchor for that path); the public benzo verify never uses it and re-derives every opening.";
+var help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] \u2014 re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json and only skips re-decrypting the openings that file covers (the host's BNZ_STATE_DIR is the trust anchor for that path); the public benzo verify never uses it and re-derives every opening.";
 var tleOpening2 = (ciphertext, chain2) => tleOpening("tle", chain2, ciphertext);
 async function run(argv) {
   if (argv.includes("--help")) {

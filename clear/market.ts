@@ -10,7 +10,7 @@ export function marketClient<T>(packet: Signed, signer: string, mode: string, va
   requireThat(m.clearing.mode === mode, `${mode} mode`);
   const base: any = { ...m, clearing: { ...m.clearing, mode: "uniform" } }; delete base[mode];
   validateManifest(base); validate(m);
-  // R33 item 1: with the mode block stripped the base rules cannot see the treasury addresses, so the
+  // With the mode block stripped the base rules cannot see the treasury addresses, so the
   // balance-address exclusions run again here on the full manifest.
   if (m.bond !== undefined) checkBalanceAddresses(m);
   return { manifest: m, manifest_hash: hash(Buffer.from(packet.bytes, "base64")) };

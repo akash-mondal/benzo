@@ -1,8 +1,8 @@
-// Deterministic tar+gzip for the release artifacts (gate PK): ustar headers (no atime records), the
+// Deterministic tar+gzip for the release artifacts: ustar headers (no atime records), the
 // staged files listed in sorted order, fixed mtime and normalized modes, uid/gid 0 with the owner
 // names pinned to root, then Node's own gzip with a pinned header. Two builds of identical content
 // produce byte-identical .tgz files — here, on a fresh clone, and on Linux (arm64 and x86-64
-// measured on the gate PK clean VM, R90).
+// measured on a clean VM).
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, lstatSync, lutimesSync, readFileSync, readdirSync, readlinkSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
@@ -29,7 +29,7 @@ export function stageFiles(dir) {
 
 // Pick bsdtar (libarchive) explicitly and never GNU tar: the archive bytes must not depend on which
 // tar the machine happens to have, and GNU tar does not even accept --uid/--uname (it failed exactly
-// that way on the gate PK clean VM). macOS ships bsdtar as `tar`; Debian/Ubuntu ship GNU tar as `tar`
+// that way on a clean VM). macOS ships bsdtar as `tar`; Debian/Ubuntu ship GNU tar as `tar`
 // and put bsdtar on PATH after `apt install libarchive-tools`.
 function pickBsdtar() {
   try {
@@ -52,7 +52,7 @@ function pickBsdtar() {
 // while macOS symlinks carry their own mode (npm's node_modules/.bin links come out 0755). Readers
 // ignore a symlink's mode, so every symlink header is pinned to 0777 here, and its header checksum
 // is recomputed in the format bsdtar writes (six octal digits, NUL, space). Without this the npm
-// package differed between macOS and Linux in exactly these headers (R94).
+// package differed between macOS and Linux in exactly these headers.
 function pinSymlinkModes(tar) {
   const out = Buffer.from(tar);
   for (let o = 0; o + 512 <= out.length; ) {
@@ -98,12 +98,12 @@ export function tarGz(stageDir, outPath, opts = {}) {
   writeFileSync(listFile, files.map((f) => f.split(path.sep).join("/")).join("\n") + "\n");
   // The owner names are pinned alongside uid/gid 0: macOS bsdtar writes the group name `wheel` for
   // gid 0 and Linux writes `root`, so one header field per entry differed across systems (measured
-  // on the gate PK clean VM, R90). With --uname root --gname root both write byte-identical tars.
+  // on a clean VM). With --uname root --gname root both write byte-identical tars.
   execFileSync(pickBsdtar(), ["--format", "ustar", "--uid", "0", "--gid", "0", "--uname", "root", "--gname", "root", "-cf", tarPath, "-C", stageDir, "-T", listFile]);
   const tar = pinSymlinkModes(readFileSync(tarPath));
   // gzip in Node, not the system gzip command: Apple gzip and GNU gzip emit different deflate
   // streams for the same tar, while Node's bundled zlib emits the same stream on macOS and Linux
-  // (arm64 and x86-64 measured, R90). Only zlib's header OS byte follows the build platform
+  // (arm64 and x86-64 measured). Only zlib's header OS byte follows the build platform
   // (19 on macOS, 3 on Linux), so it is pinned to 3 — Unix, what GNU `gzip -n` writes — or the
   // digest would still depend on where the build ran.
   const gz = gzipSync(tar, { level: 9 });

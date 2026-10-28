@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Gate DOC live walkthrough: one uniform auction on $BNZ_NETWORK (testnet by default; B58: mainnet gold), run with ONLY the commands the three guides give
+# Gate DOC live walkthrough: one uniform auction on $BNZ_NETWORK (testnet by default; mainnet gold), run with ONLY the commands the three guides give
 # (docs/guide-operator.md, docs/guide-signer.md, docs/guide-bidder.md), in their order. Every guide command is
 # echoed as "$ benzo …" with its output into the transcript. The only non-benzo steps are the ones the guides
 # leave to the user's own tools: picking an id, picking times, filling the JSON templates (node one-liners), and
 # taking the seller's and bidders' own wallet addresses from their wallet (here the testnet bidder wallet, via
 # benzo-pczt address, the same generator the harness uses). Prints no key material.
-# Usage: tools/doc-walk.sh OUT_DIR   (needs frostd running, hosts provisioned, a funded bidder wallet)
+# Usage: tools/doc-walk.sh OUT_DIR (needs frostd running, hosts provisioned, a funded bidder wallet)
 set -euo pipefail
 ROOT="$(git rev-parse --show-toplevel)"; cd "$ROOT"
 set -a; . ./.env; set +a
@@ -93,7 +93,7 @@ for i in 0 1 2; do
   done
 done
 if [ "${BNZ_WALK_DUST:-0}" = "1" ]; then
-  # B54 live leg (R120): a 4,000-zat dust note at the fee-reserve address. The wallet never spends notes of 5,000 zats
+  # live leg: a 4,000-zat dust note at the fee-reserve address. The wallet never spends notes of 5,000 zats
   # or less, so the reserve return must still complete, and its published accounting reports the residue (1 note, 4,000).
   say "## B54 — a stray 4,000-zat dust note to the fee-reserve address (not a guide step)"
   DEV="$STATE/bin/zcash-devtool"; "$DEV" wallet -w "$STATE/bidder" sync -s "$BNZ_LWD_URL" >/dev/null 2>&1 || true

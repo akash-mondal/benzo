@@ -1,4 +1,4 @@
-// B43 (docs/design/phase7-h13-h14.md item 4): the host openings cache (H13). After a successful derivation the
+// The host openings cache. After a successful derivation the
 // signer host writes its own openings to $BNZ_STATE_DIR/auctions/<id>/openings.json —
 // {frozen_root, beacon_sha256, openings: {leaf_index: plaintext|null}} — and its memo openings to
 // memo-openings.json the same way, keyed by sha256(ciphertext) since strays are per note. Mode 0600: the file

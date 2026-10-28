@@ -1,9 +1,8 @@
 // Pure settlement batching — no state, no .env, no wallet, no I/O — so the offline scale bench
 // (tools/bench.ts stage `batch-plan`) can plan batches without importing settle/plan.ts (which reads
-// live state on import and is Track A's). It reproduces settle/ledger.ts `allocate()` exactly: the
+// live state on import). It reproduces settle/ledger.ts `allocate` exactly: the
 // eligible rows ordered by party in SQLite's BINARY (UTF-8 byte) order, cut into batches of `cap`,
-// ids from 1. `tools/repro/batching-equal.ts` proves the equivalence batch-for-batch against a real
-// Ledger; mutation B31-a turns that proof red if the order changes (e.g. localeCompare).
+// ids from 1, batch-for-batch the same as a real Ledger (byte order, never localeCompare).
 import { requireThat } from "../manifest/schema";
 
 export type PlanRow = { party: string; amount_zats: string };

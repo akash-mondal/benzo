@@ -34,8 +34,8 @@ export function checkSerialRange(pub: PublicAuction, serials: number[]): void {
 export function claimBody(pub: PublicAuction, ciphertextHash: string, receipt: SettlementReceipt, statement: SettlementStatement) {
   const p = marketplace(pub); requireThat(p && pub.result && pub.frozen, "claim marketplace/result/frozen");
   checkSettlementStatement(pub,ciphertextHash,statement);
-  // B53 (P3-6, Reviewer R round 4): this delivery-claim gate reads `settlement.defaults` — the one
-  // money-adjacent consumer of H7's unattested zero-receipt defaults list — and is safe only because of
+  // This delivery-claim gate reads `settlement.defaults` — the one
+  // money-adjacent consumer of unattested zero-receipt defaults list — and is safe only because of
   // the PUBLISHED-RECEIPT requirement just below (`actual`): a claim needs this leaf's own published
   // settlement receipt (or the seller's, for a zero-refund winner), and a zero-receipt settlement has
   // none, so a false defaults list can never move money here. Keep both requirements together.

@@ -1,4 +1,4 @@
-// Witness certificates (gate X): a board-witness quorum (n_w, q_w, keys separate from custody shares) co-signs
+// Witness certificates: a board-witness quorum (n_w, q_w, keys separate from custody shares) co-signs
 // the frozen root before round R — (auction_id, frozen_root, leaf_count, T_freeze, chain anchor) — so no single
 // coordinator can equivocate on the accepted set (threat #5, #6, #22). Two certificates for different roots are
 // always refused; one root per auction.
@@ -10,19 +10,19 @@ export type WitnessSet = { version: 1; auction_id: string; q_w: number; keys: st
 export type WitnessStatement = { version: 1; auction_id: string; frozen_root: string; leaf_count: number; T_freeze: number; chain_anchor: string };
 export type WitnessCert = { statement: WitnessStatement; signatures: { witness: string; signature: string }[] };
 
-// Ruling R42 (F11): the closed "one strays statement per auction" design is DELETED. A stray set is
+// The closed "one strays statement per auction" design is DELETED. A stray set is
 // third-party-growable chain state (deposit addresses stay public forever), so no signature may ever cover
-// it as a set — exactly R41's rule. A stray is attested PER ROW, at payment, in the approval maps of the
+// it as a set — exactly rule. A stray is attested PER ROW, at payment, in the approval maps of the
 // batch that pays it ({party, memo_sha256} — the note identity and its scanned memo hash), and verify
 // checks those attestations map-to-map. The witness set certifies the frozen root only, fixed before R.
 
-// R23 item 2: envelope-opens reports are signed by the reporting signer's own witness key (a member of
+// Envelope-opens reports are signed by the reporting signer's own witness key (a member of
 // the same pinned witness set), and the settlement plan counts only reports whose signature verifies —
 // one per witness key. The body carries no destination (only per-row ok flags and destination hashes).
 export type OpensBody = { signer: string; opens: { leaf: number | null; party: string; ok: boolean; dest_sha256: string | null }[] };
 export type OpensReport = OpensBody & { witness: string; signature: string };
 
-// R4 item 2: the signed manifest optionally carries `witness_set_hash` = SHA-256 of the signed witness-set
+// The signed manifest optionally carries `witness_set_hash` = SHA-256 of the signed witness-set
 // side-packet (its canonical JSON bytes: bytes, sha256, signer, signature). Binding the whole packet makes a
 // removed or substituted witness set detectable by any reader holding the manifest alone.
 export const witnessSetHash = (packet: Signed): string => hash(jsonBytes(packet));
@@ -107,21 +107,21 @@ export function verifyOpensReport(r: OpensReport, keys: string[] | null): boolea
   }
 }
 
-// Reviewer G's G-4: an approving host's signed map from each non-change output index to the party it derived for it, over
+// An approving host's signed map from each non-change output index to the party it derived for it, over
 // the candidate's txid — receipts are attributed from two hosts' agreeing maps, never from the coordinator's relayed
-// build.json. Domain-separated from every other witness-key signature. R33 item 3 (P1-3): the map also carries the
+// build.json. Domain-separated from every other witness-key signature. the map also carries the
 // defaults list the host derived from its own scan, so `settlement.defaults` can never be a coordinator-only list.
-// Ruling R41 (F7): `balance_refunds` carries ONLY the refund rows THIS BATCH pays (the rows among its own outputs,
+// `balance_refunds` carries ONLY the refund rows THIS BATCH pays (the rows among its own outputs,
 // a set fixed at signing) — never the host's live row set, which third parties can still grow. A refund row is
 // attested here, at paid time, and nowhere else; no signature ever covers a set that can still change.
-// Ruling R42 (F11): `strays` carries ONLY the stray deposit rows this batch pays, each with its note
+// `strays` carries ONLY the stray deposit rows this batch pays, each with its note
 // identity and scanned memo hash — the per-row attestation that replaces the deleted strays statement.
 export type StrayAttestation = { party: string; memo_sha256: string };
-// Ruling R61: `bond_void` joins the signed body only when true, so every earlier map keeps its exact signed bytes.
+// `bond_void` joins the signed body only when true, so every earlier map keeps its exact signed bytes.
 export type ApprovalMapBody = { auction_id: string; batch: number; txid: string; outputs: { party: string; output_index: number }[]; defaults: number[]; balance_refunds: import("../clear/features").BalanceRefund[]; strays?: StrayAttestation[]; bond_void?: boolean; bond_start?: { height: number; hash: string; time: number } };
 export type ApprovalMap = ApprovalMapBody & { witness: string; signature: string };
-// Maps signed before R42 carry no `strays` field and keep their exact signed bytes (the field joins the
-// signed body only when present); maps signed after R42 attest their strays per row over the same bytes.
+// Maps signed before carry no `strays` field and keep their exact signed bytes (the field joins the
+// signed body only when present); maps signed after attest their strays per row over the same bytes.
 const mapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults, balance_refunds: b.balance_refunds, ...(b.strays !== undefined ? { strays: b.strays } : {}), ...(b.bond_void ? { bond_void: true } : {}), ...(b.bond_start ? { bond_start: b.bond_start } : {}) })]);
 export function signApprovalMap(body: ApprovalMapBody, privateHex: string): ApprovalMap {
   requireThat(/^[0-9a-f]{64}$/.test(privateHex), "witness private key");
@@ -129,7 +129,7 @@ export function signApprovalMap(body: ApprovalMapBody, privateHex: string): Appr
   return { ...body, witness: createPublicKey(key).export({ type: "spki", format: "der" }).subarray(12).toString("hex"), signature: sign(null, mapBytes(body), key).toString("hex") };
 }
 // Total: a forged or unsigned map is "not verified", never a throw.
-// R77: maps signed before A18 (fd068fb, R40.4) carry no balance_refunds/strays/bond fields and were signed over
+// Maps signed before A18 (fd068fb) carry no balance_refunds/strays/bond fields and were signed over
 // {auction_id, batch, txid, outputs, defaults} only. Such a map verifies over exactly those bytes — the same
 // domain tag and a pinned host key, so nothing an operator can produce; it attests its outputs and nothing newer.
 const legacyMapBytes = (b: ApprovalMapBody) => Buffer.concat([Buffer.from("benzo-approval-map-v1"), jsonBytes({ auction_id: b.auction_id, batch: b.batch, txid: b.txid, outputs: b.outputs, defaults: b.defaults })]);
@@ -140,18 +140,18 @@ export function verifyApprovalMap(m: ApprovalMap, keys: string[]): boolean {
       verify(null, isLegacyMap(m) ? legacyMapBytes(m) : mapBytes(m), edPublic(m.witness), Buffer.from(m.signature, "hex"));
   } catch { return false; }
 }
-// Ruling R41 (F7): the worker's finalize binding over one batch's signed maps — the two agreeing maps of THAT
+// The worker's finalize binding over one batch's signed maps — the two agreeing maps of THAT
 // batch (same txid, same outputs/defaults/refund rows/strays, distinct pinned witnesses), plus the stable
-// defaults list binding (R33 P1-3). A refund-row set or stray set is NEVER compared to a live plan: the maps
+// defaults list binding. A refund-row set or stray set is NEVER compared to a live plan: the maps
 // attest only the rows this batch pays, so nothing a third party adds to the chain can move this check.
-// Ruling R42 (F12): `defaults` is compared map-to-map only, never against a fresh derivation — the two host
+// `defaults` is compared map-to-map only, never against a fresh derivation — the two host
 // signatures already rule out a coordinator-only list, and a fresh-vs-signed comparison is the F12 wedge.
 // Two maps of one batch agree when their signed bodies match (batch, outputs, defaults, refund rows, strays) and
-// their witnesses are distinct pinned signers — the G-4 agreement `agreedBatchMaps` binds at finalize.
-// H1 (B50): exported, and the pair must agree on EVERY signed field, batch included — receipt-attestation
+// their witnesses are distinct pinned signers — the agreement `agreedBatchMaps` binds at finalize.
+// Exported, and the pair must agree on EVERY signed field, batch included — receipt-attestation
 // holds its two attesting maps to this same full agreement, so two maps that agree on the receipt's txid and
-// outputs but differ in defaults, strays or bond fields can never jointly attest anything. B53 (P3-5,
-// Reviewer R round 4): `auction_id` and `txid` join the comparison — the predicate's name is now true and a
+// outputs but differ in defaults, strays or bond fields can never jointly attest anything. (
+// `auction_id` and `txid` join the comparison — the predicate's name is now true and a
 // pair of maps of different auctions or candidates can never "agree" (every caller prefiltering those two
 // fields was the only thing keeping the name honest before).
 export const mapPairAgrees = (a: ApprovalMap, b: ApprovalMap): boolean =>
@@ -164,7 +164,7 @@ export const mapPairAgrees = (a: ApprovalMap, b: ApprovalMap): boolean =>
   jsonBytes(a.balance_refunds ?? null).equals(jsonBytes(b.balance_refunds ?? null)) &&
   jsonBytes(a.strays ?? null).equals(jsonBytes(b.strays ?? null)) &&
   !!a.bond_void === !!b.bond_void &&
-  jsonBytes(a.bond_start ?? null).equals(jsonBytes(b.bond_start ?? null)); // R63: both hosts saw the identical start header
+  jsonBytes(a.bond_start ?? null).equals(jsonBytes(b.bond_start ?? null)); // Both hosts saw the identical start header
 export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): ApprovalMap[] {
   const ms = maps as ApprovalMap[];
   requireThat(Array.isArray(ms) && ms.length === 2 && ms.every((mp) => mp && verifyApprovalMap(mp, keys) && mp.txid === txid) &&
@@ -172,19 +172,19 @@ export function agreedBatchMaps(maps: unknown, keys: string[], txid: string): Ap
     "the signing hosts' output maps are missing, unsigned or disagree");
   return ms;
 }
-// Ruling R44 (F19): the settlement defaults tie-break is deterministic and SHARED by publish and verify —
+// The settlement defaults tie-break is deterministic and SHARED by publish and verify —
 // the list attested by two agreeing maps (same list, distinct pinned witnesses) of the EARLIEST paying batch
 // (a batch whose payment txid is among the paid receipts), batch numbers ascending. Drift across batches can
 // carry two host-attested lists; the earliest paying batch decides, never witness counts or key hex. Returns
 // null when no paying batch's two maps agree.
-// Ruling R45 (F21): the tie-break must not be steerable by OMITTING a batch's maps. Before it is computed,
+// The tie-break must not be steerable by OMITTING a batch's maps. Before it is computed,
 // EVERY paying batch (from the receipts — a payout-only batch included, which no other check attests) must
 // carry two agreeing verified maps; an invisible batch can never move the earliest-agreed list to a later
-// batch's. Throws naming the unattested paying batch (Reviewer R's f19-omit probe).
+// batch's. Throws naming the unattested paying batch (the omitted-batch case).
 export function earliestAgreedDefaults(maps: unknown, keys: string[], paidTxids: string[]): number[] | null {
   return earliestAgreedBond(maps, keys, paidTxids)?.defaults ?? null;
 }
-// Ruling R61: the same tie-break over the pair {defaults, bond_void} — two agreeing maps attest both together, so
+// The same tie-break over the pair {defaults, bond_void} — two agreeing maps attest both together, so
 // a published `bond_void` can never be a coordinator-only claim (verify enforces it byte-identically).
 export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: string[]): { defaults: number[]; bond_void: boolean; bond_start: { height: number; hash: string; time: number } | null } | null {
   const ms = (Array.isArray(maps) ? maps : []).filter((mp): mp is ApprovalMap => !!mp && verifyApprovalMap(mp as ApprovalMap, keys) && Array.isArray((mp as ApprovalMap).defaults));
@@ -198,25 +198,25 @@ export function earliestAgreedBond(maps: unknown, keys: string[], paidTxids: str
   for (const b of batches) {
     const byList = new Map<string, { list: number[]; bond_void: boolean; bond_start: { height: number; hash: string; time: number } | null; witnesses: Set<string>; maps: ApprovalMap[] }>();
     for (const mp of ms.filter((mp) => mp.batch === b)) {
-      // `?? null` is load-bearing: jsonBytes refuses `undefined`, and every pre-R63 map has no bond_start (R65).
+      // `?? null` is load-bearing: jsonBytes refuses `undefined`, and every older map has no bond_start.
       const k = jsonBytes({ defaults: mp.defaults, bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null }).toString("hex");
       const e = byList.get(k) ?? { list: [...mp.defaults], bond_void: !!mp.bond_void, bond_start: mp.bond_start ?? null, witnesses: new Set<string>(), maps: [] };
       e.witnesses.add(mp.witness); e.maps.push(mp);
       byList.set(k, e);
     }
-    // B53 (P3-5): the chosen list must be carried by a pair that agrees under mapPairAgrees — not merely by
+    // The chosen list must be carried by a pair that agrees under mapPairAgrees — not merely by
     // two witnesses counted per key. Two map versions can each carry two witnesses while the two witnesses
     // of a version disagree on outputs/strays/refund rows (chain drift across signing attempts); counting
     // witnesses alone let a publisher steer the published defaults to a list no fully agreeing pair backs.
     const agreed = [...byList.values()]
       .filter((e) => e.witnesses.size >= 2 && e.maps.some((a) => e.maps.some((b2) => mapPairAgrees(a, b2))))
-      .sort((x, y) => y.witnesses.size - x.witnesses.size || jsonBytes({ defaults: x.list, bond_void: x.bond_void, bond_start: x.bond_start }).toString("hex").localeCompare(jsonBytes({ defaults: y.list, bond_void: y.bond_void, bond_start: y.bond_start }).toString("hex"))); // R64: bond_start in the selection too
+      .sort((x, y) => y.witnesses.size - x.witnesses.size || jsonBytes({ defaults: x.list, bond_void: x.bond_void, bond_start: x.bond_start }).toString("hex").localeCompare(jsonBytes({ defaults: y.list, bond_void: y.bond_void, bond_start: y.bond_start }).toString("hex"))); // bond_start in the selection too
     if (agreed.length) return { defaults: agreed[0].list, bond_void: agreed[0].bond_void, bond_start: agreed[0].bond_start };
   }
   return null;
 }
 
-// Ruling R40 item 3 (F4): the canonical launch delivery list is host-signed. Each host opens the sealed
+// The canonical launch delivery list is host-signed. Each host opens the sealed
 // delivery records with its own envelope key, checks every owner signature against its own openings, builds
 // the canonical list (clear/launch.ts deliveryBatch) and signs `benzo-delivery-list-v1` over its
 // allocation_file_hash with its witness key. `benzo verify` requires two valid signatures from distinct

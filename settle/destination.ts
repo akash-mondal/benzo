@@ -1,6 +1,6 @@
-// A bidder's shielded destination, opaque by construction (agent-friendly class F: four P0s and B37 were a
+// A bidder's shielded destination, opaque by construction (four earlier bugs were a
 // destination reaching a public document or log). It never serializes: JSON.stringify throws, and string
-// interpolation and util.inspect print "[Destination]". The address comes out only through reveal(), which
+// interpolation and util.inspect print "[Destination]". The address comes out only through reveal, which
 // belongs at payment construction and nowhere else.
 const INSPECT = Symbol.for("nodejs.util.inspect.custom");
 
@@ -21,7 +21,7 @@ export class Destination {
   toString(): string {
     return "[Destination]";
   }
-  // R78 (Reviewer R F-7): `==`, `+` or arithmetic on a Destination throws instead of comparing "[Destination]" strings,
+  // `==`, `+` or arithmetic on a Destination throws instead of comparing "[Destination]" strings,
   // which would make two different destinations look equal. Template strings still print "[Destination]".
   [Symbol.toPrimitive](hint: string): string {
     if (hint === "string") return "[Destination]";

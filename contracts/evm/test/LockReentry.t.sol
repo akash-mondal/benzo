@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {BenzoEscrow} from "../src/BenzoEscrow.sol";
 
-// R9 item 4: `lock` must be nonReentrant and write its state before the external calls the
+// `lock` must be nonReentrant and write its state before the external calls the
 // fee-token delta check requires (a token callback must never observe an unwritten auction, nor
 // re-enter `lock`). Red on the pre-fix contract, green after:
 // contracts/logs/r9-4-lock-{old-code,fixed}.out.

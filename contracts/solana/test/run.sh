@@ -11,8 +11,8 @@ RPC_PORT="${BNZ_SOLANA_TEST_RPC_PORT:-8901}"
 LEDGER="target/test-ledger"
 KP="target/deploy/benzo_escrow-keypair.json"
 
-# R14 item 2: the CPI-forgery regression fixture needs its attacker proxy program (test/proxy,
-# Reviewer R's lab PoC program) loaded beside the escrow
+# The CPI-forgery regression fixture needs its attacker proxy program (test/proxy,
+# a lab proof-of-concept program) loaded beside the escrow
 echo "== build-sbf the test/proxy attacker fixture"
 cargo build-sbf --manifest-path test/proxy/Cargo.toml
 PROXY_SO="test/proxy/target/deploy/proxy.so"

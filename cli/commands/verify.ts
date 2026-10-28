@@ -1,4 +1,4 @@
-// benzo verify — independent gate R: public inputs only, cold copy, ERROR lines on corruption.
+// benzo verify — public inputs only, cold copy, ERROR lines on corruption.
 // Re-derives every opening offline from its ciphertext and authenticated published quicknet beacon.
 import os from "node:os";
 import path from "node:path";
@@ -15,7 +15,7 @@ import { beaconSha256, loadOpenings } from "../openings-cache";
 
 export const noun = "verify";
 export const verb = "";
-export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] — re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json (B43 H13) and only skips re-decrypting the openings that file covers (the host's BNZ_STATE_DIR is the trust anchor for that path); the public benzo verify never uses it and re-derives every opening.";
+export const help = "benzo verify --dir <public-auction-dir> --signer <ed25519-spki-der-hex> [--fetch-beacon] [--tle] [--offline] [--previous <prior-round-dir>] [--legacy-unattested] [--openings-cache FILE] — re-derive openings offline and reproduce clear + accounting. --openings-cache is HOST-ONLY: FILE must be the signer host's own $BNZ_STATE_DIR/auctions/<id>/openings.json and only skips re-decrypting the openings that file covers (the host's BNZ_STATE_DIR is the trust anchor for that path); the public benzo verify never uses it and re-derives every opening.";
 
 // Go tle is an optional independent cross-check, resolved only through PATH (shared with the signer
 // plan through manifest/reserve.ts so the sealed-reserve rules cannot drift).
@@ -35,7 +35,7 @@ export async function run(argv: string[]): Promise<number> {
     else if (argv[i] === "--tle") crossCheck = true;
     else if (argv[i] === "--openings-cache") openingsCache = argv[++i] ?? "";
     else if (argv[i] === "--previous") previous = argv[++i] ?? "";
-    else if (argv[i] === "--legacy-unattested") legacyUnattested = true; // R78: pre-R42 testnet evidence only
+    else if (argv[i] === "--legacy-unattested") legacyUnattested = true; // Older testnet evidence only
     else {
       process.stderr.write(`ERROR verify usage: ${help}\n`);
       return 2;
@@ -46,7 +46,7 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    // verify keeps requiring frozen and result (R21 item 5); the read API is the lifecycle-safe reader.
+    // verify keeps requiring frozen and result; the read API is the lifecycle-safe reader.
     const pub = loadCompletePublicAuction(dir, { signer: signerHex });
     if (pub.legacy) process.stderr.write("WARN legacy projections (no auction.json); fallback for Phase 2/3 evidence dirs\n");
     requireThat(pub.beacon || fetchBeacon, "no published beacon; rerun with --fetch-beacon");
@@ -63,13 +63,13 @@ export async function run(argv: string[]): Promise<number> {
     if (fetchBeacon) pub.beacon = await fetchPublished(pub.manifest.drand.R, published);
     const local = publishedClient(pub.beacon!);
     if (!published) process.stderr.write("WARN beacon fetched (not published)\n");
-    // B43 (H13 item 5): the host-only openings cache. A signer host's deriveRows passes its OWN
+    // The host-only openings cache. A signer host's deriveRows passes its OWN
     // $BNZ_STATE_DIR/auctions/<id>/openings.json — the cache of its own prior computation — and this run skips
     // re-decrypting exactly the leaves that file covers while still checking everything else against the
     // published document. The file must be the host's own: any other path is refused. A cache with other
     // keys (a different frozen root or beacon) covers nothing, so every opening is re-derived. The public
     // `benzo verify` never passes the flag (see --help) and re-derives every opening.
-    // B48 (H18 P3-3): host-only by construction, not by convention. The resolved path must be exactly the
+    // Host-only by construction, not by convention. The resolved path must be exactly the
     // host's own cache for the directory's auction id, and the file at it must BE the host's own file there —
     // a cache copied elsewhere is refused, and so is a link standing in for one at the host's own name. Only
     // the host's own plain file is ever read through this flag.
@@ -77,7 +77,7 @@ export async function run(argv: string[]): Promise<number> {
     if (openingsCache) {
       const state = process.env.BNZ_STATE_DIR ? path.resolve(process.env.BNZ_STATE_DIR) : path.join(os.homedir(), ".benzo");
       const own = path.join(state, "auctions", pub.manifest.auction_id, "openings.json");
-      // H24: the comparison is canonical. Each side's directory goes through realpath (macOS /tmp is /private/tmp),
+      // The comparison is canonical. Each side's directory goes through realpath (macOS /tmp is /private/tmp),
       // the file name stays as given, so the lstat below still refuses a link at the host's own name.
       // BNZ_STATE_DIR is the trust anchor here, the same boundary as the 0600 host state this cache comes from.
       const canon = (p: string) => { const d = path.dirname(path.resolve(p)); return path.join(existsSync(d) ? realpathSync(d) : d, path.basename(p)); };
@@ -87,11 +87,11 @@ export async function run(argv: string[]): Promise<number> {
     }
     const derived: Opened[] = [];
     for (const leaf of pub.frozen.leaves) {
-      // B43 (H14 item 2): re-derive through the one opener — a leaf whose fault it is (bad shape — a wrong
+      // Re-derive through the one opener — a leaf whose fault it is (bad shape — a wrong
       // round included — any tlock/age/IBE failure, non-128-byte plaintext) re-derives as `undecryptable`,
-      // exactly what `open` publishes, so a griefing ciphertext can never stop the verify (B44: the opener
+      // exactly what `open` publishes, so a griefing ciphertext can never stop the verify (the opener
       // never throws on a leaf); only an unusable beacon client still stops it.
-      // B43 (H13 item 5): a leaf the host's cache covers takes its cached opening instead of re-decrypting.
+      // A leaf the host's cache covers takes its cached opening instead of re-decrypting.
       const covered = cache && Object.hasOwn(cache, String(leaf.leaf_index)) ? cache[String(leaf.leaf_index)] : undefined;
       const plaintext = covered !== undefined ? covered : await openSealedBid(leaf.ciphertext_hex, local);
       if (crossCheck) requireThat(tleOpening(leaf.ciphertext_hex, pub.manifest.drand.chain_hash) === plaintext, `opening ${leaf.leaf_index} tle differs`);
@@ -108,7 +108,7 @@ export async function run(argv: string[]): Promise<number> {
       }
     }
     pub.opened = derived;
-    // R16 item 4 (Reviewer R F3): every stray claim's owner key is derived here from the memo the claim
+    // Every stray claim's owner key is derived here from the memo the claim
     // publishes (the scanned deposit's memo) and this authenticated published beacon — no claims[].opening.
     const claimOpenings = await deriveClaimOpenings(pub.claims ?? [], pub.beacon);
     if (pub.manifest.sealed_reserve !== undefined) {

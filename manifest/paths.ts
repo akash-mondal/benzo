@@ -1,4 +1,4 @@
-// Per-auction custody paths (Phase 5 part 1 §11 H1). An auction that ran its own DKG (`benzo auction keys`) has a
+// Per-auction custody paths. An auction that ran its own DKG (`benzo auction keys`) has a
 // view-only vault at state/vaults/<id>/wallet; every vault use for that auction goes there, everything else keeps
 // the global state/vault. Tool binaries resolve from an override, the checkout's build tree, or the state bin dir
 // (signer hosts have no checkout).

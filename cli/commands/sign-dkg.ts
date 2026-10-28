@@ -1,7 +1,7 @@
-// benzo sign dkg — Phase 5 part 1 §2 (gate Y): a fresh dealerless 2-of-3 RedPallas DKG per auction, run ON each
+// benzo sign dkg — a fresh dealerless 2-of-3 RedPallas DKG per auction, run ON each
 // signer machine. The machine's own contact config (state/frost/<name>.toml, with the other two signers already in
 // its address book) is copied to state/auctions/<id>/frost.toml and the DKG writes this auction's share there, so
-// the global Phase 1 share is never touched and no share ever leaves its machine. Prints only the group public key.
+// the global setup share is never touched and no share ever leaves its machine. Prints only the group public key.
 import { spawn, spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";

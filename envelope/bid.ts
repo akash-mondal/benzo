@@ -1,4 +1,4 @@
-// The 128-byte bid plaintext layout (docs/PHASE-1.md section 6) with real owner material instead of Phase 1's
+// The 128-byte bid plaintext layout with real owner material instead of the earlier
 // random bytes: owner_pubkey is the bid's one-time Ed25519 key (threat #38) and settlement_commitment is the
 // independently salted commitment to the settlement envelope (threat #7, #32). The layout itself never changes.
 import { randomBytes } from "node:crypto";
@@ -26,9 +26,9 @@ export function buildBidPlaintext(f: BidFields): Buffer {
 
 // Client-side bid preparation: real owner key, sealed settlement envelope (destination never leaves the client in
 // plaintext), salted commitment, then the plaintext for the sealer to tlock. `envelope_public_hexs` is the signed
-// manifest's `envelope_keys` (§4: the content key is wrapped to each signer's key in its own stanza). Callers tlock
+// manifest's `envelope_keys` (the content key is wrapped to each signer's key in its own stanza). Callers tlock
 // plaintext_hex to round R and then call bindSealedBid to attach the owner signature over the resulting ciphertext hash.
-// R19 item 1: `deliver` (the cross-chain destination) rides the same envelope as payload v2; `destination_ua`
+// `deliver` (the cross-chain destination) rides the same envelope as payload v2; `destination_ua`
 // stays the mandatory shielded refund (for the product's Zcash settlement).
 export function prepareBid(args: { auction_id: string; price_zats: bigint; quantity: number; destination_ua?: string; deliver?: DeliverInput; envelope_public_hexs?: string[]; owner?: OwnerKey; network: string }): Omit<SealedBid, "ciphertext_hash_hex" | "owner_sig_hex"> {
   // A pinned identity (OTC buyer/seller key, RFQ dealer key) bids with its own key; everyone else gets a one-time key.

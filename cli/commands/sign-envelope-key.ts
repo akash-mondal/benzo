@@ -1,8 +1,8 @@
-// Signer-side envelope key generation (gate W, R7 item 2): each signer generates its own X25519 envelope
+// Signer-side envelope key generation: each signer generates its own X25519 envelope
 // keypair in its own state dir and shares only the public half, which the signed manifest pins as one of
-// `envelope_keys`. The operator's tooling never generates, reads or copies the private half (Reviewer R F-1:
+// `envelope_keys`. The operator's tooling never generates, reads or copies the private half (
 // the operator-held envelope key linked every bidder to their refund destination). After part 1 §1 this
-// command runs on the signer's own machine — which has no git checkout (R10 item 5): it takes --state DIR
+// command runs on the signer's own machine — which has no git checkout: it takes --state DIR
 // or BNZ_STATE_DIR, defaulting to ~/.benzo-signer.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -22,7 +22,7 @@ export async function run(argv: string[]): Promise<number | object> {
   }
   try {
     requireThat(["alice", "bob", "carol"].includes(name), "signer name");
-    // R10 item 5: --state wins; BNZ_STATE_DIR keeps its checkout-relative meaning where a checkout exists;
+    // --state wins; BNZ_STATE_DIR keeps its checkout-relative meaning where a checkout exists;
     // otherwise (a signer host) the state dir is ~/.benzo-signer and no git call is made.
     let state: string;
     if (stateArg) state = path.resolve(stateArg);
@@ -32,7 +32,7 @@ export async function run(argv: string[]): Promise<number | object> {
     } else state = path.join(os.homedir(), ".benzo-signer");
     const file = path.join(state, "signers", name, "envelope-key.json");
     if (show) {
-      // B42 (G1): the key is per signer and reused; this only prints the existing public half again. It never
+      // (G1): the key is per signer and reused; this only prints the existing public half again. It never
       // generates or replaces a key, and the private half never leaves the file.
       requireThat(existsSync(file), "signer envelope key missing (generate it once with sign envelope-key)");
       return { name, public_hex: JSON.parse(readFileSync(file, "utf8")).public_hex };

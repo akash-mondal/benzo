@@ -19,7 +19,7 @@ import { run as verify } from "../cli/commands/verify";
 
 type Stage = { stage: string; seconds: number | null; peak_rss_mib: number | null; status: string; error?: string };
 const seed = "benzo-phase6-offline-v1";
-const BATCH_CAP = 28; // R30: batch_cap up to 28
+const BATCH_CAP = 28; // batch_cap up to 28
 const bytes = (tag: string) => Buffer.from(hash(seed + ":" + tag), "hex");
 const ed = (tag: string) => createPrivateKey({ key: Buffer.concat([Buffer.from("302e020100300506032b657004220420", "hex"), bytes(tag)]), type: "pkcs8", format: "der" });
 const pem = (tag: string) => ed(tag).export({ type: "pkcs8", format: "pem" }).toString();
@@ -27,8 +27,8 @@ const publicHex = (tag: string) => createPublicKey(ed(tag)).export({ type: "spki
 const rawPublic = (tag: string) => publicHex(tag).slice(24);
 const read = (file: string) => JSON.parse(readFileSync(file, "utf8"));
 const write = (file: string, value: unknown) => writeFileSync(file, jsonBytes(value));
-// R81: settlement pays Orchard/Ironwood only, so the synthetic destination is the fixtures' Orchard-capable testnet UA
-// (Sapling+Orchard receivers, e2e/lib/readpath.ts). No wallet or funds.
+// Settlement pays Orchard/Ironwood only, so the synthetic destination is the fixtures' Orchard-capable testnet UA
+// (Sapling+Orchard receivers). No wallet or funds.
 const BENCH_UA = "utest1nqaarlf8ehmtateefnysz3a6mxvtl39cgvtmj68ngj9266vtk7efr936qp67cz4aywuy4cqss3pfu870hxmkruhmrzgetw2jq7dle6lvzrgsrckh2ugw4fehsyd7j66sy67x84hylx5rjg47qnkzztwf9zvce9v6je7ngd6j8mjh44knm2kj7u6c67nv20dk6hkhsfugd5t7jqlkjfm";
 function destination(): string { return BENCH_UA; }
 
@@ -52,7 +52,7 @@ async function stage(name: string, dir: string, count: number) {
       deposit_addresses: [address], drand: { ...QUICKNET, R }, T_submit: release - 1000, T_freeze: release - 200, confirmations: 10,
       clearing: { mode: "uniform", band: "floor_pro_rata_units", dust: "ascending_leaf_index", tie: "ascending_leaf_index", minimum_fill: 1 },
       refund: { invalid: "full_C", reorg: "C_minus_fee_remove_leaf", cancel: "full_C" }, freeze: "merkle_root_v1",
-      // The product rule (R7 item 2): the signed manifest pins the three envelope keys the bids are sealed to,
+      // The product rule: the signed manifest pins the three envelope keys the bids are sealed to,
       // in the exact stanza order sealEnvelope uses; verify's envelope record check enforces it (a bench run
       // without this field is refused `envelope record format`, which is the rule working, not a product bug).
       envelope_keys: envelopeKeys.map(k => k.public_hex), witness_set_hash: witnessSetHash(witness_set) };
@@ -60,7 +60,7 @@ async function stage(name: string, dir: string, count: number) {
     const bids: any[] = [];
     for (let i = 0; i < count; i++) {
       const owner = { private_hex: bytes("owner:" + i).toString("hex"), public_hex: ownerPublic(bytes("owner:" + i).toString("hex")) };
-      const envelope_ct = sealEnvelope(destination(), envelopeKeys.map(k => k.public_hex), "test"); // bench fixtures are testnet-format (destination() above)
+      const envelope_ct = sealEnvelope(destination(), envelopeKeys.map(k => k.public_hex), "test"); // bench fixtures are testnet-format (destination above)
       const nonce = bytes("nonce:" + i).subarray(0, 16).toString("hex"), pt = Buffer.alloc(128);
       Buffer.from(auction_id, "hex").copy(pt, 1); pt.writeBigUInt64BE(BigInt(1 + bytes("price:" + i).readUInt32BE(0) % 100) * 1000n, 33);
       pt.writeUInt32BE(1 + bytes("quantity:" + i).readUInt32BE(0) % 10, 41); Buffer.from(nonce, "hex").copy(pt, 45);
@@ -117,8 +117,8 @@ async function stage(name: string, dir: string, count: number) {
     }
     write(resolve(dir, "batch-plan.json"), { batch_cap: BATCH_CAP, rows: obligations.length,
       settlement_batches: batches.length, estimated_fee_zats: fee_zats.toString() });
-    // R35 fold of tools/repro/batching-equal.ts (that script stays until gate RG deletes it): planBatches
-    // must equal the real settlement Ledger's allocate() batch-for-batch — same ids, same parties in the
+    // check: planBatches
+    // must equal the real settlement Ledger's allocate batch-for-batch — same ids, same parties in the
     // same order — at caps 13 and 28. The reference is a real Ledger over real SQLite driven through its
     // own pin/eligible/allocate/stage/confirm methods; expected values come from that ledger, never from
     // the code under test. Failure prints one grep-able `ERROR batching-equal-cap{13,28}` line.

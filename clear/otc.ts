@@ -1,4 +1,4 @@
-// PHASE-5 §11: two pinned one-time parties seal their max/min; both limits become public at R.
+// Two pinned one-time parties seal their max/min; both limits become public at R.
 // Match at floor((max+min)/2) zatoshis iff max >= min; otherwise exact-C refunds, no fees.
 import { requireThat, zats, type Signed } from "../manifest/schema";
 import { LAYOUT_V0 } from "./layout";

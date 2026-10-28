@@ -1,4 +1,4 @@
-// Ruling R28 (signer hosts): what this host learns from the chain itself, through its own lightwalletd connection
+// (signer hosts): what this host learns from the chain itself, through its own lightwalletd connection
 // (BNZ_LWD_URL from the host launcher) and its own grpcurl + pinned protos — never from the coordinator.
 import { spawnSync } from "node:child_process";
 import path from "node:path";
@@ -10,7 +10,7 @@ function grpc(st: string, method: string, body: object, endpoint?: string): { ok
   const lwd = endpoint ?? process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443";
   for (let attempt = 1; ; attempt++) {
     const cmd = path.join(st, "bin", "grpcurl"), args = ["-import-path", path.join(st, "proto"), "-proto", "service.proto", "-d", JSON.stringify(body), lwd, `cash.z.wallet.sdk.rpc.CompactTxStreamer/${method}`];
-    const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 256 << 20, ...lwdBound(cmd, args) }); // R49: Reviewer R P1-2 on R48; R60: block ranges are large
+    const r = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 256 << 20, ...lwdBound(cmd, args) }); // block ranges are large
     if (r.status === 0) return { ok: true, out: r.stdout };
     const err = lwdTimedOut(cmd, r)?.message ?? `${r.stderr ?? ""}${r.stdout ?? ""}`;
     if (/NotFound|not found/i.test(err)) return { ok: false, out: err };
@@ -24,12 +24,12 @@ export function chainTip(st: string): number {
   return h;
 }
 // The height a transaction mined at, or 0 when this host's endpoints do not know it.
-// B54 (P3-6, Reviewer R round 5): cross-checked across endpoints like `blockHeader` — every configured
+// Cross-checked across endpoints like `blockHeader` — every configured
 // endpoint answers (BNZ_LWD_URL and BNZ_LWD_URL_ALT; one endpoint only under BNZ_LWD_SINGLE=1), and
 // endpoints that DISAGREE mean no height, which fails closed: the gate callers read the refusal as
 // not-yet-counted (their catch → 0, the conservative direction) and a signer host never approves on a
 // height its own endpoints dispute (the same standing lightwalletd trust as the scan's spent trace, one
-// lying endpoint stronger against). R64's rule rides along: one endpoint configured twice is not a
+// lying endpoint stronger against). rule rides along: one endpoint configured twice is not a
 // cross-check.
 export function minedHeight(st: string, txid: string): number {
   const single = process.env.BNZ_LWD_SINGLE === "1";
@@ -44,7 +44,7 @@ export function minedHeight(st: string, txid: string): number {
   requireThat(seen.every((h) => h === seen[0]), `GetTransaction ${txid} height differs across lightwalletd endpoints; no height`);
   return seen[0];
 }
-// R58 (Reviewer R F2 on R57): "this endpoint does not know the txid" is not proof the transaction never mined (all
+// "this endpoint does not know the txid" is not proof the transaction never mined (all
 // hosts share one testnet endpoint, so a lagging or pruned answer is correlated). Absence is proven only from the
 // full block range [from, to]: every block present and contiguous, and the txid in none of them.
 export function provenAbsent(st: string, txid: string, from: number, to: number): boolean {
@@ -56,9 +56,9 @@ export function provenAbsent(st: string, txid: string, from: number, to: number)
   const ids = new Set(blocks.flatMap((b) => b.vtx ?? []).map((t: any) => Buffer.from(t.txid, "base64").reverse().toString("hex")));
   return !ids.has(txid);
 }
-// Ruling R63 (Reviewer R P1-2 on R61): the bond window's start header {height, hash, time} decides a void, so it is
+// The bond window's start header {height, hash, time} decides a void, so it is
 // read from EVERY configured endpoint (BNZ_LWD_URL and BNZ_LWD_URL_ALT; one endpoint only under BNZ_LWD_SINGLE=1,
-// testnet only — R27/R28 item 10) and refused unless all agree. The host signs it into its approval map, so two
+// testnet only) and refused unless all agree. The host signs it into its approval map, so two
 // hosts must have seen the identical header and verify recomputes the void from the signed time.
 export type BlockHeader = { height: number; hash: string; time: number };
 export function blockHeader(st: string, height: number, network: string): BlockHeader {
@@ -67,7 +67,7 @@ export function blockHeader(st: string, height: number, network: string): BlockH
   requireThat(!single || network === "test", "BNZ_LWD_SINGLE is testnet-only; a mainnet header needs two endpoints");
   const endpoints = [process.env.BNZ_LWD_URL ?? "testnet.zec.rocks:443", ...(single ? [] : [process.env.BNZ_LWD_URL_ALT ?? ""])];
   requireThat(endpoints.every((e) => e.length > 0), "second lightwalletd endpoint (BNZ_LWD_URL_ALT) not configured");
-  // R64 (Reviewer R P1 on R63): one endpoint configured twice is not a cross-check.
+  // One endpoint configured twice is not a cross-check.
   requireThat(single || new Set(endpoints.map(endpointKey)).size === endpoints.length, "BNZ_LWD_URL_ALT must be a different endpoint from BNZ_LWD_URL");
   const seen = endpoints.map((e) => {
     const b = JSON.parse(grpc(st, "GetBlock", { height }, e).out);
@@ -78,7 +78,7 @@ export function blockHeader(st: string, height: number, network: string): BlockH
   requireThat(seen.every((h) => h.hash === seen[0].hash && h.time === seen[0].time), `block ${height} header differs across lightwalletd endpoints`);
   return seen[0];
 }
-// R33 item 2: the header time of the block at `height` (CompactTxStreamer GetBlock over the pinned protos) —
+// The header time of the block at `height` (CompactTxStreamer GetBlock over the pinned protos) —
 // the host's own chain view, used to hold the balance window's start to R's release time.
 export function blockTime(st: string, height: number): number {
   requireThat(Number.isSafeInteger(height) && height > 0, "block height");

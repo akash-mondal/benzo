@@ -9,13 +9,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 
 /// @title BenzoEscrow — cross-chain escrow released only by 2-of-3 attested Benzo clearing results.
-/// @notice Design: docs/design/crosschain.md §1–§3 (Track B, Phase 5 part 3).
+/// @notice Design: docs/design/crosschain.md §1–§3.
 ///
 /// Lifecycle:
 ///  - `lock`: the seller deposits the asset once per `auctionId`, before `T_submit` (`lockUntil`);
 ///    the signed manifest pins {chain, escrow address, asset, amount, deadline} and the per-auction
 ///    signer set (alice/bob/carol secp256k1 keys, rotating per auction).
-///  - `submitAttestation` + `releaseApproved` (R9 item 3: Solana's model, design §9): the 2-of-3
+///  - `submitAttestation` + `releaseApproved` (Solana's model): the 2-of-3
 ///    EIP-712 attestations over the allocation root are verified **once** per (auction, batch) and
 ///    the approved root is stored; `releaseApproved(payouts[])` then pays against that approval and
 ///    can be cranked any number of times, so a partial or failed release never consumes the
@@ -26,27 +26,27 @@ import {MerkleProof} from "@openzeppelin/contracts/utils/cryptography/MerkleProo
 ///
 /// Trust: the escrow never trusts the signers with custody safety — payments are capped by the
 /// locked amount and keyed by leaf hash, so no set of attestations can pay more or twice.
-/// Re-entrancy safety (P0): `releaseApproved`/`refund` are `nonReentrant` (OpenZeppelin `ReentrancyGuard`)
+/// Re-entrancy safety: `releaseApproved`/`refund` are `nonReentrant` (OpenZeppelin `ReentrancyGuard`)
 /// and each payout is checks-effects-interactions — the paid flag and the cap are written before
 /// the transfer and rolled back (PayoutFailed) if it fails — and the native transfer forwards a
 /// bounded gas stipend, so one recipient can never consume a batch's gas.
 ///
-/// What may appear on chain (design §0/§8): the escrow, the auction id, allocation leaves
+/// What may appear on chain: the escrow, the auction id, allocation leaves
 /// (asset, lot count, destination) and attested roots. Never a Zcash txid, address, amount paid
 /// or funding identifier.
 contract BenzoEscrow is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    // ---- canonical cross-chain encodings (design §3; mirrored in crosschain/ TS and the Solana program) ----
+    // ---- canonical cross-chain encodings (mirrored in crosschain/ TS and the Solana program) ----
     // leaf = keccak256("benzo-leaf-v1" ‖ auction_id(32) ‖ index(u64be) ‖ asset(32) ‖ lot_count(u64be)
     //                   ‖ destination_kind(u8) ‖ destination_bytes)
-    // root = keccak256("benzo-root-v1" ‖ leaf_count(u64be) ‖ tree_root)   (leaf count committed in the root)
+    // root = keccak256("benzo-root-v1" ‖ leaf_count(u64be) ‖ tree_root) (leaf count committed in the root)
     // tree: sorted-pair keccak parents (OpenZeppelin MerkleProof convention).
-    // Amounts are never in a leaf: payout = lot_count × standard_lot (design §3, lesson 6).
+    // Amounts are never in a leaf: payout = lot_count × standard_lot.
     string private constant LEAF_PREFIX = "benzo-leaf-v1";
     string private constant ROOT_PREFIX = "benzo-root-v1";
 
-    // ---- attestation (design §1): "benzo-release-v1 ‖ chain_id ‖ escrow_address ‖ auction_id ‖
+    // ---- attestation: "benzo-release-v1 ‖ chain_id ‖ escrow_address ‖ auction_id ‖
     //      result_hash ‖ allocation_root ‖ batch_index ‖ nonce ‖ expiry", as EIP-712 typed data
     //      whose domain binds chain_id + verifyingContract and whose name binds the version string.
     bytes32 private constant RELEASE_TYPEHASH = keccak256(
@@ -59,7 +59,7 @@ contract BenzoEscrow is ReentrancyGuard {
 
     /// @dev Bounded gas stipend for native payout transfers: one recipient can burn at most this
     /// much of a release batch's gas (a plain EOA costs nothing; a contract wallet has room for a
-    /// modest `receive()`). `refund` pays the pinned return address without the bound: a single
+    /// modest `receive`). `refund` pays the pinned return address without the bound: a single
     /// payout with no batch to protect.
     uint256 internal constant NATIVE_TRANSFER_GAS = 120_000;
 
@@ -79,7 +79,7 @@ contract BenzoEscrow is ReentrancyGuard {
     }
 
     /// @dev The attested release message, exactly the design §1 fields. `nonce` is signed and
-    /// committed in the EIP-712 digest but is never stored (R14 item 4): on-chain replay is
+    /// committed in the EIP-712 digest but is never stored: on-chain replay is
     /// refused by the one-shot Approval entry per (auctionId, batchIndex), not by the nonce.
     struct Release {
         bytes32 auctionId;
@@ -90,9 +90,9 @@ contract BenzoEscrow is ReentrancyGuard {
         uint64 expiry;
     }
 
-    /// @dev R9 item 3 (Solana's model, design §9): what `submitAttestation` stores exactly once
-    /// per (auction_id, batch_index) — the approved root and its release window. R14 item 4: the
-    /// `resultHash` is exposed by `approval()` so a verifier can tie the settled root to the
+    /// @dev R9 item 3 (Solana's model): what `submitAttestation` stores exactly once
+    /// per (auction_id, batch_index) — the approved root and its release window. the
+    /// `resultHash` is exposed by `approval` so a verifier can tie the settled root to the
     /// published `result.json` hash; the write-only `nonce` field is dropped.
     struct Approval {
         bytes32 allocationRoot;
@@ -113,11 +113,11 @@ contract BenzoEscrow is ReentrancyGuard {
     }
 
     mapping(bytes32 => Auction) private auctions;
-    // attest once, release many (R9 item 3, design §9): each (auction_id, batch_index) is
+    // attest once, release many: each (auction_id, batch_index) is
     // approved exactly once by `submitAttestation`; `releaseApproved` may run any number of times
     // against that stored approval, so a partial or failed release never consumes it
     mapping(bytes32 => mapping(uint64 => Approval)) private approvals;
-    // per-recipient paid flags, keyed by leaf hash: a leaf is payable at most once (design §2.4)
+    // per-recipient paid flags, keyed by leaf hash: a leaf is payable at most once
     mapping(bytes32 => mapping(bytes32 => bool)) private paidLeaf;
 
     event Locked(bytes32 indexed auctionId, address indexed returnTo, address asset, uint256 amount, uint256 standardLot, uint64 lockUntil, uint64 deadline, address signer0, address signer1, address signer2);
@@ -147,12 +147,12 @@ contract BenzoEscrow is ReentrancyGuard {
     /// @notice Lock the asset for one auction. One lock per auction id; refused after `lockUntil` (T_submit).
     /// @dev Fee-on-transfer (and any token that delivers less than `amount`) is refused: the
     /// received balance is measured around `safeTransferFrom` and the lock reverts unless the
-    /// delta equals `amount`, so no auction can be underfunded and drain a pooled peer (F5).
-    /// `nonReentrant` and effects-before-interactions (R9 item 4): the auction state is written
+    /// delta equals `amount`, so no auction can be underfunded and drain a pooled peer.
+    /// `nonReentrant` and effects-before-interactions: the auction state is written
     /// before any external call (a token callback — `balanceOf` or `transferFrom` — already sees
     /// `exists == true`), and the delta check still measures around the transfer and reverts —
     /// rolling those writes back — unless the received balance grew by exactly `amount`.
-    /// @param signers the per-auction attestation signer set (design §1: keys rotate per auction).
+    /// @param signers the per-auction attestation signer set (keys rotate per auction).
     function lock(
         bytes32 auctionId,
         address asset,
@@ -175,7 +175,7 @@ contract BenzoEscrow is ReentrancyGuard {
         if (block.timestamp > lockUntil) revert LockClosed();
         if (asset == address(0) ? msg.value != amount : msg.value != 0) revert BadParameters();
 
-        // effects before interactions (R9 item 4): written before the token calls below
+        // effects before interactions: written before the token calls below
         a.returnTo = returnTo;
         a.asset = asset;
         a.standardLot = standardLot;
@@ -192,7 +192,7 @@ contract BenzoEscrow is ReentrancyGuard {
             uint256 balanceBefore = IERC20(asset).balanceOf(address(this));
             IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
             uint256 balanceAfter = IERC20(asset).balanceOf(address(this));
-            // F5: revert unless the escrow's balance grew by exactly `amount` (reverts roll back
+            // Revert unless the escrow's balance grew by exactly `amount` (reverts roll back
             // the state written above)
             if (balanceAfter < balanceBefore || balanceAfter - balanceBefore != amount) revert BadParameters();
         }
@@ -201,7 +201,7 @@ contract BenzoEscrow is ReentrancyGuard {
     }
 
     /// @notice Verify 2-of-3 attestations and store the approved allocation root for one
-    /// (auction, batch) — exactly once (R9 item 3, Solana's model, design §9). No transfers here.
+    /// (auction, batch) — exactly once (Solana's model). No transfers here.
     /// @dev Batch-level validity reverts: unknown auction, refunded auction, `expiry > deadline`
     /// (the F-2 window rule), an expired attestation, a quorum failure, or a second submit for the
     /// same batch (`BatchReplayed`). Everything else happens in `releaseApproved`.
@@ -209,7 +209,7 @@ contract BenzoEscrow is ReentrancyGuard {
         Auction storage a = auctions[att.auctionId];
         if (!a.exists) revert UnknownAuction();
         if (a.refunded) revert AuctionRefunded();
-        // §10 item 2 (F-2): the attested release window must fit inside the refund-free window:
+        // The attested release window must fit inside the refund-free window:
         // refund is allowed after `deadline`, so an expiry past it would let a refund race (and
         // capture) attested payouts still releasable until `expiry`. Signers attest expiry <= deadline.
         if (att.expiry > a.deadline) revert BadParameters();
@@ -231,11 +231,11 @@ contract BenzoEscrow is ReentrancyGuard {
     }
 
     /// @notice Pay payouts against a stored approval. Anyone (the crank) may call it repeatedly
-    /// until every leaf is paid (R9 item 3): a partial or failed release never consumes the
+    /// until every leaf is paid: a partial or failed release never consumes the
     /// approval, so the remainder always stays payable.
     /// @dev Per-payout failures (already paid, over cap, transfer refused) skip that payout only,
     /// so one failing recipient never reverts the batch and failed items stay claimable by a later
-    /// release (design §2.4). `nonReentrant` plus the checks-effects-interactions order inside the
+    /// release. `nonReentrant` plus the checks-effects-interactions order inside the
     /// loop close the P0 double-payment: a recipient callback re-entering `releaseApproved` is
     /// refused, and even a callback that slips past would see its leaf already paid.
     function releaseApproved(bytes32 auctionId, uint64 batchIndex, Payout[] calldata payouts) external nonReentrant {
@@ -263,7 +263,7 @@ contract BenzoEscrow is ReentrancyGuard {
                 continue;
             }
             address recipient = address(bytes20(p.destination));
-            // checks-effects-interactions (P0): mark paid before the transfer so a re-entrant
+            // checks-effects-interactions: mark paid before the transfer so a re-entrant
             // callback reads the leaf as paid; roll back if the transfer fails (PayoutFailed,
             // the item stays claimable by a later release).
             paidLeaf[auctionId][leaf] = true;
@@ -352,7 +352,7 @@ contract BenzoEscrow is ReentrancyGuard {
         return approvals[auctionId][batchIndex].exists;
     }
 
-    /// @notice R14 item 4 (reviewer R F3): the stored approval, in full — the settled root, the
+    /// @notice item 4: the stored approval, in full — the settled root, the
     /// attested result hash (compare it with the published `result.json` hash), the release
     /// window, and whether the batch was approved at all. Off-chain verifiers read settlement
     /// state from here instead of scraping `AttestationApproved` events.

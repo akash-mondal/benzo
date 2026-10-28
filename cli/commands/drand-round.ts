@@ -1,6 +1,6 @@
 // benzo drand round — which pinned quicknet round releases at or after a UTC instant, and its exact release
 // time. No network: the quicknet parameters are pinned in manifest/schema.ts (QUICKNET). The formula is the
-// one the harness computes the manifest's R with (tools/repro/markets.ts): R = 1 + ceil((t - genesis) / period),
+// one the manifest's R is computed with: R = 1 + ceil((t - genesis) / period),
 // so R's release instant (genesis + period x (R - 1)) is the first round at or after t.
 import { QUICKNET, requireThat } from "../../manifest/schema";
 

@@ -1,2 +1,2 @@
-export const noun='launch',verb='deliver',help='benzo launch deliver --id ID --leaf-index N --destinations d1,d2 --owner-key-stdin (winner: build the sealed delivery record) | --id ID < record.json (operator: record it) — launch, before the clear: the winner\'s token-chain destinations, sealed to envelope_keys (R40 item 3)';
+export const noun='launch',verb='deliver',help='benzo launch deliver --id ID --leaf-index N --destinations d1,d2 --owner-key-stdin (winner: build the sealed delivery record) | --id ID < record.json (operator: record it) — launch, before the clear: the winner\'s token-chain destinations, sealed to envelope_keys';
 export const run=async(args:string[])=>{const {runCommand}=await import('../product');return runCommand('launch deliver',args)};

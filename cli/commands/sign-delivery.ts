@@ -1,4 +1,4 @@
-// benzo sign delivery — Ruling R40 item 3 (F4), run ON a signer host after the clear: the launch delivery
+// benzo sign delivery — item 3, run ON a signer host after the clear: the launch delivery
 // records reach the hosts SEALED to the manifest's `envelope_keys` ("as claims do"), so the leaf<->destination
 // join never enters the operator's view or any published document. This host opens each record with its own
 // envelope key, checks every owner signature against the opened order (its own tlock openings of the frozen
@@ -43,7 +43,7 @@ export async function run(argv: string[]): Promise<number | object> {
     const verify = spawnSync(process.execPath, [process.argv[1], "verify", "--dir", dir, "--signer", o.signer], { encoding: "utf8", env: process.env });
     requireThat(verify.status === 0, `public check failed: ${(verify.stdout + verify.stderr).split("\n").filter(l => /^ERROR/.test(l)).slice(0, 3).join(" | ") || `exit ${verify.status}`}`);
 
-    // This host's own data only: its envelope key and its own tlock openings of the frozen leaves (B43: the
+    // This host's own data only: its envelope key and its own tlock openings of the frozen leaves (the
     // one opener, offline from the one BLS-verified beacon — the published one, fetched when a packet lacks it).
     const key = ownEnvelopePrivate(st, o.name);
     requireThat(key, "this signer's envelope key is missing");
@@ -56,7 +56,7 @@ export async function run(argv: string[]): Promise<number | object> {
     }
     const ownerOf = (i: number) => { const p = opened.find(x => x.leaf_index === i)?.plaintext_hex; return p && /^[0-9a-f]{256}$/.test(p) ? Buffer.from(p, "hex").subarray(61, 93).toString("hex") : null; };
 
-    // Open every sealed record and check its owner signature against the opened order (R40 item 3).
+    // Open every sealed record and check its owner signature against the opened order.
     const records: { leaf_index: number; delivery_envelope_ct: string; owner_sig: string }[] = JSON.parse(readFileSync(path.resolve(o.deliveries), "utf8"));
     requireThat(Array.isArray(records) && records.length > 0, "delivery records");
     const plain: { leaf_index: number; destinations: string[] }[] = [];

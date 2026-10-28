@@ -1,9 +1,9 @@
-//! Benzo vault reader (docs/PHASE-1.md sections 5 and 7).
+//! Benzo vault reader.
 //!
-//! benzo-scan scan   <network> <wallet dir>        one JSON line per note the vault wallet received
-//! benzo-scan verify <network> <ufvk file> <height>  raw tx hex on stdin; one JSON line per output the UFVK decrypts
-//! benzo-scan ak     <network> <ufvk file>           the Orchard-protocol `ak` in the UFVK, hex
-//! benzo-scan pczt   <PCZT file>                     public version, branch and expiry metadata only
+//! benzo-scan scan <network> <wallet dir> one JSON line per note the vault wallet received
+//! benzo-scan verify <network> <ufvk file> <height> raw tx hex on stdin; one JSON line per output the UFVK decrypts
+//! benzo-scan ak <network> <ufvk file> the Orchard-protocol `ak` in the UFVK, hex
+//! benzo-scan pczt <PCZT file> public version, branch and expiry metadata only
 //!
 //! `scan` reads only the vault wallet that zcash-devtool maintains: notes and spends through zcash_client_sqlite's
 //! views, memos through `WalletRead::get_memo`. It never decrypts anything itself. `verify` uses no wallet database.
@@ -77,7 +77,7 @@ fn scan(params: Network, wallet_dir: &str) -> anyhow::Result<()> {
                 "height": row.get::<_, Option<u32>>(1)?,
                 "pool": name,
                 "address": row.get::<_, Option<String>>(5)?,
-                // R26 item 1: the note's output position within its pool in this transaction. Deposit
+                // The note's output position within its pool in this transaction. Deposit
                 // parties are `deposit:<txid>:<pool>:<action_index>` — never the diversifier index, which
                 // collides when one transaction carries two outputs to the same deposit address.
                 "action_index": output_index,

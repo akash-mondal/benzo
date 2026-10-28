@@ -1,4 +1,4 @@
-// Token-2022 Confidential Transfer delivery (docs/design/crosschain.md §4, PHASE-5 R19 deliver.kind
+// Token-2022 Confidential Transfer delivery (deliver.kind
 // = "ct"): a fresh token account configured from the bidder's `deliver.elgamal`, funded with a
 // confidential transfer whose amount is hidden on chain. The account's configuration is checked
 // against the sealed deliver before anything is sent — the fresh account must be configured with
@@ -13,7 +13,7 @@
 import { createHash } from "node:crypto";
 
 // `spl-token display --output json` reports the account's configured ElGamal encryption key as
-// base64. The sealed deliver carries the same key as 32-byte hex (R19 `deliver.elgamal`).
+// base64. The sealed deliver carries the same key as 32-byte hex (`deliver.elgamal`).
 export function configuredElgamalHex(displayJson: { decimals?: number; [k: string]: any }): string {
   const ext = displayJson?.extensionStates?.find?.((e: any) => e?.extension === "confidentialTransfer")
     ?? displayJson?.["Confidential transfer"]
@@ -27,7 +27,7 @@ export function configuredElgamalHex(displayJson: { decimals?: number; [k: strin
   return Buffer.from(b64, "base64").toString("hex");
 }
 
-// The R19 binding: the delivery only goes to a fresh account whose on-chain configuration is the
+// The binding: the delivery only goes to a fresh account whose on-chain configuration is the
 // bidder's own `deliver.elgamal`, at exactly `deliver.to`. Total — false, never a throw, so the
 // delivery can queue the leaf instead of dying.
 export function deliverMatchesAccount(

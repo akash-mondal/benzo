@@ -1,4 +1,4 @@
-// tools/package.mjs — gate PK: build the versioned tarball a stranger can run.
+// tools/package.mjs — build the versioned tarball a stranger can run.
 // Output: dist/benzo-<version>.tgz with the CLI bundles, the shipped verify bundle,
 // docs/verify-it-yourself.md and the pinned production dependencies (so the extract
 // runs with no network install). The shipped verify bundle must match a fresh rebuild

@@ -4,10 +4,10 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {BenzoEscrow} from "../src/BenzoEscrow.sol";
 
-// R9 item 3: a partial release followed by the remainder must pay every recipient exactly once.
+// A partial release followed by the remainder must pay every recipient exactly once.
 // On the pre-R9 contract the one-shot `release` consumed the whole (auction, batch) at the first,
 // partial call, so the remainder was stranded (`BatchReplayed` on every retry). The R9 model
-// (Solana's, design §9) stores the approved root once and lets `releaseApproved` crank any number
+// (Solana's) stores the approved root once and lets `releaseApproved` crank any number
 // of times against it.
 //
 // This file drives the release step through raw calls so it compiles and runs against BOTH the
@@ -33,7 +33,7 @@ contract PartialReleaseTest is Test {
     }
 
     // One release step of `payouts` under whichever release API this contract build exposes:
-    // R9 — releaseApproved against the stored approval, storing it first on the first crank —
+    // releaseApproved against the stored approval, storing it first on the first crank —
     // or the pre-R9 one-shot release.
     function releaseStep(BenzoEscrow.Release memory att, bytes[] memory sigs, BenzoEscrow.Payout[] memory ps)
         internal

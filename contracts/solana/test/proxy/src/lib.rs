@@ -3,7 +3,7 @@
 //! is invoked with carries the signed message bytes at offset 2 (so the Ed25519 precompile's
 //! cross-instruction message reference sees the signed bytes, not the CPI'd bytes).
 //!
-//! instruction data layout:  pad(2) || signed_msg(200) || cpi_ix_data(202)
+//! instruction data layout: pad(2) || signed_msg(200) || cpi_ix_data(202)
 //! accounts: [0]=benzo-escrow program (ro, executable),
 //!           [1..]=the 5 accounts submit_attestation expects (crank, auction, ix sysvar,
 //!                  approval, system program)

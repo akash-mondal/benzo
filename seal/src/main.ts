@@ -1,5 +1,5 @@
 // Benzo sealer: builds the 128-byte plaintext v0, tlock-encrypts it to drand quicknet round R and wraps the binary age
-// ciphertext in the 512-byte memo envelope, framing v2 (R16 item 2, corrected by R18):
+// ciphertext in the 512-byte memo envelope, framing v2:
 // ff424e5a02 || u16be ct_len || tlock_ct || envelope_tag (18) || zero pad, where envelope_tag is the first
 // 18 bytes of SHA-256(envelope_ct), or 18 zero bytes for a bid without an envelope. Exact 512-byte fit at
 // ct_len = 487; any longer ciphertext is refused. No network request is made: the tlock client is built
@@ -16,12 +16,12 @@ const QUICKNET = {
   schemeID: "bls-unchained-g1-rfc9380",
   metadata: { beaconID: "quicknet" },
 };
-// tlock-js only calls chain().info() while encrypting; answering from the pins keeps sealing offline.
+// tlock-js only calls chain.info while encrypting; answering from the pins keeps sealing offline.
 const pinnedClient = { chain: () => ({ info: async () => QUICKNET }) } as any;
 
 const MEMO_LEN = 512;
-const HEADER = [0xff, 0x42, 0x4e, 0x5a, 0x02]; // 0xFF "BNZ" v2 (memo framing v2, R16 item 2)
-const ENVELOPE_TAG_LEN = 18; // R18: first 18 bytes of SHA-256(envelope_ct); 5 + 2 + 487 + 18 = 512 exactly
+const HEADER = [0xff, 0x42, 0x4e, 0x5a, 0x02]; // 0xFF "BNZ" v2 (memo framing v2)
+const ENVELOPE_TAG_LEN = 18; // First 18 bytes of SHA-256(envelope_ct); 5 + 2 + 487 + 18 = 512 exactly
 
 const $ = (id: string) => document.getElementById(id) as HTMLInputElement;
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
@@ -40,7 +40,7 @@ function roundAt(t: number): number {
 }
 
 // Owner material is filled by the driver (benzo bid seal produces real one-time owner keys and the salted
-// settlement commitment); the standalone form falls back to Phase 1's random bytes. The 128-byte layout is unchanged.
+// settlement commitment); the standalone form falls back to random bytes. The 128-byte layout is unchanged.
 function material(id: string, n: number): Uint8Array {
   const v = $(id).value.trim();
   if (!v) return random(n);
@@ -50,7 +50,7 @@ function material(id: string, n: number): Uint8Array {
   return out;
 }
 
-// The memo's envelope binding (R16 item 2, R18): the deposit memo commits to the first 18 bytes of
+// The memo's envelope binding: the deposit memo commits to the first 18 bytes of
 // SHA-256(envelope_ct) of the bid's settlement envelope, or 18 zero bytes when the bid carries no envelope.
 // 18 bytes stop a third party from substituting an envelope for someone else's deposit at 2^144 (second
 // preimage). The driver (benzo bid seal) fills the hidden field; the standalone form has no envelope and
@@ -118,7 +118,7 @@ async function seal(): Promise<void> {
   envelope.set(HEADER, 0);
   new DataView(envelope.buffer).setUint16(HEADER.length, ct.length, false);
   envelope.set(ct, HEADER.length + 2);
-  envelope.set(eh, HEADER.length + 2 + ct.length); // envelope_tag (R16 item 2, R18)
+  envelope.set(eh, HEADER.length + 2 + ct.length); // envelope_tag
 
   $("round").textContent = String(round);
   $("envelope").textContent = hex(envelope);

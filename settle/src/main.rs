@@ -22,7 +22,7 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32, net: Network) -> anyho
     ensure!(expiry_blocks>0&&expiry_blocks<=10000,"expiry blocks must be 1–10000");
     let mut text=String::new(); io::stdin().read_to_string(&mut text)?;
     let outputs: Vec<Value>=serde_json::from_str(&text)?;
-    ensure!(!outputs.is_empty() && outputs.len()<=28,"batch must have 1–28 recipients"); // R30: 28 outputs stay under 100 KB
+    ensure!(!outputs.is_empty() && outputs.len()<=28,"batch must have 1–28 recipients"); // 28 outputs stay under 100 KB
     let payments=outputs.iter().enumerate().map(|(i,o)| {
         let addr=o["recipient"].as_str().context("recipient missing")?;
         let amount=o["amount_zats"].as_str().context("amount must be decimal string")?.parse::<u64>()?;
@@ -35,23 +35,23 @@ fn create(wallet: &str, output: &str, expiry_blocks: u32, net: Network) -> anyho
     let change=MultiOutputChangeStrategy::new(StandardFeeRule::Zip317,None,ShieldedPool::Orchard,DustOutputPolicy::default(),SplitPolicy::with_min_output_value(NonZeroUsize::new(1).unwrap(),Zatoshis::from_u64(10_000_000)?));
     let proposal=propose_transfer::<_,_,_,_,zcash_client_sqlite::wallet::commitment_tree::Error>(&mut db,&net,accounts[0],&GreedyInputSelector::new(),&change,TransactionRequest::new(payments)?,ConfirmationsPolicy::default(),&SpendPolicy::default(),None,None).map_err(|e|anyhow!("proposal: {e:?}"))?;
     let expiry=proposal.min_target_height()+expiry_blocks;
-    // Ruling R27: no PCZT may be valid on both sides of NU7. Testnet activated at 4,465,026; mainnet activates at
+    // No PCZT may be valid on both sides of NU7. Testnet activated at 4,465,026; mainnet activates at
     // 3,543,405 (Zebra PR #11830, agreed Oct 21 2026). This stack is pre-NU7 on mainnet, so a mainnet PCZT whose
-    // expiry reaches that height is refused (B58).
+    // expiry reaches that height is refused.
     let nu7:u32=if net==Network::TestNetwork {4_465_026} else {3_543_405};
     ensure!(!(u32::from(proposal.min_target_height())<=nu7 && u32::from(expiry)>=nu7),"PCZT expiry reaches NU7 activation; refusing create");
     ensure!(net==Network::TestNetwork || u32::from(proposal.min_target_height())<nu7,"mainnet NU7 is active and this stack is pre-NU7 on mainnet; refusing create");
     let pczt=create_pczt_from_proposal::<_,_,zcash_client_backend::data_api::wallet::input_selection::GreedyInputSelectorError,_,zcash_primitives::transaction::fees::zip317::FeeError,_>(&mut db,&net,accounts[0],OvkPolicy::Discard,&proposal,Some(expiry),zcash_primitives::transaction::builder::BundlePadding::DEFAULT).map_err(|e|anyhow!("PCZT creation: {e:?}"))?;
-    // Ruling R33 P2-5 (R30's size claim covers spends too): the batch must hold at most 29 value-carrying
+    // The size limit covers spends too: the batch must hold at most 29 value-carrying
     // spends and 29 outputs (max(spends, outputs) <= 29) — 28 recipients plus change stay under 100 KB, and
     // a vault holding many small notes must not build an oversized transaction. Counted through the Verifier
     // exactly like `inspect` counts (dummy/padded actions carry no value on either side).
-    // Ruling R38 item 6 (N6): the TOTAL action count over both bundles is bounded too — dummy halves
+    // The TOTAL action count over both bundles is bounded too — dummy halves
     // are free under the rule above, so a cross-pool batch could otherwise carry up to 58 actions while
     // satisfying max(spends, outputs) <= 29.
-    // Ruling R40 item 6 (F6): the bound is the MEASURED shape — total actions <= 29 (docs/evidence/phase-5/repro/
+    // The bound is the MEASURED shape — total actions <= 29 (docs/evidence/phase-5/repro/
     // r38-n6.out measured exactly that shape: proven PCZT 138,779 B, raw transaction 94,380 B, under the
-    // 100 KB claim). R30's cap stays 28 outputs.
+    // 100 KB claim). cap stays 28 outputs.
     let (mut spends, mut outs, mut actions) = (0usize, 0usize, 0usize);
     {
         let mut tally = |b: &Bundle| -> Result<(), OrchardError<&'static str>> {
@@ -78,19 +78,19 @@ fn address(wallet: &str, net: Network) -> anyhow::Result<()> {
     let (ua,_)=db.get_next_available_address(accounts[0],UnifiedAddressRequest::ORCHARD)?.context("no shielded address")?;
     println!("{}",ua.encode(&net));Ok(())
 }
-// §11 H7: `allow_redacted` (the coordinator under host custody) accepts outputs whose recipient, rseed and ock were
+// `allow_redacted` (the coordinator under host custody) accepts outputs whose recipient, rseed and ock were
 // redacted by the building host (`zcash-devtool pczt redact`): they are reported with recipient null and
 // redacted true and are not opened here — every approving host checks the full candidate, sealed to its own
 // envelope key, and that its redaction is byte-identical to this one. Hosts call the strict mode.
 fn inspect(file: &str, ufvk: &str, allow_redacted: bool, net: Network) -> anyhow::Result<()> {
     let pczt=Pczt::parse(&std::fs::read(file)?).map_err(|e|anyhow!("PCZT parse: {e:?}"))?;
-    // Ruling R27: v6 under Ironwood (NU6.3, 0x37a5165b) or NU7 (0x77190ad9; testnet from height 4,465,026).
+    // v6 under Ironwood (NU6.3, 0x37a5165b) or NU7 (0x77190ad9; testnet from height 4,465,026).
     ensure!(pczt.global().tx_version()==&6 && [0x37a5165b,0x77190ad9].contains(pczt.global().consensus_branch_id()),"unsupported version/branch");
     ensure!(pczt.transparent().inputs().is_empty() && pczt.transparent().outputs().is_empty() && pczt.sapling().spends().is_empty() && pczt.sapling().outputs().is_empty(),"only shielded Orchard/Ironwood supported");
     let key=UnifiedFullViewingKey::decode(&net,std::fs::read_to_string(ufvk)?.trim()).map_err(|e|anyhow!("UFVK decode: {e}"))?;
     let fvk=key.orchard().context("Orchard FVK missing")?;
     let mut inputs=vec![]; let mut outputs=vec![];
-    // Ruling R29 (Phase 6 option A): the spend randomizers zcash-sign will prompt for, in its order — every action whose
+    // The spend randomizers zcash-sign will prompt for, in its order — every action whose
     // spend carries an alpha and no spend-auth signature yet, Orchard pool first, then Ironwood (the Verifier's order) —
     // so the coordinator can sign them all in ONE multi-message FROST session and answer zcash-sign from the result.
     let mut randomizers: Vec<serde_json::Value> = vec![];
@@ -135,7 +135,7 @@ fn inspect(file: &str, ufvk: &str, allow_redacted: bool, net: Network) -> anyhow
                 }
                 if recovered.0.value().inner()!=value || &recovered.1!=receiver {return Err(OrchardError::Custom("encrypted recipient or amount mismatch"));}
                 let address=a.output().user_address().as_ref();
-                // Ruling R28 item 4 (F3): change is ONLY an internal-scope (change) address of the vault; an external vault
+                // Change is ONLY an internal-scope (change) address of the vault; an external vault
                 // address (a deposit or funding address) is never change, so it must match a derived row like any payment.
                 let is_change=address.is_none() && fvk.scope_for_address(receiver)==Some(orchard::keys::Scope::Internal);
                 if let Some(address)=address {
@@ -149,7 +149,7 @@ fn inspect(file: &str, ufvk: &str, allow_redacted: bool, net: Network) -> anyhow
     };
     let pczt=Verifier::new(pczt).with_orchard(|b|collect(b,"orchard")).map_err(|e|anyhow!("Orchard validation: {e:?}"))?.with_ironwood(|b|collect(b,"ironwood")).map_err(|e|anyhow!("Ironwood validation: {e:?}"))?.finish();
     let sighash=pczt::roles::signer::Signer::new(pczt.clone()).map_err(|e|anyhow!("PCZT sighash: {e:?}"))?.shielded_sighash();
-    // Ruling R28 item 3 (F2): the txid is fixed before signing (v5/v6 txids commit to effects, not authorization), so a
+    // The txid is fixed before signing (v5/v6 txids commit to effects, not authorization), so a
     // host can record what it approved and later see from the chain whether that transaction mined.
     let txid={
         let tx=pczt.clone().into_effects().map_err(|e|anyhow!("PCZT effects: {e:?}"))?;
@@ -164,7 +164,7 @@ fn inspect(file: &str, ufvk: &str, allow_redacted: bool, net: Network) -> anyhow
     println!("{}",json!({"shielded_sighash":hex::encode(sighash),"txid":txid,"randomizers":randomizers,"inputs":inputs,"outputs":outputs,"input_zats":input,"output_zats":output,"fee_zats":fee,"actions":pczt.orchard().actions().len()+pczt.ironwood().actions().len(),"expiry_height":pczt.global().expiry_height(),"tx_version":pczt.global().tx_version(),"consensus_branch_id":format!("{:08x}",pczt.global().consensus_branch_id())}));
     Ok(())
 }
-// B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md): quote the reserve sweep with the
+// Quote the reserve sweep with the
 // wallet's OWN proposal machinery instead of predicting its fee from the source count. The real fee is the
 // ZIP-317 fee of the transaction's actual action counts (per pool, max(spends, outputs), every bundle
 // padded to its 2-action floor), which `inspect` enforces below — a prediction from the note count is wrong
@@ -222,25 +222,25 @@ fn quote_sweep(wallet: &str, to: &str, net: Network) -> anyhow::Result<()> {
     // The action count the fee pays for under the enforced rule (fee = 5,000 x max(2, actions)); the fee
     // itself comes from the wallet's own proposal, so this is its shape, not a prediction.
     let actions=fee/5000;
-    // B54 (P3-3, H25, Reviewer R round 5): the sweep must fit what `create` can build. `create` refuses
+    // The sweep must fit what `create` can build. `create` refuses
     // more than 29 value-carrying spends (max(spends, outputs) <= 29) and more than 29 actions across both
     // bundles — the measured 100 KB shape. A bigger sweep would quote an amount no build can ever produce:
     // the row would be set aside and re-planned forever. Refuse here with the typed reason, so the plan's
-    // "reserve return waits" line names it. Disclosed limit H25 (docs/design/phase7-hardening.md): a vault
+    // "reserve return waits" line names it. Known limit: a vault
     // with more than 28 spendable notes cannot return its reserve in one transaction (and a cross-pool
     // vault can reach the action bound earlier — actions are the true shape). No multi-step sweep yet.
     ensure!(spends<=29 && actions<=29, "the vault's value cannot be swept in one transaction: the sweep has {spends} spends and {actions} actions, beyond create's 29 bound (H25)");
     println!("{}",json!({"amount_zats":amount.to_string(),"fee_zats":fee.to_string(),"input_zats":input.to_string(),"spends":spends,"actions":actions}));
     Ok(())
 }
-// R24 item 3 (i): classify a Zcash address with the pinned audited `zcash_address` (librustzcash) —
+// Classify a Zcash address with the pinned audited `zcash_address` (librustzcash) —
 // the single source of address classification, called from `envelope/destination.ts` (which keeps the
 // shielded-only rule). Returns `{kind, network, receivers[]}`: kind is unified|sapling|transparent|
 // tex|sprout, `invalid_unified` for a unified-encoding string whose container fails (the caller
 // refuses it as "invalid unified address"), or `other` when the string is not a Zcash address;
 // receivers are the unified container's items in encoded order (`items_as_parsed`, the order the
 // pre-swap parser reported).
-// B45 (H16, docs/design/phase7-b45-classify.md): `benzo-pczt classify-address --stdin` is the bulk
+// `benzo-pczt classify-address --stdin` is the bulk
 // form — one address per line in, one JSON line per input out, in the same order. Each output line is
 // the exact object the single-address form prints for that address (one shared classifier below), and
 // one bad line never stops the batch: an unparseable address simply prints its `invalid_unified` or
@@ -314,7 +314,7 @@ fn classify_address(addr: &str) -> anyhow::Result<()> {
     println!("{}", classify_json(addr));
     Ok(())
 }
-// Ruling R28 item 5 (F4): the vault's Orchard spend-validating key ak (the first 32 bytes of the Orchard FVK), so a
+// The vault's Orchard spend-validating key ak (the first 32 bytes of the Orchard FVK), so a
 // host can require it to equal its own FROST group key; and the scope in which a UA's Orchard receiver belongs to the
 // UFVK (external | internal | none), so a host can require every manifest address to be its vault's own.
 fn ufvk_ak(ufvk: &str, net: Network) -> anyhow::Result<()> {
@@ -339,7 +339,7 @@ fn main() -> anyhow::Result<()> {
     match args.get(0).map(String::as_str) {
         Some("address") if args.len()==2=>address(&args[1],net()?),
         Some("quote-sweep")=>{
-            // B52: `quote-sweep --wallet W --to UA` — the wallet's own quote of the one-row sweep.
+            // `quote-sweep --wallet W --to UA` — the wallet's own quote of the one-row sweep.
             let (mut w,mut to)=(None,None);let mut i=1;
             while i<args.len() {match args[i].as_str() {
                 "--wallet"=>{w=args.get(i+1).cloned();i+=2}

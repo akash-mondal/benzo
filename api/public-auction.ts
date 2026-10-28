@@ -31,39 +31,39 @@ export type SettlementSummary = {
   auction_id?: string;
   rows?: { party: string; amount_zats: string; state?: string }[];
   receipts?: SettlementReceipt[];
-  // R26 item 1: zero-value deposit notes are never obligations; the plan lists them here and verify's
+  // Zero-value deposit notes are never obligations; the plan lists them here and verify's
   // accounting counts each as ignored — never a row, never a receipt.
   ignored?: { party: string; amount_zats: string }[];
   // Gate CF bond-then-pay: winner leaves that missed the balance window (forfeit to the seller net of fees).
   defaults?: number[];
-  // R61: the bond is void (the window's start block predates R) — attested by two agreeing host-signed maps.
+  // The bond is void (the window's start block predates R) — attested by two agreeing host-signed maps.
   bond_void?: boolean;
-  // R38 item 4 (N4) + R40 item 2 (F2): out-of-window balance notes refund to the slot's own leaf — one
+  // Out-of-window balance notes refund to the slot's own leaf — one
   // immutable row per note (party `balance-late:<txid>:<pool>:<action_index>`), published as counts only,
   // never addresses.
   balance_refunds?: import("../clear/features").BalanceRefund[];
-  // B46 (H15, Revision R103): the reserve-return accounting — the vault's whole unspent value the return
+  // The reserve-return accounting — the vault's whole unspent value the return
   // swept and the ZIP-317 fee of its one-row transaction, amounts only, never the destination (the signed
   // manifest carries only its commitment). The single `reserve-return` receipt must equal
   // remaining_zats − fee_zats, and verify accepts it only while nothing else is outstanding.
-  // B54 (P2-1): the accounting also reports the sweep's unspendable residue — dust_notes (count) and
+  // The accounting also reports the sweep's unspendable residue — dust_notes (count) and
   // dust_zats (value), the notes of at most 5,000 zats the wallet can never select and what stays in the
   // vault. Optional here only because the historical published dirs predate it (verify accepts the
-  // pre-B54 pair for them; every new accounting carries both).
+  // older pair for them; every new accounting carries both).
   reserve_return?: { remaining_zats: string; fee_zats: string; dust_notes?: number; dust_zats?: string };
   delivery_defaults?: Signed[];
-  // R33 item 3: the signer hosts' G-4 approval maps (each carrying the defaults list that host derived from its
+  // The signer hosts' approval maps (each carrying the defaults list that host derived from its
   // own scan), published with the settlement so anyone can check `settlement.defaults` against host signatures.
   approval_maps?: import("../witness").ApprovalMap[];
   // Published by cli/product.ts but never verified (found by the trust registry): informational only — a UI must not
   // present them as checked facts.
   batches?: unknown[];
   offline_signer?: string;
-  plan?: unknown; // R82: worker summary fields (informational)
+  plan?: unknown; // Worker summary fields (informational)
   signoffs?: unknown;
   lwd_endpoints?: unknown;
 };
-// Agent-friendly (class B: "verify trusted a field nobody attested", 8 Reviewer R P0/P1 findings). Every published
+// The class of bug "verify trusted a field nobody attested". Every published
 // settlement field declares where its trust comes from and which verify check enforces it. Adding a field to
 // SettlementSummary without an entry here is a type error (the mapped type has no optional keys), and verify refuses a
 // published field whose check did not run — so a new field can never ship unchecked.
@@ -73,9 +73,9 @@ type Trust = "derived" | "chain-receipt" | "host-attested";
 // deposit receipts). An informational field is published unverified and says so; the leak guard still scans it.
 type TrustEntry = { trust: Trust; verifiedBy: readonly string[] } | { trust: "informational"; verifiedBy: readonly [] };
 export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } = {
-  auction_id: { trust: "derived", verifiedBy: ["receipt-attestation"] }, // R82: bound to the manifest's auction_id
-  rows: { trust: "derived", verifiedBy: ["accounting", "accounting-strays"] }, // R81: a cancelled settlement has no result, so only accounting-strays reads its rows
-  // B49 (Reviewer R round 2 P0-1/P3-6): `benzo verify` checks receipt attestation, NOT on-chain inclusion —
+  auction_id: { trust: "derived", verifiedBy: ["receipt-attestation"] }, // Bound to the manifest's auction_id
+  rows: { trust: "derived", verifiedBy: ["accounting", "accounting-strays"] }, // A cancelled settlement has no result, so only accounting-strays reads its rows
+  // `benzo verify` checks receipt attestation, NOT on-chain inclusion —
   // verify is offline by design. Inclusion is checked by the signer hosts before any reserve return ("paid"
   // means this host approved the row and its own scan shows the paying transaction mined 10 deep —
   // settle/deposits.ts paidByOwnLedger). What verify does check is that every receipt's txid is one of the
@@ -85,24 +85,24 @@ export const SETTLEMENT_TRUST: { [K in keyof SettlementSummary]-?: TrustEntry } 
   defaults: { trust: "host-attested", verifiedBy: ["defaults"] },
   bond_void: { trust: "host-attested", verifiedBy: ["defaults"] },
   balance_refunds: { trust: "host-attested", verifiedBy: ["balance-refs"] },
-  // B46 (H15, Revision R103): the reserve-return accounting is value-based — the published remaining value
+  // The reserve-return accounting is value-based — the published remaining value
   // minus the ZIP-317 fee (above). Re-derived from the published amounts; the source notes themselves are
-  // never published (vault value is fungible — the hosts checked the spent total when approving). B51
-  // (P3-3): its fee is additionally tied to the paying batch's published source count (accounting-strays).
+  // never published (vault value is fungible — the hosts checked the spent total when approving).
+  // Its fee is additionally tied to the paying batch's published source count (accounting-strays).
   reserve_return: { trust: "derived", verifiedBy: ["accounting-strays"] },
   delivery_defaults: { trust: "host-attested", verifiedBy: ["delivery"] },
   approval_maps: { trust: "host-attested", verifiedBy: ["defaults", "balance-refs", "claims"] },
   batches: { trust: "informational", verifiedBy: [] },
   offline_signer: { trust: "informational", verifiedBy: [] },
-  // R82: the settlement worker's own summary (settle/cli.ts) also carries its plan and signoffs; informational, and the
+  // The settlement worker's own summary (settle/cli.ts) also carries its plan and signoffs; informational, and the
   // no-destinations guard still scans them at any depth.
   plan: { trust: "informational", verifiedBy: [] },
   signoffs: { trust: "informational", verifiedBy: [] },
-  lwd_endpoints: { trust: "informational", verifiedBy: [] }, // R83 (Reviewer R R82-1): the worker's public lightwalletd hosts
+  lwd_endpoints: { trust: "informational", verifiedBy: [] }, // The worker's public lightwalletd hosts
 };
 
 export type PublicResult = ClearBody;
-// Lifecycle-safe (R21 item 5): a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
+// Lifecycle-safe: a DRAFT/OPEN/SEALED-WAIT canonical document carries no frozen/opened/result
 // yet. Readers that must run past freeze (benzo verify) use loadCompletePublicAuction instead.
 export type PublicAuction = {
   dir: string;
@@ -117,7 +117,7 @@ export type PublicAuction = {
   beacon: Beacon | null;
   serialBeacon: { round: number; signature: string } | null;
   launchInput: import("../clear/launch").LaunchInput | undefined;
-  // Ruling R40 item 3 (F4): the launch delivery list — only the canonical allocation.json and two host
+  // The launch delivery list — only the canonical allocation.json and two host
   // signatures (`benzo-delivery-list-v1` over allocation_file_hash) are ever published; the sealed delivery
   // records themselves never are.
   deliveryList: { allocation_file_hash: string; signatures: import("../witness").DeliveryListSig[] } | undefined;
@@ -127,7 +127,7 @@ export type PublicAuction = {
   envelopes: EnvelopeRecord[];
   witnessSet: Signed | null;
   witnessCerts: WitnessCert[];
-  // R13: the owner-signed claims the signers used for paid rows (party, destination commit, owner signature;
+  // The owner-signed claims the signers used for paid rows (party, destination commit, owner signature;
   // a stray entry carries the scanned deposit's memo ciphertext — the claim publishes it and every verifier
   // derives the owner key from it and the published beacon itself; there is no operator-supplied opening).
   claims: { party: string; claim_envelope_sha256: string; owner_sig: string; memo_hex?: string }[];
@@ -147,7 +147,7 @@ const openedStates = new Set(["OPENED", "CLEARED", "SETTLED"]);
 const frozenStates = new Set(["SEALED-WAIT", "OPENED", "CLEARED", "SETTLING", "SETTLED"]);
 const resultStates = new Set(["CLEARED", "SETTLING", "SETTLED"]);
 
-// `signer`, when given, is the out-of-band trust anchor (R20): the document's own signer claim must match it.
+// `signer`, when given, is the out-of-band trust anchor: the document's own signer claim must match it.
 export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): PublicAuction {
   const root = path.resolve(dir);
   const file = (name: string): Buffer => {
@@ -169,7 +169,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   let serialBeacon: { round: number; signature: string } | null = null;
   let resultBytes: Buffer | null, result: PublicResult | null, receipts: Signed[], envelopes: EnvelopeRecord[], witnessSet: Signed | null, witnessCerts: WitnessCert[], settlement: SettlementSummary | null, reserveOpening: string | null, claims: any[] = [];
   if (!legacy) {
-    // Canonical auction.json is the public document (R20/Q13); the per-file projections are not a source here.
+    // Canonical auction.json is the public document ; the per-file projections are not a source here.
     const doc = JSON.parse(text("auction.json"));
     requireThat(doc && typeof doc === "object" && !Array.isArray(doc), "auction.json");
     requireThat(Object.keys(doc).every(k => canonicalKeys.has(k)) && doc.version === 1, "auction.json schema");
@@ -218,7 +218,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
       Object.keys(doc.reserve_opening).sort().join(",") === "plaintext_hex" && typeof doc.reserve_opening.plaintext_hex === "string"), "reserve_opening");
     reserveOpening = doc.reserve_opening ? (doc.reserve_opening as { plaintext_hex: string }).plaintext_hex : null;
   } else {
-    // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the Phase 2/3 evidence dirs.
+    // Legacy projections (signer.json, opened.json, summary.json, ...) — fallback only for the oldest evidence dirs.
     signer = anchor(String(JSON.parse(text("signer.json")).signer));
     manifestPacket = JSON.parse(text("manifest.json")) as Signed;
     ({ manifest, manifest_hash } = readClient(manifestPacket, signer));
@@ -256,7 +256,7 @@ export function loadPublicAuction(dir: string, opts: { signer?: string } = {}): 
   return { dir: root, signer, legacy, state, manifestPacket, manifest, manifest_hash, frozen, opened, beacon, serialBeacon, launchInput, deliveryList, result, resultBytes, receipts, envelopes, witnessSet, witnessCerts, claims, settlement, reserveOpening };
 }
 
-// Gate R targets post-freeze dirs: verify keeps requiring frozen and result (R21 item 5).
+// Gate R targets post-freeze dirs: verify keeps requiring frozen and result.
 export function loadCompletePublicAuction(dir: string, opts: { signer?: string } = {}): CompletePublicAuction {
   const pub = loadPublicAuction(dir, opts);
   requireThat(pub.frozen, "missing frozen");
@@ -264,7 +264,7 @@ export function loadCompletePublicAuction(dir: string, opts: { signer?: string }
   return pub as CompletePublicAuction;
 }
 
-// The published drand beacon (R16) is a public input; bind it to the signed manifest before any use.
+// The published drand beacon is a public input; bind it to the signed manifest before any use.
 function readBeacon(raw: unknown, manifest: Manifest): Beacon | null {
   if (raw === null || raw === undefined) return null;
   const b = raw as Beacon;
@@ -278,19 +278,19 @@ function readBeacon(raw: unknown, manifest: Manifest): Beacon | null {
 
 const settlementKeys = ["auction_id", "party", "txid", "pool", "output_index", "amount_zats"].sort().join(",");
 
-// R16 item 4 (Reviewer R F3): every stray claim's owner key is derived by the verifier itself, from the
+// Every stray claim's owner key is derived by the verifier itself, from the
 // stray memo the claim publishes (`memo_hex` — the scanned deposit's memo, as the signer plan attaches it)
 // and the published beacon. `claims[].opening` is gone: nothing the operator supplies ever enters the
 // derivation. The one derivation lives in cli/published-beacon.ts (this module must stay free of the tlock
 // runtime — it is bundled into settle/plan.mjs through the adapters); checkPublicAuction takes its result
 // and fails closed for a stray claim whose memo does not open.
 
-// R78: `allowUnattested` exists only for re-verifying pre-R42 evidence (verify --legacy-unattested); every other
+// `allowUnattested` exists only for re-verifying older evidence (verify --legacy-unattested); every other
 // caller is strict, so an operator cannot downgrade receipt attestation by omitting the host maps.
 export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: Map<number, string | null>; allowUnattested?: boolean } = {}): Check[] {
   const checks: Check[] = [];
-  // R81/R82: the Phase 2/3 evidence format — projections without auction.json — is readable only for a manifest that
-  // uses no Phase-5+ feature at all. R82 (Reviewer R R-3): this gate skips NOTHING — every settlement guard below runs
+  // The oldest evidence format — projections without auction.json — is readable only for a manifest that
+  // uses no Phase-5+ feature at all. this gate skips NOTHING — every settlement guard below runs
   // on every document, legacy or not — so a manifest that omits optional fields gains no downgrade from it.
   const m5 = pub.manifest as any;
   const preV5 = !m5.envelope_keys && !m5.witness_set_hash && !m5.bond && !m5.lots && !m5.series && !m5.serials && !m5.sealed_reserve &&
@@ -330,7 +330,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     if (existsSync(p)) requireThat(jsonBytes(value).equals(readFileSync(p)), `${name} projection differs`);
   };
-  // R26 item 3 (Reviewer R F5): the projection files a publisher writes beside the canonical
+  // The projection files a publisher writes beside the canonical
   // auction.json must agree with the document — a divergence (including a projection for a field the
   // document does not carry) is an ERROR, never a silent preference for one side. The four checked
   // here (opened/beacon/receipts/summary) are the projections only a legacy dir treats as a source.
@@ -347,7 +347,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     if (problems.length) throw new Error(problems.join("; "));
   });
-  // Checks apply to the fields the current state carries (R21 item 5): manifest always, freeze/receipts
+  // Checks apply to the fields the current state carries: manifest always, freeze/receipts
   // once frozen, clear/accounting once result. A pre-freeze dir is valid when its manifest is.
   run("missing-deposits", () => checkMissingDeposits(pub));
   run("delivery", () => checkDeliveryExceptions(pub));
@@ -376,7 +376,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   });
   // Gate X: the frozen root must carry a q_w-of-n_w witness certificate over the released statement, and one root
   // per auction — two certificates for different roots are refused (threat #5, #6). The set is a signed side-packet
-  // from the manifest signer (the same --signer anchor). R4 item 2: when the signed manifest carries
+  // from the manifest signer (the same --signer anchor). when the signed manifest carries
   // `witness_set_hash`, the side-packet must hash exactly to it (a removed or substituted set is refused) and a
   // valid certificate is required; manifests without the field are pre-Phase-5 — warn and continue.
   run("witness", () => {
@@ -384,7 +384,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (!frozen) {
       // Root certificates need a root. The witness SET is auction-scoped material the signed manifest
       // commits to, and a cancelled-before-freeze auction still certifies its strays statements with it
-      // (R23 item 1), so the set may be published without a frozen root — it must hash to the manifest's pin.
+      //so the set may be published without a frozen root — it must hash to the manifest's pin.
       requireThat(pub.witnessCerts.length === 0, "witness certificates without frozen root");
       if (pub.witnessSet) {
         requireThat(pub.manifest.witness_set_hash, "witness set without a pinned hash");
@@ -417,7 +417,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if ((fresh as any).allocation_file_hash) {
       // Pre-F4 historical reading (immutable evidence): those docs publish their plaintext delivery records,
       // so the recomputation above also re-checks their owner signatures and commits to the allocation file —
-      // which is checked here, including the R34.2 canonical sort. New docs are checked by run("delivery-list").
+      // which is checked here, including the canonical sort. New docs are checked by run("delivery-list").
       const file = path.join(pub.dir, "allocation.json");
       requireThat(existsSync(file), "launch allocation file missing");
       const bytes = readFileSync(file);
@@ -429,7 +429,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     projection("result.json", result);
   });
-  // Ruling R40 item 3 (F4): launch delivery records stay private. The published doc carries only the canonical
+  // Launch delivery records stay private. The published doc carries only the canonical
   // allocation.json and two host signatures (`benzo-delivery-list-v1` over allocation_file_hash). verify holds
   // the file to the public invariants — row count = Σ fill/lot, every amount = standard_lot_size, distinct
   // destinations, canonical (destination bytes, then amount) order, hash — and the signatures to two distinct
@@ -472,7 +472,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   });
   // Gate W: published envelope records verify against the owner pubkey inside each opening, and the opening's
   // salted settlement commitment binds the same envelope ciphertext (threat #7, #32). Dirs without records are pre-W.
-  // R12 item 1: every published record must satisfy the one shared format/recipient rule
+  // Every published record must satisfy the one shared format/recipient rule
   // (envelope/index.ts envelopeRecordValid) — the operator admitted it, so a record that breaks it is an ERROR,
   // not a settleable state. Pre-v2 (572-byte) records pass only where the manifest pins no `envelope_keys`.
   // R7 item 4 (R F-5 = G5): a leaf with no valid record is a correct state only as an explicit exception-queued
@@ -480,14 +480,14 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   run("envelope", () => {
     const records = pub.envelopes;
     const frozen = pub.frozen;
-    // R15 item 1 (R F4): when the manifest pins envelope_keys the leaf state machine runs for EVERY frozen
+    // When the manifest pins envelope_keys the leaf state machine runs for EVERY frozen
     // leaf even when zero envelope records are published (recordless bids are admitted legally), so a row or
     // receipt that misstates a leaf can never hide behind an omitted envelope.json. Dirs from before envelopes
     // (no pinned keys, no records) keep the old reading and stay verifiable.
     if (!records.length && !(frozen && pub.manifest.envelope_keys)) return projection("envelope.json", null);
     requireThat(frozen, "missing frozen");
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
-    // R15 item 2 (R F5): only a result-obligation-bearing leaf needs a row. The clear puts a leaf in the
+    // Only a result-obligation-bearing leaf needs a row. The clear puts a leaf in the
     // obligations map only when its refund is positive and the ledger refuses zero-amount rows, so a leaf with
     // zero refund and no envelope record is a correct no-op state — "missing row" for it is a false error.
     // Without a result there are no result obligations at all (the CANCELLED path refunds deposits, checked by
@@ -500,7 +500,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       const row = rows.find(r => r.party === party);
       requireThat(row, `${reason} ${leaf}: missing row`);
       const paid = receipts.some(r => r.party === party);
-      // R7 item 4: the correct settled states for a leaf with no valid envelope record are exactly the unpaid
+      // The correct settled states for a leaf with no valid envelope record are exactly the unpaid
       // exception row (claimable later) and the paid row whose refund came from an owner-signed claim the
       // signing quorum checked at signing time; anything else is refused.
       if (row!.state === "exception") requireThat(!paid, `${reason} ${leaf}: exception row with receipt`);
@@ -513,7 +513,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(envelopeRecordValid(rec, pub.manifest.envelope_keys), "envelope record format");
       const leaf = frozen!.leaves.find(l => l.ciphertext_hash === rec.ciphertext_hash);
       requireThat(leaf, "envelope for unknown ciphertext");
-      // R16 item 2: verify checks the same rule as intake — the record must be the envelope the depositor's
+      // Verify checks the same rule as intake — the record must be the envelope the depositor's
       // memo committed to (the leaf carries the scanned memo's envelope tag, first 18 bytes of
       // SHA-256(envelope_ct), set at intake from framing v2). A record whose tag differs from it is an ERROR;
       // v1-era leaves carry no tag and stay readable.
@@ -540,14 +540,14 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     projection("envelope.json", records);
     return warnings.filter(Boolean).join("; ") || undefined;
   });
-  // R13: every claim the signers used is published with its owner signature, checkable against the owner key
+  // Every claim the signers used is published with its owner signature, checkable against the owner key
   // in the re-derived opening (a leaf's own opening; a stray's memo opening derived from the published memo
   // ciphertext), and every claim-paid row carries one — so "paid through an owner-signed claim" is never
   // taken on the quorum's word alone.
   run("claims", () => {
     const records = pub.claims ?? [];
     const rows = pub.settlement?.rows ?? [], receipts = pub.settlement?.receipts ?? [];
-    // Ruling R42 (F11): the strays statement is gone. A stray claim's memo is bound to the chain by the
+    // The strays statement is gone. A stray claim's memo is bound to the chain by the
     // PER-ROW attestation of the batch that pays it: two agreeing host-signed approval maps (distinct
     // pinned signers) carrying that stray's note identity and scanned memo hash. Nothing here consults a
     // set that third parties can still grow.
@@ -563,7 +563,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         const opening = pub.opened.find(o => o.leaf_index === Number(c.party.slice(5)));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
       } else if (isBalanceLateParty(c.party)) {
-        // Ruling R40 items 2/5 + Ruling R41 (F7): a balance-late row refunds to the deposit slot's own leaf — the
+        // A balance-late row refunds to the deposit slot's own leaf — the
         // published, host-derived mapping (settlement.balance_refunds, one row per note) names it — so the
         // claim's owner key is that leaf's key, from the re-derived opening. A published claim is for a PAID row
         // (the publisher never publishes a pending row's claim), whose entry is the attested one.
@@ -572,15 +572,15 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         const opening = pub.opened.find(o => o.leaf_index === entry!.leaf_index);
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
       } else if (isBalanceExcessParty(c.party)) {
-        // Ruling R41 item 4 (F10): an excess row names its own leaf in the party.
+        // An excess row names its own leaf in the party.
         const opening = pub.opened.find(o => o.leaf_index === balanceExcessLeafIndex(c.party));
         owner = opening && /^[0-9a-f]{256}$/.test(opening.plaintext_hex ?? "") ? Buffer.from(opening.plaintext_hex!, "hex").subarray(61, 93).toString("hex") : null;
       } else {
-        // R16 item 4: the memo the claim publishes must be an openable sealed bid of THIS auction (the same
+        // The memo the claim publishes must be an openable sealed bid of THIS auction (the same
         // 128-byte layout rule the signer plan enforces against the scanned deposit) and the owner key comes
         // only from its beacon-anchored opening — never from a `claims[].opening` the operator supplies.
         requireThat(typeof c.memo_hex === "string" && /^[0-9a-f]{1024}$/.test(c.memo_hex) && memoSealedBid(c.memo_hex) !== null, `claim ${i} memo_hex`);
-        // Ruling R42 (F11): the public cannot see the encrypted memo on chain, so the published memo is
+        // The public cannot see the encrypted memo on chain, so the published memo is
         // only the operator's word — bind it to the chain through the paying batch's per-row attestations:
         // the claim's {party, SHA-256(memo bytes)} must appear in two agreeing host-signed approval maps of
         // the batch whose receipt pays this stray (outputs carrying its {party, output_index}).
@@ -605,10 +605,10 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       // The seller payout is the documented operator-pinned sink (Q18); claim evidence is required only for
       // bid leaves, per-note late-refund rows and stray deposits.
       if (!row.party.startsWith("leaf:") && !row.party.startsWith("deposit:") && !isRefundRowParty(row.party)) continue;
-      // R13 proves claim-paid rows. Only Phase 5 product dirs (manifest pinning envelope_keys) have the
+      // proves claim-paid rows. Only product dirs (manifest pinning envelope_keys) have the
       // claim path at all — a pre-Phase-5 row was paid by the pre-W route and is not a claim-paid row — so
       // the requirement is skipped there (the R4.2 pre-Phase-5 reading; merge regression that broke the
-      // Phase 3 evidence, caught by the r15/r16 phase2-4 checks).
+      // older evidence).
       if (!pub.manifest.envelope_keys) continue;
       const stray = row.party.startsWith("deposit:");
       const rec = stray ? undefined : (pub.envelopes ?? []).find(e => {
@@ -627,12 +627,12 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       if (!valid) requireThat(records.some(c => c.party === row.party), `claim-paid row ${row.party} without a published claim`);
     }
   });
-  // R77 (Reviewer G G-1 on gate RG): every settlement receipt is a well-formed, unique chain output, and — wherever host
+  // Every settlement receipt is a well-formed, unique chain output, and — wherever host
   // attestation exists — it is bound to the hosts' own signed record of what the paying batch pays. Before this, a
   // leaf/seller/treasury receipt's txid and output_index were never compared with any host map, so an operator could
   // publish a fabricated txid, or point a party at an output the hosts attribute to someone else, and verify passed.
   // Required when the settlement publishes approval maps at all, and always on mainnet (the signed manifest's
-  // network: a mainnet auction is host-custody only, so maps must exist). Pre-R42 testnet evidence carries no maps.
+  // network: a mainnet auction is host-custody only, so maps must exist). Older testnet evidence carries no maps.
   run("receipt-attestation", () => {
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
@@ -640,15 +640,15 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       typeof r.party === "string" && r.party.length > 0 && /^[0-9a-f]{64}$/.test(String(r.txid)) && /^(sapling|orchard|ironwood)$/.test(String(r.pool)) &&
         Number.isSafeInteger(r.output_index) && r.output_index >= 0 && /^[1-9][0-9]*$/.test(String(r.amount_zats)),
       `settlement receipt ${i} fields`);
-    // H6 (B50): the receipt exact-key check lives HERE, not in `accounting` — accounting is skipped on a
+    // The receipt exact-key check lives HERE, not in `accounting` — accounting is skipped on a
     // result-less (cancelled) settlement, so before this a cancelled receipt could carry a smuggled field
     // (a blob, a second amount) that only the pattern leak guard ever saw. Every receipt, on every
     // document, now carries exactly {auction_id, party, txid, pool, output_index, amount_zats}.
     for (const [i, r] of receipts.entries()) requireThat(Object.keys(r).sort().join(",") === settlementKeys, `settlement receipt ${i} shape`);
-    // R83 (Reviewer R R82-3): each receipt names this auction.
+    // Each receipt names this auction.
     requireThat(receipts.every(r => r.auction_id === pub.manifest.auction_id), "a settlement receipt names another auction");
-    requireThat(new Set(receipts.map(r => `${r.txid}:${r.pool}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output"); // R81: per-pool action index
-    // B49 (design item 3): when the published doc carries the batch txids and their heights, every receipt's
+    requireThat(new Set(receipts.map(r => `${r.txid}:${r.pool}:${r.output_index}`)).size === receipts.length, "two settlement receipts name the same output"); // Per-pool action index
+    // When the published doc carries the batch txids and their heights, every receipt's
     // txid must be one of the published MINED batch txids — a receipt naming a transaction the settlement
     // never published as mined is refused here. On-chain inclusion itself stays outside verify (offline by
     // design; the hosts check it before any reserve return).
@@ -659,29 +659,29 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         for (const r of receipts) requireThat(mined.has(String(r.txid)), `receipt ${r.party} names a transaction that is not a published mined batch`);
       }
     }
-    // R78 (F-2): rows and batches carry exactly their documented keys, so no extra field can ride along (R81: the
+    // Rows and batches carry exactly their documented keys, so no extra field can ride along (the
     // pre-Phase-5 legacy format keeps its own shape; the leak guard and the receipt checks still apply to it).
-    // R82: one key/value set for every document; it includes the worker summary's batch `proofs` and allows a batch
-    // without `state` (Phase 3). The settlement's own auction_id, when present, is the manifest's.
+    // One key/value set for every document; it includes the worker summary's batch `proofs` and allows a batch
+    // without `state`. The settlement's own auction_id, when present, is the manifest's.
     requireThat(pub.settlement.auction_id === undefined || pub.settlement.auction_id === pub.manifest.auction_id, "settlement auction_id differs from the manifest");
     {
-    // R79 (Reviewer R F-3 residual on R78): and their values have their documented shapes — no free-form field.
+    // And their values have their documented shapes — no free-form field.
     const word = (v: unknown) => typeof v === "string" && /^[a-z]{3,16}$/.test(v), hex64 = (v: unknown) => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
     const nat = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
     for (const [i, r] of (pub.settlement.rows ?? []).entries() as IterableIterator<[number, any]>) {
       requireThat(r && typeof r === "object" && Object.keys(r).every(k => ["party", "amount_zats", "state", "batch", "kind", "output_index", "pool", "txid", "reason"].includes(k)), `settlement row ${i} keys`);
       requireThat(typeof r.party === "string" && /^[0-9]+$/.test(String(r.amount_zats)) && word(r.state) && (r.kind === undefined || r.kind === "refund" || r.kind === "payout") &&
         (r.pool == null || /^(sapling|orchard|ironwood)$/.test(r.pool)) && (r.txid == null || hex64(r.txid)) && (r.batch == null || nat(r.batch)) && (r.output_index == null || nat(r.output_index)) &&
-        // H7 (B50): an exception row may carry the reason it waits (a string, on exception rows only) — the
+        // An exception row may carry the reason it waits (a string, on exception rows only) — the
         // set-aside reasons a no-payment settlement publishes. Every other state carries none.
         (r.reason === undefined || (r.state === "exception" && typeof r.reason === "string" && r.reason.length > 0 && r.reason.length <= 200)),
         `settlement row ${i} values`);
     }
     for (const [i, b] of ((pub.settlement.batches ?? []) as any[]).entries()) {
       requireThat(b && typeof b === "object" && Object.keys(b).every(k => ["id", "pczt_hash", "txid", "height", "state", "inspect", "signing", "proofs"].includes(k)), `settlement batch ${i} keys`);
-      // R80 (Reviewer R N-3): a batch set aside before staging (R46, ledger.expire) has no PCZT yet — pczt_hash null.
+      // A batch set aside before staging (ledger.expire) has no PCZT yet — pczt_hash null.
       requireThat(nat(b.id) && (b.pczt_hash == null || hex64(b.pczt_hash)) && (b.txid == null || hex64(b.txid)) && (b.height == null || nat(b.height)) && (b.state === undefined || word(b.state)), `settlement batch ${i} values`);
-      // H5 (B50, R82-2): batch `proofs`, `inspect` and `signing` hold their EXACT shapes — the records the
+      // Batch `proofs`, `inspect` and `signing` hold their EXACT shapes — the records the
       // workers actually wrote (settle/cli.ts writes `inspect`/`signing`; the earlier workers also `proofs`),
       // each key set closed and every value typed. Before this, a blob in place of any of the three was seen
       // only by the pattern leak guard. The variants below are exactly the shapes across the committed
@@ -761,8 +761,8 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     const published = pub.settlement.approval_maps ?? [];
     if (published.length === 0) {
-      // R78 (Reviewer R F-1 on R77): the publisher chooses whether maps appear, so their absence is never a pass.
-      // Only an explicit legacy re-verification of pre-R42 testnet evidence downgrades it to a printed WARN.
+      // The publisher chooses whether maps appear, so their absence is never a pass.
+      // Only an explicit legacy re-verification of older testnet evidence downgrades it to a printed WARN.
       requireThat(receipts.length === 0 || (!!opts.allowUnattested && (pub.manifest.network as string) !== "main"),
         "receipts not host-attested: no approval maps published (verify --legacy-unattested only for pre-R42 testnet evidence)");
       return receipts.length ? "receipts not host-attested: legacy re-verification (--legacy-unattested), pre-R42 testnet evidence only" : undefined;
@@ -772,7 +772,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const maps = published.filter((mp: any) => !!mp && mp.auction_id === pub.manifest.auction_id && verifyApprovalMap(mp as ApprovalMap, keys)) as ApprovalMap[];
     for (const r of receipts) {
       const attested = maps.filter(mp => mp.txid === r.txid && (mp.outputs ?? []).some(o => o.party === r.party && o.output_index === r.output_index));
-      // H1 (B50): the two attesting maps must FULLY agree — batch, outputs, defaults, balance_refunds, strays and
+      // The two attesting maps must FULLY agree — batch, outputs, defaults, balance_refunds, strays and
       // the bond fields — through the same predicate the other checks use (witness/index.ts mapPairAgrees).
       // Before this, two pinned maps that agreed only on the receipt's txid and outputs (differing in `strays`
       // or `defaults`, say) jointly attested it; now only a fully agreeing pair does.
@@ -792,13 +792,13 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       "conservation",
     );
     // Per-mode money rules live with the mode (checkResultModeA / checkResultBuyback) and are reached through the
-    // registry — Mode B adds treasury_zats = payout + fees and the budget/fill/ask invariants (R4 item 3).
+    // registry — Mode B adds treasury_zats = payout + fees and the budget/fill/ask invariants.
     modeEntry(pub.manifestPacket).checkResult(pub.manifest, result as ClearBody);
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
     // Settlement obligations per mode live with the mode (obligationsModeA / obligationsModeB) via the registry;
-    // gate CF bond-then-pay accounts balances and forfeits from the settlement's `defaults` list.
+    // Bond-then-pay accounts balances and forfeits from the settlement's `defaults` list.
     const expected = modeEntry(pub.manifestPacket).obligations(result as ClearBody, pub.settlement);
     for (const [party, amount] of expected) {
       const rs = receipts.filter(r => r.party === party);
@@ -823,7 +823,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
   });
   // Part 2, collection drop (bond-then-pay): the balance window and the balance addresses are manifest-fixed
-  // before bidding (R33 items 1-2) and held to their exact shape at manifest read (manifest/schema.ts
+  // before bidding and held to their exact shape at manifest read (manifest/schema.ts
   // checkBalanceAddresses). Each signer host adds the chain-side checks from its own lightwalletd (`owns`, the
   // deposit/escrow/treasury exclusions, the start block's header time at or after R, and no note at or below the
   // window start) and derives the defaults from its own scan; never operator input. What remains public here is
@@ -831,7 +831,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   run("balances", () => {
     const m = pub.manifest;
     const refunds = pub.settlement?.balance_refunds;
-    // Ruling R38 item 4 (N4) + Ruling R40 item 2 (F2) + Ruling R41 (F7/F10): published counts only, never
+    // Published counts only, never
     // addresses — one {party, leaf_index, amount_zats, state} per immutable refund row (its own `balance-late:`
     // row per note, one `balance-excess:` row per leaf's in-window excess). Each row is `paid` when this
     // settlement paid it (attested in that batch's maps — run("balance-refs")) and `pending` otherwise.
@@ -845,16 +845,16 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (!pub.result) { requireThat(refunds === undefined, "balance refunds without a result"); return; } // cancelled before the clear: there are no balances to bind
     if (pub.settlement) {
       requireThat(pub.settlement.defaults !== undefined, "settled bond auction lacks the defaults list");
-      // Ruling R40 item 4 (F3): the counts are host-signed data — a settled bond auction always publishes
+      // The counts are host-signed data — a settled bond auction always publishes
       // them, so a coordinator can never omit real refunds silently.
       requireThat(pub.settlement.balance_refunds !== undefined, "settled bond auction lacks the balance refund counts");
     }
   });
-  // Ruling R41 (F7): per-row, paid-time attestation. A host attests a refund row only in the approval of the
+  // Per-row, paid-time attestation. A host attests a refund row only in the approval of the
   // batch that PAYS it — that map's `balance_refunds` covers just the rows among its own outputs (a set fixed at
   // signing, that no third party can grow). Unpaid rows publish as `pending` with counts only and are not
   // counted here at all: a newly seen note adds a pending row for a later batch and never makes any check
-  // refuse. Ruling R42 (F13/F14): the check is TWO-SIDED — driven from the entries, the rows AND the receipts:
+  // refuse. the check is TWO-SIDED — driven from the entries, the rows AND the receipts:
   // every paid ENTRY has its settlement row and two attesting maps; every paid ROW is published as paid with
   // its amount and attested; every RECEIPT to a refund-class party is explained by a paid entry and a map.
   // An unexplained receipt or entry fails with its own ERROR — nothing is silently stranded or silently paid.
@@ -874,7 +874,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         jsonBytes(pair[0].outputs).equals(jsonBytes(pair[1].outputs)) &&
         jsonBytes(pair[0].balance_refunds ?? null).equals(jsonBytes(pair[1].balance_refunds ?? null));
     };
-    // Entry side (F13): a fabricated PAID entry + receipt with no row — Reviewer R's H1 — is refused here,
+    // Entry side: a fabricated PAID entry + receipt with no row is refused here,
     // regardless of which rows the document carries.
     for (const e of entries) {
       const rs = receipts.filter(r => r.party === e.party);
@@ -884,35 +884,35 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       requireThat(!!row && row.amount_zats === e.amount_zats, `paid refund entry ${e.party} has no settlement row with its amount`);
       requireThat(attested(e.party, e.leaf_index, e.amount_zats, rs[0]), `paid refund entry ${e.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
     }
-    // Row side (F13): a paid refund row is published as paid with its amount and attested (R41.1).
+    // Row side: a paid refund row is published as paid with its amount and attested.
     for (const r of rows.filter(r => isRefundRowParty(r.party) && receipts.some(x => x.party === r.party))) {
       const rec = receipts.find(x => x.party === r.party)!;
       const entry = entries.find(e => e.party === r.party);
       requireThat(!!entry && entry.state === "paid" && entry.amount_zats === r.amount_zats, `paid refund row ${r.party} is not published as paid with its amount`);
       requireThat(attested(r.party, entry!.leaf_index, r.amount_zats, rec), `paid refund row ${r.party} is not attested by two agreeing host-signed approval maps of its paying batch`);
     }
-    // Receipt side (F14): every settlement receipt to a refund-class party is explained by a published paid
-    // entry — Reviewer R's H2 (a receipt with no entry and no row) is refused here with its own error.
+    // Receipt side: every settlement receipt to a refund-class party is explained by a published paid
+    // entry (a receipt with no entry and no row) is refused here with its own error.
     for (const r of receipts.filter(r => isRefundRowParty(r.party))) {
       const entry = entries.find(e => e.party === r.party);
       requireThat(!!entry && entry.state === "paid", `unexplained refund receipt ${r.party}: no published paid entry`);
     }
   });
-  // R33 item 3 (P1-3): `settlement.defaults` is bound to what the signer hosts signed. verify requires it to
+  // `settlement.defaults` is bound to what the signer hosts signed. verify requires it to
   // equal the defaults list in two VERIFIED approval maps from distinct pinned signers (the manifest's witness
   // set). A coordinator-only list — the reviewer's equal-balance swap, for which obligations, rows and receipts
   // are identical for two default sets with the same balance total — is refused here with its own error.
-  // Ruling R44 (F19): verify applies the SAME deterministic tie-break publish uses (witness/index.ts
+  // Verify applies the SAME deterministic tie-break publish uses (witness/index.ts
   // earliestAgreedDefaults) — the list attested by the two agreeing maps of the EARLIEST paying batch. Under
   // drift (two host-attested lists across batches) the published list must be that one; a different attested
   // list is refused with the same error.
   run("defaults", () => {
     const m = pub.manifest;
-    // R63 (Reviewer R P2-5 on R61): a published bond_void outside a settled bond auction is refused, never ignored.
+    // A published bond_void outside a settled bond auction is refused, never ignored.
     if (pub.settlement && pub.settlement.bond_void !== undefined)
       requireThat(!!m.bond && !!pub.result && pub.settlement.defaults !== undefined, "settlement bond_void outside a settled bond auction");
     if (!m.bond || !pub.settlement || pub.settlement.defaults === undefined) return;
-    // H7 (B50): a NO-PAYMENT settlement — not one receipt — publishes its plan's own defaults/bond_void with
+    // A NO-PAYMENT settlement — not one receipt — publishes its plan's own defaults/bond_void with
     // the set-aside reasons. Nothing was paid under the list (the equal-balance swap it protects needs paid
     // rows and receipts), the map tie-break has no paying batch to bind to (it is null by construction), and
     // every row is an exception still held to the recomputed obligations below; the next settle re-derives
@@ -924,12 +924,12 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     const expected = earliestAgreedBond(maps, keys, (pub.settlement.receipts ?? []).map(r => r.txid));
     requireThat(expected !== null, "settlement defaults are not carried by two agreeing host-signed approval maps");
     requireThat(jsonBytes(pub.settlement.defaults).equals(jsonBytes(expected!.defaults)), "settlement defaults differ from the host-signed approval maps");
-    // Ruling R61: a void bond (refund everything, pay the seller nothing) is accepted only when the same two agreeing
+    // A void bond (refund everything, pay the seller nothing) is accepted only when the same two agreeing
     // host-signed maps attest it — and a published settlement can never drop a void the hosts attested.
     requireThat(!!pub.settlement.bond_void === expected!.bond_void, "settlement bond_void differs from the host-signed approval maps");
-    // R63 (Reviewer R P1-2 on R61): the void is recomputed from the start header the two agreeing hosts SIGNED — it
+    // The void is recomputed from the start header the two agreeing hosts SIGNED — it
     // must be the manifest's start height, and the void must equal bondVoidAt(manifest, signed header time). A void
-    // with no signed header (a map signed before R63) is refused; a non-void without one stays valid (back-compat).
+    // with no signed header (an older map) is refused; a non-void without one stays valid (back-compat).
     const start = expected!.bond_start;
     if (start) {
       requireThat(start.height === m.bond.balance_window_start_height, "signed bond start header is not the manifest's window start");
@@ -940,7 +940,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     if (!pub.settlement) return;
     const receipts = pub.settlement.receipts ?? [];
     const rows = pub.settlement.rows ?? [];
-    // B46 (H15, Revision R103): the reserve-return accounting — exactly one `reserve-return` receipt, accepted
+    // The reserve-return accounting — exactly one `reserve-return` receipt, accepted
     // only when the published accounting shows NOTHING outstanding at that point (no unreceipted row, no
     // published unpaid stray or balance, no open exception) and its amount equals the published remaining
     // value minus the ZIP-317 fee. Vault value is fungible, so the accounting is value-based: the published
@@ -953,11 +953,11 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     requireThat(rrReceipts.length <= 1, "duplicate reserve-return receipt");
     if (rr === undefined) requireThat(rrReceipts.length === 0 && rrRows.length === 0, "a reserve-return row or receipt without the published reserve_return accounting");
     else {
-      // B54 (P2-1): the accounting also reports the sweep's unspendable residue — dust_notes (count) and
+      // The accounting also reports the sweep's unspendable residue — dust_notes (count) and
       // dust_zats (value): every note the wallet can never select (value at most ZIP-317's MARGINAL_FEE,
       // 5,000 zats) that stays in the vault after the sweep. The published shape is exactly
-      // dust_notes, dust_zats, fee_zats, remaining_zats; the PRE-B54 pair (fee_zats, remaining_zats) stays
-      // accepted for the historical published directories (the R26 legacy rule — they are immutable).
+      // dust_notes, dust_zats, fee_zats, remaining_zats; the older pair (fee_zats, remaining_zats) stays
+      // accepted for the historical published directories (the legacy rule — they are immutable).
       // The residue is shape-checked only — the scan behind it is signer-private — but tightly: each dust
       // note is 1..5,000 zats, so dust_zats sits between dust_notes and 5,000 x dust_notes, and both are
       // zero together. `remaining_zats` still ties to the paying batch's inspect input_zats below.
@@ -972,7 +972,6 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
           "reserve_return residue shape (dust_notes/dust_zats: each dust note is 1..5,000 zats)");
       }
       requireThat(rrReceipts.length === 1 && rrRows.length === 1, "the published reserve_return accounting needs exactly one row and one receipt");
-      // B51 (P3-3) folded into B52 (Reviewer R round 4, P2-1, docs/design/phase7-b52-return-fee.md item 4):
       // the fee tie is the REAL basis — the ZIP-317 fee for the paying batch's published ACTION count (the
       // per-pool action counts `inspect` enforced when the transaction was built: per pool,
       // max(spends, outputs), each bundle padded to its 2-action floor) — never a prediction from the
@@ -1005,7 +1004,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
       for (const b of (pub.settlement as any).balance_refunds ?? []) if (b.state !== "paid" || !receipts.some(r => r.party === b.party && r.amount_zats === b.amount_zats))
         throw new Error(`the reserve-return receipt while balance refund ${b.party} is still outstanding`);
     }
-    // R15 item 1 (R F4): every published row and receipt must name a recomputed result obligation or a
+    // Every published row and receipt must name a recomputed result obligation or a
     // stray deposit — enforced whenever a settlement is published, including the CANCELLED path where no
     // result exists and every party must therefore be a deposit refund.
     const expected = pub.result ? modeEntry(pub.manifestPacket).obligations(pub.result as ClearBody, pub.settlement) : new Map<string, string>();
@@ -1020,11 +1019,11 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     // T1: each stray note ends refunded at its received value, or as an explicit exception row. Nothing is silently stranded.
     for (const r of receipts) {
       if (expected.has(r.party)) continue;
-      // Ruling R42 (F14): the R41 skip is gone — a refund-class receipt no published paid entry counts is
+      // The skip is gone — a refund-class receipt no published paid entry counts is
       // UNEXPLAINED and refuses with its own error (T1 "nothing is silently stranded" holds over receipts too).
       requireThat(!isRefundRowParty(r.party), `unexplained refund receipt ${r.party}: no published paid entry`);
       stray(r.party);
-      // R26 item 1: a zero-value note is never an obligation (it is counted as ignored below).
+      // A zero-value note is never an obligation (it is counted as ignored below).
       requireThat(/^[1-9][0-9]*$/.test(r.amount_zats), `stray ${r.party} amount`);
       const row = rows.find(x => x.party === r.party);
       requireThat(row, `stray receipt ${r.party} without row`);
@@ -1032,7 +1031,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     }
     for (const row of rows) {
       if (expected.has(row.party)) continue;
-      // Ruling R41 (F7): an uncounted (pending or unpublished) refund row is never a stray. The only state
+      // An uncounted (pending or unpublished) refund row is never a stray. The only state
       // here is an unpaid row with no receipt — money never moved for it, and a later batch may pay it.
       if (isRefundRowParty(row.party)) {
         requireThat(row.state === "exception" && !receipts.some(r => r.party === row.party), `refund row ${row.party} is neither a counted obligation nor a pending unpaid row`);
@@ -1049,7 +1048,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         requireThat(rs[0].amount_zats === row.amount_zats, `stray ${row.party} amount`);
       }
     }
-    // R26 item 1: the zero-value notes the plan ignored are counted here — each is a distinct deposit
+    // The zero-value notes the plan ignored are counted here — each is a distinct deposit
     // party at amount 0, with no row and no receipt ever paying it.
     const ignored = pub.settlement.ignored ?? [];
     for (const [i, ig] of ignored.entries()) {
@@ -1063,18 +1062,18 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
         `ignored zero-value note ${ig.party} paid`);
     }
   });
-  // Agent-friendly (Reviewer R on the branch: a destination nested in `rows` passed the registry). Structural leak
+  // A destination nested in `rows` once passed the registry. Structural leak
   // guard: no address string may appear anywhere in the published settlement — at any depth, in any field. Receipts
   // carry txids and output indexes; parties are leaf/deposit/row names; a destination has no business here.
   run("no-destinations", () => {
     if (!pub.settlement) return;
-    // R78 (F-2): the one shared definition (envelope/leak-patterns.ts): every chain's addresses, viewing keys, seeds.
+    // The one shared definition (envelope/leak-patterns.ts): every chain's addresses, viewing keys, seeds.
     const hits: string[] = [];
     const walk = (v: unknown, at: string): void => {
       if (typeof v === "string") { if (findSensitive(v).length) hits.push(at); }
       else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
       else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) {
-        if (findSensitive(k).length) hits.push(`${at}.<key>`); // R79 (Reviewer R N-2): an address as an object key
+        if (findSensitive(k).length) hits.push(`${at}.<key>`); // An address as an object key
         walk(x, `${at}.${k}`);
       }
     };
@@ -1082,7 +1081,7 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
     requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
   });
   // Agent-friendly (class B): every present settlement field must have had its enforcing check run.
-  if (pub.settlement) { // R82: every document, legacy or not
+  if (pub.settlement) { // Every document, legacy or not
     const ran = new Set(checks.map((c) => c.id)), failed = new Set(checks.filter((c) => c.error).map((c) => c.id));
     for (const k of Object.keys(pub.settlement)) {
       const t = (SETTLEMENT_TRUST as Record<string, TrustEntry>)[k];
@@ -1103,7 +1102,7 @@ export function operatorView(pub: PublicAuction): {
   auction_id: string; C_zats: string; count: number; total_collateral_zats: string;
   blobs: { leaf_index: number; ciphertext_hash: string; ciphertext_hex: string }[];
 } {
-  // Pre-freeze there is no frozen set to take blobs from; counts track admitted receipts instead (R21 item 5).
+  // Pre-freeze there is no frozen set to take blobs from; counts track admitted receipts instead.
   const leaves = pub.frozen?.leaves ?? [];
   const count = pub.frozen ? pub.frozen.leaf_count : pub.receipts.length;
   return {
@@ -1173,7 +1172,7 @@ export function receiptShow(pub: PublicAuction, ciphertextHash: string, packet?:
   return { inclusion, settlement };
 }
 
-// R3 item 6: the inclusion proof is a self-contained bundle — root, path, leaf — so anyone can recheck it offline.
+// The inclusion proof is a self-contained bundle — root, path, leaf — so anyone can recheck it offline.
 export type InclusionProof = {
   auction_id: string; manifest_hash: string; root: string; leaf_count: number; leaf_index: number;
   ciphertext_hash: string; deposit: Deposit; path: Path; included: boolean;
@@ -1196,7 +1195,7 @@ export function checkInclusionProof(proof: InclusionProof): boolean {
   return member(proof.ciphertext_hash, proof.deposit, proof.leaf_index, proof.leaf_count, proof.path, proof.root);
 }
 
-// R3 item 7: owner-key-signed settlement statement (auction, leaf, fill, price, payout/refund txid), checkable
+// Owner-key-signed settlement statement (auction, leaf, fill, price, payout/refund txid), checkable
 // against result.json and the chain. payout_txid is set only when the mode owes this leaf a payment (via the
 // registry's obligations); both txids name the leaf's settlement receipt and stay null until settlement.
 export type SettlementStatement = {

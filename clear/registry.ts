@@ -18,7 +18,7 @@ export type ModeEntry = {
   obligations: (result: ClearBody, settlement?: SettlementExtras | null) => Map<string, string>;
 };
 
-// Ruling R63 (Reviewer R P1-1 on R61): a bond (bond-then-pay, R33/R61 void) is a mode-A feature (uniform/vickrey).
+// A bond (bond-then-pay) is a mode-A feature (uniform/vickrey).
 // Every other mode refuses a manifest that carries one — launch delivery, OTC, RFQ and buyback never read the bond.
 const noBond = <T extends { manifest: unknown }>(c: (p: Signed, s: string) => T) => (p: Signed, s: string): T => {
   const r = c(p, s);
@@ -53,7 +53,7 @@ export function modeEntry(packet: Signed): ModeEntry {
   return registry[mode]!;
 }
 export const clientForMode = (packet: Signed, signer: string) => modeEntry(packet).client(packet, signer);
-// H10 (docs/design/phase7-h10-h11.md item 4): the modes whose settlement obligations can include a `seller`
+// The modes whose settlement obligations can include a `seller`
 // payout row — every mode using obligationsModeA above (uniform, vickrey, launch). Mainnet `auction create`
 // refuses such a manifest without seller_ua_commitment; the modes below (buyback, otc, rfq) never pay a seller row.
 export const modePaysSeller = (mode: string): boolean => ["uniform", "vickrey", "launch"].includes(mode);

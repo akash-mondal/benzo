@@ -7,7 +7,7 @@ import {checkFrozen, receiptMember, tree, type Deposit, type Frozen, type Leaf, 
 import type {ClearResult, Opened} from "./core";
 import {publishedClient, decryptPublished, fetchVerifiedBeacon} from "../cli/published-beacon";
 import {openSealedBid, sealedBidShape} from "../envelope/opening";
-import {clearForMode, clientCommon as client} from "./registry"; // design §6.1: every registry mode
+import {clearForMode, clientCommon as client} from "./registry"; // Every registry mode
 import {envelopeRecordValid} from "../envelope";
 import {memoBindsEnvelope,memoTlockCiphertext} from "../settle/envelopes";
 import {drandUrls} from "../manifest/reserve";
@@ -33,20 +33,20 @@ const execute=(cmd:string,args:string[])=> {
   requireThat(r.status===0,`${path.basename(cmd)} exited ${r.status}: ${(r.stderr||r.stdout).trim().slice(-300)}`); return r.stdout;
 };
 const wallet=(...args:string[])=>execute(path.join(state,"bin","zcash-devtool"),["wallet","-w",vaultDir(state),...args]);
-// R33 P2-1 (G-7): the vault scan runs on the signed manifest's network — never a hardcoded one.
+// The vault scan runs on the signed manifest's network — never a hardcoded one.
 function observed(net:string):{notes:Note[]; tip:number} {
-  // R48/R51: a stalled stream or a tip race (NonSequentialBlocks, newer/past range) is retried; others refuse.
+  // A stalled stream or a tip race (NonSequentialBlocks, newer/past range) is retried; others refuse.
   for(const verb of ["sync","enhance"])for(let attempt=1;;attempt++){try{wallet(verb,"-s",process.env.BNZ_LWD_URL!);break}catch(e){if(attempt>=3||!(String((e as Error)?.message).includes(LWD_STALLED)||/NonSequentialBlocks|newer than the latest block|past the valid range/.test(String((e as Error)?.message))))throw e}}
   const balance=JSON.parse(wallet("balance","--json"));
   const notes=execute(scanBin(root,state),["scan",net,vaultDir(state)]).trim().split("\n").filter(Boolean).map(l=>JSON.parse(l));
   return {notes,tip:balance.chain_tip_height};
 }
-// The one shared memo rule (settle/envelopes.ts memoTlockCiphertext): v2 (R16 item 2, R18: 18-byte envelope tag)
+// The one shared memo rule (settle/envelopes.ts memoTlockCiphertext): v2 (18-byte envelope tag)
 // and v1 framings both read; v2 binds the record to the deposit memo, v1 binds nothing. Witnesses apply the same rule.
 const ciphertext=memoTlockCiphertext;
 try {
   const [command,id]=process.argv.slice(2), input=JSON.parse(readFileSync(0,"utf8")||"{}");
-  if(id&&/^[0-9a-f]{64}$/.test(id))process.env.BNZ_AUCTION_ID=id; // §11 H1
+  if(id&&/^[0-9a-f]{64}$/.test(id))process.env.BNZ_AUCTION_ID=id;
   requireThat(/^[0-9a-f]{64}$/.test(id),"auction id");
   const file=path.join(dir,`${id}.json`);
   let ledger:Ledger, result:unknown;
@@ -64,7 +64,7 @@ try {
       requireThat(now<m.T_freeze && ledger.state==="OPEN","admission cutoff");
       requireThat(now<QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"round already passed");
       const {ct,memo_tag}=ciphertext(input.envelope_hex,m.drand.R);
-      // B43 H14 item 1 (docs/design/phase7-h13-h14.md): the one sealed-bid shape rule at admission — a memo
+      // The one sealed-bid shape rule at admission — a memo
       // whose tlock ciphertext is not the exact one-stanza / 128-byte body / 160-byte payload structure is
       // refused here with the reason, so the bidder sees it and a griefing bid can never reach the frozen
       // set (where it would at most open as `undecryptable`). The same rule runs in `bid seal`'s self-check.
@@ -85,7 +85,7 @@ try {
         ledger.leaves.push({...receipt,ciphertext_hex:ct,...(memo_tag!==null?{memo_envelope_tag:memo_tag}:{})}); const signed=signRecord(receipt,readFileSync(key,"utf8")); ledger.receipts.push(signed); result={replay:false,receipt:signed};
         // R6 (W): the owner-signed settlement envelope record is admitted with the bid and published; its
         // plaintext destination never leaves the bidder's client (design phase5-part1-live §4).
-        // R7 item 3 (R F-4 = G3), R12 item 1: the envelope record must satisfy the one shared rule
+        // R7 item 3 (R F-4 = G3), item 1: the envelope record must satisfy the one shared rule
         // (envelope/index.ts envelopeRecordValid) — exact v2 n = 3 shape with the manifest's `envelope_keys` as
         // stanza recipients in order, or the pre-v2 box where the manifest pins no keys — checked here at intake
         // with the same rule settlement and verify use, so a malformed record can never enter a published
@@ -93,9 +93,9 @@ try {
         // handled by the exception queue.
         if(input.envelope_ct_hex) {
           requireThat(envelopeRecordValid({envelope_ct:input.envelope_ct_hex,owner_sig:input.owner_sig_hex},m.envelope_keys),"envelope record shape");
-          // R16 item 2: the record must be the envelope the deposit's memo committed to — the depositor's
+          // The record must be the envelope the deposit's memo committed to — the depositor's
           // memo is the only pre-R authenticator, so a record whose envelope tag (first 18 bytes of
-          // SHA-256(envelope_ct), R18) differs from the memo's tag (or a v1 memo that binds nothing) is
+          // SHA-256(envelope_ct)) differs from the memo's tag (or a v1 memo that binds nothing) is
           // refused at intake.
           requireThat(memoBindsEnvelope(memo_tag,input.envelope_ct_hex),"envelope record not bound to the deposit memo");
           (ledger.envelopes??=[]).push({ciphertext_hash,envelope_ct:input.envelope_ct_hex,owner_sig:input.owner_sig_hex});
@@ -118,18 +118,18 @@ try {
       requireThat(ledger.state==="SEALED-WAIT" && now>=QUICKNET.genesis+(m.drand.R-1)*QUICKNET.period,"opening state/release");
       const {notes}=observed(m.network);
       requireThat(ledger.frozen,"no frozen set"); checkFrozen(ledger.frozen!,id,manifest_hash);
-      // H11 (docs/design/phase7-h10-h11.md): the round-R beacon comes from the ONE shared failover-plus-
+      // The round-R beacon comes from the ONE shared failover-plus-
       // verify fetch (cli/published-beacon.ts fetchVerifiedBeacon): ANY endpoint in BNZ_DRAND_URLS, in order,
       // each bounded by DRAND_TIMEOUT_MS; the first answer whose BLS signature verifies against the pinned
       // quicknet key wins (publishedClient refuses every other). One dead relay no longer fails the open.
       ledger.trace.push({operation:"beacon fetch",time:now});
       const beacon=await fetchVerifiedBeacon(m.drand.R);
       ledger.beacon={round:beacon.round,signature:beacon.signature,chain_hash:QUICKNET.chain_hash};
-      // B43 H14 item 2: every opening derives OFFLINE from that one verified beacon through the one opener
+      // Every opening derives OFFLINE from that one verified beacon through the one opener
       // (envelope/opening.ts openSealedBid) — no tle subprocess and no network per leaf. A reorged leaf stays
       // {error:"reorg"}; every leaf whose fault it is (bad shape — a wrong round included — either
       // authenticated-ciphertext MAC failure, a bad IBE body, or a plaintext that is not exactly 128 bytes)
-      // is {error:"undecryptable"} (B44: the opener never throws on a leaf) — one malformed bid can no longer
+      // is {error:"undecryptable"} (the opener never throws on a leaf) — one malformed bid can no longer
       // stop the open for every other bidder; only an unusable beacon client (no round to serve) throws and
       // stops the open — that is never a bid's fault.
       ledger.trace.push({operation:"offline decrypt",time:now});
@@ -142,7 +142,7 @@ try {
       ledger.opened=opened;
       if(m.sealed_reserve!==undefined) {
         // Gate CF: the manifest's sealed price bound opens at R with the bids and feeds the clear below.
-        // It is not a sealed bid (no 128-byte shape rule), so it keeps the raw decrypt (B43).
+        // It is not a sealed bid (no 128-byte shape rule), so it keeps the raw decrypt.
         const reserve=await decryptPublished(m.sealed_reserve,local);
         requireThat(reserve!==null,"sealed reserve opening failed");
         ledger.reserve_opening=reserve!;
@@ -173,13 +173,13 @@ try {
         }
         requireThat(serial_beacon,"drand serial beacon unavailable on every endpoint");
       }
-      // Part 2 (b): the balance window is fixed in the signed manifest (R33 item 2) — `clear` records nothing
+      // Part 2 (b): the balance window is fixed in the signed manifest — `clear` records nothing
       // about it and no post-clear binding exists.
       ledger.result=clearForMode({manifest:ledger.manifest,signer:ledger.signer,frozen:ledger.frozen!,opened:ledger.opened!,reserve_opening:ledger.reserve_opening??null,serial_beacon,launch:(ledger as any).launch_input});
       if(serial_beacon)ledger.serial_beacon=serial_beacon;
       ledger.state="CLEARED"; result=ledger.result;
     } else if(command==="deliver") {
-      // Part 2 launch: a winner's token-chain destinations, recorded before the clear. Ruling R40 item 3 (F4):
+      // Part 2 launch: a winner's token-chain destinations, recorded before the clear. item 3:
       // the record is SEALED to the manifest's `envelope_keys` ("as claims do") — the operator records and
       // relays it without seeing the destinations, so the leaf<->destination join stays out of every published
       // document. The owner signature covers the sealed record's SHA-256 (the claim-path body), so intake still

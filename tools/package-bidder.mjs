@@ -1,4 +1,4 @@
-// tools/package-bidder.mjs — gate PK: package the existing browser sealer (seal/) as the bidder
+// tools/package-bidder.mjs — package the existing browser sealer (seal/) as the bidder
 // release artifact. Packaging only: seal/src and seal/index.html are untouched. Builds seal/dist
 // from this tree and writes dist/benzo-bidder-<version>.tgz plus its sha256 sidecar, byte-for-byte
 // reproducible (tools/deterministic-tar.mjs).

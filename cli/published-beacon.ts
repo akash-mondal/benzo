@@ -7,7 +7,7 @@ import { drandUrls } from "../manifest/reserve";
 import { DRAND_TIMEOUT_MS } from "../settle/bounded";
 import { openSealedBid } from "../envelope/opening";
 
-// The raw tlock decrypt and its failure contract moved into envelope/opening.ts with B43 (the one opener and
+// The raw tlock decrypt and its failure contract moved into envelope/opening.ts with (the one opener and
 // the contract it maps live in one module). It stays re-exported here for the sealed-reserve paths — a
 // reserve is a sealed price bound, not a sealed bid, so it keeps the raw decrypt without the bid shape rule.
 export { decryptPublished } from "../envelope/opening";
@@ -32,7 +32,7 @@ export function publishedClient(beacon: { round: number; signature: string }): C
   };
 }
 
-// H11's failover-plus-verify beacon fetch, in one shared place (B43 item 3): the round-R quicknet beacon from
+// failover-plus-verify beacon fetch, in one shared place: the round-R quicknet beacon from
 // ANY endpoint in BNZ_DRAND_URLS, in order, each bounded by DRAND_TIMEOUT_MS; the first answer whose BLS
 // signature verifies against the pinned quicknet key wins (publishedClient refuses every other). One dead
 // relay no longer fails the open. `open`, the signer hosts and the settlement plan use this for an auction
@@ -52,10 +52,10 @@ export async function fetchVerifiedBeacon(R: number): Promise<{ round: number; s
   throw new Error("refused: drand opening beacon unavailable or unverified on every endpoint");
 }
 
-// R16 item 4 (Reviewer R F3): the one derivation of every stray claim's owner-key source — the plaintext of
+// The one derivation of every stray claim's owner-key source — the plaintext of
 // the memo the claim publishes (the scanned deposit's memo), opened against the published beacon. Returns
 // the derived plaintext hex per claim index (null when the memo does not open); checkPublicAuction consumes
-// this map and fails closed without it. Since B43 it goes through the one opener (envelope/opening.ts), so a
+// this map and fails closed without it. Since it goes through the one opener (envelope/opening.ts), so a
 // griefing memo yields null instead of stopping the verify. Kept here, not in api/public-auction.ts, because
 // that module is bundled into settle/plan.mjs and stays free of the tlock runtime (the plan itself now calls
 // the opener directly for its own openings).

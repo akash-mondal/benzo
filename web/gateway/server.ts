@@ -2,7 +2,7 @@
 // Read-only routes use the repo's own public-auction checks (the same checks `benzo verify` runs). Write routes are
 // the bid intake (sealed records only; the gateway never sees a price or a refund address) and are served only for
 // the auctions this site's operator runs (gateway/runner.ts).
-// Build: node gateway/build.mjs   Run: node gateway/dist/server.mjs [--port 8790] [--host 127.0.0.1] [--runner]
+// Build: node gateway/build.mjs Run: node gateway/dist/server.mjs [--port 8790] [--host 127.0.0.1] [--runner]
 import http from "node:http";
 import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, createReadStream } from "node:fs";
 import os from "node:os";
@@ -200,7 +200,7 @@ const server = http.createServer(async (req, res) => {
       if (parts[1] === "demo" && parts.length === 2 && req.method === "GET") return json(res, 200, await demo.info(ipOf(req)));
       if (parts[1] === "demo" && parts[2] === "jobs" && /^[0-9a-f]{24}$/.test(parts[3] ?? "")) { const j = demo.job(parts[3]); return j ? json(res, 200, j) : json(res, 404, { error: "unknown demo payment" }); }
       // Operator diagnostics for a deploy without a shell (the host): the process list, disk use and the signers' error
-      // logs of recent settlements (hosts never print key material, H9). Only with the operator's BNZ_OPS_TOKEN.
+      // logs of recent settlements (hosts never print key material). Only with the operator's BNZ_OPS_TOKEN.
       if (parts[1] === "ops") {
         const want = Buffer.from(process.env.BNZ_OPS_TOKEN ?? ""), got = Buffer.from(String(req.headers["x-ops-token"] ?? ""));
         if (want.length < 32 || got.length !== want.length || !timingSafeEqual(got, want)) return json(res, 404, { error: "not found" });

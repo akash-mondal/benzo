@@ -1,4 +1,4 @@
-// Attestation message builders (docs/design/crosschain.md §1), domain-separated per chain.
+// Attestation message builders, domain-separated per chain.
 //
 // EVM: EIP-712 typed data over the BenzoRelease struct; the domain binds chainId +
 // verifyingContract and the domain name binds the "benzo-release-v1" string:
