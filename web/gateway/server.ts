@@ -216,6 +216,25 @@ const server = http.createServer(async (req, res) => {
         if (parts[2] === "runner" && req.method === "GET") return json(res, 200, runner?.opsList() ?? []);
         if (parts[2] === "retry" && /^[0-9a-f]{64}$/.test(parts[3] ?? "") && req.method === "POST") return json(res, 200, runner?.retry(parts[3]) ?? { ok: false, error: "no runner" });
         if (parts[2] === "fleet") { const f = process.env.BNZ_FLEET_LOG ?? "/var/benzo/fleet.log"; return json(res, 200, { tail: existsSync(f) ? readFileSync(f, "utf8").split("\n").slice(-Number(url.searchParams.get("n") ?? 200)).join("\n") : "" }); }
+        // One round's settlement state for diagnosis: the operator ledger's rows and batches, the files in its settle
+        // dir, the envelope-opens reports (destination hashes only) and the claimed parties. No address or key is read.
+        if (parts[2] === "ledger" && /^[0-9a-f]{64}$/.test(parts[3] ?? "")) {
+          const id = parts[3], dir = path.join(STATE, "settle", id), out: any = { files: [], obligations: null, batches: null, opens: {} };
+          if (existsSync(dir)) out.files = readdirSync(dir).map((f) => ({ f, at: statSync(path.join(dir, f)).mtime.toISOString() }));
+          try {
+            const { DatabaseSync } = await import("node:sqlite");
+            const db = new DatabaseSync(path.join(dir, "ledger.sqlite"), { readOnly: true } as any);
+            out.obligations = db.prepare("SELECT party,kind,amount_zats,state,batch,txid,output_index FROM obligations").all();
+            out.batches = db.prepare("SELECT id,txid,height,state FROM batches").all();
+            out.backing = db.prepare("SELECT note,party FROM refund_backing").all();
+            db.close();
+          } catch (x) { out.obligations = String((x as Error).message); }
+          for (const n of ["alice", "bob", "carol"]) {
+            try { out.opens[n] = JSON.parse(readFileSync(path.join(dir, `envelope-opens-${n}.json`), "utf8")).opens.map((e: any) => ({ party: e.party, ok: e.ok, dest: e.dest_sha256 ? String(e.dest_sha256).slice(0, 12) : null })); } catch { out.opens[n] = null; }
+          }
+          try { out.claims = JSON.parse(readFileSync(path.join(dir, "claims.json"), "utf8")).map((c: any) => c.party); } catch { out.claims = null; }
+          return json(res, 200, out);
+        }
         if (parts[2] === "shim") { const f = path.join(STATE, "run", "host-shim.log"); return json(res, 200, { tail: existsSync(f) ? readFileSync(f, "utf8").split("\n").slice(-200).join("\n") : "" }); }
         return json(res, 404, { error: "not found" });
       }

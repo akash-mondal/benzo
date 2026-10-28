@@ -65,6 +65,12 @@ export class Runner {
   private file: string;
   private auctions: Live[] = [];
   private busy = false;
+  // Settles and refund claims run in their own lane, so a slow payout never holds up freezing or opening other rounds.
+  // Settle signing and a new round's DKG both use frostd, and a settle closes every session it finds on the hosts, so
+  // the two never overlap: they take turns on this lock.
+  private settleBusy = false;
+  private frostLock: Promise<unknown> = Promise.resolve();
+  private withFrost<T>(fn: () => Promise<T>): Promise<T> { const p = this.frostLock.then(fn, fn); this.frostLock = p.catch(() => {}); return p; }
   private frostd: ChildProcess | null = null;
   private timer: NodeJS.Timeout;
   private queue: Spec[] = [];
@@ -87,8 +93,8 @@ export class Runner {
     }
     // A round interrupted during setup has a half-made state on the hosts; it is never resumed blindly.
     for (const a of this.auctions) if (a.phase === "setup") { a.phase = "failed"; a.error = "interrupted during setup"; if (a.spec.request) this.onCreated(a.spec.request, null, a.error); }
-    this.timer = setInterval(() => void this.tick(), 20_000);
-    void this.tick();
+    this.timer = setInterval(() => { void this.tick(); void this.settleTick(); }, 20_000);
+    void this.tick(); void this.settleTick();
   }
 
   private save() { writeFileSync(this.file, JSON.stringify({ auctions: this.auctions, queue: this.queue }, null, 1), { mode: 0o600 }); }
@@ -311,19 +317,16 @@ export class Runner {
         a.phase = "witnessed"; this.say(a, "witness certificates published");
       }
       if (a.phase === "witnessed" && (await this.latestRound()) >= a.R) {
+        // Open and clear here (the result is public from this moment); the settle lane pays it out.
+        await this.run(["open", "--id", a.id]).catch((e: Error) => { if (!/already|state|OPENED|CLEARED|SETTLED/i.test(e.message)) throw e; }); this.say(a, "opened at round R");
+        await this.run(["clear", "--id", a.id]).catch((e: Error) => { if (!/already|state|CLEARED|SETTLED/i.test(e.message)) throw e; }); this.say(a, "cleared");
         a.phase = "settling"; this.save();
-        await this.run(["open", "--id", a.id]); this.say(a, "opened at round R");
-        await this.run(["clear", "--id", a.id]); this.say(a, "cleared");
-        await this.run(["hosts", "envelope-opens", "--id", a.id]);
-        await this.run(["settle", "--id", a.id]); this.say(a, "settled");
-        await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]); this.say(a, "verified");
-        a.phase = "done"; this.save();
       } else if (a.phase === "settling") {
         // A settle interrupted by a restart, or one waiting for its last batch to mine: open, clear and the envelope
         // opens refuse a second run, so pick up where the ledger is. The settle itself is never skipped: the round is
         // done only when every payment row is paid, refunded or parked in the exception queue.
         for (const step of [["open"], ["clear"], ["hosts", "envelope-opens"]]) await this.run([...step, "--id", a.id]).catch((e: Error) => { if (!/already|state|OPENED|CLEARED|SETTLED/i.test(e.message)) throw e; });
-        await this.run(["settle", "--id", a.id]);
+        await this.withFrost(() => this.run(["settle", "--id", a.id]));
         if (!this.paidOut(a)) { const w = "settle waits for its batches to mine"; if (a.log.at(-1)?.includes(w) !== true) this.say(a, w); a.nextTry = Date.now() + 10 * 60_000; return; }
         await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]); this.say(a, "settled and verified");
         a.phase = "done"; this.save();
@@ -366,7 +369,7 @@ export class Runner {
         // A party's first recorded claim is the one that counts; a later one from the same owner settles that one.
         await this.run(["claim-refund", "--id", c.id, "--defer", "true"], c.request).catch((e: Error) => { if (!/already recorded/.test(e.message)) throw e; });
         await this.run(["hosts", "envelope-opens", "--id", c.id]);
-        await this.run(["settle", "--id", c.id]).catch((e: Error) => { if (!/can still mine|still mining|not yet mined|builds a new one/i.test(e.message)) throw e; });
+        await this.withFrost(() => this.run(["settle", "--id", c.id])).catch((e: Error) => { if (!/can still mine|still mining|not yet mined|builds a new one/i.test(e.message)) throw e; });
         const row = this.rowOf(a, c.party);
         if (row && ["paid", "refunded"].includes(row.state) && row.txid) {
           await this.run(["verify", "--dir", a.pub, "--signer", a.signer!]).catch(() => {});
@@ -386,16 +389,10 @@ export class Runner {
     if (this.busy || process.env.BNZ_WEB_RUNNER_PAUSE === "1") return;
     this.busy = true;
     try {
-      await this.workClaims();
-      // A round that just failed a step, or is waiting for a batch to mine, sits out a few ticks (backoff), so a pile of
-      // slow settles never starves the setup of new rounds.
-      // Each tick spends at most about four minutes on rounds already running (the ones tried longest ago first), then
-      // always gets to set up the next round, so a pile of slow settles can't freeze the queue.
-      const tick0 = Date.now();
-      const due = this.auctions.filter((x) => ["accepting", "frozen", "witnessed", "settling"].includes(x.phase) && !((x.nextTry ?? 0) > Date.now()))
-        .sort((x, y) => Number(x.phase === "settling") - Number(y.phase === "settling") || (x.lastTry ?? 0) - (y.lastTry ?? 0));
+      // Freezing, witnessing and opening (a round that just failed a step sits out a few ticks); settles run in settleTick.
+      const due = this.auctions.filter((x) => ["accepting", "frozen", "witnessed"].includes(x.phase) && !((x.nextTry ?? 0) > Date.now()))
+        .sort((x, y) => (x.lastTry ?? 0) - (y.lastTry ?? 0));
       for (const a of due) {
-        if (a.phase === "settling" && Date.now() - tick0 > 4 * 60_000) break;
         a.lastTry = Date.now();
         const t0 = Date.now(); await this.advance(a);
         if (Date.now() - t0 > 60_000) console.log(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] ${a.phase}: one step took ${Math.round((Date.now() - t0) / 1000)} s`);
@@ -415,8 +412,24 @@ export class Runner {
       }
       this.lastWait = "";
       if (this.queue[0] === next) { this.queue.shift(); this.save(); }
-      await this.create(next);
+      await this.withFrost(() => this.create(next));
     } finally { this.busy = false; }
+  }
+
+  // The settle lane: refund claims, then rounds being paid out (the one tried longest ago first), one at a time.
+  async settleTick() {
+    if (this.settleBusy || process.env.BNZ_WEB_RUNNER_PAUSE === "1") return;
+    this.settleBusy = true;
+    try {
+      await this.workClaims();
+      const due = this.auctions.filter((x) => x.phase === "settling" && !((x.nextTry ?? 0) > Date.now())).sort((x, y) => (x.lastTry ?? 0) - (y.lastTry ?? 0));
+      for (const a of due) {
+        if (a.phase !== "settling") continue;
+        a.lastTry = Date.now();
+        const t0 = Date.now(); await this.advance(a);
+        if (Date.now() - t0 > 60_000) console.log(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] settle step took ${Math.round((Date.now() - t0) / 1000)} s`);
+      }
+    } finally { this.settleBusy = false; }
   }
 
   stop() { clearInterval(this.timer); this.frostd?.kill(); }
