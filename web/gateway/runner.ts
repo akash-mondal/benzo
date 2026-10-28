@@ -428,6 +428,7 @@ export class Runner {
         a.lastTry = Date.now();
         const t0 = Date.now(); await this.advance(a);
         if (Date.now() - t0 > 60_000) console.log(`[runner ${a.id.slice(0, 8)} ${a.spec.mode}] settle step took ${Math.round((Date.now() - t0) / 1000)} s`);
+        await this.workClaims(); // a bidder's refund claim never waits for a whole pass over slow settles
       }
     } finally { this.settleBusy = false; }
   }
