@@ -71,7 +71,7 @@ Benzo is a general engine for this: **any market where price discovery needs sea
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/reel/seal.png">
-  <img src="docs/assets/reel/seal.gif" alt="Your bid becomes ciphertext in the browser. drand publishes a round every 3 seconds; only round R unlocks it." width="100%">
+  <img src="docs/assets/reel/seal.gif" alt="A 1,350-zat bid is sealed in the browser into a 512-byte memo. drand ticks toward round R, the only key, which does not exist yet." width="100%">
 </picture>
 
 **2. Pay.** The sealed bid rides in the memo of a shielded Zcash payment. Every bidder pays the same deposit, and every memo is exactly 512 bytes. Neither says anything about the price.
@@ -82,7 +82,7 @@ Benzo is a general engine for this: **any market where price discovery needs sea
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/reel/open.png">
-  <img src="docs/assets/reel/open.gif" alt="drand publishes round R. Fifteen sealed bids open into prices. The top four win and all pay one price, 2,160." width="100%">
+  <img src="docs/assets/reel/open.gif" alt="drand publishes round R. Eight sealed bids in a Specters mint open into prices; the top six win and each pays 1,270 zats; two get their deposits back." width="100%">
 </picture>
 
 The full walk-through, byte layouts and all, is in **[How Benzo works](docs/how-it-works.md)**.
@@ -123,7 +123,10 @@ That's a recorded round: three sealed bids, opened at a drand round, paid by 2 o
 
 Every settled round on the site has a **Try to cheat** panel. It changes one thing in a copy of the record and runs the same checks:
 
-<img src="docs/assets/reel/cheat.gif" alt="The Verify page. 'Change a bid after it was opened' is tried and caught by 3 checks: the opening no longer re-derives from its sealed bid, the summary no longer matches, and the result no longer follows." width="100%">
+<picture>
+  <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/reel/cheat.png">
+  <img src="docs/assets/reel/cheat.gif" alt="Try to cheat: 'Change a bid after it was opened' is run against a copy of a settled round. Three checks fail: the opening no longer re-derives from its sealed bid, the summary no longer matches, and the result no longer follows." width="100%">
+</picture>
 
 | The cheat | What the verifier says |
 |---|---|
@@ -170,11 +173,7 @@ On the site they all sell one demo collection, **Specters**, the way a collectio
   </tr>
 </table>
 
-<p align="center">
-  <img src="docs/assets/screens/phone-landing.jpg" alt="benzo.space on a phone: landing" width="30%">&nbsp;
-  <img src="docs/assets/screens/phone-bid.jpg" alt="benzo.space on a phone: bid" width="30%">&nbsp;
-  <img src="docs/assets/screens/phone-result.jpg" alt="benzo.space on a phone: result" width="30%">
-</p>
+<img src="docs/assets/screens/phones.jpg" alt="benzo.space on a phone: the landing page, a bid being sealed, and a settled mint" width="100%">
 
 ## What's been run
 
