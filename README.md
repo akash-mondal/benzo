@@ -189,11 +189,11 @@ Open any round on [benzo.space](https://benzo.space), pick a price and press **U
 - **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/live-markets/)):
   - Uniform, drop, OTC and RFQ: settled, every check passes, and the browser test passes.
   - Buyback: settled with 11 payments, every check passes, and the browser test passes.
-  - Launch: a launch's winners record where their units go with the CLI (`benzo launch deliver`), which the site doesn't collect yet, so launch rounds aren't started on the site. The full launch flow, delivery list included, passes through the CLI on testnet ([log](docs/evidence/launch-round/)).
+  - Launch: run from the `benzo` CLI, where winners record where their units go (`benzo launch deliver`). A settled testnet launch, delivery list included, passes every check ([record](docs/evidence/launch-round/)).
 - **Cross-chain payouts:**
   - Ethereum Sepolia: a payout to a one-time ERC-5564 stealth address ([log](docs/evidence/crosschain/stealth-live.out)).
   - Solana devnet: a Token-2022 confidential transfer ([log](docs/evidence/crosschain/ct-live.out)).
-- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/scale/bench.json)). The deposits there are synthetic, not 17,000 on-chain payments; paying that round out would take about 608 transactions.
+- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/scale/bench.json)). Its deposits are synthetic; paying that round out plans to 608 transactions.
 
 The rest of the evidence, and what each folder proves, is indexed in [`docs/evidence/README.md`](docs/evidence/README.md).
 
