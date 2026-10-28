@@ -17,3 +17,9 @@
 2026-10-27T18:04:08.623Z claim re-run: bidder B pressed "Claim my deposit back" again (the earlier claim was recorded; the fixed worker re-opens the envelopes and settles)
 2026-10-27T18:49:35.638Z claim re-run: bidder B pressed "Claim my deposit back" again (the earlier claim was recorded; the fixed worker re-opens the envelopes and settles)
 2026-10-27T19:20:28.000Z STATUS after two re-runs with the fixed claim worker: the claim is recorded and the signers re-open the envelopes, but the refund row stays in the exception queue ("signers could not agree on the envelope destination"). The refund is NOT paid; this path is an open bug.
+2026-10-28T02:05:04.824Z claim re-run: bidder B pressed "Claim my deposit back" again (the earlier claim was recorded; the fixed worker re-opens the envelopes and settles)
+2026-10-28T02:42:50.886Z claim re-run: bidder B pressed "Claim my deposit back" again (the earlier claim was recorded; the fixed worker re-opens the envelopes and settles)
+2026-10-28T02:54:35.775Z refund row after the re-run: {"state":"refunded","txid":"4e19ae06733dc80abd3842b0798f3026fb837e18334fff338d950b53a03aa778","amount_zats":"200000"}
+2026-10-28T02:54:43.401Z round SETTLING; checks: 14 of 14 applicable pass
+2026-10-28T02:54:43.402Z RESULT PASS the left-out deposit was refunded by the signers in transaction 4e19ae06733dc80abd3842b0798f3026fb837e18334fff338d950b53a03aa778
+2026-10-28T02:55:12.000Z STATUS the refund is paid; the earlier STATUS line (open bug) is superseded. Cause of the stall after the claim: a later batch was refused when two payments shared a recipient and amount (fixed in sign approve and settle, deployed 02:04 UTC).

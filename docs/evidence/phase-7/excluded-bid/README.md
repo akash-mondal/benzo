@@ -12,11 +12,14 @@ Live on benzo.space, Zcash testnet, round `9d87d234…ad16a`.
 4. The signers scan the round's addresses on chain themselves, so their settlement lists B's deposit as a refund.
 5. B presses **Claim my 200,000 zats back**. The page signs the claim with the bid's own key.
 
-**Status:** steps 1–4 passed. Step 5 did not: the first run's page showed "Refunded" before any refund was paid (the
-site marked the claim paid when the claim command exited; the row stayed in the exception queue). That worker bug is
-fixed, but two re-runs show a second, open bug: after the signers re-open the envelopes with the claim, the row
-stays in the exception queue ("signers could not agree on the envelope destination"), so the refund is not paid.
-[`run.log`](run.log) records both. [`3-refunded.png`](3-refunded.png) shows the first bug, not a refund.
+**Result:** all five steps pass. The signers refunded B's 200,000 zats in testnet transaction
+`4e19ae06733dc80abd3842b0798f3026fb837e18334fff338d950b53a03aa778` (Oct 28, 02:54 UTC), 12 minutes after the
+claim ([`3-refunded.png`](3-refunded.png): B's page shows **Refunded** with that transaction). Before that, two bugs
+kept it unpaid, and [`run.log`](run.log) records both: the site marked the first claim paid when the claim command
+exited (fixed in the claim worker), and a later batch was refused for good when two payments shared a recipient
+and amount (the signers labelled them with rows an earlier batch had paid; fixed in `sign approve` and
+`settle`). The "signers could not agree" reason in the log was the state before the claim was re-opened; all
+three signers then opened it to the same destination.
 
 | File | What |
 |---|---|
