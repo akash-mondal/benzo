@@ -246,7 +246,7 @@ function Form({ round, party, role, onSealed }: { round: AuctionDetail; party: P
       )}
       <Field label={role.label} help={err?.field === "price" ? undefined : `Between ${zats(role.lo)} and ${zats(role.hi)} zats, in steps of ${role.tick}.${price && /^\d+$/.test(price) ? ` That's ${taz(price)}.` : ""}`}>
         <div className="relative">
-          <input name="price" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/[^\d]/g, ""))} aria-invalid={err?.field === "price"} className={cx(fieldCls, "pr-14 text-[17px] tabular-nums", err?.field === "price" && "ring-bad")} data-testid="bid-price" autoComplete="off" />
+          <input name="price" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value.replace(/\s/g, ""))} aria-invalid={err?.field === "price"} className={cx(fieldCls, "pr-14 text-[17px] tabular-nums", err?.field === "price" && "ring-bad")} data-testid="bid-price" autoComplete="off" />
           <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[14px] text-app-faint">zats</span>
         </div>
       </Field>

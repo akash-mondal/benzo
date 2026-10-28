@@ -97,12 +97,15 @@ test("RFQ: two dealers join from their invites; the request pins both dealer key
 });
 
 test("every market's form opens from the start page and from its own sky", async ({ page }) => {
-  for (const m of ["uniform", "drop", "launch", "buyback", "otc", "rfq"]) {
+  // Launch rounds start from the command line in this release; the start page says so in place of a form.
+  await page.goto("/start/");
+  await expect(page.getByTestId("start-launch-note")).toBeVisible();
+  for (const m of ["uniform", "drop", "buyback", "otc", "rfq"]) {
     await page.goto("/start/");
     await page.getByTestId(`start-${m}`).click();
     await expect(page.getByTestId("start-form")).toBeVisible();
     await expect(page.getByTestId("start-lot")).toBeVisible();
   }
-  await page.goto("/markets/launch/");
-  await expect(page.locator('a[data-door-label][href="/start/?market=launch"]')).toBeAttached();
+  await page.goto("/markets/uniform/");
+  await expect(page.locator('a[data-door-label][href="/start/?market=uniform"]')).toBeAttached();
 });

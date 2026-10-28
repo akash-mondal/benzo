@@ -407,10 +407,13 @@ export default function Field({ doodles, center, pitch, onSelect, onNavigate = g
           className="absolute left-0 top-0 z-10 whitespace-nowrap rounded-md px-1.5 py-0.5 font-sans text-[13px] text-sand/80 outline-none transition-colors hover:text-sand focus-visible:text-sand focus-visible:ring-2 focus-visible:ring-gold focus-visible:ring-offset-2 focus-visible:ring-offset-ground" style={{ opacity: 0 }}>{d.name}</a>
       ))}
       {pitch && (
-        <div ref={pitchEl} aria-hidden={!pitchOn} data-testid="pitch" data-on={pitchOn}
-          className={`pointer-events-none absolute left-1/2 z-20 w-[min(520px,88vw)] -translate-x-1/2 -mt-4 text-center transition-all duration-300 ease-out ${pitchOn ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"}`}>
-          <p className={`font-serif italic text-sand ${pitch.line ? "text-[clamp(24px,3.2vw,34px)] leading-[1.1]" : "text-[clamp(18px,2.2vw,22px)] leading-snug"}`}>{pitch.title}</p>
-          {pitch.line && <p className="mx-auto mt-3 max-w-[460px] font-sans text-[15px] leading-relaxed text-sand/75">{pitch.line}</p>}
+        <div ref={pitchEl} className="pointer-events-none absolute left-1/2 z-20 w-[min(520px,88vw)] -translate-x-1/2 -mt-4 text-center">
+          {/* The one line that says what this is stays under the word, faint; hovering (or tapping) the word opens the rest. */}
+          {pitch.line && <p data-testid="pitch-line" className={`absolute inset-x-0 top-0 font-sans text-[13px] tracking-[0.02em] text-sand/60 transition-opacity duration-300 sm:text-[15px] ${pitchOn ? "opacity-0" : "opacity-100"}`}>{pitch.title}</p>}
+          <div aria-hidden={!pitchOn} data-testid="pitch" data-on={pitchOn} className={`transition-all duration-300 ease-out ${pitchOn ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0"}`}>
+            <p className={`font-serif italic text-sand ${pitch.line ? "text-[clamp(24px,3.2vw,34px)] leading-[1.1]" : "text-[clamp(18px,2.2vw,22px)] leading-snug"}`}>{pitch.title}</p>
+            {pitch.line && <p className="mx-auto mt-3 max-w-[460px] font-sans text-[15px] leading-relaxed text-sand/75">{pitch.line}</p>}
+          </div>
         </div>
       )}
       {label && (

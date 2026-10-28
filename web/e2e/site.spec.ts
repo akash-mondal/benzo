@@ -44,7 +44,7 @@ test("home: every doodle is a door — a market door dives into that market's sk
   await expect(page.locator("h1")).toContainText("Benzo");
   await ready(page);
   // Every option is on the first screen, named.
-  for (const name of ["Uniform price", "OTC", "RFQ", "Launch", "Buyback", "Drop", "Bid", "Start a round", "Mine", "Verify", "Every lot"])
+  for (const name of ["Uniform price", "OTC", "RFQ", "Launch", "Buyback", "Drop", "Bid", "Start a round", "My bids", "Verify", "All rounds", "Specters"])
     expect(await doorAt(page, name), `${name} is not on the first screen`).not.toBeNull();
   await page.waitForTimeout(800);
   const door = await doorAt(page, "Drop");
@@ -101,7 +101,8 @@ test("a settled round: opened bids, payments, 19 checks, and a bid's receipt", a
   await expect(page.getByTestId("allocations").locator("tbody tr")).toHaveCount(d.result.allocations.length);
   // The terminal: the records sit in tabs under the chart; the checks are one of them.
   await page.locator('[data-testid=records] [data-tab="checks"]').click();
-  await expect(page.getByText(`${d.checks.length} of ${d.checks.length} checks pass`)).toBeVisible();
+  const applicable = d.checks.filter((c: any) => c.status !== "not_applicable").length;
+  await expect(page.getByText(`${applicable} of ${applicable} applicable checks pass`)).toBeVisible();
   await expect(page.getByTestId("checks").locator("li")).toHaveCount(d.checks.length);
   await page.getByPlaceholder("Bid hash (in your recovery file)").fill(d.freeze.leaves[0].ciphertext_hash);
   await page.getByRole("button", { name: "Look up" }).click();
@@ -124,7 +125,7 @@ test("check it yourself: the downloaded public directory verifies offline with t
   expect(out.split("\n").filter((l) => l.startsWith("OK")).length).toBe(19);
   // and the package the page tells you to npx is the PK-recorded one
   const tgz = await (await request.get("/dl/benzo-0.1.0.tgz")).body();
-  const recorded = readFileSync(path.join(REPO, "docs/reproducible-build.md"), "utf8").match(/`(f9a9[0-9a-f]{60})`/)?.[1];
+  const recorded = readFileSync(path.join(REPO, "docs/reproducible-build.md"), "utf8").match(/benzo-0\.1\.0\.tgz`[^\n]*`([0-9a-f]{64})`/)?.[1];
   expect(createHash("sha256").update(tgz).digest("hex")).toBe(recorded);
 });
 
@@ -164,7 +165,7 @@ test("you can back out of everything: Back and Escape return to where you came f
   await expect(page).toHaveURL(/127\.0\.0\.1:\d+\/$/);
   // The start page: picking a market is a step Back undoes.
   await page.goto("/start/");
-  await page.getByTestId("start-launch").click();
+  await page.getByTestId("start-drop").click();
   await expect(page.getByTestId("start-form")).toBeVisible();
   await page.getByTestId("back").click();
   await expect(page.getByTestId("start-markets")).toBeVisible();

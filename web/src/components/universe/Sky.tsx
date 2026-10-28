@@ -70,10 +70,17 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
     const narrow = typeof window !== "undefined" && window.innerWidth < 640, now = Date.now() / 1000;
     const count = (m: Market) => auctions.filter((a) => marketOf(a.mode) === m).length;
     // On an ellipse around the centre word, inside the one screen: angles in degrees, 0 is right, going up.
-    const arc = (items: FieldDoodle[], from: number, to: number, rx: number, ry: number, closed = false) => items.map((d, i) => {
-      const n = items.length, k = n === 1 ? 0.5 : closed ? i / n : i / (n - 1), t = ((from + (to - from) * k) * Math.PI) / 180;
-      return { ...d, place: [Math.cos(t) * rx, Math.sin(t) * ry] as [number, number] };
-    });
+    // Items are spaced by equal distance along the curve, not equal angle: on a tall phone ellipse equal angles bunch
+    // the doors at the top and bottom, where they overlapped.
+    const arc = (items: FieldDoodle[], from: number, to: number, rx: number, ry: number, closed = false) => {
+      const asp = typeof window !== "undefined" ? window.innerWidth / window.innerHeight : 1, steps = 720, a0 = (from * Math.PI) / 180, a1 = (to * Math.PI) / 180, len: number[] = [0];
+      for (let j = 1; j <= steps; j++) { const t0 = a0 + ((a1 - a0) * (j - 1)) / steps, t1 = a0 + ((a1 - a0) * j) / steps; len.push(len[j - 1] + Math.hypot((Math.cos(t1) - Math.cos(t0)) * rx * asp, (Math.sin(t1) - Math.sin(t0)) * ry)); }
+      const at = (k: number) => { const want = k * len[steps]; let j = 1; while (j < steps && len[j] < want) j++; return a0 + ((a1 - a0) * j) / steps; };
+      return items.map((d, i) => {
+        const n = items.length, k = n === 1 ? 0.5 : closed ? (i + 0.5) / n : i / (n - 1), t = narrow ? at(k) : ((from + (to - from) * k) * Math.PI) / 180;
+        return { ...d, place: [Math.cos(t) * rx, Math.sin(t) * ry] as [number, number] };
+      });
+    };
     if (!market) {
       const doors = MARKETS.map((m, i) => door(DOOR[m], MODE_NAME[m], ABOUT[m], marketPath(m), [1.35, 1.15, 1.25, 1.4, 1.1, 1.3][i], "market"));
       const pages = [
@@ -85,7 +92,7 @@ export default function Sky({ initial, market: initialMarket }: { initial: Aucti
         door("crescent", "Specters", "The demo collection: its mint, one-of-ones, floor buybacks, private sales and commissions.", "/collection/", 1.25),
       ];
       // Markets across the top, actions along the bottom (one ring on a phone).
-      const ring = narrow ? arc([...doors, ...pages], 90, 450, 0.33, 0.36, true) : [...arc(doors, 158, 22, 0.34, 0.31), ...arc(pages, 204, 336, 0.34, 0.31)];
+      const ring = narrow ? arc([...doors, ...pages], 90, 450, 0.355, 0.38, true) : [...arc(doors, 158, 22, 0.34, 0.31), ...arc(pages, 204, 336, 0.34, 0.31)];
       return [...ring, ...ornaments(narrow)];
     }
     // A market's screen: one ring. Across the top its live rounds and its latest finished ones (test runs that stopped
