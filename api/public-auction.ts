@@ -1066,19 +1066,25 @@ export function checkPublicAuction(pub: PublicAuction, opts: { claimOpenings?: M
   // guard: no address string may appear anywhere in the published settlement — at any depth, in any field. Receipts
   // carry txids and output indexes; parties are leaf/deposit/row names; a destination has no business here.
   run("no-destinations", () => {
-    if (!pub.settlement) return;
-    // The one shared definition (envelope/leak-patterns.ts): every chain's addresses, viewing keys, seeds.
+    // The one shared definition (envelope/leak-patterns.ts): every chain's addresses, viewing keys, seeds. The whole
+    // public record is scanned — the signed terms, the frozen set, the openings, the result, the settlement and the
+    // delivery list. The only addresses allowed are the ones the round publishes on purpose: its deposit, escrow,
+    // funding and balance addresses, and the public escrow and signer addresses of a cross-chain lot.
+    const m: any = pub.manifest, allowed = new Set<string>();
+    const allow = (v: unknown): void => { if (typeof v === "string") allowed.add(v.toLowerCase()); else if (Array.isArray(v)) v.forEach(allow); else if (v && typeof v === "object") Object.values(v).forEach(allow); };
+    allow(m.deposit_addresses); allow(m.escrow_ua); allow(m.buyback?.funding_ua); allow(m.rfq?.funding_ua); allow(m.bond?.balance_addresses); allow(m.crosschain);
     const hits: string[] = [];
     const walk = (v: unknown, at: string): void => {
-      if (typeof v === "string") { if (findSensitive(v).length) hits.push(at); }
+      if (typeof v === "string") { if (findSensitive(v).some((x) => !allowed.has(x.value.toLowerCase()))) hits.push(at); }
       else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${at}[${i}]`));
       else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) {
         if (findSensitive(k).length) hits.push(`${at}.<key>`); // An address as an object key
         walk(x, `${at}.${k}`);
       }
     };
-    walk(pub.settlement, "settlement");
-    requireThat(hits.length === 0, `published settlement carries an address at ${hits.slice(0, 3).join(", ")}`);
+    walk(m, "manifest"); walk(pub.frozen, "frozen"); walk(pub.opened, "opened"); walk(pub.result, "result");
+    walk(pub.settlement, "settlement"); walk(pub.deliveryList, "delivery_list");
+    requireThat(hits.length === 0, `the public record carries an address at ${hits.slice(0, 3).join(", ")}`);
   });
   // Agent-friendly (class B): every present settlement field must have had its enforcing check run.
   if (pub.settlement) { // Every document, legacy or not

@@ -55,6 +55,10 @@ export const hash = (bytes: Uint8Array | string) => createHash("sha256").update(
 // it with one command and compare before bidding opens.
 export const sellerUaCommitment = (sellerUa: string): string =>
   hash(Buffer.concat([Buffer.from("benzo-seller-ua-v1\0", "binary"), Buffer.from(sellerUa, "utf8")]));
+// The treasury return address of a buyback or RFQ (where its unspent budget goes) is committed the same way, so the
+// signed terms never carry it; the operator's private routing holds it and every signer host checks it.
+export const treasuryUaCommitment = (ua: string): string =>
+  hash(Buffer.concat([Buffer.from("benzo-treasury-ua-v1\0", "binary"), Buffer.from(ua, "utf8")]));
 // The one commitment function for the reserve-return address — the same shape as sellerUaCommitment
 // with its own domain-separation prefix, used by `auction create --config`, the signer hosts' packet check and
 // the verify-side accounting. Anyone can recompute it with one command and compare before bidding opens.

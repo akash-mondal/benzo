@@ -6,7 +6,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { QUICKNET, jsonBytes, requireThat, sellerUaCommitment, reserveReturnUaCommitment } from "../manifest/schema";
+import { QUICKNET, jsonBytes, requireThat, sellerUaCommitment, reserveReturnUaCommitment, treasuryUaCommitment } from "../manifest/schema";
 import { fetchVerifiedBeacon, publishedClient } from "../cli/published-beacon";
 import { openSealedBid } from "../envelope/opening";
 import { beaconSha256, loadOpenings, saveOpenings } from "./openings-cache";
@@ -66,7 +66,15 @@ export function custodyBinding(id: string, st: string, root: string, pub: any, s
   else { mkdirSync(adir, { recursive: true, mode: 0o700 }); writeFileSync(mh, pub.manifest_hash + "\n", { mode: 0o600 }); }
 }
 
-export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string; seller_ua?: unknown }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean; bondStart: import("./host-chain").BlockHeader | null; sellerBinding: "bound" | "legacy" | "mismatch"; refusedRows: { party: string; amount_zats: string; reason: string }[]}> {
+// Where a buyback's or RFQ's unspent budget returns: the signed treasury_ua of an older round, or the packet's
+// treasury_ua when it matches the signed treasury_ua_commitment. Null when neither holds (the row is refused).
+export function treasuryTo(manifest: any, meta: { treasury_ua?: unknown }): string | null {
+  const tb = treasuryBlock(manifest);
+  if (!tb) return null;
+  if (tb.treasury_ua !== undefined) return tb.treasury_ua;
+  return typeof meta.treasury_ua === "string" && treasuryUaCommitment(meta.treasury_ua) === tb.treasury_ua_commitment ? meta.treasury_ua : null;
+}
+export async function deriveRows(o: { id: string; name: string }, st: string, root: string, packet: string, meta: { signer: string; seller_ua?: unknown; treasury_ua?: unknown }): Promise<{ expected: DerivedRow[]; payout: string; envelopeKeys: string[]; network: string; balanceSources: string[]; defaults: number[]; balanceRefunds: BalanceRefund[]; strays: import("../witness").StrayAttestation[] ; bondVoid: boolean; bondStart: import("./host-chain").BlockHeader | null; sellerBinding: "bound" | "legacy" | "mismatch"; refusedRows: { party: string; amount_zats: string; reason: string }[]}> {
     const publicDir = path.join(packet, "public");
     // 1. The full public check on the packet's directory (the same code as `benzo verify`), or, for an auction that was
     // never frozen, the signed manifest plus the rule that makes it cancelled: freeze must precede the signed T_freeze,
@@ -180,7 +188,7 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       const refund = typeof c.claim_envelope_ct === "string" ? openEnvelopeRefundUnchecked(c.claim_envelope_ct, key!) : null;
       if (refund !== null && classifiable(refund)) derived.push(refund);
     }
-    if (treasuryBlock(pub.manifest)) derived.push(treasuryBlock(pub.manifest)!.treasury_ua);
+    if (treasuryTo(pub.manifest, meta)) derived.push(treasuryTo(pub.manifest, meta)!);
     // The prefetch is an optimization and decides nothing, so a classifier error here is never
     // fatal — the per-row path classifies or refuses that one row exactly as before.
     try { classifyAddresses(derived); } catch { /* warm the cache only */ }
@@ -309,7 +317,9 @@ export async function deriveRows(o: { id: string; name: string }, st: string, ro
       // rule as `open`, checked here from this host's own scan.
       if (!cancelled) requireThat(treasuryFunded(pub.manifest as any, notes, chainTip(st)) >= treasuryRequired(pub.manifest as any), "treasury is not funded (budget × lots, confirmed) on this host's scan; refusing");
       const back = treasuryReturn(pub.manifest as any, cancelled ? null : pub.result as any, treasuryFunded(pub.manifest as any, notes, chainTip(st)));
-      if (back > 0n) expected.push({ party: "treasury", recipient: treasuryBlock(pub.manifest)!.treasury_ua, amount_zats: back.toString(), source: "treasury" });
+      const to = treasuryTo(pub.manifest, meta);
+      if (back > 0n && to) expected.push({ party: "treasury", recipient: to, amount_zats: back.toString(), source: "treasury" });
+      else if (back > 0n) refusedRows.push({ party: "treasury", amount_zats: back.toString(), reason: "treasury return address does not match the manifest treasury_ua_commitment" });
     }
 
     // Write the classify cache back (mode 0600, atomic) with this run's verdicts and the classifier

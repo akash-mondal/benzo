@@ -267,14 +267,18 @@ export class Runner {
       m.clearing = { ...m.clearing, mode: mode === "drop" ? "uniform" : mode };
       if (spec.lots) { delete m.lot; m.lots = lotIds(spec.lots); } else m.lot = spec.lot;
       if (mode === "launch") m.launch = { standard_lot_size: 1, minimum_raise_zats: spec.launch!.minimum_raise_zats };
-      if (mode === "buyback") m.buyback = { budget_zats: spec.buyback!.budget_zats, max_price_zats: spec.buyback!.max_price_zats, treasury_ua: spec.buyback!.treasury_ua ?? house, funding_ua: a.funding_ua };
+      // The treasury's return address stays out of the signed terms: it goes in the private routing below, and the terms
+      // carry only its commitment (auction create sets it).
+      if (mode === "buyback") m.buyback = { budget_zats: spec.buyback!.budget_zats, max_price_zats: spec.buyback!.max_price_zats, funding_ua: a.funding_ua };
       if (mode === "otc") { m.otc = { ...spec.otc! }; m.reserve_zats = "0"; m.supply = 1; }
       if (mode === "rfq") m.rfq = { dealer_keys: spec.rfq!.dealer_keys, max_price_zats: spec.rfq!.max_price_zats, budget_zats: spec.rfq!.budget_zats, delivery_deadline_height: this.chainTip() + 20000,
-        delivery_signers: [spki(), spki(), spki()], treasury_ua: spec.rfq!.treasury_ua, funding_ua: a.funding_ua };
+        delivery_signers: [spki(), spki(), spki()], funding_ua: a.funding_ua };
       for (const k of Object.keys(m)) if (/_commitment$/.test(k)) delete m[k];
       const cfg = JSON.parse(readFileSync(path.join(this.root, "docs/examples/private-operator.json"), "utf8"));
       const { reserve, treasury } = this.cost(spec);
       cfg.routing.bidders = a.slots.map((deposit_ua) => ({ deposit_ua })); cfg.routing.seller_ua = payout; cfg.routing.fee_reserve_ua = a.fee; cfg.routing.reserve_return_ua = house;
+      if (mode === "buyback") cfg.routing.treasury_ua = spec.buyback!.treasury_ua ?? house;
+      if (mode === "rfq") cfg.routing.treasury_ua = spec.rfq!.treasury_ua;
       writeFileSync(path.join(priv, "unsigned-manifest.json"), JSON.stringify(m, null, 2), { mode: 0o600 });
       writeFileSync(path.join(priv, "private-operator.json"), JSON.stringify(cfg, null, 2), { mode: 0o600 });
       this.say(a, `create (R ${a.R}, bids until ${new Date(a.T_submit * 1000).toISOString()})`);

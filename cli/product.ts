@@ -5,7 +5,7 @@ import {createPublicKey,generateKeyPairSync,randomBytes} from 'node:crypto';
 import path from 'node:path';
 import http from 'node:http';
 import {chromium} from '@playwright/test';
-import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET,sellerUaCommitment,reserveReturnUaCommitment} from '../manifest/schema';
+import {hash,jsonBytes,requireThat,signRecord,validateManifest,verifyRecord,QUICKNET,sellerUaCommitment,reserveReturnUaCommitment,treasuryUaCommitment} from '../manifest/schema';
 import {prepareBid,bindSealedBid} from '../envelope/bid';
 import {ownerPublic,signStatement,sealEnvelope,envelopeRecordValid,sealDelivery} from '../envelope';
 import {requireShieldedDestination,isUnifiedOrchardOn} from '../envelope/destination';
@@ -189,6 +189,17 @@ export async function runCommand(command:string,args:string[]) {
       requireThat(m.reserve_return_ua_commitment===undefined||m.reserve_return_ua_commitment===committed,'manifest reserve_return_ua_commitment differs from the operator routing reserve_return_ua');
       m.reserve_return_ua_commitment=committed;
     }
+    // A buyback's or RFQ's treasury return address is committed the same way: the operator config's
+    // routing.treasury_ua becomes treasury_ua_commitment in the signed terms, and the terms never carry the address.
+    const treasuryUa=createdFrom?.routing?.treasury_ua;
+    const tblock=m.clearing?.mode==='buyback'?m.buyback:m.clearing?.mode==='rfq'?m.rfq:undefined;
+    if(treasuryUa!==undefined&&tblock){
+      requireThat(typeof treasuryUa==='string'&&isUnifiedOrchardOn(treasuryUa,m.network),'treasury_ua must be a unified address on the manifest network with an Orchard/Ironwood receiver');
+      requireThat(tblock.treasury_ua===undefined,'the treasury return address belongs in the operator routing, not the signed terms');
+      const committed=treasuryUaCommitment(treasuryUa);
+      requireThat(tblock.treasury_ua_commitment===undefined||tblock.treasury_ua_commitment===committed,'treasury_ua_commitment differs from the operator routing treasury_ua');
+      tblock.treasury_ua_commitment=committed;
+    }
     // A mainnet manifest always commits the return address — without it the unused fee reserve
     // would be stranded in every auction vault (the mainnet blocker). Checked before the seller and
     // structural rules so the refusal is this one even while the network lock still refuses "main".
@@ -219,8 +230,8 @@ export async function runCommand(command:string,args:string[]) {
     // with a throwaway key (the clients verify a signature first); nothing about the real signing key changes.
     {const k=generateKeyPairSync('ed25519'),probe=signRecord(m,k.privateKey.export({type:'pkcs8',format:'pem'}).toString());modeEntry(probe).client(probe,probe.signer)}
     // Part 2: an RFQ under the product carries its buyer's signed treasury block (host custody derives the return from it).
-    if(m.clearing?.mode==='rfq')requireThat(m.rfq?.treasury_ua&&m.rfq?.funding_ua,'rfq needs the buyer treasury_ua and funding_ua');
-    if(treasuryBlock(m)){const tb=treasuryBlock(m)!;requireShieldedDestination(tb.treasury_ua,m.network);
+    if(m.clearing?.mode==='rfq')requireThat((m.rfq?.treasury_ua||m.rfq?.treasury_ua_commitment)&&m.rfq?.funding_ua,'rfq needs the buyer treasury return and funding_ua');
+    if(treasuryBlock(m)){const tb=treasuryBlock(m)!;if(tb.treasury_ua!==undefined)requireShieldedDestination(tb.treasury_ua,m.network);
       // A funding address belongs to one auction only (its funded sum counts every note ever received).
       for(const f of existsSync(path.join(STATE,'product'))?readdirSync(path.join(STATE,'product')).filter(f=>f.endsWith('.json')):[]){const d=draft(f.slice(0,-5)),l=ledger(f.slice(0,-5));for(const p of [d,l])if(existsSync(p)){const x=read(p),mm=x.manifest?.bytes?JSON.parse(Buffer.from(x.manifest.bytes,'base64').toString('utf8')):x.manifest;requireThat(treasuryBlock(mm)?.funding_ua!==tb.funding_ua||mm.auction_id===m.auction_id,'funding_ua already used by auction '+String(mm?.auction_id).slice(0,8))}}
     }

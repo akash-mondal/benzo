@@ -10,7 +10,8 @@ import type { ClearBody, ClearInput, SettlementExtras } from "./core";
 // max_price_zats is the treasury's maximum accepted ask (was floor_zats). Design §6.1: treasury_ua is where
 // unspent budget returns; funding_ua is the vault address the treasury funds (not a deposit address, so it is never a
 // bid or a stray). Both are signed, so every signer derives the treasury row from signed data and its own scan.
-export type Buyback = { budget_zats: string; max_price_zats: string; treasury_ua: string; funding_ua: string };
+// New rounds commit the return address (treasury_ua_commitment); rounds created before that carry treasury_ua.
+export type Buyback = { budget_zats: string; max_price_zats: string; treasury_ua?: string; treasury_ua_commitment?: string; funding_ua: string };
 export type BuybackManifest = Omit<Manifest, "clearing"> & {
   clearing: Omit<Manifest["clearing"], "mode"> & { mode: "buyback" };
   buyback: Buyback;
@@ -29,9 +30,10 @@ export function validatePhase5(m: any): void {
   requireThat((m.clearing.mode === "buyback") === (m.buyback !== undefined), "buyback parameters/mode");
   if (m.buyback !== undefined) {
     requireThat(m.buyback && typeof m.buyback === "object" && !Array.isArray(m.buyback), "buyback parameters");
-    requireThat(Object.keys(m.buyback).sort().join(",") === "budget_zats,funding_ua,max_price_zats,treasury_ua", "buyback field set");
+    const fields = Object.keys(m.buyback).sort().join(",");
+    requireThat(fields === "budget_zats,funding_ua,max_price_zats,treasury_ua" || fields === "budget_zats,funding_ua,max_price_zats,treasury_ua_commitment", "buyback field set");
     const ua = (a: unknown) => uaShape(a, m.network);
-    requireThat(ua(m.buyback.treasury_ua) && ua(m.buyback.funding_ua), "buyback treasury_ua/funding_ua");
+    requireThat(ua(m.buyback.funding_ua) && (m.buyback.treasury_ua === undefined ? /^[0-9a-f]{64}$/.test(String(m.buyback.treasury_ua_commitment)) : ua(m.buyback.treasury_ua)), "buyback treasury return/funding_ua");
     requireThat(m.buyback.treasury_ua !== m.buyback.funding_ua && !(m.deposit_addresses ?? []).includes(m.buyback.funding_ua) && !(m.deposit_addresses ?? []).includes(m.buyback.treasury_ua), "buyback funding_ua must be a non-deposit vault address distinct from treasury_ua");
     // Bond-then-pay is buyer-side (a defaulter's bond goes to the seller); a buyback winner is a seller.
     requireThat(m.bond === undefined, "bond-then-pay is auction-side");
@@ -50,10 +52,10 @@ export function validatePhase5(m: any): void {
 // returns everything funded.
 // Part 2: the treasury leg of any mode that has one — a buyback, or an RFQ whose buyer funds the budget. Its signed
 // treasury_ua/funding_ua play the same role in both.
-export type TreasuryBlock = { budget_zats: string; treasury_ua: string; funding_ua: string; lots: number };
+export type TreasuryBlock = { budget_zats: string; treasury_ua?: string; treasury_ua_commitment?: string; funding_ua: string; lots: number };
 export function treasuryBlock(m: any): TreasuryBlock | null {
-  const b = m?.clearing?.mode === "buyback" ? m.buyback : m?.clearing?.mode === "rfq" && m.rfq?.treasury_ua ? m.rfq : null;
-  return b ? { budget_zats: b.budget_zats, treasury_ua: b.treasury_ua, funding_ua: b.funding_ua, lots: m.lots?.length ?? 1 } : null;
+  const b = m?.clearing?.mode === "buyback" ? m.buyback : m?.clearing?.mode === "rfq" && (m.rfq?.treasury_ua || m.rfq?.treasury_ua_commitment) ? m.rfq : null;
+  return b ? { budget_zats: b.budget_zats, ...(b.treasury_ua !== undefined ? { treasury_ua: b.treasury_ua } : { treasury_ua_commitment: b.treasury_ua_commitment }), funding_ua: b.funding_ua, lots: m.lots?.length ?? 1 } : null;
 }
 export const treasuryRequired = (m: any): bigint => { const t = treasuryBlock(m)!; return zats(t.budget_zats, "budget") * BigInt(t.lots); };
 export function treasuryFunded(m: any, notes: { address: string; height: number | null; value_zats: number | string }[], confirmedAt?: number): bigint {

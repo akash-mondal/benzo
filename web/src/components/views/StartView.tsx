@@ -169,7 +169,7 @@ function Form({ market, onChange }: { market: Market; onChange: () => void }) {
             <Panel>
               {proceeds
                 ? <Field label="Receive what you sell for at" help="A shielded address from your testnet wallet (utest1…)."><input value={f.payout_ua} onChange={set("payout_ua")} spellCheck={false} placeholder="utest1…" className={cx(fieldCls, "text-[13.5px]")} data-testid="start-payout_ua" /></Field>
-                : <Field label="Return unspent budget to" help="A shielded address from your testnet wallet (utest1…)."><input value={f.treasury_ua} onChange={set("treasury_ua")} spellCheck={false} placeholder="utest1…" className={cx(fieldCls, "text-[13.5px]")} data-testid="start-treasury_ua" /></Field>}
+                : <Field label="Return unspent budget to" help="A shielded address from your testnet wallet (utest1…). It is never published: the round's terms carry only a commitment to it."><input value={f.treasury_ua} onChange={set("treasury_ua")} spellCheck={false} placeholder="utest1…" className={cx(fieldCls, "text-[13.5px]")} data-testid="start-treasury_ua" /></Field>}
               {demoUa && <p className="mt-2 text-[13px] text-app-muted">No testnet wallet? <button type="button" className="text-app-text underline underline-offset-4" data-testid="start-use-demo" onClick={() => setF((x) => ({ ...x, [proceeds ? "payout_ua" : "treasury_ua"]: demoUa }))}>Use the demo wallet's address</button>. Anything sent there goes back to the site's demo wallet.</p>}
             </Panel>
           )}

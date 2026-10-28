@@ -40,13 +40,24 @@ const cache = new Map<string, Entry>();
 const MODE = (m: any) => { const mode = m.clearing?.mode ?? "uniform"; return mode === "uniform" && Array.isArray(m.lots) ? "drop" : mode; };
 const release = (R: number) => QUICKNET.genesis + (R - 1) * QUICKNET.period;
 
+// Rounds created before the treasury return address was committed carry it in their signed terms, so they are no
+// longer served (the address is inside the signed bytes; serving the record at all would keep publishing it).
+const withdrawn = new Map<string, boolean>();
+function publishesTreasuryAddress(id: string, dir: string): boolean {
+  if (!withdrawn.has(id)) {
+    let hit = false;
+    try { const doc = JSON.parse(readFileSync(path.join(dir, "auction.json"), "utf8")); const m = JSON.parse(Buffer.from(doc.manifest.bytes, "base64").toString("utf8")); hit = typeof m.buyback?.treasury_ua === "string" || typeof m.rfq?.treasury_ua === "string"; } catch { hit = false; }
+    withdrawn.set(id, hit);
+  }
+  return withdrawn.get(id)!;
+}
 function registry(): { id: string; dir: string }[] {
   const prod = path.join(STATE, "product");
   if (!existsSync(prod)) return [];
   const out: { id: string; dir: string }[] = [];
   for (const f of readdirSync(prod)) {
     if (!/^[0-9a-f]{64}\.json$/.test(f)) continue;
-    try { const cfg = JSON.parse(readFileSync(path.join(prod, f), "utf8")); if (cfg.public_dir && existsSync(path.join(cfg.public_dir, "auction.json"))) out.push({ id: f.slice(0, 64), dir: cfg.public_dir }); } catch { /* skip */ }
+    try { const cfg = JSON.parse(readFileSync(path.join(prod, f), "utf8")); if (cfg.public_dir && existsSync(path.join(cfg.public_dir, "auction.json")) && !publishesTreasuryAddress(f.slice(0, 64), cfg.public_dir)) out.push({ id: f.slice(0, 64), dir: cfg.public_dir }); } catch { /* skip */ }
   }
   return out;
 }

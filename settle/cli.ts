@@ -15,7 +15,7 @@ import {fetchVerifiedBeacon,publishedClient} from "../cli/published-beacon";
 import type {ChainClient} from "tlock-js";
 import {partyNote,reserveUnspent,walletSpendable,rowPublishes} from "./deposits";
 // The one candidate check on the non-custody path too (cli/host-derive.ts reserveCandidateVerdict).
-import {reserveCandidateVerdict} from "../cli/host-derive";
+import {reserveCandidateVerdict,treasuryTo} from "../cli/host-derive";
 import { vaultDir, pcztBin } from "../manifest/paths";
 const [command,id,arg1,arg2,arg3,arg4,arg5]=process.argv.slice(2);
 // Every vault use for this auction resolves to its own per-auction vault when it ran its own DKG.
@@ -85,8 +85,10 @@ async function destinations(rows:Row[],name:string,plan:{opened:any[]|null;claim
       if(recipient) {const ua=recipient.reveal();requireThat(plan.envelope_agreed?.[row.party]===hash(Buffer.from(ua,"utf8")),"this signer's opening differs from the agreed envelope destination");return {...row,recipient:ua}}
       return {...row,reason:`envelope destination refused: this signer's key does not open the envelope (party ${row.party}; refund waits in the exception queue)`};
     }
-    // Design §6.1: the buyback treasury return goes to the signed manifest's treasury_ua, never to routing.
-    if(row.party==="treasury") return {...row,recipient:treasuryBlock(client(auction().manifest,auction().signer).manifest)!.treasury_ua};
+    // The treasury return goes to the signed treasury_ua of an older round, or to the routing's treasury_ua when it
+    // matches the signed treasury_ua_commitment; anything else waits in the exception queue.
+    if(row.party==="treasury"){const to=treasuryTo(client(auction().manifest,auction().signer).manifest,{treasury_ua:route.treasury_ua});
+      return to?{...row,recipient:to}:{...row,reason:"treasury return address does not match the manifest treasury_ua_commitment"}}
     const address=row.party.startsWith("leaf:")?a.frozen.leaves[Number(row.party.slice(5))].deposit.address:
       partyNote(observed,row.party)?.address;
     // A product-mode stray or cancelled deposit resolves through its
@@ -167,7 +169,7 @@ function hostDerivable():{rows:Set<string>;refused:Map<string,string>}|null {
   const publicDir=path.resolve(cfg.public_dir),doc=JSON.parse(readFileSync(path.join(publicDir,"auction.json"),"utf8"));
   const packet=file("derivable");run("rm",["-rf",packet]);mkdirSync(packet,{recursive:true,mode:0o700});run("cp",["-R",publicDir,path.join(packet,"public")]);
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
-  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,reserve_return_ua:cfg.routing?.reserve_return_ua??null}),{mode:0o600});
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,treasury_ua:cfg.routing?.treasury_ua??null,reserve_return_ua:cfg.routing?.reserve_return_ua??null}),{mode:0o600});
   const remote=`derivable-${id.slice(0,16)}`;
   for(const n of [...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))]) {
     if(spawnSync("orb",["run","-m",`${process.env.BNZ_HOST_PREFIX??"benzo"}-${n}`,"-u","root","rm","-rf",`/home/benzo/${remote}`],{timeout:120_000,killSignal:"SIGKILL"}).status!==0)continue;
@@ -213,7 +215,7 @@ async function hostBuild(batchId:number,rows:{party:string;kind:string;amount_za
   // every host checks it against its own derivation (cli/host-derive.ts deriveReserveReturn) and the
   // candidate's input_zats against its own scanned unspent total.
   const rr=(rows as any[]).find((r:any)=>r.party==="reserve-return");
-  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,signer:doc.signer,seller_ua:cfg.routing?.seller_ua,expiry_blocks:settings().pczt_expiry_blocks,
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,signer:doc.signer,seller_ua:cfg.routing?.seller_ua,treasury_ua:cfg.routing?.treasury_ua??null,expiry_blocks:settings().pczt_expiry_blocks,
     reserve_return_ua:cfg.routing?.reserve_return_ua??null,...(rr?{reserve_row:{amount_zats:rr.amount_zats}}:{})}),{mode:0o600});
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
   const remote=`build-${id.slice(0,16)}-${batchId}`;
@@ -274,7 +276,7 @@ async function hostSignLocked(batchId:number,proven:string,signed:string,groupKe
   copyFileSync(proven,path.join(packet,"candidate.pczt"));
   for(const s of ["alice","bob","carol"])copyFileSync(file(`batch-${batchId}.sealed-${s}.bin`),path.join(packet,`sealed-${s}.bin`));
   if(existsSync(file("claims.json")))copyFileSync(file("claims.json"),path.join(packet,"claims.json"));
-  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,
+  writeFileSync(path.join(packet,"packet.json"),jsonBytes({auction_id:id,batch:batchId,plan_version:hash(readFileSync(proven)),signer:doc.signer,seller_ua:cfg.routing?.seller_ua??null,treasury_ua:cfg.routing?.treasury_ua??null,
     reserve_return_ua:cfg.routing?.reserve_return_ua??null,...(reserveRow?{reserve_row:reserveRow}:{}),...plannedMap(batchId)}),{mode:0o600}); // The seller output must pay this
   const server=process.env.BNZ_FROSTD_HOST??`host.orb.internal:${env("BNZ_FROSTD_ADDR").split(":").at(-1)}`;
   const prefer=[...settings().signers,...["alice","bob","carol"].filter(n=>!settings().signers.includes(n))];
