@@ -371,3 +371,29 @@ bid-side keys"). The fields are listed in §2. In summary:
 
 A UI should state the DESIGN §1 claim and its limits verbatim (all bids open, anonymised, at R) and
 must not display or export anything a route does not return.
+
+## 5. The site's API
+
+benzo.space serves the read routes above under `/api/auctions/:id/…` and adds the routes the site itself uses to start
+rounds and place bids. None of them takes a price, a refund address or a private key: a bid arrives already sealed in the
+browser, and the server only ever sees the sealed record and the deposit's transaction id.
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/api/auctions` | Every round, with its state, outcome and live counts. |
+| GET | `/api/auctions/:id` | One round: terms, frozen set, result, payments and every check with its outcome. |
+| GET | `/api/auctions/:id/doc`, `/packet`, `/public.tgz` | The canonical public record, the signed terms, and the whole public directory for `benzo verify`. |
+| GET | `/api/auctions/:id/receipt/:ciphertext_hash` | A frozen bid's inclusion proof. |
+| GET | `/api/auctions/:id/tamper[/:kind]` | The Try to cheat panel: one change to a copy of the record, then the same checks. |
+| POST | `/api/auctions/:id/slot` | Hold a deposit address for a bid (OTC and RFQ need the party's key). |
+| POST | `/api/auctions/:id/bids` | Hand in a sealed bid: `{address, txid, envelope_hex, envelope_ct_hex, owner_sig_hex, ciphertext_hash}`. |
+| GET | `/api/auctions/:id/bids/:ciphertext_hash` | Whether that deposit was found and counted. |
+| POST | `/api/auctions/:id/demo-pay` | The demo wallet pays a sealed bid's payment link `{uri}`; 8 payments per visitor per hour. |
+| GET | `/api/demo`, `/api/demo/jobs/:job` | The demo wallet's status, and one payment's progress. |
+| GET | `/api/auctions/:id/stray/:txid` | Where the signers' settlement put a deposit that was left out of its round. |
+| POST, GET | `/api/auctions/:id/claims` | Hand in an owner-signed refund claim for such a deposit; read its status. |
+| POST | `/api/rounds` | Start a round; returns its manage link. A visitor can start a few rounds an hour. |
+| GET | `/api/rounds/:rid` | A started round's status (its manage token adds the invite links). |
+| GET, POST | `/api/rounds/:rid/invite`, `/join` | Open an OTC or RFQ invite, and join it with the party's public key. |
+| GET | `/api/queue`, `/api/chain` | Rounds waiting to be set up; the chain tip and the latest drand round. |
+| GET | `/dl/benzo-verify.mjs` | The verifier bundle (its sha256 is `docs/verify-bundle.sha256`). |

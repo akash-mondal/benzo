@@ -16,7 +16,8 @@
     "check": "npm run -s typecheck && npm run -s check:bundle",
     "package": "node tools/package.mjs",
     "package:bidder": "node tools/package-bidder.mjs",
-    "bench": "esbuild tools/bench.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/bench.mjs --log-level=warning && node tmp/bench.mjs"
+    "bench": "esbuild tools/bench.ts --bundle --packages=external --platform=node --format=esm --outfile=tmp/bench.mjs --log-level=warning && node tmp/bench.mjs",
+    "test": "node --test tests/verify.test.mjs"
   },
   "dependencies": {
     "@noble/curves": "1.9.7",

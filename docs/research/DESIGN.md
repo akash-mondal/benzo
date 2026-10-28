@@ -1,7 +1,7 @@
 # Benzo — the auction house where the auctioneer is blindfolded
 
-Zecathon · Private Markets. Drawn from 826 judged auctions and a 68-threat model ([`threat-model.md`](threat-model.md)).
-Section 13 says who each idea is borrowed from.
+Zecathon · Private Markets. The threats it answers are in [`threat-model.md`](threat-model.md); section 13 says who each idea is
+borrowed from.
 
 ## 1. The claim (say exactly this, nothing stronger)
 
@@ -17,21 +17,16 @@ Assumptions, stated in the UI and the README:
 Post-close, bid prices become public, but anonymized (no addresses and no refund targets). "Nobody can ever see anything" is not
 claimed; the threat model shows that claim would be false.
 
-## 2. Why this wins (evidence)
+## 2. Why it matters
 
-- **Nobody has built it.** Only **2 of 826** auctions anywhere have all of: operator-blind, losing bids private, anti-griefing,
-  automatic refunds and verifiable clearing. Both are partial PoCs. On Zcash there are 9 auction entries and 0 winners.
-- **Winners differ on product, not crypto:** real UI 46% vs 21%, anti-griefing 26% vs 12%, verifiable clearing 26% vs 12%,
-  multi-unit 32% vs 21%.
-- **Almost nobody hides bidder identity (1%).** Shielded Zcash gives us that for free. It is our unfair advantage.
-- **Timelock sealing is rare (12 of 826).** Unlike commit-reveal, it needs **no reveal step**, so the "bidders who never reveal"
-  griefing problem disappears.
-- **The organizer's own flow leaks.** Zilkroad's registration POSTs `{address, quantity, maxBidZec}` in plaintext to their API
-  before funding, and deposits equal the bid. Benzo is the next version of their auction.
-- **Live demand:**
-  - LASTWICK has announced wanting sealed and fixed-price modes.
-  - The organizer's Sep 23 video is about royalty-funded buybacks, which is our mode B.
-  - ZecBit reports 3,000+ support cases from paid-but-missing items; our idempotent settlement ledger addresses that.
+- **An open-bid auction tells everyone the price you'd pay,** and on a transparent chain anyone can read the bids and
+  trade ahead of them before the auction closes.
+- **A blind auction run by an operator hides bids from the public, not from the operator.** Zilkroad's zkSNARKs mint
+  sold 8,000 pieces at one 1.5 ZEC clearing price ([results](https://x.com/zksnarks_/status/2100620785651941799)); bidders
+  had to take the operator's count of every bid on trust.
+- **A timelock needs no reveal step.** Commit-reveal auctions stall when a bidder never reveals; a bid sealed to a drand
+  round opens by itself.
+- **Shielded Zcash hides who paid,** so prices can be published after the opening without naming the bidders.
 
 ## 3. Lifecycle
 
@@ -60,8 +55,8 @@ ever admitted after T_freeze, and the same auction is never reopened after the p
    There is no address in it.
 3. The client tlock-encrypts that plaintext to round R (age/tlock, in the browser). This is the only place plaintext exists, and
    there are no network calls with bid data.
-4. Memo = `0xFF "BNZ" v len ciphertext`. That is **494 of 512 bytes**, which fits. Fallback: replicated off-chain ciphertext plus
-   a SHA-256 digest in a text memo, if the wallet mangles binary memos (week-1 gate).
+4. Memo = `0xFF "BNZ" 0x02 len ciphertext envelope_tag` (framing v2): the ciphertext and a tag binding the bid's
+   settlement envelope, inside the 512-byte memo.
 5. The refund destination is a **fresh diversified address from the bidder's own wallet**. It goes into a separate *settlement
    envelope* encrypted to the escrow signers and is never in the public tlock opening.
 6. Pay **exactly C** in shielded ZEC to a per-bid diversified escrow address, via a ZIP-321 URI/QR (ZODL, Zingo, Zkool) or the

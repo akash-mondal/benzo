@@ -14,7 +14,7 @@ Take a DAO buying back its own token. If its bid is visible, sellers raise their
 
 - **nobody can read a bid before a fixed moment**: not the other bidders, not anyone watching the chain, not us, the operator;
 - **the operator can't change the set of bids** once that moment approaches;
-- **nobody can pay out a wrong result**, because two of three independent signers recompute it before signing, and anyone can recheck it afterwards.
+- **nobody can pay out a wrong result**, because two of three signers recompute it before signing, and anyone can recheck it afterwards.
 
 After the opening, the prices are public and checkable; who bid stays private. Each of these rests on a stated assumption: drand's threshold of operators doesn't collude, and two of the three signers don't collude. This post walks through how it works, one layer at a time.
 
@@ -73,11 +73,11 @@ The envelope is published, and only the three signers can open it: they need you
 
 Sealing stops early reading, but an operator could still cheat on **which** bids count: drop one, or slip one in after peeking at others. Benzo closes that door before `R`.
 
-<p align="center"><img src="docs/assets/freeze.svg" alt="Freeze: the admitted bids become the leaves of a Merkle tree; its root, leaf count, T_freeze and a recent block hash are signed by 2 of 3 witnesses before round R." width="100%"></p>
+<p align="center"><img src="docs/assets/freeze.svg" alt="Freeze: the admitted bids become the leaves of a Merkle tree; its root, leaf count, T_freeze and the drand chain that opens the bids are signed by the witnesses before round R." width="100%"></p>
 
-A bid is admitted once its deposit has 10 confirmations and its memo checks out. At `T_freeze`, comfortably before `R`, the admitted bids become the leaves of a Merkle tree ([`clear/merkle.ts`](clear/merkle.ts)). Each leaf hashes the ciphertext and the deposit that paid for it. Two of three witnesses sign a statement naming the root, the leaf count, the freeze time and a recent block hash ([`witness/index.ts`](witness/index.ts)).
+A bid is admitted once its deposit has 10 confirmations and its memo checks out. At `T_freeze`, comfortably before `R`, the admitted bids become the leaves of a Merkle tree ([`clear/merkle.ts`](clear/merkle.ts)). Each leaf hashes the ciphertext and the deposit that paid for it. The three witnesses sign a statement naming the root, the leaf count, the freeze time and the drand chain that opens the bids ([`witness/index.ts`](witness/index.ts)).
 
-From that point the set is fixed, and it was fixed while every bid was still unreadable. A second statement for a different root is refused.
+From that point the set is fixed, and it was fixed while every bid was still unreadable. A witness refuses to sign a second root for the same round, and every witness has to sign, so one dishonest witness can't certify a second set.
 
 What the root can't prove on its own is that every valid bid made it in: an operator could refuse a funded bid before freezing. It can't do so quietly or profitably. Right after the freeze, still before `R`, each bidder can prove their bid is in the root (`benzo receipt prove`), and the site shows it as counted. A deposit that was paid in time but left out is owed back in full: its owner key claims it from the vault, and the verifier requires every deposit the operator listed to be either in the set or refunded. The operator also can't pick whom to drop by price, because when it freezes it can't read any price.
 
@@ -184,7 +184,7 @@ Open any round on [benzo.space](https://benzo.space), pick a price and press **U
 ## What's running
 
 - **[benzo.space](https://benzo.space)**, on Zcash testnet:
-  - **The whole product:** start a round in any market, invite bidders, seal, pay, watch the opening, settle and check.
+  - **The whole product:** start a uniform-price, drop, buyback, OTC or RFQ round, invite bidders, seal, pay, watch the opening, settle and check.
   - **The test fleet:** during judging, eight test bidders ([`deploy/fleet/lite-bot.ts`](deploy/fleet/lite-bot.ts)) run alongside it. They start rounds and bid through the site's public API with the bid page's own sealing code, so you can see Benzo under load. Each has its own wallet, and every bid is a real sealed deposit.
 - **Every market, driven through the live site** by a browser test that starts a round, seals and pays bids, waits for settlement and runs the round's checks ([logs](docs/evidence/live-markets/)):
   - Uniform, drop, OTC and RFQ: settled, every check passes, and the browser test passes.
@@ -200,12 +200,13 @@ The rest of the evidence, and what each folder proves, is indexed in [`docs/evid
 ## Run it yourself
 
 ```sh
-git clone https://github.com/akash-mondal/benzo-zcash && cd benzo-zcash
-npm ci && npm run build:core && npm run build:cli     # the engine and the benzo command
-cd web && npm ci && npm run dev                        # the site, on localhost:4321
+git clone https://github.com/akash-mondal/benzo && cd benzo
+npm ci
+npm test                                    # the verifier against the recorded rounds, and the tampering it must catch
+cd web && npm ci && npm run dev             # the site on localhost:4321, using the public testnet service
 ```
 
-Deployment: the operator in [`deploy/render/`](deploy/render/), each signer from [`deploy/signers/`](deploy/signers/). Guides for each role: [bidder](docs/guide-bidder.md), [operator](docs/guide-operator.md), [signer](docs/guide-signer.md). Every API route: [`docs/api-reference.md`](docs/api-reference.md).
+`npm run build:core && npm run build:cli` builds the engine and the `benzo` command. Running your own operator and signers (pinned tools, keys, funding) is in the guides for each role: [bidder](docs/guide-bidder.md), [operator](docs/guide-operator.md), [signer](docs/guide-signer.md). The API: [`docs/api-reference.md`](docs/api-reference.md).
 
 ```
 seal/        the browser sealer: tlock to a drand round, the 512-byte memo
@@ -218,7 +219,6 @@ scan/        finds deposits on chain (Rust)
 crosschain/  EVM and Solana payouts
 cli/         the benzo command, including benzo verify
 web/         benzo.space: the site and its gateway
-deploy/      the operator image, the signer setup and the test fleet
 docs/        guides, design, threat model, evidence
 ```
 

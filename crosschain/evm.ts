@@ -56,6 +56,13 @@ export async function evmLock(args: {
   amount: bigint; lot: bigint; lockUntil: number; deadline: number; signers: string[]; returnTo: string;
 }): Promise<string> {
   const c = escrowContract(args.rpc, args.keyHex, args.escrow);
+  // The escrow accounts in fungible amounts and pays out with ERC-20 transfer, so an ERC-721 would lock and then never
+  // move again. Refuse any asset that reports the ERC-721 interface (ERC-165) before anything is sent.
+  if (args.asset !== "0x0000000000000000000000000000000000000000") {
+    const probe = new Contract(args.asset, ["function supportsInterface(bytes4) view returns (bool)"], evmProvider(args.rpc));
+    const nft = await probe.supportsInterface("0x80ac58cd").catch(() => false);
+    if (nft) throw new Error("the escrow takes native ETH or a plain ERC-20; this asset is an ERC-721");
+  }
   const tx = await c.lock(
     args.auctionId, args.asset, args.amount, args.lot,
     args.lockUntil, args.deadline, args.signers.map(getAddress), getAddress(args.returnTo),

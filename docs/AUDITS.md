@@ -5,7 +5,7 @@ every hand-written security-relevant file with the reason no audited option fits
 
 ## Assets the escrow contracts accept
 
-`BenzoEscrow.sol` and the Solana escrow accept plain ERC-20/ERC-721 and native ETH/SOL only: no fee-on-transfer
+`BenzoEscrow.sol` accepts native ETH and plain ERC-20 tokens, and the Solana escrow native SOL: no fee-on-transfer
 tokens, no rebasing tokens, no tokens with transfer hooks. Two mechanisms enforce it:
 
 1. `lock()` measures the escrow's `balanceOf` before and after `safeTransferFrom` and reverts unless the difference
