@@ -179,7 +179,7 @@ This is what each party is able to read, not what a screen chooses to show. Each
 
 ## Try it without a wallet
 
-Open any round on [benzo.space](https://benzo.space), pick a price and press **Use the demo wallet**. Your browser still seals the bid. The site's demo wallet pays the deposit from the payment link alone, so it never learns your price; it does know which deposit it paid for. Refunds go back to the demo wallet. With your own testnet wallet, pay from it instead: the page shows a QR code and a payment link.
+Open any round on [benzo.space](https://benzo.space), pick a price and press **Use the demo wallet**. Your browser still seals the bid. The site's demo wallet pays the deposit from the payment link alone, so it never learns your price. Refunds go back to the demo wallet. With your own testnet wallet, pay from it instead: the page shows a QR code and a payment link.
 
 ## What's running
 
@@ -193,7 +193,7 @@ Open any round on [benzo.space](https://benzo.space), pick a price and press **U
 - **Cross-chain payouts:**
   - Ethereum Sepolia: a payout to a one-time ERC-5564 stealth address ([log](docs/evidence/phase-5/repro/stealth-live.out)).
   - Solana devnet: a Token-2022 confidential transfer ([log](docs/evidence/phase-5/repro/ct-live.out)).
-- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/phase-6/bench.json)). The deposits there are synthetic, not 17,000 on-chain payments; paying that round out would take about 608 transactions. A live round takes about an hour from start to settlement, so Benzo is built for scheduled auctions, not continuous trading.
+- **Scale, offline:** 17,000 sealed bids admitted, frozen, opened against real drand, cleared, planned for payment and verified ([`bench.json`](docs/evidence/phase-6/bench.json)). The deposits there are synthetic, not 17,000 on-chain payments; paying that round out would take about 608 transactions.
 
 The rest of the evidence, and what each folder proves, is indexed in [`docs/evidence/phase-7/README.md`](docs/evidence/phase-7/README.md).
 
@@ -205,7 +205,7 @@ npm ci && npm run build:core && npm run build:cli     # the engine and the benzo
 cd web && npm ci && npm run dev                        # the site, on localhost:4321
 ```
 
-A full deployment (operator, three signers, frostd) is one Docker image: [`deploy/render/`](deploy/render/). Guides for each role: [bidder](docs/guide-bidder.md), [operator](docs/guide-operator.md), [signer](docs/guide-signer.md). Every API route: [`docs/api-reference.md`](docs/api-reference.md).
+Deployment: the operator in [`deploy/render/`](deploy/render/), each signer from [`deploy/signers/`](deploy/signers/). Guides for each role: [bidder](docs/guide-bidder.md), [operator](docs/guide-operator.md), [signer](docs/guide-signer.md). Every API route: [`docs/api-reference.md`](docs/api-reference.md).
 
 ```
 seal/        the browser sealer: tlock to a drand round, the 512-byte memo
@@ -218,7 +218,7 @@ scan/        finds deposits on chain (Rust)
 crosschain/  EVM and Solana payouts
 cli/         the benzo command, including benzo verify
 web/         benzo.space: the site and its gateway
-deploy/      the Docker image, the the host deploy and the test fleet
+deploy/      the operator image, the signer setup and the test fleet
 docs/        guides, design, threat model, evidence
 ```
 
